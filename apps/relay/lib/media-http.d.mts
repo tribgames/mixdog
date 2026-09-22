@@ -1,7 +1,5 @@
 // Types for the shared media-transport helpers (consumed by the desktop LAN
 // bridge and the Electron media protocol; the relay runs the .mjs directly).
-import type { IncomingMessage, ServerResponse } from 'node:http';
-
 export declare function parseMediaRequest(
   pathname: string,
   searchParams: URLSearchParams
@@ -25,8 +23,3 @@ export declare function mediaResponsePlan(input: {
   start: number;
   end: number;
 };
-export declare function sendMediaFile(
-  request: IncomingMessage,
-  response: ServerResponse,
-  file: { path: string; mime: string; assetId: string; variant: string }
-): void;

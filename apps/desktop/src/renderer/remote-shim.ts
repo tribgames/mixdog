@@ -11,17 +11,11 @@ import type {
   DesktopLspStatusEvent,
   DesktopSessionSummary,
   DesktopSessionStateUpdate,
-  DesktopUpdaterState,
   SessionSnapshot,
 } from '../shared/contract';
 import {
   createRelayE2EEClientHandshake,
-  exportRelayClaimKeyPair,
-  generateRelayClaimKeyPair,
-  importRelayClaimKeyPair,
   isRelayE2EEChallenge,
-  openSealedRelayE2EEPairingMaterial,
-  type RelayClaimKeyPair,
   type RelayE2EEChannel,
   type RelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
@@ -50,17 +44,20 @@ import {
   canReuseStoredRemoteClientRegistration,
   clearStoredRemotePairing,
   isInvalidRemotePairingClose,
-  normalizeRemoteExternalUrl,
   normalizeRemoteRelayOrigin,
   readRemoteDeviceId,
 } from './remote-pairing-recovery';
-import { createSnapshotDeltaDecoder, markCompactWire } from '../main/state-delta';
+import { createSnapshotDeltaDecoder } from '../main/state-delta';
 import { armRemoteCallDeadline } from './remote-call-deadline';
+import { browserProfile, newBrowserId } from './remote-browser-identity';
+import { REMOTE_BROWSER_FALLBACKS } from './remote-browser-fallbacks';
+import { createCompactTranscriptExpander, markCompactPayload } from './remote-compact-frames';
+import { createRemotePairingScreen } from './remote-pairing-screen';
 import { createRemoteSessionInbox } from './remote-session-inbox';
 import { createRemoteViewSync } from './remote-view-sync';
 import { createRemoteViewBaselineCache, VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 import { recoverableCreation } from './recoverable-creation';
-import { isInstalledMobileWebAppSurface, isMobileRemoteSurface } from './mobile-surface';
+import { isInstalledMobileWebAppSurface } from './mobile-surface';
 import {
   REMOTE_WAKE_EVENT,
   clearRemoteConnectionState,
@@ -72,15 +69,10 @@ import {
   type RemoteConnectionIssue,
 } from './remote-connection-state';
 
-const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
-// Recoverable trash is an Electron API the daemon behind the relay cannot
-// reach. Reporting that keeps a remote action honest instead of doing nothing.
-const DESKTOP_ONLY_TRASH = 'Moving items to the trash is available in the desktop app only.';
 const TOKEN_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.token;
 const SERVER_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.server;
 const BROWSER_ID_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.browserId;
 const DEVICE_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.device;
-const CLAIM_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.claim;
 const REMOTE_CREDENTIAL_READY_EVENT = 'mixdog:remote-credential-ready';
 const REMOTE_CONNECTION_READY_EVENT = 'mixdog:remote-connection-ready';
 const REMOTE_PAIRING_INVALID_EVENT = 'mixdog:remote-pairing-invalid';
@@ -131,15 +123,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   }
   let e2eePairing: RelayE2EEPairingMaterial | null =
     e2eePublicKey && e2eeSecret ? { version: 1, serverPublicKey: e2eePublicKey, pairingSecret: e2eeSecret } : null;
-  const newBrowserId = (): string => {
-    try {
-      return crypto.randomUUID();
-    } catch {
-      const bytes = new Uint8Array(16);
-      crypto.getRandomValues(bytes);
-      return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
-    }
-  };
   let browserId = '';
   try {
     browserId = localStorage.getItem(BROWSER_ID_STORAGE_KEY) || newBrowserId();
@@ -377,54 +360,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     return `${scheme}://${location.host}/ws?token=${auth}`;
   };
 
-  const browserProfile = async (): Promise<{ name: string; platform: string; browser: string }> => {
-    const userAgent = navigator.userAgent || '';
-    let platform = (
-      (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ||
-      navigator.platform ||
-      'Unknown device'
-    ).slice(0, 80);
-    // Ordered: Edge and iOS Chrome also carry the Chrome and Safari tokens.
-    const browserFamilies: Array<[RegExp, string]> = [
-      [/Edg\//u, 'Edge'],
-      [/Firefox\//u, 'Firefox'],
-      [/CriOS\//u, 'Chrome'],
-      [/Chrome\//u, 'Chrome'],
-      [/Safari\//u, 'Safari'],
-    ];
-    const browser = browserFamilies.find(([pattern]) => pattern.test(userAgent))?.[1] ?? 'Browser';
-    // Device identity (user: 무슨 기기인지도 나와야): Android Chromium exposes
-    // the hardware model via UA-Client Hints (e.g. "Pixel 8", "SM-S928N");
-    // Apple never does, so iPhone/iPad fall back to the UA family.
-    let model = '';
-    try {
-      const uaData = (
-        navigator as Navigator & {
-          userAgentData?: {
-            getHighEntropyValues?(hints: string[]): Promise<Record<string, unknown>>;
-          };
-        }
-      ).userAgentData;
-      if (uaData?.getHighEntropyValues) {
-        const high = await uaData.getHighEntropyValues(['model', 'platform']);
-        if (typeof high.model === 'string' && high.model.trim()) {
-          model = high.model.trim().slice(0, 40);
-        }
-        if (typeof high.platform === 'string' && high.platform) {
-          platform = String(high.platform).slice(0, 80);
-        }
-      }
-    } catch {
-      /* UA-CH unavailable; the platform label stands */
-    }
-    if (!model) {
-      if (/iPhone/u.test(userAgent)) model = 'iPhone';
-      else if (/iPad|Macintosh.+Mobile/u.test(userAgent)) model = 'iPad';
-    }
-    // "Pixel 8 · Chrome" when the device is known; "Android · Chrome" otherwise.
-    return { name: `${model || platform} · ${browser}`, platform, browser };
-  };
-
   const ensureClientRegistration = (): Promise<void> => {
     if (clientRegistered) return Promise.resolve();
     // Single flight: the app fires several RPCs at startup and every one dials
@@ -478,17 +413,16 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     return registrationInFlight;
   };
 
-  // Pairing recovery is scanner-first: the browser camera reads the secure URL
-  // from Settings → Connection. Manual entry hides behind a toggle so the
-  // default screen is just the viewfinder. Vanilla DOM keeps recovery working
-  // before React mounts and even when the socket cannot open.
-  // Chromium's install offer fires once and early — possibly before the entry
-  // screen exists — so it is captured here and replayed when that screen mounts.
-  let installPrompt: (Event & { prompt(): Promise<void> }) | null = null;
-  window.addEventListener('beforeinstallprompt', (event) => {
-    event.preventDefault();
-    installPrompt = event as Event & { prompt(): Promise<void> };
-    document.querySelector('#mixdog-remote-pairing [data-role="install"]')?.removeAttribute('hidden');
+  // The pre-credential surface (remote-pairing-screen.ts) owns the entry screen
+  // and the approval loop; the shim keeps what is connection state. Created
+  // here so the install offer, which fires once and early, is still captured
+  // before anything else can run.
+  const showPairingScreen = createRemotePairingScreen({
+    deviceId,
+    serverBase: () => serverBase || location.origin,
+    clientId: () => browserId,
+    acceptApproval: (credential, material) => adoptApproval(credential, material),
+    verifyConnection: () => verifyApprovedConnection(),
   });
 
   /** What an approval hands back: a credential minted for THIS container, plus
@@ -504,47 +438,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       return true;
     } catch {
       return false;
-    }
-  };
-
-  // The request already waiting on the desktop, kept across reloads: a phone OS
-  // discards a backgrounded web app freely, and a forgotten request would mean
-  // asking again — one more prompt on the desktop for the same connection.
-  const savePendingClaim = async (claimId: string, keyPair: RelayClaimKeyPair): Promise<void> => {
-    try {
-      localStorage.setItem(
-        CLAIM_STORAGE_KEY,
-        JSON.stringify({
-          claimId,
-          keyPair: await exportRelayClaimKeyPair(keyPair),
-        })
-      );
-    } catch {
-      /* the approval still completes while this page lives */
-    }
-  };
-
-  const loadPendingClaim = async (): Promise<{
-    claimId: string;
-    keyPair: RelayClaimKeyPair;
-  } | null> => {
-    try {
-      const raw = localStorage.getItem(CLAIM_STORAGE_KEY) || '';
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as { claimId?: unknown; keyPair?: unknown };
-      const keyPair = await importRelayClaimKeyPair(parsed.keyPair);
-      if (!keyPair || typeof parsed.claimId !== 'string' || !parsed.claimId) return null;
-      return { claimId: parsed.claimId, keyPair };
-    } catch {
-      return null;
-    }
-  };
-
-  const clearPendingClaim = (): void => {
-    try {
-      localStorage.removeItem(CLAIM_STORAGE_KEY);
-    } catch {
-      /* private storage */
     }
   };
 
@@ -572,276 +465,33 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     });
   };
 
-  // Approval instead of a scan. This container holds no credential and cannot
-  // inherit one, so it asks the desktop its own entry route names, and the
-  // answer comes back sealed to a key generated right here — the relay routes
-  // the request and can open none of it.
-  const requestApproval = async (
-    layer: HTMLElement,
-    onStatus: (text: string, failed?: boolean) => void
-  ): Promise<void> => {
-    if (!deviceId) {
-      onStatus(earlyUiT('Open the link from your desktop QR code once to install this app.'), true);
-      return;
-    }
-    const base = serverBase || location.origin;
-    // Resuming beats asking: the desktop may already be showing the prompt for
-    // the request this app opened before it was discarded.
-    const resumed = await loadPendingClaim();
-    const keyPair = resumed?.keyPair ?? (await generateRelayClaimKeyPair());
-    let claimId = resumed?.claimId ?? '';
-    const profile = await browserProfile();
-    const wait = (ms: number): Promise<void> =>
-      new Promise((done) => {
-        window.setTimeout(done, ms);
-      });
-    const open = async (): Promise<string> => {
-      const response = await fetch(new URL('/claim', base).toString(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deviceId,
-          clientId: browserId,
-          publicKey: keyPair.publicKey,
-          ...profile,
-        }),
-      });
-      // 503 is the desktop being asleep or offline, which resolves itself.
-      if (response.status === 503) return '';
-      if (!response.ok) throw new Error(`claim refused (${response.status})`);
-      const body = (await response.json()) as { claimId?: unknown };
-      return typeof body.claimId === 'string' ? body.claimId : '';
-    };
-    for (;;) {
-      if (!claimId) {
-        try {
-          claimId = await open();
-        } catch {
-          onStatus(earlyUiT('This desktop no longer recognises this app. Scan its QR code again.'), true);
-          return;
-        }
-        if (!claimId) {
-          onStatus(earlyUiT('Waiting for your desktop to come online…'));
-          await wait(5_000);
-          continue;
-        }
-        await savePendingClaim(claimId, keyPair);
-      }
-      onStatus(earlyUiT('Waiting for approval on your desktop…'));
-      const deadline = Date.now() + 300_000;
-      let outcome = 'expired';
-      while (Date.now() < deadline) {
-        await wait(2_000);
-        let payload: { status?: unknown; token?: unknown; sealed?: unknown };
-        try {
-          const response = await fetch(new URL(`/claim/${encodeURIComponent(claimId)}`, base).toString(), {
-            headers: { Accept: 'application/json' },
-          });
-          if (!response.ok) continue;
-          payload = (await response.json()) as typeof payload;
-        } catch {
-          continue;
-        }
-        const status = String(payload?.status || 'pending');
-        if (status === 'pending') continue;
-        if (status !== 'approved') {
-          outcome = status;
-          break;
-        }
-        const material = await openSealedRelayE2EEPairingMaterial(payload.sealed, keyPair);
-        const credential = String(payload.token || '');
-        // A box that does not open is a refused approval, never a half pairing.
-        if (!material || !/^[0-9a-f]{32,128}$/u.test(credential) || !persistApproval(credential, material)) {
-          clearPendingClaim();
-          onStatus(earlyUiT('That approval could not be verified.'), true);
-          return;
-        }
-        token = credential;
-        e2eePairing = material;
-        // Claim approval already minted this browser's credential server-side.
-        clientRegistered = true;
-        window.dispatchEvent(new Event(REMOTE_CREDENTIAL_READY_EVENT));
-        approvalVerificationInFlight = true;
-        onStatus(earlyUiT('Approval received. Verifying the secure connection…'));
-        const verified = waitForApprovedConnection();
-        void connect().catch(() => {
-          // Transient failures stay on the reconnect loop. Permanent pairing
-          // failures raise REMOTE_PAIRING_INVALID_EVENT and end this attempt.
-        });
-        try {
-          await verified;
-        } catch (error) {
-          onStatus(error instanceof Error ? error.message : String(error), true);
-          return;
-        } finally {
-          approvalVerificationInFlight = false;
-        }
-        clearPendingClaim();
-        layer.classList.add('mrp-ok');
-        const waitTitle = layer.querySelector<HTMLElement>('[data-role="wait-title"]');
-        if (waitTitle) waitTitle.textContent = earlyUiT('Success');
-        onStatus(earlyUiT('Securely connected. Opening Mixdog…'));
-        try {
-          navigator.vibrate?.([30, 60, 30]);
-        } catch {
-          /* no haptics */
-        }
-        window.setTimeout(() => layer.remove(), 900);
-        return;
-      }
-      clearPendingClaim();
-      onStatus(
-        outcome === 'denied' ? earlyUiT('The request was declined on your desktop.') : earlyUiT('The request expired.'),
-        true
-      );
-      return;
-    }
+  /** An approval this container may keep: stored first, because a credential
+   *  that cannot be stored is a refused approval rather than a half pairing. */
+  const adoptApproval = (credential: string, material: RelayE2EEPairingMaterial): boolean => {
+    if (!persistApproval(credential, material)) return false;
+    token = credential;
+    e2eePairing = material;
+    // Claim approval already minted this browser's credential server-side.
+    clientRegistered = true;
+    window.dispatchEvent(new Event(REMOTE_CREDENTIAL_READY_EVENT));
+    return true;
   };
 
-  // Entry screen, vanilla DOM so it works before React mounts and with no
-  // socket at all. Two states, decided by what this container IS: a browser
-  // gets the install guide (the installed app is what pairs, never the
-  // browser), and an installed app asks this desktop for approval.
-  const showPairingScreen = (message: string, autoAsk = true): void => {
-    if (document.getElementById('mixdog-remote-pairing')) return;
-    const mobile = isMobileRemoteSurface();
-    const standalone = isInstalledMobileWebAppSurface();
-    const ios =
-      /iPad|iPhone|iPod/iu.test(navigator.userAgent) ||
-      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const mount = () => {
-      const layer = document.createElement('div');
-      layer.id = 'mixdog-remote-pairing';
-      const threeSteps =
-        '<ol><li><i>1</i><span data-role="step-one"></span></li>' +
-        '<li><i>2</i><span data-role="step-two"></span></li>' +
-        '<li><i>3</i><span data-role="step-three"></span></li></ol>';
-      const twoSteps =
-        '<ol><li><i>1</i><span data-role="step-one"></span></li>' +
-        '<li><i>2</i><span data-role="step-two"></span></li></ol>';
-      let cardBody: string;
-      if (standalone) {
-        cardBody =
-          '<div class="mrp-wait"><i aria-hidden="true"></i>' +
-          '<b data-role="wait-title"></b></div>' +
-          '<p class="mrp-status" data-role="status"></p>' +
-          '<button type="button" data-role="ask" hidden></button>';
-      } else if (!mobile) {
-        cardBody = threeSteps;
-      } else {
-        cardBody = `${ios ? threeSteps : twoSteps}<button type="button" data-role="install" hidden></button>`;
-      }
-      layer.innerHTML =
-        '<style>' +
-        '#mixdog-remote-pairing{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;' +
-        'padding:24px;background:#0e0e0e;color:#e9e9e9;font:400 15px/22px system-ui,sans-serif;}' +
-        '#mixdog-remote-pairing *{box-sizing:border-box;margin:0;}' +
-        '#mixdog-remote-pairing [hidden]{display:none!important;}' +
-        '@keyframes mrp-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}' +
-        '#mixdog-remote-pairing .mrp-card{display:grid;gap:14px;justify-items:center;width:100%;' +
-        'max-width:344px;padding:28px 22px calc(28px + env(safe-area-inset-bottom));' +
-        'border-radius:22px;background:#17171a;text-align:center;' +
-        'animation:mrp-rise 280ms ease-out both;}' +
-        '#mixdog-remote-pairing img{width:54px;height:54px;}' +
-        '#mixdog-remote-pairing b{font-size:18px;line-height:24px;}' +
-        '#mixdog-remote-pairing p{color:#a8a8a8;font-size:13.5px;line-height:19px;}' +
-        '#mixdog-remote-pairing ol{display:grid;gap:7px;width:100%;padding:0;list-style:none;' +
-        'text-align:left;}' +
-        '#mixdog-remote-pairing li{display:flex;align-items:center;gap:10px;padding:10px 12px;' +
-        'border-radius:12px;background:rgba(255,255,255,.07);font-size:13px;line-height:18px;}' +
-        '#mixdog-remote-pairing li i{flex:none;display:grid;place-items:center;width:20px;height:20px;' +
-        'border-radius:50%;background:rgba(255,255,255,.14);font-size:11.5px;font-style:normal;' +
-        'font-weight:700;}' +
-        '@keyframes mrp-spin{to{transform:rotate(360deg)}}' +
-        '#mixdog-remote-pairing .mrp-wait{display:grid;gap:12px;justify-items:center;width:100%;' +
-        'padding:20px 12px;border-radius:16px;background:rgba(255,255,255,.07);}' +
-        '#mixdog-remote-pairing .mrp-wait i{width:26px;height:26px;border-radius:50%;' +
-        'border:2.5px solid rgba(255,255,255,.18);border-top-color:#e9e9e9;' +
-        'animation:mrp-spin 900ms linear infinite;}' +
-        '#mixdog-remote-pairing.mrp-ok .mrp-wait i{border-color:#4ac885;animation:none;}' +
-        '#mixdog-remote-pairing .mrp-wait b{font-size:15px;line-height:20px;}' +
-        '#mixdog-remote-pairing .mrp-status{min-height:19px;color:#a8a8a8;font-size:13px;line-height:19px;}' +
-        '#mixdog-remote-pairing .mrp-status.mrp-bad{color:#e5484d;}' +
-        '#mixdog-remote-pairing button{width:100%;padding:13px;border:0;border-radius:12px;' +
-        'background:#e9e9e9;color:#111114;font:600 15px/20px system-ui,sans-serif;cursor:pointer;}' +
-        '</style>' +
-        '<main class="mrp-card">' +
-        '<img src="/mixdog.svg" alt="" draggable="false"/>' +
-        '<b data-role="heading"></b>' +
-        '<p data-role="note"></p>' +
-        cardBody +
-        '</main>';
-      // Catalog text enters only textContent, never HTML.
-      let heading = earlyUiT('Install Mixdog on your phone');
-      if (standalone) heading = earlyUiT('Approve this device');
-      else if (mobile) heading = earlyUiT('Install Mixdog');
-      let stepOne = earlyUiT('Open this page on your phone or tablet');
-      let stepTwo = earlyUiT('Install Mixdog from the mobile browser');
-      if (mobile) {
-        stepOne = ios ? earlyUiT('Tap the Share button') : earlyUiT('Install Mixdog from your browser menu');
-        stepTwo = ios ? earlyUiT('Choose Add to Home Screen') : earlyUiT('Open it and approve it on your desktop');
-      }
-      const labels: Record<string, string> = {
-        heading,
-        'wait-title': earlyUiT('Waiting for approval'),
-        ask: earlyUiT('Ask again'),
-        install: earlyUiT('Install'),
-        'step-one': stepOne,
-        'step-two': stepTwo,
-        'step-three': !mobile
-          ? earlyUiT('Open the installed app and approve it on your desktop')
-          : earlyUiT('Open Mixdog and approve it on your desktop'),
-      };
-      for (const [role, label] of Object.entries(labels)) {
-        const target = layer.querySelector<HTMLElement>(`[data-role="${role}"]`);
-        if (target) target.textContent = label;
-      }
-      const note = layer.querySelector<HTMLElement>('[data-role="note"]');
-      if (note) {
-        if (standalone) {
-          note.textContent = message || earlyUiT('Mixdog needs a one-time approval from the desktop it belongs to.');
-        } else if (mobile) {
-          note.textContent = earlyUiT(
-            'Mixdog runs as an installed mobile app. Install it, then approve it once on your desktop.'
-          );
-        } else {
-          note.textContent = earlyUiT('The Mixdog web app works only when installed on a mobile device.');
-        }
-      }
-      const install = layer.querySelector<HTMLButtonElement>('[data-role="install"]');
-      if (install && installPrompt) install.removeAttribute('hidden');
-      install?.addEventListener('click', () => {
-        void installPrompt?.prompt().catch(() => {
-          /* the browser menu still works */
-        });
-      });
-      document.body.appendChild(layer);
-      if (!standalone) return;
-      const status = layer.querySelector<HTMLElement>('[data-role="status"]');
-      const ask = layer.querySelector<HTMLButtonElement>('[data-role="ask"]');
-      const setStatus = (text: string, failed?: boolean): void => {
-        if (status) {
-          status.textContent = text;
-          status.classList.toggle('mrp-bad', failed === true);
-        }
-        // A failure waits for a deliberate retry. Asking again on its own is
-        // exactly what turns one connection into prompt after prompt on the
-        // desktop (user: 인증받고 그 화면인데도 계속 또 나오고).
-        if (failed) ask?.removeAttribute('hidden');
-      };
-      const start = (): void => {
-        ask?.setAttribute('hidden', '');
-        setStatus('', false);
-        void requestApproval(layer, setStatus).catch(() => {
-          setStatus(earlyUiT('Could not reach the relay. Check this device’s connection.'), true);
-        });
-      };
-      ask?.addEventListener('click', start);
-      if (autoAsk) start();
-      else setStatus(message || earlyUiT('Open Settings → Connection, then ask again.'), true);
-    };
-    if (document.body) mount();
-    else window.addEventListener('DOMContentLoaded', mount, { once: true });
+  /** Dial with the fresh credential and answer once THIS connection is secure.
+   *  The in-flight flag is the shim's: it keeps a completing handshake from
+   *  removing the entry screen while its own verification is still running. */
+  const verifyApprovedConnection = async (): Promise<void> => {
+    approvalVerificationInFlight = true;
+    const verified = waitForApprovedConnection();
+    void connect().catch(() => {
+      // Transient failures stay on the reconnect loop. Permanent pairing
+      // failures raise REMOTE_PAIRING_INVALID_EVENT and end this attempt.
+    });
+    try {
+      await verified;
+    } finally {
+      approvalVerificationInFlight = false;
+    }
   };
 
   /** Fan a push out to one lane's listeners. A faulting renderer listener
@@ -936,36 +586,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     return decoded.snapshot as SessionSnapshot;
   };
 
-  // Compact transcript envelope. The desktop addresses a session by handle
-  // and sends its name once, so a live frame no longer repeats the nested
-  // event/payload/sessionId trio around ~30 bytes of new text. Expanding it
-  // here keeps ONE downstream code path for both shapes.
-  const compactSessionNames = new Map<number, string>();
-  const expandCompactFrame = (frame: Record<string, unknown>): Record<string, unknown> | null => {
-    const handle = Number(frame.s);
-    if (!Number.isSafeInteger(handle)) return null;
-    const name = typeof frame.n === 'string' && frame.n ? frame.n : compactSessionNames.get(handle);
-    if (!name) return null;
-    compactSessionNames.set(handle, name);
-    const wire = frame.w;
-    // The compact payload shape is announced by this envelope rather than
-    // repeated inside every frame; a full snapshot keeps its own marker and
-    // must not be re-read as a patch.
-    if (wire && typeof wire === 'object' && !Object.hasOwn(wire, '__itemsRevision')) {
-      markCompactWire(wire as Record<string, unknown>);
-    }
-    return {
-      event: 'sessionState',
-      payload: {
-        sessionId: name,
-        wire,
-        frameSource: frame.f ?? 'live',
-        ...(typeof frame.le === 'string' && frame.le ? { laneEnd: frame.le } : {}),
-        ...(frame.pp !== undefined ? { perfProbe: frame.pp } : {}),
-        ...(typeof frame.cr === 'number' ? { contentRevision: frame.cr } : {}),
-      },
-    };
-  };
+  const compactFrames = createCompactTranscriptExpander();
 
   // Reaches the toast surface without importing it: notifications.tsx renders
   // whatever arrives on DESKTOP_TOAST_EVENT, and this shim installs before the
@@ -1063,12 +684,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     if (frame.e === 'S') {
       // Compact app-state push: same payload, envelope reduced to two keys.
       const wire = frame.w;
-      if (wire && typeof wire === 'object' && !Object.hasOwn(wire, '__itemsRevision')) {
-        markCompactWire(wire as Record<string, unknown>);
-      }
+      markCompactPayload(wire);
       message = { event: 'state', payload: wire };
     } else if (frame.e === 'T') {
-      const expanded = expandCompactFrame(frame);
+      const expanded = compactFrames.expand(frame);
       if (!expanded) {
         // This browser's handle map disagrees with the desktop's. Only a fresh
         // handshake rebuilds both sides, and the reconnect loop performs one.
@@ -1629,8 +1248,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             // A replacement desktop leg on the same browser socket: its caps
             // are its own, and the previous leg's must not survive into it.
             resetLearnedCaps();
-            // Handles are per desktop leg; a new challenge starts a new map.
-            compactSessionNames.clear();
+            compactFrames.reset();
             if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
             setRemoteConnectionPhase('encryption');
             handshakeTimer = window.setTimeout(expireHandshake, 10_000);
@@ -1793,10 +1411,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
 
   const api: DesktopApi = {
     // Desktop-only OS integrations become inert or degrade to browser
-    // equivalents; everything else forwards over the relay socket.
-    chooseProject: () => Promise.resolve(null),
-    chooseFile: () => Promise.resolve(null),
-    chooseFiles: () => Promise.resolve(null),
+    // equivalents (remote-browser-fallbacks.ts); everything below forwards over
+    // the relay socket.
+    ...REMOTE_BROWSER_FALLBACKS,
     // Web Push: the desktop mints the key, this browser subscribes with it and
     // sends the endpoint straight back through the encrypted socket, so the
     // relay never learns which device asked to be notified.
@@ -1817,17 +1434,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     startTask: () => call('startTask'),
     listProjects: () => call('listProjects'),
     addProject: (projectPath) => call('addProject', [projectPath]),
-    openProjectInExplorer: () => Promise.resolve(),
-    openExternal: (url) => {
-      const target = normalizeRemoteExternalUrl(url);
-      if (!target) return Promise.reject(new TypeError('url protocol is unsupported.'));
-      try {
-        window.open(target, '_blank', 'noopener');
-      } catch {
-        /* popup blocked */
-      }
-      return Promise.resolve();
-    },
     remoteBrowserFrame: (sessionId, previousFrameId) => call('browserRemoteFrame', [sessionId, previousFrameId ?? '']),
     remoteBrowserControl: (sessionId, input) => call('browserRemoteControl', [sessionId, input]),
     renameProject: (projectPath, alias) => call('renameProject', [projectPath, alias]),
@@ -1851,7 +1457,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       call('moveProjectEntry', [projectPath, relPath, targetDirRel]),
     copyProjectEntry: (projectPath, relPath, targetDirRel) =>
       call('copyProjectEntry', [projectPath, relPath, targetDirRel]),
-    trashProjectEntry: () => Promise.reject(new Error(DESKTOP_ONLY_TRASH)),
     readEditorSettings: (projectPath, relPath, workspaceFile) =>
       call('readEditorSettings', [projectPath, relPath, workspaceFile ?? null]),
     readEditorBackup: (projectPath, relPath, accessToken) =>
@@ -1872,11 +1477,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     lspApplyWorkspaceEdit: (projectPath, writes) => call('lspApplyWorkspaceEdit', [projectPath, writes]),
     subscribeLspDiagnostics: (listener) => laneSubscription('editor', lspDiagnosticsListeners, listener),
     subscribeLspStatus: (listener) => laneSubscription('editor', lspStatusListeners, listener),
-    chooseWorkspace: () => Promise.resolve(null),
     saveWorkspace: (workspaceFile, folders) => call('saveWorkspace', [workspaceFile ?? null, folders]),
-    // Only Electron's webUtils can name an OS-dropped file. A browser drop
-    // carries the File itself, which the composer reads without a path.
-    folderPathForFile: () => '',
     folderWatch: (dir, recursive) => call('folderWatch', [dir, recursive === true]),
     folderUnwatch: (dir, recursive) => call('folderUnwatch', [dir, recursive === true]),
     subscribeFolderChanges: (listener) => laneSubscription('files', folderChangeListeners, listener),
@@ -1931,9 +1532,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         stateListeners.delete(listener);
       };
     },
-    // No perfLog: the Composer's keystroke paint sampler keys on its presence,
-    // and a phone should not pay a double-rAF per keystroke to feed a no-op.
-    rendererReady: () => {},
     termEnsure: (id, cwd, shell) => call('termEnsure', [id, cwd ?? null, shell ?? null]),
     termProfiles: () => call('termProfiles'),
     termWrite: (id, data) => fire('termWrite', [id, data]),
@@ -2003,33 +1601,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     githubCliLoginCancel: (flowId) => call('githubCliLoginCancel', [flowId]),
     githubCliLogout: () => call('githubCliLogout'),
     githubCliAccount: () => call('githubCliAccount'),
-    revealFile: () => Promise.resolve(),
-    openFilePath: () => Promise.resolve(),
-    // A browser tab owns no OS handler, so a blob tab is the closest
-    // equivalent. The data URL cannot be opened directly: Chrome blocks a
-    // top-level navigation to `data:`.
-    openAttachmentImage: (dataUrl) => {
-      try {
-        const value = String(dataUrl);
-        const separator = value.indexOf(',');
-        const type = /^data:([^;,]+)/.exec(value.slice(0, separator))?.[1] || 'image/png';
-        const binary = atob(value.slice(separator + 1));
-        const bytes = new Uint8Array(binary.length);
-        for (let index = 0; index < binary.length; index += 1) {
-          bytes[index] = binary.charCodeAt(index);
-        }
-        const url = URL.createObjectURL(new Blob([bytes], { type }));
-        window.open(url, '_blank', 'noopener');
-        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      } catch {
-        /* popup blocked or a malformed preview */
-      }
-      return Promise.resolve();
-    },
-    getUpdaterState: () => Promise.resolve(DISABLED_UPDATER),
-    subscribeUpdaterState: () => () => {},
-    checkForDesktopUpdate: () => Promise.resolve(DISABLED_UPDATER),
-    showDesktopUpdate: () => Promise.resolve(DISABLED_UPDATER),
     submitNewTask: (prompt, options, draft) => {
       const stable = { ...options, id: options?.id || newBrowserId() };
       return recoverableCreation(
@@ -2061,19 +1632,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     setFast: (enabled, sessionId) => call('setFast', [enabled, sessionId]),
     readSettings: () => call('readSettings'),
     updateSetting: (key, enabled) => call('updateSetting', [key, enabled]),
-    getZoomFactor: () => Promise.resolve(1),
-    setZoomFactor: () => {
-      document.documentElement.style.removeProperty('zoom');
-      try {
-        window.localStorage.removeItem('mixdog.web-zoom');
-      } catch {
-        /* private storage */
-      }
-      return Promise.resolve(1);
-    },
-    onZoomFactorChanged: () => () => {},
-    applyTitleBarTheme: () => Promise.resolve(),
-    setTitleBarDim: () => Promise.resolve(),
     invokeCapability: <T = unknown>(request: DesktopCapabilityRequest) =>
       call<DesktopCapabilityResult<T>>('invokeCapability', [request]),
     readCapabilities: (requests) => call('readCapabilities', [requests]),
@@ -2086,7 +1644,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       const query = `variant=${encodeURIComponent(variant || 'original')}${auth ? `&token=${encodeURIComponent(auth)}` : ''}`;
       return `${base}/media/${encodeURIComponent(assetId)}?${query}`;
     },
-    quit: () => Promise.resolve(),
   };
 
   w.mixdogDesktop = Object.freeze(api);

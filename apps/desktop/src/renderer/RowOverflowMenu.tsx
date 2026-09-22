@@ -1,5 +1,5 @@
 import { Check, ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
@@ -21,27 +21,21 @@ type RowOverflowMenuItem = {
   children?: RowOverflowMenuItem[];
 };
 
-export function RowOverflowMenu({ label, items }: { label: string; items: RowOverflowMenuItem[] }) {
-  const [open, setOpen] = useState(false);
-  const [path, setPath] = useState<number[]>([]);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
-  const anchorBounds = useRef<ReturnType<typeof captureRowMenuAnchor> | null>(null);
-  const clickGuard = useImmediateOverlayClickGuard();
-  // A retained Dock tab keeps this row mounted while inert. The panel lives on
-  // document.body, where inert cannot reach it, so the owning surface's active
-  // signal unmounts the portal in the SAME commit as the deactivation.
-  const surfaceActive = useSurfaceActive();
-  const menuOpen = open && surfaceActive;
-  useEffect(() => {
-    if (!surfaceActive && open) setOpen(false);
-  }, [open, surfaceActive]);
-  // ABB (user: 백버튼 대응): the open menu owns hardware back, so the phone's
-  // back gesture closes it instead of leaving the PWA.
-  useMobileBack(menuOpen, () => setOpen(false));
-  const menuItems = path.reduce<RowOverflowMenuItem[]>((current, index) => current[index]?.children ?? current, items);
-  const hasCheckItems = menuItems.some((item) => item.checked !== undefined);
-
+/** An open menu closes on an outside pointer, on Escape (which returns focus
+ *  to the trigger), and on anything that moves it: resize or scroll. */
+function useRowOverflowDismiss({
+  menuOpen,
+  path,
+  panel,
+  trigger,
+  setOpen,
+}: {
+  menuOpen: boolean;
+  path: number[];
+  panel: RefObject<HTMLDivElement | null>;
+  trigger: RefObject<HTMLButtonElement | null>;
+  setOpen(open: boolean): void;
+}): void {
   useEffect(() => {
     if (!menuOpen) return undefined;
     queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled)")?.focus());
@@ -66,6 +60,165 @@ export function RowOverflowMenu({ label, items }: { label: string; items: RowOve
       window.removeEventListener('scroll', close, true);
     };
   }, [menuOpen, path]);
+}
+
+/** Roving focus inside the open menu; Left/Right walk the submenu levels. */
+function rowOverflowMenuKeyDown(
+  event: KeyboardEvent<HTMLDivElement>,
+  {
+    panel,
+    path,
+    setPath,
+    setOpen,
+  }: {
+    panel: RefObject<HTMLDivElement | null>;
+    path: number[];
+    setPath(update: (current: number[]) => number[]): void;
+    setOpen(open: boolean): void;
+  }
+): void {
+  const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)") || [])];
+  if (!entries.length) return;
+  const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
+  let next = -1;
+  if (event.key === 'ArrowDown') next = (current + 1) % entries.length;
+  else if (event.key === 'ArrowUp') next = (current - 1 + entries.length) % entries.length;
+  else if (event.key === 'ArrowRight') {
+    const active = document.activeElement as HTMLButtonElement;
+    if (active?.dataset.submenu === 'true') active.click();
+    return;
+  } else if (event.key === 'ArrowLeft' && path.length) {
+    event.preventDefault();
+    setPath((currentPath) => currentPath.slice(0, -1));
+    return;
+  } else if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = entries.length - 1;
+  else if (event.key === 'Tab') {
+    setOpen(false);
+    return;
+  } else return;
+  event.preventDefault();
+  entries[next]?.focus();
+}
+
+function renderRowOverflowItem({
+  item,
+  index,
+  hasCheckItems,
+  setPath,
+  setOpen,
+}: {
+  item: RowOverflowMenuItem;
+  index: number;
+  hasCheckItems: boolean;
+  setPath(update: (current: number[]) => number[]): void;
+  setOpen(open: boolean): void;
+}) {
+  const submenu = Boolean(item.children?.length);
+  // Action labels can change in place (Delete → Confirm delete). Keep the
+  // positional action node stable so focus, hover, and flex layout do not
+  // reset while the open menu confirms a destructive action.
+  return (
+    <button
+      key={item.id}
+      type="button"
+      data-action-id={item.id}
+      role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+      aria-checked={item.checked === undefined ? undefined : item.checked}
+      aria-haspopup={submenu ? 'menu' : undefined}
+      data-submenu={submenu ? 'true' : undefined}
+      className={
+        [item.danger ? 'danger' : '', item.separatorBefore ? 'menu-separator' : ''].filter(Boolean).join(' ') ||
+        undefined
+      }
+      disabled={item.disabled}
+      onClick={() => {
+        if (submenu) {
+          setPath((current) => [...current, index]);
+          return;
+        }
+        item.onSelect?.();
+        if (item.closeOnSelect !== false) setOpen(false);
+      }}
+    >
+      {hasCheckItems && (
+        <span className="row-overflow-check">{item.checked && <Check size={14} aria-hidden="true" />}</span>
+      )}
+      <span className="row-overflow-label">{t(item.label)}</span>
+      {submenu && <ChevronRight className="row-overflow-submenu" size={14} aria-hidden="true" />}
+    </button>
+  );
+}
+
+function renderRowOverflowPanel({
+  panel,
+  label,
+  path,
+  menuItems,
+  hasCheckItems,
+  placement,
+  onKeyDown,
+  setPath,
+  setOpen,
+}: {
+  panel: RefObject<HTMLDivElement | null>;
+  label: string;
+  path: number[];
+  menuItems: RowOverflowMenuItem[];
+  hasCheckItems: boolean;
+  placement: ReturnType<typeof positionRowMenu>;
+  onKeyDown(event: KeyboardEvent<HTMLDivElement>): void;
+  setPath(update: (current: number[]) => number[]): void;
+  setOpen(open: boolean): void;
+}) {
+  return createPortal(
+    <div
+      ref={panel}
+      className="row-overflow-menu"
+      role="menu"
+      aria-label={t('{{label}} menu', { label: t(label) })}
+      onKeyDown={onKeyDown}
+      style={placement}
+    >
+      {path.length > 0 && (
+        <button
+          type="button"
+          role="menuitem"
+          className="row-overflow-back"
+          onClick={() => setPath((current) => current.slice(0, -1))}
+        >
+          <ChevronLeft size={14} aria-hidden="true" />
+          <span>{path.length === 1 ? t(label) : t('Back')}</span>
+        </button>
+      )}
+      {menuItems.map((item, index) => renderRowOverflowItem({ item, index, hasCheckItems, setPath, setOpen }))}
+    </div>,
+    document.body
+  );
+}
+
+export function RowOverflowMenu({ label, items }: { label: string; items: RowOverflowMenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const [path, setPath] = useState<number[]>([]);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const anchorBounds = useRef<ReturnType<typeof captureRowMenuAnchor> | null>(null);
+  const clickGuard = useImmediateOverlayClickGuard();
+  // A retained Dock tab keeps this row mounted while inert. The panel lives on
+  // document.body, where inert cannot reach it, so the owning surface's active
+  // signal unmounts the portal in the SAME commit as the deactivation.
+  const surfaceActive = useSurfaceActive();
+  const menuOpen = open && surfaceActive;
+  useEffect(() => {
+    if (!surfaceActive && open) setOpen(false);
+  }, [open, surfaceActive]);
+  // ABB (user: 백버튼 대응): the open menu owns hardware back, so the phone's
+  // back gesture closes it instead of leaving the PWA.
+  useMobileBack(menuOpen, () => setOpen(false));
+  const menuItems = path.reduce<RowOverflowMenuItem[]>((current, index) => current[index]?.children ?? current, items);
+  const hasCheckItems = menuItems.some((item) => item.checked !== undefined);
+
+  useRowOverflowDismiss({ menuOpen, path, panel, trigger, setOpen });
   useEffect(() => {
     if (!menuOpen) {
       anchorBounds.current = null;
@@ -84,30 +237,6 @@ export function RowOverflowMenu({ label, items }: { label: string; items: RowOve
     window.innerWidth,
     window.innerHeight
   );
-  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)") || [])];
-    if (!entries.length) return;
-    const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
-    let next = -1;
-    if (event.key === 'ArrowDown') next = (current + 1) % entries.length;
-    else if (event.key === 'ArrowUp') next = (current - 1 + entries.length) % entries.length;
-    else if (event.key === 'ArrowRight') {
-      const active = document.activeElement as HTMLButtonElement;
-      if (active?.dataset.submenu === 'true') active.click();
-      return;
-    } else if (event.key === 'ArrowLeft' && path.length) {
-      event.preventDefault();
-      setPath((currentPath) => currentPath.slice(0, -1));
-      return;
-    } else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = entries.length - 1;
-    else if (event.key === 'Tab') {
-      setOpen(false);
-      return;
-    } else return;
-    event.preventDefault();
-    entries[next]?.focus();
-  };
   const rememberAnchor = (element: HTMLButtonElement) => {
     anchorBounds.current = captureRowMenuAnchor(element);
   };
@@ -145,66 +274,17 @@ export function RowOverflowMenu({ label, items }: { label: string; items: RowOve
         <MoreHorizontal size={18} aria-hidden="true" />
       </button>
       {menuOpen &&
-        createPortal(
-          <div
-            ref={panel}
-            className="row-overflow-menu"
-            role="menu"
-            aria-label={t('{{label}} menu', { label: t(label) })}
-            onKeyDown={onMenuKeyDown}
-            style={placement}
-          >
-            {path.length > 0 && (
-              <button
-                type="button"
-                role="menuitem"
-                className="row-overflow-back"
-                onClick={() => setPath((current) => current.slice(0, -1))}
-              >
-                <ChevronLeft size={14} aria-hidden="true" />
-                <span>{path.length === 1 ? t(label) : t('Back')}</span>
-              </button>
-            )}
-            {menuItems.map((item, index) => {
-              const submenu = Boolean(item.children?.length);
-              // Action labels can change in place (Delete → Confirm delete). Keep the
-              // positional action node stable so focus, hover, and flex layout do not
-              // reset while the open menu confirms a destructive action.
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  data-action-id={item.id}
-                  role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
-                  aria-checked={item.checked === undefined ? undefined : item.checked}
-                  aria-haspopup={submenu ? 'menu' : undefined}
-                  data-submenu={submenu ? 'true' : undefined}
-                  className={
-                    [item.danger ? 'danger' : '', item.separatorBefore ? 'menu-separator' : '']
-                      .filter(Boolean)
-                      .join(' ') || undefined
-                  }
-                  disabled={item.disabled}
-                  onClick={() => {
-                    if (submenu) {
-                      setPath((current) => [...current, index]);
-                      return;
-                    }
-                    item.onSelect?.();
-                    if (item.closeOnSelect !== false) setOpen(false);
-                  }}
-                >
-                  {hasCheckItems && (
-                    <span className="row-overflow-check">{item.checked && <Check size={14} aria-hidden="true" />}</span>
-                  )}
-                  <span className="row-overflow-label">{t(item.label)}</span>
-                  {submenu && <ChevronRight className="row-overflow-submenu" size={14} aria-hidden="true" />}
-                </button>
-              );
-            })}
-          </div>,
-          document.body
-        )}
+        renderRowOverflowPanel({
+          panel,
+          label,
+          path,
+          menuItems,
+          hasCheckItems,
+          placement,
+          onKeyDown: (event) => rowOverflowMenuKeyDown(event, { panel, path, setPath, setOpen }),
+          setPath,
+          setOpen,
+        })}
     </div>
   );
 }

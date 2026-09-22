@@ -2,6 +2,7 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useId,
@@ -115,6 +116,212 @@ function preferredFlyoutHeight(pane: RouteSheetPane, effortCount: number): numbe
  *  match the sheet width. */
 function preferredFlyoutWidth(pane: RouteSheetPane): number | undefined {
   return pane === 'model' ? 280 : undefined;
+}
+
+type RouteModelParameter = NonNullable<DesktopModelOption['modelParameterOptions']>[number];
+
+/** Roving focus inside a menu surface; the caller names the container and the
+ *  row selector, so sheet rows and pane options share one grammar. */
+function moveRouteFocus(
+  event: ReactKeyboardEvent<HTMLButtonElement>,
+  container: HTMLElement | null,
+  selector: string
+): boolean {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return false;
+  const buttons = Array.from(container?.querySelectorAll<HTMLButtonElement>(selector) || []);
+  if (!buttons.length) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  const current = buttons.indexOf(event.currentTarget);
+  const next = wrappedNavigationIndex(event.key, current, buttons.length, event.key === 'ArrowDown' ? 1 : -1);
+  buttons[next]?.focus({ preventScroll: true });
+  return true;
+}
+
+// ── Pane bodies ──────────────────────────────────────────────────────────
+// What a route pane SHOWS, given the current route. Where that pane sits,
+// when it opens and which surface hosts it stays with the component.
+
+function routeEffortPane({
+  effort,
+  effortOptions,
+  tuningDisabled,
+  onChangeEffort,
+  onOptionKeyDown,
+}: {
+  effort: string;
+  effortOptions: Array<{ value: string; label: string }>;
+  tuningDisabled: boolean;
+  onChangeEffort(value: string): void;
+  onOptionKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void;
+}): ReactNode {
+  return effortOptions.map((option) => {
+    const selected = option.value === effort;
+    return (
+      <button
+        type="button"
+        key={option.value}
+        className="route-sheet-option"
+        role="menuitemradio"
+        aria-checked={selected}
+        disabled={tuningDisabled}
+        onClick={() => {
+          if (option.value !== effort) onChangeEffort(option.value);
+        }}
+        onKeyDown={onOptionKeyDown}
+      >
+        <span>{option.label}</span>
+        {selected && (
+          <span className="route-selection-check">
+            <Check size={14} aria-hidden="true" />
+          </span>
+        )}
+      </button>
+    );
+  });
+}
+
+function routeSpeedPane({
+  fast,
+  fastAvailable,
+  tuningDisabled,
+  onChangeFast,
+  onOptionKeyDown,
+}: {
+  fast: boolean;
+  fastAvailable: boolean;
+  tuningDisabled: boolean;
+  onChangeFast(enabled: boolean): void;
+  onOptionKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void;
+}): ReactNode {
+  return (
+    [
+      { value: false, label: t('Standard'), description: t('Default speed') },
+      { value: true, label: t('Fast'), description: t('Increased speed, increased usage') },
+    ] as const
+  ).map((option) => {
+    const selected = option.value === fast;
+    const disabled = tuningDisabled || (option.value && !fastAvailable);
+    return (
+      <button
+        type="button"
+        key={option.label}
+        className="route-sheet-option route-sheet-option--rich"
+        role="menuitemradio"
+        aria-checked={selected}
+        disabled={disabled}
+        onClick={() => {
+          if (option.value !== fast) onChangeFast(option.value);
+        }}
+        onKeyDown={onOptionKeyDown}
+      >
+        <span className="route-sheet-option-copy">
+          <span>{option.label}</span>
+          <small>{option.description}</small>
+        </span>
+        {selected && (
+          <span className="route-selection-check">
+            <Check size={14} aria-hidden="true" />
+          </span>
+        )}
+      </button>
+    );
+  });
+}
+
+function routeContextPane({
+  contextDefaultPercent,
+  defaultContextTokens,
+  shownContextPercent,
+  shownContextTokens,
+  tuningDisabled,
+  onCommitDraft,
+  onDraftChange,
+  onResetDefault,
+}: {
+  contextDefaultPercent: number;
+  defaultContextTokens: number;
+  shownContextPercent: number;
+  shownContextTokens: number;
+  tuningDisabled: boolean;
+  onCommitDraft(): void;
+  onDraftChange(percent: number): void;
+  onResetDefault(): void;
+}): ReactNode {
+  return (
+    <>
+      <div className="route-context-head">
+        <strong aria-hidden="true">{shownContextPercent}%</strong>
+        <small aria-hidden="true">
+          {formatContextWindow(shownContextTokens).replace(/ Context$/, '')}
+          {shownContextPercent === contextDefaultPercent ? ` · ${t('Default')}` : ''}
+        </small>
+        {shownContextPercent !== contextDefaultPercent && (
+          <button
+            type="button"
+            className="route-context-reset"
+            disabled={tuningDisabled}
+            aria-label={t('Reset to default ({{percent}}%)', { percent: contextDefaultPercent })}
+            onClick={onResetDefault}
+          >
+            {formatContextWindow(defaultContextTokens).replace(/ Context$/, '')} · {t('Default')}
+          </button>
+        )}
+      </div>
+      <div className="route-context-slider">
+        <input
+          type="range"
+          min={10}
+          max={100}
+          step={10}
+          value={shownContextPercent}
+          disabled={tuningDisabled}
+          aria-label={t('Context')}
+          aria-valuetext={`${shownContextPercent}%`}
+          onChange={(event) => onDraftChange(Number(event.currentTarget.value))}
+          onPointerUp={onCommitDraft}
+          onKeyUp={onCommitDraft}
+          onBlur={onCommitDraft}
+        />
+      </div>
+    </>
+  );
+}
+
+function routeParameterPane({
+  parameter,
+  value,
+  tuningDisabled,
+  onChangeModelParameter,
+}: {
+  parameter: RouteModelParameter;
+  value: string | undefined;
+  tuningDisabled: boolean;
+  onChangeModelParameter?(id: string, value: string): void;
+}): ReactNode {
+  return parameter.options.map((option) => {
+    const selected = option.value === value;
+    return (
+      <button
+        type="button"
+        key={option.value}
+        className="route-sheet-option"
+        role="menuitemradio"
+        aria-checked={selected}
+        disabled={tuningDisabled}
+        onClick={() => {
+          if (!selected) onChangeModelParameter?.(parameter.id, option.value);
+        }}
+      >
+        <span>{option.label}</span>
+        {selected && (
+          <span className="route-selection-check">
+            <Check size={14} aria-hidden="true" />
+          </span>
+        )}
+      </button>
+    );
+  });
 }
 
 export function RouteEditor({
@@ -549,18 +756,6 @@ export function RouteEditor({
     }
   }, []);
 
-  const moveFocus = (event: ReactKeyboardEvent<HTMLButtonElement>, container: HTMLElement | null, selector: string) => {
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return false;
-    const buttons = Array.from(container?.querySelectorAll<HTMLButtonElement>(selector) || []);
-    if (!buttons.length) return false;
-    event.preventDefault();
-    event.stopPropagation();
-    const current = buttons.indexOf(event.currentTarget);
-    const next = wrappedNavigationIndex(event.key, current, buttons.length, event.key === 'ArrowDown' ? 1 : -1);
-    buttons[next]?.focus({ preventScroll: true });
-    return true;
-  };
-
   const focusPane = (next: RouteSheetPane) => {
     window.setTimeout(() => {
       // Read the DOM rather than `drill`: this runs right after the opening
@@ -626,7 +821,7 @@ export function RouteEditor({
         if (pane !== id) openPane(id);
       }}
       onKeyDown={(event) => {
-        if (moveFocus(event, sheet.current, '.route-sheet-row:not(:disabled)')) return;
+        if (moveRouteFocus(event, sheet.current, '.route-sheet-row:not(:disabled)')) return;
         if (event.key === 'ArrowRight') {
           event.preventDefault();
           openPane(id);
@@ -668,147 +863,57 @@ export function RouteEditor({
     return parameter ? modelParameterLabel(parameter) : '';
   };
 
-  const paneBody = (target: RouteSheetPane) => {
+  /** ArrowLeft walks back out of the pane it was pressed in; the other keys
+   *  rove between its options. */
+  const paneOptionKeyDown = (target: RouteSheetPane) => (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (moveRouteFocus(event, paneContainer(), '.route-sheet-option:not(:disabled)')) return;
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      closePane(target, true);
+    }
+  };
+
+  const paneBody = (target: RouteSheetPane): ReactNode => {
     if (target === 'effort') {
-      return effortOptions.map((option) => {
-        const selected = option.value === effort;
-        return (
-          <button
-            type="button"
-            key={option.value}
-            className="route-sheet-option"
-            role="menuitemradio"
-            aria-checked={selected}
-            disabled={tuningDisabled}
-            onClick={() => {
-              if (option.value !== effort) onChangeEffort(option.value);
-            }}
-            onKeyDown={(event) => {
-              if (moveFocus(event, paneContainer(), '.route-sheet-option:not(:disabled)')) return;
-              if (event.key === 'ArrowLeft') {
-                event.preventDefault();
-                closePane('effort', true);
-              }
-            }}
-          >
-            <span>{option.label}</span>
-            {selected && (
-              <span className="route-selection-check">
-                <Check size={14} aria-hidden="true" />
-              </span>
-            )}
-          </button>
-        );
+      return routeEffortPane({
+        effort,
+        effortOptions,
+        tuningDisabled,
+        onChangeEffort,
+        onOptionKeyDown: paneOptionKeyDown('effort'),
       });
     }
     if (target === 'speed') {
-      return (
-        [
-          { value: false, label: t('Standard'), description: t('Default speed') },
-          { value: true, label: t('Fast'), description: t('Increased speed, increased usage') },
-        ] as const
-      ).map((option) => {
-        const selected = option.value === fast;
-        const disabled = tuningDisabled || (option.value && !fastAvailable);
-        return (
-          <button
-            type="button"
-            key={option.label}
-            className="route-sheet-option route-sheet-option--rich"
-            role="menuitemradio"
-            aria-checked={selected}
-            disabled={disabled}
-            onClick={() => {
-              if (option.value !== fast) onChangeFast(option.value);
-            }}
-            onKeyDown={(event) => {
-              if (moveFocus(event, paneContainer(), '.route-sheet-option:not(:disabled)')) return;
-              if (event.key === 'ArrowLeft') {
-                event.preventDefault();
-                closePane('speed', true);
-              }
-            }}
-          >
-            <span className="route-sheet-option-copy">
-              <span>{option.label}</span>
-              <small>{option.description}</small>
-            </span>
-            {selected && (
-              <span className="route-selection-check">
-                <Check size={14} aria-hidden="true" />
-              </span>
-            )}
-          </button>
-        );
+      return routeSpeedPane({
+        fast,
+        fastAvailable,
+        tuningDisabled,
+        onChangeFast,
+        onOptionKeyDown: paneOptionKeyDown('speed'),
       });
     }
     if (target === 'context') {
-      return (
-        <>
-          <div className="route-context-head">
-            <strong aria-hidden="true">{shownContextPercent}%</strong>
-            <small aria-hidden="true">
-              {formatContextWindow(shownContextTokens).replace(/ Context$/, '')}
-              {shownContextPercent === contextDefaultPercent ? ` · ${t('Default')}` : ''}
-            </small>
-            {shownContextPercent !== contextDefaultPercent && (
-              <button
-                type="button"
-                className="route-context-reset"
-                disabled={tuningDisabled}
-                aria-label={t('Reset to default ({{percent}}%)', { percent: contextDefaultPercent })}
-                onClick={() => {
-                  setContextDraft(null);
-                  onChangeContext(contextDefaultPercent);
-                }}
-              >
-                {formatContextWindow(defaultContextTokens).replace(/ Context$/, '')} · {t('Default')}
-              </button>
-            )}
-          </div>
-          <div className="route-context-slider">
-            <input
-              type="range"
-              min={10}
-              max={100}
-              step={10}
-              value={shownContextPercent}
-              disabled={tuningDisabled}
-              aria-label={t('Context')}
-              aria-valuetext={`${shownContextPercent}%`}
-              onChange={(event) => setContextDraft(Number(event.currentTarget.value))}
-              onPointerUp={commitContextDraft}
-              onKeyUp={commitContextDraft}
-              onBlur={commitContextDraft}
-            />
-          </div>
-        </>
-      );
+      return routeContextPane({
+        contextDefaultPercent,
+        defaultContextTokens,
+        shownContextPercent,
+        shownContextTokens,
+        tuningDisabled,
+        onCommitDraft: commitContextDraft,
+        onDraftChange: setContextDraft,
+        onResetDefault: () => {
+          setContextDraft(null);
+          onChangeContext(contextDefaultPercent);
+        },
+      });
     }
     const parameter = parameterRows.find((entry) => `parameter:${entry.id}` === target);
     if (!parameter) return null;
-    return parameter.options.map((option) => {
-      const selected = option.value === modelParameters[parameter.id];
-      return (
-        <button
-          type="button"
-          key={option.value}
-          className="route-sheet-option"
-          role="menuitemradio"
-          aria-checked={selected}
-          disabled={tuningDisabled}
-          onClick={() => {
-            if (!selected) onChangeModelParameter?.(parameter.id, option.value);
-          }}
-        >
-          <span>{option.label}</span>
-          {selected && (
-            <span className="route-selection-check">
-              <Check size={14} aria-hidden="true" />
-            </span>
-          )}
-        </button>
-      );
+    return routeParameterPane({
+      parameter,
+      value: modelParameters[parameter.id],
+      tuningDisabled,
+      onChangeModelParameter,
     });
   };
 

@@ -17,14 +17,16 @@ export function createComputerOverlayController(controls: ComputerUseOverlayCont
   let errorGeneration: number | 'any' | undefined;
   let pending: AbortController | undefined;
   let pendingAction = '';
-  let stopping: Promise<void> | undefined;
+  let stopping: Promise<boolean> | undefined;
+  /** Resolves false when the request was dropped because another control is
+   *  still in flight, so the caller can say so instead of reporting success. */
   const invoke = async (
     action: 'stop' | 'resume' | 'pause',
     generation: number,
     sessionIds: string[]
-  ): Promise<void> => {
-    if (busy && action === 'resume') return;
-    if (busy && action === 'pause' && pendingAction !== 'resume') return;
+  ): Promise<boolean> => {
+    if (busy && action === 'resume') return false;
+    if (busy && action === 'pause' && pendingAction !== 'resume') return false;
     if (action !== 'resume') pending?.abort();
     const request = new AbortController();
     pending = request;
@@ -41,7 +43,7 @@ export function createComputerOverlayController(controls: ComputerUseOverlayCont
       } else await controls.stop(sessionIds);
     } catch (reason) {
       const message = String((reason as Error)?.message || '');
-      if (pending !== request) return;
+      if (pending !== request) return true;
       error = 'failed';
       if (/computer_(cleanup_pending|abort_cleanup_unconfirmed|background_cleanup_unconfirmed)/.test(message)) {
         error = 'cleanup';
@@ -54,12 +56,13 @@ export function createComputerOverlayController(controls: ComputerUseOverlayCont
         changed();
       }
     }
+    return true;
   };
   return {
     state(generation: number) {
       return { busy, error: errorGeneration === 'any' || errorGeneration === generation ? error : '' };
     },
-    invoke(action: 'stop' | 'resume' | 'pause', generation: number, sessionIds: string[]): Promise<void> {
+    invoke(action: 'stop' | 'resume' | 'pause', generation: number, sessionIds: string[]): Promise<boolean> {
       if (action === 'stop' && stopping) return stopping;
       const task = invoke(action, generation, sessionIds);
       if (action !== 'stop') return task;

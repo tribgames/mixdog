@@ -171,6 +171,11 @@ export function interpolationTokens(text) {
   return interpolationTokenList(text).sort();
 }
 
+/** A translation may reorder interpolation slots, never add, drop or rename them. */
+export function sameInterpolationTokens(left, right) {
+  return JSON.stringify(interpolationTokens(left)) === JSON.stringify(interpolationTokens(right));
+}
+
 /** Only an identical phrase with renamed interpolation slots can be reused. */
 export function reusableTranslation(key, catalog) {
   const targetTokens = interpolationTokenList(key);
@@ -188,7 +193,7 @@ export function reusableTranslation(key, catalog) {
       continue;
     const sourceTokens = interpolationTokenList(source);
     if (new Set(sourceTokens).size !== sourceTokens.length) continue;
-    if (JSON.stringify(interpolationTokens(source)) !== JSON.stringify(interpolationTokens(value))) continue;
+    if (!sameInterpolationTokens(source, value)) continue;
     const slots = new Map(sourceTokens.map((token, index) => [token, targetTokens[index]]));
     candidates.add(value.replace(/\{\{[^}]+\}\}/g, (token) => slots.get(token)));
   }
@@ -201,7 +206,7 @@ export function catalogProblems(catalog, keys) {
   for (const key of new Set([...required, ...Object.keys(catalog)])) {
     const value = catalog[key];
     if (typeof value !== 'string' || !value.trim()) problems.push({ key, reason: 'missing or empty' });
-    else if (JSON.stringify(interpolationTokens(key)) !== JSON.stringify(interpolationTokens(value))) {
+    else if (!sameInterpolationTokens(key, value)) {
       problems.push({ key, reason: 'interpolation mismatch' });
     }
   }

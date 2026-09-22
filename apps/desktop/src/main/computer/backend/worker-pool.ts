@@ -27,6 +27,258 @@ const COMMAND_TIMEOUT_MS = 45_000;
 // build pays the C# compile; every later worker loads the cached assembly.
 const HOST_ASSEMBLY_CACHE_DIRECTORY = 'host-cache';
 
+/** Actions whose worker streams pointer progress back while they run. */
+const POINTER_FEEDBACK_ACTIONS = [
+  'click',
+  'invoke',
+  'set_value',
+  'toggle',
+  'double_click',
+  'right_click',
+  'middle_click',
+  'triple_click',
+  'mouse_down',
+  'mouse_up',
+  'mouse_move',
+  'drag',
+  'scroll',
+  'key',
+  'key_down',
+  'key_up',
+  'type',
+];
+
+/** Progress phases a pointer event may claim; anything else is not a phase
+ *  this build emits and is counted as invalid rather than reported. */
+const POINTER_PROGRESS_PHASES = ['move', 'prepare', 'press', 'release', 'drag', 'scroll', 'type'];
+
+/** One in-flight worker request, from dispatch to its reply, timeout or the
+ *  retirement of the worker that owns it. */
+interface PendingWorkerRequest {
+  resolve: (r: PowerShellResponse) => void;
+  reject: (e: Error) => void;
+  timer: NodeJS.Timeout;
+  child: ChildProcessWithoutNullStreams;
+  sessionId: string;
+  pointerFeedback: boolean;
+  windowId?: string;
+  mode: 'background' | 'foreground';
+  input: boolean;
+  backgroundPressRelease: boolean;
+}
+
+/** What one request is, as the pool has to treat it: whose session it belongs
+ *  to, whether it can leave input held, and whether the host streams pointer
+ *  progress for it. Derived from the request alone — a sequence step is read
+ *  through its envelope, exactly as the host dispatches it. */
+function classifyWorkerRequest(request: Record<string, unknown>): {
+  sessionId: string;
+  windowId?: string;
+  mode: 'background' | 'foreground';
+  input: boolean;
+  backgroundPressRelease: boolean;
+  pointerAction: boolean;
+} {
+  const step = request.step as Record<string, unknown> | undefined;
+  const inputAction = request.action === 'sequence_step' ? step?.action : request.action;
+  const target = request.action === 'sequence_step' ? step : request;
+  return {
+    sessionId: String(request.session_id || 'default'),
+    windowId: typeof target?.window_id === 'string' ? target.window_id : undefined,
+    mode: request.delivery === 'foreground' ? 'foreground' : 'background',
+    input: !computerActionHas(String(inputAction), 'nativeRead') && inputAction !== 'release_session',
+    backgroundPressRelease:
+      computerActionHas(String(inputAction), 'backgroundPressRelease') ||
+      (inputAction === 'type' &&
+        ((target?.x != null && target?.y != null) || String(target?.text ?? '').includes('\n'))),
+    pointerAction: POINTER_FEEDBACK_ACTIONS.includes(String(inputAction)),
+  };
+}
+
+/** A pointer-progress line, reported only when it matches a request that asked
+ *  for feedback and carries a phase and coordinates this build understands.
+ *  Every rejection is counted, so a silent cursor has a reason on record. */
+function reportPointerProgress(
+  payload: string,
+  requestOf: (id: unknown) => PendingWorkerRequest | undefined,
+  onPointerProgress: WorkerPoolHost['onPointerProgress']
+): void {
+  recordCursorDiagnostic('received');
+  try {
+    const event = JSON.parse(payload);
+    const entry = requestOf(event.id);
+    if (
+      entry &&
+      entry.pointerFeedback &&
+      Number.isFinite(event.x) &&
+      Number.isFinite(event.y) &&
+      typeof event.held === 'boolean'
+    ) {
+      const phase = event.phase ?? (event.held ? 'drag' : 'move');
+      if (POINTER_PROGRESS_PHASES.includes(phase)) {
+        recordCursorDiagnostic('validated');
+        onPointerProgress?.(entry.sessionId, event.x, event.y, event.held, entry.mode, phase, entry.windowId);
+      } else recordCursorDiagnostic('invalid_phase');
+    } else recordCursorDiagnostic('discarded_event');
+  } catch {
+    recordCursorDiagnostic('event_handler_failed');
+  }
+}
+
+/** The launcher that raises one elevated worker: it re-publishes this process's
+ *  environment into the elevated child (which inherits none of it through the
+ *  UAC boundary) and runs the bootstrap through -EncodedCommand. */
+function elevatedLauncherCommand(): string {
+  const bootstrapEncoded = Buffer.from(elevatedProgramInvocation(), 'utf16le').toString('base64');
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "$powershell = Join-Path $PSHOME 'powershell.exe'",
+    `$bootstrap = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${bootstrapEncoded}'))`,
+    'function ConvertTo-MixdogLiteral([string]$value) { return "\'" + $value.Replace("\'", "\'\'") + "\'" }',
+    '$env:MIXDOG_ELEVATED_PARENT_PID = [string]$PID',
+    '$env:MIXDOG_ELEVATED_PARENT_TICKS = [string]([Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks)',
+    "$variableNames = @('MIXDOG_ELEVATED_TOKEN','MIXDOG_ELEVATED_HOST_SCRIPT','MIXDOG_ELEVATED_HOST_SHA256','MIXDOG_ELEVATED_REQUEST','MIXDOG_ELEVATED_REQUEST_SHA256','MIXDOG_ELEVATED_RESPONSE','MIXDOG_ELEVATED_CANCEL','MIXDOG_ELEVATED_MARKER','MIXDOG_ELEVATED_PARENT_PID','MIXDOG_ELEVATED_PARENT_TICKS','MIXDOG_COMPUTER_INPUT_MARKER')",
+    "$prelude = @($variableNames | ForEach-Object { '$env:' + $_ + ' = ' + (ConvertTo-MixdogLiteral ([string][Environment]::GetEnvironmentVariable($_))) }) -join [Environment]::NewLine",
+    '$elevatedScript = $prelude + [Environment]::NewLine + $bootstrap',
+    '$elevatedEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($elevatedScript))',
+    "if ($elevatedEncoded.Length -gt 30000) { throw 'privileged_worker_unavailable: launch configuration exceeds Windows command line capacity' }",
+    "$arguments = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand',$elevatedEncoded)",
+    'try {',
+    '  $process = Start-Process -FilePath $powershell -Verb RunAs -ArgumentList $arguments -Wait -PassThru',
+    '  exit $process.ExitCode',
+    '} catch {',
+    "  [Console]::Error.WriteLine(('launcher_error:' + $_.Exception.Message))",
+    '  exit 1223',
+    '}',
+  ].join('; ');
+}
+
+/** Runs the launcher to completion, keeping a bounded tail of both streams. At
+ *  the deadline it asks the elevated child to cancel and only then kills the
+ *  launcher, so a refused cancellation is reported as unconfirmed cleanup. */
+function runElevatedLauncher(options: {
+  spawnProcess: typeof spawn;
+  launcher: string;
+  env: NodeJS.ProcessEnv;
+  cancel: () => void;
+  onSpawnFailure: () => void;
+}): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = options.spawnProcess(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', options.launcher],
+      {
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: options.env,
+      }
+    );
+    let stdout = '';
+    let stderr = '';
+    const appendBounded = (current: string, chunk: Buffer): string =>
+      `${current}${chunk.toString('utf8')}`.slice(-4096);
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout = appendBounded(stdout, chunk);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr = appendBounded(stderr, chunk);
+    });
+    let cleanupTimer: NodeJS.Timeout | undefined;
+    const timer = setTimeout(() => {
+      try {
+        options.cancel();
+      } catch {
+        /* parent death also cancels the input child */
+      }
+      cleanupTimer = setTimeout(() => {
+        try {
+          child.kill();
+        } catch {
+          /* launcher already exited */
+        }
+        reject(new Error('privileged_worker_cleanup_unconfirmed: elevated input did not acknowledge cancellation'));
+      }, 6_000);
+    }, 120_000);
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      if (cleanupTimer) clearTimeout(cleanupTimer);
+      if (!child.pid) options.onSpawnFailure();
+      reject(error);
+    });
+    child.once('exit', (code) => {
+      clearTimeout(timer);
+      if (cleanupTimer) clearTimeout(cleanupTimer);
+      resolve({
+        code: Number(code ?? 1),
+        stdout,
+        stderr,
+      });
+    });
+  });
+}
+
+/** No response file: why, and whether the worker is known to have stopped.
+ *  UAC refusal is the one failure that also confirms termination. */
+function elevatedLauncherFailure(result: { code: number; stdout: string; stderr: string }): {
+  cancelled: boolean;
+  error: Error;
+} {
+  const launcherDetail = `${result.stderr}\n${result.stdout}`.trim().replace(/\s+/g, ' ').slice(0, 1000);
+  if (result.code === 1223) {
+    return { cancelled: true, error: new Error('privileged_worker_cancelled: UAC consent was declined') };
+  }
+  if (result.code === 0) {
+    return {
+      cancelled: false,
+      error: new Error('privileged_worker_unavailable: elevated worker returned no response'),
+    };
+  }
+  return {
+    cancelled: false,
+    error: new Error(
+      `privileged_worker_launcher_failed: elevated worker exited with code ${result.code}` +
+        (launcherDetail ? ` (${launcherDetail})` : '')
+    ),
+  };
+}
+
+/** Authenticates the response envelope against this run's nonce and its
+ *  termination receipt, returning the response line it wraps. */
+function assertElevatedReceipt(envelope: string, nonce: string): string {
+  const newline = envelope.indexOf('\n');
+  const responseToken = (newline >= 0 ? envelope.slice(0, newline) : envelope)
+    .replace(/^\uFEFF/, '')
+    .replace(/\r$/, '');
+  const receipt =
+    newline >= 0
+      ? envelope
+          .slice(newline + 1)
+          .trim()
+          .split(/\r?\n/)
+      : [];
+  const responseLine = receipt.slice(1).join('\n');
+  if (responseToken !== nonce) {
+    throw new Error('privileged_worker_rejected: response authentication failed');
+  }
+  if (receipt[0] !== 'STOPPED') {
+    throw new Error('privileged_worker_cleanup_unconfirmed: elevated worker did not confirm termination');
+  }
+  return responseLine;
+}
+
+/** The structured reply inside an authenticated envelope, proven to answer the
+ *  request that was sent. */
+function parseElevatedResponse(responseLine: string, id: number): PowerShellResponse {
+  if (responseLine.startsWith('ERROR:')) {
+    throw new Error(`privileged_worker_failed: ${responseLine.slice(6)}`);
+  }
+  const marker = responseLine.indexOf(RESPONSE_MARKER);
+  if (marker < 0) throw new Error('privileged_worker_failed: structured response is missing');
+  const parsed = JSON.parse(responseLine.slice(marker + RESPONSE_MARKER.length)) as PowerShellResponse;
+  if (parsed.id !== id) throw new Error('privileged_worker_rejected: response id mismatch');
+  return parsed;
+}
+
 export interface WorkerPoolHost {
   /** Where the host script and its assembly cache belong. */
   dataDirectory(): string;
@@ -54,21 +306,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
   let hostScriptPath: string | null = null;
   let hostScriptBuild = '';
   let nextId = 1;
-  const pending = new Map<
-    number,
-    {
-      resolve: (r: PowerShellResponse) => void;
-      reject: (e: Error) => void;
-      timer: NodeJS.Timeout;
-      child: ChildProcessWithoutNullStreams;
-      sessionId: string;
-      pointerFeedback: boolean;
-      windowId?: string;
-      mode: 'background' | 'foreground';
-      input: boolean;
-      backgroundPressRelease: boolean;
-    }
-  >();
+  const pending = new Map<number, PendingWorkerRequest>();
   const powerShellBySession = new Map<string, ChildProcessWithoutNullStreams>();
   const workerLastUsedAt = new Map<string, number>();
   const hostWorkers = new Set<ChildProcessWithoutNullStreams>();
@@ -143,34 +381,16 @@ export function createWorkerPool(host: WorkerPoolHost) {
     hostWorkers.add(child);
     const receive = createComputerLineDecoder((line) => {
       if (line.startsWith('@@MIXDOG_POINTER@@')) {
-        recordCursorDiagnostic('received');
-        try {
-          const event = JSON.parse(line.slice('@@MIXDOG_POINTER@@'.length));
-          const entry = pending.get(event.id);
-          if (
-            entry?.child === child &&
-            entry.pointerFeedback &&
-            Number.isFinite(event.x) &&
-            Number.isFinite(event.y) &&
-            typeof event.held === 'boolean'
-          ) {
-            const phase = event.phase ?? (event.held ? 'drag' : 'move');
-            if (['move', 'prepare', 'press', 'release', 'drag', 'scroll', 'type'].includes(phase)) {
-              recordCursorDiagnostic('validated');
-              host.onPointerProgress?.(
-                entry.sessionId,
-                event.x,
-                event.y,
-                event.held,
-                entry.mode,
-                phase,
-                entry.windowId
-              );
-            } else recordCursorDiagnostic('invalid_phase');
-          } else recordCursorDiagnostic('discarded_event');
-        } catch {
-          recordCursorDiagnostic('event_handler_failed');
-        }
+        reportPointerProgress(
+          line.slice('@@MIXDOG_POINTER@@'.length),
+          (id) => {
+            const entry = pending.get(id as number);
+            // Only this worker's own requests: a reused id from a retired
+            // worker names a request this line knows nothing about.
+            return entry?.child === child ? entry : undefined;
+          },
+          host.onPointerProgress
+        );
         return;
       }
       const marker = line.indexOf(RESPONSE_MARKER);
@@ -292,34 +512,10 @@ export function createWorkerPool(host: WorkerPoolHost) {
     request: Record<string, unknown>,
     timeoutMs = COMMAND_TIMEOUT_MS
   ): Promise<PowerShellResponse> {
-    const sessionId = String(request.session_id || 'default');
+    const classified = classifyWorkerRequest(request);
+    const sessionId = classified.sessionId;
     const id = nextId++;
-    const step = request.step as Record<string, unknown> | undefined;
-    const inputAction = request.action === 'sequence_step' ? step?.action : request.action;
-    const input = request.action === 'sequence_step' ? step : request;
-    const backgroundPressRelease =
-      computerActionHas(String(inputAction), 'backgroundPressRelease') ||
-      (inputAction === 'type' && ((input?.x != null && input?.y != null) || String(input?.text ?? '').includes('\n')));
-    const pointerFeedback =
-      [
-        'click',
-        'invoke',
-        'set_value',
-        'toggle',
-        'double_click',
-        'right_click',
-        'middle_click',
-        'triple_click',
-        'mouse_down',
-        'mouse_up',
-        'mouse_move',
-        'drag',
-        'scroll',
-        'key',
-        'key_down',
-        'key_up',
-        'type',
-      ].includes(String(inputAction)) && Boolean(host.onPointerProgress);
+    const pointerFeedback = classified.pointerAction && Boolean(host.onPointerProgress);
     const line = `${JSON.stringify({ ...request, id, pointer_feedback: pointerFeedback })}\n`;
     if (pending.size >= 32 || Buffer.byteLength(line) > MAX_COMPUTER_INTERNAL_REQUEST_BYTES) {
       return Promise.reject(
@@ -344,10 +540,10 @@ export function createWorkerPool(host: WorkerPoolHost) {
         child,
         sessionId,
         pointerFeedback,
-        windowId: typeof input?.window_id === 'string' ? input.window_id : undefined,
-        mode: request.delivery === 'foreground' ? 'foreground' : 'background',
-        input: !computerActionHas(String(inputAction), 'nativeRead') && inputAction !== 'release_session',
-        backgroundPressRelease,
+        windowId: classified.windowId,
+        mode: classified.mode,
+        input: classified.input,
+        backgroundPressRelease: classified.backgroundPressRelease,
       });
       try {
         child.stdin.write(line);
@@ -375,143 +571,43 @@ export function createWorkerPool(host: WorkerPoolHost) {
       encoding: 'utf8',
       mode: 0o600,
     });
-    const bootstrapEncoded = Buffer.from(elevatedProgramInvocation(), 'utf16le').toString('base64');
-    const launcher = [
-      "$ErrorActionPreference = 'Stop'",
-      "$powershell = Join-Path $PSHOME 'powershell.exe'",
-      `$bootstrap = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${bootstrapEncoded}'))`,
-      'function ConvertTo-MixdogLiteral([string]$value) { return "\'" + $value.Replace("\'", "\'\'") + "\'" }',
-      '$env:MIXDOG_ELEVATED_PARENT_PID = [string]$PID',
-      '$env:MIXDOG_ELEVATED_PARENT_TICKS = [string]([Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks)',
-      "$variableNames = @('MIXDOG_ELEVATED_TOKEN','MIXDOG_ELEVATED_HOST_SCRIPT','MIXDOG_ELEVATED_HOST_SHA256','MIXDOG_ELEVATED_REQUEST','MIXDOG_ELEVATED_REQUEST_SHA256','MIXDOG_ELEVATED_RESPONSE','MIXDOG_ELEVATED_CANCEL','MIXDOG_ELEVATED_MARKER','MIXDOG_ELEVATED_PARENT_PID','MIXDOG_ELEVATED_PARENT_TICKS','MIXDOG_COMPUTER_INPUT_MARKER')",
-      "$prelude = @($variableNames | ForEach-Object { '$env:' + $_ + ' = ' + (ConvertTo-MixdogLiteral ([string][Environment]::GetEnvironmentVariable($_))) }) -join [Environment]::NewLine",
-      '$elevatedScript = $prelude + [Environment]::NewLine + $bootstrap',
-      '$elevatedEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($elevatedScript))',
-      "if ($elevatedEncoded.Length -gt 30000) { throw 'privileged_worker_unavailable: launch configuration exceeds Windows command line capacity' }",
-      "$arguments = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand',$elevatedEncoded)",
-      'try {',
-      '  $process = Start-Process -FilePath $powershell -Verb RunAs -ArgumentList $arguments -Wait -PassThru',
-      '  exit $process.ExitCode',
-      '} catch {',
-      "  [Console]::Error.WriteLine(('launcher_error:' + $_.Exception.Message))",
-      '  exit 1223',
-      '}',
-    ].join('; ');
+    const launcher = elevatedLauncherCommand();
     let stopped = false;
     const cancel = () => writeFileSync(cancelPath, nonce, { mode: 0o600 });
     const job = elevatedJobs.begin(String(request.session_id || 'default'), cancel);
     elevatedSlots += 3;
     try {
-      const launcherResult = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
-        const child = spawnProcess(
-          'powershell.exe',
-          ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', launcher],
-          {
-            windowsHide: true,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            env: {
-              ...process.env,
-              MIXDOG_ELEVATED_TOKEN: nonce,
-              MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
-              MIXDOG_ELEVATED_HOST_SCRIPT: hostScriptPath!,
-              MIXDOG_ELEVATED_HOST_SHA256: sha256(hostBytes),
-              MIXDOG_ELEVATED_REQUEST: requestPath,
-              MIXDOG_ELEVATED_REQUEST_SHA256: sha256(requestBytes),
-              MIXDOG_ELEVATED_RESPONSE: responsePath,
-              MIXDOG_ELEVATED_CANCEL: cancelPath,
-              MIXDOG_ELEVATED_MARKER: RESPONSE_MARKER,
-            },
-          }
-        );
-        let stdout = '';
-        let stderr = '';
-        const appendBounded = (current: string, chunk: Buffer): string =>
-          `${current}${chunk.toString('utf8')}`.slice(-4096);
-        child.stdout.on('data', (chunk: Buffer) => {
-          stdout = appendBounded(stdout, chunk);
-        });
-        child.stderr.on('data', (chunk: Buffer) => {
-          stderr = appendBounded(stderr, chunk);
-        });
-        let cleanupTimer: NodeJS.Timeout | undefined;
-        const timer = setTimeout(() => {
-          try {
-            cancel();
-          } catch {
-            /* parent death also cancels the input child */
-          }
-          cleanupTimer = setTimeout(() => {
-            try {
-              child.kill();
-            } catch {
-              /* launcher already exited */
-            }
-            reject(new Error('privileged_worker_cleanup_unconfirmed: elevated input did not acknowledge cancellation'));
-          }, 6_000);
-        }, 120_000);
-        child.once('error', (error) => {
-          clearTimeout(timer);
-          if (cleanupTimer) clearTimeout(cleanupTimer);
-          if (!child.pid) stopped = true;
-          reject(error);
-        });
-        child.once('exit', (code) => {
-          clearTimeout(timer);
-          if (cleanupTimer) clearTimeout(cleanupTimer);
-          resolve({
-            code: Number(code ?? 1),
-            stdout,
-            stderr,
-          });
-        });
+      const launcherResult = await runElevatedLauncher({
+        spawnProcess,
+        launcher,
+        env: {
+          ...process.env,
+          MIXDOG_ELEVATED_TOKEN: nonce,
+          MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
+          MIXDOG_ELEVATED_HOST_SCRIPT: hostScriptPath!,
+          MIXDOG_ELEVATED_HOST_SHA256: sha256(hostBytes),
+          MIXDOG_ELEVATED_REQUEST: requestPath,
+          MIXDOG_ELEVATED_REQUEST_SHA256: sha256(requestBytes),
+          MIXDOG_ELEVATED_RESPONSE: responsePath,
+          MIXDOG_ELEVATED_CANCEL: cancelPath,
+          MIXDOG_ELEVATED_MARKER: RESPONSE_MARKER,
+        },
+        cancel,
+        onSpawnFailure: () => {
+          stopped = true;
+        },
       });
       let envelope = '';
       try {
         envelope = readFileSync(responsePath, 'utf8');
       } catch {
-        const launcherDetail = `${launcherResult.stderr}\n${launcherResult.stdout}`
-          .trim()
-          .replace(/\s+/g, ' ')
-          .slice(0, 1000);
-        if (launcherResult.code === 1223) {
-          stopped = true;
-          throw new Error('privileged_worker_cancelled: UAC consent was declined');
-        }
-        if (launcherResult.code === 0) {
-          throw new Error('privileged_worker_unavailable: elevated worker returned no response');
-        }
-        throw new Error(
-          `privileged_worker_launcher_failed: elevated worker exited with code ${launcherResult.code}` +
-            (launcherDetail ? ` (${launcherDetail})` : '')
-        );
+        const failure = elevatedLauncherFailure(launcherResult);
+        if (failure.cancelled) stopped = true;
+        throw failure.error;
       }
-      const newline = envelope.indexOf('\n');
-      const responseToken = (newline >= 0 ? envelope.slice(0, newline) : envelope)
-        .replace(/^\uFEFF/, '')
-        .replace(/\r$/, '');
-      const receipt =
-        newline >= 0
-          ? envelope
-              .slice(newline + 1)
-              .trim()
-              .split(/\r?\n/)
-          : [];
-      const responseLine = receipt.slice(1).join('\n');
-      if (responseToken !== nonce) {
-        throw new Error('privileged_worker_rejected: response authentication failed');
-      }
-      if (receipt[0] !== 'STOPPED') {
-        throw new Error('privileged_worker_cleanup_unconfirmed: elevated worker did not confirm termination');
-      }
+      const responseLine = assertElevatedReceipt(envelope, nonce);
       stopped = true;
-      if (responseLine.startsWith('ERROR:')) {
-        throw new Error(`privileged_worker_failed: ${responseLine.slice(6)}`);
-      }
-      const marker = responseLine.indexOf(RESPONSE_MARKER);
-      if (marker < 0) throw new Error('privileged_worker_failed: structured response is missing');
-      const parsed = JSON.parse(responseLine.slice(marker + RESPONSE_MARKER.length)) as PowerShellResponse;
-      if (parsed.id !== id) throw new Error('privileged_worker_rejected: response id mismatch');
-      return parsed;
+      return parseElevatedResponse(responseLine, id);
     } finally {
       job.finish(stopped);
       if (stopped) elevatedSlots -= 3;

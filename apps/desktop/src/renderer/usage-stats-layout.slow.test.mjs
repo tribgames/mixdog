@@ -5,6 +5,22 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { resolveUsageStatsPeriod } from '../../../../src/standalone/usage-stats-period.mjs';
 
+// Vite gives every dynamic import its own chunk, so a surface only loads what
+// it opens. esbuild cannot code-split an `iife` bundle, so it inlines those
+// chunks instead — for this surface that dragged in the editor chunk, and with
+// it Monaco, 16MB of editor sources and Monaco's `?worker` imports, a Vite-only
+// suffix esbuild has no way to resolve. Holding the dynamic-import boundary
+// external reproduces the graph this surface really loads: token usage opens no
+// editor, and a lazy module it did need would surface as a renderer error.
+const lazyChunkBoundary = {
+  name: 'lazy-chunk-boundary',
+  setup(pluginBuild) {
+    pluginBuild.onResolve({ filter: /.*/ }, (args) =>
+      args.kind === 'dynamic-import' ? { path: args.path, external: true } : null
+    );
+  },
+};
+
 test('token usage stays centered and scrollable with titlebar insets, empty results and small viewports', async (t) => {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const [bundle, styles] = await Promise.all([
@@ -53,6 +69,7 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
       format: 'iife',
       jsx: 'automatic',
       define: { 'process.env.NODE_ENV': '"production"' },
+      plugins: [lazyChunkBoundary],
     }),
     build({
       stdin: {

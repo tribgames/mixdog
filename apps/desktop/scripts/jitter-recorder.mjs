@@ -11,10 +11,10 @@
 // tool card's width and visible text — then reports only OSCILLATIONS (a
 // value that moves and comes back), which is what a reader perceives as
 // shaking, plus the text swaps that make a card change width.
+import { optionValue } from './cli-args.mjs';
+
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) =>
-  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
-const port = Number(valueFor('--port') || 9342);
+const port = Number(optionValue('port', argumentsList) || 9342);
 const mode = argumentsList.find((argument) => !argument.startsWith('--')) || 'install';
 
 const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());

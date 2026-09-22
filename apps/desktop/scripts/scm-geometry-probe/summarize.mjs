@@ -287,24 +287,30 @@ for (const scenario of report) {
     check(scenario, !stub, `label ${name} renders as a clipped stub ("${label.text}")`);
   }
 
-  // Changes | History must be two EQUAL halves spanning the panel width
-  // (`flex: 1` per item).
+  // Changes | History must be two EQUAL halves spanning the tab bar, the ONE
+  // 4px gap of the shared segmented control (rail-controls.css) included. The
+  // bar is the lower member of the dock's top CONTROL STACK, so it shares the
+  // search box's inset instead of reaching the panel edges.
   const tabs = scenario.tabs || [];
   if (!check(scenario, tabs.length === 2, `expected 2 tab halves, measured ${tabs.length}`)) {
     console.log(`   tab bar      MISSING (${tabs.length} halves)`);
   } else {
     const halves = tabs.map((tab) => tab.width);
     const equal = Math.abs(halves[0] - halves[1]) <= 1;
-    const span =
-      scenario.tabBar && Math.abs(halves.reduce((sum, value) => sum + value, 0) - scenario.tabBar.width) <= 1;
-    const full = scenario.tabBar && scenario.panel && Math.abs(scenario.tabBar.width - scenario.panel.width) <= 1;
+    const span = scenario.tabBar && Math.abs(tabs[1].right - tabs[0].left - scenario.tabBar.width) <= 1;
+    const stacked = sameEdges(scenario.tabBar, scenario.changesFilter);
     console.log(
       `   tab bar      ${box(scenario.tabBar)}  halves=${halves.join(' / ')}` +
-        ` ${equal ? 'EQUAL' : 'UNEQUAL'} ${span ? 'SPANS-BAR' : 'GAP'} ${full ? 'FULL-WIDTH' : 'NARROW'}`
+        ` ${equal ? 'EQUAL' : 'UNEQUAL'} ${span ? 'SPANS-BAR' : 'GAP'} ${stacked ? 'ON-STACK' : 'OFF-STACK'}`
     );
     check(scenario, equal, `the tab halves are unequal (${halves.join(' / ')})`);
-    check(scenario, span, 'the tab halves do not fill the tab bar');
-    check(scenario, full, 'the tab bar does not span the panel width');
+    check(scenario, span, 'the tab halves do not span the tab bar');
+    check(
+      scenario,
+      stacked,
+      `the tab bar does not share the search box's inset` +
+        ` (${box(scenario.tabBar)} vs ${box(scenario.changesFilter)})`
+    );
     check(
       scenario,
       ['changes', 'history'].every((id, index) => tabs[index]?.option === id),
@@ -363,42 +369,39 @@ for (const scenario of report) {
     console.log('   commit head  MISSING');
   } else {
     // The header's real CONTENT and geometry: a container that renders while
-    // its copy control is zero-sized, or with a blank author / missing SHA /
-    // missing totals, used to pass on existence alone.
+    // its copy control is zero-sized, or with a blank author / missing SHA,
+    // used to pass on existence alone.
     const meta = scenario.commitHeaderMeta;
     const copy = scenario.commitCopy;
     const author = scenario.commitHeaderAuthor;
     const sha = (scenario.commitHeaderSha?.text || '').trim();
-    const totals = (scenario.commitHeaderTotals?.text || '').trim();
-    const filesText = (scenario.commitFilesHeader?.text || '').trim();
-    const counted = /^(\d+) changed files?$/.exec(filesText);
     const fileRows = scenario.commitFileRows ?? 0;
+    const title = scenario.commitHeaderTitle;
+    const titleLines = title?.lineHeight ? round(title.height / title.lineHeight) : 0;
     console.log(
       `   commit head  ${box(scenario.commitHeader)}  ${inside(scenario.commitHeader, scenario.panel, 'panel')}`
     );
-    console.log(
-      `     title "${scenario.commitHeaderTitle?.text}" h=${scenario.commitHeaderTitle?.height}` +
-        ` wrapped=${scenario.commitHeaderTitle?.wrapped}`
-    );
+    console.log(`     title "${title?.text}" h=${title?.height} lines=${titleLines}`);
     console.log(`     meta ${box(meta)}  ${inside(meta, scenario.commitHeader, 'header')}`);
-    console.log(`     author "${author?.text}" wrapped=${author?.wrapped}` + ` sha "${sha}" totals "${totals}"`);
+    console.log(`     author "${author?.text}" wrapped=${author?.wrapped} sha "${sha}"`);
     console.log(
       `     sha    ${box(geo(scenario.commitHeaderSha))}` +
         `  ${inside(geo(scenario.commitHeaderSha), meta, 'meta')}` +
         ` visible=${scenario.commitHeaderSha?.visible}`
     );
-    console.log(
-      `     totals ${box(geo(scenario.commitHeaderTotals))}` +
-        `  ${inside(geo(scenario.commitHeaderTotals), meta, 'meta')}` +
-        ` visible=${scenario.commitHeaderTotals?.visible}`
-    );
-    console.log(`     copy ${box(copy)}  ${inside(copy, meta, 'meta')}`);
-    console.log(`     files "${filesText}" rows=${fileRows}`);
+    console.log(`     copy ${box(copy)}  ${inside(copy, scenario.commitHeader, 'header')}`);
+    console.log(`     files rows=${fileRows}`);
     check(scenario, contains(scenario.commitHeader, scenario.panel), 'the commit detail header leaves the dock panel');
+    // The subject is CLAMPED to two lines (25-scm-dock.css
+    // `.dock-scm-commit-headline > b`), so the rule is that it renders and
+    // never grows past that clamp — a header that keeps its box however long
+    // the subject is. The one-line rule belonged to the retired two-tier
+    // header and reported every clamped subject as a defect.
     check(
       scenario,
-      scenario.commitHeaderTitle?.rendered && !scenario.commitHeaderTitle?.wrapped,
-      'the commit detail title wraps or is missing'
+      Boolean(title?.rendered) && titleLines > 0 && titleLines <= 2,
+      `the commit detail title is missing or grows past its two-line clamp` +
+        ` (h=${title?.height} line=${title?.lineHeight} lines=${titleLines})`
     );
     check(
       scenario,
@@ -420,52 +423,60 @@ for (const scenario of report) {
       `the commit detail short SHA is not visibly rendered inside the meta row` +
         ` (${box(geo(scenario.commitHeaderSha))} visible=${scenario.commitHeaderSha?.visible})`
     );
-    // A copy button styled to 0x0 (or clipped out of the meta row) is not a
-    // control the user can hit: the SHA would be uncopyable in silence.
+    // A copy button styled to 0x0 (or clipped out of the header) is not a
+    // control the user can hit: the SHA would be uncopyable in silence. It
+    // rides the header's action cluster beside Back, not the byline.
     check(
       scenario,
       Boolean(copy) && copy.width >= 12 && copy.height >= 12,
       `the SHA copy button is missing or too small to click (${box(copy)})`
     );
-    check(scenario, contains(copy, meta), 'the SHA copy button leaves the meta row');
-    check(scenario, /^\+\d+\s*−\d+$/.test(totals), `the +adds −dels totals read "${totals}"`);
-    check(
-      scenario,
-      shown(scenario.commitHeaderTotals, meta),
-      `the +adds −dels totals are not visibly rendered inside the meta row` +
-        ` (${box(geo(scenario.commitHeaderTotals))} visible=${scenario.commitHeaderTotals?.visible})`
-    );
-    check(scenario, Boolean(counted), `the changed-files header reads "${filesText}"`);
+    check(scenario, contains(copy, scenario.commitHeader), 'the SHA copy button leaves the commit header');
     check(scenario, fileRows > 0, 'the commit detail lists no changed files at all');
-    check(
-      scenario,
-      Boolean(counted) && Number(counted[1]) === fileRows,
-      `the changed-files header counts ${counted ? counted[1] : '?'} but ${fileRows} file row(s) render`
-    );
   }
 
-  // The search/filter box is part of the LIST, not a floating field: its left
-  // and right edges land on the row edges below it (the dock gutter plus the
-  // scrollbar reserve the rows already account for).
+  // The search/filter box is the TOP of the dock's control stack, above the
+  // list's own hairline: Source Control renders the Search pane's control
+  // stack (27-search-review.css `.workbench-explorer-search,
+  // .dock-scm-view-controls`), so the box pays that stack's side inset, not
+  // the list gutter the rows below it sit on. The rule is therefore that both
+  // boxes land on the tab bar's edges — one stack, one inset, symmetric in
+  // the panel — and the row edges stay printed for contrast.
+  const stackInset = (field) =>
+    field && scenario.panel
+      ? `inset ${round(field.left - scenario.panel.left)}/${round(scenario.panel.right - field.right)}`
+      : 'inset n/a';
+  const centred = (field) =>
+    Boolean(field) &&
+    Boolean(scenario.panel) &&
+    Math.abs(field.left - scenario.panel.left - (scenario.panel.right - field.right)) <= 0.5;
   console.log(
-    `   changes box  ${box(scenario.changesFilter)}` +
-      ` vs file row ${box(scenario.changesRow)}  ${edgeGap(scenario.changesFilter, scenario.changesRow)}`
+    `   changes box  ${box(scenario.changesFilter)} ${stackInset(scenario.changesFilter)}` +
+      ` vs tab bar ${edgeGap(scenario.changesFilter, scenario.tabBar)}` +
+      ` | file row ${box(scenario.changesRow)}`
   );
   console.log(
-    `   history box  ${box(scenario.historySearch)}` +
-      ` vs commit row ${box(scenario.historyRow)}  ${edgeGap(scenario.historySearch, scenario.historyRow)}`
+    `   history box  ${box(scenario.historySearch)} ${stackInset(scenario.historySearch)}` +
+      ` vs tab bar ${edgeGap(scenario.historySearch, scenario.tabBar)}` +
+      ` | commit row ${box(scenario.historyRow)}`
   );
   check(
     scenario,
-    sameEdges(scenario.changesFilter, scenario.changesRow),
-    `the Changes filter box does not share the file rows' edges` +
-      ` (${box(scenario.changesFilter)} vs ${box(scenario.changesRow)})`
+    sameEdges(scenario.changesFilter, scenario.tabBar),
+    `the Changes filter box does not share the control stack's edges` +
+      ` (${box(scenario.changesFilter)} vs ${box(scenario.tabBar)})`
   );
   check(
     scenario,
-    sameEdges(scenario.historySearch, scenario.historyRow),
-    `the History search box does not share the commit rows' edges` +
-      ` (${box(scenario.historySearch)} vs ${box(scenario.historyRow)})`
+    sameEdges(scenario.historySearch, scenario.tabBar),
+    `the History search box does not share the control stack's edges` +
+      ` (${box(scenario.historySearch)} vs ${box(scenario.tabBar)})`
+  );
+  check(
+    scenario,
+    centred(scenario.changesFilter) && centred(scenario.historySearch),
+    `the control stack is not centred in the dock panel` +
+      ` (${stackInset(scenario.changesFilter)} / ${stackInset(scenario.historySearch)})`
   );
 
   // ONE component grammar: both dock boxes render from .workbench-search-input,

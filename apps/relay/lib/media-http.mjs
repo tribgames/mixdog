@@ -6,7 +6,6 @@
 // buys the browser cache, parallel fetches and Range seeking that a base64
 // capability answer can never have: a tile re-paints from cache, and a video
 // starts playing from the first range instead of after a full download.
-import { createReadStream, statSync } from 'node:fs';
 
 const MEDIA_ROUTE = /^\/media\/([0-9a-fA-F-]{8,64})$/;
 const ALLOWED_VARIANTS = new Set(['original', 'thumb', 'display']);
@@ -105,31 +104,4 @@ export function mediaResponsePlan(input) {
     start,
     end,
   };
-}
-
-/** Stream one resolved media file, honouring Range / If-None-Match / HEAD. */
-export function sendMediaFile(request, response, { path, mime, assetId, variant }) {
-  let size;
-  try {
-    size = statSync(path).size;
-  } catch {
-    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found.');
-    return;
-  }
-  const plan = mediaResponsePlan({
-    size,
-    mime,
-    assetId,
-    variant,
-    rangeHeader: request.headers.range,
-    ifNoneMatch: request.headers['if-none-match'],
-  });
-  response.writeHead(plan.status, plan.headers);
-  if (plan.status >= 300 || request.method === 'HEAD') {
-    response.end();
-    return;
-  }
-  createReadStream(path, { start: plan.start, end: plan.end })
-    .on('error', () => response.destroy())
-    .pipe(response);
 }

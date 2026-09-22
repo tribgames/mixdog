@@ -245,8 +245,11 @@ const settleFrames = async () => {
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
-const rectOf = (selector: string) => {
-  const element = document.querySelector(selector);
+/** The report's ONE rectangle shape. Every measured box is rounded to the same
+ *  six fields, because `summarize.mjs` compares boxes taken from different
+ *  surfaces against each other (`contains`, `sameEdges`, `withinX`): a field
+ *  added to one measurement but not another would silently break those rules. */
+const rectFrom = (element: Element | null) => {
   if (!element) return null;
   const rect = element.getBoundingClientRect();
   return {
@@ -258,6 +261,8 @@ const rectOf = (selector: string) => {
     height: round(rect.height),
   };
 };
+
+const rectOf = (selector: string) => rectFrom(document.querySelector(selector));
 
 const click = async (selector: string) => {
   const element = document.querySelector<HTMLElement>(selector);
@@ -283,19 +288,7 @@ const labelReport = (selector: string) => {
   };
 };
 
-const rectIn = (row: Element, selector: string) => {
-  const element = row.querySelector(selector);
-  if (!element) return null;
-  const rect = element.getBoundingClientRect();
-  return {
-    left: round(rect.left),
-    top: round(rect.top),
-    right: round(rect.right),
-    bottom: round(rect.bottom),
-    width: round(rect.width),
-    height: round(rect.height),
-  };
-};
+const rectIn = (row: Element, selector: string) => rectFrom(row.querySelector(selector));
 
 /** A search/filter box PLUS the insets that make it one component: the box
  *  rectangle (so the row-edge rules keep working), its painted height, its
@@ -342,6 +335,9 @@ const lineReport = (element: Element | null, name: string) => {
     name,
     rendered: rect.width > 0 && rect.height > 0,
     visible: rect.width > 0 && rect.height > 0 && painted,
+    // The commit subject is allowed TWO lines (a -webkit-line-clamp box), so
+    // its rule counts line boxes instead of asking for an unwrapped line.
+    lineHeight: round(Number.parseFloat(style.lineHeight) || 0),
     text: box.textContent || '',
     left: round(rect.left),
     top: round(rect.top),
@@ -476,26 +472,16 @@ const measure = async (scenario: {
         ) || '',
     })),
     syncBands: document.querySelectorAll('.dock-scm-sync').length,
-    // Changes tab: the shared filter box must share the file rows' EDGES
-    // (the dock gutter + the scrollbar reserve the rows sit inside of), and
-    // it is the SAME component as the History box (height + insets).
-    changesFilter: searchBoxReport('.dock-scm-filter'),
+    // Changes tab: the shared filter box is the top of the dock's CONTROL
+    // STACK, so it shares the Changes | History bar's edges, and it is the
+    // SAME component as the History box (height + insets).
+    changesFilter: searchBoxReport('.dock-scm-search'),
     changesRow: rectOf('.dock-scm-file'),
     // The select-all header checkbox and EVERY row checkbox must sit on one x
     // column: same gutter, same box width, so the left edge reads as one
     // column (jsdom cannot measure this either).
     checkAll: rectOf('.dock-scm-check-all input[type="checkbox"]'),
-    rowChecks: [...document.querySelectorAll('.dock-scm-file-check')].map((node) => {
-      const rect = node.getBoundingClientRect();
-      return {
-        left: round(rect.left),
-        top: round(rect.top),
-        right: round(rect.right),
-        bottom: round(rect.bottom),
-        width: round(rect.width),
-        height: round(rect.height),
-      };
-    }),
+    rowChecks: [...document.querySelectorAll('.dock-scm-file-check')].map(rectFrom),
     // Path truncation (ScmPathText): jsdom cannot tell
     // whether the FILE NAME survived the narrow dock, so the name box, the
     // path column it sits in and the tooltip are measured here.
@@ -609,7 +595,7 @@ const measure = async (scenario: {
     graphRail: Boolean(row.querySelector('svg.dock-scm-graph')),
   }));
   // History tab: same rule for the sticky `Search commits` box.
-  report.historySearch = searchBoxReport('.dock-scm-history-search > .workbench-search-input');
+  report.historySearch = searchBoxReport('.dock-scm-search');
   report.historyRow = rectOf('.dock-scm-history .dock-scm-commit-row');
   report.historyRendered = document.querySelectorAll('.dock-scm-history .dock-scm-commit-row').length;
   report.historyScroll = scrollMetrics('.dock-scm-history');
@@ -629,7 +615,8 @@ const measure = async (scenario: {
     await frames();
   }
 
-  // Commit detail header (title, author, short SHA + copy, totals).
+  // Commit detail header (title, author, short SHA, and the copy control in
+  // the header's action cluster beside Back).
   const firstRow = document.querySelector<HTMLElement>('.dock-scm-commit-row');
   if (firstRow) {
     firstRow.click();
@@ -639,13 +626,13 @@ const measure = async (scenario: {
   report.commitHeader = rectOf('.dock-scm-commit-header');
   report.commitHeaderTitle = lineReport(document.querySelector('.dock-scm-commit-headline > b'), 'detail-title');
   report.commitHeaderMeta = rectOf('.dock-scm-commit-meta');
-  report.commitFilesHeader = lineReport(document.querySelector('.dock-scm-commit-files-header'), 'changed-files');
-  report.commitCopy = rectOf('.dock-scm-commit-copy');
-  // The header's CONTENT, not just its boxes: author, short SHA and the
-  // +adds/−dels totals, plus the file rows the `N changed files` line counts.
+  // Copying lives in the header's action cluster, not on the byline SHA
+  // (source-control-commit-detail.tsx) — the Back button is its sibling.
+  report.commitCopy = rectOf('.dock-scm-commit-action:not(.dock-scm-commit-back)');
+  // The header's CONTENT, not just its boxes: author and short SHA, plus the
+  // file rows the detail lists.
   report.commitHeaderAuthor = lineReport(document.querySelector('.dock-scm-commit-author > span'), 'detail-author');
   report.commitHeaderSha = lineReport(document.querySelector('.dock-scm-commit-sha code'), 'detail-sha');
-  report.commitHeaderTotals = lineReport(document.querySelector('.dock-scm-commit-lines'), 'detail-totals');
   report.commitFileRows = document.querySelectorAll('.dock-scm-commit-file').length;
   const back = document.querySelector<HTMLElement>('.dock-scm-commit-back');
   if (back) {

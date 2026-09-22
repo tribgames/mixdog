@@ -156,6 +156,121 @@ function browserUrlPolicyFromEnvironment(): BrowserUrlPolicy {
   };
 }
 
+/** Validate and normalize one command before any page work: the action and the
+ *  session that owns it, whether screenshot options are allowed here, the
+ *  postcondition, and where it runs (visible tab vs named background page). */
+function prepareBrowserCommand(command: BrowserCommand): {
+  action: string;
+  ownerSessionId: string;
+  hasScreenshotOptions: boolean;
+  expected: ReturnType<typeof normalizeBrowserPostcondition>;
+  background: BrowserCommand['background'];
+  tab: string;
+} {
+  const action = normalizeBrowserAction(command);
+  if (!action) throw new Error('browser command requires action');
+  const ownerSessionId = browserSessionId(command.session_id);
+  const hasScreenshotOptions = ['fullPage', 'format', 'quality'].some((name) => Object.hasOwn(command, name));
+  if (action !== 'snapshot' && hasScreenshotOptions && command.includeScreenshot !== true) {
+    throw new Error(`${action} screenshot options require includeScreenshot=true`);
+  }
+  normalizeBrowserSettleMs(command.settleMs);
+  const expected = normalizeBrowserPostcondition(command.expect);
+  if (expected && !POSTCONDITION_ACTIONS.has(action)) {
+    throw new Error(`expect is not supported for browser action "${action}"`);
+  }
+  // Foreground drives and reveals the visible tab; background drives a
+  // hidden offscreen page on the same partition without taking the screen.
+  const background = action === 'open' && command.background !== true ? false : command.background;
+  return { action, ownerSessionId, hasScreenshotOptions, expected, background, tab: String(command.tab || '').trim() };
+}
+
+/** A fixed pane viewport becomes a full emulation command; a cleared one resets
+ *  emulation so the guest goes back to following the pane's own size. */
+function browserViewportEmulation(config: DesktopBrowserViewportConfig): BrowserCommand {
+  const fixedViewport =
+    config.width !== null && config.height !== null ? { width: config.width, height: config.height } : null;
+  const orientation = fixedViewport && fixedViewport.width > fixedViewport.height ? 'landscape' : 'portrait';
+  return {
+    action: 'emulate',
+    reset: true,
+    ...(fixedViewport
+      ? {
+          ...fixedViewport,
+          deviceScaleFactor: config.deviceScaleFactor,
+          mobile: config.mobile,
+          touch: config.touch,
+          userAgent: config.userAgent ?? '',
+          orientation,
+        }
+      : {}),
+  };
+}
+
+/** A task cleanup context must name a session and a real turn, and carry
+ *  nothing beyond its abort flag. */
+function assertBrowserTaskCleanupContext(sessionId: unknown, turnId: unknown, input: Record<string, unknown>): void {
+  if (
+    !sessionId ||
+    !Number.isSafeInteger(turnId) ||
+    Number(turnId) <= 0 ||
+    Object.keys(input).some((key) => key !== 'action' && key !== 'aborted')
+  ) {
+    throw new Error('Invalid browser task cleanup context.');
+  }
+}
+
+/** Everything still running for one session — queued commands and in-flight
+ *  reads — which a turn's cleanup waits out before closing its pages. */
+function pendingSessionWork(
+  prefix: string,
+  chains: Map<string, Promise<unknown>>,
+  reads: Map<string, Set<Promise<unknown>>>
+): Promise<unknown>[] {
+  return [
+    ...[...chains].filter(([key]) => key.startsWith(prefix)).map(([, task]) => task),
+    ...[...reads].filter(([key]) => key.startsWith(prefix)).flatMap(([, tasks]) => [...tasks]),
+  ];
+}
+
+/** How a queued human input competes with agent commands: releases must still
+ *  finish an already-sent press, even after a slow command. Typing retains its
+ *  order behind that input; only pointer gestures expire while queued. */
+function browserLocalInputOptions(input: DesktopBrowserPageControl): {
+  takeover: boolean;
+  dropIfBusy?: boolean;
+  held?: boolean;
+  maxWaitMs?: number;
+} {
+  const release = input.type === 'pointer' && input.phase === 'mouseReleased';
+  const hover = input.type === 'pointer' && input.phase === 'mouseMoved' && input.buttons === 0;
+  return {
+    takeover: !hover,
+    dropIfBusy: hover,
+    ...(input.type === 'pointer' && input.phase !== 'mouseMoved' ? { held: !release } : {}),
+    maxWaitMs: release || browserTypingInput(input) ? undefined : BROWSER_INPUT_WAIT_MS,
+  };
+}
+
+/** Chromium keeps persistent cookies and localStorage for the partition on
+ *  its own; session cookies — most sign-ins — die with the process unless
+ *  the host carries them across a restart itself. */
+function createBrowserRestartState(
+  cookieJar: ReturnType<typeof createBrowserCookieJar>,
+  onDiagnostic?: (event: string, data: Record<string, unknown>) => void
+) {
+  const sessionStore = createBrowserSessionStore({
+    cookies: cookieJar,
+    directory: join(app.getPath('userData'), 'browser-state'),
+  });
+  void sessionStore.restore().catch((error) => {
+    onDiagnostic?.('browser-session-restore-failed', {
+      error: redactBrowserText((error as Error).message || String(error)),
+    });
+  });
+  return { sessionStore, stopSessionAutosave: sessionStore.startAutosave() };
+}
+
 export function createBrowserHost(
   window: BrowserWindow,
   options: {
@@ -199,19 +314,7 @@ export function createBrowserHost(
   });
   const { session: partitionSession, downloadLedger } = partition;
   const cookieJar = createBrowserCookieJar(partitionSession);
-  // Chromium keeps persistent cookies and localStorage for the partition on
-  // its own; session cookies — most sign-ins — die with the process unless
-  // the host carries them across a restart itself.
-  const sessionStore = createBrowserSessionStore({
-    cookies: cookieJar,
-    directory: join(app.getPath('userData'), 'browser-state'),
-  });
-  void sessionStore.restore().catch((error) => {
-    options.onDiagnostic?.('browser-session-restore-failed', {
-      error: redactBrowserText((error as Error).message || String(error)),
-    });
-  });
-  const stopSessionAutosave = sessionStore.startAutosave();
+  const { sessionStore, stopSessionAutosave } = createBrowserRestartState(cookieJar, options.onDiagnostic);
   const profileImporter = new BrowserProfileImportService({
     userDataDirectory: app.getPath('userData'),
     temporaryDirectory: app.getPath('temp'),
@@ -539,22 +642,7 @@ export function createBrowserHost(
   };
 
   async function runCommand(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult> {
-    const action = normalizeBrowserAction(command);
-    if (!action) throw new Error('browser command requires action');
-    const ownerSessionId = browserSessionId(command.session_id);
-    const hasScreenshotOptions = ['fullPage', 'format', 'quality'].some((name) => Object.hasOwn(command, name));
-    if (action !== 'snapshot' && hasScreenshotOptions && command.includeScreenshot !== true) {
-      throw new Error(`${action} screenshot options require includeScreenshot=true`);
-    }
-    normalizeBrowserSettleMs(command.settleMs);
-    const expected = normalizeBrowserPostcondition(command.expect);
-    if (expected && !POSTCONDITION_ACTIONS.has(action)) {
-      throw new Error(`expect is not supported for browser action "${action}"`);
-    }
-    // Foreground drives and reveals the visible tab; background drives a
-    // hidden offscreen page on the same partition without taking the screen.
-    const background = action === 'open' && command.background !== true ? false : command.background;
-    const tab = String(command.tab || '').trim();
+    const { action, ownerSessionId, hasScreenshotOptions, expected, background, tab } = prepareBrowserCommand(command);
     // Tab-less bookkeeping actions never open or create a page.
     if (TABLESS_ACTIONS.has(action)) {
       await approvals.approve(command, () => ({ url: '', identity: ownerSessionId }), signal);
@@ -688,20 +776,9 @@ export function createBrowserHost(
       // Runtime-only lifecycle message: deliberately absent from tool schemas.
       if (command.action === 'finish_turn') {
         const owner = browserSessionId(session_id);
-        if (
-          !session_id ||
-          !Number.isSafeInteger(turn_id) ||
-          Number(turn_id) <= 0 ||
-          Object.keys(input).some((key) => key !== 'action' && key !== 'aborted')
-        ) {
-          throw new Error('Invalid browser task cleanup context.');
-        }
+        assertBrowserTaskCleanupContext(session_id, turn_id, input as Record<string, unknown>);
         const aborted = (input as Record<string, unknown>).aborted === true;
-        const prefix = `session:${owner}:`;
-        const pending = [
-          ...[...commandChains].filter(([key]) => key.startsWith(prefix)).map(([, task]) => task),
-          ...[...pendingReads].filter(([key]) => key.startsWith(prefix)).flatMap(([, tasks]) => [...tasks]),
-        ];
+        const pending = pendingSessionWork(`session:${owner}:`, commandChains, pendingReads);
         return Promise.allSettled(pending).then(() => ({
           text: `Browser task cleanup complete: ${taskLifecycle.finish(owner, Number(turn_id), { aborted })} temporary page(s) closed.`,
         }));
@@ -788,17 +865,12 @@ export function createBrowserHost(
           signal
         );
       }
-      // Releases must still finish an already-sent press, even after a slow
-      // command. Typing retains its order behind that input; only pointer
-      // gestures expire while queued. Dispatch itself remains bounded.
-      const release = input.type === 'pointer' && input.phase === 'mouseReleased';
-      const hover = input.type === 'pointer' && input.phase === 'mouseMoved' && input.buttons === 0;
-      return executeLocal(command, (signal) => pageSurface.control(owner, input, signal), {
-        takeover: !hover,
-        dropIfBusy: hover,
-        ...(input.type === 'pointer' && input.phase !== 'mouseMoved' ? { held: !release } : {}),
-        maxWaitMs: release || browserTypingInput(input) ? undefined : BROWSER_INPUT_WAIT_MS,
-      });
+      // Dispatch itself remains bounded.
+      return executeLocal(
+        command,
+        (signal) => pageSurface.control(owner, input, signal),
+        browserLocalInputOptions(input)
+      );
     },
     setBridgeEnabled(enabled: boolean): void {
       if (disposed || bridgeWanted === enabled) return;
@@ -841,23 +913,7 @@ export function createBrowserHost(
       if (!guest || guest.id !== webContentsId) {
         throw new Error('Browser guest is unavailable.');
       }
-      const fixedViewport =
-        config.width !== null && config.height !== null ? { width: config.width, height: config.height } : null;
-      const orientation = fixedViewport && fixedViewport.width > fixedViewport.height ? 'landscape' : 'portrait';
-      await emulation.configureEmulation(guest, {
-        action: 'emulate',
-        reset: true,
-        ...(fixedViewport
-          ? {
-              ...fixedViewport,
-              deviceScaleFactor: config.deviceScaleFactor,
-              mobile: config.mobile,
-              touch: config.touch,
-              userAgent: config.userAgent ?? '',
-              orientation,
-            }
-          : {}),
-      });
+      await emulation.configureEmulation(guest, browserViewportEmulation(config));
     },
     browserClearData(scopes: readonly BrowserDataScope[]): Promise<BrowserDataClearResult> {
       return partition.clearBrowsingData(scopes, {

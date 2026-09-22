@@ -61,10 +61,14 @@ The rules the overlays must keep:
 - no toolbar label renders as a clipped 1–2 character stub.
 - the old panel-header Fetch is absent, so Fetch appears exactly once in its
   fixed toolbar section.
-- the search box is part of the LIST: the Changes `Filter` box shares the
-  changed-file rows' left/right edges and the History `Search commits` box
-  shares the commit rows' edges (the dock's `--dock-scm-gutter` plus the
-  scrollbar reserve the rows already sit inside of), at every dock width,
+- the search box is the TOP of the dock's control stack, not part of the list:
+  Source Control renders the Search pane's control stack
+  (`.workbench-explorer-search, .dock-scm-view-controls`, 27-search-review.css),
+  so the Changes `Filter` box and the History `Search commits` box pay that
+  stack's side inset — they land on the `Changes | History` bar's left/right
+  edges and stay symmetric in the panel, at every dock width. They do NOT sit
+  on the row edges: the rows below the stack's hairline keep the list's own
+  `--dock-scm-gutter` plus scrollbar reserve, which is a smaller inset,
 - and both dock boxes are ONE component: rendered from the shared
   `.workbench-search-input` rule (the Search pane's `Search files` box is the
   reference shape), they agree within 1px on height, inner padding, hairline
@@ -96,21 +100,26 @@ The rules the overlays must keep:
 It also measures the History surface, which has the same "no layout engine in
 jsdom" problem:
 
-- `Changes | History` are two EQUAL halves that span the whole panel width
-  (`EQUAL SPANS-BAR FULL-WIDTH`),
+- `Changes | History` are two EQUAL halves that span the tab bar edge to edge
+  with the segmented control's single 4px gap between them, and the bar shares
+  the search box's inset as the stack's lower member (`EQUAL SPANS-BAR
+  ON-STACK`),
 - every history row keeps ONE fixed height with no wrapped title or byline
   (`FIXED no-wrap`) and no commit-graph rail (`no-rail`) — long subjects and
   ref badges ellipsize inside the row instead of growing it. The rows carry no
   author monogram; an unpushed row ends in the round push button
   (`unpushed=true`), which must not change the row height either,
-- the commit detail header stays inside the panel with an unwrapped title, and
-  its meta row really carries the content it advertises: a non-blank unwrapped
-  author, a hex short SHA, a copy button that is at least 12x12 and inside the
-  meta row, `+adds −dels` totals, and an `N changed files` line whose count
-  matches the number of file rows actually rendered. The SHA and the totals are
-  additionally asserted to be PAINTED (not `display:none` / `visibility:hidden`
-  / `opacity:0`), at least 12x8, and contained in the meta row — text content
-  alone survives a field hidden by CSS.
+- the commit detail header stays inside the panel with its subject inside the
+  two-line clamp (`.dock-scm-commit-headline > b`), and its meta row really
+  carries the content it advertises: a non-blank unwrapped author and a hex
+  short SHA, with a copy button that is at least 12x12 and inside the header —
+  copying lives in the header's action cluster beside Back, not on the byline
+  SHA. The SHA is additionally asserted to be PAINTED (not `display:none` /
+  `visibility:hidden` / `opacity:0`), at least 12x8, and contained in the meta
+  row — text content alone survives a field hidden by CSS. The commit lists its
+  changed files as rows; the `+adds −dels` totals and the `N changed files`
+  line are gone from the product on purpose (the two-tier header was retired in
+  fc59fa078 / 28b8bd435) and are not measured.
 
 Not covered: colours, hover/focus states, the diff bodies behind each file row
 and the clipboard write itself — the probe measures layout and rendered text.

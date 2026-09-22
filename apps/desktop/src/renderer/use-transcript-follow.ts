@@ -268,6 +268,27 @@ function reattachBand(element: HTMLElement): number {
   return Math.max(REATTACH_THRESHOLD_PX, Math.round(element.clientHeight * 0.12));
 }
 
+/** Has the viewport arrived back at the tail? A transcript that no longer
+ *  overflows holds no reading position at all, the ten-pixel band IS the
+ *  bottom, and a DOWNWARD arrival is judged against the wider band: while a
+ *  turn streams, the bottom keeps moving away between the reader's last scroll
+ *  frame and the handler, so the narrow band could never be met on the way
+ *  back. Re-attaching only flips the flag; nothing here writes scrollTop. */
+function scrollShouldReattachFollow(element: HTMLElement, previousTop: number): boolean {
+  if (!canScroll(element)) return true;
+  const distance = distanceFromBottom(element);
+  if (distance < BOTTOM_THRESHOLD_PX) return true;
+  return element.scrollTop > previousTop && distance <= reattachBand(element);
+}
+
+/** Is the tail far enough out of sight to offer the jump? One viewport, and
+ *  never less than 400px, on a transcript that actually overflows. */
+function jumpButtonVisible(element: HTMLElement): boolean {
+  const max = element.scrollHeight - element.clientHeight;
+  if (max <= 1) return false;
+  return max - element.scrollTop > Math.max(400, element.clientHeight);
+}
+
 interface TranscriptFollow {
   following: boolean;
   followingRef: RefObject<boolean>;
@@ -499,10 +520,7 @@ export function useTranscriptFollow({
   const pause = useCallback(() => stop('pause'), [stop]);
 
   const updateScrollState = useCallback((element: HTMLDivElement) => {
-    const max = element.scrollHeight - element.clientHeight;
-    const distance = max - element.scrollTop;
-    const overflow = max > 1;
-    const jump = overflow && distance > Math.max(400, element.clientHeight);
+    const jump = jumpButtonVisible(element);
     setShowJump((current) => (current === jump ? current : jump));
   }, []);
 
@@ -560,21 +578,9 @@ export function useTranscriptFollow({
     if (!followingRef.current) {
       // The timeline's own corrective writes are not the reader coming back.
       if (programmaticScroll) return;
-      // Re-attaching only flips the flag — it never writes scrollTop, so the
-      // reader's offset is never rolled back; the tail is regained by the next
-      // append instead of a jump.
-      const distance = distanceFromBottom(element);
-      if (
-        !canScroll(element) ||
-        distance < BOTTOM_THRESHOLD_PX ||
-        // A DOWNWARD arrival re-attaches from a wider band: while a turn
-        // streams, the bottom keeps moving away between the reader's last
-        // scroll frame and this handler, so the ten-pixel band alone could
-        // never be met on the way back.
-        (element.scrollTop > previousTop && distance <= reattachBand(element))
-      ) {
-        publish(true);
-      }
+      // The tail is regained by the next append instead of a jump: the reader's
+      // offset is never rolled back.
+      if (scrollShouldReattachFollow(element, previousTop)) publish(true);
       return;
     }
     // A content click must not open the gesture window: a stream wobble in

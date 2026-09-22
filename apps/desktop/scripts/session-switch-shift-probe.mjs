@@ -8,13 +8,13 @@
 // scrollTop/scrollTo so every programmatic write is attributed to its caller.
 // The output tells whether a visible up/down shift comes from measurement
 // growth (scrollHeight), from a scroll writer, or from late row geometry.
+import { optionValue } from './cli-args.mjs';
+
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) =>
-  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
-const port = Number(valueFor('--port') || 9342);
-const rowIndex = Number(valueFor('--index') || 0);
-const settleMs = Number(valueFor('--settle') || 2500);
-const traceMs = Number(valueFor('--trace') || 0);
+const port = Number(optionValue('port', argumentsList) || 9342);
+const rowIndex = Number(optionValue('index', argumentsList) || 0);
+const settleMs = Number(optionValue('settle', argumentsList) || 2500);
+const traceMs = Number(optionValue('trace', argumentsList) || 0);
 
 const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => {
   if (!response.ok) throw new Error(`CDP target list failed with HTTP ${response.status}.`);

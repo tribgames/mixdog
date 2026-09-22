@@ -3,12 +3,10 @@ import { dirname, relative, resolve } from 'node:path';
 
 import { optionValue } from './cli-args.mjs';
 
-const argument = optionValue;
-
-const label = argument('label') || 'merged';
-const output = resolve(argument('output') || `scenario-${label}.json`);
+const label = optionValue('label') || 'merged';
+const output = resolve(optionValue('output') || `scenario-${label}.json`);
 const passOverrides = new Set(
-  argument('pass-overrides')
+  optionValue('pass-overrides')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean)

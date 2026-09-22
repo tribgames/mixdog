@@ -8,7 +8,8 @@
   "main": "server.mjs",
   "scripts": {
     "stage:web": "node scripts/stage-web.mjs",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test": "node ../../scripts/test.mjs"
   },
   "engines": {
     "node": ">=22.0.0"

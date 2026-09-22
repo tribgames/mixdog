@@ -31,7 +31,7 @@ app.whenReady().then(async () => {
         const dialog = document.querySelector('[data-feature-id="localProvider"]');
         const body = dialog.querySelector('.extensions-dialog-body');
         const rect = dialog.getBoundingClientRect();
-        const buttons = [...dialog.querySelectorAll('.local-provider-actions button')].map(el => {
+        const buttons = [...dialog.querySelectorAll('.extensions-action')].map(el => {
           const r = el.getBoundingClientRect(), css = getComputedStyle(el);
           return { x:r.x, y:r.y, width:r.width, height:r.height, background:css.backgroundColor, radius:css.borderRadius };
         });
@@ -52,7 +52,12 @@ app.whenReady().then(async () => {
         failures.push('dialog outside viewport');
       if (/PC 사양 확인 중|Checking hardware/.test(state.text)) failures.push('hardware polling message exposed');
       if (state.nativeSelects) failures.push('native selector exposed');
-      if (state.buttons.length !== 3 || new Set(state.buttons.map((b) => Math.round(b.y))).size !== 1)
+      // The installed-model row carries TWO in-card actions — the context
+      // `Apply` and `Delete` — on one baseline. The three-button
+      // `.local-provider-actions` row this count was written for is gone:
+      // repair and verification are chat-driven through the local-provider
+      // skill (src/renderer/settings/local-provider-model-row.tsx).
+      if (state.buttons.length !== 2 || new Set(state.buttons.map((b) => Math.round(b.y))).size !== 1)
         failures.push('actions are not on one compact row');
       win.webContents.invalidate();
       await evaluate('window.localProviderProbe.settle()');

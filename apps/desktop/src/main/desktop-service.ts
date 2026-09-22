@@ -63,6 +63,205 @@ interface DesktopServiceAdapter {
   dispose(reason?: string): Promise<void>;
 }
 
+/** The window process owns the approval dialog, so a claim is published as an
+ *  event and answered later. One live prompt per container: a duplicate
+ *  delivery joins the decision already on screen, a newer claim replaces the
+ *  key its reloaded page can no longer use, and every claim expires by itself
+ *  so an unanswered dialog cannot outlive the request it answers. */
+function createRemoteClaimArbiter(publish: (claim: RemoteClientClaim) => void) {
+  // claimId -> settle(approved). One entry lives only as long as the approval
+  // dialog it belongs to.
+  const pendingClaims = new Map<
+    string,
+    {
+      clientId: string;
+      claim: RemoteClientClaim;
+      promise: Promise<boolean>;
+      settle(approved: boolean): void;
+    }
+  >();
+  return {
+    claim(claim: RemoteClientClaim): Promise<boolean> {
+      // A duplicate delivery shares the decision already on screen. Resolving
+      // it false would deny the original claim before the user can answer it.
+      const existing = pendingClaims.get(claim.claimId);
+      if (existing) return existing.promise;
+
+      // One container can have only one live prompt. A newer request replaces
+      // an older key that its reloaded page can no longer use.
+      for (const pending of [...pendingClaims.values()]) {
+        if (pending.clientId === claim.clientId) pending.settle(false);
+      }
+
+      const now = Date.now();
+      const relayExpiresAt =
+        Number.isFinite(claim.expiresAt) && claim.expiresAt > now ? claim.expiresAt : now + REMOTE_CLAIM_TIMEOUT_MS;
+      const expiresAt = Math.min(relayExpiresAt, now + REMOTE_CLAIM_TIMEOUT_MS);
+      let resolveClaim!: (approved: boolean) => void;
+      const promise = new Promise<boolean>((resolve) => {
+        resolveClaim = resolve;
+      });
+      let timer: NodeJS.Timeout | null = null;
+      const settle = (approved: boolean): void => {
+        if (!pendingClaims.delete(claim.claimId)) return;
+        if (timer) clearTimeout(timer);
+        resolveClaim(approved);
+      };
+      timer = setTimeout(() => settle(false), Math.max(0, expiresAt - now));
+      timer.unref?.();
+      pendingClaims.set(claim.claimId, {
+        clientId: claim.clientId,
+        claim: { ...claim, expiresAt },
+        promise,
+        settle,
+      });
+      publish({ ...claim, expiresAt });
+      return promise;
+    },
+    /** Claims still awaiting an answer, as the window should show them. */
+    list(now: number): RemoteClientClaim[] {
+      return [...pendingClaims.values()].map((pending) => pending.claim).filter((claim) => claim.expiresAt > now);
+    },
+    resolve(claimId: string, approved: boolean): boolean {
+      const pending = pendingClaims.get(claimId);
+      if (!pending) return false;
+      pending.settle(approved);
+      return true;
+    },
+  };
+}
+
+/** Desktop Browser Use runs in the window process: a remote request travels out
+ *  as an event and its answer returns as an operation. Each request is bounded,
+ *  so a window that never answers fails the call instead of holding it open. */
+function createBrowserRemoteRequests(
+  publish: (request: { id: string; method: 'frame' | 'control' | 'release'; args: unknown[] }) => void
+) {
+  let nextRequestId = 0;
+  const pendingRequests = new Map<
+    string,
+    {
+      resolve(value: unknown): void;
+      reject(error: Error): void;
+      timer: NodeJS.Timeout;
+    }
+  >();
+  return {
+    request(method: 'frame' | 'control' | 'release', args: unknown[]): Promise<unknown> {
+      const id = `browser_remote_${++nextRequestId}`;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pendingRequests.delete(id);
+          reject(new Error('Desktop Browser Use did not answer the remote request.'));
+        }, 20_000);
+        timer.unref?.();
+        pendingRequests.set(id, { resolve, reject, timer });
+        publish({ id, method, args });
+      });
+    },
+    settle(id: string, ok: boolean, value: unknown, error: unknown): boolean {
+      const pending = pendingRequests.get(id);
+      if (!pending) return false;
+      pendingRequests.delete(id);
+      clearTimeout(pending.timer);
+      if (ok) pending.resolve(value);
+      else pending.reject(new Error(String(error || 'Desktop Browser Use failed.')));
+      return true;
+    },
+    rejectAll(reason: string): void {
+      for (const [id, pending] of pendingRequests) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(reason));
+        pendingRequests.delete(id);
+      }
+    },
+  };
+}
+
+/** Per-session transcript deltas: one encoder per session, the last snapshot it
+ *  encoded, and where that snapshot came from. Every session-state frame the
+ *  service emits is built here, which is what lets a resync rebuild the same
+ *  frame from a reset encoder instead of asking the host again. */
+function createSessionStatePublisher(emit: (message: DesktopServiceOutbound) => void) {
+  const encoders = new Map<string, SnapshotDeltaEncoder>();
+  const latestSnapshots = new Map<string, SessionSnapshot>();
+  const latestProvenance = new Map<
+    string,
+    {
+      frameSource: 'live' | 'replay';
+      contentRevision?: number;
+    }
+  >();
+  const post = (update: DesktopSessionStateUpdate): void => {
+    const { sessionId, snapshot } = update;
+    let encoder = encoders.get(sessionId);
+    if (!encoder) encoder = createSnapshotDeltaEncoder();
+    if (snapshot === null) {
+      emit({
+        kind: 'session-state',
+        sessionId,
+        wire: encoder.encode(null),
+        frameSource: update.frameSource,
+        ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
+        ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
+      });
+      encoders.delete(sessionId);
+      latestSnapshots.delete(sessionId);
+      latestProvenance.delete(sessionId);
+      return;
+    }
+    encoders.set(sessionId, encoder);
+    latestSnapshots.set(sessionId, snapshot);
+    latestProvenance.set(sessionId, update);
+    const wire = encoder.encode(snapshot);
+    reportTranscriptRead(sessionId, update.readTraceId, isNoDelta(wire) ? 'service-unchanged' : 'service-send');
+    if (isNoDelta(wire)) return;
+    emit({
+      kind: 'session-state',
+      sessionId,
+      wire,
+      ...(update.readTraceId ? { readTraceId: update.readTraceId } : {}),
+      frameSource: update.frameSource,
+      ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
+    });
+  };
+  return {
+    post,
+    /** Drops one session's encoder, so its next frame is a full snapshot. */
+    forget(sessionId: string): void {
+      encoders.delete(sessionId);
+    },
+    /** A view sync restarts every lane from a full snapshot. */
+    resetEncoders(): void {
+      encoders.clear();
+    },
+    /** Re-sends what this session last published, from a reset encoder. */
+    republish(sessionId: string): void {
+      const encoder = encoders.get(sessionId);
+      const snapshot = latestSnapshots.get(sessionId);
+      const provenance = latestProvenance.get(sessionId);
+      if (!encoder || snapshot === undefined || !provenance) return;
+      encoder.reset();
+      post({
+        sessionId,
+        snapshot,
+        ...provenance,
+      });
+    },
+    /** A session the window stopped showing keeps no delta state here. */
+    releaseHidden(visibleSessionIds: Set<string>): void {
+      releaseHiddenSessionStateEntries(visibleSessionIds, [encoders, latestSnapshots, latestProvenance], (sessionId) =>
+        encoders.get(sessionId)?.reset()
+      );
+    },
+    clear(): void {
+      encoders.clear();
+      latestSnapshots.clear();
+      latestProvenance.clear();
+    },
+  };
+}
+
 /** Service service adapter hosted inside the singleton machine daemon.
  *
  * DesktopServiceClient remains a pure, tested projection/cache layer. The
@@ -116,38 +315,10 @@ export async function createDesktopService({
   // in front of this machine. Backoff is per failure and resets on success.
   let relayRetryTimer: NodeJS.Timeout | null = null;
   let relayRetryMs = 0;
-  // claimId -> settle(approved). One entry lives only as long as the approval
-  // dialog it belongs to.
-  const pendingClaims = new Map<
-    string,
-    {
-      clientId: string;
-      claim: RemoteClientClaim;
-      promise: Promise<boolean>;
-      settle(approved: boolean): void;
-    }
-  >();
-  let nextBrowserRemoteRequestId = 0;
-  const pendingBrowserRemoteRequests = new Map<
-    string,
-    {
-      resolve(value: unknown): void;
-      reject(error: Error): void;
-      timer: NodeJS.Timeout;
-    }
-  >();
-  const requestBrowserRemote = (method: 'frame' | 'control' | 'release', args: unknown[]): Promise<unknown> => {
-    const id = `browser_remote_${++nextBrowserRemoteRequestId}`;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pendingBrowserRemoteRequests.delete(id);
-        reject(new Error('Desktop Browser Use did not answer the remote request.'));
-      }, 20_000);
-      timer.unref?.();
-      pendingBrowserRemoteRequests.set(id, { resolve, reject, timer });
-      publishDesktopEvent('browser-remote-request', { id, method, args });
-    });
-  };
+  const claims = createRemoteClaimArbiter((claim) => publishDesktopEvent('remote-client-claim', claim));
+  const browserRemoteRequests = createBrowserRemoteRequests((request) =>
+    publishDesktopEvent('browser-remote-request', request)
+  );
   const remoteDescriptor = async () => {
     if (!remoteRelay) return null;
     let clients: DesktopRemoteClientInfo[] = [];
@@ -177,50 +348,14 @@ export async function createDesktopService({
       emit({ kind: 'desktop-event', name: 'relay-payload-refused', value });
     },
     terminals: operations.terminals,
-    browserRemote: requestBrowserRemote,
+    browserRemote: browserRemoteRequests.request,
     subscribeTerminalData: operations.subscribeTerminalData,
     userDataPath: options.userDataPath,
     onClientCountChanged,
     // The window process owns the approval dialog, so the decision travels
     // out as an event and comes back as remoteAccessResolveClaim. An
     // unanswered request expires on its own — the relay drops it at 180s.
-    onClientClaim: (claim: RemoteClientClaim): Promise<boolean> => {
-      // A duplicate delivery shares the decision already on screen. Resolving
-      // it false would deny the original claim before the user can answer it.
-      const existing = pendingClaims.get(claim.claimId);
-      if (existing) return existing.promise;
-
-      // One container can have only one live prompt. A newer request replaces
-      // an older key that its reloaded page can no longer use.
-      for (const pending of [...pendingClaims.values()]) {
-        if (pending.clientId === claim.clientId) pending.settle(false);
-      }
-
-      const now = Date.now();
-      const relayExpiresAt =
-        Number.isFinite(claim.expiresAt) && claim.expiresAt > now ? claim.expiresAt : now + REMOTE_CLAIM_TIMEOUT_MS;
-      const expiresAt = Math.min(relayExpiresAt, now + REMOTE_CLAIM_TIMEOUT_MS);
-      let resolveClaim!: (approved: boolean) => void;
-      const promise = new Promise<boolean>((resolve) => {
-        resolveClaim = resolve;
-      });
-      let timer: NodeJS.Timeout | null = null;
-      const settle = (approved: boolean): void => {
-        if (!pendingClaims.delete(claim.claimId)) return;
-        if (timer) clearTimeout(timer);
-        resolveClaim(approved);
-      };
-      timer = setTimeout(() => settle(false), Math.max(0, expiresAt - now));
-      timer.unref?.();
-      pendingClaims.set(claim.claimId, {
-        clientId: claim.clientId,
-        claim: { ...claim, expiresAt },
-        promise,
-        settle,
-      });
-      publishDesktopEvent('remote-client-claim', { ...claim, expiresAt });
-      return promise;
-    },
+    onClientClaim: (claim: RemoteClientClaim): Promise<boolean> => claims.claim(claim),
   };
   const RELAY_RETRY_BASE_MS = 5_000;
   const RELAY_RETRY_MAX_MS = 5 * 60_000;
@@ -293,52 +428,11 @@ export async function createDesktopService({
   let serviceClosed = false;
   let viewSyncQueue: Promise<void> = Promise.resolve();
   const visibleSessionIds = new Set<string>();
-  const sessionStateEncoders = new Map<string, SnapshotDeltaEncoder>();
-  const latestSessionStates = new Map<string, SessionSnapshot>();
-  const latestSessionProvenance = new Map<
-    string,
-    {
-      frameSource: 'live' | 'replay';
-      contentRevision?: number;
-    }
-  >();
+  const sessionStates = createSessionStatePublisher(emit);
 
   const stateMailbox = createSnapshotStateMailbox<SessionSnapshot>((sequence, wire) => {
     emit({ kind: 'state', sequence, wire });
   });
-  const postSessionState = (update: DesktopSessionStateUpdate): void => {
-    const { sessionId, snapshot } = update;
-    let encoder = sessionStateEncoders.get(sessionId);
-    if (!encoder) encoder = createSnapshotDeltaEncoder();
-    if (snapshot === null) {
-      emit({
-        kind: 'session-state',
-        sessionId,
-        wire: encoder.encode(null),
-        frameSource: update.frameSource,
-        ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
-        ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
-      });
-      sessionStateEncoders.delete(sessionId);
-      latestSessionStates.delete(sessionId);
-      latestSessionProvenance.delete(sessionId);
-      return;
-    }
-    sessionStateEncoders.set(sessionId, encoder);
-    latestSessionStates.set(sessionId, snapshot);
-    latestSessionProvenance.set(sessionId, update);
-    const wire = encoder.encode(snapshot);
-    reportTranscriptRead(sessionId, update.readTraceId, isNoDelta(wire) ? 'service-unchanged' : 'service-send');
-    if (isNoDelta(wire)) return;
-    emit({
-      kind: 'session-state',
-      sessionId,
-      wire,
-      ...(update.readTraceId ? { readTraceId: update.readTraceId } : {}),
-      frameSource: update.frameSource,
-      ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
-    });
-  };
 
   const unsubscribeState = host.subscribe((snapshot) => {
     if (!viewsSyncing) stateMailbox.publish(snapshot);
@@ -358,7 +452,7 @@ export async function createDesktopService({
       reportTranscriptRead(update.sessionId, update.readTraceId, 'service-hidden');
       return;
     }
-    postSessionState(update);
+    sessionStates.post(update);
   });
   stateMailbox.publish(host.getSnapshot());
   const synchronizeViews = (): Promise<void> => {
@@ -375,8 +469,8 @@ export async function createDesktopService({
             await synchronizeViewSnapshot(host, [...visibleSessionIds], (snapshot) => {
               if (serviceClosed) return;
               stateMailbox.reset(snapshot.snapshot);
-              sessionStateEncoders.clear();
-              for (const update of snapshot.sessionStates) postSessionState(update);
+              sessionStates.resetEncoders();
+              for (const update of snapshot.sessionStates) sessionStates.post(update);
               emit({ kind: 'sessions', sessions: snapshot.sessions });
               emit({ kind: 'agent-pool', agents: snapshot.agents });
               viewsSyncing = false;
@@ -398,16 +492,10 @@ export async function createDesktopService({
         return remoteDescriptor();
       case 'remoteAccessRotate':
         return rotateRemoteAccess();
-      case 'remoteAccessListClaims': {
-        const now = Date.now();
-        return [...pendingClaims.values()].map((pending) => pending.claim).filter((claim) => claim.expiresAt > now);
-      }
-      case 'remoteAccessResolveClaim': {
-        const pending = pendingClaims.get(String(operationArgs[0] || ''));
-        if (!pending) return false;
-        pending.settle(operationArgs[1] === true);
-        return true;
-      }
+      case 'remoteAccessListClaims':
+        return claims.list(Date.now());
+      case 'remoteAccessResolveClaim':
+        return claims.resolve(String(operationArgs[0] || ''), operationArgs[1] === true);
       case 'remoteAccessRevokeClient': {
         await startRemoteServices();
         const clientId = String(operationArgs[0] || '');
@@ -419,16 +507,13 @@ export async function createDesktopService({
         if (remoteRelay) remoteRelay.resume();
         else await startRemoteServices();
         return null;
-      case 'browserRemoteResolve': {
-        const id = String(operationArgs[0] || '');
-        const pending = pendingBrowserRemoteRequests.get(id);
-        if (!pending) return false;
-        pendingBrowserRemoteRequests.delete(id);
-        clearTimeout(pending.timer);
-        if (operationArgs[1] === true) pending.resolve(operationArgs[2]);
-        else pending.reject(new Error(String(operationArgs[3] || 'Desktop Browser Use failed.')));
-        return true;
-      }
+      case 'browserRemoteResolve':
+        return browserRemoteRequests.settle(
+          String(operationArgs[0] || ''),
+          operationArgs[1] === true,
+          operationArgs[2],
+          operationArgs[3]
+        );
       default:
         return operations.invoke(operation, operationArgs);
     }
@@ -446,11 +531,7 @@ export async function createDesktopService({
     const requested = filterSessionIds(args[0]);
     visibleSessionIds.clear();
     for (const sessionId of requested) visibleSessionIds.add(sessionId);
-    releaseHiddenSessionStateEntries(
-      visibleSessionIds,
-      [sessionStateEncoders, latestSessionStates, latestSessionProvenance],
-      (sessionId) => sessionStateEncoders.get(sessionId)?.reset()
-    );
+    sessionStates.releaseHidden(visibleSessionIds);
     return host.setVisibleSessions(args[0] as string[]);
   };
 
@@ -489,22 +570,13 @@ export async function createDesktopService({
       if (host.replaySessionStates) {
         await host.replaySessionStates([sessionId], (updates) => {
           for (const update of updates) {
-            sessionStateEncoders.delete(update.sessionId);
-            postSessionState(update);
+            sessionStates.forget(update.sessionId);
+            sessionStates.post(update);
           }
         });
         return;
       }
-      const encoder = sessionStateEncoders.get(sessionId);
-      const snapshot = latestSessionStates.get(sessionId);
-      const provenance = latestSessionProvenance.get(sessionId);
-      if (!encoder || snapshot === undefined || !provenance) return;
-      encoder.reset();
-      postSessionState({
-        sessionId,
-        snapshot,
-        ...provenance,
-      });
+      sessionStates.republish(sessionId);
     },
     async dispose(): Promise<void> {
       serviceClosed = true;
@@ -513,16 +585,10 @@ export async function createDesktopService({
       unsubscribeAgentPool();
       unsubscribeSessionStates();
       stateMailbox.clear();
-      sessionStateEncoders.clear();
-      latestSessionStates.clear();
-      latestSessionProvenance.clear();
+      sessionStates.clear();
       visibleSessionIds.clear();
       desktopEventListeners.clear();
-      for (const [id, pending] of pendingBrowserRemoteRequests) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error('Desktop service is closing.'));
-        pendingBrowserRemoteRequests.delete(id);
-      }
+      browserRemoteRequests.rejectAll('Desktop service is closing.');
       if (relayRetryTimer) {
         clearTimeout(relayRetryTimer);
         relayRetryTimer = null;

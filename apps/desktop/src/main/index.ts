@@ -846,8 +846,15 @@ function configuredDevelopmentUrl(candidate: string): URL {
   }
 }
 
-async function createWindow(): Promise<void> {
-  const startupStartedAt = desktopProcessStartedAt;
+/** Where the renderer is loaded from, what it may navigate to, and the icon the
+ *  taskbar button carries. */
+function resolveRendererTarget(): {
+  developmentUrl: string | undefined;
+  packagedRendererPath: string;
+  rendererUrl: URL;
+  brandIconPath: string | null;
+  isAllowedNavigation: (candidate: string) => boolean;
+} {
   const developmentUrl = process.env.ELECTRON_RENDERER_URL;
   const packagedRendererPath = join(__dirname, '../renderer/index.html');
   // Use an explicit runtime icon even in packaged builds. Relying only on the
@@ -861,25 +868,30 @@ async function createWindow(): Promise<void> {
   const rendererUrl = developmentUrl
     ? configuredDevelopmentUrl(developmentUrl)
     : new URL(pathToFileURL(packagedRendererPath).href);
-  const isAllowedNavigation = (candidate: string): boolean => {
-    try {
-      const target = new URL(candidate);
-      return developmentUrl ? target.origin === rendererUrl.origin : target.href === rendererUrl.href;
-    } catch {
-      return false;
-    }
+  return {
+    developmentUrl,
+    packagedRendererPath,
+    rendererUrl,
+    brandIconPath,
+    isAllowedNavigation: (candidate: string): boolean => {
+      try {
+        const target = new URL(candidate);
+        return developmentUrl ? target.origin === rendererUrl.origin : target.href === rendererUrl.href;
+      } catch {
+        return false;
+      }
+    },
   };
+}
 
-  const statePath = join(app.getPath('userData'), 'window-state.json');
-  const [savedState, initialZoom] = await Promise.all([
-    readWindowState(statePath, screen.getAllDisplays()),
-    settingsStore ? settingsStore.readZoom() : Promise.resolve(1),
-  ]);
-  diagnostics?.write('window-state-ready', {
-    totalMs: Date.now() - startupStartedAt,
-  });
-  configureTitleBarThemePersistence(join(app.getPath('userData'), 'desktop-titlebar-theme'));
-  const window = new BrowserWindow({
+/** The product window itself: the shell's own options, the persisted bounds,
+ *  the brand icon, the preload bridge, and the boot identity the renderer
+ *  measures its startup against. */
+function createMainBrowserWindow(
+  savedState: Awaited<ReturnType<typeof readWindowState>>,
+  brandIconPath: string | null
+): BrowserWindow {
+  return new BrowserWindow({
     ...DESKTOP_WINDOW_OPTIONS,
     ...initialTitleBarWindowOverrides(),
     ...(savedState?.bounds ?? {}),
@@ -894,6 +906,252 @@ async function createWindow(): Promise<void> {
       ],
     },
   });
+}
+
+/** Renderer-reported diagnostics, accepted only from this window's main frame:
+ *  transcript reads, composer actions and long tasks each have their own
+ *  record, and anything else is an error report. */
+function rendererDiagnosticListener(window: BrowserWindow): (event: Electron.IpcMainEvent, payload: unknown) => void {
+  return (event, payload) => {
+    if (
+      window.isDestroyed() ||
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame
+    )
+      return;
+    const transcriptRead = normalizeTranscriptReadDiagnostic(payload);
+    if (transcriptRead) {
+      diagnostics?.write('renderer-transcript-read', { ...transcriptRead });
+      return;
+    }
+    const composerAction = normalizeRendererComposerActionDiagnostic(payload);
+    const longTask = composerAction ? null : normalizeRendererLongTaskDiagnostic(payload);
+    if (composerAction) {
+      diagnostics?.write('renderer-composer-action', composerAction);
+    } else if (longTask) {
+      diagnostics?.write('renderer-long-task', longTask);
+    } else {
+      diagnostics?.write('renderer-error', normalizeRendererDiagnostic(payload));
+    }
+  };
+}
+
+// Renderer console errors had no sink outside the screenshot window, so a
+// caught-and-logged failure left no evidence at all. Keep a bounded,
+// de-duplicated tail: enough to explain a boot, never a growth path.
+function installRendererConsoleErrorTail(window: BrowserWindow, startupStartedAt: number): void {
+  const consoleErrorSeenAt = new Map<string, number>();
+  let consoleErrorsWritten = 0;
+  window.webContents.on('console-message', (event) => {
+    const details = event as unknown as {
+      level?: string;
+      message?: string;
+      lineNumber?: number;
+      sourceId?: string;
+    };
+    if (details.level !== 'error' || consoleErrorsWritten >= 100) return;
+    const message = String(details.message || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 500);
+    if (!message) return;
+    const now = Date.now();
+    if (now - (consoleErrorSeenAt.get(message) ?? 0) < 10_000) return;
+    if (consoleErrorSeenAt.size > 200) consoleErrorSeenAt.clear();
+    consoleErrorSeenAt.set(message, now);
+    consoleErrorsWritten += 1;
+    diagnostics?.write('renderer-console-error', {
+      message,
+      source:
+        String(details.sourceId || '')
+          .split(/[\\/]/)
+          .at(-1)
+          ?.slice(0, 120) || '',
+      line: Number(details.lineNumber) || 0,
+      totalMs: now - startupStartedAt,
+    });
+  });
+}
+
+/** What a dead renderer costs: a silent reload while the failures are rare, a
+ *  single prompt once they are not, and nothing at all while quitting. */
+function installRendererCrashRecovery(window: BrowserWindow, reloadRenderer: () => void): void {
+  let rendererFailureTimes: number[] = [];
+  let rendererRecoveryPromptOpen = false;
+  window.webContents.on('render-process-gone', (_event, details) => {
+    const recovery = rendererRecoveryDecision(rendererFailureTimes, details.reason);
+    rendererFailureTimes = recovery.failures;
+    diagnostics?.write('render-process-gone', {
+      reason: details.reason,
+      exitCode: details.exitCode,
+      recovery: recovery.action,
+      processes: currentProcessMemory(),
+      systemMemory: currentSystemMemory(),
+      crashReporterStatus,
+    });
+    if (recovery.action === 'reload') {
+      setTimeout(reloadRenderer, 250);
+      return;
+    }
+    if (recovery.action !== 'prompt' || rendererRecoveryPromptOpen || quitAfterDispose || window.isDestroyed()) return;
+    rendererRecoveryPromptOpen = true;
+    void dialog
+      .showMessageBox(window, {
+        type: 'error',
+        title: nativeT('Mixdog needs to recover'),
+        message: nativeT('The interface stopped repeatedly.'),
+        detail: nativeT('Your active task remains in the desktop host. Reload the interface to continue.'),
+        buttons: [nativeT('Reload interface'), nativeT('Close window')],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      })
+      .then(({ response }) => {
+        if (response === 0) reloadRenderer();
+        else if (!window.isDestroyed()) window.close();
+      })
+      .catch(() => reloadRenderer())
+      .finally(() => {
+        rendererRecoveryPromptOpen = false;
+      });
+  });
+}
+
+/** The renderer stays on the document it was opened with, and opens no others. */
+function installNavigationGuards(window: BrowserWindow, isAllowedNavigation: (candidate: string) => boolean): void {
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, url) => {
+    if (!isAllowedNavigation(url)) event.preventDefault();
+  });
+  window.webContents.on('will-redirect', (event, url) => {
+    if (!isAllowedNavigation(url)) event.preventDefault();
+  });
+}
+
+/** When the window appears, and how the page learns that it did.
+ *
+ * A hidden Chromium surface can throttle requestAnimationFrame and delay
+ * ready-to-show for seconds. The renderer's React layout-commit handshake
+ * plus did-finish-load is therefore sufficient; ready-to-show remains the
+ * preferred compositor signal when it arrives first, and an absolute deadline
+ * shows the window either way. */
+function createWindowPresentation(window: BrowserWindow, startupStartedAt: number) {
+  let readyToShow = false;
+  let rendererCommitted = false;
+  let rendererLoaded = false;
+  let shown = false;
+  let showDeadline: NodeJS.Timeout | null = null;
+  let visibleFrameAnnounced = false;
+  const announceVisibleFrame = () => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+    visibleFrameAnnounced = true;
+    void window.webContents
+      .executeJavaScript(`new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        window.__mixdogWindowShown = true;
+        window.dispatchEvent(new Event("mixdog:window-shown"));
+        resolve(true);
+      }));
+    })`)
+      .then(() => {
+        diagnostics?.write('window-visible-frame', {
+          totalMs: Date.now() - startupStartedAt,
+        });
+      })
+      .catch(() => {});
+  };
+  // A renderer navigation/reload wipes window.__mixdogWindowShown, and the
+  // one-shot 'mixdog:window-shown' event never repeats, so every surface gate
+  // waited out its 1.2s browser fallback instead (measured: 382ms cold first
+  // open vs 1576ms for the same open after a reload). Re-announce once the
+  // reloaded document has finished loading, gated on a window that is ALREADY
+  // visible and has published its true first frame — cold start still
+  // announces exactly once, from showWhenComposed.
+  window.webContents.on('did-finish-load', () => {
+    if (!visibleFrameAnnounced || window.isDestroyed() || window.webContents.isDestroyed() || !window.isVisible())
+      return;
+    announceVisibleFrame();
+  });
+  const showWhenComposed = (force = false, reason = 'composed') => {
+    if (shown || window.isDestroyed()) return;
+    if (!force && !(rendererCommitted && (readyToShow || rendererLoaded))) return;
+    shown = true;
+    if (showDeadline) clearTimeout(showDeadline);
+    showDeadline = null;
+    window.show();
+    diagnostics?.write('window-shown', {
+      durationMs: Date.now() - startupStartedAt,
+      forced: force,
+      reason,
+    });
+    // Renderer prewarms wait until the window has produced two VISIBLE
+    // composed frames. Hidden-window chunk evaluation caused the first shown
+    // frame itself to hitch even though the DOM was already committed.
+    if (window.webContents.isLoadingMainFrame()) {
+      window.webContents.once('did-finish-load', announceVisibleFrame);
+    } else announceVisibleFrame();
+  };
+  // A stale listener can outlive its window (dev reloads recreate windows):
+  // touching window.webContents after destroy throws "Object has been
+  // destroyed", so guard first and detach on close.
+  const onRendererReady = (event: Electron.IpcMainEvent) => {
+    if (window.isDestroyed() || event.sender !== window.webContents) return;
+    if (!rendererCommitted) {
+      diagnostics?.write('renderer-ready', {
+        durationMs: Date.now() - startupStartedAt,
+      });
+    }
+    rendererCommitted = true;
+    // Idempotent fallback for recreated windows; the primary boot starts this
+    // concurrently before renderer navigation.
+    startDaemonService();
+    showWhenComposed();
+    scheduleDeferredDesktopServices(window);
+  };
+  ipcMain.on(DESKTOP_IPC.rendererReady, onRendererReady);
+  window.once('ready-to-show', () => {
+    readyToShow = true;
+    diagnostics?.write('ready-to-show', {
+      totalMs: Date.now() - startupStartedAt,
+    });
+    showWhenComposed();
+  });
+  showDeadline = setTimeout(
+    () => showWhenComposed(true, 'absolute-deadline'),
+    Math.max(0, DESKTOP_WINDOW_SHOW_DEADLINE_MS - (Date.now() - startupStartedAt))
+  );
+  showDeadline.unref();
+  return {
+    /** The document finished loading: one of the two signals that compose. */
+    markRendererLoaded(): void {
+      rendererLoaded = true;
+    },
+    showWhenComposed,
+    cancelShowDeadline(): void {
+      if (showDeadline) clearTimeout(showDeadline);
+      showDeadline = null;
+    },
+    detach(): void {
+      ipcMain.removeListener(DESKTOP_IPC.rendererReady, onRendererReady);
+    },
+  };
+}
+
+async function createWindow(): Promise<void> {
+  const startupStartedAt = desktopProcessStartedAt;
+  const { developmentUrl, packagedRendererPath, rendererUrl, brandIconPath, isAllowedNavigation } =
+    resolveRendererTarget();
+
+  const statePath = join(app.getPath('userData'), 'window-state.json');
+  const [savedState, initialZoom] = await Promise.all([
+    readWindowState(statePath, screen.getAllDisplays()),
+    settingsStore ? settingsStore.readZoom() : Promise.resolve(1),
+  ]);
+  diagnostics?.write('window-state-ready', {
+    totalMs: Date.now() - startupStartedAt,
+  });
+  configureTitleBarThemePersistence(join(app.getPath('userData'), 'desktop-titlebar-theme'));
+  const window = createMainBrowserWindow(savedState, brandIconPath);
   if (savedState?.maximized) window.maximize();
   windowState = persistWindowState(window, statePath);
   mainWindow = window;
@@ -1002,76 +1260,18 @@ async function createWindow(): Promise<void> {
     totalMs: Date.now() - startupStartedAt,
   });
 
-  let rendererFailureTimes: number[] = [];
-  let rendererRecoveryPromptOpen = false;
   const reloadRenderer = () => {
     if (quitAfterDispose || window.isDestroyed() || window.webContents.isDestroyed()) return;
     window.webContents.reload();
   };
-  const onRendererDiagnostic = (event: Electron.IpcMainEvent, payload: unknown) => {
-    if (
-      window.isDestroyed() ||
-      event.sender !== window.webContents ||
-      event.senderFrame !== window.webContents.mainFrame
-    )
-      return;
-    const transcriptRead = normalizeTranscriptReadDiagnostic(payload);
-    if (transcriptRead) {
-      diagnostics?.write('renderer-transcript-read', { ...transcriptRead });
-      return;
-    }
-    const composerAction = normalizeRendererComposerActionDiagnostic(payload);
-    const longTask = composerAction ? null : normalizeRendererLongTaskDiagnostic(payload);
-    if (composerAction) {
-      diagnostics?.write('renderer-composer-action', composerAction);
-    } else if (longTask) {
-      diagnostics?.write('renderer-long-task', longTask);
-    } else {
-      diagnostics?.write('renderer-error', normalizeRendererDiagnostic(payload));
-    }
-  };
+  const onRendererDiagnostic = rendererDiagnosticListener(window);
   ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
   diagnostics?.write('ipc-ready', {
     totalMs: Date.now() - startupStartedAt,
   });
 
-  // Renderer console errors had no sink outside the screenshot window, so a
-  // caught-and-logged failure left no evidence at all. Keep a bounded,
-  // de-duplicated tail: enough to explain a boot, never a growth path.
-  const consoleErrorSeenAt = new Map<string, number>();
-  let consoleErrorsWritten = 0;
-  window.webContents.on('console-message', (event) => {
-    const details = event as unknown as {
-      level?: string;
-      message?: string;
-      lineNumber?: number;
-      sourceId?: string;
-    };
-    if (details.level !== 'error' || consoleErrorsWritten >= 100) return;
-    const message = String(details.message || '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 500);
-    if (!message) return;
-    const now = Date.now();
-    if (now - (consoleErrorSeenAt.get(message) ?? 0) < 10_000) return;
-    if (consoleErrorSeenAt.size > 200) consoleErrorSeenAt.clear();
-    consoleErrorSeenAt.set(message, now);
-    consoleErrorsWritten += 1;
-    diagnostics?.write('renderer-console-error', {
-      message,
-      source:
-        String(details.sourceId || '')
-          .split(/[\\/]/)
-          .at(-1)
-          ?.slice(0, 120) || '',
-      line: Number(details.lineNumber) || 0,
-      totalMs: now - startupStartedAt,
-    });
-  });
+  installRendererConsoleErrorTail(window, startupStartedAt);
 
-  let rendererLoaded = false;
-  let tryShowWindow = () => {};
   window.webContents.on('did-start-loading', () => {
     diagnostics?.write('renderer-load-start', {
       totalMs: Date.now() - startupStartedAt,
@@ -1086,11 +1286,11 @@ async function createWindow(): Promise<void> {
     });
   });
   window.webContents.on('did-finish-load', () => {
-    rendererLoaded = true;
+    presentation.markRendererLoaded();
     diagnostics?.write('renderer-load-finished', {
       totalMs: Date.now() - startupStartedAt,
     });
-    tryShowWindow();
+    presentation.showWhenComposed();
   });
 
   window.on('unresponsive', () => {
@@ -1099,145 +1299,14 @@ async function createWindow(): Promise<void> {
   window.on('responsive', () => {
     diagnostics?.write('renderer-responsive');
   });
-  window.webContents.on('render-process-gone', (_event, details) => {
-    const recovery = rendererRecoveryDecision(rendererFailureTimes, details.reason);
-    rendererFailureTimes = recovery.failures;
-    diagnostics?.write('render-process-gone', {
-      reason: details.reason,
-      exitCode: details.exitCode,
-      recovery: recovery.action,
-      processes: currentProcessMemory(),
-      systemMemory: currentSystemMemory(),
-      crashReporterStatus,
-    });
-    if (recovery.action === 'reload') {
-      setTimeout(reloadRenderer, 250);
-      return;
-    }
-    if (recovery.action !== 'prompt' || rendererRecoveryPromptOpen || quitAfterDispose || window.isDestroyed()) return;
-    rendererRecoveryPromptOpen = true;
-    void dialog
-      .showMessageBox(window, {
-        type: 'error',
-        title: nativeT('Mixdog needs to recover'),
-        message: nativeT('The interface stopped repeatedly.'),
-        detail: nativeT('Your active task remains in the desktop host. Reload the interface to continue.'),
-        buttons: [nativeT('Reload interface'), nativeT('Close window')],
-        defaultId: 0,
-        cancelId: 1,
-        noLink: true,
-      })
-      .then(({ response }) => {
-        if (response === 0) reloadRenderer();
-        else if (!window.isDestroyed()) window.close();
-      })
-      .catch(() => reloadRenderer())
-      .finally(() => {
-        rendererRecoveryPromptOpen = false;
-      });
-  });
+  installRendererCrashRecovery(window, reloadRenderer);
 
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  window.webContents.on('will-navigate', (event, url) => {
-    if (!isAllowedNavigation(url)) event.preventDefault();
-  });
-  window.webContents.on('will-redirect', (event, url) => {
-    if (!isAllowedNavigation(url)) event.preventDefault();
-  });
-  // A hidden Chromium surface can throttle requestAnimationFrame and delay
-  // ready-to-show for seconds. The renderer's React layout-commit handshake
-  // plus did-finish-load is therefore sufficient; ready-to-show remains the
-  // preferred compositor signal when it arrives first.
-  let readyToShow = false;
-  let rendererCommitted = false;
-  let shown = false;
-  let showDeadline: NodeJS.Timeout | null = null;
-  let visibleFrameAnnounced = false;
-  const announceVisibleFrame = () => {
-    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
-    visibleFrameAnnounced = true;
-    void window.webContents
-      .executeJavaScript(`new Promise((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        window.__mixdogWindowShown = true;
-        window.dispatchEvent(new Event("mixdog:window-shown"));
-        resolve(true);
-      }));
-    })`)
-      .then(() => {
-        diagnostics?.write('window-visible-frame', {
-          totalMs: Date.now() - startupStartedAt,
-        });
-      })
-      .catch(() => {});
-  };
-  // A renderer navigation/reload wipes window.__mixdogWindowShown, and the
-  // one-shot 'mixdog:window-shown' event never repeats, so every surface gate
-  // waited out its 1.2s browser fallback instead (measured: 382ms cold first
-  // open vs 1576ms for the same open after a reload). Re-announce once the
-  // reloaded document has finished loading, gated on a window that is ALREADY
-  // visible and has published its true first frame — cold start still
-  // announces exactly once, from showWhenComposed.
-  window.webContents.on('did-finish-load', () => {
-    if (!visibleFrameAnnounced || window.isDestroyed() || window.webContents.isDestroyed() || !window.isVisible())
-      return;
-    announceVisibleFrame();
-  });
-  const showWhenComposed = (force = false, reason = 'composed') => {
-    if (shown || window.isDestroyed()) return;
-    if (!force && !(rendererCommitted && (readyToShow || rendererLoaded))) return;
-    shown = true;
-    if (showDeadline) clearTimeout(showDeadline);
-    showDeadline = null;
-    window.show();
-    diagnostics?.write('window-shown', {
-      durationMs: Date.now() - startupStartedAt,
-      forced: force,
-      reason,
-    });
-    // Renderer prewarms wait until the window has produced two VISIBLE
-    // composed frames. Hidden-window chunk evaluation caused the first shown
-    // frame itself to hitch even though the DOM was already committed.
-    if (window.webContents.isLoadingMainFrame()) {
-      window.webContents.once('did-finish-load', announceVisibleFrame);
-    } else announceVisibleFrame();
-  };
-  tryShowWindow = () => showWhenComposed();
-  // A stale listener can outlive its window (dev reloads recreate windows):
-  // touching window.webContents after destroy throws "Object has been
-  // destroyed", so guard first and detach on close.
-  const onRendererReady = (event: Electron.IpcMainEvent) => {
-    if (window.isDestroyed() || event.sender !== window.webContents) return;
-    if (!rendererCommitted) {
-      diagnostics?.write('renderer-ready', {
-        durationMs: Date.now() - startupStartedAt,
-      });
-    }
-    rendererCommitted = true;
-    // Idempotent fallback for recreated windows; the primary boot starts this
-    // concurrently before renderer navigation.
-    startDaemonService();
-    showWhenComposed();
-    scheduleDeferredDesktopServices(window);
-  };
-  ipcMain.on(DESKTOP_IPC.rendererReady, onRendererReady);
-  window.once('ready-to-show', () => {
-    readyToShow = true;
-    diagnostics?.write('ready-to-show', {
-      totalMs: Date.now() - startupStartedAt,
-    });
-    showWhenComposed();
-  });
-  showDeadline = setTimeout(
-    () => showWhenComposed(true, 'absolute-deadline'),
-    Math.max(0, DESKTOP_WINDOW_SHOW_DEADLINE_MS - (Date.now() - startupStartedAt))
-  );
-  showDeadline.unref();
+  installNavigationGuards(window, isAllowedNavigation);
+  const presentation = createWindowPresentation(window, startupStartedAt);
   window.on('closed', () => {
-    if (showDeadline) clearTimeout(showDeadline);
-    showDeadline = null;
+    presentation.cancelShowDeadline();
     diagnostics?.write('window-closed');
-    ipcMain.removeListener(DESKTOP_IPC.rendererReady, onRendererReady);
+    presentation.detach();
     ipcMain.removeListener(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
     const state = windowState;
     windowState = null;

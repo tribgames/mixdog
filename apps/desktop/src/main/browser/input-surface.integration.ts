@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
-import { BrowserWindow, ipcMain, nativeImage, webContents, type WebContents } from 'electron';
+import { type BrowserWindow, ipcMain, type WebContents } from 'electron';
 import type { BrowserHost } from './host';
 import { createPolling } from '../host-harness-poll';
 import { registerBrowserIpc } from '../ipc-browser';
-import { DESKTOP_IPC, type DesktopBrowserPageFrame } from '../../shared/contract';
+import { DESKTOP_IPC } from '../../shared/contract';
 import { readyBrowserFrame } from './harness-frame';
 import { measureBrowserPresentation } from './input-surface-performance';
 import { exerciseBrowserErrorNotice } from './input-surface-errors';
 import { exerciseBrowserPrompts } from './input-surface-prompts';
 import { exerciseBrowserIme } from './input-surface-ime';
+import { exerciseBrowserViewportResolutions } from './input-surface-viewport';
+import { exerciseBrowserTabHandover } from './input-surface-tabs';
+import { logBrowserSurfaceDiagnostics } from './input-surface-diagnostics';
 
 export { readyBrowserFrame } from './harness-frame';
 
@@ -24,19 +27,6 @@ export async function exerciseBrowserInputSurface(options: {
   const readFrame = (sessionId: string) => readyBrowserFrame(host, sessionId);
   const { eventually } = createPolling({ timeoutMs: 8000, intervalMs: 25 });
   const shell = parent.webContents;
-  async function diagnostic<T>(work: Promise<T>): Promise<T | null> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        work.catch(() => null),
-        new Promise<null>((resolve) => {
-          timer = setTimeout(() => resolve(null), 1000);
-        }),
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
   const channels: string[] = [];
   let captures = 0;
   registerBrowserIpc({
@@ -375,283 +365,12 @@ export async function exerciseBrowserInputSurface(options: {
     await exerciseBrowserErrorNotice(host, guest, shell, log);
     await exerciseBrowserPrompts(guest, shell, log);
     await shell.executeJavaScript('window.setSurfaceActive(false)');
-    // Exercise the same dimensions used by the pane picker, including a page
-    // without a mobile viewport tag and a visible desktop scrollbar.
-    await guest.executeJavaScript(`document.body.style.height = '2400px'`);
-    for (const config of [
-      { width: 390, height: 844, deviceScaleFactor: 3, mobile: true, touch: true },
-      { width: 1366, height: 768, deviceScaleFactor: 1, mobile: false, touch: false },
-    ]) {
-      const paints: Electron.NativeImage[] = [];
-      const rememberPaint = (_event: unknown, _dirty: unknown, image: Electron.NativeImage) => {
-        paints.push(image);
-        if (paints.length > 8) paints.shift();
-      };
-      // GPU OSR paints carry textures, not bitmap pixels. Observe the actual
-      // native capture input too, rather than comparing against an empty paint.
-      const capturePage = guest.capturePage;
-      guest.capturePage = async (...args: Parameters<WebContents['capturePage']>) => {
-        const image = await capturePage.apply(guest, args);
-        rememberPaint(undefined, undefined, image);
-        return image;
-      };
-      guest.on('paint', rememberPaint);
-      let resized: DesktopBrowserPageFrame;
-      try {
-        await host.browserPageControl('visible-session', {
-          type: 'resize',
-          width: config.width,
-          height: config.height,
-          documentId: next.documentId,
-        });
-        await host.configureGuestViewport('visible-session', guest.id, { ...config, userAgent: null });
-        resized = await readFrame('visible-session');
-      } finally {
-        guest.removeListener('paint', rememberPaint);
-        guest.capturePage = capturePage;
-      }
-      assert.ok(resized.image);
-      const decoded = nativeImage.createFromBuffer(Buffer.from(resized.image.data, 'base64'));
-      const bitmap = decoded.toBitmap();
-      const native = paints.find((image) =>
-        image.toBitmap({ scaleFactor: Math.max(1, ...image.getScaleFactors()) }).equals(bitmap)
-      );
-      assert.ok(native, 'display encoding must preserve the original pixels, including text edges');
-      const actual = await guest.executeJavaScript(`({ width: innerWidth, height: innerHeight })`);
-      log(
-        `resolution sample ${JSON.stringify({
-          config,
-          pixels: [resized.width, resized.height],
-          inputViewport: [resized.viewportWidth, resized.viewportHeight],
-          actual,
-          encoding: resized.image.mimeType,
-          nativeSize: native.getSize(),
-          scales: native.getScaleFactors(),
-        })}`
-      );
-      assert.deepEqual([resized.surfaceWidth, resized.surfaceHeight], [config.width, config.height]);
-      assert.equal(resized.image.mimeType, 'image/png');
-      assert.equal(resized.viewportWidth, actual.width);
-      assert.equal(resized.viewportHeight, actual.height);
-    }
-    await host.configureGuestViewport('visible-session', guest.id, {
-      width: null,
-      height: null,
-      deviceScaleFactor: 1,
-      mobile: false,
-      touch: false,
-      userAgent: null,
-    });
-    await host.browserPageControl('visible-session', {
-      type: 'resize',
-      width: next.width,
-      height: next.height,
-      documentId: next.documentId,
-    });
-    await guest.executeJavaScript(`document.body.style.height = ''`);
+    await exerciseBrowserViewportResolutions(host, guest, next, log);
     await shell.executeJavaScript('window.setSurfaceActive(false)');
-    await guest.executeJavaScript(`document.cookie = 'isolation_login=retained; path=/'`);
-    const original = await readFrame('visible-session');
-    await guest.executeJavaScript(`window.open(${JSON.stringify(`${origin}/login-popup`)}, 'login-popup'); void 0`);
-    const withPopup = await eventually(
-      () => readFrame('visible-session'),
-      (value) => Boolean(value.tabs?.some((tab) => tab.kind === 'popup'))
-    );
-    const popupTab = withPopup.tabs!.find((tab) => tab.kind === 'popup')!;
-    log(`popup discovered ${JSON.stringify(popupTab)}`);
-    await assert.rejects(
-      host.browserPageControl('parked-session', {
-        type: 'select-tab',
-        tabId: popupTab.id,
-        documentId: original.documentId,
-      }),
-      /this session/
-    );
-    await shell.executeJavaScript('window.setSurfaceActive(true)');
-    const popupSelector = `[role="tab"][data-page-id="${popupTab.id}"]`;
-    await eventually(
-      () => shell.executeJavaScript(`Boolean(document.querySelector(${JSON.stringify(popupSelector)}))`),
-      Boolean
-    );
-    await shell.executeJavaScript(`document.querySelector(${JSON.stringify(popupSelector)}).click()`);
-    log('popup selected through tab strip');
-    const popupFrame = await eventually(
-      () => readFrame('visible-session'),
-      (value) => !value.loading && value.url.endsWith('/login-popup')
-    );
-    const popupGuest = webContents.fromId(popupFrame.webContentsId)!;
-    assert.ok(popupGuest);
-    assert.equal(popupFrame.tabs!.find((tab) => tab.active)!.id, popupTab.id);
-    assert.match(await popupGuest.executeJavaScript('document.cookie'), /isolation_login=retained/);
-    assert.equal(await popupGuest.executeJavaScript('Boolean(window.opener)'), true);
-    await popupGuest.executeJavaScript(`document.getElementById('agent').value = 'popup draft'`);
-    const primaryTab = original.tabs!.find((tab) => tab.active)!;
-    await host.browserPageControl('visible-session', {
-      type: 'select-tab',
-      tabId: primaryTab.id,
-      documentId: popupFrame.documentId,
-    });
-    host.setGuestActive('visible-session', popupFrame.webContentsId, true);
-    assert.equal(
-      (await readFrame('visible-session')).webContentsId,
-      guest.id,
-      'late display reports do not undo the user selection'
-    );
-    await host.browserPageControl('visible-session', {
-      type: 'select-tab',
-      tabId: popupTab.id,
-      documentId: original.documentId,
-    });
-    assert.equal((await readFrame('visible-session')).webContentsId, popupGuest.id);
-    assert.equal(await popupGuest.executeJavaScript(`document.getElementById('agent').value`), 'popup draft');
-    await host.browserPageControl('visible-session', {
-      type: 'close-tab',
-      tabId: popupTab.id,
-      documentId: popupFrame.documentId,
-    });
-    await eventually(
-      () => readFrame('visible-session'),
-      (value) => value.webContentsId === guest.id
-    );
-    await host.browserPageControl('visible-session', { type: 'new-tab', documentId: original.documentId });
-    const created = await readFrame('visible-session');
-    assert.notEqual(created.webContentsId, guest.id);
-    assert.equal(created.url, 'about:blank');
-    await host.browserPageControl('visible-session', {
-      type: 'close-tab',
-      tabId: created.tabs!.find((tab) => tab.active)!.id,
-      documentId: created.documentId,
-    });
-    await eventually(
-      () => readFrame('visible-session'),
-      (value) => value.webContentsId === guest.id
-    );
-    await shell.executeJavaScript('window.setSurfaceActive(false)');
-    log(
-      'visible popup switching retains opener, login and form state; tab creation, close and session isolation passed'
-    );
-    await guest.executeJavaScript(`(() => {
-      const popup = window.open('about:blank', 'blank-login');
-      popup.document.write('<title>Blank login</title><input value="retained draft">');
-      popup.document.close();
-    })()`);
-    const blankTabs = await eventually(
-      () => readFrame('visible-session'),
-      (value) => Boolean(value.tabs?.some((tab) => tab.kind === 'popup' && tab.title === 'Blank login'))
-    );
-    const blankTab = blankTabs.tabs!.find((tab) => tab.kind === 'popup')!;
-    await host.browserPageControl('visible-session', {
-      type: 'select-tab',
-      tabId: blankTab.id,
-      documentId: blankTabs.documentId,
-    });
-    const blankFrame = await readFrame('visible-session');
-    assert.ok(blankFrame.viewportWidth > 0 && blankFrame.viewportHeight > 0);
-    assert.equal(
-      await webContents.fromId(blankFrame.webContentsId)!.executeJavaScript(`document.querySelector('input').value`),
-      'retained draft'
-    );
-    await host.browserPageControl('visible-session', {
-      type: 'close-tab',
-      tabId: blankTab.id,
-      documentId: blankFrame.documentId,
-    });
-    log('about:blank popup content is visible without losing its document');
-    const other = await readFrame('parked-session');
-    assert.notEqual(other.webContentsId, guest.id);
-    await host.browserPageControl('visible-session', { type: 'new-tab', documentId: blankFrame.documentId });
-    const resumeTab = await readFrame('visible-session');
-    await host.browserPageControl('visible-session', {
-      type: 'navigate',
-      url: `${origin}/restore-after-unload`,
-      documentId: resumeTab.documentId,
-    });
-    const readyToUnload = await eventually(
-      () => readFrame('visible-session'),
-      (value) => !value.loading && value.url.endsWith('/restore-after-unload')
-    );
-    const oldPageIds = readyToUnload.tabs!.map((tab) => tab.id);
-    const oldActive = webContents.fromId(readyToUnload.webContentsId)!;
-    const unrelated = webContents.fromId(other.webContentsId)!;
-    host.releaseSession('visible-session', { restore: true });
-    await eventually(async () => guest.isDestroyed() && oldActive.isDestroyed(), Boolean);
-    assert.equal(unrelated.isDestroyed(), false);
-    const resumed = await eventually(
-      () => readFrame('visible-session'),
-      (value) => !value.loading && value.url.endsWith('/restore-after-unload')
-    );
-    assert.equal(resumed.tabs!.length, readyToUnload.tabs!.length);
-    assert.ok(resumed.tabs!.every((tab) => !oldPageIds.includes(tab.id)));
-    assert.match(
-      await webContents.fromId(resumed.webContentsId)!.executeJavaScript('document.cookie'),
-      /isolation_login=retained/
-    );
-    log('runtime unload destroys only the owning session pages; next demand restores tab URLs and shared login');
-    host.releaseSession('visible-session');
-    const reopened = await readFrame('visible-session');
-    assert.notEqual(reopened.webContentsId, guest.id);
-    assert.equal(reopened.url, 'about:blank', 'deletion forgets saved browser navigation');
-    await host.browserPageControl('visible-session', {
-      type: 'navigate',
-      url: `${origin}/reopened`,
-      documentId: reopened.documentId,
-    });
-    await eventually(
-      () => readFrame('visible-session'),
-      (value) => !value.loading && value.url.endsWith('/reopened')
-    );
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-    const cookieCheck = await command('visible-session', { action: 'evaluate', script: 'document.cookie' });
-    assert.match(cookieCheck, /isolation_login=retained/);
-    log('page release and recreation retain shared login storage');
+    await exerciseBrowserTabHandover({ host, guest, shell, origin, command, log });
   } catch (error) {
     log((error as Error).stack || String(error));
-    for (const page of webContents.getAllWebContents().filter((page) => page !== shell)) {
-      try {
-        log(
-          JSON.stringify({
-            page: page.id,
-            url: page.getURL(),
-            offscreen: page.isOffscreen(),
-            painting: page.isOffscreen() ? page.isPainting() : null,
-            bounds: BrowserWindow.fromWebContents(page)?.getBounds(),
-            document: await diagnostic(
-              page.executeJavaScript(`({
-          ready: document.readyState, visibility: document.visibilityState,
-          width: innerWidth, height: innerHeight, focused: document.hasFocus(),
-        })`)
-            ),
-          })
-        );
-      } catch {
-        log('page destroyed while collecting diagnostics');
-      }
-    }
-    log(
-      JSON.stringify(
-        await diagnostic(
-          shell.executeJavaScript(`({
-      active: document.activeElement?.className,
-      image: (() => { const image = document.querySelector('.browser-isolated-pixels > :first-child');
-        return image ? {width:image.naturalWidth || image.width,height:image.naturalHeight || image.height,box:image.getBoundingClientRect().toJSON()} : null; })(),
-      notices: [...document.querySelectorAll('[role="status"]')].map(node => node.textContent),
-    })`)
-        )
-      )
-    );
-    log(
-      JSON.stringify(
-        guest.isDestroyed()
-          ? { destroyed: true }
-          : await diagnostic(
-              guest.executeJavaScript(`({
-      focused: document.activeElement?.id,
-      text: document.getElementById('agent')?.value,
-      keys: window.keys,
-    })`)
-            )
-      )
-    );
+    await logBrowserSurfaceDiagnostics(shell, guest, log);
     throw error;
   } finally {
     for (const channel of channels) ipcMain.removeHandler(channel);

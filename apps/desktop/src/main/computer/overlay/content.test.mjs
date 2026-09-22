@@ -177,3 +177,18 @@ test('a cancelled pointer gesture releases its old toggle intent without sending
   assert.equal(f.button.getAttribute('aria-label'), '재개');
   assert.deepEqual(f.calls, []);
 });
+
+test('a press dropped while another control runs locks the pill instead of looking idle', async (t) => {
+  const f = fixture(t);
+  f.window.mixdogComputerControl = async () => ({ accepted: false, busy: true, error: 'busy' });
+  f.publish({ paused: true, canResume: true, generation: 4, renderRevision: 1 });
+  assert.equal(f.button.disabled, false);
+  f.button.click();
+  await settle();
+  // Neither a silent no-op nor a failure: the control stays locked until the
+  // host publishes the state that owns the running request.
+  assert.equal(f.button.disabled, true);
+  assert.equal(f.document.body.dataset.error, 'false');
+  f.publish({ paused: true, canResume: true, generation: 4, renderRevision: 2 });
+  assert.equal(f.button.disabled, false);
+});

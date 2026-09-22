@@ -40,7 +40,11 @@ export function bindComputerOverlayControls(
     if (request.action === 'resume' && request.generation !== current.generation) {
       return { accepted: false, error: 'stale' };
     }
-    await controller.invoke(request.action, request.generation, current.sessionIds);
+    const applied = await controller.invoke(request.action, request.generation, current.sessionIds);
+    // A press dropped because another control is still running must not read as
+    // success: the overlay would clear its progress and look idle while nothing
+    // happened.
+    if (!applied) return { accepted: false, ...controller.state(request.generation), error: 'busy' };
     return { accepted: true, ...controller.state(request.generation) };
   });
 }

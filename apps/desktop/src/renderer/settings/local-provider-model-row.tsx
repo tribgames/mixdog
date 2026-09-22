@@ -64,7 +64,13 @@ export function LocalProviderModelRow({
         tone={tone}
         status={label}
         control={
-          <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          // Apply and Delete sit on ONE line: the context column's control row
+          // is as tall as the dialog's 32px input skin (30-dialogs.css) while
+          // .extensions-action is a 28px plate, so `flex-start` pinned Delete
+          // 2px above the Apply button centred in that row. Baseline alignment
+          // puts both buttons on the input row's text line and still lets the
+          // validation message grow the column underneath them.
+          <div style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
             {!broken && <LocalProviderContext model={model} status={status} actions={actions} />}
             <ExtensionAction danger disabled={actions.busy || jobActive || inUse} onClick={() => void requestDelete()}>
               {t('Delete')}

@@ -1,5 +1,5 @@
 import { ChevronRight, FileText, Folder, Plus } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
@@ -25,6 +25,435 @@ function displayProjectFolder(path: string): string {
       .replace(/[\\/]+$/, '')
       .split(/[\\/]/)
       .at(-1) || path
+  );
+}
+
+type ProjectEditTarget = { path: string | null; title: string };
+type MemoryControl = (input: Record<string, unknown>) => Promise<unknown>;
+
+/** Memory address: the common store has no project, every other memory is
+ *  addressed by its project folder. */
+function memoryScope(path: string | null) {
+  return path === null ? { project_id: 'common' } : { cwd: path };
+}
+
+/** Scope picker shared by the add row and every saved row: Common plus one
+ *  option per project. */
+function memoryScopeSelect({
+  value,
+  disabled,
+  projects,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  projects: DesktopProjectSummary[];
+  onChange(value: string): void;
+}) {
+  return (
+    <label>
+      {t('Scope')}
+      <select
+        aria-label={t('Memory scope')}
+        disabled={disabled}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{t('Common')}</option>
+        {projects.map((project) => (
+          <option key={project.path} value={project.path}>
+            {project.alias || project.name || displayProjectFolder(project.path)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** Add-project dialog: a name and an OS-chosen folder, nothing else (user
+ *  decision — the folder never comes from typed text). */
+function projectAddDialog({
+  addPath,
+  addName,
+  addError,
+  addBusy,
+  setAddPath,
+  setAddName,
+  setAddError,
+  setAddBusy,
+  closeAdd,
+  onChooseFolder,
+  onCreateProject,
+}: {
+  addPath: string;
+  addName: string;
+  addError: string;
+  addBusy: boolean;
+  setAddPath(value: string): void;
+  setAddName: Dispatch<SetStateAction<string>>;
+  setAddError(value: string): void;
+  setAddBusy(value: boolean): void;
+  closeAdd(): void;
+  onChooseFolder(): Promise<string | null>;
+  onCreateProject(path: string, name: string): Promise<void>;
+}) {
+  return (
+    <ExtensionDetailDialog
+      width="compact"
+      className="projects-add-dialog"
+      titleId="projects-add-title"
+      icon={<Folder size={16} aria-hidden="true" />}
+      title={t('Add project')}
+      onClose={closeAdd}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!addPath || addBusy) return;
+        setAddBusy(true);
+        setAddError('');
+        void onCreateProject(addPath, addName.trim())
+          .then(() => closeAdd())
+          .catch((reason) => setAddError(reason instanceof Error ? reason.message : String(reason)))
+          .finally(() => setAddBusy(false));
+      }}
+      footer={
+        <>
+          {addError && <ErrorNotice error={addError} />}
+          <button type="button" className="secondary" disabled={addBusy} onClick={closeAdd}>
+            {t('Cancel')}
+          </button>
+          <button type="submit" disabled={addBusy || !addPath}>
+            {t('Add')}
+          </button>
+        </>
+      }
+    >
+      <ExtensionField label={t('Name')} note={t('Shown in the Projects list.')}>
+        <input
+          name="project-name"
+          value={addName}
+          maxLength={120}
+          autoFocus
+          disabled={addBusy}
+          placeholder={t('my-project')}
+          onChange={(event) => setAddName(event.currentTarget.value)}
+        />
+      </ExtensionField>
+      <ExtensionField as="div" label={t('Folder')} note={t('Folder opened for this project.')}>
+        <div className="projects-folder-row">
+          <code>{addPath || t('No folder selected')}</code>
+          {/* Folder comes from the OS chooser only (user decision):
+            prefill the Name with the folder's basename once picked. */}
+          <button
+            type="button"
+            className="extensions-action"
+            disabled={addBusy}
+            onClick={() =>
+              void onChooseFolder().then((selected) => {
+                if (!selected) return;
+                setAddPath(selected);
+                setAddName((current) => (current.trim() ? current : displayProjectFolder(selected)));
+                setAddError('');
+              })
+            }
+          >
+            {t('Browse…')}
+          </button>
+        </div>
+      </ExtensionField>
+    </ExtensionDetailDialog>
+  );
+}
+
+/** Footer ladder of the edit dialog. Memories save per row, so the common
+ *  editor only closes; Save exists for the project alias alone and Remove is
+ *  the destructive action parked left, behind its own confirm. */
+function projectEditFooter({
+  editTarget,
+  editError,
+  editBusy,
+  memoryBusy,
+  memoriesLoading,
+  addingMemory,
+  editConfirmRemove,
+  setEditConfirmRemove,
+  resetEdit,
+  closeEdit,
+  onRemove,
+}: {
+  editTarget: ProjectEditTarget;
+  editError: string;
+  editBusy: boolean;
+  memoryBusy: boolean;
+  memoriesLoading: boolean;
+  addingMemory: boolean;
+  editConfirmRemove: boolean;
+  setEditConfirmRemove(value: boolean): void;
+  resetEdit(): void;
+  closeEdit(): void;
+  onRemove(path: string): void;
+}) {
+  return (
+    <>
+      {editError && <ErrorNotice error={editError} />}
+      {editTarget.path === null && (
+        <button type="button" className="secondary" disabled={memoryBusy} onClick={closeEdit}>
+          {t('Close')}
+        </button>
+      )}
+      {editTarget.path !== null && (
+        <>
+          <button
+            type="button"
+            className="danger"
+            disabled={editBusy || memoryBusy}
+            onClick={() => {
+              if (!editConfirmRemove) {
+                setEditConfirmRemove(true);
+                return;
+              }
+              const path = editTarget.path;
+              if (path === null) return;
+              resetEdit();
+              onRemove(path);
+            }}
+          >
+            {editConfirmRemove ? t('Confirm remove') : t('Remove')}
+          </button>
+          <button type="button" className="secondary" disabled={editBusy || memoryBusy} onClick={closeEdit}>
+            {t('Cancel')}
+          </button>
+          <button type="submit" disabled={editBusy || memoriesLoading || memoryBusy || addingMemory}>
+            {t('Save')}
+          </button>
+        </>
+      )}
+    </>
+  );
+}
+
+/** Add row of the memory editor. It shares the saved rows' vertical shape:
+ *  text on top, then scope + actions on one line (user: 추가 UI 정리). */
+function memoryAddRow({
+  addMemoryDraft,
+  addMemoryScope,
+  memoryBusy,
+  editTarget,
+  projects,
+  onMemoryControl,
+  refreshMemories,
+  setAddMemoryDraft,
+  setAddMemoryScope,
+  setAddingMemory,
+  setEditError,
+  setMemoryBusy,
+}: {
+  addMemoryDraft: string;
+  addMemoryScope: string;
+  memoryBusy: boolean;
+  editTarget: ProjectEditTarget | null;
+  projects: DesktopProjectSummary[];
+  onMemoryControl: MemoryControl;
+  refreshMemories(path: string | null): Promise<void>;
+  setAddMemoryDraft(value: string): void;
+  setAddMemoryScope(value: string): void;
+  setAddingMemory(value: boolean): void;
+  setEditError(value: string): void;
+  setMemoryBusy(value: boolean): void;
+}) {
+  return (
+    <div className="projects-memory-add-row">
+      <textarea
+        aria-label={t('Memory text')}
+        value={addMemoryDraft}
+        autoFocus
+        rows={3}
+        disabled={memoryBusy}
+        placeholder={t('What should Mixdog remember?')}
+        onChange={(event) => setAddMemoryDraft(event.currentTarget.value)}
+      />
+      <div className="projects-memory-row-foot">
+        {memoryScopeSelect({
+          value: addMemoryScope,
+          disabled: memoryBusy,
+          projects,
+          onChange: setAddMemoryScope,
+        })}
+        <div className="core-memory-actions">
+          <button
+            type="button"
+            disabled={memoryBusy || !addMemoryDraft.trim()}
+            onClick={() => {
+              if (!editTarget) return;
+              const summary = addMemoryDraft.trim();
+              const target = addMemoryScope === '' ? null : addMemoryScope;
+              setMemoryBusy(true);
+              setEditError('');
+              void onMemoryControl({
+                action: 'core',
+                op: 'add',
+                summary,
+                verbatim: true,
+                ...memoryScope(target),
+              })
+                .then((value) => {
+                  const failure = memoryResultError(value);
+                  if (failure) throw new Error(failure);
+                  return refreshMemories(editTarget.path);
+                })
+                .then(() => {
+                  setAddingMemory(false);
+                  setAddMemoryDraft('');
+                })
+                .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
+                .finally(() => setMemoryBusy(false));
+            }}
+          >
+            {t('Add')}
+          </button>
+          <button
+            type="button"
+            disabled={memoryBusy}
+            onClick={() => {
+              setAddingMemory(false);
+              setAddMemoryDraft('');
+            }}
+          >
+            {t('Cancel')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** One saved memory: its scope (which can move it to another project), its
+ *  text, and the save/delete pair that writes through the memory control. */
+function memoryEditRow({
+  entry,
+  moveTarget,
+  memoryDrafts,
+  memoryBusy,
+  memoriesLoading,
+  confirmDeleteMemory,
+  editTarget,
+  projects,
+  onMemoryControl,
+  refreshMemories,
+  setMemoryDrafts,
+  setMoveTargets,
+  setConfirmDeleteMemory,
+  setEditError,
+  setMemoryBusy,
+}: {
+  entry: CoreMemoryEntry;
+  moveTarget: string;
+  memoryDrafts: Record<number, string>;
+  memoryBusy: boolean;
+  memoriesLoading: boolean;
+  confirmDeleteMemory: number | null;
+  editTarget: ProjectEditTarget | null;
+  projects: DesktopProjectSummary[];
+  onMemoryControl: MemoryControl;
+  refreshMemories(path: string | null): Promise<void>;
+  setMemoryDrafts: Dispatch<SetStateAction<Record<number, string>>>;
+  setMoveTargets: Dispatch<SetStateAction<Record<number, string>>>;
+  setConfirmDeleteMemory(value: number | null): void;
+  setEditError(value: string): void;
+  setMemoryBusy(value: boolean): void;
+}) {
+  return (
+    <div className="core-memory-edit" key={entry.id}>
+      <div className="projects-memory-row-head">
+        <span className="projects-memory-index">#{entry.id}</span>
+        {memoryScopeSelect({
+          value: moveTarget,
+          disabled: memoryBusy || memoriesLoading,
+          projects,
+          onChange: (value) => setMoveTargets((current) => ({ ...current, [entry.id]: value })),
+        })}
+      </div>
+      <textarea
+        aria-label={t('Memory text')}
+        value={memoryDrafts[entry.id] ?? entry.summary}
+        rows={3}
+        disabled={memoryBusy || memoriesLoading}
+        onChange={(event) => {
+          const value = event.currentTarget.value;
+          setMemoryDrafts((current) => ({
+            ...current,
+            [entry.id]: value,
+          }));
+        }}
+      />
+      <div className="core-memory-actions">
+        <button
+          type="button"
+          disabled={
+            memoryBusy ||
+            !(memoryDrafts[entry.id] ?? entry.summary).trim() ||
+            ((memoryDrafts[entry.id] ?? entry.summary).trim() === entry.summary &&
+              moveTarget === (editTarget?.path ?? ''))
+          }
+          onClick={() => {
+            if (!editTarget) return;
+            setMemoryBusy(true);
+            setEditError('');
+            const summary = (memoryDrafts[entry.id] ?? entry.summary).trim();
+            void onMemoryControl({
+              action: 'core',
+              op: 'edit',
+              id: entry.id,
+              index_revision: entry.indexRevision,
+              element: entry.singleSentence ? summary : entry.element,
+              summary,
+              verbatim: true,
+              ...memoryScope(editTarget.path),
+              ...(moveTarget === '' ? { target_project_id: 'common' } : { target_cwd: moveTarget }),
+            })
+              .then((value) => {
+                const failure = memoryResultError(value);
+                if (failure) throw new Error(failure);
+                return refreshMemories(editTarget.path);
+              })
+              .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
+              .finally(() => setMemoryBusy(false));
+          }}
+        >
+          {t('Save')}
+        </button>
+        <button
+          type="button"
+          className="danger"
+          disabled={memoryBusy}
+          onClick={() => {
+            if (confirmDeleteMemory !== entry.id) {
+              setConfirmDeleteMemory(entry.id);
+              return;
+            }
+            if (!editTarget) return;
+            setMemoryBusy(true);
+            setEditError('');
+            void onMemoryControl({
+              action: 'core',
+              op: 'delete',
+              id: entry.id,
+              index_revision: entry.indexRevision,
+              ...memoryScope(editTarget.path),
+            })
+              .then((value) => {
+                const failure = memoryResultError(value);
+                if (failure) throw new Error(failure);
+                return refreshMemories(editTarget.path);
+              })
+              .then(() => setConfirmDeleteMemory(null))
+              .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
+              .finally(() => setMemoryBusy(false));
+          }}
+        >
+          {confirmDeleteMemory === entry.id ? t('Confirm delete') : t('Delete')}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -85,7 +514,6 @@ export function ProjectListSection({
   useEffect(() => {
     publishSidebarProjects(projects);
   }, [projects]);
-  const memoryScope = (path: string | null) => (path === null ? { project_id: 'common' } : { cwd: path });
   const projectPathsKey = JSON.stringify(projects.map((project) => project.path));
   const readMemories = async (path: string | null, refresh = false): Promise<CoreMemoryEntry[]> => {
     if (!onMemoryControl) return [];
@@ -209,71 +637,21 @@ export function ProjectListSection({
       {/* Both dialogs ride the Extensions card (user: 이쪽도 레이아웃 맞춰):
           identity plate + title, the body on the section rhythm, the footer
           ladder with the destructive action parked left. */}
-      {active && addOpen && (
-        <ExtensionDetailDialog
-          width="compact"
-          className="projects-add-dialog"
-          titleId="projects-add-title"
-          icon={<Folder size={16} aria-hidden="true" />}
-          title={t('Add project')}
-          onClose={closeAdd}
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!addPath || addBusy) return;
-            setAddBusy(true);
-            setAddError('');
-            void onCreateProject(addPath, addName.trim())
-              .then(() => closeAdd())
-              .catch((reason) => setAddError(reason instanceof Error ? reason.message : String(reason)))
-              .finally(() => setAddBusy(false));
-          }}
-          footer={
-            <>
-              {addError && <ErrorNotice error={addError} />}
-              <button type="button" className="secondary" disabled={addBusy} onClick={closeAdd}>
-                {t('Cancel')}
-              </button>
-              <button type="submit" disabled={addBusy || !addPath}>
-                {t('Add')}
-              </button>
-            </>
-          }
-        >
-          <ExtensionField label={t('Name')} note={t('Shown in the Projects list.')}>
-            <input
-              name="project-name"
-              value={addName}
-              maxLength={120}
-              autoFocus
-              disabled={addBusy}
-              placeholder={t('my-project')}
-              onChange={(event) => setAddName(event.currentTarget.value)}
-            />
-          </ExtensionField>
-          <ExtensionField as="div" label={t('Folder')} note={t('Folder opened for this project.')}>
-            <div className="projects-folder-row">
-              <code>{addPath || t('No folder selected')}</code>
-              {/* Folder comes from the OS chooser only (user decision):
-                prefill the Name with the folder's basename once picked. */}
-              <button
-                type="button"
-                className="extensions-action"
-                disabled={addBusy}
-                onClick={() =>
-                  void onChooseFolder().then((selected) => {
-                    if (!selected) return;
-                    setAddPath(selected);
-                    setAddName((current) => (current.trim() ? current : displayProjectFolder(selected)));
-                    setAddError('');
-                  })
-                }
-              >
-                {t('Browse…')}
-              </button>
-            </div>
-          </ExtensionField>
-        </ExtensionDetailDialog>
-      )}
+      {active &&
+        addOpen &&
+        projectAddDialog({
+          addPath,
+          addName,
+          addError,
+          addBusy,
+          setAddPath,
+          setAddName,
+          setAddError,
+          setAddBusy,
+          closeAdd,
+          onChooseFolder,
+          onCreateProject,
+        })}
       {active && editTarget && (
         <ExtensionDetailDialog
           width="detail"
@@ -308,45 +686,19 @@ export function ProjectListSection({
                 setEditError(reason instanceof Error ? reason.message : String(reason));
               });
           }}
-          footer={
-            <>
-              {editError && <ErrorNotice error={editError} />}
-              {/* Memories save per row, so the common editor only closes; the
-              footer Save exists for the project alias alone. */}
-              {editTarget.path === null && (
-                <button type="button" className="secondary" disabled={memoryBusy} onClick={closeEdit}>
-                  {t('Close')}
-                </button>
-              )}
-              {editTarget.path !== null && (
-                <>
-                  <button
-                    type="button"
-                    className="danger"
-                    disabled={editBusy || memoryBusy}
-                    onClick={() => {
-                      if (!editConfirmRemove) {
-                        setEditConfirmRemove(true);
-                        return;
-                      }
-                      const path = editTarget.path;
-                      if (path === null) return;
-                      resetEdit();
-                      onRemove(path);
-                    }}
-                  >
-                    {editConfirmRemove ? t('Confirm remove') : t('Remove')}
-                  </button>
-                  <button type="button" className="secondary" disabled={editBusy || memoryBusy} onClick={closeEdit}>
-                    {t('Cancel')}
-                  </button>
-                  <button type="submit" disabled={editBusy || memoriesLoading || memoryBusy || addingMemory}>
-                    {t('Save')}
-                  </button>
-                </>
-              )}
-            </>
-          }
+          footer={projectEditFooter({
+            editTarget,
+            editError,
+            editBusy,
+            memoryBusy,
+            memoriesLoading,
+            addingMemory,
+            editConfirmRemove,
+            setEditConfirmRemove,
+            resetEdit,
+            closeEdit,
+            onRemove,
+          })}
         >
           {editTarget.path !== null && (
             <ExtensionField
@@ -411,200 +763,43 @@ export function ProjectListSection({
                 <div className={`projects-memory-viewport${memories.length || addingMemory ? '' : ' is-empty'}`}>
                   {/* Add row and saved rows share one vertical shape: text on top,
                   then scope + actions on one line (user: 추가 UI 정리). */}
-                  {addingMemory && (
-                    <div className="projects-memory-add-row">
-                      <textarea
-                        aria-label={t('Memory text')}
-                        value={addMemoryDraft}
-                        autoFocus
-                        rows={3}
-                        disabled={memoryBusy}
-                        placeholder={t('What should Mixdog remember?')}
-                        onChange={(event) => setAddMemoryDraft(event.currentTarget.value)}
-                      />
-                      <div className="projects-memory-row-foot">
-                        <label>
-                          {t('Scope')}
-                          <select
-                            aria-label={t('Memory scope')}
-                            disabled={memoryBusy}
-                            value={addMemoryScope}
-                            onChange={(event) => setAddMemoryScope(event.target.value)}
-                          >
-                            <option value="">{t('Common')}</option>
-                            {projects.map((project) => (
-                              <option key={project.path} value={project.path}>
-                                {project.alias || project.name || displayProjectFolder(project.path)}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <div className="core-memory-actions">
-                          <button
-                            type="button"
-                            disabled={memoryBusy || !addMemoryDraft.trim()}
-                            onClick={() => {
-                              if (!editTarget) return;
-                              const summary = addMemoryDraft.trim();
-                              const target = addMemoryScope === '' ? null : addMemoryScope;
-                              setMemoryBusy(true);
-                              setEditError('');
-                              void onMemoryControl({
-                                action: 'core',
-                                op: 'add',
-                                summary,
-                                verbatim: true,
-                                ...memoryScope(target),
-                              })
-                                .then((value) => {
-                                  const failure = memoryResultError(value);
-                                  if (failure) throw new Error(failure);
-                                  return refreshMemories(editTarget.path);
-                                })
-                                .then(() => {
-                                  setAddingMemory(false);
-                                  setAddMemoryDraft('');
-                                })
-                                .catch((reason) =>
-                                  setEditError(reason instanceof Error ? reason.message : String(reason))
-                                )
-                                .finally(() => setMemoryBusy(false));
-                            }}
-                          >
-                            {t('Add')}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={memoryBusy}
-                            onClick={() => {
-                              setAddingMemory(false);
-                              setAddMemoryDraft('');
-                            }}
-                          >
-                            {t('Cancel')}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  {addingMemory &&
+                    memoryAddRow({
+                      addMemoryDraft,
+                      addMemoryScope,
+                      memoryBusy,
+                      editTarget,
+                      projects,
+                      onMemoryControl,
+                      refreshMemories,
+                      setAddMemoryDraft,
+                      setAddMemoryScope,
+                      setAddingMemory,
+                      setEditError,
+                      setMemoryBusy,
+                    })}
                   {memoriesLoading && <p className="projects-memory-empty">{t('Loading…')}</p>}
                   {!memoriesLoading && memories.length > 0 && (
                     <div className="core-memory-list">
-                      {memories.map((entry) => {
-                        const moveTarget = moveTargets[entry.id] ?? editTarget.path ?? '';
-                        return (
-                          <div className="core-memory-edit" key={entry.id}>
-                            <div className="projects-memory-row-head">
-                              <span className="projects-memory-index">#{entry.id}</span>
-                              <label>
-                                {t('Scope')}
-                                <select
-                                  aria-label={t('Memory scope')}
-                                  disabled={memoryBusy || memoriesLoading}
-                                  value={moveTarget}
-                                  onChange={(event) =>
-                                    setMoveTargets((current) => ({ ...current, [entry.id]: event.target.value }))
-                                  }
-                                >
-                                  <option value="">{t('Common')}</option>
-                                  {projects.map((project) => (
-                                    <option key={project.path} value={project.path}>
-                                      {project.alias || project.name || displayProjectFolder(project.path)}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                            </div>
-                            <textarea
-                              aria-label={t('Memory text')}
-                              value={memoryDrafts[entry.id] ?? entry.summary}
-                              rows={3}
-                              disabled={memoryBusy || memoriesLoading}
-                              onChange={(event) => {
-                                const value = event.currentTarget.value;
-                                setMemoryDrafts((current) => ({
-                                  ...current,
-                                  [entry.id]: value,
-                                }));
-                              }}
-                            />
-                            <div className="core-memory-actions">
-                              <button
-                                type="button"
-                                disabled={
-                                  memoryBusy ||
-                                  !(memoryDrafts[entry.id] ?? entry.summary).trim() ||
-                                  ((memoryDrafts[entry.id] ?? entry.summary).trim() === entry.summary &&
-                                    (moveTargets[entry.id] ?? editTarget.path ?? '') === (editTarget.path ?? ''))
-                                }
-                                onClick={() => {
-                                  if (!editTarget) return;
-                                  setMemoryBusy(true);
-                                  setEditError('');
-                                  const summary = (memoryDrafts[entry.id] ?? entry.summary).trim();
-                                  void onMemoryControl({
-                                    action: 'core',
-                                    op: 'edit',
-                                    id: entry.id,
-                                    index_revision: entry.indexRevision,
-                                    element: entry.singleSentence ? summary : entry.element,
-                                    summary,
-                                    verbatim: true,
-                                    ...memoryScope(editTarget.path),
-                                    ...(moveTarget === ''
-                                      ? { target_project_id: 'common' }
-                                      : { target_cwd: moveTarget }),
-                                  })
-                                    .then((value) => {
-                                      const failure = memoryResultError(value);
-                                      if (failure) throw new Error(failure);
-                                      return refreshMemories(editTarget.path);
-                                    })
-                                    .catch((reason) =>
-                                      setEditError(reason instanceof Error ? reason.message : String(reason))
-                                    )
-                                    .finally(() => setMemoryBusy(false));
-                                }}
-                              >
-                                {t('Save')}
-                              </button>
-                              <button
-                                type="button"
-                                className="danger"
-                                disabled={memoryBusy}
-                                onClick={() => {
-                                  if (confirmDeleteMemory !== entry.id) {
-                                    setConfirmDeleteMemory(entry.id);
-                                    return;
-                                  }
-                                  if (!editTarget) return;
-                                  setMemoryBusy(true);
-                                  setEditError('');
-                                  void onMemoryControl({
-                                    action: 'core',
-                                    op: 'delete',
-                                    id: entry.id,
-                                    index_revision: entry.indexRevision,
-                                    ...memoryScope(editTarget.path),
-                                  })
-                                    .then((value) => {
-                                      const failure = memoryResultError(value);
-                                      if (failure) throw new Error(failure);
-                                      return refreshMemories(editTarget.path);
-                                    })
-                                    .then(() => setConfirmDeleteMemory(null))
-                                    .catch((reason) =>
-                                      setEditError(reason instanceof Error ? reason.message : String(reason))
-                                    )
-                                    .finally(() => setMemoryBusy(false));
-                                }}
-                              >
-                                {confirmDeleteMemory === entry.id ? t('Confirm delete') : t('Delete')}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {memories.map((entry) =>
+                        memoryEditRow({
+                          entry,
+                          moveTarget: moveTargets[entry.id] ?? editTarget.path ?? '',
+                          memoryDrafts,
+                          memoryBusy,
+                          memoriesLoading,
+                          confirmDeleteMemory,
+                          editTarget,
+                          projects,
+                          onMemoryControl,
+                          refreshMemories,
+                          setMemoryDrafts,
+                          setMoveTargets,
+                          setConfirmDeleteMemory,
+                          setEditError,
+                          setMemoryBusy,
+                        })
+                      )}
                     </div>
                   )}
                   {!memoriesLoading && memories.length === 0 && (

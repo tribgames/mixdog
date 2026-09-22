@@ -15,6 +15,190 @@ import './desktop/composer-add-menu.css';
 // daemon-side, so the refresh only ever moves the list when skills changed.
 const skillCache = new Map<string, ComposerSkill[]>();
 
+// One capability read per open; the cache it fills is what the next open paints
+// before this read resolves.
+async function readComposerSkills(cacheKey: string, sessionId?: string | null): Promise<ComposerSkill[]> {
+  const [result] = await window.mixdogDesktop.readCapabilities([
+    { capability: 'skillsStatus', ...(sessionId ? { sessionId } : {}) },
+  ]);
+  if (!result?.ok) throw new Error(result && !result.ok ? result.error : 'Skills unavailable.');
+  const next = selectableComposerSkills(result.value);
+  skillCache.set(cacheKey, next);
+  return next;
+}
+
+// Roving focus over the enabled menu items, wrapping at both ends.
+function moveComposerAddMenuFocus(
+  event: React.KeyboardEvent<HTMLDivElement>,
+  panel: RefObject<HTMLDivElement | null>
+): void {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+  const buttons = [...(panel.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') || [])];
+  if (!buttons.length) return;
+  event.preventDefault();
+  const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const next = wrappedNavigationIndex(event.key, current, buttons.length, event.key === 'ArrowDown' ? 1 : -1);
+  buttons[next]?.focus();
+}
+
+// While the menu is open it owns focus: the first entry takes it, a pointer
+// outside collapses the menu, and Escape returns focus to the trigger.
+function useComposerAddMenuDismiss({
+  open,
+  panel,
+  trigger,
+  close,
+  setOpen,
+}: {
+  open: boolean;
+  panel: RefObject<HTMLDivElement | null>;
+  trigger: RefObject<HTMLButtonElement | null>;
+  close(): void;
+  setOpen(open: boolean): void;
+}): void {
+  useEffect(() => {
+    if (!open) return;
+    panel.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    const pointer = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !panel.current?.contains(event.target) &&
+        !trigger.current?.contains(event.target)
+      )
+        setOpen(false);
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }
+    };
+    document.addEventListener('pointerdown', pointer, true);
+    document.addEventListener('keydown', key, true);
+    return () => {
+      document.removeEventListener('pointerdown', pointer, true);
+      document.removeEventListener('keydown', key, true);
+    };
+  }, [open]);
+}
+
+function renderComposerSkillEntry(skill: ComposerSkill, dismiss: () => void, onSkill: (name: string) => void) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      key={skill.name}
+      onClick={() => {
+        dismiss();
+        onSkill(skill.name);
+      }}
+    >
+      <CapabilityIcon name={skill.name} />
+      <span>
+        <b>{skillTitle(skill.name)}</b>
+        <small>{skill.description}</small>
+      </span>
+    </button>
+  );
+}
+
+// `close` returns focus to the trigger; `dismiss` only collapses the menu,
+// because the entries that hand work to the composer move focus themselves.
+function renderComposerAddMenuPanel({
+  anchor,
+  panel,
+  id,
+  skills,
+  loading,
+  error,
+  goalDisabled,
+  close,
+  dismiss,
+  onAttach,
+  onSkill,
+  onGoal,
+  onMore,
+}: {
+  anchor: RefObject<HTMLElement | null>;
+  panel: RefObject<HTMLDivElement | null>;
+  id: string;
+  skills: ComposerSkill[];
+  loading: boolean;
+  error: string;
+  goalDisabled: boolean;
+  close(): void;
+  dismiss(): void;
+  onAttach(): void;
+  onSkill(name: string): void;
+  onGoal(command: string): Promise<boolean>;
+  onMore(): void;
+}) {
+  return (
+    <ComposerPalette
+      anchor={anchor}
+      panel={panel}
+      id={id}
+      label={t('Add to message')}
+      role="menu"
+      className="composer-add-menu"
+    >
+      <div onKeyDown={(event) => moveComposerAddMenuFocus(event, panel)}>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            close();
+            onAttach();
+          }}
+        >
+          <CapabilityIcon name="attach-files" />
+          <span>
+            <b>{t('Attach files')}</b>
+            <small>{t('Add images or documents to this message.')}</small>
+          </span>
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          disabled={goalDisabled}
+          onClick={() => {
+            dismiss();
+            void onGoal('/goal');
+          }}
+        >
+          <CapabilityIcon name="goal-management" />
+          <span>
+            <b>{t('Set a goal')}</b>
+            <small>{t('Track work that runs past this turn.')}</small>
+          </span>
+        </button>
+        <div className="composer-add-heading">{t('Skills')}</div>
+        {loading && <p role="status">{t('Loading skills…')}</p>}
+        {!loading && !skills.length && !error && <p>{t('No enabled skills.')}</p>}
+        {skills.map((skill) => renderComposerSkillEntry(skill, dismiss, onSkill))}
+        <div className="composer-add-divider" role="separator" />
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            close();
+            onMore();
+          }}
+        >
+          <CapabilityIcon name="setup" />
+          <span>{t('Manage skills, plugins and MCP')}</span>
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="composer-add-error">
+          {error}
+        </p>
+      )}
+    </ComposerPalette>
+  );
+}
+
 export function ComposerAddMenu({
   anchor,
   disabled,
@@ -53,12 +237,8 @@ export function ComposerAddMenu({
     setSkills(cached || []);
     setLoading(!cached);
     setError('');
-    void window.mixdogDesktop
-      .readCapabilities([{ capability: 'skillsStatus', ...(sessionId ? { sessionId } : {}) }])
-      .then(([result]) => {
-        if (!result?.ok) throw new Error(result && !result.ok ? result.error : 'Skills unavailable.');
-        const next = selectableComposerSkills(result.value);
-        skillCache.set(cacheKey, next);
+    void readComposerSkills(cacheKey, sessionId)
+      .then((next) => {
         if (!cancelled) setSkills(next);
       })
       .catch((reason: unknown) => {
@@ -71,31 +251,7 @@ export function ComposerAddMenu({
       cancelled = true;
     };
   }, [open, sessionId, cacheKey]);
-  useEffect(() => {
-    if (!open) return;
-    panel.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    const pointer = (event: PointerEvent) => {
-      if (
-        event.target instanceof Node &&
-        !panel.current?.contains(event.target) &&
-        !trigger.current?.contains(event.target)
-      )
-        setOpen(false);
-    };
-    const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        close();
-      }
-    };
-    document.addEventListener('pointerdown', pointer, true);
-    document.addEventListener('keydown', key, true);
-    return () => {
-      document.removeEventListener('pointerdown', pointer, true);
-      document.removeEventListener('keydown', key, true);
-    };
-  }, [open]);
+  useComposerAddMenuDismiss({ open, panel, trigger, close, setOpen });
   useEffect(() => {
     if (disabled) setOpen(false);
   }, [disabled]);
@@ -116,102 +272,22 @@ export function ComposerAddMenu({
       >
         <MxIcon name="plus" size={16} />
       </button>
-      {open && (
-        <ComposerPalette
-          anchor={anchor}
-          panel={panel}
-          id={id}
-          label={t('Add to message')}
-          role="menu"
-          className="composer-add-menu"
-        >
-          <div
-            onKeyDown={(event) => {
-              if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
-              const buttons = [
-                ...(panel.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') || []),
-              ];
-              if (!buttons.length) return;
-              event.preventDefault();
-              const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-              const next = wrappedNavigationIndex(
-                event.key,
-                current,
-                buttons.length,
-                event.key === 'ArrowDown' ? 1 : -1
-              );
-              buttons[next]?.focus();
-            }}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                close();
-                onAttach();
-              }}
-            >
-              <CapabilityIcon name="attach-files" />
-              <span>
-                <b>{t('Attach files')}</b>
-                <small>{t('Add images or documents to this message.')}</small>
-              </span>
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              disabled={goalDisabled}
-              onClick={() => {
-                setOpen(false);
-                void onGoal('/goal');
-              }}
-            >
-              <CapabilityIcon name="goal-management" />
-              <span>
-                <b>{t('Set a goal')}</b>
-                <small>{t('Track work that runs past this turn.')}</small>
-              </span>
-            </button>
-            <div className="composer-add-heading">{t('Skills')}</div>
-            {loading && <p role="status">{t('Loading skills…')}</p>}
-            {!loading && !skills.length && !error && <p>{t('No enabled skills.')}</p>}
-            {skills.map((skill) => (
-              <button
-                type="button"
-                role="menuitem"
-                key={skill.name}
-                onClick={() => {
-                  setOpen(false);
-                  onSkill(skill.name);
-                }}
-              >
-                <CapabilityIcon name={skill.name} />
-                <span>
-                  <b>{skillTitle(skill.name)}</b>
-                  <small>{skill.description}</small>
-                </span>
-              </button>
-            ))}
-            <div className="composer-add-divider" role="separator" />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                close();
-                onMore();
-              }}
-            >
-              <CapabilityIcon name="setup" />
-              <span>{t('Manage skills, plugins and MCP')}</span>
-            </button>
-          </div>
-          {error && (
-            <p role="alert" className="composer-add-error">
-              {error}
-            </p>
-          )}
-        </ComposerPalette>
-      )}
+      {open &&
+        renderComposerAddMenuPanel({
+          anchor,
+          panel,
+          id,
+          skills,
+          loading,
+          error,
+          goalDisabled,
+          close,
+          dismiss: () => setOpen(false),
+          onAttach,
+          onSkill,
+          onGoal,
+          onMore,
+        })}
     </React.Fragment>
   );
 }

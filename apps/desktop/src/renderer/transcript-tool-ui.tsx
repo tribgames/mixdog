@@ -1,5 +1,15 @@
 import { ChevronRight, Code2, Layers3, ListTree } from 'lucide-react';
-import React, { Suspense, lazy, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  Suspense,
+  lazy,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { preloadMarkdownBody } from './markdown-body-loader';
@@ -311,20 +321,14 @@ function ToolActivityBody({ text, language, className }: { text: string; languag
   return <ToolActivityRichBody text={text} language={language} fallbackClassName={className} />;
 }
 
-function ToolActivityItem({
-  item,
-  open,
-  onToggle,
-  contentId,
-}: {
-  item: TranscriptItem;
-  open: boolean;
-  onToggle: () => void;
-  contentId: string;
-}) {
-  const itemRef = useRef<HTMLElement>(null);
-  const presentation = useMemo(() => desktopToolActivityItemPresentation(item), [item]);
-  const panelOpen = open && presentation.hasDetails;
+type ToolActivityPresentation = ReturnType<typeof desktopToolActivityItemPresentation>;
+
+/** Disclosure in two steps so the body can animate: it is mounted before it
+ *  expands and stays mounted until the collapse transition is over. */
+function useToolActivityDisclosure(
+  panelOpen: boolean,
+  itemRef: RefObject<HTMLElement | null>
+): { rendered: boolean; expanded: boolean } {
   const [rendered, setRendered] = useState(panelOpen);
   const [expanded, setExpanded] = useState(panelOpen);
   useLayoutEffect(() => {
@@ -343,6 +347,194 @@ function ToolActivityItem({
   useLayoutEffect(() => {
     requestTranscriptRowMeasure(itemRef.current);
   }, [rendered, expanded]);
+  return { rendered, expanded };
+}
+
+function renderToolActivityHeader({
+  presentation,
+  open,
+  onToggle,
+  contentId,
+}: {
+  presentation: ToolActivityPresentation;
+  open: boolean;
+  onToggle: () => void;
+  contentId: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="tool-header tool-activity-item-header"
+      disabled={!presentation.hasDetails}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={onToggle}
+      aria-expanded={presentation.hasDetails ? open : undefined}
+      aria-controls={presentation.hasDetails ? contentId : undefined}
+    >
+      <span className="tool-icon">{toolIcon(presentation.category)}</span>
+      <span
+        className="tool-title tool-activity-item-title"
+        title={[presentation.title, presentation.subject, presentation.resultLabel].filter(Boolean).join(' · ')}
+      >
+        <b>
+          <TextShimmer text={presentation.title} active={presentation.pending} />
+        </b>
+        {presentation.subject &&
+          !(open && presentation.hideSubjectWhenOpen) &&
+          !(presentation.pending && !presentation.command) && (
+            <small>
+              {presentation.targetPath ? (
+                <LocalPathMention path={presentation.targetPath} line={presentation.targetLine}>
+                  {presentation.subject}
+                </LocalPathMention>
+              ) : (
+                presentation.subject
+              )}
+            </small>
+          )}
+      </span>
+      {presentation.resultLabel && <span className="tool-activity-item-result">{presentation.resultLabel}</span>}
+      {presentation.pending && (
+        <span className="sr-only" role="status">
+          {t('Running')}
+        </span>
+      )}
+      {presentation.hasDetails && (
+        <span className="tool-chevron" aria-hidden="true">
+          <ChevronRight size={16} />
+        </span>
+      )}
+    </button>
+  );
+}
+
+function renderToolActivityTerminal(presentation: ToolActivityPresentation) {
+  return (
+    <section className="tool-activity-terminal">
+      <pre className="tool-activity-item-command">
+        <code>$ {presentation.command}</code>
+      </pre>
+      {presentation.outputText && <pre className="tool-activity-item-output">{presentation.outputText}</pre>}
+      <CopyControl
+        className="tool-detail-copy tool-activity-copy"
+        label="Copy"
+        value={[presentation.command, presentation.outputText].filter(Boolean).join('\n\n')}
+      />
+    </section>
+  );
+}
+
+function renderToolActivityStructured(presentation: ToolActivityPresentation) {
+  return (
+    <section className="tool-activity-item-section">
+      <span>{structuredKindLabel(presentation.structuredKind)}</span>
+      <div className="tool-activity-structured-list">
+        {presentation.structuredRows.map((row, index) => (
+          <div className="tool-activity-structured-row" data-status={row.status} key={`${row.text}:${index}`}>
+            <span className="tool-activity-structured-marker" aria-hidden="true">
+              {toolActivityIsCompleted(row.status) ? '✓' : '○'}
+            </span>
+            {presentation.structuredKind === 'questions' ? (
+              <span className="tool-activity-structured-question">
+                <span className="tool-activity-structured-content">{row.text}</span>
+                {row.answer && (
+                  <span className="tool-activity-structured-answer">
+                    <span>{TOOL_DETAIL_LABELS.answer}</span>
+                    {row.answer}
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span className="tool-activity-structured-content">{row.text}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function renderToolActivityReplacement(presentation: ToolActivityPresentation) {
+  return (
+    <section className="tool-activity-item-section tool-activity-replacement">
+      <div className="tool-activity-replacement-block" data-kind="before">
+        <span>{TOOL_DETAIL_LABELS.before}</span>
+        <ToolActivityBody text={presentation.beforeText} language={presentation.replacementLanguage} className="" />
+      </div>
+      <div className="tool-activity-replacement-block" data-kind="after">
+        <span>{TOOL_DETAIL_LABELS.after}</span>
+        <ToolActivityBody text={presentation.afterText} language={presentation.replacementLanguage} className="" />
+      </div>
+    </section>
+  );
+}
+
+function renderToolActivityFields(presentation: ToolActivityPresentation) {
+  return (
+    <section className="tool-activity-item-section">
+      <span>{TOOL_DETAIL_LABELS.arguments}</span>
+      <dl className="tool-activity-item-fields">
+        {presentation.fields.map((field) => (
+          <React.Fragment key={field.key}>
+            <dt>{field.label}</dt>
+            <dd>{field.value}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+// Every detail section a tool item can carry: command output, structured rows,
+// a preview, a before/after replacement, arguments, a diff, and plain output.
+function renderToolActivityDetails(presentation: ToolActivityPresentation, contentId: string) {
+  return (
+    <div className="tool-activity-item-body" id={contentId}>
+      {presentation.metaText && <p className="tool-activity-item-meta">{presentation.metaText}</p>}
+      {presentation.command && renderToolActivityTerminal(presentation)}
+      {presentation.structuredRows.length > 0 && renderToolActivityStructured(presentation)}
+      {presentation.previewText && (
+        <section className="tool-activity-item-section">
+          <span>{presentation.previewLabel}</span>
+          <ToolActivityBody
+            text={presentation.previewText}
+            language={presentation.previewLanguage}
+            className="tool-activity-item-preview"
+          />
+        </section>
+      )}
+      {(presentation.beforeText || presentation.afterText) && renderToolActivityReplacement(presentation)}
+      {presentation.fields.length > 0 && renderToolActivityFields(presentation)}
+      {presentation.diffPatch && <CodeDiff patch={presentation.diffPatch} />}
+      {presentation.outputText && !presentation.command && (
+        <section className="tool-activity-item-section tool-activity-item-result-block">
+          <ToolActivityBody
+            text={presentation.outputText}
+            language={presentation.outputLanguage}
+            className="tool-activity-item-output"
+          />
+          <CopyControl className="tool-detail-copy tool-activity-copy" label="Copy" value={presentation.outputText} />
+        </section>
+      )}
+    </div>
+  );
+}
+
+function ToolActivityItem({
+  item,
+  open,
+  onToggle,
+  contentId,
+}: {
+  item: TranscriptItem;
+  open: boolean;
+  onToggle: () => void;
+  contentId: string;
+}) {
+  const itemRef = useRef<HTMLElement>(null);
+  const presentation = useMemo(() => desktopToolActivityItemPresentation(item), [item]);
+  const panelOpen = open && presentation.hasDetails;
+  const { rendered, expanded } = useToolActivityDisclosure(panelOpen, itemRef);
 
   return (
     <article
@@ -356,152 +548,8 @@ function ToolActivityItem({
         }
       }}
     >
-      <button
-        type="button"
-        className="tool-header tool-activity-item-header"
-        disabled={!presentation.hasDetails}
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={onToggle}
-        aria-expanded={presentation.hasDetails ? open : undefined}
-        aria-controls={presentation.hasDetails ? contentId : undefined}
-      >
-        <span className="tool-icon">{toolIcon(presentation.category)}</span>
-        <span
-          className="tool-title tool-activity-item-title"
-          title={[presentation.title, presentation.subject, presentation.resultLabel].filter(Boolean).join(' · ')}
-        >
-          <b>
-            <TextShimmer text={presentation.title} active={presentation.pending} />
-          </b>
-          {presentation.subject &&
-            !(open && presentation.hideSubjectWhenOpen) &&
-            !(presentation.pending && !presentation.command) && (
-              <small>
-                {presentation.targetPath ? (
-                  <LocalPathMention path={presentation.targetPath} line={presentation.targetLine}>
-                    {presentation.subject}
-                  </LocalPathMention>
-                ) : (
-                  presentation.subject
-                )}
-              </small>
-            )}
-        </span>
-        {presentation.resultLabel && <span className="tool-activity-item-result">{presentation.resultLabel}</span>}
-        {presentation.pending && (
-          <span className="sr-only" role="status">
-            {t('Running')}
-          </span>
-        )}
-        {presentation.hasDetails && (
-          <span className="tool-chevron" aria-hidden="true">
-            <ChevronRight size={16} />
-          </span>
-        )}
-      </button>
-      {rendered && presentation.hasDetails && (
-        <div className="tool-activity-item-body" id={contentId}>
-          {presentation.metaText && <p className="tool-activity-item-meta">{presentation.metaText}</p>}
-          {presentation.command && (
-            <section className="tool-activity-terminal">
-              <pre className="tool-activity-item-command">
-                <code>$ {presentation.command}</code>
-              </pre>
-              {presentation.outputText && <pre className="tool-activity-item-output">{presentation.outputText}</pre>}
-              <CopyControl
-                className="tool-detail-copy tool-activity-copy"
-                label="Copy"
-                value={[presentation.command, presentation.outputText].filter(Boolean).join('\n\n')}
-              />
-            </section>
-          )}
-          {presentation.structuredRows.length > 0 && (
-            <section className="tool-activity-item-section">
-              <span>{structuredKindLabel(presentation.structuredKind)}</span>
-              <div className="tool-activity-structured-list">
-                {presentation.structuredRows.map((row, index) => (
-                  <div className="tool-activity-structured-row" data-status={row.status} key={`${row.text}:${index}`}>
-                    <span className="tool-activity-structured-marker" aria-hidden="true">
-                      {toolActivityIsCompleted(row.status) ? '✓' : '○'}
-                    </span>
-                    {presentation.structuredKind === 'questions' ? (
-                      <span className="tool-activity-structured-question">
-                        <span className="tool-activity-structured-content">{row.text}</span>
-                        {row.answer && (
-                          <span className="tool-activity-structured-answer">
-                            <span>{TOOL_DETAIL_LABELS.answer}</span>
-                            {row.answer}
-                          </span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="tool-activity-structured-content">{row.text}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-          {presentation.previewText && (
-            <section className="tool-activity-item-section">
-              <span>{presentation.previewLabel}</span>
-              <ToolActivityBody
-                text={presentation.previewText}
-                language={presentation.previewLanguage}
-                className="tool-activity-item-preview"
-              />
-            </section>
-          )}
-          {(presentation.beforeText || presentation.afterText) && (
-            <section className="tool-activity-item-section tool-activity-replacement">
-              <div className="tool-activity-replacement-block" data-kind="before">
-                <span>{TOOL_DETAIL_LABELS.before}</span>
-                <ToolActivityBody
-                  text={presentation.beforeText}
-                  language={presentation.replacementLanguage}
-                  className=""
-                />
-              </div>
-              <div className="tool-activity-replacement-block" data-kind="after">
-                <span>{TOOL_DETAIL_LABELS.after}</span>
-                <ToolActivityBody
-                  text={presentation.afterText}
-                  language={presentation.replacementLanguage}
-                  className=""
-                />
-              </div>
-            </section>
-          )}
-          {presentation.fields.length > 0 && (
-            <section className="tool-activity-item-section">
-              <span>{TOOL_DETAIL_LABELS.arguments}</span>
-              <dl className="tool-activity-item-fields">
-                {presentation.fields.map((field) => (
-                  <React.Fragment key={field.key}>
-                    <dt>{field.label}</dt>
-                    <dd>{field.value}</dd>
-                  </React.Fragment>
-                ))}
-              </dl>
-            </section>
-          )}
-          {presentation.diffPatch && <CodeDiff patch={presentation.diffPatch} />}
-          {presentation.outputText && !presentation.command && (
-            <section className="tool-activity-item-section tool-activity-item-result-block">
-              <ToolActivityBody
-                text={presentation.outputText}
-                language={presentation.outputLanguage}
-                className="tool-activity-item-output"
-              />
-              <CopyControl
-                className="tool-detail-copy tool-activity-copy"
-                label="Copy"
-                value={presentation.outputText}
-              />
-            </section>
-          )}
-        </div>
-      )}
+      {renderToolActivityHeader({ presentation, open, onToggle, contentId })}
+      {rendered && presentation.hasDetails && renderToolActivityDetails(presentation, contentId)}
     </article>
   );
 }

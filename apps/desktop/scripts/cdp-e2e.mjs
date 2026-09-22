@@ -11,6 +11,7 @@ import {
   categoryForSettingsItem,
 } from '../src/renderer/settings/settings-items.ts';
 import { SLASH_COMMANDS as tuiSlashCommands } from '../../../src/tui/app/slash-commands.mjs';
+import { CdpClient } from './cdp-client.mjs';
 
 const [webSocketUrl, projectPath] = process.argv.slice(2);
 if (!webSocketUrl || !projectPath) {
@@ -57,99 +58,20 @@ async function largestStoredSessionId(sessionIds) {
   return largest.id;
 }
 
-class CdpClient {
-  constructor(url) {
-    this.url = url;
-    this.socket = null;
-    this.nextId = 1;
-    this.pending = new Map();
-    this.consoleErrors = [];
-    this.exceptions = [];
-  }
-
-  async connect() {
-    this.socket = new WebSocket(this.url);
-    this.socket.addEventListener('message', (event) => {
-      const message = JSON.parse(event.data);
-      if (message.id) {
-        const pending = this.pending.get(message.id);
-        if (!pending) return;
-        this.pending.delete(message.id);
-        clearTimeout(pending.timer);
-        if (message.error) pending.reject(new Error(message.error.message));
-        else pending.resolve(message.result);
-        return;
-      }
-      if (message.method === 'Runtime.exceptionThrown') {
-        this.exceptions.push(
-          message.params?.exceptionDetails?.exception?.description ||
-            message.params?.exceptionDetails?.text ||
-            'Unknown renderer exception'
-        );
-      }
-      if (message.method === 'Runtime.consoleAPICalled' && message.params?.type === 'error') {
-        this.consoleErrors.push(
-          (message.params.args || []).map((argument) => argument.value ?? argument.description ?? '').join(' ')
-        );
-      }
-    });
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('CDP connection timed out.')), 15_000);
-      this.socket.addEventListener(
-        'open',
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        { once: true }
-      );
-      this.socket.addEventListener(
-        'error',
-        () => {
-          clearTimeout(timer);
-          reject(new Error('CDP websocket failed.'));
-        },
-        { once: true }
-      );
-    });
-    await this.request('Runtime.enable');
-  }
-
-  request(method, params = {}, timeoutMs = 45_000) {
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`${method} timed out after ${timeoutMs}ms.`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-
-  async evaluate(expression, timeoutMs = 45_000) {
-    const result = await this.request(
-      'Runtime.evaluate',
-      {
-        expression,
-        awaitPromise: true,
-        returnByValue: true,
-      },
-      timeoutMs
-    );
-    if (result.exceptionDetails) {
-      throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
-    }
-    return result.result?.value;
-  }
-
-  close() {
-    this.socket?.close();
-  }
-}
-
-const client = new CdpClient(webSocketUrl);
+const consoleErrors = [];
+const exceptions = [];
+const client = new CdpClient(webSocketUrl, { defaultTimeoutMs: 45_000 });
+client.on('Runtime.exceptionThrown', (params) => {
+  exceptions.push(
+    params?.exceptionDetails?.exception?.description || params?.exceptionDetails?.text || 'Unknown renderer exception'
+  );
+});
+client.on('Runtime.consoleAPICalled', (params) => {
+  if (params?.type !== 'error') return;
+  consoleErrors.push((params.args || []).map((argument) => argument.value ?? argument.description ?? '').join(' '));
+});
 await client.connect();
+await client.request('Runtime.enable');
 
 const harnessInstalled = await client.evaluate('Boolean(window.__mixdogE2e?.bootstrap)');
 const bootstrap = harnessInstalled
@@ -709,14 +631,14 @@ try {
     inputRetries,
     sessionTimeline,
     renderer: {
-      consoleErrors: client.consoleErrors,
-      exceptions: client.exceptions,
+      consoleErrors,
+      exceptions,
       heapUsageMb: heapMegabytes,
       domCounters,
       afterGarbageCollection,
     },
   };
-  assert.deepEqual(client.exceptions, [], 'Renderer raised an uncaught exception during E2E.');
+  assert.deepEqual(exceptions, [], 'Renderer raised an uncaught exception during E2E.');
   console.log(JSON.stringify(report));
 } finally {
   client.close();

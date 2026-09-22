@@ -42,6 +42,14 @@ interface SourceControlIpcOptions {
   ) => Promise<{ root: string; rel: string; absolute: string }>;
 }
 
+/** Channels registered from one `operations` table, in declaration order. */
+interface SourceControlRegistration {
+  handle: Handle;
+  operations: Record<string, ServiceOperation>;
+}
+
+/** Registration order is the wire contract: each group installs its channels
+ *  in the same sequence it always did, and the groups run in this order. */
 export function registerSourceControlIpc({
   app,
   handle,
@@ -49,6 +57,16 @@ export function registerSourceControlIpc({
   shell,
   grantedFile,
 }: SourceControlIpcOptions): void {
+  registerGitToolingIpc({ handle, operations });
+  registerWorkingTreeIpc({ handle, operations });
+  registerGitHubPullRequestIpc({ handle, operations });
+  registerRepositorySyncIpc({ handle, operations });
+  registerRepositoryHistoryIpc({ handle, operations });
+  registerRepositoryFileIpc({ app, handle, shell, grantedFile });
+}
+
+/** Presence, installation and identity of the Git/GitHub command-line tools. */
+function registerGitToolingIpc({ handle, operations }: SourceControlRegistration): void {
   const {
     gitCliStatus,
     installGitCli,
@@ -61,54 +79,6 @@ export function registerSourceControlIpc({
     githubCliAccount,
     gitGlobalConfig,
     setGitGlobalConfig,
-    gitAbortOperation,
-    gitAmend,
-    gitApplyPatch,
-    gitBranches,
-    gitCheckoutBranch,
-    gitCheckoutCommit,
-    gitCherryPickCommit,
-    gitCommit,
-    gitCommitPaths,
-    gitContinue,
-    gitCreateBranch,
-    gitCreateBranchAtCommit,
-    gitCreateTag,
-    gitDeleteBranch,
-    gitDeleteTag,
-    gitDiff,
-    gitFetch,
-    gitIgnore,
-    gitLog,
-    gitMergeBranch,
-    gitPull,
-    gitPush,
-    gitRenameBranch,
-    gitResetToCommit,
-    gitRevertCommit,
-    gitRevertFile,
-    gitReview,
-    gitReviewDiff,
-    gitShow,
-    gitShowDiff,
-    gitShowFile,
-    gitStage,
-    gitStash,
-    gitStashApply,
-    gitStashDrop,
-    gitStashList,
-    gitStashPop,
-    gitStatus,
-    gitSync,
-    gitUndoLastCommit,
-    gitUnstage,
-    ghPrCheckout,
-    ghPrCreate,
-    ghPrDefaultBranch,
-    ghPrDiff,
-    ghPrList,
-    ghPrMerge,
-    ghPrView,
   } = operations;
 
   handle(DESKTOP_IPC.gitCliStatus, () => gitCliStatus());
@@ -132,6 +102,32 @@ export function registerSourceControlIpc({
     }
     return setGitGlobalConfig(requiredGitGlobalConfigKey(key), value);
   });
+}
+
+/** The working tree: status, branches, diffs, the index, commits and stashes. */
+function registerWorkingTreeIpc({ handle, operations }: SourceControlRegistration): void {
+  const {
+    gitAmend,
+    gitApplyPatch,
+    gitBranches,
+    gitCheckoutBranch,
+    gitCommit,
+    gitCommitPaths,
+    gitCreateBranch,
+    gitDeleteBranch,
+    gitDiff,
+    gitMergeBranch,
+    gitRenameBranch,
+    gitStage,
+    gitStash,
+    gitStashApply,
+    gitStashDrop,
+    gitStashList,
+    gitStashPop,
+    gitStatus,
+    gitUndoLastCommit,
+    gitUnstage,
+  } = operations;
 
   handle(DESKTOP_IPC.gitStatus, (_event, cwd, options) => {
     const record =
@@ -201,6 +197,12 @@ export function registerSourceControlIpc({
   handle(DESKTOP_IPC.gitStashDrop, (_event, cwd, ref) =>
     gitStashDrop(requiredRepositoryCwd(cwd), requiredString(ref, 'stash ref', 64))
   );
+}
+
+/** Pull requests and the raw GitHub API lane. */
+function registerGitHubPullRequestIpc({ handle, operations }: SourceControlRegistration): void {
+  const { ghPrCheckout, ghPrCreate, ghPrDefaultBranch, ghPrDiff, ghPrList, ghPrMerge, ghPrView } = operations;
+
   handle(DESKTOP_IPC.ghPrList, (_event, cwd) => ghPrList(requiredRepositoryCwd(cwd)));
   handle(DESKTOP_IPC.githubRequest, (_event, cwd, input) =>
     operations.githubRequest(requiredRepositoryCwd(cwd), validateGithubRequest(input))
@@ -211,6 +213,13 @@ export function registerSourceControlIpc({
   handle(DESKTOP_IPC.ghPrCheckout, (_event, cwd, number) => ghPrCheckout(requiredRepositoryCwd(cwd), number));
   handle(DESKTOP_IPC.ghPrMerge, (_event, cwd, number, method) => ghPrMerge(requiredRepositoryCwd(cwd), number, method));
   handle(DESKTOP_IPC.ghPrDiff, (_event, cwd, number) => ghPrDiff(requiredRepositoryCwd(cwd), number));
+}
+
+/** Exchanging commits with the remote, resuming or abandoning an in-progress
+ *  operation, and discarding work in the tree. */
+function registerRepositorySyncIpc({ handle, operations }: SourceControlRegistration): void {
+  const { gitAbortOperation, gitContinue, gitFetch, gitIgnore, gitPull, gitPush, gitRevertFile, gitSync } = operations;
+
   handle(DESKTOP_IPC.gitPush, (_event, cwd) => gitPush(requiredRepositoryCwd(cwd)));
   handle(DESKTOP_IPC.gitFetch, (_event, cwd) => gitFetch(requiredRepositoryCwd(cwd)));
   handle(DESKTOP_IPC.gitPull, (_event, cwd) => gitPull(requiredRepositoryCwd(cwd)));
@@ -223,6 +232,26 @@ export function registerSourceControlIpc({
   handle(DESKTOP_IPC.gitRevert, (_event, cwd, path, untracked, mode) =>
     gitRevertFile(requiredRepositoryCwd(cwd), requiredGitPath(path), untracked === true, requiredGitDiscardMode(mode))
   );
+}
+
+/** History: reading past commits and moving the tree onto one of them. */
+function registerRepositoryHistoryIpc({ handle, operations }: SourceControlRegistration): void {
+  const {
+    gitCheckoutCommit,
+    gitCherryPickCommit,
+    gitCreateBranchAtCommit,
+    gitCreateTag,
+    gitDeleteTag,
+    gitLog,
+    gitResetToCommit,
+    gitRevertCommit,
+    gitReview,
+    gitReviewDiff,
+    gitShow,
+    gitShowDiff,
+    gitShowFile,
+  } = operations;
+
   handle(DESKTOP_IPC.gitLog, (_event, cwd, query, skip, limit) =>
     gitLog(
       requiredRepositoryCwd(cwd),
@@ -270,7 +299,16 @@ export function registerSourceControlIpc({
   handle(DESKTOP_IPC.gitReviewDiff, (_event, cwd, path, untracked) =>
     gitReviewDiff(requiredRepositoryCwd(cwd), requiredGitPath(path), untracked === true)
   );
+}
 
+/** Handing a file to the operating system: reveal, open, and the temporary
+ *  copy an inline attachment image needs before a viewer can open it. */
+function registerRepositoryFileIpc({
+  app,
+  handle,
+  shell,
+  grantedFile,
+}: Pick<SourceControlIpcOptions, 'app' | 'handle' | 'shell' | 'grantedFile'>): void {
   const resolveInsideProject = (cwd: unknown, path: unknown): string => {
     const root = resolve(requiredRepositoryCwd(cwd));
     const absolute = resolve(root, requiredString(path, 'file path', 4_096));

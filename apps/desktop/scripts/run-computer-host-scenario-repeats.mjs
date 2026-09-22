@@ -6,23 +6,21 @@ import { fileURLToPath } from 'node:url';
 import { optionValue } from './cli-args.mjs';
 import { assertRepeatedScenariosPassed, repeatRequiresPass } from './computer-host-repeat-policy.mjs';
 
-const argument = optionValue;
-
-const repeatCount = Math.max(1, Number(argument('repeat')) || 10);
-const label = argument('label') || 'baseline';
+const repeatCount = Math.max(1, Number(optionValue('repeat')) || 10);
+const label = optionValue('label') || 'baseline';
 const initialDirectory = process.env.INIT_CWD || process.cwd();
 const output = resolve(
-  argument('output') || join(initialDirectory, 'artifacts', 'computer-use', `scenario-repeat-${label}.json`)
+  optionValue('output') || join(initialDirectory, 'artifacts', 'computer-use', `scenario-repeat-${label}.json`)
 );
 const runDirectory = resolve(
-  argument('run-dir') || join(initialDirectory, 'artifacts', 'computer-use', 'repeats', label)
+  optionValue('run-dir') || join(initialDirectory, 'artifacts', 'computer-use', 'repeats', label)
 );
 const requirePass = repeatRequiresPass();
 // Foreground delivery takes the real pointer, so the lane has to reach every
 // repeated run: otherwise a repeat silently claims the user's cursor.
 const skipForeground = process.argv.includes('--skip-foreground');
-const only = argument('only');
-const customTimeoutMs = Number(argument('timeout-ms')) || 300_000;
+const only = optionValue('only');
+const customTimeoutMs = Number(optionValue('timeout-ms')) || 300_000;
 const scenarioRunner = fileURLToPath(new URL('./run-computer-host-scenarios.mjs', import.meta.url));
 const mergeRunner = fileURLToPath(new URL('./merge-computer-host-scenarios.mjs', import.meta.url));
 const coreShards = [

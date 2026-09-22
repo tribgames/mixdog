@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { catalogState, localesUrl, rendererUrl, readJson, pluralVariants } from './catalog-state.mjs';
-import { interpolationTokens, reusableTranslation } from './source-keys.mjs';
+import { reusableTranslation, sameInterpolationTokens } from './source-keys.mjs';
 
 if (process.argv[2] !== '--write' || process.argv.length !== 3) {
   throw new Error('Usage: node scripts/i18n/translate-missing.mjs --write (sends missing UI keys to Google Translate)');
@@ -46,11 +46,7 @@ function protect(key, variant) {
         if (text.split(marker).length !== 2) throw new Error(`Translation damaged a protected literal: ${key}`);
       }
       const restored = text.replace(/__MXP(\d+)__/g, (_, index) => literals[Number(index)] ?? '');
-      if (
-        !restored.trim() ||
-        /__MXP/.test(restored) ||
-        JSON.stringify(interpolationTokens(key)) !== JSON.stringify(interpolationTokens(restored))
-      ) {
+      if (!restored.trim() || /__MXP/.test(restored) || !sameInterpolationTokens(key, restored)) {
         throw new Error(`Invalid translation: ${key}`);
       }
       return restored.trim();

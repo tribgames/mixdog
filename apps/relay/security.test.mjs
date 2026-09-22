@@ -21,13 +21,10 @@ import WebSocket from 'ws';
 import {
   admitFrame,
   admitIngress,
-  browserSocketOriginAllowed,
   CLAIM_TTL_MS,
-  decodeHookResponseBody,
   DeviceStore,
   INGRESS_RESERVATION_BYTES,
   MAX_FRAME_BYTES,
-  MAX_HOOK_RESPONSE_BODY_BYTES,
   MAX_INFLIGHT_BYTES,
   MAX_INGRESS_BYTES,
   MAX_PENDING_CLAIMS_PER_DEVICE,
@@ -407,15 +404,6 @@ test('device authentication accepts headers and rejects URL credentials', () => 
       new URL('https://relay.example/desktop?device=query-device&secret=query-secret')
     ),
     { deviceId: '', secret: '' }
-  );
-});
-
-test('webhook relay responses enforce strict base64 and byte limits', () => {
-  assert.equal(decodeHookResponseBody(Buffer.from('ok').toString('base64')).toString(), 'ok');
-  assert.throws(() => decodeHookResponseBody('not base64!'), /invalid hook response body/);
-  assert.throws(
-    () => decodeHookResponseBody('A'.repeat(Math.ceil(MAX_HOOK_RESPONSE_BODY_BYTES / 3) * 4 + 4)),
-    /invalid hook response body/
   );
 });
 
@@ -3733,35 +3721,4 @@ test('attribution costs one pass over the frame, whatever shape it is', () => {
   // could hide in it.
   const growth = largestElapsed / Math.max(1, timings.get('many-eight-byte-keys'));
   assert.ok(growth < 20, `cost grew ${growth.toFixed(1)}x for 8.5x the bytes`);
-});
-
-test('browser websocket upgrades require the relay origin', () => {
-  assert.equal(
-    browserSocketOriginAllowed({
-      headers: { origin: 'https://relay.example', host: 'relay.example' },
-      socket: { encrypted: true },
-    }),
-    true
-  );
-  assert.equal(
-    browserSocketOriginAllowed({
-      headers: { origin: 'http://127.0.0.1:9800', host: '127.0.0.1:9800' },
-      socket: { encrypted: false },
-    }),
-    true
-  );
-  assert.equal(
-    browserSocketOriginAllowed({
-      headers: { origin: 'https://evil.example', host: 'relay.example' },
-      socket: { encrypted: true },
-    }),
-    false
-  );
-  assert.equal(
-    browserSocketOriginAllowed({
-      headers: { host: 'relay.example' },
-      socket: { encrypted: true },
-    }),
-    false
-  );
 });

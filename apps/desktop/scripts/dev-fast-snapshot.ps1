@@ -35,7 +35,6 @@ $repoRoot = Resolve-Path (Join-Path $desktopDir '../..')
 # node-pty-prebuilt-multiarch/third_party/conpty/... and a long prefix pushes
 # them past the 260-character limit that git's own delete still honours.
 $snapshotRoot = Join-Path $env:TEMP ("mxsnap-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-$linked = [Collections.Generic.List[string]]::new()
 $deployStartedAtUtc = [DateTime]::UtcNow
 $timings = [ordered]@{}
 
@@ -49,7 +48,6 @@ function New-DirectoryLink {
     param([string]$Link, [string]$Target)
     if (-not (Test-Path -LiteralPath $Target)) { return }
     New-Item -ItemType Junction -Path $Link -Target $Target -ErrorAction Stop | Out-Null
-    [void]$linked.Add($Link)
 }
 
 # The ONE way a snapshot worktree may be deleted. node_modules inside it is a
@@ -269,7 +267,6 @@ try {
             throw 'The working tree did not compile in three snapshots; let the in-flight edit finish and retry.'
         }
         Write-Host '  frozen copy does not compile (an edit was mid-save); retaking in 20s' -ForegroundColor Yellow
-        $linked.Clear()
         Remove-SnapshotWorktree $snapshotRoot
         Start-Sleep -Seconds 20
     }

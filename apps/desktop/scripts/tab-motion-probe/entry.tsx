@@ -49,7 +49,7 @@ async function exercise(width: number, initialCount: number, additions = 1) {
   try {
     render();
     await idle();
-    const strip = host.querySelector<HTMLElement>('.workspace-tabs')!;
+    const strip = host.querySelector<HTMLElement>('.workspace-tabs');
     if (!strip) throw new Error('The desktop tab strip did not mount');
     const sample = () => {
       const viewport = strip.getBoundingClientRect();

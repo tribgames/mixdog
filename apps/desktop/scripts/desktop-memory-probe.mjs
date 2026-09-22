@@ -4,12 +4,14 @@
 // four-session split. Attribution for the renderer-memory reduction round.
 //
 // Run: node scripts/desktop-memory-probe.mjs [--sessions=4]
-import { spawn } from 'node:child_process';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+
+import { CdpClient, evaluateStable as evaluateRendererStable, stopApp, waitForTarget } from './cdp-client.mjs';
+import { optionValue } from './cli-args.mjs';
 
 const execFileAsync = promisify(execFile);
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -26,10 +28,7 @@ const electron = join(
   process.platform === 'win32' ? 'electron.exe' : 'electron'
 );
 const profileRoot = join(desktopDir, 'artifacts', 'memory-probe-profiles');
-const SPLIT_SESSIONS = Math.max(
-  2,
-  Number(process.argv.find((argument) => argument.startsWith('--sessions='))?.slice('--sessions='.length) || 4)
-);
+const SPLIT_SESSIONS = Math.max(2, Number(optionValue('sessions') || 4));
 
 // Session ids come straight from the shared store (renderer listSessions is
 // project-scoped and empty on a fresh profile): newest first.
@@ -64,125 +63,10 @@ async function recentSessionIds(limit) {
   );
 }
 
-class CdpClient {
-  constructor(url) {
-    this.socket = new WebSocket(url);
-    this.nextId = 1;
-    this.pending = new Map();
-  }
-  async connect() {
-    this.socket.addEventListener('message', (event) => {
-      const message = JSON.parse(String(event.data));
-      if (!message.id) return;
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      this.pending.delete(message.id);
-      clearTimeout(pending.timer);
-      if (message.error) pending.reject(new Error(message.error.message));
-      else pending.resolve(message.result);
-    });
-    await new Promise((resolvePromise, reject) => {
-      const timer = setTimeout(() => reject(new Error('CDP connection timed out.')), 15_000);
-      this.socket.addEventListener(
-        'open',
-        () => {
-          clearTimeout(timer);
-          resolvePromise();
-        },
-        { once: true }
-      );
-      this.socket.addEventListener(
-        'error',
-        () => {
-          clearTimeout(timer);
-          reject(new Error('CDP websocket failed.'));
-        },
-        { once: true }
-      );
-    });
-  }
-  request(method, params = {}, timeoutMs = 20_000) {
-    const id = this.nextId++;
-    return new Promise((resolvePromise, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`${method} timed out after ${timeoutMs}ms.`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve: resolvePromise, reject, timer });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-  async evaluate(expression, timeoutMs = 20_000) {
-    const response = await this.request(
-      'Runtime.evaluate',
-      {
-        expression,
-        awaitPromise: true,
-        returnByValue: true,
-      },
-      timeoutMs
-    );
-    if (response.exceptionDetails) {
-      throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
-    }
-    return response.result?.value;
-  }
-  close() {
-    this.socket.close();
-  }
-}
-
-async function waitForTarget(port, child) {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Electron exited with ${child.exitCode}.`);
-    try {
-      const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
-      const target = targets.find(
-        (candidate) => candidate.type === 'page' && candidate.url?.includes('/out/renderer/index.html')
-      );
-      if (target?.webSocketDebuggerUrl) return target.webSocketDebuggerUrl;
-    } catch {
-      /* not listening yet */
-    }
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
-  }
-  throw new Error(`CDP target did not appear on port ${port}.`);
-}
-
-async function evaluateStable(client, expression, timeoutMs = 30_000) {
-  const deadline = Date.now() + timeoutMs;
-  let lastError = null;
-  while (Date.now() < deadline) {
-    try {
-      return await client.evaluate(expression, Math.max(1_000, deadline - Date.now()));
-    } catch (error) {
-      lastError = error;
-      if (
-        !/Execution context was destroyed|Cannot find context|Failed to read the 'localStorage' property/i.test(
-          String(error?.message || error)
-        )
-      )
-        throw error;
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
-    }
-  }
-  throw lastError || new Error('Renderer execution context did not stabilize.');
-}
-
-async function stopApp(client, child) {
-  try {
-    await client.evaluate('window.mixdogDesktop?.quit?.()', 5_000);
-  } catch {
-    /* kill below */
-  }
-  client.close();
-  await Promise.race([
-    new Promise((resolvePromise) => child.once('exit', resolvePromise)),
-    new Promise((resolvePromise) => setTimeout(resolvePromise, 4_000)),
-  ]);
-  if (child.exitCode === null) child.kill();
-}
+/** This probe's own evaluation budget; a memory snapshot takes longer to
+ *  settle than a boot phase. */
+const evaluateStable = (client, expression, timeoutMs = 30_000) =>
+  evaluateRendererStable(client, expression, timeoutMs);
 
 async function launch(profilePath, port) {
   // The probe may run from inside a Mixdog shell whose environment carries
@@ -203,9 +87,21 @@ async function launch(profilePath, port) {
   });
   child.stdout.on('data', (chunk) => process.stdout.write(`[app] ${chunk}`));
   child.stderr.on('data', (chunk) => process.stdout.write(`[app-err] ${chunk}`));
-  const client = new CdpClient(await waitForTarget(port, child));
-  await client.connect();
-  return { child, client };
+  // A missing electron binary arrives as an 'error' event rather than an exit,
+  // so without this listener it crashes the probe outright. And if the
+  // handshake fails, the spawned app must not survive: it would keep this
+  // isolated profile's daemon and store alive as orphans.
+  const spawnFailed = new Promise((_resolve, reject) => {
+    child.once('error', (error) => reject(new Error(`Failed to launch Electron (${electron}): ${error.message}`)));
+  });
+  try {
+    const client = new CdpClient(await Promise.race([waitForTarget(port, child, { pollMs: 100 }), spawnFailed]));
+    await client.connect();
+    return { child, client };
+  } catch (error) {
+    child.kill();
+    throw error;
+  }
 }
 
 async function rendererRssMb(mainPid) {

@@ -143,63 +143,59 @@ function Write-FastDirectReceipt {
     Move-Item -LiteralPath $temporary -Destination $ReceiptPath -Force
 }
 
-function Start-FastDirectWorker {
+function ConvertTo-PowerShellLiteral {
+    param([string]$Value)
+    return "'" + $Value.Replace("'", "''") + "'"
+}
+
+# Both deploy modes hand the swap to the same kind of worker: a hidden pwsh
+# re-running THIS script with mode switches. Only the argument tail and the
+# wording differ, so the launch itself lives here once.
+function Start-DetachedDeployWorker {
+    param(
+        [string]$ModeName,
+        [string]$WorkerLabel,
+        [string]$WorkerArguments
+    )
     if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
-        throw 'FastDirect worker receipt path is required.'
+        throw "$ModeName worker receipt path is required."
     }
     $pwsh = (Get-Command pwsh.exe -ErrorAction Stop).Source
-    $scriptPath = $PSCommandPath
-    $quote = {
-        param([string]$Value)
-        return "'" + $Value.Replace("'", "''") + "'"
-    }
-    $workerCommand = "& $(& $quote $scriptPath) -FastDirect -FastDirectWorker -SkipBuild" `
-        + " -InstallDir $(& $quote $InstallDir) -Version $(& $quote $targetVersion)" `
-        + " -ReceiptPath $(& $quote $ReceiptPath)" `
-        + " -FastPlanPath $(& $quote $FastPlanPath)" `
-        + " -FastStatePath $(& $quote $FastStatePath)" `
-        + " -FastArtifactDir $(& $quote $FastArtifactDir)" `
-        + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
+    $workerCommand = "& $(ConvertTo-PowerShellLiteral $PSCommandPath)$WorkerArguments"
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($workerCommand))
     $commandLine = "`"$pwsh`" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $encoded"
     # WMI owns the deployment worker, not Mixdog's shell process tree. Stopping
-    # the app/daemon therefore cannot kill the worker before the directory swap.
+    # the app/daemon therefore cannot kill the worker before the swap it runs --
+    # the installed directory for FastDirect, the runtime archive for RuntimeOnly.
     $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
         CommandLine = $commandLine
     }
     if ([int]$created.ReturnValue -ne 0 -or [int]$created.ProcessId -le 0) {
-        throw "Failed to start detached fast deploy worker (WMI return $($created.ReturnValue))."
+        throw "Failed to start detached $WorkerLabel worker (WMI return $($created.ReturnValue))."
     }
     Write-FastDirectReceipt -Status 'launched' -Detail "workerPid=$($created.ProcessId)"
     return [int]$created.ProcessId
 }
 
-function Start-RuntimeOnlyWorker {
-    if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
-        throw 'RuntimeOnly worker receipt path is required.'
-    }
-    $pwsh = (Get-Command pwsh.exe -ErrorAction Stop).Source
-    $scriptPath = $PSCommandPath
-    $quote = {
-        param([string]$Value)
-        return "'" + $Value.Replace("'", "''") + "'"
-    }
-    $workerCommand = "& $(& $quote $scriptPath) -RuntimeOnly -RuntimeOnlyWorker -SkipBuild" `
-        + " -InstallDir $(& $quote $InstallDir)" `
-        + " -ReceiptPath $(& $quote $ReceiptPath)" `
+function Start-FastDirectWorker {
+    $workerArguments = " -FastDirect -FastDirectWorker -SkipBuild" `
+        + " -InstallDir $(ConvertTo-PowerShellLiteral $InstallDir) -Version $(ConvertTo-PowerShellLiteral $targetVersion)" `
+        + " -ReceiptPath $(ConvertTo-PowerShellLiteral $ReceiptPath)" `
+        + " -FastPlanPath $(ConvertTo-PowerShellLiteral $FastPlanPath)" `
+        + " -FastStatePath $(ConvertTo-PowerShellLiteral $FastStatePath)" `
+        + " -FastArtifactDir $(ConvertTo-PowerShellLiteral $FastArtifactDir)" `
         + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($workerCommand))
-    $commandLine = "`"$pwsh`" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $encoded"
-    # WMI owns the worker so stopping the daemon cannot terminate the runtime
-    # archive swap that follows.
-    $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
-        CommandLine = $commandLine
-    }
-    if ([int]$created.ReturnValue -ne 0 -or [int]$created.ProcessId -le 0) {
-        throw "Failed to start detached runtime deploy worker (WMI return $($created.ReturnValue))."
-    }
-    Write-FastDirectReceipt -Status 'launched' -Detail "workerPid=$($created.ProcessId)"
-    return [int]$created.ProcessId
+    return Start-DetachedDeployWorker -ModeName 'FastDirect' -WorkerLabel 'fast deploy' `
+        -WorkerArguments $workerArguments
+}
+
+function Start-RuntimeOnlyWorker {
+    $workerArguments = " -RuntimeOnly -RuntimeOnlyWorker -SkipBuild" `
+        + " -InstallDir $(ConvertTo-PowerShellLiteral $InstallDir)" `
+        + " -ReceiptPath $(ConvertTo-PowerShellLiteral $ReceiptPath)" `
+        + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
+    return Start-DetachedDeployWorker -ModeName 'RuntimeOnly' -WorkerLabel 'runtime deploy' `
+        -WorkerArguments $workerArguments
 }
 
 # Windows stamps a shortcut's AppUserModelID onto the process it launches and
@@ -303,9 +299,12 @@ function Stop-InstalledMixdogProcess {
 }
 
 function Get-DaemonProcess {
-    return @(Get-CimInstance Win32_Process | Where-Object {
-            $_.CommandLine -match 'daemon\.mjs' -or $_.CommandLine -match 'runtime\\memory\\index\.mjs'
-        })
+    # Filtered in WQL instead of enumerating every process on the machine: this
+    # is polled every 200ms for up to 15s per deploy. The match set is the same
+    # one the previous -match pair produced -- in WQL `\\` is one literal
+    # backslash and `.` is an ordinary character, not a wildcard.
+    $filter = "CommandLine LIKE '%daemon.mjs%' OR CommandLine LIKE '%runtime\\memory\\index.mjs%'"
+    return @(Get-CimInstance Win32_Process -Filter $filter)
 }
 
 function Get-DaemonRecord {
@@ -518,6 +517,14 @@ function Test-FastDirectNoOp {
         -not [bool]$Plan.daemon -and
         -not [bool]$Plan.runtime
     )
+}
+
+function Complete-FastDirectNoOp {
+    # `exit` inside a function ends the script, which is what both inline
+    # copies of this block did before they were consolidated here.
+    Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
+    Write-FastDirectReceipt -Status 'completed' -Detail 'no changes'
+    exit 0
 }
 
 function Get-FastRendererWatchState {
@@ -1198,11 +1205,7 @@ if (-not $SkipBuild) {
         Write-Step 'fingerprinting FastDirect inputs'
         $forceFull = [bool]$targetVersion -and ((Get-InstalledSemVer) -ne $targetVersion)
         $fastPlan = Get-FastDirectPlan -ForceFull:$forceFull
-        if (Test-FastDirectNoOp $fastPlan) {
-            Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
-            Write-FastDirectReceipt -Status 'completed' -Detail 'no changes'
-            exit 0
-        }
+        if (Test-FastDirectNoOp $fastPlan) { Complete-FastDirectNoOp }
         if ($fastPlan.full) {
             Stop-FastRendererWatch
             Write-Step 'native/package inputs changed; building complete win-unpacked fallback'
@@ -1231,11 +1234,7 @@ if ($FastDirect -and $fastPlan.full) {
 elseif (-not (Test-Path -LiteralPath $installer)) {
     if (-not $FastDirect) { throw "Installer artifact missing: $installer" }
 }
-if ($FastDirect -and (Test-FastDirectNoOp $fastPlan)) {
-    Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
-    Write-FastDirectReceipt -Status 'completed' -Detail 'no changes'
-    exit 0
-}
+if ($FastDirect -and (Test-FastDirectNoOp $fastPlan)) { Complete-FastDirectNoOp }
 
 if ($FastDirect -and $BuildOnly) {
     Write-Step 'FastDirect build stage complete; rerun with -SkipBuild to swap'

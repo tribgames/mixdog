@@ -100,6 +100,67 @@ export interface RemoteRelayHandle {
   close(): Promise<void>;
 }
 
+/** Idle NAT paths silently kill this leg; protocol pings keep it warm and
+ *  detect a half-dead socket so the reconnect loop restores it long before a
+ *  phone RPC would hang on it. Any traffic counts as proof of life, so a busy
+ *  leg is never terminated for missing a pong. */
+function startRelayHeartbeat(ws: WebSocket): { markAlive(): void; stop(): void } {
+  let alive = true;
+  ws.on('pong', () => {
+    alive = true;
+  });
+  const heartbeat = setInterval(() => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    if (!alive) {
+      try {
+        ws.terminate();
+      } catch {
+        /* close handler reconnects */
+      }
+      return;
+    }
+    alive = false;
+    try {
+      ws.ping();
+    } catch {
+      /* close handler reconnects */
+    }
+  }, 25_000);
+  heartbeat.unref?.();
+  return {
+    markAlive(): void {
+      alive = true;
+    },
+    stop(): void {
+      clearInterval(heartbeat);
+    },
+  };
+}
+
+/** One relay message as an envelope. A binary frame is unwrapped into the same
+ *  shape the JSON form carries, so everything downstream reads one shape; a
+ *  message that decodes into neither is dropped. */
+function readRelayEnvelope(raw: WebSocket.RawData, isBinary: boolean): Record<string, unknown> | null {
+  if (isBinary) {
+    const frame = decodeRelayBinaryFrame(raw);
+    if (!frame) return null;
+    return {
+      type: 'frame',
+      clientId: frame.clientId,
+      // A text-flagged frame carries UTF-8 that must be handed on as a
+      // STRING, exactly like a JSON envelope's `data` — the handshake and
+      // the E2EE box readers below distinguish the two by type. An old
+      // frame has no flag and stays bytes.
+      data: frame.text ? Buffer.from(frame.data).toString('utf8') : frame.data,
+    };
+  }
+  try {
+    return JSON.parse(String(raw)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 export async function startRemoteRelay(options: RemoteRelayOptions): Promise<RemoteRelayHandle> {
   // The byte meter reports one `rpc` total per window, which cannot say whether
   // that was one heavy answer or eighty cheap ones. Name those calls without
@@ -496,31 +557,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       perMessageDeflate: false,
     });
     socket = ws;
-    // Idle NAT paths silently kill this leg; protocol pings keep it warm and
-    // detect a half-dead socket so the reconnect loop restores it long
-    // before a phone RPC would hang on it.
-    let alive = true;
-    ws.on('pong', () => {
-      alive = true;
-    });
-    const heartbeat = setInterval(() => {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      if (!alive) {
-        try {
-          ws.terminate();
-        } catch {
-          /* close handler reconnects */
-        }
-        return;
-      }
-      alive = false;
-      try {
-        ws.ping();
-      } catch {
-        /* close handler reconnects */
-      }
-    }, 25_000);
-    heartbeat.unref?.();
+    const heartbeat = startRelayHeartbeat(ws);
     ws.on('open', () => {
       retryMs = 1_000;
       // Nothing the previous leg declared survives into this one.
@@ -555,28 +592,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       void drainQueuedRevocations();
     });
     ws.on('message', (raw, isBinary) => {
-      alive = true;
+      heartbeat.markAlive();
       void (async () => {
-        let envelope: Record<string, unknown>;
-        if (isBinary) {
-          const frame = decodeRelayBinaryFrame(raw);
-          if (!frame) return;
-          envelope = {
-            type: 'frame',
-            clientId: frame.clientId,
-            // A text-flagged frame carries UTF-8 that must be handed on as a
-            // STRING, exactly like a JSON envelope's `data` — the handshake and
-            // the E2EE box readers below distinguish the two by type. An old
-            // frame has no flag and stays bytes.
-            data: frame.text ? Buffer.from(frame.data).toString('utf8') : frame.data,
-          };
-        } else {
-          try {
-            envelope = JSON.parse(String(raw)) as Record<string, unknown>;
-          } catch {
-            return;
-          }
-        }
+        const envelope = readRelayEnvelope(raw, isBinary);
+        if (!envelope) return;
         dispatchRelayEnvelope(envelope);
       })();
     });
@@ -584,7 +603,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       /* connection errors surface as close */
     });
     ws.on('close', () => {
-      clearInterval(heartbeat);
+      heartbeat.stop();
       clients.clear();
       resetTransportDeltas();
       mediaLane.destroyAll();

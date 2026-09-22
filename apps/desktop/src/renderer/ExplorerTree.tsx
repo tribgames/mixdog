@@ -53,6 +53,257 @@ const DRAG_EXPAND_DELAY_MS = 500;
 
 export { SetiFileIcon };
 
+/** Right-click command surface. The row menu and the background menu are one
+ *  portal over a single command set, so the whole surface lives beside the
+ *  pane instead of inside it; the pane only owns where it is anchored. */
+function explorerContextMenu({
+  menu,
+  api,
+  projectPath,
+  selected,
+  clipboard,
+  menuRef,
+  absOf,
+  beginCreate,
+  beginRename,
+  closeMenu,
+  deleteSelection,
+  openFile,
+  pasteClipboard,
+  stashClipboard,
+}: {
+  menu: ExplorerMenu;
+  api: typeof window.mixdogDesktop;
+  projectPath: string;
+  selected: ReadonlySet<string>;
+  clipboard: { rels: string[]; cut: boolean } | null;
+  menuRef: { current: HTMLDivElement | null };
+  absOf(rel: string): string;
+  beginCreate(dir: boolean, explicitParent?: string): void;
+  beginRename(rel: string, name: string, dir: boolean): void;
+  closeMenu(): void;
+  deleteSelection(): void;
+  openFile(rel: string, mode?: 'preview' | 'pinned'): void;
+  pasteClipboard(targetDirRel: string): Promise<void>;
+  stashClipboard(cut: boolean): void;
+}): ReactNode {
+  const menuAction = (action: () => void) => () => {
+    closeMenu();
+    action();
+  };
+  const multi = !menu.background && selected.size > 1 && selected.has(menu.rel);
+  let pasteTarget = '';
+  if (!menu.background) pasteTarget = menu.isDir ? menu.rel : menu.parent;
+  const copyRels = multi ? [...selected] : [menu.rel];
+  // Catalog keys only: an interpolated literal ("Delete 3 items")
+  // matches no key, so the multi-select label is composed from the
+  // same keys the confirm dialog above uses.
+  const deleteLabel = multi ? 'Delete {{name}}' : 'Delete';
+  const deleteValues = multi ? { name: t('{{count}} items', { count: selected.size }) } : undefined;
+  const item = (
+    label: string,
+    onClick: () => void,
+    options?: { hint?: string; danger?: boolean; disabled?: boolean; values?: Record<string, unknown> }
+  ) => (
+    <button
+      type="button"
+      role="menuitem"
+      key={label}
+      className={options?.danger ? 'danger' : undefined}
+      disabled={options?.disabled}
+      onClick={menuAction(onClick)}
+    >
+      <span>{t(label, options?.values)}</span>
+      {options?.hint && <span className="dock-file-menu-key">{options.hint}</span>}
+    </button>
+  );
+  const sep = (id: string) => <hr key={id} className="dock-file-menu-sep" aria-hidden="true" />;
+  return createPortal(
+    <div
+      className="dock-file-menu"
+      role="menu"
+      style={{ left: menu.x, top: menu.y }}
+      ref={(element) => {
+        menuRef.current = element;
+        // Clamp into the viewport: near the bottom/right edge the menu
+        // flips inward instead of clipping off-screen.
+        if (!element) return;
+        const rect = element.getBoundingClientRect();
+        element.style.left = `${Math.max(4, Math.min(menu.x, window.innerWidth - rect.width - 4))}px`;
+        element.style.top = `${Math.max(4, Math.min(menu.y, window.innerHeight - rect.height - 4))}px`;
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
+      onKeyDown={(event) => {
+        const entries = [
+          ...event.currentTarget.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)"),
+        ];
+        if (!entries.length) return;
+        const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
+        let next = -1;
+        if (event.key === 'ArrowDown') next = (current + 1) % entries.length;
+        else if (event.key === 'ArrowUp') next = (current - 1 + entries.length) % entries.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = entries.length - 1;
+        else if (event.key === 'Tab') {
+          closeMenu();
+          return;
+        } else return;
+        event.preventDefault();
+        entries[next]?.focus();
+      }}
+    >
+      {menu.background ? (
+        <>
+          {item('New file…', () => beginCreate(false, ''))}
+          {item('New folder…', () => beginCreate(true, ''))}
+          {sep('bg-clipboard')}
+          {item('Paste', () => void pasteClipboard(''), { hint: 'Ctrl+V', disabled: !clipboard })}
+          {sep('bg-path')}
+          {item('Reveal in Explorer', () => void api?.revealFile?.(projectPath, ''))}
+          {item('Copy path', () => void copyTextToClipboard(projectPath))}
+        </>
+      ) : (
+        <>
+          {!multi && !menu.isDir && item('Open', () => openFile(menu.rel))}
+          {!multi && !menu.isDir && item('Open in default app', () => void api?.openFilePath?.(projectPath, menu.rel))}
+          {!multi && menu.isDir && item('New file…', () => beginCreate(false, menu.rel))}
+          {!multi && menu.isDir && item('New folder…', () => beginCreate(true, menu.rel))}
+          {!multi && sep('row-open')}
+          {item('Cut', () => stashClipboard(true), { hint: 'Ctrl+X' })}
+          {item('Copy', () => stashClipboard(false), { hint: 'Ctrl+C' })}
+          {!multi && item('Paste', () => void pasteClipboard(pasteTarget), { hint: 'Ctrl+V', disabled: !clipboard })}
+          {sep('row-clipboard')}
+          {!multi && item('Reveal in Explorer', () => void api?.revealFile?.(projectPath, menu.rel))}
+          {item('Copy path', () => void copyTextToClipboard(copyRels.map(absOf).join('\n')), {
+            hint: 'Shift+Alt+C',
+          })}
+          {item('Copy relative path', () => void copyTextToClipboard(copyRels.join('\n')))}
+          {sep('row-path')}
+          {!multi && item('Rename…', () => beginRename(menu.rel, menu.name, menu.isDir), { hint: 'F2' })}
+          {item(deleteLabel, deleteSelection, {
+            hint: 'Del',
+            danger: true,
+            values: deleteValues,
+          })}
+        </>
+      )}
+    </div>,
+    document.body
+  );
+}
+
+/** Keyboard command surface: navigation, expansion, clipboard, type-ahead.
+ *  It reads the same row model and drives the same actions as the menu. */
+function explorerTreeKeyDown(
+  event: React.KeyboardEvent,
+  {
+    absOf,
+    beginRename,
+    deleteSelection,
+    focusRow,
+    focusedRel,
+    navRows,
+    openFile,
+    pasteClipboard,
+    pasteTargetRel,
+    patch,
+    selectionRels,
+    setSelected,
+    stashClipboard,
+    toggle,
+    typeAhead,
+  }: {
+    absOf(rel: string): string;
+    beginRename(rel: string, name: string, dir: boolean): void;
+    deleteSelection(): void;
+    focusRow(rel: string, options?: { extend?: boolean; keepSelection?: boolean }): void;
+    focusedRel: string;
+    navRows: readonly ExplorerRow[];
+    openFile(rel: string, mode?: 'preview' | 'pinned'): void;
+    pasteClipboard(targetDirRel: string): Promise<void>;
+    pasteTargetRel(): string;
+    patch(rel: string, next: { expanded: boolean }): void;
+    selectionRels(): string[];
+    setSelected(next: ReadonlySet<string>): void;
+    stashClipboard(cut: boolean): void;
+    toggle(rel: string): void;
+    typeAhead: { current: { buffer: string; at: number } };
+  }
+): void {
+  if ((event.target as HTMLElement).tagName === 'INPUT') return;
+  if (navRows.length === 0) return;
+  const index = navRows.findIndex((row) => row.rel === focusedRel);
+  const row = index >= 0 ? navRows[index] : undefined;
+  const focusAt = (nextIndex: number, extend: boolean) => {
+    const next = navRows[Math.max(0, Math.min(navRows.length - 1, nextIndex))];
+    if (next) focusRow(next.rel, { extend });
+  };
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    focusAt(index + 1, event.shiftKey);
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    focusAt(index < 0 ? 0 : index - 1, event.shiftKey);
+  } else if (event.key === 'Home') {
+    event.preventDefault();
+    focusAt(0, event.shiftKey);
+  } else if (event.key === 'End') {
+    event.preventDefault();
+    focusAt(navRows.length - 1, event.shiftKey);
+  } else if (event.key === 'ArrowRight' && row) {
+    event.preventDefault();
+    if (row.dir && !row.expanded) toggle(row.rel);
+    else if (row.dir && row.expanded) focusAt(index + 1, false);
+  } else if (event.key === 'ArrowLeft' && row) {
+    event.preventDefault();
+    if (row.dir && row.expanded) patch(row.rel, { expanded: false });
+    else if (row.parentRel) focusRow(row.parentRel);
+  } else if ((event.key === 'Enter' || event.key === ' ') && row) {
+    event.preventDefault();
+    if (row.dir) toggle(row.rel);
+    else openFile(row.rel, 'preview');
+  } else if (event.key === 'F2' && row) {
+    event.preventDefault();
+    beginRename(row.rel, row.name, row.dir);
+  } else if (event.key === 'Delete') {
+    event.preventDefault();
+    deleteSelection();
+  } else if (event.key === 'Escape') {
+    // list.clear: Escape empties the selection without moving focus.
+    event.preventDefault();
+    setSelected(new Set());
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
+    event.preventDefault();
+    stashClipboard(false);
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'x') {
+    event.preventDefault();
+    stashClipboard(true);
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+    event.preventDefault();
+    void pasteClipboard(pasteTargetRel());
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+    event.preventDefault();
+    setSelected(new Set(navRows.map((candidate) => candidate.rel)));
+  } else if (event.key.toLowerCase() === 'c' && event.shiftKey && event.altKey && !event.ctrlKey && !event.metaKey) {
+    // Copy file path (Shift+Alt+C): absolute paths of the selection.
+    event.preventDefault();
+    const rels = selectionRels();
+    if (rels.length) void copyTextToClipboard(rels.map(absOf).join('\n'));
+  } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && /\S/.test(event.key)) {
+    const now = performance.now();
+    const state = typeAhead.current;
+    state.buffer = now - state.at > TYPE_AHEAD_RESET_MS ? event.key : state.buffer + event.key;
+    state.at = now;
+    const next = explorerTypeAheadIndex(
+      navRows.map((candidate) => candidate.name),
+      Math.max(0, index),
+      state.buffer
+    );
+    if (next >= 0) focusRow(navRows[next].rel);
+  }
+}
+
 export const FilesRootPane = memo(function FilesRootPane({
   projectPath,
   gitStatus,
@@ -240,10 +491,6 @@ export const FilesRootPane = memo(function FilesRootPane({
   const openFile = (rel: string, mode: 'preview' | 'pinned' = 'preview') =>
     onOpenFile ? onOpenFile(projectPath, rel, mode) : void api?.openFilePath?.(projectPath, rel);
   const absOf = (rel: string) => explorerAbsolutePath(projectPath, rel);
-  const menuAction = (action: () => void) => () => {
-    setMenu(null);
-    action();
-  };
   const focusRow = (rel: string, options?: { extend?: boolean; keepSelection?: boolean }) => {
     if (options?.extend) {
       setFocusedRel(rel);
@@ -410,79 +657,24 @@ export const FilesRootPane = memo(function FilesRootPane({
     if (firstError !== undefined) setMutationError(explorerErrorText(firstError));
   };
   const dragTargetDir = (row: ExplorerRow) => (row.dir ? row.rel : row.parentRel);
-  const onTreeKeyDown = (event: React.KeyboardEvent) => {
-    if ((event.target as HTMLElement).tagName === 'INPUT') return;
-    if (navRows.length === 0) return;
-    const index = navRows.findIndex((row) => row.rel === focusedRel);
-    const row = index >= 0 ? navRows[index] : undefined;
-    const focusAt = (nextIndex: number, extend: boolean) => {
-      const next = navRows[Math.max(0, Math.min(navRows.length - 1, nextIndex))];
-      if (next) focusRow(next.rel, { extend });
-    };
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      focusAt(index + 1, event.shiftKey);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      focusAt(index < 0 ? 0 : index - 1, event.shiftKey);
-    } else if (event.key === 'Home') {
-      event.preventDefault();
-      focusAt(0, event.shiftKey);
-    } else if (event.key === 'End') {
-      event.preventDefault();
-      focusAt(navRows.length - 1, event.shiftKey);
-    } else if (event.key === 'ArrowRight' && row) {
-      event.preventDefault();
-      if (row.dir && !row.expanded) toggle(row.rel);
-      else if (row.dir && row.expanded) focusAt(index + 1, false);
-    } else if (event.key === 'ArrowLeft' && row) {
-      event.preventDefault();
-      if (row.dir && row.expanded) patch(row.rel, { expanded: false });
-      else if (row.parentRel) focusRow(row.parentRel);
-    } else if ((event.key === 'Enter' || event.key === ' ') && row) {
-      event.preventDefault();
-      if (row.dir) toggle(row.rel);
-      else openFile(row.rel, 'preview');
-    } else if (event.key === 'F2' && row) {
-      event.preventDefault();
-      beginRename(row.rel, row.name, row.dir);
-    } else if (event.key === 'Delete') {
-      event.preventDefault();
-      deleteSelection();
-    } else if (event.key === 'Escape') {
-      // list.clear: Escape empties the selection without moving focus.
-      event.preventDefault();
-      setSelected(new Set());
-    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'c') {
-      event.preventDefault();
-      stashClipboard(false);
-    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'x') {
-      event.preventDefault();
-      stashClipboard(true);
-    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
-      event.preventDefault();
-      void pasteClipboard(pasteTargetRel());
-    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
-      event.preventDefault();
-      setSelected(new Set(navRows.map((candidate) => candidate.rel)));
-    } else if (event.key.toLowerCase() === 'c' && event.shiftKey && event.altKey && !event.ctrlKey && !event.metaKey) {
-      // Copy file path (Shift+Alt+C): absolute paths of the selection.
-      event.preventDefault();
-      const rels = selectionRels();
-      if (rels.length) void copyTextToClipboard(rels.map(absOf).join('\n'));
-    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && /\S/.test(event.key)) {
-      const now = performance.now();
-      const state = typeAhead.current;
-      state.buffer = now - state.at > TYPE_AHEAD_RESET_MS ? event.key : state.buffer + event.key;
-      state.at = now;
-      const next = explorerTypeAheadIndex(
-        navRows.map((candidate) => candidate.name),
-        Math.max(0, index),
-        state.buffer
-      );
-      if (next >= 0) focusRow(navRows[next].rel);
-    }
-  };
+  const onTreeKeyDown = (event: React.KeyboardEvent) =>
+    explorerTreeKeyDown(event, {
+      absOf,
+      beginRename,
+      deleteSelection,
+      focusRow,
+      focusedRel,
+      navRows,
+      openFile,
+      pasteClipboard,
+      pasteTargetRel,
+      patch,
+      selectionRels,
+      setSelected,
+      stashClipboard,
+      toggle,
+      typeAhead,
+    });
   const rootName =
     projectPath
       .replace(/[\\/]+$/, '')
@@ -786,112 +978,22 @@ export const FilesRootPane = memo(function FilesRootPane({
           {mutationError && <ErrorNotice error={mutationError} />}
         </div>
         {visibleMenu &&
-          (() => {
-            const menu = visibleMenu;
-            const multi = !menu.background && selected.size > 1 && selected.has(menu.rel);
-            let pasteTarget = '';
-            if (!menu.background) pasteTarget = menu.isDir ? menu.rel : menu.parent;
-            const copyRels = multi ? [...selected] : [menu.rel];
-            // Catalog keys only: an interpolated literal ("Delete 3 items")
-            // matches no key, so the multi-select label is composed from the
-            // same keys the confirm dialog above uses.
-            const deleteLabel = multi ? 'Delete {{name}}' : 'Delete';
-            const deleteValues = multi ? { name: t('{{count}} items', { count: selected.size }) } : undefined;
-            const item = (
-              label: string,
-              onClick: () => void,
-              options?: { hint?: string; danger?: boolean; disabled?: boolean; values?: Record<string, unknown> }
-            ) => (
-              <button
-                type="button"
-                role="menuitem"
-                key={label}
-                className={options?.danger ? 'danger' : undefined}
-                disabled={options?.disabled}
-                onClick={menuAction(onClick)}
-              >
-                <span>{t(label, options?.values)}</span>
-                {options?.hint && <span className="dock-file-menu-key">{options.hint}</span>}
-              </button>
-            );
-            const sep = (id: string) => <hr key={id} className="dock-file-menu-sep" aria-hidden="true" />;
-            return createPortal(
-              <div
-                className="dock-file-menu"
-                role="menu"
-                style={{ left: menu.x, top: menu.y }}
-                ref={(element) => {
-                  menuRef.current = element;
-                  // Clamp into the viewport: near the bottom/right edge the menu
-                  // flips inward instead of clipping off-screen.
-                  if (!element) return;
-                  const rect = element.getBoundingClientRect();
-                  element.style.left = `${Math.max(4, Math.min(menu.x, window.innerWidth - rect.width - 4))}px`;
-                  element.style.top = `${Math.max(4, Math.min(menu.y, window.innerHeight - rect.height - 4))}px`;
-                }}
-                onPointerDown={(event) => event.stopPropagation()}
-                onContextMenu={(event) => event.preventDefault()}
-                onKeyDown={(event) => {
-                  const entries = [
-                    ...event.currentTarget.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)"),
-                  ];
-                  if (!entries.length) return;
-                  const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
-                  let next = -1;
-                  if (event.key === 'ArrowDown') next = (current + 1) % entries.length;
-                  else if (event.key === 'ArrowUp') next = (current - 1 + entries.length) % entries.length;
-                  else if (event.key === 'Home') next = 0;
-                  else if (event.key === 'End') next = entries.length - 1;
-                  else if (event.key === 'Tab') {
-                    setMenu(null);
-                    return;
-                  } else return;
-                  event.preventDefault();
-                  entries[next]?.focus();
-                }}
-              >
-                {menu.background ? (
-                  <>
-                    {item('New file…', () => beginCreate(false, ''))}
-                    {item('New folder…', () => beginCreate(true, ''))}
-                    {sep('bg-clipboard')}
-                    {item('Paste', () => void pasteClipboard(''), { hint: 'Ctrl+V', disabled: !clipboard })}
-                    {sep('bg-path')}
-                    {item('Reveal in Explorer', () => void api?.revealFile?.(projectPath, ''))}
-                    {item('Copy path', () => void copyTextToClipboard(projectPath))}
-                  </>
-                ) : (
-                  <>
-                    {!multi && !menu.isDir && item('Open', () => openFile(menu.rel))}
-                    {!multi &&
-                      !menu.isDir &&
-                      item('Open in default app', () => void api?.openFilePath?.(projectPath, menu.rel))}
-                    {!multi && menu.isDir && item('New file…', () => beginCreate(false, menu.rel))}
-                    {!multi && menu.isDir && item('New folder…', () => beginCreate(true, menu.rel))}
-                    {!multi && sep('row-open')}
-                    {item('Cut', () => stashClipboard(true), { hint: 'Ctrl+X' })}
-                    {item('Copy', () => stashClipboard(false), { hint: 'Ctrl+C' })}
-                    {!multi &&
-                      item('Paste', () => void pasteClipboard(pasteTarget), { hint: 'Ctrl+V', disabled: !clipboard })}
-                    {sep('row-clipboard')}
-                    {!multi && item('Reveal in Explorer', () => void api?.revealFile?.(projectPath, menu.rel))}
-                    {item('Copy path', () => void copyTextToClipboard(copyRels.map(absOf).join('\n')), {
-                      hint: 'Shift+Alt+C',
-                    })}
-                    {item('Copy relative path', () => void copyTextToClipboard(copyRels.join('\n')))}
-                    {sep('row-path')}
-                    {!multi && item('Rename…', () => beginRename(menu.rel, menu.name, menu.isDir), { hint: 'F2' })}
-                    {item(deleteLabel, deleteSelection, {
-                      hint: 'Del',
-                      danger: true,
-                      values: deleteValues,
-                    })}
-                  </>
-                )}
-              </div>,
-              document.body
-            );
-          })()}
+          explorerContextMenu({
+            menu: visibleMenu,
+            api,
+            projectPath,
+            selected,
+            clipboard,
+            menuRef,
+            absOf,
+            beginCreate,
+            beginRename,
+            closeMenu: () => setMenu(null),
+            deleteSelection,
+            openFile,
+            pasteClipboard,
+            stashClipboard,
+          })}
       </div>
     </>
   );

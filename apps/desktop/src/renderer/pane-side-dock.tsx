@@ -11,8 +11,10 @@ import {
   useEffect,
   useRef,
   useState,
+  type Dispatch,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type SetStateAction,
 } from 'react';
 import { ArrowLeft, X } from 'lucide-react';
 import {
@@ -297,6 +299,198 @@ function modeDefaultOpen(): boolean {
   return sidePanelLayout(getSidePanelMode()).dockOpen;
 }
 
+/** Opening keeps whatever child the dock already had and falls back to the
+ *  first panel root; a dock with no child at all stays closed. */
+function openedPaneDockEntry(entry: PaneSideDockEntry, firstRoot: WorkbenchSideViewId | null): PaneSideDockEntry {
+  const view = entry.view ?? firstRoot;
+  return { ...entry, open: view !== null || entry.surface !== '', view };
+}
+
+/** The dock map follows the live pane list and the current right-side layout:
+ *  splits, closes, and view moves re-shape it declaratively, and the
+ *  side-panel mode policy owns the open/folded half of its contract. */
+function usePaneSideDockShape({
+  leafKey,
+  groupsKey,
+  leafIdsRef,
+  groupsRef,
+  setDocks,
+}: {
+  leafKey: string;
+  groupsKey: string;
+  leafIdsRef: { current: readonly string[] };
+  groupsRef: { current: readonly WorkbenchSideViewGroup[] };
+  setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
+}): void {
+  // Splits, closes, and view moves re-shape the map declaratively: entries
+  // follow the live pane list and the CURRENT right-side layout, so a view
+  // dragged to the left sidebar can never linger as a pane's active view.
+  useEffect(() => {
+    setDocks((current) => {
+      const next = normalizePaneSideDocks(current, leafIdsRef.current, groupsRef.current, modeDefaultOpen());
+      return samePaneSideDocks(current, next) ? current : next;
+    });
+  }, [leafKey, groupsKey]);
+  // The side-panel mode policy still owns the dock half of its contract:
+  // switching to open-both expands every pane dock, close-* folds them.
+  useEffect(
+    () =>
+      subscribeSidePanelMode(() => {
+        const open = modeDefaultOpen();
+        setDocks((current) => {
+          const next: Record<string, PaneSideDockEntry> = {};
+          for (const [leafId, entry] of Object.entries(current)) {
+            next[leafId] = {
+              ...entry,
+              open: open && (entry.view !== null || entry.surface !== ''),
+            };
+          }
+          return samePaneSideDocks(current, next) ? current : next;
+        });
+      }),
+    []
+  );
+}
+
+function usePaneSideDockStorage(docks: Record<string, PaneSideDockEntry>): void {
+  // The retired beside-the-panel surface store is merged into this dock.
+  useEffect(() => {
+    for (const key of LEGACY_SIDE_SURFACE_KEYS) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        /* cosmetic */
+      }
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PANE_SIDE_DOCK_KEY, JSON.stringify(docks));
+    } catch {
+      // Dock state remains active for this renderer session.
+    }
+  }, [docks]);
+}
+
+/** The single writer for a pane's dock entry: it drops the pane's automation
+ *  overlay first, then applies the caller's update, and keeps the previous
+ *  entry object when nothing actually changed. */
+function usePaneSideDockPatch({
+  groupsRef,
+  setDocks,
+  setTemporary,
+}: {
+  groupsRef: { current: readonly WorkbenchSideViewGroup[] };
+  setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
+  setTemporary: Dispatch<SetStateAction<ReadonlyMap<string, symbol>>>;
+}) {
+  return useCallback(
+    (
+      leafId: string,
+      updater: (entry: PaneSideDockEntry, firstRoot: WorkbenchSideViewId | null) => PaneSideDockEntry
+    ) => {
+      setTemporary((current) => {
+        if (!current.has(leafId)) return current;
+        const next = new Map(current);
+        next.delete(leafId);
+        return next;
+      });
+      setDocks((current) => {
+        const firstRoot = firstPanelRoot(groupsRef.current);
+        const entry = current[leafId] ?? { ...CLOSED_ENTRY, view: firstRoot };
+        const next = updater(entry, firstRoot);
+        const same =
+          next.open === entry.open &&
+          next.view === entry.view &&
+          next.surface === entry.surface &&
+          next.diff === entry.diff;
+        return same && current[leafId] ? current : { ...current, [leafId]: next };
+      });
+    },
+    []
+  );
+}
+
+/** Every command a dock header, tab, or project tool can issue. */
+function usePaneSideDockCommands({
+  groupsRef,
+  setDocks,
+  setTemporary,
+}: {
+  groupsRef: { current: readonly WorkbenchSideViewGroup[] };
+  setDocks: Dispatch<SetStateAction<Record<string, PaneSideDockEntry>>>;
+  setTemporary: Dispatch<SetStateAction<ReadonlyMap<string, symbol>>>;
+}) {
+  const patch = usePaneSideDockPatch({ groupsRef, setDocks, setTemporary });
+  /** Header-tab click contract (user: 소스컨트롤·브라우저 각각 선택해서
+   *  여는): a panel view lands in the body, the browser lands as its stacked
+   *  surface; folding stays with the dock's own toggle/close controls. */
+  const select = useCallback(
+    (leafId: string, id: WorkbenchSideViewId) => {
+      patch(leafId, (entry) =>
+        id === PANE_DOCK_BROWSER_SURFACE || id === PANE_DOCK_TERMINAL_SURFACE
+          ? { ...entry, open: true, surface: id }
+          : { ...entry, open: true, view: id, surface: '' }
+      );
+    },
+    [patch]
+  );
+  /** Ensure the dock is open, optionally landing on a specific child. */
+  const open = useCallback(
+    (leafId: string, id?: WorkbenchSideViewId) => {
+      if (id) {
+        select(leafId, id);
+        return;
+      }
+      patch(leafId, openedPaneDockEntry);
+    },
+    [patch, select]
+  );
+  const setOpen = useCallback(
+    (leafId: string, nextOpen: boolean) => {
+      patch(leafId, (entry, firstRoot) =>
+        nextOpen ? openedPaneDockEntry(entry, firstRoot) : { ...entry, open: false }
+      );
+    },
+    [patch]
+  );
+  /** Fold/unfold the WHOLE unit (user: 한몸) — header, panel view, browser,
+   *  and diff surfaces together. Children survive the fold. */
+  const toggle = useCallback(
+    (leafId: string) => {
+      patch(leafId, (entry, firstRoot) =>
+        entry.open ? { ...entry, open: false } : openedPaneDockEntry(entry, firstRoot)
+      );
+    },
+    [patch]
+  );
+  const openDiff = useCallback(
+    (leafId: string, project: string, rel: string, request: PaneSideDiffRequest) => {
+      const cleanProject = String(project || '').trim();
+      const cleanRel = String(rel || '')
+        .replace(/\\/g, '/')
+        .replace(/^\/+/, '');
+      if (!cleanProject || !cleanRel) return;
+      patch(leafId, (entry) =>
+        withPaneDockDiffOpened(entry, {
+          kind: 'diff',
+          project: cleanProject,
+          rel: cleanRel,
+          ...request,
+        })
+      );
+    },
+    [patch]
+  );
+  const closeDiff = useCallback(
+    (leafId: string) => {
+      patch(leafId, (entry) => withPaneDockDiffClosed(entry));
+    },
+    [patch]
+  );
+  return { select, open, setOpen, toggle, openDiff, closeDiff };
+}
+
 export function usePaneSideDocks({
   leafIds,
   groups,
@@ -326,51 +520,8 @@ export function usePaneSideDocks({
   groupsRef.current = groups;
   const leafIdsRef = useRef(leafIds);
   leafIdsRef.current = leafIds;
-  // Splits, closes, and view moves re-shape the map declaratively: entries
-  // follow the live pane list and the CURRENT right-side layout, so a view
-  // dragged to the left sidebar can never linger as a pane's active view.
-  useEffect(() => {
-    setDocks((current) => {
-      const next = normalizePaneSideDocks(current, leafIdsRef.current, groupsRef.current, modeDefaultOpen());
-      return samePaneSideDocks(current, next) ? current : next;
-    });
-  }, [leafKey, groupsKey]);
-  // The side-panel mode policy still owns the dock half of its contract:
-  // switching to open-both expands every pane dock, close-* folds them.
-  useEffect(
-    () =>
-      subscribeSidePanelMode(() => {
-        const open = modeDefaultOpen();
-        setDocks((current) => {
-          const next: Record<string, PaneSideDockEntry> = {};
-          for (const [leafId, entry] of Object.entries(current)) {
-            next[leafId] = {
-              ...entry,
-              open: open && (entry.view !== null || entry.surface !== ''),
-            };
-          }
-          return samePaneSideDocks(current, next) ? current : next;
-        });
-      }),
-    []
-  );
-  // The retired beside-the-panel surface store is merged into this dock.
-  useEffect(() => {
-    for (const key of LEGACY_SIDE_SURFACE_KEYS) {
-      try {
-        window.localStorage.removeItem(key);
-      } catch {
-        /* cosmetic */
-      }
-    }
-  }, []);
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(PANE_SIDE_DOCK_KEY, JSON.stringify(docks));
-    } catch {
-      // Dock state remains active for this renderer session.
-    }
-  }, [docks]);
+  usePaneSideDockShape({ leafKey, groupsKey, leafIdsRef, groupsRef, setDocks });
+  usePaneSideDockStorage(docks);
   const entryFor = useCallback(
     (leafId: string): PaneSideDockEntry => {
       const base = docks[leafId] ?? CLOSED_ENTRY;
@@ -378,104 +529,11 @@ export function usePaneSideDocks({
     },
     [docks, temporary]
   );
-  const patch = useCallback(
-    (
-      leafId: string,
-      updater: (entry: PaneSideDockEntry, firstRoot: WorkbenchSideViewId | null) => PaneSideDockEntry
-    ) => {
-      setTemporary((current) => {
-        if (!current.has(leafId)) return current;
-        const next = new Map(current);
-        next.delete(leafId);
-        return next;
-      });
-      setDocks((current) => {
-        const firstRoot = firstPanelRoot(groupsRef.current);
-        const entry = current[leafId] ?? { ...CLOSED_ENTRY, view: firstRoot };
-        const next = updater(entry, firstRoot);
-        const same =
-          next.open === entry.open &&
-          next.view === entry.view &&
-          next.surface === entry.surface &&
-          next.diff === entry.diff;
-        return same && current[leafId] ? current : { ...current, [leafId]: next };
-      });
-    },
-    []
-  );
-  /** Header-tab click contract (user: 소스컨트롤·브라우저 각각 선택해서
-   *  여는): a panel view lands in the body, the browser lands as its stacked
-   *  surface; folding stays with the dock's own toggle/close controls. */
-  const select = useCallback(
-    (leafId: string, id: WorkbenchSideViewId) => {
-      patch(leafId, (entry) =>
-        id === PANE_DOCK_BROWSER_SURFACE || id === PANE_DOCK_TERMINAL_SURFACE
-          ? { ...entry, open: true, surface: id }
-          : { ...entry, open: true, view: id, surface: '' }
-      );
-    },
-    [patch]
-  );
-  /** Ensure the dock is open, optionally landing on a specific child. */
-  const open = useCallback(
-    (leafId: string, id?: WorkbenchSideViewId) => {
-      if (id) {
-        select(leafId, id);
-        return;
-      }
-      patch(leafId, (entry, firstRoot) => {
-        const view = entry.view ?? firstRoot;
-        return { ...entry, open: view !== null || entry.surface !== '', view };
-      });
-    },
-    [patch, select]
-  );
-  const setOpen = useCallback(
-    (leafId: string, nextOpen: boolean) => {
-      patch(leafId, (entry, firstRoot) => {
-        if (!nextOpen) return { ...entry, open: false };
-        const view = entry.view ?? firstRoot;
-        return { ...entry, open: view !== null || entry.surface !== '', view };
-      });
-    },
-    [patch]
-  );
-  /** Fold/unfold the WHOLE unit (user: 한몸) — header, panel view, browser,
-   *  and diff surfaces together. Children survive the fold. */
-  const toggle = useCallback(
-    (leafId: string) => {
-      patch(leafId, (entry, firstRoot) => {
-        if (entry.open) return { ...entry, open: false };
-        const view = entry.view ?? firstRoot;
-        return { ...entry, open: view !== null || entry.surface !== '', view };
-      });
-    },
-    [patch]
-  );
-  const openDiff = useCallback(
-    (leafId: string, project: string, rel: string, request: PaneSideDiffRequest) => {
-      const cleanProject = String(project || '').trim();
-      const cleanRel = String(rel || '')
-        .replace(/\\/g, '/')
-        .replace(/^\/+/, '');
-      if (!cleanProject || !cleanRel) return;
-      patch(leafId, (entry) =>
-        withPaneDockDiffOpened(entry, {
-          kind: 'diff',
-          project: cleanProject,
-          rel: cleanRel,
-          ...request,
-        })
-      );
-    },
-    [patch]
-  );
-  const closeDiff = useCallback(
-    (leafId: string) => {
-      patch(leafId, (entry) => withPaneDockDiffClosed(entry));
-    },
-    [patch]
-  );
+  const { select, open, setOpen, toggle, openDiff, closeDiff } = usePaneSideDockCommands({
+    groupsRef,
+    setDocks,
+    setTemporary,
+  });
   return {
     docks,
     entryFor,

@@ -58,6 +58,7 @@ function sample() {
       const rect = document.querySelector(selector)?.getBoundingClientRect();
       return rect ? { y: rect.y, height: rect.height } : null;
     });
+    const cards = document.querySelector('.stats-cards');
     frames.push({
       x: box.x,
       y: box.y,
@@ -67,9 +68,7 @@ function sample() {
       active,
       sections,
       models: document.querySelectorAll('.stats-model-row').length,
-      cardsOpacity: document.querySelector('.stats-cards')
-        ? getComputedStyle(document.querySelector('.stats-cards')!).opacity
-        : null,
+      cardsOpacity: cards ? getComputedStyle(cards).opacity : null,
     });
     const key = `${innerWidth}x${innerHeight}:${busy}:${active}`;
     const values = [box.x, box.y, box.width, box.height, ...sections.flatMap((s) => [s?.y ?? 0, s?.height ?? 0])];

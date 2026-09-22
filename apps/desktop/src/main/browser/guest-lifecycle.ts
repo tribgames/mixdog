@@ -40,24 +40,11 @@ export function browserSharedTextureRendering(): boolean {
   return process.platform === 'win32' && app.isHardwareAccelerationEnabled();
 }
 
-export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
-  const { window, state, sessions, cdp, urlPolicy, bridgeWanted, isBackgroundBusy, waitForLoadSettle } = host;
-  const nextPopupIdsBySession = new Map<string, number>();
-  type SavedPage = {
-    name?: string;
-    kind: 'primary' | BackgroundPage['kind'];
-    url: string;
-    active: boolean;
-    keepAlive?: boolean;
-    zoom: number;
-    size: [number, number];
-  };
-  // Only small navigation descriptors survive runtime eviction, never
-  // WebContents, screenshots, DOM state, or a second browser idle timer.
-  const suspendedSessions = new Map<string, SavedPage[]>();
-  const restoringSessions = new Map<string, Promise<void>>();
-
-  const offscreenWindowOptions = (): Electron.BrowserWindowConstructorOptions => ({
+/** Every page owner runs on the shared partition without a native surface, so
+ *  its window options are fixed: hidden, unfocusable, offscreen-composited and
+ *  never throttled. */
+function offscreenWindowOptions(): Electron.BrowserWindowConstructorOptions {
+  return {
     show: false,
     focusable: false,
     width: OFFSCREEN_VIEWPORT.width,
@@ -73,40 +60,170 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
       // Keep rendering/timers running while the window is hidden.
       backgroundThrottling: false,
     },
-  });
+  };
+}
+
+// Only small navigation descriptors survive runtime eviction, never
+// WebContents, screenshots, DOM state, or a second browser idle timer.
+type SavedPage = {
+  name?: string;
+  kind: 'primary' | BackgroundPage['kind'];
+  url: string;
+  active: boolean;
+  keepAlive?: boolean;
+  zoom: number;
+  size: [number, number];
+};
+
+/** One live page as the descriptor a later restore replays: where it was, how
+ *  it was sized and zoomed, and whether it was the selected page. */
+function savedPageDescriptor(
+  guest: WebContents,
+  selected: WebContents | null,
+  kind: SavedPage['kind'],
+  name?: string,
+  keepAlive?: boolean
+): SavedPage {
+  return {
+    name,
+    kind,
+    keepAlive,
+    url: guest.getURL() || 'about:blank',
+    active: guest === selected,
+    zoom: guest.getZoomFactor(),
+    size: (BrowserWindow.fromWebContents(guest)?.getContentSize() ?? [
+      OFFSCREEN_VIEWPORT.width,
+      OFFSCREEN_VIEWPORT.height,
+    ]) as [number, number],
+  };
+}
+
+/** Navigation admission for one page: whatever the URL policy rejects is
+ *  prevented and recorded where the page's own failures are reported. */
+function blockUnsafeNavigation(
+  state: BrowserGuestStateStore,
+  urlPolicy: BrowserUrlPolicy,
+  guest: WebContents
+): (event: Electron.Event, url: string) => void {
+  return (event, url) => {
+    if (url === 'about:blank') return;
+    try {
+      normalizePageUrl(url, urlPolicy);
+    } catch (error) {
+      event.preventDefault();
+      pushBounded(state.for(guest).networkFailures, `Blocked page navigation: ${(error as Error).message}`);
+    }
+  };
+}
+
+/** Popup windows stay hidden and non-focusable, but use their native view:
+ *  inherited offscreen popup views can remain at zero size. */
+function popupWindowOptions(): Electron.BrowserWindowConstructorOptions {
+  const options = offscreenWindowOptions();
+  return { ...options, webPreferences: { ...options.webPreferences, offscreen: false } };
+}
+
+/** Background pages are addressed by page id; only a live window can answer. */
+function backgroundEntryForPageId(
+  sessions: BrowserSessionRegistry,
+  state: BrowserGuestStateStore,
+  sessionId: string,
+  pageId: string
+): [string, BackgroundPage] | null {
+  for (const entry of sessions.backgroundPages(sessionId)) {
+    if (
+      !entry[1].window.isDestroyed() &&
+      state.pageId(entry[1].window.webContents).toLowerCase() === pageId.toLowerCase()
+    ) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+/** Destroy one background page's window and forget its registry entry. */
+function closeBackgroundPage(
+  sessions: BrowserSessionRegistry,
+  sessionId: string,
+  name: string,
+  entry: BackgroundPage
+): void {
+  if (!entry.window.isDestroyed()) {
+    try {
+      entry.window.destroy();
+    } catch {
+      /* teardown already won */
+    }
+  }
+  sessions.deleteBackgroundPage(sessionId, name, entry);
+}
+
+function closeAllBackgroundPages(sessions: BrowserSessionRegistry): void {
+  for (const [sessionId, name, page] of sessions.allBackgroundEntries()) {
+    closeBackgroundPage(sessions, sessionId, name, page);
+  }
+  sessions.clearBackgroundPages();
+}
+
+/** Agent pages nobody selected, kept alive or is driving expire on their own;
+ *  user and popup pages never do. */
+function reclaimIdleBackgroundPages(
+  sessions: BrowserSessionRegistry,
+  isBackgroundBusy: BrowserGuestLifecycleHost['isBackgroundBusy'],
+  now = Date.now()
+): void {
+  for (const [sessionId, name, entry] of sessions.allBackgroundEntries()) {
+    if (entry.window.isDestroyed()) {
+      sessions.deleteBackgroundPage(sessionId, name, entry);
+      continue;
+    }
+    if (
+      entry.kind === 'agent' &&
+      !entry.keepAlive &&
+      sessions.currentGuest(sessionId) !== entry.guest &&
+      backgroundPageIdle(entry.lastUsedAt, now) &&
+      !isBackgroundBusy(sessionId, name)
+    ) {
+      closeBackgroundPage(sessions, sessionId, name, entry);
+    }
+  }
+}
+
+/** The session's next popup name, never colliding with a page it still holds. */
+function nextPopupTabName(sessions: BrowserSessionRegistry, counters: Map<string, number>, sessionId: string): string {
+  let nextPopupId = counters.get(sessionId) ?? 0;
+  let name = '';
+  do {
+    name = `popup-${++nextPopupId}`;
+  } while (sessions.backgroundPages(sessionId).has(name));
+  counters.set(sessionId, nextPopupId);
+  return name;
+}
+
+export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
+  const { window, state, sessions, cdp, urlPolicy, bridgeWanted, isBackgroundBusy, waitForLoadSettle } = host;
+  const nextPopupIdsBySession = new Map<string, number>();
+  const suspendedSessions = new Map<string, SavedPage[]>();
+  const restoringSessions = new Map<string, Promise<void>>();
 
   function initializeGuest(guest: WebContents, deferDebugger = false): void {
     state.for(guest);
     host.onGuest?.(guest);
-    const blockUnsafeNavigation = (event: Electron.Event, url: string) => {
-      if (url === 'about:blank') return;
-      try {
-        normalizePageUrl(url, urlPolicy);
-      } catch (error) {
-        event.preventDefault();
-        pushBounded(state.for(guest).networkFailures, `Blocked page navigation: ${(error as Error).message}`);
-      }
-    };
-    guest.on('will-navigate', blockUnsafeNavigation);
-    guest.on('will-redirect', blockUnsafeNavigation);
+    const blockNavigation = blockUnsafeNavigation(state, urlPolicy, guest);
+    guest.on('will-navigate', blockNavigation);
+    guest.on('will-redirect', blockNavigation);
     guest.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
       if (isMainFrame) state.beginDocument(guest, isInPlace);
     });
     guest.setWindowOpenHandler(({ url }) => {
       try {
         if (url !== 'about:blank') normalizePageUrl(url, urlPolicy);
-        reclaimIdleBackgroundPages();
+        reclaimIdleBackgroundPages(sessions, isBackgroundBusy);
         assertBackgroundTabCapacity(sessions.backgroundCount());
-        const options = offscreenWindowOptions();
         return {
           action: 'allow',
           outlivesOpener: true,
-          // Keep popup windows hidden and non-focusable, but use their native
-          // view: inherited offscreen popup views can remain at zero size.
-          overrideBrowserWindowOptions: {
-            ...options,
-            webPreferences: { ...options.webPreferences, offscreen: false },
-          },
+          overrideBrowserWindowOptions: popupWindowOptions(),
         };
       } catch (error) {
         pushBounded(state.for(guest).networkFailures, `Blocked popup navigation: ${(error as Error).message}`);
@@ -114,7 +231,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
       }
     });
     guest.on('did-create-window', (child) => {
-      reclaimIdleBackgroundPages();
+      reclaimIdleBackgroundPages(sessions, isBackgroundBusy);
       try {
         assertBackgroundTabCapacity(sessions.backgroundCount());
       } catch (error) {
@@ -127,7 +244,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
         return;
       }
       const ownerSessionId = sessions.sessionIdForGuest(guest) ?? DEFAULT_BROWSER_SESSION_ID;
-      const popupName = nextPopupTabName(ownerSessionId);
+      const popupName = nextPopupTabName(sessions, nextPopupIdsBySession, ownerSessionId);
       trackBackgroundPage(ownerSessionId, popupName, child, 'popup', state.pageId(guest));
       // The opener's next reply has to mention it: a click that opened a tab
       // changes nothing in this document and would otherwise be reported as a
@@ -176,50 +293,15 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     initialize: initializeGuest,
   });
 
-  function backgroundEntryByPageId(sessionId: string, pageId: string): [string, BackgroundPage] | null {
-    for (const entry of sessions.backgroundPages(sessionId)) {
-      if (
-        !entry[1].window.isDestroyed() &&
-        state.pageId(entry[1].window.webContents).toLowerCase() === pageId.toLowerCase()
-      ) {
-        return entry;
-      }
-    }
-    return null;
-  }
-
-  function destroyBackgroundPage(sessionId: string, name: string, entry: BackgroundPage): void {
-    if (!entry.window.isDestroyed()) {
-      try {
-        entry.window.destroy();
-      } catch {
-        /* teardown already won */
-      }
-    }
-    sessions.deleteBackgroundPage(sessionId, name, entry);
-  }
-
   /** Unload follows the daemon runtime; deletion also forgets navigation. */
   function releaseSession(sessionId: string, restore = false): void {
     if (restore && !restoringSessions.has(sessionId)) {
       const selected = sessions.currentGuest(sessionId);
-      const save = (guest: WebContents, kind: SavedPage['kind'], name?: string, keepAlive?: boolean): SavedPage => ({
-        name,
-        kind,
-        keepAlive,
-        url: guest.getURL() || 'about:blank',
-        active: guest === selected,
-        zoom: guest.getZoomFactor(),
-        size: (BrowserWindow.fromWebContents(guest)?.getContentSize() ?? [
-          OFFSCREEN_VIEWPORT.width,
-          OFFSCREEN_VIEWPORT.height,
-        ]) as [number, number],
-      });
       const pages = [
-        ...sessions.visibleGuests(sessionId).map((guest) => save(guest, 'primary')),
+        ...sessions.visibleGuests(sessionId).map((guest) => savedPageDescriptor(guest, selected, 'primary')),
         ...[...sessions.backgroundPages(sessionId)]
           .filter(([, page]) => !page.guest.isDestroyed())
-          .map(([name, page]) => save(page.guest, page.kind, name, page.keepAlive)),
+          .map(([name, page]) => savedPageDescriptor(page.guest, selected, page.kind, name, page.keepAlive)),
       ];
       if (pages.length) suspendedSessions.set(sessionId, pages);
     } else if (!restore) {
@@ -228,7 +310,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     restoringSessions.delete(sessionId);
     primaryPages.release(sessionId);
     for (const [name, entry] of [...sessions.backgroundPages(sessionId)]) {
-      destroyBackgroundPage(sessionId, name, entry);
+      closeBackgroundPage(sessions, sessionId, name, entry);
     }
     nextPopupIdsBySession.delete(sessionId);
   }
@@ -297,41 +379,6 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     return work;
   }
 
-  function destroyAllBackgroundPages(): void {
-    for (const [sessionId, name, page] of sessions.allBackgroundEntries()) {
-      destroyBackgroundPage(sessionId, name, page);
-    }
-    sessions.clearBackgroundPages();
-  }
-
-  function reclaimIdleBackgroundPages(now = Date.now()): void {
-    for (const [sessionId, name, entry] of sessions.allBackgroundEntries()) {
-      if (entry.window.isDestroyed()) {
-        sessions.deleteBackgroundPage(sessionId, name, entry);
-        continue;
-      }
-      if (
-        entry.kind === 'agent' &&
-        !entry.keepAlive &&
-        sessions.currentGuest(sessionId) !== entry.guest &&
-        backgroundPageIdle(entry.lastUsedAt, now) &&
-        !isBackgroundBusy(sessionId, name)
-      ) {
-        destroyBackgroundPage(sessionId, name, entry);
-      }
-    }
-  }
-
-  function nextPopupTabName(sessionId: string): string {
-    let nextPopupId = nextPopupIdsBySession.get(sessionId) ?? 0;
-    let name = '';
-    do {
-      name = `popup-${++nextPopupId}`;
-    } while (sessions.backgroundPages(sessionId).has(name));
-    nextPopupIdsBySession.set(sessionId, nextPopupId);
-    return name;
-  }
-
   function trackBackgroundPage(
     sessionId: string,
     name: string,
@@ -362,7 +409,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
       existing.lastUsedAt = Date.now();
       return existing;
     }
-    reclaimIdleBackgroundPages();
+    reclaimIdleBackgroundPages(sessions, isBackgroundBusy);
     assertBackgroundTabCapacity(sessions.backgroundCount());
     // Never shown: the page runs fully (navigate/click/snapshot are JS, not
     // frames). Screenshots go through CDP Page.captureScreenshot, which renders
@@ -410,12 +457,14 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   return {
     initializeGuest,
     attachDebuggerEagerly,
-    backgroundEntryByPageId,
-    destroyBackgroundPage,
-    destroyAllBackgroundPages,
+    backgroundEntryByPageId: (sessionId: string, pageId: string) =>
+      backgroundEntryForPageId(sessions, state, sessionId, pageId),
+    destroyBackgroundPage: (sessionId: string, name: string, entry: BackgroundPage) =>
+      closeBackgroundPage(sessions, sessionId, name, entry),
+    destroyAllBackgroundPages: () => closeAllBackgroundPages(sessions),
     releaseSession,
     restoreSession,
-    reclaimIdleBackgroundPages,
+    reclaimIdleBackgroundPages: (now?: number) => reclaimIdleBackgroundPages(sessions, isBackgroundBusy, now),
     ensureOffscreen,
     requestBrowserSurface,
     ensureGuest,

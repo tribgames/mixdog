@@ -8,14 +8,14 @@
 // position at press time versus which session the app ended up selecting. It
 // also samples the sidebar row order continuously, so a list re-sort that
 // moves rows under the cursor is attributed instead of guessed.
+import { optionValue } from './cli-args.mjs';
+
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) =>
-  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
-const port = Number(valueFor('--port') || 9342);
-const clicks = Number(valueFor('--clicks') || 5);
-const gapMs = Number(valueFor('--gap') || 1200);
+const port = Number(optionValue('port', argumentsList) || 9342);
+const clicks = Number(optionValue('clicks', argumentsList) || 5);
+const gapMs = Number(optionValue('gap', argumentsList) || 1200);
 // Watch-only: record sidebar order churn with no synthetic clicks at all.
-const watchMs = Number(valueFor('--watch') || 0);
+const watchMs = Number(optionValue('watch', argumentsList) || 0);
 
 const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
 const target = targets.find((candidate) => candidate.type === 'page');

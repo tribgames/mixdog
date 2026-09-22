@@ -45,171 +45,185 @@ async function assertUploadPaths(paths: string[]): Promise<void> {
   }
 }
 
-export function createRefUpload(host: RefUploadHost) {
-  const {
-    accessibilityRefs,
-    cdp,
-    resolveRefPoint,
-    input: browserInput,
-    pause,
-    pendingFileChooser,
-    clearFileChooser,
-  } = host;
-
-  /** The live DOM object behind a ref: through the accessibility snapshot
-   *  when the page still has one, otherwise through the page-side ref table. */
-  async function resolveRefObject(guest: WebContents, ref: string, signal?: AbortSignal): Promise<RefObject> {
-    const accessibilitySnapshot = accessibilityRefs(guest);
-    if (accessibilitySnapshot) {
-      const target = accessibilitySnapshot.refs.get(ref);
-      if (!target) throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
-      const resolved = await cdp.call<{ object?: { objectId?: string } }>(
-        guest,
-        'DOM.resolveNode',
-        { backendNodeId: target.backendNodeId },
-        signal,
-        { sessionId: target.sessionId }
-      );
-      const objectId = resolved.object?.objectId;
-      if (!objectId) throw new Error(`ref ${ref} is stale or detached; take a fresh snapshot first`);
-      return { objectId, sessionId: target.sessionId };
-    }
-    const response = await cdp.call<{
-      result?: { objectId?: string };
-      exceptionDetails?: unknown;
-    }>(
+/** The live DOM object behind a ref: through the accessibility snapshot
+ *  when the page still has one, otherwise through the page-side ref table. */
+async function resolveRefObject(
+  host: RefUploadHost,
+  guest: WebContents,
+  ref: string,
+  signal?: AbortSignal
+): Promise<RefObject> {
+  const accessibilitySnapshot = host.accessibilityRefs(guest);
+  if (accessibilitySnapshot) {
+    const target = accessibilitySnapshot.refs.get(ref);
+    if (!target) throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
+    const resolved = await host.cdp.call<{ object?: { objectId?: string } }>(
       guest,
-      'Runtime.evaluate',
-      {
-        expression: `(() => {
+      'DOM.resolveNode',
+      { backendNodeId: target.backendNodeId },
+      signal,
+      { sessionId: target.sessionId }
+    );
+    const objectId = resolved.object?.objectId;
+    if (!objectId) throw new Error(`ref ${ref} is stale or detached; take a fresh snapshot first`);
+    return { objectId, sessionId: target.sessionId };
+  }
+  const response = await host.cdp.call<{
+    result?: { objectId?: string };
+    exceptionDetails?: unknown;
+  }>(
+    guest,
+    'Runtime.evaluate',
+    {
+      expression: `(() => {
         ${browserRefElementSource(ref)}
         return element;
       })()`,
-        returnByValue: false,
-        userGesture: true,
-      },
-      signal
-    );
-    const objectId = response.result?.objectId;
-    if (!objectId || response.exceptionDetails) {
-      throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
-    }
-    return { objectId };
+      returnByValue: false,
+      userGesture: true,
+    },
+    signal
+  );
+  const objectId = response.result?.objectId;
+  if (!objectId || response.exceptionDetails) {
+    throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
   }
+  return { objectId };
+}
 
-  async function isFileInput(guest: WebContents, object: RefObject, signal?: AbortSignal): Promise<boolean> {
-    const validation = await cdp.call<{
-      result?: { value?: { valid?: boolean } };
-      exceptionDetails?: unknown;
-    }>(
-      guest,
-      'Runtime.callFunctionOn',
-      {
-        objectId: object.objectId,
-        functionDeclaration: `function() {
+async function isFileInput(
+  host: RefUploadHost,
+  guest: WebContents,
+  object: RefObject,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const validation = await host.cdp.call<{
+    result?: { value?: { valid?: boolean } };
+    exceptionDetails?: unknown;
+  }>(
+    guest,
+    'Runtime.callFunctionOn',
+    {
+      objectId: object.objectId,
+      functionDeclaration: `function() {
           return {
             valid: (this.tagName || '').toLowerCase() === 'input'
               && String(this.type || '').toLowerCase() === 'file',
           };
         }`,
-        returnByValue: true,
-      },
-      signal,
-      { sessionId: object.sessionId }
+      returnByValue: true,
+    },
+    signal,
+    { sessionId: object.sessionId }
+  );
+  return !validation.exceptionDetails && validation.result?.value?.valid === true;
+}
+
+/** Hand the approved files to the picker the page opened. */
+async function answerFileChooser(
+  host: RefUploadHost,
+  guest: WebContents,
+  chooser: PendingFileChooser,
+  paths: string[],
+  signal?: AbortSignal,
+  beforeDispatch?: () => void
+): Promise<void> {
+  if (!chooser.backendNodeId) {
+    host.clearFileChooser(guest);
+    throw new Error('the open file chooser has no target element; take a fresh snapshot and upload by ref');
+  }
+  if (chooser.mode === 'selectSingle' && paths.length > 1) {
+    throw new Error('the open file chooser accepts a single file');
+  }
+  await host.cdp.call(guest, 'DOM.setFileInputFiles', { files: paths, backendNodeId: chooser.backendNodeId }, signal, {
+    sessionId: chooser.sessionId,
+    beforeDispatch: () => {
+      beforeDispatch?.();
+      if (host.pendingFileChooser(guest) !== chooser)
+        throw new Error('Browser file chooser changed; files were not sent.');
+      // Claim before dispatch so a concurrent answer cannot send twice.
+      host.clearFileChooser(guest);
+    },
+  });
+  if (host.pendingFileChooser(guest) === chooser) host.clearFileChooser(guest);
+}
+
+/** Click an element that is not itself a file input and wait for the
+ *  picker it opens — the common pattern of a styled button over a hidden
+ *  input. */
+async function openFileChooserVia(
+  host: RefUploadHost,
+  guest: WebContents,
+  ref: string,
+  signal?: AbortSignal
+): Promise<PendingFileChooser | null> {
+  host.clearFileChooser(guest);
+  const point = await host.resolveRefPoint(guest, ref, signal);
+  await host.input.clickAt(guest, point.x, point.y, 1, 'left', 0, signal);
+  const deadline = Date.now() + FILE_CHOOSER_WAIT_MS;
+  for (;;) {
+    const chooser = host.pendingFileChooser(guest);
+    if (chooser) return chooser;
+    if (Date.now() >= deadline) return null;
+    await host.pause(FILE_CHOOSER_POLL_MS, signal);
+  }
+}
+
+/** The upload zones that never show a picker take their files as a drop.
+ *  The guard neutralises a drop the page does not take, so a refusal costs
+ *  the caller a clear error instead of a navigation to the file. */
+async function dropFilesOnRef(
+  host: RefUploadHost,
+  guest: WebContents,
+  ref: string,
+  paths: string[],
+  signal?: AbortSignal
+): Promise<void> {
+  const point = await host.resolveRefPoint(guest, ref, signal);
+  await host.evaluateInFrames<boolean>(guest, BROWSER_DROP_GUARD_INSTALL, signal);
+  let accepted = false;
+  try {
+    await host.input.dropFilesAt(guest, point, paths, signal);
+  } finally {
+    const answers = await host
+      .evaluateInFrames<boolean>(guest, BROWSER_DROP_GUARD_TAKE, signal)
+      .catch(() => [] as boolean[]);
+    accepted = answers.some(Boolean);
+  }
+  if (!accepted) {
+    throw new Error(
+      `ref ${ref} is not a file input, clicking it opened no file chooser within ${FILE_CHOOSER_WAIT_MS}ms, ` +
+        "and it did not accept a file drop; upload through the page's own file input"
     );
-    return !validation.exceptionDetails && validation.result?.value?.valid === true;
   }
+}
 
-  /** Hand the approved files to the picker the page opened. */
-  async function answerFileChooser(
-    guest: WebContents,
-    chooser: PendingFileChooser,
-    paths: string[],
-    signal?: AbortSignal,
-    beforeDispatch?: () => void
-  ): Promise<void> {
-    if (!chooser.backendNodeId) {
-      clearFileChooser(guest);
-      throw new Error('the open file chooser has no target element; take a fresh snapshot and upload by ref');
+/** Files set straight on a file input; false when the ref is not one. */
+async function setFilesDirectly(
+  host: RefUploadHost,
+  guest: WebContents,
+  ref: string,
+  paths: string[],
+  signal?: AbortSignal
+) {
+  const object = await resolveRefObject(host, guest, ref, signal);
+  try {
+    const direct = await isFileInput(host, guest, object, signal);
+    if (direct) {
+      await host.cdp.call(guest, 'DOM.setFileInputFiles', { files: paths, objectId: object.objectId }, signal, {
+        sessionId: object.sessionId,
+      });
     }
-    if (chooser.mode === 'selectSingle' && paths.length > 1) {
-      throw new Error('the open file chooser accepts a single file');
-    }
-    await cdp.call(guest, 'DOM.setFileInputFiles', { files: paths, backendNodeId: chooser.backendNodeId }, signal, {
-      sessionId: chooser.sessionId,
-      beforeDispatch: () => {
-        beforeDispatch?.();
-        if (pendingFileChooser(guest) !== chooser)
-          throw new Error('Browser file chooser changed; files were not sent.');
-        // Claim before dispatch so a concurrent answer cannot send twice.
-        clearFileChooser(guest);
-      },
-    });
-    if (pendingFileChooser(guest) === chooser) clearFileChooser(guest);
+    return direct;
+  } finally {
+    void host.cdp
+      .guestDebugger(guest)
+      .then((debug) => debug.sendCommand('Runtime.releaseObject', { objectId: object.objectId }, object.sessionId))
+      .catch(() => undefined);
   }
+}
 
-  /** Click an element that is not itself a file input and wait for the
-   *  picker it opens — the common pattern of a styled button over a hidden
-   *  input. */
-  async function openFileChooserVia(
-    guest: WebContents,
-    ref: string,
-    signal?: AbortSignal
-  ): Promise<PendingFileChooser | null> {
-    clearFileChooser(guest);
-    const point = await resolveRefPoint(guest, ref, signal);
-    await browserInput.clickAt(guest, point.x, point.y, 1, 'left', 0, signal);
-    const deadline = Date.now() + FILE_CHOOSER_WAIT_MS;
-    for (;;) {
-      const chooser = pendingFileChooser(guest);
-      if (chooser) return chooser;
-      if (Date.now() >= deadline) return null;
-      await pause(FILE_CHOOSER_POLL_MS, signal);
-    }
-  }
-
-  /** The upload zones that never show a picker take their files as a drop.
-   *  The guard neutralises a drop the page does not take, so a refusal costs
-   *  the caller a clear error instead of a navigation to the file. */
-  async function dropFilesOnRef(guest: WebContents, ref: string, paths: string[], signal?: AbortSignal): Promise<void> {
-    const point = await resolveRefPoint(guest, ref, signal);
-    await host.evaluateInFrames<boolean>(guest, BROWSER_DROP_GUARD_INSTALL, signal);
-    let accepted = false;
-    try {
-      await browserInput.dropFilesAt(guest, point, paths, signal);
-    } finally {
-      const answers = await host
-        .evaluateInFrames<boolean>(guest, BROWSER_DROP_GUARD_TAKE, signal)
-        .catch(() => [] as boolean[]);
-      accepted = answers.some(Boolean);
-    }
-    if (!accepted) {
-      throw new Error(
-        `ref ${ref} is not a file input, clicking it opened no file chooser within ${FILE_CHOOSER_WAIT_MS}ms, ` +
-          "and it did not accept a file drop; upload through the page's own file input"
-      );
-    }
-  }
-
-  /** Files set straight on a file input; false when the ref is not one. */
-  async function setFilesDirectly(guest: WebContents, ref: string, paths: string[], signal?: AbortSignal) {
-    const object = await resolveRefObject(guest, ref, signal);
-    try {
-      const direct = await isFileInput(guest, object, signal);
-      if (direct) {
-        await cdp.call(guest, 'DOM.setFileInputFiles', { files: paths, objectId: object.objectId }, signal, {
-          sessionId: object.sessionId,
-        });
-      }
-      return direct;
-    } finally {
-      void cdp
-        .guestDebugger(guest)
-        .then((debug) => debug.sendCommand('Runtime.releaseObject', { objectId: object.objectId }, object.sessionId))
-        .catch(() => undefined);
-    }
-  }
-
+export function createRefUpload(host: RefUploadHost) {
   async function uploadRef(
     guest: WebContents,
     ref: string | undefined,
@@ -219,18 +233,18 @@ export function createRefUpload(host: RefUploadHost) {
   ): Promise<void> {
     await assertUploadPaths(paths);
     if (!ref) {
-      const chooser = pendingFileChooser(guest);
+      const chooser = host.pendingFileChooser(guest);
       if (!chooser) throw new Error('upload requires ref unless the page has opened a file chooser');
-      await answerFileChooser(guest, chooser, paths, signal, beforeDispatch);
+      await answerFileChooser(host, guest, chooser, paths, signal, beforeDispatch);
       return;
     }
-    if (await setFilesDirectly(guest, ref, paths, signal)) return;
-    const chooser = await openFileChooserVia(guest, ref, signal);
+    if (await setFilesDirectly(host, guest, ref, paths, signal)) return;
+    const chooser = await openFileChooserVia(host, guest, ref, signal);
     if (!chooser) {
-      await dropFilesOnRef(guest, ref, paths, signal);
+      await dropFilesOnRef(host, guest, ref, paths, signal);
       return;
     }
-    await answerFileChooser(guest, chooser, paths, signal);
+    await answerFileChooser(host, guest, chooser, paths, signal);
   }
 
   return { uploadRef };

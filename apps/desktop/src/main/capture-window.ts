@@ -50,16 +50,14 @@ import {
 } from './capture-assertions';
 import { CaptureService } from './capture-host';
 
-async function captureWindow(): Promise<void> {
-  if (!requestedOutputPath) throw new Error('Capture output path is required and must end in .png.');
-  if (!captureId) throw new Error('Capture ID is required.');
-  await app.whenReady();
-  const host = new CaptureService({
-    getUserDataPath: () => app.getPath('userData'),
-    packaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    appPath: resolve(__dirname, '../..'),
-  });
+/** The capture renderer window and the IPC surface it answers. Renderer console
+ *  errors land both in the returned buffer, which the final validation reads,
+ *  and in the module buffer the top-level failure handler reports. */
+function createCaptureRendererWindow(host: CaptureService): {
+  window: BrowserWindow;
+  removeIpc: () => void;
+  rendererConsoleErrors: string[];
+} {
   const window = new BrowserWindow({
     ...DESKTOP_WINDOW_OPTIONS,
     title: captureTitle,
@@ -96,73 +94,90 @@ async function captureWindow(): Promise<void> {
       install: async () => {},
     },
   });
-  try {
-    const captureRendererUrl = String(process.env.MIXDOG_CAPTURE_RENDERER_URL || '').trim();
-    if (captureRendererUrl) await window.loadURL(captureRendererUrl);
-    else await window.loadFile(join(__dirname, '../renderer/index.html'));
-    const reloadedWithDarkTheme = new Promise<void>((resolveReload) => {
-      window.webContents.once('did-finish-load', () => resolveReload());
-    });
-    await window.webContents.executeJavaScript(`(() => {
+  return { window, removeIpc, rendererConsoleErrors };
+}
+
+/** Bring the renderer up in the capture's fixed theme and language: the first
+ *  document only stores them, the reload is the document every pass measures. */
+async function loadCaptureRenderer(window: BrowserWindow): Promise<void> {
+  const captureRendererUrl = String(process.env.MIXDOG_CAPTURE_RENDERER_URL || '').trim();
+  if (captureRendererUrl) await window.loadURL(captureRendererUrl);
+  else await window.loadFile(join(__dirname, '../renderer/index.html'));
+  const reloadedWithDarkTheme = new Promise<void>((resolveReload) => {
+    window.webContents.once('did-finish-load', () => resolveReload());
+  });
+  await window.webContents.executeJavaScript(`(() => {
       localStorage.setItem('mixdog.desktop-theme-preference', 'dark');
       localStorage.setItem('mixdog.desktop.ui-language.v1', 'en');
       setTimeout(() => location.reload(), 0);
       return true;
     })()`);
-    await reloadedWithDarkTheme;
-    window.setTitle(captureTitle);
-    window.show();
-    window.focus();
-    // Never let occlusion/background throttling suspend frame production —
-    // late capture passes (tool showcase) read the compositor's latest frame
-    // and a paint-suspended window serves stale pre-mutation pixels.
-    window.webContents.setBackgroundThrottling(false);
-    // Jitter probe mode: measure streaming follow, warm compositor handoff,
-    // and session/panel transition stability, then exit — no capture passes.
-    if (
-      process.env.MIXDOG_JITTER_PROBE === '1' ||
-      process.env.MIXDOG_JITTER_PROBE === 'entry' ||
-      process.env.MIXDOG_JITTER_PROBE === 'keys' ||
-      process.env.MIXDOG_JITTER_PROBE === 'switch' ||
-      process.env.MIXDOG_JITTER_PROBE === 'width' ||
-      process.env.MIXDOG_JITTER_PROBE === 'select'
-    ) {
-      const { runJitterProbe, jitterProbeOutPath } = await import('./jitter-probe');
-      await runJitterProbe({
-        window,
-        stateChannel: DESKTOP_IPC.state,
-        baseSnapshot: host.getSnapshot() as unknown as Record<string, unknown>,
-        prepareRemoteResume: (stored, live) => host.prepareJitterRemoteResume(stored, live),
-        prepareColdResume: (snapshot) => host.prepareJitterColdResume(snapshot),
-        publish: (snapshot) => host.publishProbeSnapshot(snapshot as unknown as SessionSnapshot),
-        outPath: jitterProbeOutPath(resolve(__dirname, '../..')),
-      });
-      removeIpc();
-      window.destroy();
-      app.exit(0);
-      return;
-    }
-    // The pane workspace now starts with a deliberate empty guidance surface.
-    // Normal capture assertions exercise the task UI, so materialize a draft
-    // through the product's real Ctrl+N contract instead of reaching for the
-    // retired Activity Bar button.
-    const captureTaskAlreadyActive = (await window.webContents.executeJavaScript(
-      "Boolean(document.querySelector('.composer'))"
-    )) as boolean;
-    if (!captureTaskAlreadyActive) {
-      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['control'] });
-      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'N', modifiers: ['control'] });
-    }
-    await waitForRenderer(
-      window,
-      "document.querySelector('.composer') && document.querySelector('.workspace-tab')",
-      'capture task workspace'
-    );
-    // Startup-geometry stability: sample the chrome rects right after show and
-    // again after the settle window. Any delta is the "tab pops once at
-    // launch" class of first-paint jolt (env(titlebar-area) resolution, font
-    // swap, async layout) — captured as numbers so it can be pinned down.
-    const sampleStartupGeometry = `(() => {
+  await reloadedWithDarkTheme;
+  window.setTitle(captureTitle);
+  window.show();
+  window.focus();
+  // Never let occlusion/background throttling suspend frame production —
+  // late capture passes (tool showcase) read the compositor's latest frame
+  // and a paint-suspended window serves stale pre-mutation pixels.
+  window.webContents.setBackgroundThrottling(false);
+}
+
+/** Jitter probe mode: measure streaming follow, warm compositor handoff,
+ *  and session/panel transition stability, then exit — no capture passes. */
+function captureJitterProbeRequested(): boolean {
+  return (
+    process.env.MIXDOG_JITTER_PROBE === '1' ||
+    process.env.MIXDOG_JITTER_PROBE === 'entry' ||
+    process.env.MIXDOG_JITTER_PROBE === 'keys' ||
+    process.env.MIXDOG_JITTER_PROBE === 'switch' ||
+    process.env.MIXDOG_JITTER_PROBE === 'width' ||
+    process.env.MIXDOG_JITTER_PROBE === 'select'
+  );
+}
+
+async function runCaptureJitterProbe(window: BrowserWindow, host: CaptureService): Promise<void> {
+  const { runJitterProbe, jitterProbeOutPath } = await import('./jitter-probe');
+  await runJitterProbe({
+    window,
+    stateChannel: DESKTOP_IPC.state,
+    baseSnapshot: host.getSnapshot() as unknown as Record<string, unknown>,
+    prepareRemoteResume: (stored, live) => host.prepareJitterRemoteResume(stored, live),
+    prepareColdResume: (snapshot) => host.prepareJitterColdResume(snapshot),
+    publish: (snapshot) => host.publishProbeSnapshot(snapshot as unknown as SessionSnapshot),
+    outPath: jitterProbeOutPath(resolve(__dirname, '../..')),
+  });
+}
+
+/** The pane workspace starts with a deliberate empty guidance surface. Normal
+ *  capture assertions exercise the task UI, so materialize a draft through the
+ *  product's real Ctrl+N contract instead of reaching for a toolbar button. */
+async function ensureCaptureTaskWorkspace(window: BrowserWindow): Promise<void> {
+  const captureTaskAlreadyActive = (await window.webContents.executeJavaScript(
+    "Boolean(document.querySelector('.composer'))"
+  )) as boolean;
+  if (!captureTaskAlreadyActive) {
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['control'] });
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'N', modifiers: ['control'] });
+  }
+  await waitForRenderer(
+    window,
+    "document.querySelector('.composer') && document.querySelector('.workspace-tab')",
+    'capture task workspace'
+  );
+}
+
+type CaptureGeometrySample = Record<string, { left: number; top: number; width: number; height: number } | null>;
+
+/** Startup-geometry stability: sample the chrome rects right after show and
+ *  again after the settle window. Any delta is the "tab pops once at launch"
+ *  class of first-paint jolt (env(titlebar-area) resolution, font swap, async
+ *  layout) — captured as numbers so it can be pinned down. */
+async function readCaptureStartupGeometry(window: BrowserWindow): Promise<{
+  early: CaptureGeometrySample;
+  settled: CaptureGeometrySample;
+  deltas: Record<string, number>;
+}> {
+  const sampleStartupGeometry = `(() => {
       const rect = (selector) => {
         const node = document.querySelector(selector);
         if (!node) return null;
@@ -177,126 +192,138 @@ async function captureWindow(): Promise<void> {
         composer: rect('.composer'),
       };
     })()`;
-    const startupGeometryEarly = (await window.webContents.executeJavaScript(sampleStartupGeometry)) as Record<
-      string,
-      { left: number; top: number; width: number; height: number } | null
-    >;
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const startupGeometrydSettled = (await window.webContents.executeJavaScript(sampleStartupGeometry)) as Record<
-      string,
-      { left: number; top: number; width: number; height: number } | null
-    >;
-    const startupGeometry = {
-      early: startupGeometryEarly,
-      settled: startupGeometrydSettled,
-      deltas: Object.fromEntries(
-        Object.keys(startupGeometrydSettled).map((key) => {
-          const before = startupGeometryEarly[key];
-          const after = startupGeometrydSettled[key];
-          if (!before || !after) return [key, before === after ? 0 : -1];
-          return [
-            key,
-            Math.max(
-              Math.abs(before.left - after.left),
-              Math.abs(before.top - after.top),
-              Math.abs(before.width - after.width),
-              Math.abs(before.height - after.height)
-            ),
-          ];
-        })
-      ),
-    };
-    // Panels default MINIMIZED; the capture contract measures the EXPANDED
-    // rail, so open the session sidebar before any geometry pass.
-    await window.webContents.executeJavaScript(`(() => {
+  const startupGeometryEarly = (await window.webContents.executeJavaScript(
+    sampleStartupGeometry
+  )) as CaptureGeometrySample;
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const startupGeometrydSettled = (await window.webContents.executeJavaScript(
+    sampleStartupGeometry
+  )) as CaptureGeometrySample;
+  return {
+    early: startupGeometryEarly,
+    settled: startupGeometrydSettled,
+    deltas: Object.fromEntries(
+      Object.keys(startupGeometrydSettled).map((key) => {
+        const before = startupGeometryEarly[key];
+        const after = startupGeometrydSettled[key];
+        if (!before || !after) return [key, before === after ? 0 : -1];
+        return [
+          key,
+          Math.max(
+            Math.abs(before.left - after.left),
+            Math.abs(before.top - after.top),
+            Math.abs(before.width - after.width),
+            Math.abs(before.height - after.height)
+          ),
+        ];
+      })
+    ),
+  };
+}
+
+/** Panels default MINIMIZED; the capture contract measures the EXPANDED rail,
+ *  so open the session sidebar before any geometry pass. */
+async function expandCaptureSessionSidebar(window: BrowserWindow): Promise<void> {
+  await window.webContents.executeJavaScript(`(() => {
       if (document.querySelector('.app-shell.sidebar-collapsed')) {
         const toggle = document.querySelector('.sessions-link');
         if (toggle instanceof HTMLElement) toggle.click();
       }
       return true;
     })()`);
-    await waitForRenderer(
-      window,
-      "!document.querySelector('.app-shell.sidebar-collapsed')",
-      'expanded session sidebar'
-    );
-    window.setSize(1_000, 650);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const resizedBounds = window.getBounds();
-    window.setMinimumSize(320, 600);
-    window.setSize(720, 650);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    await window.webContents.executeJavaScript(`(() => {
+  await waitForRenderer(window, "!document.querySelector('.app-shell.sidebar-collapsed')", 'expanded session sidebar');
+}
+
+/** Mobile breakpoint pass: drive the window down to phone widths, exercise the
+ *  sidebar open/close contract there, and keep the mid-pass bounds the artifact
+ *  reports as `resizedBounds`. */
+async function runCaptureMobilePass(window: BrowserWindow): Promise<{
+  liveMobile: LiveCaptureAssertions['mobile'];
+  resizedBounds: Electron.Rectangle;
+}> {
+  window.setSize(1_000, 650);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const resizedBounds = window.getBounds();
+  window.setMinimumSize(320, 600);
+  window.setSize(720, 650);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await window.webContents.executeJavaScript(`(() => {
       const toggle = document.querySelector('.sessions-link');
       if (toggle instanceof HTMLButtonElement && toggle.getAttribute('aria-expanded') !== 'true') {
         toggle.click();
       }
       return true;
     })()`);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const mobileViewport = (await window.webContents.executeJavaScript(
-      '({ width: innerWidth, height: innerHeight })'
-    )) as { width: number; height: number };
-    const mobileOpen = await readMobileOpenAssertions(window);
-    await window.webContents.executeJavaScript("document.querySelector('.sidebar-backdrop')?.click()");
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const mobileClosed = await readMobileClosedAssertions(window);
-    const liveMobile = {
-      viewport: mobileViewport,
-      breakpointActive: mobileViewport.width <= 760,
-      open: mobileOpen,
-      closed: mobileClosed,
-    };
-    if (
-      !liveMobile.breakpointActive ||
-      !mobileOpen.sidebarVisible ||
-      !mobileOpen.backdropVisible ||
-      !mobileOpen.sidebarComputedVisible ||
-      !mobileOpen.backdropComputedVisible ||
-      !mobileOpen.sidebarIntersectsViewport ||
-      !mobileOpen.backdropIntersectsViewport ||
-      !mobileClosed.sidebarHidden ||
-      !mobileClosed.mainVisible ||
-      !mobileClosed.mainMatchesViewport ||
-      !mobileClosed.composerVisible ||
-      !mobileClosed.composerContained ||
-      !mobileClosed.modelTriggerVisible ||
-      !mobileClosed.sendVisible ||
-      !mobileClosed.sendContained ||
-      !mobileClosed.controlsNonOverlapping
-    ) {
-      throw new Error(`Mobile live assertions failed: ${JSON.stringify(liveMobile)}`);
-    }
-    window.setSize(1_280, 820);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const settingsAlreadyOpen = (await withCaptureTimeout(
-      window.webContents.executeJavaScript(
-        'Boolean(document.querySelector(\'.mixdog-settings-layer[data-surface-active="true"]\'))'
-      ),
-      'read settings state'
-    )) as boolean;
-    if (!settingsAlreadyOpen) {
-      window.webContents.sendInputEvent({ type: 'keyDown', keyCode: ',', modifiers: ['control'] });
-      window.webContents.sendInputEvent({ type: 'keyUp', keyCode: ',', modifiers: ['control'] });
-    }
-    await waitForRenderer(
-      window,
-      `document.querySelector('.mixdog-settings__body .settings-group')
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const mobileViewport = (await window.webContents.executeJavaScript(
+    '({ width: innerWidth, height: innerHeight })'
+  )) as { width: number; height: number };
+  const mobileOpen = await readMobileOpenAssertions(window);
+  await window.webContents.executeJavaScript("document.querySelector('.sidebar-backdrop')?.click()");
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const mobileClosed = await readMobileClosedAssertions(window);
+  const liveMobile = {
+    viewport: mobileViewport,
+    breakpointActive: mobileViewport.width <= 760,
+    open: mobileOpen,
+    closed: mobileClosed,
+  };
+  if (
+    !liveMobile.breakpointActive ||
+    !mobileOpen.sidebarVisible ||
+    !mobileOpen.backdropVisible ||
+    !mobileOpen.sidebarComputedVisible ||
+    !mobileOpen.backdropComputedVisible ||
+    !mobileOpen.sidebarIntersectsViewport ||
+    !mobileOpen.backdropIntersectsViewport ||
+    !mobileClosed.sidebarHidden ||
+    !mobileClosed.mainVisible ||
+    !mobileClosed.mainMatchesViewport ||
+    !mobileClosed.composerVisible ||
+    !mobileClosed.composerContained ||
+    !mobileClosed.modelTriggerVisible ||
+    !mobileClosed.sendVisible ||
+    !mobileClosed.sendContained ||
+    !mobileClosed.controlsNonOverlapping
+  ) {
+    throw new Error(`Mobile live assertions failed: ${JSON.stringify(liveMobile)}`);
+  }
+  return { liveMobile, resizedBounds };
+}
+
+/** Open Settings at the desktop size its placement contract is measured at,
+ *  through the product's real Ctrl+, contract, and wait for a populated pane. */
+async function openCaptureSettings(window: BrowserWindow): Promise<void> {
+  window.setSize(1_280, 820);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const settingsAlreadyOpen = (await withCaptureTimeout(
+    window.webContents.executeJavaScript(
+      'Boolean(document.querySelector(\'.mixdog-settings-layer[data-surface-active="true"]\'))'
+    ),
+    'read settings state'
+  )) as boolean;
+  if (!settingsAlreadyOpen) {
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: ',', modifiers: ['control'] });
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: ',', modifiers: ['control'] });
+  }
+  await waitForRenderer(
+    window,
+    `document.querySelector('.mixdog-settings__body .settings-group')
         && !document.querySelector('.mixdog-settings__body .settings-loading')`,
-      'populated General settings pane'
-    );
-    const largeSettings = await readSettingsPlacement(window);
-    const modalStack = await readModalStackAssertions(window);
-    // The theme trigger can be transiently disabled (engine/settings busy) and
-    // a click during that window is silently dropped — retry open+check as one
-    // unit instead of a single click followed by a bare wait.
-    // Hydration (settings capability preload) can take 20s+ while the
-    // isolated engine cold-boots; the Theme trigger stays disabled until it
-    // settles. Keep retrying well past that window.
-    const openThemeMenuUntilOption = async (optionText: string): Promise<void> => {
-      const deadline = Date.now() + 30_000;
-      for (;;) {
-        const state = (await window.webContents.executeJavaScript(`(() => {
+    'populated General settings pane'
+  );
+}
+
+// The theme trigger can be transiently disabled (engine/settings busy) and
+// a click during that window is silently dropped — retry open+check as one
+// unit instead of a single click followed by a bare wait.
+// Hydration (settings capability preload) can take 20s+ while the
+// isolated engine cold-boots; the Theme trigger stays disabled until it
+// settles. Keep retrying well past that window.
+async function openThemeMenuUntilOption(window: BrowserWindow, optionText: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    const state = (await window.webContents.executeJavaScript(`(() => {
           const option = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
             .find((entry) => (entry.textContent || '').trim() === ${JSON.stringify(optionText)});
           if (option instanceof HTMLButtonElement) return 'open';
@@ -306,26 +333,35 @@ async function captureWindow(): Promise<void> {
           if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
           return 'clicked';
         })()`)) as string;
-        if (state === 'open') return;
-        if (Date.now() >= deadline) {
-          throw new Error(`Theme option "${optionText}" did not appear within 30000ms (last state: ${state}).`);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 400));
-      }
-    };
-    await openThemeMenuUntilOption('White');
-    const selectedWhite = await window.webContents.executeJavaScript(`(() => {
+    if (state === 'open') return;
+    if (Date.now() >= deadline) {
+      throw new Error(`Theme option "${optionText}" did not appear within 30000ms (last state: ${state}).`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+}
+
+/** Light-theme pass: switch through the real Theme menu, assert the light
+ *  tokens, keep the full light frame as a standing artifact, and restore the
+ *  dark shell the main capture is taken in. */
+async function runCaptureLightThemePass(window: BrowserWindow): Promise<{
+  lightTheme: Awaited<ReturnType<typeof readLightThemeAssertions>>;
+  lightShellTopEdge: ReturnType<typeof measureShellTopEdge>;
+  lightPng: Buffer;
+}> {
+  await openThemeMenuUntilOption(window, 'White');
+  const selectedWhite = await window.webContents.executeJavaScript(`(() => {
       const option = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
         .find((entry) => (entry.textContent || '').trim() === 'White');
       if (!(option instanceof HTMLButtonElement)) return false;
       option.click();
       return true;
     })()`);
-    if (!selectedWhite) throw new Error('White theme option is missing.');
-    await waitForRenderer(window, `document.documentElement.dataset.mixdogTheme === 'light'`, 'Light theme');
-    await waitForRenderer(
-      window,
-      `(() => {
+  if (!selectedWhite) throw new Error('White theme option is missing.');
+  await waitForRenderer(window, `document.documentElement.dataset.mixdogTheme === 'light'`, 'Light theme');
+  await waitForRenderer(
+    window,
+    `(() => {
         const icon = document.querySelector('.toolbar-dock');
         if (!(icon instanceof HTMLElement)) return false;
         const probe = document.createElement('span');
@@ -335,175 +371,189 @@ async function captureWindow(): Promise<void> {
         probe.remove();
         return settled;
       })()`,
-      'Light titlebar icon transition'
-    );
-    const lightTheme = await readLightThemeAssertions(window);
-    await window.webContents.executeJavaScript(`(() => {
+    'Light titlebar icon transition'
+  );
+  const lightTheme = await readLightThemeAssertions(window);
+  await window.webContents.executeJavaScript(`(() => {
       const layer = document.querySelector('.mixdog-settings-layer');
       if (!(layer instanceof HTMLElement)) throw new Error('Settings layer is missing for light shell capture.');
       layer.style.display = 'none';
     })()`);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    // The earlier mobile pass may have auto-collapsed the sidebar (<=760px
-    // navigation close). Reopen it so the light frame shows the full rail.
-    await window.webContents.executeJavaScript(`(() => {
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  // The earlier mobile pass may have auto-collapsed the sidebar (<=760px
+  // navigation close). Reopen it so the light frame shows the full rail.
+  await window.webContents.executeJavaScript(`(() => {
       if (document.querySelector('.app-shell.sidebar-collapsed')) {
         const toggle = document.querySelector('.sessions-link');
         if (toggle instanceof HTMLElement) toggle.click();
       }
       return true;
     })()`);
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    // Keep the full light-theme frame as a standing artifact so dark/light
-    // parity can be reviewed visually, not just via token assertions.
-    const lightImage = await window.webContents.capturePage();
-    const lightShellTopEdge = measureShellTopEdge(lightImage, 'light');
-    const lightPng = lightImage.toPNG();
-    await window.webContents.executeJavaScript(
-      "document.querySelector('.mixdog-settings-layer')?.style.removeProperty('display')"
-    );
-    await openThemeMenuUntilOption('Dark');
-    const restoredBasic = await window.webContents.executeJavaScript(`(() => {
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  // Keep the full light-theme frame as a standing artifact so dark/light
+  // parity can be reviewed visually, not just via token assertions.
+  const lightImage = await window.webContents.capturePage();
+  const lightShellTopEdge = measureShellTopEdge(lightImage, 'light');
+  const lightPng = lightImage.toPNG();
+  await window.webContents.executeJavaScript(
+    "document.querySelector('.mixdog-settings-layer')?.style.removeProperty('display')"
+  );
+  await openThemeMenuUntilOption(window, 'Dark');
+  const restoredBasic = await window.webContents.executeJavaScript(`(() => {
       const option = Array.from(document.querySelectorAll('.mx-menu[aria-label="Theme"] [role="option"]'))
         .find((entry) => (entry.textContent || '').trim() === 'Dark');
       if (!(option instanceof HTMLButtonElement)) return false;
       option.click();
       return true;
     })()`);
-    if (!restoredBasic) throw new Error('Dark theme option is missing.');
-    await waitForRenderer(window, `document.documentElement.dataset.mixdogTheme === 'basic'`, 'restored Basic theme');
-    window.setSize(720, 650);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const compactSettings = await readSettingsPlacement(window);
-    window.setSize(360, 600);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const narrowSettings = await readPhoneSettingsAssertions(window);
-    const expectedNarrowSettingsCategoryLabels = SETTINGS_CATEGORIES.map((category) => category.label);
-    const liveSettings = {
-      large: largeSettings,
-      compact: compactSettings,
-      narrow: narrowSettings,
-    };
-    if (
-      largeSettings.viewport.width !== 1_280 ||
-      largeSettings.viewport.height !== 820 ||
-      !largeSettings.centered ||
-      !largeSettings.layerCoversViewport ||
-      !largeSettings.dialogClearsWindowControls ||
-      largeSettings.fullBleed ||
-      !largeSettings.contentClearsWindowControls ||
-      !largeSettings.dialogFitsViewport ||
-      !largeSettings.backdropVisible ||
-      !largeSettings.twoPane ||
-      largeSettings.dialog.width !== 980 ||
-      largeSettings.rail.width !== 240 ||
-      largeSettings.populatedRowCount < 1 ||
-      !compactSettings.centered ||
-      !compactSettings.layerCoversViewport ||
-      !compactSettings.fullBleed ||
-      !compactSettings.contentClearsWindowControls ||
-      !compactSettings.dialogFitsViewport ||
-      !compactSettings.backdropVisible ||
-      !compactSettings.twoPane ||
-      compactSettings.viewport.width !== 720 ||
-      compactSettings.viewport.height !== 650 ||
-      compactSettings.dialog.width !== 720 ||
-      compactSettings.dialog.height !== 650 ||
-      compactSettings.rail.width !== 200 ||
-      narrowSettings.viewport.width !== 360 ||
-      narrowSettings.viewport.height !== 600 ||
-      !narrowSettings.fullScreen ||
-      !narrowSettings.railConnected ||
-      narrowSettings.rail.width !== 48 ||
-      narrowSettings.railButtonCount !== expectedNarrowSettingsCategoryLabels.length ||
-      narrowSettings.categories.some(
-        (category, index) => category.label !== expectedNarrowSettingsCategoryLabels[index]
-      ) ||
-      !narrowSettings.railButtonsAccessible ||
-      !narrowSettings.closeTouchTarget ||
-      narrowSettings.rowCount < 1 ||
-      narrowSettings.filledValueControlCount < 1 ||
-      !narrowSettings.sharedValueAxis ||
-      !narrowSettings.controlsContained ||
-      !narrowSettings.controlsRightAligned ||
-      !narrowSettings.labelsSeparated ||
-      !narrowSettings.valuesFillColumn ||
-      !narrowSettings.overflowFree ||
-      narrowSettings.categories.some(
-        (category) =>
-          !category.overflowFree ||
-          !category.controlsContained ||
-          !category.controlsRightAligned ||
-          !category.labelsSeparated
-      ) ||
-      lightTheme.theme !== 'light' ||
-      lightTheme.colorScheme !== 'light' ||
-      !lightTheme.titlebarIconMatchesToken ||
-      !lightTheme.activeTabMatchesToken ||
-      !modalStack.toastParentIsBody ||
-      !modalStack.toastVisible ||
-      !modalStack.toastOutsideInertTree ||
-      !modalStack.toastAboveModal
-    ) {
-      throw new Error(
-        `Settings placement assertions failed: ${JSON.stringify({
-          settings: liveSettings,
-          lightTheme,
-          modalStack,
-        })}`
-      );
-    }
-    await window.webContents.executeJavaScript("document.querySelector('.mixdog-settings__close')?.click()");
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    window.setMinimumSize(DESKTOP_WINDOW_OPTIONS.minWidth, DESKTOP_WINDOW_OPTIONS.minHeight);
-    window.setSize(targetSize.width, targetSize.height);
-    await window.webContents.executeJavaScript(
-      'document.querySelector(\'.sessions-link[aria-expanded="false"]\')?.click()'
+  if (!restoredBasic) throw new Error('Dark theme option is missing.');
+  await waitForRenderer(window, `document.documentElement.dataset.mixdogTheme === 'basic'`, 'restored Basic theme');
+  return { lightTheme, lightShellTopEdge, lightPng };
+}
+
+/** The same Settings surface at tablet and phone widths, where it switches to
+ *  full-bleed and then to the connected rail. */
+async function readCaptureSettingsAtNarrowWidths(window: BrowserWindow): Promise<{
+  compactSettings: Awaited<ReturnType<typeof readSettingsPlacement>>;
+  narrowSettings: Awaited<ReturnType<typeof readPhoneSettingsAssertions>>;
+}> {
+  window.setSize(720, 650);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const compactSettings = await readSettingsPlacement(window);
+  window.setSize(360, 600);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const narrowSettings = await readPhoneSettingsAssertions(window);
+  return { compactSettings, narrowSettings };
+}
+
+/** Every Settings placement, light-theme token and modal-stack rule the capture
+ *  contract pins, reported as one failure carrying the live values. */
+function assertCaptureSettingsPlacement(
+  liveSettings: LiveCaptureAssertions['settings'],
+  lightTheme: LiveCaptureAssertions['lightTheme'],
+  modalStack: LiveCaptureAssertions['modalStack'],
+  expectedNarrowSettingsCategoryLabels: string[]
+): void {
+  const { large: largeSettings, compact: compactSettings, narrow: narrowSettings } = liveSettings;
+  if (
+    largeSettings.viewport.width !== 1_280 ||
+    largeSettings.viewport.height !== 820 ||
+    !largeSettings.centered ||
+    !largeSettings.layerCoversViewport ||
+    !largeSettings.dialogClearsWindowControls ||
+    largeSettings.fullBleed ||
+    !largeSettings.contentClearsWindowControls ||
+    !largeSettings.dialogFitsViewport ||
+    !largeSettings.backdropVisible ||
+    !largeSettings.twoPane ||
+    largeSettings.dialog.width !== 980 ||
+    largeSettings.rail.width !== 240 ||
+    largeSettings.populatedRowCount < 1 ||
+    !compactSettings.centered ||
+    !compactSettings.layerCoversViewport ||
+    !compactSettings.fullBleed ||
+    !compactSettings.contentClearsWindowControls ||
+    !compactSettings.dialogFitsViewport ||
+    !compactSettings.backdropVisible ||
+    !compactSettings.twoPane ||
+    compactSettings.viewport.width !== 720 ||
+    compactSettings.viewport.height !== 650 ||
+    compactSettings.dialog.width !== 720 ||
+    compactSettings.dialog.height !== 650 ||
+    compactSettings.rail.width !== 200 ||
+    narrowSettings.viewport.width !== 360 ||
+    narrowSettings.viewport.height !== 600 ||
+    !narrowSettings.fullScreen ||
+    !narrowSettings.railConnected ||
+    narrowSettings.rail.width !== 48 ||
+    narrowSettings.railButtonCount !== expectedNarrowSettingsCategoryLabels.length ||
+    narrowSettings.categories.some(
+      (category, index) => category.label !== expectedNarrowSettingsCategoryLabels[index]
+    ) ||
+    !narrowSettings.railButtonsAccessible ||
+    !narrowSettings.closeTouchTarget ||
+    narrowSettings.rowCount < 1 ||
+    narrowSettings.filledValueControlCount < 1 ||
+    !narrowSettings.sharedValueAxis ||
+    !narrowSettings.controlsContained ||
+    !narrowSettings.controlsRightAligned ||
+    !narrowSettings.labelsSeparated ||
+    !narrowSettings.valuesFillColumn ||
+    !narrowSettings.overflowFree ||
+    narrowSettings.categories.some(
+      (category) =>
+        !category.overflowFree ||
+        !category.controlsContained ||
+        !category.controlsRightAligned ||
+        !category.labelsSeparated
+    ) ||
+    lightTheme.theme !== 'light' ||
+    lightTheme.colorScheme !== 'light' ||
+    !lightTheme.titlebarIconMatchesToken ||
+    !lightTheme.activeTabMatchesToken ||
+    !modalStack.toastParentIsBody ||
+    !modalStack.toastVisible ||
+    !modalStack.toastOutsideInertTree ||
+    !modalStack.toastAboveModal
+  ) {
+    throw new Error(
+      `Settings placement assertions failed: ${JSON.stringify({
+        settings: liveSettings,
+        lightTheme,
+        modalStack,
+      })}`
     );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const finalBounds = window.getBounds();
-    const liveDesktop = await readDesktopAssertions(window);
-    if (
-      !liveDesktop.labelsAbsent ||
-      !liveDesktop.hiddenLabelsAbsent ||
-      liveDesktop.removedLabelMatches.length !== 0 ||
-      liveDesktop.contextChipCount !== 0 ||
-      !liveDesktop.visible.modelTrigger ||
-      !liveDesktop.visible.textarea ||
-      !liveDesktop.visible.send ||
-      !liveDesktop.controlsNonOverlapping ||
-      liveDesktop.sidebarGap !== 0 ||
-      liveDesktop.rects.sidebar.left !== 0 ||
-      liveDesktop.rects.sidebar.top !== 41 ||
-      liveDesktop.rects.sidebar.width !== 260 ||
-      liveDesktop.viewport.height - liveDesktop.rects.sidebar.bottom !== 0 ||
-      liveDesktop.rects.main.left !== 260
-    ) {
-      throw new Error(`Desktop live assertions failed: ${JSON.stringify(liveDesktop)}`);
-    }
-    const liveAssertions: LiveCaptureAssertions = {
-      desktop: liveDesktop,
-      mobile: liveMobile,
-      settings: liveSettings,
-      lightTheme,
-      modalStack,
-    };
-    const captureMethod = 'webContents.capturePage';
-    const image: NativeImage = await withCaptureTimeout(window.webContents.capturePage(), 'capturePage');
-    const sourceSize = image.getSize();
-    if (finalBounds.width !== targetSize.width || finalBounds.height !== targetSize.height) {
-      throw new Error(`BrowserWindow bounds are ${finalBounds.width}x${finalBounds.height}, expected 1113x687.`);
-    }
-    if (sourceSize.width !== targetSize.width || sourceSize.height !== targetSize.height) {
-      throw new Error(
-        `Desktop capture source is ${sourceSize.width}x${sourceSize.height}, expected 1113x687; refusing to resize evidence.`
-      );
-    }
-    // Dictation smoke (post-PNG so the evidence stays clean): drives the FULL
-    // renderer chain — install prompt → fake setup → fake mic → MediaRecorder
-    // → base64 → IPC → stubbed transcription → draft append.
-    const dictationSmoke = (await withCaptureTimeout(
-      window.webContents.executeJavaScript(`(async () => {
+  }
+}
+
+/** Close Settings, restore the shipped desktop geometry the artifact is
+ *  measured at, and read the desktop layout contract. */
+async function runCaptureDesktopPass(window: BrowserWindow): Promise<{
+  finalBounds: Electron.Rectangle;
+  liveDesktop: LiveCaptureAssertions['desktop'];
+}> {
+  await window.webContents.executeJavaScript("document.querySelector('.mixdog-settings__close')?.click()");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  window.setMinimumSize(DESKTOP_WINDOW_OPTIONS.minWidth, DESKTOP_WINDOW_OPTIONS.minHeight);
+  window.setSize(targetSize.width, targetSize.height);
+  await window.webContents.executeJavaScript(
+    'document.querySelector(\'.sessions-link[aria-expanded="false"]\')?.click()'
+  );
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const finalBounds = window.getBounds();
+  const liveDesktop = await readDesktopAssertions(window);
+  if (
+    !liveDesktop.labelsAbsent ||
+    !liveDesktop.hiddenLabelsAbsent ||
+    liveDesktop.removedLabelMatches.length !== 0 ||
+    liveDesktop.contextChipCount !== 0 ||
+    !liveDesktop.visible.modelTrigger ||
+    !liveDesktop.visible.textarea ||
+    !liveDesktop.visible.send ||
+    !liveDesktop.controlsNonOverlapping ||
+    liveDesktop.sidebarGap !== 0 ||
+    liveDesktop.rects.sidebar.left !== 0 ||
+    liveDesktop.rects.sidebar.top !== 41 ||
+    liveDesktop.rects.sidebar.width !== 260 ||
+    liveDesktop.viewport.height - liveDesktop.rects.sidebar.bottom !== 0 ||
+    liveDesktop.rects.main.left !== 260
+  ) {
+    throw new Error(`Desktop live assertions failed: ${JSON.stringify(liveDesktop)}`);
+  }
+  return { finalBounds, liveDesktop };
+}
+
+/** Dictation smoke (post-PNG so the evidence stays clean): drives the FULL
+ *  renderer chain — install prompt → fake setup → fake mic → MediaRecorder
+ *  → base64 → IPC → stubbed transcription → draft append. */
+async function runCaptureDictationSmoke(window: BrowserWindow): Promise<{
+  installPromptShown: boolean;
+  transcriptApplied: boolean;
+  micIdle: boolean;
+  notice: string;
+}> {
+  return (await withCaptureTimeout(
+    window.webContents.executeJavaScript(`(async () => {
       const mic = document.querySelector('.composer-mic');
       if (!(mic instanceof HTMLElement)) throw new Error('Missing capture element: .composer-mic');
       mic.click();
@@ -532,92 +582,94 @@ async function captureWindow(): Promise<void> {
         notice: (document.querySelector('.composer-notice')?.textContent || '').trim(),
       };
     })()`),
-      'Dictation smoke',
-      10_000
-    )) as {
-      installPromptShown: boolean;
-      transcriptApplied: boolean;
-      micIdle: boolean;
-      notice: string;
-    };
-    // Tool-presentation E2E: inject a synthetic rich transcript over the live
-    // state channel so the REAL transcript renderer (tool cards, shell output,
-    // failure states, diff review bar) is exercised and captured — no
-    // provider/engine required. The artifact ships next to the main PNG for
-    // visual review; counts are asserted by capture-ui. NOTE: the diff body
-    // must not contain an `import ... from "..."` line — electron-vite's CJS
-    // shim pass lexes the bundled chunk for import statements and splices the
-    // chunk mid-string, corrupting the build.
-    const showcasePatch = [
-      '--- a/src/app.ts',
-      '+++ b/src/app.ts',
-      '@@ -1,4 +1,4 @@',
-      ' const config = loadConfig();',
-      '-const retries = 1;',
-      '+const retries = 3;',
-      ' boot({ config, retries });',
-      '',
-    ].join('\n');
-    const baseSnapshot = host.getSnapshot();
-    await withCaptureTimeout(
-      window.webContents.executeJavaScript(`(async () => {
+    'Dictation smoke',
+    10_000
+  )) as {
+    installPromptShown: boolean;
+    transcriptApplied: boolean;
+    micIdle: boolean;
+    notice: string;
+  };
+}
+
+/** Tool-presentation E2E: inject a synthetic rich transcript over the live
+ *  state channel so the REAL transcript renderer (tool cards, shell output,
+ *  failure states, diff review bar) is exercised and captured — no
+ *  provider/engine required. The artifacts ship next to the main PNG for
+ *  visual review; counts are asserted by capture-ui. NOTE: the diff body
+ *  must not contain an `import ... from "..."` line — electron-vite's CJS
+ *  shim pass lexes the bundled chunk for import statements and splices the
+ *  chunk mid-string, corrupting the build. */
+async function runCaptureToolShowcase(window: BrowserWindow, baseSnapshot: ReturnType<CaptureService['getSnapshot']>) {
+  const showcasePatch = [
+    '--- a/src/app.ts',
+    '+++ b/src/app.ts',
+    '@@ -1,4 +1,4 @@',
+    ' const config = loadConfig();',
+    '-const retries = 1;',
+    '+const retries = 3;',
+    ' boot({ config, retries });',
+    '',
+  ].join('\n');
+  await withCaptureTimeout(
+    window.webContents.executeJavaScript(`(async () => {
       const link = document.querySelector('button[aria-label="New task"]');
       if (!(link instanceof HTMLElement)) throw new Error('Missing capture element: .task-link');
       link.click();
       await new Promise((resolve) => setTimeout(resolve, 250));
       return true;
     })()`),
-      'New-task activation',
-      8_000
-    );
-    window.webContents.send(DESKTOP_IPC.state, {
-      ...baseSnapshot,
-      toasts: [],
-      busy: true,
-      items: [
-        { id: 'sc-user', kind: 'user', text: 'Run the test suite and fix the retry regression.' },
-        {
-          id: 'sc-shell-ok',
-          kind: 'tool',
-          name: 'shell',
-          args: { command: 'npm run typecheck:node', description: 'Typecheck the main process' },
-          result: 'Exit code: 0\n> tsc -p tsconfig.node.json\nTypecheck passed in 4.2s.',
-          completedAt: 1,
-          expanded: true,
-        },
-        {
-          id: 'sc-shell-fail',
-          kind: 'tool',
-          name: 'shell',
-          args: { command: 'npm test' },
-          result: 'Exit code: 1\n1) retry configuration\n   AssertionError: expected retries to equal 3, got 1',
-          isError: true,
-          completedAt: 2,
-          expanded: true,
-        },
-        {
-          id: 'sc-edit',
-          kind: 'tool',
-          name: 'edit',
-          args: { path: 'src/app.ts' },
-          result: showcasePatch,
-          completedAt: 3,
-          expanded: true,
-        },
-        { id: 'sc-assistant', kind: 'assistant', text: 'Retry count fixed — rerunning the suite now.' },
-        {
-          id: 'sc-shell-running',
-          kind: 'tool',
-          name: 'shell',
-          args: { command: 'npm test' },
-          startedAt: Date.now() - 12_000,
-          liveOutput:
-            '> vitest run\n\u2713 retry configuration (3 tests)\n\u2713 boot sequence (5 tests)\nrunning suite: integration \u2026',
-        },
-      ],
-    });
-    const toolShowcase = (await withCaptureTimeout(
-      window.webContents.executeJavaScript(`(async () => {
+    'New-task activation',
+    8_000
+  );
+  window.webContents.send(DESKTOP_IPC.state, {
+    ...baseSnapshot,
+    toasts: [],
+    busy: true,
+    items: [
+      { id: 'sc-user', kind: 'user', text: 'Run the test suite and fix the retry regression.' },
+      {
+        id: 'sc-shell-ok',
+        kind: 'tool',
+        name: 'shell',
+        args: { command: 'npm run typecheck:node', description: 'Typecheck the main process' },
+        result: 'Exit code: 0\n> tsc -p tsconfig.node.json\nTypecheck passed in 4.2s.',
+        completedAt: 1,
+        expanded: true,
+      },
+      {
+        id: 'sc-shell-fail',
+        kind: 'tool',
+        name: 'shell',
+        args: { command: 'npm test' },
+        result: 'Exit code: 1\n1) retry configuration\n   AssertionError: expected retries to equal 3, got 1',
+        isError: true,
+        completedAt: 2,
+        expanded: true,
+      },
+      {
+        id: 'sc-edit',
+        kind: 'tool',
+        name: 'edit',
+        args: { path: 'src/app.ts' },
+        result: showcasePatch,
+        completedAt: 3,
+        expanded: true,
+      },
+      { id: 'sc-assistant', kind: 'assistant', text: 'Retry count fixed — rerunning the suite now.' },
+      {
+        id: 'sc-shell-running',
+        kind: 'tool',
+        name: 'shell',
+        args: { command: 'npm test' },
+        startedAt: Date.now() - 12_000,
+        liveOutput:
+          '> vitest run\n\u2713 retry configuration (3 tests)\n\u2713 boot sequence (5 tests)\nrunning suite: integration \u2026',
+      },
+    ],
+  });
+  const toolShowcase = (await withCaptureTimeout(
+    window.webContents.executeJavaScript(`(async () => {
       const started = Date.now();
       while (Date.now() - started < 5000) {
         const cardsReady = document.querySelectorAll('.tool-card').length >= 4;
@@ -643,59 +695,59 @@ async function captureWindow(): Promise<void> {
         ).length,
       };
     })()`),
-      'Tool showcase render',
-      8_000
-    )) as {
-      toolCards: number;
-      collapsedCards: number;
-      detailRows: number;
-      failedCards: number;
-      settledCards: number;
-      reviewBar: boolean;
-      runningCommandVisible: boolean;
-      runningStatusVisible: boolean;
-      editInputBlocks: number;
-      legacyBodyBlocks: number;
-    };
-    // Flush a real presented frame before reading the compositor: DOM commit
-    // alone is not a paint, and an occluded window may still hold the frame
-    // from the previous capture pass.
-    window.moveTop();
-    window.focus();
-    // Top frame first: the completed shell cards (success + failure) sit at
-    // the transcript top and fall outside the bottom-anchored viewport.
-    await window.webContents.executeJavaScript(
-      "(() => { const scroller = document.querySelector('.thread')?.parentElement; " +
-        'if (scroller) scroller.scrollTop = 0; return true; })()'
-    );
-    await window.webContents.executeJavaScript(
-      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))'
-    );
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const toolsTopImage: NativeImage = await withCaptureTimeout(
-      window.webContents.capturePage(),
-      'toolShowcase top capturePage'
-    );
-    const toolsTopPng = toolsTopImage.toPNG();
-    await window.webContents.executeJavaScript(
-      "(() => { const scroller = document.querySelector('.thread')?.parentElement; " +
-        'if (scroller) scroller.scrollTop = scroller.scrollHeight; return true; })()'
-    );
-    await window.webContents.executeJavaScript(
-      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))'
-    );
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const toolsImage: NativeImage = await withCaptureTimeout(
-      window.webContents.capturePage(),
-      'toolShowcase capturePage'
-    );
-    const toolsPng = toolsImage.toPNG();
-    const toolShowcaseDimensions = toolsImage.getSize();
-    // Restore the empty-session state so the trailing renderer validation
-    // (inline errors, welcome view) still checks the shipped default screen.
-    window.webContents.send(DESKTOP_IPC.state, { ...baseSnapshot, toasts: [], items: [] });
-    await withCaptureTimeout(
-      window.webContents.executeJavaScript(`(async () => {
+    'Tool showcase render',
+    8_000
+  )) as {
+    toolCards: number;
+    collapsedCards: number;
+    detailRows: number;
+    failedCards: number;
+    settledCards: number;
+    reviewBar: boolean;
+    runningCommandVisible: boolean;
+    runningStatusVisible: boolean;
+    editInputBlocks: number;
+    legacyBodyBlocks: number;
+  };
+  // Flush a real presented frame before reading the compositor: DOM commit
+  // alone is not a paint, and an occluded window may still hold the frame
+  // from the previous capture pass.
+  window.moveTop();
+  window.focus();
+  // Top frame first: the completed shell cards (success + failure) sit at
+  // the transcript top and fall outside the bottom-anchored viewport.
+  await window.webContents.executeJavaScript(
+    "(() => { const scroller = document.querySelector('.thread')?.parentElement; " +
+      'if (scroller) scroller.scrollTop = 0; return true; })()'
+  );
+  await window.webContents.executeJavaScript(
+    'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))'
+  );
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const toolsTopImage: NativeImage = await withCaptureTimeout(
+    window.webContents.capturePage(),
+    'toolShowcase top capturePage'
+  );
+  const toolsTopPng = toolsTopImage.toPNG();
+  await window.webContents.executeJavaScript(
+    "(() => { const scroller = document.querySelector('.thread')?.parentElement; " +
+      'if (scroller) scroller.scrollTop = scroller.scrollHeight; return true; })()'
+  );
+  await window.webContents.executeJavaScript(
+    'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))'
+  );
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const toolsImage: NativeImage = await withCaptureTimeout(
+    window.webContents.capturePage(),
+    'toolShowcase capturePage'
+  );
+  const toolsPng = toolsImage.toPNG();
+  const toolShowcaseDimensions = toolsImage.getSize();
+  // Restore the empty-session state so the trailing renderer validation
+  // (inline errors, welcome view) still checks the shipped default screen.
+  window.webContents.send(DESKTOP_IPC.state, { ...baseSnapshot, toasts: [], items: [] });
+  await withCaptureTimeout(
+    window.webContents.executeJavaScript(`(async () => {
       const started = Date.now();
       while (Date.now() - started < 5000) {
         if (document.querySelectorAll('.tool-card').length === 0) return true;
@@ -703,8 +755,72 @@ async function captureWindow(): Promise<void> {
       }
       throw new Error('Tool showcase did not restore the empty session.');
     })()`),
-      'Tool showcase restore',
-      8_000
+    'Tool showcase restore',
+    8_000
+  );
+  return { toolShowcase, toolsPng, toolsTopPng, toolShowcaseDimensions };
+}
+
+async function captureWindow(): Promise<void> {
+  if (!requestedOutputPath) throw new Error('Capture output path is required and must end in .png.');
+  if (!captureId) throw new Error('Capture ID is required.');
+  await app.whenReady();
+  const host = new CaptureService({
+    getUserDataPath: () => app.getPath('userData'),
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: resolve(__dirname, '../..'),
+  });
+  const { window, removeIpc, rendererConsoleErrors } = createCaptureRendererWindow(host);
+  try {
+    await loadCaptureRenderer(window);
+    if (captureJitterProbeRequested()) {
+      await runCaptureJitterProbe(window, host);
+      removeIpc();
+      window.destroy();
+      app.exit(0);
+      return;
+    }
+    await ensureCaptureTaskWorkspace(window);
+    const startupGeometry = await readCaptureStartupGeometry(window);
+    await expandCaptureSessionSidebar(window);
+    const { liveMobile, resizedBounds } = await runCaptureMobilePass(window);
+    await openCaptureSettings(window);
+    const largeSettings = await readSettingsPlacement(window);
+    const modalStack = await readModalStackAssertions(window);
+    const { lightTheme, lightShellTopEdge, lightPng } = await runCaptureLightThemePass(window);
+    const { compactSettings, narrowSettings } = await readCaptureSettingsAtNarrowWidths(window);
+    const expectedNarrowSettingsCategoryLabels = SETTINGS_CATEGORIES.map((category) => category.label);
+    const liveSettings = {
+      large: largeSettings,
+      compact: compactSettings,
+      narrow: narrowSettings,
+    };
+    assertCaptureSettingsPlacement(liveSettings, lightTheme, modalStack, expectedNarrowSettingsCategoryLabels);
+    const { finalBounds, liveDesktop } = await runCaptureDesktopPass(window);
+    const liveAssertions: LiveCaptureAssertions = {
+      desktop: liveDesktop,
+      mobile: liveMobile,
+      settings: liveSettings,
+      lightTheme,
+      modalStack,
+    };
+    const captureMethod = 'webContents.capturePage';
+    const image: NativeImage = await withCaptureTimeout(window.webContents.capturePage(), 'capturePage');
+    const sourceSize = image.getSize();
+    if (finalBounds.width !== targetSize.width || finalBounds.height !== targetSize.height) {
+      throw new Error(`BrowserWindow bounds are ${finalBounds.width}x${finalBounds.height}, expected 1113x687.`);
+    }
+    if (sourceSize.width !== targetSize.width || sourceSize.height !== targetSize.height) {
+      throw new Error(
+        `Desktop capture source is ${sourceSize.width}x${sourceSize.height}, expected 1113x687; refusing to resize evidence.`
+      );
+    }
+    const dictationSmoke = await runCaptureDictationSmoke(window);
+    const baseSnapshot = host.getSnapshot();
+    const { toolShowcase, toolsPng, toolsTopPng, toolShowcaseDimensions } = await runCaptureToolShowcase(
+      window,
+      baseSnapshot
     );
     const outputSize = image.getSize();
     const nativeWindow = {

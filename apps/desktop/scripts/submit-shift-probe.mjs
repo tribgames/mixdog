@@ -15,17 +15,17 @@ import { mkdir, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { optionValue } from './cli-args.mjs';
+
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) =>
-  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
-const projectPath = resolve(valueFor('--project') || join(desktopDir, '..', '..'));
-const historyTurns = Math.max(0, Number(valueFor('--history') || 5));
-const port = Number(valueFor('--port') || 9351);
+const projectPath = resolve(optionValue('project', argumentsList) || join(desktopDir, '..', '..'));
+const historyTurns = Math.max(0, Number(optionValue('history', argumentsList) || 5));
+const port = Number(optionValue('port', argumentsList) || 9351);
 // A fake OpenAI-compatible server (fake-openai-compat-server.mjs) makes the
 // isolated profile run REAL turns: reasoning band, streaming tail, settle.
-const fakeModelPort = Number(valueFor('--fake-model-port') || 0);
-const recordMs = Number(valueFor('--record') || (fakeModelPort ? 9_000 : 3_000));
+const fakeModelPort = Number(optionValue('fake-model-port', argumentsList) || 0);
+const recordMs = Number(optionValue('record', argumentsList) || (fakeModelPort ? 9_000 : 3_000));
 const keepProfile = argumentsList.includes('--keep-profile');
 const electron = join(
   desktopDir,

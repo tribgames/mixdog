@@ -27,7 +27,7 @@ export function overlayScript(locale = 'en'): string {
   const ko = locale.toLowerCase().startsWith('ko');
   return `(() => {
     let state = { paused:false, canResume:false, busy:false, generation:0 };
-    let armed, renderedRevision = -1, requestSequence = 0, pending = '', failed = false;
+    let armed, renderedRevision = -1, requestSequence = 0, pending = '', failed = false, blocked = false;
     const toggle = document.getElementById('toggle');
     const stopControl = document.getElementById('stop');
     const action = () => {
@@ -51,7 +51,11 @@ export function overlayScript(locale = 'en'): string {
       toggle.setAttribute('aria-label', label);
       toggle.title = label + ${JSON.stringify(ko ? ' (비상 중지: Ctrl+Alt+Esc)' : ' (emergency Stop: Ctrl+Alt+Esc)')};
       toggle.querySelector('path').setAttribute('d', resuming ? 'M7 4v16l14-8z' : 'M6 4h4v16H6zM14 4h4v16h-4z');
-      toggle.disabled = pending === 'pause' || (state.busy && pending !== 'resume') || (resuming && !state.canResume);
+      // blocked: the host dropped the last press because another control was
+      // still running. Stay locked until the next state arrives, so a dropped
+      // press never looks like an idle control that ignores clicks.
+      toggle.disabled =
+        blocked || pending === 'pause' || (state.busy && pending !== 'resume') || (resuming && !state.canResume);
       toggle.setAttribute('aria-busy', String(Boolean(pending) || Boolean(state.busy)));
       // Stop ends the task and is the only control that clears a latched
       // cleanup, so it stays live exactly while the pill asks for a decision.
@@ -72,6 +76,7 @@ export function overlayScript(locale = 'en'): string {
         if (sequence !== requestSequence) return;
         // Pause moves the generation itself; only Resume is stale across generations.
         if (request.action === 'resume' && request.generation !== state.generation) return;
+        if (reply?.error === 'busy') { blocked = true; return; }
         if (!reply?.accepted || reply.error) throw new Error('not accepted');
       } catch {
         if (sequence === requestSequence
@@ -100,6 +105,7 @@ export function overlayScript(locale = 'en'): string {
       if (next.renderRevision < renderedRevision) return;
       renderedRevision = next.renderRevision;
       if (next.generation !== state.generation) failed = false;
+      blocked = false;
       state = next;
       document.body.classList.remove('hiding');
       document.documentElement.style.setProperty('--accent', state.accent || '#58a6ff');

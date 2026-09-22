@@ -307,7 +307,7 @@ function finishMediaStream(entry, id, pending) {
 /** A desktop that vanished mid-stream leaves half-written responses; close
  *  them so the phone retries instead of hanging on an open socket. */
 export function failMediaPending(entry) {
-  for (const [, pending] of entry.media) {
+  for (const pending of entry.media.values()) {
     clearTimeout(pending.timer);
     try {
       if (!pending.head) pending.response.writeHead(503);

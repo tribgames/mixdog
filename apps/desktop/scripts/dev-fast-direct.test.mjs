@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import test from 'node:test';
 
-import { createPackageWithOptions, statFile } from '@electron/asar';
+import { createPackageWithOptions, extractAll, statFile } from '@electron/asar';
 
 import {
   asarPath,
   assertPackagedProductionDependencyClosure,
   changedPlanGroups,
   decidePlan,
+  extractStagedShell,
   fastDirectAsarOptions,
   fastDirectRuntimeArchive,
   hashBrowserImportNativeTools,
@@ -19,6 +20,7 @@ import {
   packagingManifestForFingerprint,
   planForceFullForMissingProductionDependency,
   runtimePackageFileForFingerprint,
+  stagedShellDiscardedPaths,
   targetInputs,
 } from './dev-fast-direct.mjs';
 import {
@@ -470,4 +472,125 @@ test('a corrupt asar is not treated as a missing production dependency for plann
       return true;
     }
   );
+});
+
+// An installed shell in miniature: packed files, unpacked files inside and
+// outside the paths staging discards, and the PTY package the staging re-copies
+// from the checkout.
+const stagedShellFixtureFiles = {
+  'package.json': '{"name":"installed-shell"}\n',
+  'node_modules/keep/index.js': 'packed keep\n',
+  'node_modules/keep/native.node': 'kept binding\n',
+  'node_modules/@homebridge/node-pty-prebuilt-multiarch/package.json': '{"name":"pty"}\n',
+  'node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/pty.node': 'pty binding\n',
+  'out/main/index.js': 'main\n',
+  'out/main/daemon.cjs': 'daemon\n',
+  'out/renderer/index.html': '<html></html>\n',
+  'out/renderer/assets/nls.messages.de-DtwwLlEk.js': 'locale\n',
+};
+
+async function packStagedShellFixture(context) {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-fast-direct-staged-shell-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, 'source');
+  for (const [file, content] of Object.entries(stagedShellFixtureFiles)) {
+    const target = join(source, asarPath(file));
+    await mkdir(join(target, '..'), { recursive: true });
+    await writeFile(target, content);
+  }
+  const archive = join(root, 'app.asar');
+  await createPackageWithOptions(source, archive, {
+    unpack: '{daemon.cjs,*.node}',
+    unpackDir: asarPath('out/renderer'),
+  });
+  // The fixture is only meaningful while these land where the defect lives: an
+  // unpacked file the staging keeps, and unpacked files under a discarded path.
+  assert.equal(Boolean(statFile(archive, asarPath('node_modules/keep/native.node'), false).unpacked), true);
+  assert.equal(
+    Boolean(statFile(archive, asarPath('out/renderer/assets/nls.messages.de-DtwwLlEk.js'), false).unpacked),
+    true
+  );
+  assert.equal(Boolean(statFile(archive, asarPath('package.json'), false).unpacked), false);
+  return { root, archive };
+}
+
+// What dev-fast-direct did before selective extraction: extract everything, then
+// delete the paths the staging replaces.
+async function extractThenDiscard(archive, destination) {
+  extractAll(archive, destination);
+  for (const discarded of stagedShellDiscardedPaths) {
+    await rm(join(destination, discarded), { recursive: true, force: true });
+  }
+}
+
+async function describeTree(root) {
+  const rows = [];
+  const walk = async (dir) => {
+    const entries = (await readdir(dir, { withFileTypes: true })).sort((left, right) =>
+      left.name.localeCompare(right.name)
+    );
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
+      const key = relative(root, path).replaceAll('\\', '/');
+      if (entry.isSymbolicLink()) {
+        rows.push(`link ${key} -> ${(await readlink(path)).replaceAll('\\', '/')}`);
+      } else if (entry.isDirectory()) {
+        rows.push(`dir  ${key}`);
+        await walk(path);
+      } else {
+        const mode = ((await lstat(path)).mode & 0o777).toString(8);
+        rows.push(`file ${key} ${mode} ${await readFile(path, 'utf8')}`);
+      }
+    }
+  };
+  await walk(root);
+  return rows;
+}
+
+test('FastDirect staging extracts exactly the tree extract-then-discard produced', async (context) => {
+  const { root, archive } = await packStagedShellFixture(context);
+  const baseline = join(root, 'baseline');
+  const staged = join(root, 'staged');
+
+  await extractThenDiscard(archive, baseline);
+  await extractStagedShell(archive, staged);
+
+  const expected = await describeTree(baseline);
+  assert.deepEqual(await describeTree(staged), expected);
+  // The comparison only means something if the fixture kept a packed file, kept
+  // an unpacked file, dropped the whole `out/` tree, and dropped the PTY package
+  // while leaving its parent directory behind.
+  assert.ok(
+    expected.some((row) => row.startsWith('file package.json ') && row.endsWith('{"name":"installed-shell"}\n'))
+  );
+  assert.ok(
+    expected.some((row) => row.startsWith('file node_modules/keep/native.node ') && row.endsWith('kept binding\n'))
+  );
+  assert.ok(expected.includes('dir  node_modules/@homebridge'));
+  assert.equal(
+    expected.some((row) => row.includes('out/') || row.includes('node-pty-prebuilt-multiarch')),
+    false
+  );
+});
+
+test('a quarantined unpacked file under a discarded path no longer aborts FastDirect staging', async (context) => {
+  const { root, archive } = await packStagedShellFixture(context);
+  const healthy = join(root, 'healthy');
+  await extractStagedShell(archive, healthy);
+  const expected = await describeTree(healthy);
+
+  // Windows Defender removed exactly this kind of renderer asset from the
+  // installed app; the staging replaces the whole `out/` tree anyway.
+  await rm(join(`${archive}.unpacked`, asarPath('out/renderer/assets/nls.messages.de-DtwwLlEk.js')));
+  assert.throws(() => extractAll(archive, join(root, 'extract-all')), /nls\.messages\.de-DtwwLlEk\.js/);
+
+  const staged = join(root, 'staged');
+  await extractStagedShell(archive, staged);
+  assert.deepEqual(await describeTree(staged), expected);
+});
+
+test('FastDirect staging still fails when a file it keeps is unreadable', async (context) => {
+  const { root, archive } = await packStagedShellFixture(context);
+  await rm(join(`${archive}.unpacked`, 'node_modules', 'keep', 'native.node'));
+  await assert.rejects(() => extractStagedShell(archive, join(root, 'staged')), /native\.node/);
 });

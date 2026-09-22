@@ -15,6 +15,7 @@ import {
   nativeToolInstalledName,
 } from '../../../scripts/native-tool-download.mjs';
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
+import { optionValue } from './cli-args.mjs';
 import { copyRuntimePackagePayload, runtimePackageSource } from './runtime-package-payload.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -56,11 +57,6 @@ if (!ownsNpmCache && (npmCacheDir === runtimeDir || npmCacheDir.startsWith(`${ru
 }
 const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error('prepare-runtime must be run from npm.');
-const optionValue = (name) => {
-  const prefix = `--${name}=`;
-  const argument = process.argv.find((value) => value.startsWith(prefix));
-  return argument ? argument.slice(prefix.length) : '';
-};
 const fastFullMode = optionValue('mode') === 'fast-full';
 const fastRuntimeDependencyHash = optionValue('dependency-hash');
 const fastRuntimeHash = optionValue('runtime-hash');

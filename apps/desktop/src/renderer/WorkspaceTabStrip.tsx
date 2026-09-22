@@ -186,6 +186,402 @@ function calculateChromeTabWidths(count: number, activeIndex: number, available:
   return widths;
 }
 
+type TabMenuAnchor = { key: string; left: number; top: number };
+type SetTabMenu = React.Dispatch<React.SetStateAction<TabMenuAnchor | null>>;
+
+/** Clamp inside the window so bottom/right-edge tabs keep the whole menu visible. */
+function tabMenuAnchorAt(key: string, event: { clientX: number; clientY: number }): TabMenuAnchor {
+  return {
+    key,
+    left: Math.max(8, Math.min(event.clientX, window.innerWidth - 208)),
+    top: Math.max(8, Math.min(event.clientY, window.innerHeight - 264)),
+  };
+}
+
+/** Enter/exit motion bookkeeping for the run, derived during render from the
+ *  previous tab list: a lost tab stays as a ghost for one beat and a gained
+ *  tab is marked entering, so the neighbours glide instead of jumping. */
+function tabsWithClosingGhosts(
+  tabs: WorkspaceTab[],
+  previousTabs: { current: WorkspaceTab[] },
+  closingTabs: { current: Map<string, { tab: WorkspaceTab; index: number }> },
+  enteringKeys: { current: Set<string> }
+) {
+  const previous = previousTabs.current;
+  if (tabs.length < previous.length) {
+    previous.forEach((tab, index) => {
+      if (!tabs.some((entry) => entry.key === tab.key)) {
+        closingTabs.current.set(tab.key, { tab, index });
+      }
+    });
+  } else if (tabs.length > previous.length) {
+    const known = new Set(previous.map((tab) => tab.key));
+    for (const tab of tabs) if (!known.has(tab.key)) enteringKeys.current.add(tab.key);
+  }
+  const displayTabs = tabs.map((tab) => ({ tab, closing: false }));
+  for (const ghost of [...closingTabs.current.values()].sort((left, right) => left.index - right.index)) {
+    // A key that came back inside the beat is a live tab again, never a ghost.
+    if (tabs.some((tab) => tab.key === ghost.tab.key)) {
+      closingTabs.current.delete(ghost.tab.key);
+      continue;
+    }
+    displayTabs.splice(Math.min(ghost.index, displayTabs.length), 0, { tab: ghost.tab, closing: true });
+  }
+  return displayTabs;
+}
+
+/** Drop index for a pointer position: the tab half rule over the measured
+ *  run, falling back to the pointed tab while the run has no geometry yet. */
+function tabDropIndex({
+  tabs,
+  tabNodes,
+  strip,
+  clientX,
+  target,
+}: {
+  tabs: WorkspaceTab[];
+  tabNodes: Map<string, HTMLDivElement>;
+  strip: HTMLElement;
+  clientX: number;
+  target: EventTarget | null;
+}): number | null {
+  let index = -1;
+  let measured = false;
+  let firstLeft = Number.POSITIVE_INFINITY;
+  for (let at = 0; at < tabs.length; at += 1) {
+    const rect = tabNodes.get(tabs[at].key)?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) continue;
+    measured = true;
+    firstLeft = Math.min(firstLeft, rect.left);
+    if (index >= 0 || clientX < rect.left || clientX > rect.right) continue;
+    index = at + (clientX - rect.left > rect.width / 2 ? 1 : 0);
+  }
+  if (!measured) {
+    const pointedTab = (target as Element | null)?.closest?.<HTMLElement>('.workspace-tab') || null;
+    const key = pointedTab && strip.contains(pointedTab) ? pointedTab.dataset.tabKey || '' : '';
+    const at = tabs.findIndex((tab) => tab.key === key);
+    if (at >= 0 && pointedTab) {
+      const rect = pointedTab.getBoundingClientRect();
+      index = at + (clientX - rect.left > rect.width / 2 ? 1 : 0);
+    }
+  } else if (index < 0) {
+    index = clientX < firstLeft ? 0 : tabs.length;
+  }
+  return index < 0 ? null : index;
+}
+
+/** Phone home slot: the brand mark opens the session drawer (user: 로고를
+ *  구글 홈버튼 위치에, 누르면 사이드탭) — the desktop reaches the same drawer
+ *  through its activity rail, which the phone has no room for. Frameless,
+ *  currentColor strokes. */
+function workspaceTabHomeButton() {
+  return (
+    <button
+      type="button"
+      className="workspace-tab-home"
+      aria-label={t('Toggle session sidebar')}
+      onClick={() => window.dispatchEvent(new Event('mixdog:mobile-home'))}
+    >
+      <svg className="workspace-tab-home-mark" viewBox="44 44 168 168" aria-hidden="true">
+        <g fill="none" stroke="currentColor" strokeWidth="22" strokeLinecap="round">
+          <path d="M116.2 61A68 68 0 0 1 191.9 104.7" />
+          <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(120 128 128)" />
+          <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(240 128 128)" />
+        </g>
+        <polygon points="128,112 133,123 144,128 133,133 128,144 123,133 112,128 123,123" fill="currentColor" />
+      </svg>
+    </button>
+  );
+}
+
+/** Phone title pill (user decision (a): 제목 알약은 그대로): the run of tabs
+ *  has no room on a phone, so ONE label names the active tab — sessions live
+ *  in the left drawer. Tapping does nothing; long-press keeps the tab menu
+ *  for closing. The + and the dock toggles beside it are the desktop's. */
+function workspaceMobileTabPill({
+  tabs,
+  activeKey,
+  activeBusy,
+  workingSessionIds,
+  setTabMenu,
+}: {
+  tabs: WorkspaceTab[];
+  activeKey: string;
+  activeBusy: boolean;
+  workingSessionIds: ReadonlySet<string> | undefined;
+  setTabMenu: SetTabMenu;
+}) {
+  const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0];
+  const working = tabIsWorking(activeTab, true, activeBusy, workingSessionIds);
+  return (
+    <button
+      type="button"
+      className="workspace-tab-compact-current"
+      data-tooltip={activeTab?.title}
+      onContextMenu={(event) => {
+        if (!activeTab) return;
+        event.preventDefault();
+        setTabMenu(tabMenuAnchorAt(activeTab.key, event));
+      }}
+    >
+      {working ? (
+        <ProgressSpinner
+          size={14}
+          className="workspace-tab-status"
+          role="status"
+          aria-label={t('{{name}} is working', { name: activeTab?.title ?? '' })}
+        />
+      ) : (
+        activeTab && tabGlyph(activeTab)
+      )}
+      <span>{activeTab?.title ?? ''}</span>
+    </button>
+  );
+}
+
+/** The same node the open tab had, stripped of its handlers and its width: it
+ *  collapses and fades while the neighbours glide. */
+function closingTabGhost(tab: WorkspaceTab) {
+  return (
+    <div key={tab.key} className="workspace-tab closing" aria-hidden="true" data-tab-key={tab.key} data-closing="true">
+      <button type="button" className="workspace-tab-main" tabIndex={-1}>
+        {tabGlyph(tab)}
+        <span>{tab.title}</span>
+      </button>
+      <button type="button" className="workspace-tab-close" tabIndex={-1}>
+        <X size={18} strokeWidth={2} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+/** One live tab cell: selection, its working/unread readout, the drag source,
+ *  the middle-click and context gestures, and the close control. */
+function workspaceTabNode({
+  tab,
+  active,
+  working,
+  unread,
+  dragging,
+  entering,
+  dropLeft,
+  dropRight,
+  pinnedTabWidth,
+  suppressTabClick,
+  setTabNode,
+  selectTab,
+  startNativeDrag,
+  setTabMenu,
+  onCloseTab,
+  onPinTab,
+}: {
+  tab: WorkspaceTab;
+  active: boolean;
+  working: boolean;
+  unread: boolean;
+  dragging: boolean;
+  entering: boolean;
+  dropLeft: boolean;
+  dropRight: boolean;
+  pinnedTabWidth: number | undefined;
+  suppressTabClick: { current: string };
+  setTabNode(key: string, node: HTMLDivElement | null): void;
+  selectTab(tab: WorkspaceTab): void;
+  startNativeDrag(
+    event: React.DragEvent<HTMLElement>,
+    kind: 'tab' | 'group',
+    sourceTab: WorkspaceTab | undefined
+  ): void;
+  setTabMenu: SetTabMenu;
+  onCloseTab(tab: WorkspaceTab): void;
+  onPinTab?(tab: WorkspaceTab): void;
+}) {
+  return (
+    <div
+      key={tab.key}
+      ref={(node) => setTabNode(tab.key, node)}
+      className={`workspace-tab ${active ? 'active' : ''} ${tab.preview ? 'preview' : ''} ${tab.dirty ? 'dirty' : ''} ${dragging ? 'dragging' : ''} ${dropLeft ? 'drop-target-left' : ''} ${dropRight ? 'drop-target-right' : ''} ${entering ? 'entering' : ''}`}
+      data-tab-key={tab.key}
+      data-active={active}
+      data-working={working || undefined}
+      aria-grabbed={dragging}
+      draggable
+      style={
+        pinnedTabWidth
+          ? ({
+              '--workspace-tab-current-width': `${pinnedTabWidth}px`,
+            } as React.CSSProperties)
+          : undefined
+      }
+      onPointerEnter={() => prefetchTabSurface(tab)}
+      onFocusCapture={() => prefetchTabSurface(tab)}
+      onDragStart={(event) => {
+        if ((event.target as Element | null)?.closest?.('.workspace-tab-close')) {
+          event.preventDefault();
+          return;
+        }
+        prefetchTabSurface(tab);
+        event.stopPropagation();
+        startNativeDrag(event, 'tab', tab);
+      }}
+      onMouseDown={(event) => {
+        if (event.button !== 1) return;
+        event.preventDefault();
+        onCloseTab(tab);
+      }}
+      onDoubleClick={() => onPinTab?.(tab)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setTabMenu(tabMenuAnchorAt(tab.key, event));
+      }}
+    >
+      <button
+        type="button"
+        className="workspace-tab-main"
+        onClick={() => {
+          if (suppressTabClick.current === tab.key) {
+            suppressTabClick.current = '';
+            return;
+          }
+          selectTab(tab);
+        }}
+        aria-current={active ? 'page' : undefined}
+        data-tooltip={tab.title}
+      >
+        {/* While the session works, the tab GLYPH becomes the
+              progress spinner (user decision) — no extra dot. */}
+        {working ? (
+          <ProgressSpinner
+            size={14}
+            className="workspace-tab-status"
+            role="status"
+            aria-label={t('{{name}} is working', { name: tab.title })}
+          />
+        ) : (
+          tabGlyph(tab)
+        )}
+        <span>{tab.title}</span>
+        {unread && !working && (
+          <i
+            className="workspace-tab-unread-dot"
+            role="status"
+            aria-label={t('{{name}} has new activity', { name: tab.title })}
+          />
+        )}
+      </button>
+      <button
+        type="button"
+        className="workspace-tab-close"
+        onClick={(event) => {
+          event.stopPropagation();
+          onCloseTab(tab);
+        }}
+        aria-label={t('Close {{title}}', { title: tab.title })}
+        data-tooltip={t('Close tab')}
+      >
+        {tab.dirty ? (
+          <span className="workspace-tab-dirty-glyph" aria-hidden="true">
+            ●
+          </span>
+        ) : (
+          <X size={18} strokeWidth={2} aria-hidden="true" />
+        )}
+      </button>
+    </div>
+  );
+}
+
+/** Tab context menu (Close / Close Others / Close to the Right / Keep Open /
+ *  the file-target paths), portaled to the body at the clamped anchor. */
+function workspaceTabContextMenu({
+  tabMenu,
+  tabs,
+  tabMenuNode,
+  setTabMenu,
+  onCloseTab,
+  onPinTab,
+}: {
+  tabMenu: TabMenuAnchor;
+  tabs: WorkspaceTab[];
+  tabMenuNode: React.RefObject<HTMLDivElement | null>;
+  setTabMenu: SetTabMenu;
+  onCloseTab(tab: WorkspaceTab): void;
+  onPinTab?(tab: WorkspaceTab): void;
+}) {
+  const menuIndex = tabs.findIndex((row) => row.key === tabMenu.key);
+  const menuTab = tabs[menuIndex];
+  if (!menuTab) return null;
+  const others = tabs.filter((row) => row.key !== menuTab.key);
+  const toRight = tabs.slice(menuIndex + 1);
+  const fileTarget = menuFileTarget(menuTab.selection);
+  const items: Array<{ label: string; disabled?: boolean; run: () => void }> = [
+    { label: 'Close', run: () => onCloseTab(menuTab) },
+    {
+      label: 'Close Others',
+      disabled: !others.length,
+      run: () => {
+        for (const row of others) onCloseTab(row);
+      },
+    },
+    {
+      label: 'Close to the Right',
+      disabled: !toRight.length,
+      run: () => {
+        for (const row of toRight) onCloseTab(row);
+      },
+    },
+    ...(onPinTab && menuTab.preview ? [{ label: 'Keep Open', run: () => onPinTab(menuTab) }] : []),
+    ...(fileTarget
+      ? [
+          {
+            label: 'Copy Path',
+            run: () => {
+              const absolute = absoluteFilePath(fileTarget.project, fileTarget.rel);
+              void navigator.clipboard?.writeText(absolute)?.then(undefined, () => {});
+            },
+          },
+          {
+            label: 'Copy Relative Path',
+            run: () => {
+              void navigator.clipboard?.writeText(fileTarget.rel)?.then(undefined, () => {});
+            },
+          },
+          {
+            label: 'Reveal in Explorer',
+            run: () => {
+              void window.mixdogDesktop?.revealFile?.(fileTarget.project, fileTarget.rel, fileTarget.accessToken);
+            },
+          },
+        ]
+      : []),
+  ];
+  return createPortal(
+    <div
+      ref={tabMenuNode}
+      className="workspace-tab-new-menu workspace-tab-context-menu"
+      role="menu"
+      aria-label={t('{{title}} tab actions', { title: menuTab.title })}
+      style={{ left: tabMenu.left, top: tabMenu.top }}
+    >
+      {items.map((item) => (
+        <button
+          type="button"
+          role="menuitem"
+          key={item.label}
+          disabled={item.disabled}
+          onClick={() => {
+            setTabMenu(null);
+            item.run();
+          }}
+        >
+          <span>{t(item.label)}</span>
+        </button>
+      ))}
+    </div>,
+    document.body
+  );
+}
+
 export function WorkspaceTabStrip({
   tabs,
   activeKey,
@@ -317,28 +713,7 @@ export function WorkspaceTabStrip({
   const closingTabs = useRef(new Map<string, { tab: WorkspaceTab; index: number }>());
   const enteringKeys = useRef(new Set<string>());
   const [, settleTabMotion] = useReducer((count: number) => count + 1, 0);
-  {
-    const previous = previousTabs.current;
-    if (tabs.length < previous.length) {
-      previous.forEach((tab, index) => {
-        if (!tabs.some((entry) => entry.key === tab.key)) {
-          closingTabs.current.set(tab.key, { tab, index });
-        }
-      });
-    } else if (tabs.length > previous.length) {
-      const known = new Set(previous.map((tab) => tab.key));
-      for (const tab of tabs) if (!known.has(tab.key)) enteringKeys.current.add(tab.key);
-    }
-  }
-  const displayTabs = tabs.map((tab) => ({ tab, closing: false }));
-  for (const ghost of [...closingTabs.current.values()].sort((left, right) => left.index - right.index)) {
-    // A key that came back inside the beat is a live tab again, never a ghost.
-    if (tabs.some((tab) => tab.key === ghost.tab.key)) {
-      closingTabs.current.delete(ghost.tab.key);
-      continue;
-    }
-    displayTabs.splice(Math.min(ghost.index, displayTabs.length), 0, { tab: ghost.tab, closing: true });
-  }
+  const displayTabs = tabsWithClosingGhosts(tabs, previousTabs, closingTabs, enteringKeys);
   useLayoutEffect(() => {
     previousTabs.current = tabs;
   }, [tabs]);
@@ -429,29 +804,7 @@ export function WorkspaceTabStrip({
     (clientX: number, target: EventTarget | null): number | null => {
       const strip = tabStrip.current;
       if (!strip) return null;
-      let index = -1;
-      let measured = false;
-      let firstLeft = Number.POSITIVE_INFINITY;
-      for (let at = 0; at < tabs.length; at += 1) {
-        const rect = tabNodes.current.get(tabs[at].key)?.getBoundingClientRect();
-        if (!rect || rect.width <= 0) continue;
-        measured = true;
-        firstLeft = Math.min(firstLeft, rect.left);
-        if (index >= 0 || clientX < rect.left || clientX > rect.right) continue;
-        index = at + (clientX - rect.left > rect.width / 2 ? 1 : 0);
-      }
-      if (!measured) {
-        const pointedTab = (target as Element | null)?.closest?.<HTMLElement>('.workspace-tab') || null;
-        const key = pointedTab && strip.contains(pointedTab) ? pointedTab.dataset.tabKey || '' : '';
-        const at = tabs.findIndex((tab) => tab.key === key);
-        if (at >= 0 && pointedTab) {
-          const rect = pointedTab.getBoundingClientRect();
-          index = at + (clientX - rect.left > rect.width / 2 ? 1 : 0);
-        }
-      } else if (index < 0) {
-        index = clientX < firstLeft ? 0 : tabs.length;
-      }
-      return index < 0 ? null : index;
+      return tabDropIndex({ tabs, tabNodes: tabNodes.current, strip, clientX, target });
     },
     [tabs]
   );
@@ -514,65 +867,15 @@ export function WorkspaceTabStrip({
       data-mobile={mobile ? 'true' : undefined}
       data-focused={focused ? 'true' : 'false'}
     >
-      {/* Phone home slot: the brand mark opens the session drawer (user:
-            로고를 구글 홈버튼 위치에, 누르면 사이드탭) — the desktop reaches
-            the same drawer through its activity rail, which the phone has no
-            room for. Frameless, currentColor strokes. */}
-      {mobile && (
-        <button
-          type="button"
-          className="workspace-tab-home"
-          aria-label={t('Toggle session sidebar')}
-          onClick={() => window.dispatchEvent(new Event('mixdog:mobile-home'))}
-        >
-          <svg className="workspace-tab-home-mark" viewBox="44 44 168 168" aria-hidden="true">
-            <g fill="none" stroke="currentColor" strokeWidth="22" strokeLinecap="round">
-              <path d="M116.2 61A68 68 0 0 1 191.9 104.7" />
-              <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(120 128 128)" />
-              <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(240 128 128)" />
-            </g>
-            <polygon points="128,112 133,123 144,128 133,133 128,144 123,133 112,128 123,123" fill="currentColor" />
-          </svg>
-        </button>
-      )}
-      {/* Phone title pill (user decision (a): 제목 알약은 그대로): the run
-            of tabs has no room on a phone, so ONE label names the active tab —
-            sessions live in the left drawer. Tapping does
-            nothing; long-press keeps the tab menu for closing. The + and the
-            dock toggles beside it are the desktop's. */}
+      {mobile && workspaceTabHomeButton()}
       {mobile &&
-        (() => {
-          const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0];
-          const working = tabIsWorking(activeTab, true, activeBusy, workingSessionIds);
-          return (
-            <button
-              type="button"
-              className="workspace-tab-compact-current"
-              data-tooltip={activeTab?.title}
-              onContextMenu={(event) => {
-                if (!activeTab) return;
-                event.preventDefault();
-                setTabMenu({
-                  key: activeTab.key,
-                  left: Math.max(8, Math.min(event.clientX, window.innerWidth - 208)),
-                  top: Math.max(8, Math.min(event.clientY, window.innerHeight - 264)),
-                });
-              }}
-            >
-              {working ? (
-                <ProgressSpinner
-                  size={14}
-                  className="workspace-tab-status"
-                  role="status"
-                  aria-label={t('{{name}} is working', { name: activeTab?.title ?? '' })}
-                />
-              ) : (
-                activeTab && tabGlyph(activeTab)
-              )}
-              <span>{activeTab?.title ?? ''}</span>
-            </button>
-          );
-        })()}
+        workspaceMobileTabPill({
+          tabs,
+          activeKey,
+          activeBusy,
+          workingSessionIds,
+          setTabMenu,
+        })}
       {!mobile && (
         <nav
           ref={tabStrip}
@@ -604,27 +907,7 @@ export function WorkspaceTabStrip({
           onDragEnd={finishNativeDrag}
         >
           {displayTabs.map(({ tab, closing }) => {
-            if (closing) {
-              // The same node the open tab had, stripped of its handlers and
-              // its width: it collapses and fades while the neighbours glide.
-              return (
-                <div
-                  key={tab.key}
-                  className="workspace-tab closing"
-                  aria-hidden="true"
-                  data-tab-key={tab.key}
-                  data-closing="true"
-                >
-                  <button type="button" className="workspace-tab-main" tabIndex={-1}>
-                    {tabGlyph(tab)}
-                    <span>{tab.title}</span>
-                  </button>
-                  <button type="button" className="workspace-tab-close" tabIndex={-1}>
-                    <X size={18} strokeWidth={2} aria-hidden="true" />
-                  </button>
-                </div>
-              );
-            }
+            if (closing) return closingTabGhost(tab);
             const index = tabs.indexOf(tab);
             const active = tab.key === activeKey;
             const dropLeft = draggingKey && dropIndex !== null && tabs[dropIndex - 1]?.key === tab.key;
@@ -632,105 +915,24 @@ export function WorkspaceTabStrip({
             const working = tabIsWorking(tab, active, activeBusy, workingSessionIds);
             const unread = tab.selection.kind === 'session' && unreadSessionIds?.has(tab.selection.id) === true;
             const pinnedTabWidth = chromeWidths?.[index];
-            return (
-              <div
-                key={tab.key}
-                ref={(node) => setTabNode(tab.key, node)}
-                className={`workspace-tab ${active ? 'active' : ''} ${tab.preview ? 'preview' : ''} ${tab.dirty ? 'dirty' : ''} ${draggingKey === tab.key ? 'dragging' : ''} ${dropLeft ? 'drop-target-left' : ''} ${dropRight ? 'drop-target-right' : ''} ${enteringKeys.current.has(tab.key) ? 'entering' : ''}`}
-                data-tab-key={tab.key}
-                data-active={active}
-                data-working={working || undefined}
-                aria-grabbed={draggingKey === tab.key}
-                draggable
-                style={
-                  pinnedTabWidth
-                    ? ({
-                        '--workspace-tab-current-width': `${pinnedTabWidth}px`,
-                      } as React.CSSProperties)
-                    : undefined
-                }
-                onPointerEnter={() => prefetchTabSurface(tab)}
-                onFocusCapture={() => prefetchTabSurface(tab)}
-                onDragStart={(event) => {
-                  if ((event.target as Element | null)?.closest?.('.workspace-tab-close')) {
-                    event.preventDefault();
-                    return;
-                  }
-                  prefetchTabSurface(tab);
-                  event.stopPropagation();
-                  startNativeDrag(event, 'tab', tab);
-                }}
-                onMouseDown={(event) => {
-                  if (event.button !== 1) return;
-                  event.preventDefault();
-                  onCloseTab(tab);
-                }}
-                onDoubleClick={() => onPinTab?.(tab)}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  // Clamp inside the window so bottom/right-edge tabs keep
-                  // the whole menu visible.
-                  setTabMenu({
-                    key: tab.key,
-                    left: Math.max(8, Math.min(event.clientX, window.innerWidth - 208)),
-                    top: Math.max(8, Math.min(event.clientY, window.innerHeight - 264)),
-                  });
-                }}
-              >
-                <button
-                  type="button"
-                  className="workspace-tab-main"
-                  onClick={() => {
-                    if (suppressTabClick.current === tab.key) {
-                      suppressTabClick.current = '';
-                      return;
-                    }
-                    selectTab(tab);
-                  }}
-                  aria-current={active ? 'page' : undefined}
-                  data-tooltip={tab.title}
-                >
-                  {/* While the session works, the tab GLYPH becomes the
-                        progress spinner (user decision) — no extra dot. */}
-                  {working ? (
-                    <ProgressSpinner
-                      size={14}
-                      className="workspace-tab-status"
-                      role="status"
-                      aria-label={t('{{name}} is working', { name: tab.title })}
-                    />
-                  ) : (
-                    tabGlyph(tab)
-                  )}
-                  <span>{tab.title}</span>
-                  {unread && !working && (
-                    <i
-                      className="workspace-tab-unread-dot"
-                      role="status"
-                      aria-label={t('{{name}} has new activity', { name: tab.title })}
-                    />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="workspace-tab-close"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onCloseTab(tab);
-                  }}
-                  aria-label={t('Close {{title}}', { title: tab.title })}
-                  data-tooltip={t('Close tab')}
-                >
-                  {tab.dirty ? (
-                    <span className="workspace-tab-dirty-glyph" aria-hidden="true">
-                      ●
-                    </span>
-                  ) : (
-                    <X size={18} strokeWidth={2} aria-hidden="true" />
-                  )}
-                </button>
-              </div>
-            );
+            return workspaceTabNode({
+              tab,
+              active,
+              working,
+              unread,
+              dragging: draggingKey === tab.key,
+              entering: enteringKeys.current.has(tab.key),
+              dropLeft: Boolean(dropLeft),
+              dropRight: Boolean(dropRight),
+              pinnedTabWidth,
+              suppressTabClick,
+              setTabNode,
+              selectTab,
+              startNativeDrag,
+              setTabMenu,
+              onCloseTab,
+              onPinTab,
+            });
           })}
         </nav>
       )}
@@ -752,84 +954,14 @@ export function WorkspaceTabStrip({
         <Plus size={18} strokeWidth={2} aria-hidden="true" />
       </button>
       {tabMenu &&
-        (() => {
-          const menuIndex = tabs.findIndex((row) => row.key === tabMenu.key);
-          const menuTab = tabs[menuIndex];
-          if (!menuTab) return null;
-          const others = tabs.filter((row) => row.key !== menuTab.key);
-          const toRight = tabs.slice(menuIndex + 1);
-          const fileTarget = menuFileTarget(menuTab.selection);
-          const items: Array<{ label: string; disabled?: boolean; run: () => void }> = [
-            { label: 'Close', run: () => onCloseTab(menuTab) },
-            {
-              label: 'Close Others',
-              disabled: !others.length,
-              run: () => {
-                for (const row of others) onCloseTab(row);
-              },
-            },
-            {
-              label: 'Close to the Right',
-              disabled: !toRight.length,
-              run: () => {
-                for (const row of toRight) onCloseTab(row);
-              },
-            },
-            ...(onPinTab && menuTab.preview ? [{ label: 'Keep Open', run: () => onPinTab(menuTab) }] : []),
-            ...(fileTarget
-              ? [
-                  {
-                    label: 'Copy Path',
-                    run: () => {
-                      const absolute = absoluteFilePath(fileTarget.project, fileTarget.rel);
-                      void navigator.clipboard?.writeText(absolute)?.then(undefined, () => {});
-                    },
-                  },
-                  {
-                    label: 'Copy Relative Path',
-                    run: () => {
-                      void navigator.clipboard?.writeText(fileTarget.rel)?.then(undefined, () => {});
-                    },
-                  },
-                  {
-                    label: 'Reveal in Explorer',
-                    run: () => {
-                      void window.mixdogDesktop?.revealFile?.(
-                        fileTarget.project,
-                        fileTarget.rel,
-                        fileTarget.accessToken
-                      );
-                    },
-                  },
-                ]
-              : []),
-          ];
-          return createPortal(
-            <div
-              ref={tabMenuNode}
-              className="workspace-tab-new-menu workspace-tab-context-menu"
-              role="menu"
-              aria-label={t('{{title}} tab actions', { title: menuTab.title })}
-              style={{ left: tabMenu.left, top: tabMenu.top }}
-            >
-              {items.map((item) => (
-                <button
-                  type="button"
-                  role="menuitem"
-                  key={item.label}
-                  disabled={item.disabled}
-                  onClick={() => {
-                    setTabMenu(null);
-                    item.run();
-                  }}
-                >
-                  <span>{t(item.label)}</span>
-                </button>
-              ))}
-            </div>,
-            document.body
-          );
-        })()}
+        workspaceTabContextMenu({
+          tabMenu,
+          tabs,
+          tabMenuNode,
+          setTabMenu,
+          onCloseTab,
+          onPinTab,
+        })}
       {/* Keep the pane's three-control corner zone even when this surface
             owns no controls (for example Studio or a file). Tabs and + must
             never grow into a region that can later gain dock toggles. */}

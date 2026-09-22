@@ -67,6 +67,119 @@ async function starGithub(): Promise<{ starred: boolean }> {
   return { starred: true };
 }
 
+// PTY output is bursty: node-pty emits one chunk per read, and each chunk
+// used to become its own daemon frame, SSE write, and renderer IPC message.
+// Joining the chunks that land inside one coalescing window collapses that
+// traffic without holding the first byte longer than a frame.
+const TERMINAL_COALESCE_MS = 8;
+
+/** Buffers one terminal's output for a frame and emits it as a single event.
+ *  Owns nothing else: the PTYs stay with the terminal manager. */
+function createTerminalOutputCoalescer(
+  terminals: Pick<TerminalManager, 'subscribe'>,
+  emit: (event: DesktopOperationEvent) => void
+) {
+  const chunks = new Map<string, string[]>();
+  const timers = new Map<string, NodeJS.Timeout>();
+  const drop = (id: string): void => {
+    const timer = timers.get(id);
+    if (timer) clearTimeout(timer);
+    timers.delete(id);
+    chunks.delete(id);
+  };
+  const flush = (id: string): void => {
+    const buffered = chunks.get(id);
+    drop(id);
+    if (!buffered || buffered.length === 0) return;
+    emit({ name: 'terminal-data', value: { id, data: buffered.join('') } });
+  };
+  const unsubscribe = terminals.subscribe((value) => {
+    const id = String(value?.id || '');
+    const data = String(value?.data || '');
+    if (!id || !data) return;
+    const buffered = chunks.get(id);
+    if (buffered) {
+      buffered.push(data);
+      return;
+    }
+    chunks.set(id, [data]);
+    const timer = setTimeout(() => flush(id), TERMINAL_COALESCE_MS);
+    timer.unref();
+    timers.set(id, timer);
+  });
+  return {
+    /** A disposed terminal has no output left to deliver. */
+    drop,
+    dispose(): void {
+      unsubscribe();
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+      chunks.clear();
+    },
+  };
+}
+
+/** Reference-counted directory watches, debounced per directory. One entry per
+ *  (directory, recursive) pair, because both forms watch different trees. */
+function createFolderWatchRegistry(emit: (event: DesktopOperationEvent) => void) {
+  const watchers = new Map<
+    string,
+    {
+      watcher: FSWatcher;
+      count: number;
+      timer: NodeJS.Timeout | null;
+    }
+  >();
+  const watchKey = (path: string) => (process.platform === 'win32' ? path.toLocaleLowerCase() : path);
+  const registryKey = (dir: string, recursive: boolean) => `${watchKey(dir)}\0${recursive ? 'recursive' : 'direct'}`;
+  return {
+    watch(dir: string, recursive: boolean): void {
+      const key = registryKey(dir, recursive);
+      const existing = watchers.get(key);
+      if (existing) {
+        existing.count += 1;
+        return;
+      }
+      const watcher = watch(dir, { persistent: false, recursive }, () => {
+        const state = watchers.get(key);
+        if (!state || state.timer) return;
+        state.timer = setTimeout(() => {
+          state.timer = null;
+          emit({ name: 'folder-changed', value: dir });
+        }, 250);
+      });
+      watcher.on('error', () => {
+        const state = watchers.get(key);
+        if (state?.timer) clearTimeout(state.timer);
+        watchers.delete(key);
+      });
+      watchers.set(key, { watcher, count: 1, timer: null });
+    },
+    unwatch(dir: string, recursive: boolean): void {
+      const key = registryKey(dir, recursive);
+      const state = watchers.get(key);
+      if (!state) return;
+      state.count -= 1;
+      if (state.count <= 0) {
+        if (state.timer) clearTimeout(state.timer);
+        try {
+          state.watcher.close();
+        } catch {}
+        watchers.delete(key);
+      }
+    },
+    dispose(): void {
+      for (const state of watchers.values()) {
+        if (state.timer) clearTimeout(state.timer);
+        try {
+          state.watcher.close();
+        } catch {}
+      }
+      watchers.clear();
+    },
+  };
+}
+
 const STATIC_OPERATIONS = {
   deleteEditorBackup: editorBackups.deleteEditorBackup,
   ghPrCheckout: gh.ghPrCheckout,
@@ -174,54 +287,14 @@ export function createDesktopOperations({
     cacheRoot: userDataPath,
     loadDocumentPreview,
   });
-  const folderWatchers = new Map<
-    string,
-    {
-      watcher: FSWatcher;
-      count: number;
-      timer: NodeJS.Timeout | null;
-    }
-  >();
-  const watchKey = (path: string) => (process.platform === 'win32' ? path.toLocaleLowerCase() : path);
+  const folderWatchers = createFolderWatchRegistry(emit);
   const unsubscribeDiagnostics = languageServers.subscribeDiagnostics((value) => {
     emit({ name: 'lsp-diagnostics', value });
   });
   const unsubscribeStatus = languageServers.subscribeStatus((value) => {
     emit({ name: 'lsp-status', value });
   });
-  // PTY output is bursty: node-pty emits one chunk per read, and each chunk
-  // used to become its own daemon frame, SSE write, and renderer IPC message.
-  // Joining the chunks that land inside one coalescing window collapses that
-  // traffic without holding the first byte longer than a frame.
-  const TERMINAL_COALESCE_MS = 8;
-  const terminalChunks = new Map<string, string[]>();
-  const terminalTimers = new Map<string, NodeJS.Timeout>();
-  const dropTerminalBuffer = (id: string): void => {
-    const timer = terminalTimers.get(id);
-    if (timer) clearTimeout(timer);
-    terminalTimers.delete(id);
-    terminalChunks.delete(id);
-  };
-  const flushTerminal = (id: string): void => {
-    const chunks = terminalChunks.get(id);
-    dropTerminalBuffer(id);
-    if (!chunks || chunks.length === 0) return;
-    emit({ name: 'terminal-data', value: { id, data: chunks.join('') } });
-  };
-  const unsubscribeTerminals = terminals.subscribe((value) => {
-    const id = String(value?.id || '');
-    const data = String(value?.data || '');
-    if (!id || !data) return;
-    const chunks = terminalChunks.get(id);
-    if (chunks) {
-      chunks.push(data);
-      return;
-    }
-    terminalChunks.set(id, [data]);
-    const timer = setTimeout(() => flushTerminal(id), TERMINAL_COALESCE_MS);
-    timer.unref();
-    terminalTimers.set(id, timer);
-  });
+  const terminalOutput = createTerminalOutputCoalescer(terminals, emit);
 
   async function invoke(name: string, args: unknown[] = []): Promise<unknown> {
     if (name === 'githubRequest') return executeGithub(args[0], args[1]);
@@ -311,49 +384,16 @@ export function createDesktopOperations({
     }
     if (name === 'termDispose') {
       const terminalId = String(args[0] || '');
-      dropTerminalBuffer(terminalId);
+      terminalOutput.drop(terminalId);
       terminals.dispose(terminalId);
       return null;
     }
     if (name === 'folderWatch') {
-      const dir = localFiles.absoluteLocalPath(args[0]);
-      const recursive = args[1] === true;
-      const key = `${watchKey(dir)}\0${recursive ? 'recursive' : 'direct'}`;
-      const existing = folderWatchers.get(key);
-      if (existing) {
-        existing.count += 1;
-        return null;
-      }
-      const watcher = watch(dir, { persistent: false, recursive }, () => {
-        const state = folderWatchers.get(key);
-        if (!state || state.timer) return;
-        state.timer = setTimeout(() => {
-          state.timer = null;
-          emit({ name: 'folder-changed', value: dir });
-        }, 250);
-      });
-      watcher.on('error', () => {
-        const state = folderWatchers.get(key);
-        if (state?.timer) clearTimeout(state.timer);
-        folderWatchers.delete(key);
-      });
-      folderWatchers.set(key, { watcher, count: 1, timer: null });
+      folderWatchers.watch(localFiles.absoluteLocalPath(args[0]), args[1] === true);
       return null;
     }
     if (name === 'folderUnwatch') {
-      const dir = localFiles.absoluteLocalPath(args[0]);
-      const recursive = args[1] === true;
-      const key = `${watchKey(dir)}\0${recursive ? 'recursive' : 'direct'}`;
-      const state = folderWatchers.get(key);
-      if (!state) return null;
-      state.count -= 1;
-      if (state.count <= 0) {
-        if (state.timer) clearTimeout(state.timer);
-        try {
-          state.watcher.close();
-        } catch {}
-        folderWatchers.delete(key);
-      }
+      folderWatchers.unwatch(localFiles.absoluteLocalPath(args[0]), args[1] === true);
       return null;
     }
     throw new TypeError('Mixdog desktop service operation is unavailable.');
@@ -362,17 +402,8 @@ export function createDesktopOperations({
   async function dispose(): Promise<void> {
     unsubscribeDiagnostics();
     unsubscribeStatus();
-    unsubscribeTerminals();
-    for (const timer of terminalTimers.values()) clearTimeout(timer);
-    terminalTimers.clear();
-    terminalChunks.clear();
-    for (const state of folderWatchers.values()) {
-      if (state.timer) clearTimeout(state.timer);
-      try {
-        state.watcher.close();
-      } catch {}
-    }
-    folderWatchers.clear();
+    terminalOutput.dispose();
+    folderWatchers.dispose();
     terminals.disposeAll();
     await languageServers.dispose();
   }

@@ -6,10 +6,10 @@
 // prints the returned value as JSON.
 import { readFile } from 'node:fs/promises';
 
+import { optionValue } from './cli-args.mjs';
+
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) =>
-  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
-const port = Number(valueFor('--port') || 9342);
+const port = Number(optionValue('port', argumentsList) || 9342);
 const file = argumentsList.find((argument) => !argument.startsWith('--'));
 if (!file) throw new Error('Usage: dom-eval.mjs [--port=9342] <expression-file>');
 const expression = await readFile(file, 'utf8');

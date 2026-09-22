@@ -48,58 +48,109 @@ export async function pause(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-export function createBrowserSettle(host: BrowserSettleHost) {
-  const {
-    diagnostics: diagnosticsFor,
-    evaluate,
-    quietMs: ACTION_SETTLE_QUIET_MS,
-    domTimeoutMs: ACTION_SETTLE_DOM_TIMEOUT_MS,
-    loadTimeoutMs: ACTION_SETTLE_LOAD_TIMEOUT_MS,
-  } = host;
-
-  async function waitForLoadSettle(guest: WebContents, timeoutMs: number, signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted || !guest.isLoading() || diagnosticsFor(guest).pendingDialog) return;
-    await new Promise<void>((resolve) => {
-      let timer: NodeJS.Timeout | null = null;
-      const finish = () => {
-        if (timer) clearTimeout(timer);
-        guest.removeListener('did-stop-loading', finish);
-        signal?.removeEventListener('abort', finish);
-        resolve();
-      };
-      timer = setTimeout(finish, timeoutMs);
-      guest.on('did-stop-loading', finish);
-      signal?.addEventListener('abort', finish, { once: true });
-      // Loading or cancellation can finish between the preflight checks and
-      // listener registration. Rechecking closes that otherwise full-timeout
-      // race without shortening the real settle window.
-      if (signal?.aborted || !guest.isLoading()) finish();
-    });
-  }
-
-  const waitForDomQuiet = createBrowserDomQuiet({
-    evaluate,
-    quietMs: ACTION_SETTLE_QUIET_MS,
-    timeoutMs: ACTION_SETTLE_DOM_TIMEOUT_MS,
+async function waitForLoadSettle(
+  host: BrowserSettleHost,
+  guest: WebContents,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<void> {
+  if (signal?.aborted || !guest.isLoading() || host.diagnostics(guest).pendingDialog) return;
+  await new Promise<void>((resolve) => {
+    let timer: NodeJS.Timeout | null = null;
+    const finish = () => {
+      if (timer) clearTimeout(timer);
+      guest.removeListener('did-stop-loading', finish);
+      signal?.removeEventListener('abort', finish);
+      resolve();
+    };
+    timer = setTimeout(finish, timeoutMs);
+    guest.on('did-stop-loading', finish);
+    signal?.addEventListener('abort', finish, { once: true });
+    // Loading or cancellation can finish between the preflight checks and
+    // listener registration. Rechecking closes that otherwise full-timeout
+    // race without shortening the real settle window.
+    if (signal?.aborted || !guest.isLoading()) finish();
   });
+}
 
-  async function waitForNetworkQuiet(guest: WebContents, signal?: AbortSignal): Promise<void> {
-    const diagnostics = diagnosticsFor(guest);
-    const startedAt = Date.now();
-    let quietSince = diagnostics.network.pendingCount === 0 ? Date.now() : 0;
-    while (Date.now() - startedAt < ACTION_SETTLE_DOM_TIMEOUT_MS) {
-      if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
-      if (diagnostics.pendingDialog) return;
-      const recentInflight = diagnostics.network.recentInflight();
-      if (recentInflight.length === 0) {
-        if (!quietSince) quietSince = Date.now();
-        if (Date.now() - quietSince >= ACTION_SETTLE_QUIET_MS) return;
-      } else {
-        quietSince = 0;
-      }
-      await pause(75, signal);
+async function waitForNetworkQuiet(host: BrowserSettleHost, guest: WebContents, signal?: AbortSignal): Promise<void> {
+  const diagnostics = host.diagnostics(guest);
+  const startedAt = Date.now();
+  let quietSince = diagnostics.network.pendingCount === 0 ? Date.now() : 0;
+  while (Date.now() - startedAt < host.domTimeoutMs) {
+    if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+    if (diagnostics.pendingDialog) return;
+    const recentInflight = diagnostics.network.recentInflight();
+    if (recentInflight.length === 0) {
+      if (!quietSince) quietSince = Date.now();
+      if (Date.now() - quietSince >= host.quietMs) return;
+    } else {
+      quietSince = 0;
+    }
+    await pause(75, signal);
+  }
+}
+
+/** Let input handlers and their rendering work run without waiting for
+ * unrelated DOM mutations. The next gesture still owns its target's
+ * actionability checks; the final reply waits for pending load/network work.
+ * Hidden pages may throttle animation frames, so the checkpoint is bounded. */
+async function stepSettleResult(
+  host: BrowserSettleHost,
+  guest: WebContents,
+  signal?: AbortSignal,
+  background = false
+): Promise<BrowserCommandResult> {
+  if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+  if (!host.diagnostics(guest).pendingDialog) {
+    try {
+      await host.renderCheckpoint(guest, background, signal);
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason || error;
+      return {
+        outcome: 'inconclusive',
+        // The page itself is loaded and the gesture landed; only this reading
+        // of it failed. Say so, or the caller abandons a page that is fine.
+        text:
+          'The browser input executed, but its rendering checkpoint failed; input was not replayed.' +
+          ' The page is still there — observe it again instead of repeating the action.' +
+          ` ${error instanceof Error ? error.message : String(error)}`,
+      };
     }
   }
+  if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+  const dialog = host.diagnostics(guest).pendingDialog;
+  return dialog
+    ? { outcome: 'blocked', text: `A ${dialog.type} dialog is blocking the sequence.` }
+    : { outcome: 'completed', text: '' };
+}
+
+async function postconditionMatchesGuest(
+  host: BrowserSettleHost,
+  guest: WebContents,
+  expected: BrowserPostcondition,
+  signal?: AbortSignal
+): Promise<boolean> {
+  signal?.throwIfAborted();
+  const url = guest.getURL();
+  if (!browserPostconditionMatches({ url: expected.url }, { url, text: null })) return false;
+  if (!expected.text && !expected.textGone) return true;
+  try {
+    const text = await host.pageText(guest, signal);
+    signal?.throwIfAborted();
+    return guest.getURL() === url && browserPostconditionMatches(expected, { url, text });
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason || error;
+    return false;
+  }
+}
+
+export function createBrowserSettle(host: BrowserSettleHost) {
+  const waitForDomQuiet = createBrowserDomQuiet({
+    evaluate: host.evaluate,
+    quietMs: host.quietMs,
+    timeoutMs: host.domTimeoutMs,
+  });
 
   /** Post-gesture settle starts load, DOM, and network observation together.
    *  Long-polling pages cannot hold the command forever.
@@ -142,30 +193,30 @@ export function createBrowserSettle(host: BrowserSettleHost) {
       () => undefined
     );
     try {
-      if (diagnosticsFor(guest).pendingDialog) return;
+      if (host.diagnostics(guest).pendingDialog) return;
       // reload() returns before navigation completes. Observing its old
       // contexts first races the whole frame tree being replaced.
-      await waitForLoadSettle(guest, ACTION_SETTLE_LOAD_TIMEOUT_MS, settleSignal);
+      await waitForLoadSettle(host, guest, host.loadTimeoutMs, settleSignal);
       signal?.throwIfAborted();
-      if (diagnosticsFor(guest).pendingDialog) return;
+      if (host.diagnostics(guest).pendingDialog) return;
       // Uniform for individual gestures and batches: flush queued rendering,
       // then wait only when actual load/network work remains. A future timer
       // has no knowable completion time; explicit expect/settleMs own that
       // dependency and are still awaited independently by reply.
-      const checkpoint = await stepSettleResult(guest, signal, options.background);
+      const checkpoint = await stepSettleResult(host, guest, signal, options.background);
       if (checkpoint.outcome === 'blocked') return;
       if (checkpoint.outcome !== 'completed') throw new Error(checkpoint.text);
       if (
         !options.requireQuiet &&
         !routeChanged &&
         !guest.isLoading() &&
-        diagnosticsFor(guest).network.recentInflight().length === 0
+        host.diagnostics(guest).network.recentInflight().length === 0
       )
         return;
       const observed = Promise.allSettled([
-        waitForLoadSettle(guest, ACTION_SETTLE_LOAD_TIMEOUT_MS, settleSignal),
+        waitForLoadSettle(host, guest, host.loadTimeoutMs, settleSignal),
         waitForDomQuiet(guest, signal, earlyExit),
-        waitForNetworkQuiet(guest, settleSignal),
+        waitForNetworkQuiet(host, guest, settleSignal),
       ]);
       // Racing the group, not just aborting it: allSettled still waits for any
       // observer that does not watch the cutoff signal, which made the early
@@ -178,62 +229,15 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     }
   }
 
-  /** Let input handlers and their rendering work run without waiting for
-   * unrelated DOM mutations. The next gesture still owns its target's
-   * actionability checks; the final reply waits for pending load/network work.
-   * Hidden pages may throttle animation frames, so the checkpoint is bounded. */
-  async function stepSettleResult(
-    guest: WebContents,
-    signal?: AbortSignal,
-    background = false
-  ): Promise<BrowserCommandResult> {
-    if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
-    if (!diagnosticsFor(guest).pendingDialog) {
-      try {
-        await host.renderCheckpoint(guest, background, signal);
-      } catch (error) {
-        if (signal?.aborted) throw signal.reason || error;
-        return {
-          outcome: 'inconclusive',
-          // The page itself is loaded and the gesture landed; only this reading
-          // of it failed. Say so, or the caller abandons a page that is fine.
-          text:
-            'The browser input executed, but its rendering checkpoint failed; input was not replayed.' +
-            ' The page is still there — observe it again instead of repeating the action.' +
-            ` ${error instanceof Error ? error.message : String(error)}`,
-        };
-      }
-    }
-    if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
-    const dialog = diagnosticsFor(guest).pendingDialog;
-    return dialog
-      ? { outcome: 'blocked', text: `A ${dialog.type} dialog is blocking the sequence.` }
-      : { outcome: 'completed', text: '' };
-  }
-
-  async function postconditionMatchesGuest(
-    guest: WebContents,
-    expected: BrowserPostcondition,
-    signal?: AbortSignal
-  ): Promise<boolean> {
-    signal?.throwIfAborted();
-    const url = guest.getURL();
-    if (!browserPostconditionMatches({ url: expected.url }, { url, text: null })) return false;
-    if (!expected.text && !expected.textGone) return true;
-    try {
-      const text = await host.pageText(guest, signal);
-      signal?.throwIfAborted();
-      return guest.getURL() === url && browserPostconditionMatches(expected, { url, text });
-    } catch (error) {
-      if (signal?.aborted) throw signal.reason || error;
-      return false;
-    }
-  }
-
   return {
-    waitForLoadSettle: timedBrowserOperation('wait', waitForLoadSettle),
+    waitForLoadSettle: timedBrowserOperation('wait', (guest: WebContents, timeoutMs: number, signal?: AbortSignal) =>
+      waitForLoadSettle(host, guest, timeoutMs, signal)
+    ),
     settleAfterAction,
-    stepSettleResult: timedBrowserOperation('wait', stepSettleResult),
-    postconditionMatchesGuest,
+    stepSettleResult: timedBrowserOperation('wait', (guest: WebContents, signal?: AbortSignal, background?: boolean) =>
+      stepSettleResult(host, guest, signal, background)
+    ),
+    postconditionMatchesGuest: (guest: WebContents, expected: BrowserPostcondition, signal?: AbortSignal) =>
+      postconditionMatchesGuest(host, guest, expected, signal),
   };
 }

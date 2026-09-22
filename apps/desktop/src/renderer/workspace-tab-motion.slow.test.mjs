@@ -28,6 +28,10 @@ test('tab creation keeps fitting runs anchored and still reveals genuine overflo
       bundle: true,
       format: 'iife',
       platform: 'browser',
+      // The fixture uses the automatic JSX runtime and imports no React
+      // namespace; without this the bundle emits React.createElement calls
+      // that throw "React is not defined" as soon as the probe mounts.
+      jsx: 'automatic',
       define: { 'process.env.NODE_ENV': '"production"' },
       // Surface prefetch is unrelated to tab layout. Keep this isolated
       // fixture from loading editors or connecting to the user's daemon.

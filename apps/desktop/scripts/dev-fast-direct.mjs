@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
-import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { createPackageWithOptions, extractAll, extractFile, listPackage, statFile } from '@electron/asar';
+import { createPackageWithOptions, extractFile, listPackage, statFile } from '@electron/asar';
 
 const require = createRequire(import.meta.url);
 const { readAsarHeader } = require('app-builder-lib/out/asar/asar.js');
@@ -626,12 +626,12 @@ async function createPlan({ installDir, statePath, planPath, forceFull = false }
   );
   const bootstrap = previous ? null : await bootstrapFreshness(installDir);
   const devRuntimeReady = await installedFastRuntimeReady(installDir, groups.runtimeDependencies.hash);
-  let fullPlan = forceFull;
+  let forceFullPlan = forceFull;
   try {
     await assertPackagedProductionDependencyClosure(join(installDir, 'resources', 'app.asar'));
   } catch (error) {
     planForceFullForMissingProductionDependency(error);
-    fullPlan = true;
+    forceFullPlan = true;
     process.stderr.write(`[fastdirect] ${error.message}; forcing complete win-unpacked fallback\n`);
   }
   const decision = decidePlan({
@@ -640,7 +640,7 @@ async function createPlan({ installDir, statePath, planPath, forceFull = false }
     installedMatches,
     bootstrapFresh: bootstrap,
     devRuntimeReady,
-    forceFull: fullPlan,
+    forceFull: forceFullPlan,
   });
   const plan = {
     schemaVersion,
@@ -691,6 +691,66 @@ async function replaceWinAsarIntegrity(executablePath, integrity) {
   await writeFile(executablePath, Buffer.from(executable.generate()));
 }
 
+// The staging template replaces `out/` with the current build and re-stages the
+// PTY package from the checkout, so neither is worth extracting from the
+// installed archive.
+export const stagedShellDiscardedPaths = ['out', join(...ptyPackageSegments)];
+
+function isDiscardedStagedShellPath(relativePath) {
+  return stagedShellDiscardedPaths.some(
+    (discarded) => relativePath === discarded || relativePath.startsWith(`${discarded}${sep}`)
+  );
+}
+
+// `extractAll` reads every entry, including the ones stageShell deletes again,
+// so a single unreadable file under `out/` aborted a deploy that was about to
+// overwrite that file anyway - as happened when Windows Defender quarantined one
+// renderer locale asset out of app.asar.unpacked. This extracts only the entries
+// the staging keeps, with extractAll's directory, symlink and executable-bit
+// handling; a kept entry that cannot be read still fails the deploy.
+export async function extractStagedShell(archivePath, destination) {
+  // Creating symlinks on Windows needs elevation, so asar extracts links there
+  // as plain files. Mirror that per-platform choice instead of inventing one.
+  const followLinks = process.platform === 'win32';
+  await mkdir(destination, { recursive: true });
+  const failures = [];
+  for (const entry of listPackage(archivePath)) {
+    const relativePath = entry.replace(/^[\\/]+/, '');
+    if (isDiscardedStagedShellPath(relativePath)) continue;
+    const destinationPath = join(destination, relativePath);
+    if (relative(destination, destinationPath).startsWith('..')) {
+      throw new Error(`${entry}: file "${destinationPath}" writes out of the package`);
+    }
+    const node = statFile(archivePath, relativePath, followLinks);
+    if ('files' in node) {
+      await mkdir(destinationPath, { recursive: true });
+      continue;
+    }
+    if ('link' in node) {
+      const linkSource = dirname(join(destination, node.link));
+      if (relative(destination, linkSource).startsWith('..')) {
+        throw new Error(`${entry}: file "${node.link}" links out of the package to "${linkSource}"`);
+      }
+      // A link cannot be overwritten in place.
+      await rm(destinationPath, { force: true });
+      await symlink(join(relative(dirname(destinationPath), linkSource), basename(node.link)), destinationPath);
+      continue;
+    }
+    try {
+      await writeFile(destinationPath, extractFile(archivePath, relativePath, followLinks));
+      if (node.executable) await chmod(destinationPath, '755');
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length) {
+    throw new Error(
+      `Unable to extract the installed app shell from ${archivePath}:\n\n` +
+        failures.map((error) => error.stack).join('\n\n')
+    );
+  }
+}
+
 async function stageShell({ installDir, artifactDir, plan: _plan }) {
   const startedAt = performance.now();
   const installedResources = join(installDir, 'resources');
@@ -701,19 +761,16 @@ async function stageShell({ installDir, artifactDir, plan: _plan }) {
   const cacheParent = join(desktopDir, '.cache', 'dev-fast-direct-shell');
   const stagingRoot = join(cacheParent, installedIntegrity.hash);
   const cacheMarker = `${stagingRoot}.ready`;
-  let cacheHit = (await pathExists(cacheMarker)) && (await pathExists(stagingRoot));
+  const cacheHit = (await pathExists(cacheMarker)) && (await pathExists(stagingRoot));
 
   await mkdir(cacheParent, { recursive: true });
   if (!cacheHit) {
     const temporary = `${stagingRoot}.${process.pid}.tmp`;
     await rm(temporary, { recursive: true, force: true });
-    extractAll(installedArchive, temporary);
-    await rm(join(temporary, 'out'), { recursive: true, force: true });
-    await rm(join(temporary, ...ptyPackageSegments), { recursive: true, force: true });
+    await extractStagedShell(installedArchive, temporary);
     await rm(stagingRoot, { recursive: true, force: true });
     await rename(temporary, stagingRoot);
     await writeFile(cacheMarker, `${installedIntegrity.hash}\n`);
-    cacheHit = false;
   }
 
   for (const entry of await readdir(cacheParent, { withFileTypes: true })) {

@@ -61,6 +61,245 @@ const QUICK_DIFF_TOOLTIPS: Record<keyof typeof QUICK_DIFF_COLOR_TOKENS, string> 
   del: 'Removed line',
 };
 
+type EditorDecorations = { current: import('monaco-editor').editor.IEditorDecorationsCollection | null };
+type EditorGitDiff = NonNullable<NonNullable<typeof window.mixdogDesktop>['gitDiff']>;
+
+/** ANSI output files render their escape sequences as inline decorations plus
+ *  one generated stylesheet; every other file clears both. */
+function applyEditorAnsiDecorations({
+  editor,
+  model,
+  relPath,
+  lightTheme,
+  decorations,
+  styleElement,
+}: {
+  editor: import('monaco-editor').editor.IStandaloneCodeEditor | null;
+  model: import('monaco-editor').editor.ITextModel | null | undefined;
+  relPath: string;
+  lightTheme: boolean;
+  decorations: EditorDecorations;
+  styleElement: { current: HTMLStyleElement | null };
+}): void {
+  if (!editor || !model || !isAnsiOutputPath(relPath) || !model.getValue().includes('\x1b[')) {
+    decorations.current?.clear();
+    if (styleElement.current) styleElement.current.textContent = '';
+    return;
+  }
+  const plan = editorAnsiDecorationPlan(model.getValue(), lightTheme);
+  const next = plan.decorations.map((decoration) => {
+    const start = model.getPositionAt(decoration.start);
+    const end = model.getPositionAt(decoration.end);
+    return {
+      range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
+      options: {
+        inlineClassName: decoration.className,
+        inlineClassNameAffectsLetterSpacing: decoration.className === 'editor-ansi-control',
+      },
+    };
+  });
+  if (decorations.current) decorations.current.set(next);
+  else decorations.current = editor.createDecorationsCollection(next);
+  if (!styleElement.current) {
+    const style = document.createElement('style');
+    style.dataset.mixdogEditorAnsi = 'true';
+    document.head.appendChild(style);
+    styleElement.current = style;
+  }
+  styleElement.current.textContent = plan.cssText;
+}
+
+/** Gutter quick-diff against the Git worktree: file-watch evidence plus a slow
+ *  safety pass, paused while the window is hidden. Returns its own teardown. */
+function startEditorQuickDiff({
+  gitDiff,
+  projectPath,
+  relPath,
+  lightTheme,
+  editorRef,
+  decorations,
+}: {
+  gitDiff: EditorGitDiff;
+  projectPath: string;
+  relPath: string;
+  lightTheme: boolean;
+  editorRef: { current: import('monaco-editor').editor.IStandaloneCodeEditor | null };
+  decorations: EditorDecorations;
+}): () => void {
+  let live = true;
+  const refresh = async () => {
+    try {
+      const text = await gitDiff(projectPath, relPath, false);
+      if (!live) return;
+      const editor = editorRef.current;
+      if (!editor) return;
+      const stripes = parseEditorQuickDiffStripes(text);
+      const decos = stripes.map((stripe) => {
+        const [token, darkFallback, lightFallback] = QUICK_DIFF_COLOR_TOKENS[stripe.kind];
+        const color = resolveThemeColor(token, lightTheme ? lightFallback : darkFallback);
+        return {
+          range: new monaco.Range(stripe.line, 1, stripe.line, 1),
+          options: {
+            isWholeLine: stripe.kind !== 'del',
+            linesDecorationsClassName: `editor-dirty-diff editor-dirty-diff-${stripe.kind}`,
+            linesDecorationsTooltip: QUICK_DIFF_TOOLTIPS[stripe.kind],
+            overviewRuler: {
+              color: colorWithAlpha(color, '99'),
+              position: monaco.editor.OverviewRulerLane.Left,
+            },
+            minimap: {
+              color,
+              position: monaco.editor.MinimapPosition.Gutter,
+            },
+          },
+        };
+      });
+      decorations.current?.clear();
+      decorations.current = editor.createDecorationsCollection(decos);
+    } catch {
+      decorations.current?.clear();
+    }
+  };
+  const scheduler = createGitRefreshScheduler(refresh, {
+    safetyIntervalMs: 30_000,
+    activityDebounceMs: 125,
+    activityMinGapMs: 1_000,
+  });
+  const signal = () => scheduler.signal();
+  const refreshNow = () => scheduler.refreshNow();
+  const visibilityChanged = () => {
+    if (document.visibilityState === 'hidden') scheduler.pause();
+    else scheduler.resume();
+  };
+  const unsubscribeProject = subscribeProjectFileChanges(projectPath, signal);
+  window.addEventListener('focus', refreshNow);
+  window.addEventListener('mixdog:git-changed', signal);
+  document.addEventListener('visibilitychange', visibilityChanged);
+  if (document.visibilityState !== 'hidden') scheduler.resume();
+  return () => {
+    live = false;
+    scheduler.dispose();
+    unsubscribeProject();
+    window.removeEventListener('focus', refreshNow);
+    window.removeEventListener('mixdog:git-changed', signal);
+    document.removeEventListener('visibilitychange', visibilityChanged);
+  };
+}
+
+/** The user's editor settings expressed as Monaco construction options; every
+ *  value the settings do not own is a deliberate default. */
+function monacoEditorOptions(
+  editorSettings: DesktopEditorSettings,
+  wordWrapOverride: DesktopEditorSettings['wordWrap'] | null
+): import('monaco-editor').editor.IStandaloneEditorConstructionOptions {
+  return {
+    fontSize: editorSettings.fontSize,
+    lineHeight: editorSettings.lineHeight,
+    fontFamily: editorSettings.fontFamily,
+    readOnly: false,
+    domReadOnly: false,
+    wordWrap: wordWrapOverride ?? editorSettings.wordWrap,
+    wordWrapColumn: editorSettings.wordWrapColumn,
+    minimap: {
+      enabled: editorSettings.minimapEnabled,
+      /* Default editor behavior. */
+      size: 'proportional',
+      showSlider: 'mouseover',
+    },
+    stickyScroll: { enabled: editorSettings.stickyScrollEnabled },
+    scrollbar: MIXDOG_EDITOR_SCROLLBAR,
+    automaticLayout: false,
+    scrollBeyondLastLine: true,
+    renderWhitespace: editorSettings.renderWhitespace,
+    bracketPairColorization: {
+      enabled: editorSettings.bracketPairColorization,
+      /* Default text-model behavior. */
+      independentColorPoolPerBracketType: false,
+    },
+    guides: {
+      bracketPairs: editorSettings.bracketPairGuides,
+      bracketPairsHorizontal: 'active',
+      highlightActiveBracketPair: true,
+      indentation: true,
+    },
+    inlayHints: { enabled: editorSettings.inlayHintsEnabled },
+    formatOnPaste: editorSettings.formatOnPaste,
+    formatOnType: editorSettings.formatOnType,
+    glyphMargin: true,
+    folding: true,
+    showFoldingControls: 'mouseover',
+    lineNumbersMinChars: 5,
+    overviewRulerLanes: 3,
+    renderLineHighlight: 'line',
+    padding: { top: 4, bottom: 4 },
+    fixedOverflowWidgets: true,
+    /* Hide the lightbulb on empty lines. */
+    lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.OnCode },
+  };
+}
+
+/** Problems, cursor/selection and language readout under the editor body. */
+function editorStatusBar({
+  focused,
+  formattingAvailable,
+  languageLabel,
+  problemStatus,
+  selectionLabel,
+  onFormat,
+  onGotoLine,
+  onShowProblems,
+}: {
+  focused: boolean;
+  formattingAvailable: boolean;
+  languageLabel: string;
+  problemStatus: { errors: number; warnings: number };
+  selectionLabel: string;
+  onFormat(): void;
+  onGotoLine(): void;
+  onShowProblems(): void;
+}) {
+  return (
+    <footer
+      className={`editor-statusbar${focused ? '' : ' editor-statusbar-idle'}`}
+      aria-label={t('Editor status')}
+      aria-hidden={focused ? undefined : true}
+    >
+      <div className="editor-statusbar-left">
+        <button
+          type="button"
+          aria-label={t('Show Problems')}
+          data-tooltip={t('{{errors}} Errors, {{warnings}} Warnings', {
+            errors: problemStatus.errors,
+            warnings: problemStatus.warnings,
+          })}
+          onClick={onShowProblems}
+        >
+          <span aria-hidden="true">×</span> {problemStatus.errors}
+          <span aria-hidden="true">△</span> {problemStatus.warnings}
+        </button>
+      </div>
+      <div className="editor-statusbar-right">
+        {formattingAvailable && (
+          <button
+            type="button"
+            aria-label={t('Format Document')}
+            data-tooltip={t('Format Document')}
+            onClick={onFormat}
+          >
+            {t('Formatter')}
+          </button>
+        )}
+        <button type="button" aria-label={t('Go to Line/Column')} data-tooltip={selectionLabel} onClick={onGotoLine}>
+          {selectionLabel}
+        </button>
+        {/* Language stays a quiet read-only indicator until the other format
+        controls have an in-app need. */}
+        <span className="editor-statusbar-language">{languageLabel}</span>
+      </div>
+    </footer>
+  );
+}
+
 export default function EditorPane({
   projectPath,
   relPath,
@@ -204,33 +443,14 @@ export default function EditorPane({
   }, []);
   const renderAnsiOutput = useCallback(
     (model: import('monaco-editor').editor.ITextModel | null | undefined) => {
-      const editor = editorRef.current;
-      if (!editor || !model || !isAnsiOutputPath(relPath) || !model.getValue().includes('\x1b[')) {
-        ansiDecorations.current?.clear();
-        if (ansiStyleElement.current) ansiStyleElement.current.textContent = '';
-        return;
-      }
-      const plan = editorAnsiDecorationPlan(model.getValue(), lightTheme);
-      const next = plan.decorations.map((decoration) => {
-        const start = model.getPositionAt(decoration.start);
-        const end = model.getPositionAt(decoration.end);
-        return {
-          range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
-          options: {
-            inlineClassName: decoration.className,
-            inlineClassNameAffectsLetterSpacing: decoration.className === 'editor-ansi-control',
-          },
-        };
+      applyEditorAnsiDecorations({
+        editor: editorRef.current,
+        model,
+        relPath,
+        lightTheme,
+        decorations: ansiDecorations,
+        styleElement: ansiStyleElement,
       });
-      if (ansiDecorations.current) ansiDecorations.current.set(next);
-      else ansiDecorations.current = editor.createDecorationsCollection(next);
-      if (!ansiStyleElement.current) {
-        const style = document.createElement('style');
-        style.dataset.mixdogEditorAnsi = 'true';
-        document.head.appendChild(style);
-        ansiStyleElement.current = style;
-      }
-      ansiStyleElement.current.textContent = plan.cssText;
     },
     [lightTheme, relPath]
   );
@@ -413,65 +633,18 @@ export default function EditorPane({
   useEffect(() => {
     const gitDiff = api?.gitDiff;
     if (!active || !load || load.binary || load.tooLarge || !gitDiff) return undefined;
-    let live = true;
-    const refresh = async () => {
-      try {
-        const text = await gitDiff(projectPath, relPath, false);
-        if (!live) return;
-        const editor = editorRef.current;
-        if (!editor) return;
-        const stripes = parseEditorQuickDiffStripes(text);
-        const decos = stripes.map((stripe) => {
-          const [token, darkFallback, lightFallback] = QUICK_DIFF_COLOR_TOKENS[stripe.kind];
-          const color = resolveThemeColor(token, lightTheme ? lightFallback : darkFallback);
-          return {
-            range: new monaco.Range(stripe.line, 1, stripe.line, 1),
-            options: {
-              isWholeLine: stripe.kind !== 'del',
-              linesDecorationsClassName: `editor-dirty-diff editor-dirty-diff-${stripe.kind}`,
-              linesDecorationsTooltip: QUICK_DIFF_TOOLTIPS[stripe.kind],
-              overviewRuler: {
-                color: colorWithAlpha(color, '99'),
-                position: monaco.editor.OverviewRulerLane.Left,
-              },
-              minimap: {
-                color,
-                position: monaco.editor.MinimapPosition.Gutter,
-              },
-            },
-          };
-        });
-        diffDecorations.current?.clear();
-        diffDecorations.current = editor.createDecorationsCollection(decos);
-      } catch {
-        diffDecorations.current?.clear();
-      }
-    };
-    const scheduler = createGitRefreshScheduler(refresh, {
-      safetyIntervalMs: 30_000,
-      activityDebounceMs: 125,
-      activityMinGapMs: 1_000,
+    return startEditorQuickDiff({
+      gitDiff,
+      projectPath,
+      relPath,
+      lightTheme,
+      editorRef,
+      decorations: diffDecorations,
     });
-    const signal = () => scheduler.signal();
-    const refreshNow = () => scheduler.refreshNow();
-    const visibilityChanged = () => {
-      if (document.visibilityState === 'hidden') scheduler.pause();
-      else scheduler.resume();
-    };
-    const unsubscribeProject = subscribeProjectFileChanges(projectPath, signal);
-    window.addEventListener('focus', refreshNow);
-    window.addEventListener('mixdog:git-changed', signal);
-    document.addEventListener('visibilitychange', visibilityChanged);
-    if (document.visibilityState !== 'hidden') scheduler.resume();
-    return () => {
-      live = false;
-      scheduler.dispose();
-      unsubscribeProject();
-      window.removeEventListener('focus', refreshNow);
-      window.removeEventListener('mixdog:git-changed', signal);
-      document.removeEventListener('visibilitychange', visibilityChanged);
-    };
   }, [api, active, load, projectPath, relPath, diffTick, lightTheme]);
+  // The reveal nonce is a wall-clock stamp, so two jumps raised in the same
+  // millisecond carry the same one. The line this body reads therefore keys the
+  // jump as well; the nonce still re-runs a repeat jump to the same line.
   useEffect(() => {
     if (!reveal || !load) return;
     const editor = editorRef.current;
@@ -480,7 +653,7 @@ export default function EditorPane({
     editor.revealLineInCenter(reveal.line);
     editor.focus();
     onNavigationLocationRef.current?.(relPath, reveal.line, 1);
-  }, [reveal?.nonce, load ? 1 : 0, relPath]);
+  }, [reveal?.line, reveal?.nonce, load ? 1 : 0, relPath]);
   const selectedCharacters = selectionStatus.characters;
   let selectionLabel: string;
   if (selectionStatus.selections > 1) {
@@ -703,50 +876,7 @@ export default function EditorPane({
             defaultLanguage={explicitEditorLanguageIdForPath(relPath)}
             defaultValue={load.content}
             theme={lightTheme ? 'mixdog-light' : 'mixdog-dark'}
-            options={{
-              fontSize: editorSettings.fontSize,
-              lineHeight: editorSettings.lineHeight,
-              fontFamily: editorSettings.fontFamily,
-              readOnly: false,
-              domReadOnly: false,
-              wordWrap: wordWrapOverride ?? editorSettings.wordWrap,
-              wordWrapColumn: editorSettings.wordWrapColumn,
-              minimap: {
-                enabled: editorSettings.minimapEnabled,
-                /* Default editor behavior. */
-                size: 'proportional',
-                showSlider: 'mouseover',
-              },
-              stickyScroll: { enabled: editorSettings.stickyScrollEnabled },
-              scrollbar: MIXDOG_EDITOR_SCROLLBAR,
-              automaticLayout: false,
-              scrollBeyondLastLine: true,
-              renderWhitespace: editorSettings.renderWhitespace,
-              bracketPairColorization: {
-                enabled: editorSettings.bracketPairColorization,
-                /* Default text-model behavior. */
-                independentColorPoolPerBracketType: false,
-              },
-              guides: {
-                bracketPairs: editorSettings.bracketPairGuides,
-                bracketPairsHorizontal: 'active',
-                highlightActiveBracketPair: true,
-                indentation: true,
-              },
-              inlayHints: { enabled: editorSettings.inlayHintsEnabled },
-              formatOnPaste: editorSettings.formatOnPaste,
-              formatOnType: editorSettings.formatOnType,
-              glyphMargin: true,
-              folding: true,
-              showFoldingControls: 'mouseover',
-              lineNumbersMinChars: 5,
-              overviewRulerLanes: 3,
-              renderLineHighlight: 'line',
-              padding: { top: 4, bottom: 4 },
-              fixedOverflowWidgets: true,
-              /* Hide the lightbulb on empty lines. */
-              lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.OnCode },
-            }}
+            options={monacoEditorOptions(editorSettings, wordWrapOverride)}
             onMount={onMonacoMount}
             onRelease={releaseEditorSurface}
           />
@@ -754,53 +884,20 @@ export default function EditorPane({
         {/* ALWAYS mounted: gating on `focused` resized the editor body by 22px on
         every focus change — a visible jump right after a pane appears (user:
         자리를 못 잡고 튄다). Unfocused panes keep the reserved row, hidden. */}
-        <footer
-          className={`editor-statusbar${focused ? '' : ' editor-statusbar-idle'}`}
-          aria-label={t('Editor status')}
-          aria-hidden={focused ? undefined : true}
-        >
-          <div className="editor-statusbar-left">
-            <button
-              type="button"
-              aria-label={t('Show Problems')}
-              data-tooltip={t('{{errors}} Errors, {{warnings}} Warnings', {
-                errors: problemStatus.errors,
-                warnings: problemStatus.warnings,
-              })}
-              onClick={showProblems}
-            >
-              <span aria-hidden="true">×</span> {problemStatus.errors}
-              <span aria-hidden="true">△</span> {problemStatus.warnings}
-            </button>
-          </div>
-          <div className="editor-statusbar-right">
-            {lspCapabilities.current?.formatting && (
-              <button
-                type="button"
-                aria-label={t('Format Document')}
-                data-tooltip={t('Format Document')}
-                onClick={() => {
-                  void editorRef.current?.getAction('editor.action.formatDocument')?.run();
-                }}
-              >
-                {t('Formatter')}
-              </button>
-            )}
-            <button
-              type="button"
-              aria-label={t('Go to Line/Column')}
-              data-tooltip={selectionLabel}
-              onClick={() => {
-                void editorRef.current?.getAction('editor.action.gotoLine')?.run();
-              }}
-            >
-              {selectionLabel}
-            </button>
-            {/* Language stays a quiet read-only indicator until the other format
-            controls have an in-app need. */}
-            <span className="editor-statusbar-language">{editorLanguageLabel(editorFormat.languageId)}</span>
-          </div>
-        </footer>
+        {editorStatusBar({
+          focused,
+          formattingAvailable: Boolean(lspCapabilities.current?.formatting),
+          languageLabel: editorLanguageLabel(editorFormat.languageId),
+          problemStatus,
+          selectionLabel,
+          onFormat: () => {
+            void editorRef.current?.getAction('editor.action.formatDocument')?.run();
+          },
+          onGotoLine: () => {
+            void editorRef.current?.getAction('editor.action.gotoLine')?.run();
+          },
+          onShowProblems: showProblems,
+        })}
       </div>
     </>
   );

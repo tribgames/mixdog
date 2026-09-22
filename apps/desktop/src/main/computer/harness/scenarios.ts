@@ -442,6 +442,381 @@ async function createDenseFixture(): Promise<BrowserWindow> {
   return window;
 }
 
+/** A native WinForms window whose Ctrl+O opens a real shell file dialog. */
+function spawnNativeDialogFixture(): ChildProcess {
+  const fixtureScriptPath = join(profile, 'native-dialog-fixture.ps1');
+  writeFileSync(
+    fixtureScriptPath,
+    `
+Add-Type -AssemblyName System.Windows.Forms
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'Mixdog Native Dialog Fixture'
+$form.Width = 640
+$form.Height = 420
+$form.KeyPreview = $true
+$form.Add_KeyDown({
+  if ($_.Control -and $_.KeyCode -eq [System.Windows.Forms.Keys]::O) {
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $dialog.Title = 'Mixdog Native Open Dialog'
+    [void]$dialog.ShowDialog($form)
+    $_.Handled = $true
+  }
+})
+[System.Windows.Forms.Application]::Run($form)
+`,
+    'utf8'
+  );
+  return spawn(
+    'powershell.exe',
+    ['-NoLogo', '-NoProfile', '-Sta', '-ExecutionPolicy', 'Bypass', '-File', fixtureScriptPath],
+    {
+      stdio: 'ignore',
+      windowsHide: false,
+    }
+  );
+}
+
+interface BridgeDiscovery {
+  port: number;
+  token: string;
+}
+
+type ActionMetrics = ScenarioMetrics['actions'][string];
+
+/**
+ * The fixture desktop every scenario observes: the interactive renderer at a
+ * deliberately awkward placement, the Korean and clutter OCR surfaces, and the
+ * two blank frames whose pixels must fail closed.
+ */
+async function createScenarioFixtureWindows(windows: BrowserWindow[]): Promise<{
+  fixture: BrowserWindow;
+  displayPlacement: string;
+}> {
+  const fixture = new BrowserWindow({
+    width: 820,
+    height: 620,
+    show: true,
+    title: 'Mixdog Scenario Renderer',
+    backgroundColor: '#f5f7fb',
+    webPreferences: {
+      backgroundThrottling: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  windows.push(fixture);
+  const displays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay();
+  // Placement is an explicit input, not a fact of the machine: a secondary
+  // display exercises off-origin geometry, while forcing primary isolates
+  // whether a failure belongs to the code or to that geometry.
+  const secondary =
+    process.env.MIXDOG_COMPUTER_SCENARIO_DISPLAY === 'primary'
+      ? undefined
+      : displays.find((display) => display.id !== primary.id);
+  let displayPlacement = '';
+  if (secondary) {
+    fixture.setBounds({
+      x: secondary.workArea.x + 50,
+      y: secondary.workArea.y + 50,
+      width: 820,
+      height: 620,
+    });
+    displayPlacement = 'secondary_display';
+  } else {
+    fixture.setBounds({
+      x: primary.workArea.x - 160,
+      y: primary.workArea.y + 50,
+      width: 820,
+      height: 620,
+    });
+    displayPlacement = 'partially_offscreen';
+  }
+  await fixture.loadURL(`data:text/html;base64,${Buffer.from(fixtureHtml).toString('base64')}`);
+  fixture.showInactive();
+  progress('SETUP primary fixture ready');
+
+  const koreanFixture = new BrowserWindow({
+    width: 680,
+    height: 420,
+    show: true,
+    title: 'Mixdog Korean OCR Fixture',
+    webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true },
+  });
+  windows.push(koreanFixture);
+  await koreanFixture.loadURL(`data:text/html;base64,${Buffer.from(koreanFixtureHtml).toString('base64')}`);
+  koreanFixture.showInactive();
+  progress('SETUP Korean fixture ready');
+
+  const clutterFixture = new BrowserWindow({
+    width: 820,
+    height: 580,
+    show: true,
+    title: 'Mixdog OCR Clutter Fixture',
+    webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true },
+  });
+  windows.push(clutterFixture);
+  await clutterFixture.loadURL(`data:text/html;base64,${Buffer.from(clutterFixtureHtml).toString('base64')}`);
+  clutterFixture.showInactive();
+  progress('SETUP clutter fixture ready');
+
+  for (const [title, html, backgroundColor] of [
+    ['Mixdog Black Frame Fixture', blackFixtureHtml, '#000000'],
+    ['Mixdog White Frame Fixture', whiteFixtureHtml, '#ffffff'],
+  ] as const) {
+    const blank = new BrowserWindow({
+      width: 480,
+      height: 320,
+      show: true,
+      frame: false,
+      title,
+      backgroundColor,
+      webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true },
+    });
+    windows.push(blank);
+    await blank.loadURL(`data:text/html;base64,${Buffer.from(html).toString('base64')}`);
+    blank.showInactive();
+    progress(`SETUP ${title} ready`);
+  }
+  return { fixture, displayPlacement };
+}
+
+/** Exact window ids for the fixture titles, read off one list_windows report. */
+function fixtureWindowIds(listing: string): {
+  fixture: string;
+  korean: string;
+  clutter: string;
+  black: string;
+  white: string;
+  dense: string;
+  mixdog?: string;
+  chrome?: string;
+} {
+  const lines = listing.split(/\r?\n/);
+  const byTitle = (title: string) =>
+    lines.find((line) => line.includes(`"${title}"`))?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+  return {
+    fixture: byTitle('Mixdog Scenario Renderer'),
+    korean: byTitle('Mixdog Korean OCR Fixture'),
+    clutter: byTitle('Mixdog OCR Clutter Fixture'),
+    black: byTitle('Mixdog Black Frame Fixture'),
+    white: byTitle('Mixdog White Frame Fixture'),
+    dense: byTitle('Mixdog Dense Accessibility Fixture'),
+    mixdog: lines
+      .find((line) => /\|\s+app=Mixdog\b/i.test(line) && line.includes('"Mixdog"'))
+      ?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1],
+    chrome: lines.find((line) => /\|\s+app=(?:chrome|msedge)\b/i.test(line))?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1],
+  };
+}
+
+/**
+ * Folds one command response into the active scenario metrics: byte and
+ * duration accounting, then whatever the structured payload says about user
+ * intervention, element budgets, phase timings and escalations.
+ */
+function recordCommandResponse(
+  actionName: string,
+  value: CommandResult,
+  actionMetrics: ActionMetrics | null,
+  durationMs: number
+): void {
+  const metrics = activeMetrics;
+  if (!metrics) return;
+  const responseTextBytes = Buffer.byteLength(value.text);
+  const imageBytes = value.image?.data ? Math.floor(value.image.data.length * 0.75) : 0;
+  metrics.response_text_bytes += responseTextBytes;
+  metrics.image_bytes += imageBytes;
+  if (actionMetrics) {
+    actionMetrics.durations_ms.push(durationMs);
+    actionMetrics.response_text_bytes += responseTextBytes;
+    actionMetrics.image_bytes += imageBytes;
+  }
+  try {
+    const parsed = JSON.parse(value.text) as Record<string, unknown>;
+    // A parked request answers at the bridge level, so the intervention is
+    // only visible in the body. Later assertions in the same scenario are
+    // measuring a desktop the user owns, not the behaviour under test.
+    // `user_input_during_capture` names the user, while an unavailable
+    // observer stays a real failure: the reason separates them.
+    if (
+      parsed.code === 'computer_user_intervention_pending' ||
+      // A capture reports this reason whenever the user touched their own
+      // mouse, but it only says foreground input is not ready. Work that
+      // never tried to send input stays measurable through it.
+      (parsed.foreground_input_reason === 'user_input_during_capture' && MUTATION_ACTIONS.has(actionName))
+    ) {
+      userInterventionSeen = true;
+    }
+    metrics.max_returned_elements = Math.max(
+      metrics.max_returned_elements,
+      Number(parsed.returned_elements) || 0,
+      Number((parsed.capture_after as Record<string, unknown> | undefined)?.returned_elements) || 0
+    );
+    if (MUTATION_ACTIONS.has(actionName) && parsed.delivery_accepted === true) {
+      metrics.accepted_mutations += 1;
+    }
+    previousCommandHadCaptureAfter = Boolean(
+      MUTATION_ACTIONS.has(actionName) && (parsed.capture_after as Record<string, unknown> | undefined)?.ok
+    );
+    const addTimings = (prefix: string, value: unknown) => {
+      if (!value || typeof value !== 'object') return;
+      for (const [key, timing] of Object.entries(value as Record<string, unknown>)) {
+        const numeric = Number(timing);
+        if (!Number.isFinite(numeric)) continue;
+        const name = `${prefix}${key}`;
+        metrics.phase_ms[name] = Number(((metrics.phase_ms[name] || 0) + numeric).toFixed(2));
+      }
+    };
+    addTimings('', parsed.timings_ms);
+    addTimings('capture_after.', (parsed.capture_after as Record<string, unknown> | undefined)?.timings_ms);
+    for (const escalation of [
+      parsed.escalation,
+      (parsed.verdict as Record<string, unknown> | undefined)?.recommended,
+    ]) {
+      if (typeof escalation === 'string' && !metrics.escalations.includes(escalation)) {
+        metrics.escalations.push(escalation);
+      }
+    }
+  } catch {
+    // Plain-text discovery results intentionally have no structured metrics.
+  }
+}
+
+/**
+ * One scenario command: classification and request accounting, the bridge
+ * round trip, and the response folded back into the active metrics. The
+ * discovery accessor is read per call because a bridge restart republishes it.
+ */
+function createScenarioCommand(
+  session: string,
+  discovery: () => BridgeDiscovery
+): (input: Record<string, unknown>, sessionId?: string) => Promise<CommandResult> {
+  return async (input: Record<string, unknown>, sessionId = session): Promise<CommandResult> => {
+    const body = JSON.stringify({ session_id: sessionId, ...input });
+    const actionName = String(input.action || '');
+    // Sequence steps carry their delivery in the same body, so one check covers them.
+    if (skipForeground && body.includes('"delivery":"foreground"')) {
+      foregroundSkipped = true;
+      throw new ScenarioSkip('foreground delivery takes the real pointer; skipped by request');
+    }
+    const isCleanup = actionName === 'session_release' || actionName === 'session_abort';
+    const isObservation = OBSERVATION_ACTIONS.has(actionName);
+    const isMutation = MUTATION_ACTIONS.has(actionName);
+    if (!isCleanup && isObservation === isMutation) {
+      throw new Error(`scenario action '${actionName}' must be classified as exactly one of observation or mutation`);
+    }
+    const commandStartedAt = performance.now();
+    const requestBytes = Buffer.byteLength(body);
+    if (activeMetrics) {
+      activeMetrics.actions[actionName] ||= {
+        commands: 0,
+        failures: 0,
+        durations_ms: [],
+        request_bytes: 0,
+        response_text_bytes: 0,
+        image_bytes: 0,
+      };
+    }
+    const actionMetrics = activeMetrics ? activeMetrics.actions[actionName] : null;
+    if (activeMetrics) {
+      activeMetrics.commands += 1;
+      activeMetrics.request_bytes += requestBytes;
+      if (isCleanup) activeMetrics.cleanup_commands += 1;
+      if (actionMetrics) {
+        actionMetrics.commands += 1;
+        actionMetrics.request_bytes += requestBytes;
+      }
+      if (isObservation) activeMetrics.observations += 1;
+      if (isMutation) activeMetrics.mutations += 1;
+      if (actionName === 'capture' && previousCommandHadCaptureAfter) {
+        activeMetrics.post_action_recaptures += 1;
+      }
+    }
+    previousCommandHadCaptureAfter = false;
+    const response = await fetch(`http://127.0.0.1:${discovery().port}/command`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${discovery().token}`,
+        'content-type': 'application/json',
+      },
+      body,
+      signal: AbortSignal.timeout(45_000),
+    });
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      value?: CommandResult;
+      error?: string;
+    };
+    if (!payload.ok) {
+      if (actionMetrics) {
+        actionMetrics.failures += 1;
+        actionMetrics.durations_ms.push(Math.round(performance.now() - commandStartedAt));
+      }
+      throw new Error(payload.error || 'computer command failed');
+    }
+    const value = {
+      text: String(payload.value?.text || ''),
+      ...(payload.value?.image ? { image: payload.value.image } : {}),
+    };
+    recordCommandResponse(actionName, value, actionMetrics, Math.round(performance.now() - commandStartedAt));
+    return value;
+  };
+}
+
+/** Aggregates the matrix into the report artifact and the closing summary. */
+function writeScenarioReport(displayPlacement: string): void {
+  if (reportDirectory) mkdirSync(reportDirectory, { recursive: true });
+  const passed = results.filter((result) => result.status === 'pass').length;
+  const failed = results.filter((result) => result.status === 'fail').length;
+  const skipped = results.filter((result) => result.status === 'skip').length;
+  const totalDuration = results.reduce((sum, result) => sum + result.duration_ms, 0);
+  const totalCommands = results.reduce((sum, result) => sum + result.commands, 0);
+  const report = {
+    schema_version: 1,
+    label: reportLabel,
+    generated_at: new Date().toISOString(),
+    environment: {
+      platform: process.platform,
+      electron: process.versions.electron,
+      windows_displays: screen.getAllDisplays().length,
+      fixture_placement: displayPlacement,
+    },
+    summary: {
+      total: results.length,
+      passed,
+      failed,
+      skipped,
+      success_rate: results.length ? passed / results.length : 0,
+      duration_ms: totalDuration,
+      commands: totalCommands,
+      tool_calls: totalCommands - results.reduce((sum, result) => sum + result.cleanup_commands, 0),
+      cleanup_commands: results.reduce((sum, result) => sum + result.cleanup_commands, 0),
+      observations: results.reduce((sum, result) => sum + result.observations, 0),
+      mutations: results.reduce((sum, result) => sum + result.mutations, 0),
+      accepted_mutations: results.reduce((sum, result) => sum + result.accepted_mutations, 0),
+      post_action_recaptures: results.reduce((sum, result) => sum + result.post_action_recaptures, 0),
+      false_positives: results.filter((result) => result.false_positive).length,
+      retries: results.reduce((sum, result) => sum + result.retries, 0),
+      response_text_bytes: results.reduce((sum, result) => sum + result.response_text_bytes, 0),
+      image_bytes: results.reduce((sum, result) => sum + result.image_bytes, 0),
+      phase_ms: results.reduce<Record<string, number>>((totals, result) => {
+        for (const [name, timing] of Object.entries(result.phase_ms)) {
+          totals[name] = Number(((totals[name] || 0) + timing).toFixed(2));
+        }
+        return totals;
+      }, {}),
+    },
+    results,
+  };
+  if (reportPath) writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  progress('scenario matrix complete');
+  console.log(
+    `Computer Use scenario matrix complete: ${passed}/${results.length} passed,` +
+      ` ${failed} failed, ${skipped} skipped.`
+  );
+}
+
 async function run(): Promise<void> {
   // A typo in --only has to fail here, before any fixture work: checked during
   // cleanup it masked the real scenario failure and skipped the report.
@@ -460,7 +835,6 @@ async function run(): Promise<void> {
   let blackWindowId = '';
   let whiteWindowId = '';
   let denseWindowId = '';
-  let externalWindowId = '';
   let displayPlacement = '';
   let nativeTextFixturePath = '';
   let denseFixture: BrowserWindow | null = null;
@@ -494,92 +868,8 @@ async function run(): Promise<void> {
       progress('SETUP native text fixture ready');
     }
     if (needsDenseFixture) app.setAccessibilitySupportEnabled(true);
-    const fixture = new BrowserWindow({
-      width: 820,
-      height: 620,
-      show: true,
-      title: 'Mixdog Scenario Renderer',
-      backgroundColor: '#f5f7fb',
-      webPreferences: {
-        backgroundThrottling: false,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    });
-    windows.push(fixture);
-    const displays = screen.getAllDisplays();
-    const primary = screen.getPrimaryDisplay();
-    // Placement is an explicit input, not a fact of the machine: a secondary
-    // display exercises off-origin geometry, while forcing primary isolates
-    // whether a failure belongs to the code or to that geometry.
-    const secondary =
-      process.env.MIXDOG_COMPUTER_SCENARIO_DISPLAY === 'primary'
-        ? undefined
-        : displays.find((display) => display.id !== primary.id);
-    if (secondary) {
-      fixture.setBounds({
-        x: secondary.workArea.x + 50,
-        y: secondary.workArea.y + 50,
-        width: 820,
-        height: 620,
-      });
-      displayPlacement = 'secondary_display';
-    } else {
-      fixture.setBounds({
-        x: primary.workArea.x - 160,
-        y: primary.workArea.y + 50,
-        width: 820,
-        height: 620,
-      });
-      displayPlacement = 'partially_offscreen';
-    }
-    await fixture.loadURL(`data:text/html;base64,${Buffer.from(fixtureHtml).toString('base64')}`);
-    fixture.showInactive();
-    progress('SETUP primary fixture ready');
-
-    const koreanFixture = new BrowserWindow({
-      width: 680,
-      height: 420,
-      show: true,
-      title: 'Mixdog Korean OCR Fixture',
-      webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true },
-    });
-    windows.push(koreanFixture);
-    await koreanFixture.loadURL(`data:text/html;base64,${Buffer.from(koreanFixtureHtml).toString('base64')}`);
-    koreanFixture.showInactive();
-    progress('SETUP Korean fixture ready');
-
-    const clutterFixture = new BrowserWindow({
-      width: 820,
-      height: 580,
-      show: true,
-      title: 'Mixdog OCR Clutter Fixture',
-      webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true },
-    });
-    windows.push(clutterFixture);
-    await clutterFixture.loadURL(`data:text/html;base64,${Buffer.from(clutterFixtureHtml).toString('base64')}`);
-    clutterFixture.showInactive();
-    progress('SETUP clutter fixture ready');
-
-    for (const [title, html, backgroundColor] of [
-      ['Mixdog Black Frame Fixture', blackFixtureHtml, '#000000'],
-      ['Mixdog White Frame Fixture', whiteFixtureHtml, '#ffffff'],
-    ] as const) {
-      const blank = new BrowserWindow({
-        width: 480,
-        height: 320,
-        show: true,
-        frame: false,
-        title,
-        backgroundColor,
-        webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true },
-      });
-      windows.push(blank);
-      await blank.loadURL(`data:text/html;base64,${Buffer.from(html).toString('base64')}`);
-      blank.showInactive();
-      progress(`SETUP ${title} ready`);
-    }
+    const { fixture, displayPlacement: fixturePlacement } = await createScenarioFixtureWindows(windows);
+    displayPlacement = fixturePlacement;
 
     if (needsDenseFixture) {
       denseFixture = await createDenseFixture();
@@ -609,156 +899,18 @@ async function run(): Promise<void> {
     progress('SETUP resident host created');
     let discovery = await readDiscovery(join(dataDirectory, 'computer-bridge.json'), 45_000);
     progress('SETUP resident host discovered');
-    command = async (input: Record<string, unknown>, sessionId = session): Promise<CommandResult> => {
-      const body = JSON.stringify({ session_id: sessionId, ...input });
-      const actionName = String(input.action || '');
-      // Sequence steps carry their delivery in the same body, so one check covers them.
-      if (skipForeground && body.includes('"delivery":"foreground"')) {
-        foregroundSkipped = true;
-        throw new ScenarioSkip('foreground delivery takes the real pointer; skipped by request');
-      }
-      const isCleanup = actionName === 'session_release' || actionName === 'session_abort';
-      const isObservation = OBSERVATION_ACTIONS.has(actionName);
-      const isMutation = MUTATION_ACTIONS.has(actionName);
-      if (!isCleanup && isObservation === isMutation) {
-        throw new Error(`scenario action '${actionName}' must be classified as exactly one of observation or mutation`);
-      }
-      const commandStartedAt = performance.now();
-      const requestBytes = Buffer.byteLength(body);
-      if (activeMetrics) {
-        activeMetrics.actions[actionName] ||= {
-          commands: 0,
-          failures: 0,
-          durations_ms: [],
-          request_bytes: 0,
-          response_text_bytes: 0,
-          image_bytes: 0,
-        };
-      }
-      const actionMetrics = activeMetrics ? activeMetrics.actions[actionName] : null;
-      if (activeMetrics) {
-        activeMetrics.commands += 1;
-        activeMetrics.request_bytes += requestBytes;
-        if (isCleanup) activeMetrics.cleanup_commands += 1;
-        if (actionMetrics) {
-          actionMetrics.commands += 1;
-          actionMetrics.request_bytes += requestBytes;
-        }
-        if (isObservation) activeMetrics.observations += 1;
-        if (isMutation) activeMetrics.mutations += 1;
-        if (actionName === 'capture' && previousCommandHadCaptureAfter) {
-          activeMetrics.post_action_recaptures += 1;
-        }
-      }
-      previousCommandHadCaptureAfter = false;
-      const response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
-        method: 'POST',
-        headers: {
-          authorization: `Bearer ${discovery.token}`,
-          'content-type': 'application/json',
-        },
-        body,
-        signal: AbortSignal.timeout(45_000),
-      });
-      const payload = (await response.json()) as {
-        ok?: boolean;
-        value?: CommandResult;
-        error?: string;
-      };
-      if (!payload.ok) {
-        if (actionMetrics) {
-          actionMetrics.failures += 1;
-          actionMetrics.durations_ms.push(Math.round(performance.now() - commandStartedAt));
-        }
-        throw new Error(payload.error || 'computer command failed');
-      }
-      const value = {
-        text: String(payload.value?.text || ''),
-        ...(payload.value?.image ? { image: payload.value.image } : {}),
-      };
-      if (activeMetrics) {
-        const responseTextBytes = Buffer.byteLength(value.text);
-        const imageBytes = value.image?.data ? Math.floor(value.image.data.length * 0.75) : 0;
-        activeMetrics.response_text_bytes += responseTextBytes;
-        activeMetrics.image_bytes += imageBytes;
-        if (actionMetrics) {
-          actionMetrics.durations_ms.push(Math.round(performance.now() - commandStartedAt));
-          actionMetrics.response_text_bytes += responseTextBytes;
-          actionMetrics.image_bytes += imageBytes;
-        }
-        try {
-          const parsed = JSON.parse(value.text) as Record<string, unknown>;
-          // A parked request answers at the bridge level, so the intervention is
-          // only visible in the body. Later assertions in the same scenario are
-          // measuring a desktop the user owns, not the behaviour under test.
-          // `user_input_during_capture` names the user, while an unavailable
-          // observer stays a real failure: the reason separates them.
-          if (
-            parsed.code === 'computer_user_intervention_pending' ||
-            // A capture reports this reason whenever the user touched their own
-            // mouse, but it only says foreground input is not ready. Work that
-            // never tried to send input stays measurable through it.
-            (parsed.foreground_input_reason === 'user_input_during_capture' && MUTATION_ACTIONS.has(actionName))
-          ) {
-            userInterventionSeen = true;
-          }
-          activeMetrics.max_returned_elements = Math.max(
-            activeMetrics.max_returned_elements,
-            Number(parsed.returned_elements) || 0,
-            Number((parsed.capture_after as Record<string, unknown> | undefined)?.returned_elements) || 0
-          );
-          if (MUTATION_ACTIONS.has(actionName) && parsed.delivery_accepted === true) {
-            activeMetrics.accepted_mutations += 1;
-          }
-          previousCommandHadCaptureAfter = Boolean(
-            MUTATION_ACTIONS.has(actionName) && (parsed.capture_after as Record<string, unknown> | undefined)?.ok
-          );
-          const addTimings = (prefix: string, value: unknown) => {
-            if (!value || typeof value !== 'object') return;
-            for (const [key, timing] of Object.entries(value as Record<string, unknown>)) {
-              const numeric = Number(timing);
-              if (!Number.isFinite(numeric)) continue;
-              const name = `${prefix}${key}`;
-              activeMetrics!.phase_ms[name] = Number(((activeMetrics!.phase_ms[name] || 0) + numeric).toFixed(2));
-            }
-          };
-          addTimings('', parsed.timings_ms);
-          addTimings('capture_after.', (parsed.capture_after as Record<string, unknown> | undefined)?.timings_ms);
-          for (const escalation of [
-            parsed.escalation,
-            (parsed.verdict as Record<string, unknown> | undefined)?.recommended,
-          ]) {
-            if (typeof escalation === 'string' && !activeMetrics.escalations.includes(escalation)) {
-              activeMetrics.escalations.push(escalation);
-            }
-          }
-        } catch {
-          // Plain-text discovery results intentionally have no structured metrics.
-        }
-      }
-      return value;
-    };
+    command = createScenarioCommand(session, () => discovery);
 
     const setupWindows = (await command({ action: 'list_windows' }, '__computer_scenario_setup__')).text;
-    const setupWindowId = (title: string) =>
-      setupWindows
-        .split(/\r?\n/)
-        .find((line) => line.includes(`"${title}"`))
-        ?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
-    fixtureWindowId = setupWindowId('Mixdog Scenario Renderer');
-    koreanWindowId = setupWindowId('Mixdog Korean OCR Fixture');
-    clutterWindowId = setupWindowId('Mixdog OCR Clutter Fixture');
-    blackWindowId = setupWindowId('Mixdog Black Frame Fixture');
-    whiteWindowId = setupWindowId('Mixdog White Frame Fixture');
-    denseWindowId = setupWindowId('Mixdog Dense Accessibility Fixture');
-    liveAppWindows.mixdog = setupWindows
-      .split(/\r?\n/)
-      .find((line) => /\|\s+app=Mixdog\b/i.test(line) && line.includes('"Mixdog"'))
-      ?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1];
-    liveAppWindows.chrome = setupWindows
-      .split(/\r?\n/)
-      .find((line) => /\|\s+app=(?:chrome|msedge)\b/i.test(line))
-      ?.match(/^(hwnd:0x[0-9a-f]+)/i)?.[1];
+    const setupIds = fixtureWindowIds(setupWindows);
+    fixtureWindowId = setupIds.fixture;
+    koreanWindowId = setupIds.korean;
+    clutterWindowId = setupIds.clutter;
+    blackWindowId = setupIds.black;
+    whiteWindowId = setupIds.white;
+    denseWindowId = setupIds.dense;
+    liveAppWindows.mixdog = setupIds.mixdog;
+    liveAppWindows.chrome = setupIds.chrome;
     assert.ok(
       fixtureWindowId &&
         koreanWindowId &&
@@ -841,7 +993,6 @@ async function run(): Promise<void> {
       assert.equal(payload.ok, (payload.elements?.length || 0) > 0);
     });
 
-    let primaryCapture: CapturePayload | null = null;
     let sendMark = 0;
     await runScenario('S06', 'opaque renderer uses bounded OCR fallback', 'ocr', async () => {
       const result = await command({
@@ -852,7 +1003,7 @@ async function run(): Promise<void> {
         max_elements: 40,
         max_ocr_words: 80,
       });
-      primaryCapture = capturePayload(result);
+      const primaryCapture = capturePayload(result);
       assert.equal(primaryCapture.ocr?.ok, true);
       assert.equal(primaryCapture.ocr?.skipped, undefined);
       assert.ok(Number(primaryCapture.returned_elements) <= 40);
@@ -1328,36 +1479,7 @@ async function run(): Promise<void> {
 
     await runScenario('S18', 'owned popup input preserves parent observation scope', 'window-transition', async () => {
       try {
-        const fixtureScriptPath = join(profile, 'native-dialog-fixture.ps1');
-        writeFileSync(
-          fixtureScriptPath,
-          `
-Add-Type -AssemblyName System.Windows.Forms
-$form = New-Object System.Windows.Forms.Form
-$form.Text = 'Mixdog Native Dialog Fixture'
-$form.Width = 640
-$form.Height = 420
-$form.KeyPreview = $true
-$form.Add_KeyDown({
-  if ($_.Control -and $_.KeyCode -eq [System.Windows.Forms.Keys]::O) {
-    $dialog = New-Object System.Windows.Forms.OpenFileDialog
-    $dialog.Title = 'Mixdog Native Open Dialog'
-    [void]$dialog.ShowDialog($form)
-    $_.Handled = $true
-  }
-})
-[System.Windows.Forms.Application]::Run($form)
-`,
-          'utf8'
-        );
-        nativeDialogChild = spawn(
-          'powershell.exe',
-          ['-NoLogo', '-NoProfile', '-Sta', '-ExecutionPolicy', 'Bypass', '-File', fixtureScriptPath],
-          {
-            stdio: 'ignore',
-            windowsHide: false,
-          }
-        );
+        nativeDialogChild = spawnNativeDialogFixture();
         const parentLine = (text: string) =>
           text.split(/\r?\n/).find((line) => line.includes('"Mixdog Native Dialog Fixture"')) || '';
         const listed = await eventually(
@@ -1555,7 +1677,7 @@ $form.Add_KeyDown({
           }
           throw new Error(`${(error as Error).message}; external fixture state=${state}`);
         });
-        externalWindowId = externalLine(listed).match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+        const externalWindowId = externalLine(listed).match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
         assert.ok(externalWindowId);
         const capture = capturePayload(
           await command(
@@ -3110,55 +3232,7 @@ $form.Add_KeyDown({
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.destroy();
     }
-    if (reportDirectory) mkdirSync(reportDirectory, { recursive: true });
-    const passed = results.filter((result) => result.status === 'pass').length;
-    const failed = results.filter((result) => result.status === 'fail').length;
-    const skipped = results.filter((result) => result.status === 'skip').length;
-    const totalDuration = results.reduce((sum, result) => sum + result.duration_ms, 0);
-    const totalCommands = results.reduce((sum, result) => sum + result.commands, 0);
-    const report = {
-      schema_version: 1,
-      label: reportLabel,
-      generated_at: new Date().toISOString(),
-      environment: {
-        platform: process.platform,
-        electron: process.versions.electron,
-        windows_displays: screen.getAllDisplays().length,
-        fixture_placement: displayPlacement,
-      },
-      summary: {
-        total: results.length,
-        passed,
-        failed,
-        skipped,
-        success_rate: results.length ? passed / results.length : 0,
-        duration_ms: totalDuration,
-        commands: totalCommands,
-        tool_calls: totalCommands - results.reduce((sum, result) => sum + result.cleanup_commands, 0),
-        cleanup_commands: results.reduce((sum, result) => sum + result.cleanup_commands, 0),
-        observations: results.reduce((sum, result) => sum + result.observations, 0),
-        mutations: results.reduce((sum, result) => sum + result.mutations, 0),
-        accepted_mutations: results.reduce((sum, result) => sum + result.accepted_mutations, 0),
-        post_action_recaptures: results.reduce((sum, result) => sum + result.post_action_recaptures, 0),
-        false_positives: results.filter((result) => result.false_positive).length,
-        retries: results.reduce((sum, result) => sum + result.retries, 0),
-        response_text_bytes: results.reduce((sum, result) => sum + result.response_text_bytes, 0),
-        image_bytes: results.reduce((sum, result) => sum + result.image_bytes, 0),
-        phase_ms: results.reduce<Record<string, number>>((totals, result) => {
-          for (const [name, timing] of Object.entries(result.phase_ms)) {
-            totals[name] = Number(((totals[name] || 0) + timing).toFixed(2));
-          }
-          return totals;
-        }, {}),
-      },
-      results,
-    };
-    if (reportPath) writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-    progress('scenario matrix complete');
-    console.log(
-      `Computer Use scenario matrix complete: ${passed}/${results.length} passed,` +
-        ` ${failed} failed, ${skipped} skipped.`
-    );
+    writeScenarioReport(displayPlacement);
   }
 }
 

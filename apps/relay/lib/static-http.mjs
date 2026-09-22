@@ -212,15 +212,14 @@ export function sendDeviceManifest(request, response, target, deviceId) {
   return true;
 }
 
-/** Resolve a request path inside `rootDir`.
- *  Returns { status: 403 } for an escape attempt, { status: 404 } for a missing
- *  file route, else
- *  { status: 200, target }. */
 function pathIsWithin(root, target) {
   const rel = relative(root, target);
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
+/** Resolve a request path inside `rootDir`.
+ *  Returns { status: 403 } for an escape attempt, { status: 404 } for a missing
+ *  file route, else { status: 200, target }. */
 export function resolveStaticTarget(rootDir, pathname) {
   // Precompressed siblings answer through content negotiation on the asset's
   // own URL; a direct request for one would hand back an encoded body with no
@@ -318,12 +317,12 @@ export function selectPrecompressed(target, acceptEncoding, fileExists = existsS
   return null;
 }
 
-/** Stream a resolved file with cache/compression/HEAD handling. */
 function cacheControlForTarget(target, hashedAsset) {
   if (NO_CACHE_SUFFIXES.some((suffix) => target.endsWith(suffix))) return 'no-cache';
   return hashedAsset ? 'public, max-age=31536000, immutable' : 'public, max-age=86400';
 }
 
+/** Stream a resolved file with cache/compression/HEAD handling. */
 export function sendStaticFile(request, response, target, extraHeaders = {}) {
   const type = MIME_TYPES[extname(target).toLowerCase()] || 'application/octet-stream';
   const size = statSync(target).size;

@@ -1,7 +1,7 @@
 // One Chromium surface per conversation session on a shared persistent
 // partition. Login survives and is shared; page, tab, and target state is not.
 // The pane owns only the chrome; agent control lives in main/browser/host.ts.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -73,6 +73,339 @@ export interface BrowserPaneProps {
   focusAddressOnActivate?: boolean;
   expanded?: boolean;
   onToggleExpanded?(): void;
+}
+
+/** Bridges one guest's page events onto the pane's state: navigation, load
+ *  progress, the tab list, and the failure surface. Returns its own teardown
+ *  so the caller effect stays a single wiring statement. */
+function watchBrowserPageEvents(
+  view: BrowserPageElement,
+  {
+    addressFocused,
+    agentViewports,
+    refreshCredentialSuggestions,
+    setAddress,
+    setAddressHasFocus,
+    setAgentViewport,
+    setCanGoBack,
+    setCanGoForward,
+    setCredentialMenuOpen,
+    setCredentialStatus,
+    setCurrentUrl,
+    setHistorySuggestions,
+    setLoading,
+    setPageFailure,
+    setTabs,
+  }: {
+    addressFocused: { current: boolean };
+    agentViewports: { current: Map<number, { width: number; height: number } | null> };
+    refreshCredentialSuggestions(): void;
+    setAddress(value: string): void;
+    setAddressHasFocus(value: boolean): void;
+    setAgentViewport(value: { width: number; height: number } | null): void;
+    setCanGoBack(value: boolean): void;
+    setCanGoForward(value: boolean): void;
+    setCredentialMenuOpen(value: boolean): void;
+    setCredentialStatus(value: 'idle' | 'success' | 'error'): void;
+    setCurrentUrl(value: string): void;
+    setHistorySuggestions(value: DesktopBrowserHistoryEntry[]): void;
+    setLoading(value: boolean): void;
+    setPageFailure: Dispatch<SetStateAction<BrowserPageFailure | null>>;
+    setTabs(value: DesktopBrowserTab[]): void;
+  }
+) {
+  const syncNavigationState = () => {
+    // canGoBack/canGoForward throw until the guest finishes attaching.
+    try {
+      setCanGoBack(view.canGoBack());
+      setCanGoForward(view.canGoForward());
+    } catch {
+      /* guest not ready yet */
+    }
+  };
+  const onNavigate = (event: Event) => {
+    const url = (event as WebviewNavigationEvent).url || '';
+    const inPage = event.type === 'did-navigate-in-page' && (event as WebviewNavigationEvent).isMainFrame === false;
+    if (inPage) {
+      syncNavigationState();
+      return;
+    }
+    const displayed = url === 'about:blank' ? '' : url;
+    setCurrentUrl(displayed);
+    setPageFailure(null);
+    setCredentialMenuOpen(false);
+    setCredentialStatus('idle');
+    if (!addressFocused.current) setAddress(displayed);
+    syncNavigationState();
+    refreshCredentialSuggestions();
+  };
+  const onStartLoading = () => {
+    setLoading(true);
+    setPageFailure(null);
+    setCredentialMenuOpen(false);
+  };
+  const onStopLoading = () => {
+    setLoading(false);
+    syncNavigationState();
+    refreshCredentialSuggestions();
+  };
+  const onFinishLoading = () => setPageFailure(null);
+  const onFailLoad = (event: Event) => {
+    const failure = event as WebviewLoadFailureEvent;
+    if (failure.isMainFrame === false || failure.errorCode === -3) return;
+    setLoading(false);
+    setPageFailure({
+      kind: 'load',
+      title: t('Failed to load page'),
+      detail:
+        `${failure.errorDescription || t('Network or site error')}` +
+        `${failure.errorCode ? ` (${failure.errorCode})` : ''}`,
+    });
+  };
+  const onRenderProcessGone = (event: Event) => {
+    const details = (event as WebviewRenderProcessGoneEvent).details;
+    setLoading(false);
+    const exitCode = details?.exitCode ? ` (${details.exitCode})` : '';
+    setPageFailure({
+      kind: 'renderer',
+      title: t('Browser crashed'),
+      detail: details?.reason ? `${details.reason}${exitCode}` : t('The page renderer process exited.'),
+    });
+  };
+  const onUnresponsive = () =>
+    setPageFailure({
+      kind: 'unresponsive',
+      title: t('Page unresponsive'),
+      detail: t('Wait or reload the page.'),
+    });
+  const onResponsive = () => setPageFailure((failure) => (failure?.kind === 'unresponsive' ? null : failure));
+  const syncTabs = () => setTabs(view.getTabs());
+  const onAttach = () => {
+    addressFocused.current = false;
+    setAddressHasFocus(false);
+    setAgentViewport(agentViewports.current.get(view.getWebContentsId()) ?? null);
+    setPageFailure(null);
+    setHistorySuggestions([]);
+  };
+  view.addEventListener('tabs-changed', syncTabs);
+  view.addEventListener('did-attach', onAttach);
+  syncTabs();
+  view.addEventListener('did-navigate', onNavigate);
+  view.addEventListener('did-navigate-in-page', onNavigate);
+  view.addEventListener('did-start-loading', onStartLoading);
+  view.addEventListener('did-stop-loading', onStopLoading);
+  view.addEventListener('did-finish-load', onFinishLoading);
+  view.addEventListener('did-fail-load', onFailLoad);
+  view.addEventListener('render-process-gone', onRenderProcessGone);
+  view.addEventListener('unresponsive', onUnresponsive);
+  view.addEventListener('responsive', onResponsive);
+  return () => {
+    view.removeEventListener('tabs-changed', syncTabs);
+    view.removeEventListener('did-attach', onAttach);
+    view.removeEventListener('did-navigate', onNavigate);
+    view.removeEventListener('did-navigate-in-page', onNavigate);
+    view.removeEventListener('did-start-loading', onStartLoading);
+    view.removeEventListener('did-stop-loading', onStopLoading);
+    view.removeEventListener('did-finish-load', onFinishLoading);
+    view.removeEventListener('did-fail-load', onFailLoad);
+    view.removeEventListener('render-process-gone', onRenderProcessGone);
+    view.removeEventListener('unresponsive', onUnresponsive);
+    view.removeEventListener('responsive', onResponsive);
+  };
+}
+
+/** Keeps the guest's zoom factor in step with the surface: the preset
+ *  baseline, the user's zoom, pane resizes and foreground returns. Returns
+ *  its own teardown. */
+function startBrowserZoomSync({
+  view,
+  desiredZoom,
+  fixedViewport,
+  viewportPreset,
+  zoomLevel,
+  configureViewportPreset,
+}: {
+  view: BrowserPageElement;
+  desiredZoom: { current: number };
+  fixedViewport: boolean;
+  viewportPreset: BrowserViewportPreset;
+  zoomLevel: number;
+  configureViewportPreset(preset: BrowserViewportPreset, reload: boolean): Promise<boolean>;
+}) {
+  let disposed = false;
+  let restoreFrame = 0;
+  const applyZoom = () => {
+    try {
+      view.setZoomFactor(desiredZoom.current);
+    } catch {
+      /* guest not attached yet; dom-ready reapplies */
+    }
+  };
+  const syncZoom = (force = false) => {
+    const zoom = fixedViewport ? zoomLevel : browserViewportZoom(viewportPreset, view.clientWidth, zoomLevel);
+    const changed = Math.abs(zoom - desiredZoom.current) >= 0.01;
+    if (changed) desiredZoom.current = zoom;
+    if (changed || force) applyZoom();
+  };
+  const configureGuest = async () => {
+    const configured = await configureViewportPreset(viewportPreset, false);
+    if (!disposed && configured) syncZoom(true);
+  };
+  const restoreVisibleGuest = () => {
+    window.cancelAnimationFrame(restoreFrame);
+    restoreFrame = window.requestAnimationFrame(() => syncZoom(true));
+  };
+  const observer = new ResizeObserver(() => syncZoom());
+  observer.observe(view);
+  const stopForegroundReturnReporting = watchBrowserForegroundReturns(window, document, restoreVisibleGuest);
+  const onGuestReady = () => void configureGuest();
+  view.addEventListener('did-attach', onGuestReady);
+  view.addEventListener('dom-ready', onGuestReady);
+  view.addEventListener('did-navigate', applyZoom);
+  void configureGuest();
+  return () => {
+    disposed = true;
+    window.cancelAnimationFrame(restoreFrame);
+    stopForegroundReturnReporting();
+    observer.disconnect();
+    view.removeEventListener('did-attach', onGuestReady);
+    view.removeEventListener('dom-ready', onGuestReady);
+    view.removeEventListener('did-navigate', applyZoom);
+  };
+}
+
+/** Address entry and its history completions: the one toolbar control whose
+ *  value follows the guest only while the field is unfocused. */
+function browserAddressField({
+  address,
+  addressRef,
+  addressFocused,
+  currentUrl,
+  historySuggestions,
+  navigate,
+  setAddress,
+  setAddressHasFocus,
+}: {
+  address: string;
+  addressRef: { current: HTMLInputElement | null };
+  addressFocused: { current: boolean };
+  currentUrl: string;
+  historySuggestions: DesktopBrowserHistoryEntry[];
+  navigate(rawInput: string): void;
+  setAddress(value: string): void;
+  setAddressHasFocus(value: boolean): void;
+}) {
+  return (
+    <form
+      className="browser-pane-address-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        navigate(address);
+      }}
+    >
+      <input
+        ref={addressRef}
+        className="browser-pane-address"
+        type="text"
+        value={address}
+        spellCheck={false}
+        placeholder={t('Search or enter address')}
+        aria-label={t('Address bar')}
+        onChange={(event) => {
+          setAddress(event.target.value);
+        }}
+        onFocus={(event) => {
+          addressFocused.current = true;
+          setAddressHasFocus(true);
+          event.target.select();
+        }}
+        onBlur={() => {
+          addressFocused.current = false;
+          setAddressHasFocus(false);
+          if (currentUrl) setAddress(currentUrl);
+        }}
+      />
+      {historySuggestions.length > 0 && (
+        <div className="browser-pane-history-suggestions">
+          {historySuggestions.map((entry) => (
+            <button
+              type="button"
+              key={entry.url}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                navigate(entry.url);
+                setAddressHasFocus(false);
+              }}
+            >
+              <span>{entry.title || entry.url}</span>
+              <code>{entry.url}</code>
+            </button>
+          ))}
+        </div>
+      )}
+    </form>
+  );
+}
+
+/** Stored-credential affordance: one suggestion fills straight away, several
+ *  open a menu, and the button itself reports the outcome of the last fill. */
+function browserCredentialControl({
+  credentialSuggestions,
+  credentialBusy,
+  credentialStatus,
+  credentialMenuOpen,
+  setCredentialMenuOpen,
+  fillStoredCredential,
+}: {
+  credentialSuggestions: DesktopBrowserCredentialSuggestion[];
+  credentialBusy: boolean;
+  credentialStatus: 'idle' | 'success' | 'error';
+  credentialMenuOpen: boolean;
+  setCredentialMenuOpen: Dispatch<SetStateAction<boolean>>;
+  fillStoredCredential(credentialId: string): void;
+}) {
+  let credentialLabel = t('Fill with stored credentials');
+  if (credentialStatus === 'success') credentialLabel = t('Filled stored credentials');
+  else if (credentialStatus === 'error') credentialLabel = t('Could not fill stored credentials');
+  let credentialGlyph = <KeyRound size={15} />;
+  if (credentialBusy) credentialGlyph = <LoaderCircle size={15} className="is-spinning" />;
+  else if (credentialStatus === 'success') credentialGlyph = <Check size={15} />;
+  else if (credentialStatus === 'error') credentialGlyph = <AlertTriangle size={15} />;
+  return (
+    <div className="browser-pane-credential-control">
+      <button
+        type="button"
+        className={`browser-pane-nav-button browser-pane-credential-button is-${credentialStatus}`}
+        disabled={credentialBusy}
+        onClick={() => {
+          if (credentialSuggestions.length === 1) {
+            fillStoredCredential(credentialSuggestions[0].id);
+          } else {
+            setCredentialMenuOpen((open) => !open);
+          }
+        }}
+        aria-label={credentialLabel}
+        data-tooltip={credentialLabel}
+      >
+        {credentialGlyph}
+      </button>
+      {credentialMenuOpen && (
+        <div className="browser-pane-credential-menu" role="menu">
+          {credentialSuggestions.map((credential) => (
+            <button
+              type="button"
+              key={credential.id}
+              role="menuitem"
+              onClick={() => fillStoredCredential(credential.id)}
+            >
+              <KeyRound size={15} />
+              <span>{credential.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DesktopBrowserPane({
@@ -257,104 +590,23 @@ function DesktopBrowserPane({
   useEffect(() => {
     const view = webviewRef.current;
     if (!view) return undefined;
-    const syncNavigationState = () => {
-      // canGoBack/canGoForward throw until the guest finishes attaching.
-      try {
-        setCanGoBack(view.canGoBack());
-        setCanGoForward(view.canGoForward());
-      } catch {
-        /* guest not ready yet */
-      }
-    };
-    const onNavigate = (event: Event) => {
-      const url = (event as WebviewNavigationEvent).url || '';
-      const inPage = event.type === 'did-navigate-in-page' && (event as WebviewNavigationEvent).isMainFrame === false;
-      if (inPage) {
-        syncNavigationState();
-        return;
-      }
-      const displayed = url === 'about:blank' ? '' : url;
-      setCurrentUrl(displayed);
-      setPageFailure(null);
-      setCredentialMenuOpen(false);
-      setCredentialStatus('idle');
-      if (!addressFocused.current) setAddress(displayed);
-      syncNavigationState();
-      refreshCredentialSuggestions();
-    };
-    const onStartLoading = () => {
-      setLoading(true);
-      setPageFailure(null);
-      setCredentialMenuOpen(false);
-    };
-    const onStopLoading = () => {
-      setLoading(false);
-      syncNavigationState();
-      refreshCredentialSuggestions();
-    };
-    const onFinishLoading = () => setPageFailure(null);
-    const onFailLoad = (event: Event) => {
-      const failure = event as WebviewLoadFailureEvent;
-      if (failure.isMainFrame === false || failure.errorCode === -3) return;
-      setLoading(false);
-      setPageFailure({
-        kind: 'load',
-        title: t('Failed to load page'),
-        detail:
-          `${failure.errorDescription || t('Network or site error')}` +
-          `${failure.errorCode ? ` (${failure.errorCode})` : ''}`,
-      });
-    };
-    const onRenderProcessGone = (event: Event) => {
-      const details = (event as WebviewRenderProcessGoneEvent).details;
-      setLoading(false);
-      const exitCode = details?.exitCode ? ` (${details.exitCode})` : '';
-      setPageFailure({
-        kind: 'renderer',
-        title: t('Browser crashed'),
-        detail: details?.reason ? `${details.reason}${exitCode}` : t('The page renderer process exited.'),
-      });
-    };
-    const onUnresponsive = () =>
-      setPageFailure({
-        kind: 'unresponsive',
-        title: t('Page unresponsive'),
-        detail: t('Wait or reload the page.'),
-      });
-    const onResponsive = () => setPageFailure((failure) => (failure?.kind === 'unresponsive' ? null : failure));
-    const syncTabs = () => setTabs(view.getTabs());
-    const onAttach = () => {
-      addressFocused.current = false;
-      setAddressHasFocus(false);
-      setAgentViewport(agentViewports.current.get(view.getWebContentsId()) ?? null);
-      setPageFailure(null);
-      setHistorySuggestions([]);
-    };
-    view.addEventListener('tabs-changed', syncTabs);
-    view.addEventListener('did-attach', onAttach);
-    syncTabs();
-    view.addEventListener('did-navigate', onNavigate);
-    view.addEventListener('did-navigate-in-page', onNavigate);
-    view.addEventListener('did-start-loading', onStartLoading);
-    view.addEventListener('did-stop-loading', onStopLoading);
-    view.addEventListener('did-finish-load', onFinishLoading);
-    view.addEventListener('did-fail-load', onFailLoad);
-    view.addEventListener('render-process-gone', onRenderProcessGone);
-    view.addEventListener('unresponsive', onUnresponsive);
-    view.addEventListener('responsive', onResponsive);
-    return () => {
-      view.removeEventListener('tabs-changed', syncTabs);
-      view.removeEventListener('did-attach', onAttach);
-      view.removeEventListener('did-navigate', onNavigate);
-      view.removeEventListener('did-navigate-in-page', onNavigate);
-      view.removeEventListener('did-start-loading', onStartLoading);
-      view.removeEventListener('did-stop-loading', onStopLoading);
-      view.removeEventListener('did-finish-load', onFinishLoading);
-      view.removeEventListener('did-fail-load', onFailLoad);
-      view.removeEventListener('render-process-gone', onRenderProcessGone);
-      view.removeEventListener('unresponsive', onUnresponsive);
-      view.removeEventListener('responsive', onResponsive);
-    };
+    return watchBrowserPageEvents(view, {
+      addressFocused,
+      agentViewports,
+      refreshCredentialSuggestions,
+      setAddress,
+      setAddressHasFocus,
+      setAgentViewport,
+      setCanGoBack,
+      setCanGoForward,
+      setCredentialMenuOpen,
+      setCredentialStatus,
+      setCurrentUrl,
+      setHistorySuggestions,
+      setLoading,
+      setPageFailure,
+      setTabs,
+    });
   }, [refreshCredentialSuggestions]);
 
   useEffect(() => {
@@ -417,47 +669,15 @@ function DesktopBrowserPane({
     if (!active) return undefined;
     const view = webviewRef.current;
     if (!view) return undefined;
-    let disposed = false;
-    let restoreFrame = 0;
-    const applyZoom = () => {
-      try {
-        view.setZoomFactor(desiredZoom.current);
-      } catch {
-        /* guest not attached yet; dom-ready reapplies */
-      }
-    };
-    const syncZoom = (force = false) => {
-      const zoom = fixedViewport ? zoomLevel : browserViewportZoom(viewportPreset, view.clientWidth, zoomLevel);
-      const changed = Math.abs(zoom - desiredZoom.current) >= 0.01;
-      if (changed) desiredZoom.current = zoom;
-      if (changed || force) applyZoom();
-    };
-    const configureGuest = async () => {
-      const configured = await configureViewportPreset(viewportPreset, false);
-      if (!disposed && configured) syncZoom(true);
-    };
-    const restoreVisibleGuest = () => {
-      window.cancelAnimationFrame(restoreFrame);
-      restoreFrame = window.requestAnimationFrame(() => syncZoom(true));
-    };
-    const observer = new ResizeObserver(() => syncZoom());
-    observer.observe(view);
-    const stopForegroundReturnReporting = watchBrowserForegroundReturns(window, document, restoreVisibleGuest);
-    const onGuestReady = () => void configureGuest();
-    view.addEventListener('did-attach', onGuestReady);
-    view.addEventListener('dom-ready', onGuestReady);
-    view.addEventListener('did-navigate', applyZoom);
-    void configureGuest();
-    return () => {
-      disposed = true;
-      window.cancelAnimationFrame(restoreFrame);
-      stopForegroundReturnReporting();
-      observer.disconnect();
-      view.removeEventListener('did-attach', onGuestReady);
-      view.removeEventListener('dom-ready', onGuestReady);
-      view.removeEventListener('did-navigate', applyZoom);
-    };
-  }, [active, configureViewportPreset, fixedViewport, ownerSessionId, viewportPreset, viewportPresetId, zoomLevel]);
+    return startBrowserZoomSync({
+      view,
+      desiredZoom,
+      fixedViewport,
+      viewportPreset,
+      zoomLevel,
+      configureViewportPreset,
+    });
+  }, [active, configureViewportPreset, fixedViewport, viewportPreset, zoomLevel]);
 
   // A fresh, blank browser tab is for typing an address first.
   useEffect(() => {
@@ -521,13 +741,6 @@ function DesktopBrowserPane({
     [credentialBusy, desktopApi, ownerSessionId]
   );
 
-  let credentialLabel = t('Fill with stored credentials');
-  if (credentialStatus === 'success') credentialLabel = t('Filled stored credentials');
-  else if (credentialStatus === 'error') credentialLabel = t('Could not fill stored credentials');
-  let credentialGlyph = <KeyRound size={15} />;
-  if (credentialBusy) credentialGlyph = <LoaderCircle size={15} className="is-spinning" />;
-  else if (credentialStatus === 'success') credentialGlyph = <Check size={15} />;
-  else if (credentialStatus === 'error') credentialGlyph = <AlertTriangle size={15} />;
   const frameTransform = frameScale < 1 ? `scale(${frameScale})` : undefined;
   const viewportFrameStyle = fixedViewport
     ? { width: `${frameWidth}px`, height: `${frameHeight}px`, transform: frameTransform }
@@ -589,54 +802,16 @@ function DesktopBrowserPane({
         >
           {loading ? <X size={15} /> : <RotateCw size={15} />}
         </button>
-        <form
-          className="browser-pane-address-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            navigate(address);
-          }}
-        >
-          <input
-            ref={addressRef}
-            className="browser-pane-address"
-            type="text"
-            value={address}
-            spellCheck={false}
-            placeholder={t('Search or enter address')}
-            aria-label={t('Address bar')}
-            onChange={(event) => {
-              setAddress(event.target.value);
-            }}
-            onFocus={(event) => {
-              addressFocused.current = true;
-              setAddressHasFocus(true);
-              event.target.select();
-            }}
-            onBlur={() => {
-              addressFocused.current = false;
-              setAddressHasFocus(false);
-              if (currentUrl) setAddress(currentUrl);
-            }}
-          />
-          {historySuggestions.length > 0 && (
-            <div className="browser-pane-history-suggestions">
-              {historySuggestions.map((entry) => (
-                <button
-                  type="button"
-                  key={entry.url}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    navigate(entry.url);
-                    setAddressHasFocus(false);
-                  }}
-                >
-                  <span>{entry.title || entry.url}</span>
-                  <code>{entry.url}</code>
-                </button>
-              ))}
-            </div>
-          )}
-        </form>
+        {browserAddressField({
+          address,
+          addressRef,
+          addressFocused,
+          currentUrl,
+          historySuggestions,
+          navigate,
+          setAddress,
+          setAddressHasFocus,
+        })}
         <div className="browser-pane-viewport-picker" data-tooltip={t(viewportPreset.label)}>
           <OpenSelect
             className="browser-pane-viewport-control"
@@ -658,41 +833,15 @@ function DesktopBrowserPane({
             }}
           />
         </div>
-        {credentialSuggestions.length > 0 && (
-          <div className="browser-pane-credential-control">
-            <button
-              type="button"
-              className={`browser-pane-nav-button browser-pane-credential-button is-${credentialStatus}`}
-              disabled={credentialBusy}
-              onClick={() => {
-                if (credentialSuggestions.length === 1) {
-                  fillStoredCredential(credentialSuggestions[0].id);
-                } else {
-                  setCredentialMenuOpen((open) => !open);
-                }
-              }}
-              aria-label={credentialLabel}
-              data-tooltip={credentialLabel}
-            >
-              {credentialGlyph}
-            </button>
-            {credentialMenuOpen && (
-              <div className="browser-pane-credential-menu" role="menu">
-                {credentialSuggestions.map((credential) => (
-                  <button
-                    type="button"
-                    key={credential.id}
-                    role="menuitem"
-                    onClick={() => fillStoredCredential(credential.id)}
-                  >
-                    <KeyRound size={15} />
-                    <span>{credential.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {credentialSuggestions.length > 0 &&
+          browserCredentialControl({
+            credentialSuggestions,
+            credentialBusy,
+            credentialStatus,
+            credentialMenuOpen,
+            setCredentialMenuOpen,
+            fillStoredCredential,
+          })}
         <button
           type="button"
           className="browser-pane-nav-button"

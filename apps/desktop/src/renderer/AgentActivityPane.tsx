@@ -354,6 +354,150 @@ function AgentActivityTree({
   );
 }
 
+/** Pool reconciliation cadence. A hidden surface (phone screen off, app in the
+ *  background, another tab) reconciles rows nobody can see while still paying
+ *  for the request every two seconds over a metered link. Pause there and
+ *  resume with ONE immediate refresh, so the first visible frame is current. */
+function useAgentPoolCadence(poolStore: ReturnType<typeof agentPoolStore>, active: boolean): void {
+  useEffect(() => {
+    startAgentPool(poolStore);
+    if (!active) return undefined;
+    let reconcileTimer = 0;
+    const stop = (): void => {
+      if (!reconcileTimer) return;
+      window.clearInterval(reconcileTimer);
+      reconcileTimer = 0;
+    };
+    const start = (): void => {
+      if (reconcileTimer) return;
+      void refreshAgentPool(poolStore);
+      reconcileTimer = window.setInterval(() => {
+        void refreshAgentPool(poolStore);
+      }, AGENT_POOL_RECONCILE_MS);
+    };
+    const syncCadence = (): void => {
+      if (document.visibilityState === 'visible') start();
+      else stop();
+    };
+    syncCadence();
+    document.addEventListener('visibilitychange', syncCadence);
+    return () => {
+      document.removeEventListener('visibilitychange', syncCadence);
+      stop();
+    };
+  }, [active, poolStore]);
+}
+
+/** Groups whose owner session still exists, newest first. Rebuilt each pass so
+ *  departed sessions drop out; surviving groups carry their stamp forward,
+ *  which is what keeps live rows from shuffling. */
+function agentActivitySessionGroups(
+  agents: Parameters<typeof agentActivityGroups>[0],
+  sessions: readonly DesktopSessionSummary[],
+  orderRef: { current: Map<string, number> }
+) {
+  const sessionById = new Map(sessions.map((session) => [session.id, session]));
+  const built = agentActivityGroups(agents, (ownerId) => sessionById.has(ownerId));
+  const order = new Map<string, number>();
+  for (const group of built) {
+    order.set(group.ownerId, stickyGroupOrder(orderRef.current, group.ownerId, group.agents));
+  }
+  orderRef.current = order;
+  return built
+    .flatMap((group) => {
+      const session = sessionById.get(group.ownerId);
+      return session ? [{ ...group, session }] : [];
+    })
+    .sort((left, right) => {
+      const leftTime = order.get(left.ownerId) || 0;
+      const rightTime = order.get(right.ownerId) || 0;
+      return rightTime - leftTime || left.ownerId.localeCompare(right.ownerId);
+    });
+}
+
+type AgentActivitySessionGroup = ReturnType<typeof agentActivitySessionGroups>[number];
+
+/** Every owner and descendant session the expand-all command reaches. */
+function expandedAgentActivityIds(
+  groups: readonly AgentActivitySessionGroup[],
+  hiddenOwnerIds: ReadonlySet<string>
+): Set<string> {
+  return new Set(
+    groups
+      .filter((group) => !hiddenOwnerIds.has(group.ownerId))
+      .flatMap((group) => [group.ownerId, ...flattenAgentActivityNodes(group.nodes).map((node) => node.sessionId)])
+  );
+}
+
+function renderAgentActivityGroup({
+  group,
+  clock,
+  expandedSessionIds,
+  unreadSessionIds,
+  setSessionExpanded,
+  hideGroup,
+  onPrefetchSession,
+  onOpenLeadSession,
+  onOpenSession,
+}: {
+  group: AgentActivitySessionGroup;
+  clock: number;
+  expandedSessionIds: ReadonlySet<string>;
+  unreadSessionIds?: ReadonlySet<string>;
+  setSessionExpanded(sessionId: string, expanded: boolean): void;
+  hideGroup(ownerId: string): void;
+  onPrefetchSession?(sessionId: string): void;
+  onOpenLeadSession?(sessionId: string): void;
+  onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
+}) {
+  const title = sessionSummaryTitle(group.session);
+  const expanded = expandedSessionIds.has(group.ownerId);
+  const setGroupCollapsed = (collapsed: boolean): void => setSessionExpanded(group.ownerId, !collapsed);
+  return (
+    <section key={group.ownerId} className="workflows-models" data-agent-owner-session-id={group.ownerId}>
+      <div className="workflows-section-head">
+        <button
+          type="button"
+          className="agent-session-heading"
+          aria-label={title}
+          aria-expanded={expanded}
+          data-lead-session-id={group.ownerId}
+          onClick={() => setGroupCollapsed(expanded)}
+        >
+          <h2>{title}</h2>
+          <span className="agent-session-chevron" aria-hidden="true">
+            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          </span>
+        </button>
+        <RowOverflowMenu
+          label={t('Actions for {{title}}', { title })}
+          items={[
+            {
+              id: 'hide-agent-group',
+              label: t('Hide this group'),
+              onSelect: () => hideGroup(group.ownerId),
+            },
+          ]}
+        />
+      </div>
+      <AgentActivityTree
+        group={group}
+        label={title}
+        groupExpanded={expanded}
+        expandedSessionIds={expandedSessionIds}
+        onSetExpanded={setSessionExpanded}
+        clock={clock}
+        unreadSessionIds={unreadSessionIds}
+        onExpandGroup={() => setGroupCollapsed(false)}
+        onCollapseGroup={() => setGroupCollapsed(true)}
+        onPrefetchSession={onPrefetchSession}
+        onOpenLeadSession={onOpenLeadSession}
+        onOpenSession={onOpenSession}
+      />
+    </section>
+  );
+}
+
 export function AgentActivityPane({
   active,
   showGroupActions = false,
@@ -390,73 +534,12 @@ export function AgentActivityPane({
     });
   const { hiddenOwnerIds, hideGroup } = useHiddenAgentGroups();
   const orderRef = useRef<Map<string, number>>(new Map());
-  useEffect(() => {
-    startAgentPool(poolStore);
-    if (!active) return undefined;
-    // A hidden surface (phone screen off, app in the background, another tab)
-    // reconciles rows nobody can see while still paying for the request every
-    // two seconds over a metered link. Pause there and resume with ONE
-    // immediate refresh, so the first visible frame is already current.
-    let reconcileTimer = 0;
-    const stop = (): void => {
-      if (!reconcileTimer) return;
-      window.clearInterval(reconcileTimer);
-      reconcileTimer = 0;
-    };
-    const start = (): void => {
-      if (reconcileTimer) return;
-      void refreshAgentPool(poolStore);
-      reconcileTimer = window.setInterval(() => {
-        void refreshAgentPool(poolStore);
-      }, AGENT_POOL_RECONCILE_MS);
-    };
-    const syncCadence = (): void => {
-      if (document.visibilityState === 'visible') start();
-      else stop();
-    };
-    syncCadence();
-    document.addEventListener('visibilitychange', syncCadence);
-    return () => {
-      document.removeEventListener('visibilitychange', syncCadence);
-      stop();
-    };
-  }, [active, poolStore]);
-  const groups = useMemo(() => {
-    const sessionById = new Map(sessions.map((session) => [session.id, session]));
-    const built = agentActivityGroups(agents, (ownerId) => sessionById.has(ownerId));
-    // Rebuilt each pass so departed sessions drop out; surviving groups carry
-    // their stamp forward, which is what keeps live rows from shuffling.
-    const order = new Map<string, number>();
-    for (const group of built) {
-      order.set(group.ownerId, stickyGroupOrder(orderRef.current, group.ownerId, group.agents));
-    }
-    orderRef.current = order;
-    return built
-      .flatMap((group) => {
-        const session = sessionById.get(group.ownerId);
-        return session ? [{ ...group, session }] : [];
-      })
-      .sort((left, right) => {
-        const leftTime = order.get(left.ownerId) || 0;
-        const rightTime = order.get(right.ownerId) || 0;
-        return rightTime - leftTime || left.ownerId.localeCompare(right.ownerId);
-      });
-  }, [agents, sessions]);
+  useAgentPoolCadence(poolStore, active);
+  const groups = useMemo(() => agentActivitySessionGroups(agents, sessions, orderRef), [agents, sessions]);
   useEffect(() => {
     const setAllExpanded = (event: Event): void => {
       const expanded = (event as CustomEvent<boolean>).detail;
-      setExpandedSessionIds(
-        expanded
-          ? new Set(
-              groups
-                .filter((group) => !hiddenOwnerIds.has(group.ownerId))
-                .flatMap((group) => [
-                  group.ownerId,
-                  ...flattenAgentActivityNodes(group.nodes).map((node) => node.sessionId),
-                ])
-            )
-          : new Set()
-      );
+      setExpandedSessionIds(expanded ? expandedAgentActivityIds(groups, hiddenOwnerIds) : new Set());
     };
     window.addEventListener(AGENT_GROUP_EXPANSION_EVENT, setAllExpanded);
     return () => window.removeEventListener(AGENT_GROUP_EXPANSION_EVENT, setAllExpanded);
@@ -494,54 +577,19 @@ export function AgentActivityPane({
           <span>{groups.length > 0 ? t('All agent groups are hidden.') : t('No agents are running.')}</span>
         </p>
       )}
-      {visibleGroups.map((group) => {
-        const title = sessionSummaryTitle(group.session);
-        const expanded = expandedSessionIds.has(group.ownerId);
-        const setGroupCollapsed = (collapsed: boolean): void => setSessionExpanded(group.ownerId, !collapsed);
-        return (
-          <section key={group.ownerId} className="workflows-models" data-agent-owner-session-id={group.ownerId}>
-            <div className="workflows-section-head">
-              <button
-                type="button"
-                className="agent-session-heading"
-                aria-label={title}
-                aria-expanded={expanded}
-                data-lead-session-id={group.ownerId}
-                onClick={() => setGroupCollapsed(expanded)}
-              >
-                <h2>{title}</h2>
-                <span className="agent-session-chevron" aria-hidden="true">
-                  {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                </span>
-              </button>
-              <RowOverflowMenu
-                label={t('Actions for {{title}}', { title })}
-                items={[
-                  {
-                    id: 'hide-agent-group',
-                    label: t('Hide this group'),
-                    onSelect: () => hideGroup(group.ownerId),
-                  },
-                ]}
-              />
-            </div>
-            <AgentActivityTree
-              group={group}
-              label={title}
-              groupExpanded={expanded}
-              expandedSessionIds={expandedSessionIds}
-              onSetExpanded={setSessionExpanded}
-              clock={clock}
-              unreadSessionIds={unreadSessionIds}
-              onExpandGroup={() => setGroupCollapsed(false)}
-              onCollapseGroup={() => setGroupCollapsed(true)}
-              onPrefetchSession={onPrefetchSession}
-              onOpenLeadSession={onOpenLeadSession}
-              onOpenSession={onOpenSession}
-            />
-          </section>
-        );
-      })}
+      {visibleGroups.map((group) =>
+        renderAgentActivityGroup({
+          group,
+          clock,
+          expandedSessionIds,
+          unreadSessionIds,
+          setSessionExpanded,
+          hideGroup,
+          onPrefetchSession,
+          onOpenLeadSession,
+          onOpenSession,
+        })
+      )}
     </div>
   );
 }

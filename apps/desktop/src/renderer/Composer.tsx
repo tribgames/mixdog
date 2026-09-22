@@ -7,9 +7,11 @@ import React, {
   useLayoutEffect,
   useRef,
   useState,
+  type Dispatch,
   type FormEvent,
   type MutableRefObject,
   type ReactNode,
+  type SetStateAction,
 } from 'react';
 import { createPortal } from 'react-dom';
 import type {
@@ -105,6 +107,121 @@ function pastedFiles(clipboard: DataTransfer): File[] {
     .map((item) => item.getAsFile())
     .filter((file): file is File => Boolean(file));
   return itemFiles.length ? itemFiles : Array.from(clipboard.files);
+}
+
+type ComposerAttachmentsApi = ReturnType<typeof useComposerAttachments>;
+
+/** Clipboard intake: pasted files attach, and a long text paste folds into a
+ *  single chip instead of flooding the draft. */
+function handleComposerPaste(
+  event: React.ClipboardEvent<HTMLTextAreaElement>,
+  {
+    attachFiles,
+    attachmentSequence,
+    insertAttachment,
+  }: {
+    attachFiles: ComposerAttachmentsApi['attachFiles'];
+    attachmentSequence: ComposerAttachmentsApi['attachmentSequence'];
+    insertAttachment: ComposerAttachmentsApi['insertAttachment'];
+  }
+) {
+  const files = pastedFiles(event.clipboardData);
+  if (files.length) {
+    event.preventDefault();
+    void attachFiles(files);
+    return;
+  }
+  const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
+  if (!shouldFoldPastedText(text)) return;
+  const id = attachmentSequence.current++;
+  const lines = pastedTextLineCount(text);
+  const inserted = insertAttachment({
+    id,
+    name: `Pasted text · ${lines} lines`,
+    kind: 'text',
+    mimeType: 'text/plain',
+    data: text,
+    token: `[Pasted text #${id} +${lines} lines]`,
+    source: 'paste',
+    chipOnly: true,
+  });
+  if (inserted) event.preventDefault();
+}
+
+/** Identity-scope transition: park the text of the pane being left, then open
+ *  the incoming one clean, restored, or with the in-flight text carried over.
+ *  Every transient surface (palettes, selector, notice, drag) resets with it. */
+function switchComposerIdentity({
+  identityScope,
+  previousScope,
+  textarea,
+  draftRef,
+  composingRef,
+  suppressImeLineBreakRef,
+  historyNavigation,
+  resetAttachments,
+  palettes,
+  selector,
+  setDraft,
+  clearNotice,
+  setComposerFocused,
+  setDraggingFiles,
+}: {
+  identityScope: string;
+  previousScope: string;
+  textarea: { current: HTMLTextAreaElement | null };
+  draftRef: { current: string };
+  composingRef: { current: boolean };
+  suppressImeLineBreakRef: { current: boolean };
+  historyNavigation: { current: { index: number; seed: string } };
+  resetAttachments(): void;
+  palettes: { reset(): void; invalidateSearch(): void };
+  selector: { reset(): void };
+  setDraft: Dispatch<SetStateAction<string>>;
+  clearNotice(): void;
+  setComposerFocused(focused: boolean): void;
+  setDraggingFiles(dragging: boolean): void;
+}) {
+  // Park the text the user typed in the tab being left, so returning to
+  // that tab hands it back instead of opening empty.
+  const leavingElement = textarea.current;
+  stashComposerDraft(
+    previousScope,
+    document.activeElement === leavingElement && leavingElement ? leavingElement.value : draftRef.current
+  );
+  resetAttachments();
+  composingRef.current = false;
+  suppressImeLineBreakRef.current = false;
+  palettes.invalidateSearch();
+  // Scope settles ASYNC after a session switch/promotion; when the user is
+  // ALREADY typing in the composer, the in-flight text carries over instead
+  // of being wiped (user bug: draft vanished + scroll jumped mid-sentence).
+  const typingElement = textarea.current;
+  const typingLive = document.activeElement === typingElement;
+  // A fresh New Task pane is the exception: it ALWAYS opens clean (user:
+  // 새작업 pulled the previous pane's text and attachments along).
+  const freshDraft = composerScopeOpensFreshDraft(identityScope);
+  setDraft((current) => {
+    // A remote snapshot can change scope in the same turn as a native input
+    // event. The DOM already owns the newest character while React state may
+    // still be one commit behind, so preserve the focused DOM value instead
+    // of briefly writing the stale controlled value back into the textarea.
+    const next = composerDraftAfterScopeChange({
+      currentDraft: current,
+      liveDomDraft: typingElement?.value ?? current,
+      freshDraft,
+      typingLive,
+      stashedDraft: stashedComposerDraft(identityScope),
+    });
+    draftRef.current = next;
+    return next;
+  });
+  clearNotice();
+  setComposerFocused(false);
+  palettes.reset();
+  setDraggingFiles(false);
+  selector.reset();
+  historyNavigation.current = { index: -1, seed: '' };
 }
 
 type ComposerProps = {
@@ -364,46 +481,22 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     if (activeIdentityScope.current === identityScope) return;
     const previousScope = activeIdentityScope.current;
     activeIdentityScope.current = identityScope;
-    // Park the text the user typed in the tab being left, so returning to
-    // that tab hands it back instead of opening empty.
-    const leavingElement = textarea.current;
-    stashComposerDraft(
+    switchComposerIdentity({
+      identityScope,
       previousScope,
-      document.activeElement === leavingElement && leavingElement ? leavingElement.value : draftRef.current
-    );
-    resetAttachments();
-    composingRef.current = false;
-    suppressImeLineBreakRef.current = false;
-    palettes.invalidateSearch();
-    // Scope settles ASYNC after a session switch/promotion; when the user is
-    // ALREADY typing in the composer, the in-flight text carries over instead
-    // of being wiped (user bug: draft vanished + scroll jumped mid-sentence).
-    const typingElement = textarea.current;
-    const typingLive = document.activeElement === typingElement;
-    // A fresh New Task pane is the exception: it ALWAYS opens clean (user:
-    // 새작업 pulled the previous pane's text and attachments along).
-    const freshDraft = composerScopeOpensFreshDraft(identityScope);
-    setDraft((current) => {
-      // A remote snapshot can change scope in the same turn as a native input
-      // event. The DOM already owns the newest character while React state may
-      // still be one commit behind, so preserve the focused DOM value instead
-      // of briefly writing the stale controlled value back into the textarea.
-      const next = composerDraftAfterScopeChange({
-        currentDraft: current,
-        liveDomDraft: typingElement?.value ?? current,
-        freshDraft,
-        typingLive,
-        stashedDraft: stashedComposerDraft(identityScope),
-      });
-      draftRef.current = next;
-      return next;
+      textarea,
+      draftRef,
+      composingRef,
+      suppressImeLineBreakRef,
+      historyNavigation: history.navigation,
+      resetAttachments,
+      palettes,
+      selector,
+      setDraft,
+      clearNotice,
+      setComposerFocused,
+      setDraggingFiles,
     });
-    clearNotice();
-    setComposerFocused(false);
-    palettes.reset();
-    setDraggingFiles(false);
-    selector.reset();
-    history.navigation.current = { index: -1, seed: '' };
   }, [identityScope, resetAttachments, clearNotice, palettes.reset, palettes.invalidateSearch, selector.reset]);
   const placeholder = composerPlaceholder({
     hasConversation,
@@ -597,27 +690,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onKeyDown(event);
   };
   const onTextareaPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = pastedFiles(event.clipboardData);
-    if (files.length) {
-      event.preventDefault();
-      void attachFiles(files);
-      return;
-    }
-    const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
-    if (!shouldFoldPastedText(text)) return;
-    const id = attachmentSequence.current++;
-    const lines = pastedTextLineCount(text);
-    const inserted = insertAttachment({
-      id,
-      name: `Pasted text · ${lines} lines`,
-      kind: 'text',
-      mimeType: 'text/plain',
-      data: text,
-      token: `[Pasted text #${id} +${lines} lines]`,
-      source: 'paste',
-      chipOnly: true,
-    });
-    if (inserted) event.preventDefault();
+    handleComposerPaste(event, { attachFiles, attachmentSequence, insertAttachment });
   };
   const focusTextareaFromForm = (event: React.MouseEvent<HTMLFormElement>) => {
     if (touchPrimaryPointer()) return;

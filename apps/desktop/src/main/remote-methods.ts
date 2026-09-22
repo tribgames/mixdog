@@ -126,65 +126,369 @@ export interface RemoteMethodDependencies {
 }
 
 type RemoteMethod = (params: unknown[]) => unknown;
+type InvokeDesktopOperation = (name: string, args: unknown[]) => Promise<unknown>;
 
-export function createRemoteMethods({
-  host,
-  userDataPath,
-  settingsStore,
-  onDesktopSettingsChanged,
-  terminals,
-  push,
-  browserRemote,
-}: RemoteMethodDependencies): Record<string, RemoteMethod> {
-  const invokeDesktopOperation = (name: string, args: unknown[]): Promise<unknown> =>
-    host.invokeDesktopOperation(name, args);
-  const operation =
-    (name: string) =>
-    (...args: unknown[]) =>
-      invokeDesktopOperation(name, args);
-  const requiredPush = (): NonNullable<RemoteMethodDependencies['push']> => {
-    if (!push) throw new TypeError('Push notifications are unavailable on this connection.');
-    return push;
-  };
-  const requiredBrowserRemote = (): NonNullable<RemoteMethodDependencies['browserRemote']> => {
-    if (!browserRemote) throw new TypeError('Remote Browser Use is unavailable.');
-    return browserRemote;
-  };
-  // Selected-file permissions for paths OUTSIDE any registered project. The
-  // desktop persists them under userData; a paired browser holds them for the
-  // life of this bridge, so a daemon restart simply asks the surface to
-  // resolve the path again.
-  const fileGrants = new Map<string, string>();
-  const rememberFileGrant = (absolutePath: string): string => {
-    const token = randomUUID();
-    fileGrants.set(selectedFileGrantKey(token), absolutePath);
-    while (fileGrants.size > MAX_SELECTED_FILE_GRANTS) {
-      const oldest = fileGrants.keys().next().value;
-      if (!oldest) break;
-      fileGrants.delete(oldest);
-    }
-    return token;
-  };
-  const grantedFile = (
+/** Permissions this bridge issued for paths outside every registered project. */
+interface SelectedFileGrants {
+  rememberFileGrant(absolutePath: string): string;
+  grantedFile(
     accessToken: unknown,
     projectPath: unknown,
     relPath: unknown
-  ): { root: string; rel: string; absolute: string } => {
-    const token = requiredString(accessToken, 'file access token', 128);
-    const granted = fileGrants.get(selectedFileGrantKey(token));
-    if (!granted) throw new Error('The selected-file permission is unavailable.');
-    const requested = resolvePath(requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath'));
-    const same =
-      process.platform === 'win32'
-        ? requested.toLocaleLowerCase() === granted.toLocaleLowerCase()
-        : requested === granted;
-    if (!same) throw new Error('The selected-file permission does not match this path.');
-    return { root: pathDirname(granted), rel: pathBasename(granted), absolute: granted };
+  ): { root: string; rel: string; absolute: string };
+  grantedIf(accessToken: unknown): boolean;
+}
+
+/** Selected-file permissions for paths OUTSIDE any registered project. The
+ *  desktop persists them under userData; a paired browser holds them for the
+ *  life of this bridge, so a daemon restart simply asks the surface to
+ *  resolve the path again. A token names one exact path and nothing else. */
+function createSelectedFileGrants(): SelectedFileGrants {
+  const fileGrants = new Map<string, string>();
+  return {
+    rememberFileGrant: (absolutePath: string): string => {
+      const token = randomUUID();
+      fileGrants.set(selectedFileGrantKey(token), absolutePath);
+      while (fileGrants.size > MAX_SELECTED_FILE_GRANTS) {
+        const oldest = fileGrants.keys().next().value;
+        if (!oldest) break;
+        fileGrants.delete(oldest);
+      }
+      return token;
+    },
+    grantedFile: (accessToken: unknown, projectPath: unknown, relPath: unknown) => {
+      const token = requiredString(accessToken, 'file access token', 128);
+      const granted = fileGrants.get(selectedFileGrantKey(token));
+      if (!granted) throw new Error('The selected-file permission is unavailable.');
+      const requested = resolvePath(requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath'));
+      const same =
+        process.platform === 'win32'
+          ? requested.toLocaleLowerCase() === granted.toLocaleLowerCase()
+          : requested === granted;
+      if (!same) throw new Error('The selected-file permission does not match this path.');
+      return { root: pathDirname(granted), rel: pathBasename(granted), absolute: granted };
+    },
+    grantedIf: (accessToken: unknown): boolean => typeof accessToken === 'string' && accessToken.length > 0,
   };
-  const grantedIf = (accessToken: unknown): boolean => typeof accessToken === 'string' && accessToken.length > 0;
+}
+
+// Remote access is a transport client, not another service. Keep its
+// existing validation grammar while every Git mutation executes in the same
+// daemon operation service as Electron IPC.
+const GIT_OPERATION_NAMES = [
+  'gitAbortOperation',
+  'gitAmend',
+  'gitApplyPatch',
+  'gitBranches',
+  'gitCheckoutBranch',
+  'gitCheckoutCommit',
+  'gitCherryPickCommit',
+  'gitCommit',
+  'gitCommitPaths',
+  'gitContinue',
+  'gitCreateBranch',
+  'gitCreateBranchAtCommit',
+  'gitCreateTag',
+  'gitDeleteBranch',
+  'gitDeleteTag',
+  'gitDiff',
+  'gitFetch',
+  'gitIgnore',
+  'gitLog',
+  'gitMergeBranch',
+  'gitPull',
+  'gitPush',
+  'gitRenameBranch',
+  'gitResetToCommit',
+  'gitRevertCommit',
+  'gitRevertFile',
+  'gitReview',
+  'gitReviewDiff',
+  'gitShow',
+  'gitShowDiff',
+  'gitStage',
+  'gitStash',
+  'gitStashPop',
+  'gitStatus',
+  'gitSync',
+  'gitUndoLastCommit',
+  'gitUnstage',
+] as const;
+
+type GitOperations = Record<(typeof GIT_OPERATION_NAMES)[number], (...args: unknown[]) => Promise<unknown>>;
+
+function gitDesktopOperations(invokeDesktopOperation: InvokeDesktopOperation): GitOperations {
+  return Object.fromEntries(
+    GIT_OPERATION_NAMES.map((name) => [name, (...args: unknown[]) => invokeDesktopOperation(name, args)])
+  ) as GitOperations;
+}
+
+/** The working tree and the index: what is changed, staged, committed, or
+ *  shelved in this checkout. */
+function gitWorkingTreeRemoteMethods(
+  git: GitOperations,
+  invokeDesktopOperation: InvokeDesktopOperation
+): Record<string, RemoteMethod> {
+  return {
+    gitStatus: ([cwd, options]) => {
+      const record =
+        options && typeof options === 'object'
+          ? (options as { reuseLineStats?: unknown; skipLineStats?: unknown })
+          : {};
+      return git.gitStatus(requiredRepositoryCwd(cwd), {
+        reuseLineStats: record.reuseLineStats === true,
+        skipLineStats: record.skipLineStats === true,
+      });
+    },
+    gitDiff: ([cwd, path, staged, worktreeOnly, untracked]) =>
+      git.gitDiff(
+        requiredRepositoryCwd(cwd),
+        requiredGitPath(path),
+        staged === true,
+        worktreeOnly === true,
+        untracked === true
+      ),
+    gitApplyPatch: ([cwd, path, patch, reverse]) => {
+      if (reverse !== undefined && typeof reverse !== 'boolean') {
+        throw new TypeError('git patch direction is invalid.');
+      }
+      return git.gitApplyPatch(
+        requiredRepositoryCwd(cwd),
+        requiredGitPath(path),
+        requiredGitPatch(patch),
+        reverse === true
+      );
+    },
+    gitStage: ([cwd, paths]) => git.gitStage(requiredRepositoryCwd(cwd), requiredGitPaths(paths)),
+    gitUnstage: ([cwd, paths]) => git.gitUnstage(requiredRepositoryCwd(cwd), requiredGitPaths(paths)),
+    gitIgnore: ([cwd, path, scope]) =>
+      git.gitIgnore(requiredRepositoryCwd(cwd), requiredGitPath(path), requiredGitIgnoreScope(scope)),
+    gitCommit: ([cwd, message]) =>
+      git.gitCommit(requiredRepositoryCwd(cwd), requiredString(message, 'commit message', 20_000)),
+    gitCommitPaths: ([cwd, message, paths]) =>
+      git.gitCommitPaths(
+        requiredRepositoryCwd(cwd),
+        requiredString(message, 'commit message', 20_000),
+        requiredGitPaths(paths)
+      ),
+    gitAmend: ([cwd, message]) => git.gitAmend(requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)),
+    gitUndoLastCommit: ([cwd]) => git.gitUndoLastCommit(requiredRepositoryCwd(cwd)),
+    gitRevert: ([cwd, path, untracked, mode]) =>
+      git.gitRevertFile(
+        requiredRepositoryCwd(cwd),
+        requiredGitPath(path),
+        untracked === true,
+        requiredGitDiscardMode(mode)
+      ),
+    gitReview: ([cwd]) => git.gitReview(requiredRepositoryCwd(cwd)),
+    gitReviewDiff: ([cwd, path, untracked]) =>
+      git.gitReviewDiff(requiredRepositoryCwd(cwd), requiredGitPath(path), untracked === true),
+    gitStash: ([cwd, message]) => git.gitStash(requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)),
+    gitStashPop: ([cwd]) => git.gitStashPop(requiredRepositoryCwd(cwd)),
+    gitStashList: ([cwd]) => invokeDesktopOperation('gitStashList', [requiredRepositoryCwd(cwd)]),
+    gitStashApply: ([cwd, ref]) =>
+      invokeDesktopOperation('gitStashApply', [requiredRepositoryCwd(cwd), requiredString(ref, 'stash ref', 64)]),
+    gitStashDrop: ([cwd, ref]) =>
+      invokeDesktopOperation('gitStashDrop', [requiredRepositoryCwd(cwd), requiredString(ref, 'stash ref', 64)]),
+  };
+}
+
+/** Named refs and the remote: branches, tags, and the sync operations that
+ *  can leave a merge or rebase in progress. */
+function gitBranchRemoteMethods(git: GitOperations): Record<string, RemoteMethod> {
+  return {
+    gitBranches: ([cwd]) => git.gitBranches(requiredRepositoryCwd(cwd)),
+    gitCheckoutBranch: ([cwd, branch, remote]) =>
+      git.gitCheckoutBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), remote === true),
+    gitCreateBranch: ([cwd, branch]) => git.gitCreateBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
+    gitRenameBranch: ([cwd, branch, nextBranch]) =>
+      git.gitRenameBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), requiredGitBranchName(nextBranch)),
+    gitDeleteBranch: ([cwd, branch]) => git.gitDeleteBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
+    gitMergeBranch: ([cwd, branch]) => git.gitMergeBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
+    gitCreateTag: ([cwd, tag, hash]) =>
+      git.gitCreateTag(requiredRepositoryCwd(cwd), requiredString(tag, 'git tag', 512), requiredCommitHash(hash)),
+    gitDeleteTag: ([cwd, tag]) => git.gitDeleteTag(requiredRepositoryCwd(cwd), requiredString(tag, 'git tag', 512)),
+    gitPush: ([cwd]) => git.gitPush(requiredRepositoryCwd(cwd)),
+    gitFetch: ([cwd]) => git.gitFetch(requiredRepositoryCwd(cwd)),
+    gitPull: ([cwd]) => git.gitPull(requiredRepositoryCwd(cwd)),
+    gitSync: ([cwd]) => git.gitSync(requiredRepositoryCwd(cwd)),
+    gitContinue: ([cwd]) => git.gitContinue(requiredRepositoryCwd(cwd)),
+    gitAbortOperation: ([cwd]) => git.gitAbortOperation(requiredRepositoryCwd(cwd)),
+  };
+}
+
+/** Commit-addressed reads and moves, plus the global identity Settings edits. */
+function gitHistoryRemoteMethods(
+  git: GitOperations,
+  invokeDesktopOperation: InvokeDesktopOperation
+): Record<string, RemoteMethod> {
+  return {
+    gitLog: ([cwd, query, skip, limit]) =>
+      git.gitLog(
+        requiredRepositoryCwd(cwd),
+        requiredGitLogQuery(query),
+        requiredGitLogOffset(skip),
+        requiredGitLogLimit(limit)
+      ),
+    gitShow: ([cwd, hash]) => git.gitShow(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
+    gitShowDiff: ([cwd, hash, path]) =>
+      git.gitShowDiff(requiredRepositoryCwd(cwd), requiredCommitHash(hash), requiredGitPath(path)),
+    gitShowFile: ([cwd, rev, path]) =>
+      invokeDesktopOperation('gitShowFile', [
+        requiredRepositoryCwd(cwd),
+        requiredGitRevision(rev),
+        requiredGitPath(path),
+      ]),
+    gitResetToCommit: ([cwd, hash, mode, confirmedDirty]) =>
+      git.gitResetToCommit(
+        requiredRepositoryCwd(cwd),
+        requiredCommitHash(hash),
+        requiredGitResetMode(mode),
+        confirmedDirty === true
+      ),
+    gitRevertCommit: ([cwd, hash]) => git.gitRevertCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
+    gitCherryPickCommit: ([cwd, hash]) => git.gitCherryPickCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
+    gitCheckoutCommit: ([cwd, hash]) => git.gitCheckoutCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
+    gitCreateBranchAtCommit: ([cwd, branch, hash]) =>
+      git.gitCreateBranchAtCommit(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), requiredCommitHash(hash)),
+    gitGlobalConfig: () => invokeDesktopOperation('gitGlobalConfig', []),
+    setGitGlobalConfig: ([key, value]) => {
+      // Empty is a real value here: it UNSETS the key.
+      if (typeof value !== 'string' || value.length > 500) {
+        throw new TypeError('value must be a string of at most 500 characters.');
+      }
+      return invokeDesktopOperation('setGitGlobalConfig', [requiredGitGlobalConfigKey(key), value]);
+    },
+  };
+}
+
+function gitRemoteMethods(invokeDesktopOperation: InvokeDesktopOperation): Record<string, RemoteMethod> {
+  const git = gitDesktopOperations(invokeDesktopOperation);
+  return {
+    ...gitWorkingTreeRemoteMethods(git, invokeDesktopOperation),
+    ...gitBranchRemoteMethods(git),
+    ...gitHistoryRemoteMethods(git, invokeDesktopOperation),
+  };
+}
+
+// Settings → Git/About: gh runs in the daemon, and its login is a DEVICE
+// flow (code + github.com/login/device), so a phone completes it in its
+// own browser exactly like the desktop does.
+function developerToolingRemoteMethods(invokeDesktopOperation: InvokeDesktopOperation): Record<string, RemoteMethod> {
+  return {
+    githubStarStatus: () => invokeDesktopOperation('githubStarStatus', []),
+    starGithub: () => invokeDesktopOperation('starGithub', []),
+    gitCliStatus: () => invokeDesktopOperation('gitCliStatus', []),
+    installGitCli: () => invokeDesktopOperation('installGitCli', []),
+    libreOfficeStatus: () => invokeDesktopOperation('libreOfficeStatus', []),
+    installLibreOffice: () => invokeDesktopOperation('installLibreOffice', []),
+    githubCliStatus: () => invokeDesktopOperation('githubCliStatus', []),
+    githubRequest: ([cwd, input]) =>
+      invokeDesktopOperation('githubRequest', [requiredRepositoryCwd(cwd), validateGithubRequest(input)]),
+    installGithubCli: () => invokeDesktopOperation('installGithubCli', []),
+    githubCliLoginStart: () => invokeDesktopOperation('githubCliLoginStart', []),
+    githubCliLoginStatus: ([flowId]) =>
+      invokeDesktopOperation('githubCliLoginStatus', [requiredString(flowId, 'flowId', 200)]),
+    githubCliLoginCancel: ([flowId]) =>
+      invokeDesktopOperation('cancelGithubCliLogin', [requiredString(flowId, 'flowId', 200)]),
+    githubCliLogout: () => invokeDesktopOperation('githubCliLogout', []),
+    githubCliAccount: () => invokeDesktopOperation('githubCliAccount', []),
+  };
+}
+
+/** Absolute paths as the file surface describes them: owned by the deepest
+ *  registered project that contains them, otherwise named by a one-off grant
+ *  this bridge can resolve on the calls that follow. */
+async function resolveLocalPathEntries(
+  paths: unknown,
+  deps: { host: DesktopService; invokeDesktopOperation: InvokeDesktopOperation; grants: SelectedFileGrants }
+): Promise<DesktopLocalPathEntry[]> {
+  if (!Array.isArray(paths) || paths.length === 0 || paths.length > 100) {
+    throw new TypeError('paths are invalid.');
+  }
+  const projects = await deps.host.listProjects().catch(() => []);
+  const rows: DesktopLocalPathEntry[] = [];
+  for (const raw of paths) {
+    const entry = (await deps.invokeDesktopOperation('statLocalEntryAbs', [absoluteLocalPath(raw)])) as {
+      absolutePath: string;
+      name: string;
+      dir: boolean;
+      size: number;
+    };
+    const row: DesktopLocalPathEntry = {
+      absolutePath: entry.absolutePath,
+      name: entry.name,
+      dir: entry.dir,
+      size: entry.size,
+    };
+    if (!row.dir) {
+      const normalizedFile = process.platform === 'win32' ? entry.absolutePath.toLocaleLowerCase() : entry.absolutePath;
+      const owner = projects
+        .map((project) => ({ project, root: resolvePath(project.path) }))
+        .filter(({ root }) => {
+          const normalizedRoot = process.platform === 'win32' ? root.toLocaleLowerCase() : root;
+          return normalizedFile.startsWith(normalizedRoot + pathSep) || normalizedFile === normalizedRoot;
+        })
+        .sort((left, right) => right.root.length - left.root.length)[0];
+      if (owner) {
+        row.projectPath = owner.project.path;
+        row.relPath = pathRelative(owner.root, entry.absolutePath).replace(/\\/g, '/');
+      } else {
+        row.projectPath = pathDirname(entry.absolutePath);
+        row.relPath = pathBasename(entry.absolutePath);
+        row.accessToken = deps.grants.rememberFileGrant(entry.absolutePath);
+      }
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+/** Entries inside a project, addressed the way the explorer addresses them. */
+function projectEntryRemoteMethods(host: DesktopService): Record<string, RemoteMethod> {
+  return {
+    createProjectEntry: ([projectPath, relDir, name, dir]) =>
+      host.createProjectEntry(
+        requiredString(projectPath, 'projectPath'),
+        typeof relDir === 'string' ? relDir : '',
+        requiredString(name, 'name'),
+        dir === true
+      ),
+    renameProjectEntry: ([projectPath, relPath, newName]) =>
+      host.renameProjectEntry(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath'),
+        requiredString(newName, 'newName')
+      ),
+    moveProjectEntry: ([projectPath, relPath, targetDirRel]) =>
+      host.moveProjectEntry(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath'),
+        typeof targetDirRel === 'string' ? targetDirRel : ''
+      ),
+    copyProjectEntry: ([projectPath, relPath, targetDirRel]) =>
+      host.copyProjectEntry(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath'),
+        typeof targetDirRel === 'string' ? targetDirRel : ''
+      ),
+  };
+}
+
+/** The editor's own lanes: writes, scoped settings, crash backups,
+ *  instructions, workspace search and the language servers. Everything here
+ *  resolves a project-relative path first — through a selected-file grant when
+ *  the surface holds one, otherwise through the project directory. */
+function editorRemoteMethods(deps: {
+  host: DesktopService;
+  userDataPath: string | undefined;
+  invokeDesktopOperation: InvokeDesktopOperation;
+  grants: SelectedFileGrants;
+}): Record<string, RemoteMethod> {
+  const { host, userDataPath, invokeDesktopOperation, grants } = deps;
   /** Absolute file for the editor-backup lane (granted path or project file). */
   const editorFilePath = async (projectPath: unknown, relPath: unknown, accessToken: unknown): Promise<string> => {
-    if (grantedIf(accessToken)) return grantedFile(accessToken, projectPath, relPath).absolute;
+    if (grants.grantedIf(accessToken)) return grants.grantedFile(accessToken, projectPath, relPath).absolute;
     const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
     return resolvePath(root, requiredString(relPath, 'relPath', 4_096));
   };
@@ -197,88 +501,147 @@ export function createRemoteMethods({
     const directory = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
     return projectInstructionsFile(directory);
   };
-  // Remote access is a transport client, not another service. Keep its
-  // existing validation grammar while every Git mutation executes in the same
-  // daemon operation service as Electron IPC.
-  const {
-    gitAbortOperation,
-    gitAmend,
-    gitApplyPatch,
-    gitBranches,
-    gitCheckoutBranch,
-    gitCheckoutCommit,
-    gitCherryPickCommit,
-    gitCommit,
-    gitCommitPaths,
-    gitContinue,
-    gitCreateBranch,
-    gitCreateBranchAtCommit,
-    gitCreateTag,
-    gitDeleteBranch,
-    gitDeleteTag,
-    gitDiff,
-    gitFetch,
-    gitIgnore,
-    gitLog,
-    gitMergeBranch,
-    gitPull,
-    gitPush,
-    gitRenameBranch,
-    gitResetToCommit,
-    gitRevertCommit,
-    gitRevertFile,
-    gitReview,
-    gitReviewDiff,
-    gitShow,
-    gitShowDiff,
-    gitStage,
-    gitStash,
-    gitStashPop,
-    gitStatus,
-    gitSync,
-    gitUndoLastCommit,
-    gitUnstage,
-  } = Object.fromEntries(
-    [
-      'gitAbortOperation',
-      'gitAmend',
-      'gitApplyPatch',
-      'gitBranches',
-      'gitCheckoutBranch',
-      'gitCheckoutCommit',
-      'gitCherryPickCommit',
-      'gitCommit',
-      'gitCommitPaths',
-      'gitContinue',
-      'gitCreateBranch',
-      'gitCreateBranchAtCommit',
-      'gitCreateTag',
-      'gitDeleteBranch',
-      'gitDeleteTag',
-      'gitDiff',
-      'gitFetch',
-      'gitIgnore',
-      'gitLog',
-      'gitMergeBranch',
-      'gitPull',
-      'gitPush',
-      'gitRenameBranch',
-      'gitResetToCommit',
-      'gitRevertCommit',
-      'gitRevertFile',
-      'gitReview',
-      'gitReviewDiff',
-      'gitShow',
-      'gitShowDiff',
-      'gitStage',
-      'gitStash',
-      'gitStashPop',
-      'gitStatus',
-      'gitSync',
-      'gitUndoLastCommit',
-      'gitUnstage',
-    ].map((name) => [name, operation(name)])
-  ) as Record<string, (...args: unknown[]) => Promise<unknown>>;
+  return {
+    writeProjectFile: ([projectPath, relPath, content, expectedContent, accessToken, encoding]) => {
+      const text = requiredTextFileContent(content, 'file content');
+      const expected = requiredTextFileContent(expectedContent, 'expected file content');
+      const fileEncoding = requiredTextFileEncoding(encoding);
+      if (grants.grantedIf(accessToken)) {
+        const granted = grants.grantedFile(accessToken, projectPath, relPath);
+        return invokeDesktopOperation('writeProjectTextFileIn', [
+          granted.root,
+          granted.rel,
+          text,
+          expected,
+          fileEncoding,
+        ]);
+      }
+      return host.writeProjectTextFile(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath'),
+        text,
+        expected,
+        fileEncoding
+      );
+    },
+    readEditorSettings: async ([projectPath, relPath, workspaceFile]) => {
+      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+      const workspace =
+        typeof workspaceFile === 'string' && workspaceFile.trim() ? resolvePath(workspaceFile) : undefined;
+      return invokeDesktopOperation('readScopedEditorSettings', [
+        userDataPath || '',
+        root,
+        requiredString(relPath, 'relPath', 4_096),
+        workspace,
+      ]);
+    },
+    readEditorBackup: async ([projectPath, relPath, accessToken]) => {
+      if (!userDataPath) return null;
+      const file = await editorFilePath(projectPath, relPath, accessToken);
+      return invokeDesktopOperation('readEditorBackup', [userDataPath, file]);
+    },
+    writeEditorBackup: async ([projectPath, relPath, content, expectedContent, accessToken]) => {
+      const root = requiredEditorBackupRoot();
+      const file = await editorFilePath(projectPath, relPath, accessToken);
+      return invokeDesktopOperation('writeEditorBackup', [
+        root,
+        file,
+        requiredTextFileContent(content, 'file content'),
+        requiredTextFileContent(expectedContent, 'expected file content'),
+      ]);
+    },
+    deleteEditorBackup: async ([projectPath, relPath, accessToken]) => {
+      if (!userDataPath) return null;
+      const file = await editorFilePath(projectPath, relPath, accessToken);
+      await invokeDesktopOperation('deleteEditorBackup', [userDataPath, file]);
+      return null;
+    },
+    readInstructions: async ([projectPath]) => {
+      const file = await instructionsFilePath(projectPath);
+      const legacy = projectPath == null || projectPath === '' ? legacyCommonInstructionsFile() : '';
+      return invokeDesktopOperation('readInstructions', [file, legacy]);
+    },
+    writeInstructions: async ([projectPath, content, expectedContent]) => {
+      const text = requiredInstructionsContent(content);
+      const file = await instructionsFilePath(projectPath);
+      const expected = expectedContent === undefined ? undefined : requiredInstructionsContent(expectedContent);
+      const legacy = projectPath == null || projectPath === '' ? legacyCommonInstructionsFile() : '';
+      return invokeDesktopOperation('writeInstructions', [file, text, expected, legacy]);
+    },
+    saveWorkspace: ([workspaceFile, rawFolders]) => {
+      const folders = requiredWorkspaceFolders(rawFolders);
+      // The Save-As dialog is desktop-only; a remote surface must name the file.
+      const file = typeof workspaceFile === 'string' && workspaceFile.trim() ? resolvePath(workspaceFile) : '';
+      if (!file) throw new Error('Choosing a workspace file is available in the desktop app only.');
+      return invokeDesktopOperation('writeWorkspaceFile', [file, folders]);
+    },
+    codeGraphQuery: ([projectPath, mode, symbol]) => {
+      if (mode !== 'find_symbol' && mode !== 'references' && mode !== 'symbols') {
+        throw new TypeError('mode is invalid.');
+      }
+      return host.codeGraphQuery(requiredString(projectPath, 'projectPath'), mode, requiredString(symbol, 'symbol'));
+    },
+    searchWorkspaceText: async ([projectPath, rawOptions]) => {
+      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+      return invokeDesktopOperation('searchWorkspaceTextIn', [root, requiredWorkspaceSearchOptions(rawOptions)]);
+    },
+    replaceWorkspaceText: async ([projectPath, rawOptions, replacement, relPaths]) => {
+      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+      if (typeof replacement !== 'string' || replacement.length > 1_000_000) {
+        throw new TypeError('Replacement text is invalid.');
+      }
+      return invokeDesktopOperation('replaceWorkspaceTextIn', [
+        root,
+        requiredWorkspaceSearchOptions(rawOptions),
+        replacement,
+        relPaths === undefined ? undefined : requiredGitPaths(relPaths),
+      ]);
+    },
+    lspDocument: async ([rawInput]) => {
+      const input = requiredLspDocumentInput(rawInput);
+      const root = await host.projectDirectory(input.projectPath);
+      return invokeDesktopOperation('lspDocument', [input.projectPath, root, input]);
+    },
+    lspRequest: async ([rawInput]) => {
+      const input = requiredLspRequestInput(rawInput);
+      const root = await host.projectDirectory(input.projectPath);
+      return invokeDesktopOperation('lspRequest', [
+        input.projectPath,
+        root,
+        input.relPath,
+        input.languageId,
+        input.method,
+        input.params ?? {},
+      ]);
+    },
+    lspApplyWorkspaceEdit: async ([projectPath, rawWrites]) => {
+      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+      return invokeDesktopOperation('writeProjectTextFilesIn', [root, requiredWorkspaceTextWrites(rawWrites)]);
+    },
+  };
+}
+
+export function createRemoteMethods({
+  host,
+  userDataPath,
+  settingsStore,
+  onDesktopSettingsChanged,
+  terminals,
+  push,
+  browserRemote,
+}: RemoteMethodDependencies): Record<string, RemoteMethod> {
+  const invokeDesktopOperation = (name: string, args: unknown[]): Promise<unknown> =>
+    host.invokeDesktopOperation(name, args);
+  const requiredPush = (): NonNullable<RemoteMethodDependencies['push']> => {
+    if (!push) throw new TypeError('Push notifications are unavailable on this connection.');
+    return push;
+  };
+  const requiredBrowserRemote = (): NonNullable<RemoteMethodDependencies['browserRemote']> => {
+    if (!browserRemote) throw new TypeError('Remote Browser Use is unavailable.');
+    return browserRemote;
+  };
+  const grants = createSelectedFileGrants();
+  const { grantedFile, grantedIf } = grants;
   const methods: Record<string, RemoteMethod> = {
     startProject: ([projectPath]) => host.startProject(requiredString(projectPath, 'projectPath')),
     startProjectTask: ([projectPath]) => host.startProjectTask(requiredString(projectPath, 'projectPath')),
@@ -425,330 +788,19 @@ export function createRemoteMethods({
       requiredBrowserRemote()('frame', [requiredSessionId(sessionId), normalizeRemoteBrowserFrameId(previousFrameId)]),
     browserRemoteControl: ([sessionId, input]) =>
       requiredBrowserRemote()('control', [requiredSessionId(sessionId), normalizeRemoteBrowserControl(input)]),
-    gitStatus: ([cwd, options]) => {
-      const record =
-        options && typeof options === 'object'
-          ? (options as { reuseLineStats?: unknown; skipLineStats?: unknown })
-          : {};
-      return gitStatus(requiredRepositoryCwd(cwd), {
-        reuseLineStats: record.reuseLineStats === true,
-        skipLineStats: record.skipLineStats === true,
-      });
-    },
-    gitBranches: ([cwd]) => gitBranches(requiredRepositoryCwd(cwd)),
-    gitCheckoutBranch: ([cwd, branch, remote]) =>
-      gitCheckoutBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), remote === true),
-    gitCreateBranch: ([cwd, branch]) => gitCreateBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
-    gitRenameBranch: ([cwd, branch, nextBranch]) =>
-      gitRenameBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), requiredGitBranchName(nextBranch)),
-    gitDeleteBranch: ([cwd, branch]) => gitDeleteBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
-    gitMergeBranch: ([cwd, branch]) => gitMergeBranch(requiredRepositoryCwd(cwd), requiredGitBranchName(branch)),
-    gitDiff: ([cwd, path, staged, worktreeOnly, untracked]) =>
-      gitDiff(
-        requiredRepositoryCwd(cwd),
-        requiredGitPath(path),
-        staged === true,
-        worktreeOnly === true,
-        untracked === true
-      ),
-    gitApplyPatch: ([cwd, path, patch, reverse]) => {
-      if (reverse !== undefined && typeof reverse !== 'boolean') {
-        throw new TypeError('git patch direction is invalid.');
-      }
-      return gitApplyPatch(
-        requiredRepositoryCwd(cwd),
-        requiredGitPath(path),
-        requiredGitPatch(patch),
-        reverse === true
-      );
-    },
-    gitStage: ([cwd, paths]) => gitStage(requiredRepositoryCwd(cwd), requiredGitPaths(paths)),
-    gitUnstage: ([cwd, paths]) => gitUnstage(requiredRepositoryCwd(cwd), requiredGitPaths(paths)),
-    gitIgnore: ([cwd, path, scope]) =>
-      gitIgnore(requiredRepositoryCwd(cwd), requiredGitPath(path), requiredGitIgnoreScope(scope)),
-    gitCommit: ([cwd, message]) =>
-      gitCommit(requiredRepositoryCwd(cwd), requiredString(message, 'commit message', 20_000)),
-    gitCommitPaths: ([cwd, message, paths]) =>
-      gitCommitPaths(
-        requiredRepositoryCwd(cwd),
-        requiredString(message, 'commit message', 20_000),
-        requiredGitPaths(paths)
-      ),
-    gitAmend: ([cwd, message]) => gitAmend(requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)),
-    gitUndoLastCommit: ([cwd]) => gitUndoLastCommit(requiredRepositoryCwd(cwd)),
-    gitStash: ([cwd, message]) => gitStash(requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)),
-    gitStashPop: ([cwd]) => gitStashPop(requiredRepositoryCwd(cwd)),
-    gitPush: ([cwd]) => gitPush(requiredRepositoryCwd(cwd)),
-    gitFetch: ([cwd]) => gitFetch(requiredRepositoryCwd(cwd)),
-    gitPull: ([cwd]) => gitPull(requiredRepositoryCwd(cwd)),
-    gitSync: ([cwd]) => gitSync(requiredRepositoryCwd(cwd)),
-    gitContinue: ([cwd]) => gitContinue(requiredRepositoryCwd(cwd)),
-    gitAbortOperation: ([cwd]) => gitAbortOperation(requiredRepositoryCwd(cwd)),
-    gitRevert: ([cwd, path, untracked, mode]) =>
-      gitRevertFile(
-        requiredRepositoryCwd(cwd),
-        requiredGitPath(path),
-        untracked === true,
-        requiredGitDiscardMode(mode)
-      ),
-    gitLog: ([cwd, query, skip, limit]) =>
-      gitLog(
-        requiredRepositoryCwd(cwd),
-        requiredGitLogQuery(query),
-        requiredGitLogOffset(skip),
-        requiredGitLogLimit(limit)
-      ),
-    gitShow: ([cwd, hash]) => gitShow(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
-    gitShowDiff: ([cwd, hash, path]) =>
-      gitShowDiff(requiredRepositoryCwd(cwd), requiredCommitHash(hash), requiredGitPath(path)),
-    gitResetToCommit: ([cwd, hash, mode, confirmedDirty]) =>
-      gitResetToCommit(
-        requiredRepositoryCwd(cwd),
-        requiredCommitHash(hash),
-        requiredGitResetMode(mode),
-        confirmedDirty === true
-      ),
-    gitRevertCommit: ([cwd, hash]) => gitRevertCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
-    gitCherryPickCommit: ([cwd, hash]) => gitCherryPickCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
-    gitCreateTag: ([cwd, tag, hash]) =>
-      gitCreateTag(requiredRepositoryCwd(cwd), requiredString(tag, 'git tag', 512), requiredCommitHash(hash)),
-    gitDeleteTag: ([cwd, tag]) => gitDeleteTag(requiredRepositoryCwd(cwd), requiredString(tag, 'git tag', 512)),
-    gitCheckoutCommit: ([cwd, hash]) => gitCheckoutCommit(requiredRepositoryCwd(cwd), requiredCommitHash(hash)),
-    gitCreateBranchAtCommit: ([cwd, branch, hash]) =>
-      gitCreateBranchAtCommit(requiredRepositoryCwd(cwd), requiredGitBranchName(branch), requiredCommitHash(hash)),
-    gitReview: ([cwd]) => gitReview(requiredRepositoryCwd(cwd)),
-    gitReviewDiff: ([cwd, path, untracked]) =>
-      gitReviewDiff(requiredRepositoryCwd(cwd), requiredGitPath(path), untracked === true),
-    gitStashList: ([cwd]) => invokeDesktopOperation('gitStashList', [requiredRepositoryCwd(cwd)]),
-    gitStashApply: ([cwd, ref]) =>
-      invokeDesktopOperation('gitStashApply', [requiredRepositoryCwd(cwd), requiredString(ref, 'stash ref', 64)]),
-    gitStashDrop: ([cwd, ref]) =>
-      invokeDesktopOperation('gitStashDrop', [requiredRepositoryCwd(cwd), requiredString(ref, 'stash ref', 64)]),
-    gitShowFile: ([cwd, rev, path]) =>
-      invokeDesktopOperation('gitShowFile', [
-        requiredRepositoryCwd(cwd),
-        requiredGitRevision(rev),
-        requiredGitPath(path),
-      ]),
-    gitGlobalConfig: () => invokeDesktopOperation('gitGlobalConfig', []),
-    setGitGlobalConfig: ([key, value]) => {
-      // Empty is a real value here: it UNSETS the key.
-      if (typeof value !== 'string' || value.length > 500) {
-        throw new TypeError('value must be a string of at most 500 characters.');
-      }
-      return invokeDesktopOperation('setGitGlobalConfig', [requiredGitGlobalConfigKey(key), value]);
-    },
-    // Settings → Git/About: gh runs in the daemon, and its login is a DEVICE
-    // flow (code + github.com/login/device), so a phone completes it in its
-    // own browser exactly like the desktop does.
-    githubStarStatus: () => invokeDesktopOperation('githubStarStatus', []),
-    starGithub: () => invokeDesktopOperation('starGithub', []),
-    gitCliStatus: () => invokeDesktopOperation('gitCliStatus', []),
-    installGitCli: () => invokeDesktopOperation('installGitCli', []),
-    libreOfficeStatus: () => invokeDesktopOperation('libreOfficeStatus', []),
-    installLibreOffice: () => invokeDesktopOperation('installLibreOffice', []),
-    githubCliStatus: () => invokeDesktopOperation('githubCliStatus', []),
-    githubRequest: ([cwd, input]) =>
-      invokeDesktopOperation('githubRequest', [requiredRepositoryCwd(cwd), validateGithubRequest(input)]),
-    installGithubCli: () => invokeDesktopOperation('installGithubCli', []),
-    githubCliLoginStart: () => invokeDesktopOperation('githubCliLoginStart', []),
-    githubCliLoginStatus: ([flowId]) =>
-      invokeDesktopOperation('githubCliLoginStatus', [requiredString(flowId, 'flowId', 200)]),
-    githubCliLoginCancel: ([flowId]) =>
-      invokeDesktopOperation('cancelGithubCliLogin', [requiredString(flowId, 'flowId', 200)]),
-    githubCliLogout: () => invokeDesktopOperation('githubCliLogout', []),
-    githubCliAccount: () => invokeDesktopOperation('githubCliAccount', []),
+    ...gitRemoteMethods(invokeDesktopOperation),
+    ...developerToolingRemoteMethods(invokeDesktopOperation),
     folderWatch: ([dir, recursive]) =>
       invokeDesktopOperation('folderWatch', [absoluteLocalPath(dir), recursive === true]),
     folderUnwatch: ([dir, recursive]) =>
       invokeDesktopOperation('folderUnwatch', [absoluteLocalPath(dir), recursive === true]),
     // File tabs and attachments for paths outside any project: the same
     // describe-then-grant grammar the desktop uses for a chosen file.
-    resolveLocalPaths: async ([paths]) => {
-      if (!Array.isArray(paths) || paths.length === 0 || paths.length > 100) {
-        throw new TypeError('paths are invalid.');
-      }
-      const projects = await host.listProjects().catch(() => []);
-      const rows: DesktopLocalPathEntry[] = [];
-      for (const raw of paths) {
-        const entry = (await invokeDesktopOperation('statLocalEntryAbs', [absoluteLocalPath(raw)])) as {
-          absolutePath: string;
-          name: string;
-          dir: boolean;
-          size: number;
-        };
-        const row: DesktopLocalPathEntry = {
-          absolutePath: entry.absolutePath,
-          name: entry.name,
-          dir: entry.dir,
-          size: entry.size,
-        };
-        if (!row.dir) {
-          const normalizedFile =
-            process.platform === 'win32' ? entry.absolutePath.toLocaleLowerCase() : entry.absolutePath;
-          const owner = projects
-            .map((project) => ({ project, root: resolvePath(project.path) }))
-            .filter(({ root }) => {
-              const normalizedRoot = process.platform === 'win32' ? root.toLocaleLowerCase() : root;
-              return normalizedFile.startsWith(normalizedRoot + pathSep) || normalizedFile === normalizedRoot;
-            })
-            .sort((left, right) => right.root.length - left.root.length)[0];
-          if (owner) {
-            row.projectPath = owner.project.path;
-            row.relPath = pathRelative(owner.root, entry.absolutePath).replace(/\\/g, '/');
-          } else {
-            row.projectPath = pathDirname(entry.absolutePath);
-            row.relPath = pathBasename(entry.absolutePath);
-            row.accessToken = rememberFileGrant(entry.absolutePath);
-          }
-        }
-        rows.push(row);
-      }
-      return rows;
-    },
+    resolveLocalPaths: ([paths]) => resolveLocalPathEntries(paths, { host, invokeDesktopOperation, grants }),
     readLocalFile: ([path]) => invokeDesktopOperation('readLocalFileAbs', [absoluteLocalPath(path)]),
     // ── Project entries and the editor ─────────────────────────────────────
-    createProjectEntry: ([projectPath, relDir, name, dir]) =>
-      host.createProjectEntry(
-        requiredString(projectPath, 'projectPath'),
-        typeof relDir === 'string' ? relDir : '',
-        requiredString(name, 'name'),
-        dir === true
-      ),
-    renameProjectEntry: ([projectPath, relPath, newName]) =>
-      host.renameProjectEntry(
-        requiredString(projectPath, 'projectPath'),
-        requiredString(relPath, 'relPath'),
-        requiredString(newName, 'newName')
-      ),
-    moveProjectEntry: ([projectPath, relPath, targetDirRel]) =>
-      host.moveProjectEntry(
-        requiredString(projectPath, 'projectPath'),
-        requiredString(relPath, 'relPath'),
-        typeof targetDirRel === 'string' ? targetDirRel : ''
-      ),
-    copyProjectEntry: ([projectPath, relPath, targetDirRel]) =>
-      host.copyProjectEntry(
-        requiredString(projectPath, 'projectPath'),
-        requiredString(relPath, 'relPath'),
-        typeof targetDirRel === 'string' ? targetDirRel : ''
-      ),
-    writeProjectFile: ([projectPath, relPath, content, expectedContent, accessToken, encoding]) => {
-      const text = requiredTextFileContent(content, 'file content');
-      const expected = requiredTextFileContent(expectedContent, 'expected file content');
-      const fileEncoding = requiredTextFileEncoding(encoding);
-      if (grantedIf(accessToken)) {
-        const granted = grantedFile(accessToken, projectPath, relPath);
-        return invokeDesktopOperation('writeProjectTextFileIn', [
-          granted.root,
-          granted.rel,
-          text,
-          expected,
-          fileEncoding,
-        ]);
-      }
-      return host.writeProjectTextFile(
-        requiredString(projectPath, 'projectPath'),
-        requiredString(relPath, 'relPath'),
-        text,
-        expected,
-        fileEncoding
-      );
-    },
-    readEditorSettings: async ([projectPath, relPath, workspaceFile]) => {
-      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
-      const workspace =
-        typeof workspaceFile === 'string' && workspaceFile.trim() ? resolvePath(workspaceFile) : undefined;
-      return invokeDesktopOperation('readScopedEditorSettings', [
-        userDataPath || '',
-        root,
-        requiredString(relPath, 'relPath', 4_096),
-        workspace,
-      ]);
-    },
-    readEditorBackup: async ([projectPath, relPath, accessToken]) => {
-      if (!userDataPath) return null;
-      const file = await editorFilePath(projectPath, relPath, accessToken);
-      return invokeDesktopOperation('readEditorBackup', [userDataPath, file]);
-    },
-    writeEditorBackup: async ([projectPath, relPath, content, expectedContent, accessToken]) => {
-      const root = requiredEditorBackupRoot();
-      const file = await editorFilePath(projectPath, relPath, accessToken);
-      return invokeDesktopOperation('writeEditorBackup', [
-        root,
-        file,
-        requiredTextFileContent(content, 'file content'),
-        requiredTextFileContent(expectedContent, 'expected file content'),
-      ]);
-    },
-    deleteEditorBackup: async ([projectPath, relPath, accessToken]) => {
-      if (!userDataPath) return null;
-      const file = await editorFilePath(projectPath, relPath, accessToken);
-      await invokeDesktopOperation('deleteEditorBackup', [userDataPath, file]);
-      return null;
-    },
-    readInstructions: async ([projectPath]) => {
-      const file = await instructionsFilePath(projectPath);
-      const legacy = projectPath == null || projectPath === '' ? legacyCommonInstructionsFile() : '';
-      return invokeDesktopOperation('readInstructions', [file, legacy]);
-    },
-    writeInstructions: async ([projectPath, content, expectedContent]) => {
-      const text = requiredInstructionsContent(content);
-      const file = await instructionsFilePath(projectPath);
-      const expected = expectedContent === undefined ? undefined : requiredInstructionsContent(expectedContent);
-      const legacy = projectPath == null || projectPath === '' ? legacyCommonInstructionsFile() : '';
-      return invokeDesktopOperation('writeInstructions', [file, text, expected, legacy]);
-    },
-    saveWorkspace: ([workspaceFile, rawFolders]) => {
-      const folders = requiredWorkspaceFolders(rawFolders);
-      // The Save-As dialog is desktop-only; a remote surface must name the file.
-      const file = typeof workspaceFile === 'string' && workspaceFile.trim() ? resolvePath(workspaceFile) : '';
-      if (!file) throw new Error('Choosing a workspace file is available in the desktop app only.');
-      return invokeDesktopOperation('writeWorkspaceFile', [file, folders]);
-    },
-    codeGraphQuery: ([projectPath, mode, symbol]) => {
-      if (mode !== 'find_symbol' && mode !== 'references' && mode !== 'symbols') {
-        throw new TypeError('mode is invalid.');
-      }
-      return host.codeGraphQuery(requiredString(projectPath, 'projectPath'), mode, requiredString(symbol, 'symbol'));
-    },
-    searchWorkspaceText: async ([projectPath, rawOptions]) => {
-      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
-      return invokeDesktopOperation('searchWorkspaceTextIn', [root, requiredWorkspaceSearchOptions(rawOptions)]);
-    },
-    replaceWorkspaceText: async ([projectPath, rawOptions, replacement, relPaths]) => {
-      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
-      if (typeof replacement !== 'string' || replacement.length > 1_000_000) {
-        throw new TypeError('Replacement text is invalid.');
-      }
-      return invokeDesktopOperation('replaceWorkspaceTextIn', [
-        root,
-        requiredWorkspaceSearchOptions(rawOptions),
-        replacement,
-        relPaths === undefined ? undefined : requiredGitPaths(relPaths),
-      ]);
-    },
-    lspDocument: async ([rawInput]) => {
-      const input = requiredLspDocumentInput(rawInput);
-      const root = await host.projectDirectory(input.projectPath);
-      return invokeDesktopOperation('lspDocument', [input.projectPath, root, input]);
-    },
-    lspRequest: async ([rawInput]) => {
-      const input = requiredLspRequestInput(rawInput);
-      const root = await host.projectDirectory(input.projectPath);
-      return invokeDesktopOperation('lspRequest', [
-        input.projectPath,
-        root,
-        input.relPath,
-        input.languageId,
-        input.method,
-        input.params ?? {},
-      ]);
-    },
-    lspApplyWorkspaceEdit: async ([projectPath, rawWrites]) => {
-      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
-      return invokeDesktopOperation('writeProjectTextFilesIn', [root, requiredWorkspaceTextWrites(rawWrites)]);
-    },
+    ...projectEntryRemoteMethods(host),
+    ...editorRemoteMethods({ host, userDataPath, invokeDesktopOperation, grants }),
   };
   if (settingsStore) {
     methods.readSettings = () => settingsStore.read();

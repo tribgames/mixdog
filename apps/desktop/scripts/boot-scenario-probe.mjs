@@ -1,18 +1,24 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  CdpClient,
+  evaluateStable as evaluateRendererStable,
+  stopApp as stopDesktopApp,
+  waitForTarget,
+} from './cdp-client.mjs';
+import { optionValue } from './cli-args.mjs';
+
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const projectArgument = process.argv.find((argument) => argument.startsWith('--project='));
-const projectPath = resolve(projectArgument?.slice('--project='.length) || join(desktopDir, '..', '..'));
-const relPath =
-  process.argv.find((argument) => argument.startsWith('--file='))?.slice('--file='.length) ||
-  'apps/desktop/package.json';
-const iterations = Math.max(
-  1,
-  Number(process.argv.find((argument) => argument.startsWith('--iterations='))?.slice('--iterations='.length) || 2)
-);
+const projectPath = resolve(optionValue('project') || join(desktopDir, '..', '..'));
+const relPath = optionValue('file') || 'apps/desktop/package.json';
+const iterationsInput = optionValue('iterations') || 2;
+const iterations = Math.max(1, Number(iterationsInput));
+// A non-numeric value used to become NaN, skip the measurement loop entirely
+// and still write an empty report with exit code 0.
+if (!Number.isFinite(iterations)) throw new Error(`Invalid --iterations: ${String(iterationsInput)}`);
 const electron = join(
   desktopDir,
   'node_modules',
@@ -22,91 +28,9 @@ const electron = join(
 );
 const artifactDir = join(desktopDir, 'artifacts');
 const profileRoot = join(artifactDir, 'boot-scenario-profiles');
-const stamp = new Date().toISOString().replace(/[-:.]/g, '').replace('Z', 'Z');
+const stamp = new Date().toISOString().replace(/[-:.]/g, '');
 const reportPath = join(artifactDir, `boot-scenarios-${stamp}.json`);
-
-class CdpClient {
-  constructor(url) {
-    this.socket = new WebSocket(url);
-    this.nextId = 1;
-    this.pending = new Map();
-    this.listeners = new Map();
-  }
-  /** Subscribe to a CDP event (`Tracing.dataCollected` …); returns unsubscribe. */
-  on(method, listener) {
-    const set = this.listeners.get(method) || new Set();
-    set.add(listener);
-    this.listeners.set(method, set);
-    return () => {
-      set.delete(listener);
-    };
-  }
-  async connect() {
-    this.socket.addEventListener('message', (event) => {
-      const message = JSON.parse(String(event.data));
-      if (!message.id) {
-        if (message.method) {
-          for (const listener of this.listeners.get(message.method) || []) listener(message.params);
-        }
-        return;
-      }
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      this.pending.delete(message.id);
-      clearTimeout(pending.timer);
-      if (message.error) pending.reject(new Error(message.error.message));
-      else pending.resolve(message.result);
-    });
-    await new Promise((resolvePromise, reject) => {
-      const timer = setTimeout(() => reject(new Error('CDP connection timed out.')), 15_000);
-      this.socket.addEventListener(
-        'open',
-        () => {
-          clearTimeout(timer);
-          resolvePromise();
-        },
-        { once: true }
-      );
-      this.socket.addEventListener(
-        'error',
-        () => {
-          clearTimeout(timer);
-          reject(new Error('CDP websocket failed.'));
-        },
-        { once: true }
-      );
-    });
-  }
-  request(method, params = {}, timeoutMs = 20_000) {
-    const id = this.nextId++;
-    return new Promise((resolvePromise, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`${method} timed out after ${timeoutMs}ms.`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve: resolvePromise, reject, timer });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-  async evaluate(expression, timeoutMs = 20_000) {
-    const response = await this.request(
-      'Runtime.evaluate',
-      {
-        expression,
-        awaitPromise: true,
-        returnByValue: true,
-      },
-      timeoutMs
-    );
-    if (response.exceptionDetails) {
-      throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
-    }
-    return response.result?.value;
-  }
-  close() {
-    this.socket.close();
-  }
-}
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
 const navigationKey = (selection) => {
   if (selection.kind === 'new') return `new:${selection.draftId || 'default'}`;
@@ -210,7 +134,7 @@ const allScenarios = [
     expectedSurface: 'bottom-panel',
   })),
 ];
-const scenarioFilter = process.argv.find((argument) => argument.startsWith('--scenario='))?.slice('--scenario='.length);
+const scenarioFilter = optionValue('scenario');
 const scenarios = scenarioFilter ? allScenarios.filter((scenario) => scenario.name === scenarioFilter) : allScenarios;
 if (scenarios.length === 0) throw new Error(`Unknown boot scenario: ${scenarioFilter}`);
 const DEFAULT_PERFORMANCE_BUDGET = Object.freeze({
@@ -258,44 +182,10 @@ function performanceFailures(result) {
   return failures;
 }
 
-async function waitForTarget(port, child) {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Electron exited with ${child.exitCode}.`);
-    try {
-      const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
-      const target = targets.find(
-        (candidate) => candidate.type === 'page' && candidate.url?.includes('/out/renderer/index.html')
-      );
-      if (target?.webSocketDebuggerUrl) return target.webSocketDebuggerUrl;
-    } catch {
-      // CDP is not listening yet.
-    }
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
-  }
-  throw new Error(`CDP target did not appear on port ${port}.`);
-}
-
-async function evaluateStable(client, expression, timeoutMs = 20_000) {
-  const deadline = Date.now() + timeoutMs;
-  let lastError = null;
-  while (Date.now() < deadline) {
-    try {
-      return await client.evaluate(expression, Math.max(1_000, deadline - Date.now()));
-    } catch (error) {
-      lastError = error;
-      if (
-        !/Execution context was destroyed|Cannot find context|Failed to read the 'localStorage' property/i.test(
-          String(error?.message || error)
-        )
-      ) {
-        throw error;
-      }
-      await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
-    }
-  }
-  throw lastError || new Error('Renderer execution context did not stabilize.');
-}
+/** This probe's own evaluation budget; boot phases are measured in shorter
+ *  windows than the memory probe's. */
+const evaluateStable = (client, expression, timeoutMs = 20_000) =>
+  evaluateRendererStable(client, expression, timeoutMs);
 
 async function stopIsolatedDaemon(profilePath) {
   try {
@@ -324,7 +214,6 @@ async function stopIsolatedDaemon(profilePath) {
 // the profile rm then never completes. Only processes whose command line
 // names this profile are touched, never the installed app's PostgreSQL.
 async function killLingeringPgProcesses(profilePath) {
-  const { execFile } = await import('node:child_process');
   const run = (file, args) =>
     new Promise((resolvePromise) => {
       execFile(file, args, { windowsHide: true }, (error, stdout) => resolvePromise(error ? '' : String(stdout)));
@@ -359,7 +248,6 @@ async function killLingeringPgProcesses(profilePath) {
 // throttles the window's presents; only Win32 can tell the two apart.
 async function windowPlacement(pid) {
   if (process.platform !== 'win32') return null;
-  const { execFile } = await import('node:child_process');
   const script = `
 $code = @"
 using System; using System.Runtime.InteropServices;
@@ -446,17 +334,7 @@ async function stopProfilePostmaster(profilePath) {
 }
 
 async function stopApp(client, child, profilePath) {
-  try {
-    await client.evaluate('window.mixdogDesktop?.quit?.()', 5_000);
-  } catch {
-    // Process termination below is the bounded fallback.
-  }
-  client.close();
-  await Promise.race([
-    new Promise((resolvePromise) => child.once('exit', resolvePromise)),
-    new Promise((resolvePromise) => setTimeout(resolvePromise, 4_000)),
-  ]);
-  if (child.exitCode === null) child.kill();
+  await stopDesktopApp(client, child);
   await stopIsolatedDaemon(profilePath);
   await stopIsolatedMemoryStore(profilePath);
 }
@@ -483,9 +361,21 @@ async function launch(profilePath, scenarioName, port) {
     stdio: 'ignore',
     windowsHide: false,
   });
-  const client = new CdpClient(await waitForTarget(port, child));
-  await client.connect();
-  return { child, client };
+  // A missing electron binary arrives as an 'error' event rather than an exit,
+  // so without this listener it crashes the probe outright. And if the
+  // handshake fails, the spawned app must not survive: it would keep this
+  // isolated profile's daemon and PostgreSQL alive as orphans.
+  const spawnFailed = new Promise((_resolve, reject) => {
+    child.once('error', (error) => reject(new Error(`Failed to launch Electron (${electron}): ${error.message}`)));
+  });
+  try {
+    const client = new CdpClient(await Promise.race([waitForTarget(port, child), spawnFailed]));
+    await client.connect();
+    return { child, client };
+  } catch (error) {
+    child.kill();
+    throw error;
+  }
 }
 
 async function seedScenario(profilePath, scenario, port) {
@@ -645,8 +535,7 @@ const profileRequested = process.argv.includes('--profile');
 const traceRequested = process.argv.includes('--trace');
 // --trace-dump=<dir>: also write each measurement's raw trace as
 // <dir>/<scenario>-<temperature>.json, loadable in chrome://tracing or Perfetto.
-const traceDumpDir =
-  process.argv.find((argument) => argument.startsWith('--trace-dump='))?.slice('--trace-dump='.length) || '';
+const traceDumpDir = optionValue('trace-dump');
 // Frame, compositor and GPU categories name the wait when the main thread is
 // idle inside the window: a keystroke whose paint committed at +3ms but whose
 // next frame arrived at +36ms lost the difference in raster or the GPU.
@@ -676,14 +565,11 @@ const TYPING_BURST_TEXT = 'The quick brown fox jumps over the lazy dog 012345678
 // --inject-css=<rules>: A/B a style hypothesis without rebuilding, e.g.
 // `.onboarding-layer{backdrop-filter:none!important}` to price a blur.
 // Rules need !important: the sheet lands before the app's own stylesheets.
-const injectCss =
-  process.argv.find((argument) => argument.startsWith('--inject-css='))?.slice('--inject-css='.length) || '';
+const injectCss = optionValue('inject-css');
 
 // --electron-args=<a,b>: extra Chromium switches for the probe's Electron
 // (e.g. disable-gpu-rasterization, disable-gpu) to bisect a GPU-side stall.
-const extraElectronArgs = (
-  process.argv.find((argument) => argument.startsWith('--electron-args='))?.slice('--electron-args='.length) || ''
-)
+const extraElectronArgs = optionValue('electron-args')
   .split(',')
   .map((flag) => flag.trim())
   .filter(Boolean)
@@ -725,7 +611,7 @@ async function startTrace(client) {
       });
     });
     await client.request('Tracing.end');
-    await Promise.race([complete, new Promise((resolvePromise) => setTimeout(resolvePromise, 15_000))]);
+    await Promise.race([complete, sleep(15_000)]);
     stop();
     return events;
   };
@@ -771,8 +657,6 @@ function traceEventDetail(event) {
     }
     case 'UpdateLayoutTree':
       return data.elementCount !== undefined ? `elements=${data.elementCount}` : '';
-    case 'RunTask':
-      return '';
     default:
       return '';
   }
@@ -941,12 +825,8 @@ function summarizeProfile(profile, limit = 18) {
   const byFrame = new Map();
   for (const [id, count] of selfSamples) {
     const node = byNode.get(id);
-    const frame = node?.callFrame;
-    if (!frame) continue;
-    const url = String(frame.url || '')
-      .split('/')
-      .slice(-1)[0];
-    const key = `${frame.functionName || '(anonymous)'} ${url}:${frame.lineNumber + 1}`;
+    if (!node?.callFrame) continue;
+    const key = profileFrameKey(node);
     byFrame.set(key, (byFrame.get(key) || 0) + count);
   }
   return [...byFrame.entries()]
@@ -963,7 +843,7 @@ function profileFrameKey(node) {
   if (!frame) return '(unknown)';
   const url = String(frame.url || '')
     .split('/')
-    .slice(-1)[0];
+    .at(-1);
   return `${frame.functionName || '(anonymous)'} ${url}:${frame.lineNumber + 1}`;
 }
 
@@ -1713,16 +1593,16 @@ const report = {
   isolated: true,
   results,
 };
-const performance = results.flatMap((result) =>
+const budgetFailures = results.flatMap((result) =>
   performanceFailures(result).map((failure) => `${result.scenario}/${result.temperature}: ${failure}`)
 );
 report.performance = {
-  ok: performance.length === 0,
-  failures: performance,
+  ok: budgetFailures.length === 0,
+  failures: budgetFailures,
 };
 await writeFile(reportPath, JSON.stringify(report, null, 2));
 console.log(`BOOT_SCENARIO_REPORT=${reportPath}`);
-for (const failure of performance) console.error(`PERFORMANCE_GATE ${failure}`);
-if (results.some((result) => result.settled?.ok === false) || performance.length > 0) {
+for (const failure of budgetFailures) console.error(`PERFORMANCE_GATE ${failure}`);
+if (results.some((result) => result.settled?.ok === false) || budgetFailures.length > 0) {
   process.exit(1);
 }

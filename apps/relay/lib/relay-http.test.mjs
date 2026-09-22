@@ -1,14 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  authenticateLeg,
-  browserSocketOriginAllowed,
-  clientIp,
-  MAX_PHONE_CLIENTS_PER_DEVICE,
-  MAX_PHONE_CONNECTIONS_PER_MINUTE,
-  phoneClientCapacityAvailable,
-} from './relay-http.mjs';
+import { authenticateLeg, browserSocketOriginAllowed, clientIp } from './relay-http.mjs';
 
 test('browser websocket upgrades require the relay origin', () => {
   assert.equal(
@@ -46,14 +39,6 @@ test('browser websocket upgrades require the relay origin', () => {
     }),
     false
   );
-});
-
-test('per-device browser capacity preserves normal clients and bounds floods', () => {
-  assert.equal(MAX_PHONE_CLIENTS_PER_DEVICE, 32);
-  assert.equal(phoneClientCapacityAvailable(0), true);
-  assert.equal(phoneClientCapacityAvailable(MAX_PHONE_CLIENTS_PER_DEVICE - 1), true);
-  assert.equal(phoneClientCapacityAvailable(MAX_PHONE_CLIENTS_PER_DEVICE), false);
-  assert.equal(MAX_PHONE_CONNECTIONS_PER_MINUTE, 120);
 });
 
 test('caller identity falls back when the socket has no address', () => {

@@ -50,6 +50,12 @@ class Cdp {
 
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
+async function click(client, { x, y }) {
+  for (const type of ['mousePressed', 'mouseReleased']) {
+    await client.request('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 });
+  }
+}
+
 async function waitForTarget(child) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
@@ -161,8 +167,10 @@ async function main() {
       ];
       const ids = [];
       for (const title of titles) {
+        // One id per title: the main process rejects a reused submission id
+        // whose content differs, which used to kill seeding on the 2nd title.
         const fixture = await window.mixdogDesktop.submitNewTask(title, {
-          id: 'tab-focus-fixture', displayText: title, goalCommand: title,
+          id: 'tab-focus-fixture-' + ids.length, displayText: title, goalCommand: title,
         });
         await window.mixdogDesktop.invokeCapability({ capability: 'goalControl', args: [{ command: 'pause' }], sessionId: fixture.sessionId }).catch(() => undefined);
         ids.push(fixture.sessionId);
@@ -251,15 +259,7 @@ async function main() {
       return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
     })()`);
     report.clickAt = target;
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await client.request('Input.dispatchMouseEvent', {
-        type,
-        x: target.x,
-        y: target.y,
-        button: 'left',
-        clickCount: 1,
-      });
-    }
+    await click(client, target);
     await sleep(700);
     report.after = await client.evaluate(DUMP);
     report.afterShot = await screenshot(client, 'after');
@@ -267,10 +267,8 @@ async function main() {
     const top = await client.evaluate(
       `(() => { const r = document.querySelector('[data-pane-id="top"] form.composer textarea').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`
     );
-    for (const p of [top, target]) {
-      for (const type of ['mousePressed', 'mouseReleased']) {
-        await client.request('Input.dispatchMouseEvent', { type, x: p.x, y: p.y, button: 'left', clickCount: 1 });
-      }
+    for (const point of [top, target]) {
+      await click(client, point);
       await sleep(500);
     }
     // Vertical rhythm inside one strip: centre-Y of every glyph class against

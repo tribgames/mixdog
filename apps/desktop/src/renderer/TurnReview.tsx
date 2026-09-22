@@ -1,5 +1,16 @@
 import { Check, FileDiff, FileText, Undo2, X } from 'lucide-react';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  type Dispatch,
+  memo,
+  type ReactNode,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { t } from './i18n';
 import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { GitDiffBody } from './ReviewPane';
@@ -266,6 +277,334 @@ function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: numbe
   };
 }
 
+type TurnReviewCapabilityValue = {
+  supported?: boolean;
+  authoritative?: boolean;
+  snapshotKind?: unknown;
+  revertMode?: unknown;
+  checkpointId?: unknown;
+  patch?: unknown;
+  files?: Array<{
+    path?: unknown;
+    oldPath?: unknown;
+    status?: unknown;
+    additions?: unknown;
+    deletions?: unknown;
+    binary?: unknown;
+  }>;
+  agents?: Array<{
+    sessionId?: unknown;
+    agent?: unknown;
+    tag?: unknown;
+    patch?: unknown;
+  }>;
+} | null;
+
+/** Narrowing of the turn-review capability reply. Everything the bar trusts
+ *  passes through here, so an unsupported or malformed reply (null) can never
+ *  reach state or the shared cache. */
+function decodeTurnReviewCapabilityValue(value: TurnReviewCapabilityValue): {
+  leadPatch: string | null;
+  snapshotKind: string;
+  checkpointId: string;
+  files: TurnReviewFile[];
+  reviews: AgentTurnReview[];
+} | null {
+  if (!value || value.supported === false) return null;
+  const authoritative = value.authoritative === true;
+  const patchText = typeof value.patch === 'string' ? value.patch : '';
+  const leadPatch = authoritative ? patchText : null;
+  const snapshotKind = authoritative ? String(value.snapshotKind || '') : '';
+  const checkpointId = authoritative ? String(value.checkpointId || '') : '';
+  const files = (authoritative && Array.isArray(value.files) ? value.files : []).flatMap((row) => {
+    const path = String(row?.path || '');
+    if (!path) return [];
+    return [
+      {
+        path,
+        oldPath: row?.oldPath ? String(row.oldPath) : null,
+        status: row?.status ? String(row.status) : 'M',
+        additions: typeof row?.additions === 'number' ? row.additions : null,
+        deletions: typeof row?.deletions === 'number' ? row.deletions : null,
+        binary: row?.binary === true,
+      },
+    ];
+  });
+  const reviews = (Array.isArray(value.agents) ? value.agents : []).flatMap((review) => {
+    const childSessionId = String(review?.sessionId || '');
+    const patch = typeof review?.patch === 'string' ? review.patch : '';
+    if (!childSessionId || !patch) return [];
+    return [
+      {
+        sessionId: childSessionId,
+        agent: review?.agent ? String(review.agent) : null,
+        tag: review?.tag ? String(review.tag) : null,
+        patch,
+      },
+    ];
+  });
+  return { leadPatch, snapshotKind, checkpointId, files, reviews };
+}
+
+/** Collapsed headline (file count, line stats, attribution) plus the diff
+ *  style toggle the expanded bar owns. */
+function turnReviewHead({
+  expanded,
+  setExpanded,
+  setOpenFile,
+  setConfirmFile,
+  setRevertError,
+  summary,
+  headlineStats,
+  transcriptSummary,
+  agentSummary,
+  agentSources,
+  authoritativeWorktreeSnapshot,
+  diffStyle,
+  setDiffStyle,
+}: {
+  expanded: boolean;
+  setExpanded: Dispatch<SetStateAction<boolean>>;
+  setOpenFile(value: string): void;
+  setConfirmFile(value: string): void;
+  setRevertError(value: string): void;
+  summary: TurnReviewSummary;
+  headlineStats: { hasLineStats: boolean; additions: number; deletions: number };
+  transcriptSummary: TurnReviewSummary;
+  agentSummary: TurnReviewSummary;
+  agentSources: Array<{ key: string; label: string; summary: TurnReviewSummary }>;
+  authoritativeWorktreeSnapshot: boolean;
+  diffStyle: 'unified' | 'split';
+  setDiffStyle(style: 'unified' | 'split'): void;
+}) {
+  return (
+    <div className="turn-review-head">
+      <button
+        type="button"
+        className="turn-review-summary"
+        aria-expanded={expanded}
+        onClick={() =>
+          setExpanded((value) => {
+            const next = !value;
+            // Collapsing also closes any open inline diff/confirm so reopening
+            // starts from the tidy list, not a tall stale diff.
+            if (!next) {
+              setOpenFile('');
+              setConfirmFile('');
+              setRevertError('');
+            }
+            return next;
+          })
+        }
+      >
+        <FileDiff size={14} aria-hidden="true" />
+        <strong>
+          {summary.files.size === 1 ? t('1 file changed') : t('{{count}} files changed', { count: summary.files.size })}
+        </strong>
+        {/* The counters belong to the TITLE, not to the (now removed)
+            expander side of the row. */}
+        {headlineStats.hasLineStats && (
+          <span className="diff-stats">
+            {headlineStats.additions > 0 && <i>+{headlineStats.additions}</i>}
+            {headlineStats.deletions > 0 && <em>-{headlineStats.deletions}</em>}
+          </span>
+        )}
+        {agentSources.length > 0 && (
+          <span className="turn-review-attribution">
+            {authoritativeWorktreeSnapshot
+              ? t('Agents {{agents}} attributed', { agents: agentSummary.files.size })
+              : t('Lead {{lead}} · Agents {{agents}}', {
+                  lead: transcriptSummary.files.size,
+                  agents: agentSummary.files.size,
+                })}
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="turn-review-controls">
+          <div className="review-style-toggle turn-review-style" role="radiogroup" aria-label={t('Diff style')}>
+            <button type="button" aria-pressed={diffStyle === 'unified'} onClick={() => setDiffStyle('unified')}>
+              {t('Unified')}
+            </button>
+            <button type="button" aria-pressed={diffStyle === 'split'} onClick={() => setDiffStyle('split')}>
+              {t('Split')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Per-file revert to the start of the turn, behind an explicit confirm step.
+ *  The runtime decides at click time; a refusal is surfaced, never swallowed. */
+function turnReviewRevertControl({
+  name,
+  rel,
+  confirming,
+  canRevertFile,
+  sessionId,
+  requestedCheckpointId,
+  turnBoundaryKey,
+  setConfirmFile,
+  setRevertError,
+  setReverted,
+  setRevertedBoundary,
+  refreshAgentReviews,
+}: {
+  name: string;
+  rel: string;
+  confirming: boolean;
+  canRevertFile: boolean;
+  sessionId: string | undefined;
+  requestedCheckpointId: string;
+  turnBoundaryKey: string;
+  setConfirmFile(value: string): void;
+  setRevertError(value: string): void;
+  setReverted: Dispatch<SetStateAction<string[]>>;
+  setRevertedBoundary(value: string): void;
+  refreshAgentReviews(refreshWorktree?: boolean): Promise<void>;
+}) {
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        className="turn-review-revert"
+        aria-label={t('Revert {{file}}', { file: rel })}
+        data-tooltip={t('Revert file to turn start')}
+        disabled={!canRevertFile}
+        onClick={() => setConfirmFile(name)}
+      >
+        <Undo2 size={12} />
+      </button>
+    );
+  }
+  return (
+    <span
+      className="turn-review-confirm"
+      role="group"
+      aria-label={t('Confirm reverting {{file}} to the start of this turn', { file: rel })}
+    >
+      <button
+        type="button"
+        className="turn-review-revert"
+        aria-label={t('Cancel revert')}
+        data-tooltip={t('Cancel')}
+        onClick={() => setConfirmFile('')}
+      >
+        <X size={12} />
+      </button>
+      <button
+        type="button"
+        className="turn-review-revert danger"
+        aria-label={t('Confirm revert of {{file}}', { file: rel })}
+        data-tooltip={t('Revert to turn start')}
+        onClick={() => {
+          setConfirmFile('');
+          setRevertError('');
+          void window.mixdogDesktop
+            .invokeCapability?.({
+              capability: 'revertTurnReviewFile',
+              args: [rel, requestedCheckpointId],
+              sessionId,
+            })
+            .then(async () => {
+              setReverted((current) => [...current, name]);
+              setRevertedBoundary(turnBoundaryKey);
+              await refreshAgentReviews();
+            })
+            .catch((reason: unknown) => setRevertError(errorMessageText(reason)));
+        }}
+      >
+        <Check size={12} />
+      </button>
+    </span>
+  );
+}
+
+/** One changed file: status, project-relative path, line stats, the open-file
+ *  action, its revert slot, and the inline diff it discloses. */
+function turnReviewFileRow({
+  entry,
+  rel,
+  rowKey,
+  isReverted,
+  openFile,
+  setOpenFile,
+  cwd,
+  onOpenFile,
+  diffStyle,
+  revertControl,
+}: {
+  entry: TurnReviewFileEntry;
+  rel: string;
+  rowKey: string;
+  isReverted: boolean;
+  openFile: string;
+  setOpenFile: Dispatch<SetStateAction<string>>;
+  cwd: string | undefined;
+  onOpenFile: ((project: string, rel: string) => void) | undefined;
+  diffStyle: 'unified' | 'split';
+  revertControl: ReactNode;
+}) {
+  return (
+    <li key={rowKey} data-open={openFile === rowKey ? 'true' : 'false'} data-reverted={isReverted ? 'true' : 'false'}>
+      <button
+        type="button"
+        className="turn-review-file"
+        aria-expanded={openFile === rowKey}
+        onClick={() => setOpenFile((current) => (current === rowKey ? '' : rowKey))}
+      >
+        <span
+          className="turn-review-status"
+          data-status={statusCode(entry)}
+          aria-label={statusLabel(entry)}
+          data-tooltip={statusLabel(entry)}
+        >
+          {statusCode(entry)}
+        </span>
+        <code>{rel}</code>
+        {entry.lineStats && (
+          <span className="diff-stats">
+            <i>{entry.additions > 0 ? `+${entry.additions}` : ''}</i>
+            <em>{entry.deletions > 0 ? `-${entry.deletions}` : ''}</em>
+          </span>
+        )}
+        {!entry.lineStats && (
+          <span className="diff-stats" aria-hidden="true">
+            <i />
+            <em />
+          </span>
+        )}
+      </button>
+      <span className="turn-review-action-slot">
+        <button
+          type="button"
+          className="turn-review-open"
+          aria-label={t('Open file {{file}}', { file: rel })}
+          data-tooltip={t('Open file')}
+          disabled={!cwd || !onOpenFile || (statusCode(entry) === 'D' && !isReverted)}
+          onClick={() => {
+            if (cwd) onOpenFile?.(cwd, rel);
+          }}
+        >
+          <FileText size={12} aria-hidden="true" />
+        </button>
+        {revertControl}
+      </span>
+      {openFile === rowKey && (
+        <div className="turn-review-diff">
+          {entry.parts.length > 0 ? (
+            entry.parts.map((file, index) => <GitDiffBody key={`${rowKey}:${index}`} file={file} mode={diffStyle} />)
+          ) : (
+            <span className="turn-review-status">{t('Diff detail unavailable')}</span>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
 export const TurnReviewBar = memo(function TurnReviewBar({
   items,
   cwd,
@@ -441,63 +780,11 @@ export const TurnReviewBar = memo(function TurnReviewBar({
           args: [{ refresh: refreshWorktree }],
           sessionId,
         });
-        const value = (result?.value ?? null) as {
-          supported?: boolean;
-          authoritative?: boolean;
-          snapshotKind?: unknown;
-          revertMode?: unknown;
-          checkpointId?: unknown;
-          patch?: unknown;
-          files?: Array<{
-            path?: unknown;
-            oldPath?: unknown;
-            status?: unknown;
-            additions?: unknown;
-            deletions?: unknown;
-            binary?: unknown;
-          }>;
-          agents?: Array<{
-            sessionId?: unknown;
-            agent?: unknown;
-            tag?: unknown;
-            patch?: unknown;
-          }>;
-        } | null;
-        if (!value || value.supported === false) {
+        const decoded = decodeTurnReviewCapabilityValue((result?.value ?? null) as TurnReviewCapabilityValue);
+        if (!decoded) {
           return;
         }
-        const authoritative = value.authoritative === true;
-        const patchText = typeof value.patch === 'string' ? value.patch : '';
-        const leadPatch = authoritative ? patchText : null;
-        const snapshotKind = authoritative ? String(value.snapshotKind || '') : '';
-        const checkpointId = authoritative ? String(value.checkpointId || '') : '';
-        const files = (authoritative && Array.isArray(value.files) ? value.files : []).flatMap((row) => {
-          const path = String(row?.path || '');
-          if (!path) return [];
-          return [
-            {
-              path,
-              oldPath: row?.oldPath ? String(row.oldPath) : null,
-              status: row?.status ? String(row.status) : 'M',
-              additions: typeof row?.additions === 'number' ? row.additions : null,
-              deletions: typeof row?.deletions === 'number' ? row.deletions : null,
-              binary: row?.binary === true,
-            },
-          ];
-        });
-        const reviews = (Array.isArray(value.agents) ? value.agents : []).flatMap((review) => {
-          const childSessionId = String(review?.sessionId || '');
-          const patch = typeof review?.patch === 'string' ? review.patch : '';
-          if (!childSessionId || !patch) return [];
-          return [
-            {
-              sessionId: childSessionId,
-              agent: review?.agent ? String(review.agent) : null,
-              tag: review?.tag ? String(review.tag) : null,
-              patch,
-            },
-          ];
-        });
+        const { leadPatch, snapshotKind, checkpointId, files, reviews } = decoded;
         const signature = JSON.stringify([leadPatch, files, snapshotKind, checkpointId, reviews]);
         rememberAgentReviews(requestedScope, reviews, leadPatch, files, snapshotKind, checkpointId);
         if (lastAgentReviewSignature.current === signature) return;
@@ -698,63 +985,21 @@ export const TurnReviewBar = memo(function TurnReviewBar({
       aria-label={t('Files changed this turn')}
       data-expanded={expanded ? 'true' : 'false'}
     >
-      <div className="turn-review-head">
-        <button
-          type="button"
-          className="turn-review-summary"
-          aria-expanded={expanded}
-          onClick={() =>
-            setExpanded((value) => {
-              const next = !value;
-              // Collapsing also closes any open inline diff/confirm so reopening
-              // starts from the tidy list, not a tall stale diff.
-              if (!next) {
-                setOpenFile('');
-                setConfirmFile('');
-                setRevertError('');
-              }
-              return next;
-            })
-          }
-        >
-          <FileDiff size={14} aria-hidden="true" />
-          <strong>
-            {summary.files.size === 1
-              ? t('1 file changed')
-              : t('{{count}} files changed', { count: summary.files.size })}
-          </strong>
-          {/* The counters belong to the TITLE, not to the (now removed)
-              expander side of the row. */}
-          {headlineStats.hasLineStats && (
-            <span className="diff-stats">
-              {headlineStats.additions > 0 && <i>+{headlineStats.additions}</i>}
-              {headlineStats.deletions > 0 && <em>-{headlineStats.deletions}</em>}
-            </span>
-          )}
-          {agentSources.length > 0 && (
-            <span className="turn-review-attribution">
-              {authoritativeWorktreeSnapshot
-                ? t('Agents {{agents}} attributed', { agents: agentSummary.files.size })
-                : t('Lead {{lead}} · Agents {{agents}}', {
-                    lead: transcriptSummary.files.size,
-                    agents: agentSummary.files.size,
-                  })}
-            </span>
-          )}
-        </button>
-        {expanded && (
-          <div className="turn-review-controls">
-            <div className="review-style-toggle turn-review-style" role="radiogroup" aria-label={t('Diff style')}>
-              <button type="button" aria-pressed={diffStyle === 'unified'} onClick={() => setDiffStyle('unified')}>
-                {t('Unified')}
-              </button>
-              <button type="button" aria-pressed={diffStyle === 'split'} onClick={() => setDiffStyle('split')}>
-                {t('Split')}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      {turnReviewHead({
+        expanded,
+        setExpanded,
+        setOpenFile,
+        setConfirmFile,
+        setRevertError,
+        summary,
+        headlineStats,
+        transcriptSummary,
+        agentSummary,
+        agentSources,
+        authoritativeWorktreeSnapshot,
+        diffStyle,
+        setDiffStyle,
+      })}
       {/* A refusal stays OUTSIDE the disclosure so its reason is readable
           without expanding the bar. */}
       {revertError && <ErrorNotice error={revertError} />}
@@ -782,121 +1027,34 @@ export const TurnReviewBar = memo(function TurnReviewBar({
                 const confirming = confirmFile === name;
                 const ownFile = source.key === 'turn' || source.key === 'lead';
                 const canRevertFile = ownFile && canRevertTurn && !busy && !isReverted;
-                return (
-                  <li
-                    key={rowKey}
-                    data-open={openFile === rowKey ? 'true' : 'false'}
-                    data-reverted={isReverted ? 'true' : 'false'}
-                  >
-                    <button
-                      type="button"
-                      className="turn-review-file"
-                      aria-expanded={openFile === rowKey}
-                      onClick={() => setOpenFile((current) => (current === rowKey ? '' : rowKey))}
-                    >
-                      <span
-                        className="turn-review-status"
-                        data-status={statusCode(entry)}
-                        aria-label={statusLabel(entry)}
-                        data-tooltip={statusLabel(entry)}
-                      >
-                        {statusCode(entry)}
-                      </span>
-                      <code>{rel}</code>
-                      {entry.lineStats && (
-                        <span className="diff-stats">
-                          <i>{entry.additions > 0 ? `+${entry.additions}` : ''}</i>
-                          <em>{entry.deletions > 0 ? `-${entry.deletions}` : ''}</em>
-                        </span>
-                      )}
-                      {!entry.lineStats && (
-                        <span className="diff-stats" aria-hidden="true">
-                          <i />
-                          <em />
-                        </span>
-                      )}
-                    </button>
-                    <span className="turn-review-action-slot">
-                      <button
-                        type="button"
-                        className="turn-review-open"
-                        aria-label={t('Open file {{file}}', { file: rel })}
-                        data-tooltip={t('Open file')}
-                        disabled={!cwd || !onOpenFile || (statusCode(entry) === 'D' && !isReverted)}
-                        onClick={() => {
-                          if (cwd) onOpenFile?.(cwd, rel);
-                        }}
-                      >
-                        <FileText size={12} aria-hidden="true" />
-                      </button>
-                      {ownFile &&
-                        !isReverted &&
-                        (confirming ? (
-                          <span
-                            className="turn-review-confirm"
-                            role="group"
-                            aria-label={t('Confirm reverting {{file}} to the start of this turn', { file: rel })}
-                          >
-                            <button
-                              type="button"
-                              className="turn-review-revert"
-                              aria-label={t('Cancel revert')}
-                              data-tooltip={t('Cancel')}
-                              onClick={() => setConfirmFile('')}
-                            >
-                              <X size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              className="turn-review-revert danger"
-                              aria-label={t('Confirm revert of {{file}}', { file: rel })}
-                              data-tooltip={t('Revert to turn start')}
-                              onClick={() => {
-                                setConfirmFile('');
-                                setRevertError('');
-                                void window.mixdogDesktop
-                                  .invokeCapability?.({
-                                    capability: 'revertTurnReviewFile',
-                                    args: [rel, requestedCheckpointId],
-                                    sessionId,
-                                  })
-                                  .then(async () => {
-                                    setReverted((current) => [...current, name]);
-                                    setRevertedBoundary(turnBoundaryKey);
-                                    await refreshAgentReviews();
-                                  })
-                                  .catch((reason: unknown) => setRevertError(errorMessageText(reason)));
-                              }}
-                            >
-                              <Check size={12} />
-                            </button>
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            className="turn-review-revert"
-                            aria-label={t('Revert {{file}}', { file: rel })}
-                            data-tooltip={t('Revert file to turn start')}
-                            disabled={!canRevertFile}
-                            onClick={() => setConfirmFile(name)}
-                          >
-                            <Undo2 size={12} />
-                          </button>
-                        ))}
-                    </span>
-                    {openFile === rowKey && (
-                      <div className="turn-review-diff">
-                        {entry.parts.length > 0 ? (
-                          entry.parts.map((file, index) => (
-                            <GitDiffBody key={`${rowKey}:${index}`} file={file} mode={diffStyle} />
-                          ))
-                        ) : (
-                          <span className="turn-review-status">{t('Diff detail unavailable')}</span>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                );
+                return turnReviewFileRow({
+                  entry,
+                  rel,
+                  rowKey,
+                  isReverted,
+                  openFile,
+                  setOpenFile,
+                  cwd,
+                  onOpenFile,
+                  diffStyle,
+                  revertControl:
+                    ownFile && !isReverted
+                      ? turnReviewRevertControl({
+                          name,
+                          rel,
+                          confirming,
+                          canRevertFile,
+                          sessionId,
+                          requestedCheckpointId,
+                          turnBoundaryKey,
+                          setConfirmFile,
+                          setRevertError,
+                          setReverted,
+                          setRevertedBoundary,
+                          refreshAgentReviews,
+                        })
+                      : null,
+                });
               });
               return [sourceHeader, ...rows];
             })}

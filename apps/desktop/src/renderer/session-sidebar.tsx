@@ -111,6 +111,68 @@ function storedSidebarWidth() {
   }
 }
 
+/** Width persistence for the next window. Both the settled resize and the
+ *  pagehide flush write through here: a storage failure only costs the next
+ *  window its restored width, the live resize is already applied. */
+function persistSidebarWidth(width: number) {
+  try {
+    window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+  } catch {
+    // The current window can still resize when persistent storage is unavailable.
+  }
+}
+
+type SidebarResizeStart = {
+  clientX: number;
+  width: number;
+  pendingWidth: number;
+};
+
+/** Automation runner sessions (schedule/webhook fires) live in their own
+ *  Automations section and are excluded from Recent (user decision: fires
+ *  must not flood the list). */
+function isAutomationRow(session: DesktopSessionSummary) {
+  return session.sourceType === 'schedule' || session.sourceType === 'webhook';
+}
+
+type AutomationGroup = { key: string; name: string; runs: DesktopSessionSummary[] };
+
+/** One GROUP per automation name: the newest session is the visible row and
+ *  older fires stay reachable behind a per-group "Past runs" toggle (user
+ *  decision — fires are full sessions now, so history must not vanish).
+ *  Expects activity-desc rows, which is the order the runs keep. */
+function groupAutomationSessions(activityOrderedRows: DesktopSessionSummary[]): AutomationGroup[] {
+  const groups = new Map<string, { name: string; runs: DesktopSessionSummary[] }>();
+  for (const session of activityOrderedRows) {
+    if (session.archived === true || !isAutomationRow(session)) continue;
+    // Channel-only runs never surface in Automations (user decision): the
+    // messaging channel is their surface; the session parks in Archived.
+    if (session.sourceDelivery === 'channel') continue;
+    const key = `${session.sourceType}:${
+      String(session.sourceName || '')
+        .trim()
+        .toLowerCase() || session.id
+    }`;
+    let entry = groups.get(key);
+    if (!entry) {
+      entry = { name: String(session.sourceName || sessionLabel(session)), runs: [] };
+      groups.set(key, entry);
+    }
+    // Runs keep activity order and show their fire time as the row label —
+    // every run reads the same name.
+    entry.runs.push({
+      ...session,
+      title: new Date(Number(session.activityAt) || session.updatedAt).toLocaleString(uiFormatLocale(), {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    });
+  }
+  return [...groups.entries()].map(([key, group]) => ({ key, ...group }));
+}
+
 /** Panel-header action slot. Rail destinations (Projects/Workflows/Schedules/
  *  Webhooks) hand their primary action to the panel title row instead of
  *  printing a second page header inside the list (user: 타이틀이 2번). */
@@ -150,6 +212,337 @@ export function SidebarPanelAction({
   // unit tests): keep the action inline so the surface stays complete.
   if (!slot) return button;
   return active ? createPortal(button, slot) : null;
+}
+
+/** Automations section: one disclosure per automation name over its runs.
+ *  Separate from Recent because a group header is a PURE disclosure (user
+ *  decision) — it never renames and never opens a session itself. */
+function automationsSection({
+  groups,
+  open,
+  onToggleOpen,
+  hasHeadingDot,
+  archiveAllDisabled,
+  onArchiveAll,
+  collapsedGroups,
+  onToggleGroup,
+  workingSessionIds,
+  unreadSessionIds,
+  renderSessionRow,
+}: {
+  groups: AutomationGroup[];
+  open: boolean;
+  onToggleOpen(): void;
+  hasHeadingDot: boolean;
+  archiveAllDisabled: boolean;
+  onArchiveAll(): void;
+  collapsedGroups: ReadonlySet<string>;
+  onToggleGroup(key: string): void;
+  workingSessionIds?: ReadonlySet<string>;
+  unreadSessionIds?: ReadonlySet<string>;
+  renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
+}) {
+  return (
+    <section className="sidebar-recent sidebar-automations" aria-label={t('Automations')}>
+      <div className="sidebar-category-header">
+        <button
+          type="button"
+          className="sidebar-recent-heading sidebar-heading-toggle"
+          aria-expanded={open}
+          onClick={onToggleOpen}
+        >
+          <span>{t('Automations')}</span>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {/* Collapsed sections still have to announce new activity. */}
+          {hasHeadingDot && (
+            <span className="sidebar-heading-dot" role="status" aria-label={t('Automations have new activity')} />
+          )}
+        </button>
+        {!hasHeadingDot && (
+          <RowOverflowMenu
+            label="Actions"
+            items={[
+              {
+                id: 'archive-all',
+                label: 'Archive all',
+                disabled: archiveAllDisabled,
+                onSelect: onArchiveAll,
+              },
+            ]}
+          />
+        )}
+      </div>
+      {open && (
+        <nav className="session-list automation-session-list" aria-label={t('Automations')}>
+          {groups.map(({ key, name, runs }) => {
+            const expanded = !collapsedGroups.has(key);
+            const working = runs.some((run) => workingSessionIds?.has(run.id) === true);
+            const unread = runs.some((run) => unreadSessionIds?.has(run.id) === true);
+            const ExpandGlyph = expanded ? ChevronDown : ChevronRight;
+            return (
+              <div className="automation-group" key={key}>
+                {/* The chevron LEADS in the fixed status cell (one aligned
+                    column); the working spinner takes that cell over while a
+                    run is live. */}
+                <button
+                  type="button"
+                  className="session-row automation-group-header"
+                  aria-expanded={expanded}
+                  onClick={() => onToggleGroup(key)}
+                >
+                  <span className="session-row-status" data-working={working || undefined}>
+                    {working ? (
+                      <ProgressSpinner
+                        size={12}
+                        className="session-row-spinner"
+                        role="status"
+                        aria-label={t('{{name}} is working', { name })}
+                      />
+                    ) : (
+                      <ExpandGlyph size={14} aria-hidden="true" />
+                    )}
+                  </span>
+                  <span className="session-row-copy">
+                    <b>{name}</b>
+                  </span>
+                  {unread && !working && (
+                    <span
+                      className="session-row-unread-dot"
+                      role="status"
+                      aria-label={t('{{name}} has new activity', { name })}
+                    />
+                  )}
+                </button>
+                {expanded && <div className="automation-group-past">{runs.map(renderSessionRow)}</div>}
+              </div>
+            );
+          })}
+        </nav>
+      )}
+    </section>
+  );
+}
+
+/** Recent section: the primary session catalog. Owns the invisible end
+ *  sentinel that reveals the next page — pagination has NO control of its own
+ *  (user decision: no "Show more"). */
+function recentSection({
+  sessionsReady,
+  rowCount,
+  visibleRows,
+  hasMoreRows,
+  sentinelRef,
+  open,
+  onToggleOpen,
+  hasHeadingDot,
+  archiveAllDisabled,
+  onArchiveAll,
+  renderSessionRow,
+}: {
+  sessionsReady: boolean;
+  rowCount: number;
+  visibleRows: DesktopSessionSummary[];
+  hasMoreRows: boolean;
+  sentinelRef: React.RefObject<HTMLDivElement | null>;
+  open: boolean;
+  onToggleOpen(): void;
+  hasHeadingDot: boolean;
+  archiveAllDisabled: boolean;
+  onArchiveAll(): void;
+  renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
+}) {
+  return (
+    <section className="sidebar-recent" aria-label={t('Recent sessions')}>
+      <div className="sidebar-category-header">
+        <button
+          type="button"
+          className="sidebar-recent-heading sidebar-heading-toggle"
+          aria-expanded={open}
+          onClick={onToggleOpen}
+        >
+          <span>{t('Recent')}</span>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {hasHeadingDot && (
+            <span className="sidebar-heading-dot" role="status" aria-label={t('Recent has new activity')} />
+          )}
+        </button>
+        {!hasHeadingDot && (
+          <RowOverflowMenu
+            label="Actions"
+            items={[
+              {
+                id: 'archive-all',
+                label: 'Archive all',
+                disabled: archiveAllDisabled,
+                onSelect: onArchiveAll,
+              },
+            ]}
+          />
+        )}
+      </div>
+      {open && (
+        <nav id="recent-session-list" className="session-list recent-session-list" aria-label={t('Recent sessions')}>
+          {!sessionsReady && rowCount === 0 ? (
+            <InitialSurface />
+          ) : (
+            sessionsReady && rowCount === 0 && <p className="sidebar-section-empty">{t('No sessions')}</p>
+          )}
+          {visibleRows.map(renderSessionRow)}
+          {hasMoreRows && (
+            <div
+              ref={sentinelRef}
+              className="session-list-sentinel"
+              aria-hidden="true"
+              style={{ height: 1, pointerEvents: 'none' }}
+            />
+          )}
+        </nav>
+      )}
+    </section>
+  );
+}
+
+/** Archived section: restore and permanent-delete of parked sessions, kept
+ *  apart from Recent because those are the only bulk actions that leave or
+ *  destroy the catalog. */
+function archivedSection({
+  visibleRows,
+  hasMoreRows,
+  sentinelRef,
+  open,
+  onToggleOpen,
+  actionsDisabled,
+  onRestoreAll,
+  onDeleteAll,
+  renderSessionRow,
+}: {
+  visibleRows: DesktopSessionSummary[];
+  hasMoreRows: boolean;
+  sentinelRef: React.RefObject<HTMLDivElement | null>;
+  open: boolean;
+  onToggleOpen(): void;
+  actionsDisabled: boolean;
+  onRestoreAll(): void;
+  onDeleteAll(): void;
+  renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
+}) {
+  return (
+    <section className="sidebar-recent sidebar-archived" aria-label={t('Archived sessions')}>
+      <div className="sidebar-category-header">
+        <button
+          type="button"
+          className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"
+          aria-expanded={open}
+          onClick={onToggleOpen}
+        >
+          <span>{t('Archived')}</span>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </button>
+        <RowOverflowMenu
+          label="Actions"
+          items={[
+            {
+              id: 'restore-all',
+              label: 'Restore all',
+              disabled: actionsDisabled,
+              onSelect: onRestoreAll,
+            },
+            {
+              id: 'delete-all-archived',
+              label: 'Delete all archived sessions',
+              danger: true,
+              separatorBefore: true,
+              disabled: actionsDisabled,
+              children: [
+                {
+                  id: 'confirm-delete-all-archived',
+                  label: 'Confirm delete',
+                  danger: true,
+                  onSelect: onDeleteAll,
+                },
+              ],
+            },
+          ]}
+        />
+      </div>
+      {open && (
+        <nav className="session-list archived-session-list" aria-label={t('Archived sessions')}>
+          {visibleRows.map(renderSessionRow)}
+          {hasMoreRows && (
+            <div
+              ref={sentinelRef}
+              className="session-list-sentinel"
+              aria-hidden="true"
+              style={{ height: 1, pointerEvents: 'none' }}
+            />
+          )}
+        </nav>
+      )}
+    </section>
+  );
+}
+
+/** Drag separator for the sidebar width. The live pointer width is written
+ *  straight to the element and the ref so a drag never re-renders the session
+ *  lists; only the settled width reaches state and storage. */
+function sidebarResizeHandle({
+  width,
+  sidebarWidth,
+  resizeStart,
+  updateSidebarWidth,
+  onFinishResize,
+}: {
+  width: number;
+  sidebarWidth: number;
+  resizeStart: { current: SidebarResizeStart | null };
+  updateSidebarWidth(value: number): void;
+  onFinishResize(): void;
+}) {
+  return (
+    <div
+      className="session-sidebar-resize"
+      role="separator"
+      tabIndex={0}
+      aria-label={t('Resize session sidebar')}
+      aria-orientation="vertical"
+      aria-valuemin={MIN_SIDEBAR_WIDTH}
+      aria-valuemax={MAX_SIDEBAR_WIDTH}
+      aria-valuenow={width}
+      aria-valuetext={`${width} pixels`}
+      onDoubleClick={() => updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowLeft') updateSidebarWidth(sidebarWidth - 16);
+        else if (event.key === 'ArrowRight') updateSidebarWidth(sidebarWidth + 16);
+        else if (event.key === 'Home') updateSidebarWidth(MIN_SIDEBAR_WIDTH);
+        else if (event.key === 'End') updateSidebarWidth(MAX_SIDEBAR_WIDTH);
+        else return;
+        event.preventDefault();
+      }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        resizeStart.current = {
+          clientX: event.clientX,
+          width: sidebarWidth,
+          pendingWidth: sidebarWidth,
+        };
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        document.body.classList.add('session-sidebar-resizing');
+        event.preventDefault();
+      }}
+      onPointerMove={(event) => {
+        const start = resizeStart.current;
+        if (!start) return;
+        const next = clampSidebarWidth(start.width + event.clientX - start.clientX);
+        start.pendingWidth = next;
+        const sidebar = event.currentTarget.closest<HTMLElement>('.session-sidebar');
+        sidebar?.style.setProperty('--session-sidebar-width', `${next}px`);
+        event.currentTarget.setAttribute('aria-valuenow', String(next));
+        event.currentTarget.setAttribute('aria-valuetext', `${next} pixels`);
+      }}
+      onPointerUp={onFinishResize}
+      onPointerCancel={onFinishResize}
+    />
+  );
 }
 
 interface SessionSidebarProps {
@@ -203,29 +596,17 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const [deletingSessionId, setDeletingSessionId] = useState('');
   const [sidebarWidth, setSidebarWidth] = useState(storedSidebarWidth);
   const [panelActionSlot, setPanelActionSlot] = useState<HTMLDivElement | null>(null);
-  const resizeStart = useRef<{
-    clientX: number;
-    width: number;
-    pendingWidth: number;
-  } | null>(null);
+  const resizeStart = useRef<SidebarResizeStart | null>(null);
   const updateSidebarWidth = useCallback((value: number) => {
     const next = clampSidebarWidth(value);
     setSidebarWidth(next);
-    try {
-      window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(next));
-    } catch {
-      // The current window can still resize when persistent storage is unavailable.
-    }
+    persistSidebarWidth(next);
   }, []);
   useEffect(() => {
     const flushPendingWidth = () => {
       const pendingWidth = resizeStart.current?.pendingWidth;
       if (pendingWidth === undefined) return;
-      try {
-        window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(clampSidebarWidth(pendingWidth)));
-      } catch {
-        // Preserve the live resize even if persistent storage is unavailable.
-      }
+      persistSidebarWidth(clampSidebarWidth(pendingWidth));
     };
     window.addEventListener('pagehide', flushPendingWidth);
     return () => window.removeEventListener('pagehide', flushPendingWidth);
@@ -250,49 +631,12 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         }),
     [sessions]
   );
-  // Automation runner sessions (schedule/webhook fires) live in their own
-  // Automations section — one row per name, newest session wins — and are
-  // excluded from Recent (user decision: fires must not flood the list).
-  const isAutomationRow = (session: DesktopSessionSummary) =>
-    session.sourceType === 'schedule' || session.sourceType === 'webhook';
   const rows = useMemo(
     () => allRows.filter((session) => session.archived !== true && !isAutomationRow(session)),
     [allRows]
   );
-  // One GROUP per automation name: the newest session is the visible row and
-  // older fires stay reachable behind a per-group "Past runs" toggle (user
-  // decision — fires are full sessions now, so history must not vanish).
-  const automationGroups = useMemo(() => {
-    const groups = new Map<string, { name: string; runs: DesktopSessionSummary[] }>();
-    for (const session of allRows) {
-      if (session.archived === true || !isAutomationRow(session)) continue;
-      // Channel-only runs never surface in Automations (user decision): the
-      // messaging channel is their surface; the session parks in Archived.
-      if (session.sourceDelivery === 'channel') continue;
-      const key = `${session.sourceType}:${
-        String(session.sourceName || '')
-          .trim()
-          .toLowerCase() || session.id
-      }`;
-      let entry = groups.get(key);
-      if (!entry) {
-        entry = { name: String(session.sourceName || sessionLabel(session)), runs: [] };
-        groups.set(key, entry);
-      }
-      // Runs keep activity order (allRows is activity-desc) and show their
-      // fire time as the row label — every run reads the same name.
-      entry.runs.push({
-        ...session,
-        title: new Date(Number(session.activityAt) || session.updatedAt).toLocaleString(uiFormatLocale(), {
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-      });
-    }
-    return [...groups.entries()].map(([key, group]) => ({ key, ...group }));
-  }, [allRows]);
+  // allRows is activity-desc, which is the order the grouped runs keep.
+  const automationGroups = useMemo(() => groupAutomationSessions(allRows), [allRows]);
   // Tracks the COLLAPSED groups, so every automation group — including one that
   // appears after a fresh fire — renders expanded by default (user decision:
   // opening the app on a collapsed list buried the runs behind an extra click).
@@ -660,207 +1004,56 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           </button>
         </nav>
         <div className="session-sidebar-scroll" ref={recentScrollerRef} onScroll={handleRecentScroll}>
-          {automationGroups.length > 0 && (
-            <section className="sidebar-recent sidebar-automations" aria-label={t('Automations')}>
-              <div className="sidebar-category-header">
-                <button
-                  type="button"
-                  className="sidebar-recent-heading sidebar-heading-toggle"
-                  aria-expanded={automationsOpen}
-                  onClick={() => setAutomationsOpen((open) => !open)}
-                >
-                  <span>{t('Automations')}</span>
-                  {automationsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                  {/* Collapsed sections still have to announce new activity. */}
-                  {automationsHaveHeadingDot && (
-                    <span
-                      className="sidebar-heading-dot"
-                      role="status"
-                      aria-label={t('Automations have new activity')}
-                    />
-                  )}
-                </button>
-                {!automationsHaveHeadingDot && (
-                  <RowOverflowMenu
-                    label="Actions"
-                    items={[
-                      {
-                        id: 'archive-all',
-                        label: 'Archive all',
-                        disabled: Boolean(bulkAction) || automationRows.length === 0,
-                        onSelect: () => {
-                          void updateSessionArchives('archive-automations', automationRows, true);
-                        },
-                      },
-                    ]}
-                  />
-                )}
-              </div>
-              {automationsOpen && (
-                <nav className="session-list automation-session-list" aria-label={t('Automations')}>
-                  {automationGroups.map(({ key, name, runs }) => {
-                    const expanded = !collapsedAutomations.has(key);
-                    const working = runs.some((run) => workingSessionIds?.has(run.id) === true);
-                    const unread = runs.some((run) => unreadSessionIds?.has(run.id) === true);
-                    const ExpandGlyph = expanded ? ChevronDown : ChevronRight;
-                    return (
-                      <div className="automation-group" key={key}>
-                        {/* The group header is a PURE disclosure (user decision):
-                        clicking toggles the run list — it never renames and
-                        never opens a session itself. The chevron LEADS in the
-                        fixed status cell (one aligned column); the working
-                        spinner takes that cell over while a run is live. */}
-                        <button
-                          type="button"
-                          className="session-row automation-group-header"
-                          aria-expanded={expanded}
-                          onClick={() => toggleAutomationGroup(key)}
-                        >
-                          <span className="session-row-status" data-working={working || undefined}>
-                            {working ? (
-                              <ProgressSpinner
-                                size={12}
-                                className="session-row-spinner"
-                                role="status"
-                                aria-label={t('{{name}} is working', { name })}
-                              />
-                            ) : (
-                              <ExpandGlyph size={14} aria-hidden="true" />
-                            )}
-                          </span>
-                          <span className="session-row-copy">
-                            <b>{name}</b>
-                          </span>
-                          {unread && !working && (
-                            <span
-                              className="session-row-unread-dot"
-                              role="status"
-                              aria-label={t('{{name}} has new activity', { name })}
-                            />
-                          )}
-                        </button>
-                        {expanded && <div className="automation-group-past">{runs.map(renderSessionRow)}</div>}
-                      </div>
-                    );
-                  })}
-                </nav>
-              )}
-            </section>
-          )}
-          <section className="sidebar-recent" aria-label={t('Recent sessions')}>
-            <div className="sidebar-category-header">
-              <button
-                type="button"
-                className="sidebar-recent-heading sidebar-heading-toggle"
-                aria-expanded={recentOpen}
-                onClick={() => setRecentOpen((open) => !open)}
-              >
-                <span>{t('Recent')}</span>
-                {recentOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                {recentHasHeadingDot && (
-                  <span className="sidebar-heading-dot" role="status" aria-label={t('Recent has new activity')} />
-                )}
-              </button>
-              {!recentHasHeadingDot && (
-                <RowOverflowMenu
-                  label="Actions"
-                  items={[
-                    {
-                      id: 'archive-all',
-                      label: 'Archive all',
-                      disabled: Boolean(bulkAction) || rows.length === 0,
-                      onSelect: () => {
-                        void updateSessionArchives('archive-recent', rows, true);
-                      },
-                    },
-                  ]}
-                />
-              )}
-            </div>
-            {recentOpen && (
-              <nav
-                id="recent-session-list"
-                className="session-list recent-session-list"
-                aria-label={t('Recent sessions')}
-              >
-                {!sessionsReady && rows.length === 0 ? (
-                  <InitialSurface />
-                ) : (
-                  sessionsReady && rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions')}</p>
-                )}
-                {visibleRecentRows.map(renderSessionRow)}
-                {hasMoreRecentRows && (
-                  <div
-                    ref={recentSentinelRef}
-                    className="session-list-sentinel"
-                    aria-hidden="true"
-                    style={{ height: 1, pointerEvents: 'none' }}
-                  />
-                )}
-              </nav>
-            )}
-          </section>
-          {archivedRows.length > 0 && (
-            <section className="sidebar-recent sidebar-archived" aria-label={t('Archived sessions')}>
-              <div className="sidebar-category-header">
-                <button
-                  type="button"
-                  className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"
-                  aria-expanded={archivedOpen}
-                  onClick={() => {
-                    setArchivedRowLimit(RECENT_SESSION_INITIAL_ROWS);
-                    setArchivedOpen((open) => !open);
-                  }}
-                >
-                  <span>{t('Archived')}</span>
-                  {archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                </button>
-                <RowOverflowMenu
-                  label="Actions"
-                  items={[
-                    {
-                      id: 'restore-all',
-                      label: 'Restore all',
-                      disabled: Boolean(bulkAction) || deletableArchivedRows.length === 0,
-                      onSelect: () => {
-                        void updateSessionArchives('restore', deletableArchivedRows, false);
-                      },
-                    },
-                    {
-                      id: 'delete-all-archived',
-                      label: 'Delete all archived sessions',
-                      danger: true,
-                      separatorBefore: true,
-                      disabled: Boolean(bulkAction) || deletableArchivedRows.length === 0,
-                      children: [
-                        {
-                          id: 'confirm-delete-all-archived',
-                          label: 'Confirm delete',
-                          danger: true,
-                          onSelect: () => {
-                            void deleteAllArchived();
-                          },
-                        },
-                      ],
-                    },
-                  ]}
-                />
-              </div>
-              {archivedOpen && (
-                <nav className="session-list archived-session-list" aria-label={t('Archived sessions')}>
-                  {visibleArchivedRows.map(renderSessionRow)}
-                  {hasMoreArchivedRows && (
-                    <div
-                      ref={archivedSentinelRef}
-                      className="session-list-sentinel"
-                      aria-hidden="true"
-                      style={{ height: 1, pointerEvents: 'none' }}
-                    />
-                  )}
-                </nav>
-              )}
-            </section>
-          )}
+          {automationGroups.length > 0 &&
+            automationsSection({
+              groups: automationGroups,
+              open: automationsOpen,
+              onToggleOpen: () => setAutomationsOpen((open) => !open),
+              hasHeadingDot: automationsHaveHeadingDot,
+              archiveAllDisabled: Boolean(bulkAction) || automationRows.length === 0,
+              onArchiveAll: () => {
+                void updateSessionArchives('archive-automations', automationRows, true);
+              },
+              collapsedGroups: collapsedAutomations,
+              onToggleGroup: toggleAutomationGroup,
+              workingSessionIds,
+              unreadSessionIds,
+              renderSessionRow,
+            })}
+          {recentSection({
+            sessionsReady,
+            rowCount: rows.length,
+            visibleRows: visibleRecentRows,
+            hasMoreRows: hasMoreRecentRows,
+            sentinelRef: recentSentinelRef,
+            open: recentOpen,
+            onToggleOpen: () => setRecentOpen((open) => !open),
+            hasHeadingDot: recentHasHeadingDot,
+            archiveAllDisabled: Boolean(bulkAction) || rows.length === 0,
+            onArchiveAll: () => {
+              void updateSessionArchives('archive-recent', rows, true);
+            },
+            renderSessionRow,
+          })}
+          {archivedRows.length > 0 &&
+            archivedSection({
+              visibleRows: visibleArchivedRows,
+              hasMoreRows: hasMoreArchivedRows,
+              sentinelRef: archivedSentinelRef,
+              open: archivedOpen,
+              onToggleOpen: () => {
+                setArchivedRowLimit(RECENT_SESSION_INITIAL_ROWS);
+                setArchivedOpen((open) => !open);
+              },
+              actionsDisabled: Boolean(bulkAction) || deletableArchivedRows.length === 0,
+              onRestoreAll: () => {
+                void updateSessionArchives('restore', deletableArchivedRows, false);
+              },
+              onDeleteAll: () => {
+                void deleteAllArchived();
+              },
+              renderSessionRow,
+            })}
         </div>
       </div>
       {/* Rail destinations render here as compact visible lists; their
@@ -873,49 +1066,13 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       >
         <SidebarPanelHeaderSlot.Provider value={panelActionSlot}>{children}</SidebarPanelHeaderSlot.Provider>
       </div>
-      <div
-        className="session-sidebar-resize"
-        role="separator"
-        tabIndex={0}
-        aria-label={t('Resize session sidebar')}
-        aria-orientation="vertical"
-        aria-valuemin={MIN_SIDEBAR_WIDTH}
-        aria-valuemax={MAX_SIDEBAR_WIDTH}
-        aria-valuenow={displayedSidebarWidth}
-        aria-valuetext={`${displayedSidebarWidth} pixels`}
-        onDoubleClick={() => updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH)}
-        onKeyDown={(event) => {
-          if (event.key === 'ArrowLeft') updateSidebarWidth(sidebarWidth - 16);
-          else if (event.key === 'ArrowRight') updateSidebarWidth(sidebarWidth + 16);
-          else if (event.key === 'Home') updateSidebarWidth(MIN_SIDEBAR_WIDTH);
-          else if (event.key === 'End') updateSidebarWidth(MAX_SIDEBAR_WIDTH);
-          else return;
-          event.preventDefault();
-        }}
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          resizeStart.current = {
-            clientX: event.clientX,
-            width: sidebarWidth,
-            pendingWidth: sidebarWidth,
-          };
-          event.currentTarget.setPointerCapture?.(event.pointerId);
-          document.body.classList.add('session-sidebar-resizing');
-          event.preventDefault();
-        }}
-        onPointerMove={(event) => {
-          const start = resizeStart.current;
-          if (!start) return;
-          const next = clampSidebarWidth(start.width + event.clientX - start.clientX);
-          start.pendingWidth = next;
-          const sidebar = event.currentTarget.closest<HTMLElement>('.session-sidebar');
-          sidebar?.style.setProperty('--session-sidebar-width', `${next}px`);
-          event.currentTarget.setAttribute('aria-valuenow', String(next));
-          event.currentTarget.setAttribute('aria-valuetext', `${next} pixels`);
-        }}
-        onPointerUp={finishSidebarResize}
-        onPointerCancel={finishSidebarResize}
-      />
+      {sidebarResizeHandle({
+        width: displayedSidebarWidth,
+        sidebarWidth,
+        resizeStart,
+        updateSidebarWidth,
+        onFinishResize: finishSidebarResize,
+      })}
     </aside>
   );
 });

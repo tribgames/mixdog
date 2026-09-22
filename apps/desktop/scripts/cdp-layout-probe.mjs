@@ -1,80 +1,13 @@
+import { CdpClient } from './cdp-client.mjs';
+import { optionValue } from './cli-args.mjs';
+
 const argumentsList = process.argv.slice(2);
-const valueFor = (prefix) =>
-  argumentsList.find((argument) => argument.startsWith(`${prefix}=`))?.slice(prefix.length + 1);
-const port = Number(valueFor('--port') || 9342);
+const port = Number(optionValue('port', argumentsList) || 9342);
 const repair = argumentsList.includes('--repair');
 const exercisePanel = argumentsList.includes('--exercise-panel');
 
 if (!Number.isInteger(port) || port < 1 || port > 65_535) {
   throw new Error(`Invalid CDP port: ${String(port)}`);
-}
-
-class CdpClient {
-  constructor(url) {
-    this.socket = new WebSocket(url);
-    this.nextId = 1;
-    this.pending = new Map();
-  }
-
-  async connect() {
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('CDP connection timed out.')), 10_000);
-      this.socket.addEventListener(
-        'open',
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        { once: true }
-      );
-      this.socket.addEventListener(
-        'error',
-        () => {
-          clearTimeout(timer);
-          reject(new Error('CDP websocket failed.'));
-        },
-        { once: true }
-      );
-    });
-    this.socket.addEventListener('message', (event) => {
-      const message = JSON.parse(String(event.data));
-      if (!message.id) return;
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      this.pending.delete(message.id);
-      clearTimeout(pending.timer);
-      if (message.error) pending.reject(new Error(message.error.message));
-      else pending.resolve(message.result);
-    });
-  }
-
-  request(method, params = {}, timeoutMs = 10_000) {
-    const id = this.nextId++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`${method} timed out after ${timeoutMs}ms.`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-
-  async evaluate(expression) {
-    const result = await this.request('Runtime.evaluate', {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-    });
-    if (result.exceptionDetails) {
-      throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
-    }
-    return result.result?.value;
-  }
-
-  close() {
-    this.socket.close();
-  }
 }
 
 const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => {
@@ -88,7 +21,10 @@ if (!target?.webSocketDebuggerUrl) {
   throw new Error(`No renderer page is available on CDP port ${port}.`);
 }
 
-const client = new CdpClient(target.webSocketDebuggerUrl);
+const client = new CdpClient(target.webSocketDebuggerUrl, {
+  defaultTimeoutMs: 10_000,
+  connectTimeoutMs: 10_000,
+});
 await client.connect();
 
 const readMetrics = () =>
