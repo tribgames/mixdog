@@ -5,6 +5,43 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- A restored queued message keeps the text the daemon confirmed. Restoring one
+  publishes twice in the same breath — the local guess first, the daemon's
+  answer a moment later — and both were stamped with the clock. When they
+  landed in the same millisecond the prompt treated the second as the first and
+  kept the guess, so an edited message could come back subtly wrong. The prompt
+  now follows the text itself, not only the stamp.
+
+- Jumping twice in one instant no longer loses the second jump. Two "go to this
+  line" requests inside the same millisecond carried the same stamp, and the
+  editor read only the stamp, so the second one was dropped and the cursor sat
+  on the first line.
+
+- A search that crashes no longer takes the whole search engine with it. The
+  engine already knew how to answer one bad request with an error and keep
+  serving, but the shipped build was compiled so that any crash killed the
+  process instead — losing every other search in flight and the warm file
+  index. It now survives, answers that one request with an error, and keeps
+  its caches. If a crash does happen while files are being collected, the
+  collected paths are still published rather than quietly disappearing from
+  the answer.
+
+- Apply and Delete on a local provider row sit on the same line. They differed
+  by two pixels because the row mixed a taller input with a shorter button.
+
+- Cleaning up code tells you when a tool is not the tool you think it is. If a
+  formatter or linter with the same name is reachable on your machine but is
+  not the one Mixdog runs, the report now names both, with versions — running
+  that other binary says nothing about the result you were shown. A cleanup run
+  also separates findings in files you have already touched from findings in
+  files that are untouched in the repository, so applying fixes to a whole
+  directory no longer rewrites files you never meant to change.
+
+- Updating your installed app no longer stops because your antivirus removed a
+  file the update discards anyway. Staging unpacked the whole installed app and
+  deleted the part it was about to replace; one quarantined renderer asset was
+  enough to abort the deploy.
+
 ## v0.9.172 - 2026-09-21
 
 - A page no longer opens by announcing downloads it never made. Saved files
