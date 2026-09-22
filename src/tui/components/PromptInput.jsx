@@ -17,10 +17,8 @@
  */
 import { useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
-import { displayWidth } from '../display-width.mjs';
 import { theme, surfaceBackground } from '../theme.mjs';
 import {
-  caretPosition,
   clearSelection,
   deleteBackwardWord,
   deleteForwardWord,
@@ -32,13 +30,11 @@ import {
   moveCursor,
   nextOffset,
   nextWordOffset,
-  offsetAtCell,
   previousOffset,
   previousWordOffset,
   replaceSelection,
   selectionRange,
   verticalOffset,
-  wordRangeAt,
 } from '../input-editing.mjs';
 import {
   hintStyle,
@@ -53,15 +49,16 @@ import { cancelPromptImmediateFlush, schedulePromptImmediateFlush } from './prom
 import { classifyPromptEscape } from './prompt-input/escape-policy.mjs';
 import { paletteOwnsPromptVerticalArrow } from './prompt-input/restore-policy.mjs';
 import { renderSelectedText } from './prompt-input/selected-text.jsx';
-
-// Windows Terminal IME composition can clip a glyph that starts exactly at the
-// left edge of the editable text node. The rounded prompt box already adds a
-// paddingX of 1, so the typing start can sit directly against that padding
-// without an extra guard column.
-const IME_LEFT_GUARD_COLUMNS = 0;
-// Coalesce prompt mouse-drag extend commits (SGR motion can fire faster than ink
-// needs to immediate-render). Matches transcript selection paint cadence.
-const MOUSE_EXTEND_COALESCE_MS = 24;
+import { IME_LEFT_GUARD_COLUMNS, createCursorAnchor } from './prompt-input/cursor-anchor.mjs';
+import {
+  decodeArrowSignals,
+  isCsiPrivateReply,
+  isDiscardedControlInput,
+  isMouseReportSequence,
+  printableFromInput,
+} from './prompt-input/key-signals.mjs';
+import { createPromptMouseSelection } from './prompt-input/mouse-selection.mjs';
+import { createUndoStack } from './prompt-input/undo-stack.mjs';
 
 export function PromptInput({
   onSubmit,
@@ -176,6 +173,15 @@ export function PromptInput({
     []
   );
 
+  // Undo/redo history: prompt-input/undo-stack.mjs. Built before commitDraft so
+  // the commit path can record into it; applying a step commits back through
+  // the same function.
+  const undoStack = createUndoStack({
+    stateRef: undoRef,
+    draftRef,
+    commit: (next, options) => commitDraft(next, options),
+  });
+
   const commitDraft = (next, options = {}) => {
     escapeClearAtRef.current = 0;
     const sameDraft = draftStateEqual(draftRef.current, next);
@@ -186,7 +192,7 @@ export function PromptInput({
       if (options.immediateSettle) scheduleImmediateFlush();
       return;
     }
-    if (!options.skipHistory) recordUndoSnapshot(draftRef.current, next, options);
+    if (!options.skipHistory) undoStack.record(draftRef.current, next, options);
     draftRef.current = next;
     setDraft(next);
     // Mouse drag motion uses Ink's normal maxFps render path; keyboard edits
@@ -201,49 +207,15 @@ export function PromptInput({
 
   const installCursorAnchor = () => {
     if (!boxRef.current || boxRef.current.internal_cursorAnchor) return false;
-    boxRef.current.internal_cursorAnchor = (yogaNode) => {
-      // [mixdog] Report the editable content box's REAL absolute rect up to App
-      // every frame so the mouse handler can map a click/drag cell to an edit
-      // offset. Walk the parent chain summing yoga computed offsets (same math
-      // render-node-to-output uses) — boxRef is the flex-row that holds the text
-      // node, so its absolute x/y is the first content cell (col 0,row 0).
-      if (boxRectRef) {
-        let absLeft = 0;
-        let absTop = 0;
-        let node = boxRef.current;
-        for (let i = 0; node && i < 64; i++) {
-          const yn = node.yogaNode;
-          if (yn?.getComputedLeft) {
-            absLeft += yn.getComputedLeft() || 0;
-            absTop += yn.getComputedTop() || 0;
-          }
-          if (node.nodeName === 'ink-root') break;
-          node = node.parentNode;
-        }
-        const hNow = yogaNode?.getComputedHeight?.() ?? 1;
-        boxRectRef.current = {
-          top: absTop,
-          left: absLeft,
-          height: Math.max(1, hNow || 1),
-          contentWidth: contentWidthRef.current,
-        };
-      }
-      if (!cursorEnabledRef.current) return null;
-      const d = draftRef.current;
-      const w = yogaNode?.getComputedWidth?.() ?? 0;
-      const guardColumns = w > IME_LEFT_GUARD_COLUMNS ? IME_LEFT_GUARD_COLUMNS : 0;
-      const contentWidth = Math.max(1, (w ? w - guardColumns : contentWidthRef.current) || 80);
-      contentWidthRef.current = contentWidth;
-      const caret =
-        w > 0
-          ? // PromptInput renders a trailing space cell when the cursor is at
-            // end-of-input, so a caret flush on the last column there still has a
-            // following cell — pass hasTrailingContent=true so it rolls to row N+1
-            // exactly as ink wraps the trailing space.
-            caretPosition(d.value, d.cursor, contentWidth, d.cursor >= d.value.length ? true : undefined)
-          : { row: 0, col: displayWidth(d.value.slice(0, d.cursor)) };
-      return w > 0 ? { ...caret, col: caret.col + guardColumns } : caret;
-    };
+    // The anchor function itself (box-rect publish + caret math) lives in
+    // prompt-input/cursor-anchor.mjs.
+    boxRef.current.internal_cursorAnchor = createCursorAnchor({
+      boxRef,
+      boxRectRef,
+      contentWidthRef,
+      cursorEnabledRef,
+      draftRef,
+    });
     return true;
   };
 
@@ -251,169 +223,18 @@ export function PromptInput({
     commitDraft(fn(draftRef.current), options);
   };
 
-  // --- undo/redo -----------------------------------------------------------
-  // Continuous-typing coalesce window: successive value-changing edits within
-  // this window collapse into a single undo step.
-  const UNDO_COALESCE_MS = 500;
-  const UNDO_MAX = 100;
-
-  const snapshotOf = (d) => ({ value: d.value, cursor: d.cursor, selectionAnchor: d.selectionAnchor ?? null });
-
-  const resetUndo = () => {
-    undoRef.current = { past: [], future: [], lastPushAt: 0, lastValue: null };
-  };
-
-  // Record a snapshot of the PREVIOUS state before applying `next`. Cursor-only
-  // moves (value unchanged) are never snapshotted. Consecutive value edits
-  // within UNDO_COALESCE_MS coalesce (we keep only the first snapshot of the
-  // run, so a single undo reverts the whole burst).
-  const recordUndoSnapshot = (prev, next, options = {}) => {
-    const stack = undoRef.current;
-    if (prev.value === next.value) {
-      // Cursor/selection-only move: don't snapshot, but BREAK the coalesce run
-      // so a following edit starts a fresh undo step (typing→move→typing must
-      // not collapse into one undo).
-      stack.lastPushAt = 0;
-      stack.lastValue = next.value;
-      return;
-    }
-    const now = Date.now();
-    const coalesce =
-      !options.undoBreak &&
-      stack.past.length > 0 &&
-      now - stack.lastPushAt < UNDO_COALESCE_MS &&
-      stack.lastValue === prev.value;
-    if (!coalesce) {
-      stack.past.push(snapshotOf(prev));
-      if (stack.past.length > UNDO_MAX) stack.past.shift();
-    }
-    stack.lastPushAt = now;
-    stack.lastValue = next.value;
-    stack.future = [];
-  };
-
-  const performUndo = () => {
-    const stack = undoRef.current;
-    if (stack.past.length === 0) return false;
-    const prev = stack.past.pop();
-    stack.future.push(snapshotOf(draftRef.current));
-    stack.lastPushAt = 0;
-    stack.lastValue = prev.value;
-    commitDraft(prev, { skipHistory: true });
-    return true;
-  };
-
-  const performRedo = () => {
-    const stack = undoRef.current;
-    if (stack.future.length === 0) return false;
-    const next = stack.future.pop();
-    stack.past.push(snapshotOf(draftRef.current));
-    if (stack.past.length > UNDO_MAX) stack.past.shift();
-    stack.lastPushAt = 0;
-    stack.lastValue = next.value;
-    commitDraft(next, { skipHistory: true });
-    return true;
-  };
-  // -------------------------------------------------------------------------
-
-  const cancelMouseExtendCoalesce = () => {
-    const state = mouseExtendCoalesceRef.current;
-    if (state.timer) {
-      clearTimeout(state.timer);
-      state.timer = null;
-    }
-    state.pendingNext = null;
-  };
-
-  const queueMouseExtendCommit = (next, immediate = false) => {
-    if (immediate) {
-      cancelMouseExtendCoalesce();
-      commitDraft(next, { immediateSettle: true });
-      mouseExtendCoalesceRef.current.t = Date.now();
-      return;
-    }
-    if (draftStateEqual(draftRef.current, next)) {
-      cancelMouseExtendCoalesce();
-      commitDraft(next, { throttledRender: true });
-      return;
-    }
-    const state = mouseExtendCoalesceRef.current;
-    state.pendingNext = next;
-    const now = Date.now();
-    const elapsed = now - state.t;
-    if (elapsed >= MOUSE_EXTEND_COALESCE_MS) {
-      cancelMouseExtendCoalesce();
-      state.t = now;
-      commitDraft(next, { throttledRender: true });
-      return;
-    }
-    if (state.timer) return;
-    state.timer = setTimeout(
-      () => {
-        const current = mouseExtendCoalesceRef.current;
-        const pending = current.pendingNext;
-        current.timer = null;
-        current.pendingNext = null;
-        current.t = Date.now();
-        if (pending) commitDraft(pending, { throttledRender: true });
-      },
-      Math.max(1, MOUSE_EXTEND_COALESCE_MS - elapsed)
-    );
-    state.timer.unref?.();
-  };
-
-  // [mixdog] Mouse drag-selection driver. App's single mouse handler maps a
-  // click/drag cell over the prompt box to an edit offset and calls these so the
-  // SAME selectionAnchor/cursor engine that keyboard Shift-selection uses paints
-  // the highlight. Anchor on press, extend on drag/release; clear on a plain
-  // click. Reuses contentWidthRef (the real measured content width).
+  // [mixdog] Mouse drag-selection driver: prompt-input/mouse-selection.mjs.
+  // App's single mouse handler maps a click/drag cell over the prompt box to an
+  // edit offset and calls these so the SAME selectionAnchor/cursor engine that
+  // keyboard Shift-selection uses paints the highlight. Anchor on press, extend
+  // on drag/release; clear on a plain click.
   if (mouseSelectionRef) {
-    mouseSelectionRef.current = {
-      offsetAtCell: (row, col) => offsetAtCell(draftRef.current.value, row, col, contentWidthRef.current),
-      anchorAt: (offset) => {
-        cancelMouseExtendCoalesce();
-        const value = draftRef.current.value;
-        const off = Math.max(0, Math.min(value.length, Math.floor(Number(offset) || 0)));
-        commitDraft({ ...draftRef.current, cursor: off, selectionAnchor: off });
-        mouseExtendCoalesceRef.current.t = Date.now();
-      },
-      extendTo: (offset, immediate = false) => {
-        if (offset == null) {
-          if (immediate) cancelMouseExtendCoalesce();
-          return;
-        }
-        const d = draftRef.current;
-        const off = Math.max(0, Math.min(d.value.length, Math.floor(Number(offset) || 0)));
-        const anchor = Number.isFinite(d.selectionAnchor) ? d.selectionAnchor : d.cursor;
-        queueMouseExtendCommit({ ...d, cursor: off, selectionAnchor: anchor }, immediate);
-      },
-      hasSelection: () => selectionRange(draftRef.current) != null,
-      // Double-click word select: pick the word/punctuation run under the
-      // clicked offset and set selectionAnchor/cursor to its bounds so it
-      // paints via the normal selection highlight. Triple-click line select
-      // uses lineStart/lineEnd instead (see selectLineAt).
-      selectWordAt: (offset) => {
-        cancelMouseExtendCoalesce();
-        const value = draftRef.current.value;
-        const off = Math.max(0, Math.min(value.length, Math.floor(Number(offset) || 0)));
-        const { start, end } = wordRangeAt(value, off);
-        commitDraft({ ...draftRef.current, cursor: end, selectionAnchor: start });
-        mouseExtendCoalesceRef.current.t = Date.now();
-      },
-      selectLineAt: (offset) => {
-        cancelMouseExtendCoalesce();
-        const value = draftRef.current.value;
-        const off = Math.max(0, Math.min(value.length, Math.floor(Number(offset) || 0)));
-        const start = lineStart(value, off);
-        const end = lineEnd(value, off);
-        commitDraft({ ...draftRef.current, cursor: end, selectionAnchor: start });
-        mouseExtendCoalesceRef.current.t = Date.now();
-      },
-      clear: () => {
-        cancelMouseExtendCoalesce();
-        if (selectionRange(draftRef.current)) commitDraft(clearSelection(draftRef.current));
-      },
-    };
+    mouseSelectionRef.current = createPromptMouseSelection({
+      coalesceRef: mouseExtendCoalesceRef,
+      draftRef,
+      contentWidthRef,
+      commitDraft,
+    });
   }
 
   useEffect(
@@ -506,8 +327,16 @@ export function PromptInput({
       ? Math.max(0, Math.min(nextValue.length, draftOverride.selectionAnchor))
       : null;
     commitDraft({ value: nextValue, cursor: nextCursor, selectionAnchor: nextAnchor }, { skipHistory: true });
-    resetUndo();
-  }, [draftOverride?.id]);
+    undoStack.reset();
+    // Every field the body reads is a dependency. `id` alone was not enough:
+    // the publishers stamp overrides with Date.now() (app/use-prompt-queue-history.mjs,
+    // app/message-selector.mjs, app/prompt-handlers/use-prompt-interrupt.mjs) and a
+    // queued restore publishes TWICE — the optimistic local projection, then the
+    // daemon-authoritative reconciliation a microtask later. Same millisecond, same
+    // id, so the authoritative draft was dropped and the prompt kept the optimistic
+    // text. `id` stays in the list so re-publishing the SAME text (picking the same
+    // message again after editing the draft) still re-applies.
+  }, [draftOverride?.id, draftOverride?.value, draftOverride?.cursor, draftOverride?.selectionAnchor]);
 
   useEffect(
     () => () => {
@@ -530,7 +359,7 @@ export function PromptInput({
     }
     pasteGenerationRef.current += 1;
     commitDraft({ value: '', cursor: 0, selectionAnchor: null }, { skipHistory: true });
-    resetUndo();
+    undoStack.reset();
     // Unlock after this input batch drains so a second return event in the
     // same chord cannot re-submit the pre-clear draft.
     queueMicrotask(() => {
@@ -570,27 +399,22 @@ export function PromptInput({
       const rawInput = String(input ?? '');
       const inputKey = rawInput.toLowerCase();
       if (!key.escape) escapeClearAtRef.current = 0;
-      const rawShiftArrowForGrid =
-        rawInput === '\x1b[1;2A' ||
-        rawInput === '\x1b[a' ||
-        rawInput === '[1;2A' ||
-        rawInput === '\x1b[1;2B' ||
-        rawInput === '\x1b[b' ||
-        rawInput === '[1;2B' ||
-        rawInput === '\x1b[1;2C' ||
-        rawInput === '\x1b[c' ||
-        rawInput === '[1;2C' ||
-        rawInput === '\x1b[1;2D' ||
-        rawInput === '\x1b[d' ||
-        rawInput === '[1;2D' ||
-        rawInput === '\x1b[1;6A' ||
-        rawInput === '[1;6A' ||
-        rawInput === '\x1b[1;6B' ||
-        rawInput === '[1;6B' ||
-        rawInput === '\x1b[1;6C' ||
-        rawInput === '[1;6C' ||
-        rawInput === '\x1b[1;6D' ||
-        rawInput === '[1;6D';
+      // Arrow / shift / ctrl+shift decode: prompt-input/key-signals.mjs.
+      const {
+        ctrlShiftHeld,
+        rawCtrlShiftDown,
+        rawCtrlShiftLeft,
+        rawCtrlShiftRight,
+        rawCtrlShiftUp,
+        rawDownArrow,
+        rawShiftArrowForGrid,
+        rawShiftDown,
+        rawShiftLeft,
+        rawShiftRight,
+        rawShiftUp,
+        rawUpArrow,
+        shiftHeld,
+      } = decodeArrowSignals(rawInput, key);
 
       // App owns Shift+Arrow when a transcript/status ink-grid selection is live.
       // Because the parent (App) useInput handler fires AFTER this child handler
@@ -608,65 +432,16 @@ export function PromptInput({
         if (isShiftArrow || rawShiftArrowForGrid) return;
       }
 
-      // Drop SGR mouse-tracking sequences (wheel/click). When app mouse tracking
-      // is explicitly enabled, App parses these off raw stdin itself;
-      // ink still forwards the bytes here as "input", which would otherwise type
-      // garbage like `[<64;55;22M` into the prompt. Match with or without the
-      // leading ESC (terminals/ink may strip it): CSI '<' … final 'M'/'m'.
-      if (/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/.test(rawInput) || /^\[?<\d+;\d+;\d+[Mm]?$/.test(rawInput)) {
+      // Terminal reports are not text: drop SGR mouse sequences and CSI-private
+      // replies before anything can type them into the prompt
+      // (prompt-input/key-signals.mjs).
+      if (isMouseReportSequence(rawInput)) {
+        return;
+      }
+      if (isCsiPrivateReply(rawInput)) {
         return;
       }
 
-      // Safety net: drop CSI-private replies/fragments like \x1b[?<n>u / \x1b[?...c
-      // (escape may be stripped → `[?7u` / `[?1;0c`). We no longer query the
-      // terminal (enables are written unconditionally at raw-mode-on), so these
-      // should not normally appear — but a terminal that volunteers such a report
-      // must never type it into the prompt. The required `?` after `[` means this
-      // never matches a real kitty KEY event (those are \x1b[<codepoint>;<mods>u,
-      // no `?`); the optional final byte also discards any partial fragment.
-      if (/^(?:\x1b)?\[\?[\d;]*[uc]?$/.test(rawInput)) {
-        return;
-      }
-
-      const rawUpArrow = rawInput === '\x1b[A' || rawInput === '\x1bOA' || rawInput === '[A' || rawInput === 'OA';
-      const rawDownArrow = rawInput === '\x1b[B' || rawInput === '\x1bOB' || rawInput === '[B' || rawInput === 'OB';
-      // Shift+Arrow modifier sequences (xterm `\x1b[1;2<dir>`, rxvt `\x1b[<dir>`
-      // lowercase). Ink's useInput does not decode the `;2` (shift) modifier into
-      // key.shift for arrows, so the bytes arrive as raw input and the plain-arrow
-      // matchers above miss them — selection-extend never fires. Detect them here
-      // and fold into a single `shiftHeld` signal used by every arrow/home/end
-      // branch below (alongside ink's key.shift for terminals that DO decode it).
-      const rawShiftUp = rawInput === '\x1b[1;2A' || rawInput === '\x1b[a' || rawInput === '[1;2A';
-      const rawShiftDown = rawInput === '\x1b[1;2B' || rawInput === '\x1b[b' || rawInput === '[1;2B';
-      const rawShiftRight = rawInput === '\x1b[1;2C' || rawInput === '\x1b[c' || rawInput === '[1;2C';
-      const rawShiftLeft = rawInput === '\x1b[1;2D' || rawInput === '\x1b[d' || rawInput === '[1;2D';
-      // Ctrl+Shift+Arrow modifier sequences: xterm mod=6 (1 + shift(1) + ctrl(4))
-      // arrives as `\x1b[1;6<dir>`; kitty keyboard protocol reports the same chord
-      // as `\x1b[<code>;6<dir>` (also mod=6). Ink decodes neither the `;6` for
-      // arrows, so the bytes arrive raw. Fold into a ctrlShiftHeld signal used to
-      // drive whole-word selection-extend below. `\x1b[1;6<dir>` covers both the
-      // classic xterm form and kitty's default (which emits the legacy arrow form
-      // with the CSI-u modifier param for arrow keys).
-      const rawCtrlShiftUp = rawInput === '\x1b[1;6A' || rawInput === '[1;6A';
-      const rawCtrlShiftDown = rawInput === '\x1b[1;6B' || rawInput === '[1;6B';
-      const rawCtrlShiftRight = rawInput === '\x1b[1;6C' || rawInput === '[1;6C';
-      const rawCtrlShiftLeft = rawInput === '\x1b[1;6D' || rawInput === '[1;6D';
-      const ctrlShiftHeld =
-        rawCtrlShiftUp ||
-        rawCtrlShiftDown ||
-        rawCtrlShiftLeft ||
-        rawCtrlShiftRight ||
-        (key.shift && key.ctrl && (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow));
-      const shiftHeld =
-        key.shift ||
-        rawShiftUp ||
-        rawShiftDown ||
-        rawShiftLeft ||
-        rawShiftRight ||
-        rawCtrlShiftUp ||
-        rawCtrlShiftDown ||
-        rawCtrlShiftLeft ||
-        rawCtrlShiftRight;
       const lineBreakIndex = rawInput.search(/[\r\n]/);
       const rawEnter = rawInput === '\r' || rawInput === '\n' || rawInput === '\r\n';
       const trailingEnterPrefix = singleTrailingLineBreakPrefix(rawInput);
@@ -963,15 +738,15 @@ export function PromptInput({
       const isCtrlZ = (key.ctrl && editingKey === 'z') || rawInput === '\x1a';
       const isCtrlY = (key.ctrl && editingKey === 'y') || rawInput === '\x19';
       if (isCtrlZ && (key.shift || shiftHeld)) {
-        performRedo();
+        undoStack.redo();
         return;
       }
       if (isCtrlZ) {
-        performUndo();
+        undoStack.undo();
         return;
       }
       if (isCtrlY) {
-        performRedo();
+        undoStack.redo();
         return;
       }
 
@@ -1050,16 +825,12 @@ export function PromptInput({
         return;
       }
 
-      // Printable input (ignore other control keys). Strip any embedded SGR mouse
-      // sequences as a belt-and-suspenders guard (the early return above catches
-      // whole-sequence inputs; this removes partials that rode in with real text).
-      // Swallow Ctrl+Space raw encodings (lone NUL, or the kitty CSI-u form
-      // \x1b[32;5u) as a no-op so they never fall through into the prompt as
-      // garbage. No voice behavior — just discarded.
-      if (rawInput === '\x00' || /^(?:\x1b)?\[32;5u$/.test(rawInput)) {
+      // Printable input (ignore other control keys). The discarded Ctrl+Space
+      // encodings and the printable filter live in prompt-input/key-signals.mjs.
+      if (isDiscardedControlInput(rawInput)) {
         return;
       }
-      const printable = rawInput.replace(/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/g, '').replace(/[\r\n]/g, '');
+      const printable = printableFromInput(rawInput);
       if (printable && !key.ctrl && !key.meta) {
         updateDraft((d) => insertText(d, printable));
       }

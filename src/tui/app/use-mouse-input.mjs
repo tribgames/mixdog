@@ -7,17 +7,11 @@
  * refs/callbacks; gesture timers and wheel acceleration stay local to the hook.
  */
 import { useCallback, useEffect, useRef } from 'react';
-import { overlayBlocksGlobalTranscriptScroll } from './slash-commands.mjs';
-import {
-  TRANSCRIPT_MEASURED_ROWS,
-  WHEEL_ACCEL_ENABLED,
-  WHEEL_ACCEL_IDLE_MS,
-  WHEEL_STEP_MAX_ROWS,
-  WHEEL_STEP_ROWS,
-  selectionRectIsDegenerate,
-  statusBandRowRange,
-  transcriptViewportRowRange,
-} from './transcript-window.mjs';
+import { createEdgeAutoscroll } from './mouse-input/edge-autoscroll.mjs';
+import { createMouseGeometry, linearSelection } from './mouse-input/geometry.mjs';
+import { MOUSE_CTRL_MASK, MOUSE_SHIFT_MASK } from './mouse-input/sgr-buttons.mjs';
+import { createWheelRouter } from './mouse-input/wheel-router.mjs';
+import { TRANSCRIPT_MEASURED_ROWS, WHEEL_STEP_ROWS, selectionRectIsDegenerate } from './transcript-window.mjs';
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
 const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
@@ -31,15 +25,9 @@ const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 // is on, every wheel notch turns into prompt-history Up/Down. Off means a
 // degraded wheel is a no-op, never history navigation.
 const ALT_SCROLL_OFF = '\x1b[?1007l';
-const MOUSE_CTRL_MASK = 16;
 // Wheel step / acceleration knobs live in transcript-window.mjs next to the
-// other MIXDOG_TUI_* scroll tunables (see the block around WHEEL_STEP_ROWS).
-// Bit 2 (4) of the SGR button byte = shift held during the click. Wheel/ctrl
-// masking above intentionally strips it for scroll routing; button-press
-// handling below reads it separately (before baseButton = button & 3 drops
-// every modifier bit) so a shift-held left-click can extend an existing
-// selection instead of starting a fresh one.
-const MOUSE_SHIFT_MASK = 4;
+// other MIXDOG_TUI_* scroll tunables (see the block around WHEEL_STEP_ROWS);
+// the SGR button-byte masks live in mouse-input/sgr-buttons.mjs.
 // Windows Terminal (1.25+) forwards shift+click/drag to the app during VT
 // mouse mode while ALSO painting its own native selection — honoring the
 // events would draw two overlapping highlights (app blue + WT white). In WT,
@@ -225,91 +213,29 @@ export function useMouseInput({
   // selection, not terminal block selection.
   useEffect(() => {
     if (!inkInput || !isRawModeSupported) return undefined;
-    // Wheel modifier: wheel now arrives as a ParsedKey {name:'wheelup'|
-    // 'wheeldown', sequence}. It has NO button field, so read the ctrl bit
-    // (16) from the SGR button in the raw sequence `\x1b[<b;col;row…`. This is
-    // the one place the raw sequence is still parsed; ParsedMouse (click/drag)
-    // carries button/col/row/action pre-parsed and needs no regex.
-    const WHEEL_SGR = /\x1b\[<(\d+);/;
-    const linearSelection = (a, b) => {
-      return {
-        mode: 'linear',
-        x1: a.x,
-        y1: a.y,
-        x2: b.x,
-        y2: b.y,
-      };
-    };
     // Word/line multi-click drag-extension uses the hoisted buildSpanRect (same
     // logic reachable from the auto-scroll path in scrollTranscriptRows).
-    const transcriptViewport = () => transcriptViewportRowRange(transcriptViewportRef.current);
-    const isInTranscriptViewport = (row) => {
-      const { top, bottom } = transcriptViewport();
-      return row >= top && row <= bottom;
-    };
-    const clampToTranscriptViewport = (row) => {
-      const { top, bottom } = transcriptViewport();
-      return Math.max(top, Math.min(bottom, row));
-    };
-    // [mixdog] Status-bar band = the bottom statuslineBandRows rows. The
-    // prompt box occupies the rows reported by PromptInput's measured rect.
-    const statusBand = () => statusBandRowRange(frameRowsRef.current, statuslineBandRows);
-    const isInStatusBand = (row) => {
-      const { top, bottom } = statusBand();
-      return row >= top && row <= bottom;
-    };
-    const clampToStatusBand = (row) => {
-      const { top, bottom } = statusBand();
-      return Math.max(top, Math.min(bottom, row));
-    };
-    const maxSelectionColumn = () => {
-      const cols = Math.max(1, Number(frameColumns) || Number(stdout?.columns) || 80);
-      return cols - 1;
-    };
-    // Snap a drag point into the region that owns the selection. Rows clamp to
-    // the band as before, but the COLUMN now follows normal text-selection
-    // semantics: a pointer ABOVE the band selects to the start of its first
-    // row, BELOW it to the end of its last row — instead of freezing at
-    // whatever column the pointer happened to hold, which painted a partial row
-    // on the wrong side of the anchor. Horizontal overshoot is clamped into the
-    // grid too: while the pointer sits outside the window a terminal can report
-    // column 0 (x = -1 after the 1-based fixup) or a column past the width, and
-    // that point orders BEFORE/AFTER the anchor and visibly flips the selection.
-    const selectionPointInRegion = (x, y, region) => {
-      const { top, bottom } = region === 'status' ? statusBand() : transcriptViewport();
-      const maxX = maxSelectionColumn();
-      if (y < top) return { x: 0, y: top };
-      if (y > bottom) return { x: maxX, y: bottom };
-      return { x: Math.max(0, Math.min(maxX, x)), y };
-    };
-    const promptRect = () => promptBoxRectRef.current;
-    const isInPromptBox = (x, y) => {
-      const r = promptRect();
-      if (!r) return false;
-      const top = Math.max(0, Number(r.top) || 0);
-      const bottom = top + Math.max(1, Number(r.height) || 1) - 1;
-      const left = Math.max(0, Number(r.left) || 0);
-      const width = Math.max(1, Number(r.contentWidth) || 1);
-      return y >= top && y <= bottom && x >= left && x < left + width;
-    };
-    // Map an absolute grid cell to a prompt-draft edit offset via PromptInput's
-    // measured box rect + its caret math (offsetAtCell handles wrapping).
-    const promptOffsetAt = (x, y) => {
-      const r = promptRect();
-      const ctl = promptMouseSelectionRef.current;
-      if (!r || !ctl) return null;
-      const top = Math.max(0, Number(r.top) || 0);
-      const left = Math.max(0, Number(r.left) || 0);
-      const height = Math.max(1, Number(r.height) || 1);
-      const width = Math.max(1, Number(r.contentWidth) || 1);
-      // Clamp the mapped row/col to the box's own bounds so a drag that runs
-      // outside the prompt (above/below/left/right, e.g. onto the transcript
-      // or off-screen) still tracks the nearest edge cell instead of jumping
-      // to whatever offset a raw negative/overflowing row would resolve to.
-      const row = Math.max(0, Math.min(height - 1, y - top));
-      const col = Math.max(0, Math.min(width, x - left));
-      return ctl.offsetAtCell(row, col);
-    };
+    // Region geometry (viewport / status band / prompt box mapping and
+    // drag-point snapping) lives in mouse-input/geometry.mjs; every helper
+    // resolves the CURRENT rects from the refs at call time.
+    const {
+      transcriptViewport,
+      isInTranscriptViewport,
+      clampToTranscriptViewport,
+      isInStatusBand,
+      clampToStatusBand,
+      selectionPointInRegion,
+      isInPromptBox,
+      promptOffsetAt,
+    } = createMouseGeometry({
+      transcriptViewportRef,
+      frameRowsRef,
+      statuslineBandRows,
+      frameColumns,
+      stdout,
+      promptBoxRectRef,
+      promptMouseSelectionRef,
+    });
     // Clear whichever selection is active (ink-grid rect AND/OR prompt engine).
     const clearAllSelections = () => {
       promptMouseSelectionRef.current?.clear?.();
@@ -320,54 +246,20 @@ export function useMouseInput({
     const finishWindowsMouseGesture = () => {
       if (IS_WINDOWS_TERMINAL) store.forceRenderRepaint?.();
     };
-    // Edge auto-scroll TIMER (ref: ScrollKeybindingHandler useDragToScroll).
-    // SGR mode 1002 reports drag-motion only when the pointer changes CELL, so
-    // a pointer held stationary at the top/bottom edge stops emitting events
-    // and the motion-driven scroll below stalls. This interval keeps scrolling
-    // — scrollTranscriptRows' active-drag branch re-extends the selection to
-    // the still-held `last` cell each step — until the pointer leaves the edge,
-    // the drag ends, or a scroll boundary is reached (delta clamps to 0).
-    const EDGE_AUTOSCROLL_INTERVAL_MS = 50;
-    const stopEdgeAutoscroll = () => {
-      const st = edgeAutoscrollRef.current;
-      if (st.timer) {
-        clearInterval(st.timer);
-        st.timer = null;
-      }
-      st.dir = 0;
-      st.noMove = 0;
-    };
-    const startEdgeAutoscroll = (dir) => {
-      const st = edgeAutoscrollRef.current;
-      if (st.dir === dir && st.timer) return; // already scrolling this way
-      stopEdgeAutoscroll();
-      st.dir = dir;
-      st.noMove = 0;
-      st.timer = setInterval(() => {
-        const drag = dragRef.current;
-        const st2 = edgeAutoscrollRef.current;
-        if (!drag.active || drag.region !== 'transcript' || st2.dir === 0) {
-          stopEdgeAutoscroll();
-          return;
-        }
-        const before = Number(scrollTargetRef.current) || 0;
-        queueScrollCoalesced(st2.dir * 3);
-        // A SINGLE unchanged tick is ambiguous: the coalescer may not have
-        // flushed this delta yet (queued behind its 16ms leading-edge timer),
-        // so scrollTarget legitimately reads the same value mid-flight. Only a
-        // real top/bottom clamp keeps it pinned across several ticks. Require
-        // CONSECUTIVE no-move ticks (>=3 ⇒ >150ms ≫ the 16ms coalescer window,
-        // so any pending scroll has certainly flushed) before stopping — any
-        // movement resets the counter (ref useDragToScroll's getScrollTop<=0 /
-        // >=max boundary stop).
-        if ((Number(scrollTargetRef.current) || 0) !== before) {
-          st2.noMove = 0;
-        } else if (++st2.noMove >= 3) {
-          stopEdgeAutoscroll();
-        }
-      }, EDGE_AUTOSCROLL_INTERVAL_MS);
-      st.timer.unref?.();
-    };
+    // Edge auto-scroll TIMER (mouse-input/edge-autoscroll.mjs, ref:
+    // ScrollKeybindingHandler useDragToScroll). SGR mode 1002 reports
+    // drag-motion only when the pointer changes CELL, so a pointer held
+    // stationary at the top/bottom edge stops emitting events and the
+    // motion-driven scroll below stalls. The interval keeps scrolling —
+    // scrollTranscriptRows' active-drag branch re-extends the selection to the
+    // still-held `last` cell each step — until the pointer leaves the edge, the
+    // drag ends, or a scroll boundary is reached (delta clamps to 0).
+    const { start: startEdgeAutoscroll, stop: stopEdgeAutoscroll } = createEdgeAutoscroll({
+      stateRef: edgeAutoscrollRef,
+      dragRef,
+      scrollTargetRef,
+      queueScrollCoalesced,
+    });
     // Finalize an in-flight drag exactly like the button-release path: push the
     // final rect from the given point, and reconcile measured row heights. Used
     // by the real release below AND by the ctrl+wheel zoom passthrough, whose
@@ -404,6 +296,21 @@ export function useMouseInput({
       }
       if (TRANSCRIPT_MEASURED_ROWS) setMeasuredRowsVersion((v) => (v + 1) % 1000000);
     };
+    // Wheel routing (ctrl+wheel zoom passthrough, slash-palette navigation,
+    // overlay gating, wheel acceleration) lives in mouse-input/wheel-router.mjs.
+    // Built here so it shares this effect's drag/finalize closures.
+    const routeWheelEvent = createWheelRouter({
+      dragRef,
+      slashPaletteRef,
+      scrollFocusRef,
+      wheelAccelRef,
+      setSlashIndex,
+      queueScrollCoalesced,
+      passthroughCtrlWheelZoom,
+      finalizeActiveDrag,
+      finishWindowsMouseGesture,
+      stopEdgeAutoscroll,
+    });
     // Typed 'mouse' channel handler. Receives one event per emit:
     //   • ParsedMouse {kind:'mouse',button,action,col,row,sequence} — click/drag
     //   • ParsedKey   {kind:'key',name:'wheelup'|'wheeldown',sequence} — wheel
@@ -412,64 +319,9 @@ export function useMouseInput({
     //  handler is registered it is the SOLE consumer of these events.)
     const onMouse = (event) => {
       if (!event || typeof event !== 'object') return;
-      let up = 0;
-      let down = 0;
       // Wheel arrives as a ParsedKey; no button/col/row fields.
       if (event.kind === 'key') {
-        const name = event.name;
-        if (name !== 'wheelup' && name !== 'wheeldown') return;
-        const seq = typeof event.sequence === 'string' ? event.sequence : '';
-        const wm = WHEEL_SGR.exec(seq);
-        const ctrl = wm ? (Number(wm[1]) & MOUSE_CTRL_MASK) !== 0 : false;
-        if (ctrl) {
-          // Zoom passthrough disables mouse tracking for ~700ms, during which
-          // the button-release event may never arrive — leaving the drag stuck
-          // active and the edge-autoscroll interval firing forever. Finalize
-          // the in-flight drag from its last known point (same path as a real
-          // release: final applySelectionRect + measured-rows reconcile) so
-          // Ctrl+C still copies the full text, then hand the wheel to the
-          // terminal's font zoom. stopEdgeAutoscroll is folded into finalize.
-          if (dragRef.current.active) {
-            const last = dragRef.current.last || {};
-            finalizeActiveDrag(Number(last.x) || 0, Number(last.y) || 0);
-            finishWindowsMouseGesture();
-          } else {
-            stopEdgeAutoscroll();
-          }
-          passthroughCtrlWheelZoom();
-          return;
-        }
-        if (name === 'wheelup') up += 1;
-        else down += 1;
-        // Fall through to the wheel-scroll dispatch below (shared with the
-        // previous SGR path) so slash-palette/overlay/scroll routing is identical.
-        if (up !== 0 || down !== 0) {
-          const palette = slashPaletteRef.current;
-          if (!dragRef.current.active && palette.open && palette.count > 0) {
-            const step = down - up;
-            if (step !== 0) {
-              setSlashIndex((index) => Math.max(0, Math.min(palette.count - 1, index + step)));
-            }
-            return;
-          }
-          if (overlayBlocksGlobalTranscriptScroll(scrollFocusRef.current)) return;
-          // Wheel while a selection is live (mid-drag OR after release) scrolls
-          // the transcript instead of being dropped: scrollTranscriptRows'
-          // active-drag branch rebuilds the rect (anchor→last), the released
-          // branch shifts it — both keep the highlight and stitch-harvest the
-          // rows that scroll off (ref ScrollKeybindingHandler wheel path).
-          const wheelDir = up - down;
-          const nowWheel = Date.now();
-          const accel = wheelAccelRef.current;
-          if (!WHEEL_ACCEL_ENABLED || accel.dir !== wheelDir || nowWheel - accel.t > WHEEL_ACCEL_IDLE_MS) {
-            accel.step = WHEEL_STEP_ROWS;
-          } else {
-            accel.step = Math.min(WHEEL_STEP_MAX_ROWS, accel.step + WHEEL_STEP_ROWS);
-          }
-          accel.dir = wheelDir;
-          accel.t = nowWheel;
-          queueScrollCoalesced(wheelDir * accel.step);
-        }
+        routeWheelEvent(event);
         return;
       }
       if (event.kind !== 'mouse') return;
@@ -845,9 +697,12 @@ export function useMouseInput({
     inkInput,
     isRawModeSupported,
     store,
+    stdout,
     passthroughCtrlWheelZoom,
     frameColumns,
-    scrollTranscriptRows,
+    statuslineBandRows,
+    stopSmoothScroll,
+    clearStitchBuffer,
     queueScrollCoalesced,
     applySelectionRect,
     applySelectionRectThrottled,

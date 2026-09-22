@@ -1,35 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeShellLayout } from './shell-layout.mjs';
-
-const PANEL_LAYOUT_SIG = { PICKER: 1, SLASH: 4, TEXT: 5, PROMPT_META: 9, QUEUED: 10 };
-const PROJECT_TEXT_ENTRY_KINDS = new Set(['project-new', 'project-create-confirm', 'project-rename']);
-
-function panelSignatureFlags(signature) {
-  if (!signature) return { slash: false, pickerKind: '', textKind: '' };
-  const parts = String(signature).split('|');
-  const pickerToken = parts[PANEL_LAYOUT_SIG.PICKER] || '';
-  const textToken = parts[PANEL_LAYOUT_SIG.TEXT] || '';
-  return {
-    slash: parts[PANEL_LAYOUT_SIG.SLASH] === 'slash',
-    pickerKind: pickerToken.startsWith('picker:') ? pickerToken.slice('picker:'.length).split(':')[0] : '',
-    textKind: textToken.startsWith('text:') ? textToken.slice('text:'.length) : '',
-  };
-}
-function panelKindSignature(signature) {
-  if (!signature) return '';
-  return String(signature).split('|').slice(0, 8).join('|');
-}
-function isInstantPanelCloseTransition(prevSignature, nextSignature, initialProjectEntryClose) {
-  const prev = panelSignatureFlags(prevSignature);
-  const next = panelSignatureFlags(nextSignature);
-  if (prev.slash && !next.slash) return true;
-  if (prev.pickerKind === 'project' && next.pickerKind !== 'project') return initialProjectEntryClose;
-  if (PROJECT_TEXT_ENTRY_KINDS.has(prev.textKind) && !PROJECT_TEXT_ENTRY_KINDS.has(next.textKind)) {
-    return initialProjectEntryClose;
-  }
-  return false;
-}
+// The same signature grammar App.jsx hands to computeShellLayout.
+import {
+  CORE_MULTILINE_TEXT_ENTRY_KINDS,
+  PANEL_LAYOUT_SIG,
+  isInstantPanelCloseTransition,
+  panelKindSignature,
+  panelSignatureFlags,
+} from './panel-signature.mjs';
 
 const ref = (current) => ({ current });
 
@@ -74,7 +53,7 @@ function layoutInput(overrides = {}) {
     frameRowsRef: ref(0),
     promptBoxRectRef: ref({ x: 1 }),
     panelCloseInkMaskRowsRef: ref(0),
-    CORE_MULTILINE_TEXT_ENTRY_KINDS: new Set(['core-add', 'core-edit']),
+    CORE_MULTILINE_TEXT_ENTRY_KINDS,
     panelSignatureFlags,
     panelKindSignature,
     isInstantPanelCloseTransition,

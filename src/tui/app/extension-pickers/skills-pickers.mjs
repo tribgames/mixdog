@@ -1,10 +1,16 @@
 // extension-pickers/skills-pickers.mjs
-// The Skills list (enable/disable toggles), the project-skills list, and the
-// per-skill detail panel. `disabledSkills` is read fresh via
+// The Skills list (enable/disable toggles). `disabledSkills` is read fresh via
 // getDisabledSkills() so toggles observe the latest state at call time.
-import { readStatus, withScope } from './scope-note.mjs';
-
-const skillDescription = (skill) => `${skill.source || 'skill'} · ${skill.description || skill.filePath || ''}`;
+//
+// The row shapes live in skills-pickers/skill-items.mjs and the two panels that
+// return here — the project-skills list (skills-pickers/project-skills.mjs) and
+// the per-skill detail (skills-pickers/skill-detail.mjs) — re-enter this list
+// through the `reopenSkills` callback below, so this file stays the only opener
+// of the Skills surface.
+import { readStatus } from './scope-note.mjs';
+import { createProjectSkillsPicker } from './skills-pickers/project-skills.mjs';
+import { createSkillDetailPickers } from './skills-pickers/skill-detail.mjs';
+import { skillItems } from './skills-pickers/skill-items.mjs';
 
 export function createSkillsPickers({
   store,
@@ -16,74 +22,6 @@ export function createSkillsPickers({
   getDisabledSkills,
   setDisabledSkills,
 }) {
-  const openProjectSkillsPicker = async () => {
-    const own = surface.claim();
-    const status = await readStatus(store, 'skillsStatus', 'skills', 'skills status');
-    if (!status) return;
-    const skills = status.skills;
-    const items = [];
-    if (skills.length === 0) {
-      items.push({
-        value: 'empty',
-        label: 'No project skills',
-        description: 'no project skills available',
-        _action: 'noop',
-      });
-    }
-    for (const skill of skills) {
-      items.push({
-        value: skill.name,
-        label: skill.name,
-        description: skillDescription(skill),
-        _action: 'view',
-        _skill: skill,
-      });
-    }
-    if (!own.owns()) return;
-    setProviderPrompt(null);
-    setSettingsPrompt(null);
-    own.paint({
-      title: 'Project skills',
-      description: 'Skills bundled with this project.',
-      items,
-      onSelect: (_value, item) => {
-        own.close();
-        if (item._action !== 'view') return;
-        openSkillDetailPicker(item._skill);
-      },
-      onCancel: () => {
-        own.close();
-        void openSkillsPicker();
-      },
-    });
-  };
-
-  const skillItems = (skills, disabledSet) => {
-    const items = [];
-    if (skills.length === 0) {
-      items.push({
-        value: 'empty',
-        label: 'No skills',
-        description: 'no project skills available',
-        _action: 'noop',
-      });
-    }
-    for (const skill of skills) {
-      const enabled = !disabledSet.has(skill.name);
-      items.push({
-        value: skill.name,
-        label: skill.name,
-        marker: enabled ? '●' : '○',
-        markerColor: enabled ? theme.success : theme.inactive,
-        description: withScope(skillDescription(skill), skill),
-        _action: 'skill',
-        _skill: skill,
-        _enabled: enabled,
-      });
-    }
-    return items;
-  };
-
   const openSkillsPicker = async (options = {}) => {
     const own = surface.claim();
     // Reuse the skills list already fetched by the opening call when a toggle
@@ -97,7 +35,7 @@ export function createSkillsPickers({
       skills = status.skills;
     }
     const disabledSet = options.disabledOverride instanceof Set ? options.disabledOverride : getDisabledSkills();
-    const items = skillItems(skills, disabledSet);
+    const items = skillItems(skills, disabledSet, theme);
     if (!own.owns()) return;
     setProviderPrompt(null);
     setSettingsPrompt(null);
@@ -132,70 +70,26 @@ export function createSkillsPickers({
     });
   };
 
-  /** Flips one skill in the disabled set, notifies, and returns to Skills. */
-  const setSkillDisabled = (skill, disabled) => {
-    setDisabledSkills((current) => {
-      const next = new Set(current);
-      if (disabled) next.add(skill.name);
-      else next.delete(skill.name);
-      return next;
-    });
-    store.pushNotice(
-      `skill ${disabled ? 'disabled' : 'enabled'}: ${skill.name} (prompt updates next session /clear)`,
-      'info'
-    );
-    openSkillsPicker();
+  const reopenSkills = () => {
+    void openSkillsPicker();
   };
-
-  const openSkillDetailPicker = (skill) => {
-    // Synchronous detail panel for an Enter on a skill row: an ordinary claimed
-    // paint — nothing async precedes it, and the claim proves it anyway.
-    const own = surface.claim();
-    const disabled = getDisabledSkills().has(skill.name);
-    // Same two halves the model's listing shows: capability, then trigger.
-    const summary = [clean(skill.description), clean(skill.whenToUse)].filter(Boolean).join(' — ');
-    own.paint({
-      title: `Skill · ${skill.name}`,
-      description: summary || 'Enable, disable, or run this skill.',
-      items: [
-        {
-          value: 'use',
-          label: 'Use skill',
-          description: disabled ? 'enable this skill first' : 'write a request with this skill',
-          _action: disabled ? 'noop' : 'use',
-        },
-        {
-          value: disabled ? 'enable' : 'disable',
-          label: disabled ? 'Enable skill' : 'Disable skill',
-          description: disabled ? 'show and allow this skill in the TUI' : 'hide use action until re-enabled',
-          _action: disabled ? 'enable' : 'disable',
-        },
-      ],
-      onSelect: (_value, item) => {
-        own.close();
-        if (item._action === 'enable') {
-          setSkillDisabled(skill, false);
-          return;
-        }
-        if (item._action === 'disable') {
-          setSkillDisabled(skill, true);
-          return;
-        }
-        if (item._action === 'use') {
-          setSettingsPrompt({
-            kind: 'skill-use',
-            label: `Skill · ${skill.name}`,
-            hint: 'Write the request to run with this skill.',
-            skillName: skill.name,
-          });
-        }
-      },
-      onCancel: () => {
-        own.close();
-        void openSkillsPicker();
-      },
-    });
-  };
+  const { openSkillDetailPicker } = createSkillDetailPickers({
+    store,
+    clean,
+    surface,
+    setSettingsPrompt,
+    getDisabledSkills,
+    setDisabledSkills,
+    reopenSkills,
+  });
+  const openProjectSkillsPicker = createProjectSkillsPicker({
+    store,
+    surface,
+    setProviderPrompt,
+    setSettingsPrompt,
+    openSkillDetailPicker,
+    reopenSkills,
+  });
 
   return { openProjectSkillsPicker, openSkillsPicker, openSkillDetailPicker };
 }

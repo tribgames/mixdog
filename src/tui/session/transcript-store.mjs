@@ -5,20 +5,15 @@
  * paging, the incrementally maintained prompt-history list, and the streaming
  * tail. Every mutation goes through the draft store's set() so React sees one
  * frame-coalesced publication per change.
+ *
+ * The bulk swap lives in transcript-store/replace-items.mjs and the streaming
+ * tail in transcript-store/streaming-tail.mjs.
  */
 import { buildMergedPromptHistory, loadPromptHistory } from '../prompt-history-store.mjs';
 import { recomputePromptHistory } from './prompt-history.mjs';
-import {
-  createSessionItemMutators,
-  refillTranscriptViewOverlap,
-  replaceSessionItemsState,
-} from './transcript-spill.mjs';
-
-// Non-enumerable so the marker never enters persisted transcript items,
-// live-share JSON, or renderer snapshots. The desktop host reads the shared
-// Symbol.for key before cloning and uses it to prove that a growing text is
-// an append, avoiding an O(total text) startsWith check on every frame.
-const streamingTailTextEpochKey = Symbol.for('mixdog.streaming-tail-text-epoch');
+import { createSessionItemMutators } from './transcript-spill.mjs';
+import { createReplaceItems } from './transcript-store/replace-items.mjs';
+import { createStreamingTailMutators } from './transcript-store/streaming-tail.mjs';
 
 export function createTranscriptStore({ draft, store, flags, transcriptSpill, itemIndexById, onBulkReplace }) {
   const { set, emit, flushEmitImmediate, markStructureChange } = store;
@@ -55,56 +50,15 @@ export function createTranscriptStore({ draft, store, flags, transcriptSpill, it
     flushEmitImmediate();
     return true;
   };
-  const replaceItems = (
-    items,
-    { preserveStreamingTail = false, preserveSpill = false, preserveTranscriptView = false } = {}
-  ) => {
-    const state = draft.state;
-    const nextItems = Array.isArray(items) ? items : [];
-    if (!preserveSpill) transcriptSpill.reset();
-    const liveItems = transcriptSpill.capLive(nextItems);
-    const previousTranscriptView = state.transcriptViewItems;
-    const nextTranscriptView =
-      preserveTranscriptView && previousTranscriptView
-        ? refillTranscriptViewOverlap(previousTranscriptView, state.items, liveItems)
-        : null;
-    const transcriptViewChanged = nextTranscriptView !== previousTranscriptView;
-    // Bulk item swap (session load / clear / compact). Derive the prompt-history
-    // list from the NEW items and stage it onto state here so App never rescans;
-    // the callers that invoke replaceItems always follow with a set({items:...,
-    // ...}) that carries fresh references, so this pre-stage does not defeat any
-    // emit (the accompanying set() diffs the full patch). A bulk swap also
-    // discards the old transcript, so drop any tracked active tool calls.
-    onBulkReplace();
-    const structureRevision = state.structureRevision;
-    const replaced = replaceSessionItemsState({
-      state,
-      items: liveItems,
-      itemIndexById,
-      preserveStreamingTail,
-      extra: {
-        promptHistoryList: preserveSpill
-          ? state.promptHistoryList
-          : buildMergedPromptHistory(recomputePromptHistory(nextItems), loadPromptHistory(state.cwd)),
-        activeToolSummary: null,
-        activeTools: null,
-        transcriptViewItems: nextTranscriptView,
-        transcriptViewRevision:
-          state.transcriptViewRevision + (preserveTranscriptView && !transcriptViewChanged ? 0 : 1),
-        ...transcriptHistoryFlags(),
-      },
-    });
-    // replaceSessionItemsState retains its standalone/test contract. In the live
-    // store, defer its revision increment to the frame publication boundary.
-    draft.state = { ...replaced, structureRevision };
-    markStructureChange();
-    // replaceItems stages the bulk state before its callers compose their
-    // accompanying patch. Emit here as well so an items-only replacement
-    // (for example removeNotice) cannot be hidden by the outer set seeing the
-    // already-installed array identity.
-    emit();
-    return liveItems;
-  };
+  const replaceItems = createReplaceItems({
+    draft,
+    transcriptSpill,
+    itemIndexById,
+    onBulkReplace,
+    markStructureChange,
+    emit,
+    transcriptHistoryFlags,
+  });
   const pushItem = (item) => {
     if (!flags.pushingFromDeferredEntry && flags.flushDeferredBeforeImmediatePush) {
       flags.flushDeferredBeforeImmediatePush();
@@ -138,40 +92,7 @@ export function createTranscriptStore({ draft, store, flags, transcriptSpill, it
       ...extra,
     });
   };
-  let streamingTailTextEpoch = 0;
-  const updateStreamingTail = (id, patch = {}, extra = {}, { resetText = false } = {}) => {
-    if (id == null) return false;
-    const state = draft.state;
-    const current =
-      state.streamingTail?.id === id ? state.streamingTail : { kind: 'assistant', id, text: '', streaming: true };
-    const next = { ...current, ...patch, kind: 'assistant', id, streaming: true };
-    const currentTextEpoch = current[streamingTailTextEpochKey];
-    const textEpoch =
-      !resetText && Number.isSafeInteger(currentTextEpoch) ? currentTextEpoch : ++streamingTailTextEpoch;
-    Object.defineProperty(next, streamingTailTextEpochKey, {
-      value: textEpoch,
-      enumerable: false,
-      configurable: false,
-      writable: false,
-    });
-    let changed = state.streamingTail !== current;
-    if (!changed) {
-      for (const [key, value] of Object.entries(next)) {
-        if (!Object.is(current[key], value)) {
-          changed = true;
-          break;
-        }
-      }
-    }
-    return set(changed ? { streamingTail: next, ...extra } : extra);
-  };
-  const clearStreamingTail = (id = null, extra = {}) => {
-    const tail = draft.state.streamingTail;
-    if (!tail || (id != null && tail.id !== id)) {
-      return set(extra);
-    }
-    return set({ streamingTail: null, ...extra });
-  };
+  const { updateStreamingTail, clearStreamingTail } = createStreamingTailMutators({ draft, set });
   const { patchItem, settleStreamingTail } = createSessionItemMutators({
     getState: () => draft.state,
     set,

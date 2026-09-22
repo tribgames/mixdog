@@ -2,15 +2,12 @@
 // two-phase exit (final frame flush, store dispose race, hard-exit timer),
 // queued-message restore into the draft, the engine-published prompt
 // history with its local-scan fallback, and history-nav reset.
+// The restore flow itself lives in use-prompt-queue-history/restore-to-prompt.mjs
+// and the local history scan in use-prompt-queue-history/prompt-history.mjs;
+// this file owns the hooks and their dependencies.
 import { useCallback, useMemo, useRef } from 'react';
-import { PROMPT_HISTORY_LIMIT } from './transcript-window.mjs';
-import { promptHistoryKey } from './app-format.mjs';
-import {
-  mergeQueuedRestoreDraft,
-  queuedRestorePrefix,
-  queuedRestoreProjection,
-  replaceQueuedRestorePrefix,
-} from '../components/prompt-input/restore-policy.mjs';
+import { scanPromptHistory } from './use-prompt-queue-history/prompt-history.mjs';
+import { runRestoreQueuedToPrompt } from './use-prompt-queue-history/restore-to-prompt.mjs';
 
 export function usePromptQueueHistory({
   store,
@@ -59,102 +56,20 @@ export function usePromptQueueHistory({
   }, [store, exit]);
 
   const restoreQueuedToPrompt = useCallback(
-    (options = {}) => {
-      const restoreDraft = options.restoreDraft !== false;
-      const showHint = options.showHint !== false;
-      const currentText = options.currentText ?? promptValueRef.current ?? promptDraft;
-      const projection = queuedRestoreProjection(state?.queued);
-      const queuedCount = projection.count;
-      if (queuedRestoreInFlightRef.current) return queuedCount > 0;
-      if (queuedCount === 0) return false;
-      const initialDraft = options.getCurrentDraft?.();
-      const before =
-        initialDraft && typeof initialDraft === 'object'
-          ? initialDraft
-          : {
-              value: String(currentText ?? ''),
-              cursor: String(currentText ?? '').length,
-              selectionAnchor: null,
-            };
-      let lastPublishedDraft = before;
-      const publishDraft = (next) => {
-        lastPublishedDraft = next;
-        promptValueRef.current = next.value;
-        syncPromptLayoutRows(next.value);
-        setPromptDraftOverride({ id: Date.now(), ...next });
-      };
-      const optimisticDraft = mergeQueuedRestoreDraft(projection.text, before);
-      const optimisticPrefix = queuedRestorePrefix(projection.text, before.value);
-      if (restoreDraft && optimisticPrefix) publishDraft(optimisticDraft);
-      const currentDraft = () => {
-        const latest = options.getCurrentDraft?.();
-        const refValue = String(promptValueRef.current ?? '');
-        if (latest && typeof latest === 'object' && String(latest.value ?? '') === refValue) return latest;
-        if (String(lastPublishedDraft.value ?? '') === refValue) return lastPublishedDraft;
-        return { value: refValue, cursor: refValue.length, selectionAnchor: null };
-      };
-      const reconcile = (authoritativeText = '') => {
-        if (!restoreDraft) return true;
-        const authoritativePrefix = queuedRestorePrefix(authoritativeText, before.value);
-        const next = replaceQueuedRestorePrefix(optimisticPrefix, authoritativePrefix, currentDraft());
-        if (!next.replaced) return false;
-        if (
-          next.value !== promptValueRef.current ||
-          next.cursor !== currentDraft().cursor ||
-          next.selectionAnchor !== currentDraft().selectionAnchor
-        ) {
-          publishDraft(next);
-        }
-        return true;
-      };
-      const apply = (restored) => {
-        if (!restored || restored.count === 0) {
-          reconcile('');
-          if (showHint) showPromptHint('No queued messages to restore.', 'info');
-          return false;
-        }
-        if (restoreDraft) {
-          if (restored.pastedImages) installPastedImages(restored.pastedImages, { merge: true });
-          if (restored.pastedTexts) installPastedTexts(restored.pastedTexts, { merge: true });
-          reconcile(restored.text);
-        }
-        if (showHint) {
-          showPromptHint(`restored ${restored.count} queued message${restored.count === 1 ? '' : 's'}`, 'info');
-        } else {
-          clearPromptHint();
-        }
-        return true;
-      };
-      // Paint the published local-queue projection before
-      // asking the daemon to retire it, then reconcile attachments/text on ack.
-      let restored;
-      try {
-        restored = store.restoreQueued?.('');
-      } catch {
-        reconcile('');
-        if (showHint) showPromptHint('Could not restore queued messages.', 'error');
-        return true;
-      }
-      // A daemon-backed store answers this as an ASYNC remote call, so the
-      // payload (and with it the queued text) only exists a tick later. Reading
-      // `.count`/`.text` off the promise dropped the popped entries on the floor —
-      // the queued message vanished instead of returning to the draft. Decide the
-      // synchronous verdict from the published queue and fill the draft on settle.
-      if (restored && typeof restored.then === 'function') {
-        queuedRestoreInFlightRef.current = true;
-        void Promise.resolve(restored)
-          .then(apply)
-          .catch(() => {
-            reconcile('');
-            if (showHint) showPromptHint('Could not restore queued messages.', 'error');
-          })
-          .finally(() => {
-            queuedRestoreInFlightRef.current = false;
-          });
-        return queuedCount > 0;
-      }
-      return apply(restored);
-    },
+    (options = {}) =>
+      runRestoreQueuedToPrompt(options, {
+        store,
+        queued: state?.queued,
+        promptDraft,
+        promptValueRef,
+        inFlightRef: queuedRestoreInFlightRef,
+        showPromptHint,
+        clearPromptHint,
+        installPastedImages,
+        installPastedTexts,
+        syncPromptLayoutRows,
+        setPromptDraftOverride,
+      }),
     [
       store,
       state?.queued,
@@ -174,19 +89,7 @@ export function usePromptQueueHistory({
     // rescans all items on every transcript change. Fall back to a local scan
     // only if the engine did not publish it (older snapshot).
     if (Array.isArray(state.promptHistoryList)) return state.promptHistoryList;
-    const items = Array.isArray(state.items) ? state.items : [];
-    const seen = new Set();
-    const history = [];
-    for (let i = items.length - 1; i >= 0 && history.length < PROMPT_HISTORY_LIMIT; i -= 1) {
-      const item = items[i];
-      if (item?.kind !== 'user') continue;
-      const text = String(item.text || '').trim();
-      const key = promptHistoryKey(text);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      history.push(text);
-    }
-    return history;
+    return scanPromptHistory(Array.isArray(state.items) ? state.items : []);
   }, [state.promptHistoryList, state.items]);
 
   const resetPromptHistoryNav = useCallback(() => {

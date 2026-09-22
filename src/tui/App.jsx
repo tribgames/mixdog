@@ -44,58 +44,19 @@ import { useMessageSelector } from './app/message-selector.mjs';
 import { useTerminalChrome } from './app/use-terminal-chrome.mjs';
 import { useTranscriptWindow } from './app/use-transcript-window.mjs';
 import { transcriptSwapReturnsToTail } from './app/transcript-window.mjs';
-import { terminalSize, projectNameFromPath, workflowDisplayName, workflowSwitchNotice } from './app/app-format.mjs';
+import { terminalSize, projectNameFromPath } from './app/app-format.mjs';
+import { cycleWorkflowFromPrompt as cycleWorkflow } from './app/workflow-cycle.mjs';
 import { createProjectPicker } from './app/project-picker.mjs';
 import { usePromptHandlers } from './app/use-prompt-handlers.mjs';
-
-const PANEL_LAYOUT_SIG = {
-  PICKER: 1,
-  SLASH: 4,
-  TEXT: 5,
-  // Prompt-wrap/meta row counts (trailing churn tokens, see token order note
-  // below). PROMPT_META is the 2-row live-spinner band slot.
-  PROMPT_META: 9,
-  // Queued steering band rows (full wrapped height, see queuedBandRows).
-  QUEUED: 10,
-};
-const PROJECT_TEXT_ENTRY_KINDS = new Set(['project-new', 'project-create-confirm', 'project-rename']);
-const CORE_MULTILINE_TEXT_ENTRY_KINDS = new Set(['core-add', 'core-edit']);
-
-function panelSignatureFlags(signature) {
-  if (!signature) return { slash: false, pickerKind: '', textKind: '' };
-  const parts = String(signature).split('|');
-  const pickerToken = parts[PANEL_LAYOUT_SIG.PICKER] || '';
-  const textToken = parts[PANEL_LAYOUT_SIG.TEXT] || '';
-  return {
-    slash: parts[PANEL_LAYOUT_SIG.SLASH] === 'slash',
-    pickerKind: pickerToken.startsWith('picker:') ? pickerToken.slice('picker:'.length).split(':')[0] : '',
-    textKind: textToken.startsWith('text:') ? textToken.slice('text:'.length) : '',
-  };
-}
-
-// panelLayoutSignature token order: [tool, picker, context, usage, slash, text,
-// inputBoxHidden, floatingPanelRows, promptBoxRows, promptMetaRows, queuedRows,
-// WELCOME_ROWS]. The first 8 tokens identify which panel (if any) owns the
-// bottom area; the trailing 3 are prompt-wrap/queue row counts that can churn
-// every keystroke without any panel opening/closing/changing kind. Comparing
-// only this prefix lets the transition logic tell "prompt textarea grew/shrank
-// a wrapped row" apart from "a panel actually opened or closed".
-const PANEL_KIND_TOKEN_COUNT = 8;
-function panelKindSignature(signature) {
-  if (!signature) return '';
-  return String(signature).split('|').slice(0, PANEL_KIND_TOKEN_COUNT).join('|');
-}
-
-function isInstantPanelCloseTransition(prevSignature, nextSignature, initialProjectEntryClose) {
-  const prev = panelSignatureFlags(prevSignature);
-  const next = panelSignatureFlags(nextSignature);
-  if (prev.slash && !next.slash) return true;
-  if (prev.pickerKind === 'project' && next.pickerKind !== 'project') return initialProjectEntryClose;
-  if (PROJECT_TEXT_ENTRY_KINDS.has(prev.textKind) && !PROJECT_TEXT_ENTRY_KINDS.has(next.textKind)) {
-    return initialProjectEntryClose;
-  }
-  return false;
-}
+import { useModelCatalogCache } from './app/use-model-catalog-cache.mjs';
+import { useDisabledSkills } from './app/use-disabled-skills.mjs';
+import {
+  CORE_MULTILINE_TEXT_ENTRY_KINDS,
+  PANEL_LAYOUT_SIG,
+  isInstantPanelCloseTransition,
+  panelKindSignature,
+  panelSignatureFlags,
+} from './app/panel-signature.mjs';
 
 // First-run gate. The daemon-backed engine store answers any method it does
 // not implement locally with an async remote call, so a synchronous
@@ -306,43 +267,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     void projectPickerRef.current?.openProjectPicker({ initialEntry: true });
   }, [store]);
   const { registerProject, enterProject, openProjectPicker } = projectPicker;
-  // getDisabledSkills is a remote call on a daemon-backed store, so it cannot
-  // seed useState synchronously (the initializer used to capture a promise and
-  // every skill looked enabled). Start empty and adopt the real set on mount.
-  const [disabledSkills, setDisabledSkillsInner] = useState(() => new Set());
-  useEffect(() => {
-    let alive = true;
-    void Promise.resolve(store.getDisabledSkills?.())
-      .then((result) => {
-        if (!alive) return;
-        const disabled = Array.isArray(result?.disabled) ? result.disabled : [];
-        if (disabled.length) setDisabledSkillsInner(new Set(disabled));
-      })
-      .catch(() => {
-        /* skills stay enabled when the probe fails */
-      });
-    return () => {
-      alive = false;
-    };
-  }, [store]);
-  const setDisabledSkills = useCallback(
-    (next) => {
-      setDisabledSkillsInner((current) => {
-        const base = current instanceof Set ? current : new Set(current);
-        let set;
-        if (typeof next === 'function') set = next(base);
-        else if (next instanceof Set) set = next;
-        else set = new Set(next);
-        try {
-          store.setDisabledSkills?.([...set]);
-        } catch (e) {
-          store.pushNotice(`skill disable persist failed: ${e?.message || e}`, 'error');
-        }
-        return set;
-      });
-    },
-    [store]
-  );
+  // Disabled-Skill set (async load + persist on change):
+  // app/use-disabled-skills.mjs.
+  const { disabledSkills, setDisabledSkills } = useDisabledSkills({ store });
   const toolApproval = state.toolApproval || null;
   const [promptDraft, setPromptDraft] = useState('');
   const [promptDraftOverride, setPromptDraftOverride] = useState(null);
@@ -416,69 +343,15 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     agents: [],
     providerModels: [],
   });
-  const providerModelsCacheRef = useRef({ models: null, at: 0 });
-  const webSearchModelsCacheRef = useRef({ models: null, at: 0 });
-  const modelPickerRequestRef = useRef(0);
-  // Generation guard for the Step 1 background prefetch: bumped on every
-  // provider-scope cache clear (e.g. after auth) so a stale in-flight
-  // listProviderModels() cannot repopulate the ref after invalidation.
-  const onboardingPrefetchSeqRef = useRef(0);
-  const clearModelCaches = useCallback((scope = 'all') => {
-    if (scope === 'all' || scope === 'provider') {
-      providerModelsCacheRef.current = { models: null, at: 0 };
-      onboardingRef.current.providerModels = [];
-      onboardingPrefetchSeqRef.current += 1;
-    }
-    if (scope === 'all' || scope === 'webSearch') {
-      webSearchModelsCacheRef.current = { models: null, at: 0 };
-    }
-  }, []);
-  // Boot-time catalog prefetch: warm the /model & /agents provider catalog and
-  // the /websearch catalog once at startup so those pickers open instantly from
-  // cache (openModelPicker still TTL-refreshes stale rows in the background).
-  // Provider models load first so the web-search catalog derives from the full
-  // runtime cache instead of the sparse quick rows. Guarded by the same
-  // generation seq as the onboarding prefetch so an auth-triggered
-  // clearModelCaches() can't be clobbered by a stale in-flight result.
-  useEffect(() => {
-    let alive = true;
-    const timer = setTimeout(async () => {
-      const seq = onboardingPrefetchSeqRef.current;
-      try {
-        const models = await Promise.resolve(store.listProviderModels?.() || []);
-        if (
-          alive &&
-          seq === onboardingPrefetchSeqRef.current &&
-          Array.isArray(models) &&
-          models.length > 0 &&
-          !Array.isArray(providerModelsCacheRef.current.models)
-        ) {
-          providerModelsCacheRef.current = { models, at: Date.now() };
-        }
-      } catch {
-        /* prefetch is advisory; pickers fall back to their own load */
-      }
-      if (!alive) return;
-      try {
-        const webSearchModels = await Promise.resolve(store.listWebSearchModels?.() || []);
-        if (
-          alive &&
-          Array.isArray(webSearchModels) &&
-          webSearchModels.length > 0 &&
-          !Array.isArray(webSearchModelsCacheRef.current.models)
-        ) {
-          webSearchModelsCacheRef.current = { models: webSearchModels, at: Date.now() };
-        }
-      } catch {
-        /* prefetch is advisory; /websearch falls back to its own load */
-      }
-    }, 1500);
-    timer.unref?.();
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [store]);
+  // Provider/web-search catalog caches + boot warm-up:
+  // app/use-model-catalog-cache.mjs.
+  const {
+    providerModelsCacheRef,
+    webSearchModelsCacheRef,
+    modelPickerRequestRef,
+    onboardingPrefetchSeqRef,
+    clearModelCaches,
+  } = useModelCatalogCache({ store, onboardingRef });
   // Picker/panel factories + slash dispatch: app/create-app-pickers.mjs.
   const {
     openMemoryCorePicker,
@@ -1060,56 +933,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     measuredRowsVersion,
     setMeasuredRowsVersion,
   });
+  // Tab cycles the workflow unless another surface owns the bottom area:
+  // app/workflow-cycle.mjs.
   const cycleWorkflowFromPrompt = useCallback(() => {
     if (slashPaletteOpen || toolApproval || picker || settingsPrompt || providerPrompt || contextPanel || usagePanel)
       return true;
-    const repeatGuardMs = 300;
-    const cycleGuard = workflowTabCycleRef.current;
-    const now = Date.now();
-    if (state.commandBusy || cycleGuard.pending || now - cycleGuard.lastAt < repeatGuardMs) {
-      cycleGuard.lastAt = now;
-      return true;
-    }
-    cycleGuard.lastAt = now;
-    cycleGuard.pending = true;
-    // listWorkflows is a remote call on a daemon-backed store, so the whole
-    // cycle runs off its resolution; the handler still answers `true` at once
-    // so the key stays consumed.
-    void Promise.resolve(store.listWorkflows?.())
-      .then((list) => {
-        const workflows = Array.isArray(list) ? list : [];
-        if (!workflows.length) {
-          store.pushNotice('no workflows available', 'warn');
-          return null;
-        }
-        const workflow = state.workflow || {};
-        if (workflows.length < 2) {
-          store.pushNotice(`Workflow: ${workflowDisplayName(workflows[0] || workflow)}`, 'info');
-          return null;
-        }
-        const activeIndex = workflows.findIndex((item) => item.active);
-        const currentIndex =
-          activeIndex >= 0
-            ? activeIndex
-            : Math.max(
-                0,
-                workflows.findIndex((item) => item.id === workflow.id)
-              );
-        const next = workflows[(currentIndex + 1 + workflows.length) % workflows.length];
-        return store.setWorkflow?.(next.id);
-      })
-      .then((result) => {
-        if (!result) {
-          return;
-        }
-        store.pushNotice(workflowSwitchNotice(result), 'info', { ttlMs: 1200 });
-      })
-      .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'))
-      .finally(() => {
-        cycleGuard.pending = false;
-        cycleGuard.lastAt = Date.now();
-      });
-    return true;
+    return cycleWorkflow({ store, state, cycleGuard: workflowTabCycleRef.current });
   }, [
     slashPaletteOpen,
     toolApproval,

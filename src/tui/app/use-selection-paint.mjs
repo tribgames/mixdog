@@ -5,14 +5,15 @@
  * with its cancel/flush guards. The stitch harvest hooks in on every paint.
  */
 import { useCallback, useEffect, useRef } from 'react';
-import { theme } from '../theme.mjs';
-import {
-  SELECTION_PAINT_INTERVAL_MS,
-  selectionRectsEqual,
-  statusBandRowRange,
-  transcriptViewportRowRange,
-} from './transcript-window.mjs';
+import { selectionRectsEqual } from './transcript-window.mjs';
 import { yieldToRenderer } from '../session/render-timing.mjs';
+import {
+  cancelPendingPaint,
+  flushPendingPaint,
+  publishSelectionRect,
+  scheduleThrottledPaint,
+} from './use-selection-paint/paint-queue.mjs';
+import { clipSelectionRect, selectionClipBand } from './use-selection-paint/selection-clip.mjs';
 
 export function useSelectionPaint({
   store,
@@ -51,89 +52,35 @@ export function useSelectionPaint({
     });
   }, [store]);
 
-  const selectionClip = useCallback(() => {
-    // The status-bar grid selection lives in the bottom statusline band, not the
-    // transcript viewport — clip there so the highlight cannot spill into the
-    // prompt/transcript rows. Everything else (transcript, word-select) keeps the
-    // transcript-viewport clip.
-    const band =
-      dragRef.current.region === 'status'
-        ? statusBandRowRange(frameRowsRef.current, statuslineBandRows)
-        : transcriptViewportRowRange(transcriptViewportRef.current);
-    return { y1: band.top, y2: band.bottom };
-  }, []);
+  // Clip band + theming: use-selection-paint/selection-clip.mjs.
+  const selectionClip = useCallback(
+    () => selectionClipBand({ dragRef, frameRowsRef, transcriptViewportRef, statuslineBandRows }),
+    []
+  );
 
   const withSelectionClip = useCallback(
-    (rect, options = {}) => {
-      if (!rect) return null;
-      const clip = selectionClip();
-      const clipped = {
-        ...rect,
-        clipY1: clip.y1,
-        clipY2: Math.max(clip.y1, clip.y2),
-        selectionForeground: theme.selectionHighlightText || theme.selectionText,
-        selectionBackground: theme.selectionHighlightBackground || theme.selectionBackground,
-      };
-      if (options.captureText === false) clipped.captureText = false;
-      return clipped;
-    },
+    (rect, options = {}) => (rect ? clipSelectionRect(rect, selectionClip(), options) : null),
     [selectionClip]
   );
 
+  // Publish + throttle state machine: use-selection-paint/paint-queue.mjs.
   const paintSelectionRect = useCallback(
-    (clippedRect, { rememberText = true } = {}) => {
-      const nextRect = clippedRect || null;
-      const state = selectionPaintRef.current;
-      if (selectionRectsEqual(state.rect, nextRect)) {
-        const needsCapture = nextRect && rememberText && nextRect.captureText !== false;
-        if (!needsCapture) return false;
-        // Keep selection refreshes on Ink's normal maxFps render path. The
-        // selection rect itself is published synchronously by setSelection.
-        store.setRenderSelection?.(nextRect);
-        rememberSelectionTextSoon();
-        harvestStitchRowsSoon();
-        return true;
-      }
-      state.rect = nextRect;
-      state.t = Date.now();
-      store.setRenderSelection?.(nextRect);
-      if (nextRect && rememberText && nextRect.captureText !== false) rememberSelectionTextSoon();
-      if (nextRect) harvestStitchRowsSoon();
-      return true;
-    },
+    (clippedRect, { rememberText = true } = {}) =>
+      publishSelectionRect(selectionPaintRef, clippedRect, {
+        store,
+        rememberText,
+        rememberSelectionTextSoon,
+        harvestStitchRowsSoon,
+      }),
     [store, rememberSelectionTextSoon, harvestStitchRowsSoon]
   );
 
-  // Shared guard for EVERY direct (non-coalesced) paint path: a pending
-  // throttled repaint (state.timer/state.pending, armed by
-  // applySelectionRectThrottled) would fire AFTER a direct paint and stamp a
-  // stale pre-scroll/pre-direction rect over the current one — surfacing as two
-  // coexisting highlights. Cancel it before any direct paint.
-  const cancelPendingSelectionPaint = useCallback(() => {
-    const state = selectionPaintRef.current;
-    if (state.timer) {
-      clearTimeout(state.timer);
-      state.timer = null;
-    }
-    state.pending = null;
-  }, []);
+  const cancelPendingSelectionPaint = useCallback(() => cancelPendingPaint(selectionPaintRef), []);
 
-  // Publish an armed-but-unpainted coalesced rect NOW, so the throttled Ink
-  // render can consume the newest fast-drag rect. Paths that read the
-  // rendered selection (the pre-scroll stitch harvest) see the newest fast-drag
-  // rect rather than the previous rendered one. Cancel-only would drop the
-  // pending rect and lose rows it covered that scroll off before the rebuild.
-  const flushPendingSelectionPaint = useCallback(() => {
-    const state = selectionPaintRef.current;
-    if (!state.timer && !state.pending) return;
-    const pending = state.pending;
-    if (state.timer) {
-      clearTimeout(state.timer);
-      state.timer = null;
-    }
-    state.pending = null;
-    if (pending) paintSelectionRect(pending, { rememberText: false });
-  }, [paintSelectionRect]);
+  const flushPendingSelectionPaint = useCallback(
+    () => flushPendingPaint(selectionPaintRef, paintSelectionRect),
+    [paintSelectionRect]
+  );
 
   const applySelectionRect = useCallback(
     (rect) => {
@@ -155,29 +102,10 @@ export function useSelectionPaint({
       const clippedRect = withSelectionClip(rect, { captureText: false });
       if (selectionRectsEqual(dragRef.current.rect, clippedRect)) return;
       dragRef.current.rect = clippedRect || null;
-      const state = selectionPaintRef.current;
-      if (selectionRectsEqual(state.rect, clippedRect)) return;
-      const now = Date.now();
-      const elapsed = now - state.t;
-      if (elapsed >= SELECTION_PAINT_INTERVAL_MS) {
-        cancelPendingSelectionPaint();
-        paintSelectionRect(clippedRect, { rememberText: false });
-        return;
-      }
-      state.pending = clippedRect || null;
-      if (!state.timer) {
-        state.timer = setTimeout(
-          () => {
-            const current = selectionPaintRef.current;
-            const pending = current.pending;
-            current.timer = null;
-            current.pending = null;
-            paintSelectionRect(pending, { rememberText: false });
-          },
-          Math.max(1, SELECTION_PAINT_INTERVAL_MS - elapsed)
-        );
-        state.timer.unref?.();
-      }
+      scheduleThrottledPaint(selectionPaintRef, clippedRect, {
+        paint: paintSelectionRect,
+        cancelPending: cancelPendingSelectionPaint,
+      });
     },
     [paintSelectionRect, withSelectionClip, cancelPendingSelectionPaint]
   );
