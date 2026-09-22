@@ -18,6 +18,53 @@ export function normalizeRel(rel) {
   return String(rel || '').replace(/\\/g, '/');
 }
 
+/** Flags whose next argv entry is stored verbatim on the named option field. */
+const STRING_FLAG_FIELDS = new Map([
+  ['--old', 'old'],
+  ['--new', 'new'],
+  ['--root', 'root'],
+  ['--json', 'json'],
+  ['--old-jsonl', 'oldJsonl'],
+  ['--new-jsonl', 'newJsonl'],
+  ['--kind-map', 'kindMap'],
+]);
+
+/** Flags whose next argv entry is stored as a Number on the named option field. */
+const NUMBER_FLAG_FIELDS = new Map([
+  ['--max-symbol-loss', 'maxSymbolLoss'],
+  ['--max-import-diff', 'maxImportDiff'],
+  ['--max-token-loss', 'maxTokenLoss'],
+  ['--max-time-ratio', 'maxTimeRatio'],
+  ['--runs', 'runs'],
+]);
+
+/** Consume the consecutive non-flag argv entries that follow index `start`. */
+function takeTrailingValues(argv, start) {
+  const values = [];
+  let index = start;
+  while (index + 1 < argv.length && !String(argv[index + 1]).startsWith('--')) {
+    values.push(argv[index + 1]);
+    index += 1;
+  }
+  return { values, index };
+}
+
+/** Cross-flag mode requirements and numeric threshold ranges. */
+function validateParityOptions(out) {
+  const jsonlMode = Boolean(out.oldJsonl || out.newJsonl);
+  if (jsonlMode && (!out.oldJsonl || !out.newJsonl)) {
+    throw new Error('both --old-jsonl and --new-jsonl are required');
+  }
+  if (!jsonlMode && (!out.old || !out.new)) {
+    throw new Error('--old and --new binaries are required (or --old-jsonl/--new-jsonl)');
+  }
+  if (!Number.isFinite(out.maxSymbolLoss) || out.maxSymbolLoss < 0) throw new Error('invalid --max-symbol-loss');
+  if (!Number.isFinite(out.maxImportDiff) || out.maxImportDiff < 0) throw new Error('invalid --max-import-diff');
+  if (!Number.isFinite(out.maxTokenLoss) || out.maxTokenLoss < 0) throw new Error('invalid --max-token-loss');
+  if (!Number.isFinite(out.maxTimeRatio) || out.maxTimeRatio <= 0) throw new Error('invalid --max-time-ratio');
+  if (!Number.isFinite(out.runs) || out.runs < 1 || !Number.isInteger(out.runs)) throw new Error('invalid --runs');
+}
+
 export function parseArgs(argv) {
   const out = {
     old: null,
@@ -43,55 +90,19 @@ export function parseArgs(argv) {
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
+    const stringField = STRING_FLAG_FIELDS.get(a);
+    if (stringField) {
+      out[stringField] = take(argv, i, a);
+      i += 1;
+      continue;
+    }
+    const numberField = NUMBER_FLAG_FIELDS.get(a);
+    if (numberField) {
+      out[numberField] = Number(take(argv, i, a));
+      i += 1;
+      continue;
+    }
     switch (a) {
-      case '--old':
-        out.old = take(argv, i, a);
-        i += 1;
-        break;
-      case '--new':
-        out.new = take(argv, i, a);
-        i += 1;
-        break;
-      case '--root':
-        out.root = take(argv, i, a);
-        i += 1;
-        break;
-      case '--json':
-        out.json = take(argv, i, a);
-        i += 1;
-        break;
-      case '--old-jsonl':
-        out.oldJsonl = take(argv, i, a);
-        i += 1;
-        break;
-      case '--new-jsonl':
-        out.newJsonl = take(argv, i, a);
-        i += 1;
-        break;
-      case '--max-symbol-loss':
-        out.maxSymbolLoss = Number(take(argv, i, a));
-        i += 1;
-        break;
-      case '--max-import-diff':
-        out.maxImportDiff = Number(take(argv, i, a));
-        i += 1;
-        break;
-      case '--max-token-loss':
-        out.maxTokenLoss = Number(take(argv, i, a));
-        i += 1;
-        break;
-      case '--max-time-ratio':
-        out.maxTimeRatio = Number(take(argv, i, a));
-        i += 1;
-        break;
-      case '--runs':
-        out.runs = Number(take(argv, i, a));
-        i += 1;
-        break;
-      case '--kind-map':
-        out.kindMap = take(argv, i, a);
-        i += 1;
-        break;
       case '--tokens':
         out.tokens = true;
         break;
@@ -99,18 +110,17 @@ export function parseArgs(argv) {
         const first = take(argv, i, a);
         i += 1;
         out.allowNewLanguages.push(...splitLangIds(first));
-        while (i + 1 < argv.length && !String(argv[i + 1]).startsWith('--')) {
-          out.allowNewLanguages.push(...splitLangIds(argv[i + 1]));
-          i += 1;
-        }
+        const trailing = takeTrailingValues(argv, i);
+        for (const value of trailing.values) out.allowNewLanguages.push(...splitLangIds(value));
+        i = trailing.index;
         break;
       }
-      case '--files':
-        while (i + 1 < argv.length && !String(argv[i + 1]).startsWith('--')) {
-          out.files.push(argv[i + 1]);
-          i += 1;
-        }
+      case '--files': {
+        const trailing = takeTrailingValues(argv, i);
+        out.files.push(...trailing.values);
+        i = trailing.index;
         break;
+      }
       case '--help':
       case '-h':
         throw new Error('help');
@@ -118,18 +128,7 @@ export function parseArgs(argv) {
         throw new Error(`unknown argument: ${a}`);
     }
   }
-  const jsonlMode = Boolean(out.oldJsonl || out.newJsonl);
-  if (jsonlMode && (!out.oldJsonl || !out.newJsonl)) {
-    throw new Error('both --old-jsonl and --new-jsonl are required');
-  }
-  if (!jsonlMode && (!out.old || !out.new)) {
-    throw new Error('--old and --new binaries are required (or --old-jsonl/--new-jsonl)');
-  }
-  if (!Number.isFinite(out.maxSymbolLoss) || out.maxSymbolLoss < 0) throw new Error('invalid --max-symbol-loss');
-  if (!Number.isFinite(out.maxImportDiff) || out.maxImportDiff < 0) throw new Error('invalid --max-import-diff');
-  if (!Number.isFinite(out.maxTokenLoss) || out.maxTokenLoss < 0) throw new Error('invalid --max-token-loss');
-  if (!Number.isFinite(out.maxTimeRatio) || out.maxTimeRatio <= 0) throw new Error('invalid --max-time-ratio');
-  if (!Number.isFinite(out.runs) || out.runs < 1 || !Number.isInteger(out.runs)) throw new Error('invalid --runs');
+  validateParityOptions(out);
   out.allowNewLanguages = [...new Set(out.allowNewLanguages)];
   return out;
 }
@@ -769,8 +768,9 @@ function formatExamples(examples) {
   return examples.map((ex) => `    - ${JSON.stringify(ex)}`).join('\n');
 }
 
-export function formatMarkdown(report) {
-  const lines = ['# mixdog-graph extraction parity', ''];
+/** Run inputs: compared binaries/root, file counts, language allow-list, kind-map source. */
+function formatRunInputLines(report) {
+  const lines = [];
   if (report.old) lines.push(`- old: \`${report.old}\``);
   if (report.new) lines.push(`- new: \`${report.new}\``);
   if (report.root) lines.push(`- root: \`${report.root}\``);
@@ -797,6 +797,12 @@ export function formatMarkdown(report) {
     lines.push('- kind-map: inactive');
   }
   if (report.tokens) lines.push('- tokens: on');
+  return lines;
+}
+
+/** Gate outcome: manifest parity, timing ratio, and the PASS/FAIL verdict. */
+function formatGateLines(report) {
+  const lines = [];
   if (report.manifestIdentical == null) lines.push('- manifest: (skipped)');
   else if (report.manifestIdentical) {
     lines.push(
@@ -820,7 +826,12 @@ export function formatMarkdown(report) {
   } else {
     lines.push('- result: **PASS**');
   }
-  lines.push('', '## Totals', '');
+  return lines;
+}
+
+/** Per-category totals table. */
+function formatTotalsLines(report) {
+  const lines = ['', '## Totals', ''];
   lines.push('| category | count |');
   lines.push('|---|---|');
   lines.push(`| LOSS | ${report.totals.loss} |`);
@@ -835,6 +846,12 @@ export function formatMarkdown(report) {
     lines.push(`| TOKEN_LOSS | ${report.totals.tokenLost || 0} |`);
     lines.push(`| TOKEN_ADD | ${report.totals.tokenAdded || 0} |`);
   }
+  return lines;
+}
+
+/** Optional sections that qualify the totals: unmapped kinds, additive fields, line moves. */
+function formatTotalsQualifierLines(report) {
+  const lines = [];
   if (report.unmappedKinds?.length) {
     lines.push('', '## Unmapped kinds', '');
     for (const item of report.unmappedKinds) {
@@ -860,7 +877,12 @@ export function formatMarkdown(report) {
       lines.push(`- ${item.rel}: \`${item.name}\``);
     }
   }
+  return lines;
+}
 
+/** One section per language with its non-empty diff buckets and examples. */
+function formatLanguageLines(report) {
+  const lines = [];
   const langs = Object.keys(report.byLanguage).sort();
   for (const lang of langs) {
     const b = report.byLanguage[lang];
@@ -879,7 +901,20 @@ export function formatMarkdown(report) {
       if (formatted) lines.push(formatted);
     }
   }
-  lines.push('');
+  return lines;
+}
+
+export function formatMarkdown(report) {
+  const lines = [
+    '# mixdog-graph extraction parity',
+    '',
+    ...formatRunInputLines(report),
+    ...formatGateLines(report),
+    ...formatTotalsLines(report),
+    ...formatTotalsQualifierLines(report),
+    ...formatLanguageLines(report),
+    '',
+  ];
   return lines.join('\n');
 }
 

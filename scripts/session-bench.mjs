@@ -409,17 +409,9 @@ function buildRouteGroups(rows) {
   return groups.sort((a, b) => Number(a.min_ts || 0) - Number(b.min_ts || 0));
 }
 
-function buildCacheDiagnostics(rows) {
-  const transport = rows.filter((r) => r.kind === 'transport');
-  const usage = rows.filter((r) => r.kind === 'usage_raw');
-  const breaks = rows.filter((r) => r.kind === 'cache_break');
-  const misses = rows.filter((r) => r.kind === 'cache_miss');
-  const keyCounts = new Map();
-  for (const r of transport) {
-    const key = field(r, 'cache_key_hash');
-    if (key) keyCounts.set(key, (keyCounts.get(key) || 0) + 1);
-  }
-  const downgrades = transport
+// Service-tier downgrades: the response tier differs from the requested one.
+function buildServiceTierDowngrades(transport) {
+  return transport
     .filter((r) => {
       const requested = field(r, 'requested_service_tier');
       const response = field(r, 'response_service_tier');
@@ -433,7 +425,13 @@ function buildCacheDiagnostics(rows) {
       model: field(r, 'model'),
       ts: r.ts,
     }));
-  const cacheBreaks = breaks.map((r) => {
+}
+
+// Each cache_break row joined to its nearest usage row (same session+iteration
+// first, else the closest earlier row of that session) and classified as an
+// actionable break or an intentional transition.
+function buildCacheBreakRows(breaks, usage, transport) {
+  return breaks.map((r) => {
     const reason = field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || null;
     const relatedUsage =
       nearestRowAround(
@@ -472,6 +470,58 @@ function buildCacheDiagnostics(rows) {
       ts: r.ts,
     };
   });
+}
+
+// cache_miss rows in report shape; the provider payload carries the counters
+// when the row itself does not.
+function buildCacheMissRows(misses) {
+  return misses.map((r) => ({
+    session_id: sessionId(r),
+    iteration: num(r, 'iteration'),
+    reason: field(r, 'reason') || field(r, 'payload')?.reason || 'unknown',
+    ws_mode: field(r, 'ws_mode'),
+    cache_key_hash: field(r, 'cache_key_hash'),
+    request_has_previous_response_id: field(r, 'request_has_previous_response_id'),
+    prompt_tokens: num(r, 'prompt_tokens') || num(field(r, 'payload'), 'prompt_tokens') || 0,
+    cached_tokens: num(r, 'cached_tokens') || num(field(r, 'payload'), 'cached_tokens') || 0,
+    uncached_tokens: num(r, 'uncached_tokens') || num(field(r, 'payload'), 'uncached_tokens') || 0,
+    previous_max_cached_tokens:
+      num(r, 'previous_max_cached_tokens') || num(field(r, 'payload'), 'previous_max_cached_tokens') || 0,
+    cache_ratio: num(r, 'cache_ratio') ?? num(field(r, 'payload'), 'cache_ratio'),
+    ts: r.ts,
+  }));
+}
+
+// Turns whose prompt was large enough to matter yet reused (almost) no cache.
+function buildLowCacheTurns(usage) {
+  return usage
+    .map((r) => {
+      const denom = cacheDenom(r);
+      const ratio = denom > 0 ? (num(r, 'cached_tokens') || 0) / denom : null;
+      return {
+        session_id: sessionId(r),
+        iteration: num(r, 'iteration'),
+        ratio,
+        cached_tokens: num(r, 'cached_tokens') || 0,
+        prompt_tokens: denom,
+        ts: r.ts,
+      };
+    })
+    .filter((x) => x.prompt_tokens >= 1000 && (x.ratio == null || x.ratio < 0.25));
+}
+
+function buildCacheDiagnostics(rows) {
+  const transport = rows.filter((r) => r.kind === 'transport');
+  const usage = rows.filter((r) => r.kind === 'usage_raw');
+  const breaks = rows.filter((r) => r.kind === 'cache_break');
+  const misses = rows.filter((r) => r.kind === 'cache_miss');
+  const keyCounts = new Map();
+  for (const r of transport) {
+    const key = field(r, 'cache_key_hash');
+    if (key) keyCounts.set(key, (keyCounts.get(key) || 0) + 1);
+  }
+  const downgrades = buildServiceTierDowngrades(transport);
+  const cacheBreaks = buildCacheBreakRows(breaks, usage, transport);
   const actionableCacheBreaks = cacheBreaks.filter((b) => b.actionable);
   return {
     usage_cache_ratio: cacheRatioFromUsage(usage),
@@ -488,36 +538,9 @@ function buildCacheDiagnostics(rows) {
     cache_breaks: cacheBreaks,
     actionable_cache_breaks: actionableCacheBreaks,
     intentional_cache_breaks: cacheBreaks.filter((b) => !b.actionable),
-    actual_cache_misses: misses.map((r) => ({
-      session_id: sessionId(r),
-      iteration: num(r, 'iteration'),
-      reason: field(r, 'reason') || field(r, 'payload')?.reason || 'unknown',
-      ws_mode: field(r, 'ws_mode'),
-      cache_key_hash: field(r, 'cache_key_hash'),
-      request_has_previous_response_id: field(r, 'request_has_previous_response_id'),
-      prompt_tokens: num(r, 'prompt_tokens') || num(field(r, 'payload'), 'prompt_tokens') || 0,
-      cached_tokens: num(r, 'cached_tokens') || num(field(r, 'payload'), 'cached_tokens') || 0,
-      uncached_tokens: num(r, 'uncached_tokens') || num(field(r, 'payload'), 'uncached_tokens') || 0,
-      previous_max_cached_tokens:
-        num(r, 'previous_max_cached_tokens') || num(field(r, 'payload'), 'previous_max_cached_tokens') || 0,
-      cache_ratio: num(r, 'cache_ratio') ?? num(field(r, 'payload'), 'cache_ratio'),
-      ts: r.ts,
-    })),
+    actual_cache_misses: buildCacheMissRows(misses),
     service_tier_downgrades: downgrades,
-    low_cache_turns: usage
-      .map((r) => {
-        const denom = cacheDenom(r);
-        const ratio = denom > 0 ? (num(r, 'cached_tokens') || 0) / denom : null;
-        return {
-          session_id: sessionId(r),
-          iteration: num(r, 'iteration'),
-          ratio,
-          cached_tokens: num(r, 'cached_tokens') || 0,
-          prompt_tokens: denom,
-          ts: r.ts,
-        };
-      })
-      .filter((x) => x.prompt_tokens >= 1000 && (x.ratio == null || x.ratio < 0.25)),
+    low_cache_turns: buildLowCacheTurns(usage),
   };
 }
 
@@ -1047,6 +1070,134 @@ function nearestRowAround(rows, ts, maxDeltaMs = 1_000, predicate = null) {
   return best;
 }
 
+// One turn record: the rows that belong to the turn, resolved against the
+// nearest stream and fetch rows and flagged for the slow and cold-cache cases.
+function buildTurnRecord(
+  { sid, meta, sseRows, fetchRows },
+  { usage = null, transport = null, tools = [], cacheBreaks = [] },
+  { iteration, occurrence }
+) {
+  const tRef = Number(usage?.ts || transport?.ts || tools.at(-1)?.ts || 0);
+  const sse = usage ? nearestRowBefore(sseRows, usage.ts, 10_000) : nearestRowBefore(sseRows, tRef, 10_000);
+  const streamMs = sse ? (num(sse, 'stream_total_ms') ?? num(sse, 'sse_parse_ms') ?? 0) : 0;
+  const fetchWindowMs = Math.max(30_000, streamMs + 10_000);
+  const fetch = transport
+    ? nearestRowBefore(fetchRows, transport.ts, fetchWindowMs)
+    : nearestRowBefore(fetchRows, tRef, fetchWindowMs);
+  const promptTokens = usage ? cacheDenom(usage) : 0;
+  const cachedTokens = usage ? num(usage, 'cached_tokens') || 0 : 0;
+  const cacheRatio = promptTokens > 0 ? cachedTokens / promptTokens : null;
+  const headersMs = fetch ? num(fetch, 'headers_ms') || 0 : 0;
+  const toolMs = sum(tools.map((r) => num(r, 'tool_ms')));
+  const outputTokens = usage ? num(usage, 'output_tokens') || 0 : 0;
+  const thinkingTokens = usage ? num(usage, 'thinking_tokens') || 0 : 0;
+  const serviceRequested = transport ? field(transport, 'requested_service_tier') : null;
+  const serviceResponse = transport ? field(transport, 'response_service_tier') : field(usage, 'service_tier');
+  const flags = [];
+  if (field(transport, 'ws_mode') === 'full') flags.push('full_ws');
+  if (cacheBreaks.length)
+    flags.push(
+      `cache_break:${cacheBreaks.map((r) => field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || 'unknown').join('|')}`
+    );
+  if (serviceRequested && serviceResponse && serviceRequested !== serviceResponse)
+    flags.push(`tier:${serviceRequested}->${serviceResponse}`);
+  if (streamMs >= 15_000) flags.push('slow_stream');
+  if (headersMs >= 5_000) flags.push('slow_headers');
+  if (toolMs >= 5_000) flags.push('slow_tools');
+  if (promptTokens >= 50_000 && cacheRatio != null && cacheRatio < 0.8) flags.push('low_cache_large_prompt');
+  return {
+    session_id: sid,
+    agent: meta.agent || null,
+    model: meta.model || null,
+    provider: meta.provider || null,
+    iteration,
+    occurrence,
+    turn_label: occurrence > 1 ? `${iteration ?? '-'}#${occurrence}` : String(iteration ?? '-'),
+    ts: tRef || null,
+    headers_ms: headersMs,
+    stream_ms: streamMs,
+    tool_ms: toolMs,
+    approx_active_ms: headersMs + streamMs + toolMs,
+    tool_calls: tools.length,
+    prompt_tokens: promptTokens,
+    output_tokens: outputTokens,
+    thinking_tokens: thinkingTokens,
+    cached_tokens: cachedTokens,
+    cache_ratio: cacheRatio,
+    ws_mode: transport ? field(transport, 'ws_mode') : null,
+    reused_connection: transport ? field(transport, 'reused_connection') : null,
+    has_previous_response_id: transport ? field(transport, 'request_has_previous_response_id') : null,
+    service_requested: serviceRequested,
+    service_response: serviceResponse,
+    cache_breaks: cacheBreaks.map(
+      (r) => field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || 'unknown'
+    ),
+    top_tools: Object.values(
+      tools.reduce((acc, r) => {
+        const name = String(field(r, 'tool_name') || '(unknown)');
+        if (!acc[name]) acc[name] = { tool: name, count: 0, ms: 0 };
+        acc[name].count += 1;
+        acc[name].ms += num(r, 'tool_ms') || 0;
+        return acc;
+      }, {})
+    )
+      .sort((a, b) => b.ms - a.ms || b.count - a.count)
+      .slice(0, 3),
+    flags,
+  };
+}
+
+// Turns anchored on a usage row: same iteration, inside the window that ends at
+// the next usage row.
+function usageAnchoredTurnInputs(usageSorted, transportRows, toolRows, cacheBreakRows) {
+  const inputs = [];
+  for (let idx = 0; idx < usageSorted.length; idx += 1) {
+    const usage = usageSorted[idx];
+    const iteration = num(usage, 'iteration');
+    const ts = Number(usage.ts || 0);
+    const nextTs = Number(usageSorted[idx + 1]?.ts || Infinity);
+    const inWindow = (r) => {
+      const rts = Number(r.ts || 0);
+      return Number.isFinite(rts) && rts >= ts - 100 && rts < nextTs;
+    };
+    const sameIteration = (r) => num(r, 'iteration') === iteration;
+    const transport = nearestRowAround(transportRows, ts, 1_000, sameIteration);
+    const tools = toolRows.filter((r) => sameIteration(r) && inWindow(r));
+    const cacheBreaks = cacheBreakRows.filter((r) => sameIteration(r) && inWindow(r));
+    inputs.push({ usage, transport, tools, cacheBreaks });
+  }
+  return inputs;
+}
+
+// A transport no usage row claimed is still a turn (the turn ended without a
+// usage row); its window ends at the next usage row instead.
+function orphanTransportTurnInputs(usageSorted, transportRows, toolRows, cacheBreakRows) {
+  const usageMatchedTransports = new Set(
+    usageSorted
+      .map((usage) =>
+        nearestRowAround(transportRows, usage.ts, 1_000, (r) => num(r, 'iteration') === num(usage, 'iteration'))
+      )
+      .filter(Boolean)
+  );
+  const inputs = [];
+  for (const transport of transportRows
+    .filter((r) => !usageMatchedTransports.has(r))
+    .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))) {
+    const iteration = num(transport, 'iteration');
+    const ts = Number(transport.ts || 0);
+    const nextUsage = usageSorted.find((r) => Number(r.ts || 0) > ts);
+    const nextTs = Number(nextUsage?.ts || Infinity);
+    const tools = toolRows.filter(
+      (r) => num(r, 'iteration') === iteration && Number(r.ts || 0) >= ts - 100 && Number(r.ts || 0) < nextTs
+    );
+    const cacheBreaks = cacheBreakRows.filter(
+      (r) => num(r, 'iteration') === iteration && Number(r.ts || 0) >= ts - 100 && Number(r.ts || 0) < nextTs
+    );
+    inputs.push({ transport, tools, cacheBreaks });
+  }
+  return inputs;
+}
+
 function buildTurnDiagnostics(rows, routeGroups) {
   const sessionMeta = new Map(routeGroups.map((g) => [g.session_id, g]));
   const bySid = groupBy(rows, sessionId);
@@ -1061,118 +1212,14 @@ function buildTurnDiagnostics(rows, routeGroups) {
     const toolRows = srows.filter((r) => r.kind === 'tool');
     const usageSorted = [...usageRows].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
     const seenByIteration = new Map();
-
-    const pushTurn = ({ usage = null, transport = null, tools = [], cacheBreaks = [], nextTs: _nextTs = Infinity }) => {
-      const iteration = num(usage || transport || tools[0] || cacheBreaks[0], 'iteration');
+    for (const input of [
+      ...usageAnchoredTurnInputs(usageSorted, transportRows, toolRows, cacheBreakRows),
+      ...orphanTransportTurnInputs(usageSorted, transportRows, toolRows, cacheBreakRows),
+    ]) {
+      const iteration = num(input.usage || input.transport || input.tools[0] || input.cacheBreaks[0], 'iteration');
       const occurrence = (seenByIteration.get(iteration) || 0) + 1;
       seenByIteration.set(iteration, occurrence);
-      const tRef = Number(usage?.ts || transport?.ts || tools.at(-1)?.ts || 0);
-      const sse = usage ? nearestRowBefore(sseRows, usage.ts, 10_000) : nearestRowBefore(sseRows, tRef, 10_000);
-      const streamMs = sse ? (num(sse, 'stream_total_ms') ?? num(sse, 'sse_parse_ms') ?? 0) : 0;
-      const fetchWindowMs = Math.max(30_000, streamMs + 10_000);
-      const fetch = transport
-        ? nearestRowBefore(fetchRows, transport.ts, fetchWindowMs)
-        : nearestRowBefore(fetchRows, tRef, fetchWindowMs);
-      const promptTokens = usage ? cacheDenom(usage) : 0;
-      const cachedTokens = usage ? num(usage, 'cached_tokens') || 0 : 0;
-      const cacheRatio = promptTokens > 0 ? cachedTokens / promptTokens : null;
-      const headersMs = fetch ? num(fetch, 'headers_ms') || 0 : 0;
-      const toolMs = sum(tools.map((r) => num(r, 'tool_ms')));
-      const outputTokens = usage ? num(usage, 'output_tokens') || 0 : 0;
-      const thinkingTokens = usage ? num(usage, 'thinking_tokens') || 0 : 0;
-      const serviceRequested = transport ? field(transport, 'requested_service_tier') : null;
-      const serviceResponse = transport ? field(transport, 'response_service_tier') : field(usage, 'service_tier');
-      const flags = [];
-      if (field(transport, 'ws_mode') === 'full') flags.push('full_ws');
-      if (cacheBreaks.length)
-        flags.push(
-          `cache_break:${cacheBreaks.map((r) => field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || 'unknown').join('|')}`
-        );
-      if (serviceRequested && serviceResponse && serviceRequested !== serviceResponse)
-        flags.push(`tier:${serviceRequested}->${serviceResponse}`);
-      if (streamMs >= 15_000) flags.push('slow_stream');
-      if (headersMs >= 5_000) flags.push('slow_headers');
-      if (toolMs >= 5_000) flags.push('slow_tools');
-      if (promptTokens >= 50_000 && cacheRatio != null && cacheRatio < 0.8) flags.push('low_cache_large_prompt');
-      turns.push({
-        session_id: sid,
-        agent: meta.agent || null,
-        model: meta.model || null,
-        provider: meta.provider || null,
-        iteration,
-        occurrence,
-        turn_label: occurrence > 1 ? `${iteration ?? '-'}#${occurrence}` : String(iteration ?? '-'),
-        ts: tRef || null,
-        headers_ms: headersMs,
-        stream_ms: streamMs,
-        tool_ms: toolMs,
-        approx_active_ms: headersMs + streamMs + toolMs,
-        tool_calls: tools.length,
-        prompt_tokens: promptTokens,
-        output_tokens: outputTokens,
-        thinking_tokens: thinkingTokens,
-        cached_tokens: cachedTokens,
-        cache_ratio: cacheRatio,
-        ws_mode: transport ? field(transport, 'ws_mode') : null,
-        reused_connection: transport ? field(transport, 'reused_connection') : null,
-        has_previous_response_id: transport ? field(transport, 'request_has_previous_response_id') : null,
-        service_requested: serviceRequested,
-        service_response: serviceResponse,
-        cache_breaks: cacheBreaks.map(
-          (r) => field(r, 'reason') || field(r, 'chain_delta_reason') || field(r, 'payload')?.reason || 'unknown'
-        ),
-        top_tools: Object.values(
-          tools.reduce((acc, r) => {
-            const name = String(field(r, 'tool_name') || '(unknown)');
-            if (!acc[name]) acc[name] = { tool: name, count: 0, ms: 0 };
-            acc[name].count += 1;
-            acc[name].ms += num(r, 'tool_ms') || 0;
-            return acc;
-          }, {})
-        )
-          .sort((a, b) => b.ms - a.ms || b.count - a.count)
-          .slice(0, 3),
-        flags,
-      });
-    };
-
-    for (let idx = 0; idx < usageSorted.length; idx += 1) {
-      const usage = usageSorted[idx];
-      const iteration = num(usage, 'iteration');
-      const ts = Number(usage.ts || 0);
-      const nextTs = Number(usageSorted[idx + 1]?.ts || Infinity);
-      const inWindow = (r) => {
-        const rts = Number(r.ts || 0);
-        return Number.isFinite(rts) && rts >= ts - 100 && rts < nextTs;
-      };
-      const sameIteration = (r) => num(r, 'iteration') === iteration;
-      const transport = nearestRowAround(transportRows, ts, 1_000, sameIteration);
-      const tools = toolRows.filter((r) => sameIteration(r) && inWindow(r));
-      const cacheBreaks = cacheBreakRows.filter((r) => sameIteration(r) && inWindow(r));
-      pushTurn({ usage, transport, tools, cacheBreaks, nextTs });
-    }
-
-    const usageMatchedTransports = new Set(
-      usageSorted
-        .map((usage) =>
-          nearestRowAround(transportRows, usage.ts, 1_000, (r) => num(r, 'iteration') === num(usage, 'iteration'))
-        )
-        .filter(Boolean)
-    );
-    for (const transport of transportRows
-      .filter((r) => !usageMatchedTransports.has(r))
-      .sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0))) {
-      const iteration = num(transport, 'iteration');
-      const ts = Number(transport.ts || 0);
-      const nextUsage = usageSorted.find((r) => Number(r.ts || 0) > ts);
-      const nextTs = Number(nextUsage?.ts || Infinity);
-      const tools = toolRows.filter(
-        (r) => num(r, 'iteration') === iteration && Number(r.ts || 0) >= ts - 100 && Number(r.ts || 0) < nextTs
-      );
-      const cacheBreaks = cacheBreakRows.filter(
-        (r) => num(r, 'iteration') === iteration && Number(r.ts || 0) >= ts - 100 && Number(r.ts || 0) < nextTs
-      );
-      pushTurn({ transport, tools, cacheBreaks, nextTs });
+      turns.push(buildTurnRecord({ sid, meta, sseRows, fetchRows }, input, { iteration, occurrence }));
     }
   }
   const slowestActive = [...turns].sort((a, b) => b.approx_active_ms - a.approx_active_ms).slice(0, 20);

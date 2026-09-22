@@ -74,22 +74,23 @@ test('bench runners refuse to save incomplete rounds', () => {
   }
 });
 
-test('setRoute stays next-session-only and refreshes cache fields on live-apply', () => {
-  // setRoute must default to "next session only": a bare
-  // runtime.setRoute({model}) call (no options) must NOT rewrite a live
-  // session's provider/model in place, or a mid-conversation model/provider
-  // switch silently forces a full prompt-cache rewrite (seen as a
-  // promptΔ spike + cache_ratio=0% turn in session-bench).
-  // God-file splits move implementation into module dirs; scan facade + all
-  // split modules so these source-text guards survive refactors.
-  const readMjsSources = (rel) => {
-    const abs = resolve(root, rel);
-    if (rel.endsWith('.mjs')) return readFileSync(abs, 'utf8');
-    return readdirSync(abs, { recursive: true })
-      .filter((f) => String(f).endsWith('.mjs'))
-      .map((f) => readFileSync(resolve(abs, String(f)), 'utf8'))
-      .join('\n');
-  };
+// God-file splits move implementation into module dirs; scan facade + all
+// split modules so these source-text guards survive refactors.
+const readMjsSources = (rel) => {
+  const abs = resolve(root, rel);
+  if (rel.endsWith('.mjs')) return readFileSync(abs, 'utf8');
+  return readdirSync(abs, { recursive: true })
+    .filter((f) => String(f).endsWith('.mjs'))
+    .map((f) => readFileSync(resolve(abs, String(f)), 'utf8'))
+    .join('\n');
+};
+
+// setRoute must default to "next session only": a bare
+// runtime.setRoute({model}) call (no options) must NOT rewrite a live
+// session's provider/model in place, or a mid-conversation model/provider
+// switch silently forces a full prompt-cache rewrite (seen as a
+// promptΔ spike + cache_ratio=0% turn in session-bench).
+function assertSetRouteStaysNextSessionOnly() {
   const runtimeSrc = [readMjsSources('src/mixdog-session-runtime.mjs'), readMjsSources('src/session-runtime')].join(
     '\n'
   );
@@ -143,6 +144,11 @@ test('setRoute stays next-session-only and refreshes cache fields on live-apply'
       'setRoute must drain in-flight create then recreate empty live sessions so the provider-specific tool surface is rebuilt for /model before first chat'
     );
   }
+}
+
+// An empty live session that changes provider/model must rebuild its
+// provider-scoped prompt cache fields.
+function assertUpdateSessionRouteRefreshesCacheFields() {
   const sessionLifecycleSrc = readMjsSources('src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs');
   // The route change reset lives in resetSessionForRouteChange; the guard
   // covers the caller and the helper together.
@@ -161,6 +167,10 @@ test('setRoute stays next-session-only and refreshes cache fields on live-apply'
       'updateSessionRoute must refresh provider-scoped prompt cache fields when an empty live session changes provider/model'
     );
   }
+}
+
+// The TUI wrapper never forces a live apply of its own.
+function assertTuiSetRouteKeepsNextSessionDefault() {
   const sessionSrc = [
     readMjsSources('src/tui/session.mjs'),
     readMjsSources('src/tui/session-local.mjs'),
@@ -174,4 +184,10 @@ test('setRoute stays next-session-only and refreshes cache fields on live-apply'
   if (!/routeOpts\.applyToCurrentSession === true/.test(sessionSrc)) {
     throw new Error('TUI setRoute wrapper must default applyToCurrentSession to false');
   }
+}
+
+test('setRoute stays next-session-only and refreshes cache fields on live-apply', () => {
+  assertSetRouteStaysNextSessionOnly();
+  assertUpdateSessionRouteRefreshesCacheFields();
+  assertTuiSetRouteKeepsNextSessionDefault();
 });

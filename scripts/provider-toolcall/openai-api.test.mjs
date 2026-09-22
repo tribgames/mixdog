@@ -120,6 +120,78 @@ test('OpenAI API-key unsupported handshake 403/404/429 falls back once without n
   }
 });
 
+// One application-failure case: the provider runs against WS/HTTP seams that
+// count every attempt, and the counters must match the case's expectations.
+async function assertApplicationFailureCase({
+  status,
+  exposed,
+  reloadKey = 'replacement-key',
+  acquires: expectedAcquires,
+  streams: expectedStreams,
+  reloads: expectedReloads,
+}) {
+  const label = `application ${status}${exposed ? ` +${exposed}` : ''}${reloadKey ? '' : ' (no fresh key)'}`;
+  const provider = new OpenAIDirectProvider({ apiKey: 'fixture-openai-key' });
+  let acquires = 0;
+  let streams = 0;
+  let httpCalls = 0;
+  let reloads = 0;
+  let visibleTextDeltas = 0;
+  let dispatchedToolCalls = 0;
+  provider.reloadApiKey = () => {
+    reloads += 1;
+    return reloadKey;
+  };
+  await assert.rejects(
+    provider.send([], 'gpt-5.4', [], {
+      onTextDelta: () => {
+        visibleTextDeltas += 1;
+      },
+      onToolCall: () => {
+        dispatchedToolCalls += 1;
+      },
+      _fetchFn: async () => {
+        throw new Error('global fetch seam must not run');
+      },
+      _webSocketTestSeams: {
+        _acquireWithRetryFn: async () => {
+          acquires += 1;
+          return { entry: directWsEntry(), reused: false };
+        },
+        _sendFrameFn: async () => {},
+        _streamFn: async ({ state, onTextDelta, onToolCall }) => {
+          streams += 1;
+          if (exposed === 'text') {
+            onTextDelta?.('visible-once');
+            state.emittedText = true;
+          }
+          if (exposed === 'tool') {
+            onToolCall?.({ id: 'tool-once', name: 'read', arguments: {} });
+            state.emittedToolCall = true;
+          }
+          throw Object.assign(new Error(`application ${status} ${exposed || ''}`), { httpStatus: status });
+        },
+        _sleepFn: async () => {},
+        _sendSpanTraceFn: () => {},
+        _agentTraceFn: () => {},
+      },
+      _sendViaHttpSseFn: async () => {
+        httpCalls += 1;
+        throw new Error('application/visible output must not reach HTTP');
+      },
+    }),
+    new RegExp(`application ${status}`)
+  );
+  assert.equal(acquires, expectedAcquires, `${label}: WS acquires`);
+  assert.equal(streams, expectedStreams, `${label}: WS stream attempts`);
+  assert.equal(httpCalls, 0, `${label}: must never reach HTTP fallback`);
+  assert.equal(reloads, expectedReloads, `${label}: credential reloads`);
+  // Exposed output is relayed exactly once — a replayed attempt must never
+  // concatenate a second copy onto what the client already saw.
+  assert.equal(visibleTextDeltas, exposed === 'text' ? 1 : 0, `${label}: visible text deltas`);
+  assert.equal(dispatchedToolCalls, exposed === 'tool' ? 1 : 0, `${label}: dispatched tool calls`);
+}
+
 test('OpenAI API-key application 4xx never falls back, and only a safe pre-output 401 replays once', async (t) => {
   const priorTransport = process.env.MIXDOG_OAI_TRANSPORT;
   process.env.MIXDOG_OAI_TRANSPORT = 'auto';
@@ -153,73 +225,5 @@ test('OpenAI API-key application 4xx never falls back, and only a safe pre-outpu
     { status: 500, exposed: 'text', acquires: 1, streams: 1, reloads: 0 },
     { status: 500, exposed: 'tool', acquires: 1, streams: 1, reloads: 0 },
   ];
-  for (const {
-    status,
-    exposed,
-    reloadKey = 'replacement-key',
-    acquires: expectedAcquires,
-    streams: expectedStreams,
-    reloads: expectedReloads,
-  } of cases) {
-    const label = `application ${status}${exposed ? ` +${exposed}` : ''}${reloadKey ? '' : ' (no fresh key)'}`;
-    const provider = new OpenAIDirectProvider({ apiKey: 'fixture-openai-key' });
-    let acquires = 0;
-    let streams = 0;
-    let httpCalls = 0;
-    let reloads = 0;
-    let visibleTextDeltas = 0;
-    let dispatchedToolCalls = 0;
-    provider.reloadApiKey = () => {
-      reloads += 1;
-      return reloadKey;
-    };
-    await assert.rejects(
-      provider.send([], 'gpt-5.4', [], {
-        onTextDelta: () => {
-          visibleTextDeltas += 1;
-        },
-        onToolCall: () => {
-          dispatchedToolCalls += 1;
-        },
-        _fetchFn: async () => {
-          throw new Error('global fetch seam must not run');
-        },
-        _webSocketTestSeams: {
-          _acquireWithRetryFn: async () => {
-            acquires += 1;
-            return { entry: directWsEntry(), reused: false };
-          },
-          _sendFrameFn: async () => {},
-          _streamFn: async ({ state, onTextDelta, onToolCall }) => {
-            streams += 1;
-            if (exposed === 'text') {
-              onTextDelta?.('visible-once');
-              state.emittedText = true;
-            }
-            if (exposed === 'tool') {
-              onToolCall?.({ id: 'tool-once', name: 'read', arguments: {} });
-              state.emittedToolCall = true;
-            }
-            throw Object.assign(new Error(`application ${status} ${exposed || ''}`), { httpStatus: status });
-          },
-          _sleepFn: async () => {},
-          _sendSpanTraceFn: () => {},
-          _agentTraceFn: () => {},
-        },
-        _sendViaHttpSseFn: async () => {
-          httpCalls += 1;
-          throw new Error('application/visible output must not reach HTTP');
-        },
-      }),
-      new RegExp(`application ${status}`)
-    );
-    assert.equal(acquires, expectedAcquires, `${label}: WS acquires`);
-    assert.equal(streams, expectedStreams, `${label}: WS stream attempts`);
-    assert.equal(httpCalls, 0, `${label}: must never reach HTTP fallback`);
-    assert.equal(reloads, expectedReloads, `${label}: credential reloads`);
-    // Exposed output is relayed exactly once — a replayed attempt must never
-    // concatenate a second copy onto what the client already saw.
-    assert.equal(visibleTextDeltas, exposed === 'text' ? 1 : 0, `${label}: visible text deltas`);
-    assert.equal(dispatchedToolCalls, exposed === 'tool' ? 1 : 0, `${label}: dispatched tool calls`);
-  }
+  for (const applicationCase of cases) await assertApplicationFailureCase(applicationCase);
 });

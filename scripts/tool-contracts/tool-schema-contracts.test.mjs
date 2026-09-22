@@ -594,11 +594,9 @@ test('load_tool and Skill schemas stay pure loaders', () => {
   }
 });
 
-test('grep, glob, find, and list schemas keep locator contracts', () => {
-  if (CHANNEL_TOOL_DEFS.some((tool) => tool.name === 'reply' || tool.name === 'fetch')) {
-    throw new Error('channel reply/fetch must stay removed from the model-facing surface');
-  }
-  const grepTool = BUILTIN_TOOLS.find((tool) => tool.name === 'grep');
+// grep: pattern/path fan-out shapes, scoped-discovery description, and the
+// single context field that keeps ripgrep aliases internal.
+function assertGrepLocatorSchema(grepTool) {
   const grepPatternDescription = grepTool?.inputSchema?.properties?.pattern?.description || '';
   const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description || '';
   const grepGlobDescription = grepTool?.inputSchema?.properties?.glob?.description || '';
@@ -664,15 +662,10 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
   if (grepTool?.inputSchema?.properties?.type) {
     throw new Error('grep type schema must stay hidden; prefer glob for extension narrowing');
   }
+}
 
-  const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
-  const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
-  const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
-  const listLimitDescription = listTool?.inputSchema?.properties?.limit?.description || '';
-  const findLimitDescription = findTool?.inputSchema?.properties?.limit?.description || '';
-  const globPatternShapes = globTool?.inputSchema?.properties?.pattern?.anyOf;
-  const globStringPatternShape = globPatternShapes?.find((shape) => shape?.type === 'string');
-  const globArrayPatternShape = globPatternShapes?.find((shape) => shape?.type === 'array');
+// Every paging knob across the three path locators stays an integer schema.
+function assertPagingIntegerSchemas(globTool, findTool, listTool) {
   for (const [label, schema] of [
     ['glob.limit', globTool?.inputSchema?.properties?.limit],
     ['glob.offset', globTool?.inputSchema?.properties?.offset],
@@ -682,6 +675,13 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
   ]) {
     if (schema?.type !== 'integer') throw new Error(`${label} must expose integer schema: ${JSON.stringify(schema)}`);
   }
+}
+
+// glob: known-base wildcard contract and capped pattern fan-out.
+function assertGlobLocatorSchema(globTool) {
+  const globPatternShapes = globTool?.inputSchema?.properties?.pattern?.anyOf;
+  const globStringPatternShape = globPatternShapes?.find((shape) => shape?.type === 'string');
+  const globArrayPatternShape = globPatternShapes?.find((shape) => shape?.type === 'array');
   if (
     !/Wildcard file-path lookup under a known directory/i.test(globTool?.description || '') ||
     !/Directories never match/i.test(globTool?.description || '') ||
@@ -704,6 +704,12 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
   ) {
     throw new Error('glob schema must expose capped pattern fan-out and scalar path');
   }
+}
+
+// find: fuzzy-lookup description, limit sentinel, and its nonblank query /
+// optional base-directory operands.
+function assertFindLocatorSchema(findTool) {
+  const findLimitDescription = findTool?.inputSchema?.properties?.limit?.description || '';
   if (
     !/Fuzzy filename\/directory path lookup/i.test(findTool?.description || '') ||
     !/target path is unknown and cannot be directly resolved/i.test(findTool?.description || '') ||
@@ -713,21 +719,6 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
   }
   if (!/default 25/i.test(findLimitDescription) || !/0 unlimited/i.test(findLimitDescription)) {
     throw new Error('find limit must state default 25 and the 0-unlimited sentinel');
-  }
-  if (
-    !/known directory's immediate entries/i.test(listTool?.description || '') ||
-    !/no wildcard/i.test(listTool?.description || '') ||
-    listTool?.inputSchema?.properties?.path?.type !== 'string' ||
-    listTool?.inputSchema?.properties?.path?.minLength !== undefined ||
-    !/current Project/i.test(listTool?.inputSchema?.properties?.path?.description || '') ||
-    !/default 100/i.test(listLimitDescription) ||
-    // list's 0 sentinel drops the PAGE cap only; the absolute cap still
-    // applies, and the description says so.
-    !/0 = no page cap/i.test(listLimitDescription) ||
-    listTool?.inputSchema?.properties?.limit?.maximum !== 100 ||
-    listTool?.inputSchema?.properties?.path?.anyOf
-  ) {
-    throw new Error('list description must state its known-directory immediate-entry contract');
   }
   if (
     findTool?.inputSchema?.properties?.query?.type !== 'string' ||
@@ -745,4 +736,39 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
   ) {
     throw new Error('find schema must expose a non-empty optional Project-relative base directory');
   }
+}
+
+// list: known-directory immediate-entry contract and its page-cap sentinel.
+function assertListLocatorSchema(listTool) {
+  const listLimitDescription = listTool?.inputSchema?.properties?.limit?.description || '';
+  if (
+    !/known directory's immediate entries/i.test(listTool?.description || '') ||
+    !/no wildcard/i.test(listTool?.description || '') ||
+    listTool?.inputSchema?.properties?.path?.type !== 'string' ||
+    listTool?.inputSchema?.properties?.path?.minLength !== undefined ||
+    !/current Project/i.test(listTool?.inputSchema?.properties?.path?.description || '') ||
+    !/default 100/i.test(listLimitDescription) ||
+    // list's 0 sentinel drops the PAGE cap only; the absolute cap still
+    // applies, and the description says so.
+    !/0 = no page cap/i.test(listLimitDescription) ||
+    listTool?.inputSchema?.properties?.limit?.maximum !== 100 ||
+    listTool?.inputSchema?.properties?.path?.anyOf
+  ) {
+    throw new Error('list description must state its known-directory immediate-entry contract');
+  }
+}
+
+test('grep, glob, find, and list schemas keep locator contracts', () => {
+  if (CHANNEL_TOOL_DEFS.some((tool) => tool.name === 'reply' || tool.name === 'fetch')) {
+    throw new Error('channel reply/fetch must stay removed from the model-facing surface');
+  }
+  const grepTool = BUILTIN_TOOLS.find((tool) => tool.name === 'grep');
+  const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
+  const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
+  const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
+  assertGrepLocatorSchema(grepTool);
+  assertPagingIntegerSchemas(globTool, findTool, listTool);
+  assertGlobLocatorSchema(globTool);
+  assertFindLocatorSchema(findTool);
+  assertListLocatorSchema(listTool);
 });

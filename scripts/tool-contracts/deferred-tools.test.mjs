@@ -245,7 +245,8 @@ test('readonly blocks, missing names, and MCP status reporting', () => {
   }
 });
 
-test('native custom apply_patch and alias/plain-query loading behaviors', () => {
+// apply_patch stays an OpenAI custom freeform tool through native loading.
+function assertNativeCustomApplyPatch() {
   const nativePatchSearchSession = {
     provider: 'openai-oauth',
     tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name) && tool?.name !== 'apply_patch'),
@@ -271,6 +272,10 @@ test('native custom apply_patch and alias/plain-query loading behaviors', () => 
       `native tool_search custom apply_patch must not be downgraded to deferred function schema: ${JSON.stringify(nativePatchTool)}`
     );
   }
+}
+
+// Grok keeps one fixed canonical ordinary-function surface, never native loading.
+function assertGrokCanonicalSurface() {
   const grokCanonicalSession = { provider: 'grok-oauth', model: 'grok-code-fast-1', tools: [], messages: [] };
   applyDeferredToolSurface(grokCanonicalSession, 'full', smokeCatalog, { provider: 'grok-oauth' });
   const grokCanonicalJson = JSON.stringify(grokCanonicalSession.tools);
@@ -283,7 +288,10 @@ test('native custom apply_patch and alias/plain-query loading behaviors', () => 
   ) {
     throw new Error(`Grok must use a fixed canonical ordinary-function surface: ${JSON.stringify(grokLoadResult)}`);
   }
-  // Native names[] loading explicitly activates aliases on the current surface.
+}
+
+// Native names[] loading explicitly activates aliases on the current surface.
+function assertNativeAliasSelection() {
   const nativeSelectQuerySession = {
     tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
     deferredToolCatalog: smokeCatalog.slice(),
@@ -307,8 +315,11 @@ test('native custom apply_patch and alias/plain-query loading behaviors', () => 
       `native query-select must return nativeToolSearch payload: ${JSON.stringify(nativeSelectQueryResult.nativeToolSearch)}`
     );
   }
-  // Native late-MCP selections must resolve against the boot+late catalog union,
-  // otherwise the load result says "loaded" but omits the provider payload.
+}
+
+// Native late-MCP selections must resolve against the boot+late catalog union,
+// otherwise the load result says "loaded" but omits the provider payload.
+function assertNativeLateMcpSelection() {
   const nativeLateMcpSearchSession = {
     provider: 'openai-oauth',
     tools: [],
@@ -344,7 +355,10 @@ test('native custom apply_patch and alias/plain-query loading behaviors', () => 
       `native late MCP load must include OpenAI loadable tool spec: ${JSON.stringify(nativeLateMcpSelectResult.nativeToolSearch)}`
     );
   }
-  // A plain query never auto-loads/discovers, even on native providers.
+}
+
+// A plain query never auto-loads/discovers, even on native providers.
+function assertNativePlainQueryNeverLoads() {
   const nativePlainQuerySession = {
     tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
     deferredToolCatalog: smokeCatalog.slice(),
@@ -359,6 +373,14 @@ test('native custom apply_patch and alias/plain-query loading behaviors', () => 
       throw new Error(`native tool_search plain query "${q}" must not auto-load/discover: ${JSON.stringify(r)}`);
     }
   }
+}
+
+test('native custom apply_patch and alias/plain-query loading behaviors', () => {
+  assertNativeCustomApplyPatch();
+  assertGrokCanonicalSurface();
+  assertNativeAliasSelection();
+  assertNativeLateMcpSelection();
+  assertNativePlainQueryNeverLoads();
 });
 
 test('late MCP reconciliation: Gemini manifests and native typed deltas', () => {

@@ -308,193 +308,217 @@ test('find fuzzy lookup, argument guards, and bounded timeout partial', async ()
 // Shared exploration fixture: CC/Grok parity boundaries across all six local
 // retrieval tools. It intentionally combines exact-file operands, glob/type
 // filters, hidden/noise handling, Unicode + spaces, windows, and no-match/ENOENT.
+// The tree every per-tool assertion below reads: exact-file operands, a
+// Unicode + space path, a hidden file, and dependency noise.
+function writeExplorationFixture(fixtureRoot) {
+  mkdirSync(join(fixtureRoot, 'src', '공백 폴더'), { recursive: true });
+  mkdirSync(join(fixtureRoot, 'node_modules', 'noise'), { recursive: true });
+  writeFileSync(join(fixtureRoot, 'package.json'), '{"type":"module"}\n', 'utf8');
+  writeFileSync(join(fixtureRoot, 'src', 'alpha.mjs'), 'export const needleAlpha = 1;\nsecond line\n', 'utf8');
+  writeFileSync(join(fixtureRoot, 'src', '공백 폴더', '한글 파일.mjs'), 'export const unicodeNeedle = 2;\n', 'utf8');
+  writeFileSync(join(fixtureRoot, 'src', '.hidden.mjs'), 'export const hiddenNeedle = 3;\n', 'utf8');
+  writeFileSync(join(fixtureRoot, 'node_modules', 'noise', 'noise.mjs'), 'export const noiseNeedle = 4;\n', 'utf8');
+}
+
+async function assertListHiddenPolicy(fixtureRoot) {
+  const defaultList = await executeBuiltinTool(
+    'list',
+    {
+      path: join(fixtureRoot, 'src'),
+      hidden: false,
+      head_limit: 0,
+    },
+    fixtureRoot
+  );
+  if (/\.hidden\.mjs/.test(String(defaultList)) || !/alpha\.mjs/.test(String(defaultList))) {
+    throw new Error(`list hidden=false contract failed:\n${defaultList}`);
+  }
+  const hiddenList = await executeBuiltinTool(
+    'list',
+    {
+      path: join(fixtureRoot, 'src'),
+      hidden: true,
+      head_limit: 0,
+    },
+    fixtureRoot
+  );
+  assertOk('list hidden fixture', hiddenList, /\.hidden\.mjs/);
+}
+
+async function assertGlobUnicodeAndNoise(fixtureRoot) {
+  const unicodeGlob = await executeBuiltinTool(
+    'glob',
+    {
+      pattern: '**/한글 파일.mjs',
+      path: fixtureRoot,
+      head_limit: 10,
+    },
+    fixtureRoot
+  );
+  assertOk('glob unicode + space', unicodeGlob, /공백 폴더[\\/]한글 파일\.mjs/);
+  const noiseGlob = await executeBuiltinTool(
+    'glob',
+    {
+      pattern: '**/noise.mjs',
+      path: fixtureRoot,
+      head_limit: 10,
+    },
+    fixtureRoot
+  );
+  assertOk(
+    'glob explicit pattern overrides dependency noise exclusion',
+    noiseGlob,
+    /node_modules[\\/]noise[\\/]noise\.mjs/
+  );
+}
+
+async function assertGrepOperandContracts(fixtureRoot, exactFile) {
+  const exactGlobGrep = await executeBuiltinTool(
+    'grep',
+    {
+      pattern: 'needleAlpha',
+      path: exactFile,
+      glob: '*.mjs',
+      output_mode: 'content',
+      head_limit: 10,
+    },
+    fixtureRoot
+  );
+  assertOk('grep exact file + glob', exactGlobGrep, /needleAlpha/);
+  const exactTypeGrep = await executeBuiltinTool(
+    'grep',
+    {
+      pattern: 'needleAlpha',
+      path: exactFile,
+      type: 'js',
+      output_mode: 'content',
+      head_limit: 10,
+    },
+    fixtureRoot
+  );
+  assertOk('grep exact file + type', exactTypeGrep, /needleAlpha/);
+  const noMatchGrep = await executeBuiltinTool(
+    'grep',
+    {
+      pattern: 'definitelyAbsentNeedle',
+      path: exactFile,
+      glob: '*.mjs',
+      output_mode: 'content',
+      head_limit: 10,
+    },
+    fixtureRoot
+  );
+  if (!/^\(no matches\)/.test(String(noMatchGrep)) || /^Error/.test(String(noMatchGrep))) {
+    throw new Error(`grep no-match must remain a successful empty result:\n${noMatchGrep}`);
+  }
+  const invalidRegexOut = await executeBuiltinTool(
+    'grep',
+    {
+      pattern: 'needleAlpha|(',
+      path: exactFile,
+      output_mode: 'content',
+      head_limit: 10,
+    },
+    fixtureRoot
+  );
+  if (!/^Error:/.test(String(invalidRegexOut))) {
+    throw new Error(`grep invalid regex must report failure, not run a different search:\n${invalidRegexOut}`);
+  }
+}
+
+async function assertFindUnicodeAndNoise(fixtureRoot) {
+  const unicodeFind = await executeBuiltinTool(
+    'find',
+    {
+      query: '한글 파일',
+      path: fixtureRoot,
+      head_limit: 10,
+    },
+    fixtureRoot
+  );
+  assertOk('find unicode + space', unicodeFind, /공백 폴더[\\/]한글 파일\.mjs/);
+  const quietNoiseFind = await executeBuiltinTool(
+    'find',
+    {
+      query: 'noise.mjs',
+      path: fixtureRoot,
+      include_noise: false,
+      head_limit: 10,
+    },
+    fixtureRoot
+  );
+  if (/node_modules[\\/]noise[\\/]noise\.mjs/.test(String(quietNoiseFind))) {
+    throw new Error(`find include_noise=false leaked dependency noise:\n${quietNoiseFind}`);
+  }
+  const noisyFind = await executeBuiltinTool(
+    'find',
+    {
+      query: 'noise.mjs',
+      path: fixtureRoot,
+      include_noise: true,
+      head_limit: 10,
+    },
+    fixtureRoot
+  );
+  assertOk('find include_noise=true', noisyFind, /node_modules[\\/]noise[\\/]noise\.mjs/);
+}
+
+async function assertReadWindowAndAbsence(fixtureRoot, exactFile) {
+  const readWindow = await executeBuiltinTool(
+    'read',
+    {
+      path: exactFile,
+      offset: 0,
+      limit: 1,
+    },
+    fixtureRoot
+  );
+  if (!/^1→export const needleAlpha/m.test(String(readWindow)) || /second line/.test(String(readWindow))) {
+    throw new Error(`read line window contract failed:\n${readWindow}`);
+  }
+  const missingRead = await executeBuiltinTool(
+    'read',
+    {
+      path: join(fixtureRoot, 'missing.mjs'),
+    },
+    fixtureRoot
+  );
+  // Conclusive absence is the read's ANSWER, not a tool failure (see
+  // read-single-tool.mjs and absence-absorption.test.mjs): `[path absent]`
+  // is the current envelope, and only a non-conclusive failure keeps
+  // `Error:`. Either shape must still name the cause.
+  if (
+    !/^(?:Error|\[path absent\])/.test(String(missingRead)) ||
+    !/ENOENT|does not exist|not found/i.test(String(missingRead))
+  ) {
+    throw new Error(`read ENOENT contract failed:\n${missingRead}`);
+  }
+}
+
+async function assertCodeGraphUnicodePath(fixtureRoot) {
+  const graphUnicode = await executeCodeGraphTool(
+    'code_graph',
+    {
+      mode: 'find_symbol',
+      files: ['src/공백 폴더/한글 파일.mjs'],
+      symbols: ['unicodeNeedle'],
+    },
+    fixtureRoot
+  );
+  assertOk('code_graph unicode path', graphUnicode, /unicodeNeedle/);
+}
+
 test('exploration fixture parity across the six retrieval tools', async () => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), 'mixdog-exploration-tools-'));
   try {
-    mkdirSync(join(fixtureRoot, 'src', '공백 폴더'), { recursive: true });
-    mkdirSync(join(fixtureRoot, 'node_modules', 'noise'), { recursive: true });
-    writeFileSync(join(fixtureRoot, 'package.json'), '{"type":"module"}\n', 'utf8');
-    writeFileSync(join(fixtureRoot, 'src', 'alpha.mjs'), 'export const needleAlpha = 1;\nsecond line\n', 'utf8');
-    writeFileSync(join(fixtureRoot, 'src', '공백 폴더', '한글 파일.mjs'), 'export const unicodeNeedle = 2;\n', 'utf8');
-    writeFileSync(join(fixtureRoot, 'src', '.hidden.mjs'), 'export const hiddenNeedle = 3;\n', 'utf8');
-    writeFileSync(join(fixtureRoot, 'node_modules', 'noise', 'noise.mjs'), 'export const noiseNeedle = 4;\n', 'utf8');
-
-    const defaultList = await executeBuiltinTool(
-      'list',
-      {
-        path: join(fixtureRoot, 'src'),
-        hidden: false,
-        head_limit: 0,
-      },
-      fixtureRoot
-    );
-    if (/\.hidden\.mjs/.test(String(defaultList)) || !/alpha\.mjs/.test(String(defaultList))) {
-      throw new Error(`list hidden=false contract failed:\n${defaultList}`);
-    }
-    const hiddenList = await executeBuiltinTool(
-      'list',
-      {
-        path: join(fixtureRoot, 'src'),
-        hidden: true,
-        head_limit: 0,
-      },
-      fixtureRoot
-    );
-    assertOk('list hidden fixture', hiddenList, /\.hidden\.mjs/);
-
-    const unicodeGlob = await executeBuiltinTool(
-      'glob',
-      {
-        pattern: '**/한글 파일.mjs',
-        path: fixtureRoot,
-        head_limit: 10,
-      },
-      fixtureRoot
-    );
-    assertOk('glob unicode + space', unicodeGlob, /공백 폴더[\\/]한글 파일\.mjs/);
-    const noiseGlob = await executeBuiltinTool(
-      'glob',
-      {
-        pattern: '**/noise.mjs',
-        path: fixtureRoot,
-        head_limit: 10,
-      },
-      fixtureRoot
-    );
-    assertOk(
-      'glob explicit pattern overrides dependency noise exclusion',
-      noiseGlob,
-      /node_modules[\\/]noise[\\/]noise\.mjs/
-    );
-
+    writeExplorationFixture(fixtureRoot);
     const exactFile = join(fixtureRoot, 'src', 'alpha.mjs');
-    const exactGlobGrep = await executeBuiltinTool(
-      'grep',
-      {
-        pattern: 'needleAlpha',
-        path: exactFile,
-        glob: '*.mjs',
-        output_mode: 'content',
-        head_limit: 10,
-      },
-      fixtureRoot
-    );
-    assertOk('grep exact file + glob', exactGlobGrep, /needleAlpha/);
-    const exactTypeGrep = await executeBuiltinTool(
-      'grep',
-      {
-        pattern: 'needleAlpha',
-        path: exactFile,
-        type: 'js',
-        output_mode: 'content',
-        head_limit: 10,
-      },
-      fixtureRoot
-    );
-    assertOk('grep exact file + type', exactTypeGrep, /needleAlpha/);
-    const noMatchGrep = await executeBuiltinTool(
-      'grep',
-      {
-        pattern: 'definitelyAbsentNeedle',
-        path: exactFile,
-        glob: '*.mjs',
-        output_mode: 'content',
-        head_limit: 10,
-      },
-      fixtureRoot
-    );
-    if (!/^\(no matches\)/.test(String(noMatchGrep)) || /^Error/.test(String(noMatchGrep))) {
-      throw new Error(`grep no-match must remain a successful empty result:\n${noMatchGrep}`);
-    }
-    const invalidRegexOut = await executeBuiltinTool(
-      'grep',
-      {
-        pattern: 'needleAlpha|(',
-        path: exactFile,
-        output_mode: 'content',
-        head_limit: 10,
-      },
-      fixtureRoot
-    );
-    if (!/^Error:/.test(String(invalidRegexOut))) {
-      throw new Error(`grep invalid regex must report failure, not run a different search:\n${invalidRegexOut}`);
-    }
-
-    const unicodeFind = await executeBuiltinTool(
-      'find',
-      {
-        query: '한글 파일',
-        path: fixtureRoot,
-        head_limit: 10,
-      },
-      fixtureRoot
-    );
-    assertOk('find unicode + space', unicodeFind, /공백 폴더[\\/]한글 파일\.mjs/);
-    const quietNoiseFind = await executeBuiltinTool(
-      'find',
-      {
-        query: 'noise.mjs',
-        path: fixtureRoot,
-        include_noise: false,
-        head_limit: 10,
-      },
-      fixtureRoot
-    );
-    if (/node_modules[\\/]noise[\\/]noise\.mjs/.test(String(quietNoiseFind))) {
-      throw new Error(`find include_noise=false leaked dependency noise:\n${quietNoiseFind}`);
-    }
-    const noisyFind = await executeBuiltinTool(
-      'find',
-      {
-        query: 'noise.mjs',
-        path: fixtureRoot,
-        include_noise: true,
-        head_limit: 10,
-      },
-      fixtureRoot
-    );
-    assertOk('find include_noise=true', noisyFind, /node_modules[\\/]noise[\\/]noise\.mjs/);
-
-    const readWindow = await executeBuiltinTool(
-      'read',
-      {
-        path: exactFile,
-        offset: 0,
-        limit: 1,
-      },
-      fixtureRoot
-    );
-    if (!/^1→export const needleAlpha/m.test(String(readWindow)) || /second line/.test(String(readWindow))) {
-      throw new Error(`read line window contract failed:\n${readWindow}`);
-    }
-    const missingRead = await executeBuiltinTool(
-      'read',
-      {
-        path: join(fixtureRoot, 'missing.mjs'),
-      },
-      fixtureRoot
-    );
-    // Conclusive absence is the read's ANSWER, not a tool failure (see
-    // read-single-tool.mjs and absence-absorption.test.mjs): `[path absent]`
-    // is the current envelope, and only a non-conclusive failure keeps
-    // `Error:`. Either shape must still name the cause.
-    if (
-      !/^(?:Error|\[path absent\])/.test(String(missingRead)) ||
-      !/ENOENT|does not exist|not found/i.test(String(missingRead))
-    ) {
-      throw new Error(`read ENOENT contract failed:\n${missingRead}`);
-    }
-
-    const graphUnicode = await executeCodeGraphTool(
-      'code_graph',
-      {
-        mode: 'find_symbol',
-        files: ['src/공백 폴더/한글 파일.mjs'],
-        symbols: ['unicodeNeedle'],
-      },
-      fixtureRoot
-    );
-    assertOk('code_graph unicode path', graphUnicode, /unicodeNeedle/);
+    await assertListHiddenPolicy(fixtureRoot);
+    await assertGlobUnicodeAndNoise(fixtureRoot);
+    await assertGrepOperandContracts(fixtureRoot, exactFile);
+    await assertFindUnicodeAndNoise(fixtureRoot);
+    await assertReadWindowAndAbsence(fixtureRoot, exactFile);
+    await assertCodeGraphUnicodePath(fixtureRoot);
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }

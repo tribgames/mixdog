@@ -1,14 +1,18 @@
 import { Readable } from 'node:stream';
 import { spec } from 'node:test/reporters';
+import { createFailureRecorder } from './test-failure-records.mjs';
 import timingReporter from './test-timing-reporter.mjs';
 
 // Filter structured success events, never arbitrary stdout/stderr text.
 // Node's own reporter still owns failure diagnostics, warnings and totals.
-// The runner writes an unfiltered spec report alongside this summary.
+// The runner writes an unfiltered spec report alongside this summary, and
+// every failure is also recorded for the run's final failure summary.
 export default async function* summaryReporter(source) {
   const timings = [];
+  const recordFailure = createFailureRecorder();
   async function* events() {
     for await (const event of source) {
+      recordFailure(event);
       if ((event.type === 'test:pass' || event.type === 'test:fail') && event.data.nesting === 0) {
         timings.push({
           type: event.type,

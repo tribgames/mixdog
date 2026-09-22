@@ -526,6 +526,68 @@ test('openai-compat/xai Responses: custom_tool_call history replays as function_
   assert.equal(output.output, 'OK');
 });
 
+// Resolve the actual imported binding and inspect _doSend before
+// invoking any outbound-capable provider path. AST traversal naturally
+// excludes comments/strings and catches direct, aliased, parenthesized,
+// optional, or assigned references.
+function assertDoSendUsesOnlyInjectedPreconnect() {
+  const compatSource = readFileSync(
+    new URL('../../src/runtime/agent/orchestrator/providers/openai-compat.mjs', import.meta.url),
+    'utf8'
+  );
+  const compatAst = parse(compatSource, {
+    ecmaVersion: 'latest',
+    sourceType: 'module',
+    locations: true,
+    ranges: true,
+  });
+  const preconnectImport = compatAst.body
+    .filter((node) => node.type === 'ImportDeclaration')
+    .flatMap((node) => node.specifiers)
+    .find((specifier) => specifier.type === 'ImportSpecifier' && specifier.imported.name === 'preconnect');
+  assert.ok(preconnectImport, 'shared preconnect import binding must be resolvable');
+  const scopeManager = analyze(compatAst, { ecmaVersion: 2022, sourceType: 'module' });
+  const moduleScope = scopeManager.scopes.find((scope) => scope.type === 'module');
+  const preconnectBinding = moduleScope?.set.get(preconnectImport.local.name);
+  assert.ok(preconnectBinding, 'shared preconnect source binding must be resolvable');
+
+  const providerClass = compatAst.body
+    .map((node) => (node.type === 'ExportNamedDeclaration' ? node.declaration : node))
+    .find((node) => node?.type === 'ClassDeclaration' && node.id?.name === 'OpenAICompatProvider');
+  assert.ok(providerClass, 'OpenAICompatProvider class must be resolvable');
+  const doSendMethod = providerClass.body.body.find(
+    (node) => node.type === 'MethodDefinition' && node.key?.type === 'Identifier' && node.key.name === '_doSend'
+  );
+  assert.ok(doSendMethod, 'OpenAICompatProvider._doSend must be resolvable');
+
+  let callsInjectedInstanceMember = false;
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (
+      node.type === 'CallExpression' &&
+      node.callee?.type === 'MemberExpression' &&
+      node.callee.object?.type === 'ThisExpression' &&
+      node.callee.computed === false &&
+      node.callee.property?.name === '_preconnectFn'
+    ) {
+      callsInjectedInstanceMember = true;
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (key === 'start' || key === 'end') continue;
+      if (Array.isArray(value)) value.forEach(visit);
+      else if (value && typeof value === 'object') visit(value);
+    }
+  };
+  visit(doSendMethod.value.body);
+  const importedBindingReferences = preconnectBinding.references.filter(
+    (reference) =>
+      reference.identifier.start >= doSendMethod.value.body.start &&
+      reference.identifier.end <= doSendMethod.value.body.end
+  );
+  assert.equal(importedBindingReferences.length, 0, '_doSend must not reference the shared preconnect import binding');
+  assert.equal(callsInjectedInstanceMember, true, '_doSend must call the instance preconnect seam');
+}
+
 test('openai-compat/xai: constructor and HTTP send use only the injected preconnect seam', async () => {
   const prevTransport = process.env.MIXDOG_OAI_TRANSPORT;
   const prevFetch = globalThis.fetch;
@@ -538,69 +600,7 @@ test('openai-compat/xai: constructor and HTTP send use only the injected preconn
       throw new Error('provider transport test attempted outbound fetch');
     };
 
-    // Resolve the actual imported binding and inspect _doSend before
-    // invoking any outbound-capable provider path. AST traversal naturally
-    // excludes comments/strings and catches direct, aliased, parenthesized,
-    // optional, or assigned references.
-    const compatSource = readFileSync(
-      new URL('../../src/runtime/agent/orchestrator/providers/openai-compat.mjs', import.meta.url),
-      'utf8'
-    );
-    const compatAst = parse(compatSource, {
-      ecmaVersion: 'latest',
-      sourceType: 'module',
-      locations: true,
-      ranges: true,
-    });
-    const preconnectImport = compatAst.body
-      .filter((node) => node.type === 'ImportDeclaration')
-      .flatMap((node) => node.specifiers)
-      .find((specifier) => specifier.type === 'ImportSpecifier' && specifier.imported.name === 'preconnect');
-    assert.ok(preconnectImport, 'shared preconnect import binding must be resolvable');
-    const scopeManager = analyze(compatAst, { ecmaVersion: 2022, sourceType: 'module' });
-    const moduleScope = scopeManager.scopes.find((scope) => scope.type === 'module');
-    const preconnectBinding = moduleScope?.set.get(preconnectImport.local.name);
-    assert.ok(preconnectBinding, 'shared preconnect source binding must be resolvable');
-
-    const providerClass = compatAst.body
-      .map((node) => (node.type === 'ExportNamedDeclaration' ? node.declaration : node))
-      .find((node) => node?.type === 'ClassDeclaration' && node.id?.name === 'OpenAICompatProvider');
-    assert.ok(providerClass, 'OpenAICompatProvider class must be resolvable');
-    const doSendMethod = providerClass.body.body.find(
-      (node) => node.type === 'MethodDefinition' && node.key?.type === 'Identifier' && node.key.name === '_doSend'
-    );
-    assert.ok(doSendMethod, 'OpenAICompatProvider._doSend must be resolvable');
-
-    let callsInjectedInstanceMember = false;
-    const visit = (node) => {
-      if (!node || typeof node !== 'object') return;
-      if (
-        node.type === 'CallExpression' &&
-        node.callee?.type === 'MemberExpression' &&
-        node.callee.object?.type === 'ThisExpression' &&
-        node.callee.computed === false &&
-        node.callee.property?.name === '_preconnectFn'
-      ) {
-        callsInjectedInstanceMember = true;
-      }
-      for (const [key, value] of Object.entries(node)) {
-        if (key === 'start' || key === 'end') continue;
-        if (Array.isArray(value)) value.forEach(visit);
-        else if (value && typeof value === 'object') visit(value);
-      }
-    };
-    visit(doSendMethod.value.body);
-    const importedBindingReferences = preconnectBinding.references.filter(
-      (reference) =>
-        reference.identifier.start >= doSendMethod.value.body.start &&
-        reference.identifier.end <= doSendMethod.value.body.end
-    );
-    assert.equal(
-      importedBindingReferences.length,
-      0,
-      '_doSend must not reference the shared preconnect import binding'
-    );
-    assert.equal(callsInjectedInstanceMember, true, '_doSend must call the instance preconnect seam');
+    assertDoSendUsesOnlyInjectedPreconnect();
 
     const provider = new OpenAICompatProvider('xai', {
       apiKey: 'xai-test',

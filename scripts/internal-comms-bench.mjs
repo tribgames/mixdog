@@ -34,7 +34,7 @@ const RULE_FILES = [
   'agents/heavy-worker/AGENT.md',
   'agents/reviewer/AGENT.md',
   'workflows/default/WORKFLOW.md',
-  'workflows/solo/WORKFLOW.md',
+  'workflows/headless/WORKFLOW.md',
   'rules/lead/LEAD.md',
 ];
 

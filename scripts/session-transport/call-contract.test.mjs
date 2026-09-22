@@ -181,11 +181,11 @@ test('call idempotency is isolated per client process', async () => {
   });
 });
 
-test('session protocol ACKs intake and unsubscribe never interrupts execution', async () => {
-  let finishWork = null;
-  let abortCalls = 0;
-  let eagerSessionCreates = 0;
-  const sessionFactory = async () => {
+// An in-memory session runtime whose submitted work stays busy until the test
+// releases it; the handle carries the counters the scenario asserts on.
+function createDetachableSessionRuntime() {
+  const handle = { finishWork: null, abortCalls: 0, eagerSessionCreates: 0, sessionFactory: null };
+  handle.sessionFactory = async () => {
     let state = { sessionId: '', items: [], busy: false };
     const listeners = new Set();
     const publish = () => {
@@ -203,7 +203,7 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
         return true;
       },
       async newSession() {
-        eagerSessionCreates += 1;
+        handle.eagerSessionCreates += 1;
         state = { ...state, sessionId: 'durable-session' };
         publish();
         return true;
@@ -220,7 +220,7 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
           items: [...state.items, { id: 'prompt', text: String(text) }],
         };
         publish();
-        finishWork = () => {
+        handle.finishWork = () => {
           state = {
             ...state,
             busy: false,
@@ -231,7 +231,7 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
         return true;
       },
       abort() {
-        abortCalls += 1;
+        handle.abortCalls += 1;
         state = { ...state, busy: false };
         publish();
         return true;
@@ -242,6 +242,11 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
       async dispose() {},
     };
   };
+  return handle;
+}
+
+test('session protocol ACKs intake and unsubscribe never interrupts execution', async () => {
+  const runtime = createDetachableSessionRuntime();
 
   await withDaemon(
     async ({ discovery, service }) => {
@@ -256,7 +261,7 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
       assert.match(created.sessionId, /^sess_daemon_/, 'create returns a daemon-reserved stable address');
       assert.ok(created.revision > 1_000_000_000_000, 'default daemon revisions carry a restart-monotonic epoch');
       assert.equal(created.reservedOnly, true);
-      assert.equal(eagerSessionCreates, 0, 'reservation does not eagerly materialize a provider session');
+      assert.equal(runtime.eagerSessionCreates, 0, 'reservation does not eagerly materialize a provider session');
       const subscribed = await desktop.call('session.subscribe', { sessionId: created.sessionId });
       assert.equal(subscribed.subscribed, true);
 
@@ -275,24 +280,24 @@ test('session protocol ACKs intake and unsubscribe never interrupts execution', 
         () => sessionSnapshotFromFrames(terminalFrames, created.sessionId)?.busy === true,
         'the session stream reports the accepted turn'
       );
-      assert.equal(typeof finishWork, 'function', 'execution remains independently finishable after ACK');
+      assert.equal(typeof runtime.finishWork, 'function', 'execution remains independently finishable after ACK');
 
       await desktop.call('session.unsubscribe', { sessionId: created.sessionId });
       await desktop.close('desktop closed');
-      assert.equal(abortCalls, 0, 'unsubscribe and disconnect do not call abort');
+      assert.equal(runtime.abortCalls, 0, 'unsubscribe and disconnect do not call abort');
       assert.equal(service.size, 1, 'the daemon still owns the session runtime');
 
-      finishWork();
+      runtime.finishWork();
       const completed = await waitFor(() => {
         const snapshot = sessionSnapshotFromFrames(terminalFrames, created.sessionId);
         return snapshot?.items?.at(-1)?.text === 'completed after detach' ? snapshot : null;
       }, 'terminal observes completion after desktop detach');
       assert.equal(completed.busy, false);
-      assert.equal(abortCalls, 0);
+      assert.equal(runtime.abortCalls, 0);
       await terminal.call('session.unsubscribe', { sessionId: created.sessionId });
       await terminal.close('test');
     },
-    { sessionFactory }
+    { sessionFactory: runtime.sessionFactory }
   );
 });
 

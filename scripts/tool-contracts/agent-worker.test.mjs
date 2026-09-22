@@ -151,67 +151,77 @@ test('channel worker daemon spawn env advertises host identity', async () => {
   }
 });
 
+// A standalone agent whose worker emits one nested background completion and
+// one early terminal result; both routing sinks are collected by the caller.
+function createNotifySmokeAgent({ dataDir, ownerNotifications, workerQueued }) {
+  return createStandaloneAgent({
+    cfgMod: {
+      loadConfig: () => ({
+        default: 'sonnet-high',
+        providers: { 'openai-oauth': { enabled: true } },
+        presets: [
+          {
+            id: 'sonnet-high',
+            name: 'sonnet-high',
+            provider: 'openai-oauth',
+            model: 'smoke-model',
+            type: 'agent',
+            tools: 'full',
+          },
+          {
+            id: 'haiku',
+            name: 'HAIKU',
+            provider: 'openai-oauth',
+            model: 'smoke-haiku',
+            type: 'agent',
+            tools: 'full',
+          },
+        ],
+      }),
+      resolveRuntimeSpec: () => ({ scopeKey: 'smoke-notify', lane: 'agent' }),
+    },
+    reg: { initProviders },
+    mgr: {
+      askSession: async (sessionId, _prompt, _context, _onToolCall, _cwdOverride, _prefetch, askOpts = {}) => {
+        const nestedText = `background task\ntask_id: task_shell_notify_smoke\nsurface: shell\noperation: shell\nstatus: completed\nstarted: 2026-01-01T00:00:00.000Z\nfinished: 2026-01-01T00:00:01.000Z\n\nnested background done for ${sessionId}`;
+        askOpts.notifyFn?.(nestedText, {
+          type: 'shell_task_result',
+          execution_surface: 'shell',
+          execution_id: 'task_shell_notify_smoke',
+          status: 'completed',
+        });
+        askOpts.onTerminalResult?.({ content: 'worker completed' }, { sessionId, beforeSave: true });
+        return { content: 'worker completed' };
+      },
+      enqueuePendingMessage: (sessionId, message) => {
+        workerQueued.push({ sessionId, message });
+        return 1;
+      },
+      getSession: () => null,
+      listSessions: () => [],
+      closeSession: () => false,
+      hideSessionFromList: () => false,
+    },
+    dataDir,
+    cwd: root,
+    defaultMode: 'async',
+    notifySessionCompletion: (sessionId, text, meta) => {
+      ownerNotifications.push({ sessionId, text, meta });
+      return true;
+    },
+  });
+}
+
 test('agent completion notifications route to the owner exactly once', async () => {
   const agentNotifyTmp = mkdtempSync(join(tmpdir(), 'mixdog-agent-notify-'));
   let agentNotifySmoke = null;
   try {
     const ownerNotifications = [];
     const workerQueued = [];
-    agentNotifySmoke = createStandaloneAgent({
-      cfgMod: {
-        loadConfig: () => ({
-          default: 'sonnet-high',
-          providers: { 'openai-oauth': { enabled: true } },
-          presets: [
-            {
-              id: 'sonnet-high',
-              name: 'sonnet-high',
-              provider: 'openai-oauth',
-              model: 'smoke-model',
-              type: 'agent',
-              tools: 'full',
-            },
-            {
-              id: 'haiku',
-              name: 'HAIKU',
-              provider: 'openai-oauth',
-              model: 'smoke-haiku',
-              type: 'agent',
-              tools: 'full',
-            },
-          ],
-        }),
-        resolveRuntimeSpec: () => ({ scopeKey: 'smoke-notify', lane: 'agent' }),
-      },
-      reg: { initProviders },
-      mgr: {
-        askSession: async (sessionId, _prompt, _context, _onToolCall, _cwdOverride, _prefetch, askOpts = {}) => {
-          const nestedText = `background task\ntask_id: task_shell_notify_smoke\nsurface: shell\noperation: shell\nstatus: completed\nstarted: 2026-01-01T00:00:00.000Z\nfinished: 2026-01-01T00:00:01.000Z\n\nnested background done for ${sessionId}`;
-          askOpts.notifyFn?.(nestedText, {
-            type: 'shell_task_result',
-            execution_surface: 'shell',
-            execution_id: 'task_shell_notify_smoke',
-            status: 'completed',
-          });
-          askOpts.onTerminalResult?.({ content: 'worker completed' }, { sessionId, beforeSave: true });
-          return { content: 'worker completed' };
-        },
-        enqueuePendingMessage: (sessionId, message) => {
-          workerQueued.push({ sessionId, message });
-          return 1;
-        },
-        getSession: () => null,
-        listSessions: () => [],
-        closeSession: () => false,
-        hideSessionFromList: () => false,
-      },
+    agentNotifySmoke = createNotifySmokeAgent({
       dataDir: agentNotifyTmp,
-      cwd: root,
-      defaultMode: 'async',
-      notifySessionCompletion: (sessionId, text, meta) => {
-        ownerNotifications.push({ sessionId, text, meta });
-        return true;
-      },
+      ownerNotifications,
+      workerQueued,
     });
     const notifyContext = {
       invocationSource: 'model-tool',

@@ -682,7 +682,9 @@ test('Cursor API exchanges its key and streams text through the provider contrac
   assert.equal(result.usage.inputTokens, 7);
 });
 
-test('Cursor preserves paired tool history, error state, media, and isolated fallback scope', async () => {
+// A tool call paired with an error tool result keeps its pairing, its error
+// flag and its media, and trailing user images reach the run request.
+function assertPairedToolHistorySurvivesTheWire() {
   const internal = [
     {
       role: 'user',
@@ -739,7 +741,11 @@ test('Cursor preserves paired tool history, error state, media, and isolated fal
     [...request.runRequest.action.userMessageAction.userMessage.selectedContext.selectedImages[0].data],
     [4, 5, 6]
   );
+}
 
+// A tool result carries its media back on the wire, and an error result is
+// encoded as an error rather than a success with error text.
+function assertToolResultCarriesMediaAndErrorState() {
   const writes = [];
   const pending = {
     exec: { id: 77, execId: 'exec-media' },
@@ -759,12 +765,7 @@ test('Cursor preserves paired tool history, error state, media, and isolated fal
     },
     true
   );
-  const frames = [];
-  __cursorWireInternals.createFrameParser(
-    (bytes) => frames.push(bytes),
-    () => {}
-  )(writes[0]);
-  const mediaResult = __cursorWireInternals.decodeMessage('AgentClientMessage', frames[0]);
+  const mediaResult = decodeClientMessage(writes[0]);
   const imageContent = mediaResult.execClientMessage.mcpResult.success.content.find((entry) => entry.image);
   assert.deepEqual([...imageContent.image.data], [1, 2, 3]);
   writes.length = 0;
@@ -782,14 +783,12 @@ test('Cursor preserves paired tool history, error state, media, and isolated fal
     },
     false
   );
-  frames.length = 0;
-  __cursorWireInternals.createFrameParser(
-    (bytes) => frames.push(bytes),
-    () => {}
-  )(writes[0]);
-  const errorResult = __cursorWireInternals.decodeMessage('AgentClientMessage', frames[0]);
+  const errorResult = decodeClientMessage(writes[0]);
   assert.ok(errorResult.execClientMessage.mcpResult.error);
+}
 
+// Two identical sends must not reuse one fallback session scope.
+async function assertFallbackSendsStayIsolated() {
   const bodies = [];
   const provider = new CursorOAuthProvider({
     accessToken: 'token',
@@ -809,6 +808,12 @@ test('Cursor preserves paired tool history, error state, media, and isolated fal
   await provider.send([{ role: 'user', content: 'same' }], 'auto', [], {});
   await provider.send([{ role: 'user', content: 'same' }], 'auto', [], {});
   assert.notEqual(bodies[0].mixdog_session_id, bodies[1].mixdog_session_id);
+}
+
+test('Cursor preserves paired tool history, error state, media, and isolated fallback scope', async () => {
+  assertPairedToolHistorySurvivesTheWire();
+  assertToolResultCarriesMediaAndErrorState();
+  await assertFallbackSendsStayIsolated();
 });
 
 test('Cursor account provider surfaces native tool calls to the Mixdog harness', async () => {
@@ -1277,7 +1282,19 @@ test('Cursor Connect parser handles split frames without losing protobuf bytes',
   );
 });
 
-test('Cursor rejects unregistered tools and deduplicates repeated tool ids', async () => {
+// The first frame a fixture bridge wrote back to the server, decoded.
+function decodeClientMessage(bytes) {
+  const frames = [];
+  __cursorWireInternals.createFrameParser(
+    (frame) => frames.push(frame),
+    () => {}
+  )(bytes);
+  return __cursorWireInternals.decodeMessage('AgentClientMessage', frames[0]);
+}
+
+// A tool the session never registered is answered with a rejection frame and
+// never reaches the dispatcher.
+function assertUnregisteredToolIsRejected() {
   const writes = [];
   let dispatched = 0;
   __cursorWireInternals.handleExecMessage(
@@ -1303,13 +1320,13 @@ test('Cursor rejects unregistered tools and deduplicates repeated tool ids', asy
     }
   );
   assert.equal(dispatched, 0);
-  const writtenFrames = [];
-  __cursorWireInternals.createFrameParser(
-    (bytes) => writtenFrames.push(bytes),
-    () => {}
-  )(writes[0]);
-  const rejection = __cursorWireInternals.decodeMessage('AgentClientMessage', writtenFrames[0]);
+  const rejection = decodeClientMessage(writes[0]);
   assert.match(rejection.execClientMessage.mcpResult.error.error, /Tool not available/);
+}
+
+// Arguments that are not valid UTF-8 still decode to parseable JSON instead of
+// handing the tool a string that throws at JSON.parse.
+function assertMalformedToolArgsDecodeToJson() {
   let malformed = null;
   __cursorWireInternals.handleExecMessage(
     { write() {} },
@@ -1331,30 +1348,12 @@ test('Cursor rejects unregistered tools and deduplicates repeated tool ids', asy
   );
   assert.equal(malformed.toolName, 'echo_value');
   assert.doesNotThrow(() => JSON.parse(malformed.decodedArgs));
+}
 
-  let dataHandler = null;
-  let closeHandler = null;
-  const bridge = {
-    alive: true,
-    writes: [],
-    onData(handler) {
-      dataHandler = handler;
-    },
-    onClose(handler) {
-      closeHandler = handler;
-    },
-    write(bytes) {
-      this.writes.push(bytes);
-    },
-    close(error = null) {
-      if (!this.alive) return;
-      this.alive = false;
-      closeHandler?.(error);
-    },
-    emit(bytes) {
-      dataHandler?.(bytes);
-    },
-  };
+// A live run: repeated exec frames for one tool call id surface once, a frame
+// split across two chunks still parses, and closing the bridge drains pending.
+async function assertRepeatedToolIdsDeduplicate() {
+  const bridge = bridgeFixture();
   const key = __cursorWireInternals.runKey('composer-2.5', [{ role: 'user', content: 'tool test' }], 'tool-session');
   const response = __cursorWireInternals.createStreamResponse({
     bridge,
@@ -1467,7 +1466,11 @@ test('Cursor rejects unregistered tools and deduplicates repeated tool ids', asy
   assert.equal(__cursorWireInternals.activeRunPendingCount(key), 2);
   bridge.close();
   assert.equal(__cursorWireInternals.activeRunPendingCount(key), 0);
+}
 
+// A resumed run whose tool results are incomplete replays the unanswered call
+// instead of writing a result for it, and finishes once the result arrives.
+async function assertResumedRunReplaysMissingToolResult() {
   const missingWrites = [];
   let missingData = null;
   let missingClose = null;
@@ -1551,6 +1554,13 @@ test('Cursor rejects unregistered tools and deduplicates repeated tool ids', asy
   );
   missingData(__cursorWireInternals.connectFrame(new TextEncoder().encode('{}'), 2));
   await finalResponse.text();
+}
+
+test('Cursor rejects unregistered tools and deduplicates repeated tool ids', async () => {
+  assertUnregisteredToolIsRejected();
+  assertMalformedToolArgsDecodeToJson();
+  await assertRepeatedToolIdsDeduplicate();
+  await assertResumedRunReplaysMissingToolResult();
 });
 
 test('Cursor native shell redirects omit unsupported workingDirectory', () => {
@@ -1966,7 +1976,8 @@ test('Cursor never blindly replays a partially visible stream without a checkpoi
   assert.equal(restartCount, 0);
 });
 
-test('Cursor wire guards bound schemas, tool payloads, blobs, and frames', () => {
+// Descriptions, enums and required lists survive the Cursor schema binding.
+function assertToolSchemaProseIsPreserved() {
   const prepared = prepareCursorToolDefinition({
     function: {
       name: 'verbose',
@@ -1990,7 +2001,11 @@ test('Cursor wire guards bound schemas, tool payloads, blobs, and frames', () =>
   assert.equal(prepared.inputSchema.properties.mode.description, 'parameter prose');
   assert.deepEqual(prepared.inputSchema.properties.mode.enum, ['safe', 'fast']);
   assert.deepEqual(prepared.inputSchema.required, ['mode']);
+}
 
+// A oneOf schema collapses into one bound object schema, and the caller's
+// schema object is left untouched.
+function assertCompoundSchemaIsFlattenedWithoutMutation() {
   const compound = {
     type: 'object',
     properties: {
@@ -2059,14 +2074,20 @@ test('Cursor wire guards bound schemas, tool payloads, blobs, and frames', () =>
   assert.deepEqual(Object.keys(flattened.properties.input.properties), ['kind', 'window_id', 'mode', 'actions']);
   assert.equal(flattened.properties.input.required, undefined);
   assert.deepEqual(compound, compoundBefore);
+}
 
+// Oversized tool text is truncated to the wire budget.
+function assertToolResultTextIsCapped() {
   const capped = capCursorToolResult({
     content: 'x'.repeat(MAX_TOOL_TEXT_BYTES + 100),
     media: [],
   });
   assert.ok(Buffer.byteLength(capped.content) <= MAX_TOOL_TEXT_BYTES);
   assert.match(capped.content, /truncated/);
+}
 
+// The blob store stays bounded and an oversized frame never reaches the wire.
+function assertBlobStoreAndFrameBounds() {
   const blobs = new Map();
   for (let index = 0; index < 513; index += 1) {
     storeCursorBlob(blobs, `blob-${index}`, Uint8Array.of(index & 0xff));
@@ -2078,6 +2099,13 @@ test('Cursor wire guards bound schemas, tool payloads, blobs, and frames', () =>
     () => __cursorWireInternals.connectFrame({ length: MAX_CONNECT_FRAME_BYTES + 1 }),
     /exceeds 67108864 bytes/
   );
+}
+
+test('Cursor wire guards bound schemas, tool payloads, blobs, and frames', () => {
+  assertToolSchemaProseIsPreserved();
+  assertCompoundSchemaIsFlattenedWithoutMutation();
+  assertToolResultTextIsCapped();
+  assertBlobStoreAndFrameBounds();
 });
 
 test('Cursor recognizes suffixed effort ids and keeps the first alias claimant', () => {

@@ -150,53 +150,40 @@ function scoreLane(evaluation, ranked, documents) {
   };
 }
 
-async function main() {
-  const modelKey = argValue('model');
-  const snapshotPath = argValue('snapshot');
-  const cacheDir = argValue('cache');
-  const outputPath = argValue('output');
-  const runtimeRoot = argValue('runtime-root');
-  const spec = MODEL_SPECS[modelKey];
-  if (!spec) throw new Error(`unknown model key: ${modelKey}`);
-  const snapshot = JSON.parse(await readFile(snapshotPath, 'utf8'));
-  const evaluations = snapshot.cases;
-  const corpusSelection = selectDeterministicCorpus(
-    snapshot.documents,
-    evaluations,
-    Number(argValue('corpus-limit')),
-    Number(argValue('positive-cap'))
-  );
-  const documents = corpusSelection.documents;
-  const baselineRssBytes = process.memoryUsage().rss;
-  let peakRssBytes = baselineRssBytes;
-  const sampler = setInterval(() => {
-    peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss);
-  }, 50);
-  sampler.unref();
-  const cacheBytesBefore = await directorySize(cacheDir);
-  const loadStarted = Date.now();
-  const extractor = await loadExtractor(spec, cacheDir, runtimeRoot);
-  const loadMs = Date.now() - loadStarted;
-  const rssAfterLoadBytes = process.memoryUsage().rss;
+// Nonsense queries with no relevant document: their top scores calibrate what
+// a "no match" looks like for a model that always returns its nearest rows.
+const EVIDENCE_NEGATIVE_QUERIES = [
+  'zzqqxx qvmtpl norkfuzz 938472',
+  '없는기억식별자 qzxvplm 847291',
+  '不存在记忆 qzxvplm 847291',
+  'souvenir inexistant qzxvplm 847291',
+  'underwater basket weaving on Neptune cobalt penguin',
+  '해왕성 수중 바구니 직조 코발트 펭귄',
+];
 
-  const evidenceNegativeQueries = [
-    'zzqqxx qvmtpl norkfuzz 938472',
-    '없는기억식별자 qzxvplm 847291',
-    '不存在记忆 qzxvplm 847291',
-    'souvenir inexistant qzxvplm 847291',
-    'underwater basket weaving on Neptune cobalt penguin',
-    '해왕성 수중 바구니 직조 코발트 펭귄',
-  ];
-  const uniqueQueries = [
-    ...new Set([...evaluations.map((evaluation) => evaluation.query), ...evidenceNegativeQueries]),
-  ];
+function parseWorkerArgs() {
+  return {
+    modelKey: argValue('model'),
+    snapshotPath: argValue('snapshot'),
+    cacheDir: argValue('cache'),
+    outputPath: argValue('output'),
+    runtimeRoot: argValue('runtime-root'),
+    corpusLimit: Number(argValue('corpus-limit')),
+    positiveCap: Number(argValue('positive-cap')),
+  };
+}
+
+async function measureHotQueryLatency(extractor, uniqueQueries) {
   const hotSamplesMs = [];
   for (const query of uniqueQueries.slice(0, 10)) {
     const started = performance.now();
     await extractor.embed([query], 'query');
     hotSamplesMs.push(performance.now() - started);
   }
+  return hotSamplesMs;
+}
 
+async function embedDocumentCorpus(extractor, documents, spec, modelKey) {
   let dims = 0;
   let documentVectors = null;
   let completed = 0;
@@ -218,9 +205,10 @@ async function main() {
       process.stdout.write(`[${modelKey}] documents ${completed}/${documents.length}\n`);
     }
   }
-  const corpusMs = Date.now() - corpusStarted;
-  const rssAfterCorpusBytes = process.memoryUsage().rss;
+  return { documentVectors, dims, corpusMs: Date.now() - corpusStarted };
+}
 
+async function embedQueries(extractor, uniqueQueries, spec, dims) {
   const queryVectors = new Map();
   for (let offset = 0; offset < uniqueQueries.length; offset += spec.batchSize) {
     const chunk = uniqueQueries.slice(offset, offset + spec.batchSize);
@@ -230,7 +218,10 @@ async function main() {
       queryVectors.set(chunk[index], output.data.slice(index * dims, (index + 1) * dims));
     }
   }
+  return queryVectors;
+}
 
+function evaluateLanes({ evaluations, documents, queryVectors, documentVectors, dims, modelKey }) {
   const preparedBm25 = prepareBm25Documents(documents);
   const rows = { dense: [], bm25: [], rrf: [] };
   const positiveEvidence = [];
@@ -258,18 +249,12 @@ async function main() {
     rows.rrf.push(scoreLane(scopedEvaluation, rrfRanked, documents));
     process.stdout.write(`[${modelKey}] scored ${evaluationIndex + 1}/${evaluations.length}\n`);
   }
+  return { rows, positiveEvidence };
+}
 
-  await extractor.dispose();
-  clearInterval(sampler);
-  peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss);
-  const cacheBytesAfter = await directorySize(cacheDir);
-  const quality = {
-    dense: aggregateScoredRows(rows.dense),
-    bm25: aggregateScoredRows(rows.bm25),
-    rrf: aggregateScoredRows(rows.rrf),
-  };
-  const allDocumentIndices = documents.map((_, index) => index);
-  const negativeEvidence = evidenceNegativeQueries.map((query) => {
+function measureNegativeEvidence(queryVectors, documentVectors, dims, documentCount) {
+  const allDocumentIndices = Array.from({ length: documentCount }, (_unused, index) => index);
+  return EVIDENCE_NEGATIVE_QUERIES.map((query) => {
     const ranked = rankDense(queryVectors.get(query), documentVectors, dims, allDocumentIndices);
     const topScore = ranked[0]?.score ?? null;
     const tenthScore = ranked[9]?.score ?? null;
@@ -281,7 +266,32 @@ async function main() {
       topToTenthMargin: topScore != null && tenthScore != null ? topScore - tenthScore : null,
     };
   });
-  const result = {
+}
+
+function laneFailures(laneRows) {
+  return laneRows
+    .filter((row) => row.mrrAt10 < 1)
+    .sort((left, right) => left.mrrAt10 - right.mrrAt10)
+    .slice(0, 30);
+}
+
+function buildWorkerResult({
+  modelKey,
+  spec,
+  runtimeRoot,
+  dims,
+  corpusSelection,
+  documentCount,
+  quality,
+  rows,
+  positiveEvidence,
+  negativeEvidence,
+  missingTargets,
+  timings,
+  memory,
+  cache,
+}) {
+  return {
     modelKey,
     label: spec.label,
     modelId: spec.modelId,
@@ -305,34 +315,94 @@ async function main() {
       negativeQueries: negativeEvidence,
     },
     resources: {
-      baselineRssBytes,
-      rssAfterLoadBytes,
-      rssAfterCorpusBytes,
-      peakRssBytes,
-      activeRssDeltaBytes: rssAfterCorpusBytes - baselineRssBytes,
-      loadMs,
-      hotQueryP50Ms: percentile(hotSamplesMs, 0.5),
-      hotQueryP95Ms: percentile(hotSamplesMs, 0.95),
-      corpusMs,
-      documentsPerSecond: documents.length / Math.max(0.001, corpusMs / 1000),
-      cacheBytesBefore,
-      cacheBytesAfter,
-      cacheBytesDelta: cacheBytesAfter - cacheBytesBefore,
+      baselineRssBytes: memory.baselineRssBytes,
+      rssAfterLoadBytes: memory.rssAfterLoadBytes,
+      rssAfterCorpusBytes: memory.rssAfterCorpusBytes,
+      peakRssBytes: memory.peakRssBytes,
+      activeRssDeltaBytes: memory.rssAfterCorpusBytes - memory.baselineRssBytes,
+      loadMs: timings.loadMs,
+      hotQueryP50Ms: percentile(timings.hotSamplesMs, 0.5),
+      hotQueryP95Ms: percentile(timings.hotSamplesMs, 0.95),
+      corpusMs: timings.corpusMs,
+      documentsPerSecond: documentCount / Math.max(0.001, timings.corpusMs / 1000),
+      cacheBytesBefore: cache.bytesBefore,
+      cacheBytesAfter: cache.bytesAfter,
+      cacheBytesDelta: cache.bytesAfter - cache.bytesBefore,
     },
     labelAudit: {
-      missingTargets: snapshot.evaluations.missingTargets,
+      missingTargets,
     },
     failures: {
-      dense: rows.dense
-        .filter((row) => row.mrrAt10 < 1)
-        .sort((left, right) => left.mrrAt10 - right.mrrAt10)
-        .slice(0, 30),
-      rrf: rows.rrf
-        .filter((row) => row.mrrAt10 < 1)
-        .sort((left, right) => left.mrrAt10 - right.mrrAt10)
-        .slice(0, 30),
+      dense: laneFailures(rows.dense),
+      rrf: laneFailures(rows.rrf),
     },
   };
+}
+
+async function main() {
+  const { modelKey, snapshotPath, cacheDir, outputPath, runtimeRoot, corpusLimit, positiveCap } = parseWorkerArgs();
+  const spec = MODEL_SPECS[modelKey];
+  if (!spec) throw new Error(`unknown model key: ${modelKey}`);
+  const snapshot = JSON.parse(await readFile(snapshotPath, 'utf8'));
+  const evaluations = snapshot.cases;
+  const corpusSelection = selectDeterministicCorpus(snapshot.documents, evaluations, corpusLimit, positiveCap);
+  const documents = corpusSelection.documents;
+  const baselineRssBytes = process.memoryUsage().rss;
+  let peakRssBytes = baselineRssBytes;
+  const sampler = setInterval(() => {
+    peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss);
+  }, 50);
+  sampler.unref();
+  const cacheBytesBefore = await directorySize(cacheDir);
+  const loadStarted = Date.now();
+  const extractor = await loadExtractor(spec, cacheDir, runtimeRoot);
+  const loadMs = Date.now() - loadStarted;
+  const rssAfterLoadBytes = process.memoryUsage().rss;
+
+  const uniqueQueries = [
+    ...new Set([...evaluations.map((evaluation) => evaluation.query), ...EVIDENCE_NEGATIVE_QUERIES]),
+  ];
+  const hotSamplesMs = await measureHotQueryLatency(extractor, uniqueQueries);
+
+  const { documentVectors, dims, corpusMs } = await embedDocumentCorpus(extractor, documents, spec, modelKey);
+  const rssAfterCorpusBytes = process.memoryUsage().rss;
+  const queryVectors = await embedQueries(extractor, uniqueQueries, spec, dims);
+
+  const { rows, positiveEvidence } = evaluateLanes({
+    evaluations,
+    documents,
+    queryVectors,
+    documentVectors,
+    dims,
+    modelKey,
+  });
+
+  await extractor.dispose();
+  clearInterval(sampler);
+  peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss);
+  const cacheBytesAfter = await directorySize(cacheDir);
+  const quality = {
+    dense: aggregateScoredRows(rows.dense),
+    bm25: aggregateScoredRows(rows.bm25),
+    rrf: aggregateScoredRows(rows.rrf),
+  };
+  const negativeEvidence = measureNegativeEvidence(queryVectors, documentVectors, dims, documents.length);
+  const result = buildWorkerResult({
+    modelKey,
+    spec,
+    runtimeRoot,
+    dims,
+    corpusSelection,
+    documentCount: documents.length,
+    quality,
+    rows,
+    positiveEvidence,
+    negativeEvidence,
+    missingTargets: snapshot.evaluations.missingTargets,
+    timings: { loadMs, corpusMs, hotSamplesMs },
+    memory: { baselineRssBytes, rssAfterLoadBytes, rssAfterCorpusBytes, peakRssBytes },
+    cache: { bytesBefore: cacheBytesBefore, bytesAfter: cacheBytesAfter },
+  });
   await writeFile(outputPath, JSON.stringify(result));
   process.stdout.write(
     `[${modelKey}] dense MRR@10=${quality.dense.overall.mrrAt10.toFixed(4)}` +

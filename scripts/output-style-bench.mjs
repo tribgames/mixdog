@@ -113,98 +113,116 @@ function measureOutputText(text) {
     text: trimmed,
   };
 }
-function runInjectionScaffold() {
-  const rulesBuilder = createRequire(import.meta.url)(join(PLUGIN_ROOT, 'lib', 'rules-builder.cjs'));
-  const baseDir = mkdtempSync(join(REPO_ROOT, '.tmp-output-style-bench-'));
-  const templatePath = join(PLUGIN_ROOT, 'defaults', 'mixdog-config.template.json');
-  const baseConfig = existsSync(templatePath)
-    ? JSON.parse(readFileSync(templatePath, 'utf8'))
-    : { outputStyle: 'simple' };
-  const sharedMarker = 'Lead with the answer or action';
-  const anchorMarker = 'does not apply to code or tool calls';
-  // One phrase per shared-format rule, each expected exactly once — a rule that
-  // gets restated in a second bullet fails the scaffold instead of shipping.
-  const sharedFormatMarkers = [
-    'Choose structure for clarity, not a fixed template',
-    'Distinguish facts, inference, and uncertainty',
-    'Follow explicit requests for depth; never pad',
-    'Apply the selected depth to substantive answers, not preambles or progress updates',
-  ];
-  // Pin the distinct depth contracts, not an obsolete Retain/Omit layout.
-  const markers = {
-    detailed: 'Explain the reasoning, mechanisms, evidence, trade-offs, and implications',
-    simple: 'Give a self-contained summary',
-    minimal: 'State the conclusion and determining cause',
-    'extreme-minimal': 'Give the direct answer or result',
-  };
-  // Marker checks run on whitespace-flattened text so rewrapping a rule at a
-  // different column never reads as a missing rule.
-  const flatten = (text) => String(text || '').replace(/\s+/g, ' ');
+const SHARED_MARKER = 'Lead with the answer or action';
+const ANCHOR_MARKER = 'does not apply to code or tool calls';
+// One phrase per shared-format rule, each expected exactly once — a rule that
+// gets restated in a second bullet fails the scaffold instead of shipping.
+const SHARED_FORMAT_MARKERS = [
+  'Choose structure for clarity, not a fixed template',
+  'Distinguish facts, inference, and uncertainty',
+  'Follow explicit requests for depth; never pad',
+  'Apply the selected depth to substantive answers, not preambles or progress updates',
+];
+// Pin the distinct depth contracts, not an obsolete Retain/Omit layout.
+const DEPTH_MARKERS = {
+  detailed: 'Explain the reasoning, mechanisms, evidence, trade-offs, and implications',
+  simple: 'Give a self-contained summary',
+  minimal: 'State the conclusion and determining cause',
+  'extreme-minimal': 'Give the direct answer or result',
+};
+const COMPOSITION_CHECKS = [
+  'output-style header + user-facing-text anchor + shared format + depth variant',
+  'custom styles inherit the shared format unless keep-shared-format: false',
+  'user common.md overrides the shared format and never lists as a style',
+  'every shared format rule stated exactly once',
+  'built-in depth variants preserve their distinct explanation depth',
+];
+// Marker checks run on whitespace-flattened text so rewrapping a rule at a
+// different column never reads as a missing rule.
+function flatten(text) {
+  return String(text || '').replace(/\s+/g, ' ');
+}
+function injectedStyleBody(rulesBuilder, dataDir) {
+  return outputStyleBodyFromMeta(rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: dataDir }));
+}
+function writeStyleConfig(dataDir, baseConfig, outputStyle) {
+  writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({ ...baseConfig, outputStyle }, null, 2));
+}
+function createStyleDataDir(baseDir, dirName, baseConfig, outputStyle) {
+  const dataDir = join(baseDir, dirName);
+  mkdirSync(dataDir, { recursive: true });
+  writeStyleConfig(dataDir, baseConfig, outputStyle);
+  return dataDir;
+}
+function writeCustomStyleFixture(baseDir, dirName, fileName, body) {
+  const dataDir = join(baseDir, dirName);
+  mkdirSync(join(dataDir, 'output-styles'), { recursive: true });
+  writeFileSync(join(dataDir, 'output-styles', fileName), body);
+  return dataDir;
+}
+// Every built-in style composes the same core philosophy with its own depth
+// contract, states each shared rule once, and never exposes the shared partial.
+function checkBuiltinStyleInjections(rulesBuilder, baseDir, baseConfig) {
   const snippets = {};
+  for (const styleId of STYLES) {
+    const dataDir = createStyleDataDir(baseDir, styleId, baseConfig, styleId);
+    snippets[styleId] = injectedStyleBody(rulesBuilder, dataDir);
+    const flat = flatten(snippets[styleId]);
+    if (!snippets[styleId].startsWith(`# Output Style: `))
+      throw new Error(`${styleId} injection missing output-style header`);
+    if (!flat.includes(ANCHOR_MARKER)) throw new Error(`${styleId} injection missing the user-facing-text anchor`);
+    if (!flat.includes(DEPTH_MARKERS[styleId])) throw new Error(`${styleId} injection marker missing`);
+    if (!flat.includes(SHARED_MARKER)) throw new Error(`${styleId} shared philosophy missing`);
+    for (const marker of SHARED_FORMAT_MARKERS) {
+      if (!flat.includes(marker)) throw new Error(`${styleId} shared format marker missing: ${marker}`);
+      if (flat.split(marker).length !== 2) throw new Error(`${styleId} shared format rule duplicated: ${marker}`);
+    }
+    if (flat.split(SHARED_MARKER).length !== 2) throw new Error(`${styleId} shared philosophy duplicated`);
+  }
+  if (new Set(STYLES.map((id) => snippets[id])).size !== STYLES.length)
+    throw new Error('injection bodies not distinct');
+  const sharedBlocks = STYLES.map((id) =>
+    snippets[id].slice(snippets[id].indexOf(SHARED_MARKER), snippets[id].indexOf('\n\n## Depth'))
+  );
+  if (sharedBlocks.some((block) => !block) || new Set(sharedBlocks).size !== 1) {
+    throw new Error('built-in styles do not share the same core philosophy');
+  }
+  const builtinCatalog = listOutputStyleCatalog(PLUGIN_ROOT, baseDir, { fresh: true });
+  if (builtinCatalog.some((style) => style.id === 'common')) {
+    throw new Error('common partial leaked into selectable output styles');
+  }
+  return snippets;
+}
+// Aliases now live only in frontmatter; `one_line` and `mono` prove the
+// separator-insensitive match still resolves without a hardcoded map.
+function checkBuiltinAliases(rulesBuilder, baseDir, baseConfig, snippets) {
   const aliasChecks = [];
-  try {
-    for (const styleId of STYLES) {
-      const dataDir = join(baseDir, styleId);
-      mkdirSync(dataDir, { recursive: true });
-      writeFileSync(
-        join(dataDir, 'mixdog-config.json'),
-        JSON.stringify({ ...baseConfig, outputStyle: styleId }, null, 2)
-      );
-      snippets[styleId] = outputStyleBodyFromMeta(
-        rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: dataDir })
-      );
-      const flat = flatten(snippets[styleId]);
-      if (!snippets[styleId].startsWith(`# Output Style: `))
-        throw new Error(`${styleId} injection missing output-style header`);
-      if (!flat.includes(anchorMarker)) throw new Error(`${styleId} injection missing the user-facing-text anchor`);
-      if (!flat.includes(markers[styleId])) throw new Error(`${styleId} injection marker missing`);
-      if (!flat.includes(sharedMarker)) throw new Error(`${styleId} shared philosophy missing`);
-      for (const marker of sharedFormatMarkers) {
-        if (!flat.includes(marker)) throw new Error(`${styleId} shared format marker missing: ${marker}`);
-        if (flat.split(marker).length !== 2) throw new Error(`${styleId} shared format rule duplicated: ${marker}`);
-      }
-      if (flat.split(sharedMarker).length !== 2) throw new Error(`${styleId} shared philosophy duplicated`);
-    }
-    if (new Set(STYLES.map((id) => snippets[id])).size !== STYLES.length)
-      throw new Error('injection bodies not distinct');
-    const sharedBlocks = STYLES.map((id) =>
-      snippets[id].slice(snippets[id].indexOf(sharedMarker), snippets[id].indexOf('\n\n## Depth'))
-    );
-    if (sharedBlocks.some((block) => !block) || new Set(sharedBlocks).size !== 1) {
-      throw new Error('built-in styles do not share the same core philosophy');
-    }
-    const builtinCatalog = listOutputStyleCatalog(PLUGIN_ROOT, baseDir, { fresh: true });
-    if (builtinCatalog.some((style) => style.id === 'common')) {
-      throw new Error('common partial leaked into selectable output styles');
-    }
-    // Aliases now live only in frontmatter; `one_line` and `mono` prove the
-    // separator-insensitive match still resolves without a hardcoded map.
-    for (const [alias, canonical] of [
-      ['default', 'simple'],
-      ['concise', 'simple'],
-      ['verbose', 'detailed'],
-      ['brief', 'minimal'],
-      ['extreme', 'extreme-minimal'],
-      ['one_line', 'extreme-minimal'],
-      ['mono', 'extreme-minimal'],
-    ]) {
-      const dataDir = join(baseDir, `alias-${alias}`);
-      mkdirSync(dataDir, { recursive: true });
-      writeFileSync(
-        join(dataDir, 'mixdog-config.json'),
-        JSON.stringify({ ...baseConfig, outputStyle: alias }, null, 2)
-      );
-      const injected = outputStyleBodyFromMeta(rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: dataDir }));
-      const selected = findOutputStyle(alias, listOutputStyleCatalog(PLUGIN_ROOT, dataDir, { fresh: true }));
-      if (selected?.id !== canonical) throw new Error(`${alias} runtime alias did not resolve to ${canonical}`);
-      if (injected !== snippets[canonical]) throw new Error(`${alias} injection differs from ${canonical}`);
-      aliasChecks.push(`${alias}=${canonical}`);
-    }
-    const customDir = join(baseDir, 'custom-alias');
-    mkdirSync(join(customDir, 'output-styles'), { recursive: true });
-    writeFileSync(
-      join(customDir, 'output-styles', 'bespoke.md'),
-      `---
+  for (const [alias, canonical] of [
+    ['default', 'simple'],
+    ['concise', 'simple'],
+    ['verbose', 'detailed'],
+    ['brief', 'minimal'],
+    ['extreme', 'extreme-minimal'],
+    ['one_line', 'extreme-minimal'],
+    ['mono', 'extreme-minimal'],
+  ]) {
+    const dataDir = createStyleDataDir(baseDir, `alias-${alias}`, baseConfig, alias);
+    const injected = injectedStyleBody(rulesBuilder, dataDir);
+    const selected = findOutputStyle(alias, listOutputStyleCatalog(PLUGIN_ROOT, dataDir, { fresh: true }));
+    if (selected?.id !== canonical) throw new Error(`${alias} runtime alias did not resolve to ${canonical}`);
+    if (injected !== snippets[canonical]) throw new Error(`${alias} injection differs from ${canonical}`);
+    aliasChecks.push(`${alias}=${canonical}`);
+  }
+  return aliasChecks;
+}
+// A user style declares its own aliases in frontmatter and still inherits the
+// shared format partial under both its canonical name and its alias.
+function checkCustomFrontmatterAlias(rulesBuilder, baseDir, baseConfig) {
+  const customDir = writeCustomStyleFixture(
+    baseDir,
+    'custom-alias',
+    'bespoke.md',
+    `---
 name: audit-note
 title: Audit Note
 description: Custom alias fixture
@@ -214,73 +232,60 @@ aliases: audit, review-note
 ## Depth
 
 Audit note — custom alias sentinel.`
-    );
-    writeFileSync(
-      join(customDir, 'mixdog-config.json'),
-      JSON.stringify({ ...baseConfig, outputStyle: 'audit-note' }, null, 2)
-    );
-    const customCanonical = outputStyleBodyFromMeta(
-      rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: customDir })
-    );
-    writeFileSync(
-      join(customDir, 'mixdog-config.json'),
-      JSON.stringify({ ...baseConfig, outputStyle: 'review-note' }, null, 2)
-    );
-    const customAlias = outputStyleBodyFromMeta(
-      rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: customDir })
-    );
-    const customSelected = findOutputStyle(
-      'review-note',
-      listOutputStyleCatalog(PLUGIN_ROOT, customDir, { fresh: true })
-    );
-    if (customSelected?.id !== 'audit-note') throw new Error('custom frontmatter alias did not resolve to audit-note');
-    if (!customCanonical.includes('custom alias sentinel') || customAlias !== customCanonical) {
-      throw new Error('custom alias injection differs from canonical style');
-    }
-    if (!customCanonical.startsWith('# Output Style: Audit Note')) {
-      throw new Error('custom style injection missing output-style header');
-    }
-    if (!customCanonical.includes(sharedMarker)) {
-      throw new Error('custom style did not inherit the shared format partial');
-    }
-    aliasChecks.push('review-note=audit-note');
-
-    // A user common.md without `partial: true` still overrides the shared
-    // format and never shows up as a selectable "Common" style.
-    const overrideDir = join(baseDir, 'custom-common');
-    mkdirSync(join(overrideDir, 'output-styles'), { recursive: true });
-    writeFileSync(
-      join(overrideDir, 'output-styles', 'common.md'),
-      `---
+  );
+  writeStyleConfig(customDir, baseConfig, 'audit-note');
+  const customCanonical = injectedStyleBody(rulesBuilder, customDir);
+  writeStyleConfig(customDir, baseConfig, 'review-note');
+  const customAlias = injectedStyleBody(rulesBuilder, customDir);
+  const customSelected = findOutputStyle(
+    'review-note',
+    listOutputStyleCatalog(PLUGIN_ROOT, customDir, { fresh: true })
+  );
+  if (customSelected?.id !== 'audit-note') throw new Error('custom frontmatter alias did not resolve to audit-note');
+  if (!customCanonical.includes('custom alias sentinel') || customAlias !== customCanonical) {
+    throw new Error('custom alias injection differs from canonical style');
+  }
+  if (!customCanonical.startsWith('# Output Style: Audit Note')) {
+    throw new Error('custom style injection missing output-style header');
+  }
+  if (!customCanonical.includes(SHARED_MARKER)) {
+    throw new Error('custom style did not inherit the shared format partial');
+  }
+  return 'review-note=audit-note';
+}
+// A user common.md without `partial: true` still overrides the shared
+// format and never shows up as a selectable "Common" style.
+function checkUserCommonOverride(rulesBuilder, baseDir, baseConfig) {
+  const overrideDir = writeCustomStyleFixture(
+    baseDir,
+    'custom-common',
+    'common.md',
+    `---
 title: Common
 ---
 
 ## Shared Output Format
 
 - User shared-format override sentinel.`
-    );
-    writeFileSync(
-      join(overrideDir, 'mixdog-config.json'),
-      JSON.stringify({ ...baseConfig, outputStyle: 'simple' }, null, 2)
-    );
-    const overrideCatalog = listOutputStyleCatalog(PLUGIN_ROOT, overrideDir, { fresh: true });
-    if (overrideCatalog.some((style) => style.id === 'common')) {
-      throw new Error('user common.md without partial flag leaked into the style catalog');
-    }
-    const overridden = outputStyleBodyFromMeta(
-      rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: overrideDir })
-    );
-    if (!overridden.includes('shared-format override sentinel') || overridden.includes(sharedMarker)) {
-      throw new Error('user common.md did not replace the built-in shared format partial');
-    }
-
-    // keep-shared-format: false — a standalone style that replaces the shared
-    // format policy instead of extending it.
-    const standaloneDir = join(baseDir, 'custom-standalone');
-    mkdirSync(join(standaloneDir, 'output-styles'), { recursive: true });
-    writeFileSync(
-      join(standaloneDir, 'output-styles', 'standalone.md'),
-      `---
+  );
+  writeStyleConfig(overrideDir, baseConfig, 'simple');
+  const overrideCatalog = listOutputStyleCatalog(PLUGIN_ROOT, overrideDir, { fresh: true });
+  if (overrideCatalog.some((style) => style.id === 'common')) {
+    throw new Error('user common.md without partial flag leaked into the style catalog');
+  }
+  const overridden = injectedStyleBody(rulesBuilder, overrideDir);
+  if (!overridden.includes('shared-format override sentinel') || overridden.includes(SHARED_MARKER)) {
+    throw new Error('user common.md did not replace the built-in shared format partial');
+  }
+}
+// keep-shared-format: false — a standalone style that replaces the shared
+// format policy instead of extending it.
+function checkSharedFormatOptOut(rulesBuilder, baseDir, baseConfig) {
+  const standaloneDir = writeCustomStyleFixture(
+    baseDir,
+    'custom-standalone',
+    'standalone.md',
+    `---
 name: standalone-note
 title: Standalone Note
 description: Custom opt-out fixture
@@ -290,36 +295,35 @@ keep-shared-format: false
 ## Depth
 
 Standalone note — shared-format opt-out sentinel.`
-    );
-    writeFileSync(
-      join(standaloneDir, 'mixdog-config.json'),
-      JSON.stringify({ ...baseConfig, outputStyle: 'standalone-note' }, null, 2)
-    );
-    const standalone = outputStyleBodyFromMeta(
-      rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: standaloneDir })
-    );
-    if (!standalone.startsWith('# Output Style: Standalone Note')) {
-      throw new Error('opt-out style injection missing output-style header');
-    }
-    if (!standalone.includes('opt-out sentinel')) throw new Error('opt-out style body missing');
-    if (standalone.includes(sharedMarker)) {
-      throw new Error('keep-shared-format: false still inherited the shared format partial');
-    }
-    // The anchor frames every style, including a full replacement.
-    if (!standalone.includes(anchorMarker)) {
-      throw new Error('opt-out style injection missing the user-facing-text anchor');
-    }
-    return {
-      snippets,
-      aliasChecks,
-      compositionChecks: [
-        'output-style header + user-facing-text anchor + shared format + depth variant',
-        'custom styles inherit the shared format unless keep-shared-format: false',
-        'user common.md overrides the shared format and never lists as a style',
-        'every shared format rule stated exactly once',
-        'built-in depth variants preserve their distinct explanation depth',
-      ],
-    };
+  );
+  writeStyleConfig(standaloneDir, baseConfig, 'standalone-note');
+  const standalone = injectedStyleBody(rulesBuilder, standaloneDir);
+  if (!standalone.startsWith('# Output Style: Standalone Note')) {
+    throw new Error('opt-out style injection missing output-style header');
+  }
+  if (!standalone.includes('opt-out sentinel')) throw new Error('opt-out style body missing');
+  if (standalone.includes(SHARED_MARKER)) {
+    throw new Error('keep-shared-format: false still inherited the shared format partial');
+  }
+  // The anchor frames every style, including a full replacement.
+  if (!standalone.includes(ANCHOR_MARKER)) {
+    throw new Error('opt-out style injection missing the user-facing-text anchor');
+  }
+}
+function runInjectionScaffold() {
+  const rulesBuilder = createRequire(import.meta.url)(join(PLUGIN_ROOT, 'lib', 'rules-builder.cjs'));
+  const baseDir = mkdtempSync(join(REPO_ROOT, '.tmp-output-style-bench-'));
+  const templatePath = join(PLUGIN_ROOT, 'defaults', 'mixdog-config.template.json');
+  const baseConfig = existsSync(templatePath)
+    ? JSON.parse(readFileSync(templatePath, 'utf8'))
+    : { outputStyle: 'simple' };
+  try {
+    const snippets = checkBuiltinStyleInjections(rulesBuilder, baseDir, baseConfig);
+    const aliasChecks = checkBuiltinAliases(rulesBuilder, baseDir, baseConfig, snippets);
+    aliasChecks.push(checkCustomFrontmatterAlias(rulesBuilder, baseDir, baseConfig));
+    checkUserCommonOverride(rulesBuilder, baseDir, baseConfig);
+    checkSharedFormatOptOut(rulesBuilder, baseDir, baseConfig);
+    return { snippets, aliasChecks, compositionChecks: COMPOSITION_CHECKS };
   } finally {
     rmSync(baseDir, { recursive: true, force: true });
   }

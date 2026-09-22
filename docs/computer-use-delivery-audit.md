@@ -54,7 +54,7 @@ background input too.
 | Recovery guidance encouraged blind mode changes | Focus failures request user assistance; uncertain background effects request fresh evidence | `error-recovery.test.mjs`, `analysis.test.mjs` |
 | Cold effect-window startup raced the first gesture | Bounded surface preparation precedes dispatch; initialization failure cleans up the window | Cursor readiness and Electron lifecycle tests |
 | Scroll/key/type events were missing from the feedback transport | Explicit event categories are now propagated without input content | `pointer-progress.test.mjs` |
-| Style and visible-window flags were mistaken for visual proof | Added actual renderer-pixel checks and current-display placement checks | `cursor-art-electron.test.mjs` |
+| Style and visible-window flags were mistaken for visual proof | Added actual renderer-pixel checks and current-display placement checks | `cursor-art.electron.test.mjs` |
 | Re-intervention between Resume and Capture looked like lost connection | The actual bridge pause response re-enters waiting without re-sending input | `pending-reentry.test.mjs` |
 | Read failures discarded pending-work detail | Return retained progress and a fresh-observation requirement | `pending-continuation.test.mjs` |
 | Restoration ACK races could produce false cleanup failures | Preserve an outstanding read and confirmed restoration; late ACTIVE does not discard RESTORED | `cursor-protocol.test.mjs` |

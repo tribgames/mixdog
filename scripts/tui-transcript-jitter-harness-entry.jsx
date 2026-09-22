@@ -45,30 +45,9 @@ let commit = 0;
 const identity = (value) => value;
 const noop = () => {};
 
-function Harness({
-  text,
-  step,
-  initialScroll = INITIAL_SCROLL,
-  streamId = STREAM_ID,
-  sessionKey = 'jitter-session',
-  following = false,
-  viewRows = VIEW_ROWS,
-  floatingPanelRows = 0,
-  releasedSelection = null,
-  onPaint = noop,
-  onFrame = noop,
-  onScrollStateDispatch = noop,
-  recordFrame = true,
-  history = HISTORY,
-}) {
-  const [scrollOffset, setScrollOffset] = React.useState(initialScroll);
-  const [measuredRowsVersion, setMeasuredRowsVersion] = React.useState(0);
-  const onScrollStateDispatchRef = React.useRef(onScrollStateDispatch);
-  onScrollStateDispatchRef.current = onScrollStateDispatch;
-  const dispatchScrollOffset = React.useCallback((next) => {
-    onScrollStateDispatchRef.current(next);
-    setScrollOffset(next);
-  }, []);
+// Every mutable handle useTranscriptWindow threads through, plus the two
+// measurement anchors this harness reads back after layout.
+function useTranscriptHarnessRefs({ initialScroll, following, releasedSelection }) {
   const transcriptAnchorRef = React.useRef(null);
   const transcriptAnchorDirtyRef = React.useRef(true);
   const scrollTargetRef = React.useRef(initialScroll);
@@ -81,16 +60,38 @@ function Harness({
   const selectionLayoutRef = React.useRef(null);
   const contentRef = React.useRef(null);
   const tailRef = React.useRef(null);
-  const streamingTail = React.useMemo(
-    () => ({
-      id: streamId,
-      kind: 'assistant',
-      text,
-      streaming: true,
-    }),
-    [text]
-  );
-  const { transcriptWindow, renderedTranscriptItems, transcriptMeasureRef } = useTranscriptWindow({
+  return {
+    transcriptAnchorRef,
+    transcriptAnchorDirtyRef,
+    scrollTargetRef,
+    scrollPositionRef,
+    maxScrollRowsRef,
+    transcriptGeomRef,
+    followingRef,
+    dragRef,
+    transcriptViewportRef,
+    selectionLayoutRef,
+    contentRef,
+    tailRef,
+  };
+}
+
+// The transcript window under the harness's fixed frame geometry (one column
+// width, one structure revision, no theme/overlay churn).
+function useHarnessTranscriptWindow({
+  history,
+  sessionKey,
+  streamingTail,
+  viewRows,
+  floatingPanelRows,
+  scrollOffset,
+  dispatchScrollOffset,
+  onPaint,
+  measuredRowsVersion,
+  setMeasuredRowsVersion,
+  refs,
+}) {
+  return useTranscriptWindow({
     items: history,
     structureRevision: 1,
     sessionKey,
@@ -105,32 +106,28 @@ function Harness({
     overlayHintRequested: false,
     scrollOffset,
     setScrollOffset: dispatchScrollOffset,
-    transcriptAnchorRef,
-    transcriptAnchorDirtyRef,
-    scrollTargetRef,
-    scrollPositionRef,
-    maxScrollRowsRef,
-    transcriptGeomRef,
-    followingRef,
-    dragRef,
-    transcriptViewportRef,
-    selectionLayoutRef,
+    transcriptAnchorRef: refs.transcriptAnchorRef,
+    transcriptAnchorDirtyRef: refs.transcriptAnchorDirtyRef,
+    scrollTargetRef: refs.scrollTargetRef,
+    scrollPositionRef: refs.scrollPositionRef,
+    maxScrollRowsRef: refs.maxScrollRowsRef,
+    transcriptGeomRef: refs.transcriptGeomRef,
+    followingRef: refs.followingRef,
+    dragRef: refs.dragRef,
+    transcriptViewportRef: refs.transcriptViewportRef,
+    selectionLayoutRef: refs.selectionLayoutRef,
     withSelectionClip: identity,
     paintSelectionRect: onPaint,
     stopSmoothScroll: noop,
     measuredRowsVersion,
     setMeasuredRowsVersion,
   });
+}
 
-  const tailHookRef = transcriptMeasureRef(streamingTail);
-  const combinedTailRef = React.useCallback(
-    (element) => {
-      tailHookRef?.(element);
-      tailRef.current = element;
-    },
-    [tailHookRef]
-  );
-
+// One record per committed layout: indexed geometry (prefix rows) against the
+// physically measured tree, which is what the repro compares.
+function useFrameRecorder({ text, step, viewRows, measuredRowsVersion, transcriptWindow, refs, recordFrame, onFrame }) {
+  const { transcriptGeomRef, contentRef, tailRef, scrollTargetRef, followingRef, transcriptAnchorRef } = refs;
   React.useLayoutEffect(() => {
     const geometry = transcriptGeomRef.current || {};
     const prefix = geometry.prefixRows || [];
@@ -169,6 +166,76 @@ function Harness({
     transcriptAnchorRef,
     transcriptGeomRef,
   ]);
+}
+
+function Harness({
+  text,
+  step,
+  initialScroll = INITIAL_SCROLL,
+  streamId = STREAM_ID,
+  sessionKey = 'jitter-session',
+  following = false,
+  viewRows = VIEW_ROWS,
+  floatingPanelRows = 0,
+  releasedSelection = null,
+  onPaint = noop,
+  onFrame = noop,
+  onScrollStateDispatch = noop,
+  recordFrame = true,
+  history = HISTORY,
+}) {
+  const [scrollOffset, setScrollOffset] = React.useState(initialScroll);
+  const [measuredRowsVersion, setMeasuredRowsVersion] = React.useState(0);
+  const onScrollStateDispatchRef = React.useRef(onScrollStateDispatch);
+  onScrollStateDispatchRef.current = onScrollStateDispatch;
+  const dispatchScrollOffset = React.useCallback((next) => {
+    onScrollStateDispatchRef.current(next);
+    setScrollOffset(next);
+  }, []);
+  const refs = useTranscriptHarnessRefs({ initialScroll, following, releasedSelection });
+  const { contentRef, tailRef } = refs;
+  const streamingTail = React.useMemo(
+    () => ({
+      id: streamId,
+      kind: 'assistant',
+      text,
+      streaming: true,
+    }),
+    [text]
+  );
+  const { transcriptWindow, renderedTranscriptItems, transcriptMeasureRef } = useHarnessTranscriptWindow({
+    history,
+    sessionKey,
+    streamingTail,
+    viewRows,
+    floatingPanelRows,
+    scrollOffset,
+    dispatchScrollOffset,
+    onPaint,
+    measuredRowsVersion,
+    setMeasuredRowsVersion,
+    refs,
+  });
+
+  const tailHookRef = transcriptMeasureRef(streamingTail);
+  const combinedTailRef = React.useCallback(
+    (element) => {
+      tailHookRef?.(element);
+      tailRef.current = element;
+    },
+    [tailHookRef]
+  );
+
+  useFrameRecorder({
+    text,
+    step,
+    viewRows,
+    measuredRowsVersion,
+    transcriptWindow,
+    refs,
+    recordFrame,
+    onFrame,
+  });
 
   return (
     <Box flexDirection="column" width={COLUMNS} height={viewRows} overflow="hidden" justifyContent="flex-end">

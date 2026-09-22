@@ -429,14 +429,9 @@ test('the weekly suite-health sweep runs the opt-out catalog and reports failure
   assert.match(sweep, /suite-health-report\.md/, 'a failed sweep must surface as a tracked issue');
 });
 
-test('application release overlaps gates and publishes one exact hidden draft', async () => {
-  const [release, automaticGate, desktopPackage, relayDeploy, uploadScript] = await Promise.all([
-    workflow('release.yml'),
-    workflow('release-gate.yml'),
-    workflow('desktop-package.yml'),
-    readFile(new URL('../apps/relay/deploy/deploy-release.sh', import.meta.url), 'utf8'),
-    readFile(new URL('../.github/scripts/upload-release-assets.sh', import.meta.url), 'utf8'),
-  ]);
+// Which lanes the incremental gate runs, and the desktop output cache it warms
+// on every main push so the deploy gate one job later can hit the same key.
+function assertIncrementalGateContract(automaticGate) {
   assert.match(automaticGate, /pull_request:[\s\S]*push:[\s\S]*branches:\s*\[main\]/);
   assert.match(automaticGate, /name:\s*Select incremental gates/);
   // Path selection is single-sourced: the gate derives its grep patterns from
@@ -468,6 +463,23 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   );
   assert.match(automaticGate, /needs\.changes\.outputs\.desktop == 'true'/);
   assert.match(automaticGate, /needs\.changes\.outputs\.graph == 'true'/);
+  // The gate warms the exact version-neutral key the deploy gate restores;
+  // the key's own shape is asserted against release.yml below.
+  assert.match(
+    automaticGate,
+    /name:\s*Reuse or warm the release desktop output cache[\s\S]*desktop-out-v\d+-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/
+  );
+  assert.match(
+    automaticGate,
+    /name:\s*Build desktop[\s\S]*steps\.desktop-out\.outputs\.cache-hit != 'true'/,
+    'an unchanged desktop bundle must not be rebuilt by the gate'
+  );
+  assert.match(automaticGate, /manifest-cache-key\.mjs/);
+}
+
+// The deploy gate: identity, validation, one desktop build, four package legs,
+// and a single publish of one exact hidden draft.
+function assertReleaseWorkflowContract(release) {
   assert.match(release, /identity:[\s\S]*Verify release tag matches package version/);
   assert.match(release, /validate:[\s\S]*needs:\s*identity[\s\S]*fetch-depth:\s*0/);
   assert.match(
@@ -506,17 +518,6 @@ test('application release overlaps gates and publishes one exact hidden draft', 
     /package-lock\.json/,
     'the lock file reaches this key only through the version-neutral digest'
   );
-  assert.match(
-    automaticGate,
-    /name:\s*Reuse or warm the release desktop output cache[\s\S]*desktop-out-v\d+-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/
-  );
-  assert.match(
-    automaticGate,
-    /name:\s*Build desktop[\s\S]*steps\.desktop-out\.outputs\.cache-hit != 'true'/,
-    'an unchanged desktop bundle must not be rebuilt by the gate'
-  );
-  assert.match(automaticGate, /manifest-cache-key\.mjs/);
-  assert.match(desktopPackage, /manifest-cache-key\.mjs/);
   // Actions are SHA-pinned with the release as a trailing comment, so the
   // major version is asserted through that comment. Matching a bare `@v7` tag
   // could never succeed here and left the check permanently red.
@@ -532,6 +533,54 @@ test('application release overlaps gates and publishes one exact hidden draft', 
     );
   }
   assert.match(release, /prepare-github-release:[\s\S]*needs:\s*\[identity\][\s\S]*draft:\s*true/);
+  assert.equal((release.match(/npm run build --prefix apps\/desktop/g) || []).length, 1);
+  assert.match(release, /npm ci --prefix apps\/desktop --prefer-offline --no-audit --no-fund/);
+  assert.match(release, /name:\s*Stage npm package[\s\S]*actions\/upload-artifact/);
+  assert.doesNotMatch(release, /name:\s*Download staged desktop packages/);
+  assert.match(release, /name:\s*Verify complete hidden release/);
+  assert.match(release, /Hidden release asset set is not exact/);
+  assert.ok(
+    release.indexOf('name: Publish staged npm package') > release.indexOf('name: Verify complete hidden release')
+  );
+  assert.ok(
+    release.indexOf('name: Publish one complete GitHub release') > release.indexOf('name: Publish staged npm package')
+  );
+  assert.match(release, /npm publish \.\/staged-npm\/\*\.tgz --provenance --access public/);
+  assert.match(release, /-F draft=false -f make_latest=true/);
+  assert.match(
+    release,
+    /stage-relay:[\s\S]*needs:\s*\[identity,\s*desktop-build\][\s\S]*Restore renderer precompression cache[\s\S]*Stage production relay artifact/
+  );
+  assert.match(
+    release,
+    /deploy-relay:[\s\S]*needs:\s*\[publish,\s*stage-relay\][\s\S]*Download staged production relay/
+  );
+  // A partial re-run preserves stage-relay and re-runs deploy-relay as a
+  // dependent of the failed job, so an attempt-scoped artifact name would
+  // resolve to an artifact that attempt never uploaded.
+  assert.equal((release.match(/production-relay-\$\{\{ github\.run_id \}\}/g) || []).length, 2);
+  assert.doesNotMatch(release, /production-relay-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
+  assert.match(release, /Stage production relay artifact[\s\S]*overwrite:\s*true/);
+  assert.match(
+    release,
+    /publish:[\s\S]*Publish staged npm package[\s\S]*Publish one complete GitHub release[\s\S]*deploy-relay:/
+  );
+  assert.match(release, /name:\s*Atomically deploy and verify production/);
+  assert.ok(
+    release.includes("awk '{print \\$1}'"),
+    'the remote hash command must preserve awk $1 without expanding a shell positional parameter'
+  );
+  assert.equal(release.includes("awk '{print \\\\$1}'"), false);
+  assert.match(release, /secrets\.RELAY_SSH_KEY/);
+  assert.match(release, /vars\.RELAY_DOMAIN/);
+  assert.match(release, /release-timings:[\s\S]*Record timing and warn on material regressions/);
+  assert.match(release, /release-timing-report\.mjs/);
+}
+
+// The per-platform packaging workflow: what it restores, what it saves before
+// packaging can fail, and how verified assets reach the hidden draft.
+function assertDesktopPackageContract(desktopPackage) {
+  assert.match(desktopPackage, /manifest-cache-key\.mjs/);
   assert.match(
     desktopPackage,
     /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@[0-9a-f]{40} # v8/
@@ -594,13 +643,9 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(desktopPackage, /MIXDOG_RUNTIME_DEPENDENCY_CACHE/);
   assert.match(desktopPackage, /key:\s*desktop-\$\{\{ steps\.runtime-dependencies\.outputs\.key \}\}/);
   assert.match(desktopPackage, /MIXDOG_RUNTIME_NPM_CACHE="?\$\(npm config get cache\)"?/);
-  assert.equal((release.match(/npm run build --prefix apps\/desktop/g) || []).length, 1);
   assert.doesNotMatch(desktopPackage, /name:\s*Verify platform embedding runtime/);
   assert.doesNotMatch(desktopPackage, /name:\s*Install runtime dependencies/);
-  assert.match(release, /npm ci --prefix apps\/desktop --prefer-offline --no-audit --no-fund/);
-  assert.match(release, /name:\s*Stage npm package[\s\S]*actions\/upload-artifact/);
   assert.doesNotMatch(desktopPackage, /name:\s*Stage (?:Windows|macOS|Linux)/);
-  assert.doesNotMatch(release, /name:\s*Download staged desktop packages/);
   // Every platform uploads through the bounded script: `gh release upload
   // --clobber` stalled past its step timeout on linux-arm64 once the draft
   // already held the earlier attempt's AppImage.
@@ -622,6 +667,11 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   );
   assert.doesNotMatch(desktopPackage, /inputs\.arch \}\}" == x64/);
   assert.match(desktopPackage, /RELEASE_ID:\s*\$\{\{ inputs\.release_id \}\}/);
+}
+
+// The bounded uploader every platform funnels its assets through, instead of
+// `gh release upload --clobber`.
+function assertUploadScriptContract(uploadScript) {
   assert.match(uploadScript, /--http1\.1/);
   assert.match(uploadScript, /--max-time 150/);
   assert.match(uploadScript, /--speed-limit 1024 --speed-time 20/);
@@ -630,44 +680,10 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(uploadScript, /remote_asset_is_complete/);
   assert.match(uploadScript, /upload_asset "\$asset" &/);
   assert.match(uploadScript, /if ! wait "\$pid"/);
-  assert.match(release, /name:\s*Verify complete hidden release/);
-  assert.match(release, /Hidden release asset set is not exact/);
-  assert.ok(
-    release.indexOf('name: Publish staged npm package') > release.indexOf('name: Verify complete hidden release')
-  );
-  assert.ok(
-    release.indexOf('name: Publish one complete GitHub release') > release.indexOf('name: Publish staged npm package')
-  );
-  assert.match(release, /npm publish \.\/staged-npm\/\*\.tgz --provenance --access public/);
-  assert.match(release, /-F draft=false -f make_latest=true/);
-  assert.match(
-    release,
-    /stage-relay:[\s\S]*needs:\s*\[identity,\s*desktop-build\][\s\S]*Restore renderer precompression cache[\s\S]*Stage production relay artifact/
-  );
-  assert.match(
-    release,
-    /deploy-relay:[\s\S]*needs:\s*\[publish,\s*stage-relay\][\s\S]*Download staged production relay/
-  );
-  // A partial re-run preserves stage-relay and re-runs deploy-relay as a
-  // dependent of the failed job, so an attempt-scoped artifact name would
-  // resolve to an artifact that attempt never uploaded.
-  assert.equal((release.match(/production-relay-\$\{\{ github\.run_id \}\}/g) || []).length, 2);
-  assert.doesNotMatch(release, /production-relay-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
-  assert.match(release, /Stage production relay artifact[\s\S]*overwrite:\s*true/);
-  assert.match(
-    release,
-    /publish:[\s\S]*Publish staged npm package[\s\S]*Publish one complete GitHub release[\s\S]*deploy-relay:/
-  );
-  assert.match(release, /name:\s*Atomically deploy and verify production/);
-  assert.ok(
-    release.includes("awk '{print \\$1}'"),
-    'the remote hash command must preserve awk $1 without expanding a shell positional parameter'
-  );
-  assert.equal(release.includes("awk '{print \\\\$1}'"), false);
-  assert.match(release, /secrets\.RELAY_SSH_KEY/);
-  assert.match(release, /vars\.RELAY_DOMAIN/);
-  assert.match(release, /release-timings:[\s\S]*Record timing and warn on material regressions/);
-  assert.match(release, /release-timing-report\.mjs/);
+}
+
+// The relay install transaction the deploy job drives.
+function assertRelayDeployContract(relayDeploy) {
   // Rename failures, signals and failed recovery are exercised against the
   // actual shell transaction by apps/relay/deploy/release-transaction.test.mjs.
   assert.match(relayDeploy, /sha256sum "\$INSTALL_DIR\/renderer\/index\.html"/);
@@ -675,6 +691,21 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(relayDeploy, /npm ci --omit=dev/);
   assert.match(relayDeploy, /--hardlink-base/);
   assert.match(relayDeploy, /cp -al "\$INSTALL_DIR\/renderer"/);
+}
+
+test('application release overlaps gates and publishes one exact hidden draft', async () => {
+  const [release, automaticGate, desktopPackage, relayDeploy, uploadScript] = await Promise.all([
+    workflow('release.yml'),
+    workflow('release-gate.yml'),
+    workflow('desktop-package.yml'),
+    readFile(new URL('../apps/relay/deploy/deploy-release.sh', import.meta.url), 'utf8'),
+    readFile(new URL('../.github/scripts/upload-release-assets.sh', import.meta.url), 'utf8'),
+  ]);
+  assertIncrementalGateContract(automaticGate);
+  assertReleaseWorkflowContract(release);
+  assertDesktopPackageContract(desktopPackage);
+  assertUploadScriptContract(uploadScript);
+  assertRelayDeployContract(relayDeploy);
   for (const worker of [release, desktopPackage]) {
     assert.doesNotMatch(worker, /actions\/(?:upload|download)-artifact@v4/);
   }

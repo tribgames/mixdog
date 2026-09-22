@@ -71,175 +71,198 @@ test('agent visibility: production web_search visible, tool_search hidden', () =
   }
 });
 
+// The user-global demo skill every surface below must discover.
+function writeDemoSkillManifest(skillDir) {
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(
+    join(skillDir, 'SKILL.md'),
+    [
+      '---',
+      'name: demo-skill',
+      'description: Use when validating compact skill manifest matching.',
+      '---',
+      '',
+      '# Demo Skill',
+      '',
+      'Use this skill for manifest smoke tests.',
+      'Read ${MIXDOG_SKILL_DIR}/reference.md when needed.',
+      '',
+    ].join('\n')
+  );
+}
+
+function assertSkillLoaderResolution(skillManifestTmp) {
+  const loadedSkill = loadSkillResource('demo-skill', skillManifestTmp);
+  if (!loadedSkill || /^---/m.test(loadedSkill.content) || !loadedSkill.content.startsWith('# Demo Skill')) {
+    throw new Error(`Skill loader must strip SKILL.md frontmatter: ${JSON.stringify(loadedSkill)}`);
+  }
+  const trimmedSkill = loadSkillResource('  demo-skill  ', skillManifestTmp);
+  if (!trimmedSkill || trimmedSkill.filePath !== loadedSkill.filePath) {
+    throw new Error(`Skill loader must trim an exact available-skills name: ${JSON.stringify(trimmedSkill)}`);
+  }
+  if (loadedSkill.source !== 'global') {
+    throw new Error(`Skill loader must report the user-global source: ${JSON.stringify(loadedSkill)}`);
+  }
+  return loadedSkill;
+}
+
+function assertSkillToolEnvelope(loadedSkill) {
+  const skillEnvelope = buildSkillToolEnvelope('demo-skill', loadedSkill.content, loadedSkill.dir, {
+    source: loadedSkill.source,
+  });
+  const builtinEnvelope = buildSkillToolEnvelope('docx', 'body', loadedSkill.dir, { source: 'builtin' });
+  if (builtinEnvelope?.result !== 'Loaded built-in skill: docx') {
+    throw new Error(`Built-in skill loads must carry the built-in stub: ${JSON.stringify(builtinEnvelope)}`);
+  }
+  const skillMessage = skillEnvelope?.newMessages?.[0];
+  const normalizedSkillDir = loadedSkill.dir.replace(/\\/g, '/');
+  if (
+    skillEnvelope?.result !== 'Loaded skill: demo-skill' ||
+    skillEnvelope?.newMessages?.length !== 1 ||
+    skillMessage?.role !== 'user' ||
+    skillMessage?.meta !== 'skill' ||
+    !skillMessage?.content?.includes(`<base-dir>${normalizedSkillDir}</base-dir>`) ||
+    !skillMessage?.content?.includes(`${normalizedSkillDir}/reference.md`) ||
+    skillMessage?.content?.includes('${MIXDOG_SKILL_DIR}')
+  ) {
+    throw new Error(
+      `Skill load must inject one meta user message with its resolved base directory: ${JSON.stringify(skillEnvelope)}`
+    );
+  }
+}
+
+function assertLeadSkillSurface(skillManifestTmp) {
+  const skillSession = createSession({
+    provider: 'openai-oauth',
+    model: 'tool-contracts-model',
+    owner: 'cli',
+    agent: 'lead',
+    cwd: skillManifestTmp,
+    permission: 'read-write',
+  });
+  try {
+    const visible = (skillSession.messages || []).map((m) => String(m.content || '')).join('\n');
+    if (
+      !/available-skills/i.test(visible) ||
+      !/demo-skill/i.test(visible) ||
+      !/Skill\(\{"name":"<skill-name>"\}\)/.test(visible)
+    ) {
+      throw new Error(`lead skill manifest missing compact skill listing: ${visible.slice(0, 1200)}`);
+    }
+    if ((visible.match(/(^|\n)- Shell: /g) || []).length !== 1 || /(^|\n)# Environment\n/i.test(visible)) {
+      throw new Error(
+        `Lead BP3 must relocate the shell payload exactly once without a new heading: ${visible.slice(0, 1200)}`
+      );
+    }
+    const skillToolNames = (skillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+    if (!skillToolNames.includes('Skill')) {
+      throw new Error(`lead skill manifest session must expose Skill loader: ${skillToolNames.join(', ')}`);
+    }
+    if (!skillToolNames.includes('edit') || skillToolNames.includes('apply_patch')) {
+      throw new Error(`non-GPT sessions must expose edit only: ${skillToolNames.join(', ')}`);
+    }
+  } finally {
+    closeSession(skillSession.id, 'tool-contracts');
+  }
+}
+
+function assertGptEditToolSurface(skillManifestTmp) {
+  const gptEditSession = createSession({
+    provider: 'openai-oauth',
+    model: 'gpt-5.5',
+    owner: 'cli',
+    agent: 'lead',
+    cwd: skillManifestTmp,
+    permission: 'read-write',
+  });
+  try {
+    const names = (gptEditSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+    if (!names.includes('apply_patch') || names.includes('edit')) {
+      throw new Error(`GPT sessions must expose apply_patch only: ${names.join(', ')}`);
+    }
+  } finally {
+    closeSession(gptEditSession.id, 'tool-contracts');
+  }
+}
+
+function assertAgentSkillSurface(skillManifestTmp) {
+  const agentSkillSession = createSession({
+    provider: 'openai-oauth',
+    model: 'tool-contracts-model',
+    owner: AGENT_OWNER,
+    agent: 'worker',
+    cwd: skillManifestTmp,
+    permission: 'read-write',
+  });
+  try {
+    const systemLayers = (agentSkillSession.messages || []).filter((m) => m?.role === 'system');
+    const systemVisible = systemLayers.map((m) => String(m.content || '')).join('\n');
+    // Agent (Pool B/C) sessions FREEZE the Skill meta-tool into the schema
+    // unconditionally so the tool bytes stay bit-identical across roles/cwds
+    // (provider cache shard stability). The BP2 manifest rides alongside it
+    // so the model knows which Skill names exist — a loader without the
+    // manifest cannot be targeted. Both must be present together.
+    if (
+      !/available-skills/i.test(systemVisible) ||
+      !/demo-skill/i.test(systemVisible) ||
+      !/Skill\(\{"name":"<skill-name>"\}\)/.test(systemVisible)
+    ) {
+      throw new Error(
+        `agent BP2 must carry the compact skill manifest alongside the frozen Skill tool: ${systemVisible.slice(0, 1200)}`
+      );
+    }
+    if (/# Demo Skill|Use this skill for manifest smoke tests|\$\{MIXDOG_SKILL_DIR\}/.test(systemVisible)) {
+      throw new Error(
+        `agent Skill manifest must expose metadata only, never SKILL.md body: ${systemVisible.slice(0, 1200)}`
+      );
+    }
+    if (!/# Tool Calls/i.test(systemVisible) || !/^# Agent$/im.test(systemVisible)) {
+      throw new Error(
+        `agent system layers must carry BP1 tool policy and BP3 role rules: ${systemVisible.slice(0, 1200)}`
+      );
+    }
+    if (
+      !/# Tool Calls/i.test(systemLayers[0]?.content || '') ||
+      /available-skills/i.test(systemLayers[0]?.content || '') ||
+      !/available-skills/i.test(systemLayers[1]?.content || '') ||
+      !/^# Agent$/im.test(systemLayers[2]?.content || '')
+    ) {
+      throw new Error(
+        `agent prompt layers must place tool policy in BP1, skills in BP2, and role in BP3: ${JSON.stringify(systemLayers)}`
+      );
+    }
+    const agentSkillTool = (agentSkillSession.tools || []).find((tool) => tool?.name === 'Skill');
+    const agentSkillToolNames = (agentSkillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
+    if (!agentSkillToolNames.includes('Skill')) {
+      throw new Error(
+        `read-write agent schema must expose Skill loader with the manifest: ${agentSkillToolNames.join(', ')}`
+      );
+    }
+    if (
+      agentSkillTool?.title !== SKILL_TOOL.title ||
+      agentSkillTool?.description !== SKILL_TOOL.description ||
+      JSON.stringify(agentSkillTool?.annotations) !== JSON.stringify(SKILL_TOOL.annotations) ||
+      JSON.stringify(agentSkillTool?.inputSchema) !== JSON.stringify(SKILL_TOOL.inputSchema)
+    ) {
+      throw new Error(`agent Skill metadata must match the session Skill contract: ${JSON.stringify(agentSkillTool)}`);
+    }
+  } finally {
+    closeSession(agentSkillSession.id, 'tool-contracts');
+  }
+}
+
 test('skill loader, envelope, and lead/GPT/agent skill surfaces', async () => {
   const skillManifestTmp = mkdtempSync(join(tmpdir(), 'mixdog-skill-manifest-'));
   const previousSkillDataDir = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = join(skillManifestTmp, 'data');
   try {
-    const skillDir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'demo-skill');
-    mkdirSync(skillDir, { recursive: true });
-    writeFileSync(
-      join(skillDir, 'SKILL.md'),
-      [
-        '---',
-        'name: demo-skill',
-        'description: Use when validating compact skill manifest matching.',
-        '---',
-        '',
-        '# Demo Skill',
-        '',
-        'Use this skill for manifest smoke tests.',
-        'Read ${MIXDOG_SKILL_DIR}/reference.md when needed.',
-        '',
-      ].join('\n')
-    );
+    writeDemoSkillManifest(join(process.env.MIXDOG_DATA_DIR, 'skills', 'demo-skill'));
     invalidateSkillsCache();
-    const loadedSkill = loadSkillResource('demo-skill', skillManifestTmp);
-    if (!loadedSkill || /^---/m.test(loadedSkill.content) || !loadedSkill.content.startsWith('# Demo Skill')) {
-      throw new Error(`Skill loader must strip SKILL.md frontmatter: ${JSON.stringify(loadedSkill)}`);
-    }
-    const trimmedSkill = loadSkillResource('  demo-skill  ', skillManifestTmp);
-    if (!trimmedSkill || trimmedSkill.filePath !== loadedSkill.filePath) {
-      throw new Error(`Skill loader must trim an exact available-skills name: ${JSON.stringify(trimmedSkill)}`);
-    }
-    if (loadedSkill.source !== 'global') {
-      throw new Error(`Skill loader must report the user-global source: ${JSON.stringify(loadedSkill)}`);
-    }
-    const skillEnvelope = buildSkillToolEnvelope('demo-skill', loadedSkill.content, loadedSkill.dir, {
-      source: loadedSkill.source,
-    });
-    const builtinEnvelope = buildSkillToolEnvelope('docx', 'body', loadedSkill.dir, { source: 'builtin' });
-    if (builtinEnvelope?.result !== 'Loaded built-in skill: docx') {
-      throw new Error(`Built-in skill loads must carry the built-in stub: ${JSON.stringify(builtinEnvelope)}`);
-    }
-    const skillMessage = skillEnvelope?.newMessages?.[0];
-    const normalizedSkillDir = loadedSkill.dir.replace(/\\/g, '/');
-    if (
-      skillEnvelope?.result !== 'Loaded skill: demo-skill' ||
-      skillEnvelope?.newMessages?.length !== 1 ||
-      skillMessage?.role !== 'user' ||
-      skillMessage?.meta !== 'skill' ||
-      !skillMessage?.content?.includes(`<base-dir>${normalizedSkillDir}</base-dir>`) ||
-      !skillMessage?.content?.includes(`${normalizedSkillDir}/reference.md`) ||
-      skillMessage?.content?.includes('${MIXDOG_SKILL_DIR}')
-    ) {
-      throw new Error(
-        `Skill load must inject one meta user message with its resolved base directory: ${JSON.stringify(skillEnvelope)}`
-      );
-    }
-    const skillSession = createSession({
-      provider: 'openai-oauth',
-      model: 'tool-contracts-model',
-      owner: 'cli',
-      agent: 'lead',
-      cwd: skillManifestTmp,
-      permission: 'read-write',
-    });
-    try {
-      const visible = (skillSession.messages || []).map((m) => String(m.content || '')).join('\n');
-      if (
-        !/available-skills/i.test(visible) ||
-        !/demo-skill/i.test(visible) ||
-        !/Skill\(\{"name":"<skill-name>"\}\)/.test(visible)
-      ) {
-        throw new Error(`lead skill manifest missing compact skill listing: ${visible.slice(0, 1200)}`);
-      }
-      if ((visible.match(/(^|\n)- Shell: /g) || []).length !== 1 || /(^|\n)# Environment\n/i.test(visible)) {
-        throw new Error(
-          `Lead BP3 must relocate the shell payload exactly once without a new heading: ${visible.slice(0, 1200)}`
-        );
-      }
-      const skillToolNames = (skillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
-      if (!skillToolNames.includes('Skill')) {
-        throw new Error(`lead skill manifest session must expose Skill loader: ${skillToolNames.join(', ')}`);
-      }
-      if (!skillToolNames.includes('edit') || skillToolNames.includes('apply_patch')) {
-        throw new Error(`non-GPT sessions must expose edit only: ${skillToolNames.join(', ')}`);
-      }
-    } finally {
-      closeSession(skillSession.id, 'tool-contracts');
-    }
-    const gptEditSession = createSession({
-      provider: 'openai-oauth',
-      model: 'gpt-5.5',
-      owner: 'cli',
-      agent: 'lead',
-      cwd: skillManifestTmp,
-      permission: 'read-write',
-    });
-    try {
-      const names = (gptEditSession.tools || []).map((tool) => tool?.name).filter(Boolean);
-      if (!names.includes('apply_patch') || names.includes('edit')) {
-        throw new Error(`GPT sessions must expose apply_patch only: ${names.join(', ')}`);
-      }
-    } finally {
-      closeSession(gptEditSession.id, 'tool-contracts');
-    }
-    const agentSkillSession = createSession({
-      provider: 'openai-oauth',
-      model: 'tool-contracts-model',
-      owner: AGENT_OWNER,
-      agent: 'worker',
-      cwd: skillManifestTmp,
-      permission: 'read-write',
-    });
-    try {
-      const systemLayers = (agentSkillSession.messages || []).filter((m) => m?.role === 'system');
-      const systemVisible = systemLayers.map((m) => String(m.content || '')).join('\n');
-      // Agent (Pool B/C) sessions FREEZE the Skill meta-tool into the schema
-      // unconditionally so the tool bytes stay bit-identical across roles/cwds
-      // (provider cache shard stability). The BP2 manifest rides alongside it
-      // so the model knows which Skill names exist — a loader without the
-      // manifest cannot be targeted. Both must be present together.
-      if (
-        !/available-skills/i.test(systemVisible) ||
-        !/demo-skill/i.test(systemVisible) ||
-        !/Skill\(\{"name":"<skill-name>"\}\)/.test(systemVisible)
-      ) {
-        throw new Error(
-          `agent BP2 must carry the compact skill manifest alongside the frozen Skill tool: ${systemVisible.slice(0, 1200)}`
-        );
-      }
-      if (/# Demo Skill|Use this skill for manifest smoke tests|\$\{MIXDOG_SKILL_DIR\}/.test(systemVisible)) {
-        throw new Error(
-          `agent Skill manifest must expose metadata only, never SKILL.md body: ${systemVisible.slice(0, 1200)}`
-        );
-      }
-      if (!/# Tool Calls/i.test(systemVisible) || !/^# Agent$/im.test(systemVisible)) {
-        throw new Error(
-          `agent system layers must carry BP1 tool policy and BP3 role rules: ${systemVisible.slice(0, 1200)}`
-        );
-      }
-      if (
-        !/# Tool Calls/i.test(systemLayers[0]?.content || '') ||
-        /available-skills/i.test(systemLayers[0]?.content || '') ||
-        !/available-skills/i.test(systemLayers[1]?.content || '') ||
-        !/^# Agent$/im.test(systemLayers[2]?.content || '')
-      ) {
-        throw new Error(
-          `agent prompt layers must place tool policy in BP1, skills in BP2, and role in BP3: ${JSON.stringify(systemLayers)}`
-        );
-      }
-      const agentSkillTool = (agentSkillSession.tools || []).find((tool) => tool?.name === 'Skill');
-      const agentSkillToolNames = (agentSkillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
-      if (!agentSkillToolNames.includes('Skill')) {
-        throw new Error(
-          `read-write agent schema must expose Skill loader with the manifest: ${agentSkillToolNames.join(', ')}`
-        );
-      }
-      if (
-        agentSkillTool?.title !== SKILL_TOOL.title ||
-        agentSkillTool?.description !== SKILL_TOOL.description ||
-        JSON.stringify(agentSkillTool?.annotations) !== JSON.stringify(SKILL_TOOL.annotations) ||
-        JSON.stringify(agentSkillTool?.inputSchema) !== JSON.stringify(SKILL_TOOL.inputSchema)
-      ) {
-        throw new Error(
-          `agent Skill metadata must match the session Skill contract: ${JSON.stringify(agentSkillTool)}`
-        );
-      }
-    } finally {
-      closeSession(agentSkillSession.id, 'tool-contracts');
-    }
+    const loadedSkill = assertSkillLoaderResolution(skillManifestTmp);
+    assertSkillToolEnvelope(loadedSkill);
+    assertLeadSkillSurface(skillManifestTmp);
+    assertGptEditToolSurface(skillManifestTmp);
+    assertAgentSkillSurface(skillManifestTmp);
   } finally {
     invalidateSkillsCache();
     if (previousSkillDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
@@ -440,6 +463,73 @@ test('resume reapplies the unified schema for every permission form', async () =
   }
 });
 
+// One hidden agent: its fresh and resumed tool surface, plus the BP2/BP3
+// prompt layers that surface must ride with.
+async function assertHiddenAgentSchemaAndPrompt(agent, hiddenPreset, hiddenRuntimeSpec) {
+  const hidden = getHiddenAgent(agent);
+  const permission = resolveAgentSessionPermission(agent, hidden?.permission || null);
+  const schemaAllowedTools = resolveHiddenRoleSchemaAllowedTools(hidden);
+  const { session } = prepareAgentSession({
+    agent,
+    presetName: 'hidden-smoke',
+    preset: hiddenPreset,
+    runtimeSpec: hiddenRuntimeSpec,
+    permission,
+    cwd: root,
+    sourceType: 'hidden-role-smoke',
+    sourceName: agent,
+    schemaAllowedTools,
+  });
+  try {
+    const tools = sessionToolNames(session);
+    const resumed = await resumeSession(session.id, 'full');
+    const resumedTools = sessionToolNames(resumed);
+    // Order-insensitive: the session tool surface follows catalog order, while
+    // schemaAllowedTools declares an allow-set; only set equality is contractual.
+    const asSet = (list) => JSON.stringify(list.slice().sort());
+    if (Array.isArray(schemaAllowedTools) && schemaAllowedTools.length) {
+      // Declared specialists keep their exact allow-set, fresh and resumed.
+      if (asSet(tools) !== asSet(schemaAllowedTools) || asSet(resumedTools) !== asSet(schemaAllowedTools)) {
+        throw new Error(
+          `hidden agent ${agent} specialist schema mismatch: expected=${schemaAllowedTools.join(', ')} tools=${tools.join(', ')} resumed=${resumedTools.join(', ')}`
+        );
+      }
+    } else {
+      // Everyone else rides the unified Agent surface (permission stays
+      // call-time metadata under the unified-shard policy).
+      for (const name of UNIFIED_AGENT_BUILTINS) {
+        if (!tools.includes(name)) {
+          throw new Error(`hidden agent ${agent} must ride the unified schema (missing ${name}): ${tools.join(', ')}`);
+        }
+      }
+      if (tools.includes('load_tool') || tools.includes('agent')) {
+        throw new Error(`hidden agent ${agent} schema must omit deferred/owner-boundary tools: ${tools.join(', ')}`);
+      }
+      if (asSet(tools) !== asSet(resumedTools)) {
+        throw new Error(`hidden agent ${agent} resumed schema must match fresh schema: ${resumedTools.join(', ')}`);
+      }
+    }
+    const systemVisible = (session.messages || [])
+      .filter((m) => m?.role === 'system')
+      .map((m) => String(m.content || ''))
+      .join('\n');
+    // The unified surface freezes the Skill tool, so the compact manifest
+    // must ride alongside it — a loader without the manifest cannot be
+    // targeted.
+    if (tools.includes('Skill') && !/available-skills/i.test(systemVisible)) {
+      throw new Error(`hidden agent ${agent} carries Skill without its compact manifest`);
+    }
+    if (/effective-cwd|Override cwd|# task-brief/i.test(systemVisible)) {
+      throw new Error(`hidden agent ${agent} must not carry legacy cwd/task-brief injection`);
+    }
+    if (/(^|\n)# Environment\n/i.test(systemVisible)) {
+      throw new Error(`hidden agent ${agent} BP3 must not add an Environment heading`);
+    }
+  } finally {
+    closeSession(session.id, 'tool-contracts');
+  }
+}
+
 test('hidden agents share the unified schema unless a specialist allow-list is declared', async (t) => {
   // Hermetic skills root: a dev machine has installed skills while a CI
   // runner has none, and either ambient state would decide the Skill-manifest
@@ -481,69 +571,6 @@ test('hidden agents share the unified schema unless a specialist allow-list is d
   for (const entry of hiddenAgents) {
     const agent = String(entry?.agent || '').trim();
     if (!agent) continue;
-    const hidden = getHiddenAgent(agent);
-    const permission = resolveAgentSessionPermission(agent, hidden?.permission || null);
-    const schemaAllowedTools = resolveHiddenRoleSchemaAllowedTools(hidden);
-    const { session } = prepareAgentSession({
-      agent,
-      presetName: 'hidden-smoke',
-      preset: hiddenPreset,
-      runtimeSpec: hiddenRuntimeSpec,
-      permission,
-      cwd: root,
-      sourceType: 'hidden-role-smoke',
-      sourceName: agent,
-      schemaAllowedTools,
-    });
-    try {
-      const tools = sessionToolNames(session);
-      const resumed = await resumeSession(session.id, 'full');
-      const resumedTools = sessionToolNames(resumed);
-      // Order-insensitive: the session tool surface follows catalog order, while
-      // schemaAllowedTools declares an allow-set; only set equality is contractual.
-      const asSet = (list) => JSON.stringify(list.slice().sort());
-      if (Array.isArray(schemaAllowedTools) && schemaAllowedTools.length) {
-        // Declared specialists keep their exact allow-set, fresh and resumed.
-        if (asSet(tools) !== asSet(schemaAllowedTools) || asSet(resumedTools) !== asSet(schemaAllowedTools)) {
-          throw new Error(
-            `hidden agent ${agent} specialist schema mismatch: expected=${schemaAllowedTools.join(', ')} tools=${tools.join(', ')} resumed=${resumedTools.join(', ')}`
-          );
-        }
-      } else {
-        // Everyone else rides the unified Agent surface (permission stays
-        // call-time metadata under the unified-shard policy).
-        for (const name of UNIFIED_AGENT_BUILTINS) {
-          if (!tools.includes(name)) {
-            throw new Error(
-              `hidden agent ${agent} must ride the unified schema (missing ${name}): ${tools.join(', ')}`
-            );
-          }
-        }
-        if (tools.includes('load_tool') || tools.includes('agent')) {
-          throw new Error(`hidden agent ${agent} schema must omit deferred/owner-boundary tools: ${tools.join(', ')}`);
-        }
-        if (asSet(tools) !== asSet(resumedTools)) {
-          throw new Error(`hidden agent ${agent} resumed schema must match fresh schema: ${resumedTools.join(', ')}`);
-        }
-      }
-      const systemVisible = (session.messages || [])
-        .filter((m) => m?.role === 'system')
-        .map((m) => String(m.content || ''))
-        .join('\n');
-      // The unified surface freezes the Skill tool, so the compact manifest
-      // must ride alongside it — a loader without the manifest cannot be
-      // targeted.
-      if (tools.includes('Skill') && !/available-skills/i.test(systemVisible)) {
-        throw new Error(`hidden agent ${agent} carries Skill without its compact manifest`);
-      }
-      if (/effective-cwd|Override cwd|# task-brief/i.test(systemVisible)) {
-        throw new Error(`hidden agent ${agent} must not carry legacy cwd/task-brief injection`);
-      }
-      if (/(^|\n)# Environment\n/i.test(systemVisible)) {
-        throw new Error(`hidden agent ${agent} BP3 must not add an Environment heading`);
-      }
-    } finally {
-      closeSession(session.id, 'tool-contracts');
-    }
+    await assertHiddenAgentSchemaAndPrompt(agent, hiddenPreset, hiddenRuntimeSpec);
   }
 });

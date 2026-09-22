@@ -152,27 +152,9 @@ function fmtTs(ms) {
   }
 }
 
-function main() {
-  const { maxAgeDays, minClosedAgeDays, now } = parseArgs(process.argv.slice(2));
-  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
-  const minClosedAgeMs = minClosedAgeDays * 24 * 60 * 60 * 1000;
-
-  const dir = join(getPluginData(), 'sessions');
-  if (!existsSync(dir)) {
-    process.stdout.write(`[session-sweep] no sessions dir at ${dir}\n`);
-    return;
-  }
-
-  // Authoritative lifecycle rows (read-only). rebuildIfMissing:false so this
-  // report never triggers a summary-index write.
-  const rows = listStoredSessionSummaries({ rebuildIfMissing: false });
-  const rowById = new Map();
-  for (const r of rows) if (r?.id) rowById.set(r.id, r);
-
-  // Disk scan for sizes + mtime fallback. `.hb` sidecar bytes are attributed
-  // to their session so reclaimable bytes reflect the full on-disk footprint.
-  const files = readdirSync(dir);
-  const jsonFiles = files.filter((f) => f.endsWith('.json'));
+// `.hb` sidecar bytes are attributed to their session so reclaimable bytes
+// reflect the full on-disk footprint of a session.
+function collectHbSidecarSizes(dir, files) {
   const hbSizeById = new Map();
   for (const f of files) {
     if (!f.endsWith('.hb')) continue;
@@ -183,7 +165,42 @@ function main() {
       /* ignore */
     }
   }
+  return hbSizeById;
+}
 
+// Authoritative per-file lifecycle via cheap top-level scan; the summary
+// index is stale here (most on-disk files are unindexed), so the file
+// itself — not the index — decides closed/age. Fall back to the index
+// row, then to file mtime, only when the scan can't resolve a field.
+function classifySessionFile({ full, mtimeMs, row, now, maxAgeMs, minClosedAgeMs }) {
+  let scan = null;
+  try {
+    scan = scanTopLevelScalars(readFileSync(full, 'utf-8'));
+  } catch {
+    scan = null;
+  }
+  const closedScan = scan && (scan.closed === true || scan.status === 'closed');
+  const closedRow = row && (row.closed === true || row.status === 'closed');
+  const closed = scan ? !!closedScan : !!closedRow;
+  let updatedAt = scan && Number(scan.updatedAt) > 0 ? Number(scan.updatedAt) : 0;
+  if (!updatedAt && row && Number(row.updatedAt) > 0) updatedAt = Number(row.updatedAt);
+  if (!updatedAt) updatedAt = mtimeMs;
+  const ageMs = now - updatedAt;
+  // Min-closed-age gate: a closed session only qualifies once its close
+  // timestamp (closedAt when present, else updatedAt — markSessionClosed
+  // sets updatedAt=Date.now() at tombstone time) is older than the gate.
+  // Recently-closed sessions may still be resumed, so keep them.
+  const closedAt = scan && Number(scan.closedAt) > 0 ? Number(scan.closedAt) : updatedAt;
+  const closedAge = now - closedAt;
+  const closedQualifies =
+    closed && (minClosedAgeMs <= 0 || (Number.isFinite(closedAt) && closedAt > 0 && closedAge > minClosedAgeMs));
+  const ageOnly = !closed && maxAgeMs > 0 && Number.isFinite(updatedAt) && updatedAt > 0 && ageMs > maxAgeMs;
+  return { scanned: !!scan, closed, updatedAt, closedQualifies, ageOnly };
+}
+
+// Disk scan for sizes + mtime fallback, then the retention verdict per file
+// rolled into the totals the report prints.
+function collectRetention({ dir, jsonFiles, hbSizeById, rowById, now, maxAgeMs, minClosedAgeMs }) {
   let totalFiles = 0;
   let totalBytes = 0;
   const candidates = []; // { id, reason, updatedAt, bytes, inIndex }
@@ -216,44 +233,19 @@ function main() {
     totalBytes += bytes;
 
     const row = rowById.get(id) || null;
-    // Authoritative per-file lifecycle via cheap top-level scan; the summary
-    // index is stale here (most on-disk files are unindexed), so the file
-    // itself — not the index — decides closed/age. Fall back to the index
-    // row, then to file mtime, only when the scan can't resolve a field.
-    let scan = null;
-    try {
-      scan = scanTopLevelScalars(readFileSync(full, 'utf-8'));
-    } catch {
-      scan = null;
-    }
-    if (!scan) scanFailFiles += 1;
-    const closedScan = scan && (scan.closed === true || scan.status === 'closed');
-    const closedRow = row && (row.closed === true || row.status === 'closed');
-    const closed = scan ? !!closedScan : !!closedRow;
-    let updatedAt = scan && Number(scan.updatedAt) > 0 ? Number(scan.updatedAt) : 0;
-    if (!updatedAt && row && Number(row.updatedAt) > 0) updatedAt = Number(row.updatedAt);
-    if (!updatedAt) updatedAt = mtimeMs;
-    const ageMs = now - updatedAt;
-    // Min-closed-age gate: a closed session only qualifies once its close
-    // timestamp (closedAt when present, else updatedAt — markSessionClosed
-    // sets updatedAt=Date.now() at tombstone time) is older than the gate.
-    // Recently-closed sessions may still be resumed, so keep them.
-    const closedAt = scan && Number(scan.closedAt) > 0 ? Number(scan.closedAt) : updatedAt;
-    const closedAge = now - closedAt;
-    const closedQualifies =
-      closed && (minClosedAgeMs <= 0 || (Number.isFinite(closedAt) && closedAt > 0 && closedAge > minClosedAgeMs));
-    const ageOnly = !closed && maxAgeMs > 0 && Number.isFinite(updatedAt) && updatedAt > 0 && ageMs > maxAgeMs;
+    const verdict = classifySessionFile({ full, mtimeMs, row, now, maxAgeMs, minClosedAgeMs });
+    if (!verdict.scanned) scanFailFiles += 1;
 
-    if (closed && !closedQualifies) {
+    if (verdict.closed && !verdict.closedQualifies) {
       closedButFreshCount += 1;
       closedButFreshBytes += bytes;
     }
-    if (!closedQualifies && !ageOnly) continue; // keep
+    if (!verdict.closedQualifies && !verdict.ageOnly) continue; // keep
 
-    const reason = closedQualifies ? 'closed' : 'age';
-    candidates.push({ id, reason, updatedAt, bytes, inIndex: !!row });
+    const reason = verdict.closedQualifies ? 'closed' : 'age';
+    candidates.push({ id, reason, updatedAt: verdict.updatedAt, bytes, inIndex: !!row });
     reclaimBytes += bytes;
-    if (closedQualifies) {
+    if (verdict.closedQualifies) {
       closedCount += 1;
       closedBytes += bytes;
     } else {
@@ -263,6 +255,37 @@ function main() {
   }
 
   candidates.sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+  return {
+    totalFiles,
+    totalBytes,
+    candidates,
+    closedCount,
+    ageOnlyCount,
+    closedBytes,
+    ageOnlyBytes,
+    reclaimBytes,
+    scanFailFiles,
+    closedButFreshCount,
+    closedButFreshBytes,
+    fileIds,
+  };
+}
+
+function renderReport({ dir, rows, now, maxAgeDays, minClosedAgeDays, retention }) {
+  const {
+    totalFiles,
+    totalBytes,
+    candidates,
+    closedCount,
+    ageOnlyCount,
+    closedBytes,
+    ageOnlyBytes,
+    reclaimBytes,
+    scanFailFiles,
+    closedButFreshCount,
+    closedButFreshBytes,
+    fileIds,
+  } = retention;
   const oldest = candidates[0] || null;
   const newest = candidates[candidates.length - 1] || null;
   const dropRows = candidates.filter((c) => c.inIndex).length;
@@ -303,7 +326,31 @@ function main() {
   L.push(`index rows after    : ${rebuiltIndexRows}  (= surviving files; rebuild reindexes all remaining)`);
   L.push('');
   L.push('DRY-RUN ONLY — this tool performed no unlink and no disk writes.');
-  process.stdout.write(`${L.join('\n')}\n`);
+  return `${L.join('\n')}\n`;
+}
+
+function main() {
+  const { maxAgeDays, minClosedAgeDays, now } = parseArgs(process.argv.slice(2));
+  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+  const minClosedAgeMs = minClosedAgeDays * 24 * 60 * 60 * 1000;
+
+  const dir = join(getPluginData(), 'sessions');
+  if (!existsSync(dir)) {
+    process.stdout.write(`[session-sweep] no sessions dir at ${dir}\n`);
+    return;
+  }
+
+  // Authoritative lifecycle rows (read-only). rebuildIfMissing:false so this
+  // report never triggers a summary-index write.
+  const rows = listStoredSessionSummaries({ rebuildIfMissing: false });
+  const rowById = new Map();
+  for (const r of rows) if (r?.id) rowById.set(r.id, r);
+
+  const files = readdirSync(dir);
+  const jsonFiles = files.filter((f) => f.endsWith('.json'));
+  const hbSizeById = collectHbSidecarSizes(dir, files);
+  const retention = collectRetention({ dir, jsonFiles, hbSizeById, rowById, now, maxAgeMs, minClosedAgeMs });
+  process.stdout.write(renderReport({ dir, rows, now, maxAgeDays, minClosedAgeDays, retention }));
 }
 
 main();

@@ -45,114 +45,146 @@ test('read windows and directory rejection', async () => {
   }
 });
 
+// Two identical PNGs, a corrupt PNG, a text file and a binary file — the
+// operands every batch assertion below reads.
+function writeImageBatchFixture(imageBatchTmp) {
+  const paths = {
+    firstImage: join(imageBatchTmp, 'first.png'),
+    secondImage: join(imageBatchTmp, 'second.png'),
+    corruptImage: join(imageBatchTmp, 'corrupt.png'),
+    textFile: join(imageBatchTmp, 'note.txt'),
+    binaryFile: join(imageBatchTmp, 'sample.bin'),
+    missingImage: join(imageBatchTmp, 'missing.png'),
+  };
+  const onePixelPng = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAGklEQVR42u3BAQEAAACCIP+vbkhAAQAAAO8GECAAAcm1w7EAAAAASUVORK5CYII=',
+    'base64'
+  );
+  writeFileSync(paths.firstImage, onePixelPng);
+  writeFileSync(paths.secondImage, onePixelPng);
+  writeFileSync(
+    paths.corruptImage,
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8Y5sAAAAASUVORK5CYII=',
+      'base64'
+    )
+  );
+  writeFileSync(paths.textFile, 'batch text body\n', 'utf8');
+  writeFileSync(paths.binaryFile, Buffer.from([0x41, 0x00, 0x42, 0x43]));
+  return paths;
+}
+
+async function assertBinaryHexPreview(binaryFile) {
+  const binaryRead = await executeBuiltinTool('read', { path: binaryFile }, root);
+  if (!/binary, 4 bytes/.test(String(binaryRead)) || !/41 00 42 43/.test(String(binaryRead))) {
+    throw new Error(`binary read must retain async-probe hex preview contract: ${binaryRead}`);
+  }
+}
+
+async function assertTwoImageBatchVisualBlocks(firstImage, secondImage) {
+  const twoImageBatch = await executeBuiltinTool(
+    'read',
+    {
+      path: [firstImage, secondImage],
+    },
+    root
+  );
+  const twoImageParts = Array.isArray(twoImageBatch?.content) ? twoImageBatch.content : [];
+  const rawImageCount = twoImageParts.filter((part) => part?.type === 'image').length;
+  const renderedText = twoImageParts
+    .filter((part) => part?.type === 'text')
+    .map((part) => part.text)
+    .join('\n');
+  if (!contentHasImage(twoImageBatch) || rawImageCount !== 2 || /read_hex|89504e47/i.test(renderedText)) {
+    throw new Error(
+      `read path[] must retain two visual image blocks instead of binary hex: ${JSON.stringify(twoImageBatch)}`
+    );
+  }
+  return twoImageBatch;
+}
+
+async function assertCorruptImageRead(corruptImage) {
+  const corruptImageRead = await executeBuiltinTool('read', { path: corruptImage }, root);
+  const corruptParts = Array.isArray(corruptImageRead?.content) ? corruptImageRead.content : [];
+  if (
+    corruptImageRead?.isError !== true ||
+    corruptParts.some((part) => part?.type === 'image') ||
+    !/invalid or corrupt/.test(corruptParts.map((part) => part?.text || '').join('\n'))
+  ) {
+    throw new Error(`corrupt image must fail locally without an image payload: ${JSON.stringify(corruptImageRead)}`);
+  }
+}
+
+function assertProviderImageNormalizers(twoImageBatch) {
+  const providerImageCounts = {
+    anthropic: normalizeContentForAnthropic(twoImageBatch).filter((part) => part?.type === 'image').length,
+    openaiChat: normalizeContentForOpenAIChat(twoImageBatch).filter((part) => part?.type === 'image_url').length,
+    openaiResponses: normalizeContentForOpenAIResponses(twoImageBatch).filter((part) => part?.type === 'input_image')
+      .length,
+    gemini: normalizeContentForGeminiParts(twoImageBatch).filter((part) =>
+      part?.inlineData?.mimeType?.startsWith('image/')
+    ).length,
+  };
+  if (Object.values(providerImageCounts).some((count) => count !== 2)) {
+    throw new Error(
+      `read path[] image blocks must survive every provider normalizer: ${JSON.stringify(providerImageCounts)}`
+    );
+  }
+}
+
+async function assertMixedBatchOutcomes(firstImage, textFile, missingImage) {
+  const mixedBatch = await executeBuiltinTool(
+    'read',
+    {
+      path: [firstImage, textFile, missingImage, firstImage],
+    },
+    root
+  );
+  const mixedParts = Array.isArray(mixedBatch?.content) ? mixedBatch.content : [];
+  const mixedText = mixedParts
+    .filter((part) => part?.type === 'text')
+    .map((part) => part.text)
+    .join('\n');
+  if (
+    mixedParts.filter((part) => part?.type === 'image').length !== 1 ||
+    !/batch text body/.test(mixedText) ||
+    // A conclusively missing entry is tagged `[absent]`, not `[error]`:
+    // absence is the read's answer (absence-absorption.test.mjs), and the
+    // entry header must agree with its `[path absent]` body.
+    !/missing\.png \[absent\]/.test(mixedText) ||
+    !/\[= entry #1, identical result omitted\]/.test(mixedText)
+  ) {
+    throw new Error(
+      `mixed read batch must preserve text, per-entry errors, and rich duplicate elision: ${JSON.stringify(mixedBatch)}`
+    );
+  }
+}
+
+async function assertRejectPartialBatch(firstImage, missingImage) {
+  const rejectedMixedBatch = await executeBuiltinTool(
+    'read',
+    {
+      path: [firstImage, missingImage],
+      reject_partial: true,
+    },
+    root
+  );
+  if (!/^Error: batch read rejected \(1 of 2 failed; reject_partial:true\)/.test(String(rejectedMixedBatch))) {
+    throw new Error(`rich read batch reject_partial contract failed: ${rejectedMixedBatch}`);
+  }
+}
+
 test('read image batches keep visual blocks and per-entry outcomes', async () => {
   const imageBatchTmp = mkdtempSync(join(tmpdir(), 'mixdog-read-image-batch-'));
   try {
-    const firstImage = join(imageBatchTmp, 'first.png');
-    const secondImage = join(imageBatchTmp, 'second.png');
-    const corruptImage = join(imageBatchTmp, 'corrupt.png');
-    const textFile = join(imageBatchTmp, 'note.txt');
-    const binaryFile = join(imageBatchTmp, 'sample.bin');
-    const missingImage = join(imageBatchTmp, 'missing.png');
-    const onePixelPng = Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAGklEQVR42u3BAQEAAACCIP+vbkhAAQAAAO8GECAAAcm1w7EAAAAASUVORK5CYII=',
-      'base64'
-    );
-    writeFileSync(firstImage, onePixelPng);
-    writeFileSync(secondImage, onePixelPng);
-    writeFileSync(
-      corruptImage,
-      Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl8Y5sAAAAASUVORK5CYII=',
-        'base64'
-      )
-    );
-    writeFileSync(textFile, 'batch text body\n', 'utf8');
-    writeFileSync(binaryFile, Buffer.from([0x41, 0x00, 0x42, 0x43]));
-
-    const binaryRead = await executeBuiltinTool('read', { path: binaryFile }, root);
-    if (!/binary, 4 bytes/.test(String(binaryRead)) || !/41 00 42 43/.test(String(binaryRead))) {
-      throw new Error(`binary read must retain async-probe hex preview contract: ${binaryRead}`);
-    }
-
-    const twoImageBatch = await executeBuiltinTool(
-      'read',
-      {
-        path: [firstImage, secondImage],
-      },
-      root
-    );
-    const twoImageParts = Array.isArray(twoImageBatch?.content) ? twoImageBatch.content : [];
-    const rawImageCount = twoImageParts.filter((part) => part?.type === 'image').length;
-    const renderedText = twoImageParts
-      .filter((part) => part?.type === 'text')
-      .map((part) => part.text)
-      .join('\n');
-    if (!contentHasImage(twoImageBatch) || rawImageCount !== 2 || /read_hex|89504e47/i.test(renderedText)) {
-      throw new Error(
-        `read path[] must retain two visual image blocks instead of binary hex: ${JSON.stringify(twoImageBatch)}`
-      );
-    }
-    const corruptImageRead = await executeBuiltinTool('read', { path: corruptImage }, root);
-    const corruptParts = Array.isArray(corruptImageRead?.content) ? corruptImageRead.content : [];
-    if (
-      corruptImageRead?.isError !== true ||
-      corruptParts.some((part) => part?.type === 'image') ||
-      !/invalid or corrupt/.test(corruptParts.map((part) => part?.text || '').join('\n'))
-    ) {
-      throw new Error(`corrupt image must fail locally without an image payload: ${JSON.stringify(corruptImageRead)}`);
-    }
-    const providerImageCounts = {
-      anthropic: normalizeContentForAnthropic(twoImageBatch).filter((part) => part?.type === 'image').length,
-      openaiChat: normalizeContentForOpenAIChat(twoImageBatch).filter((part) => part?.type === 'image_url').length,
-      openaiResponses: normalizeContentForOpenAIResponses(twoImageBatch).filter((part) => part?.type === 'input_image')
-        .length,
-      gemini: normalizeContentForGeminiParts(twoImageBatch).filter((part) =>
-        part?.inlineData?.mimeType?.startsWith('image/')
-      ).length,
-    };
-    if (Object.values(providerImageCounts).some((count) => count !== 2)) {
-      throw new Error(
-        `read path[] image blocks must survive every provider normalizer: ${JSON.stringify(providerImageCounts)}`
-      );
-    }
-
-    const mixedBatch = await executeBuiltinTool(
-      'read',
-      {
-        path: [firstImage, textFile, missingImage, firstImage],
-      },
-      root
-    );
-    const mixedParts = Array.isArray(mixedBatch?.content) ? mixedBatch.content : [];
-    const mixedText = mixedParts
-      .filter((part) => part?.type === 'text')
-      .map((part) => part.text)
-      .join('\n');
-    if (
-      mixedParts.filter((part) => part?.type === 'image').length !== 1 ||
-      !/batch text body/.test(mixedText) ||
-      // A conclusively missing entry is tagged `[absent]`, not `[error]`:
-      // absence is the read's answer (absence-absorption.test.mjs), and the
-      // entry header must agree with its `[path absent]` body.
-      !/missing\.png \[absent\]/.test(mixedText) ||
-      !/\[= entry #1, identical result omitted\]/.test(mixedText)
-    ) {
-      throw new Error(
-        `mixed read batch must preserve text, per-entry errors, and rich duplicate elision: ${JSON.stringify(mixedBatch)}`
-      );
-    }
-    const rejectedMixedBatch = await executeBuiltinTool(
-      'read',
-      {
-        path: [firstImage, missingImage],
-        reject_partial: true,
-      },
-      root
-    );
-    if (!/^Error: batch read rejected \(1 of 2 failed; reject_partial:true\)/.test(String(rejectedMixedBatch))) {
-      throw new Error(`rich read batch reject_partial contract failed: ${rejectedMixedBatch}`);
-    }
+    const { firstImage, secondImage, corruptImage, textFile, binaryFile, missingImage } =
+      writeImageBatchFixture(imageBatchTmp);
+    await assertBinaryHexPreview(binaryFile);
+    const twoImageBatch = await assertTwoImageBatchVisualBlocks(firstImage, secondImage);
+    await assertCorruptImageRead(corruptImage);
+    assertProviderImageNormalizers(twoImageBatch);
+    await assertMixedBatchOutcomes(firstImage, textFile, missingImage);
+    await assertRejectPartialBatch(firstImage, missingImage);
   } finally {
     rmSync(imageBatchTmp, { recursive: true, force: true });
   }
