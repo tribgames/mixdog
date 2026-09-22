@@ -43,10 +43,13 @@ export function createTranscriptIngest({
     const run = prev
       .catch(() => {})
       .then(() => ingestTranscriptTail({ db: getDb(), transcriptPath, cwd, offsets, resolveProjectId, log }));
-    tails.set(
-      key,
-      run.catch(() => {})
-    );
+    const settled = run.catch(() => {});
+    tails.set(key, settled);
+    // Drop the entry once this file's queue drains, so the map cannot grow
+    // without bound across transcripts.
+    settled.then(() => {
+      if (tails.get(key) === settled) tails.delete(key);
+    });
     return run;
   }
 

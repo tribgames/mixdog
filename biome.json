@@ -29,6 +29,8 @@
       "!**/.bench*",
       "!**/node_modules/**",
       "!**/*.min.js",
+      "!apps/desktop/src/renderer/public/boot.js",
+      "!apps/desktop/src/renderer/public/ui-language.js",
       "!scripts/generate-voice-runtime-manifest.mjs",
       "!scripts/build-voice-runtime-windows.ps1",
       "!scripts/build-voice-runtime-unix.sh",
