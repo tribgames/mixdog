@@ -1,6 +1,7 @@
 // Admission and dispatch: request classes, the bounded queues with an
 // interactive reserve, AIMD bulk throttling and telemetry.
 use super::*;
+use std::sync::MutexGuard;
 
 /// Scopes a request id to the client that issued it. Cancellation and
 /// completion both look up through this key, so two clients using the same id
@@ -83,6 +84,22 @@ impl SchedulerState {
             closed: false,
         }
     }
+
+    /// Queued searches across the three classes: the depth admission,
+    /// cancellation and telemetry all measure.
+    pub(super) fn queue_depth(&self) -> usize {
+        self.interactive
+            .len()
+            .saturating_add(self.fuzzy.len())
+            .saturating_add(self.bulk.len())
+    }
+
+    /// Searches currently running across the three classes.
+    pub(super) fn inflight(&self) -> usize {
+        self.interactive_inflight
+            .saturating_add(self.fuzzy_inflight)
+            .saturating_add(self.bulk_inflight)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -103,15 +120,8 @@ pub(super) fn scheduler_telemetry(
     state: &SchedulerState,
 ) -> SchedulerTelemetry {
     SchedulerTelemetry {
-        queue_depth: state
-            .interactive
-            .len()
-            .saturating_add(state.fuzzy.len())
-            .saturating_add(state.bulk.len()),
-        inflight: state
-            .interactive_inflight
-            .saturating_add(state.fuzzy_inflight)
-            .saturating_add(state.bulk_inflight),
+        queue_depth: state.queue_depth(),
+        inflight: state.inflight(),
         bulk_window: state.bulk_window,
         bulk_limit: inner.bulk_limit,
         queue_capacity: inner.queue_capacity,
@@ -151,6 +161,26 @@ pub(super) struct SchedulerInner {
     pub(super) priority_queue_reserve: usize,
     pub(super) file_lists: Arc<FileListStore>,
     pub(super) cancellations: Arc<Mutex<HashMap<RequestKey, Arc<AtomicBool>>>>,
+}
+
+impl SchedulerInner {
+    /// A poisoned scheduler lock is recovered, never propagated: the queues
+    /// have to keep admitting and dispatching work after a panic elsewhere.
+    pub(super) fn lock_state(&self) -> MutexGuard<'_, SchedulerState> {
+        lock_recover(&self.state)
+    }
+}
+
+/// Drop one request's cancellation flag.
+///
+/// A poisoned map is recovered like every other cache in the runtime: skipping
+/// it instead would leak this entry and, worse, make every later lookup fail,
+/// which silently disables cancellation for the rest of the process.
+pub(super) fn forget_cancellation(
+    cancellations: &Mutex<HashMap<RequestKey, Arc<AtomicBool>>>,
+    key: RequestKey,
+) {
+    lock_recover(cancellations).remove(&key);
 }
 
 pub(super) struct SearchScheduler {
@@ -197,16 +227,12 @@ impl SearchScheduler {
     }
 
     pub(super) fn enqueue(&self, search: ScheduledSearch) -> Result<(), ScheduledSearch> {
-        let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.inner.lock_state();
         if state.closed {
             return Err(search);
         }
         let class = search_class(&search.req);
-        let queue_depth = state
-            .interactive
-            .len()
-            .saturating_add(state.fuzzy.len())
-            .saturating_add(state.bulk.len());
+        let queue_depth = state.queue_depth();
         let admission_capacity = queue_admission_capacity(
             class,
             self.inner.queue_capacity,
@@ -226,15 +252,15 @@ impl SearchScheduler {
     }
 
     pub(super) fn cancel_queued(&self, client_id: u64, id: u64) -> bool {
-        let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
-        let before = state.interactive.len() + state.fuzzy.len() + state.bulk.len();
+        let mut state = self.inner.lock_state();
+        let before = state.queue_depth();
         // Ids repeat across clients, so a queued search only matches when BOTH
         // the issuing client and the id line up.
         let mine = |search: &ScheduledSearch| search.client_id == client_id && search.req.id == id;
         state.interactive.retain(|search| !mine(search));
         state.fuzzy.retain(|search| !mine(search));
         state.bulk.retain(|search| !mine(search));
-        let removed = before != state.interactive.len() + state.fuzzy.len() + state.bulk.len();
+        let removed = before != state.queue_depth();
         if removed {
             self.inner.changed.notify_all();
         }
@@ -242,13 +268,13 @@ impl SearchScheduler {
     }
 
     pub(super) fn telemetry(&self) -> SchedulerTelemetry {
-        let state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        let state = self.inner.lock_state();
         scheduler_telemetry(&self.inner, &state)
     }
 
     pub(super) fn shutdown(mut self) {
         {
-            let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = self.inner.lock_state();
             state.closed = true;
             self.inner.changed.notify_all();
         }
@@ -327,13 +353,10 @@ pub(super) fn observe_scheduler_latency(
 pub(super) fn dispatch_searches(inner: Arc<SchedulerInner>) {
     loop {
         let ready = {
-            let mut state = inner.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = inner.lock_state();
             loop {
                 let mut ready = Vec::new();
-                let mut total_inflight = state
-                    .interactive_inflight
-                    .saturating_add(state.fuzzy_inflight)
-                    .saturating_add(state.bulk_inflight);
+                let mut total_inflight = state.inflight();
                 let interactive_ceiling = interactive_dispatch_ceiling(
                     inner.total_limit,
                     inner.interactive_reserve,
@@ -445,7 +468,7 @@ pub(super) fn execute_scheduled_search(
     let handler_elapsed = handler_started.elapsed();
     let handler_ms = handler_elapsed.as_millis();
     let telemetry = {
-        let mut state = inner.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = inner.lock_state();
         match class {
             SearchClass::Interactive => {
                 state.interactive_inflight = state.interactive_inflight.saturating_sub(1);
@@ -475,14 +498,10 @@ pub(super) fn execute_scheduled_search(
         );
         value.insert("scheduler".to_string(), telemetry_json(telemetry));
     }
-    if let Ok(mut map) = inner.cancellations.lock() {
-        map.remove(&(client_id, id));
-    }
+    forget_cancellation(&inner.cancellations, (client_id, id));
     if cancelled.load(Ordering::Relaxed) {
         sink.write_cancelled(id);
-    } else {
-        if let Some(response) = response {
-            sink.write(&response);
-        }
+    } else if let Some(response) = response {
+        sink.write(&response);
     }
 }

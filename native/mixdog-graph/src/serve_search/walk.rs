@@ -7,9 +7,7 @@ pub(super) fn publish_live_files(live: &LiveWalk, files: &[PathBuf]) {
     if files.is_empty() {
         return;
     }
-    if let Ok(mut guard) = live.files.lock() {
-        guard.extend(files.iter().map(|path| PathBuf::from(wire_path(path))));
-    }
+    lock_recover(&live.files).extend(files.iter().map(|path| PathBuf::from(wire_path(path))));
     live.files_cond.notify_all();
 }
 
@@ -106,10 +104,7 @@ impl DirectoryFailure {
 pub(super) fn record_directory_error(live: &LiveWalk, error: &ignore::Error) {
     record_walk_error(live, error);
     if let Some(failure) = DirectoryFailure::from_walk_error(error) {
-        let mut failures = live
-            .directory_failures
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut failures = lock_recover(&live.directory_failures);
         if failures.len() < 1024 {
             failures.push(failure);
         }
@@ -120,10 +115,7 @@ pub(super) fn record_directory_error(live: &LiveWalk, error: &ignore::Error) {
 
 pub(super) fn record_walk_error(live: &LiveWalk, detail: impl ToString) {
     live.walk_errors.fetch_add(1, Ordering::Relaxed);
-    let mut details = live
-        .walk_error_details
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut details = lock_recover(&live.walk_error_details);
     if details.len() >= WALK_ERROR_DETAIL_MAX {
         return;
     }
@@ -137,10 +129,7 @@ pub(super) fn record_walk_error(live: &LiveWalk, detail: impl ToString) {
 }
 
 pub(super) fn live_walk_error_details(live: &LiveWalk) -> Vec<String> {
-    live.walk_error_details
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+    lock_recover(&live.walk_error_details).clone()
 }
 
 pub(super) fn append_walk_error_details(target: &mut Vec<String>, details: Vec<String>) {
@@ -187,13 +176,13 @@ impl<'a> WorkerWalkBatch<'a> {
         if self.files.is_empty() {
             return;
         }
-        if let Ok(mut published) = self.live.files.lock() {
-            published.append(&mut self.files);
-            self.last_flush = Some(Instant::now());
-            self.live.files_cond.notify_all();
-        } else {
-            self.files.clear();
-        }
+        // Recovered, never skipped: dropping this batch would answer with an
+        // inventory that is short by exactly these paths and still claims to
+        // be complete. The paths themselves are unaffected by whatever panic
+        // poisoned the collector, so they are published.
+        lock_recover(&self.live.files).append(&mut self.files);
+        self.last_flush = Some(Instant::now());
+        self.live.files_cond.notify_all();
     }
 }
 
@@ -348,7 +337,7 @@ pub(super) fn reuse_failed_inventory(
         return None;
     }
     let (files, failures) = {
-        let ready = store.ready.lock().unwrap_or_else(|e| e.into_inner());
+        let ready = lock_recover(&store.ready);
         let entry = ready.get(key).filter(|entry| {
             entry.generation == live.generation && !entry.directory_failures.is_empty()
         })?;
@@ -367,7 +356,7 @@ pub(super) fn reuse_failed_inventory(
             if std::env::var_os("MIXDOG_SEARCH_CACHE_TRACE").is_some() {
                 eprintln!("inventory-recheck-changed {}", failure.path.display());
             }
-            let mut ready = store.ready.lock().unwrap_or_else(|e| e.into_inner());
+            let mut ready = lock_recover(&store.ready);
             if ready
                 .get(key)
                 .is_some_and(|entry| Arc::ptr_eq(&entry.files, &files))
@@ -387,11 +376,62 @@ pub(super) fn reuse_failed_inventory(
     for failure in failures.iter() {
         record_walk_error(live, &failure.detail);
     }
-    *live
-        .directory_failures
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = (*failures).clone();
+    *lock_recover(&live.directory_failures) = (*failures).clone();
     Some(files)
+}
+
+/// Publish an inventory that is already complete: the shortcut paths know the
+/// whole answer up front, so they announce enumeration as done with it.
+fn publish_complete_inventory(live: &LiveWalk, files: &[PathBuf]) {
+    publish_live_files(live, files);
+    live.enumeration_done.store(true, Ordering::Release);
+    live.files_cond.notify_all();
+}
+
+/// One request's walk options as a configured walker: ignore rules, worker
+/// count, depth bound and the directories this operand prunes.
+fn configure_inventory_walk(operand: &Path, parsed: &ParsedArgs) -> WalkBuilder {
+    let mut walk = WalkBuilder::new(operand);
+    walk.hidden(!parsed.hidden)
+        .threads(inventory_walk_threads(operand));
+    if parsed.no_ignore {
+        walk.ignore(false)
+            .git_ignore(false)
+            .git_global(false)
+            .git_exclude(false);
+    } else if parsed.no_require_git {
+        walk.require_git(false);
+    }
+    if let Some(max_depth) = parsed.max_depth {
+        walk.max_depth(Some(max_depth));
+    }
+    // Prune excluded directories while walking. Without this the
+    // inventory descends into .git/node_modules on every request and
+    // only discards them later, at scan time.
+    let prune = prune_globs(operand, parsed);
+    if let Some(overrides) = prune_overrides(operand, &prune, &parsed.iglobs) {
+        walk.overrides(overrides);
+    }
+    walk
+}
+
+/// File/dir/symlink flags for one walked entry, stat-ing the path when the
+/// walker carried no file type. A failed stat is a walk error and the entry is
+/// skipped, never guessed at.
+fn walk_entry_kinds(live: &LiveWalk, entry: &ignore::DirEntry) -> Option<(bool, bool, bool)> {
+    if let Some(kind) = entry.file_type() {
+        return Some((kind.is_file(), kind.is_dir(), kind.is_symlink()));
+    }
+    match std::fs::symlink_metadata(entry.path()) {
+        Ok(metadata) => {
+            let kind = metadata.file_type();
+            Some((kind.is_file(), kind.is_dir(), kind.is_symlink()))
+        }
+        Err(error) => {
+            record_walk_error(live, error);
+            None
+        }
+    }
 }
 
 pub(super) fn start_live_walk(
@@ -404,9 +444,7 @@ pub(super) fn start_live_walk(
     inventory_pool().spawn(move || {
         let result = contain_search_panic("native inventory worker", || {
             if let Some(files) = reuse_failed_inventory(&store, &key, &live) {
-                publish_live_files(&live, &files);
-                live.enumeration_done.store(true, Ordering::Release);
-                live.files_cond.notify_all();
+                publish_complete_inventory(&live, &files);
                 return Ok(files);
             }
             if live.cancelled.load(Ordering::Acquire) {
@@ -414,35 +452,13 @@ pub(super) fn start_live_walk(
             }
             if operand.is_file() {
                 let files = vec![operand];
-                publish_live_files(&live, &files);
-                live.enumeration_done.store(true, Ordering::Release);
-                live.files_cond.notify_all();
+                publish_complete_inventory(&live, &files);
                 return Ok(Arc::new(files));
             }
             if !operand.is_dir() {
                 return Err(format!("no such path {}", operand.display()));
             }
-            let mut walk = WalkBuilder::new(&operand);
-            walk.hidden(!parsed.hidden)
-                .threads(inventory_walk_threads(&operand));
-            if parsed.no_ignore {
-                walk.ignore(false)
-                    .git_ignore(false)
-                    .git_global(false)
-                    .git_exclude(false);
-            } else if parsed.no_require_git {
-                walk.require_git(false);
-            }
-            if let Some(max_depth) = parsed.max_depth {
-                walk.max_depth(Some(max_depth));
-            }
-            // Prune excluded directories while walking. Without this the
-            // inventory descends into .git/node_modules on every request and
-            // only discards them later, at scan time.
-            let prune = prune_globs(&operand, &parsed);
-            if let Some(overrides) = prune_overrides(&operand, &prune, &parsed.iglobs) {
-                walk.overrides(overrides);
-            }
+            let walk = configure_inventory_walk(&operand, &parsed);
             // Publish the first candidate immediately, then amortize locking
             // with size/time-bounded batches for every query shape.
             let publish_batch = inventory_publish_batch();
@@ -464,19 +480,8 @@ pub(super) fn start_live_walk(
                             return ignore::WalkState::Continue;
                         }
                     };
-                    let (is_file, is_dir, is_symlink) = if let Some(kind) = entry.file_type() {
-                        (kind.is_file(), kind.is_dir(), kind.is_symlink())
-                    } else {
-                        match std::fs::symlink_metadata(entry.path()) {
-                            Ok(metadata) => {
-                                let kind = metadata.file_type();
-                                (kind.is_file(), kind.is_dir(), kind.is_symlink())
-                            }
-                            Err(error) => {
-                                record_walk_error(live, error);
-                                return ignore::WalkState::Continue;
-                            }
-                        }
+                    let Some((is_file, is_dir, is_symlink)) = walk_entry_kinds(live, &entry) else {
+                        return ignore::WalkState::Continue;
                     };
                     if !is_file
                         && !(parsed.directories
@@ -498,6 +503,16 @@ pub(super) fn start_live_walk(
             // deterministic sorted cache in the background.
             live.enumeration_done.store(true, Ordering::Release);
             live.files_cond.notify_all();
+            // THE ONE DELIBERATE EXCEPTION to the recover-a-poisoned-lock
+            // policy (`store.rs`), and the reason is what this read is for: it
+            // is not a cache read, it is the answer being published. Every
+            // other holder of this mutex recovers, because a poisoned lock
+            // says nothing about the paths already in it. Here the walk is
+            // about to install this vector as a CACHED, `complete` inventory
+            // that later requests reuse — and a panic inside a writer's
+            // critical section (`append`/`extend` above) can leave it short.
+            // An inventory that may be truncated must fail loudly once, not be
+            // cached as the whole answer: the next request restarts the walk.
             let mut files = live
                 .files
                 .lock()
@@ -529,12 +544,12 @@ pub(super) fn wait_live_complete(
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
 ) -> Result<Option<Arc<Vec<PathBuf>>>, String> {
-    let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = lock_recover(&live.state);
     loop {
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
         }
-        if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+        if deadline_expired(deadline_at) {
             return Err(SOFT_TIMEOUT.to_string());
         }
         match &*state {

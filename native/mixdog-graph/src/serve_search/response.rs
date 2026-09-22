@@ -34,7 +34,7 @@ impl ResponseQueue {
     }
 
     pub(super) fn push(&self, line: String, control: bool) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = lock_recover(&self.state);
         while !state.closed
             && state.control.len().saturating_add(state.normal.len()) >= self.capacity
         {
@@ -59,7 +59,7 @@ impl ResponseQueue {
         let mut out = BufWriter::new(writer);
         loop {
             let line = {
-                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                let mut state = lock_recover(&self.state);
                 while !state.closed && state.control.is_empty() && state.normal.is_empty() {
                     state = self.changed.wait(state).unwrap_or_else(|e| e.into_inner());
                 }
@@ -76,7 +76,7 @@ impl ResponseQueue {
                 line
             };
             let failed = writeln!(out, "{line}").and_then(|_| out.flush()).is_err();
-            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = lock_recover(&self.state);
             state.writing = false;
             if failed {
                 state.closed = true;
@@ -95,7 +95,7 @@ impl ResponseQueue {
     }
 
     pub(super) fn flush(&self) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = lock_recover(&self.state);
         while !state.closed
             && (state.writing || !state.control.is_empty() || !state.normal.is_empty())
         {
@@ -108,7 +108,7 @@ impl ResponseQueue {
     /// still cared about, and blocking shutdown behind a writer whose consumer
     /// may itself be gone is how a hung teardown starts.
     pub(super) fn close(&self) {
-        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = lock_recover(&self.state);
         state.closed = true;
         state.control.clear();
         state.normal.clear();
@@ -130,14 +130,10 @@ impl ResponseQueue {
 pub(super) static RESPONSE_QUEUE: RwLock<Option<Arc<ResponseQueue>>> = RwLock::new(None);
 
 pub(super) fn response_queue() -> Arc<ResponseQueue> {
-    if let Some(queue) = RESPONSE_QUEUE
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-    {
+    if let Some(queue) = read_recover(&RESPONSE_QUEUE).as_ref() {
         return Arc::clone(queue);
     }
-    let mut slot = RESPONSE_QUEUE.write().unwrap_or_else(|e| e.into_inner());
+    let mut slot = write_recover(&RESPONSE_QUEUE);
     // Another thread may have installed one while this thread upgraded the
     // lock; a second stdout writer would interleave half-lines.
     if let Some(queue) = slot.as_ref() {
@@ -157,7 +153,7 @@ pub(super) fn response_queue() -> Arc<ResponseQueue> {
 pub(super) fn install_response_queue(
     queue: Option<Arc<ResponseQueue>>,
 ) -> Option<Arc<ResponseQueue>> {
-    let mut slot = RESPONSE_QUEUE.write().unwrap_or_else(|e| e.into_inner());
+    let mut slot = write_recover(&RESPONSE_QUEUE);
     std::mem::replace(&mut *slot, queue)
 }
 

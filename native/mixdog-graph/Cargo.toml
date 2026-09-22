@@ -68,4 +68,16 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
-panic = "abort"
+# This crate ships a RESIDENT server (`--serve-search`), not a one-shot CLI
+# like the other native tools. It isolates a panicking request with
+# `catch_unwind` (`contain_search_panic`, src/serve_search/search.rs) so one
+# bad request costs that request an error, not the warm process the editor,
+# search and code-graph all hold open — with its file-list caches, its watch
+# registrations and every other in-flight search. `panic = "abort"` makes that
+# isolation dead code in exactly the build that ships it, so this profile
+# unwinds. Measured cost of the switch on this release build: +1.55 MB
+# (53.3 -> 54.8 MB, +2.9%) and no latency change — 200 hot content searches
+# ran p50 1.16/1.08 ms (abort) vs 1.09/1.07 ms (unwind) across two runs each,
+# and cold walk+scan over a large corpus was no slower. The other native
+# crates are one-shot CLIs with nothing to isolate and keep `abort`.
+panic = "unwind"

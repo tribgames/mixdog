@@ -12,7 +12,7 @@ use ast_grep_core::tree_sitter::StrDoc;
 use ast_grep_core::{AstGrep, Node};
 use serde::Serialize;
 
-use super::extractors::{extractors_for, FileMeta, Walked};
+use super::extractors::{extractors_for, FileMeta, Walked, WalkedItem};
 use super::imports::import_specs;
 use super::kind_map::unified_kind;
 use super::kinds::symbol_kind;
@@ -220,27 +220,40 @@ pub(super) fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Ext
     let mut tokens: Vec<&str> = tokens.into_iter().collect();
     tokens.sort_unstable();
     let tokens: Vec<String> = tokens.into_iter().map(str::to_string).collect();
-    let items = &items;
+
+    let (imports, candidates) = collect_declarations(&items, text, graph_lang);
+    let (parent_of, calls) = resolve_containment(&candidates, calls);
+    let meta = parent_meta(&candidates, &parent_of, graph_lang);
+    let symbols = symbol_records(candidates, meta, text, graph_lang);
+    Extraction {
+        symbols,
+        imports,
+        calls: Some(calls),
+        tokens,
+        package_name: FileMeta::take(file_meta.package),
+        namespace_name: FileMeta::take(file_meta.namespace),
+        go_package_name: FileMeta::take(file_meta.go_package),
+    }
+}
+
+/// One pass over the walked items: every item and member that is a graph
+/// symbol becomes a deduplicated `Candidate`, and every import item
+/// contributes its raw specs.
+///
+/// Both lists leave in a fixed order — imports by their byte offset in the
+/// source, candidates by `(start line, start col, name line, name)` — so the
+/// record does not depend on the traversal's own visit order.
+fn collect_declarations(
+    items: &[WalkedItem<'_>],
+    text: &str,
+    graph_lang: &str,
+) -> (Vec<String>, Vec<Candidate>) {
     // (byte offset, spec) so the emitted list stays in source order even
     // though the traversal visits siblings back to front.
     let mut imports: Vec<(usize, String)> = Vec::new();
     let mut seen_imports: HashSet<String> = HashSet::new();
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut by_key: HashMap<(String, u32), usize> = HashMap::new();
-
-    let push_candidate = |candidate: Candidate,
-                          candidates: &mut Vec<Candidate>,
-                          by_key: &mut HashMap<(String, u32), usize>| {
-        let key = (candidate.name.clone(), candidate.line);
-        match by_key.get(&key) {
-            Some(&index) if keeps_existing(&candidates[index], &candidate) => {}
-            Some(&index) => candidates[index] = candidate,
-            None => {
-                by_key.insert(key, candidates.len());
-                candidates.push(candidate);
-            }
-        }
-    };
 
     for walked in items {
         let item = &walked.item;
@@ -290,7 +303,6 @@ pub(super) fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Ext
     }
 
     imports.sort_by_key(|(offset, _)| *offset);
-    let imports = imports.into_iter().map(|(_, spec)| spec).collect();
     candidates.sort_by(|a, b| {
         (a.start_line, a.start_col, a.line, &a.name).cmp(&(
             b.start_line,
@@ -299,11 +311,43 @@ pub(super) fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Ext
             &b.name,
         ))
     });
+    (
+        imports.into_iter().map(|(_, spec)| spec).collect(),
+        candidates,
+    )
+}
 
+/// Keep ONE candidate per `(name, name line)`: two rules matching nested
+/// nodes of one declaration are one symbol, and `keeps_existing` decides
+/// which of the two spans the record reports.
+fn push_candidate(
+    candidate: Candidate,
+    candidates: &mut Vec<Candidate>,
+    by_key: &mut HashMap<(String, u32), usize>,
+) {
+    let key = (candidate.name.clone(), candidate.line);
+    match by_key.get(&key) {
+        Some(&index) if keeps_existing(&candidates[index], &candidate) => {}
+        Some(&index) => candidates[index] = candidate,
+        None => {
+            by_key.insert(key, candidates.len());
+            candidates.push(candidate);
+        }
+    }
+}
+
+/// Resolve each candidate's innermost enclosing candidate and the call sites'
+/// `inSymbol` from ONE span list, built from the same deduplicated candidates
+/// the record reports.
+///
+/// The parent comes back as an INDEX into `candidates`, not only as a name:
+/// the visibility rules need the enclosing declaration's KIND too.
+fn resolve_containment(
+    candidates: &[Candidate],
+    calls: Vec<crate::calls::RawCall>,
+) -> (Vec<Option<usize>>, Vec<crate::calls::CallInfo>) {
     // Containment order: nesting is a byte-span relation, not a line one, so
     // the sweep runs over the candidates sorted by (start ASC, end DESC).
-    // `parent` and the calls' `inSymbol` share this ONE span list, which is
-    // built from the same deduplicated candidates the record reports.
     let mut order: Vec<usize> = (0..candidates.len()).collect();
     order.sort_by_key(|&index| {
         (
@@ -311,36 +355,38 @@ pub(super) fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Ext
             std::cmp::Reverse(candidates[index].end_byte()),
         )
     });
-    // The parent as an INDEX into `candidates`, not only as a name: the
-    // visibility rules need the enclosing declaration's KIND too.
     let mut parent_of: Vec<Option<usize>> = vec![None; candidates.len()];
-    let calls = {
-        let spans: Vec<crate::calls::SymbolSpan<'_>> = order
-            .iter()
-            .map(|&index| {
-                let candidate = &candidates[index];
-                (
-                    candidate.start_byte,
-                    candidate.end_byte(),
-                    candidate.name.as_str(),
-                )
-            })
-            .collect();
-        let mut sweep = crate::calls::ContainmentSweep::new(&spans);
-        for (position, &index) in order.iter().enumerate() {
-            if let Some(enclosing) = sweep.enclosing_of(position) {
-                parent_of[index] = Some(order[enclosing]);
-            }
+    let spans: Vec<crate::spans::SymbolSpan<'_>> = order
+        .iter()
+        .map(|&index| {
+            let candidate = &candidates[index];
+            (
+                candidate.start_byte,
+                candidate.end_byte(),
+                candidate.name.as_str(),
+            )
+        })
+        .collect();
+    let mut sweep = crate::spans::ContainmentSweep::new(&spans);
+    for (position, &index) in order.iter().enumerate() {
+        if let Some(enclosing) = sweep.enclosing_of(position) {
+            parent_of[index] = Some(order[enclosing]);
         }
-        crate::calls::finish(calls, &spans)
-    };
+    }
+    (parent_of, crate::calls::finish(calls, &spans))
+}
 
-    // `(parent name, is local)` per candidate: a declaration with a
-    // FUNCTION-LIKE ancestor lives in that body and cannot be visible outside
-    // the file in ANY language, whatever its modifiers or the export clause
-    // say (`fun localHelper` inside a method, a C# local function, a `pub fn`
-    // inside a `fn`).
-    let meta: Vec<(String, bool)> = (0..candidates.len())
+/// `(parent name, is local)` per candidate: a declaration with a
+/// FUNCTION-LIKE ancestor lives in that body and cannot be visible outside
+/// the file in ANY language, whatever its modifiers or the export clause
+/// say (`fun localHelper` inside a method, a C# local function, a `pub fn`
+/// inside a `fn`).
+fn parent_meta(
+    candidates: &[Candidate],
+    parent_of: &[Option<usize>],
+    graph_lang: &str,
+) -> Vec<(String, bool)> {
+    (0..candidates.len())
         .map(|index| {
             let parent = parent_of[index]
                 .map(|at| candidates[at].name.clone())
@@ -359,10 +405,19 @@ pub(super) fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Ext
             }
             (parent, local)
         })
-        .collect();
+        .collect()
+}
 
+/// Render the ordered candidates into SYMBOL RECORD v2: the unified kind, the
+/// language's own visibility answer, and the one-line declaration head.
+fn symbol_records(
+    candidates: Vec<Candidate>,
+    meta: Vec<(String, bool)>,
+    text: &str,
+    graph_lang: &str,
+) -> Vec<SymbolInfo> {
     let visibility = FileVisibility::of(graph_lang, text);
-    let symbols = candidates
+    candidates
         .into_iter()
         .zip(meta)
         .map(|(candidate, (parent, local))| {
@@ -398,16 +453,7 @@ pub(super) fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Ext
                 end_col: candidate.end_col,
             }
         })
-        .collect();
-    Extraction {
-        symbols,
-        imports,
-        calls: Some(calls),
-        tokens,
-        package_name: FileMeta::take(file_meta.package),
-        namespace_name: FileMeta::take(file_meta.namespace),
-        go_package_name: FileMeta::take(file_meta.go_package),
-    }
+        .collect()
 }
 
 /// One declaration can match two rules on nested nodes (a named function

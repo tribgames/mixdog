@@ -72,7 +72,7 @@ pub(super) fn declaration_head(text: &str, start: usize, end: usize, name: &str)
             b'=' if depth <= 0
                 && angle <= 0
                 && !is_comparison(bytes, index)
-                && !name_end.is_some_and(|at| index < at) =>
+                && name_end.is_none_or(|at| index >= at) =>
             {
                 cut = initializer_head_end(window, index).unwrap_or(index);
                 break;

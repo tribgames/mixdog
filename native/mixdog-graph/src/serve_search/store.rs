@@ -2,6 +2,25 @@
 // live walks that produce them, including the waiter bookkeeping that
 // decides when an abandoned walk is cancelled.
 use super::*;
+use std::sync::{MutexGuard, RwLockReadGuard, RwLockWriteGuard};
+
+/// Lock one of the search runtime's caches, recovering a poisoned lock
+/// instead of propagating it.
+///
+/// Every table behind these locks is a cache: a panic in one search must not
+/// disable caching for the rest of the process. This is the one place that
+/// decides that, for every mutex in the runtime.
+pub(super) fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+pub(super) fn read_recover<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|error| error.into_inner())
+}
+
+pub(super) fn write_recover<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write().unwrap_or_else(|error| error.into_inner())
+}
 
 pub(super) struct ReadyEntry {
     pub(super) files: Arc<Vec<PathBuf>>,
@@ -77,7 +96,7 @@ pub(super) struct LiveWalk {
 }
 
 pub(super) fn abandon_expired_idle_walk(live: &LiveWalk, now_ms: u64) -> bool {
-    let mut state = live.state.lock().unwrap_or_else(|error| error.into_inner());
+    let mut state = lock_recover(&live.state);
     let idle = live.waiters.load(Ordering::Acquire) == 0
         && !live.keep_warm.load(Ordering::Acquire)
         && !live.inventory_lease.active(now_ms);
@@ -213,43 +232,19 @@ impl FileListStore {
     pub(super) fn release_caches(&self) {
         persist_file_list_snapshot(&self.ready);
         persist_content_signature_cache();
-        self.ready
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
-        self.fuzzy
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
-        self.generations
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
-        self.pending_repairs
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
+        lock_recover(&self.ready).clear();
+        lock_recover(&self.fuzzy).clear();
+        lock_recover(&self.generations).clear();
+        lock_recover(&self.pending_repairs).clear();
         // Dropping the watcher unwatches every root at once. An idle server
         // pinning one OS handle per watched root is exactly the cost this
         // release exists to remove; the next search re-arms it.
-        *self
-            .watcher
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()) = None;
+        *lock_recover(&self.watcher) = None;
         self.watcher_healthy.store(false, Ordering::Release);
-        self.watched_roots
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
-        trusted_watch_roots()
-            .write()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
+        lock_recover(&self.watched_roots).clear();
+        write_recover(trusted_watch_roots()).clear();
         for shard in raw_content_signature_cache() {
-            shard
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .clear();
+            lock_recover(shard).clear();
         }
         // Re-arm the loader so the next search reads the snapshot just
         // persisted rather than rebuilding every signature from scratch.
@@ -275,11 +270,7 @@ impl FileListStore {
     }
 
     pub(super) fn validate_persisted_ready(&self) {
-        let checkpoints = self
-            .persisted_checkpoints
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .take();
+        let checkpoints = lock_recover(&self.persisted_checkpoints).take();
         let Some(checkpoints) = checkpoints else {
             return;
         };
@@ -306,29 +297,24 @@ impl FileListStore {
             apply_content_signature_journal_sync(result);
             changed_paths.insert(checkpoint.volume, resolved);
         }
-        self.ready
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .retain(|key, entry| {
-                let Some(volume) = crate::serve_search_usn::volume_for_path(&key.operand) else {
-                    return false;
-                };
-                let Some(Some(paths)) = changed_paths.get(&volume) else {
-                    return false;
-                };
-                if entry.root_identity != crate::serve_search_usn::path_identity(&key.operand) {
-                    return false;
-                }
-                !paths
-                    .iter()
-                    .any(|path| Self::paths_overlap(path, &key.operand))
-            });
+        lock_recover(&self.ready).retain(|key, entry| {
+            let Some(volume) = crate::serve_search_usn::volume_for_path(&key.operand) else {
+                return false;
+            };
+            let Some(Some(paths)) = changed_paths.get(&volume) else {
+                return false;
+            };
+            if entry.root_identity != crate::serve_search_usn::path_identity(&key.operand) {
+                return false;
+            }
+            !paths
+                .iter()
+                .any(|path| Self::paths_overlap(path, &key.operand))
+        });
     }
 
     pub(super) fn generation(&self, operand: &Path) -> u64 {
-        self.generations
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        lock_recover(&self.generations)
             .get(operand)
             .copied()
             .unwrap_or(0)
@@ -339,9 +325,7 @@ impl FileListStore {
     }
 
     pub(super) fn affected_roots(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
-        self.watched_roots
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        lock_recover(&self.watched_roots)
             .keys()
             .filter(|root| {
                 paths.is_empty() || paths.iter().any(|path| Self::paths_overlap(root, path))
@@ -363,10 +347,7 @@ impl FileListStore {
         self.validate_persisted_ready();
         {
             let deadline = Instant::now() + Duration::from_millis(250);
-            let mut pending = self
-                .pending_repairs
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
+            let mut pending = lock_recover(&self.pending_repairs);
             while pending.contains_key(key) {
                 let now = Instant::now();
                 if now >= deadline {
@@ -380,14 +361,11 @@ impl FileListStore {
             }
         }
         let generation = self.generation(&key.operand);
-        let watched_roots = self
-            .watched_roots
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        let watched_roots = lock_recover(&self.watched_roots)
             .keys()
             .cloned()
             .collect::<Vec<_>>();
-        let mut ready = self.ready.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ready = lock_recover(&self.ready);
         let now = Instant::now();
         ready.retain(|ready_key, entry| {
             entry.expires_at > now
@@ -396,10 +374,7 @@ impl FileListStore {
                     .any(|root| Self::paths_overlap(&ready_key.operand, root))
         });
         if !ready.contains_key(key) {
-            self.fuzzy
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .retain(|fuzzy, _| &fuzzy.walk != key);
+            lock_recover(&self.fuzzy).retain(|fuzzy, _| &fuzzy.walk != key);
         }
         let entry = ready.get_mut(key).filter(|entry| {
             entry.generation == generation && entry.directory_failures.is_empty()
@@ -434,14 +409,11 @@ impl FileListStore {
         if estimated_bytes > bytes_limit {
             return;
         }
-        let watched_roots = self
-            .watched_roots
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        let watched_roots = lock_recover(&self.watched_roots)
             .keys()
             .cloned()
             .collect::<Vec<_>>();
-        let mut ready = self.ready.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ready = lock_recover(&self.ready);
         let now = Instant::now();
         ready.retain(|ready_key, entry| {
             entry.expires_at > now
@@ -480,10 +452,7 @@ impl FileListStore {
         );
         drop(ready);
         schedule_file_list_snapshot(Arc::clone(&self.ready));
-        self.fuzzy
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .retain(|fuzzy, _| fuzzy.walk != key);
+        lock_recover(&self.fuzzy).retain(|fuzzy, _| fuzzy.walk != key);
     }
 
     pub(super) fn fuzzy_corpus(
@@ -494,7 +463,7 @@ impl FileListStore {
         filter: &PathFilter,
     ) -> Arc<FuzzyCorpus> {
         {
-            let mut fuzzy = self.fuzzy.lock().unwrap_or_else(|e| e.into_inner());
+            let mut fuzzy = lock_recover(&self.fuzzy);
             if let Some(entry) = fuzzy.get_mut(key) {
                 entry.touched_at = Instant::now();
                 return Arc::clone(&entry.corpus);
@@ -516,7 +485,7 @@ impl FileListStore {
     }
 
     pub(super) fn take_fuzzy_corpus(&self, key: &FuzzyKey) -> Option<Arc<FuzzyCorpus>> {
-        let mut fuzzy = self.fuzzy.lock().unwrap_or_else(|e| e.into_inner());
+        let mut fuzzy = lock_recover(&self.fuzzy);
         let entry = fuzzy.get_mut(key)?;
         entry.touched_at = Instant::now();
         Some(Arc::clone(&entry.corpus))
@@ -532,7 +501,7 @@ impl FileListStore {
         if estimated_bytes > bytes_limit {
             return corpus;
         }
-        let mut fuzzy = self.fuzzy.lock().unwrap_or_else(|e| e.into_inner());
+        let mut fuzzy = lock_recover(&self.fuzzy);
         if let Some(entry) = fuzzy.get_mut(key) {
             entry.touched_at = Instant::now();
             return Arc::clone(&entry.corpus);
@@ -577,18 +546,11 @@ impl FileListStore {
         // Read the generation before taking the live-map lock; generation()
         // locks the generations mutex and nesting it under `live` invites
         // lock-order inversions with invalidation.
-        let change_sequence = self
-            .changes
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .sequence;
+        let change_sequence = lock_recover(&self.changes).sequence;
         let generation = self.generation(&key.operand);
-        let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
+        let mut live = lock_recover(&self.live);
         if let Some(existing) = live.get(&key).cloned() {
-            let state = existing
-                .state
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
+            let state = lock_recover(&existing.state);
             if matches!(&*state, LiveState::Running)
                 && existing.generation == generation
                 && !existing.cancelled.load(Ordering::Acquire)
@@ -649,7 +611,7 @@ impl FileListStore {
             return;
         }
         let should_cancel = {
-            let mut live_map = self.live.lock().unwrap_or_else(|e| e.into_inner());
+            let mut live_map = lock_recover(&self.live);
             let same = live_map
                 .get(key)
                 .is_some_and(|current| Arc::ptr_eq(current, live));
@@ -676,14 +638,9 @@ impl FileListStore {
         // live-map lock. remember() re-checks the current generation, so a
         // racing invalidation still prevents caching a stale inventory.
         let current_generation = self.generation(&key.operand);
-        let failures = Arc::new(
-            live.directory_failures
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone(),
-        );
+        let failures = Arc::new(lock_recover(&live.directory_failures).clone());
         let cacheable = {
-            let mut live_map = self.live.lock().unwrap_or_else(|e| e.into_inner());
+            let mut live_map = lock_recover(&self.live);
             let same = live_map
                 .get(&key)
                 .is_some_and(|current| Arc::ptr_eq(current, live));
@@ -714,7 +671,7 @@ impl FileListStore {
                     // Serialize the cache repair with journal publication.
                     // Notifications queued during repair invalidate it after
                     // this guard is released, just like a fresh inventory.
-                    let changes = self.changes.lock().unwrap_or_else(|e| e.into_inner());
+                    let changes = lock_recover(&self.changes);
                     if let Some(paths) = changes
                         .since(live.change_sequence, &key.operand)
                         .filter(|paths| !paths.is_empty())
@@ -741,7 +698,7 @@ impl FileListStore {
             Err(Some(err)) => LiveState::Failed(err),
             Err(None) => LiveState::Abandoned,
         };
-        let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = lock_recover(&live.state);
         *state = completed_state;
         live.cond.notify_all();
         live.files_cond.notify_all();

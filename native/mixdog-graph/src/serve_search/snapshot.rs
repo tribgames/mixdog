@@ -68,6 +68,114 @@ pub(super) fn read_snapshot_i64<R: Read>(reader: &mut R) -> io::Result<i64> {
     Ok(i64::from_le_bytes(bytes))
 }
 
+/// The journal checkpoints a snapshot carries, in file order. Both on-disk
+/// caches frame them identically, so they are decoded in one place.
+pub(super) fn read_snapshot_checkpoints<R: Read>(
+    reader: &mut R,
+    count: usize,
+) -> io::Result<Vec<crate::serve_search_usn::JournalCheckpoint>> {
+    let mut checkpoints = Vec::with_capacity(count);
+    for _ in 0..count {
+        checkpoints.push(crate::serve_search_usn::JournalCheckpoint {
+            volume: read_snapshot_u16(reader)?,
+            volume_serial: read_snapshot_u32(reader)?,
+            journal_id: read_snapshot_u64(reader)?,
+            next_usn: read_snapshot_i64(reader)?,
+        });
+    }
+    Ok(checkpoints)
+}
+
+/// Magic, version and the two counts the rest of the inventory snapshot is
+/// framed by. Counts past the cache bounds mean a file this build cannot
+/// trust, not a cache to load partially.
+fn read_inventory_header<R: Read>(reader: &mut R) -> io::Result<(usize, usize)> {
+    let mut magic = [0u8; 8];
+    reader.read_exact(&mut magic)?;
+    if &magic != INVENTORY_SNAPSHOT_MAGIC
+        || read_snapshot_u32(reader)? != INVENTORY_SNAPSHOT_VERSION
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "inventory header",
+        ));
+    }
+    let checkpoint_count = read_snapshot_u32(reader)? as usize;
+    let entry_count = read_snapshot_u32(reader)? as usize;
+    if checkpoint_count > 256 || entry_count > FILE_LIST_CACHE_MAX {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "inventory counts",
+        ));
+    }
+    Ok((checkpoint_count, entry_count))
+}
+
+/// One cached inventory: the walk key it answers, its sorted file list and the
+/// accounting a restored cache entry carries. Sorting here keeps a restored
+/// inventory in the same deterministic order the walk published.
+fn read_inventory_entry<R: Read>(
+    reader: &mut R,
+    now: Instant,
+    ttl: Duration,
+) -> io::Result<(WalkKey, ReadyEntry)> {
+    let operand = PathBuf::from(wire_path(Path::new(&read_snapshot_string(reader)?)));
+    let root_identity = Some(crate::serve_search_usn::FileIdentity {
+        volume: read_snapshot_u32(reader)?,
+        file_id: read_snapshot_u64(reader)?,
+    });
+    let mut flags = [0u8; 1];
+    reader.read_exact(&mut flags)?;
+    let max_depth = read_snapshot_u32(reader)?;
+    let prune_count = read_snapshot_u32(reader)? as usize;
+    let iglob_count = read_snapshot_u32(reader)? as usize;
+    let file_count = read_snapshot_u32(reader)? as usize;
+    if prune_count > 4096 || iglob_count > 4096 || file_count > 2_000_000 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "inventory entry counts",
+        ));
+    }
+    let mut prune = Vec::with_capacity(prune_count);
+    for _ in 0..prune_count {
+        prune.push(read_snapshot_string(reader)?);
+    }
+    let mut iglobs = Vec::with_capacity(iglob_count);
+    for _ in 0..iglob_count {
+        iglobs.push(read_snapshot_string(reader)?);
+    }
+    let mut files = Vec::with_capacity(file_count);
+    for _ in 0..file_count {
+        files.push(PathBuf::from(wire_path(Path::new(&read_snapshot_string(
+            reader,
+        )?))));
+    }
+    files.par_sort_unstable();
+    files.dedup();
+    let estimated_bytes = paths_storage_bytes(&files);
+    Ok((
+        WalkKey {
+            operand,
+            hidden: flags[0] & 1 != 0,
+            no_ignore: flags[0] & 2 != 0,
+            no_require_git: flags[0] & 4 != 0,
+            directories: flags[0] & 8 != 0,
+            max_depth: (max_depth != u32::MAX).then_some(max_depth as usize),
+            prune,
+            iglobs,
+        },
+        ReadyEntry {
+            files: Arc::new(files),
+            directory_failures: Arc::new(Vec::new()),
+            expires_at: now + ttl,
+            generation: 0,
+            touched_at: now,
+            estimated_bytes,
+            root_identity,
+        },
+    ))
+}
+
 pub(super) fn load_file_list_snapshot() -> (
     HashMap<WalkKey, ReadyEntry>,
     Option<Vec<crate::serve_search_usn::JournalCheckpoint>>,
@@ -90,96 +198,18 @@ pub(super) fn load_file_list_snapshot() -> (
     };
     let loaded = (|| -> io::Result<_> {
         let mut reader = BufReader::new(file);
-        let mut magic = [0u8; 8];
-        reader.read_exact(&mut magic)?;
-        if &magic != INVENTORY_SNAPSHOT_MAGIC
-            || read_snapshot_u32(&mut reader)? != INVENTORY_SNAPSHOT_VERSION
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "inventory header",
-            ));
-        }
-        let checkpoint_count = read_snapshot_u32(&mut reader)? as usize;
-        let entry_count = read_snapshot_u32(&mut reader)? as usize;
-        if checkpoint_count > 256 || entry_count > FILE_LIST_CACHE_MAX {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "inventory counts",
-            ));
-        }
-        let mut checkpoints = Vec::with_capacity(checkpoint_count);
-        for _ in 0..checkpoint_count {
-            checkpoints.push(crate::serve_search_usn::JournalCheckpoint {
-                volume: read_snapshot_u16(&mut reader)?,
-                volume_serial: read_snapshot_u32(&mut reader)?,
-                journal_id: read_snapshot_u64(&mut reader)?,
-                next_usn: read_snapshot_i64(&mut reader)?,
-            });
-        }
+        let (checkpoint_count, entry_count) = read_inventory_header(&mut reader)?;
+        let checkpoints = read_snapshot_checkpoints(&mut reader, checkpoint_count)?;
         let mut ready = HashMap::new();
         let now = Instant::now();
         let mut total_bytes = 0usize;
         for _ in 0..entry_count {
-            let operand = PathBuf::from(wire_path(Path::new(&read_snapshot_string(&mut reader)?)));
-            let root_identity = Some(crate::serve_search_usn::FileIdentity {
-                volume: read_snapshot_u32(&mut reader)?,
-                file_id: read_snapshot_u64(&mut reader)?,
-            });
-            let mut flags = [0u8; 1];
-            reader.read_exact(&mut flags)?;
-            let max_depth = read_snapshot_u32(&mut reader)?;
-            let prune_count = read_snapshot_u32(&mut reader)? as usize;
-            let iglob_count = read_snapshot_u32(&mut reader)? as usize;
-            let file_count = read_snapshot_u32(&mut reader)? as usize;
-            if prune_count > 4096 || iglob_count > 4096 || file_count > 2_000_000 {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "inventory entry counts",
-                ));
-            }
-            let mut prune = Vec::with_capacity(prune_count);
-            for _ in 0..prune_count {
-                prune.push(read_snapshot_string(&mut reader)?);
-            }
-            let mut iglobs = Vec::with_capacity(iglob_count);
-            for _ in 0..iglob_count {
-                iglobs.push(read_snapshot_string(&mut reader)?);
-            }
-            let mut files = Vec::with_capacity(file_count);
-            for _ in 0..file_count {
-                files.push(PathBuf::from(wire_path(Path::new(&read_snapshot_string(
-                    &mut reader,
-                )?))));
-            }
-            files.par_sort_unstable();
-            files.dedup();
-            let estimated_bytes = paths_storage_bytes(&files);
-            total_bytes = total_bytes.saturating_add(estimated_bytes);
+            let (key, entry) = read_inventory_entry(&mut reader, now, ttl)?;
+            total_bytes = total_bytes.saturating_add(entry.estimated_bytes);
             if total_bytes > file_list_cache_bytes() {
                 continue;
             }
-            ready.insert(
-                WalkKey {
-                    operand,
-                    hidden: flags[0] & 1 != 0,
-                    no_ignore: flags[0] & 2 != 0,
-                    no_require_git: flags[0] & 4 != 0,
-                    directories: flags[0] & 8 != 0,
-                    max_depth: (max_depth != u32::MAX).then_some(max_depth as usize),
-                    prune,
-                    iglobs,
-                },
-                ReadyEntry {
-                    files: Arc::new(files),
-                    directory_failures: Arc::new(Vec::new()),
-                    expires_at: now + ttl,
-                    generation: 0,
-                    touched_at: now,
-                    estimated_bytes,
-                    root_identity,
-                },
-            );
+            ready.insert(key, entry);
         }
         Ok((ready, checkpoints))
     })();
@@ -200,9 +230,7 @@ pub(super) fn persist_file_list_snapshot(ready_cache: &Mutex<HashMap<WalkKey, Re
     if checkpoints.is_empty() {
         return;
     }
-    let entries = ready_cache
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    let entries = lock_recover(ready_cache)
         .iter()
         .filter(|(_, entry)| entry.directory_failures.is_empty())
         .filter_map(|(key, entry)| {

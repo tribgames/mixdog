@@ -48,11 +48,11 @@ pub(super) fn relative_inventory_path(file: &Path, root: &Path) -> Option<String
         }
         let file = wire_path(file).replace('\\', "/");
         let root = wire_path(root).replace('\\', "/");
-        return Some(
+        Some(
             file[root.trim_end_matches('/').len()..]
                 .trim_start_matches('/')
                 .to_string(),
-        );
+        )
     }
     #[cfg(not(windows))]
     file.strip_prefix(root)

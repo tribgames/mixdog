@@ -210,6 +210,17 @@ impl PathFilter {
     }
 }
 
+/// One operand of a request: the spelling the argv used, the path it
+/// resolves to, and the post-walk filter that decides which files under it
+/// are in scope. The three always travel together — a file is reported only
+/// once `filter` accepted it, and it is labelled by `display_path(operand,
+/// operand_path, file)`.
+pub(super) struct OperandScope<'a> {
+    pub(super) operand: &'a str,
+    pub(super) operand_path: &'a Path,
+    pub(super) filter: &'a PathFilter,
+}
+
 pub(super) fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
     let mut p = ParsedArgs::default();
     let mut i = 0usize;

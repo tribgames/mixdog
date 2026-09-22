@@ -125,7 +125,7 @@ impl GrammarKinds {
         let count = ts_lang.node_kind_count();
         let mut roles = vec![KindRole::None; count];
         let mut has_meta = false;
-        for id in 0..count {
+        for (id, role) in roles.iter_mut().enumerate() {
             let kind_id = id as u16;
             // Anonymous tokens are keywords and punctuation, never identifier
             // occurrences, and never a declaration node.
@@ -136,10 +136,10 @@ impl GrammarKinds {
                 continue;
             };
             if let Some(field) = meta_field_for(lang.id(), name) {
-                roles[id] = KindRole::Meta(field);
+                *role = KindRole::Meta(field);
                 has_meta = true;
             } else if is_identifier_kind(name) {
-                roles[id] = KindRole::Identifier;
+                *role = KindRole::Identifier;
             }
         }
         Self { roles, has_meta }

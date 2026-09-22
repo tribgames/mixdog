@@ -528,21 +528,25 @@ pub const LANG_INFOS: &[LangInfo] = &[
     },
 ];
 
+/// Every `(extension, graph language id)` pair that makes a file a graph
+/// source file, in registry order: one definition for the lookup map and the
+/// classifier pattern below.
+fn graph_source_extensions() -> impl Iterator<Item = (&'static str, &'static str)> {
+    LANG_INFOS
+        .iter()
+        .filter(|info| info.extract())
+        .flat_map(|info| {
+            info.extract_extensions
+                .iter()
+                .map(move |extension| (*extension, info.id))
+        })
+}
+
 /// Graph language id for a source extension, or `None` when the extension is
 /// not a graph source file. Case-sensitive, like the extension table.
 pub fn graph_lang_for_ext(ext: &str) -> Option<&'static str> {
-    static BY_EXT: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
-        let mut map = HashMap::new();
-        for info in LANG_INFOS {
-            if !info.extract() {
-                continue;
-            }
-            for extension in info.extract_extensions {
-                map.insert(*extension, info.id);
-            }
-        }
-        map
-    });
+    static BY_EXT: LazyLock<HashMap<&'static str, &'static str>> =
+        LazyLock::new(|| graph_source_extensions().collect());
     BY_EXT.get(ext).copied()
 }
 
@@ -577,14 +581,9 @@ pub fn graph_lang_scan_langs(graph_lang: &str) -> Vec<ScanLang> {
 pub fn source_extension_pattern() -> &'static str {
     static PATTERN: LazyLock<String> = LazyLock::new(|| {
         let mut extensions: Vec<&str> = Vec::new();
-        for info in LANG_INFOS {
-            if !info.extract() {
-                continue;
-            }
-            for extension in info.extract_extensions {
-                if !extensions.contains(extension) {
-                    extensions.push(extension);
-                }
+        for (extension, _) in graph_source_extensions() {
+            if !extensions.contains(&extension) {
+                extensions.push(extension);
             }
         }
         format!(r"\.({})$", extensions.join("|"))

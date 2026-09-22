@@ -346,19 +346,18 @@ pub(super) fn run_engine(
                 });
             }
             Ok(WireRequest::Cancel { cancel }) => {
-                let running = cancellations
-                    .lock()
-                    .ok()
-                    .and_then(|map| map.get(&(client_id, cancel)).cloned())
-                    .is_some_and(|flag| {
-                        flag.store(true, Ordering::Relaxed);
-                        true
-                    });
+                let inflight = lock_recover(&cancellations)
+                    .get(&(client_id, cancel))
+                    .cloned();
+                // Signalling the flag IS the cancellation of a running search;
+                // the queued copy is removed separately.
+                if let Some(flag) = &inflight {
+                    flag.store(true, Ordering::Relaxed);
+                }
+                let running = inflight.is_some();
                 let removed = scheduler.cancel_queued(client_id, cancel);
                 if removed || !running {
-                    if let Ok(mut map) = cancellations.lock() {
-                        map.remove(&(client_id, cancel));
-                    }
+                    forget_cancellation(&cancellations, (client_id, cancel));
                     sink.write_cancelled(cancel);
                 }
             }
@@ -372,9 +371,7 @@ pub(super) fn run_engine(
             Ok(WireRequest::Search(req)) => {
                 let id = req.id;
                 let cancelled = Arc::new(AtomicBool::new(false));
-                if let Ok(mut map) = cancellations.lock() {
-                    map.insert((client_id, id), Arc::clone(&cancelled));
-                }
+                lock_recover(&cancellations).insert((client_id, id), Arc::clone(&cancelled));
                 let scheduled = ScheduledSearch {
                     req,
                     cancelled,
@@ -383,9 +380,7 @@ pub(super) fn run_engine(
                     sink: sink.clone(),
                 };
                 if let Err(search) = scheduler.enqueue(scheduled) {
-                    if let Ok(mut map) = cancellations.lock() {
-                        map.remove(&(client_id, id));
-                    }
+                    forget_cancellation(&cancellations, (client_id, id));
                     let telemetry = scheduler.telemetry();
                     sink.write(&serde_json::json!({
                         "id": search.req.id,

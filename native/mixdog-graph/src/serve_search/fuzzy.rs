@@ -106,14 +106,20 @@ impl PartialOrd for FuzzyHit {
     }
 }
 
-pub(super) fn handle_fuzzy(
-    req: &ServeRequest,
-    cancelled: &AtomicBool,
-    store: &Arc<FileListStore>,
-    deadline_at: Option<Instant>,
-) -> Result<serde_json::Value, String> {
-    use std::collections::BinaryHeap;
+/// The enumeration one fuzzy request asks for: the trimmed query, the bounded
+/// result cap, how long the query-independent inventory outlives the response,
+/// and the walk the corpus is built from.
+struct FuzzyScope<'a> {
+    query: &'a str,
+    limit: usize,
+    inventory_lease_ms: u64,
+    parsed: ParsedArgs,
+    root: &'a Path,
+    key: FuzzyKey,
+    filter: PathFilter,
+}
 
+fn fuzzy_scope(req: &ServeRequest) -> Result<FuzzyScope<'_>, String> {
     let query = req
         .fuzzy
         .as_deref()
@@ -143,7 +149,21 @@ pub(super) fn handle_fuzzy(
     let root = Path::new(&req.cwd);
     let key = fuzzy_key(root, &parsed);
     let filter = PathFilter::new(root, &parsed)?;
-    let tokens = query
+    Ok(FuzzyScope {
+        query,
+        limit,
+        inventory_lease_ms,
+        parsed,
+        root,
+        key,
+        filter,
+    })
+}
+
+/// The whitespace-separated query atoms. Each carries its own ASCII presence
+/// mask and compiled pattern, and every one of them has to match.
+fn fuzzy_query_tokens(query: &str) -> Vec<FuzzyQueryToken> {
+    query
         .split_whitespace()
         .map(|text| FuzzyQueryToken {
             text: text.to_string(),
@@ -155,152 +175,274 @@ pub(super) fn handle_fuzzy(
                 AtomKind::Fuzzy,
             ),
         })
-        .collect::<Vec<_>>();
-    let mut matcher = FuzzyMatcher::new(FuzzyConfig::DEFAULT.match_paths());
-    let mut matches = BinaryHeap::with_capacity(limit + 1);
-    let mut total_matches = 0usize;
-    let mut total_seen = 0usize;
+        .collect::<Vec<_>>()
+}
+
+/// The bounded top-k ranking both corpus sources feed: the query atoms, the
+/// reusable matcher, the heap capped at `limit`, and the counters the
+/// response reports.
+struct FuzzyRanking<'a> {
+    tokens: &'a [FuzzyQueryToken],
+    matcher: FuzzyMatcher,
+    matches: std::collections::BinaryHeap<FuzzyHit>,
+    limit: usize,
+    total_matches: usize,
+    total_seen: usize,
+}
+
+impl<'a> FuzzyRanking<'a> {
+    fn new(tokens: &'a [FuzzyQueryToken], limit: usize) -> Self {
+        Self {
+            tokens,
+            matcher: FuzzyMatcher::new(FuzzyConfig::DEFAULT.match_paths()),
+            matches: std::collections::BinaryHeap::with_capacity(limit + 1),
+            limit,
+            total_matches: 0,
+            total_seen: 0,
+        }
+    }
+
+    fn consider(&mut self, path: &str, path_mask: Option<(u64, u64)>) {
+        retain_fuzzy_path(
+            self.tokens,
+            path,
+            path_mask,
+            &mut self.matcher,
+            &mut self.matches,
+            self.limit,
+            &mut self.total_matches,
+        );
+    }
+}
+
+/// What the corpus contributed beyond the ranking itself: whether the
+/// enumeration was seen to its end, whether the request ran out of budget,
+/// the walk's error accounting, and the time spent scoring.
+struct FuzzyWalkOutcome {
+    timed_out: bool,
+    walk_complete: bool,
+    walk_errors: usize,
+    walk_error_details: Vec<String>,
+    cache_safe: bool,
+    rank_ms: f64,
+}
+
+/// Rank a corpus that is already enumerated, filtered and materialized: the
+/// whole cost here is scoring, so cancellation is checked every 1024 paths.
+fn rank_cached_corpus(
+    corpus: &FuzzyCorpus,
+    ranking: &mut FuzzyRanking<'_>,
+    cancelled: &AtomicBool,
+    deadline_at: Option<Instant>,
+) -> Result<FuzzyWalkOutcome, String> {
     let mut timed_out = false;
-    let mut walk_complete = false;
-    let mut walk_errors = 0usize;
-    let mut walk_error_details = Vec::new();
-    let mut cache_safe = true;
-    let mut rank_ms = 0.0;
-    let inventory_started_at = Instant::now();
-    let cached_corpus = store.take_fuzzy_corpus(&key).or_else(|| {
-        store
-            .take_ready(&key.walk)
-            .map(|files| store.fuzzy_corpus(&key, &files, root, &filter))
-    });
-    if let Some(corpus) = cached_corpus {
-        walk_complete = true;
-        let rank_started_at = Instant::now();
-        for (index, indexed) in corpus.paths.iter().enumerate() {
-            if index & 1023 == 0 {
-                if cancelled.load(Ordering::Relaxed) {
-                    return Err(CANCELLED.to_string());
-                }
-                if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
-                    timed_out = true;
-                    walk_complete = false;
-                    break;
-                }
+    let mut walk_complete = true;
+    let rank_started_at = Instant::now();
+    for (index, indexed) in corpus.paths.iter().enumerate() {
+        if index & 1023 == 0 {
+            if cancelled.load(Ordering::Relaxed) {
+                return Err(CANCELLED.to_string());
             }
-            total_seen = index + 1;
-            retain_fuzzy_path(
-                &tokens,
-                &indexed.path,
-                indexed.ascii_mask,
-                &mut matcher,
-                &mut matches,
-                limit,
-                &mut total_matches,
-            );
-        }
-        rank_ms += rank_started_at.elapsed().as_secs_f64() * 1_000.0;
-    } else {
-        let watched = store.watch_root(root);
-        cache_safe = watched;
-        let walk_key = key.walk.clone();
-        let (live, owner) =
-            store.begin_live_with_inventory(walk_key.clone(), req.keep_warm, inventory_lease_ms);
-        if !watched {
-            live.cacheable.store(false, Ordering::Release);
-        }
-        let _waiter = store.waiter_guard(walk_key.clone(), Arc::clone(&live));
-        if owner {
-            start_live_walk(
-                Arc::clone(store),
-                walk_key,
-                Arc::clone(&live),
-                root.to_path_buf(),
-                parsed.clone(),
-            );
-        }
-        let mut cursor = 0usize;
-        'stream: loop {
-            let batch = {
-                let mut files = live.files.lock().unwrap_or_else(|e| e.into_inner());
-                while cursor >= files.len() {
-                    if live.enumeration_done.load(Ordering::Acquire) {
-                        walk_complete = true;
-                        break 'stream;
-                    }
-                    let state = live.state.lock().unwrap_or_else(|e| e.into_inner());
-                    match &*state {
-                        LiveState::Done(_) => {
-                            walk_complete = true;
-                            break 'stream;
-                        }
-                        LiveState::Abandoned => break 'stream,
-                        LiveState::Failed(error) => return Err(error.clone()),
-                        LiveState::Running => {}
-                    }
-                    drop(state);
-                    files = live
-                        .files_cond
-                        .wait_timeout(files, Duration::from_millis(10))
-                        .unwrap_or_else(|e| e.into_inner())
-                        .0;
-                    if cancelled.load(Ordering::Relaxed) {
-                        return Err(CANCELLED.to_string());
-                    }
-                    if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
-                        timed_out = true;
-                        break 'stream;
-                    }
-                }
-                // Materialize the wire-relative strings once while advancing
-                // the published cursor. The old path cloned every PathBuf into
-                // a temporary batch and then allocated the same strings, which
-                // was costly across hundreds of thousands of broad candidates.
-                let batch: Vec<String> = files[cursor..]
-                    .iter()
-                    .filter(|file| filter.allows(file))
-                    .map(|file| {
-                        relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file))
-                    })
-                    .collect::<Vec<_>>();
-                cursor = files.len();
-                batch
-            };
-            let rank_started_at = Instant::now();
-            for path in batch {
-                if total_seen & 1023 == 0 {
-                    if cancelled.load(Ordering::Relaxed) {
-                        return Err(CANCELLED.to_string());
-                    }
-                    if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
-                        timed_out = true;
-                        break;
-                    }
-                }
-                total_seen += 1;
-                let ascii_mask = fuzzy_ascii_presence(&path);
-                retain_fuzzy_path(
-                    &tokens,
-                    &path,
-                    ascii_mask,
-                    &mut matcher,
-                    &mut matches,
-                    limit,
-                    &mut total_matches,
-                );
-            }
-            rank_ms += rank_started_at.elapsed().as_secs_f64() * 1_000.0;
-            if timed_out {
+            if deadline_expired(deadline_at) {
+                timed_out = true;
+                walk_complete = false;
                 break;
             }
         }
-        walk_errors = live.walk_errors.load(Ordering::Acquire);
-        walk_error_details = live_walk_error_details(&live);
-        cache_safe &= live.cacheable.load(Ordering::Acquire);
-        if walk_complete && walk_errors == 0 {
-            // The response no longer waits for deterministic inventory sort;
-            // retain the completed walk until finish_live installs its cache.
-            live.keep_warm.store(true, Ordering::Release);
+        ranking.total_seen = index + 1;
+        ranking.consider(&indexed.path, indexed.ascii_mask);
+    }
+    Ok(FuzzyWalkOutcome {
+        timed_out,
+        walk_complete,
+        walk_errors: 0,
+        walk_error_details: Vec::new(),
+        cache_safe: true,
+        rank_ms: rank_started_at.elapsed().as_secs_f64() * 1_000.0,
+    })
+}
+
+/// The next candidates a live fuzzy walk published, or the reason the stream
+/// ended: an abandoned walk is not an error here, it simply ranks nothing
+/// more, while a failed walk and cancellation are.
+enum RankedBatch {
+    Paths(Vec<String>),
+    Complete,
+    Abandoned,
+    TimedOut,
+}
+
+/// Take the paths published past `cursor` as the wire-relative strings the
+/// ranker scores, waiting in short slices while the walk runs.
+fn next_ranked_batch(
+    live: &LiveWalk,
+    cursor: &mut usize,
+    scope: &FuzzyScope<'_>,
+    cancelled: &AtomicBool,
+    deadline_at: Option<Instant>,
+) -> Result<RankedBatch, String> {
+    let root = scope.root;
+    let mut files = lock_recover(&live.files);
+    while *cursor >= files.len() {
+        if live.enumeration_done.load(Ordering::Acquire) {
+            return Ok(RankedBatch::Complete);
+        }
+        let state = lock_recover(&live.state);
+        match &*state {
+            LiveState::Done(_) => return Ok(RankedBatch::Complete),
+            LiveState::Abandoned => return Ok(RankedBatch::Abandoned),
+            LiveState::Failed(error) => return Err(error.clone()),
+            LiveState::Running => {}
+        }
+        drop(state);
+        files = live
+            .files_cond
+            .wait_timeout(files, Duration::from_millis(10))
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(CANCELLED.to_string());
+        }
+        if deadline_expired(deadline_at) {
+            return Ok(RankedBatch::TimedOut);
         }
     }
+    // Materialize the wire-relative strings once while advancing the
+    // published cursor. The old path cloned every PathBuf into a temporary
+    // batch and then allocated the same strings, which was costly across
+    // hundreds of thousands of broad candidates.
+    let batch: Vec<String> = files[*cursor..]
+        .iter()
+        .filter(|file| scope.filter.allows(file))
+        .map(|file| relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file)))
+        .collect::<Vec<_>>();
+    *cursor = files.len();
+    Ok(RankedBatch::Paths(batch))
+}
+
+/// Rank a walk that is still running: score every batch of paths the walker
+/// publishes, then wait for the next one, so the response is bounded by the
+/// deadline rather than by the size of the tree.
+fn rank_live_walk(
+    scope: &FuzzyScope<'_>,
+    store: &Arc<FileListStore>,
+    keep_warm: bool,
+    ranking: &mut FuzzyRanking<'_>,
+    cancelled: &AtomicBool,
+    deadline_at: Option<Instant>,
+) -> Result<FuzzyWalkOutcome, String> {
+    let root = scope.root;
+    let mut timed_out = false;
+    let mut walk_complete = false;
+    let mut rank_ms = 0.0;
+    let watched = store.watch_root(root);
+    let mut cache_safe = watched;
+    let walk_key = scope.key.walk.clone();
+    let (live, owner) =
+        store.begin_live_with_inventory(walk_key.clone(), keep_warm, scope.inventory_lease_ms);
+    if !watched {
+        live.cacheable.store(false, Ordering::Release);
+    }
+    let _waiter = store.waiter_guard(walk_key.clone(), Arc::clone(&live));
+    if owner {
+        start_live_walk(
+            Arc::clone(store),
+            walk_key,
+            Arc::clone(&live),
+            root.to_path_buf(),
+            scope.parsed.clone(),
+        );
+    }
+    let mut cursor = 0usize;
+    loop {
+        let batch = match next_ranked_batch(&live, &mut cursor, scope, cancelled, deadline_at)? {
+            RankedBatch::Paths(batch) => batch,
+            RankedBatch::Complete => {
+                walk_complete = true;
+                break;
+            }
+            RankedBatch::Abandoned => break,
+            RankedBatch::TimedOut => {
+                timed_out = true;
+                break;
+            }
+        };
+        let rank_started_at = Instant::now();
+        for path in batch {
+            if ranking.total_seen & 1023 == 0 {
+                if cancelled.load(Ordering::Relaxed) {
+                    return Err(CANCELLED.to_string());
+                }
+                if deadline_expired(deadline_at) {
+                    timed_out = true;
+                    break;
+                }
+            }
+            ranking.total_seen += 1;
+            let ascii_mask = fuzzy_ascii_presence(&path);
+            ranking.consider(&path, ascii_mask);
+        }
+        rank_ms += rank_started_at.elapsed().as_secs_f64() * 1_000.0;
+        if timed_out {
+            break;
+        }
+    }
+    let walk_errors = live.walk_errors.load(Ordering::Acquire);
+    let walk_error_details = live_walk_error_details(&live);
+    cache_safe &= live.cacheable.load(Ordering::Acquire);
+    if walk_complete && walk_errors == 0 {
+        // The response no longer waits for deterministic inventory sort;
+        // retain the completed walk until finish_live installs its cache.
+        live.keep_warm.store(true, Ordering::Release);
+    }
+    Ok(FuzzyWalkOutcome {
+        timed_out,
+        walk_complete,
+        walk_errors,
+        walk_error_details,
+        cache_safe,
+        rank_ms,
+    })
+}
+
+pub(super) fn handle_fuzzy(
+    req: &ServeRequest,
+    cancelled: &AtomicBool,
+    store: &Arc<FileListStore>,
+    deadline_at: Option<Instant>,
+) -> Result<serde_json::Value, String> {
+    let scope = fuzzy_scope(req)?;
+    let limit = scope.limit;
+    let inventory_lease_ms = scope.inventory_lease_ms;
+    let tokens = fuzzy_query_tokens(scope.query);
+    let mut ranking = FuzzyRanking::new(&tokens, limit);
+    let inventory_started_at = Instant::now();
+    let cached_corpus = store.take_fuzzy_corpus(&scope.key).or_else(|| {
+        store
+            .take_ready(&scope.key.walk)
+            .map(|files| store.fuzzy_corpus(&scope.key, &files, scope.root, &scope.filter))
+    });
+    let FuzzyWalkOutcome {
+        timed_out,
+        walk_complete,
+        walk_errors,
+        walk_error_details,
+        cache_safe,
+        rank_ms,
+    } = match cached_corpus {
+        Some(corpus) => rank_cached_corpus(&corpus, &mut ranking, cancelled, deadline_at)?,
+        None => rank_live_walk(
+            &scope,
+            store,
+            req.keep_warm,
+            &mut ranking,
+            cancelled,
+            deadline_at,
+        )?,
+    };
+    let total_matches = ranking.total_matches;
+    let total_seen = ranking.total_seen;
+    let matches = ranking.matches;
 
     let inventory_ms = inventory_started_at.elapsed().as_secs_f64() * 1_000.0;
     let inventory_complete = walk_complete && walk_errors == 0;

@@ -43,11 +43,8 @@ fn outline_mode_dumps_items_members_and_extra_rules() {
         .as_nanos();
     let root = std::env::temp_dir().join(format!("mixdog-graph-outline-{nonce}"));
     fs::create_dir_all(&root).unwrap();
-    fs::write(
-        root.join("a.ts"),
-        "import { x } from './x.js';\nexport class Store {\n  read() {}\n}\n",
-    )
-    .unwrap();
+    let source = "import { x } from './x.js';\nexport class Store {\n  read() {}\n}\n";
+    fs::write(root.join("a.ts"), source).unwrap();
 
     let lines = run(&root, &["--outline", "--files", "a.ts"], None);
     assert_eq!(lines.len(), 2, "one file line plus the summary");
@@ -74,6 +71,14 @@ fn outline_mode_dumps_items_members_and_extra_rules() {
     assert_eq!(member["symbolType"], "method");
     assert_eq!(member["name"], "read");
     assert_eq!(member["isPublic"], true);
+    // A member carries the same range an item does, so a method is locatable
+    // and measurable from outline output alone.
+    assert_eq!(member["range"]["start"]["line"], 2);
+    assert_eq!(member["range"]["start"]["column"], 2);
+    assert_eq!(member["range"]["end"]["line"], 2);
+    let from = member["range"]["byteOffset"][0].as_u64().unwrap() as usize;
+    let to = member["range"]["byteOffset"][1].as_u64().unwrap() as usize;
+    assert_eq!(&source[from..to], "read() {}");
     assert_eq!(lines[1]["summary"]["files"], 1);
     assert_eq!(lines[1]["summary"]["errors"].as_array().unwrap().len(), 0);
 
@@ -99,6 +104,102 @@ fn outline_mode_dumps_items_members_and_extra_rules() {
     assert!(items
         .iter()
         .any(|item| item["name"] == "extra-Store" && item["symbolType"] == "struct"));
+
+    fs::remove_dir_all(&root).unwrap();
+}
+
+/// Every member range is the span of the declaration its rule matched, in the
+/// item-level shape: a member WITH a body (class/impl method) spans the body,
+/// and a genuinely bodiless one (an interface or trait method signature) spans
+/// the declaration node the grammar gives it — which is the whole declaration
+/// that member has.
+#[test]
+fn outline_member_ranges_span_each_member_declaration() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-graph-member-range-{nonce}"));
+    fs::create_dir_all(&root).unwrap();
+    let sources: [(&str, &str); 4] = [
+        (
+            "store.ts",
+            "export class Store {\n  read(key: string) {\n    return key;\n  }\n}\nexport interface Host {\n  probe(id: number): void;\n}\n",
+        ),
+        (
+            "lib.rs",
+            "pub struct Store;\n\nimpl Store {\n    pub fn read(&self) -> u8 {\n        1\n    }\n}\n\npub trait Probe {\n    fn probe(&self) -> bool;\n}\n",
+        ),
+        (
+            "User.java",
+            "package com.acme;\n\npublic class User {\n  public void save() {\n    return;\n  }\n}\n",
+        ),
+        ("store.py", "class Store:\n    def read(self):\n        return 1\n"),
+    ];
+    for (name, source) in sources {
+        fs::write(root.join(name), source).unwrap();
+    }
+
+    let lines = run(&root, &["--outline"], None);
+    let member = |file: &str, name: &str| -> serde_json::Value {
+        let record = lines
+            .iter()
+            .find(|line| line["file"] == file)
+            .unwrap_or_else(|| panic!("no record for {file} in {lines:?}"));
+        record["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|item| item["members"].as_array().unwrap())
+            .find(|member| member["name"] == name)
+            .unwrap_or_else(|| panic!("no member `{name}` in {record}"))
+            .clone()
+    };
+
+    // (file, member, start line, end line, the declaration the range covers)
+    let cases: [(&str, &str, u64, u64, &str); 6] = [
+        (
+            "store.ts",
+            "read",
+            1,
+            3,
+            "read(key: string) {\n    return key;\n  }",
+        ),
+        ("store.ts", "probe", 6, 6, "probe(id: number): void"),
+        (
+            "lib.rs",
+            "read",
+            3,
+            5,
+            "pub fn read(&self) -> u8 {\n        1\n    }",
+        ),
+        ("lib.rs", "probe", 9, 9, "fn probe(&self) -> bool;"),
+        (
+            "User.java",
+            "save",
+            3,
+            5,
+            "public void save() {\n    return;\n  }",
+        ),
+        (
+            "store.py",
+            "read",
+            1,
+            2,
+            "def read(self):\n        return 1",
+        ),
+    ];
+    for (file, name, start, end, declaration) in cases {
+        let found = member(file, name);
+        assert_eq!(found["symbolType"], "method", "{file}: {name}");
+        let range = &found["range"];
+        assert_eq!(range["start"]["line"], start, "{file}: {name} start line");
+        assert_eq!(range["end"]["line"], end, "{file}: {name} end line");
+        let source = fs::read_to_string(root.join(file)).unwrap();
+        let from = range["byteOffset"][0].as_u64().unwrap() as usize;
+        let to = range["byteOffset"][1].as_u64().unwrap() as usize;
+        assert_eq!(&source[from..to], declaration, "{file}: {name} byteOffset");
+    }
 
     fs::remove_dir_all(&root).unwrap();
 }
@@ -457,6 +558,80 @@ fn serve_search(root: &std::path::Path, request: serde_json::Value) -> serde_jso
     drop(stdin);
     let _ = child.wait();
     response
+}
+
+/// A panicking handler must cost exactly one request, never the server.
+///
+/// This is the PROFILE check, not a unit test of `contain_search_panic`:
+/// `catch_unwind` isolates only when the binary was built to unwind, so the
+/// contract is asserted against a real build of the binary this suite runs.
+/// Run it under `cargo test --release` as well to prove it in the shipped
+/// configuration — with `panic = "abort"` the server aborts here instead and
+/// the first read returns nothing.
+#[test]
+fn a_panicking_handler_is_isolated_and_the_server_keeps_serving() {
+    let root = fixture();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
+        .arg(&root)
+        .arg("--serve-search")
+        .env("MIXDOG_SEARCH_PANIC_PROBE_ID", "41")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut stdin = child.stdin.take().unwrap();
+    let mut ready = String::new();
+    stdout.read_line(&mut ready).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(ready.trim()).unwrap()["ready"],
+        true
+    );
+
+    let search = |id: u64| {
+        serde_json::json!({
+            "id": id,
+            "cwd": root,
+            "args": [
+                "--color", "never", "--hidden", "--no-heading", "-H",
+                "--line-number", "-e", "answer", "--", "."
+            ],
+            "offset": 0,
+            "limit": 20
+        })
+    };
+    writeln!(stdin, "{}", search(41)).unwrap();
+    stdin.flush().unwrap();
+    let panicked = read_search_response(&mut stdout, 41);
+    assert!(
+        panicked["unsupported"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("panicked; request isolated")),
+        "{panicked}"
+    );
+
+    // The next request proves the process survived with its engine intact,
+    // not merely that one error line was written.
+    writeln!(stdin, "{}", search(42)).unwrap();
+    stdin.flush().unwrap();
+    let served = read_search_response(&mut stdout, 42);
+    assert!(served.get("unsupported").is_none(), "{served}");
+    assert!(served.get("error").is_none(), "{served}");
+    assert!(
+        served["lines"]
+            .as_array()
+            .is_some_and(|lines| !lines.is_empty()),
+        "{served}"
+    );
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "search server exited on a handler panic"
+    );
+
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+    fs::remove_dir_all(root).unwrap();
 }
 
 fn read_search_message<R: BufRead>(stdout: &mut R) -> serde_json::Value {

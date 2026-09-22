@@ -34,7 +34,7 @@ mod platform {
     use std::os::windows::io::AsRawHandle;
     use std::path::{Path, PathBuf};
     use std::ptr::{null, null_mut};
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use std::time::{Duration, Instant};
     use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::{
@@ -70,19 +70,50 @@ mod platform {
         }
     }
 
-    fn cursors() -> &'static Mutex<HashMap<u16, JournalCursor>> {
-        CURSORS.get_or_init(|| Mutex::new(HashMap::new()))
+    /// A poisoned journal lock is recovered, never propagated: these tables
+    /// are a cache, and a panic elsewhere must not disable change tracking
+    /// for the rest of the process.
+    fn cursors() -> MutexGuard<'static, HashMap<u16, JournalCursor>> {
+        CURSORS
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
     }
 
-    fn failures() -> &'static Mutex<HashMap<u16, Instant>> {
-        FAILURES.get_or_init(|| Mutex::new(HashMap::new()))
+    fn failures() -> MutexGuard<'static, HashMap<u16, Instant>> {
+        FAILURES
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
     }
 
     fn note_failure(volume: u16) {
-        failures()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(volume, Instant::now());
+        failures().insert(volume, Instant::now());
+    }
+
+    /// Drop this volume's cursor, start the retry backoff, and answer
+    /// "untrusted" so the caller falls back to a full scan.
+    fn distrust(volume: u16) -> SyncResult {
+        cursors().remove(&volume);
+        note_failure(volume);
+        SyncResult::default()
+    }
+
+    /// Trusted, with nothing to report for this volume.
+    fn unchanged(volume_serial: u32) -> SyncResult {
+        SyncResult {
+            trusted: true,
+            volume_serial: Some(volume_serial),
+            changed: HashSet::new(),
+            parents: HashSet::new(),
+        }
+    }
+
+    fn identity_of(info: &BY_HANDLE_FILE_INFORMATION) -> FileIdentity {
+        FileIdentity {
+            volume: info.dwVolumeSerialNumber,
+            file_id: ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64,
+        }
     }
 
     fn open_volume(volume: u16) -> Option<OwnedHandle> {
@@ -224,10 +255,7 @@ mod platform {
     pub fn file_identity(file: &File) -> Option<FileIdentity> {
         let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { zeroed() };
         let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle() as HANDLE, &mut info) };
-        (ok != 0).then_some(FileIdentity {
-            volume: info.dwVolumeSerialNumber,
-            file_id: ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64,
-        })
+        (ok != 0).then(|| identity_of(&info))
     }
 
     pub fn metadata_and_identity(path: &Path) -> Option<(std::fs::Metadata, Option<FileIdentity>)> {
@@ -264,10 +292,7 @@ mod platform {
         let handle = (handle != INVALID_HANDLE_VALUE).then_some(OwnedHandle(handle))?;
         let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { zeroed() };
         let ok = unsafe { GetFileInformationByHandle(handle.0, &mut info) };
-        (ok != 0).then_some(FileIdentity {
-            volume: info.dwVolumeSerialNumber,
-            file_id: ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64,
-        })
+        (ok != 0).then(|| identity_of(&info))
     }
 
     pub fn resolve_file_ids(volume: u16, ids: &HashSet<u64>) -> Option<Vec<PathBuf>> {
@@ -321,85 +346,44 @@ mod platform {
 
     pub fn sync_volume(volume: u16) -> SyncResult {
         if failures()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
             .get(&volume)
             .is_some_and(|failed_at| failed_at.elapsed() < Duration::from_secs(30))
         {
             return SyncResult::default();
         }
-        let previous = {
-            let state = cursors().lock().unwrap_or_else(|error| error.into_inner());
-            state.get(&volume).copied()
-        };
+        let previous = cursors().get(&volume).copied();
         if let Some(previous) = previous {
             if previous.last_sync.elapsed() < Duration::from_millis(100) {
-                return SyncResult {
-                    trusted: true,
-                    volume_serial: Some(previous.volume_serial),
-                    changed: HashSet::new(),
-                    parents: HashSet::new(),
-                };
+                return unchanged(previous.volume_serial);
             }
         }
         let Some(handle) = open_volume(volume) else {
-            cursors()
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .remove(&volume);
-            note_failure(volume);
-            return SyncResult::default();
+            return distrust(volume);
         };
         let Some(journal) = query_journal(handle.0) else {
-            cursors()
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .remove(&volume);
-            note_failure(volume);
-            return SyncResult::default();
+            return distrust(volume);
         };
         let Some(serial) = volume_serial(handle.0) else {
-            cursors()
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .remove(&volume);
-            note_failure(volume);
-            return SyncResult::default();
+            return distrust(volume);
         };
-        failures()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .remove(&volume);
+        failures().remove(&volume);
         let Some(previous) = previous else {
-            cursors()
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .insert(
-                    volume,
-                    JournalCursor {
-                        volume_serial: serial,
-                        journal_id: journal.UsnJournalID,
-                        next_usn: journal.NextUsn,
-                        last_sync: Instant::now(),
-                    },
-                );
-            return SyncResult {
-                trusted: true,
-                volume_serial: Some(serial),
-                changed: HashSet::new(),
-                parents: HashSet::new(),
-            };
+            cursors().insert(
+                volume,
+                JournalCursor {
+                    volume_serial: serial,
+                    journal_id: journal.UsnJournalID,
+                    next_usn: journal.NextUsn,
+                    last_sync: Instant::now(),
+                },
+            );
+            return unchanged(serial);
         };
         if previous.journal_id != journal.UsnJournalID
             || previous.next_usn < journal.FirstUsn
             || previous.next_usn > journal.NextUsn
         {
-            cursors()
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .remove(&volume);
-            note_failure(volume);
-            return SyncResult::default();
+            return distrust(volume);
         }
         let Some((next_usn, changed, parents)) = read_changes(
             handle.0,
@@ -407,25 +391,17 @@ mod platform {
             journal.NextUsn,
             journal.UsnJournalID,
         ) else {
-            cursors()
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .remove(&volume);
-            note_failure(volume);
-            return SyncResult::default();
+            return distrust(volume);
         };
-        cursors()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(
-                volume,
-                JournalCursor {
-                    volume_serial: serial,
-                    journal_id: journal.UsnJournalID,
-                    next_usn,
-                    last_sync: Instant::now(),
-                },
-            );
+        cursors().insert(
+            volume,
+            JournalCursor {
+                volume_serial: serial,
+                journal_id: journal.UsnJournalID,
+                next_usn,
+                last_sync: Instant::now(),
+            },
+        );
         SyncResult {
             trusted: true,
             volume_serial: Some(serial),
@@ -436,8 +412,6 @@ mod platform {
 
     pub fn journal_checkpoints() -> Vec<super::JournalCheckpoint> {
         cursors()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
             .iter()
             .map(|(&volume, cursor)| super::JournalCheckpoint {
                 volume,
@@ -449,7 +423,7 @@ mod platform {
     }
 
     pub fn restore_journal_checkpoints(checkpoints: &[super::JournalCheckpoint]) {
-        let mut state = cursors().lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = cursors();
         for checkpoint in checkpoints {
             let restored = JournalCursor {
                 volume_serial: checkpoint.volume_serial,

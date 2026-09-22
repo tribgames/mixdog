@@ -57,9 +57,7 @@ pub(super) fn retain_bounded<T: Ord>(
 pub(super) fn collect_mtime_candidates(
     files: &[PathBuf],
     base_index: usize,
-    operand: &str,
-    operand_path: &Path,
-    filter: &PathFilter,
+    scope: &OperandScope<'_>,
     trust: &TrustSnapshot,
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
@@ -71,15 +69,15 @@ pub(super) fn collect_mtime_candidates(
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
         }
-        if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+        if deadline_expired(deadline_at) {
             return Ok((candidates, true));
         }
         let batch: Vec<_> = chunk
             .par_iter()
             .enumerate()
-            .filter(|(_, file)| filter.allows(file))
+            .filter(|(_, file)| scope.filter.allows(file))
             .map(|(index, file)| {
-                let path = display_path(operand, operand_path, file);
+                let path = display_path(scope.operand, scope.operand_path, file);
                 let mtime_ms = file_mtime_ms(file, trust);
                 (base_index + chunk_index * 256 + index, path, mtime_ms)
             })
@@ -89,10 +87,7 @@ pub(super) fn collect_mtime_candidates(
     if cancelled.load(Ordering::Relaxed) {
         return Err(CANCELLED.to_string());
     }
-    Ok((
-        candidates,
-        deadline_at.is_some_and(|deadline| Instant::now() >= deadline),
-    ))
+    Ok((candidates, deadline_expired(deadline_at)))
 }
 
 pub(super) fn handle_mtime_inventory(
@@ -119,7 +114,7 @@ pub(super) fn handle_mtime_inventory(
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
         }
-        if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+        if deadline_expired(deadline_at) {
             timed_out = true;
             break;
         }
@@ -129,21 +124,18 @@ pub(super) fn handle_mtime_inventory(
             cwd.join(operand)
         };
         let filter = PathFilter::new(&operand_path, parsed)?;
+        let scope = OperandScope {
+            operand,
+            operand_path: &operand_path,
+            filter: &filter,
+        };
         let watched = store.watch_root(&operand_path);
         let trust = TrustSnapshot::capture();
         cache_safe &= watched;
         let walk_key = walk_key(&operand_path, parsed);
         if let Some(files) = store.take_ready(&walk_key) {
-            let (candidates, expired) = collect_mtime_candidates(
-                &files,
-                0,
-                operand,
-                &operand_path,
-                &filter,
-                &trust,
-                cancelled,
-                deadline_at,
-            )?;
+            let (candidates, expired) =
+                collect_mtime_candidates(&files, 0, &scope, &trust, cancelled, deadline_at)?;
             total_seen = total_seen.saturating_add(candidates.len());
             for (index, path, mtime_ms) in candidates {
                 if let Some(mtime_ms) = mtime_ms {
@@ -177,13 +169,13 @@ pub(super) fn handle_mtime_inventory(
         let mut operand_complete = false;
         'stream: loop {
             let (batch_start, batch) = {
-                let mut files = live.files.lock().unwrap_or_else(|e| e.into_inner());
+                let mut files = lock_recover(&live.files);
                 while cursor >= files.len() {
                     if live.enumeration_done.load(Ordering::Acquire) {
                         operand_complete = true;
                         break 'stream;
                     }
-                    let state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+                    let state = lock_recover(&live.state);
                     match &*state {
                         LiveState::Done(_) => {
                             operand_complete = true;
@@ -202,7 +194,7 @@ pub(super) fn handle_mtime_inventory(
                     if cancelled.load(Ordering::Relaxed) {
                         return Err(CANCELLED.to_string());
                     }
-                    if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+                    if deadline_expired(deadline_at) {
                         timed_out = true;
                         break 'stream;
                     }
@@ -219,9 +211,7 @@ pub(super) fn handle_mtime_inventory(
             let (candidates, expired) = collect_mtime_candidates(
                 &batch,
                 batch_start,
-                operand,
-                &operand_path,
-                &filter,
+                &scope,
                 &trust,
                 cancelled,
                 deadline_at,
@@ -232,7 +222,7 @@ pub(super) fn handle_mtime_inventory(
                 if cancelled.load(Ordering::Relaxed) {
                     return Err(CANCELLED.to_string());
                 }
-                if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+                if deadline_expired(deadline_at) {
                     timed_out = true;
                     break;
                 }
@@ -279,7 +269,7 @@ pub(super) fn handle_mtime_inventory(
     if cancelled.load(Ordering::Relaxed) {
         return Err(CANCELLED.to_string());
     }
-    let timed_out = timed_out || deadline_at.is_some_and(|deadline| Instant::now() >= deadline);
+    let timed_out = timed_out || deadline_expired(deadline_at);
     let complete = !timed_out && scan_error_count == 0;
     Ok(serde_json::json!({
         "id": req.id,

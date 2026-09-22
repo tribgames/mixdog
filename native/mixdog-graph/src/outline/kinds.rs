@@ -86,7 +86,6 @@ pub(super) fn kind_by_ast_kind(lang: &str, ast_kind: &str) -> Option<Option<&'st
             "public_field_definition"
             | "field_definition"
             | "property_signature"
-            | "method_signature"
             | "property_identifier"
             | "enum_assignment",
         ) => None,
@@ -299,6 +298,31 @@ pub(super) fn kind_by_symbol_type(lang: &str, symbol_type: SymbolType) -> Option
 mod tests {
     use crate::outline::rules::intern_kind;
     use crate::outline::test_support::{kinds, named, record, records};
+    use crate::scan_lang::scan_lang_for_ext;
+
+    /// `method_signature` was listed twice in `kind_by_ast_kind`: once mapped
+    /// to `method` for typescript, and again in the shared
+    /// `typescript | javascript` NON-symbol arm. The second mention is dead for
+    /// typescript — the earlier arm wins — so it could only ever have meant
+    /// something for JAVASCRIPT. It cannot: the javascript grammar has no such
+    /// node, which is why the token is gone from that arm.
+    #[test]
+    fn the_javascript_grammar_has_no_method_signature_node() {
+        let lang = scan_lang_for_ext("js").expect("js has a scan language");
+        let grammar = ast_grep_core::tree_sitter::LanguageExt::get_ts_language(&lang);
+        let node_kinds: Vec<&str> = (0..grammar.node_kind_count())
+            .filter_map(|id| grammar.node_kind_for_id(id as u16))
+            .collect();
+        assert!(
+            node_kinds.contains(&"method_definition"),
+            "sanity check on the grammar dump ({} kinds)",
+            node_kinds.len()
+        );
+        assert!(
+            !node_kinds.contains(&"method_signature"),
+            "javascript gained a method_signature node: restore it to the non-symbol arm"
+        );
+    }
 
     #[test]
     fn typescript_kinds_match_the_graph_vocabulary() {

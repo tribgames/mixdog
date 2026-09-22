@@ -116,6 +116,82 @@ pub(super) fn content_signature_snapshot_path() -> Option<PathBuf> {
     Some(data_dir.join("search-index/content-signatures-v2.bin"))
 }
 
+/// Magic, version, signature width and the two counts the rest of the
+/// signature snapshot is framed by. A width this build does not use makes
+/// every stored signature meaningless, so it is rejected with the header.
+fn read_signature_header<R: Read>(reader: &mut R) -> io::Result<(usize, usize)> {
+    let mut magic = [0u8; 8];
+    reader.read_exact(&mut magic)?;
+    if &magic != CONTENT_SIGNATURE_SNAPSHOT_MAGIC
+        || read_snapshot_u32(reader)? != CONTENT_SIGNATURE_SNAPSHOT_VERSION
+        || read_snapshot_u32(reader)? as usize != CONTENT_SIGNATURE_WORDS
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "signature snapshot header",
+        ));
+    }
+    let checkpoint_count = read_snapshot_u32(reader)? as usize;
+    let entry_count = read_snapshot_u32(reader)? as usize;
+    if checkpoint_count > 256 || entry_count > CONTENT_SIGNATURE_CACHE_MAX {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "signature snapshot count",
+        ));
+    }
+    Ok((checkpoint_count, entry_count))
+}
+
+/// One persisted signature: the file it describes, the size/mtime/identity it
+/// was computed from, and both trigram bit planes. A restored entry is
+/// complete by construction — only whole signatures are written.
+fn read_signature_entry<R: Read>(reader: &mut R) -> io::Result<(PathBuf, ContentSignatureEntry)> {
+    let path_len = read_snapshot_u32(reader)? as usize;
+    if path_len == 0 || path_len > CONTENT_SIGNATURE_SNAPSHOT_MAX_PATH_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "signature snapshot path",
+        ));
+    }
+    let mut path_bytes = vec![0u8; path_len];
+    reader.read_exact(&mut path_bytes)?;
+    let path = PathBuf::from(
+        String::from_utf8(path_bytes)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "signature snapshot utf8"))?,
+    );
+    let size = read_snapshot_u64(reader)?;
+    let modified_ns = read_snapshot_u128(reader)?;
+    let identity = crate::serve_search_usn::FileIdentity {
+        volume: read_snapshot_u32(reader)?,
+        file_id: read_snapshot_u64(reader)?,
+    };
+    let mut bits = [0u64; CONTENT_SIGNATURE_WORDS];
+    let mut folded_bits = [0u64; CONTENT_SIGNATURE_WORDS];
+    for word in &mut bits {
+        *word = read_snapshot_u64(reader)?;
+    }
+    for word in &mut folded_bits {
+        *word = read_snapshot_u64(reader)?;
+    }
+    Ok((
+        path,
+        ContentSignatureEntry {
+            size,
+            modified_ns,
+            identity: Some(identity),
+            persisted: true,
+            signature: TrigramSignature {
+                bits,
+                folded_bits,
+                previous: [0; 2],
+                folded_previous: [0; 2],
+                seen: 0,
+                complete: true,
+            },
+        },
+    ))
+}
+
 pub(super) fn load_content_signature_cache_binary(path: &Path) -> bool {
     if fs::metadata(path)
         .ok()
@@ -129,82 +205,13 @@ pub(super) fn load_content_signature_cache_binary(path: &Path) -> bool {
     let mut reader = BufReader::new(file);
     let mut inserted = Vec::new();
     let loaded = (|| -> io::Result<Vec<crate::serve_search_usn::JournalCheckpoint>> {
-        let mut magic = [0u8; 8];
-        reader.read_exact(&mut magic)?;
-        if &magic != CONTENT_SIGNATURE_SNAPSHOT_MAGIC
-            || read_snapshot_u32(&mut reader)? != CONTENT_SIGNATURE_SNAPSHOT_VERSION
-            || read_snapshot_u32(&mut reader)? as usize != CONTENT_SIGNATURE_WORDS
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "signature snapshot header",
-            ));
-        }
-        let checkpoint_count = read_snapshot_u32(&mut reader)? as usize;
-        let entry_count = read_snapshot_u32(&mut reader)? as usize;
-        if checkpoint_count > 256 || entry_count > CONTENT_SIGNATURE_CACHE_MAX {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "signature snapshot count",
-            ));
-        }
-        let mut checkpoints = Vec::with_capacity(checkpoint_count);
-        for _ in 0..checkpoint_count {
-            checkpoints.push(crate::serve_search_usn::JournalCheckpoint {
-                volume: read_snapshot_u16(&mut reader)?,
-                volume_serial: read_snapshot_u32(&mut reader)?,
-                journal_id: read_snapshot_u64(&mut reader)?,
-                next_usn: read_snapshot_i64(&mut reader)?,
-            });
-        }
+        let (checkpoint_count, entry_count) = read_signature_header(&mut reader)?;
+        let checkpoints = read_snapshot_checkpoints(&mut reader, checkpoint_count)?;
         inserted.reserve(entry_count);
         for _ in 0..entry_count {
-            let path_len = read_snapshot_u32(&mut reader)? as usize;
-            if path_len == 0 || path_len > CONTENT_SIGNATURE_SNAPSHOT_MAX_PATH_BYTES {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "signature snapshot path",
-                ));
-            }
-            let mut path_bytes = vec![0u8; path_len];
-            reader.read_exact(&mut path_bytes)?;
-            let path = PathBuf::from(String::from_utf8(path_bytes).map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, "signature snapshot utf8")
-            })?);
-            let size = read_snapshot_u64(&mut reader)?;
-            let modified_ns = read_snapshot_u128(&mut reader)?;
-            let identity = crate::serve_search_usn::FileIdentity {
-                volume: read_snapshot_u32(&mut reader)?,
-                file_id: read_snapshot_u64(&mut reader)?,
-            };
-            let mut bits = [0u64; CONTENT_SIGNATURE_WORDS];
-            let mut folded_bits = [0u64; CONTENT_SIGNATURE_WORDS];
-            for word in &mut bits {
-                *word = read_snapshot_u64(&mut reader)?;
-            }
-            for word in &mut folded_bits {
-                *word = read_snapshot_u64(&mut reader)?;
-            }
-            raw_content_signature_cache()[content_signature_shard(&path)]
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .insert(
-                    path.clone(),
-                    ContentSignatureEntry {
-                        size,
-                        modified_ns,
-                        identity: Some(identity),
-                        persisted: true,
-                        signature: TrigramSignature {
-                            bits,
-                            folded_bits,
-                            previous: [0; 2],
-                            folded_previous: [0; 2],
-                            seen: 0,
-                            complete: true,
-                        },
-                    },
-                );
+            let (path, entry) = read_signature_entry(&mut reader)?;
+            lock_recover(&raw_content_signature_cache()[content_signature_shard(&path)])
+                .insert(path.clone(), entry);
             inserted.push(path);
         }
         Ok(checkpoints)
@@ -216,9 +223,7 @@ pub(super) fn load_content_signature_cache_binary(path: &Path) -> bool {
         }
         _ => {
             for path in inserted {
-                raw_content_signature_cache()[content_signature_shard(&path)]
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
+                lock_recover(&raw_content_signature_cache()[content_signature_shard(&path)])
                     .remove(&path);
             }
             false
@@ -230,9 +235,7 @@ pub(super) fn ensure_content_signature_cache_loaded() {
     if CONTENT_SIGNATURE_CACHE_LOADED.load(Ordering::Acquire) {
         return;
     }
-    let _guard = CONTENT_SIGNATURE_CACHE_LOAD
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let _guard = lock_recover(&CONTENT_SIGNATURE_CACHE_LOAD);
     // Re-check under the lock: the snapshot read is expensive enough that two
     // threads racing here would both pay for it.
     if CONTENT_SIGNATURE_CACHE_LOADED.load(Ordering::Acquire) {
@@ -253,7 +256,7 @@ pub(super) fn persist_content_signature_cache() {
     }
     let mut volumes = HashSet::new();
     for shard in content_signature_cache() {
-        let cache = shard.lock().unwrap_or_else(|error| error.into_inner());
+        let cache = lock_recover(shard);
         for path in cache.keys() {
             if let Some(volume) = crate::serve_search_usn::volume_for_path(path) {
                 volumes.insert(volume);
@@ -298,7 +301,7 @@ pub(super) fn persist_content_signature_cache() {
         }
         let mut entry_count = 0u32;
         for shard in content_signature_cache() {
-            let cache = shard.lock().unwrap_or_else(|error| error.into_inner());
+            let cache = lock_recover(shard);
             for (path, entry) in cache.iter() {
                 let Some(identity) = entry
                     .identity
@@ -383,16 +386,9 @@ pub(super) struct TrustSnapshot {
 impl TrustSnapshot {
     pub(super) fn capture() -> Self {
         Self {
-            usn_volumes: Arc::new(
-                trusted_usn_volumes()
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .clone(),
-            ),
+            usn_volumes: Arc::new(lock_recover(trusted_usn_volumes()).clone()),
             watch_roots: Arc::new(
-                trusted_watch_roots()
-                    .read()
-                    .unwrap_or_else(|error| error.into_inner())
+                read_recover(trusted_watch_roots())
                     .iter()
                     .cloned()
                     .collect(),
@@ -408,17 +404,12 @@ impl TrustSnapshot {
 }
 
 pub(super) fn apply_content_signature_journal_sync(result: crate::serve_search_usn::SyncResult) {
-    let mut trusted = trusted_usn_volumes()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut trusted = lock_recover(trusted_usn_volumes());
     let Some(serial) = result.volume_serial.filter(|_| result.trusted) else {
         trusted.clear();
         drop(trusted);
         for shard in raw_content_signature_cache() {
-            shard
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .retain(|_, entry| !entry.persisted);
+            lock_recover(shard).retain(|_, entry| !entry.persisted);
         }
         CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(1, Ordering::Relaxed);
         return;
@@ -430,15 +421,14 @@ pub(super) fn apply_content_signature_journal_sync(result: crate::serve_search_u
     }
     CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(1, Ordering::Relaxed);
     for shard in content_signature_cache() {
-        let mut cache = shard.lock().unwrap_or_else(|error| error.into_inner());
-        cache.retain(|_, entry| {
+        lock_recover(shard).retain(|_, entry| {
             !entry.identity.is_some_and(|identity| {
                 identity.volume == serial && result.changed.contains(&identity.file_id)
             })
         });
     }
     for shard in file_metadata_cache() {
-        let mut cache = shard.lock().unwrap_or_else(|error| error.into_inner());
+        let mut cache = lock_recover(shard);
         cache.retain(|_, entry| {
             !entry.identity.is_some_and(|identity| {
                 identity.volume == serial && result.changed.contains(&identity.file_id)
@@ -576,9 +566,7 @@ pub(super) fn file_content_fingerprint(path: &Path) -> Option<(u64, u128)> {
 pub(super) fn file_mtime_ms(path: &Path, trust: &TrustSnapshot) -> Option<u128> {
     let shard = content_signature_shard(path);
     let cached = {
-        let cache = file_metadata_cache()[shard]
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let cache = lock_recover(&file_metadata_cache()[shard]);
         cache.get(path).cloned()
     };
     if let Some(entry) = cached.as_ref() {
@@ -609,10 +597,7 @@ pub(super) fn file_mtime_ms(path: &Path, trust: &TrustSnapshot) -> Option<u128> 
         identity,
     };
     let mtime_ms = entry.mtime_ms;
-    file_metadata_cache()[shard]
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .insert(path.to_path_buf(), entry);
+    lock_recover(&file_metadata_cache()[shard]).insert(path.to_path_buf(), entry);
     Some(mtime_ms)
 }
 
@@ -632,9 +617,7 @@ pub(super) fn cached_signature_state(
     let shard = content_signature_shard(path);
     let watcher_trusted = trust.watcher_covers(path);
     let entry = {
-        let cache = content_signature_cache()[shard]
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let cache = lock_recover(&content_signature_cache()[shard]);
         let Some(entry) = cache.get(path) else {
             return CachedSignatureState::Missing;
         };
@@ -656,9 +639,7 @@ pub(super) fn cached_signature_state(
         return CachedSignatureState::Missing;
     };
     if entry.size != size || entry.modified_ns != modified_ns {
-        let mut cache = content_signature_cache()[shard]
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut cache = lock_recover(&content_signature_cache()[shard]);
         cache.remove(path);
         return CachedSignatureState::Missing;
     }
@@ -694,9 +675,7 @@ pub(super) fn remember_content_signature(
     let Some((size, modified_ns)) = file_content_fingerprint(path) else {
         return;
     };
-    let mut cache = content_signature_cache()[content_signature_shard(path)]
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut cache = lock_recover(&content_signature_cache()[content_signature_shard(path)]);
     if cache.len() >= CONTENT_SIGNATURE_CACHE_MAX / CONTENT_SIGNATURE_CACHE_SHARDS {
         if let Some(oldest) = cache.keys().next().cloned() {
             cache.remove(&oldest);
@@ -728,9 +707,7 @@ pub(super) fn schedule_signature_prewarm(files: Arc<Vec<PathBuf>>) {
         let mut total_bytes = 0u64;
         let mut buffer = vec![0u8; 256 * 1024];
         for path in files.iter().take(8_192) {
-            if raw_content_signature_cache()[content_signature_shard(path)]
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
+            if lock_recover(&raw_content_signature_cache()[content_signature_shard(path)])
                 .contains_key(path)
             {
                 continue;
@@ -763,18 +740,27 @@ pub(super) fn schedule_signature_prewarm(files: Arc<Vec<PathBuf>>) {
     });
 }
 
-pub(super) fn invalidate_content_signatures(paths: &[PathBuf], recursive: bool) {
+/// Drop cached entries for `paths` from one sharded path-keyed cache.
+///
+/// The two accessors are deliberately separate. A per-path removal only has to
+/// touch what is already in memory (`resident`), because a not-yet-loaded
+/// snapshot is validated against the USN journal when it loads. A recursive
+/// invalidation must reach the loading accessor (`whole`, called lazily), or a
+/// later load would resurrect entries this call was meant to drop.
+fn invalidate_path_keyed_shards<T>(
+    resident: &'static [Mutex<HashMap<PathBuf, T>>; CONTENT_SIGNATURE_CACHE_SHARDS],
+    whole: impl FnOnce() -> &'static [Mutex<HashMap<PathBuf, T>>; CONTENT_SIGNATURE_CACHE_SHARDS],
+    paths: &[PathBuf],
+    recursive: bool,
+) {
     if !recursive && !paths.is_empty() {
         for path in paths {
-            raw_content_signature_cache()[content_signature_shard(path)]
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .remove(path);
+            lock_recover(&resident[content_signature_shard(path)]).remove(path);
         }
         return;
     }
-    for shard in content_signature_cache() {
-        let mut cache = shard.lock().unwrap_or_else(|error| error.into_inner());
+    for shard in whole() {
+        let mut cache = lock_recover(shard);
         if paths.is_empty() {
             cache.clear();
         } else {
@@ -787,26 +773,15 @@ pub(super) fn invalidate_content_signatures(paths: &[PathBuf], recursive: bool) 
     }
 }
 
+pub(super) fn invalidate_content_signatures(paths: &[PathBuf], recursive: bool) {
+    invalidate_path_keyed_shards(
+        raw_content_signature_cache(),
+        content_signature_cache,
+        paths,
+        recursive,
+    );
+}
+
 pub(super) fn invalidate_file_metadata(paths: &[PathBuf], recursive: bool) {
-    if !recursive && !paths.is_empty() {
-        for path in paths {
-            file_metadata_cache()[content_signature_shard(path)]
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .remove(path);
-        }
-        return;
-    }
-    for shard in file_metadata_cache() {
-        let mut cache = shard.lock().unwrap_or_else(|error| error.into_inner());
-        if paths.is_empty() {
-            cache.clear();
-        } else {
-            cache.retain(|cached, _| {
-                !paths
-                    .iter()
-                    .any(|changed| FileListStore::paths_overlap(cached, changed))
-            });
-        }
-    }
+    invalidate_path_keyed_shards(file_metadata_cache(), file_metadata_cache, paths, recursive);
 }

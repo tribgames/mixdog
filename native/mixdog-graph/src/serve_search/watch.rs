@@ -3,6 +3,15 @@
 // worker that splices changed paths into a cached inventory.
 use super::*;
 
+/// Does one cache key's operand share a path with any invalidated root?
+/// Every cache in the store is keyed by operand and evicted by this same
+/// overlap test, so the predicate has exactly one definition.
+pub(super) fn overlaps_any_root(operand: &Path, roots: &[PathBuf]) -> bool {
+    roots
+        .iter()
+        .any(|root| FileListStore::paths_overlap(operand, root))
+}
+
 impl FileListStore {
     pub(super) fn schedule_inventory_repairs(self: &Arc<Self>, paths: &[PathBuf]) -> Vec<PathBuf> {
         let roots = self.affected_roots(paths);
@@ -14,16 +23,9 @@ impl FileListStore {
         } else {
             paths.to_vec()
         };
-        let cached = self
-            .ready
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        let cached = lock_recover(&self.ready)
             .iter()
-            .filter(|(key, _)| {
-                roots
-                    .iter()
-                    .any(|root| Self::paths_overlap(&key.operand, root))
-            })
+            .filter(|(key, _)| overlaps_any_root(&key.operand, &roots))
             .map(|(key, entry)| {
                 (
                     key.clone(),
@@ -33,15 +35,9 @@ impl FileListStore {
             })
             .collect::<Vec<_>>();
         {
-            let mut pending = self
-                .pending_repairs
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
+            let mut pending = lock_recover(&self.pending_repairs);
             for (key, entry) in pending.iter_mut() {
-                if roots
-                    .iter()
-                    .any(|root| Self::paths_overlap(&key.operand, root))
-                {
+                if overlaps_any_root(&key.operand, &roots) {
                     entry.paths.extend(repair_paths.iter().cloned());
                 }
             }
@@ -76,10 +72,7 @@ impl FileListStore {
             loop {
                 std::thread::sleep(Duration::from_millis(50));
                 let jobs = {
-                    let mut pending = store
-                        .pending_repairs
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner());
+                    let mut pending = lock_recover(&store.pending_repairs);
                     pending
                         .iter_mut()
                         .filter(|(_, entry)| !entry.processing && !entry.paths.is_empty())
@@ -103,10 +96,7 @@ impl FileListStore {
                 }
             }
             store.repair_worker_running.store(false, Ordering::Release);
-            let restart = store
-                .pending_repairs
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
+            let restart = lock_recover(&store.pending_repairs)
                 .values()
                 .any(|entry| !entry.processing && !entry.paths.is_empty());
             if restart {
@@ -116,10 +106,7 @@ impl FileListStore {
     }
 
     pub(super) fn schedule_noise_prewarm(self: &Arc<Self>) {
-        let keys = self
-            .ready
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        let keys = lock_recover(&self.ready)
             .keys()
             .filter(|key| key.no_ignore)
             .cloned()
@@ -158,10 +145,7 @@ impl FileListStore {
         token: &Arc<()>,
         repaired: Result<Arc<Vec<PathBuf>>, String>,
     ) {
-        let mut pending = self
-            .pending_repairs
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut pending = lock_recover(&self.pending_repairs);
         let Some(entry) = pending.get_mut(key) else {
             return;
         };
@@ -197,48 +181,25 @@ impl FileListStore {
             return;
         }
         if paths.is_none() {
-            self.pending_repairs
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .retain(|key, _| {
-                    !roots
-                        .iter()
-                        .any(|root| Self::paths_overlap(&key.operand, root))
-                });
+            lock_recover(&self.pending_repairs)
+                .retain(|key, _| !overlaps_any_root(&key.operand, roots));
             self.repair_changed.notify_all();
         }
         {
-            let mut changes = self.changes.lock().unwrap_or_else(|e| e.into_inner());
+            let mut changes = lock_recover(&self.changes);
             changes.record(roots, paths);
-            let mut generations = self.generations.lock().unwrap_or_else(|e| e.into_inner());
+            let mut generations = lock_recover(&self.generations);
             for root in roots {
                 *generations.entry(root.clone()).or_insert(0) += 1;
             }
         }
-        self.ready
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .retain(|key, _| {
-                !roots
-                    .iter()
-                    .any(|root| Self::paths_overlap(&key.operand, root))
-            });
-        self.fuzzy
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .retain(|key, _| {
-                !roots
-                    .iter()
-                    .any(|root| Self::paths_overlap(&key.walk.operand, root))
-            });
+        lock_recover(&self.ready).retain(|key, _| !overlaps_any_root(&key.operand, roots));
+        lock_recover(&self.fuzzy).retain(|key, _| !overlaps_any_root(&key.walk.operand, roots));
         let stale: Vec<Arc<LiveWalk>> = {
-            let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
+            let mut live = lock_recover(&self.live);
             let mut stale = Vec::new();
             live.retain(|key, value| {
-                let affected = roots
-                    .iter()
-                    .any(|root| Self::paths_overlap(&key.operand, root));
-                if !affected {
+                if !overlaps_any_root(&key.operand, roots) {
                     return true;
                 }
                 stale.push(Arc::clone(value));
@@ -253,13 +214,54 @@ impl FileListStore {
             live.keep_warm.store(false, Ordering::Release);
             if live.waiters.load(Ordering::Acquire) == 0 {
                 live.cancelled.store(true, Ordering::Release);
-                let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+                let mut state = lock_recover(&live.state);
                 if matches!(&*state, LiveState::Running) {
                     *state = LiveState::Abandoned;
                 }
                 live.cond.notify_all();
             }
         }
+    }
+
+    /// Drop a watcher that stopped delivering events and invalidate every root
+    /// it was covering: what nobody watches can no longer be cached.
+    fn reset_failed_watcher(self: &Arc<Self>) {
+        let stale_roots = {
+            let mut watcher = lock_recover(&self.watcher);
+            if self.watcher_healthy.load(Ordering::Acquire) {
+                Vec::new()
+            } else {
+                *watcher = None;
+                let mut roots = lock_recover(&self.watched_roots);
+                let stale = roots.drain().map(|(path, _)| path).collect::<Vec<_>>();
+                write_recover(trusted_watch_roots()).clear();
+                stale
+            }
+        };
+        if !stale_roots.is_empty() {
+            self.invalidate_roots(&stale_roots);
+        }
+    }
+
+    /// An existing recursive watch on an ancestor already covers this root.
+    /// Registering every explicit file operand's parent as its own root
+    /// churned the WATCH_ROOT_MAX-bounded set (evict → invalidate
+    /// broadcast → client in-flight abort → retry → re-register), which
+    /// looped candidate-scoped fan-out greps indefinitely. Invalidation
+    /// stays correct: affected_roots/invalidate_roots match cache keys by
+    /// path overlap, so events under the ancestor reach descendant
+    /// operands. Refresh the covering root so hot ancestors stay resident.
+    fn refresh_covering_root(&self, root: &Path) -> bool {
+        let mut roots = lock_recover(&self.watched_roots);
+        let Some(covering) = roots
+            .keys()
+            .find(|existing| root.starts_with(existing.as_path()))
+            .cloned()
+        else {
+            return false;
+        };
+        roots.insert(covering, Instant::now());
+        true
     }
 
     pub(super) fn watch_root(self: &Arc<Self>, operand: &Path) -> bool {
@@ -282,91 +284,18 @@ impl FileListStore {
         }
         let root = normalized_operand(watch_operand);
         if !self.watcher_healthy.load(Ordering::Acquire) {
-            let stale_roots = {
-                let mut watcher = self.watcher.lock().unwrap_or_else(|e| e.into_inner());
-                if self.watcher_healthy.load(Ordering::Acquire) {
-                    Vec::new()
-                } else {
-                    *watcher = None;
-                    let mut roots = self.watched_roots.lock().unwrap_or_else(|e| e.into_inner());
-                    let stale = roots.drain().map(|(path, _)| path).collect::<Vec<_>>();
-                    trusted_watch_roots()
-                        .write()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .clear();
-                    stale
-                }
-            };
-            if !stale_roots.is_empty() {
-                self.invalidate_roots(&stale_roots);
-            }
+            self.reset_failed_watcher();
         }
-        // An existing recursive watch on an ancestor already covers this root.
-        // Registering every explicit file operand's parent as its own root
-        // churned the WATCH_ROOT_MAX-bounded set (evict → invalidate
-        // broadcast → client in-flight abort → retry → re-register), which
-        // looped candidate-scoped fan-out greps indefinitely. Invalidation
-        // stays correct: affected_roots/invalidate_roots match cache keys by
-        // path overlap, so events under the ancestor reach descendant
-        // operands. Refresh the covering root so hot ancestors stay resident.
-        {
-            let mut roots = self.watched_roots.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(covering) = roots
-                .keys()
-                .find(|existing| root.starts_with(existing.as_path()))
-                .cloned()
-            {
-                roots.insert(covering, Instant::now());
-                return true;
-            }
+        if self.refresh_covering_root(&root) {
+            return true;
         }
-        let mut watcher = self.watcher.lock().unwrap_or_else(|e| e.into_inner());
+        let mut watcher = lock_recover(&self.watcher);
         if watcher.is_none() {
             let weak: Weak<Self> = Arc::downgrade(self);
             let created =
                 notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
                     let Some(store) = weak.upgrade() else { return };
-                    let (paths, inventory_changed) = match event {
-                        Ok(event) => {
-                            let Some(change) = inventory_event_change(event) else {
-                                return;
-                            };
-                            // Folder names do not establish exclusion from
-                            // every active query. Let repair use each query's
-                            // actual ignore/override rules instead.
-                            change
-                        }
-                        Err(_) => {
-                            store.watcher_healthy.store(false, Ordering::Release);
-                            trusted_watch_roots()
-                                .write()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .clear();
-                            (Vec::new(), true)
-                        }
-                    };
-                    invalidate_content_signatures(&paths, inventory_changed);
-                    invalidate_file_metadata(&paths, inventory_changed);
-                    let changed = if inventory_changed {
-                        if paths.is_empty() {
-                            // Watcher failure/overflow has no exact repair
-                            // boundary; preserve correctness with full eviction.
-                            store.invalidate_paths(&paths)
-                        } else {
-                            store.schedule_inventory_repairs(&paths)
-                        }
-                    } else {
-                        // Content/metadata changes invalidate JS grep and mtime
-                        // result caches, but the file-name inventory is still
-                        // current and remains reusable.
-                        store.affected_roots(&paths)
-                    };
-                    if !changed.is_empty() {
-                        write_response(&serde_json::json!({
-                            "event": "invalidate",
-                            "paths": changed.iter().map(|path| wire_path(path)).collect::<Vec<_>>()
-                        }));
-                    }
+                    apply_watch_event(&store, event);
                 });
             let Ok(created) = created else { return false };
             *watcher = Some(created);
@@ -378,7 +307,7 @@ impl FileListStore {
         // mutex. Holding it here deadlocked every concurrent directory search
         // until the outer 20s deadline killed the resident server.
         let evicted = {
-            let mut roots = self.watched_roots.lock().unwrap_or_else(|e| e.into_inner());
+            let mut roots = lock_recover(&self.watched_roots);
             if let Some(touched) = roots.get_mut(&root) {
                 *touched = Instant::now();
                 return self.watcher_healthy.load(Ordering::Acquire);
@@ -390,10 +319,7 @@ impl FileListStore {
                     .map(|(path, _)| path.clone());
                 if let Some(oldest) = oldest.as_ref() {
                     roots.remove(oldest);
-                    trusted_watch_roots()
-                        .write()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .remove(oldest);
+                    write_recover(trusted_watch_roots()).remove(oldest);
                 }
                 oldest
             } else {
@@ -414,18 +340,57 @@ impl FileListStore {
             .as_mut()
             .is_some_and(|watcher| watcher.watch(&root, RecursiveMode::Recursive).is_ok());
         if watched {
-            let mut trusted = trusted_watch_roots()
-                .write()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut trusted = write_recover(trusted_watch_roots());
             trusted.insert(root.clone());
             trusted.insert(watch_operand.to_path_buf());
             drop(trusted);
-            self.watched_roots
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(root.clone(), Instant::now());
+            lock_recover(&self.watched_roots).insert(root.clone(), Instant::now());
         }
         watched
+    }
+}
+
+/// One watcher event applied to the caches: classify what changed, invalidate
+/// the content and metadata caches it touches, repair or evict the inventories
+/// under it, and tell the client which roots moved.
+fn apply_watch_event(store: &Arc<FileListStore>, event: notify::Result<notify::Event>) {
+    let (paths, inventory_changed) = match event {
+        Ok(event) => {
+            let Some(change) = inventory_event_change(event) else {
+                return;
+            };
+            // Folder names do not establish exclusion from every active
+            // query. Let repair use each query's actual ignore/override
+            // rules instead.
+            change
+        }
+        Err(_) => {
+            store.watcher_healthy.store(false, Ordering::Release);
+            write_recover(trusted_watch_roots()).clear();
+            (Vec::new(), true)
+        }
+    };
+    invalidate_content_signatures(&paths, inventory_changed);
+    invalidate_file_metadata(&paths, inventory_changed);
+    let changed = if inventory_changed {
+        if paths.is_empty() {
+            // Watcher failure/overflow has no exact repair boundary;
+            // preserve correctness with full eviction.
+            store.invalidate_paths(&paths)
+        } else {
+            store.schedule_inventory_repairs(&paths)
+        }
+    } else {
+        // Content/metadata changes invalidate JS grep and mtime result
+        // caches, but the file-name inventory is still current and remains
+        // reusable.
+        store.affected_roots(&paths)
+    };
+    if !changed.is_empty() {
+        write_response(&serde_json::json!({
+            "event": "invalidate",
+            "paths": changed.iter().map(|path| wire_path(path)).collect::<Vec<_>>()
+        }));
     }
 }
 

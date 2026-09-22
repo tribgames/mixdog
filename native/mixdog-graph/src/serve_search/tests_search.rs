@@ -175,11 +175,7 @@ fn exact_file_search_skips_parent_watch_and_stays_complete() {
             line.as_str()
                 .is_some_and(|value| value.contains("overlay / overlay"))
         })));
-    assert!(store
-        .watched_roots
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .is_empty());
+    assert!(lock_recover(&store.watched_roots).is_empty());
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -194,19 +190,24 @@ fn unreadable_file_counts_a_scan_error_instead_of_silent_no_match() {
     // this file was skipped rather than searched-and-empty.
     let missing = std::env::temp_dir().join("mg-vanished-during-walk.txt");
     std::fs::remove_file(&missing).ok();
+    let files_scanned = AtomicUsize::new(0);
+    let ctx = ScanCtx {
+        parsed: &parsed,
+        matcher: &matcher,
+        cancelled: &cancelled,
+        deadline_at: None,
+        scan_errors: &scan_errors,
+        files_scanned: &files_scanned,
+    };
     assert!(scan_file(
         &missing,
         "",
-        &matcher,
-        &parsed,
-        &cancelled,
-        None,
         None,
         &TrustSnapshot {
             usn_volumes: Arc::new(HashSet::new()),
             watch_roots: Arc::new(Vec::new()),
         },
-        &scan_errors,
+        &ctx,
     )
     .is_none());
     assert_eq!(scan_errors.load(Ordering::Relaxed), 1);

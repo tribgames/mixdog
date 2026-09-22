@@ -30,6 +30,9 @@ pub struct WalkedItem<'t> {
     pub(super) member_declared: Vec<Option<DeclaredKind>>,
 }
 
+/// Member rule indices by node kind id, one map per member scope.
+type MemberScopes = Vec<HashMap<u16, Vec<usize>>>;
+
 /// Compiled item/member extractors for one language, indexed by node kind.
 pub struct LangExtractors {
     items: Vec<ItemExtractor<ScanLang>>,
@@ -41,7 +44,7 @@ pub struct LangExtractors {
     item_kinds: Vec<Option<DeclaredKind>>,
     members: Vec<MemberExtractor<ScanLang>>,
     /// one scope per item rule id that member rules point at.
-    member_scopes: Vec<HashMap<u16, Vec<usize>>>,
+    member_scopes: MemberScopes,
     member_kinds: Vec<Option<DeclaredKind>>,
     /// Call rules of this language, applied by the same walk so a file is
     /// parsed and traversed exactly once for symbols, imports and calls.
@@ -91,6 +94,75 @@ impl FileMeta {
     pub(super) fn take(slot: Option<(usize, String)>) -> String {
         slot.map(|(_, name)| name).unwrap_or_default()
     }
+}
+
+/// Item rules indexed by the node kinds they can match, in rule order: the
+/// walk looks one node kind up here instead of trying every rule.
+fn index_items_by_kind(
+    lang: ScanLang,
+    items: &[ItemExtractor<ScanLang>],
+    errors: &mut Vec<String>,
+) -> Vec<Vec<usize>> {
+    let mut item_by_kind: Vec<Vec<usize>> = Vec::new();
+    for (index, extractor) in items.iter().enumerate() {
+        // The walk indexes rules by node kind, so a rule without one (a
+        // bare pattern rule) can never be reached and is a rule-authoring
+        // error, not a silent no-op.
+        let Some(kinds) = extractor.common.rule.matcher.potential_kinds() else {
+            errors.push(format!(
+                "{lang}: item rule `{}` has no `kind:` to index on; it can never match",
+                extractor.common.rule.id
+            ));
+            continue;
+        };
+        for kind in &kinds {
+            while item_by_kind.len() <= kind {
+                item_by_kind.push(Vec::new());
+            }
+            item_by_kind[kind].push(index);
+        }
+    }
+    item_by_kind
+}
+
+/// Member rules grouped into one scope per item rule id they attach to, with
+/// the map from that rule id to its scope the items then point at. The scope
+/// keys borrow `member_parents`, which outlives the returned map.
+fn index_member_scopes<'a>(
+    lang: ScanLang,
+    members: &[MemberExtractor<ScanLang>],
+    member_parents: &'a [Vec<String>],
+    errors: &mut Vec<String>,
+) -> (MemberScopes, HashMap<&'a str, usize>) {
+    let mut scope_by_parent: HashMap<&'a str, usize> = HashMap::new();
+    let mut member_scopes: MemberScopes = Vec::new();
+    for (index, extractor) in members.iter().enumerate() {
+        let Some(kinds) = extractor.common.rule.matcher.potential_kinds() else {
+            errors.push(format!(
+                "{lang}: member rule `{}` has no `kind:` to index on; it can never match",
+                extractor.common.rule.id
+            ));
+            continue;
+        };
+        for parent in &member_parents[index] {
+            let scope = match scope_by_parent.get(parent.as_str()) {
+                Some(scope) => *scope,
+                None => {
+                    member_scopes.push(HashMap::new());
+                    let scope = member_scopes.len() - 1;
+                    scope_by_parent.insert(parent.as_str(), scope);
+                    scope
+                }
+            };
+            for kind in &kinds {
+                member_scopes[scope]
+                    .entry(kind as u16)
+                    .or_default()
+                    .push(index);
+            }
+        }
+    }
+    (member_scopes, scope_by_parent)
 }
 
 impl LangExtractors {
@@ -153,57 +225,9 @@ impl LangExtractors {
             }
         }
 
-        let mut item_by_kind: Vec<Vec<usize>> = Vec::new();
-        for (index, extractor) in items.iter().enumerate() {
-            // The walk indexes rules by node kind, so a rule without one (a
-            // bare pattern rule) can never be reached and is a rule-authoring
-            // error, not a silent no-op.
-            let Some(kinds) = extractor.common.rule.matcher.potential_kinds() else {
-                errors.push(format!(
-                    "{lang}: item rule `{}` has no `kind:` to index on; it can never match",
-                    extractor.common.rule.id
-                ));
-                continue;
-            };
-            for kind in &kinds {
-                while item_by_kind.len() <= kind {
-                    item_by_kind.push(Vec::new());
-                }
-                item_by_kind[kind].push(index);
-            }
-        }
-
-        // Member rules are grouped by the item rule id they attach to.
-        let mut scope_by_parent: HashMap<&str, usize> = HashMap::new();
-        let mut member_scopes: Vec<HashMap<u16, Vec<usize>>> = Vec::new();
-        for (index, extractor) in members.iter().enumerate() {
-            let Some(kinds) = extractor.common.rule.matcher.potential_kinds() else {
-                errors.push(format!(
-                    "{lang}: member rule `{}` has no `kind:` to index on; it can never match",
-                    extractor.common.rule.id
-                ));
-                continue;
-            };
-            for parent in &member_parents[index] {
-                let scope = match scope_by_parent.get(parent.as_str()) {
-                    Some(scope) => *scope,
-                    None => {
-                        member_scopes.push(HashMap::new());
-                        let scope = member_scopes.len() - 1;
-                        // SAFETY of the key lifetime: `member_parents` outlives
-                        // the map, which is dropped at the end of this fn.
-                        scope_by_parent.insert(parent.as_str(), scope);
-                        scope
-                    }
-                };
-                for kind in &kinds {
-                    member_scopes[scope]
-                        .entry(kind as u16)
-                        .or_default()
-                        .push(index);
-                }
-            }
-        }
+        let item_by_kind = index_items_by_kind(lang, &items, &mut errors);
+        let (member_scopes, scope_by_parent) =
+            index_member_scopes(lang, &members, &member_parents, &mut errors);
         let item_scope = items
             .iter()
             .map(|item| scope_by_parent.get(item.common.rule.id.as_str()).copied())
@@ -225,6 +249,61 @@ impl LangExtractors {
 
     pub(super) fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+
+    /// Identifier tokens and the file's package/namespace declaration from one
+    /// visited node: they ride the same walk, one table lookup per node, with
+    /// no second pass over the source.
+    fn harvest_node<'t>(
+        &self,
+        node: &Node<'t, StrDoc<ScanLang>>,
+        kind: u16,
+        text: &'t str,
+        tokens: &mut HashSet<&'t str>,
+        meta: &mut FileMeta,
+    ) {
+        match self.kinds.role(kind) {
+            KindRole::None => {}
+            // NO NAMED CHILDREN: a few composite kinds share an identifier
+            // word with their token kinds (`variable_declarator`,
+            // `variable_declaration`, php's `variable_name` wrapping a
+            // `name`), and their text spans a whole expression. Their
+            // identifier children are visited on their own, so skipping
+            // the composites reports the same identifiers without
+            // re-scanning the expression around them.
+            //
+            // The test is "no NAMED child", not "no child at all": a
+            // grammar may spell an identifier node as a wrapper around one
+            // ANONYMOUS token, which has no node of its own to visit.
+            // Kotlin does exactly that for its soft keywords — `value`,
+            // `expect`, `data`, `inner`, … are real identifiers in
+            // `fun nested(value: String)`, and a leaf-only test dropped
+            // every one of them.
+            KindRole::Identifier if !node.children().any(|child| child.is_named()) => {
+                if let Some(slice) = text.get(node.range()) {
+                    crate::tokens::identifier_runs(slice, |run| {
+                        tokens.insert(run);
+                    });
+                }
+            }
+            // A composite identifier node still contributes when its OWN
+            // text is a single identifier run: php's `variable_name` wraps
+            // a `name` child but spells the sigil form `$count`, which no
+            // child node carries.
+            KindRole::Identifier => {
+                if let Some(slice) = text.get(node.range()) {
+                    if crate::tokens::is_single_run(slice) {
+                        tokens.insert(slice);
+                    }
+                }
+            }
+            KindRole::Meta(field) => {
+                let range = node.range();
+                if let Some(name) = meta_name(node, text) {
+                    meta.note(field, range.start, name);
+                }
+            }
+        }
     }
 
     /// Item/member/call rules for one file, in rule order. `text` is the very
@@ -288,51 +367,7 @@ impl LangExtractors {
                     calls.push(call);
                 }
             }
-            // Identifier tokens and the file's package/namespace declaration
-            // ride the same visit: one table lookup per node, no second pass
-            // over the source.
-            match self.kinds.role(kind) {
-                KindRole::None => {}
-                // NO NAMED CHILDREN: a few composite kinds share an identifier
-                // word with their token kinds (`variable_declarator`,
-                // `variable_declaration`, php's `variable_name` wrapping a
-                // `name`), and their text spans a whole expression. Their
-                // identifier children are visited on their own, so skipping
-                // the composites reports the same identifiers without
-                // re-scanning the expression around them.
-                //
-                // The test is "no NAMED child", not "no child at all": a
-                // grammar may spell an identifier node as a wrapper around one
-                // ANONYMOUS token, which has no node of its own to visit.
-                // Kotlin does exactly that for its soft keywords — `value`,
-                // `expect`, `data`, `inner`, … are real identifiers in
-                // `fun nested(value: String)`, and a leaf-only test dropped
-                // every one of them.
-                KindRole::Identifier if !node.children().any(|child| child.is_named()) => {
-                    if let Some(slice) = text.get(node.range()) {
-                        crate::tokens::identifier_runs(slice, |run| {
-                            tokens.insert(run);
-                        });
-                    }
-                }
-                // A composite identifier node still contributes when its OWN
-                // text is a single identifier run: php's `variable_name` wraps
-                // a `name` child but spells the sigil form `$count`, which no
-                // child node carries.
-                KindRole::Identifier => {
-                    if let Some(slice) = text.get(node.range()) {
-                        if crate::tokens::is_single_run(slice) {
-                            tokens.insert(slice);
-                        }
-                    }
-                }
-                KindRole::Meta(field) => {
-                    let range = node.range();
-                    if let Some(name) = meta_name(&node, text) {
-                        meta.note(field, range.start, name);
-                    }
-                }
-            }
+            self.harvest_node(&node, kind, text, &mut tokens, &mut meta);
             for child in node.children() {
                 stack.push((child, next_scope));
             }

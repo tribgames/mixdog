@@ -22,6 +22,45 @@ fn pending_walk() -> LiveWalk {
     }
 }
 
+/// A poisoned collector must not cost the inventory its paths.
+///
+/// Reachable since the release profile unwinds again: a panic anywhere inside
+/// this mutex's critical section — a search thread iterating the published
+/// vector, a walk worker appending to it — leaves the lock poisoned while the
+/// paths in it stay valid. Both publishing paths therefore recover and publish
+/// the batch; skipping it would answer with an inventory short by exactly
+/// those paths and no error to say so.
+#[test]
+fn a_poisoned_collector_still_publishes_every_walked_path() {
+    let live = Arc::new(pending_walk());
+    let poisoner = Arc::clone(&live);
+    let panicked = std::thread::spawn(move || {
+        let _guard = poisoner.files.lock().unwrap();
+        panic!("poison the file collector");
+    })
+    .join();
+    assert!(panicked.is_err(), "the poisoning thread must have panicked");
+    assert!(live.files.is_poisoned());
+
+    publish_live_files(&live, &[PathBuf::from("poisoned/published.rs")]);
+
+    let mut batch = WorkerWalkBatch::new(&live, 8);
+    batch.push(PathBuf::from("poisoned/batched-first.rs"));
+    batch.push(PathBuf::from("poisoned/batched-second.rs"));
+    drop(batch);
+
+    let published = lock_recover(&live.files).clone();
+    assert_eq!(
+        published,
+        vec![
+            PathBuf::from(wire_path(Path::new("poisoned/published.rs"))),
+            PathBuf::from("poisoned/batched-first.rs"),
+            PathBuf::from("poisoned/batched-second.rs"),
+        ],
+        "a poisoned collector dropped paths instead of publishing them"
+    );
+}
+
 #[test]
 fn inventory_key_preserves_request_globs() {
     let first = request(&["--files", "--glob", "*.rs", "."], 20);
@@ -63,14 +102,7 @@ fn descendant_operands_reuse_the_ancestor_watch_root() {
     std::fs::create_dir_all(&sub).unwrap();
     assert!(store.watch_root(&dir));
     assert!(store.watch_root(&sub));
-    assert_eq!(
-        store
-            .watched_roots
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .len(),
-        1
-    );
+    assert_eq!(lock_recover(&store.watched_roots).len(), 1);
 }
 
 #[test]
@@ -165,28 +197,15 @@ fn last_waiter_cancels_normal_inventory_but_explicit_prewarm_survives() {
     assert!(!live.cancelled.load(Ordering::Acquire));
     store.release_live(&key, &joined);
     assert!(live.cancelled.load(Ordering::Acquire));
-    assert!(matches!(
-        &*live.state.lock().unwrap_or_else(|e| e.into_inner()),
-        LiveState::Abandoned
-    ));
-    assert!(store
-        .live
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&key)
-        .is_none());
+    assert!(matches!(&*lock_recover(&live.state), LiveState::Abandoned));
+    assert!(lock_recover(&store.live).get(&key).is_none());
 
     let warm_key = walk_key(Path::new("warm"), &parsed);
     let (warm, owner) = store.begin_live(warm_key.clone(), true);
     assert!(owner);
     store.release_live(&warm_key, &warm);
     assert!(!warm.cancelled.load(Ordering::Acquire));
-    assert!(store
-        .live
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&warm_key)
-        .is_some());
+    assert!(lock_recover(&store.live).get(&warm_key).is_some());
 
     let inventory_key = walk_key(Path::new("inventory"), &parsed);
     let (inventory, owner) = store.begin_live_with_inventory(inventory_key.clone(), false, 60_000);
@@ -195,12 +214,7 @@ fn last_waiter_cancels_normal_inventory_but_explicit_prewarm_survives() {
     assert!(!inventory.cancelled.load(Ordering::Acquire));
     assert!(!inventory.keep_warm.load(Ordering::Acquire));
     assert!(inventory.inventory_lease.active(serve_search_uptime_ms()));
-    assert!(store
-        .live
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&inventory_key)
-        .is_some());
+    assert!(lock_recover(&store.live).get(&inventory_key).is_some());
 }
 
 #[test]
@@ -240,11 +254,7 @@ fn root_search_globs_filter_inventory_without_changing_the_match_set() {
 fn invalidation_detaches_active_snapshot_without_dropping_its_waiter() {
     let store = FileListStore::new();
     let root = PathBuf::from("mutable-root");
-    store
-        .watched_roots
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(root.clone(), Instant::now());
+    lock_recover(&store.watched_roots).insert(root.clone(), Instant::now());
     let parsed = parse_args(&request(&["--files", "."], 20).args).unwrap();
     let key = walk_key(&root, &parsed);
     let (live, owner) = store.begin_live(key.clone(), false);
@@ -255,21 +265,13 @@ fn invalidation_detaches_active_snapshot_without_dropping_its_waiter() {
         vec![root.clone()]
     );
     assert!(!live.cancelled.load(Ordering::Acquire));
-    assert!(matches!(
-        &*live.state.lock().unwrap_or_else(|e| e.into_inner()),
-        LiveState::Running
-    ));
-    assert!(store
-        .live
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&key)
-        .is_none());
+    assert!(matches!(&*lock_recover(&live.state), LiveState::Running));
+    assert!(lock_recover(&store.live).get(&key).is_none());
 
     let snapshot = Arc::new(vec![root.join("snapshot.log")]);
     assert!(!store.finish_live(key.clone(), &live, Ok(snapshot)));
     assert!(matches!(
-        &*live.state.lock().unwrap_or_else(|e| e.into_inner()),
+        &*lock_recover(&live.state),
         LiveState::Done(files) if files.len() == 1
     ));
     assert!(store.take_ready(&key).is_none());
@@ -423,7 +425,7 @@ fn streaming_and_complete_waiters_share_one_walk_without_panicking() {
 
     publish_live_files(&live, &[PathBuf::from("streamed.rs")]);
     {
-        let files = live.files.lock().unwrap_or_else(|e| e.into_inner());
+        let files = lock_recover(&live.files);
         assert_eq!(files.len(), 1);
         let (files, _) = live
             .files_cond
@@ -447,34 +449,22 @@ fn watched_inventory_survives_ttl_until_watch_is_removed() {
     let root = PathBuf::from("watched-ttl-root");
     let parsed = parse_args(&request(&["--files", "."], 20).args).unwrap();
     let key = walk_key(&root, &parsed);
-    store
-        .watched_roots
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .insert(root.clone(), Instant::now());
-    store
-        .ready
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .insert(
-            key.clone(),
-            ReadyEntry {
-                files: Arc::new(vec![root.join("cached.rs")]),
-                directory_failures: Arc::new(Vec::new()),
-                expires_at: Instant::now() - Duration::from_secs(1),
-                generation: 0,
-                touched_at: Instant::now(),
-                estimated_bytes: 1,
-                root_identity: None,
-            },
-        );
+    lock_recover(&store.watched_roots).insert(root.clone(), Instant::now());
+    lock_recover(&store.ready).insert(
+        key.clone(),
+        ReadyEntry {
+            files: Arc::new(vec![root.join("cached.rs")]),
+            directory_failures: Arc::new(Vec::new()),
+            expires_at: Instant::now() - Duration::from_secs(1),
+            generation: 0,
+            touched_at: Instant::now(),
+            estimated_bytes: 1,
+            root_identity: None,
+        },
+    );
 
     assert_eq!(store.take_ready(&key).map(|files| files.len()), Some(1));
-    store
-        .watched_roots
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .clear();
+    lock_recover(&store.watched_roots).clear();
     assert!(store.take_ready(&key).is_none());
 }
 

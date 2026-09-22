@@ -39,6 +39,28 @@ pub(super) fn build_matcher(parsed: &ParsedArgs) -> Result<CompiledMatcher, Stri
         .map_err(|error| format!("regex parse error: {error}"))
 }
 
+/// Everything a scan needs from the request that does not change between
+/// operands or files: the parsed argv, the compiled pattern, the cancellation
+/// flag and soft deadline every bounded loop checks, and the counters the
+/// response reports a partial result from.
+pub(super) struct ScanCtx<'a> {
+    pub(super) parsed: &'a ParsedArgs,
+    pub(super) matcher: &'a CompiledMatcher,
+    pub(super) cancelled: &'a AtomicBool,
+    pub(super) deadline_at: Option<Instant>,
+    pub(super) scan_errors: &'a AtomicUsize,
+    pub(super) files_scanned: &'a AtomicUsize,
+}
+
+/// The bounded line buffer a scan appends into. `collect_until` is the hard
+/// stop for the response window, and `emitted_blocks` carries the
+/// context-block separator state across batches and operands.
+pub(super) struct ScanOutput<'a> {
+    pub(super) all_lines: &'a mut Vec<String>,
+    pub(super) emitted_blocks: &'a mut usize,
+    pub(super) collect_until: usize,
+}
+
 pub(super) struct CancelSink<'a, S> {
     pub(super) inner: S,
     pub(super) cancelled: &'a AtomicBool,
@@ -123,10 +145,7 @@ impl<R: Read> Read for CancellableReader<'_, R> {
         if self.cancelled.load(Ordering::Relaxed) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, CANCELLED));
         }
-        if self
-            .deadline_at
-            .is_some_and(|deadline| Instant::now() >= deadline)
-        {
+        if deadline_expired(self.deadline_at) {
             return Err(io::Error::new(io::ErrorKind::TimedOut, SOFT_TIMEOUT));
         }
         let bounded = buffer.len().min(self.chunk_bytes);
@@ -166,17 +185,89 @@ pub(super) fn output_lines(bytes: Vec<u8>) -> Option<Vec<String>> {
     (!lines.is_empty()).then_some(lines)
 }
 
+/// Drive one printer's sink through the cancellation wrapper every output
+/// mode needs. The standard and summary printers hand back different sink
+/// types, so the wrapper is generic over the sink instead of being rebuilt
+/// once per output mode.
+fn search_with_sink<M, S, R>(
+    searcher: &mut Searcher,
+    matcher: M,
+    reader: &mut R,
+    inner: S,
+    cancelled: &AtomicBool,
+    match_limit: Option<usize>,
+) -> Result<(), S::Error>
+where
+    M: Matcher,
+    S: Sink,
+    R: Read,
+{
+    let mut sink = CancelSink {
+        inner,
+        cancelled,
+        match_limit,
+        matches: 0,
+    };
+    searcher.search_reader(matcher, reader, &mut sink)
+}
+
+/// Everything a scan of one file does around its printer: open the file,
+/// build the optional trigram signature and the cancellable reader, then read
+/// from the outcome whether the file counted as a scan error and whether its
+/// signature may be cached. `search` runs the printer-specific pass over that
+/// reader and hands back its result plus the bytes the printer wrote.
+fn scan_with_printer(
+    path: &Path,
+    build_signature: bool,
+    ctx: &ScanCtx<'_>,
+    search: impl FnOnce(&mut CancellableReader<'_, File>) -> (io::Result<()>, Vec<u8>),
+) -> Option<Vec<String>> {
+    // An unreadable file must not read as "no matches in this file": count it
+    // so the response downgrades to partial (rg reports the same condition on
+    // stderr and exits 2).
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => {
+            ctx.scan_errors.fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+    };
+    let mut signature = build_signature.then(TrigramSignature::new);
+    let identity = signature
+        .as_ref()
+        .and_then(|_| crate::serve_search_usn::file_identity(&file));
+    let mut reader =
+        CancellableReader::new(file, ctx.cancelled, ctx.deadline_at, signature.as_mut());
+    let (result, bytes) = search(&mut reader);
+    drop(reader);
+    if ctx.cancelled.load(Ordering::Relaxed) {
+        return None;
+    }
+    if result.is_err() {
+        // Either the soft deadline fired mid-scan (surfaced by the response-
+        // level deadline re-check) or a real read error. Count only the
+        // latter so a genuine I/O failure downgrades the response to partial.
+        if !deadline_expired(ctx.deadline_at) {
+            ctx.scan_errors.fetch_add(1, Ordering::Relaxed);
+        }
+        return None;
+    }
+    if let Some(signature) = signature.as_ref() {
+        remember_content_signature(path, signature, identity);
+    }
+    output_lines(bytes)
+}
+
 pub(super) fn scan_standard<M: Matcher>(
     path: &Path,
     prefix: &str,
     matcher: &M,
-    p: &ParsedArgs,
-    cancelled: &AtomicBool,
-    deadline_at: Option<Instant>,
     match_limit: Option<usize>,
     build_signature: bool,
-    scan_errors: &AtomicUsize,
+    ctx: &ScanCtx<'_>,
 ) -> Option<Vec<String>> {
+    let p = ctx.parsed;
+    let cancelled = ctx.cancelled;
     let mut printer_builder = StandardBuilder::new();
     printer_builder
         .heading(false)
@@ -186,70 +277,42 @@ pub(super) fn scan_standard<M: Matcher>(
         .max_columns_preview(true);
     let mut printer = printer_builder.build_no_color(Vec::new());
     let mut searcher = searcher(p);
-    // An unreadable file must not read as "no matches in this file": count it
-    // so the response downgrades to partial (rg reports the same condition on
-    // stderr and exits 2).
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(_) => {
-            scan_errors.fetch_add(1, Ordering::Relaxed);
-            return None;
-        }
-    };
-    let mut signature = build_signature.then(TrigramSignature::new);
-    let identity = signature
-        .as_ref()
-        .and_then(|_| crate::serve_search_usn::file_identity(&file));
-    let mut reader = CancellableReader::new(file, cancelled, deadline_at, signature.as_mut());
-    let result = if prefix.is_empty() {
-        let inner = printer.sink(matcher);
-        let mut sink = CancelSink {
-            inner,
-            cancelled,
-            match_limit,
-            matches: 0,
+    scan_with_printer(path, build_signature, ctx, |reader| {
+        let result = if prefix.is_empty() {
+            let inner = printer.sink(matcher);
+            search_with_sink(
+                &mut searcher,
+                matcher,
+                reader,
+                inner,
+                cancelled,
+                match_limit,
+            )
+        } else {
+            let printer_path = PathBuf::from(prefix);
+            let inner = printer.sink_with_path(matcher, &printer_path);
+            search_with_sink(
+                &mut searcher,
+                matcher,
+                reader,
+                inner,
+                cancelled,
+                match_limit,
+            )
         };
-        searcher.search_reader(matcher, &mut reader, &mut sink)
-    } else {
-        let printer_path = PathBuf::from(prefix);
-        let inner = printer.sink_with_path(matcher, &printer_path);
-        let mut sink = CancelSink {
-            inner,
-            cancelled,
-            match_limit,
-            matches: 0,
-        };
-        searcher.search_reader(matcher, &mut reader, &mut sink)
-    };
-    drop(reader);
-    if cancelled.load(Ordering::Relaxed) {
-        return None;
-    }
-    if result.is_err() {
-        // Either the soft deadline fired mid-scan (surfaced by the response-
-        // level deadline re-check) or a real read error. Count only the
-        // latter so a genuine I/O failure downgrades the response to partial.
-        if !deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
-            scan_errors.fetch_add(1, Ordering::Relaxed);
-        }
-        return None;
-    }
-    if let Some(signature) = signature.as_ref() {
-        remember_content_signature(path, signature, identity);
-    }
-    output_lines(printer.into_inner().into_inner())
+        (result, printer.into_inner().into_inner())
+    })
 }
 
 pub(super) fn scan_summary<M: Matcher>(
     path: &Path,
     prefix: &str,
     matcher: &M,
-    p: &ParsedArgs,
-    cancelled: &AtomicBool,
-    deadline_at: Option<Instant>,
     build_signature: bool,
-    scan_errors: &AtomicUsize,
+    ctx: &ScanCtx<'_>,
 ) -> Option<Vec<String>> {
+    let p = ctx.parsed;
+    let cancelled = ctx.cancelled;
     let kind = if p.files_with_matches {
         SummaryKind::PathWithMatch
     } else {
@@ -262,67 +325,29 @@ pub(super) fn scan_summary<M: Matcher>(
         .exclude_zero(true);
     let mut printer = printer_builder.build_no_color(Vec::new());
     let mut searcher = searcher(p);
-    // Same unreadable-file accounting as scan_standard.
-    let file = match File::open(path) {
-        Ok(file) => file,
-        Err(_) => {
-            scan_errors.fetch_add(1, Ordering::Relaxed);
-            return None;
-        }
-    };
-    let mut signature = build_signature.then(TrigramSignature::new);
-    let identity = signature
-        .as_ref()
-        .and_then(|_| crate::serve_search_usn::file_identity(&file));
-    let mut reader = CancellableReader::new(file, cancelled, deadline_at, signature.as_mut());
-    let result = if prefix.is_empty() {
-        let inner = printer.sink(matcher);
-        let mut sink = CancelSink {
-            inner,
-            cancelled,
-            match_limit: None,
-            matches: 0,
+    // The summary printer never takes a match limit: it reports one line per
+    // file, so there is no per-file line budget to stop at.
+    scan_with_printer(path, build_signature, ctx, |reader| {
+        let result = if prefix.is_empty() {
+            let inner = printer.sink(matcher);
+            search_with_sink(&mut searcher, matcher, reader, inner, cancelled, None)
+        } else {
+            let printer_path = PathBuf::from(prefix);
+            let inner = printer.sink_with_path(matcher, &printer_path);
+            search_with_sink(&mut searcher, matcher, reader, inner, cancelled, None)
         };
-        searcher.search_reader(matcher, &mut reader, &mut sink)
-    } else {
-        let printer_path = PathBuf::from(prefix);
-        let inner = printer.sink_with_path(matcher, &printer_path);
-        let mut sink = CancelSink {
-            inner,
-            cancelled,
-            match_limit: None,
-            matches: 0,
-        };
-        searcher.search_reader(matcher, &mut reader, &mut sink)
-    };
-    drop(reader);
-    if cancelled.load(Ordering::Relaxed) {
-        return None;
-    }
-    if result.is_err() {
-        // Same deadline-vs-real-error split as scan_standard.
-        if !deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
-            scan_errors.fetch_add(1, Ordering::Relaxed);
-        }
-        return None;
-    }
-    if let Some(signature) = signature.as_ref() {
-        remember_content_signature(path, signature, identity);
-    }
-    output_lines(printer.into_inner().into_inner())
+        (result, printer.into_inner().into_inner())
+    })
 }
 
 pub(super) fn scan_file(
     path: &Path,
     prefix: &str,
-    matcher: &CompiledMatcher,
-    parsed: &ParsedArgs,
-    cancelled: &AtomicBool,
-    deadline_at: Option<Instant>,
     match_limit: Option<usize>,
     trust: &TrustSnapshot,
-    scan_errors: &AtomicUsize,
+    ctx: &ScanCtx<'_>,
 ) -> Option<Vec<String>> {
+    let parsed = ctx.parsed;
     let signature_state = cached_signature_state(
         path,
         parsed.literal_trigrams.as_deref().unwrap_or(&[]),
@@ -336,32 +361,13 @@ pub(super) fn scan_file(
     macro_rules! scan {
         ($matcher:expr) => {
             if parsed.files_with_matches || parsed.count {
-                scan_summary(
-                    path,
-                    prefix,
-                    $matcher,
-                    parsed,
-                    cancelled,
-                    deadline_at,
-                    build_signature,
-                    scan_errors,
-                )
+                scan_summary(path, prefix, $matcher, build_signature, ctx)
             } else {
-                scan_standard(
-                    path,
-                    prefix,
-                    $matcher,
-                    parsed,
-                    cancelled,
-                    deadline_at,
-                    match_limit,
-                    build_signature,
-                    scan_errors,
-                )
+                scan_standard(path, prefix, $matcher, match_limit, build_signature, ctx)
             }
         };
     }
-    match matcher {
+    match ctx.matcher {
         CompiledMatcher::Rust(matcher) => scan!(matcher),
         CompiledMatcher::Pcre(matcher) => scan!(matcher),
     }
@@ -369,60 +375,51 @@ pub(super) fn scan_file(
 
 pub(super) fn append_scanned_matches_unordered(
     files: &[PathBuf],
-    operand: &str,
-    operand_path: &Path,
+    scope: &OperandScope<'_>,
     use_prefix: bool,
-    matcher: &CompiledMatcher,
-    parsed: &ParsedArgs,
-    filter: &PathFilter,
-    cancelled: &AtomicBool,
-    deadline_at: Option<Instant>,
-    all_lines: &mut Vec<String>,
-    emitted_blocks: &mut usize,
-    collect_until: usize,
     trust: &TrustSnapshot,
-    scan_errors: &AtomicUsize,
-    files_scanned: &AtomicUsize,
+    ctx: &ScanCtx<'_>,
+    out: &mut ScanOutput<'_>,
 ) -> bool {
-    let remaining = collect_until.saturating_sub(all_lines.len());
+    let parsed = ctx.parsed;
+    let collect_until = out.collect_until;
+    let remaining = collect_until.saturating_sub(out.all_lines.len());
     if files.is_empty() || remaining == 0 {
         return remaining == 0;
     }
+    // Read once: the separator counter is only written after the parallel pass.
+    let emitted_blocks = *out.emitted_blocks;
     let done = AtomicBool::new(false);
     let gathered = Mutex::new((Vec::new(), 0usize));
     files.par_iter().for_each(|file| {
         if done.load(Ordering::Relaxed)
-            || cancelled.load(Ordering::Relaxed)
-            || deadline_at.is_some_and(|deadline| Instant::now() >= deadline)
-            || !filter.allows(file)
+            || ctx.cancelled.load(Ordering::Relaxed)
+            || deadline_expired(ctx.deadline_at)
+            || !scope.filter.allows(file)
         {
             return;
         }
         let prefix = if use_prefix {
-            display_path(operand, operand_path, file)
+            display_path(scope.operand, scope.operand_path, file)
         } else {
             String::new()
         };
-        files_scanned.fetch_add(1, Ordering::Relaxed);
+        ctx.files_scanned.fetch_add(1, Ordering::Relaxed);
         let Some(block) = scan_file(
             file,
             &prefix,
-            matcher,
-            parsed,
-            cancelled,
-            deadline_at,
             (collect_until != usize::MAX).then_some(remaining),
             trust,
-            scan_errors,
+            ctx,
         ) else {
             return;
         };
-        let mut state = gathered.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = lock_recover(&gathered);
         if state.0.len() >= remaining {
             done.store(true, Ordering::Relaxed);
             return;
         }
-        if *emitted_blocks + state.1 > 0
+        if emitted_blocks + state.1 > 0
             && (parsed.before > 0 || parsed.after > 0)
             && !parsed.files_with_matches
         {
@@ -436,7 +433,7 @@ pub(super) fn append_scanned_matches_unordered(
         }
     });
     let (lines, blocks) = gathered.into_inner().unwrap_or_else(|e| e.into_inner());
-    *emitted_blocks += blocks;
-    all_lines.extend(lines);
-    all_lines.len() >= collect_until
+    *out.emitted_blocks += blocks;
+    out.all_lines.extend(lines);
+    out.all_lines.len() >= collect_until
 }

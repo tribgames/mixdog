@@ -11,49 +11,34 @@ fn journal_sync_evicts_changed_signatures_and_metadata() {
         file_id,
     };
     let shard = content_signature_shard(&path);
-    raw_content_signature_cache()[shard]
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .insert(
-            path.clone(),
-            ContentSignatureEntry {
-                size: 1,
-                modified_ns: 1,
-                identity: Some(identity),
-                persisted: true,
-                signature: TrigramSignature::new(),
-            },
-        );
-    file_metadata_cache()[shard]
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .insert(
-            path.clone(),
-            FileMetadataEntry {
-                size: 1,
-                modified_ns: 1,
-                mtime_ms: 1,
-                identity: Some(identity),
-            },
-        );
+    lock_recover(&raw_content_signature_cache()[shard]).insert(
+        path.clone(),
+        ContentSignatureEntry {
+            size: 1,
+            modified_ns: 1,
+            identity: Some(identity),
+            persisted: true,
+            signature: TrigramSignature::new(),
+        },
+    );
+    lock_recover(&file_metadata_cache()[shard]).insert(
+        path.clone(),
+        FileMetadataEntry {
+            size: 1,
+            modified_ns: 1,
+            mtime_ms: 1,
+            identity: Some(identity),
+        },
+    );
     apply_content_signature_journal_sync(crate::serve_search_usn::SyncResult {
         trusted: true,
         volume_serial: Some(serial),
         changed: HashSet::from([file_id]),
         parents: HashSet::new(),
     });
-    assert!(!raw_content_signature_cache()[shard]
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .contains_key(&path));
-    assert!(!file_metadata_cache()[shard]
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .contains_key(&path));
-    trusted_usn_volumes()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .remove(&serial);
+    assert!(!lock_recover(&raw_content_signature_cache()[shard]).contains_key(&path));
+    assert!(!lock_recover(&file_metadata_cache()[shard]).contains_key(&path));
+    lock_recover(trusted_usn_volumes()).remove(&serial);
 }
 
 #[test]
@@ -81,22 +66,19 @@ fn trusted_cached_signature_is_reused_without_rebuilding() {
     signature.push(b"prefix needle suffix");
     signature.complete = true;
     let shard = content_signature_shard(&path);
-    raw_content_signature_cache()[shard]
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .insert(
-            path.clone(),
-            ContentSignatureEntry {
-                size: 1,
-                modified_ns: 1,
-                identity: Some(crate::serve_search_usn::FileIdentity {
-                    volume: serial,
-                    file_id,
-                }),
-                persisted: false,
-                signature,
-            },
-        );
+    lock_recover(&raw_content_signature_cache()[shard]).insert(
+        path.clone(),
+        ContentSignatureEntry {
+            size: 1,
+            modified_ns: 1,
+            identity: Some(crate::serve_search_usn::FileIdentity {
+                volume: serial,
+                file_id,
+            }),
+            persisted: false,
+            signature,
+        },
+    );
     let trust = TrustSnapshot {
         usn_volumes: Arc::new(HashSet::from([serial])),
         watch_roots: Arc::new(Vec::new()),
@@ -109,10 +91,7 @@ fn trusted_cached_signature_is_reused_without_rebuilding() {
         cached_signature_state(&path, &[present], false, &trust),
         CachedSignatureState::Reusable
     );
-    raw_content_signature_cache()[shard]
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .remove(&path);
+    lock_recover(&raw_content_signature_cache()[shard]).remove(&path);
 }
 
 #[test]
@@ -120,36 +99,27 @@ fn exact_watcher_invalidation_does_not_scan_or_remove_siblings() {
     let changed = PathBuf::from("src/change.rs");
     let sibling = PathBuf::from("src/change.rs.backup");
     for path in [&changed, &sibling] {
-        raw_content_signature_cache()[content_signature_shard(path)]
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .insert(
-                path.clone(),
-                ContentSignatureEntry {
-                    size: 1,
-                    modified_ns: 1,
-                    identity: None,
-                    persisted: false,
-                    signature: TrigramSignature::new(),
-                },
-            );
+        lock_recover(&raw_content_signature_cache()[content_signature_shard(path)]).insert(
+            path.clone(),
+            ContentSignatureEntry {
+                size: 1,
+                modified_ns: 1,
+                identity: None,
+                persisted: false,
+                signature: TrigramSignature::new(),
+            },
+        );
     }
     invalidate_content_signatures(std::slice::from_ref(&changed), false);
     assert!(
-        !raw_content_signature_cache()[content_signature_shard(&changed)]
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        !lock_recover(&raw_content_signature_cache()[content_signature_shard(&changed)])
             .contains_key(&changed)
     );
     assert!(
-        raw_content_signature_cache()[content_signature_shard(&sibling)]
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
+        lock_recover(&raw_content_signature_cache()[content_signature_shard(&sibling)])
             .contains_key(&sibling)
     );
-    raw_content_signature_cache()[content_signature_shard(&sibling)]
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
+    lock_recover(&raw_content_signature_cache()[content_signature_shard(&sibling)])
         .remove(&sibling);
 }
 

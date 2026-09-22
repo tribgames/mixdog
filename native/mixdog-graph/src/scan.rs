@@ -52,7 +52,7 @@ use serde::Serialize;
 use crate::scan_lang::{scan_lang_for_path, ScanLang, LANG_INFOS};
 
 /// Same cap as the extraction walk: files above it are skipped silently.
-const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+use crate::MAX_FILE_BYTES;
 
 /// Scan failures split by exit code: `Usage` → 2, `Internal` → 1.
 pub enum ScanError {
@@ -456,18 +456,13 @@ struct FileOutcome {
 }
 
 fn scan_file(file: &ScanFile, rules: &Rules, include_fix: bool) -> FileOutcome {
-    // Skip before any I/O when no rule targets this language at all.
-    if !rules.langs.contains(&file.lang) {
-        return FileOutcome {
-            scanned: false,
-            records: Vec::new(),
-            error: None,
-        };
-    }
-    if rules
-        .collection
-        .get_rule_from_lang(Path::new(&file.rel), file.lang)
-        .is_empty()
+    // Skip before any I/O when no rule targets this language at all, or when
+    // every rule for it is excluded by its own `files`/`ignores` globs.
+    if !rules.langs.contains(&file.lang)
+        || rules
+            .collection
+            .get_rule_from_lang(Path::new(&file.rel), file.lang)
+            .is_empty()
     {
         return FileOutcome {
             scanned: false,
@@ -629,6 +624,30 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), ScanError> {
     emit(&records, summary).map_err(ScanError::Internal)
 }
 
+/// `--langs` entry point: one JSON line describing the merged registry.
+pub fn run_langs() -> Result<(), String> {
+    let languages = LANG_INFOS
+        .iter()
+        .map(|info| LangJson {
+            id: info.id,
+            extensions: info.extensions,
+            scan: info.scan,
+            extract: info.extract(),
+            kinds: crate::outline::kind_map_for(info.id),
+            rule_errors: crate::outline::language_rule_errors(info.id),
+        })
+        .collect();
+    let line = serde_json::to_string(&LangsLine {
+        languages,
+        calls_format: crate::calls::CALLS_FORMAT,
+        rule_errors: crate::outline::rule_errors().to_vec(),
+    })
+    .map_err(|err| format!("serialize failed for languages: {err}"))?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    writeln!(handle, "{line}").map_err(|err| format!("stdout write failed: {err}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -660,6 +679,19 @@ mod tests {
         let [start, end] = record.range.byte_offset;
         assert_eq!(&source[start..end], expected, "{language}: byte offsets");
         assert!(record.fix.is_none(), "{language}: no fix without --fix");
+    }
+
+    // One temp directory per test: the suite runs in parallel inside one
+    // process, so the pid alone does not separate two tests.
+    fn unique_temp_dir(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "mixdog-scan-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ))
     }
 
     fn expected_lang_id(rel: &str) -> &'static str {
@@ -967,14 +999,7 @@ mod tests {
 
     #[test]
     fn collect_scan_files_walks_like_the_extraction_walk() {
-        let dir = std::env::temp_dir().join(format!(
-            "mixdog-scan-walk-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let dir = unique_temp_dir("walk");
         fs::create_dir_all(dir.join("sub")).expect("temp dir");
         fs::write(dir.join("a.ts"), "foo(1);\n").expect("write ts");
         fs::write(dir.join("notes.txt"), "ignored\n").expect("write txt");
@@ -997,14 +1022,7 @@ mod tests {
 
     #[test]
     fn selected_files_stay_inside_the_root_and_respect_the_size_cap() {
-        let base = std::env::temp_dir().join(format!(
-            "mixdog-scan-select-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let base = unique_temp_dir("select");
         let root = base.join("repo");
         fs::create_dir_all(root.join("src")).expect("temp dir");
         fs::write(base.join("outside.ts"), "foo(9);\n").expect("write outside");
@@ -1052,14 +1070,7 @@ mod tests {
     fn summary_counts_scanned_files_and_fixables() {
         let yaml = "id: fixable\nlanguage: typescript\nseverity: warning\nmessage: hit\nrule:\n  pattern: foo($A)\nfix: bar($A)\n";
         let rules = parse_rules(yaml).expect("rules");
-        let dir = std::env::temp_dir().join(format!(
-            "mixdog-scan-summary-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock")
-                .as_nanos()
-        ));
+        let dir = unique_temp_dir("summary");
         fs::create_dir_all(&dir).expect("temp dir");
         fs::write(dir.join("a.ts"), "foo(1);\nfoo(2);\n").expect("write ts");
         // python file: no rule targets it, so it is never read or counted
@@ -1077,28 +1088,4 @@ mod tests {
         assert!(outcomes.iter().all(|o| o.error.is_none()));
         fs::remove_dir_all(&dir).expect("cleanup");
     }
-}
-
-/// `--langs` entry point: one JSON line describing the merged registry.
-pub fn run_langs() -> Result<(), String> {
-    let languages = LANG_INFOS
-        .iter()
-        .map(|info| LangJson {
-            id: info.id,
-            extensions: info.extensions,
-            scan: info.scan,
-            extract: info.extract(),
-            kinds: crate::outline::kind_map_for(info.id),
-            rule_errors: crate::outline::language_rule_errors(info.id),
-        })
-        .collect();
-    let line = serde_json::to_string(&LangsLine {
-        languages,
-        calls_format: crate::calls::CALLS_FORMAT,
-        rule_errors: crate::outline::rule_errors().to_vec(),
-    })
-    .map_err(|err| format!("serialize failed for languages: {err}"))?;
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
-    writeln!(handle, "{line}").map_err(|err| format!("stdout write failed: {err}"))
 }

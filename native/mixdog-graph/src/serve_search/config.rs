@@ -5,6 +5,13 @@ use super::*;
 
 pub(super) const CANCELLED: &str = "cancelled";
 pub(super) const SOFT_TIMEOUT: &str = "soft timeout";
+
+/// The request's soft deadline has passed. Every stage asks this between
+/// bounded batches — walk, scan, mtime and fuzzy — so the comparison lives
+/// here instead of being respelled at each check point.
+pub(super) fn deadline_expired(deadline_at: Option<Instant>) -> bool {
+    deadline_at.is_some_and(|deadline| Instant::now() >= deadline)
+}
 pub(super) const FILE_LIST_CACHE_MAX: usize = 8;
 pub(super) const WATCH_ROOT_MAX: usize = 16;
 pub(super) const DEFAULT_SEARCH_QUEUE_CAPACITY: usize = 2_048;
@@ -35,6 +42,23 @@ pub(super) fn bounded_env_usize(name: &str, default: usize, min: usize, max: usi
         .and_then(|raw| raw.parse::<usize>().ok())
         .unwrap_or(default)
         .clamp(min, max)
+}
+
+/// Request id whose handler must panic, for the isolation probe.
+///
+/// `contain_search_panic` promises that one panicking request comes back as
+/// that request's error while the resident server keeps serving. Whether the
+/// promise HOLDS depends on the panic strategy the binary was built with, so
+/// it can only be proven from outside the process, against a real build. This
+/// knob is how the integration suite injects the panic instead of waiting for
+/// a genuine bug to appear in a handler.
+pub(super) fn panic_probe_id() -> Option<u64> {
+    static PROBE: OnceLock<Option<u64>> = OnceLock::new();
+    *PROBE.get_or_init(|| {
+        std::env::var("MIXDOG_SEARCH_PANIC_PROBE_ID")
+            .ok()
+            .and_then(|raw| raw.trim().parse::<u64>().ok())
+    })
 }
 
 pub(super) fn search_reader_chunk_bytes() -> usize {
