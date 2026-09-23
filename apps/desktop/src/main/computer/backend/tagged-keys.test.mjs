@@ -37,12 +37,42 @@ Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.
 $sink = New-Object FakeKeySink
 [MixTaggedKeys]::Send('^(ab){TAB 2}{+}{{}{}}~', $sink)
 if ($sink.Events -ne 'D17;K65;K66;U17;K9;K9;T+;T{;T};K13;') { throw $sink.Events }
-foreach ($text in @('x%{F4}', '%(ab{F4})', 'a{TAB 101}', 'abc(', 'text^')) {
+# An upper-case letter names the same key as its lower-case twin: a chord must
+# not gain a shift the caller never asked for (Ctrl+S is not Ctrl+Shift+S).
+$sink = New-Object FakeKeySink
+[MixTaggedKeys]::Send('^S', $sink)
+if ($sink.Events -ne 'D17;K83;U17;') { throw ('upper-case letter gained a shift: ' + $sink.Events) }
+$sink = New-Object FakeKeySink
+[MixTaggedKeys]::Send('^+s', $sink)
+if ($sink.Events -ne 'D17;D16;K83;U16;U17;') { throw ('explicit shift lost: ' + $sink.Events) }
+# A glyph that needs shift to exist still carries it.
+$sink = New-Object FakeKeySink
+[MixTaggedKeys]::Send('^?', $sink)
+if ($sink.Events -ne 'D17;D16;K191;U16;U17;') { throw ('shifted glyph lost its shift: ' + $sink.Events) }
+# '#' holds the Windows key around its target; alone it is the character.
+$sink = New-Object FakeKeySink
+[MixTaggedKeys]::Send('#r', $sink)
+if ($sink.Events -ne 'D91;K82;U91;') { throw ('windows chord: ' + $sink.Events) }
+$sink = New-Object FakeKeySink
+[MixTaggedKeys]::Send('^#{RIGHT}', $sink)
+if ($sink.Events -ne 'D17;D91;K39;U91;U17;') { throw ('ctrl+windows chord: ' + $sink.Events) }
+$sink = New-Object FakeKeySink
+[MixTaggedKeys]::Send('#', $sink)
+if ($sink.Events -ne 'T#;') { throw ('lone hash: ' + $sink.Events) }
+$sink = New-Object FakeKeySink
+[MixTaggedKeys]::Send('{LWIN}', $sink)
+if ($sink.Events -ne 'K91;') { throw ('windows key tap: ' + $sink.Events) }
+foreach ($text in @('x%{F4}', '%(ab{F4})', 'a{TAB 101}', 'abc(', 'text^', '#l', '+#L', '#(al)')) {
   $sink = New-Object FakeKeySink
   $rejected = $false
   try { [MixTaggedKeys]::Send($text, $sink) } catch { $rejected = $true }
   if (-not $rejected -or $sink.Events) { throw ('partial input for invalid stream: ' + $text) }
 }
+# A modifier named alone is a key that can be held and released.
+$sink = New-Object FakeKeySink
+[MixTaggedKeys]::Hold('{SHIFT}', $true, $sink)
+[MixTaggedKeys]::Hold('{SHIFT}', $false, $sink)
+if ($sink.Events -ne 'D16;U16;') { throw ('modifier hold did not press its own key: ' + $sink.Events) }
 $sink = New-Object FakeKeySink
 $sink.FailTap = $true; $sink.FailUp = $true
 try { [MixTaggedKeys]::Send('^%a', $sink) } catch {}

@@ -9,6 +9,7 @@
  */
 import { normalizeComputerToolArgs, toComputerHostCommand, validateComputerToolArgs } from './action-schema.mjs';
 import { computerResultRecovery, formatComputerToolError } from './error-recovery.mjs';
+import { computerErrorCode } from './error-code.mjs';
 import { bridgeDiscoveryChanged, readBridgeDiscovery } from '../bridge-discovery.mjs';
 import { MAX_COMPUTER_REQUEST_BYTES, readComputerBridgeJson, validateComputerReply } from './limits.mjs';
 import { computerActionHas } from './actions.mjs';
@@ -177,6 +178,32 @@ function computerErrorResult(text) {
   return { content: [{ type: 'text', text }], isError: true };
 }
 
+// These refusals happen before any input is dispatched and always end in
+// "capture the exact window again", so the client does that capture itself and
+// returns it with the refusal instead of spending a separate call on it.
+const RECAPTURE_ON_REFUSAL_CODES = new Set(['stale_target', 'stale_frame']);
+const READ_ONLY_TOOL_ACTIONS = new Set(['list', 'diagnose', 'capture', 'verify', 'wait_for_user']);
+
+async function refusalWithRecapture(message, args, context) {
+  const windowId = args?.input?.window_id;
+  if (!windowId || READ_ONLY_TOOL_ACTIONS.has(String(args?.action || ''))) return null;
+  if (!RECAPTURE_ON_REFUSAL_CODES.has(computerErrorCode(message))) return null;
+  const capture = await executeComputerTool({ action: 'capture', input: { window_id: windowId } }, context);
+  if (capture.isError) return null;
+  return {
+    content: [
+      {
+        type: 'text',
+        text:
+          `Error: ${message}\nRecovery: no input was sent; window ${windowId} was captured again below. ` +
+          'Act only on its fresh refs, OCR marks, or frame_id.',
+      },
+      ...capture.content,
+    ],
+    isError: true,
+  };
+}
+
 // A previous session release must be confirmed before new input goes out.
 // Returns the error result that ends the call, or null to proceed.
 async function awaitPendingSessionRelease(sessionId, args, context) {
@@ -316,7 +343,9 @@ export async function executeComputerTool(rawArgs, context = {}) {
   const { body } = read;
   if (!body?.ok) {
     const message = String(body?.error || `computer bridge request failed (HTTP ${response.status})`);
-    return computerErrorResult(formatComputerToolError(message, args));
+    return (
+      (await refusalWithRecapture(message, args, context)) ?? computerErrorResult(formatComputerToolError(message, args))
+    );
   }
   const value = body.value || {};
   try {

@@ -34,6 +34,26 @@ function externalLinkReference(formula) {
   return /\[\d+\]|\[[^\]]*\.xls[xmb]?\]/i.test(formulaBody(formula));
 }
 
+/** The defined names that refer to another workbook: `=Rate*B2` reads that
+ *  file as surely as `=[1]Rates!$A$1*B2` does. */
+export function externalDefinedNames(definedNames = []) {
+  return (definedNames || [])
+    .filter((entry) => entry?.name && externalLinkReference(String(entry.refersTo || '')))
+    .map((entry) => String(entry.name));
+}
+
+// The first external name a formula reads, as a whole name (not the tail of a
+// longer one, a sheet prefix, or a function call).
+function externalNameRead(formula, externalNames) {
+  if (!externalNames.length) return '';
+  const text = formulaBody(formula);
+  return (
+    externalNames.find((name) =>
+      new RegExp(`(?:^|[^\\p{L}\\p{N}_.!'\\]])${escapeRegExp(name)}(?![\\p{L}\\p{N}_.(!])`, 'iu').test(text)
+    ) || ''
+  );
+}
+
 function unquotedSheetReferences(formula, sheetNames = []) {
   const text = formulaBody(formula);
   return (sheetNames || [])
@@ -92,7 +112,7 @@ function numbersByColumnFormat(cells) {
   return byColumnFormat;
 }
 
-function auditFormulaHygiene(list, cell, path, sheetNames) {
+function auditFormulaHygiene(list, cell, path, sheetNames, externalNames) {
   for (const name of unquotedSheetReferences(cell.formula, sheetNames)) {
     list.push(
       'warning',
@@ -108,10 +128,20 @@ function auditFormulaHygiene(list, cell, path, sheetNames) {
       path,
       'Formula links to another workbook; only its cached value is available here, and recalculation would replace the link with #NAME?. Copy the value into a sourced input cell instead.'
     );
+    return;
+  }
+  const name = externalNameRead(cell.formula, externalNames);
+  if (name) {
+    list.push(
+      'warning',
+      'external_link_reference',
+      path,
+      `Formula reads ${name}, a defined name that links to another workbook; only its cached value is available here, and recalculation would replace the link with #NAME?. Copy the value into a sourced input cell and point the name or the formula at it.`
+    );
   }
 }
 
-export function auditSheetHygiene(list, sheet, cells, sheetNames) {
+export function auditSheetHygiene(list, sheet, cells, sheetNames, externalNames = []) {
   const display = mergedAreas(sheet);
   const byColumnFormat = numbersByColumnFormat(cells);
   for (const cell of cells) {
@@ -128,7 +158,7 @@ export function auditSheetHygiene(list, sheet, cells, sheetNames) {
       continue;
     }
     if (cell.formula) {
-      auditFormulaHygiene(list, cell, path, sheetNames);
+      auditFormulaHygiene(list, cell, path, sheetNames, externalNames);
       continue;
     }
     const value = numericValue(cell);

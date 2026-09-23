@@ -4,6 +4,7 @@
 // never collides with a sync mixdog-config lock (ELOCKCONTENDED).
 import { clean, hasOwn } from './session-text.mjs';
 import { modelSupportsServiceTier } from '../runtime/agent/orchestrator/providers/model-service-tiers.mjs';
+import { openAiDirectSupportsFast } from '../runtime/agent/orchestrator/providers/openai-direct-request.mjs';
 
 const FAST_CAPABLE_PROVIDERS = new Set([
   'anthropic',
@@ -19,11 +20,6 @@ export function routeFastKey(provider, model) {
   const p = clean(provider);
   const m = clean(model);
   return p && m ? `${p}/${m}` : '';
-}
-
-function openAiDirectModelSupportsFast(model) {
-  const id = clean(model?.id || model);
-  return /^gpt-5\.5(?:-\d{4}|$)/.test(id) || /^gpt-5\.4(?:-\d{4}|$)/.test(id) || /^gpt-5\.4-mini(?:-\d{4}|$)/.test(id);
 }
 
 function openAiModelSupportsHostedWebSearch(model) {
@@ -84,7 +80,7 @@ export function fastCapableFor(provider, model, effort = null, modelParameters =
     }
     return !selectedEffort || fastEfforts.length === 0 || fastEfforts.includes(selectedEffort);
   }
-  if (p === 'openai') return openAiDirectModelSupportsFast(model);
+  if (p === 'openai') return openAiDirectSupportsFast(model);
   if (p === 'openai-oauth') return modelSupportsServiceTier(model, 'priority');
   if (p === 'anthropic' || p === 'anthropic-oauth') return anthropicModelMetaSupportsFast(model);
   return false;

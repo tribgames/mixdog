@@ -32,7 +32,11 @@ export function zoomRegionOf(command: ComputerCommand): ZoomRegion {
 export function zoomGeometry(frame: CaptureFrame, region: ZoomRegion): ZoomGeometry {
   const [fx0, fy0, fx1, fy1] = region;
   if (fx0 < 0 || fy0 < 0 || fx1 > frame.captureWidth || fy1 > frame.captureHeight || fx1 - fx0 < 8 || fy1 - fy0 < 8) {
-    throw new Error(`zoom region must be at least 8x8 and inside frame ${frame.captureWidth}x${frame.captureHeight}`);
+    // Naming the corners and echoing what arrived separates "outside the frame"
+    // from the common mistake of sending a width and height instead of x1,y1.
+    throw new Error(
+      `zoom region [x0,y0,x1,y1] must be at least 8x8 and inside frame ${frame.captureWidth}x${frame.captureHeight}; received [${region.join(',')}]`
+    );
   }
   const physical = {
     x0: frame.originX + Math.round((fx0 * frame.physicalWidth) / frame.captureWidth),

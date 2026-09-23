@@ -135,6 +135,47 @@ test('a capped diagnostic list says how much it left out', () => {
   assert.doesNotMatch(small, /of 1;/);
 });
 
+test('a brief reply names the elements that went away', () => {
+  const start = { ref: 'p1-s1-e1', role: 'button', name: 'Start', inViewport: true };
+  const link = { ref: 'p1-s1-e2', role: 'link', name: 'Docs', inViewport: true };
+  const text = formatSnapshot(
+    payload({ snapshotId: 'p1-s2', elements: [{ ...link, ref: 'p1-s2-e1' }], totalElements: 1 }),
+    diagnostics(),
+    { briefAgainst: createBrowserRefSet(payload({ elements: [start, link], totalElements: 2 })) }
+  );
+  assert.match(text, /; 1 no longer matched: button "Start"\./);
+});
+
+test('a network failure is reported once, like a console error, then only newer ones', () => {
+  const view = diagnostics({
+    networkFailures: ['GET https://example.test/tracker — net::ERR_BLOCKED_BY_CLIENT'],
+    reportedNetworkFailures: new Set(),
+  });
+  assert.match(formatSnapshot(payload(), view), /New network failures: GET https:\/\/example.test\/tracker/);
+  assert.doesNotMatch(formatSnapshot(payload(), view), /network failures/);
+  view.networkFailures.push('GET https://example.test/api — net::ERR_FAILED');
+  const next = formatSnapshot(payload(), view);
+  assert.match(next, /New network failures: GET https:\/\/example.test\/api/);
+  assert.doesNotMatch(next, /tracker/);
+  // A cleared list (a new document) makes the same address news again.
+  view.networkFailures.length = 0;
+  formatSnapshot(payload(), view);
+  assert.equal(view.reportedNetworkFailures.size, 0);
+});
+
+test('identical diagnostic lines are said once with a count', () => {
+  const beacon = 'GET https://example.test/beacon — net::ERR_FAILED';
+  const text = formatSnapshot(
+    payload(),
+    diagnostics({
+      console: { recentErrors: () => [], newErrors: () => ['boom', 'other', 'boom'], pendingErrorCount: () => 3 },
+      networkFailures: [beacon, beacon],
+    })
+  );
+  assert.match(text, /New console errors: boom \(×2\) \| other$/m);
+  assert.match(text, /network failures: GET https:\/\/example.test\/beacon — net::ERR_FAILED \(×2\)$/m);
+});
+
 test('a clipped page excerpt says the page holds more', () => {
   const clipped = formatSnapshot({ ...payload(), text: 'first part of a long page', textClipped: true }, diagnostics());
   assert.match(clipped, /first 25 chars only — the page holds more/);

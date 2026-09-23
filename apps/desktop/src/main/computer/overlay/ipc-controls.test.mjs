@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createComputerOverlayController } from './controls.ts';
 import { bindComputerOverlayControls } from './ipc-controls.ts';
+import { readComputerRunRecords } from '../session/run-log.ts';
 
 function fixture(controls, presentation = { sessionIds: ['a'], generation: 1 }) {
   const handlers = new Map();
@@ -24,6 +25,22 @@ test('a control request dropped while another one runs is reported, never as an 
   assert.equal(dropped.error, 'busy');
   release();
   assert.deepEqual(await first, { accepted: true, busy: false, error: '' });
+});
+
+test('every press leaves a record, so a press that did nothing is still evidence it arrived', async () => {
+  const invoke = fixture({ resume: async () => {}, pause: async () => {}, stop: async () => {} });
+  await invoke({ action: 'pause', generation: 1 });
+  await invoke({ action: 'resume', generation: 9 });
+  const records = readComputerRunRecords('a', 20)
+    .filter((record) => String(record.action).startsWith('overlay_'))
+    .slice(-2);
+  assert.deepEqual(
+    records.map((record) => [record.action, record.generation, record.ok, record.error ?? '']),
+    [
+      ['overlay_pause', 1, true, ''],
+      ['overlay_resume', 9, false, 'stale'],
+    ]
+  );
 });
 
 test('a press that reaches the controls is accepted', async () => {

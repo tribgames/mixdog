@@ -15,6 +15,21 @@ test('validated GPT-5.6 Codex models expose a 272k default and 1M maximum', () =
   }
 });
 
+test('Codex catalog rows carry the default effort and picker order', () => {
+  const model = _normalizeCodexModel({
+    slug: 'gpt-6-sol',
+    default_reasoning_level: 'medium',
+    priority: 2,
+    visibility: 'list',
+  });
+  assert.equal(model.defaultEffort, 'medium');
+  assert.equal(model.priority, 2);
+  assert.equal(model.visibility, 'list');
+  const bare = _normalizeCodexModel({ slug: 'gpt-x' });
+  assert.equal(bare.defaultEffort, null);
+  assert.equal(bare.priority, null);
+});
+
 test('Codex maximum overrides preserve larger provider values and unrelated models', () => {
   assert.equal(_codexMaxContextWindow('gpt-5.6-sol', 1_050_000), 1_050_000);
   assert.equal(_codexMaxContextWindow('gpt-5.5', 272_000), 272_000);

@@ -16,6 +16,7 @@ import {
   resolveModelPricingIdentity,
 } from '../../agent/orchestrator/providers/model-catalog.mjs';
 import { PRICING_RATE_KEYS, ratesForPrompt } from '../../agent/orchestrator/providers/model-pricing-rates.mjs';
+import { supportsAnthropicFastMode } from '../../agent/orchestrator/providers/anthropic-betas.mjs';
 
 // OpenAI OAuth / OpenAI API / Gemini report `input_tokens` as the total prompt token
 // count *including* the cached portion (inclusive). Anthropic reports the
@@ -50,6 +51,9 @@ export function priceUsage(args) {
   const n = (value) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : 0);
   const cached = n(args.cacheReadTokens);
   const written = n(args.cacheWriteTokens);
+  // Anthropic reports the 1-hour-TTL share of cache writes separately; it
+  // bills at 2x the base input rate, the rest at the (5-minute) write rate.
+  const written1h = Math.min(n(args.cacheWrite1hTokens), written);
   const inclusive = args.inputTokensInclusive ?? isInclusiveProvider(args.provider);
   let input = 0;
   if (args.inputTokensKnown === false) input = 0;
@@ -65,6 +69,7 @@ export function priceUsage(args) {
     ...(args.inputTokensKnown === false ? { inputTokensKnown: false } : {}),
     ...(args.fast ? { fast: true } : {}),
     ...(args.serviceTier ? { serviceTier: args.serviceTier } : {}),
+    ...(written1h ? { cacheWrite1hTokens: written1h } : {}),
   };
   if (args.inputTokensKnown === false || !meta)
     return {
@@ -97,21 +102,27 @@ export function priceUsage(args) {
     const peak = date.getUTCDay() >= 1 && date.getUTCDay() <= 5 && ((h >= 1 && h < 4) || (h >= 6 && h < 10));
     if (!peak) multiplier *= meta.offPeakMultiplier;
   }
-  if (identity.pricingModel === 'claude-opus-4-8' && (args.fast || args.serviceTier === 'fast')) multiplier *= 2;
+  // Fast mode bills 2x standard rates on every fast-capable Opus.
+  if (supportsAnthropicFastMode(identity.pricingModel) && (args.fast || args.serviceTier === 'fast')) multiplier *= 2;
   const keys = PRICING_RATE_KEYS;
-  const tokens = [input, n(args.outputTokens), cached, written];
+  const tokens = [input, n(args.outputTokens), cached, written - written1h];
   const tierRates = ratesForPrompt(meta, promptTokens);
   const rates = {
     ...provenance,
     ...Object.fromEntries(keys.map((key) => [key, tierRates[key] == null ? null : tierRates[key] * multiplier])),
   };
+  if (written1h) rates.cacheWrite1hCostPerM = rates.inputCostPerM === null ? null : rates.inputCostPerM * 2;
   const missingRates = keys.filter((key, i) => tokens[i] > 0 && rates[key] === null);
+  if (written1h && rates.cacheWrite1hCostPerM === null) missingRates.push('cacheWrite1hCostPerM');
   if (missingRates.length) {
     rates.unpricedReason = 'missing-rate';
     rates.missingRates = missingRates;
     return { input, costUsd: null, rates };
   }
-  const costUsd = tokens.reduce((sum, amount, i) => sum + amount * (rates[keys[i]] ?? 0), 0) / 1_000_000;
+  const costUsd =
+    (tokens.reduce((sum, amount, i) => sum + amount * (rates[keys[i]] ?? 0), 0) +
+      written1h * (rates.cacheWrite1hCostPerM ?? 0)) /
+    1_000_000;
   return { input, costUsd: Number(costUsd.toFixed(6)), rates };
 }
 

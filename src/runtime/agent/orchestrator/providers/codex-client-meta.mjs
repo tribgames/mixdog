@@ -15,9 +15,9 @@ import os from 'node:os';
 
 // Offline fallback only; live value refreshes from npm (24h TTL, in-process).
 // The backend gates model exposure AND per-request model access on the client
-// version (gpt-5.6-* require >= 0.144.0 per the published model catalog,
-// verified 2026-07-09), so keep this at the current release when bumping.
-const CODEX_CLIENT_VERSION_FLOOR = '0.144.1';
+// version (gpt-6-sol/luna require >= 0.155.0 per the published model catalog,
+// verified 2026-09-22), so keep this at the current release when bumping.
+const CODEX_CLIENT_VERSION_FLOOR = '0.155.1';
 const VERSION_TTL_MS = 24 * 60 * 60_000;
 let _cache = { value: null, fetchedAt: 0 };
 let _refreshInFlight = null;

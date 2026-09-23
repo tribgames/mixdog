@@ -1,3 +1,5 @@
+import { pageFaultsFirst } from './network';
+
 export type BrowserConsoleLevel = 'debug' | 'info' | 'warning' | 'error';
 
 interface BrowserConsoleEntry {
@@ -119,7 +121,10 @@ export class BrowserConsoleLedger {
   newErrors(limit: number): string[] {
     const fresh = this.#entries.filter((entry) => isPageError(entry) && entry.seq > this.#reportedErrorSeq);
     if (fresh.length) this.#reportedErrorSeq = fresh[fresh.length - 1].seq;
-    return fresh.slice(-Math.max(1, limit)).map((entry) => entry.text);
+    return pageFaultsFirst(
+      fresh.map((entry) => entry.text),
+      Math.max(1, limit)
+    );
   }
 
   format(rawLevel: unknown, rawQuery: unknown, rawLimit: unknown): string {

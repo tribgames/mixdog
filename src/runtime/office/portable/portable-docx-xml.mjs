@@ -1,5 +1,12 @@
 import { appendDocxBlock, docxBodyModel } from './portable-snapshot.mjs';
-import { WORD_RUN_SOURCE, containerInner, topLevelElements, xmlEncode } from './portable-xml.mjs';
+import {
+  WORD_RUN_SOURCE,
+  containerInner,
+  rebuildTextNodes,
+  textNodes,
+  topLevelElements,
+  xmlEncode,
+} from './portable-xml.mjs';
 
 function pointsToTwips(value) {
   return Math.max(1, Math.round(Number(value) * 20));
@@ -503,6 +510,37 @@ function paragraphIndentXml({ indentLeft, indentRight, indentFirstLine }) {
   const right = indentRight !== undefined ? ` w:right="${twips(indentRight)}"` : '';
   const firstLine = indentFirstLine !== undefined ? ` w:firstLine="${twips(indentFirstLine)}"` : '';
   return `<w:ind${left}${right}${firstLine}/>`;
+}
+
+/**
+ * A run's text content. Each tab is Word's own `<w:tab/>` element: a TAB
+ * character inside `<w:t>` renders as a space, so the paragraph's tab stops (a
+ * right-aligned figure, a dot leader) never see it.
+ */
+export function wordTextContent(text, { preserve = false } = {}) {
+  const textXml = (part) =>
+    `<w:t${preserve || /^\s|\s$/.test(part) ? ' xml:space="preserve"' : ''}>${xmlEncode(part)}</w:t>`;
+  const value = String(text ?? '');
+  if (!value.includes('\t')) return textXml(value);
+  return value
+    .split('\t')
+    .map((part) => (part ? textXml(part) : ''))
+    .join('<w:tab/>');
+}
+
+/**
+ * The fragment with `text` in its first `<w:t>` and every other `<w:t>`
+ * emptied: the first run's formatting carries the new words, and a tab in
+ * them becomes that run's `<w:tab/>`. The fragment holds at least one `<w:t>`.
+ */
+export function withFirstRunText(xml, text) {
+  const value = String(text ?? '');
+  const nodes = textNodes(xml, 'w:t').map((node, index) => ({ ...node, text: index ? '' : value }));
+  if (!value.includes('\t')) return rebuildTextNodes(xml, 'w:t', nodes);
+  const [first, ...rest] = nodes;
+  const tail = xml.slice(first.end);
+  const shifted = rest.map((node) => ({ ...node, start: node.start - first.end, end: node.end - first.end }));
+  return `${xml.slice(0, first.start)}${wordTextContent(value)}${rebuildTextNodes(tail, 'w:t', shifted)}`;
 }
 
 export function paragraphFormatXml(properties = {}, numbering = null) {

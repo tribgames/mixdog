@@ -67,7 +67,10 @@ export function createBrowserReply(host: BrowserReplyHost) {
     return state.redactText(guest, formatSnapshot(payload, record, { downloads, briefAgainst }));
   }
 
-  function dialogResult(guest: WebContents): BrowserCommandResult | null {
+  /** `dispatched` says whether this command's own gesture already reached the
+   *  page. The same dialog means opposite things to a caller that never
+   *  replays: the action ran (and likely opened it), or it was never sent. */
+  function dialogResult(guest: WebContents, dispatched = true): BrowserCommandResult | null {
     const dialog = state.for(guest).pendingDialog;
     if (!dialog) return null;
     // Chromium supplies no text for a leave-confirmation and the choice is not
@@ -82,11 +85,14 @@ export function createBrowserReply(host: BrowserReplyHost) {
           'repeating the same navigation is refused the same way.',
       };
     }
+    const ran = dispatched
+      ? 'The action ran; do not repeat it. '
+      : 'This action was not sent; after handle_dialog, repeat it only if it is still needed. ';
     return {
       outcome: 'blocked',
       text:
         `A ${dialog.type} dialog is blocking the page: ${JSON.stringify(state.redactText(guest, dialog.message))}\n` +
-        'Call handle_dialog with accept:true or accept:false before continuing.',
+        `${ran}Call handle_dialog with accept:true or accept:false before continuing.`,
     };
   }
 

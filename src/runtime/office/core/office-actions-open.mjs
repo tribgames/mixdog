@@ -35,6 +35,7 @@ function openedOfficeIdentity(session, action, extra = {}) {
     opened: true,
     created: action === 'create',
     reused: session.reused === true,
+    ...(session.convertedFrom ? { convertedFrom: session.convertedFrom } : {}),
     ...(session.createReceipt || {}),
     ...extra,
   };

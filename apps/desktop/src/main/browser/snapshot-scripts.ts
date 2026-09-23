@@ -173,7 +173,10 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       const doc = el.ownerDocument;
       if (!seenDocuments.has(doc)) {
         seenDocuments.add(doc);
-        const bodyText = doc.body ? (doc.body.innerText || doc.body.textContent || '') : '';
+        // A <frameset> body renders only its frames; its text is the
+        // <noframes> fallback nobody sees. The frames report their own text.
+        const readable = doc.body && doc.body.tagName !== 'FRAMESET';
+        const bodyText = readable ? (doc.body.innerText || doc.body.textContent || '') : '';
         if (bodyText) {
           if (String(bodyText).length > config.textChars * 4) textClipped = true;
           pageTexts.push(String(bodyText).slice(0, config.textChars * 4));

@@ -39,7 +39,7 @@ void app
       return { center: [box.x + box.width/2, box.y + box.height/2],
         text: document.body.innerText.trim(), movingAnimations, movingOpacity, preparation,
         clickAnimation: animations.map(a => a.animationName),
-        duplicatePointer: getComputedStyle(document.querySelector('#arrow')).display !== 'none' };
+        pointer: getComputedStyle(document.querySelector('#arrow')).display !== 'none' };
     })()`);
       assert.ok(result.center.every((coordinate: number) => Math.abs(coordinate - CURSOR_HOTSPOT) < 0.01));
       assert.equal(result.text, '');
@@ -47,7 +47,7 @@ void app
       assert.ok(result.movingOpacity > 0);
       assert.deepEqual(result.preparation, ['prepare']);
       assert.deepEqual(result.clickAnimation, ['press']);
-      assert.equal(result.duplicatePointer, false);
+      assert.equal(result.pointer, true, 'the overlay carries its own pointer, whatever the delivery mode');
       const feedback = await window.webContents.executeJavaScript(`(() => {
       const sample = (effect, time) => {
         window.mixdogAgentCursor({ effect });
@@ -105,11 +105,7 @@ void app
           visibility: document.visibilityState, scale: devicePixelRatio,
           pointer: getComputedStyle(document.getElementById('arrow')).display !== 'none' };
       })()`);
-          assert.equal(
-            rendered.pointer,
-            mode === 'background',
-            'background has its own pointer; foreground has no duplicate'
-          );
+          assert.equal(rendered.pointer, true, 'every mode draws its own pointer at the action point');
           assert.ok(rendered.effect.includes(effect), 'the cursor carries the effect it is showing');
           assert.ok(
             colored > 15,

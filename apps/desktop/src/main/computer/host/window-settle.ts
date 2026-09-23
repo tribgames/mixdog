@@ -86,7 +86,14 @@ async function scanTransition(
   const windowsAfter = await host.readComputerWindows(input.command, includeAppMetadata);
   scan.ms += elapsedMs(startedAt);
   return input.windowsBefore && windowsAfter
-    ? computeComputerWindowTransition(input.windowsBefore, windowsAfter, input.targetWindowId, input.pid, input.appHint)
+    ? computeComputerWindowTransition(
+        input.windowsBefore,
+        windowsAfter,
+        input.targetWindowId,
+        input.pid,
+        input.appHint,
+        input.action === 'launch'
+      )
     : null;
 }
 

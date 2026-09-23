@@ -234,16 +234,16 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Target text comes from visible evidence, never reconstructed/i);
   assert.doesNotMatch(full, /Editing tool names are direct tool calls/i);
   // Call count and sequencing belong to Tool Calls; Editing keeps the per-file rule.
-  assert.match(full, /Write each file complete in one pass/i);
+  assert.match(full, /Write each new or fully rewritten file complete in one pass/i);
   assert.doesNotMatch(full, /Fewest safe calls|result-dependent changes/i);
   assert.match(full, /Commit, push, release, deployment and any irreversible action/i);
   assert.match(full, /Stage selected diff changes with `git` using `action:"stage"`/i);
   assert.match(full, /A commit request includes selecting and staging/i);
-  // Delivery's Git workflow is hidden without the unified tool.
-  assert.doesNotMatch(
-    buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), omitTools: ['git'] }),
-    /# Delivery/
-  );
+  // Delivery's Git workflow is hidden without the unified tool; the
+  // record-keeping rule stays under its own heading.
+  const withoutGit = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), omitTools: ['git'] });
+  assert.match(withoutGit, /# Delivery\n\n- Unless the user explicitly requests them/);
+  assert.doesNotMatch(withoutGit, /A commit request includes|Stage selected diff changes/);
   assert.match(full, /`recall` only on request or for an open decision/i);
   // The memory approval flow lives in the memory tool description.
   assert.doesNotMatch(full, /show exact content and scope and ask/i);

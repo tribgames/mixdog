@@ -100,6 +100,182 @@ test('set_page lays a Word section out in columns and keeps them through later p
   );
 });
 
+// A new document is A4; a US reader's is Letter. The sheet is named by
+// pageSize and turned by orientation, and a later size change keeps the way a
+// landscape section lies.
+test('set_page names the paper size and keeps the section orientation', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'letter.docx');
+  value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: 'Quarterly memo for the US office.' },
+          { op: 'set_page', properties: { pageSize: 'letter' } },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const pageSizeOf = async (file) =>
+    /<w:pgSz\b[^>]*\/>/.exec(
+      await (await JSZip.loadAsync(await readFile(file))).file('word/document.xml').async('string')
+    )?.[0];
+  assert.equal(await pageSizeOf(path), '<w:pgSz w:w="12240" w:h="15840"/>');
+
+  const turned = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        path,
+        mode: 'portable',
+        operations: [{ op: 'set_page', properties: { orientation: 'landscape' } }],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(await pageSizeOf(turned.output), '<w:pgSz w:w="15840" w:h="12240" w:orient="landscape"/>');
+
+  const legal = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        path: turned.output,
+        mode: 'portable',
+        operations: [{ op: 'set_page', properties: { pageSize: 'legal', leftMargin: 54 } }],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(await pageSizeOf(legal.output), '<w:pgSz w:w="20160" w:h="12240" w:orient="landscape"/>');
+
+  const refused = await executeOfficeTool(
+    {
+      action: 'batch',
+      path: legal.output,
+      mode: 'portable',
+      operations: [{ op: 'set_page', properties: { pageSize: 'b5' } }],
+    },
+    { cwd }
+  );
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /Unknown set_page pageSize: b5; use a3, a4, a5, letter, legal, tabloid/);
+});
+
+// A contents line or a label-and-figure row is a tab onto a right tab stop. A
+// TAB character inside the text element renders as a space and never reaches
+// the stop, so the tab is written as Word's own element and read back as \t.
+test('a tab in appended text reaches the paragraph tab stop and reads back as a tab', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'contents.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        mode: 'portable',
+        snapshotAfter: true,
+        operations: [
+          {
+            op: 'append_text',
+            text: 'Chapter one\t12',
+            properties: { tabStops: [{ position: 450, alignment: 'right', leader: 'dot' }] },
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const document = await (await JSZip.loadAsync(await readFile(path))).file('word/document.xml').async('string');
+  assert.match(document, /<w:r><w:t>Chapter one<\/w:t><w:tab\/><w:t>12<\/w:t><\/w:r>/);
+  assert.match(document, /<w:tab w:val="right" w:pos="9000" w:leader="dot"\/>/);
+  assert.equal(created.document.paragraphs[0].text, 'Chapter one\t12');
+  await executeOfficeTool({ action: 'close', session: created.session }, { cwd });
+});
+
+// Rewriting a paragraph or a table cell writes its tab the same way appending
+// one does, keeping the first run's formatting and emptying the rest.
+test('set_paragraph_text and set_table_cell write a tab as the run tab element', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'rewrite.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: 'Old line', properties: { bold: true } },
+          { op: 'add_table', values: [['Label', 'Value']] },
+          { op: 'set_paragraph_text', paragraph: 1, text: 'Total\t42' },
+          { op: 'set_table_cell', table: 1, row: 1, col: 2, text: 'A\tB' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const document = await (await parts(path)).text('word/document.xml');
+  assert.match(document, /<w:r><w:rPr><w:b w:val="1"\/><\/w:rPr><w:t>Total<\/w:t><w:tab\/><w:t>42<\/w:t><\/w:r>/);
+  assert.match(document, /<w:t>A<\/w:t><w:tab\/><w:t>B<\/w:t>/);
+  assert.doesNotMatch(document, /<w:t[^>]*>[^<]*\t/);
+  await executeOfficeTool({ action: 'close', session: created.session }, { cwd });
+});
+
+// Every part and relationship of these decks resolves, yet PowerPoint refuses
+// them: a slide on two layouts, one notes page claimed by two slides, a master
+// listing a layout it does not relate, and two masters on one theme part.
+test('PowerPoint-refused deck structures fail package validation', async (t) => {
+  const cwd = await workspace(t);
+  const template = await readFile(new URL('./design/library/templates/mixdog-executive.pptx', import.meta.url));
+  const clean = join(cwd, 'clean.pptx');
+  await writeFile(clean, template);
+  const passed = await validatePortableOoxml(clean, 'pptx');
+  assert.deepEqual(passed.presentationFaults, []);
+
+  const zip = await JSZip.loadAsync(template);
+  const edit = async (part, change) => zip.file(part, change(await zip.file(part).async('string')));
+  const slideOneRels = await zip.file('ppt/slides/_rels/slide1.xml.rels').async('string');
+  const notesTarget = /Type="[^"]*\/notesSlide"[^>]*Target="([^"]+)"|Target="([^"]+)"[^>]*Type="[^"]*\/notesSlide"/.exec(
+    slideOneRels
+  );
+  const sharedNotes = notesTarget[1] || notesTarget[2];
+  await edit('ppt/slides/_rels/slide1.xml.rels', (xml) =>
+    xml.replace(
+      '</Relationships>',
+      '<Relationship Id="rId900" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout2.xml"/></Relationships>'
+    )
+  );
+  await edit('ppt/slides/_rels/slide2.xml.rels', (xml) =>
+    xml.replace(/(Type="[^"]*\/notesSlide"[^>]*Target=")[^"]+"|(Target=")[^"]+("[^>]*Type="[^"]*\/notesSlide")/, (...m) =>
+      m[1] ? `${m[1]}${sharedNotes}"` : `${m[2]}${sharedNotes}${m[3]}`
+    )
+  );
+  await edit('ppt/slideMasters/slideMaster1.xml', (xml) =>
+    xml.replace('</p:sldLayoutIdLst>', '<p:sldLayoutId id="2147483999" r:id="rId999"/></p:sldLayoutIdLst>')
+  );
+  const masterTheme = /Target="(\.\.\/theme\/theme\d+\.xml)"/.exec(
+    await zip.file('ppt/slideMasters/_rels/slideMaster1.xml.rels').async('string')
+  )[1];
+  await edit('ppt/notesMasters/_rels/notesMaster1.xml.rels', (xml) =>
+    xml.replace(/Target="\.\.\/theme\/theme\d+\.xml"/, `Target="${masterTheme}"`)
+  );
+  const broken = join(cwd, 'broken.pptx');
+  await writeFile(broken, await zip.generateAsync({ type: 'nodebuffer' }));
+  const failed = await validatePortableOoxml(broken, 'pptx');
+  assert.equal(failed.ok, false);
+  assert.deepEqual(
+    failed.presentationFaults.map((fault) => fault.code).sort(),
+    ['layout_reference_missing', 'master_theme_shared', 'notes_slide_shared', 'slide_layout_duplicated']
+  );
+  assert.match(
+    failed.presentationFaults.find((fault) => fault.code === 'master_theme_shared').message,
+    /move <p:notesMasterIdLst> to directly after <p:sldIdLst>/
+  );
+});
+
 // A table long enough to cross a page keeps its column labels only while the
 // first row is marked to repeat; a document that arrived from elsewhere is
 // where that mark goes missing.
@@ -628,6 +804,37 @@ test('a stringified value on the page is reported like any other leftover', asyn
   const placeholder = (issues.issues || []).find((entry) => entry.code === 'placeholder_text');
   assert.ok(placeholder, 'the stringified value is reported');
   assert.match(placeholder.message, /\[object Object\]/);
+  await executeOfficeTool({ action: 'close', session: created.session }, { cwd });
+});
+
+// A search tool's citation marker copied into the prose never reaches a reader
+// as a source, and a leftover in the running header prints on every page: both
+// are reported like a leftover in the body.
+test('tool citation tokens and header leftovers are reported as placeholders', async (t) => {
+  const cwd = await workspace(t);
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        format: 'docx',
+        path: join(cwd, 'cited.docx'),
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: '매출은 12% 늘었다 【4:0†source】' },
+          { op: 'set_header_footer', kind: 'header', text: '제목을 입력하세요' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || [];
+  const citation = issues.find((entry) => /tool citation token/.test(entry.message));
+  assert.ok(citation, JSON.stringify(issues));
+  assert.equal(citation.path, '/body');
+  assert.match(citation.message, /【4:0†source】/);
+  const header = issues.find((entry) => entry.code === 'placeholder_text' && entry.path === '/header');
+  assert.ok(header, JSON.stringify(issues));
+  assert.match(header.part, /^word\/header\d+\.xml$/);
   await executeOfficeTool({ action: 'close', session: created.session }, { cwd });
 });
 
@@ -1221,6 +1428,91 @@ test('a Word snapshot reports whether this document records edits as revisions',
   // rather than dropping it; reading the element alone calls that file tracked.
   assert.equal(await read('tracking-off-explicit', '<w:trackRevisions w:val="false"/>'), false);
   assert.equal(await read('tracking-on-explicit', '<w:trackRevisions w:val="1"/>'), true);
+});
+
+// A paragraph that carries a field (a page number, a link, a contents entry)
+// holds its instruction in <w:instrText>; deleting that paragraph under
+// tracking turns the instruction into deleted text as well, or Word refuses
+// the file and the lint blocks finalize.
+test('a tracked deletion of a paragraph with a field deletes the field instruction too', async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'field.docx');
+  await writeZip(source, {
+    '[Content_Types].xml':
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    '_rels/.rels':
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    'word/document.xml':
+      '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
+      '<w:p><w:r><w:t>Keep</w:t></w:r></w:p>' +
+      '<w:p><w:r><w:t xml:space="preserve">Page </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r>' +
+      '<w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>' +
+      '<w:r><w:t>3</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:body></w:document>',
+  });
+  const opened = value(await executeOfficeTool({ action: 'open', path: source, mode: 'portable' }, { cwd }));
+  const edited = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [
+          { op: 'track_changes', enabled: true },
+          { op: 'remove_paragraph', paragraph: 2, author: 'Reviewer' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const document = await (await parts(edited.output)).text('word/document.xml');
+  assert.match(document, /<w:delInstrText xml:space="preserve"> PAGE <\/w:delInstrText>/);
+  assert.doesNotMatch(document, /<w:instrText\b/);
+  const issues = value(await executeOfficeTool({ action: 'issues', session: opened.session }, { cwd })).issues;
+  assert.equal(
+    issues.some((issue) => issue.code === 'instr_text_in_deletion'),
+    false,
+    JSON.stringify(issues)
+  );
+  await executeOfficeTool({ action: 'close', session: opened.session }, { cwd });
+});
+
+// Rejecting another reviewer's inserted paragraph deletes its mark under
+// tracking. The schema orders <w:ins> before <w:del> in the mark's run
+// properties; the other way round the package fails validation.
+test('a tracked deletion of an inserted paragraph keeps the insertion ahead of the deletion mark', async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'inserted.docx');
+  await writeZip(source, {
+    '[Content_Types].xml':
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    '_rels/.rels':
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    'word/document.xml':
+      '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
+      '<w:p><w:r><w:t>Keep</w:t></w:r></w:p>' +
+      '<w:p><w:pPr><w:rPr><w:ins w:id="1" w:author="Alice" w:date="2026-01-01T00:00:00Z"/><w:b/></w:rPr></w:pPr>' +
+      '<w:ins w:id="2" w:author="Alice" w:date="2026-01-01T00:00:00Z"><w:r><w:t>Added by Alice</w:t></w:r></w:ins></w:p>' +
+      '<w:p><w:r><w:t>End</w:t></w:r></w:p></w:body></w:document>',
+  });
+  const opened = value(await executeOfficeTool({ action: 'open', path: source, mode: 'portable' }, { cwd }));
+  const edited = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [
+          { op: 'track_changes', enabled: true },
+          { op: 'remove_paragraph', paragraph: 2, author: 'Bob' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const document = await (await parts(edited.output)).text('word/document.xml');
+  assert.match(
+    document,
+    /<w:pPr><w:rPr><w:ins w:id="1" w:author="Alice"[^>]*\/><w:del w:id="\d+" w:author="Bob"[^>]*\/><w:b\/><\/w:rPr><\/w:pPr>/
+  );
+  await executeOfficeTool({ action: 'close', session: opened.session }, { cwd });
 });
 
 test('DOCX redlining audit accepts tracked edits by the named author and reports foreign authors', async (t) => {

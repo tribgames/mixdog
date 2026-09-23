@@ -170,6 +170,9 @@ test("resources the browser's own components load never surface as the page's fa
       request: { url, method: 'GET' },
     });
   const componentUrl = 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/pdf_embedder.css';
+  const refusal = 'navigation to example.test resolved to blocked private or internal address 0.0.0.0';
+  f.state.for(f.guest);
+  f.state.recordRefusedRequest(f.guest, 'https://example.test/app.css', refusal);
   started('page-1', 'https://example.test/app.css');
   started('component-1', componentUrl);
   for (const requestId of ['page-1', 'component-1']) {
@@ -177,16 +180,23 @@ test("resources the browser's own components load never surface as the page's fa
   }
   for (const url of ['https://example.test/app.css', componentUrl]) {
     f.debug.emit('message', {}, 'Log.entryAdded', {
-      entry: { level: 'error', text: 'Failed to load resource', url },
+      entry: { level: 'error', text: 'Failed to load resource: net::ERR_BLOCKED_BY_CLIENT', url },
     });
   }
   await tick();
   const diagnostics = f.state.for(f.guest);
   assert.equal(diagnostics.networkFailures.length, 1);
   assert.match(diagnostics.networkFailures[0], /app\.css/);
+  // The host's own request policy is the only client that blocks here, so
+  // the refusal says so instead of reading like a fault of the page.
+  // The host's own request policy is the only client that blocks here, so
+  // the refusal says so, with the rule's reason, instead of a bare code.
+  const explained = `ERR_BLOCKED_BY_CLIENT (Browser Use network policy: ${refusal})`;
+  assert.ok(diagnostics.networkFailures[0].endsWith(explained), diagnostics.networkFailures[0]);
   const errors = diagnostics.console.recentErrors(5);
   assert.equal(errors.length, 1);
   assert.match(errors[0], /app\.css/);
+  assert.ok(errors[0].includes(explained), errors[0]);
   await f.cdp.detach(f.guest);
 });
 

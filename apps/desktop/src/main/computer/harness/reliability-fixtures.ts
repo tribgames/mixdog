@@ -23,6 +23,32 @@ $timer.Start()
 $null = $window.ShowDialog()
 `;
 
+// A focusable text surface with no value: its content is reachable only through
+// TextPattern, the way a terminal buffer or a rich document body is.
+const WPF_DOCUMENT = `
+Add-Type -AssemblyName PresentationFramework
+$window = New-Object Windows.Window
+$window.Title = 'Mixdog WPF Document Fixture'
+$window.Width = 640; $window.Height = 420
+$document = New-Object Windows.Controls.RichTextBox
+$document.IsReadOnly = $true
+$document.Document.Blocks.Clear()
+foreach ($line in @('DOCUMENT_LINE_ONE', 'DOCUMENT_LINE_TWO')) {
+  $document.Document.Blocks.Add((New-Object Windows.Documents.Paragraph (New-Object Windows.Documents.Run $line)))
+}
+[Windows.Automation.AutomationProperties]::SetName($document, 'Fixture document')
+$window.Content = $document
+$timer = New-Object Windows.Threading.DispatcherTimer
+$timer.Interval = [TimeSpan]::FromMilliseconds(250)
+$deadline = [DateTime]::UtcNow.AddMinutes(3)
+$timer.Add_Tick({
+  if ([DateTime]::UtcNow -gt $deadline -or [IO.File]::Exists($env:MIXDOG_FIXTURE_STOP)) { $window.Close() }
+})
+$window.Add_Closed({ $timer.Stop() })
+$timer.Start()
+$null = $window.ShowDialog()
+`;
+
 const EXCEL = `
 $excel = $null; $book = $null
 try {
@@ -51,7 +77,7 @@ try {
 `;
 
 export function startManagedFixture(
-  kind: 'wpf' | 'excel',
+  kind: 'wpf' | 'wpf-document' | 'excel',
   directory: string
 ): {
   child: ChildProcess;
@@ -63,7 +89,8 @@ export function startManagedFixture(
   const state = join(directory, `${kind}-state.txt`);
   const stop = join(directory, `${kind}-stop`);
   const program = join(directory, `${kind}-fixture.ps1`);
-  writeFileSync(program, `$ErrorActionPreference = 'Stop'\n${kind === 'wpf' ? WPF : EXCEL}`, 'utf8');
+  const source = { wpf: WPF, 'wpf-document': WPF_DOCUMENT, excel: EXCEL }[kind];
+  writeFileSync(program, `$ErrorActionPreference = 'Stop'\n${source}`, 'utf8');
   let errors = '';
   const child = spawn(
     'powershell.exe',

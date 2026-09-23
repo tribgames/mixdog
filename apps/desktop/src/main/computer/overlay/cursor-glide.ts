@@ -28,9 +28,12 @@ const COLLAPSED_SEED = 8;
 
 const GLIDE_EFFECTS = new Set(['prepare', 'click', 'press', 'type', 'scroll']);
 
-/** Only a virtual pointer travels; a foreground halo decorates the OS pointer where it already is. */
+/**
+ * The overlay pointer travels to the action point in both delivery modes. Only
+ * effects that name a place are worth travelling to; anything else stays put.
+ */
 export function glideAllowed(cursor: { mode: string; effect?: string; tracking?: boolean }): boolean {
-  return cursor.mode === 'background' && GLIDE_EFFECTS.has(String(cursor.effect || ''));
+  return GLIDE_EFFECTS.has(String(cursor.effect || ''));
 }
 
 export function seedGlideStart(target: GlidePoint, area: GlideArea): GlidePoint {

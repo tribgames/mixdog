@@ -476,6 +476,7 @@ function usageCostUsd(routeInfo, usage) {
     outputTokens: num(usage?.outputTokens, 0),
     cacheReadTokens: num(usage?.cachedTokens ?? usage?.cacheReadTokens, 0),
     cacheWriteTokens: num(usage?.cacheWriteTokens, 0),
+    cacheWrite1hTokens: num(usage?.cacheWrite1hTokens, 0),
   });
 }
 

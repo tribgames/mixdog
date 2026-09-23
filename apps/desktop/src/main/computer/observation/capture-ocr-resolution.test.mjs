@@ -74,6 +74,74 @@ test('OCR reads lossless pixels and maps words, lines and click targets into the
       width: 50,
       height: 20,
     });
-    assert.equal(result.ocrPayload.words[0].text, 'MainCanvas');
+    // A marked word is returned as an element, so the payload never repeats it.
+    assert.equal(result.ocrElements[0].name, 'MainCanvas');
+    assert.equal(result.ocrPayload.words, undefined);
   }
+});
+
+test('a narrowed read of a window without accessibility returns only what it asked for', async () => {
+  const host = {
+    sessionIdFor: () => 'ocr-filter',
+    callPowerShell: async () => ({
+      ok: true,
+      result: {
+        language: 'en',
+        image_width: 400,
+        image_height: 200,
+        words: [
+          { text: 'Console', line: 0, x: 0, y: 0, width: 80, height: 20, center_x: 40, center_y: 10 },
+          { text: 'Inspector', line: 1, x: 0, y: 40, width: 90, height: 20, center_x: 45, center_y: 50 },
+        ],
+        lines: [
+          { text: 'Console', line: 0, x: 0, y: 0, width: 80, height: 20 },
+          { text: 'Inspector', line: 1, x: 0, y: 40, width: 90, height: 20 },
+        ],
+        total_words: 2,
+      },
+    }),
+  };
+  const read = async (command) => {
+    const elements = [];
+    const result = await mergeCaptureOcr(host, {
+      command: { action: 'capture', ...command },
+      mode: 'som',
+      rawElements: [],
+      elements,
+      totalElementBudget: 80,
+      semanticAccessibilityAvailable: false,
+      observationWindowId: 'hwnd:0x1',
+      timings: {},
+      screenshot: {
+        description: 'fixture',
+        image: { mimeType: 'image/jpeg', data: 'model-image' },
+        ocrImage: { data: 'native-pixels', width: 400, height: 200 },
+        frameId: 'frame-1',
+        frame: {
+          captureWidth: 400,
+          captureHeight: 200,
+          physicalWidth: 400,
+          physicalHeight: 200,
+          originX: 0,
+          originY: 0,
+        },
+      },
+    });
+    return result;
+  };
+  // Accessibility is unavailable, so the frame is recognized; the query narrows
+  // the recognized text instead of handing back the whole window.
+  const narrowed = await read({ query: 'console' });
+  assert.deepEqual(
+    narrowed.ocrElements.map((element) => element.name),
+    ['Console']
+  );
+  assert.deepEqual(
+    narrowed.ocrPayload.lines.map((line) => line.text),
+    ['Console']
+  );
+  // Pixels can only answer for static text, never for a control role.
+  const byRole = await read({ role: 'Button' });
+  assert.deepEqual(byRole.ocrElements, []);
+  assert.deepEqual(byRole.ocrPayload.lines, []);
 });

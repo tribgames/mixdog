@@ -36,11 +36,31 @@ public static class MixInputObservation {
 public static class MixWin32 {
   public static int FocusCalls;
   public static IntPtr Current;
-  public static IntPtr Foreground() { return Current; }
+  // Reads left before a delayed steal lands; negative means none is pending.
+  public static int StealAfterReads = -1;
+  public static IntPtr StealWith;
+  public static IntPtr Foreground() {
+    if (StealAfterReads == 0) Current = StealWith;
+    if (StealAfterReads >= 0) StealAfterReads--;
+    return Current;
+  }
+  // Window 9 is a packaged app's content window inside frame 1.
+  public static bool IsWithinTopLevel(IntPtr candidate, IntPtr top) {
+    return candidate == top || (candidate == new IntPtr(9) && top == new IntPtr(1));
+  }
   public static bool IsWindowHandle(IntPtr value) { return value != IntPtr.Zero; }
   public static bool Focus(IntPtr value) { FocusCalls++; Current = value; return true; }
   public static bool IsContainedSameProcess(IntPtr child, IntPtr parent) { return false; }
   public static bool IsOwnedBy(IntPtr child, IntPtr parent) { return false; }
+  public static bool SelfActivating;
+  public static int Disables;
+  public static int Restores;
+  public static bool SelfActivatesOnSemanticInput(IntPtr value) { return SelfActivating; }
+  public static bool IsWebContentHost(IntPtr value) { return false; }
+  public static bool SetWindowEnabled(IntPtr value, bool enabled) {
+    if (enabled) Restores++; else Disables++;
+    return true;
+  }
   public static System.Collections.Generic.List<string> Released = new System.Collections.Generic.List<string>();
   public static IntPtr ParseWindowId(string value) { return new IntPtr(Convert.ToInt32(value.Substring(7), 16)); }
   public static string WindowId(IntPtr value) { return "hwnd:0x" + value.ToInt64().ToString("X"); }
@@ -60,6 +80,8 @@ $held=$inputAst.Find({param($node) $node -is [Management.Automation.Language.Fun
 . ([scriptblock]::Create($held.Extent.Text))
 $heldKeys=$inputAst.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Release-HeldKeys'},$true)
 . ([scriptblock]::Create($heldKeys.Extent.Text))
+$cursorTheme=$inputAst.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Release-CursorTheme'},$true)
+. ([scriptblock]::Create($cursorTheme.Extent.Text))
 function Get-CurrentSession { return $script:state }
 $results=@()
 foreach($scenario in @('unchanged','user_input','observer_lost','different_window','new_monitor')) {
@@ -95,6 +117,20 @@ foreach($scenario in @('background_unchanged','background_user_input','backgroun
   }
   $results+=@{scenario=$scenario; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls}
 }
+[MixWin32]::SelfActivating=$true
+[MixWin32]::FocusCalls=0; [MixWin32]::Disables=0; [MixWin32]::Restores=0
+[MixWin32]::Current=[IntPtr]2
+$null=Invoke-BackgroundWindow ([IntPtr]1) { [MixWin32]::Current=[IntPtr]1 }
+$results+=@{scenario='shielded_self_activating'; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls;
+  disables=[MixWin32]::Disables; restores=[MixWin32]::Restores}
+# The content window of a packaged app takes the foreground just after the
+# call returns: past the immediate check, inside the short watch.
+[MixWin32]::FocusCalls=0; [MixWin32]::Current=[IntPtr]2
+[MixWin32]::StealWith=[IntPtr]9; [MixWin32]::StealAfterReads=2
+$null=Invoke-BackgroundWindow ([IntPtr]1) { }
+$results+=@{scenario='delayed_content_steal'; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls}
+[MixWin32]::StealAfterReads=-1
+[MixWin32]::SelfActivating=$false
 $script:state=@{Map=@{}; Generation=0; LastFocus=[IntPtr]1; OriginalFocus=[IntPtr]::Zero;
   OriginalFocusMonitor=''; OriginalFocusSequence=$null; HeldPointerTargets=@{'hwnd:0x5'=@(11,22)}}
 [MixWin32]::Released.Clear()
@@ -112,12 +148,16 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
     const rows = JSON.parse(result.stdout.trim());
     assert.deepEqual(
       rows.map((row) => row.calls),
-      [1, 0, 0, 0, 0, 1, 0, 0, 0, 0]
+      [1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0]
     );
     assert.deepEqual(
       rows.map((row) => row.restored),
-      [true, false, false, false, false, true, false, false, false, false]
+      [true, false, false, false, false, true, false, false, false, true, true, false]
     );
+    // A window that would activate itself is disabled for the call and restored
+    // to exactly the state it had, so the steal never reaches the user's screen.
+    assert.equal(rows[9].disables, 1);
+    assert.equal(rows[9].restores, 1);
     // Releasing the session also releases every button it held down.
     assert.equal(rows.at(-1).released, 1);
     assert.equal(rows.at(-1).held, 0);

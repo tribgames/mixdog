@@ -52,6 +52,12 @@ export interface BrowserDiagnostics {
   pendingFileChooser: PendingFileChooser | null;
   console: BrowserConsoleLedger;
   networkFailures: string[];
+  /** Failures a reply has already carried: each is said once, like a console
+   *  error, instead of riding every reply for the rest of the document. */
+  reportedNetworkFailures: Set<string>;
+  /** Why the request policy refused a URL, newest last and capped. Kept across
+   *  documents: a navigation is refused before the next document begins. */
+  refusedRequests: Map<string, string>;
   network: BrowserNetworkLedger;
   cdpSessions: Map<string, CdpTargetSession>;
   fault: string;
@@ -120,6 +126,8 @@ export class BrowserGuestStateStore {
       pendingFileChooser: null,
       console: new BrowserConsoleLedger((value) => this.redactText(guest, value)),
       networkFailures: [],
+      reportedNetworkFailures: new Set(),
+      refusedRequests: new Map(),
       network: new BrowserNetworkLedger(),
       cdpSessions: new Map(),
       fault: '',
@@ -130,6 +138,15 @@ export class BrowserGuestStateStore {
 
   peek(guest: WebContents): BrowserGuestState | undefined {
     return this.states.get(guest);
+  }
+
+  /** The request policy's reason for refusing a URL this page asked for. */
+  recordRefusedRequest(guest: WebContents, url: string, reason: string): void {
+    const refused = this.states.get(guest)?.refusedRequests;
+    if (!refused) return;
+    refused.delete(url);
+    refused.set(url, reason.slice(0, 300));
+    if (refused.size > 50) refused.delete(refused.keys().next().value as string);
   }
 
   pageId(guest: WebContents): string {
@@ -196,6 +213,7 @@ export class BrowserGuestStateStore {
     // an in-document navigation keeps them, because nothing reloaded.
     if (!sameDocument) {
       state.networkFailures.length = 0;
+      state.reportedNetworkFailures.clear();
       state.console.clearDocument();
     }
   }

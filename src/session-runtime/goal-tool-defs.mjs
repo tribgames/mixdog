@@ -63,7 +63,7 @@ export const GOAL_TOOL_DEFS = Object.freeze([
           type: 'string',
           enum: ['max', 'duration'],
           description:
-            'max permits verified early completion; duration commits the full period, only on explicit request. Omitted: create defaults to max, resume keeps the current mode. Change a mode only with user approval.',
+            'duration commits the full period, the create default with a budget ("5-hour rounds"); max permits verified early completion, only for a stated cap ("at most", "within"). Resume keeps the mode; change it only with user approval.',
         },
         tasks: {
           type: 'array',
@@ -81,7 +81,12 @@ export const GOAL_TOOL_DEFS = Object.freeze([
           type: 'array',
           minItems: 1,
           maxItems: MAX_GOAL_TASKS,
-          items: { type: 'object', properties: taskFields, required: ['id'], additionalProperties: false },
+          items: {
+            type: 'object',
+            properties: { ...taskFields, id: { type: 'string', description: 'Existing task id.' } },
+            required: ['id'],
+            additionalProperties: false,
+          },
           description: 'update_tasks/resume: existing task ids with only changed fields.',
         },
         revision: {

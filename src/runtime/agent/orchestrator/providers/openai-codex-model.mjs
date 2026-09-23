@@ -58,6 +58,7 @@ export function _normalizeCodexModel(m) {
   const additionalSpeedTiers = Array.isArray(m?.additional_speed_tiers)
     ? m.additional_speed_tiers.map((t) => String(t || '').trim()).filter(Boolean)
     : [];
+  const reasoningLevels = (m?.supported_reasoning_levels || []).map((r) => r.effort);
   // Catalog ids are version aliases without separate display dating.
   return {
     id,
@@ -72,8 +73,16 @@ export function _normalizeCodexModel(m) {
     effectiveContextWindowPercent: m?.effective_context_window_percent || null,
     tier: 'version',
     latest: false,
+    // Catalog picker order (lowest first) and visibility; the default model
+    // follows them the way the reference client does.
+    priority: Number.isFinite(m?.priority) ? m.priority : null,
+    visibility: m?.visibility || null,
     description: m?.description || '',
-    reasoningLevels: (m?.supported_reasoning_levels || []).map((r) => r.effort),
+    reasoningLevels,
+    // The route's own levels as effort options, so external catalog options
+    // (the public API SKU) never replace them during enrichment.
+    reasoningOptions: reasoningLevels.length ? [{ type: 'effort', values: reasoningLevels }] : [],
+    defaultEffort: m?.default_reasoning_level || null,
     supportVerbosity: m?.support_verbosity === true,
     defaultVerbosity: m?.default_verbosity || null,
     supportsReasoningSummaries: m?.supports_reasoning_summaries === true,
@@ -100,12 +109,6 @@ export function _compareVersion(a, b) {
     if ((na[i] || 0) !== (nb[i] || 0)) return (na[i] || 0) - (nb[i] || 0);
   }
   return String(a).localeCompare(String(b));
-}
-
-// Main gpt-5 chat family only: exclude the mini/nano/codex variants so "latest"
-// resolves to the flagship, not a smaller sibling.
-export function _isMainCodexFamily(family) {
-  return typeof family === 'string' && family.startsWith('gpt-5');
 }
 
 // Mark the highest-version model per family as `latest: true`. VERSION-based

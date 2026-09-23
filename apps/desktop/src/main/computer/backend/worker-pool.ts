@@ -86,7 +86,10 @@ function classifyWorkerRequest(request: Record<string, unknown>): {
     sessionId: String(request.session_id || 'default'),
     windowId: typeof target?.window_id === 'string' ? target.window_id : undefined,
     mode: request.delivery === 'foreground' ? 'foreground' : 'background',
-    input: !computerActionHas(String(inputAction), 'nativeRead') && inputAction !== 'release_session',
+    input:
+      !computerActionHas(String(inputAction), 'nativeRead') &&
+      inputAction !== 'release_session' &&
+      inputAction !== 'release_cursor_theme',
     backgroundPressRelease:
       computerActionHas(String(inputAction), 'backgroundPressRelease') ||
       (inputAction === 'type' &&
@@ -320,6 +323,15 @@ export function createWorkerPool(host: WorkerPoolHost) {
   let elevatedSlots = 0;
   const inputMarker = String(randomBytes(4).readUInt32LE() & 0x7fffffff || 1);
   const hostScriptName = `computer-host-${process.pid}-${randomBytes(12).toString('hex')}.ps1`;
+  const processAlive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      // EPERM: the process exists but belongs to someone else.
+      return (error as NodeJS.ErrnoException).code === 'EPERM';
+    }
+  };
 
   function ensureHostScript(): string {
     if (hostScriptPath) return hostScriptPath;
@@ -329,6 +341,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
     hostScriptBuild = createHash('sha256').update(program).digest('hex').slice(0, 16);
     hostScriptPath = join(directory, hostScriptName);
     writeFileSync(hostScriptPath, program);
+    removeOrphanedHostScripts(directory);
     try {
       const cacheDirectory = join(directory, HOST_ASSEMBLY_CACHE_DIRECTORY);
       mkdirSync(cacheDirectory, { recursive: true });
@@ -627,6 +640,26 @@ export function createWorkerPool(host: WorkerPoolHost) {
         } catch {
           /* no cancellation requested */
         }
+      }
+    }
+  }
+
+  /** A host that crashed or was killed never ran removeHostScript, so its
+   *  script outlives it; one whose process is gone is safe to delete. */
+  function removeOrphanedHostScripts(directory: string): void {
+    let names: string[] = [];
+    try {
+      names = readdirSync(directory);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const match = /^computer-host-(\d+)-[0-9a-f]+\.ps1$/.exec(name);
+      if (!match || name === hostScriptName || processAlive(Number(match[1]))) continue;
+      try {
+        unlinkSync(join(directory, name));
+      } catch {
+        /* removed concurrently */
       }
     }
   }

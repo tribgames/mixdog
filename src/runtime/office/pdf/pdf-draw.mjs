@@ -2,17 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { rgb } from 'pdf-lib';
 import sharp from 'sharp';
+import { pageSizePoints } from '../shared/page-sizes.mjs';
 
 export const SAVE_OPTIONS = Object.freeze({ useObjectStreams: true, addDefaultPage: false });
 
-const PAGE_SIZES = Object.freeze({
-  a3: [841.89, 1190.55],
-  a4: [595.28, 841.89],
-  a5: [419.53, 595.28],
-  letter: [612, 792],
-  legal: [612, 1008],
-  tabloid: [792, 1224],
-});
 
 export function round2(value) {
   return Number(Number(value).toFixed(2));
@@ -29,20 +22,7 @@ export function color(value = '') {
 }
 
 export function pageSize(properties = {}) {
-  let size;
-  if (Array.isArray(properties.pageSize) && properties.pageSize.length === 2) {
-    size = properties.pageSize.map(Number);
-  } else {
-    const named = String(properties.pageSize || 'a4').toLowerCase();
-    if (!PAGE_SIZES[named]) {
-      throw new Error(
-        `Unknown PDF page size: ${properties.pageSize}; use ${Object.keys(PAGE_SIZES).join(', ')} or [width, height] in points`
-      );
-    }
-    size = [...PAGE_SIZES[named]];
-  }
-  if (!size.every((value) => Number.isFinite(value) && value > 0))
-    throw new Error('PDF pageSize must be two positive numbers in points');
+  const size = pageSizePoints(properties.pageSize || 'a4', 'PDF page size');
   const landscape = String(properties.orientation || '').toLowerCase() === 'landscape';
   return landscape && size[0] < size[1] ? [size[1], size[0]] : size;
 }

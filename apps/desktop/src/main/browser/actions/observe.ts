@@ -222,11 +222,12 @@ export const observationActions = defineBrowserActions({
     }
     const shown = rows.length < total ? `\n\n[showing ${rows.length} of ${total} matches; raise limit for more]` : '';
     const clipped = charTruncated ? '\n\n[truncated: raise maxChars for more]' : '';
+    const columns = payload?.columns ? `Columns: ${redactBrowserText(payload.columns)}\n` : '';
     return {
       text:
         UNTRUSTED_CONTENT_BANNER +
         `Extracted ${rows.length} match(es) for ${JSON.stringify(selector)}:\n\n` +
-        `${body}${shown}${clipped}`,
+        `${columns}${body}${shown}${clipped}`,
     };
   },
 });

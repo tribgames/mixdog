@@ -36,9 +36,8 @@ Avoid:
 | Plugin | The workflow depends on and ships with an extension |
 | Built-in | The workflow is broadly useful, stable, and inexpensive to expose |
 
-Project-local skill directories are outside Mixdog's discovery chain. If the
-workflow is specific to one repository, project documentation may be a better
-owner than a machine-global skill.
+A workflow specific to one repository may be better owned by project
+documentation than by a machine-global skill.
 
 ## Frontmatter
 
@@ -57,9 +56,6 @@ Optional portable fields include `license`, `compatibility`, `metadata`, and
 `allowed-tools`. A parsed field is not automatically an implemented feature.
 Confirm runtime support before assigning it operational meaning.
 
-For Mixdog, `metadata.requires` may list a built-in feature that is mandatory
-for the skill. Do not use it for ordinary repository files or generic tools.
-
 Declare mandatory tools in `dependencies.tools`, either in `SKILL.md`
 frontmatter or an imported `agents/openai.yaml`:
 
@@ -72,11 +68,8 @@ dependencies:
       value: existing-server
 ```
 
-`tool` resolves an exact tool name; `mcp` resolves the available tools of an
-already connected server. Loading adds their schemas to the current session,
-not permissions. Missing, disabled, and policy-blocked tools are reported,
-never installed or enabled. Leave optional tools to ordinary on-demand loading.
-`allowed-tools` remains imported metadata, not a dependency declaration.
+`mcp` resolves the available tools of an already connected server. Missing,
+disabled, and policy-blocked tools are reported, never installed or enabled.
 
 The skill editor keeps tool-link overrides in Mixdog's data directory so
 updating a downloaded skill does not erase local links or rewrite its source.
@@ -93,8 +86,7 @@ one listing line per skill:
 ```
 
 The runtime cuts the trigger at 100 characters on a word boundary; text past
-the cut never routes the skill. A missing trigger leaves only the name, never
-the UI description. The tool suffix comes from effective dependencies, not
+the cut never routes the skill. The tool suffix comes from effective dependencies, not
 handwritten trigger text; `mcp:<server>` denotes a server's tools. Keep these
 three responsibilities separate:
 

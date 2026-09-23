@@ -138,8 +138,9 @@ export function applyAccessibilityRead(
   };
   if (state.accessibilityError) {
     // Paging depends on the accessibility read: swallowing its error would
-    // answer a stale token with page one instead of refusing it.
-    if (mode === 'ax' || command.continuation) throw new Error(state.accessibilityError);
+    // answer a stale token with page one instead of refusing it. A cached
+    // stalled provider is already the answer, so it reports itself instead.
+    if ((mode === 'ax' && !visualOnlyCacheHit) || command.continuation) throw new Error(state.accessibilityError);
     return state;
   }
   if (!snapshot?.ok) return state;

@@ -69,7 +69,11 @@ export interface CommandRouterHost
     >,
     Pick<
       ExecutionState,
-      'executionContext' | 'sessionRecoveryBySession' | 'assertExecutionNotAborted' | 'invalidateObservationsForWindows'
+      | 'executionContext'
+      | 'sessionRecoveryBySession'
+      | 'sequenceCursorAnchor'
+      | 'assertExecutionNotAborted'
+      | 'invalidateObservationsForWindows'
     >,
     Pick<SessionLifecycle, 'claimComputerTargets' | 'releaseComputerSession' | 'takeOverComputer'>,
     Pick<Inspection, 'diagnoseComputer' | 'verifyWindowState'>,

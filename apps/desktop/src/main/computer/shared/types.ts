@@ -38,6 +38,9 @@ export interface ComputerCommand {
   /** click family: modifier keys held during the click, e.g. "ctrl+shift". */
   modifiers?: string;
   delivery?: 'background' | 'foreground';
+  /** Another step of this sequence follows on the same target, so the cursor
+   *  theme stays and the post-dispatch settle belongs to the last step. */
+  input_continues?: boolean;
   read_only?: boolean;
   /** wait: seconds to pause (0..30). */
   duration?: number;
@@ -72,6 +75,10 @@ export interface ComputerCommand {
    *  another session's synthetic input is not mistaken for the user's. */
   known_injection_tick?: number | null;
   capture_after?: boolean;
+  /** Host-supplied on the capture that follows an action: that observation
+   *  wants the cheapest fresh state, not a fresh verdict on a provider the
+   *  session already found stalled. */
+  observation_after?: boolean;
   capture_delay_ms?: number;
   capture_after_mode?: 'state' | 'som' | 'vision' | 'ax';
   capture_after_max_elements?: number;
@@ -140,6 +147,7 @@ export interface PixelUnavailable {
   code: 'pixel_unavailable';
   reason:
     | 'capture_source_unavailable'
+    | 'window_hidden'
     | 'empty_frame'
     | 'blank_black_frame'
     | 'blank_white_frame'
@@ -184,6 +192,9 @@ export interface ComputerInputObservation {
   ready: boolean;
   monitor: string;
   sequence: number;
+  /** Why the observation was not foreground-ready, carried so a later refusal
+   *  can name the cause instead of pointing at a field the caller may not hold. */
+  reason?: string;
 }
 
 export interface ComputerObservationGuard {

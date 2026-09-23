@@ -8,9 +8,9 @@ export const TOOL_DEFS = [
     title: 'Tidy',
     description:
       'Clean up code across the languages in this project; engine/rule work belongs here, not shell. fix writes only with apply:true. Managed engines auto-download unless tidy.downloads is ask (user approves). ' +
-      'results pages the last check/fix without re-running; rules/paths filter before paging. It omits languages/languageSource/engines/missing/policy. ' +
-      'Compact rows: loc,rule,severity,message,fix. byRule (count,highest severity,fixable count) and byDir (first two directories) survive trimming. ' +
-      'ok:true/status:partial means structural passes failed; structural.errors names languages. All structural writes stay blocked. ' +
+      'results pages the last check/fix without re-running; rules/paths filter before paging; pages omit languages, languageSource, engines, missing, policy. ' +
+      'Rows: loc,rule,severity,message,fix; byRule (count, highest severity, fixable count) and byDir (first two directories) survive trimming. ' +
+      'ok:true with status:partial: engines ran but a structural pass failed (structural.errors names the languages); no structural fix is written for that run. ' +
       TOOL_SYNC_EXECUTION_CONTRACT,
     inputSchema: {
       type: 'object',

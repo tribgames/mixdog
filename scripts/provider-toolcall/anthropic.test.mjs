@@ -376,6 +376,38 @@ test('anthropic effort: sonnet-4-6 uses output_config + effort beta, not thinkin
   assert.ok(beta.includes(EFFORT_BETA_HEADER));
 });
 
+test('anthropic fast mode: speed:fast only on Opus 5.5, Opus 5 and Opus 4.8', () => {
+  const messages = [{ role: 'user', content: 'hi' }];
+  for (const model of ['claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8']) {
+    assert.equal(_buildRequestBodyForCacheSmoke(messages, model, [], { fast: true }).speed, 'fast', model);
+  }
+  for (const model of ['claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-5']) {
+    assert.equal(_buildRequestBodyForCacheSmoke(messages, model, [], { fast: true }).speed, undefined, model);
+  }
+});
+
+test('anthropic thinking display: preamble models default to updates, env overrides', () => {
+  const prev = process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY;
+  const build = (model) =>
+    _buildRequestBodyForCacheSmoke([{ role: 'user', content: 'hi' }], model, [], { effort: 'high' }).thinking;
+  try {
+    delete process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY;
+    for (const model of ['claude-opus-5-5', 'claude-fable-5-1', 'claude-mythos-5-1', 'claude-fable-5']) {
+      assert.deepEqual(build(model), { type: 'adaptive', display: 'updates' }, model);
+    }
+    for (const model of ['claude-opus-5', 'claude-sonnet-5', 'claude-opus-4-8']) {
+      assert.deepEqual(build(model), { type: 'adaptive' }, model);
+    }
+    process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY = 'omitted';
+    assert.deepEqual(build('claude-opus-5-5'), { type: 'adaptive', display: 'omitted' });
+  } finally {
+    if (prev === undefined) delete process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY;
+    else process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY = prev;
+  }
+  assert.ok(buildAnthropicBetaHeaders({ thinkingDisplayUpdates: true }).includes('thinking-display-updates-2026-08-18'));
+  assert.ok(!buildAnthropicBetaHeaders().includes('thinking-display-updates-2026-08-18'));
+});
+
 test('anthropic-oauth: foreign native references normalize to ordinary tool_result after provider switches', () => {
   const body = _buildRequestBodyForCacheSmoke(
     [

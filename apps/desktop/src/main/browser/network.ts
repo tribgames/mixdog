@@ -30,6 +30,31 @@ import type { WebContents } from 'electron';
 import type { BrowserCdpPort } from './cdp';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 
+/** This guest runs no extensions, so the only client that refuses a request is
+ *  the partition's own request policy (private or internal addresses, DNS
+ *  answers that point there, the domain allowlist). Chromium names that
+ *  refusal with a bare code that reads like a fault of the page. */
+const POLICY_BLOCK = 'net::ERR_BLOCKED_BY_CLIENT';
+const POLICY_BLOCK_NOTE = `${POLICY_BLOCK} (Browser Use network policy`;
+/** The failure text with the refusal named, and the rule's reason when the
+ *  partition recorded one for this URL. */
+export function explainNetworkFailure(text: string, reason = ''): string {
+  return text.replaceAll(POLICY_BLOCK, `${POLICY_BLOCK_NOTE}${reason ? `: ${reason}` : ''})`);
+}
+
+/** At most `limit` of these report lines, in their original order, choosing
+ *  the newest faults of the page before the host's own refusals: a tracker
+ *  the policy blocked on every load must not crowd out the error that matters. */
+export function pageFaultsFirst(lines: string[], limit: number): string[] {
+  const picked = new Set<number>();
+  for (const refused of [false, true]) {
+    for (let index = lines.length - 1; index >= 0 && picked.size < limit; index -= 1) {
+      if (lines[index].includes(POLICY_BLOCK_NOTE) === refused) picked.add(index);
+    }
+  }
+  return lines.filter((_, index) => picked.has(index));
+}
+
 export interface BrowserWebSocketFrame {
   direction: 'sent' | 'received';
   opcode: number;

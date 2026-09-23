@@ -690,6 +690,61 @@ async function runTurn(chunks) {
   return { result, state, textDeltas, toolCalls, deltaKinds };
 }
 
+test('display "updates": progress-update thinking text streams live but stays out of content', async () => {
+  const events = [
+    { type: 'message_start', message: { model: 'claude-opus-5-5', usage: { input_tokens: 3 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig-r' } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'content_block_start', index: 1, content_block: { type: 'thinking', thinking: '' } },
+    { type: 'content_block_delta', index: 1, delta: { type: 'thinking_delta', thinking: 'Checking the config.' } },
+    { type: 'content_block_delta', index: 1, delta: { type: 'signature_delta', signature: 'sig-p1' } },
+    { type: 'content_block_stop', index: 1 },
+    { type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'toolu_1', name: 'read' } },
+    { type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: '{}' } },
+    { type: 'content_block_stop', index: 2 },
+    { type: 'content_block_start', index: 3, content_block: { type: 'thinking', thinking: '' } },
+    { type: 'content_block_delta', index: 3, delta: { type: 'thinking_delta', thinking: 'Now the tests.' } },
+    { type: 'content_block_delta', index: 3, delta: { type: 'signature_delta', signature: 'sig-p2' } },
+    { type: 'content_block_stop', index: 3 },
+    { type: 'content_block_start', index: 4, content_block: { type: 'tool_use', id: 'toolu_2', name: 'read' } },
+    { type: 'content_block_delta', index: 4, delta: { type: 'input_json_delta', partial_json: '{}' } },
+    { type: 'content_block_stop', index: 4 },
+    { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 9 } },
+    { type: 'message_stop' },
+  ];
+  const text = events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
+  const run = async (relayProgressUpdates) => {
+    const textDeltas = [];
+    const result = await parseSSEStream(
+      rawResponse([text]),
+      null,
+      () => {},
+      null,
+      () => {},
+      freshState(),
+      (delta) => textDeltas.push(delta),
+      undefined,
+      { relayProgressUpdates }
+    );
+    return { result, textDeltas };
+  };
+
+  const relayed = await run(true);
+  assert.deepEqual(relayed.textDeltas, ['Checking the config.', '\n\nNow the tests.']);
+  assert.equal(relayed.result.content, '');
+  assert.deepEqual(relayed.result.thinkingBlocks, [
+    { type: 'thinking', thinking: '', signature: 'sig-r' },
+    { type: 'thinking', thinking: 'Checking the config.', signature: 'sig-p1' },
+    { type: 'thinking', thinking: 'Now the tests.', signature: 'sig-p2' },
+  ]);
+  assert.equal(relayed.result.toolCalls.length, 2);
+
+  const silent = await run(false);
+  assert.deepEqual(silent.textDeltas, []);
+  assert.deepEqual(silent.result.thinkingBlocks, relayed.result.thinkingBlocks);
+});
+
 test('a whole-chunk batch keeps text, reasoning and eager tool dispatch intact', async () => {
   const batched = await runTurn([turnText()]);
   assert.equal(batched.result.content, 'hello world');

@@ -41,7 +41,7 @@ A sheet named `Checks` with one tie-out per row: what is compared, the two sides
 
 ## 6. A workbook someone else fills in
 - The legend of §1 sits where the reader lands, and names the cells to edit in words ("yellow cells: type your figures; everything else calculates").
-- One example row of realistic values in the expected format, labelled as an example in its first cell, so the reader sees the units and the precision before typing. Never add such a row to a file you were asked to edit.
+- One example row of realistic values in the expected format, labelled as an example in its first cell, so the reader sees the units and the precision before typing.
 - `add_validation` on every constrained input (a list of allowed values, a numeric range) with an input message; a typo caught at entry never reaches a total.
 - An input left blank on purpose keeps its fill, so a reader sees what is still missing.
 

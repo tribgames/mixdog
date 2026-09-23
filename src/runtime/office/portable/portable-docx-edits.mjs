@@ -15,7 +15,6 @@ import {
   OFFICE_RELATIONSHIP_BASE,
   XML_HEADER,
   paragraphTexts,
-  rebuildTextNodes,
   replaceAcrossRuns,
   textNodes,
   upsertOrderedChild,
@@ -63,6 +62,8 @@ import {
   wordRunProperties,
   wordTableXml,
   wordTableProperties,
+  wordTextContent,
+  withFirstRunText,
 } from './portable-docx-xml.mjs';
 import { normalizeDocxRuns } from './docx-runs.mjs';
 import { anchorPhraseInParagraph, trackedParagraphRewrite } from './docx-tracked-edits.mjs';
@@ -237,8 +238,7 @@ export async function appendDocxText(zip, op, { tracking }) {
   const paragraphProperties = style || format ? `<w:pPr>${styleXml}${format}</w:pPr>` : '';
   const runProperties = wordRunProperties(properties);
   const run =
-    `<w:r>${runProperties ? `<w:rPr>${runProperties}</w:rPr>` : ''}` +
-    `<w:t${preserveSpace(String(op.text || ''))}>${xmlEncode(op.text || '')}</w:t></w:r>`;
+    `<w:r>${runProperties ? `<w:rPr>${runProperties}</w:rPr>` : ''}${wordTextContent(op.text || '')}</w:r>`;
   const content = tracking
     ? // The reviewer's label comes where it does on every other tracked edit —
       // beside the operation — and the older nested spelling still works.
@@ -322,18 +322,13 @@ export async function setDocxTableCell(zip, op, { tracking }) {
       nextCell = cell[0].replace(
         '</w:tc>',
         `<w:p><w:ins ${revisionAttributes(id, op.author)}><w:r>` +
-          `<w:t xml:space="preserve">${xmlEncode(op.text ?? '')}</w:t></w:r></w:ins></w:p></w:tc>`
+          `${wordTextContent(op.text, { preserve: true })}</w:r></w:ins></w:p></w:tc>`
       );
     }
+  } else if (textNodes(cell[0], 'w:t').length) {
+    nextCell = withFirstRunText(cell[0], op.text);
   } else {
-    const nodes = textNodes(cell[0], 'w:t');
-    if (nodes.length) {
-      nodes[0].text = String(op.text ?? '');
-      for (let index = 1; index < nodes.length; index += 1) nodes[index].text = '';
-      nextCell = rebuildTextNodes(cell[0], 'w:t', nodes);
-    } else {
-      nextCell = cell[0].replace('</w:tc>', `<w:p><w:r><w:t>${xmlEncode(op.text ?? '')}</w:t></w:r></w:p></w:tc>`);
-    }
+    nextCell = cell[0].replace('</w:tc>', `<w:p><w:r>${wordTextContent(op.text)}</w:r></w:p></w:tc>`);
   }
   const nextRow = row[0].replace(cell[0], nextCell);
   const nextTable = table[0].replace(row[0], nextRow);

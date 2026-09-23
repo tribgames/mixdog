@@ -23,18 +23,19 @@ export async function probeAccessibility(
 ): Promise<ProbeReport> {
   if (!target) return { available: null, reason: 'no exact or foreground target was available' };
   try {
+    // A readiness probe stops at the first interactive element. A snapshot
+    // walks the whole tree (a busy page overran the budget and restarted the
+    // input host on every diagnose) and replaces the session's refs.
     const probe = await host.callPowerShell(
       {
-        action: 'snapshot',
+        action: 'accessibility_probe',
         window_id: target.id,
-        max_elements: 1,
-        visible_only: true,
         session_id: host.sessionIdFor(command),
         read_only: true,
       },
       DIAGNOSE_ACCESSIBILITY_TIMEOUT_MS
     );
-    const returnedElements = Array.isArray(probe.result?.elements) ? probe.result.elements.length : 0;
+    const returnedElements = probe.result?.interactive === true ? 1 : 0;
     if (!probe.ok) {
       return {
         available: false,

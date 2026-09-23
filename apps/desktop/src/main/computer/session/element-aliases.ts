@@ -43,6 +43,22 @@ const PIXEL_ALIAS_ACTIONS = new Set([
 
 export type ElementTargets = Map<number, ElementAliasTarget> | undefined;
 
+/** A capture publishes each OCR word as `ocr:<frame_id>:<mark>` in its ref, so
+ *  a caller may name it there instead of in `element`. It resolves through the
+ *  same targets as the mark, and only from the frame the capture recorded: a
+ *  mark number alone would point at whatever the newest frame put there. */
+const OCR_REF_PATTERN = /^ocr:(.+):(\d+)$/;
+
+function ocrRefTarget(targets: ElementTargets, value: unknown, label: string): ElementAliasTarget | undefined {
+  const match = OCR_REF_PATTERN.exec(String(value || ''));
+  if (!match) return undefined;
+  const target = elementTarget(targets, Number(match[2]), label);
+  if (target?.kind !== 'point' || target.frameId !== match[1]) {
+    throw new Error(`stale_element: ${label}=${String(value)} is not in the latest capture for this session`);
+  }
+  return target;
+}
+
 export function elementTarget(
   targets: ElementTargets,
   mark: number | undefined,
@@ -103,10 +119,12 @@ function assertElementAliasTargets(
  *  name: a ref, or frame-bound coordinates for a point. */
 export function resolveElementAliases(command: ComputerCommand, targets: ElementTargets): ComputerCommand {
   const markedTarget = ELEMENT_ALIAS_ACTIONS.has(command.action)
-    ? elementTarget(targets, command.element, 'element')
+    ? (elementTarget(targets, command.element, 'element') ?? ocrRefTarget(targets, command.ref, 'ref'))
     : undefined;
   const markedDestination =
-    command.action === 'drag' ? elementTarget(targets, command.to_element, 'to_element') : undefined;
+    command.action === 'drag'
+      ? (elementTarget(targets, command.to_element, 'to_element') ?? ocrRefTarget(targets, command.to, 'to'))
+      : undefined;
   assertElementAliasTargets(command, markedTarget, markedDestination);
   return {
     ...command,

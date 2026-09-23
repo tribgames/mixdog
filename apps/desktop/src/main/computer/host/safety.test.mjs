@@ -17,6 +17,7 @@ import {
   invalidateComputerWorkerGeneration,
   isFreshComputerObservation,
   MAX_COMPUTER_OBSERVATION_AGE_MS,
+  MAX_COMPUTER_OBSERVED_SCOPE_AGE_MS,
   rememberLatestComputerFrame,
   releaseComputerSessionResources,
   resolveFreshComputerObservationScope,
@@ -128,7 +129,7 @@ test('inspection reports empty target semantics and bounds each provider call', 
   const inspection = createInspection({
     callPowerShell: async (request, timeoutMs) => {
       calls.push({ action: request.action, timeoutMs });
-      if (request.action === 'snapshot') return { ok: true, result: { elements: [] } };
+      if (request.action === 'accessibility_probe') return { ok: true, result: { interactive: false } };
       if (request.action === 'ocr_status') {
         return {
           ok: true,
@@ -165,7 +166,12 @@ test('inspection reports empty target semantics and bounds each provider call', 
   assert.equal(diagnosis.capabilities.semantic_accessibility.state, 'empty');
   assert.equal(diagnosis.capabilities.semantic_accessibility.fallback, 'ocr_or_pixels');
   assert.match(diagnosis.issues.join('\n'), /no semantic accessibility elements/);
-  assert.equal(calls.find((call) => call.action === 'snapshot').timeoutMs, 2_500);
+  assert.equal(calls.find((call) => call.action === 'accessibility_probe').timeoutMs, 2_500);
+  // Diagnosis never runs a snapshot, which would replace the session's refs.
+  assert.equal(
+    calls.some((call) => call.action === 'snapshot'),
+    false
+  );
 
   const verification = JSON.parse(
     (
@@ -446,6 +452,12 @@ test('canonical key chords become IME-safe Windows key sequences', () => {
   assert.equal(normalizeComputerKeySequence('ctrl+ctrl+p'), '^P');
   assert.equal(normalizeComputerKeySequence('ctrl+-'), '^{MINUS}');
   assert.equal(normalizeComputerKeySequence('ctrl++'), '^{PLUS}');
+  assert.equal(normalizeComputerKeySequence('+'), '+');
+  assert.equal(normalizeComputerKeySequence('plus'), '+');
+  assert.equal(normalizeComputerKeySequence('shift'), '{SHIFT}');
+  assert.equal(normalizeComputerKeySequence('control'), '{CTRL}');
+  assert.equal(normalizeComputerKeySequence('alt'), '{ALT}');
+  assert.equal(normalizeComputerKeySequence('ctrl+shift'), '^{SHIFT}');
   assert.equal(normalizeComputerKeySequence('return'), '{ENTER}');
   assert.equal(normalizeComputerKeySequence('page-down'), '{PGDN}');
   assert.equal(normalizeComputerKeySequence('/'), '/');
@@ -462,8 +474,24 @@ test('canonical key chords become IME-safe Windows key sequences', () => {
       `U+${codePoint.toString(16).padStart(4, '0')}`
     );
   }
-  assert.throws(() => normalizeComputerKeySequence('win+r'), /invalid_key_chord: unsupported modifier 'win'/);
-  assert.throws(() => normalizeComputerKeySequence('cmd-shift-p'), /invalid_key_chord: unsupported modifier 'cmd'/);
+  // The Windows key rides the worker's '#' modifier; normalizing twice is stable.
+  assert.equal(normalizeComputerKeySequence('win+r'), '#R');
+  assert.equal(normalizeComputerKeySequence('Super+E'), '#E');
+  assert.equal(normalizeComputerKeySequence('meta-shift-s'), '#+S');
+  assert.equal(normalizeComputerKeySequence('ctrl+win+right'), '^#{RIGHT}');
+  assert.equal(normalizeComputerKeySequence('#R'), '#R');
+  assert.equal(normalizeComputerKeySequence('^#{RIGHT}'), '^#{RIGHT}');
+  assert.equal(normalizeComputerKeySequence('#'), '#');
+  assert.equal(normalizeComputerKeySequence('win'), '{LWIN}');
+  assert.equal(normalizeComputerKeySequence('PrintScreen'), '{PRTSC}');
+  assert.equal(normalizeComputerKeySequence('ContextMenu'), '{APPS}');
+  assert.throws(
+    () => normalizeComputerKeySequence('cmd-shift-p'),
+    /invalid_key_chord: unsupported modifier 'cmd'; on Windows use ctrl/
+  );
+  assert.throws(() => assertSafeComputerInput({ action: 'key', keys: 'win+l' }), /blocked_input/);
+  assert.throws(() => assertSafeComputerInput({ action: 'key', keys: 'win+shift+l' }), /blocked_input/);
+  assert.doesNotThrow(() => assertSafeComputerInput({ action: 'key', keys: 'win+r' }));
   for (const malformed of [
     '',
     'ctrl+',
@@ -487,6 +515,10 @@ test('canonical key chords become IME-safe Windows key sequences', () => {
       keys: 'CTRL+ALT+ESC',
     })
   );
+  // A held key travels the same grammar as a tapped one.
+  assert.doesNotThrow(() => assertSafeComputerInput({ action: 'key_down', keys: 'shift' }));
+  assert.doesNotThrow(() => assertSafeComputerInput({ action: 'key_up', keys: 'shift' }));
+  assert.throws(() => assertSafeComputerInput({ action: 'key_down', keys: 'word' }), /invalid_key_chord/);
   assert.throws(() => assertSafeComputerInput({ action: 'key', keys: 'ALT+F4' }), /blocked_input/);
   assert.throws(() => assertSafeComputerInput({ action: 'key', keys: 'CTRL+ALT+DELETE' }), /blocked_input/);
   assert.throws(() => assertSafeComputerInput({ action: 'key', keys: 'ctrl-alt-delete' }), /blocked_input/);
@@ -679,7 +711,7 @@ test('visual-only capability cache retains recently used targets and releases a 
   assert.equal(store.resolve('session-a\u0000window-1', 10).capability, undefined);
 });
 
-test('frames and observed scopes expire on one bounded freshness budget', () => {
+test('frames expire on the pixel budget while the ref scope outlasts it', () => {
   const observedAt = 10_000;
   assert.equal(isFreshComputerObservation(observedAt, observedAt), true);
   assert.equal(isFreshComputerObservation(observedAt, observedAt + MAX_COMPUTER_OBSERVATION_AGE_MS), true);
@@ -687,8 +719,15 @@ test('frames and observed scopes expire on one bounded freshness budget', () => 
   assert.equal(isFreshComputerObservation(Number.NaN, observedAt), false);
   assert.equal(isFreshComputerObservation(observedAt, observedAt - 1), false);
   const scopes = new Map([['session-a', { observedAt, primaryWindowId: 'hwnd:0x1' }]]);
+  // A ref observed two minutes ago still authorizes input; its frame would not.
+  assert.equal(
+    resolveFreshComputerObservationScope('session-a', scopes, observedAt + 2 * MAX_COMPUTER_OBSERVATION_AGE_MS).scope
+      ?.primaryWindowId,
+    'hwnd:0x1'
+  );
+  assert.ok(MAX_COMPUTER_OBSERVED_SCOPE_AGE_MS > MAX_COMPUTER_OBSERVATION_AGE_MS);
   assert.deepEqual(
-    resolveFreshComputerObservationScope('session-a', scopes, observedAt + MAX_COMPUTER_OBSERVATION_AGE_MS + 1),
+    resolveFreshComputerObservationScope('session-a', scopes, observedAt + MAX_COMPUTER_OBSERVED_SCOPE_AGE_MS + 1),
     { expired: true }
   );
   assert.equal(scopes.has('session-a'), false);

@@ -91,17 +91,30 @@ public sealed class WgcFixture : System.Windows.Forms.Form {
 $window = [WgcFixture]::new()
 $cover = [WgcFixture]::new()
 $cover.BackColor = [Drawing.Color]::Lime
-$before = [MixWin32]::Foreground()
 try {
   $window.Show()
   $window.Update()
   [Windows.Forms.Application]::DoEvents()
+  # Whatever else is on this desktop must not decide the precondition: the cover
+  # stays above ordinary windows, and the z-order is given a bounded moment to
+  # settle instead of being read once.
+  $cover.TopMost = $true
   $cover.Show()
   $cover.Update()
   [Windows.Forms.Application]::DoEvents()
-  $covered = [WgcFixture]::IsOccluded($window, $cover, [Drawing.Point]::new($window.Left + 100, $window.Top + 90))
+  $covered = $false
+  for ($attempt = 0; $attempt -lt 20 -and -not $covered; $attempt++) {
+    [Windows.Forms.Application]::DoEvents()
+    $covered = [WgcFixture]::IsOccluded($window, $cover, [Drawing.Point]::new($window.Left + 100, $window.Top + 90))
+    if (-not $covered) { Start-Sleep -Milliseconds 50 }
+  }
+  # Showing the fixture windows activates them, and a user switching windows
+  # moves the foreground too. The property under test is narrower: the capture
+  # itself must leave the foreground alone, so it is sampled around the capture.
+  $before = [MixWin32]::Foreground()
   $capture = Get-WindowGraphicsCapture $window.Handle
   $second = Get-WindowGraphicsCapture $window.Handle
+  $foregroundUnchanged = ($before -eq [MixWin32]::Foreground())
   $memory = [IO.MemoryStream]::new([Convert]::FromBase64String($capture.PngBase64))
   $image = [Drawing.Bitmap]::new($memory)
   try {
@@ -127,7 +140,7 @@ try {
       size=@($capture.Width,$capture.Height); color=@($pixel.R,$pixel.G,$pixel.B)
       marker=@($marker.R,$marker.G,$marker.B)
       covered=$covered; repeat_pixels_identical=($capture.PngBase64 -eq $second.PngBase64)
-      foreground_unchanged=($before -eq [MixWin32]::Foreground())
+      foreground_unchanged=$foregroundUnchanged
       changed=$changed; invalid=$invalid
       cleanup=$cleanup.status; closed_after_failure=$closedAfterFailure
       work_budget=(Get-WindowCaptureRemaining ([pscustomobject]@{ElapsedMilliseconds=0}))

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { appendFile, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { appendFile, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FAILURE_RECORDS_ENV } from './test-failure-records.mjs';
@@ -15,6 +15,29 @@ export const ARG_BUDGET = process.platform === 'win32' ? 30_000 : 1_000_000;
 
 // An argument costs its own characters plus the separator and its quotes.
 const argCost = (arg) => arg.length + 3;
+
+// Full logs are kept for reading after the run; older ones are stale.
+const TEST_LOG_PREFIX = 'mixdog-test-output-';
+const TEST_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
+
+async function pruneStaleTestLogs(root) {
+  let names = [];
+  try {
+    names = await readdir(root);
+  } catch {
+    return;
+  }
+  const cutoff = Date.now() - TEST_LOG_RETENTION_MS;
+  for (const name of names) {
+    if (!name.startsWith(TEST_LOG_PREFIX)) continue;
+    const path = join(root, name);
+    try {
+      if ((await stat(path)).mtimeMs < cutoff) await rm(path, { recursive: true, force: true });
+    } catch {
+      /* another run may own or be removing it */
+    }
+  }
+}
 
 // Batches keep the file order Node was given; a single path larger than the
 // budget still gets its own batch rather than being dropped. An empty list
@@ -75,11 +98,16 @@ export async function runNodeTests(
   fileArgs,
   { argBudget = ARG_BUDGET, coverage = false, rerunFailed = 0 } = {}
 ) {
-  const logPath = join(await mkdtemp(join(tmpdir(), 'mixdog-test-output-')), 'full.log');
+  await pruneStaleTestLogs(tmpdir());
+  const logPath = join(await mkdtemp(join(tmpdir(), TEST_LOG_PREFIX)), 'full.log');
   console.error(`Full test log: ${logPath}`);
   // Failure records live outside the log directory: the log directory holds
   // exactly one merged log, and these records are an internal artifact.
   const failureDir = await mkdtemp(join(tmpdir(), 'mixdog-test-failures-'));
+  // Test processes get a private temp root that is removed after the run, so
+  // every fixture directory a test forgets to delete goes with it instead of
+  // piling up in the system temp directory.
+  const scratchDir = await mkdtemp(join(tmpdir(), 'mixdog-test-scratch-'));
   const runArgs = [
     ...nodeArgs,
     `--test-reporter=${SUMMARY_REPORTER}`,
@@ -97,6 +125,9 @@ export async function runNodeTests(
   // already budgeted, and a third reporter would warn about listeners.
   const childEnv = (recordsPath) => ({
     ...process.env,
+    TEMP: scratchDir,
+    TMP: scratchDir,
+    TMPDIR: scratchDir,
     [FAILURE_RECORDS_ENV]: recordsPath,
     ...(coverageDir ? { NODE_V8_COVERAGE: coverageDir } : {}),
   });
@@ -142,6 +173,8 @@ export async function runNodeTests(
   process.exitCode = status;
 
   await rm(failureDir, { recursive: true, force: true });
+  // A process a test left running may still hold a file; what it holds stays.
+  await rm(scratchDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => {});
   if (coverageDir) {
     const { reportCoverage } = await import('./coverage.mjs');
     await reportCoverage(coverageDir);

@@ -1,7 +1,10 @@
 import { normalizeAnthropicEffortInput } from './anthropic-effort.mjs';
 
 export const EFFORT_CONFIGURATION_BETA = 'mid-conversation-output-config-2026-07-01';
-const ANTHROPIC_MODELS = new Set(['claude-fable-5-1', 'claude-mythos-5-1', 'claude-opus-5']);
+const ANTHROPIC_MODELS = new Set(['claude-fable-5-1', 'claude-mythos-5-1', 'claude-opus-5', 'claude-opus-5-5']);
+// https://developers.openai.com/api/docs/guides/reasoning#change-reasoning-mid-conversation
+// — the GPT-6 model family, standard single-agent mode.
+const OPENAI_MODELS = new Set(['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna']);
 const OPENAI_PROVIDERS = new Set(['openai', 'openai-oauth']);
 const ANTHROPIC_PROVIDERS = new Set(['anthropic', 'anthropic-oauth']);
 const EFFORTS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
@@ -36,7 +39,7 @@ function modelKey(model) {
 export function effortConfigurationMode(provider, model, opts = {}) {
   const id = modelKey(model);
   if (opts.effortConfigurationEnabled === false || Number(opts.thinkingBudgetTokens) > 0) return null;
-  if (OPENAI_PROVIDERS.has(provider) && id === 'gpt-6-astra') {
+  if (OPENAI_PROVIDERS.has(provider) && OPENAI_MODELS.has(id)) {
     const parameters = opts.modelParameters || {};
     const mode = opts.reasoning?.mode ?? parameters.reasoning_mode ?? parameters.mode ?? 'standard';
     if (mode !== 'standard' || opts.multiAgent === true || parameters.multi_agent === true) return null;

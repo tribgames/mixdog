@@ -109,8 +109,3 @@ finalize. Re-review changed pages and dependent claims; do not rerun unchanged
 checks just to obtain higher scores. Keep file validity and native editability
 checks separate from visual preference. The author remains responsible for the
 final per-page critique, reviewed token, and unresolved limitations.
-
-For a skill evaluation, preserve the previous instructions and use the same
-source, reader questions, and review protocol. Record the implicit positive,
-edge, and close-negative cases. A guided trial is a smoke test, not a controlled
-A/B result or a claim of frontier parity.

@@ -6,11 +6,11 @@ export const ONBOARDING_VERSION = 1;
 
 export const QUICK_WEB_SEARCH_MODELS = Object.freeze({
   'openai-oauth': [
-    { id: 'gpt-5.6-sol', display: 'GPT-5.6 Sol', latest: true },
-    { id: 'gpt-5.6-terra', display: 'GPT-5.6 Terra', latest: true },
+    { id: 'gpt-6-sol', display: 'GPT-6 Sol', latest: true },
+    { id: 'gpt-6-luna', display: 'GPT-6 Luna', latest: true },
+    { id: 'gpt-5.6-sol', display: 'GPT-5.6 Sol' },
+    { id: 'gpt-5.6-terra', display: 'GPT-5.6 Terra' },
     { id: 'gpt-5.6-luna', display: 'GPT-5.6 Luna' },
-    { id: 'gpt-5.5', display: 'GPT-5.5', latest: true },
-    { id: 'gpt-5.4-mini', display: 'GPT-5.4 Mini' },
   ],
   openai: [
     { id: 'gpt-5.5', display: 'GPT-5.5', latest: true },
@@ -27,13 +27,13 @@ export const QUICK_WEB_SEARCH_MODELS = Object.freeze({
     { id: 'gemini-3.1-pro-preview', display: 'Gemini 3.1 Pro Preview' },
   ],
   'anthropic-oauth': [
-    { id: 'claude-opus-5', display: 'Claude Opus 5', latest: true },
+    { id: 'claude-opus-5-5', display: 'Claude Opus 5.5', latest: true },
     { id: 'claude-sonnet-5', display: 'Claude Sonnet 5', latest: true },
     { id: 'claude-fable-5', display: 'Claude Fable 5', latest: true },
     { id: 'claude-haiku-4-5-20251001', display: 'Claude Haiku 4.5' },
   ],
   anthropic: [
-    { id: 'claude-opus-5', display: 'Claude Opus 5', latest: true },
+    { id: 'claude-opus-5-5', display: 'Claude Opus 5.5', latest: true },
     { id: 'claude-sonnet-5', display: 'Claude Sonnet 5', latest: true },
     { id: 'claude-fable-5', display: 'Claude Fable 5', latest: true },
     { id: 'claude-haiku-4-5-20251001', display: 'Claude Haiku 4.5' },

@@ -102,7 +102,13 @@ async function wire(session, opts = {}) {
 
 test('only documented model/protocol combinations enable cache-preserving changes', () => {
   for (const provider of ['anthropic', 'anthropic-oauth']) {
-    for (const model of ['claude-fable-5-1', 'claude-mythos-5-1', 'claude-opus-5', 'claude-fable-5.1-20260901']) {
+    for (const model of [
+      'claude-fable-5-1',
+      'claude-mythos-5-1',
+      'claude-opus-5',
+      'claude-opus-5-5',
+      'claude-fable-5.1-20260901',
+    ]) {
       assert.equal(effortConfigurationMode(provider, model), 'anthropic');
     }
     for (const model of ['claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-4-6', 'claude-fable-6']) {
@@ -112,7 +118,9 @@ test('only documented model/protocol combinations enable cache-preserving change
     assert.equal(effortConfigurationMode(provider, 'claude-opus-5', { baseURL: 'https://gateway.example/v1' }), null);
   }
   for (const provider of ['openai', 'openai-oauth']) {
-    assert.equal(effortConfigurationMode(provider, 'gpt-6-astra'), 'responses');
+    for (const model of ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna']) {
+      assert.equal(effortConfigurationMode(provider, model), 'responses');
+    }
     assert.equal(effortConfigurationMode(provider, 'gpt-5.6-sol'), null);
     assert.equal(effortConfigurationMode(provider, 'gpt-6-astra', { modelParameters: { mode: 'pro' } }), null);
     assert.equal(effortConfigurationMode(provider, 'gpt-6-astra', { multiAgent: true }), null);

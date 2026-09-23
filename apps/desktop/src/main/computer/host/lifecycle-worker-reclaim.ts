@@ -12,7 +12,10 @@ import type { LifecycleContext } from './session-lifecycle';
 // Resident workers remain warm longer than target leases. A window lease is
 // deliberately short-lived in the coordinator so an abandoned session
 // cannot reserve a user's app for this whole worker-idle period.
-const WORKER_IDLE_STALE_MS = 60_000;
+// An agent routinely thinks for one to five minutes between commands. Reclaim
+// inside that gap restarts the worker (about half a second on the next
+// capture) and releases the session's frames, turning its next ref stale.
+const WORKER_IDLE_STALE_MS = 300_000;
 // Near the worker limit the relaxed window is useless: the pool refuses the
 // next session while its own finished ones stay warm, and a caller cannot
 // release a session it does not own. Reclaim briefly idle workers instead.

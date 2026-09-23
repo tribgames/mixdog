@@ -26,6 +26,27 @@ const sheet = (name, cells) => ({
 
 const codesAt = (issues, code) => issues.filter((entry) => entry.code === code).map((entry) => entry.path);
 
+// A defined name that refers to another workbook carries the link into every
+// formula that reads it; the name is matched whole, never as part of a longer
+// name, a function, or a string.
+test('a formula reading a defined name that links to another workbook is an external link', () => {
+  const rates = sheet('Plan', [
+    ['B2', { formula: '=FxRate*A2', value: 1300 }],
+    ['B3', { formula: '=FxRateLocal*A3', value: 1 }],
+    ['B4', { formula: '="FxRate"&A4', value: 'FxRate1' }],
+    ['B5', { formula: '=Local*A5', value: 2 }],
+  ]);
+  const definedNames = [
+    { name: 'FxRate', refersTo: '[1]Rates!$B$2' },
+    { name: 'FxRateLocal', refersTo: 'Plan!$A$1' },
+    { name: 'Local', refersTo: 'Plan!$A$1' },
+  ];
+  const findings = auditXlsxFormulas([rates], { definedNames });
+  assert.deepEqual(codesAt(findings, 'external_link_reference'), ['/sheet[Plan]/cell[B2]']);
+  assert.match(findings.find((entry) => entry.code === 'external_link_reference').message, /reads FxRate, a defined name/);
+  assert.deepEqual(codesAt(auditXlsxFormulas([rates]), 'external_link_reference'), []);
+});
+
 test('relative formula signatures match a pattern copied along a row and ignore string literals', () => {
   assert.equal(relativeFormulaSignature('=B2*(1+$B$10)', 'C2'), relativeFormulaSignature('=C2*(1+$B$10)', 'D2'));
   assert.notEqual(relativeFormulaSignature('=B2*(1+$B$10)', 'C2'), relativeFormulaSignature('=B2*1.1', 'C2'));

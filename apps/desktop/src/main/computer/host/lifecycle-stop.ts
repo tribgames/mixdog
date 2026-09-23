@@ -31,16 +31,31 @@ export function createSessionStop(
       ...coordinator.pauseForUser(reason, queuedOrActiveSessionIds),
       ...queuedOrActiveSessionIds,
     ]);
-    for (const sessionId of sessionIds) {
-      void abortComputerSession(
+    const aborted = [...sessionIds].map((sessionId) =>
+      abortComputerSession(
         { action: 'session_abort', session_id: sessionId },
         false,
         undefined,
         reason === 'user_input_active' || reason === 'user_pause'
-      ).catch(() => {
+      )
+    );
+    // A worker killed mid-call takes seconds to unwind, so its first cleanup
+    // frequently fails on that timing alone while the input it owned is already
+    // free — and an interruption that arrived before any input was sent has
+    // nothing to release at all. Latching there would make the user clear a
+    // barrier the host can clear itself. Run exactly the evidence Stop demands,
+    // once: worker exit, owned-input release, and target-local certainty. Only a
+    // second failure is left for the user, because only then is the uncertainty
+    // real rather than a matter of timing.
+    void Promise.allSettled(aborted).then(async (results) => {
+      if (!results.some((result) => result.status === 'rejected')) return;
+      try {
+        await recoverLatchedCleanup();
+        coordinator.restoreTakeoverReason(reason);
+      } catch {
         console.warn('computer_abort_cleanup_unconfirmed: user takeover cancellation failed');
-      });
-    }
+      }
+    });
   }
 
   async function recoverLatchedCleanup(): Promise<void> {

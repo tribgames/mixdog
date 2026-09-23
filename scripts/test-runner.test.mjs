@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -344,11 +345,15 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
                 args,
                 stdio: options.stdio,
                 // The whole parent environment is inherited; the runner only
-                // adds where this spawn records its failures.
+                // adds where this spawn records its failures and points the
+                // temp directory at a private root it removes after the run.
                 inheritsEnvironment: Object.keys(process.env).every(
-                  (key) => key === 'MIXDOG_TEST_FAILURE_RECORDS' || options.env[key] === process.env[key]
+                  (key) =>
+                    ['MIXDOG_TEST_FAILURE_RECORDS', 'TEMP', 'TMP', 'TMPDIR'].includes(key) ||
+                    options.env[key] === process.env[key]
                 ),
                 failureRecords: options.env.MIXDOG_TEST_FAILURE_RECORDS,
+                scratch: [options.env.TEMP, options.env.TMP, options.env.TMPDIR],
                 event,
               };
               process.stdout.write(JSON.stringify(summary) + '\\n');
@@ -388,7 +393,10 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
     assert.ok(logPath?.startsWith(join(tmpdir(), 'mixdog-test-output-')));
     assert.ok(logPath.endsWith('full.log'));
     t.after(() => rm(dirname(logPath), { recursive: true, force: true }));
-    const { failureRecords, ...invariant } = invocation;
+    const { failureRecords, scratch, ...invariant } = invocation;
+    // Every temp variable names the same private per-run root.
+    assert.ok(scratch[0].startsWith(join(tmpdir(), 'mixdog-test-scratch-')), scratch[0]);
+    assert.deepEqual(scratch, [scratch[0], scratch[0], scratch[0]]);
     assert.deepEqual(invariant, {
       executable: process.execPath,
       args: [
@@ -412,6 +420,8 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
     assert.ok(failureRecords.startsWith(join(tmpdir(), 'mixdog-test-failures-')), failureRecords);
     assert.ok(failureRecords.endsWith('batch-1.jsonl'), failureRecords);
     assert.ok(!invocation.args.some((arg) => arg.includes('mixdog-test-failures-')));
+    // The run removes its private temp root when it ends.
+    assert.equal(existsSync(scratch[0]), false);
   }
 });
 

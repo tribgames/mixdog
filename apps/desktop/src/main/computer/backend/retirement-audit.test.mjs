@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -137,6 +138,25 @@ test('closing one profile never removes the host script another profile will res
   } finally {
     a.removeHostScript();
     b.removeHostScript();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('a new host removes scripts left by dead processes and keeps every live one', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-host-orphans-'));
+  const dead = join(directory, 'computer-host-2147483000-0123456789abcdef01234567.ps1');
+  const live = join(directory, `computer-host-${process.pid}-aaaaaaaaaaaaaaaaaaaaaaaa.ps1`);
+  const unrelated = join(directory, 'computer-host.ps1');
+  for (const path of [dead, live, unrelated]) await writeFile(path, '');
+  const pool = createWorkerPool({ dataDirectory: () => directory, isBridgeEnabled: () => false, isDisposed: () => false });
+  try {
+    const script = pool.ensureHostScript();
+    assert.equal(existsSync(dead), false);
+    assert.equal(existsSync(live), true);
+    assert.equal(existsSync(unrelated), true);
+    assert.equal(existsSync(script), true);
+  } finally {
+    pool.removeHostScript();
     await rm(directory, { recursive: true, force: true });
   }
 });

@@ -36,7 +36,8 @@ export interface ComputerWindowTransition {
     | 'launched_app_opened'
     | 'launched_app_focused'
     | 'launched_window_focused'
-    | 'launched_app_existing';
+    | 'launched_app_existing'
+    | 'launched_single_window';
 }
 
 const CONFIRMED_LAUNCH_TRANSITIONS = new Set<NonNullable<ComputerWindowTransition['next_target_reason']>>([
@@ -255,7 +256,8 @@ export function computeComputerWindowTransition(
   after: ComputerWindowRecord[],
   targetWindowId: string,
   targetPid = 0,
-  targetApp = ''
+  targetApp = '',
+  launch = false
 ): ComputerWindowTransition {
   const beforeById = new Map(before.map((window) => [window.id, window]));
   const afterById = new Map(after.map((window) => [window.id, window]));
@@ -287,7 +289,17 @@ export function computeComputerWindowTransition(
   let successor: ComputerWindowSuccessor | null = null;
   if (!targetWindowId && (targetPid > 0 || Boolean(contextApp))) {
     successor = launchedSuccessor(opened, allOpened, after, transition.focused_before, { targetPid, contextApp });
-  } else if (opened.length === 0) {
+  }
+  if (!targetWindowId && launch && !successor) {
+    // A URI or shell verb ("ms-settings:") names no process and no app, and a
+    // folder or document path names only itself while an already running
+    // shell or app opens the window; such windows often return from a cloaked
+    // frame without focus. A single unowned window that appeared during the
+    // launch is offered to observe next; like a focus match, it does not
+    // confirm the launch.
+    const appeared = allOpened.filter((window) => !window.ownerId);
+    if (appeared.length === 1) successor = { window: appeared[0], reason: 'launched_single_window' };
+  } else if (targetWindowId && opened.length === 0) {
     const owner =
       targetWindowId && !afterById.has(targetWindowId) ? restoredOwner(beforeById, afterById, targetWindowId) : null;
     if (owner) successor = { window: owner, reason: 'owner_window_restored' };

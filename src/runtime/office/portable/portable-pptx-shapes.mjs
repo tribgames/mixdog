@@ -217,15 +217,32 @@ export async function handleAlignShapesOrDistributeShapes(context, op) {
   return { op: op.op, changed: true, slide: Number(op.slide), shapes: numbers.length };
 }
 
+// PowerPoint's TextRange.Text replaces the whole body with one paragraph in
+// the formatting of the paragraph that held the first text; the paragraphs
+// around it go, rather than standing on as empty lines that still take height
+// and read back as blank bullets.
+function withSingleTextParagraph(shapeXml) {
+  const body = /(<p:txBody\b[^>]*>)([\s\S]*?)(<\/p:txBody>)/.exec(shapeXml);
+  if (!body) return shapeXml;
+  const paragraphs = [...body[2].matchAll(/<a:p\b[^>]*?(?:\/>|>[\s\S]*?<\/a:p>)/g)];
+  if (paragraphs.length < 2) return shapeXml;
+  const kept = paragraphs.find((paragraph) => /<a:t\b/.test(paragraph[0])) || paragraphs[0];
+  const first = paragraphs[0];
+  const last = paragraphs.at(-1);
+  const inner = `${body[2].slice(0, first.index)}${kept[0]}${body[2].slice(last.index + last[0].length)}`;
+  return `${shapeXml.slice(0, body.index)}${body[1]}${inner}${body[3]}${shapeXml.slice(body.index + body[0].length)}`;
+}
+
 export async function handleSetText(context, op) {
   const slide = await slideShapeTree(context, op);
   const { tree } = slide;
   const shape = slideShape(tree, op);
-  const nodes = textNodes(shape.xml, 'a:t');
+  const single = withSingleTextParagraph(shape.xml);
+  const nodes = textNodes(single, 'a:t');
   if (!nodes.length) throw new Error(`PPTX shape ${op.shape} has no editable text`);
   nodes[0].text = String(op.text ?? '');
   for (let index = 1; index < nodes.length; index += 1) nodes[index].text = '';
-  const nextShape = rebuildTextNodes(shape.xml, 'a:t', nodes);
+  const nextShape = rebuildTextNodes(single, 'a:t', nodes);
   writeSlideTree(context, slide, `${tree.inner.slice(0, shape.start)}${nextShape}${tree.inner.slice(shape.end)}`);
   return { op: op.op, changed: true };
 }

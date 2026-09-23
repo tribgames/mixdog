@@ -249,7 +249,7 @@ export function reviewXlsxStructure(document, auditProfile = '') {
     reviewXlsxPrintArea(sheet, pageSetup, drawings, issues);
     reviewXlsxDrawingOverlap(sheet, drawings, issues);
   }
-  for (const finding of auditXlsxFormulas(sheets, { auditProfile })) {
+  for (const finding of auditXlsxFormulas(sheets, { auditProfile, definedNames: document?.definedNames })) {
     issues.push(issue(finding.code, finding.path, finding.message, 'format-review', finding.severity));
   }
   return issues;

@@ -92,6 +92,9 @@ function startGlide(
   recordCursorDiagnostic('glide_started');
   const startedAt = Date.now();
   let lastPin = startedAt;
+  // Only a background cursor is stacked against one window; a foreground one
+  // already rides above everything and has no target to follow.
+  const pinned = cursor.mode === 'background';
   const windowId = cursor.windowId as string;
   const timer = setInterval(() => {
     if (!current() || surface.glide?.timer !== timer) {
@@ -106,7 +109,7 @@ function startGlide(
     surface.shown = point;
     window.setBounds(cursorBoundsDip(point), false);
     // The target may be restacked while the pointer travels; keep the feedback just above it.
-    if (now - lastPin >= GLIDE_ZORDER_MS) {
+    if (pinned && now - lastPin >= GLIDE_ZORDER_MS) {
       lastPin = now;
       try {
         pinAboveTarget(window, windowId);

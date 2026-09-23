@@ -28,6 +28,9 @@ public sealed class MixMsaaNode
     public int Height { get; private set; }
     public bool Enabled { get; private set; }
     public bool Offscreen { get; private set; }
+    /// Hidden, not merely scrolled away: a closed drop-down list or a collapsed
+    /// dialog section, whose descendants often do not repeat the flag.
+    public bool Invisible { get; private set; }
 
     internal MixMsaaNode(IAccessible accessible, object childId, string key, string windowId)
     {
@@ -75,6 +78,7 @@ public sealed class MixMsaaNode
             ControlType = MixMsaa.ControlTypeForRole(role);
             Enabled = (state & 0x1u) == 0;
             Offscreen = (state & (0x8000u | 0x10000u)) != 0;
+            Invisible = (state & 0x8000u) != 0;
             return Width > 0 && Height > 0;
         }
         catch
@@ -164,6 +168,7 @@ public static class MixMsaa
             if (result.Count >= maximum) { complete = false; return; }
             MixMsaaNode node = new MixMsaaNode(accessible, 0, path, windowId);
             if (node.Refresh()) result.Add(node); else complete = false;
+            if (node.Invisible) return;
         }
         int count;
         try { count = Math.Max(0, accessible.accChildCount); } catch { complete = false; return; }
@@ -208,6 +213,37 @@ public static class MixMsaa
     public static MixMsaaSnapshot SnapshotWithStatus(IntPtr hwnd, string windowId, int maximum)
     {
         return SnapshotObject(hwnd, windowId, maximum, OBJID_CLIENT);
+    }
+
+    const uint STATE_SYSTEM_PROTECTED = 0x20000000;
+    const int CHILDID_SELF = 0;
+
+    /// <summary>
+    /// Whether this window's own control hides what is typed into it. UIA's
+    /// IsPassword answers only for providers that implement it; a WinForms edit
+    /// with UseSystemPasswordChar leaves it false while still raising MSAA's
+    /// PROTECTED state. This is the second opinion that keeps such a field off
+    /// the typing board, and an unreadable window counts as protected.
+    /// </summary>
+    public static bool IsProtectedInput(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return false;
+        object raw;
+        Guid iid = IID_IAccessible;
+        try
+        {
+            if (AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, ref iid, out raw) < 0) return true;
+        }
+        catch { return true; }
+        IAccessible accessible = raw as IAccessible;
+        if (accessible == null) return true;
+        try
+        {
+            object state = accessible.get_accState(CHILDID_SELF);
+            if (state == null) return true;
+            return (Convert.ToUInt32(state, CultureInfo.InvariantCulture) & STATE_SYSTEM_PROTECTED) != 0;
+        }
+        catch { return true; }
     }
 
     public static MixMsaaNode[] MenuSnapshot(IntPtr hwnd, string windowId, int maximum)
@@ -255,33 +291,53 @@ public static class MixMsaa
         return String.Join(",", parts.ToArray());
     }
 
+    /// MSAA role constants (oleacc.h) to the UIA control type they correspond to.
     public static string ControlTypeForRole(uint role)
     {
         switch (role)
         {
+            case 0x01: return "TitleBar";
+            case 0x02: return "MenuBar";
+            case 0x03: return "ScrollBar";
             case 0x09: return "Window";
             case 0x0A: return "Client";
             case 0x0B: return "Menu";
             case 0x0C: return "MenuItem";
             case 0x0F: return "Document";
             case 0x10: return "Pane";
+            case 0x14: return "Group";
+            case 0x15: return "Separator";
+            case 0x16: return "ToolBar";
+            case 0x17: return "StatusBar";
+            case 0x18: return "Table";
+            case 0x19: return "HeaderItem";
+            case 0x1D: return "DataItem";
+            case 0x1E: return "Hyperlink";
             case 0x21: return "List";
             case 0x22: return "ListItem";
             case 0x23: return "Tree";
             case 0x24: return "TreeItem";
-            case 0x25: return "Tab";
-            case 0x26: return "TabItem";
-            case 0x27: return "Group";
+            case 0x25: return "TabItem";
+            case 0x26: return "Pane";
+            case 0x28: return "Image";
             case 0x29: return "Text";
             case 0x2A: return "Edit";
             case 0x2B: return "Button";
             case 0x2C: return "CheckBox";
             case 0x2D: return "RadioButton";
             case 0x2E: return "ComboBox";
+            case 0x2F: return "ComboBox";
             case 0x30: return "ProgressBar";
+            case 0x32: return "Edit";
             case 0x33: return "Slider";
             case 0x34: return "Spinner";
+            case 0x38: return "Button";
+            case 0x39: return "Button";
+            case 0x3A: return "Button";
+            case 0x3C: return "Tab";
             case 0x3E: return "SplitButton";
+            case 0x3F: return "Edit";
+            case 0x40: return "Button";
             default: return "Custom";
         }
     }
@@ -296,11 +352,38 @@ public class MixWin32
     /// pointer to travel there before acting; foreground input already sits
     /// under the real pointer. No wait when nobody is presenting the pointer.
     public const int PointerGlideWaitMs = 360;
+    /// The presented pointer travels at a fixed speed between the point it is
+    /// already showing and the new target, so a short hop arrives long before
+    /// the longest possible travel. Waiting the maximum every time spends that
+    /// difference on nothing; these mirror the overlay's own travel plan.
+    public const int PointerGlideMinWaitMs = 140;
+    public const double PointerGlideSpeedPxPerMs = 1.4;
+    public const int PointerGlideSeedOffset = 140;
+    static int lastPointerX = int.MinValue;
+    static int lastPointerY = int.MinValue;
+    /// How long the pointer presented by the last report needs to arrive. The
+    /// caller that announced a target reads this instead of assuming the
+    /// longest travel.
+    public static int LastGlideWaitMs = PointerGlideWaitMs;
+    static int GlideWaitTo(int screenX, int screenY)
+    {
+        double dx = PointerGlideSeedOffset;
+        double dy = PointerGlideSeedOffset;
+        if (lastPointerX != int.MinValue)
+        {
+            dx = screenX - lastPointerX;
+            dy = screenY - lastPointerY;
+        }
+        double travel = Math.Sqrt(dx * dx + dy * dy) / PointerGlideSpeedPxPerMs;
+        if (travel < PointerGlideMinWaitMs) return PointerGlideMinWaitMs;
+        if (travel > PointerGlideWaitMs) return PointerGlideWaitMs;
+        return (int)Math.Round(travel);
+    }
     static void AnnounceBackgroundTarget(int screenX, int screenY)
     {
         if (PointerProgress == null) return;
         ReportPointer(screenX, screenY, false, "prepare");
-        System.Threading.Thread.Sleep(PointerGlideWaitMs);
+        System.Threading.Thread.Sleep(LastGlideWaitMs);
     }
     public static void ReportPointer(int x, int y, bool held, string phase = null)
     {
@@ -308,14 +391,25 @@ public class MixWin32
         if (report != null)
         {
             PointerEventsGenerated++;
+            // Measured against the point the overlay is showing now, before this
+            // report moves it, because that is the travel being waited on.
+            LastGlideWaitMs = GlideWaitTo(x, y);
             try { report(x, y, held, phase ?? (held ? "drag" : "move")); }
             catch { PointerEventsFailed++; }
+            lastPointerX = x;
+            lastPointerY = y;
         }
     }
     public static void ReportCurrentPointer(string phase)
     {
         POINT point = Cursor();
         ReportPointer(point.x, point.y, false, phase);
+    }
+    /// Keyboard input lands on a control, not under the pointer the user left
+    /// elsewhere, so its indicator names that control's point instead.
+    public static void ReportInputPoint(int screenX, int screenY, string phase)
+    {
+        ReportPointer(screenX, screenY, false, phase);
     }
     static void ReportWindowInput(IntPtr target, string phase)
     {
@@ -763,6 +857,81 @@ public class MixWin32
         return s.ToString();
     }
     public static string WindowId(IntPtr h) { return "hwnd:0x" + h.ToInt64().ToString("X"); }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct MENUITEMINFO
+    {
+        public uint cbSize, fMask, fType, fState, wID;
+        public IntPtr hSubMenu, hbmpChecked, hbmpUnchecked, dwItemData;
+        public IntPtr dwTypeData;
+        public uint cch;
+        public IntPtr hbmpItem;
+    }
+    [DllImport("user32.dll")] static extern IntPtr GetMenu(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern int GetMenuItemCount(IntPtr menu);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern bool GetMenuItemInfo(IntPtr menu, uint item, bool byPosition, ref MENUITEMINFO info);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern int GetMenuString(IntPtr menu, uint item, StringBuilder text, int maximum, uint flags);
+    public sealed class MenuEntry
+    {
+        public string Label;
+        public IntPtr SubMenu;
+        public uint Id;
+        public bool Enabled;
+    }
+    /// The classic menu bar a window owns, or zero when it has none (ribbons,
+    /// XAML and web content draw their own menus).
+    public static IntPtr WindowMenu(IntPtr hwnd) { return IsWindowHandle(hwnd) ? GetMenu(hwnd) : IntPtr.Zero; }
+    /// One level of a classic menu. A submenu is first announced the way an
+    /// opening menu is, so the app refreshes the enabled state and dynamic items
+    /// it would show a person.
+    public static MenuEntry[] MenuEntries(IntPtr hwnd, IntPtr menu, int position, bool announce)
+    {
+        const uint WM_INITMENUPOPUP = 0x0117, MIIM_STATE = 0x1, MIIM_ID = 0x2, MIIM_SUBMENU = 0x4, MIIM_FTYPE = 0x100;
+        const uint MFT_SEPARATOR = 0x800, MFS_DISABLED = 0x3, MF_BYPOSITION = 0x400;
+        if (announce)
+        {
+            SendMessageValue(hwnd, WM_INITMENUPOPUP, new UIntPtr((ulong)menu.ToInt64()), new IntPtr(position & 0xFFFF));
+        }
+        var entries = new List<MenuEntry>();
+        int count = GetMenuItemCount(menu);
+        for (int index = 0; index < count; index++)
+        {
+            var info = new MENUITEMINFO();
+            info.cbSize = (uint)Marshal.SizeOf(typeof(MENUITEMINFO));
+            info.fMask = MIIM_STATE | MIIM_ID | MIIM_SUBMENU | MIIM_FTYPE;
+            if (!GetMenuItemInfo(menu, (uint)index, true, ref info) || (info.fType & MFT_SEPARATOR) != 0) continue;
+            var label = new StringBuilder(512);
+            GetMenuString(menu, (uint)index, label, label.Capacity, MF_BYPOSITION);
+            entries.Add(new MenuEntry
+            {
+                Label = label.ToString(),
+                SubMenu = info.hSubMenu,
+                Id = info.wID,
+                Enabled = (info.fState & MFS_DISABLED) == 0,
+            });
+        }
+        return entries.ToArray();
+    }
+    /// The notification a person choosing the item produces, without opening
+    /// any menu on screen.
+    [DllImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)]
+    static extern bool PostMessageWithError(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+    public static void PostMenuCommand(IntPtr hwnd, uint id)
+    {
+        const uint WM_COMMAND = 0x0111;
+        ClearMessageError(0);
+        if (!PostMessageWithError(hwnd, WM_COMMAND, new IntPtr(id & 0xFFFF), IntPtr.Zero))
+        {
+            int error = Marshal.GetLastWin32Error();
+            if (error == 5)
+            {
+                throw new InvalidOperationException("background_blocked_uipi|Windows integrity isolation blocked the menu command");
+            }
+            throw new InvalidOperationException("background_message_rejected|menu command failed with Win32 error " + error);
+        }
+    }
     public static IntPtr ParseWindowId(string value)
     {
         if (String.IsNullOrWhiteSpace(value)) return IntPtr.Zero;
@@ -805,6 +974,14 @@ public class MixWin32
         GetWindowThreadProcessId(first, out firstPid);
         GetWindowThreadProcessId(second, out secondPid);
         return firstPid != 0 && firstPid == secondPid;
+    }
+    /// Whether the window is the given top-level window or lives inside it. A
+    /// packaged app's content window belongs to another process than the frame
+    /// that hosts it, so only the window tree ties the two together.
+    public static bool IsWithinTopLevel(IntPtr candidate, IntPtr topLevel)
+    {
+        if (!IsWindowHandle(candidate) || !IsWindowHandle(topLevel)) return false;
+        return candidate == topLevel || GetAncestor(candidate, 2) == topLevel;
     }
     public static bool IsContainedSameProcess(IntPtr candidate, IntPtr expectedSurface)
     {
@@ -1116,7 +1293,20 @@ public class MixWin32
         {
             POINT p = ClientPoint(current, screenX, screenY);
             IntPtr child = ChildWindowFromPointEx(current, p, 0x1 | 0x2 | 0x4);
-            if (child == IntPtr.Zero || child == current || !BelongsToTop(top, child)) break;
+            if (child == IntPtr.Zero || child == current) break;
+            // WinUI 3 islands and UWP content read pointers from the system input
+            // stack only: Paint and Settings accepted posted clicks and a posted
+            // drag without any landing, which a success reply would have hidden.
+            // UWP content lives in another process than its frame, so this is
+            // judged before the same-process walk would stop at the frame.
+            string surface = ClassNameOf(child);
+            if (String.Equals(surface, "Microsoft.UI.Content.DesktopChildSiteBridge", StringComparison.Ordinal)
+              || String.Equals(surface, "Windows.UI.Core.CoreWindow", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                  "background_unsupported|this WinUI or UWP surface ignores posted pointer messages; use a semantic ref or explicit foreground delivery; no input sent");
+            }
+            if (!BelongsToTop(top, child)) break;
             current = child;
         }
         return current;
@@ -1299,6 +1489,16 @@ public class MixWin32
       IntPtr top, int screenX, int screenY, int clicks, string modifiers, bool horizontal)
     {
         IntPtr target = MessageTargetAtPoint(top, screenX, screenY);
+        // Chromium reroutes a wheel message to whatever window is on top at its
+        // point: under another process's window it drops the wheel, under
+        // another window of the same browser it scrolls that window instead.
+        // Either way the target never scrolls, so refuse before any message.
+        if ((IsChromiumClass(ClassNameOf(target)) || IsChromiumClass(ClassNameOf(top))) &&
+            WindowAtPoint(screenX, screenY) != top)
+        {
+            throw new InvalidOperationException(
+              "background_unsupported|the scroll point is covered by another window, so a background wheel would be dropped or reach that window; no input sent");
+        }
         uint flags = PointerModifiers(modifiers);
         POINT client = ClientPoint(target, screenX, screenY);
         SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), PointParam(client.x, client.y));
@@ -1308,6 +1508,34 @@ public class MixWin32
         SendMessageChecked(target, horizontal ? WM_MOUSEHWHEEL : WM_MOUSEWHEEL, new UIntPtr(packed), PointParam(screenX, screenY));
         ReportPointer(screenX, screenY, false, "scroll");
         return WindowId(target);
+    }
+    [DllImport("user32.dll")] static extern bool EnableWindow(IntPtr h, bool enable);
+    /// XAML/WinUI and Chromium hosts activate themselves while handling an
+    /// accessibility invoke, which drags the user's screen to a window they were
+    /// not looking at. A disabled top-level cannot become the foreground window,
+    /// while the accessibility call still lands: it travels the accessibility
+    /// channel rather than the input queue this gates. Classic Win32 windows do
+    /// not self-activate, so they keep their normal enabled state.
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string title);
+    public static bool SelfActivatesOnSemanticInput(IntPtr h)
+    {
+        if (h == IntPtr.Zero || !IsWindow(h)) return false;
+        string name = ClassNameOf(h);
+        // A WinUI 3 app keeps its own top-level class (Paint's is MSPaintApp) and
+        // hosts its content in this island, which raises the app on invoke.
+        if (FindWindowEx(h, IntPtr.Zero, "Microsoft.UI.Content.DesktopChildSiteBridge", null) != IntPtr.Zero) return true;
+        return String.Equals(name, "ApplicationFrameWindow", StringComparison.OrdinalIgnoreCase)
+          || String.Equals(name, "Windows.UI.Core.CoreWindow", StringComparison.OrdinalIgnoreCase)
+          || String.Equals(name, "WinUIDesktopWin32WindowClass", StringComparison.OrdinalIgnoreCase)
+          || IsChromiumClass(name);
+    }
+    /// Returns the enabled state the window had, so the caller restores exactly
+    /// what it found instead of assuming the window started out enabled.
+    public static bool SetWindowEnabled(IntPtr h, bool enabled)
+    {
+        if (h == IntPtr.Zero || !IsWindow(h)) return true;
+        return !EnableWindow(h, enabled);
     }
     public static bool SupportsBackgroundKeyboardClass(string name)
     {
@@ -1418,6 +1646,13 @@ public class MixWin32
         {
             throw new InvalidOperationException("background_unsupported|focused renderer does not accept posted keyboard input; no input sent");
         }
+        // An inactive Tk window keeps its focus to itself and leaves the native
+        // focus empty; keys sent to its frame are discarded without an error.
+        if (focused == top && ClassNameOf(top).StartsWith("Tk", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+              "background_unsupported|this Tk window has no focused control while inactive, so background keys would be discarded; use explicit foreground delivery; no input sent");
+        }
         return focused;
     }
     public static ushort NamedVirtualKey(string name)
@@ -1441,6 +1676,18 @@ public class MixWin32
             case "DELETE": case "DEL": return 0x2E;
             case "PLUS": return 0xBB;
             case "MINUS": return 0xBD;
+            // Named on their own they are ordinary keys: held, released or
+            // tapped by themselves rather than decorating another key.
+            case "SHIFT": return 0x10;
+            case "CTRL": case "CONTROL": return 0x11;
+            case "ALT": case "MENU": return 0x12;
+            case "CAPSLOCK": return 0x14;
+            case "NUMLOCK": return 0x90;
+            case "SCROLLLOCK": return 0x91;
+            case "LWIN": case "WIN": return 0x5B;
+            case "APPS": return 0x5D;
+            case "PRTSC": case "PRINTSCREEN": return 0x2C;
+            case "PAUSE": return 0x13;
         }
         if (name.Length >= 2 && name[0] == 'F')
         {
@@ -1458,17 +1705,46 @@ public class MixWin32
           || vk == 0x25 || vk == 0x26 || vk == 0x27 || vk == 0x28
           || vk == 0x2D || vk == 0x2E;
     }
+    /// The character a physical press of these keys makes: the target's own
+    /// TranslateMessage derives it from a queued key, but a sent key never passes
+    /// that loop, and Edit controls and terminals act on Enter, Tab, Backspace,
+    /// Escape and Space only through it. Queuing the key instead would let the
+    /// derived character land behind text already queued after it.
+    public static char TranslatedKeyCharacter(ushort vk)
+    {
+        switch (vk)
+        {
+            case 0x08: return '\b';
+            case 0x09: return '\t';
+            case 0x0D: return '\r';
+            case 0x1B: return (char)0x1B;
+            case 0x20: return ' ';
+            default: return '\0';
+        }
+    }
+    /// Tk derives the editing action from the key itself and repeats it for the
+    /// character, so it receives the key alone.
+    public static bool ReceivesTranslatedCharacter(string className)
+    {
+        return !(className ?? "").StartsWith("Tk", StringComparison.Ordinal);
+    }
     static void BackgroundVirtualKey(IntPtr target, ushort vk)
     {
         uint scan = MapVirtualKey(vk, 0);
         int state = 1 | ((int)scan << 16) | (IsExtendedVirtualKey(vk) ? 1 << 24 : 0);
         int released = state | unchecked((int)0xC0000000);
+        char translated = ReceivesTranslatedCharacter(ClassNameOf(target)) ? TranslatedKeyCharacter(vk) : '\0';
         var release = BindBackgroundRelease(target, delegate
         {
             SendMessageChecked(target, WM_KEYUP, new UIntPtr(vk), new IntPtr(released));
         });
+        // A keyboard delivers the press, its character, then the release.
         WithBackgroundRelease(
-          delegate { SendMessageChecked(target, WM_KEYDOWN, new UIntPtr(vk), new IntPtr(state)); },
+          delegate
+          {
+              SendMessageChecked(target, WM_KEYDOWN, new UIntPtr(vk), new IntPtr(state));
+              if (translated != '\0') SendMessageChecked(target, WM_CHAR, new UIntPtr(translated), new IntPtr(state));
+          },
           delegate { }, release);
     }
     static void BackgroundChar(IntPtr target, char value)
@@ -1535,12 +1811,24 @@ public class MixWin32
                     }
                 }
                 ushort vk = NamedVirtualKey(token);
+                if (vk == 0x5B)
+                {
+                    throw new InvalidOperationException(
+                      "background_unsupported|the Windows key needs the real keyboard; use explicit foreground delivery");
+                }
                 for (int count = 0; count < repeat; count++) strokes.Add(new BackgroundKeyStroke { Key = vk });
                 index = end;
                 continue;
             }
-            if ("^%+~()".IndexOf(ch) >= 0)
+            if ("^%+~()#".IndexOf(ch) >= 0)
             {
+                // A sequence that is nothing but the symbol means the character
+                // itself; only a longer one can be carrying grammar.
+                if (value.Length == 1)
+                {
+                    strokes.Add(new BackgroundKeyStroke { IsCharacter = true, Character = ch });
+                    continue;
+                }
                 throw new InvalidOperationException(
                   "background_unsupported|background keyboard does not support SendKeys modifiers/groups; use explicit foreground delivery");
             }

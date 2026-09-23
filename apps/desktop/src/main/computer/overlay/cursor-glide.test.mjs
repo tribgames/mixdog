@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   GLIDE_MAX_MS,
@@ -13,13 +14,31 @@ import {
 
 const display = { x: 0, y: 0, width: 1920, height: 1080 };
 
-test('only background action effects travel; foreground and tracking movement stay put', () => {
+test('the worker waits exactly as long as the overlay travels', () => {
+  const source = readFileSync(new URL('../backend/sources/MixWin32.cs', import.meta.url), 'utf8');
+  const constant = (name) => Number(source.match(new RegExp(`${name} = ([0-9.]+)`))[1]);
+  const min = constant('PointerGlideMinWaitMs');
+  const max = constant('PointerGlideWaitMs');
+  const speed = constant('PointerGlideSpeedPxPerMs');
+  assert.equal(constant('PointerGlideSeedOffset'), GLIDE_SEED_OFFSET);
+  // Acting before the pointer arrives would show the effect somewhere the
+  // pointer is not; waiting past it spends the difference on nothing.
+  for (const distance of [0, 100, 280, 500, 1000, 4000]) {
+    const overlay = planGlide({ x: 0, y: 0 }, { x: distance, y: 0 }, display);
+    const worker = Math.min(max, Math.max(min, Math.round(distance / speed)));
+    assert.equal(worker, overlay ? overlay.durationMs : min, `distance ${distance}`);
+  }
+});
+
+test('action effects travel in both delivery modes; tracking movement stays put', () => {
   assert.equal(glideAllowed({ mode: 'background', effect: 'prepare' }), true);
   assert.equal(glideAllowed({ mode: 'background', effect: 'click' }), true);
   assert.equal(glideAllowed({ mode: 'background', effect: 'type' }), true);
   assert.equal(glideAllowed({ mode: 'background', effect: 'move' }), false);
   assert.equal(glideAllowed({ mode: 'background', effect: 'drag' }), false);
-  assert.equal(glideAllowed({ mode: 'foreground', effect: 'click' }), false);
+  assert.equal(glideAllowed({ mode: 'foreground', effect: 'click' }), true);
+  assert.equal(glideAllowed({ mode: 'foreground', effect: 'type' }), true);
+  assert.equal(glideAllowed({ mode: 'foreground', effect: 'move' }), false);
 });
 
 test('a never-shown pointer seeds up-left inside its display and never collapses onto the target', () => {

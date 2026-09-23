@@ -78,6 +78,7 @@ export function repairUsageLedger(
                 outputTokens: row.output,
                 cacheReadTokens: row.cache_read,
                 cacheWriteTokens: row.cache_write,
+                cacheWrite1hTokens: oldRates?.cacheWrite1hTokens,
                 fast: oldRates?.fast,
                 serviceTier: oldRates?.serviceTier,
                 ts: row.ts,

@@ -37,6 +37,7 @@ export function isTrustedSequenceContinuation(command: ComputerCommand): boolean
 
 const FIRST_STEP_ACTIONS = [
   'invoke',
+  'set_value',
   'click',
   'right_click',
   'middle_click',
@@ -57,6 +58,9 @@ const ROOT_ONLY_FIELDS = ['window_id', 'window', 'app', 'screen', 'session_id', 
 const TARGET_FIELDS = ['ref', 'element', 'frame_id', 'x', 'y'];
 const ALLOWED_STEP_FIELDS: Record<string, Set<string>> = {
   invoke: new Set(['action', 'ref', 'modifiers']),
+  // A value is written through the element, so it carries a semantic target and
+  // its replacement text, never a pixel or a modifier.
+  set_value: new Set(['action', 'ref', 'element', 'text']),
   click: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
   right_click: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
   middle_click: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
@@ -114,8 +118,13 @@ function assertSequenceStep(step: SequenceStep, index: number): string {
   if (index > 0 && TARGET_FIELDS.some((field) => Object.hasOwn(step, field))) {
     throw new Error(`sequence step ${index + 1} reuses focus and cannot carry a target`);
   }
-  if (stepAction === 'type' && typeof step.text !== 'string') {
+  if ((stepAction === 'type' || stepAction === 'set_value') && typeof step.text !== 'string') {
     throw new Error(`sequence step ${index + 1} requires string text`);
+  }
+  // A value is written through the control itself, so a target is mandatory here
+  // rather than optional as it is for a type step that reuses focus.
+  if (stepAction === 'set_value' && !Object.hasOwn(step, 'ref') && !Object.hasOwn(step, 'element')) {
+    throw new Error(`sequence step ${index + 1} requires ref or element`);
   }
   if (stepAction === 'key' && typeof step.keys !== 'string') {
     throw new Error(`sequence step ${index + 1} requires string keys`);
@@ -134,6 +143,8 @@ export interface SequenceRunnerHost extends Pick<CaptureEngine, 'captureAfterAct
   freshObservedWindowScope(command: ComputerCommand): ObservedWindowScope | undefined;
   recordProgress?(completed: number, inFlight?: number): void;
   preflightSteps?(command: ComputerCommand, steps: ComputerCommand[]): Promise<void>;
+  /** Ends the cursor-theme hold a foreground sequence took for its steps. */
+  releaseCursorTheme?(command: ComputerCommand): Promise<void>;
   /** Late-bound: each step goes back through the router. */
   runCommand(command: ComputerCommand): Promise<ComputerCommandResult>;
 }
@@ -143,14 +154,19 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
 
   function validateSteps(command: ComputerCommand, windowId: string): ComputerCommand[] {
     const steps = Array.isArray(command.steps) ? command.steps : [];
+    const delivery = command.delivery || 'background';
     const stepCommands = steps.map((step, index) => {
       const stepAction = assertSequenceStep(step, index);
       const stepCommand: ComputerCommand = {
         ...step,
         action: stepAction,
         window_id: windowId,
-        delivery: command.delivery || 'background',
+        delivery,
         session_id: sessionIdFor(command),
+        // Swapping the system cursors costs far more than the keystroke it
+        // decorates, so one lease covers the whole sequence and only its last
+        // step pays the wait that protects a finished gesture.
+        ...(delivery === 'foreground' && index < steps.length - 1 ? { input_continues: true } : {}),
       };
       assertSafeComputerInput(stepCommand);
       return stepCommand;
@@ -230,7 +246,13 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
         }
       },
       (completed) => host.recordProgress?.(completed)
-    );
+    ).finally(async () => {
+      // A stopped or failed step leaves the hold in place exactly as a finished
+      // one does, so the release runs on every exit path, not just the happy one.
+      if ((command.delivery || 'background') === 'foreground') {
+        await host.releaseCursorTheme?.(command);
+      }
+    });
     const stepsMs = elapsedMs(stepsStartedAt);
     const { rows, completedSteps, stoppedReason, finalWindowId, lastTransition } = sequence;
     const completed = completedSteps === steps.length && !stoppedReason;

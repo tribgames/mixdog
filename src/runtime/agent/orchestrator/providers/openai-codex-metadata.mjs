@@ -147,6 +147,8 @@ function _codexMetadataBase(_entry, { poolKey, cacheKey, sendOpts, handshake = f
     window_id: windowId,
     request_kind: effectiveRequestKind,
     thread_source: 'user',
+    // Interactive turns report the `user` trigger; prewarm has no started turn.
+    ...(!isPrewarm ? { turn_trigger: 'user' } : {}),
     sandbox: 'none',
     sandbox_mode: 'danger-full-access',
     auto_review_enabled: false,

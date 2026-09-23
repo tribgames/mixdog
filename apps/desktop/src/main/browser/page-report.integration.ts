@@ -106,6 +106,19 @@ export async function runBrowserPageReportScenarios(
     /ERR_UNSAFE_PORT/
   );
   assert.ok(Date.now() - refusedStartedAt < 5_000, 'a refused navigation returns without hanging');
+  // A subresource the request policy refuses names the rule, not a bare code
+  // that reads like a fault of the page.
+  const refusedResource = await run({
+    action: 'navigate',
+    url: `${origin}/refused-resource`,
+    background: true,
+    tab: 'refused-resource',
+  });
+  assert.match(
+    refusedResource.text,
+    /net::ERR_BLOCKED_BY_CLIENT \(Browser Use network policy: [^)]*private or internal address 10\.255\.255\.1[^)]*\) \(http:\/\/10\.255\.255\.1\/pixel\.png\)/
+  );
+  await run({ action: 'close_tab', tab: 'refused-resource' });
   progress('refused navigation reports its failure complete');
 
   // A failing script must say where it failed; the message alone leaves the

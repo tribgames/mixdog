@@ -34,7 +34,8 @@ test('Mythos 5.1 uses adaptive thinking and effort with no model catalog', () =>
   for (const model of ['claude-mythos-5-1', 'claude-mythos-5.1-20260901']) {
     for (const effort of ['low', 'high', 'xhigh', 'max']) {
       const body = _buildRequestBodyForCacheSmoke([{ role: 'user', content: 'Hello.' }], model, [], { effort });
-      assert.deepEqual(body.thinking, { type: 'adaptive' });
+      // Mythos 5.1 writes tool preambles as progress updates, so OAuth asks for them.
+      assert.deepEqual(body.thinking, { type: 'adaptive', display: 'updates' });
       assert.deepEqual(body.output_config, { effort });
     }
   }

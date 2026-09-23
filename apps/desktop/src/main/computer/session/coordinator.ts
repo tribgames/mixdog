@@ -48,6 +48,23 @@ export interface ComputerUseCursor {
   updatedAt: number;
 }
 
+/**
+ * One moment of typing. `keys` names what the board may light up; `masked` says
+ * the focused field hides its own content — or that the host could not tell —
+ * and the board must then show only that typing is happening.
+ */
+export interface ComputerUseKeystroke {
+  sessionId: string;
+  /** A point inside the window being typed into; it picks the display, not the
+   *  board's own position, which stays clear of the text being written. */
+  x: number;
+  y: number;
+  keys: string[];
+  masked: boolean;
+  eventId: number;
+  updatedAt: number;
+}
+
 export interface ComputerUseAttention {
   sessionId: string;
   detail: string;
@@ -66,6 +83,7 @@ export interface ComputerUseSnapshot {
   attentionRequired?: ComputerUseAttention;
   activities: ComputerUseActivity[];
   cursors: ComputerUseCursor[];
+  keystrokes: ComputerUseKeystroke[];
   targetLeases: Array<{
     sessionId: string;
     windowId: string;
@@ -166,6 +184,7 @@ export class ComputerUseCoordinator {
   private readonly listeners = new Set<(snapshot: ComputerUseSnapshot) => void>();
   private readonly activities = new Map<string, ComputerUseActivity>();
   private readonly cursors = new Map<string, ComputerUseCursor>();
+  private readonly keystrokes = new Map<string, ComputerUseKeystroke>();
   private readonly activeCounts = new Map<string, number>();
   private readonly targetLeases = new Map<string, TargetLease>();
   private readonly pendingTargetLeases: PendingTargetLease[] = [];
@@ -205,6 +224,9 @@ export class ComputerUseCoordinator {
       cursors: [...this.cursors.values()]
         .map((cursor) => ({ ...cursor }))
         .sort((left, right) => left.eventId - right.eventId),
+      keystrokes: [...this.keystrokes.values()]
+        .map((keystroke) => ({ ...keystroke, keys: [...keystroke.keys] }))
+        .sort((left, right) => left.eventId - right.eventId),
       targetLeases: [...this.targetLeases.entries()].map(([windowId, lease]) => ({
         sessionId: lease.sessionId,
         windowId,
@@ -241,7 +263,10 @@ export class ComputerUseCoordinator {
   beginCommand(input: { sessionId: string; action: string; target?: string; mode: 'background' | 'foreground' }): void {
     this.assertOperationAllowed(input.action);
     if (this.userControlActive && isComputerRecoveryRead(input.action)) return;
-    if (this.activities.get(input.sessionId)?.mode !== input.mode) this.cursors.delete(input.sessionId);
+    if (this.activities.get(input.sessionId)?.mode !== input.mode) {
+      this.cursors.delete(input.sessionId);
+      this.keystrokes.delete(input.sessionId);
+    }
     const now = this.now();
     if (!this.attentionRequired?.sessionId || this.attentionRequired.sessionId === input.sessionId) {
       this.attentionRequired = null;
@@ -347,6 +372,30 @@ export class ComputerUseCoordinator {
     return this.cursorSequence;
   }
 
+  /**
+   * Show a keystroke on the board. A caller that cannot prove the focused field
+   * is unmasked must pass `masked: true`: the uncertain case and the known
+   * secret get the same treatment, because only one of them is safe.
+   */
+  showKeystroke(input: { sessionId: string; keys: string[]; masked: boolean }): number {
+    const keys = input.keys.map((key) => String(key)).filter(Boolean);
+    if (keys.length === 0) return this.cursorSequence;
+    // Typing has no place of its own, so the board follows the last place this
+    // session touched — which is the window it is typing into.
+    const anchor = this.cursors.get(input.sessionId);
+    this.keystrokes.set(input.sessionId, {
+      sessionId: input.sessionId,
+      x: anchor?.x ?? 0,
+      y: anchor?.y ?? 0,
+      keys,
+      masked: input.masked !== false,
+      eventId: ++this.cursorSequence,
+      updatedAt: this.now(),
+    });
+    this.changed();
+    return this.cursorSequence;
+  }
+
   finishCommand(sessionId: string): void {
     const remaining = Math.max(0, (this.activeCounts.get(sessionId) || 0) - 1);
     if (remaining > 0) this.activeCounts.set(sessionId, remaining);
@@ -378,6 +427,7 @@ export class ComputerUseCoordinator {
     this.activeCounts.delete(sessionId);
     this.activities.delete(sessionId);
     this.cursors.delete(sessionId);
+    this.keystrokes.delete(sessionId);
     if (this.attentionRequired?.sessionId === sessionId) this.attentionRequired = null;
     if (this.activities.size === 0 && !this.cleanup.blocked && !this.userControlActive) {
       this.takeoverReason = '';
@@ -512,6 +562,7 @@ export class ComputerUseCoordinator {
     this.activeCounts.delete(sessionId);
     this.activities.delete(sessionId);
     this.cursors.delete(sessionId);
+    this.keystrokes.delete(sessionId);
     if (this.attentionRequired?.sessionId === sessionId) this.attentionRequired = null;
     this.releaseTargets(sessionId);
     if (this.activities.size === 0 && !this.cleanup.blocked && !this.userControlActive) {
@@ -546,6 +597,7 @@ export class ComputerUseCoordinator {
         updatedAt: now,
       });
       this.cursors.delete(sessionId);
+      this.keystrokes.delete(sessionId);
     }
     for (const request of this.pendingTargetLeases.splice(0)) {
       if (request.timer) clearTimeout(request.timer);
@@ -602,6 +654,7 @@ export class ComputerUseCoordinator {
     this.leaseExpiryTimer = null;
     this.activities.clear();
     this.cursors.clear();
+    this.keystrokes.clear();
     this.activeCounts.clear();
     this.targetLeases.clear();
     this.userControlActive = false;
@@ -634,6 +687,17 @@ export class ComputerUseCoordinator {
     if (!this.cleanup.clear()) return false;
     this.changed();
     return true;
+  }
+
+  /**
+   * A cleanup barrier that cleared on its own was a matter of timing, not a
+   * takeover in its own right. The interruption underneath it owns the reason
+   * again, so an ordinary one can still resume the way it always could.
+   */
+  restoreTakeoverReason(reason: string): void {
+    if (!this.userControlActive || !reason || this.takeoverReason === reason) return;
+    this.takeoverReason = reason;
+    this.changed();
   }
 
   beginCleanup(sessionId: string): (confirmed: boolean) => void {

@@ -26,8 +26,7 @@ or requests a setting with no mutation action.
 | `doctor` | Runtime diagnostics |
 | `context` | Context and compaction |
 
-An attached Desktop or TUI may navigate and return `opened:true`. Headless
-execution returns `opened:false` with guidance to relay to the user.
+An attached Desktop or TUI may navigate and return `opened:true`.
 
 ## Desktop map
 

@@ -505,9 +505,13 @@ export function markRunsDeleted(paragraphXml, id, author) {
   let output = paragraphXml;
   for (let index = runs.length - 1; index >= 0; index -= 1) {
     const run = runs[index];
+    // A field's instruction (PAGE, HYPERLINK, TOC) is deleted text too: Word
+    // refuses an <w:instrText> inside <w:del>.
     const deleted = run[0]
       .replace(/<w:t(\s[^>]*)?>/g, (_match, attributes) => `<w:delText${attributes || ''}>`)
-      .replace(/<\/w:t>/g, '</w:delText>');
+      .replace(/<\/w:t>/g, '</w:delText>')
+      .replace(/<w:instrText(\s[^>]*)?>/g, (_match, attributes) => `<w:delInstrText${attributes || ''}>`)
+      .replace(/<\/w:instrText>/g, '</w:delInstrText>');
     const wrapped = `<w:del ${revisionAttributes(id + index, author)}>${deleted}</w:del>`;
     output = `${output.slice(0, run.index)}${wrapped}${output.slice(run.index + run[0].length)}`;
   }

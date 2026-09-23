@@ -3,10 +3,11 @@
 // LibreOffice runs, so they sit in the slow lane.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stat } from 'node:fs/promises';
+import { copyFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { executeOfficeTool } from './index.mjs';
 import {
+  convertLegacyOffice,
   libreOfficeAvailable,
   recalculateLibreOfficeWorkbook,
   renderPortableOoxml,
@@ -118,4 +119,50 @@ test('a recalculation reads back the workbook named after the source', RENDERED,
   assert.equal(recalculated.available, true);
   assert.equal(recalculated.recalculated, true);
   assert.ok(recalculated.outputBytes > 0);
+});
+
+// A legacy binary file is saved once as its package beside the original, and
+// the session reads that package. The same open a second time is sent to the
+// converted file instead of overwriting it.
+test('open converts a legacy binary file beside it and never overwrites the result', RENDERED, async (t) => {
+  const cwd = await workspace(t);
+  const cases = [
+    {
+      seed: 'seed.docx',
+      legacy: 'report.doc',
+      converted: 'report.docx',
+      operations: [{ op: 'append_text', text: '레거시 문서 본문' }],
+      expected: '레거시 문서 본문',
+    },
+    {
+      seed: 'seed.xlsx',
+      legacy: 'ledger.xls',
+      converted: 'ledger.xlsx',
+      operations: [{ op: 'set_range', range: 'A1:B2', values: [['지역', '매출'], ['서울', 120]] }],
+      expected: '서울',
+    },
+  ];
+  for (const { seed, legacy, converted, operations, expected } of cases) {
+    value(await executeOfficeTool({ action: 'create', path: join(cwd, seed), mode: 'portable', operations }, { cwd }));
+    await convertLegacyOffice(join(cwd, seed), join(cwd, legacy));
+
+    const opened = value(await executeOfficeTool({ action: 'open', path: legacy, mode: 'portable' }, { cwd }));
+    assert.equal(opened.convertedFrom, join(cwd, legacy));
+    assert.ok((await stat(join(cwd, converted))).size > 0, converted);
+    assert.match(JSON.stringify(opened), new RegExp(expected));
+    value(await executeOfficeTool({ action: 'close', session: opened.session }, { cwd }));
+
+    const again = await executeOfficeTool({ action: 'open', path: legacy, mode: 'portable' }, { cwd });
+    assert.equal(again.isError, true);
+    assert.match(again.content[0].text, /already exists; open .+ directly/);
+  }
+
+  // A deck: the bundled template stands in for the seed.
+  const template = new URL('./design/library/templates/mixdog-executive.pptx', import.meta.url);
+  await copyFile(template, join(cwd, 'seed.pptx'));
+  await convertLegacyOffice(join(cwd, 'seed.pptx'), join(cwd, 'deck.ppt'));
+  const deck = value(await executeOfficeTool({ action: 'open', path: 'deck.ppt', mode: 'portable' }, { cwd }));
+  assert.equal(deck.convertedFrom, join(cwd, 'deck.ppt'));
+  assert.ok((await stat(join(cwd, 'deck.pptx'))).size > 0);
+  value(await executeOfficeTool({ action: 'close', session: deck.session }, { cwd }));
 });

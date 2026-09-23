@@ -111,16 +111,43 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
     $foregroundBefore = [MixWin32]::Foreground()
     $inputBefore = [MixInputObservation]::Read()
     $result = $null
+    # Restoring focus after the fact needs foreground rights Windows may refuse,
+    # so a window that would activate itself is held disabled for the call: the
+    # steal never happens instead of being undone.
+    $shielded = $target -ne [IntPtr]::Zero -and $foregroundBefore -ne $target -and
+        [MixWin32]::SelfActivatesOnSemanticInput($target)
+    $wasEnabled = $false
     try {
+        if ($shielded) { $wasEnabled = [MixWin32]::SetWindowEnabled($target, $false) }
         $result = & $operation
     }
     finally {
-        $foregroundAfter = [MixWin32]::Foreground()
-        $targetTookFocus = $target -ne [IntPtr]::Zero -and (
-            $foregroundAfter -eq $target -or
-            [MixWin32]::IsContainedSameProcess($foregroundAfter, $target) -or
-            [MixWin32]::IsOwnedBy($foregroundAfter, $target)
-        )
+        # A XAML host honours the shield outright. A Chromium host queues its own
+        # activation instead and raises it once the window is enabled again, which
+        # no wait here prevents and no restore can undo from a process without
+        # foreground rights; the shield still spares every window that does honour it.
+        if ($shielded -and $wasEnabled) { [void][MixWin32]::SetWindowEnabled($target, $true) }
+        $tookFocus = {
+            $foregroundAfter = [MixWin32]::Foreground()
+            $target -ne [IntPtr]::Zero -and (
+                [MixWin32]::IsWithinTopLevel($foregroundAfter, $target) -or
+                [MixWin32]::IsContainedSameProcess($foregroundAfter, $target) -or
+                [MixWin32]::IsOwnedBy($foregroundAfter, $target)
+            )
+        }
+        $targetTookFocus = & $tookFocus
+        # Measured on Windows 11 Settings: the frame raised itself 5-30 ms after
+        # the accessibility call returned, disabled or not, so one check made
+        # right away saw nothing to restore. A packaged or XAML frame is watched
+        # for that short window, ending as soon as the steal appears. Chromium
+        # honours the shield, so it is not charged the wait.
+        if ($shielded -and -not $targetTookFocus -and -not [MixWin32]::IsWebContentHost($target)) {
+            $watch = [System.Diagnostics.Stopwatch]::StartNew()
+            while (-not $targetTookFocus -and $watch.ElapsedMilliseconds -lt 100) {
+                Start-Sleep -Milliseconds 10
+                $targetTookFocus = & $tookFocus
+            }
+        }
         if (
             $foregroundBefore -ne [IntPtr]::Zero -and
             $foregroundBefore -ne $target -and
@@ -163,9 +190,9 @@ function Invoke-BackgroundSemantic($ref, [scriptblock]$operation, $effect = 'rel
     $target = Get-RefTopHandle $record
     $point = Show-ReferencePointer $ref 'prepare'
     # The presented pointer travels to the announced target before the worker acts
-    # there (same wait as MixWin32.PointerGlideWaitMs), so the visible effect lands
-    # where and when the action really happens.
-    if ($null -ne $point) { Start-Sleep -Milliseconds 360 }
+    # there, so the visible effect lands where and when the action really happens.
+    # The wait follows that travel rather than always paying for the longest one.
+    if ($null -ne $point) { Start-Sleep -Milliseconds ([MixWin32]::LastGlideWaitMs) }
     $result = Invoke-BackgroundWindow $target $operation
     if ($null -ne $point -and $result.delivery_accepted -eq $true) {
         # The action can close or relayout its element. Keep the point actually acted on.
@@ -345,7 +372,50 @@ function Test-BackgroundValueTarget($record) {
     # A browser or Electron tab echoes the write without applying it in the
     # document, so its readback would confirm input that never landed.
     $top = New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle)
-    return -not [MixWin32]::IsWebContentHost($top)
+    return -not [MixWin32]::IsWebContentHost($top) -and -not (Test-IgnoredValueWrite $el)
+}
+
+# Excel's cells take a value write through UIA and echo it back on every later
+# read, while the sheet, the formula bar and the saved workbook keep the old
+# value: the readback confirms data that was never entered.
+function Test-IgnoredValueWrite($el) {
+    try { return [string]$el.Current.ClassName -eq 'XLSpreadsheetCell' } catch { return $false }
+}
+
+# A field inside a selectable item (File Explorer's name cell) edits the
+# selection, not the item it sits in: with two files selected, writing one
+# name renamed both. The owning item becomes the only selection first. Returns
+# $null when the write is scoped to that item alone, or why it is not.
+function Select-OwningItemAlone($el) {
+    $selection = $null
+    if (-not $el.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection)) {
+        $item = $null
+        try { $item = $Walker.GetParent($el) } catch { return $null }
+        if ($null -eq $item -or
+            -not $item.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selection)) {
+            return $null
+        }
+    }
+    try {
+        $container = $selection.Current.SelectionContainer
+        $containerSelection = $null
+        $selectedCount = { @($containerSelection.Current.GetSelection()).Count }
+        if ($null -eq $container -or
+            -not $container.TryGetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern, [ref]$containerSelection)) {
+            return 'its container does not report the selection'
+        }
+        # Only a multi-selection can widen the write; a radio group or a
+        # single-select list keeps its state untouched.
+        if (-not $containerSelection.Current.CanSelectMultiple) { return $null }
+        if ($selection.Current.IsSelected -and (& $selectedCount) -eq 1) { return $null }
+        $selection.Select()
+        for ($attempt = 0; $attempt -lt 10; $attempt++) {
+            if ($selection.Current.IsSelected -and (& $selectedCount) -eq 1) { return $null }
+            Start-Sleep -Milliseconds 20
+        }
+        return "$(& $selectedCount) items stay selected"
+    }
+    catch { return 'selection could not be read' }
 }
 
 function Do-SetValue($ref, $text) {
@@ -366,7 +436,14 @@ function Do-SetValue($ref, $text) {
     $el = $record.Element
     $pat = $null
     if ($el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pat)) {
+        if (Test-IgnoredValueWrite $el) {
+            return Background-Unavailable 'set_value' "element $ref is an Excel cell, which echoes an accessibility value write without entering it; select the cell and type with explicit foreground delivery; no value was set" $record.WindowId 'value_write_ignored'
+        }
         Assert-ExecutionAuthorization $script:CurrentRequest
+        $scope = Select-OwningItemAlone $el
+        if ($null -ne $scope) {
+            return Background-Unavailable 'set_value' "element $ref belongs to an item that could not be made the only selection, and the write would apply to every selected item ($scope); no value was set" $record.WindowId 'selection_not_exclusive'
+        }
         $pat.SetValue($text)
         $actual = ''
         for ($attempt = 0; $attempt -lt 8; $attempt++) {
@@ -536,6 +613,47 @@ function New-UserInputActiveResult($action, $windowId) {
     return New-ActionResult $action 'foreground' 'suspected_noop' $false $message 'user_input_active' 'foreground' $windowId
 }
 
+# Acquiring a theme launches the watchdog that releases whatever this session
+# pressed, which is far too much work to repeat per keystroke. A sequence holds
+# one lease for all of its steps; the host releases it when the sequence ends,
+# however it ended. The overlay pointer carries every visual cue on its own, so
+# the lease never replaces the artwork of the cursor the user owns.
+# Whether the focused field hides what is typed into it. A focus that cannot be
+# read is reported as masked: the board must never light a key it cannot vouch
+# for, and an unreadable field is exactly the case where that matters.
+function Test-FocusMasked {
+    try {
+        $el = [System.Windows.Automation.AutomationElement]::FocusedElement
+        if ($null -eq $el) { return $true }
+        if ([bool]$el.Current.IsPassword) { return $true }
+        # UIA answers for its own providers only. A legacy edit control reports
+        # nothing there and raises MSAA's PROTECTED state instead, so ask that
+        # too before letting a keystroke onto the board.
+        $handle = [int]$el.Current.NativeWindowHandle
+        if ($handle -eq 0) { return $false }
+        return [MixMsaa]::IsProtectedInput([IntPtr]$handle)
+    }
+    catch { return $true }
+}
+
+function Acquire-CursorTheme($state, $reservation) {
+    if ($null -ne $state.CursorTheme) {
+        if ($null -ne $reservation) { $reservation.Dispose() }
+        return $state.CursorTheme
+    }
+    if ($null -ne $reservation) { return [MixCursorTheme]::Complete($reservation, $false) }
+    return [MixCursorTheme]::Begin($false)
+}
+
+# True when a held lease was restored here, so the caller can report it.
+function Release-CursorTheme($state) {
+    $theme = $state.CursorTheme
+    $state.CursorTheme = $null
+    if ($null -eq $theme) { return $false }
+    $theme.Dispose()
+    return $true
+}
+
 function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMayActivate = $false) {
     if (-not [MixWin32]::IsWindowHandle($targetHandle)) {
         return New-ActionResult $action 'foreground' 'suspected_noop' $false "$action target window is invalid" 'target_required' 'foreground' $null
@@ -550,6 +668,15 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
     }
     $state = Get-CurrentSession
     $previous = [MixWin32]::Foreground()
+    # An elevated window holding the foreground cannot be displaced by a lower
+    # process, so activation would fail and read as a focus change mid-action.
+    if ($previous -ne $targetHandle -and [MixWin32]::IsWindowHandle($previous)) {
+        $holder = [MixWin32]::WindowIntegrity($previous)
+        if ($holder.Known -and $holder.Higher) {
+            $holderInfo = [MixWin32]::Info($previous)
+            return New-ActionResult $action 'foreground' 'suspected_noop' $false "the foreground belongs to '$($holderInfo.Title)', which runs at $($holder.TargetName) integrity above this host ($($holder.OwnName)); Windows lets a lower process neither take the foreground from it nor type into it, so no input was sent. Ask the user to switch away from that window." 'foreground_unavailable' 'foreground' ([MixWin32]::WindowId($targetHandle))
+        }
+    }
     Remember-FocusOrigin $state $previous $targetHandle
     [MixInputObservation]::Begin()
     $priorAuthorization = [MixInputObservation]::DispatchAuthorization
@@ -561,7 +688,21 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
         }
     }
     $cursorTheme = $null
+    # The watchdog takes about a second to start and connect, and that wait needs
+    # nothing from the target. Start it now so it runs alongside activation and
+    # the focus settle instead of after them; a refused action drops it unused.
+    $cursorReservation = if ($null -eq $state.CursorTheme) { [MixCursorTheme]::Reserve() } else { $null }
+    $inputContinues = $script:CurrentRequest.input_continues -eq $true
     $cursorFeedback = @{ system_theme_applied = $false; system_theme_restored = $false; pointer_moved = $false }
+    # A first foreground action costs seconds while a follow-up costs hundreds of
+    # milliseconds, and the total alone never says which stage owns that gap.
+    $phaseClock = [System.Diagnostics.Stopwatch]::StartNew()
+    $phaseMs = [ordered]@{}
+    $markPhase = {
+        param($name)
+        $phaseMs[$name] = [Math]::Round($phaseClock.Elapsed.TotalMilliseconds, 2)
+        $phaseClock.Restart()
+    }
     try {
         [MixInputObservation]::AssertContinue()
         $focused = [MixWin32]::Focus($targetHandle)
@@ -577,20 +718,30 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
             return New-ActionResult $action 'foreground' 'suspected_noop' $false "foreground changed before input dispatch; no input was sent" 'foreground_changed' 'foreground' ([MixWin32]::WindowId($targetHandle))
         }
         $dispatchReady = $true
+        & $markPhase 'activation_ms'
         [MixInputObservation]::AssertContinue()
         Assert-ExecutionAuthorization $script:CurrentRequest $targetHandle
-        $cursorTheme = [MixCursorTheme]::Begin()
-        $cursorFeedback.system_theme_applied = $true
+        $cursorTheme = Acquire-CursorTheme $state $cursorReservation
+        $cursorReservation = $null
+        & $markPhase 'cursor_theme_ms'
+        # Read it while the target still holds focus, before any key lands.
+        if ($action -in @('key', 'type', 'key_down', 'key_up')) {
+            $cursorFeedback.focus_masked = Test-FocusMasked
+        }
         $pointerBefore = [MixWin32]::Cursor()
         [MixInputObservation]::AssertContinue()
         & $body
+        & $markPhase 'dispatch_ms'
         $pointerAfter = [MixWin32]::Cursor()
         $cursorFeedback.pointer_moved = $pointerBefore.x -ne $pointerAfter.x -or $pointerBefore.y -ne $pointerAfter.y
         # SendKeys-based bodies bypass MixWin32, so stamp the injection here too.
         [MixWin32]::NoteInjection()
         # SendInput only enqueues events. Custom renderers such as Chromium consume
         # them asynchronously, so keep the target stable through a bounded settle.
-        [System.Threading.Thread]::Sleep(240)
+        # A step with more input behind it keeps the same target and the same queue
+        # order, so only the step that ends the sequence owes that wait.
+        if (-not $inputContinues) { [System.Threading.Thread]::Sleep(240) }
+        & $markPhase 'settle_ms'
         $current = [MixWin32]::Foreground()
         if ($current -ne $previous -and [MixWin32]::IsWindowHandle($current)) {
             $state.LastFocus = $current
@@ -602,16 +753,26 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
         $result = New-ActionResult $action $path 'unverifiable' $false "$action input dispatched; inspect the fresh capture before treating it as complete" $null 'foreground' ([MixWin32]::WindowId($targetHandle))
         $result.injection_tick = [MixWin32]::LastInjectionTick
         $result.cursor_feedback = $cursorFeedback
+        $result.foreground_phase_ms = $phaseMs
         if ($userWaitMs -gt 0) { $result.user_wait_ms = $userWaitMs }
         return $result
     }
     finally {
+        # A reservation the action never reached belongs to nobody: close it so
+        # the helper exits instead of waiting out its own timeout.
+        if ($null -ne $cursorReservation) {
+            try { $cursorReservation.Dispose() } catch { }
+            $cursorReservation = $null
+        }
         # Visible input leaves the one physical pointer at its destination.
         # Never jump it back between actions or after user intervention.
         try {
             if ($null -ne $cursorTheme) {
-                $cursorTheme.Dispose()
-                $cursorFeedback.system_theme_restored = $true
+                if ($inputContinues) { $state.CursorTheme = $cursorTheme }
+                else {
+                    $state.CursorTheme = $null
+                    $cursorTheme.Dispose()
+                }
             }
         }
         finally {
@@ -1089,10 +1250,14 @@ function Get-WindowPredicates($req) {
     [void]$cr.Add($AE::ControlTypeProperty)
     [void]$cr.Add($AE::IsEnabledProperty)
     [void]$cr.Add($AE::IsOffscreenProperty)
+    [void]$cr.Add($AE::IsValuePatternAvailableProperty)
+    [void]$cr.Add($AE::IsTextPatternAvailableProperty)
+    [void]$cr.Add($AE::IsKeyboardFocusableProperty)
     $act = $cr.Activate()
     try { $els = $win.FindAll($TS::Descendants, $cond) } finally { $act.Dispose() }
     $observations = New-Object System.Collections.ArrayList
     $textComplete = $true
+    $readText = -not (([string]$info.ClassName) -like 'Chrome_WidgetWin*')
     foreach ($el in $els) {
         if ($observations.Count -ge $max) { $textComplete = $false; break }
         if ($el.Cached.IsOffscreen) { continue }
@@ -1108,6 +1273,28 @@ function Get-WindowPredicates($req) {
                 }
             }
             catch { $textComplete = $false }
+        }
+        # A terminal or document body has no value; its visible lines are what
+        # a present/absent predicate has to match.
+        # Static labels already carry their text as a name; only a focusable
+        # surface is read, which also bounds the per-poll cost.
+        if ($readText -and (Get-CachedFlag $el $AE::IsKeyboardFocusableProperty) -and
+            -not (Get-CachedFlag $el $AE::IsValuePatternAvailableProperty) -and
+            (Get-CachedFlag $el $AE::IsTextPatternAvailableProperty)) {
+            $lines = Get-VisibleTextLines $el
+            if ($null -eq $lines) { $textComplete = $false }
+            else {
+                foreach ($line in $lines) {
+                    if ($observations.Count -ge $max) { $textComplete = $false; break }
+                    if ($line.Length -gt 200) { $textComplete = $false }
+                    [void]$observations.Add([ordered]@{
+                            role    = [string]$ct
+                            name    = (Format-ObservationValue $line 200)
+                            value   = ''
+                            enabled = [bool]$el.Cached.IsEnabled
+                        })
+                }
+            }
         }
         if ([string]::IsNullOrWhiteSpace($name) -and [string]::IsNullOrWhiteSpace($value)) { continue }
         if ($name.Length -gt 200 -or $value.Length -gt 200) { $textComplete = $false }
@@ -1158,8 +1345,20 @@ function Get-WindowPredicates($req) {
 
 # Menu entries by exact label, with the accelerator ampersand removed. Menus are
 # resolved one live level at a time and never fall back to pixels.
+# A menu label as a person reads it: without the access-key ampersand, the
+# "(V)" a localized menu appends for that key, the accelerator after a tab, or
+# a trailing ellipsis. "보기(&V)" and "Save &As...\tCtrl+Shift+S" both answer to
+# their plain name.
+function Normalize-MenuLabel($label) {
+    $text = ([string]$label) -replace '&', ''
+    $text = ($text -split "`t")[0]
+    $text = $text -replace '\s*\([A-Za-z0-9]\)', ''
+    $text = $text -replace '(\.\.\.|\u2026)\s*$', ''
+    return $text.Trim().ToLower()
+}
+
 function Get-MenuCandidates($root, $name) {
-    $wanted = (([string]$name) -replace '&', '').Trim().ToLower()
+    $wanted = Normalize-MenuLabel $name
     $types = @('MenuItem', 'Button', 'SplitButton', 'ListItem')
     $conds = foreach ($t in $types) {
         New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::$t)
@@ -1182,13 +1381,13 @@ function Get-MenuCandidates($root, $name) {
             $label = [string]$el.Current.Name
         }
         catch { continue }
-        if ((($label -replace '&', '').Trim().ToLower()) -eq $wanted) { [void]$found.Add($el) }
+        if ((Normalize-MenuLabel $label) -eq $wanted) { [void]$found.Add($el) }
     }
     return @($found)
 }
 
 function Get-MsaaMenuCandidates($info, $name) {
-    $wanted = (([string]$name) -replace '&', '').Trim().ToLower()
+    $wanted = Normalize-MenuLabel $name
     $found = New-Object System.Collections.ArrayList
     $seen = @{}
     $windowIds = New-Object System.Collections.ArrayList
@@ -1213,7 +1412,7 @@ function Get-MsaaMenuCandidates($info, $name) {
         foreach ($node in $nodes) {
             if (-not $node.Refresh() -or -not $node.Enabled -or $node.Offscreen) { continue }
             if ([string]$node.ControlType -notin @('MenuItem', 'Button', 'SplitButton', 'ListItem')) { continue }
-            $label = (([string]$node.Name) -replace '&', '').Trim().ToLower()
+            $label = Normalize-MenuLabel $node.Name
             if ($label -ne $wanted) { continue }
             $identity = '{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f
             $label, $node.ControlType, $node.X, $node.Y, $node.Width, $node.Height, $node.DefaultAction
@@ -1243,11 +1442,59 @@ function Expand-MenuElement($el) {
     return $false
 }
 
+# A classic menu bar answers the whole path from its own menu handles: no level
+# opens on screen, and the chosen item reaches the window as the same command a
+# click sends. $null means the window has no classic menu or the path does not
+# start on it, and the accessibility route decides instead.
+function Invoke-Win32MenuPath($req, $info, $path) {
+    $menu = [MixWin32]::WindowMenu($info.Handle)
+    if ($menu -eq [IntPtr]::Zero) { return $null }
+    $walked = @()
+    $position = 0
+    for ($i = 0; $i -lt $path.Count; $i++) {
+        $segment = $path[$i]
+        $wanted = Normalize-MenuLabel $segment
+        $entries = @([MixWin32]::MenuEntries($info.Handle, $menu, $position, $i -gt 0))
+        $indexes = @(for ($index = 0; $index -lt $entries.Count; $index++) {
+                if ((Normalize-MenuLabel $entries[$index].Label) -eq $wanted) { $index }
+            })
+        if ($indexes.Count -eq 0) {
+            if ($i -eq 0) { return $null }
+            # The level's own entries turn a guessed name into a corrected one.
+            $available = (@($entries | ForEach-Object { (($_.Label -replace '&', '' -split "`t")[0] -replace '\s*\([A-Za-z0-9]\)', '').Trim() } |
+                    Where-Object { $_ }) | Select-Object -First 20) -join ', '
+            throw "menu_path_not_found: no menu entry named '$segment' after $($walked -join ' > '); entries: $available"
+        }
+        if ($indexes.Count -gt 1) {
+            throw "menu_path_ambiguous: '$segment' matched $($indexes.Count) entries; use a more exact path"
+        }
+        $entry = $entries[$indexes[0]]
+        if (-not $entry.Enabled) { throw "menu_item_disabled: '$segment' is disabled" }
+        $walked += $segment
+        if ($i -lt $path.Count - 1) {
+            if ($entry.SubMenu -eq [IntPtr]::Zero) {
+                throw "menu_path_not_found: '$segment' opens no submenu for '$($path[$i + 1])'"
+            }
+            $menu = $entry.SubMenu
+            $position = $indexes[0]
+            continue
+        }
+        if ($entry.SubMenu -ne [IntPtr]::Zero) {
+            throw "menu_item_not_invokable: '$segment' opens a submenu; name one of its entries"
+        }
+        Assert-ExecutionAuthorization $req $info.Handle
+        [MixWin32]::PostMenuCommand($info.Handle, $entry.Id)
+        return New-ActionResult 'invoke_menu' 'win32_menu' 'unverifiable' $false ('invoked menu path: ' + ($walked -join ' > ')) $null 'background' $info.Id
+    }
+}
+
 function Do-InvokeMenu($req) {
     $info = Resolve-WindowInfo $req.window $req.window_id
+    $path = @(@($req.path) | ForEach-Object { [string]$_ } | Where-Object { $_.Trim().Length -gt 0 })
+    if ($path.Count -lt 1 -or $path.Count -gt 8) { throw 'menu path must have 1..8 segments' }
+    $classic = Invoke-Win32MenuPath $req $info $path
+    if ($null -ne $classic) { return $classic }
     return Invoke-BackgroundWindow $info.Handle {
-        $path = @(@($req.path) | ForEach-Object { [string]$_ } | Where-Object { $_.Trim().Length -gt 0 })
-        if ($path.Count -lt 1 -or $path.Count -gt 8) { throw 'menu path must have 1..8 segments' }
         $root = $null
         $walked = @()
         # Menu levels this call opened itself. A walk that stops early must not

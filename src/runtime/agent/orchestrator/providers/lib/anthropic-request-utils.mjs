@@ -320,6 +320,9 @@ export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = 
       outputTokens: Number(usage.output_tokens) || 0,
       cachedTokens: cacheRead,
       cacheWriteTokens: cacheWrite,
+      ...(Number(usage.cache_creation?.ephemeral_1h_input_tokens) > 0
+        ? { cacheWrite1hTokens: Number(usage.cache_creation.ephemeral_1h_input_tokens) }
+        : {}),
       promptTokens: input + cacheRead + cacheWrite,
       raw: usage,
     },

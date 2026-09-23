@@ -51,6 +51,7 @@ function initialTimeLimitMs(args, defaultTimeLimitMs) {
 
 function newGoalRecord(id, args, at, defaultTimeLimitMs) {
   const startTurn = args.startInCurrentTurn === true ? 1 : 0;
+  const timeLimitMs = initialTimeLimitMs(args, defaultTimeLimitMs);
   const initialTasks = Array.isArray(args.tasks)
     ? normalizeGoalTasks(
         args.tasks.filter((task) => clean(task?.text)),
@@ -74,8 +75,9 @@ function newGoalRecord(id, args, at, defaultTimeLimitMs) {
     turnCount: startTurn,
     lastDropTurn: initialTasks.some((task) => task.status === 'dropped') ? startTurn : -1,
     tasksUpdatedAt: initialTasks.length > 0 ? at : null,
-    timeLimitMs: initialTimeLimitMs(args, defaultTimeLimitMs),
-    timeMode: goalTimeMode(args.timeMode),
+    timeLimitMs,
+    // A stated budget commits that time; only an explicit cap permits early completion.
+    timeMode: goalTimeMode(args.timeMode, timeLimitMs > 0 ? 'duration' : 'max'),
     timeUsedMs: 0,
     deadlineWarnedMs: NO_DEADLINE_WARNING_MS,
     warningRevision: 0,

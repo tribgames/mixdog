@@ -16,7 +16,7 @@ test('state ordering and refreshed refs are not changes, while focus and values 
     { ...elements[2], ref: 'new3', value: 'after' },
   ];
   const diff = diffSnapshotElements(next, previous);
-  assert.deepEqual(diff, { changed: [next[1], next[2]], unseen: [], unchanged: 1, gone: 0 });
+  assert.deepEqual(diff, { changed: [next[1], next[2]], unseen: [], unchanged: 1, gone: [] });
 });
 
 test('duplicate semantic controls preserve multiplicity and true removals remain reported', () => {
@@ -34,6 +34,9 @@ test('duplicate semantic controls preserve multiplicity and true removals remain
     changed: [next[1]],
     unseen: [next[1]],
     unchanged: 1,
-    gone: 2,
+    gone: [
+      { role: 'button', name: 'Item' },
+      { role: 'button', name: 'Removed' },
+    ],
   });
 });

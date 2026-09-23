@@ -3,7 +3,9 @@ export const overlayStyles = `
 * { box-sizing:border-box; }
 html,body { width:100%;height:100%;margin:0;overflow:hidden;background:transparent; }
 body { display:flex;align-items:flex-start;justify-content:flex-end;padding:10px; }
-#pill { position:relative;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px 44px;border-radius:24px;
+/* The right padding reserves both control slots at all times, so no state
+   change ever resizes the pill under a press. */
+#pill { position:relative;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px 80px 11px 44px;border-radius:24px;
 background:rgba(15,18,24,.96);box-shadow:0 6px 16px #0005;color:#f4f7fb;width:100%;max-width:100%;
 transition:opacity 180ms ease,transform 180ms ease; }
 body.hiding #pill { opacity:0;transform:translateY(-4px); }
@@ -18,15 +20,17 @@ animation:outline-loop 2.8s linear infinite; }
    breathing rather than blinking. */
 #title { font-size:17px;line-height:24px;font-weight:650;white-space:nowrap;text-align:center;
 animation:title-breathe 3.6s ease-in-out infinite; }
-button[hidden] { display:none; }
-/* Reversed so the toggle keeps one fixed hit target: a check state that
-   arrives mid-click adds Stop to its left instead of shifting the toggle. */
+/* Reversed so the toggle keeps the outer fixed hit target and Stop sits at its
+   left, in the same place in every state. */
 #controls { position:absolute;right:10px;top:50%;transform:translateY(-50%);
 display:flex;flex-direction:row-reverse;align-items:center;gap:6px; }
 button { border:1px solid #ffffff33;border-radius:14px;background:#ffffff18;color:inherit;
 width:30px;height:30px;padding:5px;cursor:pointer;flex-shrink:0;display:grid;place-items:center; }
 button:hover { background:#ffffff30; }
-button:disabled { opacity:.5;cursor:default; }
+/* A press answers immediately, before the host does. Without it, a control
+   the host later drops is indistinguishable from a press that never reached
+   this window at all. */
+button:active { background:#ffffff55;transform:scale(.92); }
 button[aria-busy="true"] { opacity:.6; }
 button:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
 button svg { width:18px;height:18px;fill:currentColor; }
@@ -34,7 +38,7 @@ button svg { width:18px;height:18px;fill:currentColor; }
    the wording stays plain instead of turning amber on a dark pill. */
 #stop { border-color:#f0883e73;background:#f0883e2b; }
 #stop:hover { background:#f0883e45; }
-body[data-error="true"] #pill { padding-right:80px;background:rgba(28,20,13,.97);
+body[data-error="true"] #pill { background:rgba(28,20,13,.97);
 box-shadow:0 6px 16px #0006,inset 0 0 0 1.5px #f0883e66; }
 body[data-error="true"] #outline .track { stroke:#f0883e99;stroke-width:1.5; }
 body[data-error="true"] #title { color:#f7f2ec; }

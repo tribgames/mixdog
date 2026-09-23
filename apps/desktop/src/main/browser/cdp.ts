@@ -89,6 +89,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
   const { sendCdp, waitForIdle } = createBrowserCdpExecution({
     bounded,
     diagnostic: (guest, message) => state.for(guest).console.recordInternal(message),
+    awaitingDialog: (guest) => Boolean(state.peek(guest)?.pendingDialog),
   });
   const sessions = createBrowserCdpSessionInit(host, sendCdp);
   // The attachment routes messages through the router, and the router reads

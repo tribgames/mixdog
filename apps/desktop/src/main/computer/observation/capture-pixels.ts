@@ -1,5 +1,6 @@
-/** Pixel acquisition and zoom geometry; no accessibility or OCR state. */
+/** Pixel acquisition and zoom geometry; no accessibility state. */
 import { attachCaptureAttempts, type CaptureAttempt } from '../shared/capture-attempts';
+import { DEFAULT_OCR_MAX_WORDS } from '../shared/common';
 import type { ComputerCommand, PixelUnavailable, ScreenshotCapture } from '../shared/types';
 import { pixelUnavailable } from './analysis';
 import type { CaptureEngineHost } from './capture';
@@ -156,6 +157,41 @@ export function createPixelCapture(host: PixelCaptureHost) {
     }
   }
 
+  /** Zoom exists to resolve what the full frame could not, so the crop answers
+   *  with its own recognized text instead of sending the caller back to the
+   *  capture that already failed on these pixels. OCR reads the encoded crop,
+   *  so its boxes are already this frame's coordinates. */
+  async function recognizeZoomText(command: ComputerCommand, jpeg: Buffer): Promise<string> {
+    if (command.include_ocr !== true) return '';
+    try {
+      const ocr = await host.callPowerShell(
+        {
+          action: 'ocr_image',
+          image_base64: jpeg.toString('base64'),
+          ocr_language: command.ocr_language ?? null,
+          max_ocr_words: DEFAULT_OCR_MAX_WORDS,
+          session_id: sessionIdFor(command),
+          read_only: true,
+        },
+        5_000
+      );
+      if (!ocr.ok) throw new Error(ocr.error || 'recognition failed');
+      const lines = Array.isArray(ocr.result?.lines) ? (ocr.result?.lines as Record<string, unknown>[]) : [];
+      if (!lines.length) return '\nOCR recognized no text in this region.';
+      const rows = lines.map(
+        (line) =>
+          `[${Number(line.x)},${Number(line.y)} ${Number(line.width)}x${Number(line.height)}] ${String(line.text)}`
+      );
+      return (
+        `\nOCR ${rows.length} lines, language ${String(ocr.result?.language || '')};` +
+        ` boxes are pixels in this frame:\n${rows.join('\n')}`
+      );
+    } catch (error) {
+      // Unreadable text is a reason to keep the pixels, never to fail the crop.
+      return `\nOCR unavailable: ${(error as Error).message}`;
+    }
+  }
+
   async function captureZoom(command: ComputerCommand): Promise<ZoomCapture | null> {
     const { quality, maxWidth } = screenshotEncoding(command);
     const region = zoomRegionOf(command);
@@ -189,6 +225,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
         })
       );
       const [fx0, fy0, fx1, fy1] = region;
+      const recognized = await recognizeZoomText(command, jpeg);
       return {
         captureAttempts,
         image: { mimeType: 'image/jpeg', data: jpeg.toString('base64') },
@@ -196,7 +233,8 @@ export function createPixelCapture(host: PixelCaptureHost) {
         description:
           `Zoom of ${frame.id} region (${fx0},${fy0})-(${fx1},${fy1})` +
           ` (${finalSize.width}x${finalSize.height}, ${jpeg.length} bytes, JPEG quality ${quality});` +
-          ` frame_id=${zoomFrameId}; coordinates are pixels in this frame`,
+          ` frame_id=${zoomFrameId}; coordinates are pixels in this frame` +
+          recognized,
       };
     } catch (error) {
       throw attachCaptureAttempts(error, captureAttempts);

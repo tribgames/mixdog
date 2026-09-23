@@ -1,6 +1,6 @@
 /** The worker request for one input action: the command's fields, the
  *  resolved physical geometry, and the observation the input is bound to. */
-import { normalizeComputerKeySequence } from '../input/keyboard';
+import { KEY_SEQUENCE_ACTIONS, normalizeComputerKeySequence } from '../input/keyboard';
 import type { ComputerCommand } from '../shared/types';
 import type { ResolvedInputTarget } from './input-resolution';
 
@@ -21,7 +21,9 @@ export function powerShellInputRequest(
     ref: command.ref ?? null,
     to: command.to ?? null,
     text: command.text ?? null,
-    keys: action === 'key' ? normalizeComputerKeySequence(String(command.keys || '')) : (command.keys ?? null),
+    keys: KEY_SEQUENCE_ACTIONS.has(action)
+      ? normalizeComputerKeySequence(String(command.keys || ''))
+      : (command.keys ?? null),
     dy: command.dy ?? null,
     amount: command.amount ?? null,
     direction: command.direction ?? null,
@@ -40,6 +42,7 @@ export function powerShellInputRequest(
     modifiers: command.modifiers ?? null,
     duration: command.duration ?? null,
     delivery: command.delivery ?? 'background',
+    input_continues: command.input_continues ?? null,
     read_only: command.read_only ?? false,
     query: command.query ?? null,
     role: command.role ?? null,

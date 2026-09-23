@@ -9,6 +9,11 @@ import type { ComputerCommand } from '../shared/types';
 import type { CaptureMode } from './capture-target';
 
 const VISUAL_ONLY_CACHE_TTL_MS = 30_000;
+/** Consecutive timeouts double the wait up to this ceiling: a window that
+ *  stalls the provider over and over should not cost a full timeout every
+ *  half minute. An explicit mode="ax" read never consults this cache, so the
+ *  caller keeps a way to ask the provider again immediately. */
+const VISUAL_ONLY_TIMEOUT_MAX_TTL_MS = 120_000;
 const VISUAL_ONLY_CACHE_MISS_THRESHOLD = 2;
 const VISUAL_ONLY_CACHE_MAX_ENTRIES = 128;
 
@@ -16,11 +21,14 @@ export function visualOnlyCapabilityKey(sessionId: string, windowId: string) {
   return `${sessionId}\u0000${windowId}`;
 }
 
-/** Only a plain state/som read of one window may be answered from the cache. */
+/** Only a plain read of one window may be answered from the cache. An explicit
+ *  mode="ax" capture always asks the provider again, but the observation that
+ *  follows an action takes the cached answer instead of spending the whole
+ *  timeout and returning nothing. */
 export function visualOnlyEligible(command: ComputerCommand, mode: CaptureMode, windowId: string) {
   return Boolean(
     windowId &&
-      (mode === 'state' || mode === 'som') &&
+      (mode === 'state' || mode === 'som' || (mode === 'ax' && command.observation_after === true)) &&
       !command.query &&
       !command.role &&
       !command.continuation &&
@@ -60,15 +68,20 @@ export function createVisualOnlyCache() {
       store.delete(key);
       return resolved.retryAt;
     }
+    const timedOutBefore = Boolean(resolved.capability?.error);
     if (computerErrorCode(accessibilityError) === 'computer_command_timeout') {
       // Do not restart the same stalled provider after every input. Keep
       // its error visible while fresh pixels/OCR remain available.
-      const retryAt = Date.now() + VISUAL_ONLY_CACHE_TTL_MS;
-      store.remember(key, { misses: 0, expiresAt: retryAt, error: accessibilityError });
+      const timeouts = (timedOutBefore ? resolved.capability?.misses || 0 : 0) + 1;
+      const retryAt =
+        Date.now() +
+        Math.min(VISUAL_ONLY_TIMEOUT_MAX_TTL_MS, VISUAL_ONLY_CACHE_TTL_MS * 2 ** Math.min(timeouts - 1, 8));
+      store.remember(key, { misses: timeouts, expiresAt: retryAt, error: accessibilityError });
       return retryAt;
     }
     if (shouldRecordVisualOnlyCapabilityMiss(semanticAccessibilityAvailable, accessibilityError, actionableElements)) {
-      const misses = (resolved.capability?.misses || 0) + 1;
+      // A timeout count never becomes an empty-tree count.
+      const misses = (timedOutBefore ? 0 : resolved.capability?.misses || 0) + 1;
       store.remember(key, {
         misses,
         expiresAt: misses >= VISUAL_ONLY_CACHE_MISS_THRESHOLD ? Date.now() + VISUAL_ONLY_CACHE_TTL_MS : 0,

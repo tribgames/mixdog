@@ -19,7 +19,7 @@
 import type { WebContents } from 'electron';
 import { join } from 'node:path';
 import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
-import { app, BrowserWindow, dialog, sharedTexture } from 'electron';
+import { app, BrowserWindow, dialog, sharedTexture, webContents } from 'electron';
 
 import {
   DESKTOP_IPC,
@@ -311,6 +311,10 @@ export function createBrowserHost(
     downloadsDirectory: () => app.getPath('downloads'),
     sessionIdForGuest: (guest) => browserSessions.sessionIdForGuest(guest),
     defaultSessionId: DEFAULT_BROWSER_SESSION_ID,
+    onRequestRefused: (webContentsId, url, reason) => {
+      const guest = webContentsId === undefined ? null : webContents.fromId(webContentsId);
+      if (guest) state.recordRefusedRequest(guest, url, reason);
+    },
   });
   const { session: partitionSession, downloadLedger } = partition;
   const cookieJar = createBrowserCookieJar(partitionSession);
@@ -693,7 +697,7 @@ export function createBrowserHost(
     // A blocked page accepts no gesture: CDP would queue the input behind the
     // dialog and replay it after handle_dialog, which nobody asked for.
     if (!DIALOG_TOLERANT_ACTIONS.has(action)) {
-      const blocked = reply.dialogResult(guest);
+      const blocked = reply.dialogResult(guest, false);
       if (blocked) return blocked;
     }
     const refRecovery = reply.refRecoveryFor(guest);

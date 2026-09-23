@@ -11,6 +11,7 @@ import { snapshotPortableOoxml } from '../portable/portable-ooxml.mjs';
 import { normalizeExcelCellStyle } from '../portable/portable-sheet-styles.mjs';
 import { summarizeXlsxConventions } from '../portable/xlsx-conventions.mjs';
 import { createPortableOoxmlDocument, portableCreateSupported } from '../portable/portable-package.mjs';
+import { convertLegacyOffice } from '../portable/portable-soffice.mjs';
 import { createPdf, snapshotPdf } from '../pdf/pdf-adapter.mjs';
 import { createTabular, snapshotTabular } from './tabular.mjs';
 import { createOfficeSnapshotRequest, finalizeOfficeSnapshotPage } from './pagination.mjs';
@@ -31,6 +32,7 @@ import {
   documentSessions,
   emptyOfficeDesignState,
   isInteractiveOfficeSession,
+  legacyPackageKind,
   microsoftOfficeOpenFields,
   normalizeOfficeFormat,
   officeSessionForDocument,
@@ -212,9 +214,27 @@ async function attachMicrosoftOffice(session, { id, format, fileKind = '', mode,
   Object.assign(session, microsoftOfficeOpenFields(opened));
 }
 
+// A legacy binary file (.doc, .xls, .ppt, ...) is saved once as its package
+// beside the original — the step a user would take by hand — and that package
+// is what the session reads and edits. An earlier conversion or a file of the
+// same name is never overwritten: the caller is sent to it instead.
+async function packageSource(path, signal) {
+  const kind = legacyPackageKind(path);
+  if (!kind) return { source: path, convertedFrom: '' };
+  const converted = join(dirname(path), `${basename(path, extname(path))}.${kind}`);
+  if (await exists(converted)) {
+    throw new Error(
+      `${path} is a legacy binary file and ${converted} already exists; open ${converted} directly, or move it aside to convert again.`
+    );
+  }
+  await convertLegacyOffice(path, converted, { signal });
+  return { source: converted, convertedFrom: path };
+}
+
 export async function openSession(args, cwd, dataDir, { readOnly = false } = {}) {
-  const source = fullPath(args.path, cwd);
-  if (!(await exists(source))) throw new Error(`Office document not found: ${source}`);
+  const requested = fullPath(args.path, cwd);
+  if (!(await exists(requested))) throw new Error(`Office document not found: ${requested}`);
+  const { source, convertedFrom } = await packageSource(requested, args.__signal || null);
   const fileKind = documentFileKind(source);
   const format = documentFormat(source);
   const selected = await selectMode(args.mode, format, source);
@@ -257,6 +277,7 @@ export async function openSession(args, cwd, dataDir, { readOnly = false } = {})
       // The session reads the file itself; the first edit gives it a working
       // copy so the user's document is never written in place.
       ...(reads ? { readsSource: true } : {}),
+      ...(convertedFrom ? { convertedFrom } : {}),
     },
   });
   if (selected.backend === 'microsoft-office-com') {

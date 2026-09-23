@@ -4,14 +4,17 @@ const EXTENDED_CACHE_TTL_BETA_HEADER = 'extended-cache-ttl-2025-04-11';
 const INTERLEAVED_THINKING_BETA_HEADER = 'interleaved-thinking-2025-05-14';
 const FAST_MODE_BETA_HEADER = 'fast-mode-2026-02-01';
 const TOOL_SEARCH_BETA_HEADER = 'advanced-tool-use-2025-11-20';
+const THINKING_DISPLAY_UPDATES_BETA_HEADER = 'thinking-display-updates-2026-08-18';
 export const SERVER_SIDE_FALLBACK_BETA_HEADER = 'server-side-fallback-2026-07-01';
 export { EFFORT_BETA_HEADER };
 
+// Fast mode ships on Opus 5.5, Opus 5 and Opus 4.8 only. Opus 4.7 rejects
+// `speed: "fast"` and Opus 4.6 silently runs at standard speed.
 export function supportsAnthropicFastMode(model) {
   const id = String(model || '')
     .toLowerCase()
     .replace(/\./g, '-');
-  return /^claude-opus-4-(6|7|8)(?:$|[-@])/.test(id);
+  return /^claude-opus-(?:4-8|5)(?:$|[-@])/.test(id);
 }
 
 export function buildAnthropicBetaHeaders({
@@ -20,6 +23,7 @@ export function buildAnthropicBetaHeaders({
   toolSearch = false,
   effort = false,
   serverFallback = false,
+  thinkingDisplayUpdates = false,
 } = {}) {
   const headers = String(base || '')
     .split(',')
@@ -36,6 +40,9 @@ export function buildAnthropicBetaHeaders({
   }
   if (serverFallback && !headers.includes(SERVER_SIDE_FALLBACK_BETA_HEADER)) {
     headers.push(SERVER_SIDE_FALLBACK_BETA_HEADER);
+  }
+  if (thinkingDisplayUpdates && !headers.includes(THINKING_DISPLAY_UPDATES_BETA_HEADER)) {
+    headers.push(THINKING_DISPLAY_UPDATES_BETA_HEADER);
   }
   return headers.join(',');
 }

@@ -160,6 +160,22 @@ function Send-KeysGuarded($keys) {
     [MixTaggedKeys]::Send([string]$keys)
 }
 
+# The typing indicator belongs where the text lands. A focused point was just
+# clicked, so the pointer is already there; a semantic ref names its control
+# without moving anything. With neither, the pointer still sits wherever the
+# user left it, and animating that spot would announce input it never receives.
+function Report-TypingPoint($req, $point) {
+    if ($null -ne $point) {
+        [MixWin32]::ReportCurrentPointer('type')
+        return
+    }
+    if (-not $req.ref) { return }
+    # A ref this action cannot resolve fails on its own path; the indicator must
+    # never be the reason input is refused.
+    try { $resolved = Get-ElPoint $req.ref $false } catch { return }
+    [MixWin32]::ReportInputPoint($resolved[0], $resolved[1], 'type')
+}
+
 function Focus-TypingPoint($req, $target, $point) {
     if ($null -eq $point) { return }
     if ($req.ref) { $point = Get-ElPoint $req.ref $false }
@@ -249,8 +265,11 @@ function Do-Key($req) {
     }
     return Invoke-ForegroundInput $target 'key' {
         Focus-TypingPoint $req $target $focusPoint
-        [MixWin32]::ReportCurrentPointer('type')
-        if (([string]$req.keys) -notmatch '[{}^%+~()]') { [MixWin32]::SendText([string]$req.keys) }
+        Report-TypingPoint $req $focusPoint
+        # A sequence of one character carries no grammar: '+' and its kin are the
+        # character that was asked for, not a SendKeys prefix or group.
+        $sequence = [string]$req.keys
+        if ($sequence.Length -eq 1 -or $sequence -notmatch '[{}^%+~()#]') { [MixWin32]::SendText($sequence) }
         else { Send-KeysGuarded $req.keys }
     }
 }
@@ -281,7 +300,7 @@ function Do-KeyHold($req, $direction) {
     $state = Get-CurrentSession
     return Invoke-ForegroundInput $target $action {
         Focus-TypingPoint $req $target $focusPoint
-        [MixWin32]::ReportCurrentPointer('type')
+        Report-TypingPoint $req $focusPoint
         [MixTaggedKeys]::Hold($keys, ($direction -eq 'down'))
         if ($direction -eq 'down') { $state.HeldKeys[$keys] = $true }
         else { $state.HeldKeys.Remove($keys) }
@@ -359,7 +378,7 @@ function Do-Type($req) {
     }
     return Invoke-ForegroundInput $target 'type' {
         Focus-TypingPoint $req $target $focusPoint
-        [MixWin32]::ReportCurrentPointer('type')
+        Report-TypingPoint $req $focusPoint
         [MixWin32]::SendText($text)
     }
 }
@@ -391,10 +410,17 @@ function Do-OcrImage($req) {
             [Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)
         ) ([Windows.Graphics.Imaging.BitmapDecoder])
         $maximumDimension = [Windows.Media.Ocr.OcrEngine]::MaxImageDimension
-        if ([math]::Max($decoder.PixelWidth, $decoder.PixelHeight) -gt $maximumDimension) {
+        $largest = [math]::Max($decoder.PixelWidth, $decoder.PixelHeight)
+        # Window text a dozen pixels tall defeats the recognizer (Korean menus
+        # read "도움말" as "도용말대"); doubling it recovered those words while a
+        # triple did worse. The boxes are divided back, so callers keep seeing
+        # pixels of the image they sent.
+        $upscale = if ($largest -le 1600 -and $largest * 2 -le $maximumDimension) { 2 } else { 1 }
+        if ($largest -gt $maximumDimension -or $upscale -gt 1) {
             [Windows.Graphics.Imaging.BitmapTransform, Windows.Graphics.Imaging, ContentType = WindowsRuntime] | Out-Null
-            $scale = $maximumDimension / [double][math]::Max($decoder.PixelWidth, $decoder.PixelHeight)
+            $scale = if ($upscale -gt 1) { $upscale } else { $maximumDimension / [double]$largest }
             $transform = [Windows.Graphics.Imaging.BitmapTransform]::new()
+            $transform.InterpolationMode = [Windows.Graphics.Imaging.BitmapInterpolationMode]::Cubic
             $transform.ScaledWidth = [uint32][math]::Max(1, [math]::Floor($decoder.PixelWidth * $scale))
             $transform.ScaledHeight = [uint32][math]::Max(1, [math]::Floor($decoder.PixelHeight * $scale))
             $bitmap = Await-WinRt (
@@ -433,11 +459,17 @@ function Do-OcrImage($req) {
             $minX = [double]::PositiveInfinity; $minY = [double]::PositiveInfinity
             $maxX = [double]::NegativeInfinity; $maxY = [double]::NegativeInfinity
             foreach ($word in $line.Words) {
-                $rect = $word.BoundingRect
-                $minX = [math]::Min($minX, [double]$rect.X)
-                $minY = [math]::Min($minY, [double]$rect.Y)
-                $maxX = [math]::Max($maxX, [double]$rect.X + [double]$rect.Width)
-                $maxY = [math]::Max($maxY, [double]$rect.Y + [double]$rect.Height)
+                $bounds = $word.BoundingRect
+                $rect = @{
+                    X      = [double]$bounds.X / $upscale
+                    Y      = [double]$bounds.Y / $upscale
+                    Width  = [double]$bounds.Width / $upscale
+                    Height = [double]$bounds.Height / $upscale
+                }
+                $minX = [math]::Min($minX, $rect.X)
+                $minY = [math]::Min($minY, $rect.Y)
+                $maxX = [math]::Max($maxX, $rect.X + $rect.Width)
+                $maxY = [math]::Max($maxY, $rect.Y + $rect.Height)
                 if ($totalWords -lt $maximum) {
                     [void]$words.Add([ordered]@{
                             text     = [string]$word.Text
@@ -465,8 +497,8 @@ function Do-OcrImage($req) {
         return @{
             text            = ('OCR: ' + $lineIndex + ' lines, ' + $totalWords + ' words')
             language        = [string]$engine.RecognizerLanguage.LanguageTag
-            image_width     = [int]$bitmap.PixelWidth
-            image_height    = [int]$bitmap.PixelHeight
+            image_width     = [int]($bitmap.PixelWidth / $upscale)
+            image_height    = [int]($bitmap.PixelHeight / $upscale)
             lines           = @($lines)
             words           = @($words)
             total_words     = [int]$totalWords
@@ -647,7 +679,10 @@ function Get-InstalledApps {
 function Find-InstalledApp($target) {
     # A path, a URL or an executable belongs to the shell; only a bare name can mean
     # a catalogue entry. Several matches stay unlaunched rather than becoming a guess.
-    if ($target -match '[\\/]' -or $target -match '^[A-Za-z][A-Za-z0-9+.-]*:') { return $null }
+    # An executable file name is the shell's too: "control.exe" once matched the
+    # catalogue id "...\FanControl\FanControl.exe" and launched the wrong program.
+    if ($target -match '[\\/]' -or $target -match '^[A-Za-z][A-Za-z0-9+.-]*:' -or
+        $target -match '\.(exe|com|bat|cmd|msc|cpl|lnk)$') { return $null }
     $installed = @(Get-InstalledApps)
     if ($installed.Count -eq 0) { return $null }
     $found = @($installed | Where-Object { $_.Name -eq $target })
@@ -719,7 +754,12 @@ function Do-Launch($app) {
             1223 { 'launch_cancelled'; break }
             default { if ($route -eq 'app_activation') { 'app_activation_failed' } else { 'shell_launch_failed' } }
         }
-        throw "launch failed [$category/$nativeCode] for '$target': $($failure.Message)"
+        $hint = ''
+        if ($category -eq 'target_not_found' -and $target -match '\s[-/]') {
+            # The whole string is one shell target, so a trailing switch reads as part of the name.
+            $hint = '; launch takes one executable, path, file, or URL and passes no command-line arguments'
+        }
+        throw "launch failed [$category/$nativeCode] for '$target': $($failure.Message)$hint"
     }
     $result = New-ActionResult 'launch' $route 'unverifiable' $false ('launched ' + $target) $null 'background' $null
     if ($appId) { $result.app_id = $appId }
@@ -777,6 +817,7 @@ function Release-SessionState {
     $releaseFailure = $null
     try { Release-HeldPointerButtons $state } catch { $releaseFailure = $_ }
     try { Release-HeldKeys $state } catch { if ($null -eq $releaseFailure) { $releaseFailure = $_ } }
+    try { $null = Release-CursorTheme $state } catch { if ($null -eq $releaseFailure) { $releaseFailure = $_ } }
     $state.Map.Clear()
     $state.Generation = [int]$state.Generation + 1
     $state.LastFocus = [IntPtr]::Zero
@@ -785,6 +826,13 @@ function Release-SessionState {
     $state.OriginalFocusSequence = $null
     if ($null -ne $releaseFailure) { throw $releaseFailure }
     return @{ text = 'computer session released'; focus_restored = $restored }
+}
+
+# A sequence holds its cursor theme across steps, so the host ends that hold
+# explicitly rather than leaving the swapped cursors to the watchdog's timeout.
+function Do-ReleaseCursorTheme {
+    $restored = Release-CursorTheme (Get-CurrentSession)
+    return @{ text = 'cursor theme released'; system_theme_restored = [bool]$restored }
 }
 
 function Invalidate-RefsForRequest($req) {
@@ -867,6 +915,7 @@ function Handle($req) {
                 return @{ text = 'background input preflight passed'; input_not_dispatched = $true }
             }
             'window_predicates' { return Get-WindowPredicates $req }
+            'accessibility_probe' { return Probe-WindowAccessibility $req }
             'invoke_menu' { return Do-InvokeMenu $req }
             'window_integrity' { return Get-WindowIntegrity $req }
             'input_recovery_state' { return Get-InputRecoveryState $req }
@@ -897,6 +946,7 @@ function Handle($req) {
             'launch' { return Do-Launch $req.app }
             'list_installed_apps' { return Do-ListInstalledApps $req }
             'release_session' { return Release-SessionState }
+            'release_cursor_theme' { return Do-ReleaseCursorTheme }
             default { throw "unknown action: $($req.action)" }
         }
     }

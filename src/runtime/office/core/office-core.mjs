@@ -327,8 +327,9 @@ export function bounded(value, maxChars) {
   };
 }
 
-// The binary formats of Office 97-2003 are not packages: nothing here can
-// read them, and the fix is a conversion the user can do in one step.
+// The binary formats of Office 97-2003 are not packages: nothing here reads
+// them directly. `open` converts one to its package format through LibreOffice;
+// every other entry point names that conversion.
 const LEGACY_BINARY_FORMATS = Object.freeze({
   doc: 'docx',
   dot: 'dotx',
@@ -343,9 +344,14 @@ function unsupportedFormatError(kind) {
   const modern = LEGACY_BINARY_FORMATS[kind];
   return new Error(
     modern
-      ? `Unsupported Office Use format: .${kind} is a legacy binary file, not an Office package. Open it in Microsoft Office (or LibreOffice) and save it as .${modern} first, then work on that file.`
+      ? `Unsupported Office Use format: .${kind} is a legacy binary file, not an Office package. action:'open' converts it to .${modern} beside the original when LibreOffice is installed; otherwise save it as .${modern} in Microsoft Office first, then work on that file.`
       : `Unsupported Office Use format: .${kind || '(none)'}`
   );
+}
+
+/** The package extension a legacy binary file converts to (`doc` → `docx`), or '' for any other file. */
+export function legacyPackageKind(path) {
+  return LEGACY_BINARY_FORMATS[extname(path).slice(1).toLowerCase()] || '';
 }
 
 export function normalizeOfficeFormat(value) {

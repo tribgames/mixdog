@@ -33,6 +33,9 @@ const CLEANUP_CODES = new Set([
   'privileged_worker_cleanup_unconfirmed',
 ]);
 const PIXEL_CODES = new Set(['pixel_unavailable', 'observation_unavailable']);
+// Reads send no input, so their timeout is a provider budget, not an uncertain
+// mutation: the caller needs another read route, not a cleanup investigation.
+const READ_ONLY_ACTIONS = new Set(['capture', 'list', 'diagnose', 'verify']);
 
 function recaptureLeaseGuidance(code, target) {
   if (code === 'computer_target_in_use') {
@@ -95,7 +98,21 @@ function recoveryForCode(code, args) {
         'Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required.',
     };
   }
+  if (code === 'foreground_input_not_ready') {
+    return {
+      code,
+      next: 'capture',
+      guidance: `No input was sent. Foreground delivery needs an observation taken while the user's own input was idle. Let their input settle and capture ${target} again, or send this action through background delivery when it supports one.`,
+    };
+  }
   if (code === 'computer_command_timeout') {
+    if (READ_ONLY_ACTIONS.has(String(args?.action || ''))) {
+      return {
+        code,
+        next: 'capture',
+        guidance: `The read exceeded its bounded budget and sent no input, so no cleanup or user-control guard applies. Capture ${target} with mode="state" or "som": pixels and OCR stay usable while that window's accessibility provider is slow.`,
+      };
+    }
     return {
       code,
       next: 'diagnose',

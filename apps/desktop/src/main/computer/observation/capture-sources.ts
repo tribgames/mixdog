@@ -11,6 +11,15 @@ import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge
 
 export { fitCaptureImage } from './capture-source-plan';
 
+/** A hidden window stays hidden however often it is captured again, so these
+ *  say what brings it back instead of inviting a recapture loop. */
+const HIDDEN_WINDOW_ADVICE: Record<string, string> = {
+  capture_cloaked:
+    'the shell hides this window (another virtual desktop or a suspended app), so it has no surface and may expose no UI; window focus brings it back, or ask the user to switch to it',
+  capture_minimized:
+    'the window is minimized and has no rendered surface; window focus restores it when the task needs this window, or ask the user',
+};
+
 export function createCaptureSources(
   host: Pick<CaptureEngineHost, 'callPowerShell' | 'sessionIdFor' | 'assertExecutionNotAborted' | 'authorizeCapture'>
 ) {
@@ -44,13 +53,16 @@ export function createCaptureSources(
         }
         const code = computerErrorCode(error) || 'capture_source_unavailable';
         const cleanup = error instanceof CaptureSourceError ? error.cleanup : undefined;
+        const hidden = HIDDEN_WINDOW_ADVICE[code];
         unavailable =
           error instanceof CaptureSourceError && error.issue
             ? error.issue
-            : pixelUnavailable(
-                'capture_source_unavailable',
-                `exact ${sourceType} capture unavailable; ${entry.backend}: ${code}`
-              );
+            : hidden
+              ? pixelUnavailable('window_hidden', `${entry.backend}: ${code}; ${hidden}`)
+              : pixelUnavailable(
+                  'capture_source_unavailable',
+                  `exact ${sourceType} capture unavailable; ${entry.backend}: ${code}`
+                );
         if (!RECOVERABLE_CAPTURE_CODES.has(code) || (cleanup && cleanup.status !== 'confirmed')) {
           return { unavailable, terminal: true };
         }

@@ -35,7 +35,8 @@ import {
   formulaConsistencyIssues,
   protectedInputIssues,
 } from './portable-sheet-audits.mjs';
-import { TEMPLATE_TOKEN_SOURCE, paragraphTexts, topLevelElements, xmlAttribute, xmlDecode } from './portable-xml.mjs';
+import { paragraphTexts, topLevelElements, xmlAttribute, xmlDecode } from './portable-xml.mjs';
+import { placeholderTextIssues } from './placeholder-scan.mjs';
 import { validatePortableOoxml } from './portable-validation-package.mjs';
 
 export { validatePortableOoxml } from './portable-validation-package.mjs';
@@ -133,35 +134,20 @@ function documentInkIssues(document) {
   return issues;
 }
 
-const PLACEHOLDER_RULES = Object.freeze([
-  { code: 'placeholder_text', label: 'lorem ipsum filler', pattern: /\b(?:lorem|ipsum)\b/i },
-  { code: 'placeholder_text', label: 'repeated X placeholder', pattern: /\bx{3,}\b/i },
-  { code: 'placeholder_text', label: 'TODO marker', pattern: /\bTODO\b/ },
-  { code: 'placeholder_text', label: 'insert marker', pattern: /\[\s*insert\b/i },
-  {
-    code: 'placeholder_text',
-    label: 'layout instruction',
-    pattern: /this[^.]{0,40}\b(?:page|slide)\b[^.]{0,40}layout/i,
-  },
-  { code: 'placeholder_text', label: 'click-to-edit prompt', pattern: /click to (?:edit|add)/i },
-  { code: 'placeholder_text', label: 'Korean input prompt', pattern: /(?:여기에|내용을|제목을)\s*입력/ },
-  // A value that reached the page as an object: no author types this, and it
-  // shipped as a slide title while the measured read reported only the overlap
-  // the oversized string caused. Bracketed forms only — "undefined" and "NaN"
-  // are words a technical document may mean.
-  { code: 'placeholder_text', label: 'stringified value', pattern: /\[object [A-Z]\w*\]/ },
-  { code: 'unfilled_token', label: 'unresolved template token', pattern: new RegExp(TEMPLATE_TOKEN_SOURCE, 'u') },
-]);
-
 // The parts whose visible text a review reads: every slide of a deck, the
-// body of a document, nothing for a workbook.
+// body, headers, and footers of a document (a header prints on every page),
+// nothing for a workbook.
 function textParts(zip, format) {
-  if (format === 'pptx') {
-    return Object.keys(zip.files)
-      .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
-      .sort();
-  }
-  return format === 'docx' ? ['word/document.xml'] : [];
+  const pattern =
+    format === 'pptx'
+      ? /^ppt\/slides\/slide\d+\.xml$/
+      : format === 'docx'
+        ? /^word\/(?:document|header\d+|footer\d+)\.xml$/
+        : null;
+  if (!pattern) return [];
+  return Object.keys(zip.files)
+    .filter((name) => pattern.test(name))
+    .sort();
 }
 
 async function placeholderIssues(zip, format) {
@@ -173,19 +159,10 @@ async function placeholderIssues(zip, format) {
     const xml = await zipText(zip, part);
     if (!xml) continue;
     const text = paragraphTexts(xml, tag).join(' ');
-    if (!text.trim()) continue;
     const slide = Number(/slide(\d+)\.xml$/.exec(part)?.[1]) || 0;
-    for (const rule of PLACEHOLDER_RULES) {
-      const found = rule.pattern.exec(text);
-      if (!found) continue;
-      issues.push({
-        severity: 'warning',
-        code: rule.code,
-        path: slide ? `/slide[${slide}]` : '/body',
-        message: `Leftover ${rule.label}: "${found[0].slice(0, 60)}"`,
-        source: 'placeholder-scan',
-      });
-    }
+    const story = /^word\/(header|footer)\d+\.xml$/.exec(part)?.[1];
+    const path = slide ? `/slide[${slide}]` : story ? `/${story}` : '/body';
+    issues.push(...placeholderTextIssues(text, path, story ? { part } : {}));
   }
   return issues;
 }
@@ -539,6 +516,7 @@ function packageStructureIssues(validation) {
         `Relationship id is duplicated: ${relationship.id}`
       )
     ),
+    ...(validation.presentationFaults || []).map((fault) => packageError(fault.code, `/${fault.part}`, fault.message)),
     ...validation.missingContentTypes.map((part) =>
       packageError('missing_content_type', `/${part}`, 'Package part has no matching content type declaration.')
     ),
@@ -915,7 +893,13 @@ async function workbookContentIssues(zip, options) {
       issues.push(missingAltTextIssue(image.path));
     }
   }
-  issues.push(...auditXlsxFormulas(snapshot.sheets, { auditProfile: options.auditProfile, sheetNames }));
+  issues.push(
+    ...auditXlsxFormulas(snapshot.sheets, {
+      auditProfile: options.auditProfile,
+      sheetNames,
+      definedNames: snapshot.definedNames,
+    })
+  );
   return issues;
 }
 

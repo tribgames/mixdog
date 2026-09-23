@@ -41,6 +41,7 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cachedTokens,
       cacheWriteTokens: usage.cacheWriteTokens,
+      cacheWrite1hTokens: usage.cacheWrite1hTokens,
       costUsd: usage.costUsd,
       serviceTier: result.serviceTier || usage.raw?.service_tier,
       fast: opts.fast === true,

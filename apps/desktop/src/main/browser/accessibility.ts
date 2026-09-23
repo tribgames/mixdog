@@ -179,6 +179,9 @@ const AX_STATE_PROPERTIES = [
   'focused',
 ];
 
+/** Unicode private-use code points, where icon fonts keep their glyphs. */
+const ICON_GLYPHS = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/gu;
+
 // Whitespace-collapsed text, capped before and after collapsing so one
 // pathological node cannot make the collapse itself expensive.
 function compactAxText(text: string, rawCap: number, cap: number): string {
@@ -265,7 +268,10 @@ export function buildAccessibilitySnapshot(options: {
       const role = String(node.role?.value || '')
         .trim()
         .toLowerCase();
-      const name = compactAxText(String(node.name?.value || ''), 640, 160);
+      // Icon fonts put private-use glyphs into the computed name through
+      // ::before content; they paint as a symbol, read as nothing, and would
+      // make an exact name miss what the page visibly says.
+      const name = compactAxText(String(node.name?.value || '').replace(ICON_GLYPHS, ''), 640, 160);
       if (role === 'heading' && name && headings.length < 30) headings.push(`heading ${name}`);
       if (
         framed &&

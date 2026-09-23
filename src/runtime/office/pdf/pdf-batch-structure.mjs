@@ -7,7 +7,7 @@
 import { readFile } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { PDFDocument, degrees } from 'pdf-lib';
-import { SAVE_OPTIONS } from './pdf-draw.mjs';
+import { SAVE_OPTIONS, round2 } from './pdf-draw.mjs';
 import {
   addOutlineEntries,
   attachmentBytes,
@@ -36,6 +36,53 @@ function rotatePages(state, operation) {
     pages.push({ page: index + 1, from: current, rotation: next });
   }
   return { op: operation.op, changed: pages.some((entry) => entry.from !== entry.rotation), pages };
+}
+
+// Which side of the unrotated page each side a reader sees falls on: a page
+// turned 90° clockwise shows its own left edge at the top.
+const DISPLAYED_SIDES = Object.freeze({
+  0: { left: 'left', right: 'right', top: 'top', bottom: 'bottom' },
+  90: { top: 'left', right: 'top', bottom: 'right', left: 'bottom' },
+  180: { left: 'right', right: 'left', top: 'bottom', bottom: 'top' },
+  270: { top: 'right', right: 'bottom', bottom: 'left', left: 'top' },
+});
+const CROP_SIDES = ['left', 'right', 'top', 'bottom'];
+
+// Trims each selected page by points from the sides as displayed. The media
+// box follows the crop box, so the snapshot's width, height, and origin keep
+// describing the page a reader sees. The trimmed content stays in the file.
+function cropPages(state, operation) {
+  const trims = Object.fromEntries(CROP_SIDES.map((side) => [side, Number(operation[side] ?? operation.margin ?? 0)]));
+  if (!CROP_SIDES.every((side) => Number.isFinite(trims[side]) && trims[side] >= 0)) {
+    throw new Error('crop_pages left, right, top, bottom, and margin are points of zero or more');
+  }
+  if (CROP_SIDES.every((side) => trims[side] === 0)) {
+    throw new Error('crop_pages needs left, right, top, bottom, or margin in points');
+  }
+  const pages = [];
+  for (const { page, index } of selectedPages(state.document, operation)) {
+    const rotation = ((page.getRotation().angle % 360) + 360) % 360;
+    const sides = DISPLAYED_SIDES[rotation] || DISPLAYED_SIDES[0];
+    const cut = Object.fromEntries(CROP_SIDES.map((side) => [sides[side], trims[side]]));
+    const box = page.getCropBox();
+    const width = box.width - cut.left - cut.right;
+    const height = box.height - cut.bottom - cut.top;
+    if (width < 1 || height < 1) {
+      throw new Error(
+        `crop_pages would leave page ${index + 1} empty: it is ${round2(box.width)} x ${round2(box.height)} pt before trimming`
+      );
+    }
+    const x = box.x + cut.left;
+    const y = box.y + cut.bottom;
+    page.setMediaBox(x, y, width, height);
+    page.setCropBox(x, y, width, height);
+    pages.push({
+      page: index + 1,
+      from: { width: round2(box.width), height: round2(box.height) },
+      to: { width: round2(width), height: round2(height) },
+    });
+  }
+  return { op: operation.op, changed: true, pages };
 }
 
 function deletePages(state, operation) {
@@ -227,6 +274,7 @@ function compress(state, operation) {
 
 export const STRUCTURE_OPERATIONS = {
   rotate_pages: rotatePages,
+  crop_pages: cropPages,
   delete_pages: deletePages,
   extract_pages: extractPages,
   split_pages: splitPages,

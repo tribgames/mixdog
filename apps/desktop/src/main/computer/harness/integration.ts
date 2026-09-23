@@ -65,14 +65,20 @@ function ocrText(payload: CapturePayload): string {
 
 function ocrMark(payload: CapturePayload, token: string): number {
   const upper = token.toUpperCase();
-  const words = payload.ocr?.words || [];
+  // A marked mode publishes each word as an element instead of repeating the
+  // word list, so both shapes are searched.
+  const words = [
+    ...(payload.ocr?.words || []).map((candidate) => ({ text: String(candidate.text || ''), mark: candidate.mark })),
+    ...(payload.elements || [])
+      .filter((element) => String((element as Record<string, unknown>).source || '') === 'ocr')
+      .map((element) => ({
+        text: String((element as Record<string, unknown>).name || ''),
+        mark: Number((element as Record<string, unknown>).mark),
+      })),
+  ];
   const word =
-    words.find((candidate) => String(candidate.text || '').toUpperCase() === upper) ||
-    words.find((candidate) =>
-      String(candidate.text || '')
-        .toUpperCase()
-        .includes(upper)
-    );
+    words.find((candidate) => candidate.text.toUpperCase() === upper) ||
+    words.find((candidate) => candidate.text.toUpperCase().includes(upper));
   assert.ok(
     Number.isInteger(word?.mark),
     `OCR did not produce an actionable mark for ${token}: ${JSON.stringify({
@@ -661,15 +667,16 @@ void app
   .whenReady()
   .then(async () => {
     await run();
-    await rm(profile, { recursive: true, force: true }).catch(() => {
-      /* a worker may still hold a file; the temp profile is disposable */
+    // Retry: a worker may hold a file for a moment after the host is disposed.
+    await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => {
+      /* still held; the temp profile is disposable */
     });
     app.exit(0);
   })
   .catch(async (error) => {
     console.error(error);
-    await rm(profile, { recursive: true, force: true }).catch(() => {
-      /* a worker may still hold a file; the temp profile is disposable */
+    await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => {
+      /* still held; the temp profile is disposable */
     });
     process.exitCode = 1;
     app.exit(1);

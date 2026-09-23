@@ -13,7 +13,9 @@ export function diffSnapshotElements(
    *  which is why they are marked instead of merged into one "new" list. */
   unseen: BrowserSnapshotElement[];
   unchanged: number;
-  gone: number;
+  /** Earlier elements with no counterpart now, named so a reply can say what
+   *  went away (a Start button, a spinner) rather than only how many. */
+  gone: Array<{ role: string; name: string }>;
 } {
   const remaining = new Map<string, number>();
   const identities = new Map<string, number>();
@@ -45,5 +47,10 @@ export function diffSnapshotElements(
   }
   // A value/focus change is not a disappearance. Multiplicity still matters
   // when controls have identical names; these keys never authorize an action.
-  return { changed, unseen, unchanged, gone: [...identities.values()].reduce((sum, count) => sum + count, 0) };
+  const gone: Array<{ role: string; name: string }> = [];
+  for (const [id, count] of identities) {
+    const [role, name] = JSON.parse(id) as [string, string];
+    for (let index = 0; index < count; index++) gone.push({ role, name });
+  }
+  return { changed, unseen, unchanged, gone };
 }

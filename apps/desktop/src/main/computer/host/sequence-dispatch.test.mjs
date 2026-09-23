@@ -184,6 +184,13 @@ test('foreground sequences keep recovery and ordinary non-sequence inputs are no
     foreground.requests.map((request) => request.action),
     ['key', 'type']
   );
+  // The worker request is a field whitelist. A continuation flag that never
+  // reaches it costs nothing visible and silently reacquires the cursor theme
+  // for every step, so assert the flag on the wire rather than on the command.
+  assert.deepEqual(
+    foreground.requests.map((request) => request.input_continues),
+    [true, null]
+  );
   assert.deepEqual(foreground.counters(), { separateReads: 2, separateSettles: 2, recoveries: 2 });
   const ordinary = fixture();
   await ordinary.router.runCommand({ action: 'key', window_id: 'hwnd:0x1', keys: '{TAB}' });

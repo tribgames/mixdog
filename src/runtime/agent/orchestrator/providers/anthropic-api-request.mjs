@@ -111,6 +111,7 @@ export async function buildAnthropicApiRequest({ name, config, messages, useMode
     maxTokens,
     clampThinkingBudgetTokens,
     logTag: name,
+    progressUpdates: config?.disableBetaHeaders !== true,
   });
   // Fast mode → speed: "fast" on models Anthropic marks as speed-capable.
   // Suppressed while the fast capacity pool is cooling down.
@@ -140,6 +141,7 @@ export async function buildAnthropicApiRequest({ name, config, messages, useMode
         toolSearch: hasDeferredTools,
         effort: shouldIncludeEffortBeta(useModel, opts),
         serverFallback: params.fallbacks === 'default',
+        thinkingDisplayUpdates: params.thinking?.display === 'updates',
       }),
       ...(effortProjection ? [EFFORT_CONFIGURATION_BETA] : []),
     ];

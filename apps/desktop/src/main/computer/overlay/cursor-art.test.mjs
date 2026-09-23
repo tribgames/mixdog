@@ -17,7 +17,7 @@ test('cursor renders no labels, and movement does not announce a click', () => {
     const shown = (id) => dom.window.getComputedStyle(dom.window.document.getElementById(id)).display !== 'none';
     for (const mode of ['background', 'foreground']) {
       dom.window.mixdogAgentCursor({ mode, effect: 'move' });
-      assert.equal(shown('arrow'), mode === 'background');
+      assert.equal(shown('arrow'), true, 'every delivery mode draws the overlay its own pointer');
       // Typing shows as the cursor's own pulse: no attached badge, and never an
       // echo of what is being typed.
       dom.window.mixdogAgentCursor({ mode, effect: 'type', text: 'private input' });

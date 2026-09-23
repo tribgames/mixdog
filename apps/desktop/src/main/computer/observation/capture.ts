@@ -29,6 +29,7 @@ import {
   frameElements,
   hasSemanticAccessibilityTarget,
   screenshotInteger,
+  shouldRereadContentAccessibility,
 } from './analysis';
 import type {
   CaptureFrame,
@@ -159,14 +160,27 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       let generation: unknown = null;
       let accessibilityError = '';
       if (accessibilityRead) {
-        const applied = applyAccessibilityRead(host, accessibilityRead, {
-          mode,
-          command,
-          windowId,
-          cachedAccessibilityError,
-          visualOnlyCacheHit,
-          timings,
-        });
+        let applied;
+        try {
+          applied = applyAccessibilityRead(host, accessibilityRead, {
+            mode,
+            command,
+            windowId,
+            cachedAccessibilityError,
+            visualOnlyCacheHit,
+            timings,
+          });
+        } catch (error) {
+          // A read that refuses still taught the session that this provider
+          // stalls; recording it here keeps the next observation cheap.
+          if (visualOnlyOk && !visualOnlyCacheHit) {
+            visualOnly.record(visualOnlyKey, cached, {
+              semanticAccessibilityAvailable: false,
+              accessibilityError: (error as Error).message || String(error),
+            });
+          }
+          throw error;
+        }
         ({ accessibilityError, rawElements, totalElements, continuation, generation, windowId } = applied);
       }
       const screenshot = screenshotRead?.capture ?? null;
@@ -174,8 +188,49 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       const requestedWindowId = windowId;
       const observationWindowId = screenshot?.frame?.windowId || windowId;
 
-      const elements = frameElements(rawElements, screenshot?.frame, mode !== 'som').slice(0, totalElementBudget);
-      const semanticAccessibilityAvailable = hasSemanticAccessibilityTarget(rawElements, screenshot?.frame);
+      let elements = frameElements(rawElements, screenshot?.frame, mode !== 'som').slice(0, totalElementBudget);
+      let semanticAccessibilityAvailable = hasSemanticAccessibilityTarget(rawElements, screenshot?.frame);
+      if (
+        !visualOnlyCacheHit &&
+        !replacementRead &&
+        !command.continuation &&
+        shouldRereadContentAccessibility(
+          mode,
+          semanticAccessibilityAvailable,
+          accessibilityError,
+          totalElements,
+          command.include_ocr === true,
+          Boolean(command.query || command.role)
+        )
+      ) {
+        const accessibilityMsBeforeReread = timings.accessibility_ms || 0;
+        const contentRead = await readAccessibilitySnapshot(host, {
+          command,
+          mode,
+          replacementRead,
+          windowId,
+          totalElementBudget,
+          visualOnlyCacheHit,
+          cachedAccessibilityError,
+        });
+        if (contentRead) {
+          const reread = applyAccessibilityRead(host, contentRead, {
+            mode,
+            command,
+            windowId,
+            cachedAccessibilityError,
+            visualOnlyCacheHit,
+            timings,
+          });
+          timings.accessibility_reread_ms = contentRead.elapsed;
+          timings.accessibility_ms = accessibilityMsBeforeReread + contentRead.elapsed;
+          if (!reread.accessibilityError && hasSemanticAccessibilityTarget(reread.rawElements, screenshot?.frame)) {
+            ({ accessibilityError, rawElements, totalElements, continuation, generation, windowId } = reread);
+            elements = frameElements(rawElements, screenshot?.frame, mode !== 'som').slice(0, totalElementBudget);
+            semanticAccessibilityAvailable = true;
+          }
+        }
+      }
       if (visualOnlyOk && !visualOnlyCacheHit) {
         accessibilityRetryAt = visualOnly.record(visualOnlyKey, cached, {
           semanticAccessibilityAvailable,
@@ -210,7 +265,13 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         return await captureComputer(command, forcedWindowId, true);
       }
       const { foregroundReady, foregroundInputReason } = foregroundInputState(inputObservation, inputAfter);
-      if (inputObservation) inputObservation = { ...inputObservation, ready: foregroundReady };
+      if (inputObservation) {
+        inputObservation = {
+          ...inputObservation,
+          ready: foregroundReady,
+          ...(foregroundReady ? {} : { reason: foregroundInputReason || 'unknown' }),
+        };
+      }
       if (mode !== 'vision') {
         rememberElementTargets(command, [...rawElements, ...ocrElements]);
       }

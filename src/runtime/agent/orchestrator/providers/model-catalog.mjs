@@ -216,6 +216,91 @@ const PRICING_OVERRIDES = {
     supports_function_calling: true,
     supports_prompt_caching: true,
   },
+  // https://platform.claude.com/docs/en/models/opus-5-5/overview — verified 2026-09-22.
+  'claude-opus-5-5': {
+    litellm_provider: 'anthropic',
+    input_cost_per_token: 4e-6,
+    output_cost_per_token: 20e-6,
+    cache_read_input_token_cost: 0.2e-6,
+    cache_creation_input_token_cost: 5e-6,
+    max_input_tokens: 1000000,
+    max_output_tokens: 128000,
+    mode: 'chat',
+    supports_vision: true,
+    supports_function_calling: true,
+    supports_prompt_caching: true,
+  },
+  // https://developers.openai.com/api/docs/models/gpt-6-sol — verified 2026-09-22.
+  // Prompts above 272K input tokens: 2x input/cache, 1.5x output. Public API
+  // limits match GPT-5.6; OAuth routes keep their catalog windows.
+  'gpt-6-sol': {
+    litellm_provider: 'openai',
+    max_input_tokens: 1050000,
+    max_output_tokens: 128000,
+    input_cost_per_token: 2e-6,
+    input_cost_per_token_above_272k_tokens: 4e-6,
+    output_cost_per_token: 10e-6,
+    output_cost_per_token_above_272k_tokens: 15e-6,
+    cache_read_input_token_cost: 0.2e-6,
+    cache_read_input_token_cost_above_272k_tokens: 0.4e-6,
+    cache_creation_input_token_cost: 2.5e-6,
+    cache_creation_input_token_cost_above_272k_tokens: 5e-6,
+    reasoning_options: [{ type: 'effort', values: ['none', 'low', 'medium', 'high', 'xhigh', 'max'] }],
+    mode: 'chat',
+    supports_vision: true,
+    supports_function_calling: true,
+    supports_web_search: true,
+    supports_prompt_caching: true,
+    supports_reasoning: true,
+  },
+  // https://developers.openai.com/api/docs/models/gpt-6-luna — verified 2026-09-22.
+  'gpt-6-luna': {
+    litellm_provider: 'openai',
+    max_input_tokens: 1050000,
+    max_output_tokens: 128000,
+    input_cost_per_token: 0.1e-6,
+    input_cost_per_token_above_272k_tokens: 0.2e-6,
+    output_cost_per_token: 0.5e-6,
+    output_cost_per_token_above_272k_tokens: 0.75e-6,
+    cache_read_input_token_cost: 0.01e-6,
+    cache_read_input_token_cost_above_272k_tokens: 0.02e-6,
+    cache_creation_input_token_cost: 0.125e-6,
+    cache_creation_input_token_cost_above_272k_tokens: 0.25e-6,
+    reasoning_options: [{ type: 'effort', values: ['none', 'low', 'medium', 'high', 'xhigh', 'max'] }],
+    mode: 'chat',
+    supports_vision: true,
+    supports_function_calling: true,
+    supports_web_search: true,
+    supports_prompt_caching: true,
+    supports_reasoning: true,
+  },
+  // https://ai.google.dev/gemini-api/docs/pricing — Gemini 3 Flash list rates
+  // (published for the preview id), verified 2026-09-22.
+  'gemini-3-flash': {
+    litellm_provider: 'gemini',
+    input_cost_per_token: 0.5e-6,
+    output_cost_per_token: 3e-6,
+    cache_read_input_token_cost: 0.05e-6,
+    mode: 'chat',
+    supports_vision: true,
+    supports_function_calling: true,
+    supports_prompt_caching: true,
+  },
+  // https://ai.google.dev/gemini-api/docs/pricing — Gemini 3.1 Pro list rates
+  // (published for the preview id), tiered above 200k prompt tokens.
+  'gemini-3.1-pro': {
+    litellm_provider: 'gemini',
+    input_cost_per_token: 2e-6,
+    input_cost_per_token_above_200k_tokens: 4e-6,
+    output_cost_per_token: 12e-6,
+    output_cost_per_token_above_200k_tokens: 18e-6,
+    cache_read_input_token_cost: 0.2e-6,
+    cache_read_input_token_cost_above_200k_tokens: 0.4e-6,
+    mode: 'chat',
+    supports_vision: true,
+    supports_function_calling: true,
+    supports_prompt_caching: true,
+  },
   // https://api-docs.deepseek.com/quick_start/pricing — verified 2026-09-12.
   // Peak list rates; priceUsage applies the published UTC off-peak schedule.
   // The legacy Flash alias is now served and billed as DeepSeek-V4.1-Flash.
@@ -570,10 +655,11 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
     const relayed = lookupModelMetadata(id, relayVendor, catalog, modelsDevCatalog);
     if (relayed) meta = { ...relayed, contextWindow: null, outputTokens: null };
   }
-  if (providerUsesEndpointScopedLimits(provider) && !providerNative && meta && !metaFromPricingOverride) {
+  if (providerUsesEndpointScopedLimits(provider) && !providerNative && meta) {
     // OAuth/backend routes can expose smaller account/backend windows than
-    // the public API SKU. External catalogs remain useful for costs and
-    // capabilities, but their limits are not authoritative for these routes.
+    // the public API SKU. External catalogs and manual overrides remain useful
+    // for costs and capabilities, but their public-SKU limits are not
+    // authoritative for these routes.
     meta = { ...meta, contextWindow: null, outputTokens: null };
   }
   if (providerNative) {
@@ -589,7 +675,7 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
     const nativeLimitsAuthoritative = providerUsesEndpointScopedLimits(provider);
     meta = mergeModelMetadata(meta, providerNative, {
       preserveBaseCosts: true,
-      preserveBaseLimits: metaFromPricingOverride || !nativeLimitsAuthoritative,
+      preserveBaseLimits: !nativeLimitsAuthoritative,
     });
   }
   return meta

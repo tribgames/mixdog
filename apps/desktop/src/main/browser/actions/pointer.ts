@@ -7,6 +7,7 @@ import type { WebContents } from 'electron';
 
 import { OFFSCREEN_VIEWPORT } from '../command';
 import { normalizeModifierMask, normalizeMouseButton } from '../input';
+import { redactBrowserText } from '../redaction';
 import {
   type BrowserScrollTextMatch,
   browserScrollTextApplyExpression,
@@ -137,11 +138,14 @@ export const pointerActions = defineBrowserActions({
       // Bringing a known phrase into view without knowing where it sits.
       // A phrase that is not on the page fails rather than scrolling blind.
       const found = await scrollTextIntoView(services.documents, guest, wantedText, signal);
-      if (!found) {
+      if (found === null) {
         throw new Error(`scroll text ${JSON.stringify(wantedText)} was not found on this page; nothing was scrolled`);
       }
       state.invalidateInteraction(guest);
-      return reply.decorateRecovery(await actionSnapshot(), refRecovery);
+      const result = reply.decorateRecovery(await actionSnapshot(), refRecovery);
+      // Name the line that was reached: the first match may not be the one meant.
+      const reached = found ? `Scrolled to ${JSON.stringify(redactBrowserText(found))}.\n\n` : '';
+      return { ...result, text: `${reached}${result.text}` };
     }
     if (coordinate && (!command.snapshotId || !Number.isFinite(command.x) || !Number.isFinite(command.y))) {
       throw new Error('scroll coordinate target requires snapshotId, x, and y');
@@ -194,20 +198,21 @@ async function scrollTextIntoView(
   guest: WebContents,
   wantedText: string,
   signal?: AbortSignal
-): Promise<boolean> {
+): Promise<string | null> {
   const matches = await documents.collect<BrowserScrollTextMatch>(
     guest,
     browserScrollTextMatchExpression(wantedText),
     signal
   );
   const match = matches.find((entry) => entry.found);
-  if (!match) return false;
+  if (!match) return null;
   const applied = await documents.collect<{ scrolled: boolean }>(
     guest,
     browserScrollTextApplyExpression(match.token),
     signal
   );
-  return applied.some((entry) => entry.scrolled);
+  // The matched line, or '' when the frame did not say which line it was.
+  return applied.some((entry) => entry.scrolled) ? match.text || '' : null;
 }
 
 /** Scroll the nearest scrollable ancestor of the ref'd element. */

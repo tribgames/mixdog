@@ -41,4 +41,60 @@ test('verify reports why absent stayed unknown instead of only that it did', asy
   assert.equal(payload.decision, 'unknown');
   assert.equal(payload.unknown_reason, 'element_text_incomplete');
   assert.match(payload.unknown_hint, /narrow the target/);
+  // The undecided read shows what the window did say, bounded to 12 entries.
+  assert.equal(payload.observed_text_sample.length, 12);
+  assert.equal(payload.observed_text_sample[0], 'item 0');
+});
+
+test('a closed exact window ends an unmet wait at once instead of spending the budget', async () => {
+  let reads = 0;
+  const host = {
+    assertExecutionNotAborted() {},
+    sessionIdFor: () => 's1',
+    async callPowerShell() {
+      reads += 1;
+      return { ok: true, result: { exists: false, title: '', elements: [] } };
+    },
+  };
+  const startedAt = Date.now();
+  const payload = JSON.parse(
+    (
+      await verifyWindowState(host, {
+        action: 'verify',
+        window_id: 'hwnd:0x1',
+        expect: [{ present: 'Saved' }],
+        timeout_ms: 30_000,
+      })
+    ).text
+  );
+  assert.equal(reads, 1);
+  assert.ok(Date.now() - startedAt < 5_000);
+  assert.equal(payload.decision, 'unknown');
+  assert.equal(payload.target_closed, true);
+  assert.match(payload.unknown_hint, /list windows/);
+});
+
+test('a closed exact window still proves window_exists:false over stable samples', async () => {
+  let reads = 0;
+  const host = {
+    assertExecutionNotAborted() {},
+    sessionIdFor: () => 's1',
+    async callPowerShell() {
+      reads += 1;
+      return { ok: true, result: { exists: false, title: '', elements: [] } };
+    },
+  };
+  const payload = JSON.parse(
+    (
+      await verifyWindowState(host, {
+        action: 'verify',
+        window_id: 'hwnd:0x1',
+        expect: [{ window_exists: false }],
+        timeout_ms: 5_000,
+      })
+    ).text
+  );
+  assert.equal(payload.decision, 'satisfied');
+  assert.equal(reads, 2);
+  assert.equal(payload.target_closed, undefined);
 });

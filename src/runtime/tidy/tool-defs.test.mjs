@@ -44,10 +44,10 @@ test('the tidy description states the routing, dry-run, and approval contracts',
   assert.match(description, /writes only with apply:true/i);
   assert.match(description, /approves/i);
   assert.match(description, /results pages the last check\/fix/i);
-  assert.match(description, /omits languages\/languageSource\/engines\/missing\/policy/);
+  assert.match(description, /omit languages, languageSource, engines, missing, policy/);
   assert.match(description, /byRule.*byDir.*survive trimming/);
-  assert.match(description, /ok:true\/status:partial/);
-  assert.match(description, /structural writes stay blocked/);
+  assert.match(description, /ok:true with status:partial/);
+  assert.match(description, /no structural fix is written for that run/);
   assert.match(description, /Returns final results in this call\./);
   assert.ok(description.length < 700, `tidy description too large: ${description.length}`);
 });

@@ -87,3 +87,24 @@ test('a native timeout requires diagnosis and preserves possible execution inste
   assert.match(recovery.guidance, /verified recovery/);
   assert.match(recovery.guidance, /capture window hwnd:0x1/);
 });
+
+test('a foreground refusal caused by the user own input asks for a settled capture, not host diagnosis', () => {
+  const recovery = computerToolErrorRecovery('foreground_input_not_ready: the last observation was not foreground-ready', {
+    action: 'act',
+    input: { window_id: 'hwnd:0x1' },
+  });
+  assert.equal(recovery.next, 'capture');
+  assert.match(recovery.guidance, /No input was sent/);
+  assert.match(recovery.guidance, /background delivery/);
+});
+
+test('a read-only timeout sends the caller to another read route instead of a cleanup investigation', () => {
+  const recovery = computerToolErrorRecovery(
+    'computer_command_timeout: command exceeded 2500ms; the input host was restarted',
+    { action: 'capture', input: { window_id: 'hwnd:0x1' } }
+  );
+  assert.equal(recovery.next, 'capture');
+  assert.match(recovery.guidance, /sent no input/);
+  assert.match(recovery.guidance, /mode="state" or "som"/);
+  assert.doesNotMatch(recovery.guidance, /may have executed/);
+});

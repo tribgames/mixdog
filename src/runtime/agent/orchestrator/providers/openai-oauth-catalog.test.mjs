@@ -55,11 +55,12 @@ test('an empty catalog refreshes once and then fails loudly instead of guessing 
 
 test('a fresh cache serves the picker, the lookups and the default model without auth', async () => {
   const cached = [
-    { slug: 'gpt-5.5', service_tiers: [{ id: 'priority', name: 'Fast' }] },
-    { slug: 'gpt-5.6-terra' },
-    { slug: 'gpt-5.6-mini', additional_speed_tiers: ['priority'] },
+    { slug: 'gpt-5.5', priority: 12, visibility: 'list', service_tiers: [{ id: 'priority', name: 'Fast' }] },
+    { slug: 'gpt-5.6-terra', priority: 7, visibility: 'list' },
+    { slug: 'gpt-reserve', priority: 1, visibility: 'hide' },
+    { slug: 'gpt-5.6-mini', priority: 9, visibility: 'list', additional_speed_tiers: ['priority'] },
   ].map(_normalizeCodexModel);
-  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 3 });
+  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 5 });
   assert.ok(
     resolve(cache.path()).startsWith(dataDir + sep),
     'the catalog cache must resolve inside the test sandbox before it is written'
@@ -69,7 +70,7 @@ test('a fresh cache serves the picker, the lookups and the default model without
   const models = await listCodexModels(rejectAuth);
   assert.deepEqual(
     models.map((model) => model.id),
-    ['gpt-5.5', 'gpt-5.6-terra', 'gpt-5.6-mini']
+    ['gpt-5.5', 'gpt-5.6-terra', 'gpt-reserve', 'gpt-5.6-mini']
   );
 
   assert.equal(findCachedCodexModel('gpt-5.6-terra').family, 'gpt-5');
@@ -83,7 +84,7 @@ test('a fresh cache serves the picker, the lookups and the default model without
   assert.equal(codexModelSupportsServiceTier('gpt-5.6-terra', 'priority'), false);
   assert.equal(codexModelSupportsServiceTier('gpt-5.5', 'fast'), false);
 
-  // Newest MAIN family member wins; mini/nano/codex siblings are excluded.
+  // The lowest-priority picker-visible entry wins; hidden entries never do.
   assert.equal(resolveLatestCodexModel(), 'gpt-5.6-terra');
   assert.equal(await ensureLatestCodexModel(rejectAuth), 'gpt-5.6-terra');
 });

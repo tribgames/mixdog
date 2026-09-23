@@ -209,15 +209,29 @@ function ocrConfusableKey(value: string): string {
   return value.toLocaleUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1').replace(/\s+/g, '');
 }
 
+/** A mode that returns marks publishes each OCR word as an element and omits
+ *  the duplicate word list, so the mark is read from whichever the capture
+ *  actually carried. */
+function ocrMarkCandidates(payload: CapturePayload): Array<{ text: string; mark?: number }> {
+  const words = (payload.ocr?.words || []).map((candidate) => ({
+    text: String(candidate.text || ''),
+    mark: candidate.mark,
+  }));
+  const elements = (payload.elements || [])
+    .filter((element) => String((element as Record<string, unknown>).source || '') === 'ocr')
+    .map((element) => ({
+      text: String((element as Record<string, unknown>).name || ''),
+      mark: Number((element as Record<string, unknown>).mark),
+    }));
+  return [...words, ...elements];
+}
+
 function ocrMark(payload: CapturePayload, token: string): number {
   const normalized = token.toLocaleUpperCase();
+  const candidates = ocrMarkCandidates(payload);
   const word =
-    (payload.ocr?.words || []).find((candidate) => String(candidate.text || '').toLocaleUpperCase() === normalized) ||
-    (payload.ocr?.words || []).find((candidate) =>
-      String(candidate.text || '')
-        .toLocaleUpperCase()
-        .includes(normalized)
-    );
+    candidates.find((candidate) => candidate.text.toLocaleUpperCase() === normalized) ||
+    candidates.find((candidate) => candidate.text.toLocaleUpperCase().includes(normalized));
   assert.ok(
     Number.isInteger(word?.mark),
     // Where the pixels came from is the first question when OCR reads nothing.
@@ -1794,6 +1808,30 @@ async function run(): Promise<void> {
           (element) => element.role === 'Edit' && element.name === 'Native text editor'
         );
         assert.equal(freshEditor?.value, 'SETVALUE42', JSON.stringify(setValueCapture));
+        // An Edit control inserts a line break from the character its own loop
+        // translates from Enter, so a background Enter must pass that loop the
+        // way a keyboard press does. A point click keeps this on the key-message
+        // route instead of the value writer.
+        const [editorX, editorY, editorWidth, editorHeight] = freshEditor.bounds as number[];
+        const typed = actionPayload(
+          await command(
+            {
+              action: 'type',
+              window_id: nativeWindowId,
+              frame_id: setValueCapture.frame_id,
+              x: Math.round(editorX + editorWidth / 2),
+              y: Math.round(editorY + editorHeight / 2),
+              text: 'L1\nL2',
+              delivery: 'background',
+            },
+            'native-app'
+          )
+        );
+        assert.equal(typed.path, 'win32_message', JSON.stringify(typed));
+        const typedEditor = ((typed.capture_after as CapturePayload | undefined)?.elements || []).find(
+          (element) => element.role === 'Edit' && element.name === 'Native text editor'
+        );
+        assert.match(String(typedEditor?.value ?? ''), /L1\s+L2/, JSON.stringify(typed));
         fixture.show();
         fixture.focus();
         await eventually(
@@ -1815,7 +1853,7 @@ async function run(): Promise<void> {
         } catch (error) {
           throw new Error(`${(error as Error).message}; capture elements=${JSON.stringify(capture.elements)}`);
         }
-        assert.ok(['uia_menu', 'msaa_menu'].includes(String(menu.path)), JSON.stringify(menu));
+        assert.ok(['uia_menu', 'msaa_menu', 'win32_menu'].includes(String(menu.path)), JSON.stringify(menu));
         await eventually(
           async () => BrowserWindow.getFocusedWindow()?.id || 0,
           (id) => id === fixture.id
@@ -1873,6 +1911,8 @@ async function run(): Promise<void> {
 
     await runScenario('S22', 'running Chrome capture is available or fails closed', 'real-app', async () => {
       if (!liveAppWindows.chrome) skip('running Chrome/Edge window unavailable');
+      // The window belongs to the user and was resolved at setup; closing it
+      // mid-run is the user's action, and rejecting its old id is the fail-closed path.
       const result = await command(
         {
           action: 'capture',
@@ -1880,7 +1920,11 @@ async function run(): Promise<void> {
           max_elements: 40,
         },
         'chrome-live'
-      );
+      ).catch((error: unknown) => {
+        if (/window_id is stale or invalid/.test(String((error as Error)?.message ?? error)))
+          skip('running Chrome/Edge window closed during the run');
+        throw error;
+      });
       const capture = capturePayload(result);
       assert.ok(Number(capture.returned_elements) <= 40);
       if (capture.pixel_status === 'available') {
@@ -2536,11 +2580,16 @@ async function run(): Promise<void> {
           'motor-coverage'
         );
         after = await motorState();
-        assert.notEqual(
-          after.wheelDelta,
-          before.wheelDelta,
-          JSON.stringify({ before, after, result: actionPayload(scrolled) })
-        );
+        // A covered Chromium canvas cannot take a posted wheel (Chromium
+        // reroutes it to the window on top), so the truthful outcomes are a
+        // scroll that arrived or a refusal that sent nothing.
+        const scrollPayload = actionPayload(scrolled);
+        if (scrollPayload.code === 'background_unsupported') {
+          assert.notEqual(scrollPayload.delivery_accepted, true, JSON.stringify(scrollPayload));
+          assert.equal(after.wheelDelta, before.wheelDelta, JSON.stringify({ before, after, result: scrollPayload }));
+        } else {
+          assert.notEqual(after.wheelDelta, before.wheelDelta, JSON.stringify({ before, after, result: scrollPayload }));
+        }
 
         // Foreground goes last: it takes the real pointer, so the background
         // gestures above stay measurable whenever that lane is skipped.

@@ -8,6 +8,7 @@ import { PDF_ENCRYPTED_HINT, loadPdf, pdfAttachments } from './pdf-edit-document
 import { MARK_OPERATIONS } from './pdf-marks.mjs';
 import { CONTENT_OPERATIONS } from './pdf-batch-content.mjs';
 import { STRUCTURE_OPERATIONS } from './pdf-batch-structure.mjs';
+import { placeholderTextIssues } from '../portable/placeholder-scan.mjs';
 
 // The adapter is the session-facing surface: open, inspect, edit, validate.
 // Writing a new document lives in pdf-writer.mjs and the form vocabulary in
@@ -232,6 +233,7 @@ export async function issuesPdf(path, options = {}) {
       message: 'Page has no text layer. Run ocr_pages or render it and read the image instead of treating it as empty.',
     });
   }
+  for (const page of snapshot.pages) issues.push(...placeholderTextIssues(page.text, page.path));
   for (const field of snapshot.fields) {
     if (!field.name) {
       issues.push({

@@ -19,7 +19,7 @@ test('Claude CLI compatibility floors validate, persist, and never downgrade', a
     const nonce = `${process.pid}-${Date.now()}`;
     const versions = await import(`./anthropic-oauth-client-version.mjs?floor=${nonce}`);
 
-    assert.equal(versions.resolveCliVersion(), '2.1.251');
+    assert.equal(versions.resolveCliVersion(), '2.1.280');
     assert.equal(versions.learnRequiredCliVersion('generic invalid request'), null);
 
     const learned = versions.learnRequiredCliVersion(
@@ -128,7 +128,7 @@ test('Anthropic OAuth retries the exact version gate once and leaves generic 400
       _parseSSEFn: parseSuccess,
     });
     assert.equal(result.content, 'ok');
-    assert.deepEqual(requestVersions, ['2.1.251', '2.1.400']);
+    assert.deepEqual(requestVersions, ['2.1.280', '2.1.400']);
 
     let genericAttempts = 0;
     await assert.rejects(

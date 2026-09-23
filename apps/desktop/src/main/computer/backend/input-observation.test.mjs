@@ -32,6 +32,14 @@ $ledger.Record($true, 0)
 if ($ledger.ForeignSequence -ne 1 -or $ledger.LatestTick -ne 0) { throw 'tick wrap changed provenance' }
 $ledger.Record($false, 0)
 if ($ledger.ForeignSequence -ne 2) { throw 'same-tick external event was missed' }
+# A reserved key Windows injects during an app's activation keeps the clock
+# current without reading as someone else's input.
+$ledger.RecordNeutral(5)
+if ($ledger.ForeignSequence -ne 2 -or $ledger.LatestTick -ne 5) { throw 'neutral input changed provenance or lost the clock' }
+if (-not [MixInputObservation]::IsUnassignedVirtualKey(0xB9)) { throw 'the activation key 0xB9 counts as typing' }
+foreach ($vk in 0x41, 0x0D, 0x10, 0xBA, 0xDB) {
+  if ([MixInputObservation]::IsUnassignedVirtualKey($vk)) { throw "a real key was ignored: $vk" }
+}
 foreach ($name in @('ApplicationFrameWindow', 'Windows.UI.Core.CoreWindow', 'applicationframewindow')) {
   if ([MixWin32]::SupportsBackgroundKeyboardClass($name)) { throw "unsupported keyboard host accepted: $name" }
 }

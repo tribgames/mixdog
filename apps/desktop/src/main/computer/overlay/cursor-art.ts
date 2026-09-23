@@ -2,7 +2,7 @@
 export const CURSOR_SIZE = 136;
 export const CURSOR_HOTSPOT = 60;
 
-/** Background uses a virtual pointer; foreground decorates the OS-owned pointer. */
+/** Both modes draw their own pointer at the action point, so the user's own cursor is never restyled. */
 export function cursorHtml(): string {
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'">
@@ -10,8 +10,7 @@ export function cursorHtml(): string {
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;pointer-events:none}
 #surface{width:100%;height:100%;opacity:0;transition:opacity 100ms linear;--accent:#58a6ff;--hotspot:${CURSOR_HOTSPOT}px;--soft:color-mix(in srgb,var(--accent) 22%,transparent);--glow:color-mix(in srgb,var(--accent) 40%,transparent)}
 #surface.visible{opacity:1}
-#arrow{position:absolute;left:var(--hotspot);top:var(--hotspot);width:38px;height:49px;fill:url(#arrow-fill);stroke:#fff;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round;filter:drop-shadow(0 1px 2px #0b1b2e77) drop-shadow(0 0 10px var(--glow));display:none}
-#surface[data-mode="background"] #arrow{display:block}
+#arrow{position:absolute;left:var(--hotspot);top:var(--hotspot);width:38px;height:49px;fill:url(#arrow-fill);stroke:#fff;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round;filter:drop-shadow(0 1px 2px #0b1b2e77) drop-shadow(0 0 10px var(--glow))}
 #arrow .sheen{stop-color:color-mix(in srgb,var(--accent) 40%,white)}
 #arrow .core{stop-color:var(--accent)}
 #halo,#ring,#echo{position:absolute;left:calc(var(--hotspot) - 28px);top:calc(var(--hotspot) - 28px);width:56px;height:56px;box-sizing:border-box;border-radius:50%;opacity:0;transform-origin:center}

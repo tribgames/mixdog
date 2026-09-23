@@ -101,7 +101,7 @@ export const TOOL_DEFS = [
           type: 'integer',
           minimum: 0,
           maximum: RECALL_OFFSET_CAP,
-          description: 'Legacy static skip; default 0. For period=last paging, use the returned cursor instead.',
+          description: 'Entries to skip; default 0. For period=last paging, use the returned cursor instead.',
         },
         cursor: {
           type: 'string',

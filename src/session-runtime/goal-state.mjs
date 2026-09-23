@@ -99,7 +99,7 @@ export function parseUserCommand(command) {
 
   let objective = value;
   let duration = null;
-  let timeMode = 'max';
+  let timeMode = null;
   const modeMatch = objective.match(/(?:^|\s)--time-mode(?:=|\s+)([^\s]+)/i);
   if (modeMatch) {
     timeMode = goalTimeMode(modeMatch[1]);

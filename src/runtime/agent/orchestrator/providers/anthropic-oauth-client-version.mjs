@@ -7,7 +7,8 @@ import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 // requests. This floor ships with Mixdog, while a newer server-advertised
 // minimum is learned and persisted so future model launches do not require a
 // source release just to advance the user-agent version.
-const DEFAULT_CLI_VERSION = '2.1.251';
+// Claude Opus 5.5 requires 2.1.280 or newer.
+const DEFAULT_CLI_VERSION = '2.1.280';
 
 const CACHE_SCHEMA_VERSION = 1;
 const CACHE_FILE_NAME = 'anthropic-oauth-cli-version.json';

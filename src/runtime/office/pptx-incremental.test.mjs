@@ -11,6 +11,44 @@ import { snapshotPortableOoxml } from './portable/portable-snapshot.mjs';
 import { loadPackage, savePackage, zipText } from './portable/portable-opc.mjs';
 import { value, workspace } from './office-test-support.mjs';
 
+// set_text replaces the whole body the way PowerPoint's TextRange.Text does:
+// one paragraph in the formatting of the one that held the text, with no
+// emptied bullets left standing below it.
+test('set_text on a bulleted box leaves one paragraph, not emptied bullets', async (t) => {
+  const cwd = await workspace(t);
+  const office = async (args) => value(await executeOfficeTool(args, { cwd }));
+  const authored = await office({
+    action: 'author',
+    path: join(cwd, 'bullets.pptx'),
+    mode: 'portable',
+    render: false,
+    script: `const P = require('pptxgenjs'); const p = new P(); p.layout = 'LAYOUT_WIDE';
+      const s = p.addSlide();
+      s.addText([
+        { text: 'Alpha', options: { bullet: true, breakLine: true } },
+        { text: 'Beta', options: { bullet: true, breakLine: true } },
+        { text: 'Gamma', options: { bullet: true } },
+      ], { x: 1, y: 1, w: 6, h: 2, fontSize: 20 });
+      await p.writeFile({ fileName: OUTPUT });`,
+  });
+  t.after(async () => {
+    if (sessions.has(authored.session)) await office({ action: 'close', session: authored.session });
+  });
+  const before = await office({ action: 'snapshot', session: authored.session });
+  assert.equal(before.document.slides[0].shapes[0].text, 'Alpha\nBeta\nGamma');
+  await office({
+    action: 'batch',
+    session: authored.session,
+    operations: [{ op: 'set_text', slide: 1, shape: 1, text: 'Only line' }],
+  });
+  const after = await office({ action: 'snapshot', session: authored.session });
+  assert.equal(after.document.slides[0].shapes[0].text, 'Only line');
+  const zip = await loadPackage(sessions.get(authored.session).target);
+  const slide = await zipText(zip, 'ppt/slides/slide1.xml');
+  assert.equal((slide.match(/<a:p>/g) || []).length, 1);
+  assert.match(slide, /<a:buChar\b/, 'the kept paragraph keeps its bullet');
+});
+
 async function fixture(t) {
   const cwd = await workspace(t);
   const office = async (args) => {

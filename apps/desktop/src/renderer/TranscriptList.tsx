@@ -19,8 +19,6 @@ import {
   TRANSCRIPT_VIRTUAL_OVERSCAN,
 } from './transcript-virtual-cache';
 import { scheduleConnectedMeasure, TRANSCRIPT_ROW_MEASURE_EVENT } from './transcript-measure';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
-import { isMobileRemoteSurface } from './mobile-surface';
 import { createTranscriptEndPin } from './transcript-end-pin';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 import {
@@ -109,13 +107,6 @@ export function TranscriptList({
   onSelectionAutoScroll(delta: number): void;
 }) {
   const spacer = useRef<HTMLDivElement>(null);
-  // Web snapshots and native scrolling can update in the same frame. Keep
-  // positioning in React there so a later snapshot render cannot briefly
-  // overwrite direct DOM positions with an older virtual range. Phones are
-  // excluded: reconciling every row on every scroll frame starves touch
-  // handling on a projected phone (user: 버튼 반응성이 너무 안 좋다), so the
-  // projected surface keeps the direct-DOM path.
-  const reactOwnedLayout = isRemoteBrowserRenderer() && !isMobileRemoteSurface();
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   // Reader intent reaches the core in the SAME task it was decided in: the
@@ -221,8 +212,13 @@ export function TranscriptList({
     // translateY — the width-drag shake/ghosting. Direct DOM updates restore
     // that commit timing: row transforms and the container height are
     // written inside the core transaction, and React reconciles on range
-    // changes only.
-    directDomUpdates: !reactOwnedLayout,
+    // changes only. Every React commit (including a web snapshot that mounts
+    // new rows) re-applies positions in a layout effect, so no row paints
+    // unpositioned. The web browser renderer uses this path too: React-owned
+    // positions there moved scrollTop synchronously while rows kept their
+    // stale top until the async rerender, so every row measurement painted
+    // one shifted frame (user: 웹앱에서 트랜스크립트가 튄다).
+    directDomUpdates: true,
     // Keep every row in the transcript's ONE paint layer. Transform mode
     // promotes each row independently; when a deferred measurement and the
     // final native wheel frame land together at the bottom, Chromium can
@@ -523,11 +519,7 @@ export function TranscriptList({
     // directDomUpdates owns this height synchronously through containerRef.
     // A React height prop can commit an older render after a native wheel
     // reaches the bottom and temporarily clip one pane at stale geometry.
-    <div
-      className="transcript-virtual-space"
-      ref={bindSpacer}
-      style={reactOwnedLayout ? { height: `${virtualizer.getTotalSize()}px` } : undefined}
-    >
+    <div className="transcript-virtual-space" ref={bindSpacer}>
       {virtualRows.map((virtualRow) => {
         const row = rows[virtualRow.index];
         if (!row) return null;
@@ -545,7 +537,6 @@ export function TranscriptList({
             key={virtualRow.key}
             data-index={virtualRow.index}
             data-timeline-key={String(virtualRow.key)}
-            style={reactOwnedLayout ? { top: `${virtualRow.start - virtualizer.options.scrollMargin}px` } : undefined}
             ref={measureRow}
           >
             <div

@@ -5,11 +5,11 @@ import { COMPUTER_INPUT_SCHEMA, COMPUTER_OBSERVATION_ACTIONS } from './action-sc
 // recovery, and flows live in the built-in `computer-use` skill; the schema
 // below owns every field.
 const COMPUTER_TOOL_DESCRIPTION = [
-  'Operate local Windows desktop apps, external browser windows, and OS dialogs through Mixdog. Last resort after an MCP tool, shell/CLI, and Browser Use where applicable; never a stand-in for a page action browser refused.',
+  'Operate local Windows desktop apps, OS dialogs, and external browser windows (a user-named one comes here directly). Last resort after an MCP tool, shell/CLI, and Browser Use where applicable; never a stand-in for a page action browser refused.',
   'Load the computer-use skill before first use.',
-  'At most one computer call per model turn; this limit applies only to computer. Issue independent calls to other tools in the same turn. Chain same-window steps inside one act.',
+  'At most one computer call per model turn; other tools may run in the same turn. Chain same-window steps inside one act.',
   'Every window action names one exact target (window_id, or app resolving to one window); zoom instead inherits its target from frame_id. Input requires a fresh observation from capture or the previous result.',
-  'Refs, marks, and frames come only from the latest unexpired observation of the same window (60 seconds, invalidated by UI mutation); an automatic post-action observation replaces the old state. Never guess ids.',
+  'Refs, marks, and frames come only from the latest observation of that window (refs 5 min, frames/marks 60 s; invalidated by UI mutation); an automatic post-action observation replaces the old state. Never guess ids.',
   `Observation-only actions, safe to repeat: ${COMPUTER_OBSERVATION_ACTIONS.join(', ')}. Every other action can move the desktop.`,
 ].join(' ');
 

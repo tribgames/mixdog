@@ -348,6 +348,9 @@ export function buildBrowserInputSchema(flatSchema, actions = BROWSER_ACTIONS) {
   if (scoped.format && !actions.includes('snapshot')) {
     scoped.format = { ...scoped.format, enum: ['jpeg', 'png'], description: 'Post-action screenshot format.' };
   }
+  // A tool whose actions all take optional fields names no requirement at all
+  // rather than an empty "Required: ." list.
+  const required = requiredSummary(actions);
   return {
     type: 'object',
     description: 'Choose one Browser Use action and pass only its fields in input.',
@@ -355,7 +358,7 @@ export function buildBrowserInputSchema(flatSchema, actions = BROWSER_ACTIONS) {
       action: { ...action, enum: [...actions] },
       input: {
         type: 'object',
-        description: `Fields for the selected action. Required: ${requiredSummary(actions)}. Omit input when none are needed.`,
+        description: `Fields for the selected action.${required ? ` Required: ${required}.` : ''} Omit input when none are needed.`,
         properties: scoped,
       },
     },

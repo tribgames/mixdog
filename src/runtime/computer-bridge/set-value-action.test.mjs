@@ -39,11 +39,13 @@ test('set_value is a targeted action, so it can only lead an act', () => {
   );
 });
 
-test('the host receives set_value with its value intact', () => {
+test('the host receives set_value with its value intact, under the field the host reads', () => {
   const command = toComputerHostCommand({
     action: 'act',
     input: { actions: [{ type: 'set_value', ref: 'uia:1', value: 'round1.txt' }] },
   });
   assert.equal(command.action, 'sequence');
-  assert.deepEqual(command.steps, [{ action: 'set_value', ref: 'uia:1', value: 'round1.txt' }]);
+  // The host guards, the sequence grammar and the native writer all take the
+  // replacement from `text`; a step still carrying `value` is refused unread.
+  assert.deepEqual(command.steps, [{ action: 'set_value', ref: 'uia:1', text: 'round1.txt' }]);
 });

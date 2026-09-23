@@ -51,6 +51,9 @@ const DEVTOOLS_FIELD_NOTES = {
   script: 'init_script add: JS that runs before every page of the tab boots.',
   reload: 'performance start: reload once recording begins.',
   resourceTypes: 'intercept add: limit the rule to these CDP resource types.',
+  query: 'emulate: filters the returned snapshot, as snapshot query does.',
+  maxChars: 'emulate: page-text cap of the returned snapshot; default 2400.',
+  fullPage: 'emulate with includeScreenshot: full-document screenshot; inspection-only.',
 };
 
 function scopedInputSchema(actions, notes) {

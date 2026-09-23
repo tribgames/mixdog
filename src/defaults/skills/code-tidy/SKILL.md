@@ -25,12 +25,10 @@ tracking, risk classification, completion criteria, and the closing report.
 **Hard rule — tidy owns format/lint/structure/cleanup, not feature work.**
 New behavior, refactors that change a public API, and adding formatter configs
 are not this skill. A correctness bug found while cleaning is reported under
-"Bugs found", never folded into a cleanup edit. → manual
-**Hard rule — never invent a formatter config**: a project that already has
+"Bugs found", never folded into a cleanup edit.**Hard rule — never invent a formatter config**: a project that already has
 Biome, Prettier, clang-format, rustfmt, gofmt, or equivalent keeps it. Do not
 add or rewrite `biome.json`, `.prettierrc`, `.clang-format`, or similar unless
-the user asks. → manual
-**Mode**: `apply` unless the user asks to check, review, or "just report" —
+the user asks.**Mode**: `apply` unless the user asks to check, review, or "just report" —
 report-only requests stay read-only across all layers and never edit; the report
 lists what would change. Apply still follows the active workflow's approval rules.
 **Focus**: an explicit restriction applies to every layer. "Formatting only"
@@ -97,9 +95,7 @@ limitation and ask before widening the work.
      to see remaining rows.
    - Actual engine truncation, timeouts, failed diagnostic checks, or scope
      leakage mark the affected partition **unfinished**, not clean; they do
-     not invalidate other partitions. A per-language rule-pack error leaves
-     that language's structural pass unfinished; results for other languages
-     and engines remain usable.
+     not invalidate other partitions.
    - Blocked checks stop dependent edits; continue only approved independent
      work and report the unfinished portion.
 
@@ -109,15 +105,13 @@ limitation and ask before widening the work.
 2. **Hard rule — downloads are automatic under the default `auto` policy;
    only when the user set `tidy.downloads` to `ask` does a result carry
    `needsApproval` — then ask once**, list engines and bytes, and re-call
-   that action with `approveDownloads:true`. → manual
-3. **Hard rule — engines run only through tidy, and never get installed by
+   that action with `approveDownloads:true`.3. **Hard rule — engines run only through tidy, and never get installed by
    hand** (rustfmt, gofmt, dart, swift, zig, mix, dotnet): report
    `installHint`. Managed engines download only through tidy (`auto`,
    `approveDownloads`, or `action:'install'`). An ad-hoc `npx <engine>`, global
    binary, or package script is not verification — the name can resolve to an
    unrelated package and report a false clean. An engine tidy cannot resolve
-   leaves its check blocked, never clean. → manual
-4. Plan the approved deterministic work with `fix` without `apply:true`;
+   leaves its check blocked, never clean.4. Plan the approved deterministic work with `fix` without `apply:true`;
    do not repeat an equivalent `check` first. Use one combined plan when both
    engines and structural rules are in scope:
    - `structural:false` disables structural rules, not engine lint fixes.
@@ -182,7 +176,8 @@ definitions, and the final report template. This section owns the order.
      Use targeted checks at meaningful behavior boundaries and run the
      documented final tests/typecheck once after the round. Do not rerun
      unaffected checks after every comment or mechanical edit.
-   - Structural items from the table below are CAREFUL; dead code follows
+   - Structural items from the table below are CAREFUL unless their row says
+     otherwise; dead code follows
      `references/dead-code.md`.
    - After the last tier lands in a round, re-run `tidy check` over the same
      paths once: removals leave new unused imports and newly orphaned helpers
@@ -194,9 +189,7 @@ definitions, and the final report template. This section owns the order.
    both.
 
 The following are investigation signals, not registered candidates or permission
-for an automatic rewrite. Register only lens findings with `file:line`, a cost,
-and an action; use the shared risk tiers before acting. A threshold hit without
-a finding needs no Keep write-up.
+for an automatic rewrite; `references/agent-cleanup.md` owns registration.
 
 | Structural signal | Decision |
 |---|---|

@@ -12,6 +12,8 @@ interface BrowserCdpExecutionHost {
     onTimeout?: () => void
   ): Promise<T>;
   diagnostic(guest: WebContents, message: string): void;
+  /** The page is parked on a dialog the host has yet to answer. */
+  awaitingDialog?(guest: WebContents): boolean;
 }
 
 const EXECUTION_METHODS = new Set(['Runtime.evaluate', 'Runtime.callFunctionOn']);
@@ -70,7 +72,11 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
       if (interrupted) return;
       interrupted = true;
       const previous = settling.get(guest);
-      const terminate = EXECUTION_METHODS.has(method)
+      // A script stuck behind an open dialog is waiting for handle_dialog, not
+      // running away. Termination cannot land while the dialog holds it, so V8
+      // keeps the request and kills the script the moment the answer arrives —
+      // the page never sees the value handle_dialog reported as delivered.
+      const terminate = EXECUTION_METHODS.has(method) && !host.awaitingDialog?.(guest)
         ? Promise.resolve()
             .then(() =>
               host.bounded(

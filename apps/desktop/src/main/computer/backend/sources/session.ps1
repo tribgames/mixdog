@@ -64,6 +64,7 @@ function Get-SessionState($id) {
             OriginalFocusSequence = $null
             HeldPointerTargets    = @{}
             HeldKeys              = @{}
+            CursorTheme           = $null
         }
     }
     return $Sessions[$key]

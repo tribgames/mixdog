@@ -86,6 +86,28 @@ test('repeated Stop shares one completion and a failed Stop can be retried', asy
   assert.deepEqual(controller.state(4), { busy: false, error: '' });
 });
 
+test('a session holding the user window keeps the controls on screen between commands', () => {
+  const snapshot = {
+    revision: 1,
+    userControlActive: false,
+    takeoverGeneration: 0,
+    cleanupState: 'ready',
+    pausedSessionIds: [],
+    activities: [],
+    cursors: [],
+    keystrokes: [],
+    targetLeases: [{ sessionId: 'holder', windowId: 'hwnd:0x1', expiresAt: null }],
+  };
+  // A command runs for a fraction of a second; the user reaches for Pause or
+  // Stop between commands, when the session still holds their window.
+  const held = computerUseOverlayPresentation(snapshot, 'ko');
+  assert.equal(held.visible, true);
+  assert.deepEqual(held.sessionIds, ['holder']);
+  // Releasing the target ends the hold, and nothing is left on screen.
+  const released = computerUseOverlayPresentation({ ...snapshot, targetLeases: [] }, 'ko');
+  assert.equal(released.visible, false);
+});
+
 test('target-local cleanup failure remains a cleanup error across Stop generations', async () => {
   const controller = createComputerOverlayController(
     {
@@ -115,4 +137,29 @@ test('Pause failure survives its generation change without calling task-ending S
   );
   await controller.invoke('pause', 1, ['fixture']);
   assert.equal(controller.state(2).error, 'cleanup');
+});
+
+test('a control that never settles releases the pill and accepts the next press', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let calls = 0;
+  const controller = createComputerOverlayController(
+    {
+      resume: async () => {},
+      stop: () => {
+        calls += 1;
+        return new Promise(() => {});
+      },
+    },
+    () => {}
+  );
+  const first = controller.invoke('stop', 1, ['fixture']);
+  t.mock.timers.tick(15_000);
+  assert.equal(await first, true);
+  // The unanswered request must not hold the pill busy or swallow the next
+  // Stop, which is the user's only guaranteed way out.
+  assert.deepEqual(controller.state(1), { busy: false, error: 'failed' });
+  const second = controller.invoke('stop', 1, ['fixture']);
+  t.mock.timers.tick(15_000);
+  await second;
+  assert.equal(calls, 2);
 });

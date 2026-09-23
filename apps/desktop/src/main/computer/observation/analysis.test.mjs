@@ -10,8 +10,10 @@ import {
   dedupeOcrWords,
   evaluateVerifyPredicate,
   framePoint,
+  hasSemanticAccessibilityTarget,
   recommendedRecovery,
   screenshotInteger,
+  shouldRereadContentAccessibility,
   shouldUseOcrFallback,
   summarizeCaptureChanges,
 } from './analysis.ts';
@@ -257,6 +259,56 @@ test('state and SOM automatically use OCR only when semantic accessibility is em
   assert.equal(shouldUseOcrFallback('state', true, false), false);
   assert.equal(shouldUseOcrFallback('vision', false, false), false);
   assert.equal(shouldUseOcrFallback('vision', false, true), true);
+  // A narrowed read answers its own question while a tree exists to narrow.
+  assert.equal(shouldUseOcrFallback('state', true, false, true), false);
+  assert.equal(shouldUseOcrFallback('state', false, true, true), true);
+  // With no accessibility at all, the filter would answer everything with
+  // nothing, so the frame is still recognized and the filter applies to it.
+  assert.equal(shouldUseOcrFallback('state', false, false, true), true);
+  assert.equal(shouldUseOcrFallback('som', false, false, true), true);
+  assert.equal(shouldRereadContentAccessibility('state', false, '', 30, false, true), false);
+});
+
+test('a window answering with chrome only is re-read once before OCR is spent', () => {
+  assert.equal(shouldRereadContentAccessibility('state', false, '', 30, false), true);
+  assert.equal(shouldRereadContentAccessibility('som', false, '', 30, false), true);
+  // Nothing to re-read for: the content is already there, the provider failed,
+  // the caller asked for OCR itself, or the mode never falls back.
+  assert.equal(shouldRereadContentAccessibility('state', true, '', 30, false), false);
+  assert.equal(shouldRereadContentAccessibility('state', false, 'snapshot failed', 30, false), false);
+  assert.equal(shouldRereadContentAccessibility('state', false, '', 30, true), false);
+  assert.equal(shouldRereadContentAccessibility('ax', false, '', 30, false), false);
+  assert.equal(shouldRereadContentAccessibility('state', false, '', 0, false), false);
+});
+
+test('an editor surface that returns its own text grounds the window without OCR', () => {
+  const frame = { originX: 0, originY: 0, physicalWidth: 1089, physicalHeight: 1046 };
+  const editor = {
+    role: 'Document',
+    name: '텍스트 편집기',
+    value: '메모장 본문',
+    enabled: true,
+    x: 0,
+    y: 75,
+    width: 1089,
+    height: 938,
+    actions: ['click', 'set_value'],
+  };
+  const tab = {
+    role: 'TabItem',
+    name: '탭',
+    value: '',
+    enabled: true,
+    x: 48,
+    y: 10,
+    width: 127,
+    height: 32,
+    actions: ['click', 'invoke'],
+  };
+
+  assert.equal(hasSemanticAccessibilityTarget([editor, tab], frame), true);
+  // An empty surface still owes its content to another reader.
+  assert.equal(hasSemanticAccessibilityTarget([{ ...editor, value: '' }, tab], frame), false);
 });
 
 test('foreground-lock failures request user focus instead of another input attempt', () => {

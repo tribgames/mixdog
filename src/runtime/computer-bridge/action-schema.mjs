@@ -118,7 +118,7 @@ const captureProperties = {
   include_ocr: {
     type: 'boolean',
     description:
-      'State/SOM automatically use offline Windows OCR when semantic targets are absent; true always runs OCR even when semantic targets exist. OCR shares max_elements.',
+      'State/SOM automatically use offline Windows OCR when semantic targets are absent; true always runs OCR even when semantic targets exist. OCR shares max_elements. Zoom recognizes the crop itself, which is how enlarged text becomes readable.',
   },
   ocr_language: {
     ...ocrLanguage,
@@ -238,6 +238,12 @@ export const COMPUTER_INPUT_SCHEMA = {
             maxItems: 6,
             description:
               'First: an input action. Then only type/key/wait, reusing focus without targets. Waits total ≤10s; transition/failure stops the rest.',
+          },
+          observe: {
+            type: 'string',
+            enum: ['state', 'ax'],
+            description:
+              'Returned observation: state (default) includes the frame; ax returns accessibility only, skipping the screenshot when refs are enough.',
           },
           ...delivery,
         },
@@ -439,8 +445,8 @@ function captureError(input) {
   if (mode === 'ax' && input.include_ocr === true) {
     return 'Computer Use capture include_ocr is unavailable with mode="ax"';
   }
-  if (mode === 'zoom' && (input.include_ocr === true || hasOwn(input, 'ocr_language'))) {
-    return 'Computer Use capture mode="zoom" returns pixels only; read text from a state/som capture with include_ocr';
+  if (mode === 'zoom' && hasOwn(input, 'ocr_language') && input.include_ocr !== true) {
+    return 'Computer Use capture mode="zoom" reads text only with include_ocr';
   }
   if (mode === 'ax' && hasOwn(input, 'image_output')) {
     return 'Computer Use capture image_output requires a mode that returns pixels';
@@ -626,11 +632,22 @@ export function toComputerHostCommand(rawArgs) {
           delete translated.button;
         }
         if (step.type === 'move') translated.action = 'mouse_move';
+        // The tool surface names the replacement `value`; every host layer below
+        // reads the text field a type step fills, so the name changes here once.
+        if (step.type === 'set_value') {
+          translated.text = step.value;
+          delete translated.value;
+        }
         if (inputValue.frame_id && ['x', 'y', 'to_x', 'to_y', 'waypoints'].some((field) => hasOwn(step, field))) {
           translated.frame_id = inputValue.frame_id;
         }
         return translated;
       });
+      // The observation after an act is the same capture the tool exposes, so
+      // the caller picks its mode here instead of paying for pixels it will
+      // not read.
+      if (inputValue.observe) command.capture_after_mode = inputValue.observe;
+      delete command.observe;
       delete command.actions;
       delete command.frame_id;
       break;

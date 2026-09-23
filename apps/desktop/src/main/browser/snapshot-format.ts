@@ -5,6 +5,7 @@
  * touching the host that produced it.
  */
 import type { BrowserSnapshotElement, BrowserSnapshotPayload } from './accessibility';
+import { pageFaultsFirst } from './network';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 import type { BrowserRefSet } from './ref-recovery';
 import { diffSnapshotElements } from './snapshot-diff';
@@ -23,6 +24,8 @@ export interface SnapshotDiagnosticsView {
     pendingErrorCount?(): number;
   };
   networkFailures: string[];
+  /** Preferred when present: failures a reply already carried are skipped. */
+  reportedNetworkFailures?: Set<string>;
   network?: {
     documentStatus(url: string): { status: number; statusText?: string; mimeType?: string } | null;
   };
@@ -48,6 +51,20 @@ const BRIEF_TEXT_CHARS = 500;
 /** A capped list read as the whole story turns twelve failures into three. */
 function cappedNote(shown: number, total: number | undefined, command: string): string {
   return typeof total === 'number' && total > shown ? ` (${shown} of ${total}; call ${command} for the rest)` : '';
+}
+
+/** Identical diagnostic lines said once with a count: a retried beacon or a
+ *  twice-logged error is one fact, not two lines of the same long URL. */
+function collapseRepeats(entries: string[]): string[] {
+  const counts = new Map<string, number>();
+  for (const entry of entries) counts.set(entry, (counts.get(entry) || 0) + 1);
+  return [...counts].map(([entry, count]) => (count > 1 ? `${entry} (×${count})` : entry));
+}
+
+/** Elements a brief reply no longer sees, by role and name; they have no ref. */
+function goneList(gone: Array<{ role: string; name: string }>): string {
+  const named = gone.slice(0, 5).map((el) => `${redactBrowserText(el.role)} ${JSON.stringify(redactBrowserText(el.name))}`);
+  return named.join(', ') + (gone.length > named.length ? ', …' : '');
 }
 
 function elementLine(el: BrowserSnapshotElement): string {
@@ -148,7 +165,7 @@ function briefLines(
   const partialBaseline = baseline.query !== undefined || baselineTotal > covered;
   const tail =
     ` (old refs expired; use a known target directly, or a focused snapshot if the target is unknown)` +
-    `${brief.gone ? `; ${brief.gone} no longer matched` : ''}.`;
+    `${brief.gone.length ? `; ${brief.gone.length} no longer matched: ${goneList(brief.gone)}` : ''}.`;
   if (partialBaseline) {
     const unseen = new Set(brief.unseen);
     const altered = brief.changed.filter((el) => !unseen.has(el));
@@ -216,12 +233,21 @@ function diagnosticsLines(diagnostics: SnapshotDiagnosticsView | undefined, extr
   if (consoleErrors.length) {
     const label = diagnostics?.console.newErrors ? 'New console errors' : 'Recent console errors';
     const capped = cappedNote(consoleErrors.length, errorTotal, 'console');
-    lines.push('', `${label}${capped}: ${consoleErrors.map(redactBrowserText).join(' | ')}`);
+    lines.push('', `${label}${capped}: ${collapseRepeats(consoleErrors.map(redactBrowserText)).join(' | ')}`);
   }
-  if (diagnostics?.networkFailures.length) {
-    const shown = diagnostics.networkFailures.slice(-3);
-    const capped = cappedNote(shown.length, diagnostics.networkFailures.length, 'network');
-    lines.push('', `Recent network failures${capped}: ${shown.map(redactBrowserText).join(' | ')}`);
+  const failures = diagnostics?.networkFailures || [];
+  const reported = diagnostics?.reportedNetworkFailures;
+  const freshFailures = reported ? failures.filter((entry) => !reported.has(entry)) : failures;
+  if (freshFailures.length) {
+    const shown = pageFaultsFirst(freshFailures, 3);
+    const capped = cappedNote(shown.length, freshFailures.length, 'network');
+    const label = reported ? 'New network failures' : 'Recent network failures';
+    lines.push('', `${label}${capped}: ${collapseRepeats(shown.map(redactBrowserText)).join(' | ')}`);
+  }
+  if (reported) {
+    // The failure list is capped, so forget entries it no longer holds.
+    for (const entry of freshFailures) reported.add(entry);
+    for (const entry of reported) if (!failures.includes(entry)) reported.delete(entry);
   }
   return lines;
 }

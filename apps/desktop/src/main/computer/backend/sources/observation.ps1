@@ -94,7 +94,65 @@ function Format-ObservationValue($value, $maximum = 120) {
     return $text
 }
 
-function Get-ElementObservation($el) {
+# Pattern availability and the pattern values a snapshot reports ride the same
+# CacheRequest as the element properties, so one FindAll round trip carries
+# everything instead of several cross-process pattern queries per element.
+function Get-ObservationCacheProperties {
+    return @(
+        $AE::IsValuePatternAvailableProperty
+        $AE::IsTogglePatternAvailableProperty
+        $AE::IsSelectionItemPatternAvailableProperty
+        $AE::IsExpandCollapsePatternAvailableProperty
+        $AE::IsRangeValuePatternAvailableProperty
+        $AE::IsInvokePatternAvailableProperty
+        $AE::IsScrollPatternAvailableProperty
+        [System.Windows.Automation.ValuePattern]::ValueProperty
+        [System.Windows.Automation.TogglePattern]::ToggleStateProperty
+        [System.Windows.Automation.SelectionItemPattern]::IsSelectedProperty
+        [System.Windows.Automation.ExpandCollapsePattern]::ExpandCollapseStateProperty
+        [System.Windows.Automation.RangeValuePattern]::ValueProperty
+        $AE::IsTextPatternAvailableProperty
+        $AE::IsKeyboardFocusableProperty
+        $AE::ClassNameProperty
+    )
+}
+
+# The on-screen lines of a text surface that has no value: a terminal buffer or
+# a document body exposes its content only through TextPattern.
+function Get-VisibleTextLines($el) {
+    $lines = New-Object System.Collections.ArrayList
+    try {
+        $pattern = $el.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+        foreach ($range in $pattern.GetVisibleRanges()) {
+            foreach ($line in ([string]$range.GetText(20000) -split "\r?\n")) {
+                $text = ($line -replace '\s+', ' ').Trim()
+                if ($text) { [void]$lines.Add($text) }
+            }
+        }
+    }
+    catch { return $null }
+    return , $lines
+}
+
+function Get-CachedFlag($el, $property) {
+    try { return [bool]$el.GetCachedPropertyValue($property) } catch { return $false }
+}
+
+# A pattern property the provider actually serves, or $null. Some providers
+# (Chromium, shell views) serve a pattern while reporting it unavailable, so a
+# supported value proves the pattern on its own.
+function Get-CachedSupported($el, $property) {
+    try {
+        $value = $el.GetCachedPropertyValue($property, $true)
+        # Reference test: -eq would coerce the sentinel to the value's type,
+        # so a cached $true would compare equal to NotSupported.
+        if ([object]::ReferenceEquals($value, $AE::NotSupported)) { return $null }
+        return $value
+    }
+    catch { return $null }
+}
+
+function Get-ElementObservation($el, [bool]$readText = $false) {
     $observation = @{
         Name         = [string]$el.Cached.Name
         AutomationId = [string]$el.Cached.AutomationId
@@ -112,68 +170,58 @@ function Get-ElementObservation($el) {
         CanToggle    = $false
         CanScroll    = $false
     }
-    $pat = $null
-    try {
-        if ($el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pat)) {
-            $observation.Value = [string]$pat.Current.Value
-            $observation.CanSetValue = $true
+    $value = Get-CachedSupported $el ([System.Windows.Automation.ValuePattern]::ValueProperty)
+    if ($null -ne $value -or (Get-CachedFlag $el $AE::IsValuePatternAvailableProperty)) {
+        $observation.Value = [string]$value
+        # An Excel cell echoes a value write it never enters (Test-IgnoredValueWrite).
+        $observation.CanSetValue = [string](Get-CachedSupported $el $AE::ClassNameProperty) -ne 'XLSpreadsheetCell'
+    }
+    $value = Get-CachedSupported $el ([System.Windows.Automation.TogglePattern]::ToggleStateProperty)
+    if ($null -ne $value -or (Get-CachedFlag $el $AE::IsTogglePatternAvailableProperty)) {
+        $observation.Toggle = [string]$value
+        $observation.CanToggle = $true
+    }
+    $value = Get-CachedSupported $el ([System.Windows.Automation.SelectionItemPattern]::IsSelectedProperty)
+    $selectable = $null -ne $value -or (Get-CachedFlag $el $AE::IsSelectionItemPatternAvailableProperty)
+    if ($selectable) { $observation.Selected = [string]$value }
+    $value = Get-CachedSupported $el ([System.Windows.Automation.ExpandCollapsePattern]::ExpandCollapseStateProperty)
+    if ($null -ne $value -or (Get-CachedFlag $el $AE::IsExpandCollapsePatternAvailableProperty)) {
+        $observation.Expanded = [string]$value
+    }
+    $value = Get-CachedSupported $el ([System.Windows.Automation.RangeValuePattern]::ValueProperty)
+    if ($null -ne $value -or (Get-CachedFlag $el $AE::IsRangeValuePatternAvailableProperty)) {
+        $observation.Range = [string]$value
+    }
+    $observation.CanInvoke = $selectable -or (Get-CachedFlag $el $AE::IsInvokePatternAvailableProperty)
+    $observation.CanScroll = Get-CachedFlag $el $AE::IsScrollPatternAvailableProperty
+    if ($readText -and -not $observation.CanSetValue -and
+        (Get-CachedFlag $el $AE::IsKeyboardFocusableProperty) -and
+        (Get-CachedFlag $el $AE::IsTextPatternAvailableProperty)) {
+        $lines = Get-VisibleTextLines $el
+        if ($null -ne $lines -and $lines.Count -gt 0) {
+            # Reported values keep their start, but a terminal's newest output is
+            # its last line, so a long surface is shown from its end.
+            $text = $lines -join "`n"
+            if ($text.Length -gt 299) { $text = [char]0x2026 + $text.Substring($text.Length - 298) }
+            $observation.Value = $text
         }
     }
-    catch {}
-    $pat = $null
-    try {
-        if ($el.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pat)) {
-            $observation.Toggle = [string]$pat.Current.ToggleState
-            $observation.CanToggle = $true
-        }
-    }
-    catch {}
-    $pat = $null
-    try {
-        if ($el.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pat)) {
-            $observation.Selected = [string]$pat.Current.IsSelected
-        }
-    }
-    catch {}
-    $pat = $null
-    try {
-        if ($el.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pat)) {
-            $observation.Expanded = [string]$pat.Current.ExpandCollapseState
-        }
-    }
-    catch {}
-    $pat = $null
-    try {
-        if ($el.TryGetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern, [ref]$pat)) {
-            $observation.Range = [string]$pat.Current.Value
-        }
-    }
-    catch {}
-    $pat = $null
-    try {
-        if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pat) -or
-            $el.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pat)) {
-            $observation.CanInvoke = $true
-        }
-    }
-    catch {}
-    $pat = $null
-    try {
-        if ($el.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$pat)) {
-            $observation.CanScroll = $true
-        }
-    }
-    catch {}
     return [pscustomobject]$observation
 }
 
 function Get-MsaaObservation($node) {
+    $value = [string]$node.Value
+    # A report-view list item names only its first column; the list's MSAA
+    # proxy carries the other columns in the description ("Value: ...").
+    if ([string]::IsNullOrWhiteSpace($value) -and [string]$node.ControlType -eq 'ListItem') {
+        $value = [string]$node.Description
+    }
     return [pscustomobject]@{
         Name          = [string]$node.Name
         AutomationId  = ''
         Accelerator   = ''
         AccessKey     = ''
-        Value         = [string]$node.Value
+        Value         = $value
         Toggle        = ''
         Selected      = ''
         Expanded      = ''
@@ -199,6 +247,56 @@ function Format-StructuredObservationState($observation, $kind) {
     if ($observation.Expanded) { [void]$parts.Add('expanded=' + $observation.Expanded) }
     if ($observation.Range) { [void]$parts.Add('range=' + $observation.Range) }
     return ($parts -join ';')
+}
+
+# This UIA client reports standard Win32 controls as plain panes in some
+# dialogs (Character Map's buttons, combo boxes and edits), so a window whose
+# UIA list looks complete can still hide its real controls; MSAA names them.
+function Test-UnproxiedNativeControls($win) {
+    $classes = foreach ($class in @('Button', 'ComboBox', 'ComboBoxEx32', 'Edit', 'ListBox', 'SysListView32',
+            'SysTreeView32', 'SysTabControl32', 'ToolbarWindow32', 'msctls_trackbar32', 'msctls_updown32',
+            'SysLink', 'SysDateTimePick32')) {
+        New-Object System.Windows.Automation.PropertyCondition($AE::ClassNameProperty, $class)
+    }
+    $cond = New-Object System.Windows.Automation.AndCondition(
+        (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Pane)),
+        (New-Object System.Windows.Automation.OrCondition([System.Windows.Automation.Condition[]]$classes)))
+    try { return $null -ne $win.FindFirst($TS::Descendants, $cond) } catch { return $false }
+}
+
+function Get-InteractiveControlTypes {
+    return @('Button', 'Edit', 'CheckBox', 'RadioButton', 'ComboBox', 'List', 'ListItem',
+        'MenuItem', 'TabItem', 'Hyperlink', 'Tree', 'TreeItem', 'Slider', 'Document', 'Spinner', 'SplitButton')
+}
+
+# An elevated window hides its controls from lower processes: UIA and MSAA
+# both return bare window panes (Task Scheduler showed one list and nothing
+# else), which would read as a window with nothing to act on.
+function Assert-AccessibleIntegrity($info) {
+    $integrity = [MixWin32]::WindowIntegrity($info.Handle)
+    if ($integrity.Known -and $integrity.Higher) {
+        throw "accessibility_blocked_by_integrity: this window runs at $($integrity.TargetName) integrity, above this host ($($integrity.OwnName)), and Windows hides its controls from lower processes; read it with pixels or OCR, and act on frame coordinates with explicit foreground delivery, which asks for elevation"
+    }
+}
+
+# Readiness only: does the window expose any interactive element? FindFirst
+# stops at the first match instead of walking the whole tree the way a
+# snapshot does, and the session's refs and generation are left untouched.
+function Probe-WindowAccessibility($req) {
+    $info = Resolve-WindowInfo $req.window $req.window_id
+    Assert-AccessibleIntegrity $info
+    $win = Find-Window $req.window $req.window_id
+    $conds = foreach ($t in (Get-InteractiveControlTypes)) {
+        New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::$t)
+    }
+    $cond = New-Object System.Windows.Automation.OrCondition([System.Windows.Automation.Condition[]]$conds)
+    if ($null -ne $win.FindFirst($TS::Descendants, $cond)) { return @{ interactive = $true; source = 'uia' } }
+    # Legacy controls that only publish MSAA still count.
+    $interactive = Get-InteractiveControlTypes
+    foreach ($node in @([MixMsaa]::Snapshot($info.Handle, $info.Id, 200))) {
+        if ($interactive -contains [string]$node.ControlType) { return @{ interactive = $true; source = 'msaa' } }
+    }
+    return @{ interactive = $false }
 }
 
 function Get-ElementStructure($el) {
@@ -239,6 +337,7 @@ function Get-ElementStructure($el) {
 function Snapshot-Window($req) {
     $snapshotClock = [System.Diagnostics.Stopwatch]::StartNew()
     $info = Resolve-WindowInfo $req.window $req.window_id
+    Assert-AccessibleIntegrity $info
     $win = Find-Window $req.window $req.window_id
     $state = Get-CurrentSession
     $expectedContinuation = $state.Continuation
@@ -285,17 +384,21 @@ function Snapshot-Window($req) {
     # Fetch the selected control classes once with cached properties, then filter
     # and page locally. The broader observation view is explicit so ordinary
     # snapshots do not flood the model with layout-only nodes.
-    $interactiveCtTypes = @('Button', 'Edit', 'CheckBox', 'RadioButton', 'ComboBox', 'List', 'ListItem',
-        'MenuItem', 'TabItem', 'Hyperlink', 'Tree', 'TreeItem', 'Slider', 'Document', 'Spinner', 'SplitButton')
+    $interactiveCtTypes = Get-InteractiveControlTypes
     $ctTypes = @($interactiveCtTypes)
     if ($includeNoninteractive) {
         $ctTypes += @('Text', 'Custom', 'Group', 'Pane', 'Image', 'DataGrid', 'DataItem', 'Header',
             'HeaderItem', 'Table', 'ProgressBar', 'StatusBar', 'ToolBar', 'TitleBar', 'Separator')
     }
     $ctTypes = @($ctTypes | Select-Object -Unique)
-    $conds = foreach ($t in $ctTypes) {
-        New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::$t)
-    }
+    $conds = @(foreach ($t in $ctTypes) {
+            New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::$t)
+        })
+    # A focusable text surface is where a terminal or editor takes input, even
+    # when its control type reads as static text.
+    $conds += New-Object System.Windows.Automation.AndCondition(
+        (New-Object System.Windows.Automation.PropertyCondition($AE::IsTextPatternAvailableProperty, $true)),
+        (New-Object System.Windows.Automation.PropertyCondition($AE::IsKeyboardFocusableProperty, $true)))
     $cond = New-Object System.Windows.Automation.OrCondition([System.Windows.Automation.Condition[]]$conds)
     $cr = New-Object System.Windows.Automation.CacheRequest
     [void]$cr.Add($AE::NameProperty)
@@ -306,6 +409,7 @@ function Snapshot-Window($req) {
     [void]$cr.Add($AE::BoundingRectangleProperty)
     [void]$cr.Add($AE::IsEnabledProperty)
     [void]$cr.Add($AE::IsOffscreenProperty)
+    foreach ($property in (Get-ObservationCacheProperties)) { [void]$cr.Add($property) }
     $act = $cr.Activate()
     $uiaFindStarted = $snapshotClock.Elapsed.TotalMilliseconds
     try { $els = $win.FindAll($TS::Descendants, $cond) } finally { $act.Dispose() }
@@ -313,8 +417,10 @@ function Snapshot-Window($req) {
     if ($els.Count -gt 5000) {
         throw "accessibility candidate limit exceeded: $($els.Count) > 5000; narrow the role/query or use the interactive view"
     }
+    $modernChromium = ([string]$info.ClassName) -like 'Chrome_WidgetWin*'
     $matches = New-Object System.Collections.ArrayList
     $seen = @{}
+    $uiaByIdentity = @{}
     $uiaFormatStarted = $snapshotClock.Elapsed.TotalMilliseconds
     foreach ($el in $els) {
         $r = $el.Cached.BoundingRectangle
@@ -326,7 +432,7 @@ function Snapshot-Window($req) {
         }
         $ct = $el.Cached.ControlType.ProgrammaticName -replace 'ControlType\.', ''
         if ($role -and $ct.ToLower() -ne $role) { continue }
-        $observation = Get-ElementObservation $el
+        $observation = Get-ElementObservation $el (-not $modernChromium)
         $search = @(
             $observation.Name
             $observation.AutomationId
@@ -351,6 +457,9 @@ function Snapshot-Window($req) {
         }
         [void]$matches.Add($record)
         $seen[$dedupeKey] = $record
+        $identityKey = ([string]$observation.Name).ToLower() + '|' + $ct.ToLower()
+        if (-not $uiaByIdentity.ContainsKey($identityKey)) { $uiaByIdentity[$identityKey] = New-Object System.Collections.ArrayList }
+        [void]$uiaByIdentity[$identityKey].Add($record)
     }
     $uiaFormatMs = $snapshotClock.Elapsed.TotalMilliseconds - $uiaFormatStarted
     $candidateCount = $els.Count
@@ -362,8 +471,9 @@ function Snapshot-Window($req) {
     else {
         5000
     }
-    $modernChromium = ([string]$info.ClassName) -like 'Chrome_WidgetWin*'
-    if ($bounded -and ($matches.Count -gt 0 -or $modernChromium)) {
+    # Chromium draws its own controls, so its large tree is never searched for
+    # native ones.
+    if ($bounded -and ($modernChromium -or ($matches.Count -gt 0 -and -not (Test-UnproxiedNativeControls $win)))) {
         $msaaNodes = @()
         $msaaWarning = if ($matches.Count -gt 0) {
             'MSAA enrichment skipped: UIA supplied the bounded capture'
@@ -410,6 +520,21 @@ function Snapshot-Window($req) {
         $node.X, $node.Y, $node.Width, $node.Height,
         ([string]$node.Name).ToLower(), $ct.ToLower()
         $existing = $seen[$dedupeKey]
+        if ($null -eq $existing) {
+            # UIA bounds a native control by its window rect and MSAA by its
+            # client area, a border apart; the same named control inside that
+            # border is one element, not two.
+            foreach ($candidate in @($uiaByIdentity[([string]$node.Name).ToLower() + '|' + $ct.ToLower()])) {
+                if ($null -eq $candidate) { continue }
+                if ($node.X -ge $candidate.X - 1 -and $node.Y -ge $candidate.Y - 1 -and
+                    $node.X + $node.Width -le $candidate.X + $candidate.Width + 1 -and
+                    $node.Y + $node.Height -le $candidate.Y + $candidate.Height + 1 -and
+                    $candidate.Width - $node.Width -le 8 -and $candidate.Height - $node.Height -le 8) {
+                    $existing = $candidate
+                    break
+                }
+            }
+        }
         $addsCapability = $null -ne $existing -and (
             ($observation.CanInvoke -and -not $existing.Observation.CanInvoke) -or
             ($observation.CanSetValue -and -not $existing.Observation.CanSetValue)

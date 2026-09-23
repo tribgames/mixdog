@@ -97,6 +97,7 @@ function buildOAuthBetaHeaders(body, { fastMode = false, toolSearch = false, mod
     toolSearch,
     effort: shouldIncludeEffortBeta(model, opts),
     serverFallback: body?.fallbacks === 'default',
+    thinkingDisplayUpdates: body?.thinking?.display === 'updates',
   });
 }
 
@@ -274,6 +275,7 @@ function buildRequestBody(messages, model, tools, sendOpts) {
     maxTokens,
     clampThinkingBudgetTokens,
     logTag: 'anthropic-oauth',
+    progressUpdates: true,
   });
 
   // Skipped while the fast capacity pool is in cooldown (or permanently
@@ -591,7 +593,8 @@ export class AnthropicOAuthProvider {
             onToolCall,
             midState,
             onTextDelta,
-            knownToolNames
+            knownToolNames,
+            { relayProgressUpdates: body.thinking?.display === 'updates' }
           );
           try {
             controller?.abort?.('Anthropic SSE complete');

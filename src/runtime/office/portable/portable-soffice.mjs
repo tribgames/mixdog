@@ -1,10 +1,10 @@
 import { basename, dirname, extname, join, posix } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { constants as fsConstants, rmSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import JSZip from 'jszip';
-import { readFile, rename, writeFile, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { copyFile, readFile, rename, writeFile, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { zipText } from './portable-opc.mjs';
 import { iterateSheetCells, workbookCalculation, workbookSheets } from './portable-cells.mjs';
 import { xmlAttribute, xmlDecode } from './portable-xml.mjs';
@@ -498,6 +498,45 @@ export async function validateLibreOfficeReopen(path, { signal = null } = {}) {
     if (!details?.isFile() || details.size <= 0)
       return { available: true, opened: false, backend: 'libreoffice', error: 'LibreOffice produced no review PDF' };
     return { available: true, opened: true, backend: 'libreoffice', outputBytes: details.size };
+  } finally {
+    await rm(outputDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Saves an Office 97-2003 binary file as the package named by `output`'s
+ * extension (`report.doc` → `report.docx`). The conversion runs in a scratch
+ * folder and lands with an exclusive copy, so a file already at `output` is
+ * never replaced.
+ */
+export async function convertLegacyOffice(path, output, { signal = null } = {}) {
+  const program = await libreOfficeProgram();
+  if (!program) {
+    throw new Error(
+      `${path} is a legacy binary file, not an Office package, and converting it needs LibreOffice. Install LibreOffice, or open it in Microsoft Office and save it as ${output}.`
+    );
+  }
+  const extension = extname(output).slice(1).toLowerCase();
+  const outputDir = await mkdtemp(join(tmpdir(), 'mixdog-office-legacy-'));
+  try {
+    const result = await convertWithLibreOffice(program, path, {
+      to: extension,
+      outDir: outputDir,
+      signal,
+      timeoutMs: SOFFICE_CONVERT_TIMEOUT_MS,
+      messages: {
+        timeout: `LibreOffice conversion timed out after ${SOFFICE_CONVERT_TIMEOUT_MS / 1000} seconds`,
+        cancelled: 'LibreOffice conversion was cancelled',
+      },
+    });
+    if (!result.ok) throw new Error(`LibreOffice could not convert ${path} to .${extension}: ${result.error}`);
+    const generated = convertedOutputPath(outputDir, path, extension);
+    const details = await stat(generated).catch(() => null);
+    if (!details?.isFile() || details.size <= 0) {
+      throw new Error(`LibreOffice produced no .${extension} from ${path}; the file may be damaged or password-protected.`);
+    }
+    await copyFile(generated, output, fsConstants.COPYFILE_EXCL);
+    return output;
   } finally {
     await rm(outputDir, { recursive: true, force: true }).catch(() => {});
   }

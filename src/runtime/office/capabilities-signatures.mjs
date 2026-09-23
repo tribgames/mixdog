@@ -121,7 +121,7 @@ export const FORMAT_SIGNATURES = {
     set_page: signature(['properties'], ['section'], {
       propertySets: ['page'],
       notes:
-        'Margins and columnSpacing are points. columns lays the section out in that many even columns and the text flows through them (1 returns it to a single column), so a newsletter page needs no text boxes.',
+        "pageSize names the sheet ('a4' default, 'letter', 'legal', 'a3', 'a5', 'tabloid', or [width, height] in points) and orientation turns it; without orientation the section keeps the way it lies. Margins and columnSpacing are points. columns lays the section out in that many even columns and the text flows through them (1 returns it to a single column), so a newsletter page needs no text boxes.",
     }),
     fit_table: signature(['table']),
     insert_toc: signature([], ['paragraph', 'lowerHeadingLevel', 'upperHeadingLevel'], {
@@ -332,7 +332,10 @@ export const FORMAT_SIGNATURES = {
     add_provenance: signature(['cell', 'source'], ['sheet'], { propertySets: ['provenance'] }),
   },
   pptx: {
-    set_text: signature(['slide', 'shape', 'text']),
+    set_text: signature(['slide', 'shape', 'text'], [], {
+      notes:
+        "Replaces the shape's whole text with one paragraph in the formatting of the paragraph that held its first text, as PowerPoint does; the other paragraphs go. To change one bullet of several, use replace_text; to rebuild a list, add_textbox paragraphs.",
+    }),
     add_textbox: signature(
       ['slide', 'text'],
       ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'name', 'properties'],
@@ -523,6 +526,10 @@ export const FORMAT_SIGNATURES = {
     }),
     rotate_pages: signature([], ['page', 'pages', 'rotation', 'absolute'], {
       notes: "rotation (multiple of 90) is added to each page's current rotation; absolute:true sets it instead.",
+    }),
+    crop_pages: signature([], ['page', 'pages', 'left', 'right', 'top', 'bottom', 'margin'], {
+      notes:
+        'Trims points from the sides as the page is displayed (rotation handled); margin trims all four. The trimmed content is hidden, not removed, so a crop is never redaction.',
     }),
     delete_pages: signature([], ['page', 'pages'], { notes: 'At least one page must remain.' }),
     move_page: signature(['page', 'index']),

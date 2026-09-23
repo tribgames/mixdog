@@ -11,10 +11,26 @@ function fixture(send) {
     interceptFetchPatterns: () => [],
     matchInterceptRule: () => undefined,
   });
-  return { guest, cdp, debug: { sendCommand: send } };
+  return { guest, cdp, debug: { sendCommand: send }, state };
 }
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+test('a script held by an open dialog is not terminated, so the answer still reaches the page', async () => {
+  const running = Promise.withResolvers();
+  const calls = [];
+  const { guest, cdp, debug, state } = fixture((method) => {
+    calls.push(method);
+    if (method === 'Runtime.callFunctionOn') return running.promise;
+    return Promise.resolve({});
+  });
+  state.for(guest).pendingDialog = { type: 'prompt', message: 'Name?', openedAt: Date.now(), bridgeRequestId: 'q1' };
+  await assert.rejects(cdp.sendCdp(guest, debug, 'Runtime.callFunctionOn', {}, 5), /timed out/);
+  assert.deepEqual(calls, ['Runtime.callFunctionOn']);
+  // The fence still holds until the held call settles once the dialog is answered.
+  running.resolve({});
+  await cdp.waitForIdle(guest);
+});
 
 test('local input admission is checked again after transport cleanup and immediately before dispatch', async () => {
   const running = Promise.withResolvers();

@@ -41,7 +41,14 @@ test('a value write reaches every layer that dispatches it', async () => {
   // set_value writes through the element, so it is neither a pointer nor a key
   // action; the layers that route it still have to recognise it by name.
   assert.ok(COMPUTER_CORE_ACTION_SCHEMA.properties.type.enum.includes('set_value'));
-  for (const file of ['session/element-aliases.ts', 'backend/worker-pool.ts', 'backend/sources/sequence.ps1']) {
+  // host/sequence-runner.ts vets every act step: a value write missing from its
+  // grammar is refused before dispatch, so act can never reach the layers below.
+  for (const file of [
+    'host/sequence-runner.ts',
+    'session/element-aliases.ts',
+    'backend/worker-pool.ts',
+    'backend/sources/sequence.ps1',
+  ]) {
     const source = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
     assert.ok(source.includes(`'set_value'`), `${file} dispatches act actions but is missing set_value`);
   }

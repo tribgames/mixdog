@@ -68,9 +68,10 @@ export function stopGlide(surface: CursorSurface): void {
   surface.glide = undefined;
 }
 
-function cursorWindowOptions(position: { x: number; y: number }): Electron.BrowserWindowConstructorOptions {
+/** What every Computer Use overlay surface has in common: never focusable,
+ *  never in the taskbar, never painting a background of its own. */
+export function overlayWindowOptions(): Electron.BrowserWindowConstructorOptions {
   return {
-    ...cursorBounds(position),
     alwaysOnTop: false,
     backgroundColor: '#00000000',
     focusable: false,
@@ -93,10 +94,14 @@ function cursorWindowOptions(position: { x: number; y: number }): Electron.Brows
   };
 }
 
+function cursorWindowOptions(position: { x: number; y: number }): Electron.BrowserWindowConstructorOptions {
+  return { ...cursorBounds(position), ...overlayWindowOptions() };
+}
+
 /** Never focusable, never a target for input, never a window opener; a dead
  *  renderer retires the surface so a fresh event creates its replacement
  *  rather than replaying an old effect on the same crashed renderer. */
-function hardenCursorWindow(next: BrowserWindow): void {
+export function hardenOverlayWindow(next: BrowserWindow): void {
   next.setTitle('');
   next.setContentProtection(true);
   next.setIgnoreMouseEvents(true, { forward: true });
@@ -132,7 +137,7 @@ async function openCursorWindow(surface: CursorSurface, isCurrent: () => boolean
     rejectCreation?.(new Error('Computer Use cursor closed during creation'));
   });
   try {
-    hardenCursorWindow(next);
+    hardenOverlayWindow(next);
     const closed = new Promise<never>((_resolve, reject) => {
       rejectCreation = reject;
     });

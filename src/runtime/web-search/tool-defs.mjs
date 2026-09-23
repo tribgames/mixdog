@@ -46,7 +46,8 @@ export const TOOL_DEFS = [
             { type: 'string', format: 'uri' },
             { type: 'array', items: { type: 'string', format: 'uri' }, minItems: 1, maxItems: 10 },
           ],
-          description: 'Public HTTP(S) URL or array of up to 10 URLs.',
+          description:
+            'Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.',
         },
         startIndex: { type: 'integer', minimum: 0, description: 'Character offset; default 0.' },
         maxLength: { type: 'integer', minimum: 0, description: 'Maximum characters; default 50000; 0 unlimited.' },

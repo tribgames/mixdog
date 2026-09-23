@@ -35,6 +35,21 @@ test('scroll text reaches an open shadow root and scrolls exactly the matched el
   }
 });
 
+test('scroll text quotes the part of a long line that holds the phrase', () => {
+  const { dom, window } = harness();
+  try {
+    const long = window.document.createElement('p');
+    long.textContent = `${'x'.repeat(300)} Extended   snapshot tail ${'y'.repeat(300)}`;
+    window.document.body.append(long);
+    const match = window.eval(browserScrollTextMatchExpression('snapshot tail'));
+    assert.equal(match.found, true);
+    assert.match(match.text, /^…x+ Extended snapshot tail y+…$/);
+    assert.ok(match.text.length <= 122, `quoted ${match.text.length} characters`);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('scroll text ignores text that never renders and scrolls for no other frame', () => {
   const { dom, window, scrolled } = harness();
   try {

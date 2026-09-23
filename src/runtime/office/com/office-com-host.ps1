@@ -2565,6 +2565,14 @@ function Invoke-WordOperation($doc, $op) {
             $section = $doc.Sections.Item($(if ($op.section) { [int]$op.section } else { [int]$doc.Sections.Count }))
             $props = $op.properties
             if ($props.orientation) { $section.PageSetup.Orientation = $(if ([string]$props.orientation -eq 'landscape') { 1 } else { 0 }) }
+            # pageSize arrives as points; the sheet is turned the way the section now lies.
+            if ($null -ne $props.pageWidth -and $null -ne $props.pageHeight) {
+                $width = [single]$props.pageWidth
+                $height = [single]$props.pageHeight
+                if (([int]$section.PageSetup.Orientation -eq 1) -eq ($width -lt $height)) { $width, $height = $height, $width }
+                $section.PageSetup.PageWidth = $width
+                $section.PageSetup.PageHeight = $height
+            }
             if ($props.topMargin) { $section.PageSetup.TopMargin = [single]$props.topMargin }
             if ($props.bottomMargin) { $section.PageSetup.BottomMargin = [single]$props.bottomMargin }
             if ($props.leftMargin) { $section.PageSetup.LeftMargin = [single]$props.leftMargin }

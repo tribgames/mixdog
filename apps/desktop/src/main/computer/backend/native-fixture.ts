@@ -22,6 +22,7 @@ internal static class MixdogNativeTextFixture {
       AccessibleName = "Native text editor",
       Dock = DockStyle.Fill,
       Multiline = true,
+      AcceptsReturn = true,
       Text = "Mixdog Computer Use native scenario."
     };
     Label status = new Label {

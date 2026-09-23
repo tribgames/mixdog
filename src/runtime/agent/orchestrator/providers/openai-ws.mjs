@@ -19,23 +19,12 @@ import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { sendViaHttpSse, _envFlag } from './openai-oauth-http-sse.mjs';
 import { shouldFallbackTransport } from './retry-classifier.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
-import { applyOpenAIDirectCachePolicy } from './openai-direct-request.mjs';
+import { applyOpenAIDirectCachePolicy, openAiDirectSupportsFast } from './openai-direct-request.mjs';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { resolveProviderCacheKey, resolveProviderPromptCacheLane } from '../agent-runtime/cache-strategy.mjs';
 
-const OPENAI_DIRECT_PRIORITY_MODEL_PATTERNS = Object.freeze([
-  /^gpt-5\.5(?:-\d{4}|$)/,
-  /^gpt-5\.4(?:-\d{4}|$)/,
-  /^gpt-5\.4-mini(?:-\d{4}|$)/,
-]);
-
-function openAiDirectSupportsPriority(model) {
-  const id = String(model || '').trim();
-  return OPENAI_DIRECT_PRIORITY_MODEL_PATTERNS.some((re) => re.test(id));
-}
-
 function applyOpenAIDirectFastTier(body, model, opts) {
-  if (opts?.fast === true && openAiDirectSupportsPriority(model)) {
+  if (opts?.fast === true && openAiDirectSupportsFast(model)) {
     body.service_tier = 'priority';
   }
   return body;
@@ -129,10 +118,10 @@ export class OpenAIDirectProvider {
       promptCacheProvider: 'openai',
       promptCacheLane,
     });
-    // Public OpenAI API priority support is documented separately from the
+    // Public OpenAI API Fast support is documented separately from the
     // openai-oauth catalog. Keep this provider's service-tier decision local
-    // so gpt-5.4-mini can opt into Priority even when the OAuth catalog does
-    // not advertise a Fast tier for its OAuth endpoint.
+    // so a model can opt into Fast even when the OAuth catalog does not
+    // advertise a Fast tier for its OAuth endpoint.
     applyOpenAIDirectFastTier(body, useModel, opts);
     // Keep public response storage and model-specific cache options out of
     // the shared OAuth payload. Storage opt-out still forces full frames in

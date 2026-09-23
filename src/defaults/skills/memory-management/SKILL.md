@@ -17,8 +17,7 @@ schema owns arguments; this guide owns curation and approval policy.
 
 Past work, decisions, and resumes belong to the `history-recall` skill.
 Load it only when historical evidence is needed for the requested change.
-Current repository state belongs to repository tools, not memory. Automatic
-summaries remain searchable history, not standing instructions.
+Current repository state belongs to repository tools, not memory.
 
 ## Curate standing memory
 

@@ -21,9 +21,9 @@ export interface ComputerUseCursorPresentation extends ComputerUseCursor {
   context: string;
 }
 
-const SESSION_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f778ba', '#39c5cf'];
+export const SESSION_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f778ba', '#39c5cf'];
 
-function sessionColor(sessionId: string): string {
+export function sessionColor(sessionId: string): string {
   let hash = 0;
   for (const character of sessionId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
   return SESSION_COLORS[hash % SESSION_COLORS.length] || SESSION_COLORS[0];
@@ -60,10 +60,15 @@ export function computerUseOverlayPresentation(
 ): ComputerUseOverlayPresentation {
   const ko = locale.toLowerCase().startsWith('ko');
   const activity = primaryActivity(snapshot.activities);
+  // A command runs for a few hundred milliseconds, but the session keeps the
+  // user's window between commands. Showing the banner only while a command is
+  // in flight leaves nothing on screen at the moment the user reaches for Pause
+  // or Stop, so a held target keeps the controls reachable for its whole hold.
   const sessionIds = [
     ...new Set([
       ...(snapshot.pausedSessionIds ?? []),
       ...snapshot.activities.map((entry) => entry.sessionId),
+      ...(snapshot.targetLeases ?? []).map((lease) => lease.sessionId),
       snapshot.attentionRequired?.sessionId || '',
     ]),
   ].filter(Boolean);

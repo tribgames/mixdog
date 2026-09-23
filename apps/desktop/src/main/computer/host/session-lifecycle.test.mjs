@@ -47,7 +47,8 @@ test('idle native workers retire through confirmed cleanup without cancelling ac
     runCommand: async () => ({ text: '' }),
     recaptureRequiredReply: async () => null,
   });
-  host.reapIdleSessionWorkers(61_000);
+  // 'recent' has thought for four minutes: still inside an agent's normal turn.
+  host.reapIdleSessionWorkers(300_001);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(children.get('idle').killed, true);
   for (const id of ['busy', 'queued', 'thinking', 'recent']) assert.equal(children.get(id).killed, false, id);
@@ -233,6 +234,47 @@ test('Stop clears a latched cleanup failure only after every worker exited and h
   assert.equal(coordinator.snapshot().cleanupState, 'ready');
   assert.equal(sweeps, 2);
   coordinator.assertAutomationAllowed();
+});
+
+test('a takeover whose first cleanup fails on timing clears its own barrier', async () => {
+  const coordinator = new ComputerUseCoordinator();
+  const execution = createExecutionState();
+  execution.activeExecutionsBySession.set('fixture', { sessionId: 'fixture', aborted: false });
+  let firstRelease = true;
+  const host = createSessionLifecycle({
+    coordinator,
+    execution,
+    powerShellBySession: new Map([['fixture', { killed: false, exitCode: 0, signalCode: null }]]),
+    workerLastUsedAt: new Map(),
+    retirePowerShell() {},
+    callPowerShell: async () => ({ ok: true }),
+    cancelElevatedSession: async () => true,
+    elevatedSessionIds: () => [],
+    sessionIdFor: (command) => command.session_id,
+    releaseSessionState() {},
+    invalidateWorkerGeneration() {},
+    releaseCaptureSession() {},
+    cleanupInput: async () => {
+      // The first release races a worker still unwinding its native call; the
+      // sweep that follows finds nothing held, as observed on the live desktop.
+      if (firstRelease) {
+        firstRelease = false;
+        return false;
+      }
+      return true;
+    },
+    waitForResidentWorkersExit: async () => true,
+    runCommand: async () => ({ text: '' }),
+    recaptureRequiredReply: async () => null,
+  });
+  host.takeOverComputer('user_input_active');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(coordinator.snapshot().cleanupState, 'ready', 'the host clears a timing-only cleanup failure itself');
+  assert.equal(
+    coordinator.snapshot().takeoverReason,
+    'user_input_active',
+    'the pause stays an ordinary interruption, which is what idle resume waits for'
+  );
 });
 
 test('Stop cannot use global key release as proof of target-local message cleanup', async () => {

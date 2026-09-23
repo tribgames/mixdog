@@ -6,17 +6,19 @@ file is a Word document.
 
 ## Control map
 
-- Page: `set_page properties:{ orientation, topMargin, bottomMargin, leftMargin,
-  rightMargin, columns, columnSpacing }`. Margins and `columnSpacing` are points;
+- Page: `set_page properties:{ pageSize, orientation, topMargin, bottomMargin,
+  leftMargin, rightMargin, columns, columnSpacing }`. A new document is A4;
+  a US reader gets `pageSize:'letter'` (also `'legal'`, `'a3'`, `'a5'`,
+  `'tabloid'`, or `[width, height]` in points), and `orientation` turns the
+  sheet. Margins and `columnSpacing` are points;
   the margins together determine the body width. `columns:<n>` lays the section
   out in that many even columns and the prose flows through them — a newsletter
   or brochure page is a section property, never a row of text boxes — and
   `columns:1` returns the section to a single column.
   Without `section` the edit lands on the section being written into (the last);
   `section:<n>` revisits an earlier one.
-- Notes: `add_note find:<phrase>|paragraph:<n> text:<note>` marks the phrase with
-  a superscript reference and writes the note at the foot of that page;
-  `kind:'endnote'` collects it at the end of the document instead.
+- Notes: `add_note` (`SKILL.md` §4) also takes `paragraph:<n>` instead of
+  `find`; its mark is a superscript reference.
 - Sections: `insert_break kind:'section_next'` closes the current section and
   starts the next one on a new page (`'section_continuous'` on the same page),
   so a wide table can take `set_page properties:{ orientation:'landscape' }`
@@ -32,6 +34,11 @@ file is a Word document.
   Spacing is in points. Keep headings with their next content, not every body
   paragraph with the next paragraph. Let body paragraphs flow before adding
   intentional breaks based on the render.
+- Tab stops: a contents line, a signature line, or a label with its figure at
+  the right margin is one paragraph with `\t` in `text` and
+  `properties:{ tabStops:[{ position:<pt from the left margin>, alignment:'right',
+  leader:'dot' }] }` — never dots or spaces typed to fill the gap, which break
+  at any font or width change. The snapshot reads the tab back as `\t`.
 - Tables and figures: use native `add_table`, cell/column formatting and
   `add_image altText:<what the picture shows>` — without the description the
   audit reports `missing_alt_text` and a reader who cannot see it gets nothing.
@@ -44,13 +51,10 @@ file is a Word document.
   from the figure beside it. Emphasis inside one cell stays with
   `set_table_cell_style`. The first row is the header and repeats on every
   continuation page; `repeatHeader:false` says the row is data.
-  Column text alignment is `columnAlignments:['left','right','right']`, one
-  entry per column (figures right, labels left); `alignment` is a different
-  thing — it places the whole table on the page (`left`, `center`, `right`).
-  Without `style`, `borders`, or `shading` a table takes the same anatomy on
-  both backends: a bold header row with a rule under it and hairlines between
-  body rows; `headerBold:false` keeps the header plain. Bullets, Korean word
-  wrapping, and this anatomy read the same in Word and in the portable file.
+  `alignment` places the whole table on the page (`left`, `center`, `right`);
+  column alignment and the default anatomy are in `SKILL.md` §4 and "Table
+  anatomy" below. Bullets, Korean word wrapping, and that anatomy read the same
+  in Word and in the portable file.
 - Footer: `add_page_numbers` supplies fields. `prefix:''`, `separator:' / '`
   is one available numbering treatment, not a required style.
 
@@ -99,8 +103,8 @@ for an existing paragraph). Use a carrier when the content has that job, never a
 - **Caption**: the paragraph under a table or picture, `size:9, color:'6B7280', spacingBefore:4,
   spacingAfter:14`: what it shows and its source.
 - **Two columns**: not a paragraph property; long prose that wants two columns is a section of its own
-  and stays one column here — use a table with two borderless cells only for a short side-by-side (a
-  before/after, a term and its definition), never for running text.
+  with `set_page properties:{ columns:2 }` (Control map) — use a table with two borderless cells only for a
+  short side-by-side (a before/after, a term and its definition), never for running text.
 - **Table anatomy**: the default (a bold header on a rule, hairlines between rows, figures right through
   `columnAlignments`, every cell on its bottom edge so a Latin-only figure and a Hangul one share the row's
   baseline) is the anatomy; `shading` on the header only when the document's fields use the same tint. A

@@ -4,7 +4,7 @@
  * decided by the command alone, so they hold wherever the host runs.
  */
 import type { ComputerCommand } from '../shared/types';
-import { normalizeComputerKeySequence } from './keyboard';
+import { KEY_SEQUENCE_ACTIONS, normalizeComputerKeySequence } from './keyboard';
 import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
 import { schemaStringLength } from '../../../../../../src/runtime/shared/schema-value-error.mjs';
 
@@ -20,7 +20,7 @@ export const BLOCKED_COMPUTER_KEY_PATTERN_SOURCE = [
   String.raw`(?=[%+^]*%)[%+^]*\{F4(?:\s+\d{1,3})?\}`,
   String.raw`(?=[%+^]*\^)(?=[%+^]*%)[%+^]*\{(?:DEL|DELETE|END)(?:\s+\d{1,3})?\}`,
   String.raw`(?=[%+^]*\+)[%+^]*\{(?:DEL|DELETE)(?:\s+\d{1,3})?\}`,
-  String.raw`#(?:L|\{L\})`,
+  String.raw`(?=[%+^#]*#)[%+^#]*(?:L|\{L\})`,
 ]
   .map((source) => `(?:${source})`)
   .join('|');
@@ -197,7 +197,7 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
   if (command.action === 'window_state' && !['minimize', 'maximize', 'restore'].includes(String(command.state || ''))) {
     throw new Error('invalid_window_state: state must be minimize, maximize, or restore');
   }
-  if (command.action === 'key') {
+  if (KEY_SEQUENCE_ACTIONS.has(String(command.action || ''))) {
     if (typeof command.keys !== 'string') {
       throw new Error('invalid_key_chord: keys must be a string');
     }

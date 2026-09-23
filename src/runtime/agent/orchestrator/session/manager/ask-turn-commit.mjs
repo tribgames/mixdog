@@ -145,6 +145,7 @@ export async function recordAskUsage({ session, result, askStartedAt, turnSignal
         outputTokens,
         cacheReadTokens,
         cacheWriteTokens,
+        cacheWrite1hTokens: result.usage.cacheWrite1hTokens || 0,
       });
     } catch {
       /* best-effort */

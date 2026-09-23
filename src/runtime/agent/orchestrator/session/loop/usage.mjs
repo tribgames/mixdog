@@ -21,6 +21,7 @@ export function normalizeUsage(usage) {
     ...reasoningUsage(usage),
     cachedTokens: usage.cachedTokens || 0,
     cacheWriteTokens: usage.cacheWriteTokens || 0,
+    cacheWrite1hTokens: usage.cacheWrite1hTokens || 0,
     promptTokens: usage.promptTokens || 0,
     ...(Number.isFinite(costUsd) ? { costUsd } : {}),
     ...(contextTokens ? { contextTokens } : {}),
@@ -83,6 +84,7 @@ export function addUsage(total, usage) {
     ...combineReasoningUsage(total, delta),
     cachedTokens: (total.cachedTokens || 0) + delta.cachedTokens,
     cacheWriteTokens: (total.cacheWriteTokens || 0) + delta.cacheWriteTokens,
+    cacheWrite1hTokens: (total.cacheWrite1hTokens || 0) + delta.cacheWrite1hTokens,
     promptTokens: (total.promptTokens || 0) + delta.promptTokens,
   };
   if (delta.costUsd != null || total.costUsd != null) {

@@ -334,7 +334,7 @@ export function updateSessionRoute(id, route = {}) {
     (route.provider && route.provider !== previousProvider) || (route.model && route.model !== previousModel);
   applyRouteContextWindow(session, routeChanged, Object.hasOwn(route, 'selectedContextWindow'));
   if (routeChanged) resetSessionForRouteChange(id, session, previousModel, previousProvider);
-  // Route fields feed the `# Session` prompt block (Model: … · EFFORT · FAST).
+  // The model feeds the `# Session` prompt block (`Model: …`).
   // Rebuild it here: createSession stamped the block with the creation-time
   // route and set sessionStartMetaInjected, so the ask-time refresh guard
   // skips it and an empty-session route change would otherwise keep the old

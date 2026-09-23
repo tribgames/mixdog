@@ -9,6 +9,7 @@ import { globalShortcut, screen } from 'electron';
 import { computerUseCoordinator, type ComputerUseSnapshot } from '../session/coordinator';
 import { createComputerOverlayController, type ComputerUseOverlayControls } from './controls';
 import { createComputerUseCursorOverlay } from './cursor-overlay';
+import { createComputerUseKeyboardOverlay } from './keyboard-overlay';
 import { computerUseOverlayPresentation } from './model';
 import { createOverlayFade } from './overlay-fade';
 import { createOverlayWindows } from './overlay-windows';
@@ -24,6 +25,7 @@ export interface ComputerUseOverlay {
 
 export function createComputerUseOverlay(controls: ComputerUseOverlayControls, locale = 'en'): ComputerUseOverlay {
   const cursorOverlay = createComputerUseCursorOverlay();
+  const keyboardOverlay = createComputerUseKeyboardOverlay();
   let disposed = false;
   let latestSnapshot: ComputerUseSnapshot = computerUseCoordinator.snapshot();
   let latestPresentation = computerUseOverlayPresentation(latestSnapshot, locale);
@@ -149,6 +151,7 @@ export function createComputerUseOverlay(controls: ComputerUseOverlayControls, l
       if (shortcutRegistered) globalShortcut.unregister(STOP_SHORTCUT);
       windows.destroyAll();
       cursorOverlay.dispose();
+      keyboardOverlay.dispose();
     },
   };
 }

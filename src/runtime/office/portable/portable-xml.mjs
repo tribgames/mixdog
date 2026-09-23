@@ -136,7 +136,8 @@ export function paragraphTexts(xml, tag) {
 }
 
 // Text of a block as a reader sees it: runs joined as written (a bold run mid-sentence carries no
-// space), a line break (<a:br>, <w:br>) as '\n', and paragraphs (<a:p>, <w:p>) separated by '\n'.
+// space), a line break (<a:br>, <w:br>) as '\n', a run's tab (<w:tab/>, never a tab-stop definition,
+// which carries attributes) as '\t', and paragraphs (<a:p>, <w:p>) separated by '\n'.
 // paragraphTexts() keeps the raw run list for editing; this is the read side.
 // The scan is a token walk, not a paragraph extraction, so a slice that starts or ends inside a
 // paragraph (a comment range, a revision span) keeps every run and still marks the paragraph ends
@@ -147,11 +148,14 @@ export function blockText(xml, tag) {
   const token = new RegExp(
     `<${run}(?:\\s[^>]*)?>([\\s\\S]*?)</${run}>` +
       `|<${prefix}:br\\b(?:[^>]*?/>|[^>]*>[\\s\\S]*?</${prefix}:br>)` +
+      `|(<${prefix}:tab\\s*/>)` +
       `|</${prefix}:p>|<${prefix}:p\\b[^>]*/>`,
     'g'
   );
   let text = '';
-  for (const match of String(xml || '').matchAll(token)) text += match[1] === undefined ? '\n' : xmlDecode(match[1]);
+  for (const match of String(xml || '').matchAll(token)) {
+    text += match[2] ? '\t' : match[1] === undefined ? '\n' : xmlDecode(match[1]);
+  }
   return text.replace(/\n+$/, '');
 }
 

@@ -14,6 +14,7 @@ import { expandTemplatePageOperations } from '../design/library/design-template-
 import { assertOfficeMutationAllowed } from '../quality/assurance.mjs';
 import { inlineOfficeAudit } from '../quality/inline-audit.mjs';
 import { DEFAULT_SERIES_COLORS } from '../portable/portable-chart.mjs';
+import { pageSizePoints } from '../shared/page-sizes.mjs';
 import {
   TABULAR_FORMATS,
   emptyOfficeDesignState,
@@ -40,6 +41,18 @@ function withSharedChartDefaults(session, operations) {
       ? { ...operation, seriesColors: [...DEFAULT_SERIES_COLORS] }
       : operation
   );
+}
+
+// A Word page is named the way a PDF page is (`letter`, `a4`, or [width, height] in points). The name is
+// resolved here once, so Word and the portable writer receive the same two numbers.
+function withPageSizePoints(session, operations) {
+  if (session.format !== 'docx') return operations;
+  return operations.map((operation) => {
+    if (operation?.op !== 'set_page' || operation.properties?.pageSize == null) return operation;
+    const { pageSize, ...properties } = operation.properties;
+    const [pageWidth, pageHeight] = pageSizePoints(pageSize, 'set_page pageSize');
+    return { ...operation, properties: { ...properties, pageWidth, pageHeight } };
+  });
 }
 
 // Operations whose `path` names a file the caller supplied relative to its cwd.
@@ -258,6 +271,7 @@ async function prepareBatchOperations(session, args) {
       }
     }
   }
+  operations = withPageSizePoints(session, operations);
   return { prepared, operations };
 }
 // Marks the open transaction as applying and journals that; a journal that

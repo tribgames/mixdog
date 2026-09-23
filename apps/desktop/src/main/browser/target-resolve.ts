@@ -157,8 +157,14 @@ export function selectBrowserTarget(
   if (matches.length === 1) return matches[0];
   const verbatim = wantedName ? matches.filter((element) => compact(element.name).toLowerCase() === wantedName) : [];
   if (verbatim.length === 1) return verbatim[0];
+  // Suggest only the refinements this target does not already use.
+  const refinements = ['nth'];
+  if (target.name && !target.exact) refinements.push('exact:true');
+  if (!target.role) refinements.push('a role');
+  const last = refinements.pop();
+  const hint = refinements.length ? `${refinements.join(', ')} or ${last}` : last;
   throw new Error(
-    `target ${described} matched ${matches.length} elements; add nth, exact:true, or a role, ` +
+    `target ${described} matched ${matches.length} elements; add ${hint}, ` +
       `or act on one of these refs from the fresh snapshot:\n${listCandidates(matches)}`
   );
 }

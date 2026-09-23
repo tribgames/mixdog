@@ -26,8 +26,12 @@ public static class MixWin32 {
   public static object PointerProgress = new object();
   public static int PointerEventsFailed;
   public static List<string> Events = new List<string>();
+  // The real worker measures the travel the overlay is about to animate and
+  // publishes it here; the fixture stands in with one fixed travel.
+  public static int LastGlideWaitMs = 0;
   public static void ReportPointer(int x,int y,bool held,string phase) {
     Events.Add(x + "," + y + "," + phase);
+    if (phase == "prepare") LastGlideWaitMs = 200;
   }
 }
 '@
@@ -46,7 +50,8 @@ function Invoke-BackgroundWindow($target,$operation) {
 $script:inputs = 0
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $result = Invoke-BackgroundSemantic 's1:e0' { return @{ delivery_accepted=$true; text='private input' } }
-if ($clock.ElapsedMilliseconds -lt 300) { throw 'input acted before the presented pointer could arrive' }
+if ($clock.ElapsedMilliseconds -lt 180) { throw 'input acted before the presented pointer could arrive' }
+if ($clock.ElapsedMilliseconds -gt 340) { throw 'input waited past the pointer it was following' }
 if ($result.text -ne 'private input') { throw 'input result changed' }
 if (([MixWin32]::Events -join ';') -ne '320,240,prepare;320,240,release') { throw 'missing click feedback' }
 [MixWin32]::Events.Clear()
@@ -69,7 +74,7 @@ if ([MixWin32]::PointerEventsFailed -ne 0) { throw 'completed input queried the 
 $script:missingBounds = $true
 $clock.Restart()
 $null = Invoke-BackgroundSemantic 's1:e0' { return @{ delivery_accepted=$true } }
-if ($clock.ElapsedMilliseconds -ge 300) { throw 'input waited for a pointer that was never presented' }
+if ($clock.ElapsedMilliseconds -ge 150) { throw 'input waited for a pointer that was never presented' }
 if ([MixWin32]::PointerEventsFailed -ne 1) { throw 'visual failure not recorded' }
 if ($script:inputs -ne 6) { throw 'input replayed or blocked by visual failure' }
 [Console]::WriteLine('BACKGROUND_FEEDBACK_OK')

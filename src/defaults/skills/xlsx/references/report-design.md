@@ -42,7 +42,7 @@ characters; colors are hex without `#`.
 
 - **Sheets by job**: `Report` (or `Summary`) first — the finding, the important measures, one or two native
   charts, the print area; `Data` / `Inputs` — one rectangular table per sheet, header in row 1, `freeze_panes
-  row:1`, `add_table` for records, `add_autofilter`; `Calc` — formulas that read the inputs, one formula per row
+  row:1`, `add_table` for records, `set_autofilter`; `Calc` — formulas that read the inputs, one formula per row
   copied across; `Checks` — the tie-outs (`model-conventions.md` §4). The report links to the model
   (`=Calc!B12`), never repeats a number by hand; a workbook with one table needs one sheet.
 - **Title block on a report**: A1 eyebrow (`fontSize:9, bold:true, color:<accent>`), A2 title (`fontSize:16,

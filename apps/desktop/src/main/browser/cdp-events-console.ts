@@ -4,6 +4,7 @@ import type { WebContents } from 'electron';
 
 import { type BrowserConsoleArgument, formatConsoleArguments, formatConsoleSource } from './console-format';
 import { type BrowserGuestStateStore, pushBounded } from './guest-state';
+import { explainNetworkFailure } from './network';
 import { redactBrowserUrl } from './redaction';
 
 type CdpParams = Record<string, unknown>;
@@ -55,12 +56,12 @@ export function onConsoleApiCalled(state: BrowserGuestStateStore, guest: WebCont
 export function onLogEntryAdded(state: BrowserGuestStateStore, guest: WebContents, params: CdpParams): void {
   const entry = params.entry as { level?: string; text?: string; url?: string; lineNumber?: number } | undefined;
   if (!entry || isBrowserComponentUrl(entry.url)) return;
-  state
-    .for(guest)
-    .console.record(
-      entry.level,
-      `${entry.level}: ${entry.text || ''}${entry.url ? formatConsoleSource(redactBrowserUrl(entry.url), entry.lineNumber) : ''}`
-    );
+  const diagnostics = state.for(guest);
+  const refusal = entry.url ? diagnostics.refusedRequests.get(entry.url) : undefined;
+  diagnostics.console.record(
+    entry.level,
+    `${entry.level}: ${explainNetworkFailure(entry.text || '', refusal)}${entry.url ? formatConsoleSource(redactBrowserUrl(entry.url), entry.lineNumber) : ''}`
+  );
 }
 
 export function onLoadingFailed(
@@ -71,6 +72,9 @@ export function onLoadingFailed(
 ): void {
   const diagnostics = state.for(guest);
   const request = diagnostics.network.loadingFailed(params, sessionId);
+  if (request) {
+    request.failure = explainNetworkFailure(request.failure || 'failed', diagnostics.refusedRequests.get(request.url));
+  }
   // Chromium cancels a request when the address turns into a download,
   // when the page abandons a fetch, and when a navigation replaces it.
   // None of those is a fault of the page, so a cancelled request stays in

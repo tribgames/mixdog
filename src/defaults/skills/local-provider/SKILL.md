@@ -58,8 +58,7 @@ available before Local Provider is installed or enabled.
    follow progress, without repeating the mutation.
 3. Completion requires
    `runtime.installed` and the selected model's `installed` to be true.
-   Installation status and progress are also visible in the Local Provider
-   detail dialog. A lost tool response is not proof that installation failed:
+   A lost tool response is not proof that installation failed:
    inspect this domain before deciding whether another attempt is needed.
 4. Existing disabled installations stay disabled unless activation was approved.
    Use `set_builtin_enabled` with `name: localProvider` and `enabled: true` for

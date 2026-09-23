@@ -195,6 +195,14 @@ export function createPowerShellComputerHost(
     freshObservedWindowScope: sessionState.freshObservedWindowScope,
     captureAfterAction: captureEngine.captureAfterAction,
     runCommand: (command) => router.runCommand(command),
+    releaseCursorTheme: async (command) => {
+      const response = await callPowerShell({
+        action: 'release_cursor_theme',
+        session_id: sessionIdFor(command),
+        read_only: false,
+      });
+      if (!response.ok) throw new Error(response.error || 'input_cleanup_unconfirmed: cursor theme still held');
+    },
   });
   const router = createCommandRouter({
     policy,

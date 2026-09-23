@@ -38,6 +38,16 @@ void app
         preload: join(process.env.OVERLAY_TEST_DIRECTORY!, 'preload/computer-overlay.js'),
       },
     });
+    // The shipped overlay is hardened after creation, and each of those calls
+    // changes how Windows treats the window. A native press must survive them,
+    // or the controls are dead exactly where the user reaches for them.
+    window.setAlwaysOnTop(true, 'screen-saver');
+    window.setContentProtection(true);
+    try {
+      window.setVisibleOnAllWorkspaces(true, { skipTransformProcessType: true, visibleOnFullScreen: true });
+    } catch {
+      // Best effort, as in the shipped path.
+    }
     // A renderer failure otherwise surfaces only as the generic "script failed to execute".
     window.webContents.on('console-message', (event) => {
       process.stderr.write(`renderer console [${event.level}] ${event.message}\n`);
@@ -99,7 +109,7 @@ void app
       window.mixdogComputerOverlay({paused:false,canResume:false,generation:7,renderRevision:2});
       ({ label: document.getElementById('toggle').getAttribute('aria-label'),
          buttons: [...document.querySelectorAll('button')].filter((b) => !b.hidden).length })`);
-      assert.deepEqual(running, { label: '중단', buttons: 1 });
+      assert.deepEqual(running, { label: '중단', buttons: 2 });
       await checkOverlayOutline(window.webContents);
       // Unlike button.click(), native hit-testing exercises a non-activating
       // transparent window and mouse down/up while takeover changes its layout.
@@ -163,6 +173,7 @@ void app
               pausedSessionIds: ['fixture'],
               activities: [],
               cursors: [],
+              keystrokes: [],
               targetLeases: [],
             },
             locale,
@@ -193,10 +204,12 @@ void app
           assert.equal(observed.moving, !presentation.paused);
           assert.equal(observed.fits, true, `${locale}/${reason} overflows`);
           assert.equal(observed.pillWidth, OVERLAY_WIDTH - 20, `${locale}/${reason} must keep the same compact width`);
-          assert.equal(observed.buttons, presentation.attention ? 2 : 1);
+          // Both controls stay visible in every state: the toggle carries the
+          // state in its wording, and Stop is always one click away.
+          assert.equal(observed.buttons, 2);
           const labels = locale === 'ko' ? { resume: '재개', pause: '중단' } : { resume: 'Resume', pause: 'Pause' };
           assert.equal(observed.label, presentation.paused ? labels.resume : labels.pause);
-          assert.equal(observed.disabled, presentation.paused && !presentation.canResume);
+          assert.equal(observed.disabled, false);
           toggleBounds ??= observed.toggleBounds;
           assert.deepEqual(observed.toggleBounds, toggleBounds, `${locale}/${reason} moved the toggle hit target`);
           layout.push({ locale, reason, ...observed });

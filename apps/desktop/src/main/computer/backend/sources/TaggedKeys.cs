@@ -48,11 +48,15 @@ public static class MixTaggedKeys
                     at++; return nodes;
                 }
                 var node = new Node();
-                while (at < source.Length && "^%+".IndexOf(source[at]) >= 0)
+                // '#' is the Windows key (VK_LWIN), which SendKeys cannot name; as
+                // the last character it stays the literal '#'.
+                while (at < source.Length && "^%+#".IndexOf(source[at]) >= 0 &&
+                    !(source[at] == '#' && at + 1 >= source.Length))
                 {
                     ushort modifier = 0x10;
                     if (source[at] == '^') modifier = 0x11;
                     else if (source[at] == '%') modifier = 0x12;
+                    else if (source[at] == '#') modifier = 0x5B;
                     if (node.Modifiers.Contains(modifier)) Invalid();
                     node.Modifiers.Add(modifier); at++;
                 }
@@ -101,12 +105,18 @@ public static class MixTaggedKeys
         {
             var modifiers = new System.Collections.Generic.HashSet<ushort>(inherited);
             foreach (var modifier in node.Modifiers) modifiers.Add(modifier);
+            if (node.Children != null) Validate(node.Children, modifiers);
+            else if (node.Text != null && modifiers.Count > 0) ResolveTextKey(node, modifiers);
+            // Checked after a letter resolves to its key, so a chord cannot slip
+            // past as text.
             if (node.Key == 0x73 && modifiers.Contains(0x12))
             {
                 throw new System.Exception("unsafe_key: Alt+F4 is blocked");
             }
-            if (node.Children != null) Validate(node.Children, modifiers);
-            else if (node.Text != null && modifiers.Count > 0) ResolveTextKey(node, modifiers);
+            if (node.Key == 0x4C && modifiers.Contains(0x5B))
+            {
+                throw new System.Exception("unsafe_key: Win+L is blocked");
+            }
         }
     }
     static void Execute(System.Collections.Generic.List<Node> nodes, IMixKeySink sink, System.Collections.Generic.HashSet<ushort> held)
@@ -146,10 +156,15 @@ public static class MixTaggedKeys
     // demand modifiers the caller never wrote.
     static void ResolveTextKey(Node node, System.Collections.Generic.HashSet<ushort> modifiers)
     {
-        short mapping = VkKeyScan(node.Text[0]);
+        char glyph = node.Text[0];
+        short mapping = VkKeyScan(glyph);
         if (mapping == -1) throw new System.Exception("invalid_keys: character has no modified-key mapping");
         node.Key = (ushort)(mapping & 255); node.Text = null;
-        if ((mapping & 0x100) != 0 && !modifiers.Contains(0x10)) node.Modifiers.Add(0x10);
+        // A letter's case names the key, not a shift: '^S' and '^s' are both
+        // Ctrl+S. Shift is written as '+', so only glyphs that cannot be typed
+        // without it bring that modifier along on their own.
+        bool letter = (glyph >= 'A' && glyph <= 'Z') || (glyph >= 'a' && glyph <= 'z');
+        if (!letter && (mapping & 0x100) != 0 && !modifiers.Contains(0x10)) node.Modifiers.Add(0x10);
         if ((mapping & 0x200) != 0 && !modifiers.Contains(0x11)) node.Modifiers.Add(0x11);
         if ((mapping & 0x400) != 0 && !modifiers.Contains(0x12)) node.Modifiers.Add(0x12);
     }

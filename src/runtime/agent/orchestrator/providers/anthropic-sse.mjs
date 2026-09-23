@@ -169,7 +169,8 @@ export async function parseSSEStream(
   onToolCall,
   state,
   onTextDelta,
-  knownToolNames
+  knownToolNames,
+  { relayProgressUpdates = false } = {}
 ) {
   // Anthropic/Claude parity: every received SSE byte proves transport
   // activity, including comment and named ping keepalives. Content kinds
@@ -183,7 +184,14 @@ export async function parseSSEStream(
       onStreamDelta?.(kind);
     } catch {}
   };
-  const turn = createAnthropicSseTurn({ state, onStreamDelta, onToolCall, onTextDelta, knownToolNames });
+  const turn = createAnthropicSseTurn({
+    state,
+    onStreamDelta,
+    onToolCall,
+    onTextDelta,
+    knownToolNames,
+    relayProgressUpdates,
+  });
   const watchdogs = createAnthropicSseWatchdogs({
     state,
     reader,

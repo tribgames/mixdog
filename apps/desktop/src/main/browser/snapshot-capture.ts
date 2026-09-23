@@ -50,7 +50,9 @@ export interface BrowserSnapshotCaptureHost {
  *  report has to say so rather than let a long page read as a short one. */
 function pageInfoExpression(snapshotTextChars: number): string {
   return `(() => {
-      const raw = String(document.body ? (document.body.innerText || document.body.textContent || '') : '');
+      // A <frameset> body holds only the unseen <noframes> fallback.
+      const readable = document.body && document.body.tagName !== 'FRAMESET';
+      const raw = String(readable ? (document.body.innerText || document.body.textContent || '') : '');
       const normalized = raw.slice(0, ${snapshotTextChars * 4}).replace(/\\s+/g, ' ').trim();
       return {
         url: String(location.href),

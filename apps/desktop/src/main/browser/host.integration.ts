@@ -503,6 +503,10 @@ async function run(): Promise<void> {
     const ghostStartedAt = Date.now();
     const ghost = await command({ action: 'click', ref: blockedSpaRef, tab: 'alpha' });
     assert.match(ghost.text, /dialog is blocking the page/i);
+    // Refused before dispatch and opened by a dispatched click read differently,
+    // because neither may be replayed blindly.
+    assert.match(ghost.text, /This action was not sent/);
+    if (/dialog is blocking the page/i.test(blocked.text)) assert.match(blocked.text, /The action ran; do not repeat it/);
     assert.ok(Date.now() - ghostStartedAt < 1_000, 'a blocked gesture returns without dispatching');
     alpha = await command({ action: 'handle_dialog', accept: false, tab: 'alpha' });
     assert.match(alpha.text, /Dialog dismissed/);
@@ -690,6 +694,9 @@ async function run(): Promise<void> {
       tab: 'alpha',
     });
     assert.match(limitedProducts.text, /showing 1 of 3 matches/);
+    // Table rows keep their cell boundaries and name the header once.
+    const ledger = await command({ action: 'extract', selector: '#ledger tbody tr', tab: 'alpha' });
+    assert.match(ledger.text, /Columns: Last name \| First name\n1\. Smith John \| Jr\n2\. Doe \| Jane/);
     await assert.rejects(
       command({ action: 'extract', selector: 'li..broken', tab: 'alpha' }),
       /not a valid CSS selector/
@@ -706,13 +713,15 @@ async function run(): Promise<void> {
       tab: 'alpha',
     });
     assert.match(roleOptions.text, /Options for [\w-]+ \(2\)/);
-    assert.match(roleOptions.text, /- Designer/);
-    assert.match(roleOptions.text, /- Engineer/);
+    // The listing marks the current choice so reading options needs no snapshot.
+    assert.match(roleOptions.text, /- Designer \[selected\]$/m);
+    assert.match(roleOptions.text, /- Engineer$/m);
     const scrolledToText = await command({
       action: 'scroll',
       text: 'Extended snapshot tail',
       tab: 'alpha',
     });
+    assert.match(scrolledToText.text, /Scrolled to ".*Extended snapshot tail.*"\./);
     assert.match(scrolledToText.text, /Snapshot: /);
     await assert.rejects(
       command({ action: 'scroll', text: 'no such phrase on this fixture', tab: 'alpha' }),
@@ -1468,6 +1477,14 @@ async function run(): Promise<void> {
     );
     const afterCovered = await command({ action: 'read', tab: 'frames' });
     assert.doesNotMatch(afterCovered.text, /WRONG TARGET/);
+    // A frameset reads as its frames, never as the <noframes> fallback it hides.
+    const frameset = await command({ action: 'navigate', url: `${origin}/frameset`, background: true, tab: 'frameset' });
+    const framesetRead = await command({ action: 'read', tab: 'frameset' });
+    for (const report of [frameset.text, framesetRead.text]) {
+      assert.doesNotMatch(report, /Frames are not rendering/);
+      assert.match(report, /Left pane text/);
+    }
+    await command({ action: 'close_tab', tab: 'frameset' });
     progress('cross-origin frame accessibility complete');
 
     turnId = 411;
@@ -1665,18 +1682,26 @@ async function run(): Promise<void> {
   }
 }
 
+// Chromium can hold profile files briefly after the host closes; retry so the
+// profile does not stay behind, and never let cleanup change the verdict.
+async function removeProfile() {
+  await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => {
+    /* a still-held file leaves the disposable profile for the OS temp cleanup */
+  });
+}
+
 progress('waiting for Electron ready');
 void app
   .whenReady()
   .then(async () => {
     progress('Electron ready');
     await run();
-    await rm(profile, { recursive: true, force: true });
+    await removeProfile();
     app.exit(0);
   })
   .catch(async (error) => {
     console.error(error);
-    await rm(profile, { recursive: true, force: true });
+    await removeProfile();
     process.exitCode = 1;
     app.exit(1);
   });

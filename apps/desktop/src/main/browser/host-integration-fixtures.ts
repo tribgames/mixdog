@@ -75,6 +75,22 @@ export function createBrowserPageFixture(frameOrigin: () => string): {
           document.querySelector('#state').textContent = 'Guard armed';">Arm guard</button>`);
       return;
     }
+    if (path === '/refused-resource') {
+      response.end(`<!doctype html><title>Refused resource fixture</title>
+        <img src="http://10.255.255.1/pixel.png" alt=""><p>Refused resource page</p>`);
+      return;
+    }
+    if (path === '/frameset') {
+      response.end(`<html><head><title>Frameset fixture</title></head>
+        <frameset cols="50%,50%"><frame src="/frameset-pane?side=Left"><frame src="/frameset-pane?side=Right">
+        <noframes>Frames are not rendering.</noframes></frameset></html>`);
+      return;
+    }
+    if (path === '/frameset-pane') {
+      const side = new URL(request.url || '/', origin).searchParams.get('side') === 'Right' ? 'Right' : 'Left';
+      response.end(`<!doctype html><title>${side} pane</title><p>${side} pane text</p>`);
+      return;
+    }
     if (path === '/tall') {
       response.end(`<!doctype html><title>Tall fixture</title>
         <section id="tall-report" aria-label="Tall report"
@@ -86,8 +102,7 @@ export function createBrowserPageFixture(frameOrigin: () => string): {
         <p id="state">Waiting</p>
         <label>Password <input type="password" value="do-not-leak-password"></label>
         <button onclick="setTimeout(() => { const state = document.querySelector('#state'); const count = Number(state.dataset.spa || 0) + 1; state.dataset.spa = count; state.textContent = 'SPA done ' + count; }, 100)">Update SPA</button>
-        <button onclick="document.querySelector('#state').textContent = confirm('Proceed with fixture?') ? 'Dialog accepted' : 'Dialog dismissed'">Open dialog</button>
-        <a href="${origin}/popup" target="_blank">Open popup</a>
+        <button onclick="document.querySelector('#state').textContent = confirm('Proceed with fixture?') ? 'Dialog accepted' : 'Dialog dismissed'">Open dialog</button>        <a href="${origin}/popup" target="_blank">Open popup</a>
         <button onclick="setTimeout(() => { const target = document.querySelector('#self-heal'); target.replaceWith(target.cloneNode(true)); }, 700)">Arm rerender</button>
         <button id="self-heal" onclick="document.querySelector('#state').textContent = 'Self-heal clicked'">Self-heal target</button>
         <label>First name <input aria-label="First name"></label>
@@ -122,6 +137,8 @@ export function createBrowserPageFixture(frameOrigin: () => string): {
           <li class="product" data-price="3400">Widget two</li>
           <li class="product" data-price="5600">Widget three</li>
         </ul>
+        <table id="ledger"><thead><tr><th>Last name</th><th>First name</th></tr></thead>
+          <tbody><tr><td>Smith John</td><td>Jr</td></tr><tr><td>Doe</td><td>Jane</td></tr></tbody></table>
         <p id="visual-state">Visual idle</p>
         <div aria-hidden="true" onmouseenter="document.querySelector('#visual-state').textContent = 'Visual hovered'"
           onclick="const state = document.querySelector('#visual-state'); const count = Number(state.dataset.count || 0) + 1; state.dataset.count = count; state.textContent = 'Visual clicked ' + count"

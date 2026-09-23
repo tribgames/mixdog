@@ -46,6 +46,9 @@ export function createExecutionState() {
   const executionContext = new AsyncLocalStorage<ActiveExecution>();
   const sessionAbortEpochs = new Map<string, number>();
   const sessionRecoveryBySession = new Map<string, InputRecoveryState>();
+  // Where the user left their own pointer, kept for as long as a sequence runs.
+  // Every step restores to this, not to wherever the step before it stopped.
+  const sequenceCursorAnchor = new Map<string, InputRecoveryState>();
   const commandChainsBySession = new Map<string, Promise<unknown>>();
 
   function assertExecutionNotAborted(): void {
@@ -101,6 +104,7 @@ export function createExecutionState() {
     executionContext,
     sessionAbortEpochs,
     sessionRecoveryBySession,
+    sequenceCursorAnchor,
     commandChainsBySession,
     assertExecutionNotAborted,
     beginObservation,

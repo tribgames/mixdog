@@ -2,7 +2,7 @@
 // types, protected-part baseline and redlining checks.
 import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
-import { loadPackage, relationshipTarget, zipText } from './portable-opc.mjs';
+import { loadPackage, partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
 import { auditDocxRedliningStories, lintDocxRevisions } from './docx-revisions.mjs';
 import { OOXML_REQUIRED, xmlAttribute, xmlDecode } from './portable-xml.mjs';
 
@@ -208,6 +208,104 @@ async function relationshipIssues(zip, entries) {
   return { missingRelationships, duplicateRelationshipIds, externalRelationships };
 }
 
+// A part's relationships with their targets resolved to package paths; null
+// when the part has no relationships part.
+async function partRelationships(zip, part) {
+  const relPath = partRelationshipPath(part);
+  const xml = await zipText(zip, relPath);
+  if (!xml) return null;
+  return [...xml.matchAll(/<Relationship\b([^>]+?)\/?>/gi)].map((match) => ({
+    id: xmlAttribute(match[1], 'Id'),
+    type: xmlAttribute(match[1], 'Type'),
+    external: xmlAttribute(match[1], 'TargetMode').toLowerCase() === 'external',
+    part: relationshipTarget(relPath, xmlAttribute(match[1], 'Target')),
+  }));
+}
+
+const PRESENTATION_MASTER =
+  /^ppt\/(slideMasters|notesMasters|handoutMasters)\/(?:slide|notes|handout)Master(\d+)\.xml$/;
+const MASTER_GROUP_ORDER = { slideMasters: 0, notesMasters: 1, handoutMasters: 2 };
+const masterOrder = (name) => {
+  const [, group, number] = PRESENTATION_MASTER.exec(name);
+  return MASTER_GROUP_ORDER[group] * 1e6 + Number(number);
+};
+
+// Structures PowerPoint refuses to open, or opens only through a repair
+// prompt, although every part and relationship resolves: a slide on two
+// layouts, one notes page claimed by two slides, a master listing a layout its
+// relationships do not name, and two masters sharing one theme part.
+async function presentationFaults(zip, entries) {
+  const faults = [];
+  const fault = (code, part, message) => faults.push({ code, part, message });
+  const notesOwners = new Map();
+  for (const slide of entries.filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))) {
+    const relationships = (await partRelationships(zip, slide)) || [];
+    const layouts = relationships.filter((entry) => entry.type.endsWith('/slideLayout'));
+    if (layouts.length > 1) {
+      fault(
+        'slide_layout_duplicated',
+        slide,
+        `${slide} names ${layouts.length} slide layouts; a slide has exactly one.`
+      );
+    }
+    for (const notes of relationships.filter((entry) => entry.type.endsWith('/notesSlide') && !entry.external)) {
+      const owner = notesOwners.get(notes.part);
+      if (owner) {
+        fault(
+          'notes_slide_shared',
+          notes.part,
+          `${owner} and ${slide} share ${notes.part}; each slide owns its notes page.`
+        );
+      } else notesOwners.set(notes.part, slide);
+    }
+  }
+  // pptxgenjs points the notes master at the slide master's theme. PowerPoint
+  // opens that deck only while <p:notesMasterIdLst> directly follows <p:sldIdLst>.
+  const presentation = String((await zipText(zip, 'ppt/presentation.xml')) || '').replace(/<!--[\s\S]*?-->/g, '');
+  const notesShareTolerated =
+    /<p:sldIdLst\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/p:sldIdLst\s*>)\s*<p:notesMasterIdLst\b/.test(presentation);
+  const themeOwners = new Map();
+  const masters = entries
+    .filter((name) => PRESENTATION_MASTER.test(name))
+    .sort((left, right) => masterOrder(left) - masterOrder(right));
+  for (const master of masters) {
+    const relationships = await partRelationships(zip, master);
+    if (!relationships) continue;
+    if (master.startsWith('ppt/slideMasters/')) {
+      const layoutIds = new Set(
+        relationships.filter((entry) => entry.type.endsWith('/slideLayout')).map((entry) => entry.id)
+      );
+      for (const match of String((await zipText(zip, master)) || '').matchAll(/<p:sldLayoutId\b([^>]*?)\/?>/g)) {
+        const id = xmlAttribute(match[1], 'r:id');
+        if (id && !layoutIds.has(id)) {
+          fault(
+            'layout_reference_missing',
+            master,
+            `${master} lists layout ${id}, which its relationships do not name as a slide layout.`
+          );
+        }
+      }
+    }
+    const theme = relationships.find((entry) => entry.type.endsWith('/theme') && !entry.external)?.part;
+    if (!theme || !zip.file(theme)) continue;
+    const owner = themeOwners.get(theme);
+    if (!owner) {
+      themeOwners.set(theme, master);
+      continue;
+    }
+    if (master.startsWith('ppt/notesMasters/') && notesShareTolerated) continue;
+    fault(
+      'master_theme_shared',
+      master,
+      `${master} shares ${theme} with ${owner}; ` +
+        (master.startsWith('ppt/notesMasters/')
+          ? 'move <p:notesMasterIdLst> to directly after <p:sldIdLst> in ppt/presentation.xml, or give the notes master its own theme.'
+          : 'give each master its own theme part.')
+    );
+  }
+  return faults;
+}
+
 async function docxDocumentLint(zip, storyParts) {
   return lintDocxRevisions(
     [...storyParts].map(([part, xml]) => ({ part, xml })),
@@ -235,11 +333,13 @@ function ooxmlPackageOk({
   malformedXml,
   contentTypes,
   relationships,
+  presentation,
   baseline,
   redlining,
 }) {
   return (
     missing.length === 0 &&
+    presentation.length === 0 &&
     !documentLint.some((finding) => finding.severity === 'error') &&
     findings.unsafeEntries.length === 0 &&
     malformedXml.length === 0 &&
@@ -263,6 +363,7 @@ export async function validatePortableOoxml(path, format, options = {}) {
   const malformedXml = await inspectXmlParts(zip, entries);
   const contentTypes = contentTypeCoverage(entries, await zipText(zip, '[Content_Types].xml'), format);
   const relationships = await relationshipIssues(zip, entries);
+  const presentation = format === 'pptx' ? await presentationFaults(zip, entries) : [];
   const baseline = await baselinePackage(zip, options.original, { savedBy: options.savedBy, chartWorkbooks });
   // The lint and the redlining audit read the same story parts; reading them
   // once keeps a redlining docx from unpacking every story twice.
@@ -280,6 +381,7 @@ export async function validatePortableOoxml(path, format, options = {}) {
       malformedXml,
       contentTypes,
       relationships,
+      presentation,
       baseline,
       redlining,
     }),
@@ -301,6 +403,7 @@ export async function validatePortableOoxml(path, format, options = {}) {
     missingRelationships: relationships.missingRelationships,
     duplicateRelationshipIds: relationships.duplicateRelationshipIds,
     externalRelationships: relationships.externalRelationships,
+    presentationFaults: presentation,
     ...contentTypes,
     baseline,
     redlining,

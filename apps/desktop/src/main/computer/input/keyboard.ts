@@ -27,7 +27,30 @@ const KEY_ALIASES = new Map<string, string>([
   ['del', 'DELETE'],
   ['plus', 'PLUS'],
   ['minus', 'MINUS'],
+  // A modifier is a key in its own right when it is held or tapped alone,
+  // which is what key_down/key_up ask for.
+  ['shift', 'SHIFT'],
+  ['ctrl', 'CTRL'],
+  ['control', 'CTRL'],
+  ['alt', 'ALT'],
+  ['capslock', 'CAPSLOCK'],
+  ['numlock', 'NUMLOCK'],
+  ['scrolllock', 'SCROLLLOCK'],
+  ['win', 'LWIN'],
+  ['windows', 'LWIN'],
+  ['lwin', 'LWIN'],
+  ['super', 'LWIN'],
+  ['meta', 'LWIN'],
+  ['apps', 'APPS'],
+  ['contextmenu', 'APPS'],
+  ['printscreen', 'PRTSC'],
+  ['prtsc', 'PRTSC'],
+  ['prtscr', 'PRTSC'],
+  ['pause', 'PAUSE'],
 ]);
+
+/** Actions whose `keys` field carries a sequence that must be normalized. */
+export const KEY_SEQUENCE_ACTIONS = new Set(['key', 'key_down', 'key_up']);
 
 const MODIFIER_GRAMMAR = new Map<string, string>([
   ['ctrl', '^'],
@@ -37,6 +60,12 @@ const MODIFIER_GRAMMAR = new Map<string, string>([
   ['alt', '%'],
   ['option', '%'],
   ['shift', '+'],
+  // The Windows key; the worker grammar spells it '#'.
+  ['win', '#'],
+  ['windows', '#'],
+  ['window', '#'],
+  ['super', '#'],
+  ['meta', '#'],
 ]);
 
 const LEGACY_NAMED_KEYS = new Set([...KEY_ALIASES.values(), 'NUMLOCK', 'CAPSLOCK', 'SCROLLLOCK']);
@@ -77,7 +106,11 @@ function canonicalChord(value: string): string | undefined {
     if (!match) break;
     const grammar = MODIFIER_GRAMMAR.get(canonicalToken(match[1]));
     if (!grammar) {
-      throw new Error(`invalid_key_chord: unsupported modifier '${match[1]}'`);
+      // cmd/command is ambiguous on Windows: a macOS shortcut means ctrl, the
+      // key itself means win.
+      throw new Error(
+        `invalid_key_chord: unsupported modifier '${match[1]}'; on Windows use ctrl for app shortcuts or win for the Windows key`
+      );
     }
     if (!modifiers.includes(grammar)) modifiers.push(grammar);
     remaining = remaining.slice(match[0].length);
@@ -101,7 +134,7 @@ function validLegacySequence(value: string): boolean {
   let index = 0;
   while (index < value.length) {
     let modifierCount = 0;
-    while (index < value.length && '^%+'.includes(value[index])) {
+    while (index < value.length && '^%+#'.includes(value[index])) {
       modifierCount += 1;
       index += 1;
     }
@@ -132,7 +165,13 @@ export function normalizeComputerKeySequence(value: string): string {
   if (!raw) throw new Error('invalid_key_chord: key sequence is empty');
   const chord = canonicalChord(raw);
   if (chord) return chord;
-  if (/[\^%{}~()]/.test(raw) || raw.startsWith('+')) {
+  // A plus on its own is the character the caller wants. As a named token it
+  // would land on the '=' key it shares a virtual code with, and as grammar it
+  // would read as a shift prefix, so the worker receives it as literal text.
+  if (raw === '+' || canonicalToken(raw) === 'plus') return '+';
+  // A lone '#' is the character; longer, it is the Windows-key grammar this
+  // function itself emits, so normalizing twice stays stable.
+  if (/[\^%{}~()]/.test(raw) || raw.startsWith('+') || (raw.length > 1 && raw.includes('#'))) {
     if (validLegacySequence(raw)) return raw;
     throw new Error(`invalid_key_chord: malformed legacy key sequence '${raw}'`);
   }

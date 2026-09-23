@@ -27,6 +27,8 @@ interface RecoveryCheck {
   nativeResult: Record<string, unknown>;
   /** Visible input retains target focus for the action that follows it. */
   preserveFocusForFollowup: boolean;
+  /** More input follows in this sequence, so the pointer stays where it acts. */
+  holdCursor: boolean;
   readbackError: string;
 }
 
@@ -176,7 +178,8 @@ function recoveryVerdict(
     !focusRestored;
   const cursorRestored = cursorMatches(current, inputRecovery);
   return {
-    ok: (focusRestored || focusPreservedForFollowup) && cursorRestored,
+    ok: (focusRestored || focusPreservedForFollowup) && (cursorRestored || check.holdCursor),
+    ...(check.holdCursor ? { cursor_held_for_followup: true } : {}),
     focus_restored: focusRestored,
     focus_preserved_for_followup: focusPreservedForFollowup,
     focus_transition_to_child: focusPreservedForFollowup && current.foregroundChildProcess === true,
@@ -198,7 +201,8 @@ export async function verifyInputRecovery(
   targetWindowId: string | undefined,
   inputRecovery: InputRecoveryState,
   timings: Record<string, number>,
-  nativeResult: Record<string, unknown> = {}
+  nativeResult: Record<string, unknown> = {},
+  holdCursor = false
 ): Promise<Verdict> {
   const check: RecoveryCheck = {
     command,
@@ -207,6 +211,7 @@ export async function verifyInputRecovery(
     timings,
     nativeResult,
     preserveFocusForFollowup: preservesFocusForFollowup(command),
+    holdCursor,
     readbackError: '',
   };
   let current: InputRecoveryState | undefined;
@@ -229,11 +234,12 @@ export async function verifyInputRecovery(
     let reasserted = false;
     let restoredTarget = '';
     const focusDrifted = current.foregroundWindowId !== inputRecovery.restoreWindowId;
-    // Foreground input borrows the one system pointer, so every delivery mode
-    // gives the cursor back. The recovery call itself refuses to move a cursor
-    // the user touched in the meantime.
+    // Foreground input borrows the one system pointer and gives it back. A
+    // sequence gives it back once, at the step that ends it: returning the
+    // pointer between steps would send it across the screen twice for every
+    // click or keystroke that still has input behind it.
     const cursorDrifted = !cursorMatches(current, inputRecovery);
-    if (cursorDrifted || (focusDrifted && !check.preserveFocusForFollowup)) {
+    if ((cursorDrifted && !check.holdCursor) || (focusDrifted && !check.preserveFocusForFollowup)) {
       ({ current, restoredTarget } = await reassertInputState(host, check, current));
       reasserted = true;
     }

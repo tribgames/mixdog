@@ -3,7 +3,7 @@
  *
  * The /backend-api/codex/models query, its
  * 24h disk cache plus in-memory mirror, and the lookups the request path needs
- * (service tiers, "newest main model", "does the live model exist"). The
+ * (service tiers, default model, "does the live model exist"). The
  * endpoint returns richer metadata than /v1/models (context_window, reasoning
  * levels, visibility), so the catalog is normalized and enriched once here and
  * every consumer reads the same records.
@@ -18,10 +18,10 @@ import { modelSupportsServiceTier } from './model-service-tiers.mjs';
 import { warmCodexClientVersion } from './codex-client-meta.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { CODEX_OAUTH_ORIGINATOR, codexModelsUrl } from './openai-codex-endpoints.mjs';
-import { _normalizeCodexModel, _markLatestCodex, _compareVersion, _isMainCodexFamily } from './openai-codex-model.mjs';
+import { _normalizeCodexModel, _markLatestCodex } from './openai-codex-model.mjs';
 
 const CODEX_MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
-const CODEX_MODEL_CACHE_SCHEMA_VERSION = 3;
+const CODEX_MODEL_CACHE_SCHEMA_VERSION = 5;
 const CATALOG_FETCH_TIMEOUT_MS = 10_000;
 
 // In-memory mirror of the on-disk catalog, same pattern as anthropic-oauth.
@@ -63,15 +63,15 @@ export function codexModelSupportsServiceTier(id, serviceTier) {
   return modelSupportsServiceTier(findCachedCodexModel(id), serviceTier);
 }
 
-// Newest MAIN gpt-5 chat model by version, read from the SYNC in-memory
-// catalog mirror. Returns null until populated; callers warm via
-// ensureLatestCodexModel when null.
+// Default model: the first picker-visible catalog entry by priority, read from
+// the SYNC in-memory catalog mirror. Returns null until populated; callers warm
+// via ensureLatestCodexModel when null.
 export function resolveLatestCodexModel() {
   if (!Array.isArray(_mirror)) return null;
   let best = null;
   for (const m of _mirror) {
-    if (!m?.id || !_isMainCodexFamily(m.family)) continue;
-    if (!best || _compareVersion(m.id, best.id) > 0) best = m;
+    if (!m?.id || m.visibility === 'hide' || !Number.isFinite(m.priority)) continue;
+    if (!best || m.priority < best.priority) best = m;
   }
   return best?.id || null;
 }

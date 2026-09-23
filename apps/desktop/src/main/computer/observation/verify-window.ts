@@ -15,6 +15,10 @@ const MAX_VERIFY_TIMEOUT_MS = 30_000;
 const DEFAULT_VERIFY_STABLE_SAMPLES = 2;
 const VERIFY_POLL_INTERVAL_MS = 250;
 const VERIFY_PROVIDER_TIMEOUT_MS = 2_000;
+// What an undecided text wait returns of the last read, so the caller sees why
+// the text did not match without spending a capture on it.
+const VERIFY_TEXT_SAMPLE_ENTRIES = 12;
+const VERIFY_TEXT_SAMPLE_CHARS = 60;
 
 export type VerifyHost = Pick<InspectHost, 'callPowerShell' | 'sessionIdFor' | 'assertExecutionNotAborted'>;
 
@@ -26,9 +30,22 @@ interface VerifyState {
   consecutive: number;
   statuses: VerifyStatus[];
   title: string;
+  exists: boolean;
   observedElements: number;
   textComplete: boolean;
+  textSample: string[];
   providerError: string;
+}
+
+function elementTextSample(elements: Array<Record<string, unknown>>): string[] {
+  const sample: string[] = [];
+  for (const element of elements) {
+    const text = `${String(element.name || '')} ${String(element.value || '')}`.replace(/\s+/g, ' ').trim();
+    if (!text || sample.includes(text.slice(0, VERIFY_TEXT_SAMPLE_CHARS))) continue;
+    sample.push(text.slice(0, VERIFY_TEXT_SAMPLE_CHARS));
+    if (sample.length >= VERIFY_TEXT_SAMPLE_ENTRIES) break;
+  }
+  return sample;
 }
 
 function verifyPredicates(command: ComputerCommand): Predicate[] {
@@ -81,9 +98,11 @@ async function samplePredicates(
   state.observedElements = elements.length;
   state.textComplete = response.result?.text_complete === true && state.observedElements > 0;
   state.title = String(response.result?.title || '');
+  state.exists = response.result?.exists !== false;
+  state.textSample = elementTextSample(elements);
   const observation = {
     ok: response.ok === true,
-    exists: response.ok === true && response.result?.exists !== false,
+    exists: state.exists,
     title: state.title,
     textComplete: state.textComplete,
     haystack: elements
@@ -122,10 +141,15 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
     consecutive: 0,
     statuses: predicates.map(() => 'unknown'),
     title: '',
+    exists: true,
     observedElements: 0,
     textComplete: false,
+    textSample: [],
     providerError: '',
   };
+  // A closed exact window never reopens under the same handle, so once it is
+  // gone an unmet predicate can no longer change and waiting is pointless.
+  let targetClosed = false;
   for (;;) {
     host.assertExecutionNotAborted();
     // The polling deadline is not a provider-health deadline. Even a one-shot
@@ -134,6 +158,10 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
     if (state.samples > 0 && performance.now() >= deadline) break;
     if (!(await samplePredicates(host, command, predicates, needsElementText, state))) break;
     if (state.consecutive >= stableSamples) break;
+    if (command.window_id && !state.exists && state.statuses.some((status) => status !== 'satisfied')) {
+      targetClosed = true;
+      break;
+    }
     if (performance.now() >= deadline) break;
     await new Promise((resolve) =>
       setTimeout(resolve, Math.min(VERIFY_POLL_INTERVAL_MS, Math.max(1, deadline - performance.now())))
@@ -162,7 +190,17 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
       stable_samples: stableSamples,
       observed_elements: state.observedElements,
       ...(needsElementText ? { text_complete: state.textComplete } : {}),
-      ...(unknownReason ? { unknown_reason: unknownReason.reason, unknown_hint: unknownReason.hint } : {}),
+      ...(targetClosed
+        ? {
+            target_closed: true,
+            unknown_hint: 'the exact window closed before the wait was decided; list windows to find its replacement',
+          }
+        : unknownReason
+          ? { unknown_reason: unknownReason.reason, unknown_hint: unknownReason.hint }
+          : {}),
+      ...(decision !== 'satisfied' && needsElementText && state.textSample.length
+        ? { observed_text_sample: state.textSample }
+        : {}),
       ...(state.providerError ? { provider_error: state.providerError } : {}),
       results: predicates.map((predicate, index) => ({
         predicate,

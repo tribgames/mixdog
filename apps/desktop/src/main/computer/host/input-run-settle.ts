@@ -7,7 +7,8 @@
  */
 import { filterComputerUseInternalWindows, filterComputerUseWindowListText } from '../overlay/internal-windows';
 import { CHROME_SETUP_SESSION_ID } from '../session/chrome-setup';
-import type { ComputerCommandResult, PowerShellResponse } from '../shared/types';
+import { computerUseCoordinator } from '../session/coordinator';
+import type { ComputerCommand, ComputerCommandResult, PowerShellResponse } from '../shared/types';
 import type { ComputerWindowRecord, ComputerWindowTransition } from '../shared/window-transition';
 import { buildActionReply } from './action-reply';
 import type { CommandRouterHost } from './command-router';
@@ -20,6 +21,7 @@ export type InputRunSettleHost = Pick<
   | 'sessionIdFor'
   | 'executionContext'
   | 'sessionRecoveryBySession'
+  | 'sequenceCursorAnchor'
   | 'claimComputerTargets'
   | 'readComputerWindows'
   | 'verifyInputRecovery'
@@ -94,6 +96,40 @@ function inputRecoveryFailureReply(
   };
 }
 
+/**
+ * Name the keys of a chord for the board. Plus separates them, so an empty
+ * piece is the plus character itself: that is what `+` and `ctrl++` are made
+ * of, and dropping it would leave the board with nothing to light.
+ */
+function boardKeysOf(sequence: string): string[] {
+  const parts = sequence.trim().split('+');
+  const names = parts.map((part, index) => part.trim() || (index > 0 ? '+' : ''));
+  return [...new Set(names.filter(Boolean))];
+}
+
+/**
+ * Put a keystroke on the typing board. `key` names the keys it pressed and they
+ * can be shown; `type` carries the text itself, which is never echoed, so it
+ * reports only that typing is happening. A native reply that does not vouch for
+ * the focused field is treated as masked.
+ */
+function showKeystrokeFeedback(
+  sessionId: string,
+  action: string,
+  command: ComputerCommand,
+  result: NativeResult
+): void {
+  if (action !== 'key' && action !== 'type') return;
+  const feedback = result.cursor_feedback as { focus_masked?: boolean } | undefined;
+  const masked = feedback?.focus_masked !== false;
+  const keys = action === 'key' && !masked ? boardKeysOf(String(command.keys || '')) : ['space'];
+  try {
+    computerUseCoordinator.showKeystroke({ sessionId, keys, masked: masked || action === 'type' });
+  } catch {
+    // Feedback never decides an action's outcome.
+  }
+}
+
 async function resolveWindowTransition(
   host: InputRunSettleHost,
   run: InputRunContext,
@@ -134,13 +170,26 @@ export async function settleInputRun(
     Object.assign(actionTimings, nativeStep.timings);
   }
   const result = nativeStep?.result || response.result || {};
+  showKeystrokeFeedback(host.sessionIdFor(command), action, command, result);
   if (action === 'list_windows' && Array.isArray(result.windows)) {
     const windows = filterComputerUseInternalWindows(result.windows);
     result.windows = windows;
     result.text = filterComputerUseWindowListText(result.text, windows);
   }
-  const inputRecoveryVerification = inputRecovery
-    ? await host.verifyInputRecovery(command, targetWindowId, inputRecovery, actionTimings, result)
+  // The first step of a sequence owns the pointer position the user left behind.
+  // Later steps restore against that same anchor rather than wherever their
+  // predecessor stopped, and only the closing step hands the cursor back.
+  const holdCursor = command.input_continues === true;
+  const anchorKey = host.sessionIdFor(command);
+  let recoveryBaseline = inputRecovery;
+  if (inputRecovery) {
+    const anchored = host.sequenceCursorAnchor.get(anchorKey);
+    if (anchored) recoveryBaseline = { ...inputRecovery, cursorX: anchored.cursorX, cursorY: anchored.cursorY };
+    else if (holdCursor) host.sequenceCursorAnchor.set(anchorKey, inputRecovery);
+    if (!holdCursor) host.sequenceCursorAnchor.delete(anchorKey);
+  }
+  const inputRecoveryVerification = recoveryBaseline
+    ? await host.verifyInputRecovery(command, targetWindowId, recoveryBaseline, actionTimings, result, holdCursor)
     : undefined;
   if (inputRecoveryVerification?.ok === false) {
     return inputRecoveryFailureReply(host, run, targetWindowId, result, inputRecoveryVerification);

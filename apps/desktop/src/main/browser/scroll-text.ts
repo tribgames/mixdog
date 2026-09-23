@@ -47,7 +47,14 @@ export function browserScrollTextMatchExpression(wanted: string): string {
         if (!element || skipped.test(String(element.tagName || '').toLowerCase())) continue;
         if (!rendered(element)) continue;
         globalThis.__mixdogScrollTarget = element;
-        return { token, found: true, text: value.replace(/\\s+/g, ' ').trim().slice(0, 120) };
+        // Quote the line around the phrase: on a long line its first
+        // characters need not contain the match at all.
+        const line = value.replace(/\\s+/g, ' ').trim();
+        const at = Math.max(0, line.toLowerCase().indexOf(wanted.replace(/\\s+/g, ' ').trim()));
+        const start = Math.max(0, at - 40);
+        const end = Math.min(line.length, start + Math.max(120, wanted.length + 40));
+        const text = (start > 0 ? '…' : '') + line.slice(start, end) + (end < line.length ? '…' : '');
+        return { token, found: true, text };
       }
     }
     return { token, found: false };

@@ -751,6 +751,43 @@ export async function extractStagedShell(archivePath, destination) {
   }
 }
 
+// One file of the staged tree. Windows file-system filters — search indexers and
+// security products — can fail a CopyFileW with a status libuv cannot translate,
+// and the deploy then dies on that same file every run. Moving the bytes through
+// read/write never issues that call, and a bounded retry absorbs a lock that is
+// still clearing rather than failing the whole deploy over one handle.
+async function stageFile(source, destination, mode) {
+  let failure;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      await writeFile(destination, await readFile(source));
+      await chmod(destination, mode);
+      return;
+    } catch (error) {
+      failure = error;
+      await new Promise((settle) => setTimeout(settle, 100 * (attempt + 1)));
+    }
+  }
+  throw new Error(`FastDirect could not stage ${source}: ${failure?.message ?? failure}`);
+}
+
+async function stageTree(source, destination) {
+  await mkdir(destination, { recursive: true });
+  for (const entry of await readdir(source)) {
+    const from = join(source, entry);
+    const to = join(destination, entry);
+    // stat, not the directory entry's own kind: a snapshot deploy links parts of
+    // the tree back to the real checkout, and those links are followed here
+    // rather than recreated inside the staging root, which Windows refuses.
+    const info = await stat(from);
+    if (info.isDirectory()) {
+      await stageTree(from, to);
+      continue;
+    }
+    await stageFile(from, to, info.mode);
+  }
+}
+
 async function stageShell({ installDir, artifactDir, plan: _plan }) {
   const startedAt = performance.now();
   const installedResources = join(installDir, 'resources');
@@ -769,7 +806,17 @@ async function stageShell({ installDir, artifactDir, plan: _plan }) {
     await rm(temporary, { recursive: true, force: true });
     await extractStagedShell(installedArchive, temporary);
     await rm(stagingRoot, { recursive: true, force: true });
-    await rename(temporary, stagingRoot);
+    // Antivirus scans hold the just-extracted files open for a moment, and a
+    // directory with any open handle inside cannot be renamed on Windows.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await rename(temporary, stagingRoot);
+        break;
+      } catch (error) {
+        if (!['EPERM', 'EBUSY', 'EACCES'].includes(error?.code) || attempt >= 20) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
     await writeFile(cacheMarker, `${installedIntegrity.hash}\n`);
   }
 
@@ -782,13 +829,7 @@ async function stageShell({ installDir, artifactDir, plan: _plan }) {
   await rm(artifactDir, { recursive: true, force: true });
   await mkdir(artifactResources, { recursive: true });
   await rm(join(stagingRoot, 'out'), { recursive: true, force: true });
-  // `dereference` because a snapshot deploy links `out/` back to the real
-  // checkout: without it fs.cp tries to RECREATE that junction inside the
-  // staging root and Windows refuses the symlink outright (EPERM).
-  await cp(join(desktopDir, 'out'), join(stagingRoot, 'out'), {
-    recursive: true,
-    dereference: true,
-  });
+  await stageTree(join(desktopDir, 'out'), join(stagingRoot, 'out'));
   await rm(join(stagingRoot, 'out', 'main', 'capture-window.js'), { force: true });
   await rm(join(stagingRoot, ...ptyPackageSegments), { recursive: true, force: true });
   try {

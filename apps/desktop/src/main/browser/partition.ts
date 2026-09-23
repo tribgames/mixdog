@@ -22,6 +22,9 @@ export interface BrowserPartitionHost {
   downloadsDirectory(): string;
   sessionIdForGuest(guest: WebContents): string | undefined;
   defaultSessionId: string;
+  /** Called before a refused request is cancelled, so the page's failure
+   *  record can say which rule refused it; Chromium reports only a code. */
+  onRequestRefused?(webContentsId: number | undefined, url: string, reason: string): void;
 }
 
 const WEB_PROTOCOLS = new Set(['http:', 'https:', 'ws:', 'wss:']);
@@ -49,7 +52,9 @@ export function createBrowserPartition(host: BrowserPartitionHost) {
     void host.assertResolvedResourceUrlAllowed(details.url).then(
       () => callback({}),
       (error) => {
-        console.warn('Browser Use blocked request:', redactBrowserText((error as Error).message));
+        const reason = redactBrowserText((error as Error).message);
+        console.warn('Browser Use blocked request:', reason);
+        host.onRequestRefused?.(details.webContentsId, details.url, reason);
         callback({ cancel: true });
       }
     );

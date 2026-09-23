@@ -35,9 +35,10 @@ new scope.
 
 For creation, use the requested or approved budget for `time_limit_minutes`;
 omit it when no budget was agreed — an untimed Goal runs on its objective
-alone. An upper bound uses
-`time_mode: max`; use `duration` only when the user explicitly requests work
-for the full period.
+alone. A stated budget commits that time: "a 5-hour Goal", "improvement
+rounds for 3 hours", or polishing for a period use `time_mode: duration`, the
+default when a budget is given. Use `time_mode: max` only when the user frames
+the budget as an upper bound ("at most", "within", "최대", "안에").
 
 Use the latest returned state and revision. If unknown or stale, read `status`
 and reconcile before mutating. Never replay a stale mutation blindly.
@@ -120,8 +121,11 @@ plausible final response is not itself confirmation.
 Elapsed-time budgets are a Mixdog extension to the persistent Goal lifecycle.
 Keep `max` upper bounds distinct from explicitly requested `duration` periods.
 An advance deadline warning does not stop the Goal or request an early final
-report; prioritize bounded approved work and needed verification. Do not invent
-unfinished tasks merely to represent remaining clock time.
+report; prioritize bounded approved work and needed verification. Under a
+`max` budget, do not invent unfinished tasks merely to fill remaining clock
+time. Under a `duration` commitment, when the recorded rows are done, find the
+next round's real improvements within the objective and record them as new
+tasks instead of idling or reporting completion.
 
 At the boundary, the runtime first records `duration_reached`, disables
 automatic Goal work, and delivers closeout without cancelling the current

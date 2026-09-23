@@ -68,6 +68,8 @@ test('Codex cache key and every wire session identity use the same UUIDv7', () =
   assert.equal(turnMetadata.turn_id, turnId);
   assert.match(turnMetadata.installation_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.equal(turnMetadata.agent_name, '/root');
+  assert.equal(turnMetadata.turn_trigger, 'user');
+  assert.deepEqual(Object.keys(turnMetadata).slice(7, 10), ['thread_source', 'turn_trigger', 'sandbox']);
   assert.equal(turnMetadata.sandbox, 'none');
   assert.equal(turnMetadata.sandbox_mode, 'danger-full-access');
   assert.equal(turnMetadata.auto_review_enabled, false);
@@ -96,6 +98,7 @@ test('Codex cache key and every wire session identity use the same UUIDv7', () =
   assert.equal(prewarmMetadata.turn_id, '');
   assert.equal(prewarmMetadata.installation_id, turnMetadata.installation_id);
   assert.equal('turn_started_at_unix_ms' in prewarmMetadata, false);
+  assert.equal('turn_trigger' in prewarmMetadata, false);
 });
 
 // A compaction summary is a request of the same session: same thread identity,

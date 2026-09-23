@@ -26,7 +26,7 @@ export interface BrowserRefRecoveryContext {
 export type RefRecoveryHost = Pick<BrowserReplyHost, 'state' | 'captureSnapshotPayload'>;
 
 export interface RefRecoveryReplies {
-  dialogResult(guest: WebContents): BrowserCommandResult | null;
+  dialogResult(guest: WebContents, dispatched?: boolean): BrowserCommandResult | null;
   reportSnapshot(
     guest: WebContents,
     payload: Parameters<typeof formatSnapshot>[0],
@@ -85,7 +85,8 @@ export function createRefRecovery(host: RefRecoveryHost, replies: RefRecoveryRep
       if (guest.getURL() !== source.url) {
         throw new Error(`ref ${sourceRef} became stale after navigation; automatic recovery will not cross URLs`);
       }
-      const dialog = replies.dialogResult(guest);
+      // Recovery runs before the gesture is dispatched.
+      const dialog = replies.dialogResult(guest, false);
       if (dialog) throw new Error(dialog.text);
       const freshPayload = await captureSnapshotPayload(guest, { action: 'snapshot', maxElements: 500 }, signal);
       const fresh = state.peek(guest)?.refSet;

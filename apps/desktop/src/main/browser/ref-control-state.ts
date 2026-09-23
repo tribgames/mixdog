@@ -20,9 +20,16 @@ const READ_SELECT_OPTIONS = `function() {
     { length: Math.min(el.options.length, 200) },
     (_, index) => el.options[index],
   )
-    .map((option) => String(option.label || option.text || option.value || '').trim().slice(0, 200))
+    .map((option) => {
+      const label = String(option.label || option.text || option.value || '').trim().slice(0, 200);
+      if (!label) return '';
+      const group = option.parentElement;
+      const disabled = option.disabled || Boolean(group && group.tagName === 'OPTGROUP' && group.disabled);
+      const marks = [option.selected && 'selected', disabled && 'disabled'].filter(Boolean);
+      return marks.length ? label + ' [' + marks.join(', ') + ']' : label;
+    })
     .filter(Boolean);
-  return { options };
+  return { options, total: el.options.length > 200 ? el.options.length : undefined };
 }`;
 
 const READ_CHECKED = `function() {
@@ -43,12 +50,17 @@ export function createRefControlState(host: RefControlStateHost, callRef: CallRe
    *  its options out of the accessibility tree, so they are read from the
    *  element itself; a custom dropdown puts its options in the page once it is
    *  open, where a snapshot already sees them. */
-  async function listSelectOptions(guest: WebContents, ref: string, signal?: AbortSignal): Promise<string[]> {
+  async function listSelectOptions(
+    guest: WebContents,
+    ref: string,
+    signal?: AbortSignal
+  ): Promise<{ options: string[]; total?: number }> {
     const result = checkedBrowserRefResult(
       await callRef<{
         error?: string;
         custom?: boolean;
         options?: string[];
+        total?: number;
       }>(guest, ref, READ_SELECT_OPTIONS, [], signal),
       ref
     );
@@ -57,7 +69,8 @@ export function createRefControlState(host: RefControlStateHost, callRef: CallRe
         `ref ${ref} is not a native <select>; click it to open the list, then read the options from the fresh snapshot`
       );
     }
-    return result?.options || [];
+    // total is present only when the list was cut short.
+    return { options: result?.options || [], total: result?.total };
   }
 
   async function checkedRefState(

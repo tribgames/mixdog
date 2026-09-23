@@ -166,12 +166,18 @@ public sealed class MixCursorTheme : System.IDisposable
     }
     public void Activate(int milliseconds = 5000)
     {
+        Activate(true, milliseconds);
+    }
+    /// A keystroke drives no pointer, so `decorate` false keeps the user's own
+    /// cursor artwork while the watchdog still guards the input this session owns.
+    public void Activate(bool decorate, int milliseconds = 5000)
+    {
         if (milliseconds < 1 || milliseconds > 5000) throw new System.ArgumentOutOfRangeException("milliseconds");
         if (disposed || activationRequested) throw new System.InvalidOperationException("cursor activation cannot be replayed");
         if (ReadNextWithin(milliseconds) != "READY") throw new System.Exception("cursor watchdog not ready");
         MixInputObservation.AssertContinue();
         activationRequested = true;
-        writer.WriteLine("ACTIVATE");
+        writer.WriteLine(decorate ? "ACTIVATE" : "ACTIVATE_QUIET");
         if (ReadNextWithin(milliseconds) != "ACTIVE")
         {
             MixInputObservation.AssertContinue();
@@ -205,12 +211,24 @@ public sealed class MixCursorTheme : System.IDisposable
     }
     public static MixCursorTheme Begin()
     {
+        return Begin(true);
+    }
+    public static MixCursorTheme Begin(bool decorate)
+    {
+        return Complete(Reserve(), decorate);
+    }
+    /// Starting the helper and waiting for it to connect costs about a second,
+    /// and none of that wait needs the target window. Reserve it while the
+    /// caller still has focus work to do, then complete the lease immediately
+    /// before input is dispatched: the guard is as fresh as it ever was, the
+    /// waiting simply no longer happens with the target already held.
+    public static MixCursorThemeReservation Reserve()
+    {
         string assembly = typeof(MixCursorTheme).Assembly.Location;
         if (System.String.IsNullOrEmpty(assembly)) throw new System.Exception("computer_cursor_unavailable: cached native assembly required");
         string name = "mixdog-cursor-" + System.Guid.NewGuid().ToString("N");
         var pipe = new System.IO.Pipes.NamedPipeServerStream(name, System.IO.Pipes.PipeDirection.InOut, 1,
           System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous);
-        MixCursorTheme guard = null;
         try
         {
             int parent = System.Diagnostics.Process.GetCurrentProcess().Id;
@@ -219,7 +237,23 @@ public sealed class MixCursorTheme : System.IDisposable
               + "; Add-Type -AssemblyName System.Drawing; [void][Reflection.Assembly]::LoadFrom(" + Quote(assembly)
               + "); [MixCursorTheme]::Watch(" + parent + "," + Quote(name) + ")";
             LaunchDetachedWatchdog(helper);
-            var connected = pipe.BeginWaitForConnection(null, null);
+            return new MixCursorThemeReservation(pipe, pipe.BeginWaitForConnection(null, null));
+        }
+        catch (System.Exception error)
+        {
+            pipe.Dispose();
+            if (error.Message.StartsWith("user_input_active:") || error.Message.StartsWith("input_observation_unavailable:")) throw;
+            throw new System.Exception("computer_cursor_unavailable: theme activation was not confirmed; no input sent");
+        }
+    }
+    public static MixCursorTheme Complete(MixCursorThemeReservation reservation, bool decorate)
+    {
+        if (reservation == null) throw new System.ArgumentNullException("reservation");
+        var pipe = reservation.Take();
+        MixCursorTheme guard = null;
+        try
+        {
+            var connected = reservation.Connected;
             try
             {
                 if (!connected.AsyncWaitHandle.WaitOne(5000)) throw new System.Exception("cursor watchdog connection timeout");
@@ -227,7 +261,7 @@ public sealed class MixCursorTheme : System.IDisposable
             }
             finally { connected.AsyncWaitHandle.Close(); }
             guard = new MixCursorTheme(pipe);
-            guard.Activate();
+            guard.Activate(decorate);
             return guard;
         }
         catch (System.Exception error)
@@ -281,13 +315,21 @@ public sealed class MixCursorTheme : System.IDisposable
                     var baseline = MixInputObservation.Read();
                     if (!baseline.Ready || !MixInputObservation.IdleDesktopReady()) return;
                     writer.WriteLine("READY");
-                    if (ReadWithin(reader, 5000) != "ACTIVATE" || parent.HasExited) return;
+                    string activation = ReadWithin(reader, 5000);
+                    bool decorate = activation == "ACTIVATE";
+                    if ((!decorate && activation != "ACTIVATE_QUIET") || parent.HasExited) return;
                     MixCursorThemeLease lease = null;
                     bool restored = false;
                     try
                     {
-                        lease = new MixCursorThemeLease(new MixWindowsCursorThemeApi(), new uint[] { 32512, 32513, 32515, 32649 });
-                        lease.Activate();
+                        // A quiet activation still watches this session's input so a
+                        // killed worker cannot leave a key down; it only leaves the
+                        // user's cursor artwork alone.
+                        if (decorate)
+                        {
+                            lease = new MixCursorThemeLease(new MixWindowsCursorThemeApi(), new uint[] { 32512, 32513, 32515, 32649 });
+                            lease.Activate();
+                        }
                         writer.WriteLine("ACTIVE");
                         var command = reader.ReadLineAsync();
                         var clock = System.Diagnostics.Stopwatch.StartNew();
@@ -322,5 +364,33 @@ public sealed class MixCursorTheme : System.IDisposable
             }
             finally { if (owns) mutex.ReleaseMutex(); }
         }
+    }
+}
+
+/// A helper that has been started but not yet leased. Completing it produces
+/// the same guard a direct start would; dropping it closes the pipe, and the
+/// helper exits without ever taking a lease.
+public sealed class MixCursorThemeReservation : System.IDisposable
+{
+    readonly System.IO.Pipes.NamedPipeServerStream pipe;
+    readonly System.IAsyncResult connected;
+    bool consumed;
+    public MixCursorThemeReservation(System.IO.Pipes.NamedPipeServerStream pipe, System.IAsyncResult connected)
+    {
+        this.pipe = pipe;
+        this.connected = connected;
+    }
+    public System.IAsyncResult Connected { get { return connected; } }
+    public System.IO.Pipes.NamedPipeServerStream Take()
+    {
+        if (consumed) throw new System.InvalidOperationException("cursor reservation cannot be reused");
+        consumed = true;
+        return pipe;
+    }
+    public void Dispose()
+    {
+        if (consumed) return;
+        consumed = true;
+        try { pipe.Dispose(); } catch { }
     }
 }

@@ -66,7 +66,13 @@ try {
       }
     );
     const outcome = JSON.parse(stdout.trim());
-    assert.deepEqual(outcome.decoded, [240, 80]);
+    // Small images are recognized at double size, while the reply keeps the
+    // pixels of the image that was sent.
+    assert.deepEqual(outcome.decoded, [480, 160]);
+    if (outcome.result) {
+      assert.deepEqual([outcome.result.image_width, outcome.result.image_height], [240, 80]);
+      for (const word of outcome.result.words) assert.ok(word.x + word.width <= 240 && word.y + word.height <= 80);
+    }
     assert.equal(
       (await readdir(directory)).some((name) => name.startsWith('mixdog-ocr-')),
       false

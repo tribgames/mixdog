@@ -102,7 +102,8 @@ function Get-StartApps {
     [pscustomobject]@{ Name = 'Calculator'; AppID = 'Microsoft.WindowsCalculator_8wekyb3d8bbwe!App' },
     [pscustomobject]@{ Name = 'Settings hub'; AppID = 'windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel' },
     [pscustomobject]@{ Name = 'Settings helper'; AppID = 'Microsoft.SettingsHelper_8wekyb3d8bbwe!App' },
-    [pscustomobject]@{ Name = 'Notepad++'; AppID = '{6D809377-6AF0-444B-8957-A3773F02200E}\Notepad++\notepad++.exe' }
+    [pscustomobject]@{ Name = 'Notepad++'; AppID = '{6D809377-6AF0-444B-8957-A3773F02200E}\Notepad++\notepad++.exe' },
+    [pscustomobject]@{ Name = 'FanControl'; AppID = '{7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E}\FanControl\FanControl.exe' }
   )
 }
 function Import-Module { param([string]$Name, $ErrorAction) }
@@ -110,7 +111,7 @@ foreach ($name in @('New-ActionResult','Get-InstalledApps','Find-InstalledApp','
   . (Import-InputFunction $name)
 }
 $rows = @()
-foreach ($target in @('Calculator', 'Microsoft.WindowsNotepad_8wekyb3d8bbwe!App', 'Notepad++', 'Calc', 'C:\tools\editor.exe', 'https://example.invalid/')) {
+foreach ($target in @('Calculator', 'Microsoft.WindowsNotepad_8wekyb3d8bbwe!App', 'Notepad++', 'Calc', 'C:\tools\editor.exe', 'https://example.invalid/', 'control.exe')) {
   [MixWin32]::Activated = ''; [MixWin32]::Shelled = ''
   $failure = ''
   $result = $null
@@ -133,8 +134,13 @@ $catalogue = Do-ListInstalledApps @{ query = 'Calc' }
   const byTarget = Object.fromEntries(routed.rows.map((row) => [row.target, row]));
   assert.deepEqual(
     routed.rows.map((row) => row.failure),
-    ['', '', '', '', '', '']
+    ['', '', '', '', '', '', '']
   );
+  // An executable name goes to the shell even when another app's catalogue id
+  // ends with it ("...\FanControl\FanControl.exe").
+  assert.equal(byTarget['control.exe'].path, 'windows_shell');
+  assert.equal(byTarget['control.exe'].shelled, 'control.exe');
+  assert.equal(byTarget['control.exe'].app_id, '');
   // An unpackaged Start entry has no plain path to run, so its catalogue id is
   // what makes the name a user says launchable at all.
   const unpackaged = byTarget['Notepad++'];
@@ -161,7 +167,7 @@ $catalogue = Do-ListInstalledApps @{ query = 'Calc' }
   // Two installed apps matching one word is a guess, so nothing launches.
   assert.match(routed.ambiguous, /launch failed \[ambiguous_app\/0\]/);
   const catalogue = JSON.parse(routed.catalogue);
-  assert.equal(catalogue.catalogue_total, 4);
+  assert.equal(catalogue.catalogue_total, 5);
   assert.deepEqual(
     catalogue.installed.map((entry) => entry.name),
     ['Calculator']
@@ -213,24 +219,30 @@ public static class MixWin32 {
 '@
 $script:HasValuePattern = $true
 $element = New-Object psobject
+Add-Member -InputObject $element -MemberType NoteProperty -Name Current -Value ([pscustomobject]@{ ClassName = 'Edit' })
 Add-Member -InputObject $element -MemberType ScriptMethod -Name TryGetCurrentPattern -Value {
   param($pattern, $target)
   return $script:HasValuePattern
 }
 function Get-TopWindow($el) { return @{ Current = @{ NativeWindowHandle = 1 } } }
-. (Import-InputFunction 'Test-BackgroundValueTarget')
+foreach ($name in @('Test-BackgroundValueTarget', 'Test-IgnoredValueWrite')) { . (Import-InputFunction $name) }
 $record = @{ Kind = 'uia'; Element = $element }
 $native = Test-BackgroundValueTarget $record
 [MixWin32]::WebContent = $true
 $web = Test-BackgroundValueTarget $record
 [MixWin32]::WebContent = $false
+$element.Current.ClassName = 'XLSpreadsheetCell'
+$excel = Test-BackgroundValueTarget $record
+$element.Current.ClassName = 'Edit'
 $script:HasValuePattern = $false
 $plain = Test-BackgroundValueTarget $record
 $msaa = Test-BackgroundValueTarget @{ Kind = 'msaa' }
-@{ native = $native; web = $web; plain = $plain; msaa = $msaa } | ConvertTo-Json -Compress
+@{ native = $native; web = $web; excel = $excel; plain = $plain; msaa = $msaa } | ConvertTo-Json -Compress
 `);
   assert.equal(result.native, true);
   assert.equal(result.web, false);
+  // An Excel cell echoes the write without entering it, like a browser tab.
+  assert.equal(result.excel, false);
   assert.equal(result.plain, false);
   assert.equal(result.msaa, true);
 });
@@ -385,7 +397,7 @@ public static class MenuAutomation {
   public static void Configure(string mode) {
     Windows.Clear(); Invoked.Clear(); MixWin32.Keys.Clear();
     var root = new MenuElement("target", 1);
-    var file = new MenuElement("File", 1) { Expands = true };
+    var file = new MenuElement(mode == "localized" ? "File(&F)" : "File", 1) { Expands = true };
     root.Children.Add(file); Windows[1] = root;
     Windows[2] = new MenuElement("foreign", 2);
     Windows[2].Children.Add(new MenuElement("Save", 2));
@@ -393,7 +405,7 @@ public static class MenuAutomation {
       Windows[3] = new MenuElement("popup", 3);
       Windows[3].Children.Add(new MenuElement("Save", 3));
     } else if (mode != "missing") {
-      var save = new MenuElement("Save", 1);
+      var save = new MenuElement(mode == "localized" ? "Save(&S)...\tCtrl+S" : "Save", 1);
       save.Current.IsEnabled = mode != "disabled";
       file.Children.Add(save);
       if (mode == "ambiguous") file.Children.Add(new MenuElement("Save", 1));
@@ -412,17 +424,18 @@ public static class MixWin32 {
 '@
 $AE = [MenuAutomation]
 $TS = [System.Windows.Automation.TreeScope]
-foreach ($name in @('Get-MenuCandidates','Expand-MenuElement','Do-InvokeMenu','New-ActionResult')) {
+foreach ($name in @('Normalize-MenuLabel','Get-MenuCandidates','Expand-MenuElement','Do-InvokeMenu','New-ActionResult')) {
   . (Import-InputFunction $name)
 }
 function Resolve-WindowInfo($window,$id) { return @{Handle=[IntPtr]1; Id='hwnd:0x1'} }
 function Find-Window($window,$id) { return [MenuAutomation]::FromHandle([IntPtr]1) }
 function Get-TopWindow($element) { return $element }
 function Get-MsaaMenuCandidates($info,$name) { return @() }
+function Invoke-Win32MenuPath($req,$info,$path) { return $null }
 function Assert-ExecutionAuthorization($request,$handle) {}
 function Invoke-BackgroundWindow($target,$operation) { & $operation }
 $rows = @()
-foreach ($mode in @('missing','valid','owned','ambiguous','disabled')) {
+foreach ($mode in @('missing','valid','owned','ambiguous','disabled','localized')) {
   [MenuAutomation]::Configure($mode)
   $script:CurrentRequest = @{action='invoke_menu';window_id='hwnd:0x1';path=@('File','Save')}
   $errorText = ''
@@ -438,6 +451,10 @@ $rows | ConvertTo-Json -Compress -Depth 5
   assert.deepEqual(byMode.missing.keys, ['{ESC}']);
   assert.deepEqual(byMode.valid.invoked, [1]);
   assert.deepEqual(byMode.valid.keys, []);
+  // A localized menu shows its access key as "(F)" and its accelerator after a
+  // tab; the plain names still reach it.
+  assert.equal(byMode.localized.error, '');
+  assert.deepEqual(byMode.localized.invoked, [1]);
   assert.deepEqual(byMode.owned.invoked, [3]);
   assert.deepEqual(byMode.owned.keys, []);
   for (const [mode, error] of [
@@ -448,6 +465,158 @@ $rows | ConvertTo-Json -Compress -Depth 5
     assert.match(byMode[mode].error, new RegExp(error));
     assert.deepEqual(byMode[mode].keys, ['{ESC}']);
   }
+});
+
+test('classic menu bars resolve a whole path from their menu handles without opening a menu', windows, async () => {
+  const rows = await nativeFixture(String.raw`
+Add-Type @'
+using System;
+using System.Collections.Generic;
+public static class MixWin32 {
+  public static List<string> Announced = new List<string>();
+  public static List<uint> Commands = new List<uint>();
+  public sealed class MenuEntry { public string Label; public IntPtr SubMenu; public uint Id; public bool Enabled; }
+  static MenuEntry E(string label, int sub, uint id, bool enabled) {
+    return new MenuEntry { Label = label, SubMenu = new IntPtr(sub), Id = id, Enabled = enabled };
+  }
+  public static IntPtr WindowMenu(IntPtr hwnd) { return hwnd.ToInt32() == 1 ? new IntPtr(100) : IntPtr.Zero; }
+  public static MenuEntry[] MenuEntries(IntPtr hwnd, IntPtr menu, int position, bool announce) {
+    if (announce) Announced.Add(menu.ToInt32() + ":" + position);
+    switch (menu.ToInt32()) {
+      case 100: return new [] { E("File(&F)", 200, 0, true), E("View(&V)", 300, 0, true) };
+      case 200: return new [] { E("&Save\tCtrl+S", 0, 11, true), E("Export...", 0, 12, false) };
+      case 300: return new [] { E("Refresh", 0, 21, true), E("Refresh", 0, 22, true) };
+      default: return new MenuEntry[0];
+    }
+  }
+  public static void PostMenuCommand(IntPtr hwnd, uint id) { Commands.Add(id); }
+}
+'@
+foreach ($name in @('Normalize-MenuLabel','Invoke-Win32MenuPath','New-ActionResult')) { . (Import-InputFunction $name) }
+function Assert-ExecutionAuthorization($request,$handle) {}
+$rows = @()
+foreach ($case in @(
+  @{ window = 1; path = @('File','Save') },
+  @{ window = 1; path = @('File','Export') },
+  @{ window = 1; path = @('View','Refresh') },
+  @{ window = 1; path = @('File') },
+  @{ window = 1; path = @('File','Print') },
+  @{ window = 1; path = @('Help','About') },
+  @{ window = 2; path = @('File','Save') }
+)) {
+  [MixWin32]::Announced.Clear(); [MixWin32]::Commands.Clear()
+  $info = @{ Handle = [IntPtr]$case.window; Id = 'hwnd:0x' + $case.window }
+  $reply = $null; $failure = ''
+  try { $reply = Invoke-Win32MenuPath @{} $info $case.path } catch { $failure = [string]$_.Exception.Message }
+  $rows += @{
+    path = ($case.path -join '>') + '@' + $case.window
+    route = if ($null -eq $reply) { '' } else { [string]$reply.path }
+    failure = $failure
+    commands = @([MixWin32]::Commands.ToArray())
+    announced = @([MixWin32]::Announced.ToArray())
+  }
+}
+$rows | ConvertTo-Json -Compress -Depth 5
+`);
+  const byPath = Object.fromEntries(rows.map((row) => [row.path, row]));
+  // The localized "(F)", the ampersand and the tabbed accelerator all fall away.
+  assert.equal(byPath['File>Save@1'].route, 'win32_menu');
+  assert.deepEqual(byPath['File>Save@1'].commands, [11]);
+  // Only the submenu is announced; the bar itself never opens.
+  assert.deepEqual(byPath['File>Save@1'].announced, ['200:0']);
+  assert.match(byPath['File>Export@1'].failure, /^menu_item_disabled/);
+  assert.match(byPath['View>Refresh@1'].failure, /^menu_path_ambiguous/);
+  assert.match(byPath['File@1'].failure, /^menu_item_not_invokable/);
+  assert.match(byPath['File>Print@1'].failure, /^menu_path_not_found: .*; entries: Save, Export\.\.\.$/);
+  for (const path of ['File>Export@1', 'View>Refresh@1', 'File@1', 'File>Print@1']) {
+    assert.deepEqual(byPath[path].commands, [], path);
+  }
+  // A path the bar does not start with, or a window without a classic menu,
+  // is left to the accessibility route.
+  for (const path of ['Help>About@1', 'File>Save@2']) {
+    assert.equal(byPath[path].route, '', path);
+    assert.equal(byPath[path].failure, '', path);
+  }
+});
+
+test('a value write inside a multi-selection is scoped to its own item first', windows, async () => {
+  const rows = await nativeFixture(String.raw`
+Add-Type -ReferencedAssemblies UIAutomationClient, UIAutomationTypes @'
+using System.Collections.Generic;
+using System.Windows.Automation;
+public class FakeList { public bool Multi = true; public bool Frozen; public List<FakeItem> Selected = new List<FakeItem>(); }
+public class FakeContainerCurrent {
+  public FakeList List;
+  public bool CanSelectMultiple { get { return List.Multi; } }
+  public object[] GetSelection() { return List.Selected.ToArray(); }
+}
+public class FakeContainerPattern { public FakeContainerCurrent Current; }
+public class FakeContainer {
+  public FakeList List;
+  public bool TryGetCurrentPattern(AutomationPattern pattern, out object value) {
+    value = null;
+    if (pattern != SelectionPattern.Pattern) return false;
+    value = new FakeContainerPattern { Current = new FakeContainerCurrent { List = List } };
+    return true;
+  }
+}
+public class FakeItemCurrent {
+  public FakeItem Item;
+  public bool IsSelected { get { return Item.List.Selected.Contains(Item); } }
+  public FakeContainer SelectionContainer { get { return new FakeContainer { List = Item.List }; } }
+}
+public class FakeItemPattern {
+  public FakeItem Item;
+  public FakeItemCurrent Current { get { return new FakeItemCurrent { Item = Item }; } }
+  public void Select() { if (Item.List.Frozen) return; Item.List.Selected.Clear(); Item.List.Selected.Add(Item); }
+}
+public class FakeItem {
+  public string Name; public FakeList List;
+  public bool TryGetCurrentPattern(AutomationPattern pattern, out object value) {
+    value = null;
+    if (pattern != SelectionItemPattern.Pattern) return false;
+    value = new FakeItemPattern { Item = this };
+    return true;
+  }
+}
+public class FakeField {
+  public FakeItem Parent;
+  public bool TryGetCurrentPattern(AutomationPattern pattern, out object value) { value = null; return false; }
+}
+public class FakeWalker { public object GetParent(object element) { var field = element as FakeField; return field == null ? null : field.Parent; } }
+'@
+. (Import-InputFunction 'Select-OwningItemAlone')
+$Walker = New-Object FakeWalker
+function Case($label, $multi, $frozen, $withParent) {
+  $list = New-Object FakeList
+  $list.Multi = $multi; $list.Frozen = $frozen
+  $alpha = New-Object FakeItem -Property @{ Name = 'alpha'; List = $list }
+  $beta = New-Object FakeItem -Property @{ Name = 'beta'; List = $list }
+  $list.Selected.Add($alpha); if ($multi) { $list.Selected.Add($beta) }
+  $field = New-Object FakeField
+  if ($withParent) { $field.Parent = $beta }
+  $scope = Select-OwningItemAlone $field
+  return @{ label = $label; scope = [string]$scope; selected = @($list.Selected | ForEach-Object { $_.Name }) }
+}
+@(
+  (Case 'multi' $true $false $true),
+  (Case 'frozen' $true $true $true),
+  (Case 'single' $false $false $true),
+  (Case 'unowned' $true $false $false)
+) | ConvertTo-Json -Compress -Depth 4
+`);
+  const byLabel = Object.fromEntries(rows.map((row) => [row.label, row]));
+  // Two files selected: the written item becomes the only selection first.
+  assert.equal(byLabel.multi.scope, '');
+  assert.deepEqual(byLabel.multi.selected, ['beta']);
+  // A selection that will not narrow blocks the write rather than widening it.
+  assert.match(byLabel.frozen.scope, /2 items stay selected/);
+  assert.deepEqual(byLabel.frozen.selected, ['alpha', 'beta']);
+  // A single-select list and a field outside any item keep their state.
+  assert.equal(byLabel.single.scope, '');
+  assert.deepEqual(byLabel.single.selected, ['alpha']);
+  assert.equal(byLabel.unowned.scope, '');
+  assert.deepEqual(byLabel.unowned.selected, ['alpha', 'beta']);
 });
 
 test('MSAA menu paths never initialize an unavailable UIA provider', windows, async () => {
@@ -471,6 +640,7 @@ function Find-Window($window,$id) {
   throw 'fixture UIA provider unavailable'
 }
 function Get-MsaaMenuCandidates($info,$name) { return @([MsaaMenuFixture]::new($name)) }
+function Invoke-Win32MenuPath($req,$info,$path) { return $null }
 $reply = Do-InvokeMenu @{action='invoke_menu';window_id='hwnd:0x1';path=@('Window','General','Test Runner')}
 @{uiaCalls=$script:uiaCalls;invoked=@([MsaaMenuFixture]::Invoked.ToArray());path=$reply.path} |
   ConvertTo-Json -Compress -Depth 5
@@ -490,8 +660,16 @@ public static class MixInputObservation {
   public static void AssertContinue() { if (DispatchAuthorization != null) DispatchAuthorization(); }
   public static void End() {}
 }
+public sealed class MixCursorThemeReservation : IDisposable { public void Dispose() {} }
 public sealed class MixCursorTheme : IDisposable {
-  public static MixCursorTheme Begin() { MixWin32.Current = new IntPtr(2); return new MixCursorTheme(); }
+  // The watchdog lease is reserved before the target work and completed just
+  // before dispatch, so the stub carries both halves like the real type.
+  public static MixCursorThemeReservation Reserve() { return new MixCursorThemeReservation(); }
+  public static MixCursorTheme Complete(MixCursorThemeReservation reservation, bool decorate) {
+    MixWin32.Current = new IntPtr(2); return new MixCursorTheme();
+  }
+  public static MixCursorTheme Begin(bool decorate) { return Complete(Reserve(), decorate); }
+  public static MixCursorTheme Begin() { return Begin(true); }
   public void Dispose() {}
 }
 public class FixturePoint { public int x=10, y=20; }
@@ -506,8 +684,11 @@ public static class MixWin32 {
   public static void NoteInjection() {}
 }
 '@
-foreach ($name in @('Invoke-ForegroundInput','New-ActionResult')) { . (Import-InputFunction $name) }
+foreach ($name in @('Invoke-ForegroundInput','New-ActionResult','Acquire-CursorTheme')) { . (Import-InputFunction $name) }
 function Wait-UserInputIdle { return 0 }
+# Keyboard feedback reads the target's focus before any key lands; the drift
+# under test happens later, so the fixture answers it without a real window.
+function Test-FocusMasked { return $false }
 function Assert-ExecutionAuthorization($request,$handle) {}
 function Remember-FocusOrigin($state,$previous,$target) {}
 $script:state=@{LastFocus=[IntPtr]::Zero}

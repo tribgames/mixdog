@@ -136,7 +136,16 @@ export const CATALOG = {
     properties: {
       paragraph: ['style'],
       font: ['name', 'nameEastAsia', 'size', 'bold', 'italic', 'underline', 'color', 'hidden'],
-      page: ['orientation', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin', 'columns', 'columnSpacing'],
+      page: [
+        'pageSize',
+        'orientation',
+        'topMargin',
+        'bottomMargin',
+        'leftMargin',
+        'rightMargin',
+        'columns',
+        'columnSpacing',
+      ],
       headerFooter: ['section', 'kind', 'header', 'text'],
       table: [
         'style',
@@ -525,6 +534,7 @@ export const CATALOG = {
         'stamp_image',
         'ocr_pages',
         'rotate_pages',
+        'crop_pages',
         'delete_pages',
         'move_page',
         'extract_pages',

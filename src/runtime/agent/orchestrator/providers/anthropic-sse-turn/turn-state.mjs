@@ -31,6 +31,10 @@ export function updateTurnUsage(usage, raw) {
   if (raw.output_tokens != null) usage.outputTokens = raw.output_tokens;
   if (raw.cache_read_input_tokens != null) usage.cachedTokens = raw.cache_read_input_tokens;
   if (raw.cache_creation_input_tokens != null) usage.cacheWriteTokens = raw.cache_creation_input_tokens;
+  // The 1-hour-TTL share of cache writes, priced separately.
+  if (raw.cache_creation?.ephemeral_1h_input_tokens != null) {
+    usage.cacheWrite1hTokens = raw.cache_creation.ephemeral_1h_input_tokens;
+  }
   usage.raw = { ...(usage.raw || {}), ...raw };
   // Input excludes cache; all three slots contribute to prompt volume.
   usage.promptTokens = usage.inputTokens + usage.cachedTokens + usage.cacheWriteTokens;

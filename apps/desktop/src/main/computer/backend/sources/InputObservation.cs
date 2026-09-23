@@ -14,6 +14,13 @@ public sealed class MixInputLedger
         if (own) LastOwnTick = tick;
         else ForeignSequence++;
     }
+    /// Input nobody typed (a reserved key Windows injects during activation)
+    /// still moves the system's last-input clock, so the ledger keeps pace with
+    /// it without counting it as someone else's input.
+    public void RecordNeutral(uint tick)
+    {
+        LatestTick = tick;
+    }
 }
 
 public sealed class MixInputSnapshot
@@ -116,12 +123,29 @@ public static class MixInputObservation
         }
         return CallNextHookEx(System.IntPtr.Zero, code, message, data);
     }
+    /// Virtual-key codes Windows reserves or leaves unassigned (winuser.h).
+    public static bool IsUnassignedVirtualKey(uint vk)
+    {
+        return vk == 0x07 || vk == 0x0A || vk == 0x0B || vk == 0x5E
+          || (vk >= 0x88 && vk <= 0x8F) || (vk >= 0x97 && vk <= 0x9F)
+          || vk == 0xB8 || vk == 0xB9 || (vk >= 0xC1 && vk <= 0xDA)
+          || vk == 0xE0 || vk == 0xE8 || vk == 0xFF;
+    }
     static System.IntPtr OnKey(int code, System.IntPtr message, System.IntPtr data)
     {
         if (code >= 0)
         {
             var value = (KEY)System.Runtime.InteropServices.Marshal.PtrToStructure(data, typeof(KEY));
-            Record((value.flags & 0x10) != 0, value.extra, value.time);
+            bool injected = (value.flags & 0x10) != 0;
+            // No keyboard can press a reserved or unassigned key. Windows injects
+            // one (0xB9) while a packaged app takes the foreground, and counting
+            // it as the user's input blocked every restore of the user's focus.
+            if (injected && IsUnassignedVirtualKey(value.vk))
+            {
+                lock (sync) { if (ledger != null) ledger.RecordNeutral(value.time); }
+                return CallNextHookEx(System.IntPtr.Zero, code, message, data);
+            }
+            Record(injected, value.extra, value.time);
             if (MixNativeInput.ObserveForeignOwnership && ((value.flags & 0x10) == 0 || value.extra != Marker))
             {
                 MixNativeInput.RecordForeignKey((int)value.vk, (value.flags & 0x80) == 0);

@@ -2,7 +2,7 @@
 // runtime proxy — all against a STUB runtime factory so the test never boots a
 // provider, model catalog, or memory runtime.
 import http from 'node:http';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +10,15 @@ import { pathToFileURL } from 'node:url';
 import { applySessionStatePatch, diffSessionState } from '../../src/standalone/session-state-patch.mjs';
 
 const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), 'mixdog-session-transport-'));
+// Every test file imports this module, so without this each run left one
+// runtime root behind in the temp directory.
+process.on('exit', () => {
+  try {
+    rmSync(RUNTIME_ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  } catch {
+    /* a still-open handle leaves it for the OS temp cleanup */
+  }
+});
 process.env.MIXDOG_RUNTIME_ROOT = RUNTIME_ROOT;
 process.env.MIXDOG_DATA_DIR = RUNTIME_ROOT;
 process.env.MIXDOG_SESSION_SSE_PENDING_MB = '0.25';

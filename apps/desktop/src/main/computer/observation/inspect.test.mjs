@@ -151,7 +151,7 @@ test('diagnose probes native input readiness instead of inferring it from usable
           if (native instanceof Error) throw native;
           return { ok: true, result: native };
         }
-        return { ok: true, result: { elements: [{}], available: true } };
+        return { ok: true, result: { elements: [{}], available: true, interactive: true } };
       },
       sessionIdFor: () => 'diagnose-input',
       assertExecutionNotAborted() {},

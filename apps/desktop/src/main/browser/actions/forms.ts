@@ -132,17 +132,18 @@ export const formActions = defineBrowserActions({
     if (!values.length) {
       // Asking without a value reads the control instead of changing it, so
       // the page is left exactly as it was.
-      const options = await reply.withRefRecovery(
+      const { options, total } = await reply.withRefRecovery(
         guest,
         refRecovery,
         ref,
         (recovered) => refActions.listSelectOptions(guest, recovered, signal),
         signal
       );
+      const count = total ? `first ${options.length} of ${total}` : String(options.length);
       return reply.decorateRecovery(
         {
           text: options.length
-            ? `Options for ${ref} (${options.length}):\n${options.map((option) => `- ${redactBrowserText(option)}`).join('\n')}`
+            ? `Options for ${ref} (${count}):\n${options.map((option) => `- ${redactBrowserText(option)}`).join('\n')}`
             : `${ref} has no options.`,
         },
         refRecovery

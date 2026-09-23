@@ -91,7 +91,9 @@ export function continuationPrompt(goal, { idleReview = false, includeRules = tr
   if (!includeRules && !includeState) {
     return [
       '<system-reminder>',
-      `# Active Goal (revision ${goal.revision}): carry the approved work forward against authoritative current state.`,
+      '# Active Goal',
+      'Carry the approved work forward against authoritative current state.',
+      `Revision: ${goal.revision}`,
       ...(goalTimeLimitMs(goal) > 0 ? goalTimeLines(goal) : []),
       'The objective, durable task list, and continuation rules delivered earlier in this Goal still apply unchanged.',
       '</system-reminder>',

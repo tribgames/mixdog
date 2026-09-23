@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -10,12 +10,16 @@ test('isolated PostgreSQL covers fresh schema, legacy CORE conflicts, aliases an
   const directory = mkdtempSync(join(tmpdir(), 'mixdog-memory-postgres-'));
   process.env.MIXDOG_RUNTIME_ROOT = join(directory, 'runtime');
   process.env.MIXDOG_DATA_DIR = directory;
-  t.diagnostic(`Retained isolated PostgreSQL artifacts: ${directory}`);
   const { openDatabase, closeDatabase, ensureCurrentSchemaExtensions, embeddingToSql } = await import('./memory.mjs');
   const { stopPgForShutdown } = await import('./pg/supervisor.mjs');
+  // A passing run removes its ~100 MB PGDATA; a failing one keeps it for
+  // inspection and says where.
+  let passed = false;
   t.after(async () => {
     await closeDatabase(directory);
     await stopPgForShutdown();
+    if (passed) rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    else t.diagnostic(`Retained isolated PostgreSQL artifacts: ${directory}`);
   });
   const identity = { model: 'isolated-sql-test', dimensions: 384 };
   let db = await openDatabase(directory, 384, identity);
@@ -121,4 +125,5 @@ test('isolated PostgreSQL covers fresh schema, legacy CORE conflicts, aliases an
   await db.query(`UPDATE core_entries SET element='resolved-key' WHERE id=$1`, [beforeCore[1].id]);
   assert.equal(await ensureCoreKeyIndex(db), true);
   assert.deepEqual((await db.query('SELECT id,summary FROM core_entries ORDER BY id')).rows, beforeCore);
+  passed = true;
 });

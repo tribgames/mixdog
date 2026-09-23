@@ -122,6 +122,58 @@ test('a timed-out provider stays an error while later captures use fresh pixels 
   assert.equal(snapshots, 3, 'the provider may recover after the bounded retry delay');
 });
 
+test('the observation after an action takes the cached stall instead of spending the timeout again', async (t) => {
+  let now = 10_000;
+  t.mock.method(Date, 'now', () => now);
+  let snapshots = 0;
+  const f = fixture({
+    native: (request) => {
+      if (request.action !== 'snapshot') return;
+      snapshots++;
+      throw new Error('computer_command_timeout: snapshot exceeded 2500ms');
+    },
+  });
+  const observation = { action: 'capture', mode: 'ax', window_id: 'hwnd:0x1', session_id: 'a', observation_after: true };
+  await assert.rejects(f.run(() => f.capture.captureComputer(observation)), /computer_command_timeout/);
+  assert.equal(snapshots, 1);
+  const cached = await f.run(() => f.capture.captureComputer(observation));
+  assert.equal(cached.payload.ok, true);
+  assert.equal(cached.payload.accessibility_cache, 'timed_out_provider');
+  assert.equal(cached.payload.returned_elements, 0);
+  assert.equal(snapshots, 1, 'the post-action observation never restarts the stalled provider');
+  // An explicit ax capture keeps its escape hatch.
+  await assert.rejects(
+    f.run(() => f.capture.captureComputer({ ...observation, observation_after: false })),
+    /computer_command_timeout/
+  );
+  assert.equal(snapshots, 2);
+});
+
+test('a provider that keeps timing out is retried on a doubling delay, and one good read clears it', async (t) => {
+  let now = 10_000;
+  t.mock.method(Date, 'now', () => now);
+  let stalled = true;
+  const f = fixture({
+    native: (request) => {
+      if (request.action !== 'snapshot') return;
+      if (stalled) throw new Error('computer_command_timeout: snapshot exceeded 2500ms');
+      return { ok: true, result: { elements: [], total_elements: 0, window_id: 'hwnd:0x1' } };
+    },
+  });
+  const command = { action: 'capture', window_id: 'hwnd:0x1', session_id: 'a', mode: 'state' };
+  for (const expected of [30_000, 60_000, 120_000, 120_000]) {
+    const result = await f.run(() => f.capture.captureComputer(command));
+    assert.equal(result.payload.accessibility_retry_after_ms, expected);
+    now += expected + 1;
+  }
+  stalled = false;
+  const recovered = await f.run(() => f.capture.captureComputer(command));
+  assert.equal(recovered.payload.accessibility_cache, undefined);
+  stalled = true;
+  const relapsed = await f.run(() => f.capture.captureComputer(command));
+  assert.equal(relapsed.payload.accessibility_retry_after_ms, 30_000, 'recovery resets the escalation');
+});
+
 test('state capture retains lossless source pixels for OCR while keeping the model image compact', async () => {
   const f = fixture();
   Object.assign(f.bounds, {
@@ -290,6 +342,10 @@ test('native capture denial, geometry changes and minimized targets do not switc
     );
     assert.equal(shot.image, undefined);
     assert.match(shot.pixelUnavailable.message, new RegExp(code));
+    // A hidden window says how to bring it back; recapturing cannot.
+    const hidden = code === 'capture_minimized' || code === 'capture_cloaked';
+    assert.equal(shot.pixelUnavailable.reason, hidden ? 'window_hidden' : 'capture_source_unavailable');
+    if (hidden) assert.match(shot.pixelUnavailable.message, /window focus/);
     assert.deepEqual(
       f.requests.filter((request) => request.action === 'window_capture').map((request) => request.capture_backend),
       ['print_window']
@@ -519,7 +575,9 @@ test('external input during capture disables foreground input, while stable capt
         observedScope: f.state.freshObservedWindowScope(command),
       });
     if (changed) {
-      await assert.rejects(input(), /input_observation_unavailable/);
+      // The user's own input, not a broken host: the refusal names that and
+      // still sends nothing.
+      await assert.rejects(input(), /foreground_input_not_ready/);
       assert.equal(sent, undefined);
     } else {
       await input();

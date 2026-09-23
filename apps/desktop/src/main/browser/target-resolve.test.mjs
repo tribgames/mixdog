@@ -89,6 +89,13 @@ test('exact names preserve ambiguity and nth only counts case-sensitive matches'
   assert.equal(selectBrowserTarget({ name: 'Save', exact: true, nth: 2 }, elements).ref, 'p1-s2-e3');
 });
 
+test('an ambiguous target suggests only the refinements it does not already use', () => {
+  const elements = [element('p1-s2-e1', 'link', 'Dynamic Content'), element('p1-s2-e2', 'link', 'Dynamic Loading')];
+  assert.throws(() => selectBrowserTarget({ name: 'dynamic' }, elements), /; add nth, exact:true or a role, or act/);
+  assert.throws(() => selectBrowserTarget({ role: 'link', name: 'dynamic' }, elements), /; add nth or exact:true, or act/);
+  assert.throws(() => selectBrowserTarget({ role: 'link' }, elements), /; add nth, or act/);
+});
+
 function resolverFixture({ ax = true, elements, unfiltered = elements.length, dom, selectorNodes, describeNode }) {
   const guest = {};
   const state = new BrowserGuestStateStore();

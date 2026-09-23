@@ -157,7 +157,13 @@ export async function mergeCaptureOcr(
     observationWindowId,
     timings,
   } = input;
-  const ocrFallbackEnabled = shouldUseOcrFallback(mode, semanticAccessibilityAvailable, command.include_ocr === true);
+  const filteredRead = Boolean(command.query || command.role);
+  const ocrFallbackEnabled = shouldUseOcrFallback(
+    mode,
+    semanticAccessibilityAvailable,
+    command.include_ocr === true,
+    filteredRead
+  );
   const runOcrForCapture = shouldRunCaptureOcr(
     ocrFallbackEnabled,
     semanticAccessibilityAvailable,
@@ -195,7 +201,24 @@ export async function mergeCaptureOcr(
         5_000
       );
       if (!ocr.ok) throw new Error(ocr.error || 'Windows OCR failed');
-      const { frameBounds, ocrWords } = projectOcrWords(ocr, screenshot, frame, elements, remainingElementBudget);
+      const { frameBounds, ocrWords: recognizedWords } = projectOcrWords(
+        ocr,
+        screenshot,
+        frame,
+        elements,
+        remainingElementBudget
+      );
+      // The accessibility snapshot applies query/role itself; recognized words
+      // never passed through it, so the same narrowing is applied here. A role
+      // other than static text cannot be answered from pixels at all.
+      const queryText = String(command.query || '').toLocaleLowerCase();
+      const requestedRole = String(command.role || '').toLocaleLowerCase();
+      const ocrWords =
+        requestedRole && requestedRole !== 'text'
+          ? []
+          : queryText
+            ? recognizedWords.filter((word) => String(word.text || '').toLocaleLowerCase().includes(queryText))
+            : recognizedWords;
       if (marksOcr) {
         ocrElements = appendOcrElements({
           mode,
@@ -207,18 +230,26 @@ export async function mergeCaptureOcr(
           observationWindowId,
         });
       }
-      const markedWords = marksOcr
-        ? ocrWords.map((word, index) => ({ ...word, mark: ocrElements[index]?.mark }))
-        : ocrWords;
       ocrPayload = {
         ok: true,
         mode: 'fallback',
         automatic: command.include_ocr !== true,
         language: String(ocr.result?.language || ''),
+        // Lines carry the same text as the words, so a narrowed read narrows
+        // them too instead of handing back the whole window as prose.
         lines: Array.isArray(ocr.result?.lines)
-          ? ocr.result.lines.map((line) => ({ ...line, ...frameBounds(line) }))
+          ? ocr.result.lines
+              .filter(
+                (line) =>
+                  (!requestedRole || requestedRole === 'text') &&
+                  (!queryText || String(line.text || '').toLocaleLowerCase().includes(queryText))
+              )
+              .map((line) => ({ ...line, ...frameBounds(line) }))
           : [],
-        words: markedWords,
+        // A marked word is already an element carrying its ref, name, bounds and
+        // actions, so repeating it here would send the same list twice. Only a
+        // mode that returns no elements still owes the words themselves.
+        ...(marksOcr ? {} : { words: ocrWords }),
         total_words: Number(ocr.result?.total_words) || 0,
         truncated_words: Number(ocr.result?.truncated_words) || 0,
       };

@@ -26,7 +26,7 @@ import {
   sheetPath,
   tableAreas,
 } from './xlsx-audit-support.mjs';
-import { auditSheetHygiene, auditSheetLayout } from './xlsx-sheet-hygiene.mjs';
+import { auditSheetHygiene, auditSheetLayout, externalDefinedNames } from './xlsx-sheet-hygiene.mjs';
 
 // Cells that sit side by side in the same row are one input line to the reader.
 function contiguousRuns(entries) {
@@ -432,16 +432,17 @@ function auditModelDiscipline(list, sheet, cells) {
   }
 }
 
-export function auditXlsxFormulas(sheets, { auditProfile = '', sheetNames = null } = {}) {
+export function auditXlsxFormulas(sheets, { auditProfile = '', sheetNames = null, definedNames = [] } = {}) {
   const list = new IssueList();
   const names =
     Array.isArray(sheetNames) && sheetNames.length
       ? sheetNames
       : (sheets || []).map((sheet) => sheet?.name).filter(Boolean);
+  const externalNames = externalDefinedNames(definedNames);
   for (const sheet of sheets || []) {
     const cells = Array.isArray(sheet?.cells) ? sheet.cells.filter((cell) => cell?.ref) : [];
     if (!cells.length) continue;
-    auditSheetHygiene(list, sheet, cells, names);
+    auditSheetHygiene(list, sheet, cells, names, externalNames);
     auditSheetLayout(list, sheet, cells);
     auditDoubleCounting(list, sheet, cells);
     if (auditProfile === 'financial-model') auditModelDiscipline(list, sheet, cells);
@@ -469,7 +470,11 @@ const SHARED_MODEL_VERDICTS = new Set(['hardcode_missing_source', 'rogue_hardcod
 export function mergeXlsxFormulaAudit(result, document, { auditProfile = '', sheet = '' } = {}) {
   const sheets = Array.isArray(document?.sheets) ? document.sheets : [];
   const scope = sheet ? `/sheet[${String(sheet).toLowerCase()}]` : '';
-  const findings = auditXlsxFormulas(sheets, { auditProfile, sheetNames: sheets.map((entry) => entry?.name) }).filter(
+  const findings = auditXlsxFormulas(sheets, {
+    auditProfile,
+    sheetNames: sheets.map((entry) => entry?.name),
+    definedNames: document?.definedNames,
+  }).filter(
     (finding) => !scope || finding.path === '/' || String(finding.path).toLowerCase().startsWith(scope)
   );
   // Only a sheet whose cells came back was read: Excel's full snapshot carries

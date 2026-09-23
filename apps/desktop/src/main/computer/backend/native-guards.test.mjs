@@ -54,6 +54,42 @@ Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.
   assert.equal(output, 'compiled');
 });
 
+test('MSAA roles map to the control types their oleacc constants name, and editing keys carry their character', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const output = await isolatedProgram(
+    `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName Accessibility
+Add-Type -AssemblyName System.Drawing
+Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
+  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+$roles = [ordered]@{}
+foreach ($role in 0x14, 0x1E, 0x25, 0x26, 0x2B, 0x2F, 0x39, 0x3C, 0x7F) { $roles[[string]$role] = [MixMsaa]::ControlTypeForRole([uint32]$role) }
+$keys = [ordered]@{}
+foreach ($vk in 0x08, 0x09, 0x0D, 0x1B, 0x20, 0x41, 0x25) { $keys[[string]$vk] = [int][MixWin32]::TranslatedKeyCharacter([uint16]$vk) }
+[Console]::WriteLine((@{ roles = $roles; keys = $keys; tk = [MixWin32]::ReceivesTranslatedCharacter('TkChild'); edit = [MixWin32]::ReceivesTranslatedCharacter('Edit') } | ConvertTo-Json -Compress))
+`,
+    { 'native.cs': MIXDOG_HOST_CSHARP }
+  );
+  const result = JSON.parse(output);
+  assert.deepEqual(result.roles, {
+    20: 'Group',
+    30: 'Hyperlink',
+    37: 'TabItem',
+    38: 'Pane',
+    43: 'Button',
+    47: 'ComboBox',
+    57: 'Button',
+    60: 'Tab',
+    127: 'Custom',
+  });
+  // Backspace, Tab, Enter, Escape and Space make a character; letters and arrows do not.
+  assert.deepEqual(result.keys, { 8: 8, 9: 9, 13: 13, 27: 27, 32: 32, 65: 0, 37: 0 });
+  assert.equal(result.tk, false);
+  assert.equal(result.edit, true);
+});
+
 test('native typing retains a completed preparatory click when text input is unsupported', {
   skip: process.platform !== 'win32',
 }, async () => {
@@ -220,10 +256,19 @@ public static class MixInputObservation {
   public static void AssertContinue() { if (DispatchAuthorization != null) DispatchAuthorization(); }
   public static void End() { Depth--; }
 }
+public sealed class MixCursorThemeReservation : IDisposable {
+  public static int Dropped;
+  public void Dispose() { Dropped++; }
+}
 public sealed class MixCursorTheme : IDisposable {
   public static int Restores;
   public static Action Prepared;
-  public static MixCursorTheme Begin() { if (Prepared != null) Prepared(); return new MixCursorTheme(); }
+  public static bool LastDecorate;
+  public static MixCursorThemeReservation Reserve() { return new MixCursorThemeReservation(); }
+  public static MixCursorTheme Complete(MixCursorThemeReservation reservation, bool decorate) {
+    LastDecorate = decorate; if (Prepared != null) Prepared(); return new MixCursorTheme();
+  }
+  public static MixCursorTheme Begin(bool decorate) { return Complete(Reserve(), decorate); }
   public void Dispose() { Restores++; }
 }
 public class PointValue { public int x,y; }
@@ -240,17 +285,25 @@ public static class MixWin32 {
 '@
 . (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
 $script:state=@{OriginalFocus=[IntPtr]2;LastFocus=[IntPtr]1}
+$script:CurrentRequest=@{}
 function Get-CurrentSession { return $script:state }
 function Wait-UserInputIdle { return 0 }
 function Remember-FocusOrigin($state,$previous,$target) {}
 function Assert-ExecutionAuthorization($req,$target) {}
 $result=Invoke-ForegroundInput ([IntPtr]1) 'click' { [MixWin32]::X=30 }
-if (-not $result.cursor_feedback.system_theme_applied -or -not $result.cursor_feedback.system_theme_restored -or
+# The overlay pointer shows the action, so even a click leaves the user's own
+# cursor artwork untouched; only the physical travel is reported.
+if ($result.cursor_feedback.system_theme_applied -or $result.cursor_feedback.system_theme_restored -or
     -not $result.cursor_feedback.pointer_moved) { throw 'feedback did not reflect completed action lifecycle' }
 try { Invoke-ForegroundInput ([IntPtr]1) 'click' { throw 'fixture failure' }; throw 'missing failure' } catch {
   if ($_.Exception.Message -ne 'fixture failure') { throw }
 }
 if ([MixCursorTheme]::Restores -ne 2 -or [MixInputObservation]::Depth -ne 0) { throw 'theme or intervention scope leaked' }
+# No delivery replaces the user's cursor artwork, while the watchdog still
+# guards the input this session owns.
+$keyFeedback=(Invoke-ForegroundInput ([IntPtr]1) 'key' { }).cursor_feedback
+if ([MixCursorTheme]::LastDecorate -or $keyFeedback.system_theme_applied -or
+    $keyFeedback.system_theme_restored) { throw 'input must not replace the user cursor artwork' }
 $script:expired=$false
 $script:sent=$false
 function Assert-ExecutionAuthorization($req,$target) {
@@ -261,9 +314,10 @@ try { Invoke-ForegroundInput ([IntPtr]1) 'key' { $script:sent=$true }; throw 'mi
   if ($_.Exception.ToString() -notmatch 'computer_policy_expired') { throw }
 }
 if ($script:sent -or [MixInputObservation]::Depth -ne 0 -or
-    $null -ne [MixInputObservation]::DispatchAuthorization -or [MixCursorTheme]::Restores -ne 3) {
+    $null -ne [MixInputObservation]::DispatchAuthorization -or [MixCursorTheme]::Restores -ne 4) {
   throw 'expired authority dispatched input or leaked its cleanup scope'
 }
+if ([MixCursorThemeReservation]::Dropped -ne 0) { throw 'a consumed watchdog reservation was dropped as unused' }
 [Console]::WriteLine('FEEDBACK_RESTORED')
 `,
     { 'input.ps1': PS_INPUT }

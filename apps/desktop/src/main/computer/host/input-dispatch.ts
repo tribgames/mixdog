@@ -33,8 +33,21 @@ function foregroundInputObservation(
 ): InputObservation | undefined {
   if (command.delivery !== 'foreground' || sessionId === CHROME_SETUP_SESSION_ID) return undefined;
   const inputObservation = target.observedScope?.inputObservation;
-  if (!inputObservation?.ready || !inputObservation.monitor || !Number.isSafeInteger(inputObservation.sequence)) {
+  if (!inputObservation?.monitor || !Number.isSafeInteger(inputObservation.sequence)) {
     throw new Error('input_observation_unavailable: capture a fresh foreground-ready observation before input');
+  }
+  // The observation exists but did not prove the user's hands were off the
+  // input: that is the user's state, not a broken host, so it must not send
+  // the caller into host diagnosis.
+  if (!inputObservation.ready) {
+    // The reason travels with the observation, so the refusal itself separates
+    // "the user is typing" from "the observer was unready" without sending the
+    // caller back to a capture payload it may no longer hold.
+    throw new Error(
+      `foreground_input_not_ready: the last observation was not foreground-ready (foreground_input_reason=${
+        inputObservation.reason || 'unknown'
+      }); user input means wait for the user, an unready observer means diagnose`
+    );
   }
   return inputObservation;
 }

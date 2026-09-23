@@ -204,11 +204,9 @@ block before re-splitting. One tidying per change set.
 
 ## Final report template
 
-This is the shape of the closing reply after the last round. Each earlier round
-closes with a few lines instead — partition, what landed, verification result,
-complete or unfinished — while the inventory accumulates in the form above. The
-full template is written once, in the conversation, not to a file, unless the
-user asks for a document.
+This is the shape of the closing reply after the last round; earlier rounds
+close as the skill body's section 7 describes, while the inventory accumulates
+in the form above.
 
 ```text
 Scope: <user-selected paths | explicit whole project> · Mode: report|apply

@@ -39,35 +39,37 @@ test('outline glow disappears while paused and returns on resume without hiding 
   }
 });
 
-test('one toggle changes between Pause and Resume; the check state adds a live Stop', async (t) => {
+test('one toggle changes between Pause and Resume; both controls stay live in every state', async (t) => {
   for (const locale of ['ko', 'en']) {
     const f = fixture(t, locale);
     const stop = f.document.getElementById('stop');
-    const visibleControls = () => [...f.document.querySelectorAll('button')].filter((button) => !button.hidden).length;
+    const liveControls = () =>
+      [...f.document.querySelectorAll('button')].filter((button) => !button.hidden && !button.disabled).length;
     f.publish({ title: 'Running', paused: false, canResume: false, generation: 6, renderRevision: 1 });
-    assert.equal(visibleControls(), 1);
+    assert.equal(liveControls(), 2);
     assert.equal(f.button.getAttribute('aria-label'), locale === 'ko' ? '중단' : 'Pause');
-    assert.equal(f.button.disabled, false);
     const pauseIcon = f.button.querySelector('path').getAttribute('d');
     f.publish({ title: 'Check', attention: true, paused: true, canResume: false, generation: 7, renderRevision: 2 });
     assert.equal(f.button.getAttribute('aria-label'), locale === 'ko' ? '재개' : 'Resume');
     assert.notEqual(f.button.querySelector('path').getAttribute('d'), pauseIcon);
-    assert.equal(f.button.disabled, true);
     assert.match(f.button.title, /Ctrl\+Alt\+Esc/);
     assert.equal(f.document.body.dataset.error, 'true');
-    // A dead toggle is not the only way out of a latched check state.
-    assert.equal(visibleControls(), 2);
-    assert.equal(stop.disabled, false);
+    // A latched check state takes neither control away: the toggle still
+    // delivers its press and Stop is always one click away.
+    assert.equal(liveControls(), 2);
+    f.button.click();
+    await settle();
     stop.click();
     await settle();
-    assert.deepEqual(f.calls, [{ action: 'stop', generation: 7 }]);
+    assert.deepEqual(f.calls, [
+      { action: 'resume', generation: 7 },
+      { action: 'stop', generation: 7 },
+    ]);
     f.publish({ title: 'stale', paused: false, generation: 6, renderRevision: 1 });
     assert.equal(f.document.getElementById('title').textContent, 'Check');
-    assert.equal(f.button.disabled, true);
     f.publish({ paused: true, canResume: true, generation: 7, renderRevision: 3 });
-    assert.equal(f.button.disabled, false);
     assert.equal(f.document.body.dataset.error, 'false');
-    assert.equal(visibleControls(), 1);
+    assert.equal(liveControls(), 2);
   }
 });
 
@@ -80,7 +82,10 @@ test('the same button pauses and resumes without sending task cancellation or di
   f.publish({ paused: true, canResume: true, generation: 2, renderRevision: 2 });
   f.button.click();
   await settle();
+  // The toggle never swallows a press: a repeated Pause reaches the host,
+  // which owns the duplicate, and it never becomes a cancellation.
   assert.deepEqual(f.calls, [
+    { action: 'pause', generation: 1 },
     { action: 'pause', generation: 1 },
     { action: 'resume', generation: 2 },
   ]);
@@ -97,7 +102,7 @@ test('a takeover between pointer down and up cannot turn a Pause click into Resu
   await settle();
   assert.deepEqual(f.calls, [{ action: 'pause', generation: 8 }]);
   assert.equal(f.button.getAttribute('aria-label'), '재개');
-  assert.equal(f.button.disabled, true);
+  assert.equal(f.button.disabled, false);
 });
 
 test('Resume retains the generation from pointer or keyboard activation and reports delivery failure', async (t) => {
@@ -137,7 +142,7 @@ test('a rejected Pause remains visible even though Pause moves the generation', 
   assert.equal(f.document.getElementById('title').textContent, '실패');
   assert.equal(f.document.body.dataset.error, 'true');
   assert.equal(f.button.getAttribute('aria-busy'), 'false');
-  assert.equal(f.button.disabled, true);
+  assert.equal(f.button.disabled, false);
 });
 
 test('pending Resume can be interrupted using the same button without cancelling the task', async (t) => {
@@ -164,7 +169,7 @@ test('pending Resume can be interrupted using the same button without cancelling
   await settle();
   assert.deepEqual(calls, ['resume', 'pause']);
   assert.equal(f.button.getAttribute('aria-label'), '재개');
-  assert.equal(f.button.disabled, true);
+  assert.equal(f.button.disabled, false);
   assert.equal(f.document.body.dataset.error, 'true');
 });
 
@@ -178,17 +183,18 @@ test('a cancelled pointer gesture releases its old toggle intent without sending
   assert.deepEqual(f.calls, []);
 });
 
-test('a press dropped while another control runs locks the pill instead of looking idle', async (t) => {
+test('a press dropped while another control runs is not a failure and leaves the control pressable', async (t) => {
   const f = fixture(t);
   f.window.mixdogComputerControl = async () => ({ accepted: false, busy: true, error: 'busy' });
   f.publish({ paused: true, canResume: true, generation: 4, renderRevision: 1 });
   assert.equal(f.button.disabled, false);
   f.button.click();
   await settle();
-  // Neither a silent no-op nor a failure: the control stays locked until the
-  // host publishes the state that owns the running request.
-  assert.equal(f.button.disabled, true);
+  // The host owns the running request; the drop is neither an error the user
+  // must read nor a reason to take the button away.
   assert.equal(f.document.body.dataset.error, 'false');
+  assert.equal(f.button.getAttribute('aria-busy'), 'false');
+  assert.equal(f.button.disabled, false);
   f.publish({ paused: true, canResume: true, generation: 4, renderRevision: 2 });
   assert.equal(f.button.disabled, false);
 });

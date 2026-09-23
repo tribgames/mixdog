@@ -65,8 +65,9 @@ that a call returned without transport error.
   provider restores Main inheritance; omission never resets it. Disabling an
   agent preserves its route for re-enabling.
 - Web Search model selection and Web Search tool exposure are separate.
-- Memory master state controls the capability; recap controls background
-  cycles only. Core Memory content is managed by the `memory` tool.
+- Memory master state controls tools, core injection, and background cycles;
+  `set_recap_enabled` changes only the background cycles. Core Memory entries
+  are read and changed with the `memory` tool, not setup.
 - Built-ins have installation state separate from enabled state. Browser Use,
   Computer Use, and voice actions require this conversation open in the local
   Desktop window. `set_first_use_approval` controls first-use approval for

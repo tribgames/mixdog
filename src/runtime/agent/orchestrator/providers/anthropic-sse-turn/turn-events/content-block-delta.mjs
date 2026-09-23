@@ -4,7 +4,21 @@
  * signature deltas and streamed tool input_json for client and native
  * server tools.
  */
-export function createContentBlockDelta({ turn, blocks, state, leak, relayText, progress }) {
+export function createContentBlockDelta({ turn, blocks, state, leak, relayText, progress, relayProgressUpdates }) {
+  // Under thinking.display "updates" reasoning blocks stream no text, so any
+  // thinking text is a progress update (tool preamble). It is shown live like
+  // preamble text but stays only in its thinking block: turn.content and the
+  // replayed blocks remain exactly what the model produced.
+  let progressIndex = null;
+  let relayedProgress = false;
+  const relayProgressUpdate = (index, text) => {
+    const lead = index !== progressIndex && (relayedProgress || turn.content) ? '\n\n' : '';
+    progressIndex = index;
+    relayedProgress = true;
+    relayText(lead + text);
+    progress('text');
+  };
+
   const onTextDelta = (index, text) => {
     // Ordered verbatim text for native-block replay — independent of the
     // leak-guard's visible-stream bookkeeping (which may hold text back).
@@ -52,6 +66,7 @@ export function createContentBlockDelta({ turn, blocks, state, leak, relayText, 
     }
     if (delta.type === 'thinking_delta') {
       tb.thinking += delta.thinking || '';
+      if (relayProgressUpdates && delta.thinking) relayProgressUpdate(index, delta.thinking);
     } else {
       tb.signature += delta.signature || '';
     }

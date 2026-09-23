@@ -21,8 +21,16 @@ import { createTurnOutcome } from './anthropic-sse-turn/turn-outcome.mjs';
  * @param {(call: object) => void} [deps.onToolCall]
  * @param {(text: string) => void} [deps.onTextDelta]
  * @param {Iterable<string>} [deps.knownToolNames]
+ * @param {boolean} [deps.relayProgressUpdates]  request used thinking.display "updates"
  */
-export function createAnthropicSseTurn({ state, onStreamDelta, onToolCall, onTextDelta, knownToolNames }) {
+export function createAnthropicSseTurn({
+  state,
+  onStreamDelta,
+  onToolCall,
+  onTextDelta,
+  knownToolNames,
+  relayProgressUpdates = false,
+}) {
   const progress = (kind) => {
     try {
       onStreamDelta?.(kind);
@@ -43,7 +51,16 @@ export function createAnthropicSseTurn({ state, onStreamDelta, onToolCall, onTex
   const turn = createAnthropicTurnState();
   const blocks = createTurnBlocks();
   const leak = createLeakGuard({ turn, state, knownToolNames, onToolCall, relayText, progress });
-  const events = createTurnEvents({ turn, blocks, state, leak, relayText, progress, onToolCall });
+  const events = createTurnEvents({
+    turn,
+    blocks,
+    state,
+    leak,
+    relayText,
+    progress,
+    onToolCall,
+    relayProgressUpdates,
+  });
   const outcome = createTurnOutcome({ turn, blocks, state });
 
   return {

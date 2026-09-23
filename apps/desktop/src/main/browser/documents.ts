@@ -22,7 +22,9 @@ export const BROWSER_DOCUMENT_ROOTS = `function() {
 
 export const BROWSER_DOCUMENT_TEXT = `(() => {
   const parts = (${BROWSER_DOCUMENT_ROOTS})().map(root => {
-    if (root === document) return document.body?.innerText || '';
+    // A <frameset> body holds only the unseen <noframes> fallback; each
+    // frame is collected as a document of its own.
+    if (root === document) return document.body?.tagName === 'FRAMESET' ? '' : document.body?.innerText || '';
     const hostStyle = getComputedStyle(root.host);
     if (hostStyle.display === 'none' || hostStyle.visibility === 'hidden') return '';
     return Array.from(root.childNodes).map(node => node.nodeType === 3
@@ -131,12 +133,17 @@ export function createBrowserDocuments(host: BrowserFrameHost) {
     signal?: AbortSignal
   ) {
     type Row = { text: string; name: string; attributes: Record<string, string> };
-    const frames = await collect<{ rows: Row[]; total: number }>(
+    const frames = await collect<{ rows: Row[]; total: number; columns: string }>(
       guest,
       `(() => {
       const rows = [];
       let total = 0;
+      let columns = '';
       const compact = (value, max) => String(value ?? '').replace(/\\s+/g, ' ').trim().slice(0, max);
+      // A table row keeps its cell boundaries: collapsed into one run of
+      // words, "Smith John" could be one cell or two.
+      const cells = (row) => Array.from(row.cells, (cell) => compact(cell.innerText || cell.textContent, 200)).join(' | ');
+      const isTableRow = (node) => String(node.tagName || '').toUpperCase() === 'TR' && Boolean(node.cells);
       for (const root of (${BROWSER_DOCUMENT_ROOTS})()) {
         let nodes;
         try { nodes = root.querySelectorAll(${JSON.stringify(selector)}); }
@@ -149,17 +156,25 @@ export function createBrowserDocuments(host: BrowserFrameHost) {
             const raw = name === 'href' && node instanceof HTMLAnchorElement ? node.href : node.getAttribute(name);
             if (raw) attributes[name] = compact(raw, 300);
           }
-          rows.push({text: compact(node.innerText || node.textContent, 400),
+          const tableRow = isTableRow(node);
+          if (tableRow && !columns) {
+            const table = node.closest('table');
+            const header = table && ((table.tHead && table.tHead.rows[0]) || Array.from(table.rows).find(
+              (row) => row.cells.length && Array.from(row.cells).every((cell) => cell.tagName === 'TH')));
+            if (header && header !== node) columns = cells(header).slice(0, 400);
+          }
+          rows.push({text: tableRow ? cells(node).slice(0, 400) : compact(node.innerText || node.textContent, 400),
             name: compact(node.getAttribute('aria-label') || node.getAttribute('title'), 120), attributes});
         }
       }
-      return {rows, total};
+      return {rows, total, columns};
     })()`,
       signal
     );
     return {
       rows: frames.flatMap((frame) => frame.rows).slice(0, limit),
       total: frames.reduce((sum, frame) => sum + frame.total, 0),
+      columns: frames.find((frame) => frame.columns)?.columns || '',
     };
   }
   async function revision(guest: WebContents, signal?: AbortSignal) {

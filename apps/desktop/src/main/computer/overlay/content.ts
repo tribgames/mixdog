@@ -4,10 +4,10 @@ export const OVERLAY_WIDTH = 280;
 export const OVERLAY_HEIGHT = 72;
 
 /**
- * A Pause/Resume toggle preserves the task. While the pill shows the check
- * state that toggle can be dead — a latched cleanup only clears through Stop —
- * so the check state carries its own Stop control instead of leaving
- * Ctrl+Alt+Esc as the single way out.
+ * A Pause/Resume toggle preserves the task and Stop ends it. Both controls are
+ * always present and always pressable: a latched cleanup, an unconfirmed
+ * request, or another control still running must never leave the user with a
+ * dead pill and Ctrl+Alt+Esc as the only way out.
  */
 export function overlayHtml(locale: string): string {
   const ko = locale.toLowerCase().startsWith('ko');
@@ -18,7 +18,7 @@ export function overlayHtml(locale: string): string {
 <div id="status" role="status"><div id="title">${ko ? '컴퓨터 사용 중' : 'Computer in use'}</div></div>
 <div id="controls">
 <button id="toggle" type="button" aria-label="${ko ? '중단' : 'Pause'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button>
-<button id="stop" type="button" hidden aria-label="${ko ? '작업 종료' : 'Stop'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12 19 6.4 17.6 5 12 10.6z"/></svg></button>
+<button id="stop" type="button" aria-label="${ko ? '작업 종료' : 'Stop'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12 19 6.4 17.6 5 12 10.6z"/></svg></button>
 </div>
 </div></body></html>`;
 }
@@ -27,7 +27,7 @@ export function overlayScript(locale = 'en'): string {
   const ko = locale.toLowerCase().startsWith('ko');
   return `(() => {
     let state = { paused:false, canResume:false, busy:false, generation:0 };
-    let armed, renderedRevision = -1, requestSequence = 0, pending = '', failed = false, blocked = false;
+    let armed, renderedRevision = -1, requestSequence = 0, pending = '', failed = false;
     const toggle = document.getElementById('toggle');
     const stopControl = document.getElementById('stop');
     const action = () => {
@@ -51,16 +51,10 @@ export function overlayScript(locale = 'en'): string {
       toggle.setAttribute('aria-label', label);
       toggle.title = label + ${JSON.stringify(ko ? ' (비상 중지: Ctrl+Alt+Esc)' : ' (emergency Stop: Ctrl+Alt+Esc)')};
       toggle.querySelector('path').setAttribute('d', resuming ? 'M7 4v16l14-8z' : 'M6 4h4v16H6zM14 4h4v16h-4z');
-      // blocked: the host dropped the last press because another control was
-      // still running. Stay locked until the next state arrives, so a dropped
-      // press never looks like an idle control that ignores clicks.
-      toggle.disabled =
-        blocked || pending === 'pause' || (state.busy && pending !== 'resume') || (resuming && !state.canResume);
+      // No control is ever disabled or hidden. A running, dropped, or latched
+      // request reports itself through the wording and aria-busy only, so every
+      // press reaches the host and Stop is always one click away.
       toggle.setAttribute('aria-busy', String(Boolean(pending) || Boolean(state.busy)));
-      // Stop ends the task and is the only control that clears a latched
-      // cleanup, so it stays live exactly while the pill asks for a decision.
-      stopControl.hidden = !attention;
-      stopControl.disabled = pending === 'stop';
       stopControl.title = ${JSON.stringify(ko ? '작업 종료' : 'Stop')} + ' (Ctrl+Alt+Esc)';
       stopControl.setAttribute('aria-busy', String(pending === 'stop'));
     };
@@ -76,7 +70,9 @@ export function overlayScript(locale = 'en'): string {
         if (sequence !== requestSequence) return;
         // Pause moves the generation itself; only Resume is stale across generations.
         if (request.action === 'resume' && request.generation !== state.generation) return;
-        if (reply?.error === 'busy') { blocked = true; return; }
+        // Dropped because another control was still running: not a failure,
+        // and the control stays live for the next press.
+        if (reply?.error === 'busy') return;
         if (!reply?.accepted || reply.error) throw new Error('not accepted');
       } catch {
         if (sequence === requestSequence
@@ -105,7 +101,6 @@ export function overlayScript(locale = 'en'): string {
       if (next.renderRevision < renderedRevision) return;
       renderedRevision = next.renderRevision;
       if (next.generation !== state.generation) failed = false;
-      blocked = false;
       state = next;
       document.body.classList.remove('hiding');
       document.documentElement.style.setProperty('--accent', state.accent || '#58a6ff');

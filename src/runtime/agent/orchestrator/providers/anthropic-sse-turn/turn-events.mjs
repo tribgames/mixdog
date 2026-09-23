@@ -9,12 +9,20 @@ import { createContentBlockDelta } from './turn-events/content-block-delta.mjs';
 import { createContentBlockStop } from './turn-events/content-block-stop.mjs';
 import { createMessageEvents } from './turn-events/message-events.mjs';
 
-export function createTurnEvents({ turn, blocks, state, leak, relayText, progress, onToolCall }) {
+export function createTurnEvents({ turn, blocks, state, leak, relayText, progress, onToolCall, relayProgressUpdates }) {
   const { onMessageStart, onMessageDelta, onMessageStop } = createMessageEvents({ turn, blocks, state });
   return {
     onMessageStart,
     onContentBlockStart: createContentBlockStart({ turn, blocks, state, progress }),
-    onContentBlockDelta: createContentBlockDelta({ turn, blocks, state, leak, relayText, progress }),
+    onContentBlockDelta: createContentBlockDelta({
+      turn,
+      blocks,
+      state,
+      leak,
+      relayText,
+      progress,
+      relayProgressUpdates,
+    }),
     onContentBlockStop: createContentBlockStop({ turn, blocks, state, leak, progress, onToolCall }),
     onMessageDelta,
     onMessageStop,

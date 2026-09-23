@@ -3,14 +3,20 @@
  * tests. Stale recapture drops only action-bound targets; terminal lifecycle
  * cleanup drops every capture-owned resource and its session preference.
  */
+/** Pixels: a frame point names whatever sits there now, so it ages fast. */
 export const MAX_COMPUTER_OBSERVATION_AGE_MS = 60_000;
+/** Semantic refs are re-resolved against the live element at dispatch, so the
+ *  observed window scope that authorizes them outlasts an agent's usual
+ *  one-to-five-minute think between commands. */
+export const MAX_COMPUTER_OBSERVED_SCOPE_AGE_MS = 300_000;
 
-export function isFreshComputerObservation(observedAt: number, now: number): boolean {
+export function isFreshComputerObservation(
+  observedAt: number,
+  now: number,
+  maximumAgeMs = MAX_COMPUTER_OBSERVATION_AGE_MS
+): boolean {
   return (
-    Number.isFinite(observedAt) &&
-    Number.isFinite(now) &&
-    now >= observedAt &&
-    now - observedAt <= MAX_COMPUTER_OBSERVATION_AGE_MS
+    Number.isFinite(observedAt) && Number.isFinite(now) && now >= observedAt && now - observedAt <= maximumAgeMs
   );
 }
 
@@ -20,7 +26,7 @@ export function resolveFreshComputerObservationScope<TScope extends { observedAt
   now: number
 ): { scope?: TScope; expired: boolean } {
   const scope = scopesBySession.get(sessionId);
-  if (!scope || isFreshComputerObservation(scope.observedAt, now)) {
+  if (!scope || isFreshComputerObservation(scope.observedAt, now, MAX_COMPUTER_OBSERVED_SCOPE_AGE_MS)) {
     return { scope, expired: false };
   }
   scopesBySession.delete(sessionId);

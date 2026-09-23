@@ -230,7 +230,8 @@ export class AnthropicProvider {
             onToolCall,
             midState,
             onTextDelta,
-            knownToolNames
+            knownToolNames,
+            { relayProgressUpdates: params.thinking?.display === 'updates' }
           );
           try {
             streamController.abort?.('Anthropic SSE complete');

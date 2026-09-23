@@ -22,6 +22,19 @@ test('new console errors are reported once while recent errors stay available', 
   assert.deepEqual(ledger.newErrors(2), []);
 });
 
+test('a capped report keeps the page fault ahead of trackers the host policy refused', () => {
+  const ledger = new BrowserConsoleLedger();
+  const refused = (name) =>
+    `error: Failed to load resource: net::ERR_BLOCKED_BY_CLIENT (Browser Use network policy) (https://t.test/${name})`;
+  ledger.record('error', 'error: Failed to load resource: the server responded with a status of 500');
+  for (const name of ['a', 'b', 'c']) ledger.record('error', refused(name));
+  assert.deepEqual(ledger.newErrors(3), [
+    'error: Failed to load resource: the server responded with a status of 500',
+    refused('b'),
+    refused('c'),
+  ]);
+});
+
 test('the ledger counts errors so a capped report can name what it left behind', () => {
   const ledger = new BrowserConsoleLedger();
   for (let index = 0; index < 12; index += 1) ledger.record('error', `failure ${index}`);

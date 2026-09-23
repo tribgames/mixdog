@@ -39,21 +39,29 @@ $mockWindow | Add-Member ScriptMethod FindAll {
   })
 }
 function Find-Window($title, $id) { return $mockWindow }
+function Get-CachedFlag($el, $property) {
+  return @($el.Flags | Where-Object { $property.ProgrammaticName -like ('*.' + $_ + 'Property') }).Count -gt 0
+}
+function Get-VisibleTextLines($el) { return , [System.Collections.ArrayList]@($el.Lines) }
 $rows = @()
-foreach ($case in @('empty','complete','truncated','long-text','partial-provider','custom-error')) {
+foreach ($case in @('empty','complete','truncated','long-text','partial-provider','custom-error','text-surface')) {
   [MixMsaa]::Complete = $case -ne 'partial-provider'
   $names = switch ($case) {
     'empty' { @() }
     'truncated' { @('one','two','error') }
     'long-text' { @('x' * 201) }
     'custom-error' { @('error') }
+    'text-surface' { @('') }
     default { @('ready') }
   }
   $script:elements = @($names | ForEach-Object {
     [pscustomobject]@{ Cached=[pscustomobject]@{
       IsOffscreen=$false; Name=$_; IsEnabled=$true
       ControlType=$(if ($case -eq 'custom-error') { [System.Windows.Automation.ControlType]::Custom } else { [System.Windows.Automation.ControlType]::Text })
-    }}
+    }
+    # A focusable text surface without a value: its visible lines are the text.
+    Flags=$(if ($case -eq 'text-surface') { @('IsKeyboardFocusable', 'IsTextPatternAvailable') } else { @() })
+    Lines=@('LINE_A', 'LINE_B')}
   })
   $result = Get-WindowPredicates ([pscustomobject]@{
     window_id='hwnd:0x1'; window=$null; max_elements=2; include_elements=$true
@@ -81,9 +89,14 @@ $rows | ConvertTo-Json -Compress -Depth 6
         ['long-text', false, 1],
         ['partial-provider', false, 1],
         ['custom-error', true, 1],
+        ['text-surface', true, 2],
       ]
     );
-    assert.equal(results.at(-1).elements[0].name, 'error');
+    assert.equal(results.at(-2).elements[0].name, 'error');
+    assert.deepEqual(
+      results.at(-1).elements.map((element) => element.name),
+      ['LINE_A', 'LINE_B']
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

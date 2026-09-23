@@ -104,6 +104,12 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   // tool, so the everyday schema carries only the fields page work uses.
   assert.ok(Buffer.byteLength(JSON.stringify(BROWSER_TOOL_DEFS[0])) <= 12_000);
   assert.ok(Buffer.byteLength(JSON.stringify(BROWSER_TOOL_DEFS[1])) <= 8_500);
+  // Devtools actions take only optional fields, so no empty requirement list.
+  assert.equal(
+    BROWSER_TOOL_DEFS[1].inputSchema.properties.input.description,
+    'Fields for the selected action. Omit input when none are needed.'
+  );
+  assert.match(BROWSER_TOOL_DEFS[0].inputSchema.properties.input.description, /Required: navigate url or reload;/);
   // A field is addressed by ref or by a snapshot-free target, so neither is
   // required on its own; the validator enforces exactly one.
   assert.equal(propertyFor('fill', 'fields').items.required, undefined);

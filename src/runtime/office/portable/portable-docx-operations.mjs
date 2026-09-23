@@ -25,6 +25,8 @@ import {
   tableRowMatches,
   wordJustification,
   wordTableProperties,
+  wordTextContent,
+  withFirstRunText,
 } from './portable-docx-xml.mjs';
 import { docxRevisionTree, flattenDocxRevisions } from './docx-revisions.mjs';
 import { settleDocxStory } from './docx-runs.mjs';
@@ -69,13 +71,18 @@ const PARAGRAPH_MARK_ID_OFFSET = 900;
 
 // A deleted paragraph mark lives in the paragraph's own run properties: the
 // mark joins an existing <w:rPr>, else opens one under <w:pPr>, else opens a
-// <w:pPr> at the head of the paragraph.
+// <w:pPr> at the head of the paragraph. Inside <w:rPr> the schema puts an
+// insertion before a deletion, so a mark another reviewer inserted keeps its
+// place ahead of the deletion that rejects it.
 function withParagraphMarkRevision(paragraphXml, mark) {
   if (!/<w:pPr(?:\s[^>]*)?>/.test(paragraphXml)) {
     return paragraphXml.replace(/^(<w:p(?:\s[^>]*)?>)/, `$1<w:pPr><w:rPr>${mark}</w:rPr></w:pPr>`);
   }
   if (/<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>\s*<\/w:pPr>/.test(paragraphXml)) {
-    return paragraphXml.replace(/(<w:rPr(?:\s[^>]*)?>)/, `$1${mark}`);
+    return paragraphXml.replace(
+      /(<w:rPr(?:\s[^>]*)?>)((?:<w:ins\b[^>]*\/>|<w:ins\b[^>]*>[\s\S]*?<\/w:ins>)?)/,
+      `$1$2${mark}`
+    );
   }
   return paragraphXml.replace(/<\/w:pPr>/, `<w:rPr>${mark}</w:rPr></w:pPr>`);
 }
@@ -256,19 +263,28 @@ function pageRequest(properties) {
   if (columnSpacing !== null && (!Number.isFinite(columnSpacing) || columnSpacing < 0)) {
     throw new Error('set_page columnSpacing must be a number of points');
   }
-  return { orientation, columnCount, columnSpacing };
+  // pageSize arrives resolved to points (pageWidth, pageHeight) by the batch.
+  const width = Number(properties.pageWidth);
+  const height = Number(properties.pageHeight);
+  const sized = properties.pageWidth != null || properties.pageHeight != null;
+  if (sized && !(width > 0 && height > 0)) {
+    throw new Error("set_page pageSize must be a named size ('a4', 'letter', ...) or [width, height] in points");
+  }
+  const size = sized ? [Math.round(width * 20), Math.round(height * 20)] : null;
+  return { orientation, columnCount, columnSpacing, size };
 }
 
 // One section's page size, margins and (when asked) column layout, each
 // half of a pair the caller left out keeping what the section already said.
-function sectionWithPage(section, properties, { orientation, columnCount, columnSpacing }) {
-  const size = /<w:pgSz\b([^>]*)\/>/.exec(section)?.[1] || '';
-  let pageWidth = Number(/\bw:w="(\d+)"/.exec(size)?.[1]) || A4_WIDTH_TWIPS;
-  let pageHeight = Number(/\bw:h="(\d+)"/.exec(size)?.[1]) || A4_HEIGHT_TWIPS;
-  if (orientation === 'landscape' && pageWidth < pageHeight) {
-    [pageWidth, pageHeight] = [pageHeight, pageWidth];
-  }
-  if (orientation === 'portrait' && pageWidth > pageHeight) {
+// The sheet is named by pageSize and turned by orientation — or kept the way
+// the section already lies when no orientation is asked for.
+function sectionWithPage(section, properties, { orientation, columnCount, columnSpacing, size }) {
+  const current = /<w:pgSz\b([^>]*)\/>/.exec(section)?.[1] || '';
+  let pageWidth = Number(/\bw:w="(\d+)"/.exec(current)?.[1]) || A4_WIDTH_TWIPS;
+  let pageHeight = Number(/\bw:h="(\d+)"/.exec(current)?.[1]) || A4_HEIGHT_TWIPS;
+  const landscape = orientation ? orientation === 'landscape' : pageWidth > pageHeight;
+  if (size) [pageWidth, pageHeight] = size;
+  if (landscape ? pageWidth < pageHeight : pageWidth > pageHeight) {
     [pageWidth, pageHeight] = [pageHeight, pageWidth];
   }
   const margins = /<w:pgMar\b([^>]*)\/>/.exec(section)?.[1] || '';
@@ -281,7 +297,7 @@ function sectionWithPage(section, properties, { orientation, columnCount, column
   const withSize = upsertSectionChild(
     section,
     'pgSz',
-    `<w:pgSz w:w="${pageWidth}" w:h="${pageHeight}"${orientation === 'landscape' ? ' w:orient="landscape"' : ''}/>`,
+    `<w:pgSz w:w="${pageWidth}" w:h="${pageHeight}"${landscape ? ' w:orient="landscape"' : ''}/>`,
     ['type']
   );
   const withMargins = upsertSectionChild(
@@ -484,7 +500,7 @@ function paragraphWithText(paragraph, op) {
   const nodes = textNodes(paragraph.xml, 'w:t');
   if (!nodes.length) {
     if (op.op === 'set_run_text') throw new Error(`DOCX paragraph ${op.paragraph} has no editable text`);
-    const run = `<w:r><w:t xml:space="preserve">${xmlEncode(String(op.text ?? ''))}</w:t></w:r>`;
+    const run = `<w:r>${wordTextContent(op.text, { preserve: true })}</w:r>`;
     if (/<\/w:p>\s*$/.test(paragraph.xml)) return paragraph.xml.replace(/<\/w:p>\s*$/, `${run}</w:p>`);
     if (/\/>\s*$/.test(paragraph.xml)) return paragraph.xml.replace(/\/>\s*$/, `>${run}</w:p>`);
     throw new Error(`DOCX paragraph ${op.paragraph} is malformed`);
@@ -495,9 +511,7 @@ function paragraphWithText(paragraph, op) {
     run.text = String(op.text ?? '');
     return rebuildTextNodes(paragraph.xml, 'w:t', nodes);
   }
-  nodes[0].text = String(op.text ?? '');
-  for (let index = 1; index < nodes.length; index += 1) nodes[index].text = '';
-  return rebuildTextNodes(paragraph.xml, 'w:t', nodes);
+  return withFirstRunText(paragraph.xml, op.text);
 }
 
 /** Rewrites, removes, or moves one body paragraph, tracked when the document tracks. */

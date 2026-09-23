@@ -169,6 +169,35 @@ test('structured context tiers take precedence over a legacy compatibility field
   assert.deepEqual(missing.rates.missingRates, ['cacheWriteCostPerM']);
 });
 
+test('Anthropic 1-hour cache writes bill at 2x base input, the rest at the 5-minute rate', () => {
+  // Opus 5.5 list rates: input $4, 5m write $5, 1h write $8 per MTok.
+  const args = { provider: 'anthropic', model: 'claude-opus-5-5', inputTokens: 1000, cacheWriteTokens: 1_000_000 };
+  assert.equal(priceUsage(args).costUsd, 5.004);
+  const split = priceUsage({ ...args, cacheWrite1hTokens: 400_000 });
+  assert.equal(split.costUsd, 6.204);
+  assert.ok(Math.abs(split.rates.cacheWrite1hCostPerM - 8) < 1e-9);
+  assert.equal(split.rates.cacheWrite1hTokens, 400_000);
+  // Fast mode multiplies every slot, including the 1h write rate.
+  assert.equal(priceUsage({ ...args, cacheWrite1hTokens: 400_000, fast: true }).costUsd, 12.408);
+  assert.equal(makeUsageRecord({ ...args, cacheWrite1hTokens: 400_000, ts: Date.now() }).costUsd, 6.204);
+});
+
+test('GPT-6 Sol and Luna price on both OpenAI routes, doubling input above 272K', () => {
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
+  for (const provider of ['openai', 'openai-oauth']) {
+    near(priceUsage({ provider, model: 'gpt-6-sol', inputTokens: 100_000, outputTokens: 10_000 }).costUsd, 0.3);
+    near(priceUsage({ provider, model: 'gpt-6-sol', inputTokens: 300_000, outputTokens: 10_000 }).costUsd, 1.35);
+    near(priceUsage({ provider, model: 'gpt-6-luna', inputTokens: 100_000, outputTokens: 10_000 }).costUsd, 0.015);
+  }
+  const sol = catalog.getModelMetadataSync('gpt-6-sol', 'openai-oauth');
+  assert.equal(sol.supportsWebSearch, true);
+  assert.equal(sol.supportsVision, true);
+  // Public API limits come from the override; OAuth never inherits them.
+  assert.equal(catalog.getModelMetadataSync('gpt-6-sol', 'openai').contextWindow, 1050000);
+  assert.equal(catalog.getModelMetadataSync('gpt-6-luna', 'openai').outputTokens, 128000);
+  assert.equal(sol.contextWindow, null);
+});
+
 test('unknown prices retain both request and pricing identity instead of losing them', () => {
   const row = makeUsageRecord({
     provider: 'grok-oauth',

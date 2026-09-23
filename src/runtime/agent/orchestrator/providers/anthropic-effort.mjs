@@ -1,9 +1,14 @@
 /**
  * Anthropic "effort" (extended-thinking budget) request parameter handling.
  */
-import { assertAnthropicManualBudgetSupported, isAnthropicAdaptiveOnlyModel } from './anthropic-thinking-contract.mjs';
+import {
+  assertAnthropicManualBudgetSupported,
+  emitsAnthropicProgressUpdates,
+  isAnthropicAdaptiveOnlyModel,
+} from './anthropic-thinking-contract.mjs';
 
 const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
+const THINKING_DISPLAYS = new Set(['summarized', 'omitted', 'updates']);
 
 // Canonical display/transport ordering for effort levels. Used only to sort
 // whatever set the catalog actually advertises — NOT as an allowlist. The
@@ -282,7 +287,7 @@ export function shouldIncludeEffortBeta(model, opts = {}) {
  */
 export function applyAnthropicEffortToBody(
   body,
-  { model, opts = {}, maxTokens, clampThinkingBudgetTokens, logTag = 'anthropic' }
+  { model, opts = {}, maxTokens, clampThinkingBudgetTokens, logTag = 'anthropic', progressUpdates = false }
 ) {
   if (!body || typeof body !== 'object') return;
 
@@ -306,12 +311,17 @@ export function applyAnthropicEffortToBody(
     // Adaptive-thinking models (4.6+) require `thinking:{type:"adaptive"}`
     // rather than the legacy budget_tokens shape — sending
     // `thinking:{type:"enabled"}` here 400s on sonnet-5/opus-4-7/4-8.
-    // Keep the default wire shape: omit `display` and let the
-    // model/API choose its default. Operators and benchmarks can explicitly
-    // request either supported display mode.
-    const display = (process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY || '').trim();
-    body.thinking =
-      display === 'summarized' || display === 'omitted' ? { type: 'adaptive', display } : { type: 'adaptive' };
+    // Models that write tool preambles as progress-update thinking blocks
+    // default to `updates` (beta) where beta headers are allowed, so those
+    // notes arrive as text; every other model keeps the API default. The
+    // env var overrides either way (e.g. `omitted` turns preambles off).
+    const envDisplay = (process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY || '').trim();
+    const display = THINKING_DISPLAYS.has(envDisplay)
+      ? envDisplay
+      : progressUpdates && emitsAnthropicProgressUpdates(model)
+        ? 'updates'
+        : '';
+    body.thinking = display ? { type: 'adaptive', display } : { type: 'adaptive' };
     // Adaptive/4.7+ models reject any non-default sampling param with a 400.
     delete body.temperature;
     delete body.top_p;

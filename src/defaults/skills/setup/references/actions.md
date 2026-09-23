@@ -1,7 +1,6 @@
 # Setup actions and domain notes
 
-Read this when choosing a `setup` mutation. The current tool schema is the
-authority for required fields and accepted values.
+Read this when choosing a `setup` mutation.
 
 ## Read and navigate
 
@@ -82,8 +81,6 @@ workflow` before changing the corresponding domain.
 - A partial route preserves omitted values. Main routes also accept
   `modelParameters` and `contextPercent`; agent routes accept `disabled`.
   Use the model catalog for actual available options, not remembered model ids.
-- Setting an agent route provider to an empty string removes the override and
-  restores Main inheritance.
 - A Web Search route must support native web search; tool exposure is changed
   separately.
 - Definition actions use `definitionKind` (workflow, agent, skill). Read first,
@@ -110,15 +107,11 @@ values through chat.
 ## Profile, session, and Memory
 
 - Output style changes do not rewrite the current answer already in progress.
-- Profile response language and Desktop display language are separate.
 - Auto-clear supports global/provider idle durations, `minContextPercent`,
   `reset`, and `resetProvider`. A reset and a duration are mutually exclusive;
   provider reset requires a provider.
 - Compaction supports `enabled` and either `mainBufferTokens` or
   `mainBufferPercent`. Changing representation replaces the previous budget.
-- Memory master state controls tools, core injection, and background cycles.
-  `set_recap_enabled` changes only the background cycles.
-- Core Memory entries are read and changed with the `memory` tool, not setup.
 - If no supported action exposes a requested Memory interval, report it as
   unavailable rather than editing configuration.
 
@@ -140,13 +133,10 @@ bridge state.
 
 ## Skills, MCP, and plugins
 
-- `status skills` plus `set_disabled_skills` manage activation. The setter
-  replaces the whole list.
-- User skills live in the machine-global Mixdog data skills directory. There is
-  no project-local skill source; `set_extension_scope` limits a global item to
-  selected Project roots.
-- MCP servers and plugins are machine-global. Plugin scope is inherited by the
-  skills and MCP integrations it contributes.
+- `status skills` plus `set_disabled_skills` manage activation.
+- User skills live in the machine-global Mixdog data skills directory;
+  `set_extension_scope` limits a global item to selected Project roots.
+- Plugin scope is inherited by the skills and MCP integrations it contributes.
 - MCP mutation results include reconnection state. Diagnose the returned error
   before making another change.
 - MCP add requires name plus command or URL. Save uses `originalName` (defaults
@@ -167,8 +157,7 @@ bridge state.
   persisted change from merely delivering a request.
 - A display-language change returns `requiresReload`; setup does not reload,
   quit, deploy, or restart the app.
-- A Project removal unregisters it only. Instruction edits require the exact
-  previous content and return a retained backup path.
+- A Project removal unregisters it only.
 - Inspect schedules/webhooks before editing. `overwrite:true` updates an
   existing named entry and preserves omitted fields; a new schedule needs
   instructions plus exactly one of cron `time` or one-shot `at`.

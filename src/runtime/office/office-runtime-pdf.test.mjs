@@ -190,6 +190,85 @@ test('the PDF audit reads every page, not the excerpt a reader is shown', async 
   value(await executeOfficeTool({ action: 'close', session: opened.session }, { cwd }));
 });
 
+// A crop names the sides a reader sees. On a page turned 90° the displayed left
+// edge is the page's own bottom, and the snapshot reports the trimmed page.
+test('crop_pages trims the displayed sides, rotated pages included', async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'scan.pdf');
+  const pdf = await PDFDocument.create();
+  pdf.addPage([400, 300]);
+  pdf.addPage([400, 300]);
+  await writeFile(source, await pdf.save());
+  const opened = value(await executeOfficeTool({ action: 'open', path: source, mode: 'portable' }, { cwd }));
+  const cropped = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [
+          { op: 'rotate_pages', pages: [2], rotation: 90 },
+          { op: 'crop_pages', left: 50, top: 20 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  assert.deepEqual(cropped.results[1].pages, [
+    { page: 1, from: { width: 400, height: 300 }, to: { width: 350, height: 280 } },
+    { page: 2, from: { width: 400, height: 300 }, to: { width: 380, height: 250 } },
+  ]);
+  const pages = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd })).document
+    .pages;
+  assert.deepEqual(
+    pages.map(({ width, height, origin }) => ({ width, height, origin })),
+    [
+      { width: 350, height: 280, origin: { x: 50, y: 0 } },
+      { width: 380, height: 250, origin: { x: 20, y: 50 } },
+    ]
+  );
+  const refused = await executeOfficeTool(
+    { action: 'batch', session: opened.session, operations: [{ op: 'crop_pages', margin: 500 }] },
+    { cwd }
+  );
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /would leave page 1 empty/);
+  value(await executeOfficeTool({ action: 'close', session: opened.session }, { cwd }));
+});
+
+// A tool's citation marker or a template leftover reads the same on a PDF page
+// as on a slide: the audit names the page it sits on.
+test('PDF issues report leftover placeholders and tool citation tokens by page', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'leftover.pdf');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        format: 'pdf',
+        path,
+        properties: { pageNumbers: false },
+        blocks: [
+          { type: 'paragraph', text: 'Revenue grew twelve percent citeturn0search3.' },
+          { type: 'pagebreak' },
+          { type: 'paragraph', text: 'Owner: TODO' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const audited = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  const leftovers = audited.issues.filter((issue) => issue.code === 'placeholder_text');
+  assert.ok(
+    leftovers.some((issue) => issue.path === '/page[1]' && /tool citation token/.test(issue.message)),
+    JSON.stringify(audited.issues)
+  );
+  assert.ok(
+    leftovers.some((issue) => issue.path === '/page[2]' && /TODO marker/.test(issue.message)),
+    JSON.stringify(audited.issues)
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
 test('PDF rendering compresses long documents into at most 12 contact sheets with full coverage', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'thirteen-pages.pdf');

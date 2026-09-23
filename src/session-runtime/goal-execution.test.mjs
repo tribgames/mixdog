@@ -32,12 +32,22 @@ function fixture(t) {
 
 test('maximum time allows early verified completion without a ceremonial task row', async (t) => {
   const f = fixture(t);
-  const created = await f.control({ command: 'Deliver a single verified result --time 1h' });
+  const created = await f.control({ command: 'Deliver a single verified result --time 1h --time-mode max' });
   assert.equal(created.goal.timeMode, 'max');
   f.advance(1_000);
   const complete = await f.call({ action: 'complete' });
   assert.equal(complete.goal.status, 'complete');
   assert.ok(complete.remaining_ms > 0);
+});
+
+test('a stated budget without a mode commits the full period; no budget stays max', async (t) => {
+  const f = fixture(t);
+  const timed = await f.call({ action: 'create', objective: 'Polish in rounds', time_limit_minutes: 300 });
+  assert.equal(timed.goal.timeMode, 'duration');
+  await assert.rejects(f.call({ action: 'complete' }), /requested duration/);
+  await f.call({ action: 'abandon' });
+  const untimed = await f.call({ action: 'create', objective: 'Deliver one fix' });
+  assert.equal(untimed.goal.timeMode, 'max');
 });
 
 test('continuation tiers send the rules once, then pointers, and the task list only when it goes stale', async (t) => {
@@ -54,7 +64,7 @@ test('continuation tiers send the rules once, then pointers, and the task list o
   for (let quiet = 1; quiet < 10; quiet += 1) {
     const minimal = f.runtime.continuation(f.sessionId);
     assert.equal(minimal.run, true);
-    assert.match(minimal.prompt, new RegExp(`revision ${revision}\\)`));
+    assert.match(minimal.prompt, new RegExp(`^Revision: ${revision}$`, 'm'));
     assert.match(minimal.prompt, /Time remaining:/);
     assert.match(minimal.prompt, /still apply unchanged/);
     assert.doesNotMatch(minimal.prompt, /Durable tasks:|Deliver a single verified result/);
@@ -94,7 +104,7 @@ test('a task mutation replaces the next continuation state block with a pointer'
   // continuation points at it instead of replaying it.
   const next = f.runtime.continuation(f.sessionId);
   assert.doesNotMatch(next.prompt, /Durable tasks:|Implement the approved result/);
-  assert.match(next.prompt, new RegExp(`revision ${f.runtime.snapshot(f.sessionId).revision}\\)`));
+  assert.match(next.prompt, new RegExp(`^Revision: ${f.runtime.snapshot(f.sessionId).revision}$`, 'm'));
   for (let quiet = 1; quiet < 10; quiet += 1) {
     assert.doesNotMatch(f.runtime.continuation(f.sessionId).prompt, /Durable tasks:/);
   }
@@ -349,6 +359,7 @@ test('a new round after completion archives the prior evidence and starts its ow
       action: 'create',
       objective: 'Prior research',
       time_limit_minutes: 180,
+      time_mode: 'max',
       tasks: [{ text: 'Verified result with retained evidence', status: 'completed' }],
     })
   ).goal;

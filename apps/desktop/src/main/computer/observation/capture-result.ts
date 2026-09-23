@@ -94,7 +94,10 @@ export function captureResultPayload(input: {
     ...(ocrPayload ? { ocr: ocrPayload } : {}),
     pixel_status: pixelStatus(screenshot?.pixelUnavailable, mode),
     ...(screenshot?.pixelUnavailable
-      ? { pixel_unavailable: screenshot.pixelUnavailable, escalation: 'recapture' }
+      ? {
+          pixel_unavailable: screenshot.pixelUnavailable,
+          escalation: screenshot.pixelUnavailable.reason === 'window_hidden' ? 'focus_window' : 'recapture',
+        }
       : {}),
   };
 }

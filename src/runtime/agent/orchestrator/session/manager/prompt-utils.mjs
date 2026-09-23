@@ -104,12 +104,12 @@ export function buildSessionStartBlock(session, cwd) {
   const lines = ['# Session'];
   const effectiveCwd = String(cwd || session.cwd || '').trim();
   if (effectiveCwd) lines.push(`Cwd: ${effectiveCwd}`);
-  const modelBits = [
-    sessionModelDisplay(session.model),
-    session.effort ? String(session.effort).trim().toUpperCase() : '',
-    session.fast === true ? 'FAST' : '',
-  ].filter(Boolean);
-  if (modelBits.length) lines.push(`Model: ${modelBits.join(' · ')}`);
+  // Effort and fast mode stay out of the prompt: they change mid-session, and
+  // rewriting this block re-sends the whole conversation uncached (and, on
+  // bound-thinking models, invalidates earlier thinking blocks). A model
+  // change already resets the provider state.
+  const model = sessionModelDisplay(session.model);
+  if (model) lines.push(`Model: ${model}`);
   // The active workflow already leads the BP3 core (`# Active Workflow: …`),
   // so it is not repeated here.
   return lines.length > 1 ? lines.join('\n') : '';
@@ -144,6 +144,9 @@ function replaceSystemMessageContent(session, target, content) {
   const messages = Array.isArray(session?.messages) ? session.messages : [];
   const index = messages.indexOf(target);
   if (index < 0) return false;
+  // Identical content keeps the same message object, so an unchanged
+  // refresh never looks like a prefix edit.
+  if (target.content === content) return true;
   messages[index] = { ...target, content };
   return true;
 }
