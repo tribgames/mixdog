@@ -43,18 +43,6 @@ html[data-mixdog-mobile-tabs] .topbar {
   flex: 0 0 auto;
   animation: remote-connection-pulse 1.8s ease-in-out infinite;
 }
-.remote-connection-diagnostic {
-  max-width: 90%;
-  padding: calc(12px * var(--mx-device-scale, 1));
-  color: var(--mx-text);
-  background: rgb(0 0 0 / 75%);
-  font-family: ui-monospace, monospace;
-  font-size: calc(12px * var(--mx-device-scale, 1));
-  line-height: 1.5;
-  text-align: left;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 @keyframes remote-connection-pulse {
   0%,
   100% {

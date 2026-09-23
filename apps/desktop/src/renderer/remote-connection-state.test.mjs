@@ -19,7 +19,6 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const {
   clearRemoteConnectionState,
-  currentRemoteConnectionDiagnostic,
   currentRemoteConnectionState,
   remoteConnectionInterruptedError,
   reportRemoteConnectionIssue,
@@ -119,7 +118,7 @@ test('a persistent disconnect shows diagnostics without resetting its countdown 
     });
     const overlay = document.querySelector('.remote-connection-overlay');
     assert.ok(overlay);
-    assert.equal(overlay.textContent, 'VPS diag 1\nphase: encryption\nlast: encryption / encryption-timeout');
+    assert.equal(overlay.textContent, '', 'connection diagnostics never reach the screen');
     assert.equal(overlay.getAttribute('aria-label'), 'Retry');
     let retries = 0;
     const onRetry = () => retries++;
@@ -132,7 +131,8 @@ test('a persistent disconnect shows diagnostics without resetting its countdown 
       setRemoteConnectionState('connected');
     });
     assert.equal(document.querySelector('.remote-connection-overlay'), null);
-    assert.equal(currentRemoteConnectionDiagnostic(), 'VPS diag 1\nphase: connected\nlast: -');
+    assert.equal(document.documentElement.dataset.mixdogRemotePhase, 'connected');
+    assert.equal(document.documentElement.dataset.mixdogRemoteError, undefined);
   } finally {
     window.setTimeout = realSetTimeout;
     window.clearTimeout = realClearTimeout;
@@ -141,26 +141,23 @@ test('a persistent disconnect shows diagnostics without resetting its countdown 
   }
 });
 
-test('diagnostics retain the failing phase across retries and never display arbitrary error data', () => {
+test('diagnostics retain the failing phase across retries and never record arbitrary error data', () => {
   clearRemoteConnectionState();
+  const data = document.documentElement.dataset;
   try {
     setRemoteConnectionPhase('registration');
     reportRemoteConnectionIssue('registration-failed', new Error('https://relay.test/?token=private-key'), 403);
     setRemoteConnectionPhase('websocket');
-    assert.equal(
-      currentRemoteConnectionDiagnostic(),
-      'VPS diag 1\nphase: websocket\nlast: registration / registration-failed / code=403 / Error'
-    );
+    assert.equal(data.mixdogRemotePhase, 'websocket');
+    assert.equal(data.mixdogRemoteError, 'registration / registration-failed / code=403 / Error');
     setRemoteConnectionPhase('sync');
     reportRemoteConnectionIssue('sync-failed', { name: 'private-key', message: 'private transcript text' });
-    assert.equal(currentRemoteConnectionDiagnostic(), 'VPS diag 1\nphase: sync\nlast: sync / sync-failed / Error');
+    assert.equal(data.mixdogRemoteError, 'sync / sync-failed / Error');
     reportRemoteConnectionIssue('frame-failed', new Error('View baseline is no longer available.'));
-    assert.equal(
-      currentRemoteConnectionDiagnostic(),
-      'VPS diag 1\nphase: sync\nlast: sync / frame-failed / View baseline is no longer available.'
-    );
+    assert.equal(data.mixdogRemoteError, 'sync / frame-failed / View baseline is no longer available.');
   } finally {
     clearRemoteConnectionState();
   }
-  assert.equal(currentRemoteConnectionDiagnostic(), '');
+  assert.equal(data.mixdogRemotePhase, undefined);
+  assert.equal(data.mixdogRemoteError, undefined);
 });

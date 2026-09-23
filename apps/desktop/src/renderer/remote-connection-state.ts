@@ -29,8 +29,9 @@ export type RemoteConnectionIssue =
   | 'transcript-gap'
   | 'heartbeat-timeout';
 
-// Temporary on-screen diagnostics. Never copy arbitrary error messages,
-// URLs, close reasons, credentials, or transcript data into the display.
+// Connection diagnostics recorded on <html> data attributes for inspection;
+// never shown on screen. Never copy arbitrary error messages, URLs, close
+// reasons, credentials, or transcript data into them.
 const DIAGNOSTIC_ERROR_NAMES = new Set([
   'Error',
   'TypeError',
@@ -61,13 +62,6 @@ const DIAGNOSTIC_ERROR_MESSAGES = new Set([
   'Rejected replayed relay frame.',
   'Invalid relay frame nonce.',
 ]);
-
-export function currentRemoteConnectionDiagnostic(): string {
-  if (typeof document === 'undefined') return '';
-  const data = document.documentElement.dataset;
-  if (!data.mixdogRemotePhase) return '';
-  return `VPS diag 1\nphase: ${data.mixdogRemotePhase}\nlast: ${data.mixdogRemoteError || '-'}`;
-}
 
 export function setRemoteConnectionPhase(phase: RemoteConnectionPhase): void {
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
@@ -134,7 +128,7 @@ export function setRemoteConnectionState(state: RemoteConnectionState): void {
 
 export function clearRemoteConnectionState(): void {
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
-  if (currentRemoteConnectionState() === null && !currentRemoteConnectionDiagnostic()) return;
+  if (currentRemoteConnectionState() === null && !document.documentElement.dataset.mixdogRemotePhase) return;
   delete document.documentElement.dataset.mixdogRemoteConnection;
   delete document.documentElement.dataset.mixdogRemotePhase;
   delete document.documentElement.dataset.mixdogRemoteError;

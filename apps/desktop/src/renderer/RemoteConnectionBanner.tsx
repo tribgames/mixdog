@@ -2,12 +2,7 @@ import { WifiOff } from 'lucide-react';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { t } from './i18n';
-import {
-  currentRemoteConnectionDiagnostic,
-  currentRemoteConnectionState,
-  REMOTE_WAKE_EVENT,
-  subscribeRemoteConnectionState,
-} from './remote-connection-state';
+import { currentRemoteConnectionState, REMOTE_WAKE_EVENT, subscribeRemoteConnectionState } from './remote-connection-state';
 
 // Every foreground return costs a short reconnect gap (socket recycle, relay
 // dial, E2EE handshake). That blip is NOT an outage and gets NO surface at all
@@ -18,7 +13,6 @@ const DISCONNECTED_AFTER_MS = 10_000;
 
 export function RemoteConnectionBanner({ boot = false }: { boot?: boolean } = {}) {
   const state = useSyncExternalStore(subscribeRemoteConnectionState, currentRemoteConnectionState, () => null);
-  const diagnostic = useSyncExternalStore(subscribeRemoteConnectionState, currentRemoteConnectionDiagnostic, () => '');
   const waiting = state === 'reconnecting' || state === 'syncing' || (boot && state === 'connecting');
   const [disconnected, setDisconnected] = useState(false);
   useEffect(() => {
@@ -29,8 +23,7 @@ export function RemoteConnectionBanner({ boot = false }: { boot?: boolean } = {}
   }, [waiting]);
   if (!waiting || !disconnected) return null;
 
-  // The temporary diagnostic identifies the failing phase without revealing
-  // private payloads. A tap still retries instead of waiting out the backoff.
+  // A tap retries instead of waiting out the backoff.
   return (
     <button
       type="button"
@@ -39,7 +32,6 @@ export function RemoteConnectionBanner({ boot = false }: { boot?: boolean } = {}
       onClick={() => window.dispatchEvent(new Event(REMOTE_WAKE_EVENT))}
     >
       <WifiOff aria-hidden="true" />
-      {diagnostic && <span className="remote-connection-diagnostic">{diagnostic}</span>}
     </button>
   );
 }
