@@ -60,6 +60,8 @@ import { recoverableCreation } from './recoverable-creation';
 import { isInstalledMobileWebAppSurface } from './mobile-surface';
 import {
   REMOTE_WAKE_EVENT,
+  beginRemoteConnectionTimeline,
+  takeRemoteConnectionTimeline,
   clearRemoteConnectionState,
   remoteConnectionInterruptedError,
   reportRemoteConnectionIssue,
@@ -800,6 +802,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         if (update.snapshot === null) sessionStateDecoders.delete(payload.sessionId);
       }
       sessionInbox.publish(update);
+      const timeline = update.snapshot ? takeRemoteConnectionTimeline() : '';
+      if (timeline) fire('reportConnectionTimeline', [timeline]);
       if (isRemotePaintProbe(payload.perfProbe)) {
         const probe = payload.perfProbe;
         window.requestAnimationFrame(() =>
@@ -886,6 +890,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   }, 5_000);
   let backgroundSuspended = document.visibilityState === 'hidden';
   let resyncOnWake = backgroundSuspended;
+  beginRemoteConnectionTimeline('boot');
   let reconnectTimer: number | null = null;
   const suspendRemoteConnection = (): void => {
     if (!isInstalledMobileWebAppSurface() || !token || !e2eePairing) return;
@@ -906,6 +911,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       suspendRemoteConnection();
       return;
     }
+    if (backgroundSuspended) beginRemoteConnectionTimeline('wake');
     backgroundSuspended = false;
     const shouldResync = resyncOnWake || event?.type === 'online';
     const ws = socket;

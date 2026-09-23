@@ -63,10 +63,35 @@ const DIAGNOSTIC_ERROR_MESSAGES = new Set([
   'Invalid relay frame nonce.',
 ]);
 
+// What one wait (a cold boot or a foreground wake) spent its time on, reported
+// once to the desktop log when that wait ends in a transcript frame. Marks are
+// fixed tokens only: phase, state and issue names, never error text.
+const TIMELINE_MARK_LIMIT = 48;
+let timeline: { cause: string; startedAt: number; marks: string[] } | null = null;
+
+export function beginRemoteConnectionTimeline(cause: 'boot' | 'wake'): void {
+  // A boot counts from navigation start, so bundle load is part of the wait.
+  timeline = { cause, startedAt: cause === 'boot' ? 0 : performance.now(), marks: [] };
+}
+
+function markRemoteConnectionTimeline(label: string): void {
+  if (!timeline || timeline.marks.length >= TIMELINE_MARK_LIMIT) return;
+  timeline.marks.push(`${label}@${Math.round(performance.now() - timeline.startedAt)}`);
+}
+
+/** The pending wait's marks ending in `transcript@ms`, or '' when none. */
+export function takeRemoteConnectionTimeline(): string {
+  if (!timeline) return '';
+  const { cause, startedAt, marks } = timeline;
+  timeline = null;
+  return [`cause=${cause}`, ...marks, `transcript@${Math.round(performance.now() - startedAt)}`].join(' ');
+}
+
 export function setRemoteConnectionPhase(phase: RemoteConnectionPhase): void {
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
   const data = document.documentElement.dataset;
   if (data.mixdogRemotePhase === phase) return;
+  markRemoteConnectionTimeline(`phase=${phase}`);
   data.mixdogRemotePhase = phase;
   window.dispatchEvent(new window.Event(REMOTE_CONNECTION_STATE_EVENT));
 }
@@ -84,6 +109,7 @@ function diagnosticDetail(error: unknown): string {
 export function reportRemoteConnectionIssue(issue: RemoteConnectionIssue, error?: unknown, code?: number): void {
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
   const detail = diagnosticDetail(error);
+  markRemoteConnectionTimeline(`issue=${issue}${Number.isInteger(code) ? `:${code}` : ''}`);
   const data = document.documentElement.dataset;
   data.mixdogRemoteError = [
     data.mixdogRemotePhase || 'approval',
@@ -118,6 +144,7 @@ export function currentRemoteConnectionState(): RemoteConnectionState | null {
 export function setRemoteConnectionState(state: RemoteConnectionState): void {
   if (typeof document === 'undefined' || typeof window === 'undefined') return;
   if (currentRemoteConnectionState() === state) return;
+  markRemoteConnectionTimeline(`state=${state}`);
   document.documentElement.dataset.mixdogRemoteConnection = state;
   if (state === 'connected' && document.documentElement.dataset.mixdogRemotePhase) {
     document.documentElement.dataset.mixdogRemotePhase = 'connected';

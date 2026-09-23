@@ -59,6 +59,15 @@ export function createRelayClientCallDispatch(
       return {};
     }
     const call = clearPayload as { id?: unknown; method?: unknown; params?: unknown } | null;
+    // The phone's own account of a slow reconnect (phase/state/issue tokens
+    // with ms offsets). Log-only: nothing answers it.
+    if (call?.method === 'reportConnectionTimeline' && Array.isArray(call.params)) {
+      const text = String(call.params[0] ?? '')
+        .slice(0, 1_500)
+        .replace(/[^\w=@:. -]/gu, '');
+      if (text) console.info(`[mixdog-remote-timeline] client=${clientId.slice(0, 8)} ${text}`);
+      return {};
+    }
     if (call?.method === 'synchronizeViews' && typeof call.id === 'number') {
       const synchronize = async (): Promise<void> => {
         if (!deps.attached(clientId, client)) return;

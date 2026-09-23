@@ -446,14 +446,24 @@ function upgradePhoneLeg(relay, request, url, rawSocket, head) {
   }
   const deviceId = access.deviceId;
   const entry = liveDesktops.get(deviceId);
+  // Paired phones only: a refusal here is otherwise invisible in the journal,
+  // and it is exactly what a phone stuck on its disconnect overlay looks like.
+  const refuse = (status, reason, cause) => {
+    console.log(`[relay] phone upgrade refused status=${status} cause=${cause} device=${String(deviceId).slice(0, 8)}`);
+    rejectUpgrade(rawSocket, status, reason);
+  };
   if (!desktopLegOpen(entry)) {
     // Desktop offline is transient: plain reject keeps the phone's
     // reconnect loop alive without touching its stored pairing.
-    rejectUpgrade(rawSocket);
+    refuse(401, 'Unauthorized', 'desktop-offline');
     return;
   }
-  if (!phoneConnectLimiter.allow(deviceId) || !phoneClientCapacityAvailable(entry.clients.size)) {
-    rejectUpgrade(rawSocket, 429, 'Too Many Requests');
+  if (!phoneConnectLimiter.allow(deviceId)) {
+    refuse(429, 'Too Many Requests', 'rate-limit');
+    return;
+  }
+  if (!phoneClientCapacityAvailable(entry.clients.size)) {
+    refuse(429, 'Too Many Requests', 'client-capacity');
     return;
   }
   store.touchClient(deviceId, access.clientId);

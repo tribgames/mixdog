@@ -18,8 +18,10 @@ Object.defineProperty(globalThis, 'navigator', {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const {
+  beginRemoteConnectionTimeline,
   clearRemoteConnectionState,
   currentRemoteConnectionState,
+  takeRemoteConnectionTimeline,
   remoteConnectionInterruptedError,
   reportRemoteConnectionIssue,
   setRemoteConnectionPhase,
@@ -139,6 +141,24 @@ test('a persistent disconnect shows diagnostics without resetting its countdown 
     await act(async () => root.unmount());
     clearRemoteConnectionState();
   }
+});
+
+test('a connection timeline reports each wait once, in order, with fixed tokens only', () => {
+  clearRemoteConnectionState();
+  assert.equal(takeRemoteConnectionTimeline(), '');
+  beginRemoteConnectionTimeline('wake');
+  setRemoteConnectionPhase('websocket');
+  reportRemoteConnectionIssue('websocket-closed', new Error('private transcript text'), 1006);
+  setRemoteConnectionState('reconnecting');
+  setRemoteConnectionPhase('sync');
+  const text = takeRemoteConnectionTimeline();
+  assert.match(
+    text,
+    /^cause=wake phase=websocket@\d+ issue=websocket-closed:1006@\d+ state=reconnecting@\d+ phase=sync@\d+ transcript@\d+$/u
+  );
+  assert.doesNotMatch(text, /private/u);
+  assert.equal(takeRemoteConnectionTimeline(), '', 'a finished wait is reported once');
+  clearRemoteConnectionState();
 });
 
 test('diagnostics retain the failing phase across retries and never record arbitrary error data', () => {
