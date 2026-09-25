@@ -1,7 +1,6 @@
 import { logWebhook } from './webhook/log.mjs';
-import { SIGNATURE_HEADERS, extractSignature, STRIPE_TOLERANCE_MS, verifySignature } from './webhook/signature.mjs';
-import { loadEndpointConfig, updateDeliveryStatus } from '../../shared/webhooks-db.mjs';
-import { createWebhookListener, WEBHOOK_BIND_HOST } from './webhook/listener-lifecycle.mjs';
+import { updateDeliveryStatus } from '../../shared/webhooks-db.mjs';
+import { createWebhookListener } from './webhook/listener-lifecycle.mjs';
 import { createWebhookRequestHandler } from './webhook/request-handler.mjs';
 import { createWebhookVerifier } from './webhook/verification.mjs';
 import { createWebhookSessionDispatcher } from './webhook/session-dispatch.mjs';
@@ -103,13 +102,4 @@ class WebhookServer {
     return this.listener.getUrl(name);
   }
 }
-export {
-  WebhookServer,
-  WEBHOOK_BIND_HOST,
-  // Exported for scripts/webhook-smoke.mjs unit coverage.
-  extractSignature,
-  verifySignature,
-  loadEndpointConfig,
-  SIGNATURE_HEADERS,
-  STRIPE_TOLERANCE_MS,
-};
+export { WebhookServer };

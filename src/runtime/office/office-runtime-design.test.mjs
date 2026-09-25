@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign as signBytes } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { applyPdfDesign, expandOfficeDesignOperations, resolveOfficeDesign } from './design/design-system.mjs';
 import { summarizeOfficeCompositions } from './design/composition-system.mjs';
 import {
@@ -466,6 +467,42 @@ test('a section that names steps writes them without declaring a roadmap', () =>
   );
 });
 
+// A report sheet sets its chart beside the table. Held to the table's three columns, the title broke onto a second
+// line in an 86 pt band while the chart's top stood bare beside it: the header bands run over both.
+test('a chart beside the table shares the header bands with it', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    operations: [
+      {
+        op: 'compose_sheet',
+        sheet: '추이',
+        title: '월별 야간 처리량과 지연율',
+        subtitle: '1월 ~ 9월, 전 허브 합계',
+        insights: ['9개월 연속 지연율이 낮아졌습니다.'],
+        headers: ['월', '처리량 (건)', '지연율'],
+        rows: [
+          ['1월', 612000, 0.041],
+          ['2월', 598000, 0.039],
+        ],
+        chart: { type: 'line', title: '월별 처리량 (건)' },
+      },
+    ],
+    design: {},
+  });
+  const chart = expanded.operations.find((entry) => entry.op === 'add_chart');
+  assert.equal(chart.cell.replace(/\d+$/, ''), 'E', 'the chart sits a column past the three-column table');
+  const merges = expanded.operations.filter((entry) => entry.op === 'merge_cells').map((entry) => entry.range);
+  // The chart ends at a column, not a width in points, and the bands end with it, whatever a column measures in
+  // the workbook's font.
+  const end = chart.toColumn;
+  assert.ok(end > 'E' && chart.width === undefined, JSON.stringify(chart));
+  assert.deepEqual(merges, [`A1:${end}1`, `A2:${end}2`, `A4:${end}4`]);
+  const title = expanded.operations.find((entry) => entry.op === 'set_row_height' && entry.row === 1);
+  assert.ok(title.height < 40, `the title takes one line across the bands: ${title.height} pt`);
+});
+
 // Three cards over a two-column table pulled the canvas - and every band on it -
 // half again past the table. The strip wraps instead.
 test('a metric strip wider than the table wraps onto a second strip', () => {
@@ -534,14 +571,10 @@ test('a composed chart drops series that cannot share its axis', () => {
   const chart = expanded.operations.find((entry) => entry.op === 'add_chart');
   assert.match(chart.range, /^A\d+:B\d+$/, `the chart plots the throughput column alone: ${chart.range}`);
   // The chart is a band of the same composition: it starts at the canvas edge and
-  // ends where the table ends.
-  const fit = expanded.operations.find((entry) => entry.op === 'autofit_range' && !entry.rows);
-  const columnPoints = (fit.minWidth * 7 + 5) * 0.75;
-  assert.equal(chart.left, 0);
-  assert.ok(
-    Math.abs(chart.width - columnPoints * 4) < 1,
-    `the chart spans the four canvas columns: ${chart.width}pt vs ${columnPoints * 4}pt`
-  );
+  // ends where the table ends, at a column rather than a width a workbook's font would change.
+  assert.match(chart.cell, /^A\d+$/);
+  assert.equal(chart.toColumn, 'D', `the chart spans the four canvas columns: ${JSON.stringify(chart)}`);
+  assert.equal(chart.width, undefined);
 });
 
 test('a composed sheet keeps its chart inside the print area', () => {
@@ -570,16 +603,60 @@ test('a composed sheet keeps its chart inside the print area', () => {
   const area = /^A1:([A-Z]+)(\d+)$/.exec(String(page.printArea));
   assert.ok(area, `unexpected print area ${page.printArea}`);
   assert.equal(page.fitToContent, true);
-  const endColumn = [...area[1]].reduce((total, letter) => total * 26 + (letter.charCodeAt(0) - 64), 0);
+  const columnNumber = (letters) => [...letters].reduce((total, letter) => total * 26 + (letter.charCodeAt(0) - 64), 0);
+  const endColumn = columnNumber(area[1]);
+  // The chart sits beside the table, a column apart, on the header row.
+  const anchor = /^([A-Z]+)(\d+)$/.exec(String(chart.cell));
+  assert.ok(anchor, `the chart is anchored to a cell: ${JSON.stringify(chart)}`);
+  assert.equal(columnNumber(anchor[1]), 4);
+  const top = (Number(anchor[2]) - 1) * 15;
   // Print and PDF export clip to the print area; a chart outside it disappears
   // from every exported copy while still looking correct on screen.
   assert.ok(
-    endColumn * 48 >= chart.left + chart.width,
-    `print area stops at column ${area[1]} but the chart reaches ${chart.left + chart.width}pt`
+    endColumn >= columnNumber(chart.toColumn),
+    `print area stops at column ${area[1]} but the chart reaches ${chart.toColumn}`
   );
   assert.ok(
-    Number(area[2]) * 15 >= chart.top + chart.height,
-    `print area stops at row ${area[2]} but the chart reaches ${chart.top + chart.height}pt`
+    Number(area[2]) * 15 >= top + chart.height,
+    `print area stops at row ${area[2]} but the chart reaches ${top + chart.height}pt`
+  );
+});
+
+test('a composed report sheet keeps its decision, gates, and actions under the table, in the copy language', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    operations: [
+      {
+        op: 'compose_sheet',
+        sheet: 'Decision',
+        title: '야간 셔틀 증차안',
+        headers: ['안', '대기 시간 (분)', '월 비용 (만 원)'],
+        rows: [
+          ['현행 유지', 18, 0],
+          ['2대 증차', 7, 2460],
+        ],
+        decision: '2대 증차를 승인해 주십시오. 대기 시간이 18분에서 7분으로 줄어듭니다.',
+        gates: [{ track: '예산', release: '4.2억 원 이내', stop: '추가 예산 필요' }],
+        actions: ['10월 1주 차량 계약'],
+      },
+    ],
+    design: {},
+  });
+  const cells = expanded.operations.filter((entry) => entry.op === 'set_cell');
+  const at = (text) => cells.find((entry) => entry.value === text);
+  const decision = at('2대 증차를 승인해 주십시오. 대기 시간이 18분에서 7분으로 줄어듭니다.');
+  assert.ok(decision, 'the decision is on the sheet');
+  // Under the table (rows through 3 hold the title band and the table's header and two rows), from column A.
+  const [, column, row] = /^([A-Z]+)(\d+)$/.exec(decision.cell);
+  assert.equal(column, 'A');
+  assert.ok(Number(row) > 3);
+  for (const label of ['항목', '진행', '보류']) assert.ok(at(label), `the gate header "${label}" is Korean`);
+  assert.ok(at('• 10월 1주 차량 계약'), 'the actions follow the gates');
+  // The merged decision row takes the height of its lines.
+  assert.ok(
+    expanded.operations.some((entry) => entry.op === 'set_row_height' && entry.row === Number(row) && entry.height > 30)
   );
 });
 
@@ -1176,6 +1253,16 @@ test('a template page refuses more items than it holds and the closest fitting p
   const document = { slides: [page(1, 4), page(2, 2)] };
   assert.equal(selectTemplatePage(document, { role: 'comparison', items: [{}, {}] }).index, 2);
   assert.equal(selectTemplatePage(document, { role: 'comparison', items: [{}, {}, {}] }).index, 1);
+  // Items with a second line go to the page that has a box for it, even when a one-line page of the same size
+  // comes first.
+  const titlesOnlyPage = {
+    index: 3,
+    role: 'comparison',
+    shapes: [{ index: 1, slot: 'title', text: '' }, { index: 2, slot: 'column-title-1', text: '' }, { index: 3, slot: 'column-title-2', text: '' }],
+  };
+  const withBodies = { slides: [titlesOnlyPage, { ...page(4, 2), index: 4 }] };
+  assert.equal(selectTemplatePage(withBodies, { role: 'comparison', items: [{ title: '가', body: '설명' }, { title: '나' }] }).index, 4);
+  assert.equal(selectTemplatePage(withBodies, { role: 'comparison', items: [{ title: '가' }, { title: '나' }] }).index, 3);
   assert.throws(
     () => templatePageFill(page(1, 2), { items: [{}, {}, {}] }),
     /holds 2 column slots and 3 items were given/
@@ -1208,6 +1295,146 @@ test('a template page refuses more items than it holds and the closest fitting p
     titlesOnly.sets.map((entry) => entry.text),
     ['비교', '가', '나']
   );
+});
+
+test('compose presets refuse a section field they cannot draw and size the title band they wrap', async (t) => {
+  const cwd = await workspace(t);
+  const refused = await executeOfficeTool(
+    {
+      action: 'create',
+      path: join(cwd, 'brief.docx'),
+      mode: 'portable',
+      operations: [{ op: 'compose_document', title: '도크 분리안', sections: [{ heading: '실행 계획', roadmap: ['1주차: 표지'] }] }],
+    },
+    { cwd }
+  );
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /cannot draw: roadmap.*steps/);
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'board.xlsx'),
+        mode: 'portable',
+        operations: [
+          {
+            op: 'compose_sheet',
+            title: '허브별 야간 출고 실적과 지연 원인을 한눈에 보는 운영 대시보드',
+            headers: ['허브', '처리량 (건)'],
+            rows: [
+              ['대전', 128400],
+              ['부산', 97300],
+            ],
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const results = created.batch.results;
+  const band = results.find((entry) => entry.op === 'set_row_height');
+  assert.ok(band && band.height > 30, JSON.stringify(band));
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('a figure set louder than the headline is read as evidence, not as the page title', () => {
+  const box = (shape, text, fontSize, left, top, width, height) => ({
+    shape,
+    type: 'text',
+    text,
+    fontSize,
+    geometry: { left, top, width, height },
+  });
+  const roles = inducePptxSampleRoles(
+    {
+      shapes: [
+        box(1, 'NATIVE BY DEFAULT', 10, 58, 48, 400, 20),
+        box(2, 'The result stays editable where teams already work.', 40, 58, 100, 520, 142),
+        box(3, '18', 82, 650, 132, 250, 138),
+        box(4, '−86%', 38, 452, 300, 170, 64),
+      ],
+    },
+    { width: 960, height: 540 }
+  );
+  assert.equal(roles.get(2), 'title');
+  assert.notEqual(roles.get(3), 'title');
+});
+
+// The template's own eyebrow, subtitle, and detail lines are its words, not the deck's: a fill that gives them
+// no text empties them, and one that names an eyebrow writes it.
+test('a template page fill empties the template words no content claimed', () => {
+  const page = {
+    index: 3,
+    role: 'metrics',
+    shapes: [
+      { index: 1, slot: 'eyebrow', text: 'PERFORMANCE' },
+      { index: 2, slot: 'title', text: '' },
+      { index: 3, slot: 'visual-text', text: 'VS' },
+      { index: 4, slot: 'metric-value-1', text: '' },
+      { index: 5, slot: 'metric-label-1', text: '' },
+      { index: 6, slot: 'metric-detail-1', text: 'Create · edit · review · save' },
+      { index: 7, slot: 'subtitle', text: 'Illustrative' },
+    ],
+  };
+  const fill = templatePageFill(page, { title: '흑자 전환', eyebrow: '실적', items: [{ value: '4.2배', label: 'LTV / CAC' }] });
+  assert.deepEqual(
+    fill.sets.map((entry) => [entry.shape, entry.text]),
+    [
+      [2, '흑자 전환'],
+      [1, '실적'],
+      [4, '4.2배'],
+      [5, 'LTV / CAC'],
+    ]
+  );
+  assert.deepEqual(fill.deletes, [7, 6], 'the detail and the subtitle go; the decorative VS stays');
+});
+
+test('use_template_page reads the bundled template by its sidecar roles', async (t) => {
+  const cwd = await workspace(t);
+  const office = async (args) => {
+    const raw = await executeOfficeTool(args, { cwd });
+    if (raw.isError) throw new Error(raw.content[0].text);
+    return value(raw);
+  };
+  const deck = join(cwd, 'deck.pptx');
+  const created = await office({
+    action: 'author',
+    path: deck,
+    mode: 'portable',
+    render: false,
+    script: `const P = require('pptxgenjs'); const p = new P(); p.layout = 'LAYOUT_WIDE';
+      p.addSlide().addText('모아페이 IR', {x:0.8,y:2.6,w:9,h:1.4,fontSize:40});
+      await p.writeFile({fileName:OUTPUT});`,
+  });
+  await office({ action: 'close', session: created.session });
+  const opened = await office({ action: 'open', path: deck, mode: 'portable' });
+  t.after(async () => {
+    await office({ action: 'close', session: opened.session }).catch(() => {});
+  });
+  // The executive metric pages step their figures down a diagonal: the geometry reading finds no metric row on
+  // them, and the sidecar is what names their three metric slots.
+  await office({
+    action: 'batch',
+    session: opened.session,
+    operations: [
+      {
+        op: 'use_template_page',
+        path: fileURLToPath(new URL('./design/library/templates/mixdog-executive.pptx', import.meta.url)),
+        role: 'metrics',
+        after: 1,
+        title: '세 지표가 모두 흑자 전환을 가리킨다',
+        items: [
+          { value: '4.2배', label: 'LTV / CAC' },
+          { value: '81%', label: '유지율' },
+          { value: '14개월', label: '회수 기간' },
+        ],
+      },
+    ],
+  });
+  const snapshot = await office({ action: 'snapshot', session: opened.session });
+  const text = snapshot.document.slides[1].text.join(' ');
+  for (const words of ['세 지표가 모두 흑자 전환을 가리킨다', '4.2배', '81%', '14개월', '회수 기간']) assert.ok(text.includes(words), text);
+  for (const leftover of ['PERFORMANCE', 'Create · edit']) assert.ok(!text.includes(leftover), text);
 });
 
 // Reuse, end to end: the page is chosen by the job it does, its slots take the
@@ -1286,6 +1513,73 @@ test('use_template_page takes the page whose job matches and fills its slots', a
   assert.equal(page.shapes.length, 5);
   assert.ok(!texts.includes('다 방식'), texts.join(' | '));
   assert.ok(!texts.includes('다 설명'), texts.join(' | '));
+});
+
+// A drawn page carries more words than its title and its row: the kicker over
+// the title, the sentence under it, and the source at its foot are the old
+// page's, so they are written or emptied — never left stating the old summary.
+test('use_template_page writes or empties the kicker, lead, and source of a drawn page', async (t) => {
+  const cwd = await workspace(t);
+  const office = async (args) => {
+    const raw = await executeOfficeTool(args, { cwd });
+    if (raw.isError) throw new Error(raw.content[0].text);
+    return value(raw);
+  };
+  const template = join(cwd, 'template.pptx');
+  const built = await office({
+    action: 'author',
+    path: template,
+    mode: 'portable',
+    render: false,
+    script: `const P = require('pptxgenjs'); const p = new P(); p.layout = 'LAYOUT_WIDE';
+      p.addSlide().addText('브랜드 덱', {x:0.8,y:2.6,w:9,h:1.4,fontSize:40});
+      const s = p.addSlide();
+      s.addText('SUMMARY', {x:0.7,y:0.6,w:3,h:0.3,fontSize:10});
+      s.addText('월 거래자 1,420만 명', {x:0.7,y:0.95,w:8,h:0.9,fontSize:34});
+      s.addText('송금으로 들어온 사용자가 결제와 대출로 이어지며 처음으로 영업이익을 냈다.', {x:0.7,y:2.0,w:8,h:0.8,fontSize:15});
+      s.addText('1,420', {x:0.7,y:4.2,w:2.6,h:0.8,fontSize:40});
+      s.addText('38.2', {x:4.0,y:4.2,w:2.6,h:0.8,fontSize:40});
+      s.addText('월 거래자', {x:0.7,y:5.05,w:2.6,h:0.4,fontSize:11});
+      s.addText('분기 거래액', {x:4.0,y:5.05,w:2.6,h:0.4,fontSize:11});
+      s.addText('출처: 내부 집계 (예시 수치)', {x:0.7,y:6.7,w:8,h:0.3,fontSize:9});
+      await p.writeFile({fileName:OUTPUT});`,
+  });
+  await office({ action: 'close', session: built.session });
+  const opened = await office({ action: 'open', path: template, mode: 'portable' });
+  t.after(async () => {
+    await office({ action: 'close', session: opened.session }).catch(() => {});
+  });
+  const slots = (await office({ action: 'snapshot', session: opened.session })).document.slides[1].shapes.map((shape) => shape.slot);
+  assert.deepEqual(
+    slots.filter((slot) => !/^metric-/.test(slot || '')),
+    ['eyebrow', 'title', 'subtitle', 'source']
+  );
+  await office({
+    action: 'batch',
+    session: opened.session,
+    operations: [
+      {
+        op: 'use_template_page',
+        path: template,
+        role: 'metrics',
+        after: 2,
+        title: '월 거래자 2,000만 명',
+        body: '해외 송금 출시 한 달 만에 2,000만 명을 넘었다.',
+        items: [{ value: '2,010', label: '월 거래자' }, { value: '41.5', label: '분기 거래액' }],
+      },
+    ],
+  });
+  const texts = (await office({ action: 'snapshot', session: opened.session })).document.slides[2].shapes.map(
+    (shape) => shape.text
+  );
+  assert.ok(texts.includes('해외 송금 출시 한 달 만에 2,000만 명을 넘었다.'), texts.join(' | '));
+  for (const stale of ['SUMMARY', '출처: 내부 집계 (예시 수치)', '송금으로 들어온 사용자가 결제와 대출로 이어지며 처음으로 영업이익을 냈다.']) {
+    assert.ok(!texts.includes(stale), `${stale} stayed: ${texts.join(' | ')}`);
+  }
+  await assert.rejects(
+    office({ action: 'batch', session: opened.session, operations: [{ op: 'use_template_page', path: template, role: 'metrics', after: 3, eyebrow: 'Q3', title: 'x', source: '출처: 없음', subtitle: 'a', body: 'b' }] }),
+    /no body box/
+  );
 });
 
 // The same reading through the session a user actually opens: an authored deck
@@ -1640,6 +1934,24 @@ test('Office design composition maps Word, Excel, and PDF to native structures',
   assert.ok(workbook.operations.some((operation) => operation.op === 'merge_cells'));
   assert.ok(workbook.operations.some((operation) => operation.op === 'add_table'));
   assert.ok(workbook.operations.some((operation) => operation.op === 'autofit_range'));
+  // Excel checks a formula when it is written, so a metric that reads the table is written after the table exists.
+  const withMetrics = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [
+      {
+        op: 'compose_sheet',
+        sheet: 'Summary',
+        title: 'Hubs',
+        tableName: 'Hubs',
+        headers: ['Hub', 'Volume'],
+        rows: [['Daejeon', 128400], ['Gwangju', 84200]],
+        metrics: [{ label: 'Total', formula: '=SUM(Hubs[Volume])' }],
+      },
+    ],
+  }).operations.map((operation) => operation.op);
+  assert.ok(withMetrics.indexOf('set_formula') > withMetrics.indexOf('add_table'), withMetrics.join(', '));
   const pdf = applyPdfDesign(
     [
       { type: 'heading', text: 'Report' },

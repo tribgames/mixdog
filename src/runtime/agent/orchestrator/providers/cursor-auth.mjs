@@ -1,10 +1,11 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { openInBrowser } from '../../../shared/open-url.mjs';
+import { createOAuthPkce } from './lib/oauth-pkce.mjs';
 
 const LOGIN_URL = 'https://cursor.com/loginDeepControl';
 const POLL_URL = 'https://api2.cursor.sh/auth/poll';
@@ -143,8 +144,7 @@ export function forgetCursorOAuthCredentials() {
 }
 
 export function generateCursorOAuthParams() {
-  const verifier = randomBytes(32).toString('base64url');
-  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  const { verifier, challenge } = createOAuthPkce();
   const uuid = randomUUID();
   const params = new URLSearchParams({
     challenge,

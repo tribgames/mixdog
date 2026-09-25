@@ -153,7 +153,7 @@ function makeHost() {
     return {};
   };
   return {
-    setTitleBarDimmed: noop,
+    setTitleBarDim: asyncNoop,
     rendererDiagnostic: noop,
     perfLog: noop,
     readSettings: async () => ({
@@ -181,11 +181,6 @@ function makeHost() {
       email: '123456+ExampleOwner@users.noreply.github.com',
     }),
     gitGlobalConfig: async () => ({ name: 'Example Owner', email: 'owner@example.test' }),
-    computerReadAuthorization: async () => ({ policy: null, externallyRestricted: false }),
-    computerUpdateAuthorization: async () => ({ policy: null }),
-    computerAuthorizationWindows: async () => [
-      { id: 'window-1', pid: 123, title: '긴 창 제목도 안전하게 표시합니다', app: 'Example editor' },
-    ],
   };
 }
 function seedReferences() {
@@ -217,9 +212,6 @@ function ProjectPanel() {
       onCreateProject={asyncNoop}
       onRename={noop}
       onRemove={noop}
-      instructionsSupported
-      onReadInstructions={async () => instructions}
-      onSaveInstructions={asyncNoop}
     />
   );
 }
@@ -247,6 +239,7 @@ function PanelShell({ title, children, width = 260 }: React.PropsWithChildren<{ 
         sessionsReady
         selection={{ kind: 'new' }}
         onNewTask={noop}
+        onNewStudio={noop}
         onResumeSession={noop}
         onRenameSession={asyncNoop}
         onArchiveSession={asyncNoop}

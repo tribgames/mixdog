@@ -4,6 +4,7 @@ import { chmod, copyFile, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { platformKeyCandidates } from '../src/runtime/shared/native-asset.mjs';
 import { NATIVE_TOOL_FILENAMES, packageNativeToolsDir } from '../src/runtime/shared/native-tool-paths.mjs';
 import { ensureGraphBinary } from '../src/runtime/agent/orchestrator/tools/graph-binary-fetcher.mjs';
 import { ensurePatchBinary } from '../src/runtime/agent/orchestrator/tools/patch-binary-fetcher.mjs';
@@ -31,13 +32,10 @@ export async function prepareRequiredNativeAssets({
   arch = process.arch,
 } = {}) {
   const platformKey = nativeAssetPlatformKey(platform, arch);
-  if (!NATIVE_ASSET_PLATFORMS.includes(platformKey)) {
-    const guidance =
-      platformKey === 'win32-arm64'
-        ? ' Windows ARM64 Node.js is not supported; use x64 Node.js under Windows x64 emulation.'
-        : '';
+  // Windows on ARM runs the x64 assets under its built-in emulation.
+  if (!platformKeyCandidates(platform, arch).some((key) => NATIVE_ASSET_PLATFORMS.includes(key))) {
     throw new Error(
-      `native assets are not published for ${platformKey}; supported: ${NATIVE_ASSET_PLATFORMS.join(', ')}.${guidance}`
+      `native assets are not published for ${platformKey}; supported: ${NATIVE_ASSET_PLATFORMS.join(', ')}.`
     );
   }
   const root = resolve(String(packageRoot || ''));

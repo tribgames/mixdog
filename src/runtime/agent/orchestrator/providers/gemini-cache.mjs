@@ -111,7 +111,7 @@ const GEMINI_GLOBAL_CACHE_MAX_ENTRIES = 128;
 // cross-session race note at the delete call site in gemini.mjs). Long enough
 // that a concurrent session still mid-flight on the old name has time to finish.
 export const GEMINI_GLOBAL_CACHE_DELETE_GRACE_MS = 2 * 60 * 1000;
-export const geminiGlobalCaches = new Map();
+const geminiGlobalCaches = new Map();
 export const geminiGlobalCacheCreates = new Map();
 
 export function _geminiCredentialFingerprint(apiKey) {
@@ -129,26 +129,24 @@ export function _geminiGlobalCacheKey({ credentialFingerprint, model, cachePrefi
   );
 }
 
-export function _invalidateGeminiCachesForCredentialFingerprint(credentialFingerprint) {
-  if (!credentialFingerprint) return 0;
+function _deleteGeminiGlobalCaches(matches) {
   let removed = 0;
   for (const [key, entry] of geminiGlobalCaches) {
-    if (entry?.cacheCredentialFingerprint !== credentialFingerprint) continue;
+    if (!matches(entry)) continue;
     geminiGlobalCaches.delete(key);
     removed += 1;
   }
   return removed;
 }
 
+export function _invalidateGeminiCachesForCredentialFingerprint(credentialFingerprint) {
+  if (!credentialFingerprint) return 0;
+  return _deleteGeminiGlobalCaches((entry) => entry?.cacheCredentialFingerprint === credentialFingerprint);
+}
+
 export function _invalidateGeminiCacheName(cacheName) {
   if (!cacheName) return 0;
-  let removed = 0;
-  for (const [key, entry] of geminiGlobalCaches) {
-    if (entry?.cacheName !== cacheName) continue;
-    geminiGlobalCaches.delete(key);
-    removed += 1;
-  }
-  return removed;
+  return _deleteGeminiGlobalCaches((entry) => entry?.cacheName === cacheName);
 }
 
 function _pruneGeminiGlobalCaches(now = Date.now()) {

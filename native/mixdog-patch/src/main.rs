@@ -145,6 +145,22 @@ struct ExactEditStats {
     content_hash: String,
 }
 
+impl ExactEditStats {
+    /// The `OK` line both the `--edit` CLI and the server EDIT request print.
+    fn ok_line(&self, tier: EditTier) -> String {
+        format!(
+            "OK\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{}\t{}",
+            self.replacements,
+            self.read_ms,
+            self.apply_ms,
+            self.write_ms,
+            self.total_ms,
+            tier.label(),
+            self.content_hash,
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EntryKind {
     Modify,
@@ -303,16 +319,7 @@ fn run() -> Result<(), String> {
             edit_replace_all,
             dry_run,
         )?;
-        println!(
-            "OK\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{}\t{}",
-            stats.replacements,
-            stats.read_ms,
-            stats.apply_ms,
-            stats.write_ms,
-            stats.total_ms,
-            tier.label(),
-            stats.content_hash,
-        );
+        println!("{}", stats.ok_line(tier));
         return Ok(());
     }
 
@@ -361,7 +368,7 @@ fn apply_patch_to_base(
     let mut write_ms = 0.0f64;
 
     let canonical_base = canonicalize_base(base)?;
-    let slots = plan_entries(base, entries, opts)?;
+    let slots = plan_entries(&canonical_base, entries, opts)?;
 
     if opts.reject_partial {
         if let Some(EntrySlot::Failed(f)) = slots.iter().find(|s| matches!(s, EntrySlot::Failed(_)))
@@ -388,10 +395,6 @@ fn apply_patch_to_base(
                 applied_idx.push(idx);
             }
         }
-        let content_hashes = plans
-            .iter()
-            .map(|plan| plan.content_hash.clone().unwrap_or_else(|| "-".to_string()))
-            .collect();
         return Ok(ApplyStats {
             files: plans.len(),
             failed: Vec::new(),
@@ -400,7 +403,7 @@ fn apply_patch_to_base(
             hash_ms: 0.0,
             write_ms,
             total_ms: total_start.elapsed().as_secs_f64() * 1000.0,
-            content_hashes,
+            content_hashes: content_hashes(&plans),
         });
     }
 
@@ -431,10 +434,6 @@ fn apply_patch_to_base(
             EntrySlot::Failed(f) => failed.push(f),
         }
     }
-    let content_hashes = applied_plans
-        .iter()
-        .map(|plan| plan.content_hash.clone().unwrap_or_else(|| "-".to_string()))
-        .collect();
     Ok(ApplyStats {
         files: applied_plans.len(),
         failed,
@@ -443,8 +442,16 @@ fn apply_patch_to_base(
         hash_ms: 0.0,
         write_ms,
         total_ms: total_start.elapsed().as_secs_f64() * 1000.0,
-        content_hashes,
+        content_hashes: content_hashes(&applied_plans),
     })
+}
+
+/// One content hash per written plan, `-` for a delete (which has none).
+fn content_hashes(plans: &[PlannedWrite]) -> Vec<String> {
+    plans
+        .iter()
+        .map(|plan| plan.content_hash.clone().unwrap_or_else(|| "-".to_string()))
+        .collect()
 }
 
 /// Undo the entries already written by this batch, newest first, collecting
@@ -486,40 +493,30 @@ fn format_rollback_failure(err: &str, rollback_errors: &[String]) -> String {
 }
 
 fn plan_entries(
-    base: &Path,
+    canonical_base: &Path,
     entries: Vec<Entry>,
     opts: &ApplyOptions,
 ) -> Result<Vec<EntrySlot>, String> {
-    let canonical_base = canonicalize_base(base)?;
     let descriptors: Vec<String> = entries.iter().map(entry_descriptor).collect();
     let fuzz = opts.fuzz_factor;
+    let plan_or_fail = move |base: &Path, entry: Entry, descriptor: String| {
+        plan_entry(base, entry, fuzz, descriptor.clone())
+            .map_err(|reason| FailedEntry { descriptor, reason })
+    };
 
     let results: Vec<Result<PlannedEntry, FailedEntry>> = if entries.len() <= 1 {
         entries
             .into_iter()
             .enumerate()
-            .map(|(i, entry)| {
-                let descriptor = descriptors[i].clone();
-                match plan_entry(&canonical_base, entry, fuzz, descriptor.clone()) {
-                    Ok(p) => Ok(p),
-                    Err(reason) => Err(FailedEntry { descriptor, reason }),
-                }
-            })
+            .map(|(i, entry)| plan_or_fail(canonical_base, entry, descriptors[i].clone()))
             .collect()
     } else {
         let mut handles = Vec::with_capacity(entries.len());
         for (i, entry) in entries.into_iter().enumerate() {
-            let base_for_worker = canonical_base.clone();
+            let base_for_worker = canonical_base.to_path_buf();
             let descriptor = descriptors[i].clone();
             handles.push(thread::spawn(move || {
-                let d = descriptor.clone();
-                match plan_entry(&base_for_worker, entry, fuzz, descriptor) {
-                    Ok(p) => Ok(p),
-                    Err(reason) => Err(FailedEntry {
-                        descriptor: d,
-                        reason,
-                    }),
-                }
+                plan_or_fail(&base_for_worker, entry, descriptor)
             }));
         }
         let mut out = Vec::with_capacity(handles.len());
@@ -595,162 +592,177 @@ fn plan_entry(
     descriptor: String,
 ) -> Result<PlannedEntry, String> {
     match classify_entry(&entry) {
-        EntryKind::Modify => {
-            if entry.hunks.is_empty() {
-                return Err(format!("{} has no hunks", entry.old_file));
-            }
-            // Reject renames / path changes. A unified diff whose headers name
-            // different paths (e.g. `--- a/foo` / `+++ b/bar`) is a rename and
-            // mixdog patch does not support it. Without this guard the new_file
-            // is ignored and the hunks are silently written back to old_file,
-            // corrupting the wrong path. Compare the diff-prefix-stripped paths
-            // so cosmetic `a/`/`b/` differences are not treated as renames.
-            if strip_diff_prefix(&entry.old_file) != strip_diff_prefix(&entry.new_file) {
-                return Err(format!(
-                    "rename/path change not supported: header maps {} -> {}; \
-                     mixdog patch only modifies a file in place (old and new paths must match)",
-                    entry.old_file, entry.new_file
-                ));
-            }
-            let path = resolve_entry_path(base, &entry.old_file)?;
-            let t = Instant::now();
-            let metadata =
-                fs::metadata(&path).map_err(|e| format!("stat {}: {e}", path.display()))?;
-            let snapshot = snapshot_from_metadata(&metadata);
-            let source = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
-            let read_ms = t.elapsed().as_secs_f64() * 1000.0;
-            let t = Instant::now();
-            let applied = apply_exact_bytes(&source, &entry, fuzz_factor)?;
-            let apply_ms = t.elapsed().as_secs_f64() * 1000.0;
-            Ok(PlannedEntry {
-                plan: PlannedWrite {
-                    kind: EntryKind::Modify,
-                    path,
-                    original: Some(source),
-                    next: Some(applied.bytes),
-                    snapshot: Some(snapshot),
-                    content_hash: Some(applied.content_hash),
-                },
-                read_ms,
-                apply_ms,
-                descriptor,
-            })
+        EntryKind::Modify => plan_modify(base, &entry, fuzz_factor, descriptor),
+        EntryKind::Create => plan_create(base, &entry, descriptor),
+        EntryKind::Delete => plan_delete(base, &entry, fuzz_factor, descriptor),
+    }
+}
+
+fn plan_modify(
+    base: &Path,
+    entry: &Entry,
+    fuzz_factor: usize,
+    descriptor: String,
+) -> Result<PlannedEntry, String> {
+    if entry.hunks.is_empty() {
+        return Err(format!("{} has no hunks", entry.old_file));
+    }
+    // Reject renames / path changes. A unified diff whose headers name
+    // different paths (e.g. `--- a/foo` / `+++ b/bar`) is a rename and
+    // mixdog patch does not support it. Without this guard the new_file
+    // is ignored and the hunks are silently written back to old_file,
+    // corrupting the wrong path. Compare the diff-prefix-stripped paths
+    // so cosmetic `a/`/`b/` differences are not treated as renames.
+    if strip_diff_prefix(&entry.old_file) != strip_diff_prefix(&entry.new_file) {
+        return Err(format!(
+            "rename/path change not supported: header maps {} -> {}; \
+             mixdog patch only modifies a file in place (old and new paths must match)",
+            entry.old_file, entry.new_file
+        ));
+    }
+    let path = resolve_entry_path(base, &entry.old_file)?;
+    let t = Instant::now();
+    let metadata = fs::metadata(&path).map_err(|e| format!("stat {}: {e}", path.display()))?;
+    let snapshot = snapshot_from_metadata(&metadata);
+    let source = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let read_ms = t.elapsed().as_secs_f64() * 1000.0;
+    let t = Instant::now();
+    let applied = apply_exact_bytes(&source, entry, fuzz_factor)?;
+    let apply_ms = t.elapsed().as_secs_f64() * 1000.0;
+    Ok(PlannedEntry {
+        plan: PlannedWrite {
+            kind: EntryKind::Modify,
+            path,
+            original: Some(source),
+            next: Some(applied.bytes),
+            snapshot: Some(snapshot),
+            content_hash: Some(applied.content_hash),
+        },
+        read_ms,
+        apply_ms,
+        descriptor,
+    })
+}
+
+fn plan_create(base: &Path, entry: &Entry, descriptor: String) -> Result<PlannedEntry, String> {
+    let path = resolve_entry_path(base, &entry.new_file)?;
+    let t = Instant::now();
+    let mut bytes = build_create_bytes(entry)?;
+    let occupied = match fs::symlink_metadata(&path) {
+        Ok(metadata) => Some(metadata),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => None,
+        Err(err) => return Err(format!("stat Add File target {}: {err}", path.display())),
+    };
+    if let Some(metadata) = occupied {
+        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+            return Err(format!(
+                "Add File target is not a regular file: {}",
+                path.display()
+            ));
         }
-        EntryKind::Create => {
-            let path = resolve_entry_path(base, &entry.new_file)?;
-            let t = Instant::now();
-            let mut bytes = build_create_bytes(&entry)?;
-            let occupied = match fs::symlink_metadata(&path) {
-                Ok(metadata) => Some(metadata),
-                Err(err) if err.kind() == io::ErrorKind::NotFound => None,
-                Err(err) => return Err(format!("stat Add File target {}: {err}", path.display())),
-            };
-            if let Some(metadata) = occupied {
-                if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
-                    return Err(format!(
-                        "Add File target is not a regular file: {}",
-                        path.display()
-                    ));
-                }
-                let snapshot = snapshot_from_metadata(&metadata);
-                let source = fs::read(&path)
-                    .map_err(|e| format!("read Add File target {}: {e}", path.display()))?;
-                bytes = preserve_eol(&bytes, &source, &source);
-                let content_hash = sha256_hex(&bytes);
-                let elapsed_ms = t.elapsed().as_secs_f64() * 1000.0;
-                return Ok(PlannedEntry {
-                    plan: PlannedWrite {
-                        kind: EntryKind::Modify,
-                        path,
-                        original: Some(source),
-                        next: Some(bytes),
-                        snapshot: Some(snapshot),
-                        content_hash: Some(content_hash),
-                    },
-                    read_ms: elapsed_ms,
-                    apply_ms: 0.0,
-                    descriptor,
-                });
-            }
-            let apply_ms = t.elapsed().as_secs_f64() * 1000.0;
-            let content_hash = sha256_hex(&bytes);
-            Ok(PlannedEntry {
-                plan: PlannedWrite {
-                    kind: EntryKind::Create,
-                    path,
-                    original: None,
-                    next: Some(bytes),
-                    snapshot: None,
-                    content_hash: Some(content_hash),
-                },
-                read_ms: 0.0,
-                apply_ms,
-                descriptor,
-            })
+        let snapshot = snapshot_from_metadata(&metadata);
+        let source =
+            fs::read(&path).map_err(|e| format!("read Add File target {}: {e}", path.display()))?;
+        bytes = preserve_eol(&bytes, &source, &source);
+        let content_hash = sha256_hex(&bytes);
+        let elapsed_ms = t.elapsed().as_secs_f64() * 1000.0;
+        return Ok(PlannedEntry {
+            plan: PlannedWrite {
+                kind: EntryKind::Modify,
+                path,
+                original: Some(source),
+                next: Some(bytes),
+                snapshot: Some(snapshot),
+                content_hash: Some(content_hash),
+            },
+            read_ms: elapsed_ms,
+            apply_ms: 0.0,
+            descriptor,
+        });
+    }
+    let apply_ms = t.elapsed().as_secs_f64() * 1000.0;
+    let content_hash = sha256_hex(&bytes);
+    Ok(PlannedEntry {
+        plan: PlannedWrite {
+            kind: EntryKind::Create,
+            path,
+            original: None,
+            next: Some(bytes),
+            snapshot: None,
+            content_hash: Some(content_hash),
+        },
+        read_ms: 0.0,
+        apply_ms,
+        descriptor,
+    })
+}
+
+fn plan_delete(
+    base: &Path,
+    entry: &Entry,
+    fuzz_factor: usize,
+    descriptor: String,
+) -> Result<PlannedEntry, String> {
+    let path = resolve_entry_path(base, &entry.old_file)?;
+    let t = Instant::now();
+    // Hunkless-delete preflight (mirrors patch.mjs:407-412): a delete entry
+    // with zero hunks must only remove a file whose on-disk size is 0.
+    // Stat first; refuse if it cannot be statted or size != 0, so a
+    // non-empty file is never silently deleted by an empty-hunk patch.
+    let metadata =
+        fs::metadata(&path).map_err(|e| format!("stat {} for delete: {e}", path.display()))?;
+    if entry.hunks.is_empty() && metadata.len() != 0 {
+        return Err(format!(
+            "refusing hunkless delete: {} is non-empty ({} byte(s) on disk); \
+             a delete entry with zero hunks may only remove a 0-byte file",
+            path.display(),
+            metadata.len()
+        ));
+    }
+    let snapshot = snapshot_from_metadata(&metadata);
+    let source = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let read_ms = t.elapsed().as_secs_f64() * 1000.0;
+    let t = Instant::now();
+    if entry.hunks.is_empty() {
+        if !source.is_empty() {
+            return Err(format!(
+                "delete patch has no hunks but {} is non-empty ({} byte(s))",
+                path.display(),
+                source.len()
+            ));
         }
-        EntryKind::Delete => {
-            let path = resolve_entry_path(base, &entry.old_file)?;
-            let t = Instant::now();
-            // Hunkless-delete preflight (mirrors patch.mjs:407-412): a delete entry
-            // with zero hunks must only remove a file whose on-disk size is 0.
-            // Stat first; refuse if it cannot be statted or size != 0, so a
-            // non-empty file is never silently deleted by an empty-hunk patch.
-            let metadata = fs::metadata(&path)
-                .map_err(|e| format!("stat {} for delete: {e}", path.display()))?;
-            if entry.hunks.is_empty() && metadata.len() != 0 {
-                return Err(format!(
-                    "refusing hunkless delete: {} is non-empty ({} byte(s) on disk); \
-                     a delete entry with zero hunks may only remove a 0-byte file",
-                    path.display(),
-                    metadata.len()
-                ));
-            }
-            let snapshot = snapshot_from_metadata(&metadata);
-            let source = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
-            let read_ms = t.elapsed().as_secs_f64() * 1000.0;
-            let t = Instant::now();
-            if entry.hunks.is_empty() {
-                if !source.is_empty() {
-                    return Err(format!(
-                        "delete patch has no hunks but {} is non-empty ({} byte(s))",
-                        path.display(),
-                        source.len()
-                    ));
-                }
-            } else if is_zero_length_delete_patch(&entry) {
-                if !source.is_empty() {
-                    return Err(format!(
-                        "delete patch leaves {} residual byte(s) in {}",
-                        source.len(),
-                        path.display()
-                    ));
-                }
-            } else {
-                let applied = apply_exact_bytes(&source, &entry, fuzz_factor)?;
-                if !strip_utf8_bom(&applied.bytes).is_empty() {
-                    return Err(format!(
-                        "delete patch leaves {} residual byte(s) in {}",
-                        applied.bytes.len(),
-                        path.display()
-                    ));
-                }
-            }
-            let apply_ms = t.elapsed().as_secs_f64() * 1000.0;
-            Ok(PlannedEntry {
-                plan: PlannedWrite {
-                    kind: EntryKind::Delete,
-                    path,
-                    original: Some(source),
-                    next: None,
-                    snapshot: Some(snapshot),
-                    content_hash: None,
-                },
-                read_ms,
-                apply_ms,
-                descriptor,
-            })
+    } else if is_zero_length_delete_patch(entry) {
+        if !source.is_empty() {
+            return Err(format!(
+                "delete patch leaves {} residual byte(s) in {}",
+                source.len(),
+                path.display()
+            ));
+        }
+    } else {
+        let applied = apply_exact_bytes(&source, entry, fuzz_factor)?;
+        if !strip_utf8_bom(&applied.bytes).is_empty() {
+            return Err(format!(
+                "delete patch leaves {} residual byte(s) in {}",
+                applied.bytes.len(),
+                path.display()
+            ));
         }
     }
+    let apply_ms = t.elapsed().as_secs_f64() * 1000.0;
+    Ok(PlannedEntry {
+        plan: PlannedWrite {
+            kind: EntryKind::Delete,
+            path,
+            original: Some(source),
+            next: None,
+            snapshot: Some(snapshot),
+            content_hash: None,
+        },
+        read_ms,
+        apply_ms,
+        descriptor,
+    })
 }
 
 fn now_ms() -> u64 {

@@ -3,7 +3,15 @@ import test from 'node:test';
 import { applyOpenAIDirectCachePolicy, openAiDirectSupportsFast } from './openai-direct-request.mjs';
 
 test('public API Fast mode covers documented models only', () => {
-  for (const model of ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-terra', 'gpt-5.5', 'gpt-5.4-mini', { id: 'gpt-6-sol' }]) {
+  for (const model of [
+    'gpt-6-astra',
+    'gpt-6-sol',
+    'gpt-6-luna',
+    'gpt-5.6-terra',
+    'gpt-5.5',
+    'gpt-5.4-mini',
+    { id: 'gpt-6-sol' },
+  ]) {
     assert.equal(openAiDirectSupportsFast(model), true, JSON.stringify(model));
   }
   for (const model of ['gpt-5', 'gpt-4.1', 'gpt-7-sol', '']) {

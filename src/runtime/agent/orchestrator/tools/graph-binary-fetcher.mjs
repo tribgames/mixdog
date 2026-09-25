@@ -18,7 +18,8 @@ import {
   fetchRemoteManifest,
   findCachedBinary,
   installVerifiedBinary,
-  platformKey,
+  platformKeyCandidates,
+  resolvePlatformKey,
   readBundledManifest,
   readJsonOrNull,
   singleFlight,
@@ -52,7 +53,7 @@ function selectLocalManifest(dataDir, options = {}) {
   const bundled = readBundledManifest(BUNDLED_MANIFEST_PATH, options);
   if (bundled) return bundled;
   const cached = readJsonOrNull(join(graphBinDir(dataDir), 'manifest.json'));
-  return validGraphAsset(cached, platformKey()) ? cached : null;
+  return platformKeyCandidates().some((key) => validGraphAsset(cached, key)) ? cached : null;
 }
 
 async function loadManifest(dataDir, options = {}) {
@@ -71,7 +72,7 @@ const downloadGraphBinary = createBinaryDownloader({ name: 'graph', label: LABEL
 export function findCachedGraphBinary(dataDir, options = {}) {
   try {
     const manifest = selectLocalManifest(dataDir, options);
-    const pkey = platformKey();
+    const pkey = resolvePlatformKey((key) => validGraphAsset(manifest, key));
     if (!validGraphAsset(manifest, pkey)) return null;
     return findCachedBinary({
       dir: graphBinDir(dataDir),
@@ -85,10 +86,10 @@ export function findCachedGraphBinary(dataDir, options = {}) {
 
 export const ensureGraphBinary = singleFlight(async (dataDir, options = {}) => {
   const manifest = await loadManifest(dataDir, options);
-  const pkey = platformKey();
+  const pkey = resolvePlatformKey((key) => validGraphAsset(manifest, key));
   if (!validGraphAsset(manifest, pkey)) {
-    // Unsupported platform/arch (e.g. win32-arm64): the manifest has no
-    // downloadable asset for this {os}-{arch}. The code graph has NO JS
+    // Unsupported platform/arch: the manifest has no downloadable asset this
+    // {os}-{arch} can run. The code graph has NO JS
     // parsing fallback, so this is terminal — surface a single clear,
     // actionable message instead of a cryptic crash downstream.
     const supported = Object.keys(manifest.assets || {}).join(', ') || '(none)';

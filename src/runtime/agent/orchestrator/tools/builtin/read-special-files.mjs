@@ -131,6 +131,67 @@ export async function extractPdfText(
   }
 }
 
+const joinedNotebookText = (value) => (Array.isArray(value) ? value.join('') : value);
+
+// A code cell's source followed by its outputs as text: text outputs inline
+// (a single huge one replaced with a jq hint rather than dumped), image
+// outputs as placeholders plus the images to embed AFTER the code block.
+function renderIpynbCodeCell(cell, cellIndex, fullPath) {
+  let block = joinedNotebookText(cell.source) || '';
+  const outputs = Array.isArray(cell.outputs) ? cell.outputs : [];
+  const pendingImages = [];
+  for (const out of outputs) {
+    const data = out.data || {};
+    if (data['text/plain'] || out.text) {
+      const rawTxt = joinedNotebookText(data['text/plain'] || out.text);
+      if (typeof rawTxt === 'string' && rawTxt.length > IPYNB_OUTPUT_MAX_CHARS) {
+        block += `\n# Output: [large output omitted — ${rawTxt.length} chars; inspect with: cat "${fullPath}" | jq '.cells[${cellIndex}].outputs']`;
+      } else {
+        block += `\n# Output:\n${rawTxt}`;
+      }
+    } else if (data['image/png'] || data['image/jpeg']) {
+      const isPng = !!data['image/png'];
+      const b64 = joinedNotebookText(isPng ? data['image/png'] : data['image/jpeg']);
+      pendingImages.push({ mimeType: isPng ? 'image/png' : 'image/jpeg', b64 });
+      block += `\n# Output: [image output — cell ${cellIndex}]`;
+    }
+  }
+  return { block, pendingImages };
+}
+
+// Keeps text blocks until `maxOutputBytes` of text, cutting the one that
+// crosses it, then marks the cut. Image blocks pass through uncounted.
+function capNotebookText(blocks, maxOutputBytes) {
+  let running = 0;
+  const capped = [];
+  let truncated = false;
+  for (const b of blocks) {
+    if (b.type !== 'text') {
+      capped.push(b);
+      continue;
+    }
+    if (running >= maxOutputBytes) {
+      truncated = true;
+      continue;
+    }
+    if (running + b.text.length > maxOutputBytes) {
+      capped.push({ type: 'text', text: b.text.slice(0, maxOutputBytes - running) });
+      running = maxOutputBytes;
+      truncated = true;
+    } else {
+      capped.push(b);
+      running += b.text.length;
+    }
+  }
+  if (truncated) {
+    capped.push({
+      type: 'text',
+      text: `\n\n... [notebook output truncated at ${Math.round(maxOutputBytes / 1024)} KB]`,
+    });
+  }
+  return capped;
+}
+
 export async function extractIpynbText(
   fullPath,
   { maxOutputBytes = DEFAULT_READ_MAX_OUTPUT_BYTES, hasRangeArgs = false, textOnly = false } = {}
@@ -175,34 +236,10 @@ export async function extractIpynbText(
     let cellIndex = -1;
     for (const cell of cells) {
       cellIndex += 1;
-      const src = Array.isArray(cell.source) ? cell.source.join('') : cell.source || '';
       if (cell.cell_type === 'markdown') {
-        pushText(src);
+        pushText(joinedNotebookText(cell.source) || '');
       } else if (cell.cell_type === 'code') {
-        let block = src;
-        const outputs = Array.isArray(cell.outputs) ? cell.outputs : [];
-        // Collect image outputs to emit AFTER this cell's code block.
-        const pendingImages = [];
-        for (const out of outputs) {
-          const data = out.data || {};
-          if (data['text/plain'] || out.text) {
-            const joinedText = (value) => (Array.isArray(value) ? value.join('') : value);
-            const rawTxt = joinedText(data['text/plain'] || out.text);
-            // A single huge output is replaced
-            // with a jq hint rather than dumped inline.
-            if (typeof rawTxt === 'string' && rawTxt.length > IPYNB_OUTPUT_MAX_CHARS) {
-              block += `\n# Output: [large output omitted — ${rawTxt.length} chars; inspect with: cat "${fullPath}" | jq '.cells[${cellIndex}].outputs']`;
-            } else {
-              block += `\n# Output:\n${rawTxt}`;
-            }
-          } else if (data['image/png'] || data['image/jpeg']) {
-            const isPng = !!data['image/png'];
-            const b64 = isPng ? data['image/png'] : data['image/jpeg'];
-            const b64str = Array.isArray(b64) ? b64.join('') : b64;
-            pendingImages.push({ mimeType: isPng ? 'image/png' : 'image/jpeg', b64: b64str });
-            block += `\n# Output: [image output — cell ${cellIndex}]`;
-          }
-        }
+        const { block, pendingImages } = renderIpynbCodeCell(cell, cellIndex, fullPath);
         pushText(`\`\`\`python\n${block}\n\`\`\``);
         // Embed each image output as a real image block (resized via the
         // shared helper). On fallback (sharp absent / decode failure) the
@@ -236,33 +273,7 @@ export async function extractIpynbText(
     // Output-byte cap on the combined TEXT. Image blocks are not counted
     // (they're already size-bounded by the resize helper).
     if (textLen > maxOutputBytes) {
-      // Trim trailing text blocks until under the cap, then mark the cut.
-      let running = 0;
-      const capped = [];
-      let truncated = false;
-      for (const b of blocks) {
-        if (b.type !== 'text') {
-          capped.push(b);
-          continue;
-        }
-        if (running >= maxOutputBytes) {
-          truncated = true;
-          continue;
-        }
-        if (running + b.text.length > maxOutputBytes) {
-          capped.push({ type: 'text', text: b.text.slice(0, maxOutputBytes - running) });
-          running = maxOutputBytes;
-          truncated = true;
-        } else {
-          capped.push(b);
-          running += b.text.length;
-        }
-      }
-      if (truncated)
-        capped.push({
-          type: 'text',
-          text: `\n\n... [notebook output truncated at ${Math.round(maxOutputBytes / 1024)} KB]`,
-        });
+      const capped = capNotebookText(blocks, maxOutputBytes);
       blocks.length = 0;
       blocks.push(...capped);
     }

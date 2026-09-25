@@ -1,5 +1,5 @@
 import { basename, dirname, extname, join, posix } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { constants as fsConstants, rmSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -51,18 +51,40 @@ function commandExists(command) {
   });
 }
 
+// Where each system's LibreOffice installers put the program. macOS and the
+// Linux snap and Flatpak packages leave it off PATH.
+function libreOfficeCandidates() {
+  if (process.platform === 'win32') {
+    return [
+      // soffice.com is the console front-end: it reports through stdio and
+      // exits once the conversion finishes. soffice.exe returns early or never,
+      // so a caller awaiting its exit cannot tell when output is ready.
+      'soffice.com',
+      'C:\\Program Files\\LibreOffice\\program\\soffice.com',
+      'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com',
+    ];
+  }
+  if (process.platform === 'darwin') {
+    return [
+      'soffice',
+      '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+      join(homedir(), 'Applications', 'LibreOffice.app', 'Contents', 'MacOS', 'soffice'),
+      '/opt/homebrew/bin/soffice',
+      '/usr/local/bin/soffice',
+    ];
+  }
+  return [
+    'soffice',
+    'libreoffice',
+    '/usr/lib/libreoffice/program/soffice',
+    '/snap/bin/libreoffice',
+    '/var/lib/flatpak/exports/bin/org.libreoffice.LibreOffice',
+    join(homedir(), '.local', 'share', 'flatpak', 'exports', 'bin', 'org.libreoffice.LibreOffice'),
+  ];
+}
+
 async function findLibreOfficeProgram() {
-  const candidates =
-    process.platform === 'win32'
-      ? [
-          // soffice.com is the console front-end: it reports through stdio and
-          // exits once the conversion finishes. soffice.exe returns early or never,
-          // so a caller awaiting its exit cannot tell when output is ready.
-          'soffice.com',
-          'C:\\Program Files\\LibreOffice\\program\\soffice.com',
-          'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.com',
-        ]
-      : ['soffice', 'libreoffice'];
+  const candidates = libreOfficeCandidates();
   for (const candidate of candidates) {
     if (await commandExists(candidate)) return candidate;
   }
@@ -121,7 +143,11 @@ function queueConversion(work) {
   return result;
 }
 
-function runSoffice(program, args, { signal, timeoutMs, timeoutMessage, cancelMessage }) {
+// A converter can warn on every page of a long document; what it writes to
+// stderr is kept up to this many characters, which is plenty to say why it failed.
+export const MAX_SOFFICE_STDERR_CHARS = 64 * 1024;
+
+export function runSoffice(program, args, { signal, timeoutMs, timeoutMessage, cancelMessage }) {
   return new Promise((resolve) => {
     let settled = false;
     let timer = null;
@@ -142,7 +168,7 @@ function runSoffice(program, args, { signal, timeoutMs, timeoutMessage, cancelMe
     };
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk) => {
-      stderr += chunk;
+      if (stderr.length < MAX_SOFFICE_STDERR_CHARS) stderr = `${stderr}${chunk}`.slice(0, MAX_SOFFICE_STDERR_CHARS);
     });
     child.once('error', (error) => finish({ ok: false, error: error?.message || String(error) }));
     child.once('close', (code) =>
@@ -200,6 +226,12 @@ function convertedOutputPath(outDir, input, extension) {
   return join(outDir, `${basename(input, extname(input))}.${extension}`);
 }
 
+// The size of a file a conversion wrote, or 0 when it wrote nothing usable.
+async function producedFileSize(path) {
+  const details = await stat(path).catch(() => null);
+  return details?.isFile() && details.size > 0 ? details.size : 0;
+}
+
 /** Whether a LibreOffice front-end answers on this machine; portable rendering and recalculation need it. */
 export async function libreOfficeAvailable() {
   return Boolean(await libreOfficeProgram());
@@ -245,7 +277,8 @@ async function workbookFormulaCounts(zip) {
     for (const match of xml.matchAll(/<c\b[^>]*>([\s\S]*?)<\/c>/gi)) {
       if (!/<f(?:\s[^>]*)?>/i.test(match[1])) continue;
       formulaCount += 1;
-      if (!/<v(?:\s[^>]*)?>[\s\S]*?<\/v>/i.test(match[1])) missingCachedValues += 1;
+      // An empty-string result is a value: Excel writes it as a self-closing <v/> on a t="str" cell.
+      if (!/<v(?:\s[^>]*)?>[\s\S]*?<\/v>|<v(?:\s[^>]*)?\/>/i.test(match[1])) missingCachedValues += 1;
     }
   }
   return { formulaCount, missingCachedValues };
@@ -274,9 +307,9 @@ async function convertWorkbookWithLibreOffice(program, path, source, signal) {
     });
     if (!result.ok) return { reason: result.error };
     const generated = convertedOutputPath(outputDir, path, 'xlsx');
-    const details = await stat(generated).catch(() => null);
-    if (!details?.isFile() || details.size <= 0) return { reason: 'LibreOffice produced no recalculated workbook.' };
-    return { recalculated: await readFile(generated), outputBytes: details.size };
+    const outputBytes = await producedFileSize(generated);
+    if (!outputBytes) return { reason: 'LibreOffice produced no recalculated workbook.' };
+    return { recalculated: await readFile(generated), outputBytes };
   } finally {
     await rm(root, { recursive: true, force: true }).catch(() => {});
   }
@@ -494,10 +527,10 @@ export async function validateLibreOfficeReopen(path, { signal = null } = {}) {
       },
     });
     if (!result.ok) return { available: true, opened: false, backend: 'libreoffice', error: result.error };
-    const details = await stat(convertedOutputPath(outputDir, path, 'pdf')).catch(() => null);
-    if (!details?.isFile() || details.size <= 0)
+    const outputBytes = await producedFileSize(convertedOutputPath(outputDir, path, 'pdf'));
+    if (!outputBytes)
       return { available: true, opened: false, backend: 'libreoffice', error: 'LibreOffice produced no review PDF' };
-    return { available: true, opened: true, backend: 'libreoffice', outputBytes: details.size };
+    return { available: true, opened: true, backend: 'libreoffice', outputBytes };
   } finally {
     await rm(outputDir, { recursive: true, force: true }).catch(() => {});
   }
@@ -531,9 +564,10 @@ export async function convertLegacyOffice(path, output, { signal = null } = {}) 
     });
     if (!result.ok) throw new Error(`LibreOffice could not convert ${path} to .${extension}: ${result.error}`);
     const generated = convertedOutputPath(outputDir, path, extension);
-    const details = await stat(generated).catch(() => null);
-    if (!details?.isFile() || details.size <= 0) {
-      throw new Error(`LibreOffice produced no .${extension} from ${path}; the file may be damaged or password-protected.`);
+    if (!(await producedFileSize(generated))) {
+      throw new Error(
+        `LibreOffice produced no .${extension} from ${path}; the file may be damaged or password-protected.`
+      );
     }
     await copyFile(generated, output, fsConstants.COPYFILE_EXCL);
     return output;

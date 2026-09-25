@@ -266,14 +266,16 @@ test('task read returns incremental output and task wait returns a settled verdi
   const shellCheckEvents = [];
   const shellCheckOptions = shellNotifyOptions(shellCheckEvents, 'snapshot_read');
   const _priorSnapshotAutoBg = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
-  process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = '50';
+  // The progress line is written well before promotion, so the promotion
+  // result always delivers it and every later read must continue after it.
+  process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = '1000';
   let shellCheckOut;
   try {
     shellCheckOut = await executeBuiltinTool(
       'shell',
       {
         command:
-          "node -e \"console.log('tool-contracts-snapshot-read-progress'); setTimeout(() => console.log('tool-contracts-snapshot-read-done'), 1500)\"",
+          "node -e \"console.log('tool-contracts-snapshot-read-progress'); setTimeout(() => console.log('tool-contracts-snapshot-read-done'), 3000)\"",
         timeout_ms: 5000,
       },
       root,
@@ -295,6 +297,12 @@ test('task read returns incremental output and task wait returns a settled verdi
   );
   if (!/status:\s*running/i.test(String(shellSnapshotRead))) {
     throw new Error(`task read must return the current running snapshot:\n${shellSnapshotRead}`);
+  }
+  if (!String(shellCheckOut).includes('tool-contracts-snapshot-read-progress')) {
+    throw new Error(`the promotion result must carry the output written before it:\n${shellCheckOut}`);
+  }
+  if (String(shellSnapshotRead).includes('tool-contracts-snapshot-read-progress')) {
+    throw new Error(`task read repeated output the promotion result already delivered:\n${shellSnapshotRead}`);
   }
   // wait replaces the polling loop: one call returns the settled task, so a
   // still-running status here would mean the wait handed back a bare snapshot.

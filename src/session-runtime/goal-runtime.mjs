@@ -4,10 +4,8 @@
  * first, then the store, deadlines, title scheduler, mutations and the
  * control surface, each reading the earlier stages through `ctx`.
  */
-import { join } from 'node:path';
-
 import { GOAL_TOOL_DEFS, MAX_GOAL_TIME_LIMIT_MS } from './goal-tool-defs.mjs';
-import { reportGoalStorageError } from './goal-storage.mjs';
+import { goalsRoot, reportGoalStorageError } from './goal-storage.mjs';
 import { createGoalDeadlines } from './goal-deadlines.mjs';
 import {
   DEFAULT_COMPLETED_GOAL_TTL_MS,
@@ -22,7 +20,6 @@ import { createGoalMutations } from './goal-mutations.mjs';
 import { runGoalControl } from './goal-control.mjs';
 import { executeGoalTool } from './goal-tool-exec.mjs';
 import { createGoalTurnLifecycle } from './goal-turns.mjs';
-import { clean } from '../runtime/shared/clean.mjs';
 
 export {
   DEFAULT_COMPLETED_GOAL_TTL_MS,
@@ -47,7 +44,7 @@ export function createGoalRuntime({
 } = {}) {
   const ctx = {
     dataDir,
-    root: join(clean(dataDir) || process.cwd(), 'goals'),
+    root: goalsRoot(dataDir),
     now,
     defaultTimeLimitMs,
     completedRetentionMs: normalizedCompletedGoalTtlMs(completedGoalTtlMs),
@@ -60,9 +57,9 @@ export function createGoalRuntime({
     turnStartedAt: new Map(),
     titleJobs: new Map(),
     observedGoals: new Map(),
-    // Session -> the Goal identity, turn, and revision that already spent its
-    // one settled-duration review. In memory on purpose: a restart is a new
-    // chance.
+    // Session -> the Goal identity, turn, and revision already answered with
+    // no progress: the one settled-duration review, or an automatic turn that
+    // called no tool. In memory on purpose: a restart is a new chance.
     idleReviewTurns: new Map(),
     // Session -> { goalId, revision, quietTurns }: which continuation tier this
     // context still owes, from the rules and state already delivered into it.

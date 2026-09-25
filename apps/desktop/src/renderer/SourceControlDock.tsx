@@ -30,6 +30,7 @@ import {
   indexOnly,
   pathsFor,
   pullRequestUrl,
+  reasonText,
   RowSpacer,
   type SourceControlDiffRequest,
 } from './source-control-support';
@@ -71,10 +72,6 @@ const VIEW_SORT_MENU = 'View & Sort';
 
 // Keys whose landed action rewrites the history the History view shows.
 const HISTORY_RELOAD_KEYS = new Set(['commit', 'push', 'pull', 'sync', 'amend', 'undo-commit']);
-
-function reasonText(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
-}
 
 function emptyState(text: string, live = false) {
   return (
@@ -132,7 +129,6 @@ export function SourceControlDock({
    *  button. */
   const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
   const [view, setView] = useState<SourceControlView>('changes');
-  const dockRootRef = useRef<HTMLDivElement>(null);
   // Both the row context menu and the branch picker are document.body PORTALS,
   // and the Dock keeps this pane MOUNTED (inert + aria-hidden) while another
   // tab is presented — inert cannot reach a portal that left the pane. The
@@ -496,7 +492,7 @@ export function SourceControlDock({
   if (status && !status.repository && !prOnly) return emptyState(t('The selected project is not a Git repository.'));
 
   return (
-    <div className="dock-source-control" ref={dockRootRef}>
+    <div className="dock-source-control">
       {/* ONE portaled context menu for every row grammar in the dock. */}
       <ScmContextMenu state={visibleContextMenu} onClose={closeContextMenu} />
       {status && !prOnly && projectSelect && <div className="utility-dock-project-row">{projectSelect}</div>}

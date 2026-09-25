@@ -30,22 +30,11 @@ export function createSendDispatch({ registry, defaultCwd, sendFlow, spawnFlow, 
 
   // Drop this terminal's in-memory trace and remove ONLY the persisted row
   // matching the inherited sessionId. A tag-wide removal would delete peer
-  // terminals' same-tag rows; the map deletes are guarded on the tag pointing
+  // terminals' same-tag rows; the map unbind is guarded on the tag pointing
   // at OUR sessionId so a peer cache entry is left intact (it rebuilds from
   // rows).
   function consumeInheritedTag(fallbackTag, inherited) {
-    if (registry.tags.get(fallbackTag) === inherited.sessionId) {
-      try {
-        registry.tags.delete(fallbackTag);
-        registry.tagAgents.delete(fallbackTag);
-        registry.tagCwds.delete(fallbackTag);
-      } catch {}
-    }
-    if (inherited.sessionId) {
-      try {
-        registry.removeWorkerRow({ sessionId: inherited.sessionId });
-      } catch {}
-    }
+    registry.forgetTerminalSession(fallbackTag, inherited.sessionId);
     if (inherited.tombstone) registry.consumeTagTombstone(inherited.tombstone);
   }
 

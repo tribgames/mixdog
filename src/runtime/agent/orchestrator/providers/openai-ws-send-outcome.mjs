@@ -10,7 +10,12 @@ import { envPositiveInt } from '../../../shared/env.mjs';
 import { releaseWebSocket } from './openai-ws-pool.mjs';
 import { _combineUsageWithWarmup } from './openai-ws-stream.mjs';
 import { traceCacheMiss, traceSendUsage, traceTransport } from './openai-ws-send-trace.mjs';
-import { _cloneJson, _requestInputMismatchDiagnostics, _sansInput, _stableStringify } from './openai-ws-delta.mjs';
+import {
+  _anchorResponseChain,
+  _requestInputMismatchDiagnostics,
+  _sansInput,
+  _stableStringify,
+} from './openai-ws-delta.mjs';
 import { _hashText } from './openai-codex-metadata.mjs';
 
 function _num(value, fallback = 0) {
@@ -185,21 +190,14 @@ export function probeFramePrefix(entry, frame, requestBody) {
  */
 function recordResponseChain({ entry, result, requestBody, useCodexWsClientMetadata }) {
   const keepResponseChain = !!result.responseId;
-  if (result.responseId && keepResponseChain) {
-    entry.lastResponseId = result.responseId;
-    entry.lastRequestSansInput = _stableStringify(
-      _sansInput(requestBody, {
-        normalizeWarmupGenerate: useCodexWsClientMetadata,
-      })
-    );
-    const inputArr = Array.isArray(requestBody.input) ? requestBody.input : [];
-    entry.lastRequestInput = _cloneJson(inputArr);
-    entry.lastResponseItems = _cloneJson(Array.isArray(result.responseItems) ? result.responseItems : []);
-    entry.lastInputLen = inputArr.length;
-    // Kept for diagnostics / xAI retry carry-forward. The canonical prefix
-    // guard is lastRequestInput above, not this hash.
-    entry.lastInputPrefixHash = createHash('sha256').update(JSON.stringify(inputArr)).digest('hex');
-  } else if (!keepResponseChain) {
+  if (keepResponseChain) {
+    _anchorResponseChain(entry, {
+      responseId: result.responseId,
+      requestBody,
+      responseItems: result.responseItems,
+      normalizeWarmupGenerate: useCodexWsClientMetadata,
+    });
+  } else {
     entry.lastResponseId = null;
     entry.lastRequestSansInput = null;
     entry.lastRequestInput = null;

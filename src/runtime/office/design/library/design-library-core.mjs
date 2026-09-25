@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { delimiter } from 'node:path';
-import { dirname, isAbsolute, join, resolve, win32 } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, resolve, win32 } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { plainObject, sha256, stableValue } from '../../shared/values.mjs';
@@ -169,10 +168,12 @@ export async function loadConfig(dataDir, override = null) {
   const discoverInstalledTemplates =
     source.discoverInstalledTemplates == null ? !hasExplicitDirectories : source.discoverInstalledTemplates !== false;
   const templateDirectories = [
-    paths.templates,
-    ...(discoverInstalledTemplates ? defaultOfficeTemplateDirectories() : []),
-    ...configuredDirectories.map((entry) => resolveConfigPath(entry, base)).filter(Boolean),
-  ].filter((entry, index, values) => values.indexOf(entry) === index);
+    ...new Set([
+      paths.templates,
+      ...(discoverInstalledTemplates ? defaultOfficeTemplateDirectories() : []),
+      ...configuredDirectories.map((entry) => resolveConfigPath(entry, base)).filter(Boolean),
+    ]),
+  ];
   const defaultTemplates = plainObject(source.defaultTemplates) ? { ...source.defaultTemplates } : {};
   if (discoverInstalledTemplates && !defaultTemplates.pptx) defaultTemplates.pptx = 'mixdog-executive';
   return {
@@ -208,5 +209,5 @@ export function defaultOfficeTemplateDirectories({
     if (appData) directories.push(win32.resolve(win32.join(appData, 'Microsoft', 'Templates')));
     if (home) directories.push(win32.resolve(win32.join(home, 'Documents', 'Custom Office Templates')));
   }
-  return directories.filter((entry, index, values) => values.indexOf(entry) === index);
+  return [...new Set(directories)];
 }

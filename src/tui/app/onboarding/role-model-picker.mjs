@@ -34,7 +34,7 @@ function targetLabel(state, target) {
 /** Picker rows for one target. Non-lead targets get a leading "Default" row
  *  that makes the target follow the Main Model at runtime; it is pre-marked
  *  when the target is unset (agent) or on the web-search marker route. */
-export function roleModelItems({ target, models, state }) {
+function roleModelItems({ target, models, state }) {
   const isLead = target === 'lead';
   const isWebSearch = target === 'webSearch';
   const currentRoute = currentRouteFor(state, target);
@@ -71,7 +71,7 @@ export function roleModelItems({ target, models, state }) {
  *  or for Web Search stores the WEB_SEARCH_DEFAULT marker so finish persists
  *  it and the runtime follows the Main Model (not a null that drops the
  *  field). Returns false when the row carried no model. */
-export function applyRoleSelection(state, target, item) {
+function applyRoleSelection(state, target, item) {
   if (item?._default) {
     if (target === 'webSearch') {
       state.webSearchRoute = { ...WEB_SEARCH_DEFAULT_ROUTE };

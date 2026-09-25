@@ -91,7 +91,9 @@ async function run() {
         .split(/\r?\n/)
         .find((entry) => / focused(\s|$)/.test(entry)) || '';
     if (!line.toLowerCase().startsWith(windowId.toLowerCase())) {
-      throw new ScenarioPrecondition(`the user window could not take the foreground; it is held by: ${line || 'no listed window'}`);
+      throw new ScenarioPrecondition(
+        `the user window could not take the foreground; it is held by: ${line || 'no listed window'}`
+      );
     }
   };
   const scenario = async (name: string, operation: () => Promise<void | Record<string, unknown>>) => {
@@ -209,7 +211,9 @@ async function run() {
         // Excel echoes a UIA value write to a cell on every later read while
         // the sheet keeps its value, so the cell must not offer set_value and a
         // write must be refused rather than confirmed.
-        const cell = capture.elements?.find((element: any) => element.role === 'DataItem' && element.value === 'fixture');
+        const cell = capture.elements?.find(
+          (element: any) => element.role === 'DataItem' && element.value === 'fixture'
+        );
         assert.ok(cell?.ref, summary(capture));
         assert.equal(cell.actions?.includes('set_value'), false, summary(capture));
         const refused = payload(
@@ -365,7 +369,10 @@ async function run() {
       );
       try {
         const listed = payload(
-          await command({ action: 'capture', window_id: explorerId, mode: 'ax', query: '.txt', max_elements: 20 }, 'explorer-rename')
+          await command(
+            { action: 'capture', window_id: explorerId, mode: 'ax', query: '.txt', max_elements: 20 },
+            'explorer-rename'
+          )
         );
         const items = (listed.elements || []).filter((element: any) => element.role === 'ListItem');
         assert.equal(items.length, 2, summary(listed));
@@ -388,14 +395,23 @@ async function run() {
         );
         await holdForeground(userWindow.id, 'explorer-user');
         const fresh = payload(
-          await command({ action: 'capture', window_id: explorerId, mode: 'ax', query: 'beta', max_elements: 10 }, 'explorer-rename')
+          await command(
+            { action: 'capture', window_id: explorerId, mode: 'ax', query: 'beta', max_elements: 10 },
+            'explorer-rename'
+          )
         );
         const nameCell = (fresh.elements || []).find(
           (element: any) => element.role === 'Edit' && String(element.value) === 'beta.txt'
         );
         assert.ok(nameCell?.ref, summary(fresh));
         await command(
-          { action: 'set_value', window_id: explorerId, ref: nameCell.ref, text: 'beta-renamed.txt', delivery: 'background' },
+          {
+            action: 'set_value',
+            window_id: explorerId,
+            ref: nameCell.ref,
+            text: 'beta-renamed.txt',
+            delivery: 'background',
+          },
           'explorer-rename'
         );
         await eventually(

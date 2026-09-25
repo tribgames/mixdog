@@ -17,6 +17,7 @@ import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 import { warmNativeSpawnServer } from '../src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs';
 import { warmNativeSearchServer } from '../src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs';
+import { percentile, sortedFinite } from './lib/trace-stats.mjs';
 
 if (!process.argv.includes('--unsafe-live')) {
   console.error(
@@ -55,12 +56,6 @@ async function timed(tool, expectRe, fn) {
     record(tool, Date.now() - t0, `Error: thrown ${err?.message || err}`);
     return null;
   }
-}
-
-function pct(list, p) {
-  if (!list.length) return 0;
-  const sorted = [...list].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))];
 }
 
 const tmp = mkdtempSync(join(tmpdir(), 'mixdog-tool-stress-'));
@@ -259,11 +254,12 @@ let errTotal = 0;
 let warmTailPass = true;
 for (const [tool, s] of [...stats.entries()].sort()) {
   errTotal += s.errs.length;
-  const p95 = pct(s.lat, 95);
+  const lat = sortedFinite(s.lat);
+  const p95 = percentile(lat, 95);
   if (['grep', 'glob', 'find', 'list', 'read'].includes(tool) && p95 > 150) warmTailPass = false;
   console.log(
     `${tool.padEnd(14)} n=${String(s.n).padStart(3)} errs=${s.errs.length}` +
-      ` p50=${pct(s.lat, 50)}ms p95=${p95}ms max=${Math.max(...s.lat)}ms`
+      ` p50=${percentile(lat, 50)}ms p95=${p95}ms max=${Math.max(...s.lat)}ms`
   );
   for (const e of s.errs.slice(0, 3)) console.log(`  ! ${e}`);
 }

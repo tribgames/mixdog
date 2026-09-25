@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { percentile, sortedFinite } from './lib/trace-stats.mjs';
 
 function arg(name, fallback) {
   const prefix = `--${name}=`;
@@ -14,23 +15,15 @@ function load(path) {
   return JSON.parse(readFileSync(resolve(path), 'utf8'));
 }
 
-function percentile(values, fraction) {
-  const sorted = values
-    .map(Number)
-    .filter(Number.isFinite)
-    .sort((a, b) => a - b);
-  if (sorted.length === 0) return 0;
-  return sorted[Math.max(0, Math.ceil(sorted.length * fraction) - 1)];
-}
-
 function fixed(value, digits = 2) {
   return Number(Number(value || 0).toFixed(digits));
 }
 
 function distribution(values) {
+  const sorted = sortedFinite(values.map(Number));
   return {
-    p50: percentile(values, 0.5),
-    p95: percentile(values, 0.95),
+    p50: percentile(sorted, 50),
+    p95: percentile(sorted, 95),
   };
 }
 

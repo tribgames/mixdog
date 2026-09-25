@@ -145,7 +145,7 @@ function cookieHeader(name, value, request, { httpOnly = false } = {}) {
   const secure = request?.socket?.encrypted ? '; Secure' : '';
   const flags = httpOnly ? 'HttpOnly; ' : '';
   return {
-    'Set-Cookie': `${name}=${encodeURIComponent(value)}; Path=/; ` + `Max-Age=31536000; ${flags}SameSite=Lax${secure}`,
+    'Set-Cookie': `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=31536000; ${flags}SameSite=Lax${secure}`,
   };
 }
 

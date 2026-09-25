@@ -9,7 +9,7 @@ import type { WebContents } from 'electron';
 import { type BrowserCommand, type BrowserSnapshotResultOptions, POSTCONDITION_POLL_MS } from './command';
 import { type BrowserPostcondition, normalizeBrowserPostcondition, normalizeBrowserSettleMs } from './postcondition';
 import type { BrowserReplyHost } from './reply';
-import { pause } from './settle';
+import { pause, throwIfBrowserCancelled } from './settle';
 import { measureBrowserPhase } from './timing';
 
 export type ReplyWaitHost = Pick<BrowserReplyHost, 'settleAfterAction' | 'postconditionMatchesGuest'>;
@@ -33,7 +33,7 @@ async function pollPostcondition(
 ): Promise<void> {
   const startedAt = Date.now();
   for (;;) {
-    if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+    throwIfBrowserCancelled(signal);
     wait.postconditionElapsed = Date.now() - startedAt;
     if (await host.postconditionMatchesGuest(guest, expected, signal)) {
       announce();

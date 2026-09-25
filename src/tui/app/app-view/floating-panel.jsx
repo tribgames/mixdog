@@ -17,136 +17,139 @@ import { TextEntryPanel } from '../../components/TextEntryPanel.jsx';
 import { textEntryClearsByEmpty } from '../text-entry-policy.mjs';
 import { providerPromptFields, settingsPromptFields } from './text-entry-labels.mjs';
 
+function renderToolApproval({ toolApproval, store, frameColumns, expandedOptionPanel }) {
+  const resolve = (approved) => {
+    store.resolveToolApproval?.(toolApproval.id, {
+      approved,
+      reason: approved ? 'approved by user' : 'denied by user',
+    });
+  };
+  return (
+    <Picker
+      items={[
+        {
+          value: 'deny',
+          label: 'Deny',
+          marker: '×',
+          markerColor: theme.error,
+          description: 'block this tool call',
+        },
+        {
+          value: 'approve',
+          label: 'Approve once',
+          marker: '✓',
+          markerColor: theme.success,
+          description: 'run this tool call',
+        },
+      ]}
+      onSelect={(value) => resolve(value === 'approve')}
+      onCancel={() => resolve(false)}
+      onKey={(input) => {
+        const value = String(input || '')
+          .trim()
+          .toLowerCase();
+        if (value === 'a' || value === 'y') resolve(true);
+        else if (value === 'd' || value === 'n') resolve(false);
+      }}
+      title="Tool approval"
+      description={toolApprovalDescription(toolApproval)}
+      help="↑/↓ Select · Enter Choose · a/y Approve · d/n/Esc Deny"
+      columns={frameColumns}
+      labelWidth={18}
+      initialIndex={0}
+      indexMode="never"
+      visibleCount={2}
+      fillHeight={expandedOptionPanel}
+    />
+  );
+}
+
+function renderPicker({
+  picker,
+  pickerOpenedFromEnterRef,
+  pickerOpenedFromEnterTimerRef,
+  surface,
+  clearPromptHint,
+  frameColumns,
+  pickerVisibleRows,
+  expandedOptionPanel,
+  state,
+}) {
+  return (
+    <Picker
+      key={picker.pickerKey}
+      items={picker.items}
+      onSelect={(value, item) => {
+        pickerOpenedFromEnterRef.current = true;
+        if (pickerOpenedFromEnterTimerRef.current) {
+          clearTimeout(pickerOpenedFromEnterTimerRef.current);
+          pickerOpenedFromEnterTimerRef.current = null;
+        }
+        try {
+          if (picker.onSelect) picker.onSelect(value, item);
+        } finally {
+          pickerOpenedFromEnterTimerRef.current = setTimeout(() => {
+            pickerOpenedFromEnterRef.current = false;
+            pickerOpenedFromEnterTimerRef.current = null;
+          }, 3000);
+        }
+      }}
+      onCancel={() => {
+        if (picker.onCancel) picker.onCancel();
+        else {
+          // Esc with no owner-supplied handler: this keypress owns
+          // the surface it clears (app/panel-surface.mjs).
+          surface.claim().close();
+          clearPromptHint();
+        }
+      }}
+      onLeft={picker.onLeft}
+      onRight={picker.onRight}
+      onTab={picker.onTab}
+      onKey={picker.onKey}
+      onHighlight={picker.onHighlight}
+      title={picker.title}
+      description={picker.description}
+      footer={picker.footer}
+      footerGapRows={picker.footerGapRows}
+      help={picker.help}
+      columns={frameColumns}
+      labelWidth={picker.labelWidth}
+      metaWidth={picker.metaWidth}
+      initialIndex={picker.initialIndex}
+      indexMode={picker.indexMode}
+      visibleCount={pickerVisibleRows}
+      fillHeight={expandedOptionPanel}
+      loading={picker.loading === true}
+      themeEpoch={state.themeEpoch || 0}
+      confirmBar={picker.confirmBar}
+    />
+  );
+}
+
 export function renderFloatingPanel(ctx) {
   const {
     PANEL_MAX_VISIBLE,
     activeSlashQuery,
     cancelProviderPrompt,
     cancelSettingsPrompt,
-    clearPromptHint,
     contextPanel,
     expandedOptionPanel,
     floatingPanelRows,
     frameColumns,
     onSubmit,
     picker,
-    pickerOpenedFromEnterRef,
-    pickerOpenedFromEnterTimerRef,
-    pickerVisibleRows,
     providerPrompt,
     setTextEntryLayoutRows,
     settingsPrompt,
     slashCommands,
     slashIndex,
     slashPaletteOpen,
-    state,
-    store,
-    surface,
     toolApproval,
     usagePanel,
   } = ctx;
-  if (toolApproval) {
-    return (
-      <Picker
-        items={[
-          {
-            value: 'deny',
-            label: 'Deny',
-            marker: '×',
-            markerColor: theme.error,
-            description: 'block this tool call',
-          },
-          {
-            value: 'approve',
-            label: 'Approve once',
-            marker: '✓',
-            markerColor: theme.success,
-            description: 'run this tool call',
-          },
-        ]}
-        onSelect={(value) => {
-          store.resolveToolApproval?.(toolApproval.id, {
-            approved: value === 'approve',
-            reason: value === 'approve' ? 'approved by user' : 'denied by user',
-          });
-        }}
-        onCancel={() => {
-          store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'denied by user' });
-        }}
-        onKey={(input) => {
-          const value = String(input || '')
-            .trim()
-            .toLowerCase();
-          if (value === 'a' || value === 'y') {
-            store.resolveToolApproval?.(toolApproval.id, { approved: true, reason: 'approved by user' });
-          } else if (value === 'd' || value === 'n') {
-            store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'denied by user' });
-          }
-        }}
-        title="Tool approval"
-        description={toolApprovalDescription(toolApproval)}
-        help="↑/↓ Select · Enter Choose · a/y Approve · d/n/Esc Deny"
-        columns={frameColumns}
-        labelWidth={18}
-        initialIndex={0}
-        indexMode="never"
-        visibleCount={2}
-        fillHeight={expandedOptionPanel}
-      />
-    );
-  }
-  if (picker) {
-    return (
-      <Picker
-        key={picker.pickerKey}
-        items={picker.items}
-        onSelect={(value, item) => {
-          pickerOpenedFromEnterRef.current = true;
-          if (pickerOpenedFromEnterTimerRef.current) {
-            clearTimeout(pickerOpenedFromEnterTimerRef.current);
-            pickerOpenedFromEnterTimerRef.current = null;
-          }
-          try {
-            if (picker.onSelect) picker.onSelect(value, item);
-          } finally {
-            pickerOpenedFromEnterTimerRef.current = setTimeout(() => {
-              pickerOpenedFromEnterRef.current = false;
-              pickerOpenedFromEnterTimerRef.current = null;
-            }, 3000);
-          }
-        }}
-        onCancel={() => {
-          if (picker.onCancel) picker.onCancel();
-          else {
-            // Esc with no owner-supplied handler: this keypress owns
-            // the surface it clears (app/panel-surface.mjs).
-            surface.claim().close();
-            clearPromptHint();
-          }
-        }}
-        onLeft={picker.onLeft}
-        onRight={picker.onRight}
-        onTab={picker.onTab}
-        onKey={picker.onKey}
-        onHighlight={picker.onHighlight}
-        title={picker.title}
-        description={picker.description}
-        footer={picker.footer}
-        footerGapRows={picker.footerGapRows}
-        help={picker.help}
-        columns={frameColumns}
-        labelWidth={picker.labelWidth}
-        metaWidth={picker.metaWidth}
-        initialIndex={picker.initialIndex}
-        indexMode={picker.indexMode}
-        visibleCount={pickerVisibleRows}
-        fillHeight={expandedOptionPanel}
-        loading={picker.loading === true}
-        themeEpoch={state.themeEpoch || 0}
-        confirmBar={picker.confirmBar}
-      />
-    );
-  }
+  if (toolApproval) return renderToolApproval(ctx);
+  if (picker) return renderPicker(ctx);
   if (contextPanel) {
     return (
       <ContextPanel

@@ -116,7 +116,8 @@ function cellRecord({ attributes: attrs, ref, body }, strings, styles) {
   // formula whose result is the empty string (IF(C7=0,"",…)) is written as
   // <v></v> by Excel and LibreOffice alike, and that is a computed value,
   // not a workbook waiting for its first recalculation.
-  const emptyStringCache = raw === '' && type === 'str' && /<v(?:\s[^>]*)?>/.test(body);
+  // Excel itself writes that empty result as a self-closing <v/>.
+  const emptyStringCache = raw === '' && type === 'str' && /<v(?:\s[^>]*)?\/?>/.test(body);
   let cachedValue = value;
   if (raw === '') cachedValue = emptyStringCache ? '' : null;
   const cacheState = raw === '' && !emptyStringCache ? 'missing' : 'present';
@@ -166,7 +167,12 @@ export function sheetFormulaTotals(xml) {
     const formula = /<f(?:\s[^>]*)?>([\s\S]*?)<\/f>/.exec(cell.body)?.[1] || '';
     if (!formula) continue;
     formulaCount += 1;
-    if (!(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(cell.body)?.[1] || '')) formulaCacheMissing += 1;
+    // The same reading as cellRecord: an empty string result (IF(C6="","",…) on a blank entry row, t="str" with
+    // <v></v>) is a computed value. Counted as missing here, every Excel-saved form with blank entry rows was
+    // reported as a workbook never calculated.
+    const cached = /<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(cell.body)?.[1] || '';
+    const emptyString = !cached && /\bt="str"/.test(cell.attributes) && /<v(?:\s[^>]*)?\/?>/.test(cell.body);
+    if (!cached && !emptyString) formulaCacheMissing += 1;
   }
   return { formulaCount, formulaCacheMissing };
 }
@@ -389,8 +395,10 @@ export function columnLabel(number) {
   return output;
 }
 
+// One cell is a range too: Excel reads "A10" as A10:A10, and refusing it made a one-cell set_range fail its batch.
 export function expandRange(range) {
-  const match = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i.exec(String(range || '').trim());
+  const text = String(range || '').trim();
+  const match = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i.exec(/^[A-Z]+\d+$/i.test(text) ? `${text}:${text}` : text);
   if (!match) throw new Error(`Invalid range: ${range}`);
   return {
     startCol: columnNumber(match[1]),

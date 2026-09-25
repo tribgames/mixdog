@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { replaceProviderAuthBindings } from './provider-auth-binding.mjs';
 import { ACCOUNT_PROVIDERS, providerAccountPath, readProviderAccountPool } from './provider-accounts.mjs';
 import { AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey } from './provider-api-key.mjs';
-import { platformKey } from './native-asset.mjs';
+import { platformEntryKey } from './native-asset.mjs';
 import { clean } from './clean.mjs';
 
 const contractPath = fileURLToPath(new URL('./pristine-execution-contract.json', import.meta.url));
@@ -123,7 +123,7 @@ function seedVerifiedPatchBinaryCache(sourceDataDir, dataDir, { manifestPath = p
     const sourcePatchDir = join(sourceDataDir, 'patch-bin');
     const manifestBytes = readFileSync(manifestPath);
     const manifest = JSON.parse(manifestBytes.toString('utf8'));
-    const asset = manifest?.assets?.[platformKey()];
+    const asset = manifest?.assets?.[platformEntryKey(manifest?.assets)];
     const version = String(manifest?.version || '');
     const expectedSha256 = clean(asset?.sha256).toLowerCase();
     if (!/^[A-Za-z0-9._-]+$/.test(version) || !/^[a-f0-9]{64}$/.test(expectedSha256)) return false;
@@ -206,18 +206,17 @@ export function createPristineExecutionBoundary({
   const hostEnv = { ...env };
   const originalEnv = new Map();
   const touchedKeys = new Set();
+  const rememberEnv = (name) => {
+    if (touchedKeys.has(name)) return;
+    originalEnv.set(name, Object.hasOwn(env, name) ? env[name] : undefined);
+    touchedKeys.add(name);
+  };
   const setEnv = (name, value) => {
-    if (!touchedKeys.has(name)) {
-      originalEnv.set(name, Object.hasOwn(env, name) ? env[name] : undefined);
-      touchedKeys.add(name);
-    }
+    rememberEnv(name);
     env[name] = String(value);
   };
   const unsetEnv = (name) => {
-    if (!touchedKeys.has(name)) {
-      originalEnv.set(name, Object.hasOwn(env, name) ? env[name] : undefined);
-      touchedKeys.add(name);
-    }
+    rememberEnv(name);
     delete env[name];
   };
   const rootDir = mkdtempSync(join(tmpdir(), 'mixdog-headless-pristine-'));

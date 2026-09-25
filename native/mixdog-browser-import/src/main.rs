@@ -4,7 +4,7 @@ use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chromium_importer::chromium::{import_logins, LoginImportResult};
 use serde::Serialize;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 mod abe_client;
 mod cookies;
@@ -66,15 +66,15 @@ fn read_transport_key() -> Result<[u8; 32], ()> {
     Ok(key)
 }
 
-fn seal<T: Serialize>(mut key: [u8; 32], value: &T) -> Result<String, ()> {
-    let mut plaintext = serde_json::to_vec(value).map_err(|_| ())?;
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| ())?;
+fn seal<T: Serialize>(key: [u8; 32], value: &T) -> Result<String, ()> {
+    // Wiped on drop, so every early error return clears them too.
+    let key = Zeroizing::new(key);
+    let plaintext = Zeroizing::new(serde_json::to_vec(value).map_err(|_| ())?);
+    let cipher = Aes256Gcm::new_from_slice(&key[..]).map_err(|_| ())?;
     let nonce = rand::random::<[u8; 12]>();
     let ciphertext = cipher
-        .encrypt((&nonce).into(), plaintext.as_ref())
+        .encrypt((&nonce).into(), plaintext.as_slice())
         .map_err(|_| ())?;
-    plaintext.zeroize();
-    key.zeroize();
     serde_json::to_string(&EncryptedEnvelope {
         version: 1,
         nonce: BASE64_STANDARD.encode(nonce),

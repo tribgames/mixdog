@@ -29,9 +29,20 @@ export interface BrowserSettleHost {
   loadTimeoutMs: number;
 }
 
+/** Why a cancelled command stops: the caller's own reason, or a plain
+ *  cancellation when the signal was aborted without one. */
+export function browserCancellation(signal: AbortSignal): unknown {
+  return signal.reason || new Error('browser command cancelled');
+}
+
+/** Stop a command whose caller has already cancelled it. */
+export function throwIfBrowserCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw browserCancellation(signal);
+}
+
 /** Sleep that a cancelled command wakes from immediately. */
 export async function pause(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+  throwIfBrowserCancelled(signal);
   await new Promise<void>((resolve, reject) => {
     let onAbort: (() => void) | null = null;
     const timer = setTimeout(() => {
@@ -41,7 +52,7 @@ export async function pause(ms: number, signal?: AbortSignal): Promise<void> {
     if (!signal) return;
     onAbort = () => {
       clearTimeout(timer);
-      reject(signal.reason || new Error('browser command cancelled'));
+      reject(browserCancellation(signal));
     };
     signal.addEventListener('abort', onAbort, { once: true });
     if (signal.aborted) onAbort();
@@ -78,7 +89,7 @@ async function waitForNetworkQuiet(host: BrowserSettleHost, guest: WebContents, 
   const startedAt = Date.now();
   let quietSince = diagnostics.network.pendingCount === 0 ? Date.now() : 0;
   while (Date.now() - startedAt < host.domTimeoutMs) {
-    if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+    throwIfBrowserCancelled(signal);
     if (diagnostics.pendingDialog) return;
     const recentInflight = diagnostics.network.recentInflight();
     if (recentInflight.length === 0) {
@@ -101,7 +112,7 @@ async function stepSettleResult(
   signal?: AbortSignal,
   background = false
 ): Promise<BrowserCommandResult> {
-  if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+  throwIfBrowserCancelled(signal);
   if (!host.diagnostics(guest).pendingDialog) {
     try {
       await host.renderCheckpoint(guest, background, signal);
@@ -118,7 +129,7 @@ async function stepSettleResult(
       };
     }
   }
-  if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+  throwIfBrowserCancelled(signal);
   const dialog = host.diagnostics(guest).pendingDialog;
   return dialog
     ? { outcome: 'blocked', text: `A ${dialog.type} dialog is blocking the sequence.` }
@@ -222,7 +233,7 @@ export function createBrowserSettle(host: BrowserSettleHost) {
       // observer that does not watch the cutoff signal, which made the early
       // exit worth only ~200ms instead of the full quiet window.
       await (earlyExit ? Promise.race([observed, earlyExit]) : observed);
-      if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+      throwIfBrowserCancelled(signal);
     } finally {
       cutoff.abort();
       signal?.removeEventListener('abort', stopOnAbort);

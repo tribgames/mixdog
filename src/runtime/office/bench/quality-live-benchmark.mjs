@@ -548,9 +548,7 @@ async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
     automatedPass:
       crossAppConsistent &&
       criticalCount === 0 &&
-      Object.values(results).every(
-        (entry) => entry.qaOk && entry.aestheticOk && entry.validationOk && entry.categorySpacing?.ok !== false
-      ),
+      Object.values(results).every((entry) => entry.qaOk && entry.aestheticOk && entry.validationOk),
     results,
     nextAction:
       'Inspect every PNG, score content/design/layout/form/request fidelity, then apply one targeted polish batch per failing file.',

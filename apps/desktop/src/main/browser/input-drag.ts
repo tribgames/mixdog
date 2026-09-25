@@ -238,9 +238,10 @@ export function createDragInput(send: SendBrowserInput, options: { drags?: Brows
       const gesture = await dragThrough(guest, start, end, drags, signal);
       if (gesture === 'dialog') return;
       // The payload can still be in flight when the last move returns.
-      gesture.data ||= drags
-        ? await drags.waitFor(guest, native ? DRAG_NATIVE_PAYLOAD_MS : DRAG_UNEXPECTED_PAYLOAD_MS, signal)
-        : null;
+      if (!gesture.data && drags) {
+        const payloadMs = native ? DRAG_NATIVE_PAYLOAD_MS : DRAG_UNEXPECTED_PAYLOAD_MS;
+        gesture.data = await drags.waitFor(guest, payloadMs, signal);
+      }
       if (!gesture.data) {
         await mouseEvent(guest, { ...end, type: 'mouseReleased', button: 'left', clickCount: 1 }, signal);
         return;

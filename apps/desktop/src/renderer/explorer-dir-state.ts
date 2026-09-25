@@ -59,6 +59,10 @@ export function useExplorerDirs(input: {
   const { api, projectPath, active, readinessKey, onReadyChange } = input;
   const [dirs, setDirs] = useState<ExplorerDirs>(() => new Map());
   const [refreshing, setRefreshing] = useState(false);
+  // The watcher refresh reads the tree from here: React may run a state
+  // updater more than once, so its listings must not be issued from one.
+  const dirsRef = useRef(dirs);
+  dirsRef.current = dirs;
   // The reset callback is rebuilt every render; keeping it in a ref leaves the
   // project effect keyed to the project/readiness signature alone, so a
   // re-render can never cancel an in-flight root listing.
@@ -139,21 +143,18 @@ export function useExplorerDirs(input: {
   useEffect(() => {
     if (!active || !projectPath) return undefined;
     const refreshExpanded = () => {
-      setDirs((current) => {
-        for (const [rel, state] of current) {
-          if (!state.expanded || !state.entries) continue;
-          void api
-            ?.listProjectDir?.(projectPath, rel)
-            .then((entries) => {
-              if (!entries) return;
-              setDirs((latest) => withChangedExplorerDirEntries(latest, rel, entries));
-            })
-            .catch(() => {
-              /* dir removed — next expand reloads */
-            });
-        }
-        return current;
-      });
+      for (const [rel, state] of dirsRef.current) {
+        if (!state.expanded || !state.entries) continue;
+        void api
+          ?.listProjectDir?.(projectPath, rel)
+          .then((entries) => {
+            if (!entries) return;
+            setDirs((latest) => withChangedExplorerDirEntries(latest, rel, entries));
+          })
+          .catch(() => {
+            /* dir removed — next expand reloads */
+          });
+      }
     };
     const unsubscribeProject = subscribeProjectFileChanges(projectPath, refreshExpanded);
     const timer = window.setInterval(refreshExpanded, SAFETY_REFRESH_MS);

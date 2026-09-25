@@ -69,13 +69,8 @@ pub(super) fn list_metadata_response(id: u64, cwd: &str, paths: &[String]) -> se
     let entries = paths
         .iter()
         .map(|raw| {
-            let input = Path::new(raw);
-            let path = if input.is_absolute() {
-                input.to_path_buf()
-            } else {
-                cwd.join(input)
-            };
-            match std::fs::symlink_metadata(&path) {
+            // Path::join replaces the base when the path is absolute.
+            match std::fs::symlink_metadata(cwd.join(raw)) {
                 Ok(metadata) => {
                     let file_type = metadata.file_type();
                     let kind = if file_type.is_dir() {

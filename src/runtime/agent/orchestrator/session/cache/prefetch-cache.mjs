@@ -6,7 +6,7 @@
 // cached slice automatically.
 import { classifyResultKind } from '../result-classification.mjs';
 import { _normalizeAbs, _normalizeCacheKey, _statTuple, _statEqual } from './util.mjs';
-import { readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
+import { readFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { readdir, stat as statAsync, unlink } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -17,8 +17,7 @@ import { setBoundedTextCacheEntry } from './text-cache-budget.mjs';
 // I: cap is configurable via MIXDOG_PREFETCH_CACHE_MAX env var; default 200.
 const _envCap = Number(process.env.MIXDOG_PREFETCH_CACHE_MAX);
 const PREFETCH_CACHE_MAX = Number.isFinite(_envCap) && _envCap > 0 ? _envCap : 200;
-const PREFETCH_TTL_MS_DEFAULT = 60 * 60 * 1000; // 1 hour
-const _prefetchTtlMs = PREFETCH_TTL_MS_DEFAULT;
+const PREFETCH_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 // absPath → { content: string, stat: _statTuple, ts: number }
 const _prefetchCache = new Map();
@@ -38,7 +37,7 @@ async function _sweepDiskCache() {
   } catch {
     return;
   }
-  const cutoff = Date.now() - _prefetchTtlMs;
+  const cutoff = Date.now() - PREFETCH_TTL_MS;
   await Promise.all(
     names.map(async (name) => {
       if (!name.endsWith('.json')) return;
@@ -63,10 +62,8 @@ function _diskPath(absPath) {
   return join(DISK_CACHE_DIR, `${hash}.json`);
 }
 function _readDiskEntry(absPath) {
-  const p = _diskPath(absPath);
-  if (!existsSync(p)) return null;
   try {
-    const parsed = JSON.parse(readFileSync(p, 'utf8'));
+    const parsed = JSON.parse(readFileSync(_diskPath(absPath), 'utf8'));
     if (!parsed || parsed.absPath !== absPath || typeof parsed.content !== 'string' || !parsed.stat) return null;
     return { content: parsed.content, stat: parsed.stat, ts: parsed.ts };
   } catch {
@@ -132,7 +129,7 @@ export function tryPrefetchCached(absPath) {
     if (!disk) return null;
     entry = disk;
   }
-  if (Date.now() - entry.ts > _prefetchTtlMs) {
+  if (Date.now() - entry.ts > PREFETCH_TTL_MS) {
     _prefetchCache.delete(absPath);
     _deleteDiskEntry(absPath);
     return null;

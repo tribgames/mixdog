@@ -272,14 +272,12 @@ export function normalizeAnthropicEffortInput(raw, model, logTag = 'anthropic') 
   return undefined;
 }
 
-function anthropicEffortUsesOutputConfig(model, opts = {}) {
+// The effort beta rides every request that sends output_config effort; an
+// explicit thinkingBudgetTokens takes the manual-budget path instead.
+export function shouldIncludeEffortBeta(model, opts = {}) {
   const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
   if (Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0) return false;
   return modelSupportsEffort(model);
-}
-
-export function shouldIncludeEffortBeta(model, opts = {}) {
-  return anthropicEffortUsesOutputConfig(model, opts);
 }
 
 /**
@@ -316,11 +314,9 @@ export function applyAnthropicEffortToBody(
     // notes arrive as text; every other model keeps the API default. The
     // env var overrides either way (e.g. `omitted` turns preambles off).
     const envDisplay = (process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY || '').trim();
-    const display = THINKING_DISPLAYS.has(envDisplay)
-      ? envDisplay
-      : progressUpdates && emitsAnthropicProgressUpdates(model)
-        ? 'updates'
-        : '';
+    let display = '';
+    if (THINKING_DISPLAYS.has(envDisplay)) display = envDisplay;
+    else if (progressUpdates && emitsAnthropicProgressUpdates(model)) display = 'updates';
     body.thinking = display ? { type: 'adaptive', display } : { type: 'adaptive' };
     // Adaptive/4.7+ models reject any non-default sampling param with a 400.
     delete body.temperature;

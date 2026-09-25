@@ -185,7 +185,6 @@ export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOp
     } catch {}
   });
   turn.pendingEntries = [];
-  turn.session = session;
   runtime.session = session;
   // Tag empty-synthesis BEFORE markSessionDone so the watchdog
   // (which inspects entry.emptyFinal first) classifies the

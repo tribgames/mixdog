@@ -74,7 +74,7 @@ use std::sync::{Arc, LazyLock, RwLock};
 use ast_grep_core::tree_sitter::LanguageExt;
 use std::collections::HashMap;
 
-use crate::scan_lang::ScanLang;
+use crate::scan_lang::{cached_for_lang, ScanLang};
 
 /// Kind-name words that mark a node kind as identifier-carrying. Matched
 /// against the `_`-separated words of the kind name, so `type_identifier`,
@@ -189,15 +189,7 @@ static TABLES: LazyLock<RwLock<HashMap<ScanLang, Arc<GrammarKinds>>>> =
 
 /// Kind table for `lang`, built on first use and shared after.
 pub fn kinds_for(lang: ScanLang) -> Arc<GrammarKinds> {
-    if let Some(found) = TABLES.read().expect("kind table").get(&lang) {
-        return Arc::clone(found);
-    }
-    let built = Arc::new(GrammarKinds::build(lang));
-    TABLES
-        .write()
-        .expect("kind table")
-        .insert(lang, Arc::clone(&built));
-    built
+    cached_for_lang(&TABLES, lang, "kind table", || GrammarKinds::build(lang))
 }
 
 fn is_ident_start(ch: char) -> bool {
@@ -236,17 +228,7 @@ pub fn identifier_runs<'t>(text: &'t str, mut emit: impl FnMut(&'t str)) {
             cursor += step;
             continue;
         };
-        while let Some(next) = text[at..].chars().next() {
-            if !is_ident_continue(next) {
-                break;
-            }
-            at += next.len_utf8();
-        }
-        if let Some(next) = text[at..].chars().next() {
-            if next == '!' || next == '?' {
-                at += next.len_utf8();
-            }
-        }
+        at = run_end(text, at);
         emit(&text[begin..at]);
         cursor = at;
     }
@@ -264,7 +246,7 @@ pub fn is_single_run(text: &str) -> bool {
     let Some((_, first)) = chars.next() else {
         return false;
     };
-    let mut at = if first == '$' || first == '@' {
+    let at = if first == '$' || first == '@' {
         match chars.next() {
             Some((index, next)) if is_ident_start(next) => index + next.len_utf8(),
             _ => return false,
@@ -274,6 +256,12 @@ pub fn is_single_run(text: &str) -> bool {
     } else {
         return false;
     };
+    run_end(text, at) == text.len()
+}
+
+/// End of the identifier run whose first character ends at `at`: the
+/// identifier body, then one optional `!`/`?` suffix.
+fn run_end(text: &str, mut at: usize) -> usize {
     while let Some(next) = text[at..].chars().next() {
         if !is_ident_continue(next) {
             break;
@@ -285,7 +273,7 @@ pub fn is_single_run(text: &str) -> bool {
             at += next.len_utf8();
         }
     }
-    at == text.len()
+    at
 }
 
 /// True when `text` is a dotted identifier path (`com.acme.app`, `main`), the

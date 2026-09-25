@@ -1,4 +1,6 @@
 import { appendDocxBlock, docxBodyModel } from './portable-snapshot.mjs';
+import { measureTextWidth } from './text-metrics.mjs';
+import { naturalColumnWidths } from '../shared/column-widths.mjs';
 import {
   WORD_RUN_SOURCE,
   containerInner,
@@ -26,6 +28,28 @@ const DEFAULT_TABLE_BORDERS = Object.freeze({
   insideV: { enabled: false },
 });
 
+// A rule's line as w:val spells it. The Word backend reads solid (any name it does not know is a single line), dash,
+// and dot; written through as given, style:'solid' made a file Word refused to open.
+const WORD_BORDER_STYLES = new Set([
+  'single',
+  'thick',
+  'double',
+  'dotted',
+  'dashed',
+  'dotDash',
+  'dotDotDash',
+  'triple',
+  'wave',
+  'none',
+  'nil',
+]);
+const WORD_BORDER_ALIASES = Object.freeze({ solid: 'single', dash: 'dashed', dot: 'dotted' });
+function wordBorderStyle(style) {
+  const name = String(style || 'single');
+  if (WORD_BORDER_STYLES.has(name)) return name;
+  return WORD_BORDER_ALIASES[name.toLowerCase()] || 'single';
+}
+
 export function wordTableProperties(properties = {}, { totalWidth = 0 } = {}) {
   const styled = properties.borders || properties.style || properties.shading;
   const borders = properties.borders || (styled ? {} : DEFAULT_TABLE_BORDERS);
@@ -38,7 +62,7 @@ export function wordTableProperties(properties = {}, { totalWidth = 0 } = {}) {
     .map((side) => {
       const value = perSide ? borders[side] : borders;
       if (!value || typeof value !== 'object' || value.enabled === false) return '';
-      return `<w:${side} w:val="${xmlEncode(value.style || 'single')}" w:sz="${Math.max(1, Number(value.size) || 4)}" w:space="${Math.max(0, Number(value.space) || 0)}" w:color="${xmlEncode(String(value.color || 'auto').replace(/^#/, ''))}"/>`;
+      return `<w:${side} w:val="${wordBorderStyle(value.style)}" w:sz="${Math.max(1, Number(value.size) || 4)}" w:space="${Math.max(0, Number(value.space) || 0)}" w:color="${xmlEncode(String(value.color || 'auto').replace(/^#/, ''))}"/>`;
     })
     .join('');
   const borderXml = Object.keys(borders).length ? `<w:tblBorders>${sideRules}</w:tblBorders>` : '';
@@ -62,9 +86,15 @@ function wordCellProperties(properties = {}) {
     properties.fillColor
       ? `<w:shd w:val="clear" w:color="auto" w:fill="${xmlEncode(String(properties.fillColor).replace(/^#/, ''))}"/>`
       : '',
-    properties.verticalAlignment ? `<w:vAlign w:val="${xmlEncode(properties.verticalAlignment)}"/>` : '',
+    // top, center (or middle, as a slide names it), bottom — the values the Word backend reads; another name is
+    // not one the file knows.
+    CELL_ALIGNMENTS[String(properties.verticalAlignment || '').toLowerCase()]
+      ? `<w:vAlign w:val="${CELL_ALIGNMENTS[String(properties.verticalAlignment).toLowerCase()]}"/>`
+      : '',
   ].join('');
 }
+
+const CELL_ALIGNMENTS = Object.freeze({ top: 'top', center: 'center', middle: 'center', bottom: 'bottom' });
 
 // Word keeps cell properties in a fixed order too. Restyling one cell (a fill on
 // the "after" column head) replaces only the properties it names; the width and
@@ -84,7 +114,10 @@ const CELL_PROPERTY_ORDER = Object.freeze([
 ]);
 
 export function mergeWordCellProperties(cellXml, properties = {}) {
-  const existing = /<w:tcPr(?:\s[^>]*)?>([\s\S]*?)<\/w:tcPr>/.exec(cellXml)?.[1] || '';
+  let existing = /<w:tcPr(?:\s[^>]*)?>([\s\S]*?)<\/w:tcPr>/.exec(cellXml)?.[1] || '';
+  // A filled cell is a field again, and its text needs the padding back: a layout table's flush edge is dropped
+  // when the cell takes a fill.
+  if (properties.fillColor) existing = existing.replace(/<w:tcMar>(?:<w:(?:left|right) w:w="0" w:type="dxa"\/>)+<\/w:tcMar>/, '');
   const inner = mergeWordPropertyElements(existing, wordCellProperties(properties), CELL_PROPERTY_ORDER);
   return replaceWordProperties(cellXml, 'tc', 'tcPr', inner);
 }
@@ -108,26 +141,32 @@ function wordTableRunProperties(properties = {}, { bold = false } = {}) {
   ].join('');
 }
 
-// Every cell of a row shares one minimum line height: a Latin-only figure
-// beside a Hangul label otherwise takes its own face's shorter line and sits
-// on a different baseline; with the height fixed, both text runs sit on the
-// same line bottom.
-function wordTableParagraphProperties(properties = {}) {
+// Every cell of a row shares one exact line pitch, 1.3× the size: under a
+// minimum pitch a Hangul label took Malgun Gothic's taller line and sat 2 pt
+// above the Latin-only figure beside it (Word, probe 2026-09-25); an exact
+// pitch puts every line's baseline at the same height.
+function wordTableParagraphProperties(properties = {}, { keepNext = false } = {}) {
   const spacing = Number(properties.spacingAfter);
   const size = Number(properties.fontSize) > 0 ? Number(properties.fontSize) : 11;
   return [
     properties.textStyle ? `<w:pStyle w:val="${xmlEncode(docxStyleId(properties.textStyle))}"/>` : '',
-    `<w:spacing${Number.isFinite(spacing) ? ` w:after="${Math.max(0, Math.round(spacing * 20))}"` : ''} w:line="${Math.round(size * 1.3 * 20)}" w:lineRule="atLeast"/>`,
+    // keepWithNext: every row keeps with the next, so the table stays on one page with the caption under it
+    // (a caption left alone at the top of the next page no longer says which table it names).
+    properties.keepWithNext || keepNext ? '<w:keepNext/>' : '',
+    `<w:spacing${Number.isFinite(spacing) ? ` w:after="${Math.max(0, Math.round(spacing * 20))}"` : ''} w:line="${Math.round(size * 1.3 * 20)}" w:lineRule="exact"/>`,
   ].join('');
 }
 
-// A column's text alignment is the justification of the paragraphs in its cells.
+// An alignment as Word's w:jc spells it, for a paragraph and for a column's cells. The file takes "both" for
+// justified text: "justify" written as it was named made a file Word refused to open.
 const WORD_JUSTIFICATION = Object.freeze({
   left: 'left',
   center: 'center',
   centre: 'center',
   right: 'right',
   justify: 'both',
+  both: 'both',
+  distribute: 'distribute',
 });
 
 export function wordJustification(alignment) {
@@ -167,11 +206,67 @@ export function alignWordTableColumns(tableXml, columnAlignments = []) {
   return next;
 }
 
-export function wordTableXml(operation) {
+// A table with every rule switched off and no fill is a layout grid (a résumé's role and date, a signature block):
+// nothing marks its edges, so its cell padding shows as an indent — "시니어 엔지니어" started 5 pt right of the "경력"
+// heading above it and "2023 – 현재" stopped 5 pt short of the rule. Its outer cells drop the padding on the page
+// side, so the text registers with the paragraphs around it; the padding between columns stays.
+export function isLayoutTable(properties = {}) {
+  if (properties.style || properties.shading) return false;
+  const borders = properties.borders;
+  if (!borders || typeof borders !== 'object') return false;
+  if (borders.enabled === false) return true;
+  return ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].every((side) => borders[side]?.enabled === false);
+}
+
+// The text width of the section a block sits in: the first section properties after it close that section. Measured
+// against the document's first section, a table on a landscape page was reported as 3.4 in wider than its column.
+export function sectionTextWidth(document, position) {
+  const section =
+    /<w:sectPr\b[\s\S]*?<\/w:sectPr>/.exec(document.slice(position))?.[0] ||
+    /<w:sectPr\b[\s\S]*?<\/w:sectPr>/.exec(document)?.[0] ||
+    '';
+  const page = /<w:pgSz\b[^>]*\bw:w="(\d+)"/.exec(section);
+  const margins =
+    /<w:pgMar\b[^>]*\bw:left="(\d+)"[^>]*\bw:right="(\d+)"/.exec(section) ||
+    /<w:pgMar\b[^>]*\bw:right="(\d+)"[^>]*\bw:left="(\d+)"/.exec(section);
+  return (page ? Number(page[1]) : 12240) - (margins ? Number(margins[1]) + Number(margins[2]) : 2880);
+}
+
+// Word's default cell padding, left and right together, in points.
+const CELL_PADDING_POINTS = 10.8;
+
+// Column widths, in points, for a table the caller gave no widths, across the text width (naturalColumnWidths),
+// measured in the table's own face. The widths are always written: a grid without them spans the page in the
+// LibreOffice preview and shrinks to its text in Word.
+export function naturalTableColumnWidths(values, properties = {}, available = 0) {
+  const rows = Array.isArray(values) ? values : [];
+  const font = {
+    fontName: properties.fontName || properties.fontNameEastAsia || 'Calibri',
+    fontSize: Number(properties.fontSize) > 0 ? Number(properties.fontSize) : 11,
+  };
+  const headerBold = rows.length > 1 && properties.headerBold !== false && properties.repeatHeader !== false;
+  const measure = (text, rowIndex) =>
+    measureTextWidth(text, { ...font, bold: headerBold && rowIndex === 0 }) * 1.05 + CELL_PADDING_POINTS;
+  return naturalColumnWidths(rows, measure, available);
+}
+
+const flushCellMargins = (first, last) =>
+  first || last
+    ? `<w:tcMar>${first ? '<w:left w:w="0" w:type="dxa"/>' : ''}${last ? '<w:right w:w="0" w:type="dxa"/>' : ''}</w:tcMar>`
+    : '';
+
+// `available` is the text width, in points, of the section the table lands in.
+export function wordTableXml(operation, { available = 0 } = {}) {
   const values = Array.isArray(operation.values) ? operation.values : [];
+  const layout = isLayoutTable(operation.properties);
   const rows = Math.max(1, Number(operation.rows) || values.length || 1);
   const columns = Math.max(1, Number(operation.columns) || Math.max(0, ...values.map((row) => row.length)) || 1);
-  const widths = operation.properties?.columnWidths || [];
+  const widths =
+    operation.properties?.columnWidths ||
+    (columns === Math.max(0, ...values.map((row) => row.length))
+      ? naturalTableColumnWidths(values, operation.properties, available)
+      : null) ||
+    [];
   const heights = operation.properties?.rowHeights || [];
   const justifications = (operation.properties?.columnAlignments || []).map(wordJustification);
   const runProperties = wordTableRunProperties(operation.properties);
@@ -180,7 +275,11 @@ export function wordTableXml(operation) {
   const headerBold =
     rows > 1 && operation.properties?.headerBold !== false && operation.properties?.repeatHeader !== false;
   const headerRunProperties = headerBold ? wordTableRunProperties(operation.properties, { bold: true }) : runProperties;
-  const paragraphProperties = wordTableParagraphProperties(operation.properties);
+  // A page break never strands a table's edge: the header travels with the first two rows and the last two rows
+  // travel together (widow and orphan control, row by row) — a three-row table used to leave its last row alone at
+  // the top of the next page under a repeated header. A longer table still breaks between those rows.
+  const keptRow = (row) => row < rows - 1 && (row <= 1 || row === rows - 2);
+  const paragraphProperties = (row) => wordTableParagraphProperties(operation.properties, { keepNext: keptRow(row) });
   const grid = Array.from(
     { length: columns },
     (_, column) => `<w:gridCol${widths[column] ? ` w:w="${pointsToTwips(widths[column])}"` : ''}/>`
@@ -210,12 +309,15 @@ export function wordTableXml(operation) {
           )
           .join('');
         // Schema order inside pPr: style and spacing before justification.
-        const cellParagraphProperties = `${paragraphProperties}${justifications[column] ? `<w:jc w:val="${justifications[column]}"/>` : ''}`;
+        const cellParagraphProperties = `${paragraphProperties(row)}${justifications[column] ? `<w:jc w:val="${justifications[column]}"/>` : ''}`;
         const cellRunProperties = row === 0 ? headerRunProperties : runProperties;
-        // Cells sit on their bottom edge: a Latin-only figure ("+3.0%") beside a Hangul one ("1,000건") takes a
-        // shorter line in every renderer, and top-aligned the two read on different baselines. Bottom-aligned,
-        // one row shares one baseline; set_table_cell_style verticalAlignment overrides per cell.
-        return `<w:tc><w:tcPr>${width}<w:vAlign w:val="bottom"/></w:tcPr><w:p>${cellParagraphProperties ? `<w:pPr>${cellParagraphProperties}</w:pPr>` : ''}<w:r>${cellRunProperties ? `<w:rPr>${cellRunProperties}</w:rPr>` : ''}${runs}</w:r></w:p></w:tc>`;
+        // A row reads from its top: a label beside a two-line note starts on the note's first line, where the
+        // bottom edge put it on the last. The header row sits on its rule (its bottom edge), so a header that wraps
+        // stands on the same line as the ones beside it. The exact line pitch keeps a Latin-only figure and a Hangul
+        // label on one baseline either way; set_table_cell_style verticalAlignment overrides per cell.
+        const margins = layout ? flushCellMargins(column === 0, column === columns - 1) : '';
+        const edge = row === 0 && headerBold ? 'bottom' : 'top';
+        return `<w:tc><w:tcPr>${width}${margins}<w:vAlign w:val="${edge}"/></w:tcPr><w:p>${cellParagraphProperties ? `<w:pPr>${cellParagraphProperties}</w:pPr>` : ''}<w:r>${cellRunProperties ? `<w:rPr>${cellRunProperties}</w:rPr>` : ''}${runs}</w:r></w:p></w:tc>`;
       }
     ).join('')}</w:tr>`;
   }).join('');
@@ -355,15 +457,17 @@ export function wordRunProperties(properties = {}) {
   ].join('');
 }
 
-export function wordParagraph(text, { alignment = '', style = '' } = {}) {
+export function wordParagraph(text, { alignment = '', style = '', runProperties = '' } = {}) {
+  const justification = wordJustification(alignment);
   const properties = [
     style ? `<w:pStyle w:val="${xmlEncode(style)}"/>` : '',
-    alignment ? `<w:jc w:val="${xmlEncode(alignment)}"/>` : '',
+    justification ? `<w:jc w:val="${justification}"/>` : '',
   ].join('');
   const value = String(text ?? '');
   return (
     `<w:p>${properties ? `<w:pPr>${properties}</w:pPr>` : ''}` +
-    `<w:r><w:t${/^\s|\s$/.test(value) ? ' xml:space="preserve"' : ''}>${xmlEncode(value)}</w:t></w:r></w:p>`
+    `<w:r>${runProperties ? `<w:rPr>${runProperties}</w:rPr>` : ''}` +
+    `<w:t${/^\s|\s$/.test(value) ? ' xml:space="preserve"' : ''}>${xmlEncode(value)}</w:t></w:r></w:p>`
   );
 }
 
@@ -478,17 +582,37 @@ export function replaceWordProperties(xml, owner, propertyTag, value) {
 // the distance Word applies through COM; a callout's left rule otherwise touches its label.
 function paragraphBorderXml(border) {
   if (!border) return '';
-  const side = String(border.side || 'bottom');
+  // The sides the Word backend draws; any other name is its bottom rule, as Word reads it.
+  const side = ['top', 'left', 'bottom', 'right'].includes(String(border.side)) ? String(border.side) : 'bottom';
   const explicitSpace =
     border.space !== undefined && border.space !== null && border.space !== '' && Number.isFinite(Number(border.space));
   const defaultSpace = ['left', 'right'].includes(side) ? 4 : 1;
   const space = Math.max(0, explicitSpace ? Number(border.space) : defaultSpace);
-  return `<w:pBdr><w:${xmlEncode(side)} w:val="${xmlEncode(border.style || 'single')}" w:sz="${Math.max(1, Number(border.size) || 4)}" w:space="${space}" w:color="${xmlEncode(String(border.color || 'auto').replace(/^#/, ''))}"/></w:pBdr>`;
+  return `<w:pBdr><w:${side} w:val="${wordBorderStyle(border.style)}" w:sz="${Math.max(1, Number(border.size) || 4)}" w:space="${space}" w:color="${xmlEncode(String(border.color || 'auto').replace(/^#/, ''))}"/></w:pBdr>`;
 }
 
+// A tab stop in the names the Word backend reads (dash, line) and in the file's own (hyphen, underscore); a name
+// written through as given ("dash") is not one the file knows, and Word refuses such a file.
+const TAB_ALIGNMENTS = new Set(['left', 'center', 'right', 'decimal', 'bar']);
+const TAB_LEADERS = Object.freeze({
+  none: 'none',
+  dot: 'dot',
+  dots: 'dot',
+  dotted: 'dot',
+  dash: 'hyphen',
+  hyphen: 'hyphen',
+  line: 'underscore',
+  underscore: 'underscore',
+  heavy: 'heavy',
+  middledot: 'middleDot',
+});
+
 function tabStopXml(tab) {
-  const leader = tab.leader ? ` w:leader="${xmlEncode(tab.leader)}"` : '';
-  return `<w:tab w:val="${xmlEncode(tab.alignment || 'left')}" w:pos="${pointsToTwips(tab.position || 0)}"${leader}/>`;
+  const alignment = String(tab.alignment || '').toLowerCase();
+  const leaderName = TAB_LEADERS[String(tab.leader || '').toLowerCase()];
+  const leader = leaderName ? ` w:leader="${leaderName}"` : '';
+  const value = TAB_ALIGNMENTS.has(alignment) ? alignment : 'left';
+  return `<w:tab w:val="${value}" w:pos="${pointsToTwips(tab.position || 0)}"${leader}/>`;
 }
 
 function paragraphSpacingXml({ spacingBefore, spacingAfter, lineSpacing }) {
@@ -564,6 +688,6 @@ export function paragraphFormatXml(properties = {}, numbering = null) {
     paragraphSpacingXml(properties),
     // w:ind follows w:spacing in the schema's pPr sequence; a validator refuses the other order.
     paragraphIndentXml(properties),
-    properties.alignment ? `<w:jc w:val="${xmlEncode(properties.alignment)}"/>` : '',
+    wordJustification(properties.alignment) ? `<w:jc w:val="${wordJustification(properties.alignment)}"/>` : '',
   ].join('');
 }

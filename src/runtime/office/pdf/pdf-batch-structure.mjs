@@ -6,7 +6,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { basename, dirname, extname, resolve } from 'node:path';
-import { PDFDocument, degrees } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFRef, degrees } from 'pdf-lib';
 import { SAVE_OPTIONS, round2 } from './pdf-draw.mjs';
 import {
   addOutlineEntries,
@@ -17,10 +17,79 @@ import {
   writeSibling,
 } from './pdf-edit-document.mjs';
 
+// pdf-lib's removePage keeps its page list cached (insertPage clears it): the rest of the batch read the removed
+// page, so text meant for page 2 after a deletion was drawn on the page that had left the file.
+function removePageAt(document, index) {
+  document.removePage(index);
+  document.pageCache.invalidate();
+}
+
+// A file of its own for the pages: its widgets join the new file's form, as merge_pdf registers them, or a filled
+// page came out showing its values with no fields behind them.
 async function copyToNewDocument(document, indexes) {
   const next = await PDFDocument.create();
-  for (const page of await next.copyPages(document, indexes)) next.addPage(page);
+  const pages = (await next.copyPages(document, indexes)).map((page) => next.addPage(page));
+  if (document.catalog.getAcroForm()) registerCopiedFields(next, pages);
   return next;
+}
+
+// The document keeps its own pages, in the order asked for (a page named twice is copied), so its form,
+// attachments, outline, and metadata stay with it: rebuilt from copied pages, a moved page or an extracted subset
+// lost every one of them.
+async function keepPagesInOrder(document, indexes) {
+  const originals = document.getPages();
+  const kept = new Set();
+  const wanted = [];
+  const copies = [];
+  for (const index of indexes) {
+    if (kept.has(index)) {
+      const [copy] = await document.copyPages(document, [index]);
+      copies.push(copy);
+      wanted.push(copy);
+    } else {
+      kept.add(index);
+      wanted.push(originals[index]);
+    }
+  }
+  for (let index = originals.length - 1; index >= 0; index -= 1) {
+    if (!kept.has(index)) removePageAt(document, index);
+  }
+  wanted.forEach((page, position) => {
+    const current = document.getPages().indexOf(page);
+    if (current === position) return;
+    if (current >= 0) removePageAt(document, current);
+    document.insertPage(position, page);
+  });
+  if (copies.length) registerCopiedFields(document, copies);
+  dropFieldsOffThePages(document);
+}
+
+// A field whose widgets sat only on removed pages leaves the form with them, and a widget on a removed page leaves
+// its field: left behind, they pointed at pages that no longer exist and flatten_form failed ("Could not find page
+// for PDFRef").
+function dropFieldsOffThePages(document) {
+  if (!document.catalog.getAcroForm()) return;
+  const { context } = document;
+  const placed = new Set();
+  for (const page of document.getPages()) {
+    const annots = page.node.Annots();
+    for (let index = 0; annots && index < annots.size(); index += 1) placed.add(String(annots.get(index)));
+  }
+  const form = document.getForm();
+  for (const field of form.getFields()) {
+    const refs = field.acroField.getWidgets().map((widget) => context.getObjectRef(widget.dict));
+    const gone = refs.filter((ref) => ref && !placed.has(String(ref)));
+    if (!gone.length) continue;
+    if (gone.length === refs.length) {
+      form.acroForm.removeField(field.acroField);
+      continue;
+    }
+    const kids = field.acroField.Kids();
+    for (const ref of gone) {
+      const at = kids ? kids.indexOf(ref) : -1;
+      if (at >= 0) kids.remove(at);
+    }
+  }
 }
 
 function rotatePages(state, operation) {
@@ -92,7 +161,8 @@ function deletePages(state, operation) {
     .sort((a, b) => b - a);
   if (indexes.length >= document.getPageCount())
     throw new Error('delete_pages cannot remove every page; use extract_pages or delete fewer pages');
-  for (const index of indexes) document.removePage(index);
+  for (const index of indexes) removePageAt(document, index);
+  dropFieldsOffThePages(document);
   return {
     op: operation.op,
     changed: indexes.length > 0,
@@ -103,14 +173,14 @@ function deletePages(state, operation) {
 
 async function extractPages(state, operation) {
   const indexes = selectedPages(state.document, operation).map(({ index }) => index);
-  const next = await copyToNewDocument(state.document, indexes);
   const pages = indexes.map((index) => index + 1);
   if (operation.output) {
     // With an output the session document stays whole; the subset is a new file.
+    const next = await copyToNewDocument(state.document, indexes);
     const output = await writeSibling(state.path, operation.output, await next.save(SAVE_OPTIONS));
     return { op: operation.op, changed: true, documentChanged: false, output, count: indexes.length, pages };
   }
-  state.document = next;
+  await keepPagesInOrder(state.document, indexes);
   return { op: operation.op, changed: true, count: indexes.length, pages };
 }
 
@@ -143,7 +213,7 @@ async function movePage(state, operation) {
   const order = document.getPageIndices();
   const [moved] = order.splice(from, 1);
   order.splice(to, 0, moved);
-  state.document = await copyToNewDocument(document, order);
+  await keepPagesInOrder(document, order);
   return { op: operation.op, changed: from !== to, from: from + 1, to: to + 1 };
 }
 
@@ -153,6 +223,45 @@ function mergeSources(operation) {
   else if (operation.path) sources = [operation.path];
   if (!sources.length) throw new Error('merge_pdf needs sources:[path | { path, pages }] or path');
   return sources;
+}
+
+// Copying a page copies its widgets and their appearances, but not the form they belong to: a filled application
+// merged into a pack still showed its values and had no fields left — nothing to fill again, and a snapshot that
+// counted zero. The copied widgets' top fields join the document's form; a name the pack already holds takes a
+// numbered suffix so two merged copies of one form stay two sets of fields.
+function registerCopiedFields(document, pages) {
+  const { context } = document;
+  const form = document.getForm();
+  const names = new Set(form.getFields().map((field) => field.getName()));
+  const roots = new Map();
+  for (const page of pages) {
+    const annots = page.node.Annots();
+    for (let index = 0; annots && index < annots.size(); index += 1) {
+      const ref = annots.get(index);
+      const widget = context.lookup(ref);
+      if (!(ref instanceof PDFRef) || !(widget instanceof PDFDict) || widget.get(PDFName.of('Subtype')) !== PDFName.of('Widget')) continue;
+      let fieldRef = ref;
+      let field = widget;
+      while (field.get(PDFName.of('Parent')) instanceof PDFRef) {
+        fieldRef = field.get(PDFName.of('Parent'));
+        field = context.lookup(fieldRef);
+      }
+      roots.set(fieldRef.toString(), { ref: fieldRef, field });
+    }
+  }
+  for (const { ref, field } of roots.values()) {
+    const title = field.get(PDFName.of('T'));
+    let name = title?.decodeText?.() || '';
+    if (name && names.has(name)) {
+      let suffix = 2;
+      while (names.has(`${name}_${suffix}`)) suffix += 1;
+      name = `${name}_${suffix}`;
+      field.set(PDFName.of('T'), PDFHexString.fromText(name));
+    }
+    if (name) names.add(name);
+    form.acroForm.addField(ref);
+  }
+  return roots.size;
 }
 
 async function mergePdf(state, operation) {
@@ -180,10 +289,12 @@ async function mergePdf(state, operation) {
         insertAt += 1;
       }
     }
+    const formFields = registerCopiedFields(document, copied);
     merged.push({
       path: sourcePath,
       pages: indexes.map((index) => index + 1),
       pagesAdded: copied.length,
+      ...(formFields ? { formFields } : {}),
       at: firstPage + 1,
       title: typeof entry === 'string' ? '' : String(entry?.title || ''),
     });

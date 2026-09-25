@@ -136,8 +136,6 @@ export const grey = gray;
 // Bright variants (used sparingly for headings / accents).
 export const brightGreen = sgr('38;2;0;185;88');
 
-// --- Background colors ------------------------------------------------------
-
 // --- RGB colors --------------------------------------------------------------
 // Emit 24-bit SGR where supported, otherwise use the nearest 256-color entry.
 // Honors NO_COLOR / TTY exactly like the named helpers above.

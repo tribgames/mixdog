@@ -25,7 +25,7 @@ export const HANDOFF_TIMEOUT_MAX_MS = 300_000;
 // Default total post-compact context target, including request/tool overhead.
 // Execution history has its own smaller cap inside this overall budget.
 // Consumers:
-//   - compact target budget (loop/compact-policy.mjs COMPACT_TARGET_RATIO)
+//   - compact target budget (loop/compact-policy.mjs resolveCompactTargetRatio)
 //   - fresh-context handoff injection cap
 // Keep them in lockstep; do not fork per-consumer ratios without a decision.
 export const CONTEXT_SHARE_RATIO = 0.25;

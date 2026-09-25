@@ -18,8 +18,6 @@ export function createMcpGlue({ mcpClient, getConfig, getCurrentCwd, getMcpScope
   const { normalizeMcpServerInput } = createMcpServerInput({ mcpClient, getCurrentCwd });
 
   return {
-    mcpTransportLabel: catalog.mcpTransportLabel,
-    resolveEffectiveMcpServers: catalog.resolveEffectiveMcpServers,
     mcpStatus: catalog.mcpStatus,
     getMcpServerConfig: catalog.getMcpServerConfig,
     connectConfiguredMcp: connect.connectConfiguredMcp,

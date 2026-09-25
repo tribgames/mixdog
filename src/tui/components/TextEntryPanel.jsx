@@ -9,7 +9,6 @@ import {
   clearSelection,
   deleteBackwardWord,
   deleteForwardWord,
-  deleteSelectedText,
   deleteToLineEnd,
   deleteToLineStart,
   lineEnd,
@@ -27,8 +26,19 @@ import {
 import { sliceVisualRowWindow, textEntryReservedRows, wrappedTextRows } from '../app/text-layout.mjs';
 import { canSubmitTextEntry } from '../app/text-entry-policy.mjs';
 import { truncatePanelText as truncateText } from './panel-cell-text.mjs';
-import { insertText, normalizePastedText, singleTrailingLineBreakPrefix } from './prompt-input/edit-helpers.mjs';
+import {
+  deleteBackwardChar,
+  deleteForwardChar,
+  insertText,
+  isAnyModifiedEnterSequence,
+  isModifiedEnterSequence,
+  leftArrowOffset,
+  normalizePastedText,
+  rightArrowOffset,
+  singleTrailingLineBreakPrefix,
+} from './prompt-input/edit-helpers.mjs';
 import { renderSelectedText } from './prompt-input/selected-text.jsx';
+import { isCsiPrivateReply } from './prompt-input/key-signals.mjs';
 
 // Collapse newlines to a single visible glyph so multiline pasted input stays a
 // single visual row (the draft itself is unchanged for editing/submit).
@@ -93,36 +103,6 @@ function singleLine(text) {
   return String(text ?? '')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-// Recognize a MODIFIED Enter (Ctrl+Enter or Shift+Enter) delivered via the kitty
-// keyboard protocol (\x1b[13;<mod>u) or modifyOtherKeys (\x1b[27;<mod>;13~). The
-// xterm modifier param is (1 + bitmask): shift=1, alt=2, ctrl=4. We match when
-// the shift OR ctrl bit is set so both chords insert a newline. Ctrl+J is the
-// protocol-independent fallback, handled separately.
-const MODIFIED_ENTER_SHIFT_OR_CTRL = 1 | 4;
-function isModifiedEnterSequence(input) {
-  const text = String(input ?? '');
-  const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
-  if (!body) return false;
-  const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
-  if (kitty) return ((Number(kitty[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0;
-  const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
-  return Boolean(modifyOtherKeys && ((Number(modifyOtherKeys[1]) - 1) & MODIFIED_ENTER_SHIFT_OR_CTRL) !== 0);
-}
-
-// Recognize ANY modified Enter (any modifier bitmask, e.g. Alt+Enter). Used to
-// CONSUME modified-Enter sequences we don't map to a newline so they aren't
-// typed as raw CSI text under modifyOtherKeys. Plain Enter (mod=1) is NOT
-// matched, so it still submits.
-function isAnyModifiedEnterSequence(input) {
-  const text = String(input ?? '');
-  const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
-  if (!body) return false;
-  const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
-  if (kitty) return Number(kitty[1]) - 1 !== 0;
-  const modifyOtherKeys = /^27;(\d+);13~$/.exec(body);
-  return Boolean(modifyOtherKeys && Number(modifyOtherKeys[1]) - 1 !== 0);
 }
 
 export function TextEntryPanel({
@@ -264,11 +244,9 @@ export function TextEntryPanel({
       const rawSource = String(input ?? '');
       const rawInput = normalizePastedText(input);
       if (/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/.test(rawSource)) return;
-      // Safety net: drop CSI-private replies/fragments (\x1b[?<n>u / \x1b[?...c).
-      // We no longer query the terminal, so these should not normally appear, but
-      // a volunteered report must never type into the field. See PromptInput for
-      // the full rationale; optional final byte also discards partial fragments.
-      if (/^(?:\x1b)?\[\?[\d;]*[uc]?$/.test(rawSource)) return;
+      // Safety net: drop CSI-private replies/fragments (\x1b[?<n>u / \x1b[?...c);
+      // a volunteered report must never type into the field.
+      if (isCsiPrivateReply(rawSource)) return;
 
       if (key.escape) {
         if (selectionRange(draftRef.current)) {
@@ -296,7 +274,7 @@ export function TextEntryPanel({
         return;
       }
 
-      // A modified Enter that is NOT a newline chord (e.g. Alt+Enter): consume it
+      // A modified Enter that is NOT a newline chord (e.g. a Super/Hyper-only mod): consume it
       // so its raw CSI bytes don't type into the field under modifyOtherKeys. Plain
       // Enter (mod=1) is not matched and still submits below.
       if (!rawCtrlEnter && (isAnyModifiedEnterSequence(rawSource) || isAnyModifiedEnterSequence(rawInput))) {
@@ -330,27 +308,15 @@ export function TextEntryPanel({
         return;
       }
       if (key.leftArrow) {
-        updateDraft((d) => {
-          const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
-          const cursor = range
-            ? range.start
-            : key.ctrl || key.meta
-              ? previousWordOffset(d.value, d.cursor)
-              : previousOffset(d.value, d.cursor);
-          return moveCursor(d, cursor, { extend: key.shift });
-        });
+        updateDraft((d) =>
+          moveCursor(d, leftArrowOffset(d, { word: key.ctrl || key.meta, extend: key.shift }), { extend: key.shift })
+        );
         return;
       }
       if (key.rightArrow) {
-        updateDraft((d) => {
-          const range = !key.shift && !key.ctrl && !key.meta ? selectionRange(d) : null;
-          const cursor = range
-            ? range.end
-            : key.ctrl || key.meta
-              ? nextWordOffset(d.value, d.cursor)
-              : nextOffset(d.value, d.cursor);
-          return moveCursor(d, cursor, { extend: key.shift });
-        });
+        updateDraft((d) =>
+          moveCursor(d, rightArrowOffset(d, { word: key.ctrl || key.meta, extend: key.shift }), { extend: key.shift })
+        );
         return;
       }
       if (key.upArrow) {
@@ -407,21 +373,11 @@ export function TextEntryPanel({
         return;
       }
       if (key.backspace) {
-        updateDraft((d) => {
-          if (selectionRange(d)) return deleteSelectedText(d);
-          if (d.cursor <= 0) return d;
-          const start = previousOffset(d.value, d.cursor);
-          return { value: d.value.slice(0, start) + d.value.slice(d.cursor), cursor: start, selectionAnchor: null };
-        });
+        updateDraft(deleteBackwardChar);
         return;
       }
       if (key.delete) {
-        updateDraft((d) => {
-          if (selectionRange(d)) return deleteSelectedText(d);
-          if (d.cursor >= d.value.length) return d;
-          const end = nextOffset(d.value, d.cursor);
-          return { value: d.value.slice(0, d.cursor) + d.value.slice(end), cursor: d.cursor, selectionAnchor: null };
-        });
+        updateDraft(deleteForwardChar);
         return;
       }
       if (rawInput && !key.ctrl && !key.meta) {

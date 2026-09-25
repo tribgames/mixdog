@@ -402,6 +402,148 @@ test('portable charts write a chart part with an embedded workbook', async (t) =
   assert.match(copy, /<c:max val="200"\/><c:min val="100"\/>/);
 });
 
+// Korean Word saves its built-in styles under ids of its own ("heading 1" as "1", "Quote" as "a5") and leaves
+// "caption" and "Table Grid" latent: written under the English ids, every heading of such a document showed as
+// body text in Word.
+test('a document with localized style ids takes styles by the names it gives them', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'localized.docx');
+  await createPortableOoxmlDocument(path, { fileKind: 'docx' });
+  const style = (type, id, name, extra = '') =>
+    `<w:style w:type="${type}" w:styleId="${id}"><w:name w:val="${name}"/>${extra}</w:style>`;
+  const localized =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+    style('paragraph', 'a', 'Normal') +
+    style('paragraph', '1', 'heading 1', '<w:basedOn w:val="a"/>') +
+    style('paragraph', 'a5', 'Quote', '<w:basedOn w:val="a"/>') +
+    style('paragraph', 'a6', 'List Paragraph', '<w:basedOn w:val="a"/>') +
+    style('table', 'a1', 'Normal Table') +
+    '</w:styles>';
+  const { default: JSZip } = await import('jszip');
+  const { readFile } = await import('node:fs/promises');
+  const zip = await JSZip.loadAsync(await readFile(path));
+  zip.file('word/styles.xml', localized);
+  await writeFile(path, await zip.generateAsync({ type: 'nodebuffer' }));
+  const opened = value(
+    await executeOfficeTool(
+      {
+        action: 'open',
+        path,
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: '문서 제목' },
+          { op: 'set_paragraph_style', paragraph: 1, style: 'Heading 1' },
+          { op: 'append_text', text: '인용 문단', style: 'Quote' },
+          { op: 'append_text', text: '항목' },
+          { op: 'set_list', paragraph: 3, kind: 'bullet' },
+          { op: 'append_text', text: '캡션 문단', style: 'Caption' },
+          { op: 'add_table', values: [['a', 'b']], properties: { style: 'Table Grid' } },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const packaged = await parts(opened.output);
+  const body = await packaged.text('word/document.xml');
+  const used = [...body.matchAll(/<w:(?:pStyle|tblStyle) w:val="([^"]+)"\/>/g)].map((match) => match[1]);
+  assert.deepEqual(used, ['1', 'a5', 'a6', 'Caption', 'TableGrid']);
+  // What the document lacked comes from the new-document styles, pointed at the document's own Normal.
+  const styles = await packaged.text('word/styles.xml');
+  assert.match(styles, /w:styleId="Caption"><w:name w:val="caption"\/><w:basedOn w:val="a"\/>/);
+  assert.match(styles, /w:styleId="TableGrid"><w:name w:val="Table Grid"\/><w:basedOn w:val="a1"\/>/);
+  assert.equal(opened.batch.results.some((result) => result.styleNotFound), false);
+});
+
+// set_paragraph_style wrote the name as the id ("Heading 1"), which no document defines — its own template names
+// the style Heading1 — so Word showed the heading as body text and the contents skipped it.
+test('set_paragraph_style names a style by the id the document gives it', async (t) => {
+  const cwd = await workspace(t);
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'styled.docx'),
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: '제목이 될 문단' },
+          { op: 'set_paragraph_style', paragraph: 1, style: 'Heading 1' },
+          { op: 'append_text', text: '인용이 될 문단' },
+          { op: 'set_paragraph_style', paragraph: 2, style: 'quote' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const body = await (await parts(created.output || join(cwd, 'styled.docx'))).text('word/document.xml');
+  assert.deepEqual(
+    [...body.matchAll(/<w:pStyle w:val="([^"]+)"\/>/g)].map((match) => match[1]),
+    ['Heading1', 'Quote']
+  );
+});
+
+// PowerPoint's Duplicate keeps the speaker notes; the portable copy dropped them.
+test('a duplicated slide keeps its speaker notes on a notes page of its own', async (t) => {
+  const cwd = await workspace(t);
+  const deck = join(cwd, 'notes.pptx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: deck,
+        mode: 'portable',
+        operations: [
+          { op: 'add_slide', layout: 'blank' },
+          { op: 'add_textbox', slide: 1, text: '분기 보고', left: 48, top: 40, width: 600, height: 60 },
+          { op: 'set_notes', slide: 1, text: '발표 메모' },
+          { op: 'duplicate_slide', slide: 1 },
+          { op: 'set_notes', slide: 2, text: '복제본 메모' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  // Each page its own notes: editing the copy's left the source's as they were.
+  assert.deepEqual(
+    snapshot.document.slides.map((slide) => slide.notes),
+    ['발표 메모', '복제본 메모']
+  );
+});
+
+// Two slides pointing at one comments part are a file PowerPoint refuses as "corrupted and unreadable".
+test('a duplicated slide takes a comments part of its own', async (t) => {
+  const cwd = await workspace(t);
+  const deck = join(cwd, 'comments.pptx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: deck,
+        mode: 'portable',
+        operations: [
+          { op: 'add_slide', layout: 'blank' },
+          { op: 'add_textbox', slide: 1, text: '분기 보고', left: 48, top: 40, width: 600, height: 60 },
+          { op: 'add_comment', slide: 1, text: '수치 확인', author: '검토자' },
+          { op: 'duplicate_slide', slide: 1 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const packaged = await parts(deck);
+  const target = async (slide) =>
+    /Type="[^"]*\/comments"[^>]*Target="([^"]+)"|Target="([^"]+)"[^>]*Type="[^"]*\/comments"/
+      .exec(await packaged.text(`ppt/slides/_rels/slide${slide}.xml.rels`))
+      ?.slice(1)
+      .find(Boolean);
+  const [first, second] = [await target(1), await target(2)];
+  assert.ok(first && second, `both slides keep their comments: ${first}, ${second}`);
+  assert.notEqual(first, second);
+  assert.match(await packaged.text(`ppt/comments/${second.split('/').pop()}`), /수치 확인/);
+});
+
 test('portable workbook charts anchor through a drawing part', async (t) => {
   const cwd = await workspace(t);
   const book = join(cwd, 'chart.xlsx');
@@ -446,6 +588,551 @@ test('portable workbook charts anchor through a drawing part', async (t) => {
   assert.match(drawing, /<xdr:absoluteAnchor>/);
   const sheet = await packaged.text('xl/worksheets/sheet1.xml');
   assert.match(sheet, /<drawing r:id="/);
+});
+
+test('a workbook chart placed at a cell stays beside its table when a later autofit widens the columns', async (t) => {
+  const cwd = await workspace(t);
+  const book = join(cwd, 'report.xlsx');
+  value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: book,
+        mode: 'portable',
+        operations: [
+          {
+            op: 'set_range',
+            range: 'A1:B3',
+            values: [
+              ['A region with a long name', 'Revenue'],
+              ['Korea', 120],
+              ['Japan', 95],
+            ],
+          },
+          { op: 'add_chart', range: 'A1:B3', chartType: 'column', cell: 'E2', width: 300, height: 200 },
+          { op: 'autofit_range', range: 'A1:B3', minWidth: 30 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const drawing = await (await parts(book)).text('xl/drawings/drawing1.xml');
+  // Column E is index 4 and row 2 index 1, whatever widths the columns before it took afterwards.
+  assert.match(drawing, /<xdr:oneCellAnchor><xdr:from><xdr:col>4<\/xdr:col><xdr:colOff>0<\/xdr:colOff><xdr:row>1<\/xdr:row>/);
+});
+
+test('a defined name given as Excel shows it (=Sheet1!…) is stored without the = Excel cannot open', async (t) => {
+  const cwd = await workspace(t);
+  const book = join(cwd, 'named.xlsx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: book,
+        mode: 'portable',
+        operations: [
+          { op: 'set_range', range: 'A1:B2', values: [['Region', 'Revenue'], ['Korea', 120]] },
+          { op: 'define_name', name: 'Revenue', refersTo: '=Sheet1!$B$2' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(created.batch.results[1].refersTo, '=Sheet1!$B$2');
+  const workbook = await (await parts(book)).text('xl/workbook.xml');
+  assert.match(workbook, /<definedName name="Revenue">Sheet1!\$B\$2<\/definedName>/);
+});
+
+test('a workbook chart ended at toColumn spans the columns as the sheet has them', async (t) => {
+  const cwd = await workspace(t);
+  const book = join(cwd, 'spanned.xlsx');
+  value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: book,
+        mode: 'portable',
+        operations: [
+          { op: 'set_range', range: 'A1:B3', values: [['Region', 'Revenue'], ['Korea', 120], ['Japan', 95]] },
+          { op: 'set_column_width', column: 'A', width: 20 },
+          { op: 'set_column_width', column: 'B', width: 10 },
+          { op: 'add_chart', range: 'A1:B3', chartType: 'column', cell: 'A5', toColumn: 'B', height: 200 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const drawing = await (await parts(book)).text('xl/drawings/drawing1.xml');
+  // A at 20 characters and B at 10, as Excel prints them: (20 × 7 + 5) × 0.75 + (10 × 7 + 5) × 0.75 = 165 pt.
+  const width = Number(/<xdr:ext cx="(\d+)"/.exec(drawing)[1]) / 12700;
+  assert.ok(Math.abs(width - 165) < 1, `${width} pt`);
+});
+
+test('a protected form keeps its entry cells unlocked after the recalculation rewrites them', async (t) => {
+  const cwd = await workspace(t);
+  const book = join(cwd, 'form.xlsx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: book,
+        mode: 'portable',
+        operations: [
+          { op: 'set_range', range: 'A1:B1', values: [['항목', '금액']] },
+          { op: 'set_style', range: 'A2:B4', properties: { fillColor: 'FFFF00', locked: false, wrapText: true } },
+          { op: 'add_validation', range: 'A2:A4', formula1: '"교통비,식비"' },
+          { op: 'set_formula', cell: 'B5', formula: '=SUM(B2:B4)' },
+          { op: 'protect_sheet' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  // The render recalculates through LibreOffice, which writes the flags back as words (locked="false").
+  value(await executeOfficeTool({ action: 'render', session: created.session }, { cwd }));
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.ok(!issues.issues.some((issue) => issue.code === 'protected_input_locked'), JSON.stringify(issues.issues));
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session, range: 'A2:A2', includeStyles: true }, { cwd }));
+  const cell = snapshot.document.sheets?.[0]?.cells?.find?.((entry) => entry.ref === 'A2') ?? snapshot.document.cells?.find?.((entry) => entry.ref === 'A2');
+  if (cell?.style) assert.equal(cell.style.locked, false, JSON.stringify(cell.style));
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('a workbook bar chart lists its categories top-down with the value axis underneath', async (t) => {
+  const cwd = await workspace(t);
+  const book = join(cwd, 'bars.xlsx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: book,
+        mode: 'portable',
+        operations: [
+          { op: 'set_range', range: 'A1:B4', values: [['사업부', '매출'], ['반도체', 52], ['모바일', 40], ['가전', 27]] },
+          { op: 'add_chart', range: 'A1:B4', chartType: 'bar', cell: 'D2' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const chart = await (await parts(book)).text('xl/charts/chart1.xml');
+  assert.match(chart, /<c:catAx>[\s\S]*?<c:orientation val="maxMin"\/>[\s\S]*?<c:axPos val="l"\/>/);
+  assert.match(chart, /<c:valAx>[\s\S]*?<c:axPos val="b"\/>[\s\S]*?<c:crosses val="max"\/>/);
+});
+
+test('a chart over a row of periods read by columns is refused with the reading it wanted', async (t) => {
+  const cwd = await workspace(t);
+  const values = [
+    ['항목', '2026', '2027', '2028', '2029'],
+    ['매출', 8661, 10220, 12060, 14231],
+  ];
+  const refused = await executeOfficeTool(
+    {
+      action: 'create',
+      path: join(cwd, 'model.xlsx'),
+      mode: 'portable',
+      operations: [
+        { op: 'set_range', range: 'A1:E2', values },
+        { op: 'add_chart', range: 'A1:E2', chartType: 'column', cell: 'A5' },
+      ],
+    },
+    { cwd }
+  );
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /4 series of one value each.*plotBy:'rows'/);
+  const drawn = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'model-rows.xlsx'),
+        mode: 'portable',
+        operations: [
+          { op: 'set_range', range: 'A1:E2', values },
+          { op: 'add_chart', range: 'A1:E2', plotBy: 'rows', chartType: 'column', cell: 'A5' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(drawn.batch.results.at(-1).series, 1);
+  value(await executeOfficeTool({ action: 'close', session: drawn.session }, { cwd }));
+});
+
+test('a workbook keeps its set widths, fits, and band heights through the recalculation a render runs', async (t) => {
+  const cwd = await workspace(t);
+  const book = join(cwd, 'sized.xlsx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: book,
+        mode: 'portable',
+        operations: [
+          { op: 'set_range', range: 'B1:C3', values: [['Hub', 'Volume'], ['Daejeon', 128400], ['Busan', 97300]] },
+          { op: 'set_formula', cell: 'C4', formula: '=SUM(C2:C3)' },
+          { op: 'autofit_range', range: 'B:C', minWidth: 20 },
+          { op: 'set_column_width', column: 'A', width: 3 },
+          { op: 'set_row_height', row: 1, height: 42 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'render', session: created.session }, { cwd }));
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const sheet = await (await parts(book)).text('xl/worksheets/sheet1.xml');
+  const width = (column) =>
+    Number(new RegExp(`<col\\b(?=[^>]*\\bmin="${column}")[^>]*\\bwidth="([\\d.]+)"`).exec(sheet)?.[1]);
+  assert.ok(width(1) < 4, `the gutter stays narrow: ${sheet.match(/<cols>.*?<\/cols>/)?.[0]}`);
+  assert.ok(width(2) >= 19 && width(3) >= 19, `the fit keeps its minimum width: ${sheet.match(/<cols>.*?<\/cols>/)?.[0]}`);
+  assert.match(sheet, /<row\b[^>]*\br="1"[^>]*\bht="42"/);
+});
+
+test('editing an authored deck finds a phrase across its eojeol wrap and refreshes a chart without restyling it', async (t) => {
+  const cwd = await workspace(t);
+  const deck = join(cwd, 'deck.pptx');
+  const authored = value(
+    await executeOfficeTool(
+      {
+        action: 'author',
+        path: deck,
+        mode: 'portable',
+        render: false,
+        script: `deck({ hue: 215, mode: 'balanced', script: 'ko' });
+const s = light();
+chart(s, 0.6, 1.4, 7, 4.6, { labels: ['2024', '2025', '2026'], series: [{ name: 'MAU', values: [1040, 1260, 1420] }] });
+reading(s, 8.2, 1.4, 3.6, [{ label: '성장률', text: '2021년 410만 명에서 3.5배로 늘었고, 올해 상반기에도 12.7% 증가했다.' }]);
+await pres.writeFile({ fileName: OUTPUT });`,
+      },
+      { cwd }
+    )
+  );
+  const edited = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: authored.session,
+        operations: [
+          { op: 'set_chart_data', slide: 1, shape: 1, categories: ['2024', '2025', '2026'], series: [{ name: 'MAU', values: [1040, 1260, 1510] }] },
+          { op: 'replace_text', find: '올해 상반기에도 12.7% 증가했다.', replace: '3분기까지 19.8% 증가했다.' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  assert.deepEqual(edited.results.map((entry) => entry.changed), [true, true]);
+  value(await executeOfficeTool({ action: 'close', session: authored.session }, { cwd }));
+  const packaged = await parts(deck);
+  const chartName = Array.from({ length: 20 }, (_, index) => `ppt/charts/chart${index + 1}.xml`).find((name) => packaged.has(name));
+  const chart = await packaged.text(chartName);
+  assert.match(chart, /<c:v>1510<\/c:v>/);
+  assert.doesNotMatch(chart, /<c:v>1420<\/c:v>/);
+  assert.match(chart, /<c:dLbls><c:numFmt formatCode="#,##0;-#,##0;"/, 'the label format the deck was authored with stays');
+  const slide = await packaged.text('ppt/slides/slide1.xml');
+  assert.ok(slide.includes('3분기까지 19.8% 증가했다.'), 'the phrase across the wrap was found and replaced');
+});
+
+test('a rendered contents field carries the page each heading lands on, behind a dot leader', async (t) => {
+  const cwd = await workspace(t);
+  const doc = join(cwd, 'report.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: doc,
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: 'Contents' },
+          { op: 'append_text', text: 'Summary', style: 'Heading 1' },
+          { op: 'append_text', text: 'The dock split removes the wait.' },
+          { op: 'insert_break', kind: 'page' },
+          { op: 'append_text', text: 'Causes', style: 'Heading 1' },
+          { op: 'append_text', text: 'Volume lands on one dock after ten.' },
+          { op: 'insert_toc', paragraph: 1 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'render', session: created.session }, { cwd }));
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const body = await (await parts(doc)).text('word/document.xml');
+  const field = /<w:fldSimple\b[^>]*TOC[\s\S]*?<\/w:fldSimple>/.exec(body)?.[0] || '';
+  const lines = field.split('<w:r><w:br/></w:r>').map((line) => [...line.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((match) => match[1]));
+  assert.deepEqual(lines, [['Summary', '1'], ['Causes', '2']], field);
+  assert.match(body, /<w:tab w:val="right" w:pos="9070" w:leader="dot"\/>/, 'a right tab on the text edge of the A4 section');
+});
+
+test('a tracked replace marks only the words between the ones the find and the replacement share', async (t) => {
+  const cwd = await workspace(t);
+  const doc = join(cwd, 'letter.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: doc,
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: '2분기 영업이익은 86억 원으로 돌아섰고, 비용은 22% 낮아졌습니다.' },
+          { op: 'track_changes', enabled: true },
+          { op: 'replace_text', find: '86억 원으로', replace: '86억 원(잠정)으로', author: '재무검토' },
+          { op: 'replace_text', find: '22% 낮아졌습니다', replace: '21.6% 낮아졌습니다', author: '재무검토' },
+          { op: 'replace_text', find: '돌아섰고,', replace: '처음 돌아섰고,', author: '재무검토' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const body = await (await parts(doc)).text('word/document.xml');
+  const marks = [...body.matchAll(/<w:(del|ins) [^>]*>[\s\S]*?<\/w:\1>/g)].map((match) => `${match[1]}:${match[0].replace(/<[^>]+>/g, '')}`);
+  assert.deepEqual(marks, ['del:원으로', 'ins:원(잠정)으로', 'ins:처음 ', 'del:22%', 'ins:21.6%']);
+});
+
+test('fill_template writes the Korean particle the filled value takes', async (t) => {
+  const cwd = await workspace(t);
+  const doc = join(cwd, 'offer.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: doc,
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: '{{company}}은 {{city}}으로 옮기며, {{name}}이 {{team}}을 맡는다.' },
+          { op: 'append_text', text: '{{name}}이사회 안건' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const filled = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [{ op: 'fill_template', strict: true, tokens: { company: '모아페이', city: '서울', name: '김하늘', team: '결제팀' } }],
+      },
+      { cwd }
+    )
+  );
+  assert.deepEqual(filled.results[0].unfilledTokens, []);
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  const texts = snapshot.document.paragraphs.map((paragraph) => paragraph.text);
+  assert.ok(texts.includes('모아페이는 서울로 옮기며, 김하늘이 결제팀을 맡는다.'), JSON.stringify(texts));
+  // A syllable that begins a noun is not a particle: 이사회 stays as written.
+  assert.ok(texts.includes('김하늘이사회 안건'), JSON.stringify(texts));
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('a wide table on a landscape page is measured against that page, not the portrait section before it', async (t) => {
+  const cwd = await workspace(t);
+  const doc = join(cwd, 'landscape.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: doc,
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: 'Portrait page' },
+          { op: 'insert_break', kind: 'section_next' },
+          { op: 'set_page', properties: { orientation: 'landscape' } },
+          { op: 'add_table', values: [['Hub', 'Apr', 'May'], ['Daejeon', '118,200', '121,400']], properties: { columnWidths: [300, 200, 200] } },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || [];
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  assert.equal(issues.some((issue) => issue.code === 'table_wider_than_page'), false, JSON.stringify(issues));
+});
+
+test('a slide table the caller did not style takes a header rule and row hairlines, figures on the right', async (t) => {
+  const cwd = await workspace(t);
+  const deck = join(cwd, 'table.pptx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: deck,
+        mode: 'portable',
+        operations: [
+          { op: 'add_slide' },
+          { op: 'add_table', slide: 1, left: 40, top: 100, width: 600, values: [['지표', '26.1Q', '26.2Q'], ['거래자 (만 명)', '1,340', '1,420'], ['영업이익', '−12', '86']] },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const slide = await (await parts(deck)).text('ppt/slides/slide1.xml');
+  const cells = [...slide.matchAll(/<a:tc>[\s\S]*?<\/a:tc>/g)].map((m) => m[0]);
+  assert.match(cells[0], /<a:lnB w="12700"[\s\S]*?val="9AA3AD"/, 'the header carries its rule');
+  assert.match(cells[3], /<a:lnB w="6350"[\s\S]*?val="D8DCE0"/, 'a body row carries a hairline');
+  assert.match(cells[0], /<a:lnL w="0"><a:noFill\/><\/a:lnL>/, 'no verticals');
+  assert.match(cells[1], /algn="r"/, 'the header over figures sits right');
+  assert.match(cells[4], /algn="r"/, 'a figure sits right');
+  assert.doesNotMatch(cells[3], /algn="r"/, 'the label column stays left');
+});
+
+test('a borderless layout table registers with the text column, and a filled cell gets its padding back', async (t) => {
+  const cwd = await workspace(t);
+  const doc = join(cwd, 'layout.docx');
+  const NONE = { enabled: false };
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: doc,
+        mode: 'portable',
+        operations: [
+          { op: 'add_table', values: [['시니어 엔지니어 · 모아페이', '2023 – 현재'], ['엔지니어 · 도시물류', '2020 – 2023']], properties: { borders: { top: NONE, left: NONE, bottom: NONE, right: NONE, insideH: NONE, insideV: NONE }, headerBold: false, columnWidths: [360, 120] } },
+          { op: 'add_table', values: [['지표', '값'], ['처리량', '12,480']] },
+          { op: 'set_table_cell_style', table: 1, row: 2, col: 1, properties: { fillColor: 'EEF2F7' } },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const body = await (await parts(doc)).text('word/document.xml');
+  const [layout, ruled] = body.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g);
+  const cells = [...layout.matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map((m) => m[0]);
+  assert.match(cells[0], /<w:tcMar><w:left w:w="0" w:type="dxa"\/><\/w:tcMar>/, 'first column flush left');
+  assert.match(cells[1], /<w:tcMar><w:right w:w="0" w:type="dxa"\/><\/w:tcMar>/, 'last column flush right');
+  assert.doesNotMatch(cells[2], /<w:tcMar>/, 'the filled cell keeps its padding');
+  assert.doesNotMatch(ruled, /<w:tcMar>/, 'a ruled table keeps Word padding');
+});
+
+test('an ISO date written to a sheet is the date Excel would type, under yyyy-mm-dd unless the cell has a format', async (t) => {
+  const cwd = await workspace(t);
+  const book = join(cwd, 'dates.xlsx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: book,
+        mode: 'portable',
+        operations: [
+          { op: 'set_style', range: 'B2', properties: { numberFormat: 'd mmm yyyy' } },
+          { op: 'set_range', range: 'A1:C2', values: [['2026-09-30', '2026-02-30', '마감'], ['2026-10-01', '2026-10-01', 'x']] },
+          { op: 'set_cell', cell: 'D1', value: '2026-12-15' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session, range: 'A1:D2' }, { cwd }));
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const cells = Object.fromEntries(snapshot.document.sheets[0].cells.map((cell) => [cell.address || cell.path.match(/cell\[(\w+)]/)[1], cell]));
+  assert.equal(cells.A1.value, 46295, 'the serial Excel stores for 2026-09-30');
+  assert.equal(cells.A1.style?.numberFormat, 'yyyy-mm-dd');
+  assert.equal(cells.B1.value, '2026-02-30', 'a date that does not exist stays the text it was');
+  assert.equal(cells.B2.style?.numberFormat, 'd mmm yyyy', "the cell's own format is kept");
+  assert.equal(cells.D1.value, 46371);
+});
+
+test('a table column narrower than its longest word is reported before the word breaks between letters', async (t) => {
+  const cwd = await workspace(t);
+  const doc = join(cwd, 'narrow.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: doc,
+        mode: 'portable',
+        operations: [
+          {
+            op: 'add_table',
+            values: [['지표', 'Throughput', '비고'], ['야간 처리량', '12,480', '예시']],
+            properties: { columnWidths: [120, 30, 120], fontSize: 11 },
+          },
+          {
+            op: 'add_table',
+            values: [['지표', 'Throughput'], ['야간 처리량', '12,480']],
+            properties: { columnWidths: [120, 120], fontSize: 11 },
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || [];
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const broken = issues.filter((issue) => issue.code === 'table_cell_word_broken');
+  assert.deepEqual(broken.map((issue) => issue.path), ['/body/table[1]/row[1]/cell[2]'], JSON.stringify(broken));
+  assert.match(broken[0].message, /"Throughput"/);
+});
+
+test('a continuous break starts the next section on the same page and a later header covers every section', async (t) => {
+  const cwd = await workspace(t);
+  const doc = join(cwd, 'newsletter.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: doc,
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: 'Masthead' },
+          { op: 'insert_break', kind: 'section_continuous' },
+          { op: 'set_page', properties: { columns: 2 } },
+          { op: 'append_text', text: 'Two columns of news.' },
+          { op: 'insert_break', kind: 'section_next' },
+          { op: 'append_text', text: 'Back page.' },
+          { op: 'set_header_footer', kind: 'footer', text: 'City Logistics Weekly' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const body = await (await parts(doc)).text('word/document.xml');
+  const sections = body.match(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g);
+  assert.equal(sections.length, 3);
+  // Each w:type says how its own section begins: the first as the document does, the two-column one on the same
+  // page, the back page on a new one.
+  assert.doesNotMatch(sections[0], /<w:type /);
+  assert.match(sections[1], /<w:type w:val="continuous"\/>/);
+  assert.match(sections[1], /<w:cols w:num="2"/);
+  assert.match(sections[2], /<w:type w:val="nextPage"\/>/);
+  for (const section of sections) assert.match(section, /<w:footerReference\b/, 'every section carries the footer');
+});
+
+test('a Word running header takes the type it is given and a table keeps with its caption', async (t) => {
+  const cwd = await workspace(t);
+  const doc = join(cwd, 'letter.docx');
+  value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: doc,
+        mode: 'portable',
+        operations: [
+          { op: 'add_table', values: [['연도', 'MAU'], ['2025', '1,260']], properties: { keepWithNext: true } },
+          { op: 'append_text', text: '표 1. 연도별 사용자' },
+          {
+            op: 'set_header_footer',
+            kind: 'header',
+            text: '모아페이 · 주주서한',
+            properties: { name: 'Noto Sans', nameEastAsia: 'Noto Sans KR', size: 8.5, color: '6B7280', alignment: 'right' },
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const packaged = await parts(doc);
+  const header = await packaged.text('word/header1.xml');
+  assert.match(header, /<w:jc w:val="right"\/>/);
+  assert.match(header, /w:eastAsia="Noto Sans KR"/);
+  assert.match(header, /<w:color w:val="6B7280"\/><w:sz w:val="17"\/>/);
+  const body = await packaged.text('word/document.xml');
+  const table = /<w:tbl>[\s\S]*?<\/w:tbl>/.exec(body)[0];
+  assert.equal((table.match(/<w:keepNext\/>/g) || []).length, 4, 'every cell paragraph keeps with the next');
 });
 
 test('portable cell writes stay ordered and keep the section break last', async (t) => {
@@ -862,7 +1549,8 @@ test('portable workbook shifts rows and columns and manages sheet metadata', asy
             ],
           },
           { op: 'insert_rows', row: 2, count: 1 },
-          { op: 'delete_columns', column: 3, count: 1 },
+          // A letter, as set_column_width takes it.
+          { op: 'delete_columns', column: 'C', count: 1 },
           { op: 'set_autofilter', range: 'A1:B4' },
           { op: 'define_name', name: 'Regions', refersTo: 'Sheet1!$A$3:$A$4' },
           { op: 'add_sheet', name: 'Notes' },
@@ -1132,6 +1820,20 @@ test('appearance checks stop at the rows and columns the sheet withholds', async
     )
   );
   assert.equal((await codes()).includes('label_truncated'), false, 'a hidden column is not measured');
+  value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [
+          { op: 'set_column_visibility', column: 'C', visible: true },
+          { op: 'set_style', range: 'C2:C3', properties: { verticalAlignment: 'top', wrapText: true } },
+        ],
+      },
+      { cwd }
+    )
+  );
+  assert.equal((await codes()).includes('label_truncated'), false, 'a wrapped cell grows down and is not cut');
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
 
@@ -2279,6 +2981,41 @@ test('portable charts carry trendlines and error bars', async (t) => {
   assert.match(updated, /<c:v>2027<\/c:v>/);
   assert.match(updated, /<c:v>210<\/c:v>/);
   assert.doesNotMatch(updated, /<c:v>180<\/c:v>/);
+});
+
+// The Office backend took the names and this one the file's codes: the same batch failed here and drew a straight
+// line there. Both read both, and a chart without a named series takes them on every series.
+test('trendline kinds read by name or code, and error bars name the side they reach', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'kinds.pptx');
+  value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: target,
+        mode: 'portable',
+        operations: [
+          { op: 'add_slide' },
+          {
+            op: 'add_chart',
+            slide: 1,
+            chartType: 'line',
+            categories: ['1월', '2월', '3월'],
+            series: [
+              { name: 'A', values: [1, 3, 9] },
+              { name: 'B', values: [2, 4, 8] },
+            ],
+          },
+          { op: 'set_chart_trendline', slide: 1, shape: 1, type: 'exponential' },
+          { op: 'set_chart_error_bars', slide: 1, shape: 1, amount: 1, endStyle: 'plus' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const chart = await (await parts(target)).text('ppt/charts/chart1.xml');
+  assert.equal([...chart.matchAll(/<c:trendlineType val="exp"\/>/g)].length, 2);
+  assert.equal([...chart.matchAll(/<c:errBarType val="plus"\/>/g)].length, 2);
 });
 
 test('portable compose_document applies page setup, spacing, lists, and page numbers', async (t) => {
@@ -3911,6 +4648,10 @@ test('portable text metrics flag overflow and fit_text repairs it', async (t) =>
   const overflow = (before.issues || []).filter((entry) => entry.code === 'text_overflow');
   assert.equal(overflow.length, 1, 'an overflowing text box must be reported');
   assert.match(overflow[0].path, /^\/slide\[1\]\/shape\[1\]$/);
+  // A measured collision blocks delivery on either backend: the portable list skipped the severity pass when the
+  // structure review had nothing to add, and the Office backend's error arrived here as a warning.
+  assert.equal(overflow[0].severity, 'error');
+  assert.equal(before.ok, false);
 
   const fitted = value(
     await executeOfficeTool(
@@ -3930,6 +4671,49 @@ test('portable text metrics flag overflow and fit_text repairs it', async (t) =>
   assert.ok(fitted.results[0].fontSize < 24 && fitted.results[0].fontSize >= 6);
   const after = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
   assert.equal((after.issues || []).filter((entry) => entry.code === 'text_overflow').length, 0);
+});
+
+// A bodyPr with no insets takes PowerPoint's (7.2 pt at the sides, 3.6 pt top and bottom); read as zero, the audit
+// and fit_text measured a 60 pt box as 60 pt of text and called a paragraph fitted that PowerPoint showed overflowing.
+test('text boxes are measured inside PowerPoint default insets, and an unfittable box goes to the floor', async (t) => {
+  const cwd = await workspace(t);
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'insets.pptx'),
+        mode: 'portable',
+        operations: [
+          { op: 'add_slide' },
+          {
+            op: 'add_textbox',
+            slide: 1,
+            text: '오버플로를 유발하기 위해 충분히 긴 문장을 반복해서 넣습니다. '.repeat(5),
+            left: 40,
+            top: 40,
+            width: 200,
+            height: 60,
+            fontSize: 24,
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const overflow = (issues) => (issues || []).find((entry) => entry.code === 'text_overflow');
+  const before = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.match(overflow(before.issues).message, /allows 53pt/);
+  const fitted = value(
+    await executeOfficeTool(
+      { action: 'batch', session: created.session, operations: [{ op: 'fit_text', slide: 1, shape: 1, minFontSize: 8 }] },
+      { cwd }
+    )
+  );
+  // Seven lines at 8 pt need 67 pt of the 53: PowerPoint's own measure of this box.
+  assert.equal(fitted.results[0].fits, false);
+  assert.equal(fitted.results[0].fontSize, 8);
+  const after = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.match(overflow(after.issues).message, /needs about 67pt but the shape allows 53pt/);
 });
 
 test('portable set_table_data rewrites an existing table in place', async (t) => {

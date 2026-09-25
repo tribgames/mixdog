@@ -21,7 +21,7 @@ after(() => {
 });
 
 const { createRoot } = await import('react-dom/client');
-const { GitFileDiff } = await import('./ReviewPane.tsx');
+const { GitFileDiff, ReviewPane } = await import('./ReviewPane.tsx');
 
 // Binary sections carry no hunks, so both files render their synchronous
 // fallback body — the keys are the only thing under test.
@@ -58,4 +58,47 @@ test('each file of a multi-file patch renders under its own key', async (t) => {
     errors.filter((message) => /same key/i.test(message)),
     []
   );
+});
+
+// A failed diff read is an error state, not patch text: it must not reach the
+// diff renderer, whose fallback would print the message as a raw patch.
+test('a failed file diff read renders as an error, never as patch text', async (t) => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const saved = { api: window.mixdogDesktop, raf: globalThis.requestAnimationFrame };
+  globalThis.requestAnimationFrame = (callback) => setTimeout(callback, 0);
+  // jsdom reports a hidden document, which would keep the refresh paused.
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+  window.mixdogDesktop = {
+    gitStatus: async () => ({ repository: true, branch: 'main', ahead: 0, behind: 0, upstream: true, files: [] }),
+    gitReview: async () => ({
+      base: 'origin/main',
+      files: [{ path: 'src/a.ts', status: 'M', additions: 1, deletions: 1, untracked: false, uncommitted: true }],
+    }),
+    gitReviewDiff: async () => {
+      throw new Error('git diff failed: bad object');
+    },
+  };
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    window.mixdogDesktop = saved.api;
+    globalThis.requestAnimationFrame = saved.raf;
+    delete document.hidden;
+  });
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+
+  await act(async () => root.render(React.createElement(ReviewPane, { cwd: '/repo' })));
+  await settle();
+  const trigger = host.querySelector('.review-file-trigger');
+  assert.ok(trigger, 'the changed file is listed');
+  await act(async () => trigger.click());
+  await settle();
+
+  const body = host.querySelector('.review-file-body');
+  assert.ok(body);
+  // Booleans and text only: inspecting a jsdom node on failure never ends.
+  assert.equal(body.querySelector('.diff-fallback') === null, true, 'no raw patch fallback');
+  assert.match(body.querySelector('.review-empty')?.textContent ?? '', /bad object/);
 });

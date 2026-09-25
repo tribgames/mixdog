@@ -89,10 +89,13 @@ test('a native timeout requires diagnosis and preserves possible execution inste
 });
 
 test('a foreground refusal caused by the user own input asks for a settled capture, not host diagnosis', () => {
-  const recovery = computerToolErrorRecovery('foreground_input_not_ready: the last observation was not foreground-ready', {
-    action: 'act',
-    input: { window_id: 'hwnd:0x1' },
-  });
+  const recovery = computerToolErrorRecovery(
+    'foreground_input_not_ready: the last observation was not foreground-ready',
+    {
+      action: 'act',
+      input: { window_id: 'hwnd:0x1' },
+    }
+  );
   assert.equal(recovery.next, 'capture');
   assert.match(recovery.guidance, /No input was sent/);
   assert.match(recovery.guidance, /background delivery/);

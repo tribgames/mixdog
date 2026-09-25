@@ -4,19 +4,15 @@
 import type { DesktopGitBranch, DesktopGitFile, DesktopGitLogEntry, DesktopGitStatus } from '../shared/contract';
 import { t } from './i18n';
 import { resetModePrompt } from './source-control-confirmations';
-import { EMPTY_SUMMARY, gitRemoteWebUrl, isDirtyResetRefusal } from './source-control-support';
+import { EMPTY_SUMMARY, gitRemoteWebUrl, isDirtyResetRefusal, reasonText } from './source-control-support';
 import type { GitActionRunner } from './use-source-control-runner';
 
-export type SourceControlActionContext = {
+type SourceControlActionContext = {
   api: Window['mixdogDesktop'];
   projectPath: string;
   run: GitActionRunner;
   setError: (message: string) => void;
 };
-
-function reasonText(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
-}
 
 /** Channels this build does not carry yet: the item stays VISIBLE (nothing
  *  becomes unreachable) but says why it cannot run. */
@@ -27,10 +23,14 @@ export function missingChannel(what: string): string {
 /** Every history/stash action is refused while another Git action runs or
  *  while the repository is mid-operation — the reason the disabled item
  *  carries. */
-export function repositoryBusyReason(busy: string, status: DesktopGitStatus | null): string {
+export function repositoryBusyReason(busy: string, status: DesktopGitStatus | null | undefined): string {
   if (busy) return 'Another Git action is running';
-  if (status?.operation) return `Finish the in-progress ${status.operation.replace('-', ' ')} first`;
-  return '';
+  return operationInProgressReason(status);
+}
+
+/** Why a repository mid-operation (merge, rebase, …) refuses new actions. */
+export function operationInProgressReason(status: DesktopGitStatus | null | undefined): string {
+  return status?.operation ? `Finish the in-progress ${status.operation.replace('-', ' ')} first` : '';
 }
 
 export function stashReasons({

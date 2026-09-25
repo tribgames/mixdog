@@ -374,7 +374,7 @@ function frameSections(message, text, reminder) {
     const skill = latestSkillBodies([{ ...message, content: text }])[0];
     // A skill body rides in as a reminder, but it is what a skill costs, not
     // system framing: it belongs to Skills, beside the Skill tool definition,
-    // grouped as what it is — loaded on demand (user: 스킬 분류 제대로 안된거).
+    // grouped as what it is — loaded on demand.
     if (skill) return [{ text, label: `Skill: ${skill.name}`, category: 'skills', group: 'loaded' }];
     if (parseTaskNotification(text)) return [{ text, label: 'Task notification' }];
     return reminderSections(text);
@@ -535,7 +535,7 @@ export function inspectionRevision({ sessionId, provider, model, messages, tools
 
 // Price the whole transcript and tool surface ONCE. Previews stay as closures
 // on the drafts, so a caller that keeps this build answers entry previews
-// without re-pricing anything (user: 컨텍스트창 로딩이 심하지).
+// without re-pricing anything.
 export function buildContextInspection({
   sessionId,
   provider,

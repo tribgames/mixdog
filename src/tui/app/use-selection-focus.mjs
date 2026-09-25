@@ -5,6 +5,7 @@
  * edge-drag auto-scroll) instead of clamping the selection in place.
  */
 import { useCallback } from 'react';
+import { linearSelection } from './mouse-input/geometry.mjs';
 import { selectionRectIsDegenerate } from './transcript-window.mjs';
 
 export function useSelectionFocusMove({
@@ -115,15 +116,8 @@ export function useSelectionFocusMove({
       const dragNow = dragRef.current;
       if (dragNow.anchorSpan) dragNow.anchorSpan = null;
 
-      const focus = { x: col, y: row };
-      applySelectionRect({
-        mode: 'linear',
-        x1: anchor.x,
-        y1: anchor.y,
-        x2: focus.x,
-        y2: focus.y,
-      });
-      dragNow.last = { x: focus.x, y: focus.y };
+      applySelectionRect(linearSelection(anchor, { x: col, y: row }));
+      dragNow.last = { x: col, y: row };
       return true;
     },
     [applySelectionRect, statusBandRows, transcriptViewportRows, selectionMaxColAtRow, scrollFocusPastEdge]

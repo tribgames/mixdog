@@ -46,6 +46,11 @@ interface Attempt {
   assertRunnable(): void;
 }
 
+/** An aborted session whose input recovery failed reports that failure, not the abort. */
+function recoveryFailure(failureCode: string): Error {
+  return new Error(`${failureCode}: input recovery failed; inspect the recovery diagnostic`);
+}
+
 /** Reads and recovery reads observe the desktop; they never replay input. */
 function observesOnly(command: ComputerCommand): boolean {
   return READ_ACTIONS.has(String(command.action)) || isComputerRecoveryRead(String(command.action));
@@ -59,9 +64,7 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
   let lastInjectionTick: number | null = null;
 
   const assertRunnableFor = (state: ActiveExecution, epoch: number) => () => {
-    if (state.aborted && state.failureCode) {
-      throw new Error(`${state.failureCode}: input recovery failed; inspect the recovery diagnostic`);
-    }
+    if (state.aborted && state.failureCode) throw recoveryFailure(state.failureCode);
     assertEpoch(state.sessionId, epoch);
     if (state.aborted) throw new Error('computer_session_aborted: command stopped by session cancellation');
   };
@@ -134,10 +137,7 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
   async function failedAttempt(attempt: Attempt, failure: unknown): Promise<ComputerCommandResult> {
     const { command, state, startedAt } = attempt;
     const captureAttempts = captureAttemptsFromError(failure);
-    const error =
-      state.aborted && state.failureCode
-        ? new Error(`${state.failureCode}: input recovery failed; inspect the recovery diagnostic`)
-        : failure;
+    const error = state.aborted && state.failureCode ? recoveryFailure(state.failureCode) : failure;
     const code = computerLogError(error);
     if (TAKEOVER_CODES.includes(code)) {
       deps.takeOver(code);

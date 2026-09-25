@@ -1,5 +1,6 @@
 /** How one command waits for the work ahead of it on its queue key, and how
  *  its own completion is recorded for the commands after it. */
+import { browserCancellation } from './settle';
 
 export interface QueueLedger {
   /** One promise chain per queue key. */
@@ -10,12 +11,12 @@ export interface QueueLedger {
 
 export function waitForBarrier(barrier: Promise<unknown>, signal: AbortSignal): Promise<void> {
   if (signal.aborted) {
-    return Promise.reject(signal.reason || new Error('browser command cancelled'));
+    return Promise.reject(browserCancellation(signal));
   }
   return new Promise<void>((resolve, reject) => {
     const abort = () => {
       signal.removeEventListener('abort', abort);
-      reject(signal.reason || new Error('browser command cancelled'));
+      reject(browserCancellation(signal));
     };
     signal.addEventListener('abort', abort, { once: true });
     void barrier.then(

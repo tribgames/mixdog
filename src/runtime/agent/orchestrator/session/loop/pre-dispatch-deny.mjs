@@ -85,7 +85,11 @@ export function routeWebFetchCall(call) {
   return call;
 }
 
-function _preDispatchDeny(call, _toolKind, sessionRef) {
+/**
+ * Exported for smoke tests — same runtime deny as the agent loop. `_toolKind`
+ * is accepted for caller compatibility; the rules do not depend on it.
+ */
+export function preDispatchDenyForSession(sessionRef, call, _toolKind) {
   const name = call?.name;
   if (typeof name !== 'string' || !name) return null;
   if (Array.isArray(sessionRef?.schemaAllowedTools)) {
@@ -104,9 +108,4 @@ function _preDispatchDeny(call, _toolKind, sessionRef) {
     return `Error: control-plane tool "${name}" is Lead-only and not available to agent workers.`;
   }
   return null;
-}
-
-/** Exported for smoke tests — same runtime deny as the agent loop. */
-export function preDispatchDenyForSession(sessionRef, call, toolKind = 'builtin') {
-  return _preDispatchDeny(call, toolKind, sessionRef);
 }

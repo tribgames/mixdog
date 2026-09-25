@@ -81,7 +81,7 @@ export function createSubmissionIntake(bag) {
     if (!flags.autoClearRunning && !getState().commandBusy && !getState().busy) {
       void Promise.resolve(autoClearBeforeSubmit()).catch(() => {});
     }
-    return (await Promise.resolve(enqueueSubmission(intake))) !== false;
+    return (await enqueueSubmission(intake)) !== false;
   };
 
   const submitAndWait = async (text, options = {}) => {

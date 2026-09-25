@@ -38,6 +38,24 @@ const languageNames = new Set([
   'Tiếng Việt',
 ]);
 
+/** Whether a phrase still has Latin letters once its interpolation slots are removed. */
+export function hasLatinText(text) {
+  return /[A-Za-z]/.test(text.replace(/\{\{[^}]+\}\}/g, ''));
+}
+
+/** Source files under `directory` (or the file itself), skipping catalogs, tests and declarations. */
+function sourceFiles(directory, sourcePattern) {
+  if (statSync(directory).isFile()) return [directory];
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === 'locales') return [];
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path, sourcePattern);
+    const selected =
+      sourcePattern.test(entry.name) && !/\.(?:test|d)\./.test(entry.name) && !entry.name.includes('.integration.');
+    return selected ? [path] : [];
+  });
+}
+
 /** UI literals, including TS data modules and phrases held in local variables.
  * Locations are retained so a missing translation can be fixed at its owner. */
 export function collectUiKeys(
@@ -46,18 +64,7 @@ export function collectUiKeys(
 ) {
   const results = new Map();
   const sourcePattern = explicitOnly ? /\.(?:[cm]?js|tsx?)$/ : /\.tsx?$/;
-  function files(directory) {
-    if (statSync(directory).isFile()) return [directory];
-    return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-      if (entry.name === 'locales') return [];
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) return files(path);
-      const selected =
-        sourcePattern.test(entry.name) && !/\.(?:test|d)\./.test(entry.name) && !entry.name.includes('.integration.');
-      return selected ? [path] : [];
-    });
-  }
-  for (const path of files(root)) {
+  for (const path of sourceFiles(root, sourcePattern)) {
     const source = ts.createSourceFile(
       path,
       readFileSync(path, 'utf8'),
@@ -75,7 +82,7 @@ export function collectUiKeys(
             /^https?:\/\//.test(key) ||
             /^mixdog:/.test(key) ||
             /^[-\w.]+\.(?:md|tsx?|jsx?|json|css)$/.test(key) ||
-            !/[A-Za-z]/.test(key.replace(/\{\{[^}]+\}\}/g, ''))))
+            !hasLatinText(key)))
       )
         return;
       if (!results.has(key)) {

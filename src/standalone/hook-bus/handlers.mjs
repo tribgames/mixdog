@@ -189,6 +189,28 @@ export async function runHttpHandler(
   }
 }
 
+// Race one runner call against the handler timeout. Losing the race is not
+// cancellation by itself, so `onTimeout` aborts the run's own signal and
+// returns the error the race rejects with. The abandoned call still settles
+// somewhere; its rejection stays handled.
+async function raceHandlerTimeout(run, { signal, timeoutMs, onTimeout }) {
+  let timer = null;
+  try {
+    const runPromise = Promise.resolve(run());
+    runPromise.catch(() => {});
+    return await Promise.race([
+      runAbortable(signal, () => runPromise),
+      new Promise((_r, reject) => {
+        timer = setTimeout(() => reject(onTimeout()), timeoutMs);
+        // No unref: this timer must keep the event loop alive so the race can
+        // settle even when the runner promise never resolves. Cleared in finally.
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunner, { signal } = {}) {
   throwIfAborted(signal);
   const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
@@ -205,41 +227,28 @@ export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunn
       spawnError: null,
     };
   }
-  let timer = null;
   // Losing the race is not cancellation: without this signal the tool call kept
   // running (and holding its MCP slot) long after the hook gave up on it.
   const controller = new AbortController();
   const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   try {
-    const runPromise = Promise.resolve(
-      mcpToolRunner({
-        name,
-        args: payload,
-        signal: requestSignal,
+    const text = await raceHandlerTimeout(
+      () => mcpToolRunner({ name, args: payload, signal: requestSignal, timeoutMs }),
+      {
+        signal,
         timeoutMs,
-      })
-    );
-    // The abandoned call still settles somewhere; keep its rejection handled.
-    runPromise.catch(() => {});
-    const text = await Promise.race([
-      runAbortable(signal, () => runPromise),
-      new Promise((_r, reject) => {
-        timer = setTimeout(() => {
+        onTimeout: () => {
           try {
             controller.abort(new Error(`mcp_tool hook timed out: ${name}`));
           } catch {}
-          reject(new Error(`mcp_tool hook timed out: ${name}`));
-        }, timeoutMs);
-        // No unref: this timer must keep the event loop alive so the race can
-        // settle even when the runner promise never resolves. Cleared in finally.
-      }),
-    ]);
+          return new Error(`mcp_tool hook timed out: ${name}`);
+        },
+      }
+    );
     return { exitCode: 0, stdout: limitText(String(text ?? '')), stderr: '', timedOut: false, spawnError: null };
   } catch (error) {
     const timedOut = !signal?.aborted && /timed out/i.test(error?.message || '');
     return { exitCode: -1, stdout: '', stderr: error?.message || String(error), timedOut, spawnError: null };
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }
 
@@ -250,24 +259,18 @@ export async function runPromptHandler(handler, payload, eventName, promptRunner
   if (!prompt) {
     return { exitCode: -1, stdout: '', stderr: 'prompt handler missing prompt', timedOut: false, spawnError: null };
   }
-  let timer = null;
   const controller = new AbortController();
   const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   try {
-    const runPromise = Promise.resolve(promptRunner({ prompt, payload, timeoutMs, signal: requestSignal }));
-    runPromise.catch(() => {});
-    const text = await Promise.race([
-      runAbortable(signal, () => runPromise),
-      new Promise((_r, reject) => {
-        timer = setTimeout(() => {
-          const error = new Error(`prompt hook timed out: ${eventName}`);
-          controller.abort(error);
-          reject(error);
-        }, timeoutMs);
-        // No unref: this timer must keep the event loop alive so the race can
-        // settle even when the runner promise never resolves. Cleared in finally.
-      }),
-    ]);
+    const text = await raceHandlerTimeout(() => promptRunner({ prompt, payload, timeoutMs, signal: requestSignal }), {
+      signal,
+      timeoutMs,
+      onTimeout: () => {
+        const error = new Error(`prompt hook timed out: ${eventName}`);
+        controller.abort(error);
+        return error;
+      },
+    });
     const raw = String(text ?? '').trim();
     const deny = (reason) => ({ exitCode: 2, stdout: '', stderr: reason, timedOut: false, spawnError: null });
     const allow = () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false, spawnError: null });
@@ -289,8 +292,6 @@ export async function runPromptHandler(handler, payload, eventName, promptRunner
   } catch (error) {
     const timedOut = !signal?.aborted && /timed out/i.test(error?.message || '');
     return { exitCode: -1, stdout: '', stderr: error?.message || String(error), timedOut, spawnError: null };
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }
 

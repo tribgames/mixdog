@@ -86,16 +86,10 @@ export function useGlobalKeyInput({
         surface.claim().context(null);
         return;
       }
-      if (key.pageUp) {
+      if (key.pageUp || key.pageDown) {
         if (overlayBlocksGlobalTranscriptScroll(scrollFocusRef.current)) return;
         const pageRows = Math.max(3, Math.floor((resizeState.rows ?? 24) * 0.6));
-        scrollTranscriptRows(pageRows);
-        return;
-      }
-      if (key.pageDown) {
-        if (overlayBlocksGlobalTranscriptScroll(scrollFocusRef.current)) return;
-        const pageRows = Math.max(3, Math.floor((resizeState.rows ?? 24) * 0.6));
-        scrollTranscriptRows(-pageRows);
+        scrollTranscriptRows(key.pageUp ? pageRows : -pageRows);
         return;
       }
       if (key.ctrl && key.end) {

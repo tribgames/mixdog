@@ -32,8 +32,7 @@ function resolveDefaultChildSpawnLaneMaxInflight(
   parallelism = availableParallelism()
 ) {
   const lane = _laneName(laneName);
-  const key = lane.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
-  const laneOverride = positiveInt(env[`MIXDOG_CHILD_SPAWN_${key}_MAX_INFLIGHT`]);
+  const laneOverride = positiveInt(env[`MIXDOG_CHILD_SPAWN_${_laneEnvKey(lane)}_MAX_INFLIGHT`]);
   if (laneOverride != null) return laneOverride;
   const sharedOverride = positiveInt(env.MIXDOG_CHILD_SPAWN_MAX_INFLIGHT);
   if (sharedOverride != null) return sharedOverride;
@@ -71,14 +70,15 @@ function _laneName(name) {
   return LANE_ALIASES.get(clean) || clean;
 }
 
-function _laneLimit(name) {
-  return resolveDefaultChildSpawnLaneMaxInflight(name);
+// Environment-variable infix for a lane: `code-graph` → `CODE_GRAPH`.
+function _laneEnvKey(name) {
+  return _laneName(name)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_');
 }
 
 function _laneSetting(name, suffix, fallback) {
-  const key = _laneName(name)
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '_');
+  const key = _laneEnvKey(name);
   return positiveInt(
     process.env[`MIXDOG_CHILD_SPAWN_${key}_${suffix}`],
     positiveInt(process.env[`MIXDOG_CHILD_SPAWN_${suffix}`], fallback)
@@ -94,7 +94,7 @@ function _laneSetting(name, suffix, fallback) {
 //               stall every rg spawn behind it. Separate lanes remove that
 //               starvation class while keeping each spawn family bounded.
 function _makeLane(name) {
-  const limit = _laneLimit(name);
+  const limit = resolveDefaultChildSpawnLaneMaxInflight(name);
   const queueMax = _laneSetting(name, 'MAX_QUEUE', 1024);
   const waitTimeoutMs = _laneSetting(name, 'WAIT_TIMEOUT_MS', 30_000);
   return {
@@ -144,14 +144,14 @@ function _warnLeaseFallback(error, laneName) {
   }
 }
 
-function _maybeWarnSlow(waitedMs, laneName, lane) {
+function _maybeWarnSlow(waitedMs, laneName, limit, queued) {
   if (waitedMs < SLOW_WAIT_MS) return;
   const now = Date.now();
   if (now - _lastSlowWarnAt < SLOW_WARN_THROTTLE_MS) return;
   _lastSlowWarnAt = now;
   try {
     process.stderr.write(
-      `[child-spawn-gate] lane=${laneName} queue wait ${waitedMs}ms (inflight cap=${lane.limit}, queued=${lane.queue.length}); ` +
+      `[child-spawn-gate] lane=${laneName} queue wait ${waitedMs}ms (inflight cap=${limit}, queued=${queued}); ` +
         'raise the lane-specific MIXDOG_CHILD_SPAWN_*_MAX_INFLIGHT if this persists\n'
     );
   } catch {
@@ -223,11 +223,7 @@ function _acquireLocal(signal, normalizedLaneName, lane, ownerKey, waitTimeoutMs
     {
       signal,
       waitTimeoutMs,
-      onAdmit: (waitedMs) =>
-        _maybeWarnSlow(waitedMs, normalizedLaneName, {
-          limit: lane.limit,
-          queue: { length: lane.gate.queued },
-        }),
+      onAdmit: (waitedMs) => _maybeWarnSlow(waitedMs, normalizedLaneName, lane.limit, lane.gate.queued),
     }
   );
   running.catch((error) => admitted.reject(error));

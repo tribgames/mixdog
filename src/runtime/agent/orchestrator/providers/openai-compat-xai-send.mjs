@@ -1,6 +1,5 @@
-import { markProviderRecoveryExhausted, retryDelayLabel, withRetry } from './retry-classifier.mjs';
+import { markProviderRecoveryExhausted, withRetry } from './retry-classifier.mjs';
 import { consumeCompatResponsesStream } from './openai-compat-stream.mjs';
-import { providerRetryStatusText } from '../../../shared/err-text.mjs';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, createPassthroughSignal } from '../stall-policy.mjs';
 import {
   nativeResponsesTools,
@@ -21,7 +20,7 @@ import {
 } from './openai-compat-xai.mjs';
 import { normalizeXaiResponsesHttp, normalizeXaiResponsesWebSocket } from './openai-compat-response-normalization.mjs';
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
-import { applyCompatToolChoice } from './compat-request-policy.mjs';
+import { applyCompatToolChoice, compatStreamRetryReporter } from './compat-request-policy.mjs';
 import { envFlag as _envFlag } from '../../../shared/env.mjs';
 import { resolveResponsesTransportPolicy, RESPONSES_TRANSPORT_CAPABILITIES } from './openai-transport-policy.mjs';
 
@@ -123,27 +122,7 @@ export async function sendXaiResponses(provider, messages, useModel, tools, opts
       },
       {
         signal: totalSignal.signal,
-        onRetry: ({ attempt, maxAttempts, lastErr, delayMs, delayReason }) => {
-          const delayLabel = retryDelayLabel(delayMs, delayReason);
-          process.stderr.write(
-            `[xai:responses] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`
-          );
-          try {
-            opts.onStageChange?.('reconnecting', {
-              attempt: attempt + 1,
-              max: maxAttempts,
-              waitMs: delayMs,
-              classifier: lastErr?.retryClassifier || lastErr?.code || null,
-              message: providerRetryStatusText(lastErr, {
-                attempt: attempt + 1,
-                maxAttempts,
-                delayMs,
-              }),
-            });
-          } catch {
-            /* display-only */
-          }
-        },
+        onRetry: compatStreamRetryReporter('xai:responses', opts),
       }
     );
   } finally {

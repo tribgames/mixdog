@@ -502,6 +502,29 @@ test('deck review reports a body page that carries one sentence and nothing else
     false,
     'a sentence beside a chart is a reading'
   );
+  // A kit structure (lanes: labels signed as the structure) is the page's carrier, not a hollow.
+  const laned = (index) => ({
+    index,
+    background: { color: 'F7F9FC' },
+    shapes: [
+      title(index),
+      ...['조례 개정', '저소음 차량', '의견 수렴'].map((text, lane) => ({
+        type: 17,
+        text,
+        name: 'mixdog-spec:structure:lanes',
+        left: 200 + lane * 60,
+        top: 150 + lane * 110,
+        width: 180,
+        height: 50,
+        font: { size: 14 },
+      })),
+    ],
+  });
+  assert.equal(
+    review([cover(1), charted(2), laned(3), charted(4), cover(5)]).some((entry) => entry.code === 'page_underfill'),
+    false,
+    'a structure carries the page'
+  );
 });
 
 // visual types although both are drawn from ellipses and lines.

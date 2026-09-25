@@ -85,7 +85,7 @@ export function resolveGeometry(shapeType) {
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_');
-  return GEOMETRY[key] || '';
+  return Object.hasOwn(GEOMETRY, key) ? GEOMETRY[key] : '';
 }
 
 export function supportedShapeTypes() {
@@ -135,13 +135,16 @@ function runProperties(source, defaults) {
 
 function paragraphXml(paragraph, defaults) {
   const level = Math.max(0, Math.min(8, Number(paragraph.level) || 0));
-  const align = ALIGNMENT[String(paragraph.align ?? defaults.align ?? '').toLowerCase()] || '';
+  const alignKey = String(paragraph.align ?? defaults.align ?? '').toLowerCase();
+  const align = Object.hasOwn(ALIGNMENT, alignKey) ? ALIGNMENT[alignKey] : '';
   const spacing = Number(paragraph.paragraphSpacing ?? defaults.paragraphSpacing);
   const bulleted = paragraph.bullet === true;
+  // A bullet hangs 22 pt and each level steps in by as much again, as the Office backend sets it: one margin for
+  // every level set a sub-point flush with the point it belongs to.
   const indent = bulleted ? Math.round(2.2 * EMU_PER_POINT * 10) : 0;
   const properties =
     `<a:pPr${level ? ` lvl="${level}"` : ''}` +
-    `${bulleted ? ` marL="${indent}" indent="${-indent}"` : ' marL="0" indent="0"'}` +
+    `${bulleted ? ` marL="${indent * (level + 1)}" indent="${-indent}"` : ' marL="0" indent="0"'}` +
     `${align ? ` algn="${align}"` : ''}>` +
     (Number.isFinite(spacing) && spacing > 0
       ? `<a:spcBef><a:spcPts val="${Math.round(spacing * 100)}"/></a:spcBef>`
@@ -165,7 +168,8 @@ export function textBodyXml({
   margins = {},
   autofit = 'none',
 } = {}) {
-  const anchorValue = ANCHOR[String(anchor || '').toLowerCase()] || '';
+  const anchorKey = String(anchor || '').toLowerCase();
+  const anchorValue = Object.hasOwn(ANCHOR, anchorKey) ? ANCHOR[anchorKey] : '';
   const inset = ['Left', 'Top', 'Right', 'Bottom']
     .map((edge, index) => {
       const value = margins[`margin${edge}`];
@@ -211,12 +215,15 @@ export function shapeXml({
     fill = solidFill(properties.fillColor, properties.fillTransparency) || '<a:noFill/>';
   }
   const line = outline(properties) || (textBox ? '<a:ln><a:noFill/></a:ln>' : '');
+  // The shadow and the description set_shape writes; a new shape dropped both on both backends.
+  const effects = properties.shadow ? `<a:effectLst>${shadowXml(properties.shadow)}</a:effectLst>` : '';
+  const description = properties.altText ? ` descr="${xmlEncode(String(properties.altText))}"` : '';
   return (
     `<p:sp><p:nvSpPr>` +
-    `<p:cNvPr id="${id}" name="${xmlEncode(name || `Shape ${id}`)}"/>` +
+    `<p:cNvPr id="${id}" name="${xmlEncode(name || `Shape ${id}`)}"${description}/>` +
     `<p:cNvSpPr${textBox ? ' txBox="1"' : ''}/><p:nvPr/></p:nvSpPr>` +
     `<p:spPr>${frame(left, top, width, height, properties.rotation)}` +
-    `<a:prstGeom prst="${geometry}"><a:avLst/></a:prstGeom>${fill}${line}</p:spPr>` +
+    `<a:prstGeom prst="${geometry}"><a:avLst/></a:prstGeom>${fill}${line}${effects}</p:spPr>` +
     `<p:txBody>${textBody}</p:txBody></p:sp>`
   );
 }
@@ -254,7 +261,28 @@ export function pictureXml({
   );
 }
 
-function tableCellXml(text, header, properties, fill) {
+// A table the caller did not style reads the way the Word writer's does: a rule under the header, hairlines between
+// the rows, no verticals. Left to the reader, the same table came out as a black grid in LibreOffice and bare text in
+// PowerPoint (no style, no borders), neither of them the deck it sat in.
+const TABLE_HEADER_RULE = '9AA3AD';
+const TABLE_ROW_RULE = 'D8DCE0';
+const tableLine = (side, color, width) =>
+  color
+    ? `<a:${side} w="${width}" cap="flat" cmpd="sng"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill><a:prstDash val="solid"/></a:${side}>`
+    : `<a:${side} w="0"><a:noFill/></a:${side}>`;
+function tableCellLines(header) {
+  return (
+    tableLine('lnL') +
+    tableLine('lnR') +
+    tableLine('lnT') +
+    (header ? tableLine('lnB', TABLE_HEADER_RULE, 12700) : tableLine('lnB', TABLE_ROW_RULE, 6350))
+  );
+}
+
+// A figure sits on the right edge of its column, and its header over it: "1,420", "−12", "8.4", "94.1%", "2,840원".
+const TABLE_FIGURE = /^[\s~+\-−–$€₩£(]*[\d.,]+\s*(?:[%xXKMBT]|배|건|억|조|만|천|원|시간|일|개월|개|명|대|곳|분|초|회|점|년)*[)]?\s*$|^[-–—]$/;
+
+function tableCellXml(text, header, properties, fill, align) {
   const defaults = {
     fontName: properties.fontName,
     fontSize: properties.fontSize,
@@ -262,17 +290,17 @@ function tableCellXml(text, header, properties, fill) {
     bold: header ? true : properties.bold,
   };
   const body = textBodyXml({
-    paragraphs: [{ text, align: header ? 'left' : properties.align }],
+    paragraphs: [{ text, align: properties.align ?? align ?? 'left' }],
     defaults,
     anchor: 'center',
     margins: { marginLeft: 7, marginRight: 7, marginTop: 3, marginBottom: 3 },
   });
-  return `<a:tc><a:txBody>${body}</a:txBody><a:tcPr anchor="ctr">${fill ? solidFill(fill) : ''}</a:tcPr></a:tc>`;
+  return `<a:tc><a:txBody>${body}</a:txBody><a:tcPr anchor="ctr">${tableCellLines(header)}${fill ? solidFill(fill) : ''}</a:tcPr></a:tc>`;
 }
 
-function tableRowXml(row, { header, columns, properties, fill, height }) {
+function tableRowXml(row, { header, columns, properties, fill, height, alignments }) {
   const cells = Array.from({ length: columns }, (_, columnIndex) =>
-    tableCellXml(row[columnIndex] ?? '', header, properties, fill)
+    tableCellXml(row[columnIndex] ?? '', header, properties, fill, alignments[columnIndex])
   ).join('');
   return `<a:tr h="${height}">${cells}</a:tr>`;
 }
@@ -291,12 +319,22 @@ export function tableXml({
   if (!rows.length) throw new Error('add_table requires values as a non-empty array of rows');
   const columns = Math.max(...rows.map((row) => row.length));
   if (!columns) throw new Error('add_table requires at least one column');
-  const columnWidth = Math.max(1, Math.round(toEmu(width) / columns));
+  // columnWidths (points, one per column) share the frame's width in their proportions; without them the columns
+  // are equal.
+  const declared = Array.isArray(properties.columnWidths) ? properties.columnWidths.map(Number) : [];
+  const shares =
+    declared.length === columns && declared.every((value) => value > 0)
+      ? declared.map((value) => value / declared.reduce((sum, entry) => sum + entry, 0))
+      : Array(columns).fill(1 / columns);
   const headerHeight = Number(properties.headerRowHeight) || 0;
   const bodyHeight = Number(properties.bodyRowHeight) || 0;
-  const grid = Array.from({ length: columns }, () => `<a:gridCol w="${columnWidth}"/>`).join('');
+  const grid = shares.map((share) => `<a:gridCol w="${Math.max(1, Math.round(toEmu(width) * share))}"/>`).join('');
   const headerFill = normalizeHex(properties.headerFillColor);
   const bodyFill = normalizeHex(properties.bodyFillColor);
+  const alignments = Array.from({ length: columns }, (_, column) => {
+    const cells = rows.slice(1).map((row) => String(row[column] ?? '').trim()).filter(Boolean);
+    return column > 0 && cells.length > 0 && cells.every((cell) => TABLE_FIGURE.test(cell)) ? 'right' : 'left';
+  });
   const body = rows
     .map((row, rowIndex) => {
       const header = rowIndex === 0;
@@ -307,6 +345,7 @@ export function tableXml({
         properties,
         fill: header ? headerFill : bodyFill,
         height: rowHeight ? toEmu(rowHeight) : Math.round(toEmu(height) / rows.length),
+        alignments,
       });
     })
     .join('');
@@ -320,6 +359,149 @@ export function tableXml({
     `<a:tbl><a:tblPr firstRow="1" bandRow="1"/><a:tblGrid>${grid}</a:tblGrid>${body}</a:tbl>` +
     '</a:graphicData></a:graphic></p:graphicFrame>'
   );
+}
+
+// An attribute list with one attribute set (or added) to a value.
+function withAttribute(attributes, name, value) {
+  const stripped = attributes.replace(new RegExp(`\\s${name}="[^"]*"`), '');
+  return `${stripped} ${name}="${value}"`;
+}
+
+// One run property element (a:rPr or a:endParaRPr) restyled: size and weight on the tag, the colour first among its
+// children and the faces after it, as the schema orders them.
+function restyledRun(tag, attributes, children, properties) {
+  let attrs = attributes;
+  const size = Number(properties.fontSize);
+  if (Number.isFinite(size) && size > 0) attrs = withAttribute(attrs, 'sz', Math.round(size * 100));
+  if (properties.bold != null) attrs = withAttribute(attrs, 'b', properties.bold ? '1' : '0');
+  if (properties.italic != null) attrs = withAttribute(attrs, 'i', properties.italic ? '1' : '0');
+  let body = children;
+  const fill = solidFill(properties.color);
+  if (fill) {
+    body = `${fill}${body.replace(/<a:(?:solidFill|gradFill)\b[\s\S]*?<\/a:(?:solidFill|gradFill)>|<a:noFill\/>/g, '')}`;
+  }
+  if (properties.fontName) {
+    const face = xmlEncode(properties.fontName);
+    const faces = `<a:latin typeface="${face}"/><a:ea typeface="${face}"/><a:cs typeface="${face}"/>`;
+    body = body.replace(/<a:(?:latin|ea|cs)\b[^>]*\/>/g, '');
+    const tail = /<a:(?:sym|hlinkClick|hlinkMouseOver|rtl|extLst)\b/.exec(body);
+    body = tail ? `${body.slice(0, tail.index)}${faces}${body.slice(tail.index)}` : `${body}${faces}`;
+  }
+  return body ? `<a:${tag}${attrs}>${body}</a:${tag}>` : `<a:${tag}${attrs}/>`;
+}
+
+// A shadow as the Office backend's Shape.Shadow writes it: true is PowerPoint's own (black, a 5 pt blur, 2.08 pt
+// down and right); an object names its colour, transparency (0-1, as Shadow.Transparency), blur and offsets in points.
+// set_shape answered "no change" here for a shadow the Office backend drew.
+function shadowXml(shadow) {
+  const spec = shadow === true ? {} : shadow;
+  const offsetX = Number(spec.offsetX ?? 2.08);
+  const offsetY = Number(spec.offsetY ?? 2.08);
+  const degrees = ((Math.atan2(offsetY, offsetX) * 180) / Math.PI + 360) % 360;
+  const transparency = Math.max(0, Math.min(1, Number(spec.transparency) || 0));
+  const alpha = transparency ? `<a:alpha val="${Math.round((1 - transparency) * 100_000)}"/>` : '';
+  return (
+    `<a:outerShdw blurRad="${toEmu(Math.max(0, Number(spec.blur ?? 5)))}"` +
+    ` dist="${toEmu(Math.hypot(offsetX, offsetY))}" dir="${Math.round(degrees * 60_000)}" rotWithShape="0">` +
+    `<a:srgbClr val="${normalizeHex(spec.color) || '000000'}">${alpha}</a:srgbClr></a:outerShdw>`
+  );
+}
+
+// The shape's outer shadow set, its other effects kept in the schema's order.
+function withShadow(shape, shadow) {
+  const spPr = /<p:spPr\b[^>]*>([\s\S]*?)<\/p:spPr>/.exec(shape);
+  if (!spPr) return shape;
+  const existing = /<a:effectLst\b[^>]*?(?:\/>|>([\s\S]*?)<\/a:effectLst>)/.exec(spPr[1]);
+  const kept = (existing?.[1] || '').replace(/<a:outerShdw\b[\s\S]*?<\/a:outerShdw>/, '');
+  const later = /<a:(?:prstShdw|reflection|softEdge)\b/.exec(kept);
+  const at = later ? later.index : kept.length;
+  const list = `<a:effectLst>${kept.slice(0, at)}${shadowXml(shadow)}${kept.slice(at)}</a:effectLst>`;
+  let inner;
+  if (existing) {
+    inner = `${spPr[1].slice(0, existing.index)}${list}${spPr[1].slice(existing.index + existing[0].length)}`;
+  } else {
+    const after = /<a:(?:effectDag|scene3d|sp3d|extLst)\b/.exec(spPr[1]);
+    const position = after ? after.index : spPr[1].length;
+    inner = `${spPr[1].slice(0, position)}${list}${spPr[1].slice(position)}`;
+  }
+  const start = spPr.index + spPr[0].indexOf('>') + 1;
+  return `${shape.slice(0, start)}${inner}${shape.slice(start + spPr[1].length)}`;
+}
+
+// A shape's text restyled the way the Office backend sets it through the text frame — every paragraph's alignment,
+// every run's face, size, weight, and colour, the frame's anchor and insets — and its outline. set_shape used to move
+// and fill the box and leave its words as they were.
+export function restyleShapeText(shape, properties) {
+  let next = shape;
+  const spPr = /<p:spPr\b[^>]*>([\s\S]*?)<\/p:spPr>/.exec(next);
+  // A width or transparency alone restyles the outline the shape has, and a new colour keeps its width, as the
+  // Office backend's Line does; both were dropped here unless a colour came with them.
+  const existingLine = /<a:ln\b[^>]*?(?:\/>|>[\s\S]*?<\/a:ln>)/.exec(spPr?.[1] || '')?.[0] || '';
+  const existingAlpha = /<a:alpha val="(\d+)"/.exec(existingLine)?.[1];
+  const line = {
+    lineColor:
+      properties.lineColor !== undefined
+        ? properties.lineColor
+        : /<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/.exec(existingLine)?.[1],
+    lineWidth: properties.lineWidth ?? (Number(/\bw="(\d+)"/.exec(existingLine)?.[1]) / EMU_PER_POINT || undefined),
+    lineTransparency: properties.lineTransparency ?? (existingAlpha ? 100 - Number(existingAlpha) / 1000 : undefined),
+  };
+  const lineRequested = ['lineColor', 'lineWidth', 'lineTransparency'].some((key) => properties[key] !== undefined);
+  if (spPr && lineRequested && (normalizeHex(line.lineColor) || line.lineColor === null)) {
+    // The outline follows the fill and precedes any effects in the shape properties.
+    const stripped = spPr[1].replace(/<a:ln\b[^>]*?(?:\/>|>[\s\S]*?<\/a:ln>)/, '');
+    const effects = /<a:(?:effectLst|effectDag|scene3d|sp3d|extLst)\b/.exec(stripped);
+    const at = effects ? effects.index : stripped.length;
+    const inner = `${stripped.slice(0, at)}${outline(line)}${stripped.slice(at)}`;
+    const start = spPr.index + spPr[0].indexOf('>') + 1;
+    next = `${next.slice(0, start)}${inner}${next.slice(start + spPr[1].length)}`;
+  }
+  if (properties.shadow) next = withShadow(next, properties.shadow);
+  const body = /<p:txBody>([\s\S]*?)<\/p:txBody>/.exec(next);
+  if (!body) return next;
+  let inner = body[1];
+  const anchorKey = String(properties.verticalAlignment || '').toLowerCase();
+  const insets = { marginLeft: 'lIns', marginTop: 'tIns', marginRight: 'rIns', marginBottom: 'bIns' };
+  inner = inner.replace(/<a:bodyPr\b([^>]*?)(\/?)>/, (_match, attributes, selfClosing) => {
+    let attrs = attributes;
+    if (Object.hasOwn(ANCHOR, anchorKey)) attrs = withAttribute(attrs, 'anchor', ANCHOR[anchorKey]);
+    for (const [name, attribute] of Object.entries(insets)) {
+      if (properties[name] != null) attrs = withAttribute(attrs, attribute, toEmu(properties[name]));
+    }
+    return `<a:bodyPr${attrs}${selfClosing}>`;
+  });
+  const alignKey = String(properties.alignment || '').toLowerCase();
+  if (Object.hasOwn(ALIGNMENT, alignKey)) {
+    inner = inner
+      .replace(/<a:p>(?!<a:pPr)/g, '<a:p><a:pPr/>')
+      .replace(
+        /<a:pPr\b([^>]*?)(\/?)>/g,
+        (_match, attributes, selfClosing) =>
+          `<a:pPr${withAttribute(attributes, 'algn', ALIGNMENT[alignKey])}${selfClosing}>`
+      );
+  }
+  const spacing = Number(properties.paragraphSpacing);
+  if (properties.paragraphSpacing != null && Number.isFinite(spacing)) {
+    // Space before every paragraph, as add_shape writes it and the Office backend sets it; set_shape ignored it.
+    const before = spacing > 0 ? `<a:spcBef><a:spcPts val="${Math.round(spacing * 100)}"/></a:spcBef>` : '';
+    inner = inner
+      .replace(/<a:p>(?!<a:pPr)/g, '<a:p><a:pPr/>')
+      .replace(/<a:pPr\b([^>]*?)\/>/g, '<a:pPr$1></a:pPr>')
+      .replace(/(<a:pPr\b[^>]*>)([\s\S]*?)<\/a:pPr>/g, (_match, head, children) => {
+        const rest = children.replace(/<a:spcBef>[\s\S]*?<\/a:spcBef>/, '');
+        // lnSpc is the one child the schema puts before spcBef.
+        const lineSpacing = /^<a:lnSpc>[\s\S]*?<\/a:lnSpc>/.exec(rest)?.[0] || '';
+        return `${head}${lineSpacing}${before}${rest.slice(lineSpacing.length)}</a:pPr>`;
+      });
+  }
+  if (['fontName', 'fontSize', 'bold', 'italic', 'color'].some((name) => properties[name] != null)) {
+    inner = inner
+      .replace(/<a:r>(?!<a:rPr)/g, '<a:r><a:rPr/>')
+      .replace(/<a:(rPr|endParaRPr)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/a:\1>)/g, (_match, tag, attributes, children) =>
+        restyledRun(tag, attributes, children || '', properties)
+      );
+  }
+  return `${next.slice(0, body.index)}<p:txBody>${inner}</p:txBody>${next.slice(body.index + body[0].length)}`;
 }
 
 export function solidFillXml(color, transparency) {

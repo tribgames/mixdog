@@ -23,26 +23,17 @@ function formatMB(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
 }
 
-async function readTidyEngineStatus(api: PanelContext['api']): Promise<DesktopTidyEngineStatus | null> {
-  const request = { capability: 'getTidyEngineStatus' as const, args: [] };
+async function readTidyCapability<T>(
+  api: PanelContext['api'],
+  capability: 'getTidyEngineStatus' | 'getTidyInstallStatus'
+): Promise<T | null> {
+  const request = { capability, args: [] };
   if (api.readCapabilities) {
     const [result] = await api.readCapabilities([request]);
-    if (result?.ok) return result.value as DesktopTidyEngineStatus;
+    if (result?.ok) return result.value as T;
   } else if (api.invokeCapability) {
     const res = await api.invokeCapability(request);
-    return (res?.value as DesktopTidyEngineStatus) ?? null;
-  }
-  return null;
-}
-
-async function readTidyInstallStatus(api: PanelContext['api']): Promise<DesktopTidyInstallStatus | null> {
-  const request = { capability: 'getTidyInstallStatus' as const, args: [] };
-  if (api.readCapabilities) {
-    const [result] = await api.readCapabilities([request]);
-    if (result?.ok) return result.value as DesktopTidyInstallStatus;
-  } else if (api.invokeCapability) {
-    const res = await api.invokeCapability(request);
-    return (res?.value as DesktopTidyInstallStatus) ?? null;
+    return (res?.value as T) ?? null;
   }
   return null;
 }
@@ -181,7 +172,7 @@ export function useTidyEngineStatus(api: PanelContext['api'], active: boolean, i
 
   const refresh = useCallback(async () => {
     try {
-      const next = await readTidyEngineStatus(api);
+      const next = await readTidyCapability<DesktopTidyEngineStatus>(api, 'getTidyEngineStatus');
       if (next) {
         setStatus(next);
       }
@@ -207,7 +198,7 @@ export function useTidyEngineStatus(api: PanelContext['api'], active: boolean, i
 
     const poll = async () => {
       try {
-        const next = await readTidyInstallStatus(api);
+        const next = await readTidyCapability<DesktopTidyInstallStatus>(api, 'getTidyInstallStatus');
         if (!disposed && next) {
           setInstallStatus(next);
         }

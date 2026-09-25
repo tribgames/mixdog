@@ -129,17 +129,14 @@ function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
   const error = String(bgArgs.error || '').trim();
   if (!error) return false;
   if (normalizedName === 'agent') {
-    const pending = toolItemPendingForRows(item);
-    const isError = Boolean(item.isError);
-    const agentHeaderFailure = !pending && isError && error && !hasDisplayResult;
-    if (!agentHeaderFailure) return false;
-    const displayedResultText = toolDisplayedResultTextForRows(item);
-    const briefRaw = summarizeAgentSurfaceBrief(item.name, bgArgs, displayedResultText, {
-      isError,
+    // With no display result and an error text, a settled errored agent card
+    // is header-only unless its brief carries text.
+    if (toolItemPendingForRows(item) || !item.isError) return false;
+    const briefRaw = summarizeAgentSurfaceBrief(item.name, bgArgs, toolDisplayedResultTextForRows(item), {
+      isError: true,
       isResponse: false,
     });
-    const agentSurfaceBriefNonempty = Boolean(String(briefRaw || '').trim());
-    return !agentSurfaceBriefNonempty;
+    return !String(briefRaw || '').trim();
   }
   if (!isBackgroundTaskToolName(normalizedName) || !bgArgs.task_id) return false;
   if (isBackgroundTaskResponseArgs(normalizedName, bgArgs)) return false;

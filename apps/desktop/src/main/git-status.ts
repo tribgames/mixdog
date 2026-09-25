@@ -78,6 +78,29 @@ function normalizeStatusLetter(value: string | undefined): string {
   return !value || value === '.' ? ' ' : value;
 }
 
+/** A status row before line stats are applied. */
+function statusFileEntry(
+  path: string,
+  index: string,
+  worktree: string,
+  untracked: boolean,
+  conflicted: boolean
+): GitFileEntry {
+  return {
+    path,
+    index,
+    worktree,
+    untracked,
+    conflicted,
+    stagedAdditions: 0,
+    stagedDeletions: 0,
+    unstagedAdditions: 0,
+    unstagedDeletions: 0,
+    additions: 0,
+    deletions: 0,
+  };
+}
+
 const STAGED_NUMSTAT_ARGS = ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z'];
 const UNSTAGED_NUMSTAT_ARGS = ['--no-optional-locks', 'diff', '--numstat', '-z'];
 
@@ -299,21 +322,7 @@ export async function gitStatus(cwd: string, options: GitStatusOptions = {}): Pr
       }
       if (entry.startsWith('? ')) {
         const path = entry.slice(2);
-        if (path) {
-          files.push({
-            path,
-            index: '?',
-            worktree: '?',
-            untracked: true,
-            conflicted: false,
-            stagedAdditions: 0,
-            stagedDeletions: 0,
-            unstagedAdditions: 0,
-            unstagedDeletions: 0,
-            additions: 0,
-            deletions: 0,
-          });
-        }
+        if (path) files.push(statusFileEntry(path, '?', '?', true, false));
         return;
       }
       const kind = entry[0];
@@ -322,19 +331,13 @@ export async function gitStatus(cwd: string, options: GitStatusOptions = {}): Pr
       const pathFieldCount = { '1': 8, '2': 9, u: 10 }[kind];
       const path = pathAfterFields(entry, pathFieldCount);
       if (!path) return;
-      const file: GitFileEntry = {
+      const file = statusFileEntry(
         path,
-        index: normalizeStatusLetter(xy[0]),
-        worktree: normalizeStatusLetter(xy[1]),
-        untracked: false,
-        conflicted: kind === 'u',
-        stagedAdditions: 0,
-        stagedDeletions: 0,
-        unstagedAdditions: 0,
-        unstagedDeletions: 0,
-        additions: 0,
-        deletions: 0,
-      };
+        normalizeStatusLetter(xy[0]),
+        normalizeStatusLetter(xy[1]),
+        false,
+        kind === 'u'
+      );
       if (kind === '2') pendingRename = file;
       else files.push(file);
     }

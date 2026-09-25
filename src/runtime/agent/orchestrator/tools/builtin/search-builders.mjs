@@ -83,6 +83,37 @@ export function buildGrepCacheKey(parts) {
   ].join('|');
 }
 
+// Noise-dir exclusions, but NOT the one matching a directory the caller
+// explicitly targeted — otherwise a grep inside e.g. node_modules/foo would
+// exclude its own root and match nothing (recall bug). Device-name globs (no
+// trailing /**) always apply. searchPath is normalized to forward slashes and
+// de-trailing-slashed for the comparison.
+function grepIgnoreGlobs(searchPath, globPatterns, includeNoise) {
+  const _sp = String(searchPath || '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '');
+  // A positive --glob filter that NAMES a pruned directory is asking to
+  // search inside it; only the path operand used to count, so
+  // `glob:"__pycache__/*.pyc"` matched nothing while the files were there.
+  // Negative filters never re-admit their own target.
+  const _namedByGlobs = new Set(
+    (Array.isArray(globPatterns) ? globPatterns : [])
+      .filter((g) => typeof g === 'string' && g && !g.startsWith('!'))
+      .flatMap((g) => g.replace(/\\/g, '/').split('/'))
+      .filter((segment) => segment && !/[*?[\]{}]/.test(segment))
+  );
+  return DEFAULT_IGNORE_GLOBS.filter((ex) => {
+    const m = /^!\*\*\/([^/]+)\/\*\*$/.exec(ex);
+    if (!m) return true;
+    if (includeNoise) return false;
+    const name = m[1];
+    if (_sp === name || _sp.endsWith(`/${name}`) || _sp.includes(`/${name}/`) || _sp.startsWith(`${name}/`)) {
+      return false;
+    }
+    return !_namedByGlobs.has(name);
+  });
+}
+
 export function buildGrepRgArgs(parts) {
   const {
     patterns,
@@ -126,10 +157,8 @@ export function buildGrepRgArgs(parts) {
   }
   if (caseInsensitive) rgArgs.push('-i');
   if (fixedStrings) rgArgs.push('-F');
-  // PCRE2 engine: opt-in only when the caller already confirmed (via
-  // rgSupportsPcre2() in native-search-runner.mjs) that the installed rg binary was
-  // built with PCRE2 support. Enables lookaround/backreference patterns
-  // that the default Rust regex engine rejects outright.
+  // PCRE2 engine (embedded in the native matcher): enables the
+  // lookaround/backreference patterns the default Rust regex engine rejects.
   if (pcre2) rgArgs.push('-P');
   if (multilineMode) rgArgs.push('-U', '--multiline-dotall');
   if (Array.isArray(fileType)) {
@@ -137,34 +166,7 @@ export function buildGrepRgArgs(parts) {
   } else if (fileType) {
     rgArgs.push('--type', fileType);
   }
-  // Apply noise-dir exclusions, but NOT the one matching a directory the
-  // caller explicitly targeted — otherwise a grep inside e.g. node_modules/foo
-  // would exclude its own root and match nothing (recall bug). Device-name
-  // globs (no trailing /**) always apply. searchPath is normalized to forward
-  // slashes and de-trailing-slashed for the comparison.
-  const _sp = String(searchPath || '')
-    .replace(/\\/g, '/')
-    .replace(/\/+$/, '');
-  // A positive --glob filter that NAMES a pruned directory is asking to
-  // search inside it; only the path operand used to count, so
-  // `glob:"__pycache__/*.pyc"` matched nothing while the files were there.
-  // Negative filters never re-admit their own target.
-  const _namedByGlobs = new Set(
-    (Array.isArray(globPatterns) ? globPatterns : [])
-      .filter((g) => typeof g === 'string' && g && !g.startsWith('!'))
-      .flatMap((g) => g.replace(/\\/g, '/').split('/'))
-      .filter((segment) => segment && !/[*?[\]{}]/.test(segment))
-  );
-  for (const ex of DEFAULT_IGNORE_GLOBS) {
-    const m = /^!\*\*\/([^/]+)\/\*\*$/.exec(ex);
-    if (m) {
-      if (includeNoise) continue;
-      const name = m[1];
-      if (_sp === name || _sp.endsWith(`/${name}`) || _sp.includes(`/${name}/`) || _sp.startsWith(`${name}/`)) continue;
-      if (_namedByGlobs.has(name)) continue;
-    }
-    rgArgs.push('--glob', ex);
-  }
+  for (const ex of grepIgnoreGlobs(searchPath, globPatterns, includeNoise)) rgArgs.push('--glob', ex);
   for (const g of globPatterns) rgArgs.push('--glob', g);
   for (const p of patterns) rgArgs.push('-e', p);
   // `--` end-of-options separator so a searchPath like `-foo` or

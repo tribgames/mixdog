@@ -27,8 +27,7 @@ function normalizeDisplayHint(displayHint) {
   return String(displayHint).trim();
 }
 
-export function canonicalModelDisplay(model, provider) {
-  void provider;
+export function canonicalModelDisplay(model, _provider) {
   const raw = String(model || '')
     .trim()
     .replace(/-\d{4}-\d{2}-\d{2}$/, '')

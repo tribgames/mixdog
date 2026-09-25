@@ -29,7 +29,24 @@ function messageCountOf(messages) {
   return Array.isArray(messages) ? messages.length : 0;
 }
 
-export function chatCompletionUsage(providerName, usage) {
+// Carry the prior encrypted-reasoning history forward and append this turn's items.
+function xaiEncryptedReasoningHistory(opts, messages, encryptedReasoningItems) {
+  const prior = opts.providerState?.xaiResponses?.encryptedReasoningHistory;
+  return [
+    ...(Array.isArray(prior) ? prior : []),
+    ...(encryptedReasoningItems.length
+      ? [{ messageIndex: messageCountOf(messages), items: encryptedReasoningItems }]
+      : []),
+  ];
+}
+
+// Both xAI Responses traces (cache trace + cache context) consume the same fields.
+function traceXaiResponses(fields) {
+  writeXaiResponsesCacheTrace(fields);
+  traceXaiResponsesCacheContext(fields);
+}
+
+function chatCompletionUsage(providerName, usage) {
   const input = usage.prompt_tokens ?? usage.input_tokens ?? 0;
   return withCostUsd(
     {
@@ -45,7 +62,7 @@ export function chatCompletionUsage(providerName, usage) {
   );
 }
 
-export function responsesUsage(usage) {
+function responsesUsage(usage) {
   const inputTokens = usage.input_tokens ?? usage.prompt_tokens ?? 0;
   return withCostUsd(
     {
@@ -175,20 +192,7 @@ export function normalizeXaiResponsesHttp({
   cacheLane,
 }) {
   const toolCalls = streamed.toolCalls;
-  writeXaiResponsesCacheTrace({
-    model: useModel,
-    opts,
-    params,
-    rawTools: tools || [],
-    response,
-    cacheRouting,
-    previousResponseId,
-    inputStartIndex: startIndex,
-    continuationResetReason,
-    transport: 'http',
-    cacheLane,
-  });
-  traceXaiResponsesCacheContext({
+  traceXaiResponses({
     model: useModel,
     opts,
     params,
@@ -226,14 +230,7 @@ export function normalizeXaiResponsesHttp({
   const nextPreviousResponseId = response.id;
   const encryptedReasoningItems = encryptedXaiReasoningItems(response.output);
   const providerReplay = createProviderReplay('xai-responses', response.output);
-  const encryptedReasoningHistory = [
-    ...(Array.isArray(opts.providerState?.xaiResponses?.encryptedReasoningHistory)
-      ? opts.providerState.xaiResponses.encryptedReasoningHistory
-      : []),
-    ...(encryptedReasoningItems.length
-      ? [{ messageIndex: messageCountOf(messages), items: encryptedReasoningItems }]
-      : []),
-  ];
+  const encryptedReasoningHistory = xaiEncryptedReasoningHistory(opts, messages, encryptedReasoningItems);
   const searchSources = collectCompatResponseSearchSources(response);
   return {
     content: streamed.content,
@@ -285,14 +282,7 @@ export function normalizeXaiResponsesWebSocket({
   const nextPreviousResponseId = responseId;
   const encryptedReasoningItems = encryptedXaiReasoningItems(result.responseItems);
   const providerReplay = createProviderReplay('xai-responses', result.responseItems);
-  const encryptedReasoningHistory = [
-    ...(Array.isArray(opts.providerState?.xaiResponses?.encryptedReasoningHistory)
-      ? opts.providerState.xaiResponses.encryptedReasoningHistory
-      : []),
-    ...(encryptedReasoningItems.length
-      ? [{ messageIndex: messageCountOf(messages), items: encryptedReasoningItems }]
-      : []),
-  ];
+  const encryptedReasoningHistory = xaiEncryptedReasoningHistory(opts, messages, encryptedReasoningItems);
   const rawUsage = result.usage?.raw || result.usage || null;
   const traceParams = result.__warmup?.requestBody || params;
   const response = {
@@ -301,20 +291,7 @@ export function normalizeXaiResponsesWebSocket({
     output: [],
     usage: rawUsage,
   };
-  writeXaiResponsesCacheTrace({
-    model: useModel,
-    opts,
-    params: traceParams,
-    rawTools: tools || [],
-    response,
-    cacheRouting,
-    previousResponseId,
-    inputStartIndex: startIndex,
-    continuationResetReason,
-    transport: 'websocket',
-    cacheLane,
-  });
-  traceXaiResponsesCacheContext({
+  traceXaiResponses({
     model: useModel,
     opts,
     params: traceParams,

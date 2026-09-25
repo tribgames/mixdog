@@ -260,7 +260,10 @@ export async function applyTabularBatch(path, format, operations) {
 
 export async function validateTabular(path, format) {
   const text = await readFile(path, 'utf8');
-  const rows = parseDelimited(text, delimiterFor(format));
+  return delimitedValidation(text, parseDelimited(text, delimiterFor(format)), format);
+}
+
+function delimitedValidation(text, rows, format) {
   const columns = rows.reduce((maximum, row) => Math.max(maximum, row.length), 0);
   const invalidEncoding = text.includes('\uFFFD');
   const nulBytes = [...text].filter((character) => character === '\0').length;
@@ -276,7 +279,8 @@ export async function validateTabular(path, format) {
 }
 
 export async function issuesTabular(path, format, options = {}) {
-  const rows = await loadRows(path, format);
+  const text = await readFile(path, 'utf8');
+  const rows = parseDelimited(text, delimiterFor(format));
   const issues = [];
   const bounds = options.range ? parseXlsxRange(options.range, { maxCells: Number.MAX_SAFE_INTEGER }) : null;
   const widths = rows.map((row) => row.length);
@@ -322,7 +326,7 @@ export async function issuesTabular(path, format, options = {}) {
       }
     }
   }
-  const validation = await validateTabular(path, format);
+  const validation = delimitedValidation(text, rows, format);
   if (validation.invalidEncoding)
     issues.push({
       severity: 'error',

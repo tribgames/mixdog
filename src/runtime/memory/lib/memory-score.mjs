@@ -14,19 +14,6 @@ export const CATEGORY_GRADE = {
 
 const DECAY_RATE = 0.25;
 
-export async function syncMemoryScorePolicy(db) {
-  await db.query(
-    `
-    INSERT INTO category_score_params(category, grade, decay)
-    SELECT category, $2::real, $3::real FROM unnest($1::text[]) AS category
-    ON CONFLICT (category) DO UPDATE SET grade = EXCLUDED.grade, decay = EXCLUDED.decay
-    WHERE category_score_params.grade IS DISTINCT FROM EXCLUDED.grade
-       OR category_score_params.decay IS DISTINCT FROM EXCLUDED.decay
-  `,
-    [Object.keys(CATEGORY_GRADE), 1.6, DECAY_RATE]
-  );
-}
-
 /**
  * Persisted entry score = grade * decay-curve(ageDays, uniform rate).
  *

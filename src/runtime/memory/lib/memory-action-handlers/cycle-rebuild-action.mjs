@@ -35,7 +35,7 @@ const REBUILD_RESET_LEAVES = `
 
 // Drain any pre-reset cycle1 BEFORE the destructive truncation so the
 // post-reset run is not started concurrently against the same DB.
-// _awaitCycle1Run() may release the outer handle on a caller deadline while
+// awaitCycle1Run() may release the outer handle on a caller deadline while
 // the inner runCycle1 promise still owns the DB writes. Drain both layers,
 // then loop once more if one layer exposed another promise while awaiting.
 async function drainCycle1(db, getSchedulerCycle1InFlight) {
@@ -78,8 +78,8 @@ export function createRebuildAction({
       await tx.query(REBUILD_RESET_LEAVES);
     });
     throwIfAborted(signal);
-    // Force a fresh post-reset cycle1: _cycle1InFlight is guaranteed null
-    // here (drained above, no cycle1-starting call awaited since), so calling
+    // Force a fresh post-reset cycle1: the scheduler's cycle1 in-flight handle
+    // is guaranteed null here (drained above, no cycle1-starting call awaited since), so calling
     // startCycle1Run directly skips the coalesce branch inside awaitCycle1Run
     // and guarantees the newly demoted rows are read.
     const r1 = await startCycle1Run(config?.cycle1 || {}, { signal });

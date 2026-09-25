@@ -26,7 +26,9 @@ file is a Word document.
   numbers carry across the break; `kind:'page'` is an ordinary page break.
 - Paragraph: `append_text text style properties`. Use `Title`, `Heading 1`,
   `Heading 2` or `Normal` for the actual role. Each call creates one paragraph.
-- Type: `properties:{ name, nameEastAsia, size, bold, italic, color }`.
+- Type: `properties:{ name, nameEastAsia, size, bold, italic, color }`. Hangul, kana, and Han have no italic (Word
+  and LibreOffice slant them synthetically): a Korean pull quote or caption is set apart by colour, weight, a rule, or
+  an indent instead.
   Latin and East Asian faces are independent. Set intentional values rather
   than inheriting an unknown template's display formatting.
 - Flow: `properties:{ alignment, spacingBefore, spacingAfter, lineSpacing,
@@ -84,7 +86,9 @@ for an existing paragraph). Use a carrier when the content has that job, never a
   paragraph with `border:{ side:'bottom', size:8, color:<accent> }, spacingAfter:24`. The summary follows on
   the same page; `insert_break kind:'page'` only when the document is long enough to earn a cover page.
 - **Table of contents**: `insert_toc paragraph:<after the cover>` once every `Heading 1..3` exists
-  (`SKILL.md` §4 boundary); a document under six headings does not need one. Its own title ("목차") is a
+  (`SKILL.md` §4 boundary); `paragraph` is the one the contents follow (the "목차" label's number). A portable
+  render writes each entry's page behind a dot leader, so render before reading the contents page; a document
+  under six headings does not need one. Its own title ("목차") is a
   bold paragraph with the section-header look (`size:15, bold:true, keepWithNext:true`), never a `Heading`
   style — a heading lists itself as the first entry.
 - **Section header**: `Heading 1` with `keepWithNext:true`; a numbered section carries its number in the text
@@ -95,19 +99,27 @@ for an existing paragraph). Use a carrier when the content has that job, never a
   when the field needs a name. Every paragraph of one callout carries the same `shading` and indents so the
   field reads as one.
 - **Quote**: `indentLeft:16, border:{ side:'left', size:16, color:<accent> }, size:12.5, lineSpacing:20,
-  color:'1F2937'`; the attribution a caption under it (`size:9, color:'6B7280', indentLeft:16`) beginning "— ".
+  color:'1F2937', keepTogether:true, keepWithNext:true`; the attribution a caption under it (`size:9, color:'6B7280',
+  indentLeft:16`) beginning "— ". The two keeps hold the quote whole and on the page of its attribution — without them
+  a two-line quote ending a page left one line behind and carried the other over with its speaker.
 - **Stat strip** (two to four figures with one cause): `add_table` with one row of values and one row of labels,
   `properties:{ borders:{ top:{ enabled:false }, left:{ enabled:false }, right:{ enabled:false }, insideV:{ enabled:false },
   insideH:{ enabled:false }, bottom:{ style:'single', size:4, color:'C9CED6' } }, fontSize:22, color:<accent>,
   columnAlignments:['left', …] }` and `set_table_cell_style` on the label row (`fontSize:9, color:'6B7280'`).
 - **Caption**: the paragraph under a table or picture, `size:9, color:'6B7280', spacingBefore:4,
-  spacingAfter:14`: what it shows and its source.
+  spacingAfter:14`: what it shows and its source. The table above it takes `properties.keepWithNext:true`
+  so the caption never starts the next page alone; a picture (`add_image`) keeps with its caption on its own,
+  and `properties:{ alignment:'center' }` centres it.
+- **Running header**: `set_header_footer kind:'header'` with `properties:{ name, nameEastAsia, size:8.5,
+  color:'6B7280' }` — without them the line prints in the document default, louder than the eyebrow under it.
 - **Two columns**: not a paragraph property; long prose that wants two columns is a section of its own
-  with `set_page properties:{ columns:2 }` (Control map) — use a table with two borderless cells only for a
+  with `set_page properties:{ columns:2 }` (Control map), opened by `insert_break kind:'section_continuous'` under
+  the masthead or picture and closed by another one (then `columns:1`) so the two columns balance on the page — use a table with two borderless cells only for a
   short side-by-side (a before/after, a term and its definition), never for running text.
 - **Table anatomy**: the default (a bold header on a rule, hairlines between rows, figures right through
-  `columnAlignments`, every cell on its bottom edge so a Latin-only figure and a Hangul one share the row's
-  baseline) is the anatomy; `shading` on the header only when the document's fields use the same tint. A
+  `columnAlignments`, body cells on their top edge so a row reads from its first line and the header on its
+  bottom edge over the rule, one exact line pitch per cell so a Latin-only figure and a Hangul one share the
+  row's baseline) is the anatomy; `shading` on the header only when the document's fields use the same tint. A
   figure column names its unit in the header ("처리량 (건)"), not in every cell. `set_table_cell_style`
   patches one cell (`fillColor`, `fontSize`, `bold`, `color`, `verticalAlignment`) and keeps the rest.
 

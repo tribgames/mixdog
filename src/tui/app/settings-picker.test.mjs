@@ -77,6 +77,7 @@ function createHarness(storeOverrides = {}) {
     openSkillsPicker: opener('skills'),
     openMemoryCorePicker: opener('memory'),
     openUpdatePicker: opener('update'),
+    openDeveloperPicker: opener('developer'),
   });
   const current = () => live;
   const row = (value) => current().items.find((item) => item.value === value);
@@ -110,6 +111,7 @@ test('rows render the snapshot values in the parity order', async () => {
       ['skills', null],
       ['voice', 'Off'],
       ['system-shell', 'pwsh'],
+      ['developer', null],
       ['update', '1.0.0 → 1.1.0'],
     ]
   );
@@ -211,6 +213,7 @@ test('Enter routes to the owning picker with a Settings return, or opens the she
     'plugins',
     'skills',
     'memory',
+    'developer',
     'update',
   ]) {
     h.current().onSelect(value, h.row(value));
@@ -230,9 +233,11 @@ test('Enter routes to the owning picker with a Settings return, or opens the she
       'plugins',
       'skills',
       'memory',
+      'developer',
       'update',
     ]
   );
+  assert.equal(typeof h.opened.find(([name]) => name === 'developer')[1].returnTo, 'function');
   const modelOptions = h.opened.find(([name]) => name === 'model')[1];
   assert.equal(modelOptions.returnLabel, 'Settings');
   assert.equal(modelOptions.returnOnNestedCancel, true);

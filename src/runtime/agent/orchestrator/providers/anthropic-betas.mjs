@@ -6,7 +6,6 @@ const FAST_MODE_BETA_HEADER = 'fast-mode-2026-02-01';
 const TOOL_SEARCH_BETA_HEADER = 'advanced-tool-use-2025-11-20';
 const THINKING_DISPLAY_UPDATES_BETA_HEADER = 'thinking-display-updates-2026-08-18';
 export const SERVER_SIDE_FALLBACK_BETA_HEADER = 'server-side-fallback-2026-07-01';
-export { EFFORT_BETA_HEADER };
 
 // Fast mode ships on Opus 5.5, Opus 5 and Opus 4.8 only. Opus 4.7 rejects
 // `speed: "fast"` and Opus 4.6 silently runs at standard speed.

@@ -30,6 +30,7 @@ import {
 } from './portable-docx-xml.mjs';
 import { docxRevisionTree, flattenDocxRevisions } from './docx-revisions.mjs';
 import { settleDocxStory } from './docx-runs.mjs';
+import { patchParagraphFormat } from './docx-formatting.mjs';
 import { anchorPhraseInParagraph, trackedParagraphReplace, trackedParagraphRewrite } from './docx-tracked-edits.mjs';
 
 // Word rebuilds a TOC field when the reader updates it; until then the cached
@@ -99,15 +100,45 @@ export function docxTocEntries(documentXml, lower, upper, headingLevels = new Ma
   return entries;
 }
 
+// An entry carries its page after a tab once a render has measured it (numberDocxTableOfContents); the tab stop
+// on the paragraph sets it on the right margin behind a dot leader, the way Word draws its own contents.
 export function docxTocCacheRuns(entries, lower) {
   return entries.length
     ? entries
         .map(
           (entry) =>
-            `<w:r><w:t xml:space="preserve">${xmlEncode(`${'    '.repeat(entry.level - lower)}${entry.text}`)}</w:t></w:r>`
+            `<w:r><w:t xml:space="preserve">${xmlEncode(`${'    '.repeat(entry.level - lower)}${entry.text}`)}</w:t></w:r>` +
+            (entry.page ? `<w:r><w:tab/></w:r><w:r><w:t>${Number(entry.page)}</w:t></w:r>` : '')
         )
         .join('<w:r><w:br/></w:r>')
     : '<w:r><w:t>Update this field in Word to build the table of contents.</w:t></w:r>';
+}
+
+const TOC_FIELD = /<w:fldSimple\b([^>]*\bw:instr="([^"]*TOC[^"]*)"[^>]*)>([\s\S]*?)<\/w:fldSimple>/g;
+
+// The pages a cache already shows, by entry text: a save rebuilds the entries from the headings, and a heading
+// that did not change keeps the page its last render measured.
+function cachedTocPages(cache) {
+  const pages = new Map();
+  for (const line of String(cache).split(/<w:r><w:br\/><\/w:r>/)) {
+    const texts = [...line.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((match) => xmlDecode(match[1]));
+    if (texts.length === 2 && /<w:tab\/>/.test(line) && /^\d+$/.test(texts[1])) pages.set(texts[0].trim(), Number(texts[1]));
+  }
+  return pages;
+}
+
+function rebuildTableOfContents(current, headingLevels, pageFor) {
+  return current.replace(TOC_FIELD, (_whole, attributes, instruction, cache) => {
+    const range = /\\o\s*(?:"|&quot;)(\d+)-(\d+)(?:"|&quot;)/.exec(instruction);
+    const lower = Math.max(1, Number(range?.[1]) || 1);
+    const upper = Math.max(lower, Number(range?.[2]) || 3);
+    const carried = cachedTocPages(cache);
+    const entries = docxTocEntries(current, lower, upper, headingLevels).map((entry, index) => ({
+      ...entry,
+      page: pageFor ? pageFor(entry, index) : carried.get(entry.text),
+    }));
+    return `<w:fldSimple${attributes}>${docxTocCacheRuns(entries, lower)}</w:fldSimple>`;
+  });
 }
 
 /** A table of contents is usually written before the sections it lists, so the
@@ -116,16 +147,44 @@ export function docxTocCacheRuns(entries, lower) {
 export async function refreshDocxTableOfContents(zip) {
   const current = await zipText(zip, 'word/document.xml');
   if (!/<w:fldSimple\b[^>]*\bw:instr="[^"]*TOC/.test(current)) return false;
+  const next = rebuildTableOfContents(current, await docxHeadingLevels(zip));
+  if (next === current) return false;
+  zip.file('word/document.xml', next);
+  return true;
+}
+
+/** The page every contents entry lands on, read from a rendered copy of the document: `pageTexts` is each page's
+ *  text with the whitespace removed. The contents page itself lists every heading once, so there a heading counts
+ *  only when it appears a second time. Returns whether the cache changed; the paragraph holding the field takes a
+ *  right tab with a dot leader on the text edge so the numbers line up. */
+export async function writeDocxTocPages(zip, pageTexts) {
+  const current = await zipText(zip, 'word/document.xml');
+  if (!/<w:fldSimple\b[^>]*\bw:instr="[^"]*TOC/.test(current)) return false;
   const headingLevels = await docxHeadingLevels(zip);
-  const next = current.replace(
-    /<w:fldSimple\b([^>]*\bw:instr="([^"]*TOC[^"]*)"[^>]*)>[\s\S]*?<\/w:fldSimple>/g,
-    (_whole, attributes, instruction) => {
-      const range = /\\o\s*(?:"|&quot;)(\d+)-(\d+)(?:"|&quot;)/.exec(instruction);
-      const lower = Math.max(1, Number(range?.[1]) || 1);
-      const upper = Math.max(lower, Number(range?.[2]) || 3);
-      return `<w:fldSimple${attributes}>${docxTocCacheRuns(docxTocEntries(current, lower, upper, headingLevels), lower)}</w:fldSimple>`;
+  const squash = (value) => String(value).replace(/\s+/g, '');
+  const occurrences = (page, text) => (text ? page.split(text).length - 1 : 0);
+  const entries = docxTocEntries(current, 1, 9, headingLevels);
+  const tocPage = pageTexts.findIndex((page) => entries.length && entries.every((entry) => page.includes(squash(entry.text))));
+  let cursor = Math.max(0, tocPage);
+  const pageFor = (entry) => {
+    const text = squash(entry.text);
+    for (let index = cursor; index < pageTexts.length; index += 1) {
+      if (occurrences(pageTexts[index], text) >= (index === tocPage ? 2 : 1)) {
+        cursor = index;
+        return index + 1;
+      }
     }
-  );
+    return undefined;
+  };
+  let next = rebuildTableOfContents(current, headingLevels, pageFor);
+  // The field's paragraph: a right tab at the text edge of its section, behind dots.
+  next = next.replace(/<w:p(?:\s[^>]*)?>(?:(?!<\/w:p>)[\s\S])*?<w:fldSimple\b[^>]*\bw:instr="[^"]*TOC[\s\S]*?<\/w:p>/, (paragraph, offset) => {
+    const section = /<w:sectPr\b[\s\S]*?<\/w:sectPr>/.exec(next.slice(offset))?.[0] || '';
+    const width = Number(/<w:pgSz\b[^>]*\bw:w="(\d+)"/.exec(section)?.[1]) || 11906;
+    const left = Number(/<w:pgMar\b[^>]*\bw:left="(\d+)"/.exec(section)?.[1]) || 1440;
+    const right = Number(/<w:pgMar\b[^>]*\bw:right="(\d+)"/.exec(section)?.[1]) || 1440;
+    return patchParagraphFormat(paragraph, { tabStops: [{ position: (width - left - right) / 20, alignment: 'right', leader: 'dot' }] });
+  });
   if (next === current) return false;
   zip.file('word/document.xml', next);
   return true;
@@ -223,12 +282,16 @@ export async function addDocxNote(zip, op) {
     (match) => Number(match[1])
   );
   const id = Math.max(0, ...ids) + 1;
+  // The note is set in the face of the text it cites: a paragraph whose runs name Noto Serif KR had its source line
+  // printed in the document default, a second typeface at the page foot.
+  const faces = /<w:r\b[^>]*>\s*<w:rPr>[\s\S]*?(<w:rFonts\b[^>]*\/>)/.exec(paragraph.xml)?.[1] || '';
+  const noteRun = faces ? `<w:rPr>${faces}</w:rPr>` : '';
   const entry =
     `<${definition.tag} w:id="${id}">` +
     `<w:p><w:pPr><w:pStyle w:val="${definition.textStyle}"/></w:pPr>` +
-    `<w:r><w:rPr><w:rStyle w:val="${definition.style}"/><w:vertAlign w:val="superscript"/></w:rPr>` +
+    `<w:r><w:rPr><w:rStyle w:val="${definition.style}"/>${faces}<w:vertAlign w:val="superscript"/></w:rPr>` +
     `<w:${definition.reference === 'w:footnoteReference' ? 'footnoteRef' : 'endnoteRef'}/></w:r>` +
-    `<w:r><w:t xml:space="preserve"> ${xmlEncode(text)}</w:t></w:r></w:p></${definition.tag}>`;
+    `<w:r>${noteRun}<w:t xml:space="preserve"> ${xmlEncode(text)}</w:t></w:r></w:p></${definition.tag}>`;
   zip.file(definition.part, definition.xml.replace(`</${definition.root}>`, `${entry}</${definition.root}>`));
   // The mark belongs right after the phrase it cites; a phrase split across
   // a tab, field, or drawing falls back to the end of its paragraph.
@@ -568,11 +631,12 @@ function styledDocxCell(cell, op) {
       : '',
   ].join('');
   nextCell = applyWordRunFormat(nextCell, runFormat);
-  // The cell's line pitch follows its new size (the table convention, 1.3× the size, at least): a 9 pt
-  // label row under a 22 pt value row otherwise keeps the value row's 29 pt lines and floats the labels.
+  // The cell's line pitch follows its new size (the table convention, 1.3× the size): a 9 pt label row
+  // under a 22 pt value row otherwise keeps the value row's 29 pt lines and floats the labels, and a
+  // larger size under the exact pitch would be clipped.
   if (Number.isFinite(cellSize) && cellSize > 0) {
     nextCell = nextCell.replace(
-      /(<w:spacing\b[^>]*\bw:line=")(\d+)("[^>]*\bw:lineRule="atLeast")/g,
+      /(<w:spacing\b[^>]*\bw:line=")(\d+)("[^>]*\bw:lineRule="(?:atLeast|exact)")/g,
       (_, open, __, close) => `${open}${Math.round(cellSize * 1.3 * 20)}${close}`
     );
   }

@@ -20,6 +20,15 @@ function processBootCheck(dataDir) {
   return pending;
 }
 
+function checkStateFrom(result) {
+  return {
+    currentVersion: result.currentVersion,
+    latestVersion: result.latestVersion,
+    updateAvailable: result.updateAvailable,
+    lastCheckedAt: result.lastCheckedAt,
+  };
+}
+
 export function createSelfUpdateController({ getConfig, getDataDir, emitNotification }) {
   let checkState = {
     currentVersion: null,
@@ -39,12 +48,7 @@ export function createSelfUpdateController({ getConfig, getDataDir, emitNotifica
     if (processState.phase !== 'installing') processState.phase = 'checking';
     try {
       const result = await checkLatestVersion({ force, dataDir: getDataDir() });
-      checkState = {
-        currentVersion: result.currentVersion,
-        latestVersion: result.latestVersion,
-        updateAvailable: result.updateAvailable,
-        lastCheckedAt: result.lastCheckedAt,
-      };
+      checkState = checkStateFrom(result);
     } catch {
       // checkLatestVersion() is already silent-safe; this catch is belt-and-
       // braces so a boot-time call can never crash the runtime.
@@ -96,13 +100,7 @@ export function createSelfUpdateController({ getConfig, getDataDir, emitNotifica
     bootTimer = setTimeout(() => {
       bootTimer = null;
       void (async () => {
-        const result = await processBootCheck(getDataDir());
-        checkState = {
-          currentVersion: result.currentVersion,
-          latestVersion: result.latestVersion,
-          updateAvailable: result.updateAvailable,
-          lastCheckedAt: result.lastCheckedAt,
-        };
+        checkState = checkStateFrom(await processBootCheck(getDataDir()));
         if (!(autoUpdateEnabled() && !isDevInstall() && checkState.updateAvailable)) return;
         const ver = checkState.latestVersion;
         if (!ver) return;

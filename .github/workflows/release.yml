@@ -116,15 +116,21 @@ jobs:
       # re-runs it only when a critical path changed after the newest gated
       # commit (deploy.yml run_critical). The tool-contract files inside the
       # lane drive the debug native spawn binary.
-      # Same runner provisioning as release-gate.yml: the Office suites need the
-      # Liberation faces, NanumGothic.ttf for Hangul PDFs (pdf-fonts.mjs cannot
-      # embed a .ttc collection), and LibreOffice for portable rendering.
+      # Same runner provisioning as release-gate.yml.
       - name: Install fonts and LibreOffice for the Office suites
         if: inputs.run_critical
-        run: |
-          sudo add-apt-repository -y ppa:libreoffice/ppa
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends fonts-liberation fonts-nanum libreoffice-writer libreoffice-impress libreoffice-calc
+        uses: ./.github/actions/office-runtime
+
+      - name: Cache the native spawn test build
+        if: inputs.run_critical
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-spawn/target
+          key: spawn-test-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/src/**') }}
+          restore-keys: spawn-test-cargo-${{ runner.os }}-
 
       - name: Verify changed source-critical release invariants
         if: inputs.run_critical

@@ -496,33 +496,35 @@ function localizeConfigPlan(plan) {
   return { ...plan, args: ['--local', ...plan.args] };
 }
 
+// init/clone options that consume the following argument.
+const CREATION_VALUE_FLAGS = new Set([
+  '-b',
+  '--branch',
+  '-c',
+  '--config',
+  '--depth',
+  '-j',
+  '--jobs',
+  '-o',
+  '--origin',
+  '--reference',
+  '--reference-if-able',
+  '--separate-git-dir',
+  '--template',
+  '-u',
+  '--upload-pack',
+  '--filter',
+  '--server-option',
+  '--shallow-since',
+  '--shallow-exclude',
+  '--bundle-uri',
+  '--revision',
+  '--ref-format',
+  '--object-format',
+  '--initial-branch',
+]);
+
 function optionFreePositionals(args) {
-  const takesValue = new Set([
-    '-b',
-    '--branch',
-    '-c',
-    '--config',
-    '--depth',
-    '-j',
-    '--jobs',
-    '-o',
-    '--origin',
-    '--reference',
-    '--reference-if-able',
-    '--separate-git-dir',
-    '--template',
-    '-u',
-    '--upload-pack',
-    '--filter',
-    '--server-option',
-    '--shallow-since',
-    '--shallow-exclude',
-    '--bundle-uri',
-    '--revision',
-    '--ref-format',
-    '--object-format',
-    '--initial-branch',
-  ]);
   const out = [];
   for (let index = 0; index < args.length; index++) {
     const value = args[index];
@@ -530,7 +532,7 @@ function optionFreePositionals(args) {
       out.push(...args.slice(index + 1));
       break;
     }
-    if (takesValue.has(value)) {
+    if (CREATION_VALUE_FLAGS.has(value)) {
       index++;
       continue;
     }
@@ -552,15 +554,31 @@ function creationTarget(plan) {
   return resolve(plan.cwd, leaf);
 }
 
+// A mutating git call holds the in-process and cross-process locks on its
+// path, and drops the result caches it may have invalidated.
+function withGitMutationLocks(path, callback) {
+  return withBuiltinPathLocks([path], () => withAdvisoryLocks([path], callback));
+}
+
+function invalidateAfterGitMutation() {
+  invalidateBuiltinResultCache();
+  drainCodeGraphCache();
+}
+
+function outputLimit(value, fallback) {
+  return Math.min(GIT_OUTPUT_LIMIT_MAX, Math.max(1, Number(value) || fallback));
+}
+
+function abortSignalOf(options) {
+  return options?.signal || options?.abortSignal || null;
+}
+
 async function executeCreation(plan, target, limit, signal) {
-  return withBuiltinPathLocks([target], () =>
-    withAdvisoryLocks([target], async () => {
-      const result = await runGit(plan, [plan.operation, ...plan.args], { signal });
-      invalidateBuiltinResultCache();
-      drainCodeGraphCache();
-      return commandResult(plan, result, limit);
-    })
-  );
+  return withGitMutationLocks(target, async () => {
+    const result = await runGit(plan, [plan.operation, ...plan.args], { signal });
+    invalidateAfterGitMutation();
+    return commandResult(plan, result, limit);
+  });
 }
 
 function stageRequest(value) {
@@ -605,49 +623,46 @@ async function executeGitStage(input, workDir, options = {}) {
       hint: 'Run git diff with include_stage_ids:true in the current Project and use its diff_id/change_ids.',
     });
   }
-  const limit = Math.min(GIT_OUTPUT_LIMIT_MAX, Math.max(1, Number(input?.output_limit) || 50));
-  const signal = options?.signal || options?.abortSignal || null;
+  const limit = outputLimit(input?.output_limit, 50);
+  const signal = abortSignalOf(options);
   const repo = snapshot.repo;
   return withGitRepoWriteLock(
     repo,
     () =>
-      withBuiltinPathLocks([repo], () =>
-        withAdvisoryLocks([repo], async () => {
-          const current = await runStageableDiff(snapshot.plan, snapshot.argv, repo, signal);
-          if (!succeeded(current)) return commandFailure(snapshot.plan, current, limit);
-          const raw = current.stdout;
-          if (!diffSnapshotMatches(snapshot, raw)) {
-            return ok({
-              staged: false,
-              reason: 'stale_diff',
-              hint: 'The working diff changed. Run git diff with include_stage_ids:true again and select current change_ids.',
-            });
-          }
-          const built = buildSelectedStagePatch(raw, request.changeIds);
-          if (built.missing.length || !built.patch) {
-            return fail(
-              `git stage change_ids are not present in the diff: ${built.missing.join(', ') || '(none selected)'}`
-            );
-          }
-          return withStagePatchFile(built.patch, async (patchPath) => {
-            const applyArgs = ['apply', '--cached', '--unidiff-zero', patchPath];
-            const applyPlan = { ...snapshot.plan, cwd: repo, operation: 'apply', args: applyArgs.slice(1) };
-            const check = await runGit(applyPlan, ['apply', '--cached', '--check', '--unidiff-zero', patchPath], {
-              signal,
-            });
-            if (!succeeded(check)) return commandFailure(applyPlan, check, limit);
-            const applied = await runGit(applyPlan, applyArgs, { signal });
-            if (!succeeded(applied)) return commandFailure(applyPlan, applied, limit);
-            deleteDiffSnapshot(request.diffId);
-            invalidateBuiltinResultCache();
-            drainCodeGraphCache();
-            return ok({
-              staged: true,
-              changes: built.changes.map(({ id, preview, ...change }) => change),
-            });
+      withGitMutationLocks(repo, async () => {
+        const current = await runStageableDiff(snapshot.plan, snapshot.argv, repo, signal);
+        if (!succeeded(current)) return commandFailure(snapshot.plan, current, limit);
+        const raw = current.stdout;
+        if (!diffSnapshotMatches(snapshot, raw)) {
+          return ok({
+            staged: false,
+            reason: 'stale_diff',
+            hint: 'The working diff changed. Run git diff with include_stage_ids:true again and select current change_ids.',
           });
-        })
-      ),
+        }
+        const built = buildSelectedStagePatch(raw, request.changeIds);
+        if (built.missing.length || !built.patch) {
+          return fail(
+            `git stage change_ids are not present in the diff: ${built.missing.join(', ') || '(none selected)'}`
+          );
+        }
+        return withStagePatchFile(built.patch, async (patchPath) => {
+          const applyArgs = ['apply', '--cached', '--unidiff-zero', patchPath];
+          const applyPlan = { ...snapshot.plan, cwd: repo, operation: 'apply', args: applyArgs.slice(1) };
+          const check = await runGit(applyPlan, ['apply', '--cached', '--check', '--unidiff-zero', patchPath], {
+            signal,
+          });
+          if (!succeeded(check)) return commandFailure(applyPlan, check, limit);
+          const applied = await runGit(applyPlan, applyArgs, { signal });
+          if (!succeeded(applied)) return commandFailure(applyPlan, applied, limit);
+          deleteDiffSnapshot(request.diffId);
+          invalidateAfterGitMutation();
+          return ok({
+            staged: true,
+            changes: built.changes.map(({ id, preview, ...change }) => change),
+          });
+        });
+      }),
     { signal }
   );
 }
@@ -669,8 +684,8 @@ async function executeSingleGitTool(input, workDir, options = {}) {
     return rejected('git archive requires -o/--output; binary stdout is not returned');
   }
   const limitDefault = plan.operation === 'log' ? 10 : 50;
-  const limit = Math.min(GIT_OUTPUT_LIMIT_MAX, Math.max(1, Number(input.output_limit) || limitDefault));
-  const signal = options?.signal || options?.abortSignal || null;
+  const limit = outputLimit(input.output_limit, limitDefault);
+  const signal = abortSignalOf(options);
   if (plan.operation === 'init' || plan.operation === 'clone') {
     const target = creationTarget(plan);
     return withGitRepoWriteLock(target, () => executeCreation(plan, target, limit, signal), { signal });
@@ -717,14 +732,11 @@ async function executeSingleGitTool(input, workDir, options = {}) {
   return withGitRepoWriteLock(
     repo,
     () =>
-      withBuiltinPathLocks([repo], () =>
-        withAdvisoryLocks([repo], async () => {
-          const result = await runGit(plan, prepared.argv, { signal });
-          invalidateBuiltinResultCache();
-          drainCodeGraphCache();
-          return commandResult(plan, result, limit);
-        })
-      ),
+      withGitMutationLocks(repo, async () => {
+        const result = await runGit(plan, prepared.argv, { signal });
+        invalidateAfterGitMutation();
+        return commandResult(plan, result, limit);
+      }),
     { signal }
   );
 }

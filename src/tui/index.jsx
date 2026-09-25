@@ -687,16 +687,15 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   const stdioDeathListeners = [];
   const registerStdioDeath = (stream, event, { requireCode = false } = {}) => {
     if (!stream || typeof stream.on !== 'function') return;
+    let source = 'stderr';
+    if (stream === process.stdin) source = 'stdin';
+    else if (stream === process.stdout) source = 'stdout';
     const handler = (err) => {
       if (requireCode && !(err && STDIO_DEATH_FATAL_CODES.has(err.code))) return;
       void signalCleanup.run('stdio-dead', {
         code: 1,
         shouldExit: true,
-        error:
-          err ||
-          new Error(
-            `stdio ${event} (source: ${stream === process.stdin ? 'stdin' : stream === process.stdout ? 'stdout' : 'stderr'})`
-          ),
+        error: err || new Error(`stdio ${event} (source: ${source})`),
       });
     };
     stream.on(event, handler);

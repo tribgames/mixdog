@@ -12,7 +12,8 @@
 // misses happen) pays for the excerpt.
 import { readFileSync } from 'node:fs';
 import { isV4APatchInput, parseV4APatch } from './parsing.mjs';
-import { resolveV4AEntryPath } from './paths.mjs';
+import { pathKey, resolveV4AEntryPath } from './paths.mjs';
+import { findExactWindowStarts } from './v4a-anchors.mjs';
 import { isPatchErrorText } from './wave.mjs';
 
 const _patchedFilesByScope = new Map(); // scopeKey -> Map(fileKey -> ts)
@@ -45,11 +46,10 @@ export function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, b
       const target = section.movePath || section.path;
       let fileKey;
       try {
-        fileKey = resolveV4AEntryPath(basePath, target);
+        fileKey = pathKey(resolveV4AEntryPath(basePath, target));
       } catch {
         continue;
       }
-      if (process.platform === 'win32') fileKey = fileKey.toLowerCase();
       if (seen.has(fileKey)) repeats.push(section);
       seen.set(fileKey, Date.now());
       while (seen.size > PATCHED_FILES_PER_SCOPE_CAP) seen.delete(seen.keys().next().value);
@@ -68,14 +68,7 @@ export function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, b
       const hunk = section.hunks[0];
       const newSide = (hunk.lines || []).filter((l) => l && (l[0] === ' ' || l[0] === '+')).map((l) => l.slice(1));
       if (!newSide.length) continue;
-      let at = -1;
-      outer: for (let i = 0; i + newSide.length <= fileLines.length; i++) {
-        for (let k = 0; k < newSide.length; k++) {
-          if (fileLines[i + k] !== newSide[k]) continue outer;
-        }
-        at = i;
-        break;
-      }
+      const [at = -1] = findExactWindowStarts(fileLines, newSide, 1);
       if (at < 0) continue;
       const shown = Math.min(newSide.length, POST_PATCH_EXCERPT_MAX_LINES);
       const rows = [];

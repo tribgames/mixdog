@@ -26,16 +26,15 @@ export async function flushPendingSessionConfigWrites() {
   }
 }
 
-function outputStyleUpdater(styleId) {
-  return (root) => {
-    const next = { ...(root || {}), outputStyle: styleId };
-    if (next.agent && typeof next.agent === 'object' && !Array.isArray(next.agent)) {
-      const agent = { ...next.agent };
-      delete agent.outputStyle;
-      next.agent = agent;
-    }
-    return next;
-  };
+/** `root` with a top-level outputStyle; the retired `agent.outputStyle` copy is dropped. */
+export function configWithOutputStyle(root, styleId) {
+  const next = { ...(root || {}), outputStyle: styleId };
+  if (next.agent && typeof next.agent === 'object' && !Array.isArray(next.agent)) {
+    const agent = { ...next.agent };
+    delete agent.outputStyle;
+    next.agent = agent;
+  }
+  return next;
 }
 
 const writeFailure = (label) => (error, sync) =>
@@ -63,7 +62,7 @@ export function createConfigWriters({ cfgMod, sharedCfgMod }) {
   });
   const outputStyleWriter = createDebouncedWriter({
     delayMs: CONFIG_SAVE_DEBOUNCE_MS,
-    write: (styleId) => sharedCfgMod.updateConfigAsync(outputStyleUpdater(styleId)),
+    write: (styleId) => sharedCfgMod.updateConfigAsync((root) => configWithOutputStyle(root, styleId)),
     onError: (error) => process.stderr.write(`[config] async outputStyle save failed: ${error?.message || error}\n`),
   });
   let configFlushInFlight = null;

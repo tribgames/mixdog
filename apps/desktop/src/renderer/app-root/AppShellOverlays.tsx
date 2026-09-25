@@ -19,6 +19,7 @@ import { t } from '../i18n';
 import type { useAppShellPanels } from '../use-app-shell-panels';
 import type { useDesktopUpdater } from '../use-desktop-updater';
 import type { WorkbenchCommand } from '../WorkbenchOverlays';
+import { BRIDGE_UNAVAILABLE_ERROR } from './use-app-invocation';
 
 const CommandSurface = lazy(() => loadCommandSurfaceModule().then((module) => ({ default: module.CommandSurface })));
 
@@ -206,9 +207,7 @@ export function AppShellOverlays({
         />
       )}
       <DesktopToastRegion
-        bridgeError={
-          error || (!connected ? 'Desktop bridge is unavailable. Open this renderer inside Mixdog Desktop.' : '')
-        }
+        bridgeError={error || (!connected ? BRIDGE_UNAVAILABLE_ERROR : '')}
         toasts={Array.isArray(snapshot.toasts) ? snapshot.toasts : []}
         onDismissBridgeError={() => setError('')}
       />

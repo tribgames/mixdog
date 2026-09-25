@@ -14,10 +14,10 @@ import {
   type DesktopAgentActivityState,
   type DesktopAgentCancellationLedger,
 } from '../shared/agent-activity';
+import type { RecordValue } from './desktop-types';
 import { record } from './record-utils';
 import { timeMs } from './TranscriptView';
 
-type RecordValue = Record<string, unknown>;
 export const AGENT_POOL_RECONCILE_MS = 2_000;
 
 interface AgentPoolStore {

@@ -142,6 +142,7 @@ function extensionFor(mime) {
 function folderSegment(value, fallback) {
   const normalized = String(value || '')
     .normalize('NFKC')
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are invalid in folder names
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
     .replace(/\s+/g, ' ')
     .trim()
@@ -405,7 +406,9 @@ export function mediaOpenCommand(path, { reveal = false, platform = process.plat
   if (reveal && platform === 'win32') return ['explorer.exe', ['/select,', path]];
   if (reveal && platform === 'darwin') return ['open', ['-R', path]];
   const target = reveal ? dirname(path) : path;
-  if (platform === 'win32') return ['cmd', ['/c', 'start', '', target]];
+  // explorer.exe opens a path with its associated app without a cmd.exe
+  // parse, so `&` or `^` in a path segment is never shell syntax.
+  if (platform === 'win32') return ['explorer.exe', [target]];
   if (platform === 'darwin') return ['open', [target]];
   return ['xdg-open', [target]];
 }
@@ -413,6 +416,9 @@ export function mediaOpenCommand(path, { reveal = false, platform = process.plat
 function openWithOs(path, options) {
   const [command, args] = mediaOpenCommand(path, options);
   const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true });
+  // A missing opener (no xdg-open) surfaces as an async 'error' event; without
+  // a listener it would crash the process.
+  child.on('error', () => {});
   child.unref();
   return true;
 }

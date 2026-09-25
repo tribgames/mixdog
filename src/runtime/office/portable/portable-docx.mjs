@@ -94,7 +94,7 @@ export async function applyDocx(zip, operations) {
       results.push(changed.result);
       continue;
     }
-    const edit = DOCUMENT_EDITS[op.op];
+    const edit = Object.hasOwn(DOCUMENT_EDITS, op.op) ? DOCUMENT_EDITS[op.op] : null;
     if (!edit) throw new Error(`Portable DOCX backend does not support operation: ${op.op}`);
     results.push(await edit(zip, op, { parts, tracking }));
   }

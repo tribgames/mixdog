@@ -1056,28 +1056,23 @@ public class MixWin32
             ClientHeight = hasClient ? Math.Max(0, client.bottom - client.top) : Math.Max(0, r.bottom - r.top)
         };
     }
+    /// The shown windows with their process names, looked up once per process.
     public static WindowInfo[] Windows()
     {
-        List<WindowInfo> result = new List<WindowInfo>();
+        WindowInfo[] result = WindowSnapshot();
         Dictionary<uint, string> apps = new Dictionary<uint, string>();
-        EnumWindows(delegate (IntPtr h, IntPtr l)
+        foreach (WindowInfo info in result)
         {
-            WindowInfo info = Info(h, false);
-            if (IsShown(info))
+            string app;
+            if (!apps.TryGetValue(info.Pid, out app))
             {
-                string app;
-                if (!apps.TryGetValue(info.Pid, out app))
-                {
-                    app = "";
-                    try { app = Process.GetProcessById((int)info.Pid).ProcessName; } catch { }
-                    apps[info.Pid] = app;
-                }
-                info.App = app;
-                result.Add(info);
+                app = "";
+                try { app = Process.GetProcessById((int)info.Pid).ProcessName; } catch { }
+                apps[info.Pid] = app;
             }
-            return true;
-        }, IntPtr.Zero);
-        return result.ToArray();
+            info.App = app;
+        }
+        return result;
     }
     public static WindowInfo[] WindowSnapshot()
     {
@@ -1450,35 +1445,7 @@ public class MixWin32
     public static string BackgroundDrag(
       IntPtr top, int screenX1, int screenY1, int screenX2, int screenY2, string modifiers)
     {
-        IntPtr target = MessageTargetAtPoint(top, screenX1, screenY1);
-        MessageTargetAtPoint(top, screenX2, screenY2);
-        POINT start = ClientPoint(target, screenX1, screenY1);
-        uint flags = PointerModifiers(modifiers);
-        SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), PointParam(start.x, start.y));
-        AnnounceBackgroundTarget(screenX1, screenY1);
-        POINT last = start;
-        int lastX = screenX1, lastY = screenY1;
-        var release = BindBackgroundRelease(target, delegate
-        {
-            SendMessageChecked(target, WM_LBUTTONUP, new UIntPtr(flags), PointParam(last.x, last.y));
-            ReportPointer(lastX, lastY, false);
-        });
-        WithBackgroundRelease(
-          delegate { SendMessageChecked(target, WM_LBUTTONDOWN, new UIntPtr(flags | MK_LBUTTON), PointParam(start.x, start.y)); },
-          delegate
-          {
-              ReportPointer(screenX1, screenY1, true);
-              for (int step = 1; step <= 12; step++)
-              {
-                  lastX = screenX1 + (screenX2 - screenX1) * step / 12;
-                  lastY = screenY1 + (screenY2 - screenY1) * step / 12;
-                  last = ClientPoint(target, lastX, lastY);
-                  SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags | MK_LBUTTON), PointParam(last.x, last.y));
-                  ReportPointer(lastX, lastY, true);
-                  System.Threading.Thread.Sleep(20);
-              }
-          }, release);
-        return WindowId(target);
+        return BackgroundDragPath(top, new int[] { screenX1, screenX2 }, new int[] { screenY1, screenY2 }, modifiers);
     }
     public static string BackgroundWheel(
       IntPtr top, int screenX, int screenY, int clicks, string modifiers)

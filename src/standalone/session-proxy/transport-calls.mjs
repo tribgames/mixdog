@@ -5,6 +5,8 @@
  * token) handled by re-attaching, recovering the projection on the new
  * attachment and retrying with a short backoff.
  */
+import { sleep as delay } from '../../runtime/shared/sleep.mjs';
+
 const CALL_RECOVERY_BACKOFF_MS = Object.freeze([0, 150, 600]);
 
 const ROUTE_METHODS = Object.freeze({
@@ -26,11 +28,6 @@ const ROUTE_METHODS = Object.freeze({
 
 const isRecoverable = (error) =>
   error?.daemonTransportError || /unknown client token/i.test(String(error?.message || ''));
-
-const delay = (ms) =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 
 export function createTransportCalls({ binding, projection, pool, openParams, cwd, log, getView }) {
   let recoveryPromise = null;

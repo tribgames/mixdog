@@ -156,6 +156,52 @@ exit 0
 `;
 }
 
+function _snapshotEnv(shellPath) {
+  // P3 fix: blank prompts so an interactive sourcing in -ic does not
+  // print PS1 / PS2 / RPROMPT / PROMPT noise to stderr (which our
+  // failure log truncates to 200 chars and tags as "snapshot failed"
+  // even when the snapshot itself is fine).
+  // R11: scrub loader/execution vars from process.env before
+  // handing it to the snapshot shell. This site previously passed
+  // raw process.env, bypassing even the R5 secret scrub — the
+  // snapshot child sources the user's rc file, so NODE_OPTIONS /
+  // LD_PRELOAD / BASH_ENV here would inject into every subsequent
+  // bash command that uses this snapshot.
+  const e = scrubLoaderVars({
+    ...process.env,
+    SHELL: shellPath,
+    GIT_EDITOR: 'true',
+    CLAUDECODE: '1',
+    PS1: '',
+    PS2: '',
+    PS3: '',
+    PS4: '',
+    PROMPT: '',
+    RPROMPT: '',
+  });
+  // R5 secret scrub — the rc-sourcing snapshot child runs user code
+  // (.bashrc / .zshrc) which can exfil any inherited env. Strip
+  // provider/cloud tokens before exposing the env to that script.
+  // Shared with bash-session and shell-jobs via env-scrub.mjs.
+  scrubProviderSecrets(e);
+  // Runtime-root isolation — see env-scrub.mjs scrubRuntimeRootVars.
+  scrubRuntimeRootVars(e);
+  return e;
+}
+
+// P3 fix: payload-aware sentinel. Header bytes alone (~80) plus
+// PATH export and `unalias -a` boilerplate can exceed 200 even
+// when no user state was captured. Require at least one of:
+// alias declaration, function definition, or shell-option line.
+function _snapshotHasPayload(snapContent) {
+  const hasAlias = /^\s*alias\s+--\s/m.test(snapContent);
+  const hasFn =
+    /^\s*[A-Za-z_][\w-]*\s*\(\s*\)\s*\{/m.test(snapContent) || /^\s*function\s+[A-Za-z_]/m.test(snapContent);
+  const hasOpt =
+    /^\s*setopt\b/m.test(snapContent) || /^\s*shopt\s+-s/m.test(snapContent) || /^\s*set\s+-o\s/m.test(snapContent);
+  return hasAlias || hasFn || hasOpt;
+}
+
 async function _runSnapshot(shellPath, snapshotPath, configFileExists) {
   const script = getSnapshotScript(shellPath, snapshotPath, configFileExists);
   let stderrBuf = '';
@@ -168,38 +214,7 @@ async function _runSnapshot(shellPath, snapshotPath, configFileExists) {
   // without triggering completion init. The script also explicitly sources
   // the rc file, so the interactive-guard `[[ $- == *i* ]] && return` is
   // accepted as a known tradeoff.
-  const env = (() => {
-    // P3 fix: blank prompts so an interactive sourcing in -ic does not
-    // print PS1 / PS2 / RPROMPT / PROMPT noise to stderr (which our
-    // failure log truncates to 200 chars and tags as "snapshot failed"
-    // even when the snapshot itself is fine).
-    // R11: scrub loader/execution vars from process.env before
-    // handing it to the snapshot shell. This site previously passed
-    // raw process.env, bypassing even the R5 secret scrub — the
-    // snapshot child sources the user's rc file, so NODE_OPTIONS /
-    // LD_PRELOAD / BASH_ENV here would inject into every subsequent
-    // bash command that uses this snapshot.
-    const e = scrubLoaderVars({
-      ...process.env,
-      SHELL: shellPath,
-      GIT_EDITOR: 'true',
-      CLAUDECODE: '1',
-      PS1: '',
-      PS2: '',
-      PS3: '',
-      PS4: '',
-      PROMPT: '',
-      RPROMPT: '',
-    });
-    // R5 secret scrub — the rc-sourcing snapshot child runs user code
-    // (.bashrc / .zshrc) which can exfil any inherited env. Strip
-    // provider/cloud tokens before exposing the env to that script.
-    // Shared with bash-session and shell-jobs via env-scrub.mjs.
-    scrubProviderSecrets(e);
-    // Runtime-root isolation — see env-scrub.mjs scrubRuntimeRootVars.
-    scrubRuntimeRootVars(e);
-    return e;
-  })();
+  const env = _snapshotEnv(shellPath);
   let spawned;
   try {
     spawned = await spawnShellWithRetry({
@@ -234,22 +249,11 @@ async function _runSnapshot(shellPath, snapshotPath, configFileExists) {
     child.once('close', (code) => {
       clearTimeout(timer);
       if (code === 0 && existsSync(snapshotPath)) {
-        // P3 fix: payload-aware sentinel. Header bytes alone (~80) plus
-        // PATH export and `unalias -a` boilerplate can exceed 200 even
-        // when no user state was captured. Require at least one of:
-        // alias declaration, function definition, or shell-option line.
         let snapContent = '';
         try {
           snapContent = readFileSync(snapshotPath, 'utf-8');
         } catch {}
-        const _hasAlias = /^\s*alias\s+--\s/m.test(snapContent);
-        const _hasFn =
-          /^\s*[A-Za-z_][\w-]*\s*\(\s*\)\s*\{/m.test(snapContent) || /^\s*function\s+[A-Za-z_]/m.test(snapContent);
-        const _hasOpt =
-          /^\s*setopt\b/m.test(snapContent) ||
-          /^\s*shopt\s+-s/m.test(snapContent) ||
-          /^\s*set\s+-o\s/m.test(snapContent);
-        if (!_hasAlias && !_hasFn && !_hasOpt) {
+        if (!_snapshotHasPayload(snapContent)) {
           try {
             process.stderr.write(
               `[shell-snapshot] empty snapshot rejected (no aliases / functions / options captured, size=${snapContent.length})\n`

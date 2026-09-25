@@ -20,8 +20,7 @@
   display: none;
 }
 .titlebar-leading,
-.workspace-tabs-shell,
-.topbar .titlebar-new {
+.workspace-tabs-shell {
   margin-top: 0;
 }
 .workspace-tabs-shell {

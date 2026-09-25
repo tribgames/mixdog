@@ -2,6 +2,7 @@
 // A composed deck carries slide plans and the design tokens it was drawn with;
 // an authored deck carries neither, so these helpers read the deck's own
 // ladder and geometry instead of the composer's plan.
+import { relativeLuminance } from '../design/design-discipline.mjs';
 
 const DEFAULT_SLIDE = { width: 960, height: 540 }; // LAYOUT_WIDE in points
 const EDGE_ZONE = 60; // pt from the slide edge that reads as page chrome
@@ -48,13 +49,7 @@ export function authoredBackgroundLadder(backgrounds, tokenColors) {
 
 // Perceived lightness of a background hex, 0-1; an unreadable value sorts last.
 function backgroundLightness(color) {
-  const value = String(color || '').replace(/^#/, '');
-  if (!/^[0-9A-Fa-f]{6}$/.test(value)) return 0;
-  const channel = (index) => {
-    const raw = Number.parseInt(value.slice(index, index + 2), 16) / 255;
-    return raw <= 0.04045 ? raw / 12.92 : ((raw + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+  return relativeLuminance(color) ?? 0;
 }
 
 // A thin rule is ornamentation when it hugs a slide edge or underlines a title;

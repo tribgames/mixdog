@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-const require = createRequire(new URL('../../desktop/package.json', import.meta.url));
+const require = createRequire(new URL('../package.json', import.meta.url));
 const ts = require('typescript');
 const sourceFile = /\.[cm]?[jt]sx?$/i;
 const options = {

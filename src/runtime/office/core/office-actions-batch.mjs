@@ -1,4 +1,4 @@
-import { copyFile, rename, rm } from 'node:fs/promises';
+import { copyFile, readFile, rename, rm } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -14,6 +14,10 @@ import { expandTemplatePageOperations } from '../design/library/design-template-
 import { assertOfficeMutationAllowed } from '../quality/assurance.mjs';
 import { inlineOfficeAudit } from '../quality/inline-audit.mjs';
 import { DEFAULT_SERIES_COLORS } from '../portable/portable-chart.mjs';
+import { measureTextWidth } from '../portable/text-metrics.mjs';
+import { PIXELS_TO_POINTS, imagePixelSize } from '../portable/portable-opc.mjs';
+import { naturalColumnWidths } from '../shared/column-widths.mjs';
+import { figureColumnAlignments } from '../shared/column-alignments.mjs';
 import { pageSizePoints } from '../shared/page-sizes.mjs';
 import {
   TABULAR_FORMATS,
@@ -31,15 +35,45 @@ import {
   transactionView,
 } from './office-transactions.mjs';
 
+import { koreanParticleReplacements } from '../shared/korean-particles.mjs';
+
 // Excel fills an unstyled series from the workbook theme (a teal and an orange on the default one) while the
 // portable writer paints its own hue family, so the same add_chart drew two different charts. A chart that
 // names no colours takes the portable palette on both backends; a named palette is kept as written.
 function withSharedChartDefaults(session, operations) {
-  if (session.format !== 'xlsx') return operations;
+  if (session.format === 'pptx') return withTemplateParticles(operations.map(withSlideChartColors));
+  if (session.format !== 'xlsx') return withTemplateParticles(operations);
   return operations.map((operation) =>
     operation?.op === 'add_chart' && !(Array.isArray(operation.seriesColors) && operation.seriesColors.length)
       ? { ...operation, seriesColors: [...DEFAULT_SERIES_COLORS] }
       : operation
+  );
+}
+
+// PowerPoint fills an unstyled series from the deck theme as Excel does (a teal and an orange beside the portable
+// writer's blues): a slide chart that names no colour takes the portable palette too — a series its colour, a pie or
+// doughnut slice its own, as the portable writer cycles them.
+function withSlideChartColors(operation) {
+  if (operation?.op !== 'add_chart' || !Array.isArray(operation.series)) return operation;
+  const palette = DEFAULT_SERIES_COLORS;
+  const slices = /^(?:pie|doughnut|donut)$/i.test(String(operation.chartType || '').trim());
+  return {
+    ...operation,
+    series: operation.series.map((entry, index) => {
+      if (!entry || typeof entry !== 'object') return entry;
+      if (!slices) return entry.color ? entry : { ...entry, color: palette[index % palette.length] };
+      if (Array.isArray(entry.pointColors) && entry.pointColors.length) return entry;
+      const values = Array.isArray(entry.values) ? entry.values : [];
+      return { ...entry, pointColors: values.map((_, point) => palette[point % palette.length]) };
+    }),
+  };
+}
+
+// Word and PowerPoint fill a template with the same particle rewrites the portable writer runs
+// (shared/korean-particles.mjs), handed over with the operation so "{{company}}은" lands as 모아페이는 on both.
+function withTemplateParticles(operations) {
+  return operations.map((operation) =>
+    operation?.op === 'fill_template' ? { ...operation, particles: koreanParticleReplacements(operation.tokens) } : operation
   );
 }
 
@@ -52,6 +86,109 @@ function withPageSizePoints(session, operations) {
     const { pageSize, ...properties } = operation.properties;
     const [pageWidth, pageHeight] = pageSizePoints(pageSize, 'set_page pageSize');
     return { ...operation, properties: { ...properties, pageWidth, pageHeight } };
+  });
+}
+
+// A Word table that declares no column alignments sets its columns of figures right, as the PDF writer sets them
+// (shared/column-alignments.mjs): "2.6억 원" and 184,200 had started at the left edge under a left header.
+function withFigureColumnAlignments(session, operations) {
+  if (session.format !== 'docx') return operations;
+  return operations.map((operation) => {
+    if (operation?.op !== 'add_table' || !Array.isArray(operation.values) || operation.values.length < 2) {
+      return operation;
+    }
+    if (Array.isArray(operation.properties?.columnAlignments)) return operation;
+    const rows = operation.values.map((row) => (Array.isArray(row) ? row : [row]).map((value) => String(value ?? '')));
+    const alignments = figureColumnAlignments(rows, Math.max(...rows.map((row) => row.length)));
+    if (!alignments.includes('right')) return operation;
+    return { ...operation, properties: { ...operation.properties, columnAlignments: alignments } };
+  });
+}
+
+// A picture given one side takes the other from its own proportions, on every backend: the side left out fell to a
+// fixed default (240 × 180 pt in the portable file, 320 × 240 through Office, the height Word had fitted to the page)
+// and the picture came out stretched. A slide picture given neither side is 240 pt wide at its proportions, a sheet
+// picture keeps its own size; a Word picture given neither is left to the page it lands on.
+async function withImageProportions(session, operations) {
+  if (!['docx', 'xlsx', 'pptx'].includes(session.format)) return operations;
+  const next = [];
+  for (const operation of operations) {
+    const width = Number(operation?.width) > 0 ? Number(operation.width) : 0;
+    const height = Number(operation?.height) > 0 ? Number(operation.height) : 0;
+    const stretch = String(operation?.fit || 'stretch').toLowerCase() === 'stretch';
+    if (
+      operation?.op !== 'add_image' ||
+      !operation.path ||
+      (width && height) ||
+      !stretch ||
+      (session.format === 'docx' && !width && !height)
+    ) {
+      next.push(operation);
+      continue;
+    }
+    // A file that cannot be read is left to the backend, which names it in its own refusal.
+    const data = await readFile(operation.path).catch(() => null);
+    const pixels = data ? imagePixelSize(data) : null;
+    if (!pixels?.width || !pixels?.height) {
+      next.push(operation);
+      continue;
+    }
+    const ratio = pixels.height / pixels.width;
+    let size = { width: pixels.width * PIXELS_TO_POINTS, height: pixels.height * PIXELS_TO_POINTS };
+    if (width) size = { width, height: width * ratio };
+    else if (height) size = { width: height / ratio, height };
+    else if (session.format === 'pptx') size = { width: 240, height: 240 * ratio };
+    next.push({
+      ...operation,
+      width: Math.round(size.width * 100) / 100,
+      height: Math.round(size.height * 100) / 100,
+    });
+  }
+  return next;
+}
+
+// A built-in Excel table style in the name Excel stores ("TableStyleMedium2"), however the author spaced or cased it
+// ("Table Style Medium 2", "medium 2", "TableStyleNone"): Excel refused the spelled-out name and failed the batch, and
+// the portable file carried a style Excel does not have. A custom style's name stays as written.
+function withTableStyleNames(session, operations) {
+  if (session.format !== 'xlsx') return operations;
+  return operations.map((operation) => {
+    if (operation?.op !== 'add_table' || operation.style === undefined) return operation;
+    const compact = String(operation.style).replace(/[\s_-]+/g, '');
+    if (!compact || /^(?:tablestyle)?none$/i.test(compact)) return { ...operation, style: 'none' };
+    const builtIn = /^(?:tablestyle)?(light|medium|dark)(\d{1,2})$/i.exec(compact);
+    if (!builtIn) return operation;
+    const tone = `${builtIn[1][0].toUpperCase()}${builtIn[1].slice(1).toLowerCase()}`;
+    return { ...operation, style: `TableStyle${tone}${Number(builtIn[2])}` };
+  });
+}
+
+// PowerPoint's cell margins, left and right together, in points.
+const SLIDE_CELL_PADDING = 14.4;
+
+// A slide table that names no column widths takes the widths its text needs, as a Word, PDF, or kit table does
+// (naturalColumnWidths), measured in its own face at its own size (PowerPoint's 18 pt when it names none), the
+// header bold. Equal columns broke a hub name over three lines beside columns of short figures. Both backends
+// receive the same widths.
+function withSlideTableWidths(session, operations) {
+  if (session.format !== 'pptx') return operations;
+  return operations.map((operation) => {
+    if (operation?.op !== 'add_table' || !Array.isArray(operation.values)) return operation;
+    const properties = operation.properties || {};
+    if (Array.isArray(properties.columnWidths)) return operation;
+    const rows = operation.values.filter(Array.isArray);
+    const font = {
+      fontName: properties.fontName || 'Calibri',
+      fontSize: Number(properties.fontSize) > 0 ? Number(properties.fontSize) : 18,
+    };
+    const measure = (text, rowIndex) =>
+      measureTextWidth(text, { ...font, bold: rowIndex === 0 }) * 1.05 + SLIDE_CELL_PADDING;
+    const widths = naturalColumnWidths(rows, measure, Number(operation.width) > 0 ? Number(operation.width) : 480);
+    if (!widths) return operation;
+    return {
+      ...operation,
+      properties: { ...properties, columnWidths: widths.map((width) => Math.round(width * 100) / 100) },
+    };
   });
 }
 
@@ -211,19 +348,31 @@ function recordDesignState(session, prepared) {
 
 // A column fitted while its formulas were uncached was measured against
 // empty cells: the widths are only final once the workbook has been
-// recalculated, so the session remembers what to fit again then.
+// recalculated, so the session remembers what to fit again then. The fit is
+// replayed whole — its minWidth and whether it fits rows — and in order with the
+// explicit widths and heights set after it: replayed bare, a composed report's
+// 19-character columns shrank to their content, and a gutter set by
+// set_column_width after the fit was widened again.
+const SIZING_FIELDS = ['sheet', 'range', 'minWidth', 'rows', 'column', 'row', 'width', 'height', 'count'];
+function sizingKey(operation) {
+  const target = operation.op === 'autofit_range' ? `${operation.range}|${operation.rows === true}` : `${operation.column ?? operation.row}|${operation.count ?? 1}`;
+  return `${operation.op}|${operation.sheet || ''}|${target}`;
+}
 function rememberAutofitRanges(session, operations) {
-  const fitted = operations
-    .filter((operation) => operation.op === 'autofit_range' && operation.range)
-    .map((operation) => ({ sheet: operation.sheet || '', range: String(operation.range) }));
-  if (!fitted.length) return;
-  const seen = new Set((session.autofitRanges || []).map((entry) => `${entry.sheet}|${entry.range}`));
-  session.autofitRanges = [
-    ...(session.autofitRanges || []),
-    ...fitted.filter(
-      (entry) => !seen.has(`${entry.sheet}|${entry.range}`) && seen.add(`${entry.sheet}|${entry.range}`)
-    ),
-  ];
+  const sized = operations
+    .filter(
+      (operation) =>
+        (operation.op === 'autofit_range' && operation.range) ||
+        operation.op === 'set_column_width' ||
+        operation.op === 'set_row_height'
+    )
+    .map((operation) =>
+      Object.fromEntries([['op', operation.op], ...SIZING_FIELDS.filter((field) => operation[field] !== undefined).map((field) => [field, operation[field]])])
+    );
+  if (!sized.length) return;
+  // The latest request for a target wins and takes its place in the order.
+  const keys = new Set(sized.map(sizingKey));
+  session.autofitRanges = [...(session.autofitRanges || []).filter((entry) => !keys.has(sizingKey(entry))), ...sized];
 }
 
 // Resolves what the batch will run: the design-expanded, cwd-localized,
@@ -271,7 +420,11 @@ async function prepareBatchOperations(session, args) {
       }
     }
   }
-  operations = withPageSizePoints(session, operations);
+  operations = withTableStyleNames(
+    session,
+    withSlideTableWidths(session, withFigureColumnAlignments(session, withPageSizePoints(session, operations)))
+  );
+  operations = await withImageProportions(session, operations);
   return { prepared, operations };
 }
 // Marks the open transaction as applying and journals that; a journal that

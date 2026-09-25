@@ -10,6 +10,7 @@ import {
   warmNativeSearchServer,
 } from '../src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs';
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
+import { percentile, sortedFinite } from './lib/trace-stats.mjs';
 
 const repeats = Math.max(1, Math.min(20, Number(process.argv[2]) || 5));
 const fixture = await mkdtemp(join(tmpdir(), 'mixdog-io-bench-'));
@@ -17,14 +18,9 @@ const entriesDir = join(fixture, 'entries');
 const largeFile = join(fixture, 'large.txt');
 const options = { sessionId: 'io-bench', suppressReadUnchangedStub: true };
 
-function percentile(values, p) {
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] || 0;
-}
-
 function summarize(values) {
   const average = values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
-  return `avg=${average.toFixed(2)}ms p95=${percentile(values, 0.95).toFixed(2)}ms`;
+  return `avg=${average.toFixed(2)}ms p95=${percentile(sortedFinite(values), 95).toFixed(2)}ms`;
 }
 
 async function timed(run) {

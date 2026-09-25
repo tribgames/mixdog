@@ -3,8 +3,8 @@
 // already queued, reclaims the in-flight prompt, its history slot and its
 // requeue entries.
 import { hydratePastedAttachments } from '../../../../runtime/attachments/store.mjs';
-import { promptHistoryKey } from '../../../prompt-history-store.mjs';
 import { abortGoalTurn } from '../../goal-turn-state.mjs';
+import { promptHistoryWithout } from '../../prompt-history.mjs';
 import { isQueuedEntryEditable } from '../../queue-helpers.mjs';
 
 export function createAbortAction(bag, { acceptingSubmissions }) {
@@ -55,12 +55,7 @@ export function createAbortAction(bag, { acceptingSubmissions }) {
     restoreState.reclaimed = true;
     const idSet = new Set((restoreState.submittedIds || []).filter((id) => id != null));
     const patch = { spinner: null, thinking: null, lastTurn: null };
-    if (restoreText) {
-      const restoreKey = promptHistoryKey(restoreText);
-      patch.promptHistoryList = (getState().promptHistoryList || []).filter(
-        (entry) => promptHistoryKey(entry) !== restoreKey
-      );
-    }
+    if (restoreText) patch.promptHistoryList = promptHistoryWithout(getState().promptHistoryList, restoreText);
     if (idSet.size > 0) {
       const items = getState().items.filter((item) => !idSet.has(item?.id));
       if (items.length !== getState().items.length) {

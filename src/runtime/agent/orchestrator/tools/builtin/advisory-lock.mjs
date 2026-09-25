@@ -5,6 +5,7 @@
 // in this Node, advisory lock serialises across Node processes.
 import { openSync, closeSync, writeSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { compareCodePoints } from '../../../../shared/code-point-order.mjs';
+import { sleep } from '../../../../shared/sleep.mjs';
 import { dirname, basename, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
@@ -35,12 +36,8 @@ function isPidAlive(pid) {
 function readLockInfo(lockFile) {
   try {
     const raw = readFileSync(lockFile, 'utf-8').trim();
-    // Token format: `${pid}.${hex}`. Fall back to legacy bare-pid contents.
-    const dot = raw.indexOf('.');
-    if (dot > 0) {
-      const pid = parseInt(raw.slice(0, dot), 10);
-      return { pid: Number.isInteger(pid) ? pid : 0, token: raw };
-    }
+    // Token format: `${pid}.${hex}`, or legacy bare-pid contents. parseInt
+    // stops at the dot, so both read the leading pid.
     const pid = parseInt(raw, 10);
     return { pid: Number.isInteger(pid) ? pid : 0, token: raw };
   } catch {
@@ -130,7 +127,7 @@ async function acquireAdvisoryLock(targetPath, { timeoutMs = 5000, pollMs = 25 }
       // sleep also absorbs the OS-level race window where the
       // original kill(0) returned ESRCH before the holder fully
       // exited the spawn/registration window.
-      await new Promise((r) => setTimeout(r, 50));
+      await sleep(50);
       const second = readLockInfo(lockFile);
       if (second.pid !== holderPid || second.token !== holderToken) {
         // Another contender already touched the lock; resync — but the
@@ -145,7 +142,7 @@ async function acquireAdvisoryLock(targetPath, { timeoutMs = 5000, pollMs = 25 }
         unlinkIfOwned(lockFile, holderToken);
         // Small jitter to avoid avalanche of contenders racing into
         // tryCreateLock simultaneously after the unlink.
-        await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 5) + 1));
+        await sleep(Math.floor(Math.random() * 5) + 1);
         // The stale lock is gone: retry the create. Past the deadline
         // exactly ONE such attempt is granted — a lock repeatedly taken
         // and abandoned by dying holders would otherwise livelock here
@@ -160,11 +157,11 @@ async function acquireAdvisoryLock(targetPath, { timeoutMs = 5000, pollMs = 25 }
       // Second probe says the holder is alive after all — fall through to
       // the live-holder wait so the same deadline applies.
       if (Date.now() >= deadline) throw timeoutError(holderPid);
-      await new Promise((r) => setTimeout(r, pollMs));
+      await sleep(pollMs);
       continue;
     }
     if (Date.now() >= deadline) throw timeoutError(holderPid);
-    await new Promise((r) => setTimeout(r, pollMs));
+    await sleep(pollMs);
   }
 }
 

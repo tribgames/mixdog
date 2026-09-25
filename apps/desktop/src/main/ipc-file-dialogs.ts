@@ -1,14 +1,11 @@
 // Native file/folder pickers and the local-file reads the renderer may ask for.
-import type { App, BrowserWindow, Dialog, IpcMainInvokeEvent } from 'electron';
-import { readFile as fsReadFile, stat as fsStat } from 'node:fs/promises';
-import { basename as pathBasename, isAbsolute as pathIsAbsolute, resolve as resolvePath } from 'node:path';
+import type { App, BrowserWindow, Dialog } from 'electron';
+import { isAbsolute as pathIsAbsolute, resolve as resolvePath } from 'node:path';
 import { DESKTOP_IPC, type DesktopWorkspace } from '../shared/contract';
-import { localFileMimeTypeForPath } from '../shared/local-files';
 import type { DesktopService } from './desktop-service-contract';
-import { absoluteLocalPath, MAX_LOCAL_FILE_BYTES } from './local-files';
+import { absoluteLocalPath, readLocalFileAbs } from './local-files';
+import type { IpcHandle as Handle } from './ipc';
 import { requiredString, requiredWorkspaceFolders } from './ipc-validation';
-
-type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
 
 interface FileDialogIpcOptions {
   window: BrowserWindow;
@@ -42,21 +39,7 @@ export function registerFileDialogIpc({
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
   handle(DESKTOP_IPC.resolveLocalPaths, (_event, paths) => describeLocalPaths(paths));
-  handle(DESKTOP_IPC.readLocalFile, async (_event, rawPath) => {
-    const file = absoluteLocalPath(rawPath);
-    const info = await fsStat(file);
-    if (!info.isFile()) throw new Error('Only files can be attached.');
-    if (info.size > MAX_LOCAL_FILE_BYTES) {
-      throw new Error(`${pathBasename(file)}: files must be 20 MB or smaller.`);
-    }
-    const data = await fsReadFile(file);
-    return {
-      name: pathBasename(file),
-      size: info.size,
-      mimeType: localFileMimeTypeForPath(file),
-      data: data.toString('base64'),
-    };
-  });
+  handle(DESKTOP_IPC.readLocalFile, (_event, rawPath) => readLocalFileAbs(rawPath));
   // Project file refresh is daemon-owned and refcounted there.
   handle(DESKTOP_IPC.folderWatch, (_event, dirRaw, recursive) => {
     const dir = absoluteLocalPath(dirRaw);

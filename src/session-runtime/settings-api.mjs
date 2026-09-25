@@ -5,15 +5,16 @@
 // `this.*` resolve against the spread target, so cross-member calls (e.g.
 // setProfile -> this.getProfile) keep working when spread into the facade.
 //
-// The members live in four topic modules: profile/onboarding/skills,
-// compaction/auto-clear, built-in tool modules, and system (channels, shell,
-// updates); the local provider's own methods come from
+// The members live in five topic modules: profile/onboarding/skills,
+// compaction/auto-clear, built-in tool modules, system (channels, shell,
+// updates) and developer options; the local provider's own methods come from
 // local-provider-settings.mjs.
 import { createLocalProviderSettings } from './local-provider-settings.mjs';
 import { createProfileSettings } from './settings-profile-api.mjs';
 import { createCompactionSettings } from './settings-compaction-api.mjs';
 import { createBuiltinToolSettings } from './settings-builtin-tools-api.mjs';
 import { createSystemSettings } from './settings-system-api.mjs';
+import { createDeveloperSettings } from './settings-developer-api.mjs';
 
 export function createSettingsApi(deps) {
   // Optional: callers without a live local provider / gate fall back to the
@@ -35,5 +36,6 @@ export function createSettingsApi(deps) {
     ...createCompactionSettings(shared),
     ...createBuiltinToolSettings(shared, localSettings),
     ...createSystemSettings(shared),
+    ...createDeveloperSettings(shared),
   };
 }

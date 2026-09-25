@@ -76,6 +76,35 @@ export function githubRepository(value) {
   return value;
 }
 
+const REQUIRED_FIELDS = Object.freeze({
+  'repo.create': ['repo', 'visibility'],
+  'repo.clone': ['repo', 'destination'],
+  'repo.fork': ['repo'],
+  'issue.view': ['number'],
+  'issue.comments': ['number'],
+  'issue.create': ['title'],
+  'issue.edit': ['number'],
+  'issue.close': ['number'],
+  'issue.reopen': ['number'],
+  'issue.comment': ['number', 'body'],
+  'pr.view': ['number'],
+  'pr.comments': ['number'],
+  'pr.create': ['title', 'base', 'head'],
+  'pr.checkout': ['number'],
+  'pr.merge': ['number', 'sha'],
+  'pr.review': ['number', 'sha', 'event'],
+  'pr.comment': ['number', 'body'],
+  'workflow.run': ['workflow', 'ref'],
+  'run.view': ['id'],
+  'run.logs': ['id'],
+  'run.rerun': ['id'],
+  'run.cancel': ['id'],
+  'release.view': ['id'],
+  'release.create': ['tag', 'title'],
+  'release.edit': ['id'],
+  'notification.read': ['id'],
+});
+
 export function validateGithubRequest(input) {
   if (
     !input ||
@@ -91,36 +120,7 @@ export function validateGithubRequest(input) {
     throw new TypeError(`Unsupported field for GitHub ${input.action}.`);
   }
   const out = { ...input };
-  const required =
-    {
-      'repo.create': ['repo', 'visibility'],
-      'repo.clone': ['repo', 'destination'],
-      'repo.fork': ['repo'],
-      'issue.view': ['number'],
-      'issue.comments': ['number'],
-      'issue.create': ['title'],
-      'issue.edit': ['number'],
-      'issue.close': ['number'],
-      'issue.reopen': ['number'],
-      'issue.comment': ['number', 'body'],
-      'pr.view': ['number'],
-      'pr.comments': ['number'],
-      'pr.create': ['title', 'base', 'head'],
-      'pr.checkout': ['number'],
-      'pr.merge': ['number', 'sha'],
-      'pr.review': ['number', 'sha', 'event'],
-      'pr.comment': ['number', 'body'],
-      'workflow.run': ['workflow', 'ref'],
-      'run.view': ['id'],
-      'run.logs': ['id'],
-      'run.rerun': ['id'],
-      'run.cancel': ['id'],
-      'release.view': ['id'],
-      'release.create': ['tag', 'title'],
-      'release.edit': ['id'],
-      'notification.read': ['id'],
-    }[out.action] || [];
-  for (const key of required) {
+  for (const key of REQUIRED_FIELDS[out.action] || []) {
     if (out[key] === undefined || out[key] === null || out[key] === '') {
       throw new TypeError(`${key} is required for ${out.action}.`);
     }

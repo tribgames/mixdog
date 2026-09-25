@@ -16,14 +16,14 @@ import {
   requestModelCatalog,
   subscribeModelCatalogInvalidation,
 } from './model-catalog-cache';
-import { preferredModelParameters } from './model-route-utils';
+import { filterConfiguredModels } from './model-catalog';
+import { EFFORT_FALLBACK_ORDER, preferredModelParameters } from './model-route-utils';
 import { RouteEditor } from './RouteEditor';
 import { OpenSelect } from './OpenSelect';
 import { InitialSurface } from './InitialSurface';
 import { modelContextWindow, modelDisplayName, modelFastAvailable, modelMaxContextWindow } from './provider-display';
 import { shouldShowFastControl } from './renderer-logic.mjs';
 import type { SettingsSection } from './slash-commands';
-import { asRecord } from './text-format';
 import {
   freshWorkflowOptions,
   seededWorkflowOptions,
@@ -35,30 +35,6 @@ import {
 
 // @ts-expect-error -- shared TUI source has no declaration file.
 import { normalizeModelOptions as normalizeTuiModelOptions } from '../../../../src/tui/app/model-options.mjs';
-
-export function providerSetupEntries(value: unknown): Array<RecordValue & { group: 'api' | 'oauth' | 'local' }> {
-  const setup = asRecord(value);
-  return (['api', 'oauth', 'local'] as const).flatMap((group) => {
-    const rows = setup?.[group];
-    return Array.isArray(rows)
-      ? rows
-          .map(asRecord)
-          .filter((row): row is RecordValue => Boolean(row))
-          .map((row) => ({ ...row, group }) as RecordValue & { group: typeof group })
-      : [];
-  });
-}
-
-export function providerSetupState(value: unknown, provider: string) {
-  const entry = providerSetupEntries(value).find((row) => String(row.id || row.provider || '') === provider);
-  if (!entry) return { known: false, configured: false };
-  const configured =
-    entry.group === 'local' ? entry.detected === true && entry.enabled === true : entry.authenticated === true;
-  return {
-    known: true,
-    configured,
-  };
-}
 
 // Model-style trigger for changing the active session workflow.
 export const WorkflowSelect = memo(function WorkflowSelect({
@@ -302,6 +278,13 @@ function routeModelParameters(parameters: Record<string, string>, maxContextWind
   return Object.fromEntries(Object.entries(parameters).filter(([id]) => id !== 'context'));
 }
 
+/** The model's default window as a slider stop: a multiple of 10 within
+ *  10–100, or 100 when the model has no adjustable window. */
+function defaultContextPercent(defaultWindow: number, maxWindow: number): number {
+  if (!(maxWindow > 0)) return 100;
+  return Math.max(10, Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10));
+}
+
 export const ModelSelector = memo(function ModelSelector({
   provider: sourceProvider,
   model: sourceModel,
@@ -395,10 +378,7 @@ export const ModelSelector = memo(function ModelSelector({
   const selectedModelParameters = preferredModelParameters(known, modelParameters || {});
   const defaultContextWindow = known ? modelContextWindow(known) : 0;
   const maxContextWindow = known ? modelMaxContextWindow(known) : 0;
-  const contextDefaultPercent =
-    maxContextWindow > 0
-      ? Math.max(10, Math.min(100, Math.round((defaultContextWindow / maxContextWindow) * 10) * 10))
-      : 100;
+  const contextDefaultPercent = defaultContextPercent(defaultContextWindow, maxContextWindow);
   const normalizedContextPercent = Math.max(
     10,
     Math.min(
@@ -411,85 +391,85 @@ export const ModelSelector = memo(function ModelSelector({
       ? defaultContextWindow
       : Math.floor((maxContextWindow * normalizedContextPercent) / 100);
   const routedModelParameters = routeModelParameters(selectedModelParameters, maxContextWindow);
+  const routedParameterFields = Object.keys(routedModelParameters).length
+    ? { modelParameters: routedModelParameters }
+    : {};
   const fastControlVisible = shouldShowFastControl(fastCapable, known?.fastCapable);
   const fastAvailable = fastControlVisible && modelFastAvailable(known, effort, selectedModelParameters);
-  const selectableModels = useMemo(() => {
-    if (providerSetup == null || providerSetupError) return catalogModels;
-    return catalogModels.filter((option) => providerSetupState(providerSetup, option.provider).configured);
-  }, [catalogModels, providerSetup, providerSetupError]);
+  const selectableModels = useMemo(
+    () => filterConfiguredModels(catalogModels, providerSetup, providerSetupError),
+    [catalogModels, providerSetup, providerSetupError]
+  );
   // A route the loaded catalog does not know at all stays "Select model": an
   // unknown/retired persisted id must never read as a selectable model.
   const triggerModel = known ? modelDisplayName(known.model, known.provider, known.display || '') : t('Select model');
 
-  const loadCatalog = useCallback(
-    async (force = false) => {
-      if (!force && catalogInFlight.current) return catalogInFlight.current;
-      const api = window.mixdogDesktop;
-      if (!api?.listProviderModels) {
-        setCatalogLoaded(true);
-        setStartupCatalogSettled(true);
-        return;
-      }
-      const request = (async () => {
-        setCatalogRefreshing(true);
-        setCatalogError('');
-        setProviderSetupError('');
-        const shared = requestModelCatalog(api);
-        const setupRequest = shared.setup
-          .then((setup) => {
-            if (shared.isCurrent()) setProviderSetup(setup);
-          })
-          .catch((reason) => {
-            if (!shared.isCurrent()) return;
-            console.warn('[model-catalog] provider setup refresh failed', reason);
-            setProviderSetupError('unavailable');
-          });
-        const fullRequest = shared.full
-          .then((full) => {
-            if (!shared.isCurrent() || !Array.isArray(full)) return;
-            setModels(full);
-            setCatalogError('');
-          })
-          .catch((reason) => {
-            if (!shared.isCurrent()) return;
-            // The quick or persisted catalog stays usable. A background refresh
-            // failure must not become a boot-time error surface.
-            console.warn('[model-catalog] full catalog refresh failed', reason);
-          })
-          .finally(() => {
-            if (!shared.isCurrent()) return;
-            setCatalogRefreshing(false);
-            setStartupCatalogSettled(true);
-          });
-        try {
-          const quick = await shared.quick;
-          if (shared.isCurrent() && Array.isArray(quick) && quick.length > 0) {
-            setModels((current) => {
-              const merged = new Map(current.map((option) => [`${option.provider}:${option.model}`, option]));
-              for (const option of quick) {
-                merged.set(`${option.provider}:${option.model}`, option);
-              }
-              return [...merged.values()];
-            });
-          }
-        } catch (reason) {
+  const loadCatalog = useCallback(async (force = false) => {
+    if (!force && catalogInFlight.current) return catalogInFlight.current;
+    const api = window.mixdogDesktop;
+    if (!api?.listProviderModels) {
+      setCatalogLoaded(true);
+      setStartupCatalogSettled(true);
+      return;
+    }
+    const request = (async () => {
+      setCatalogRefreshing(true);
+      setCatalogError('');
+      setProviderSetupError('');
+      const shared = requestModelCatalog(api);
+      const setupRequest = shared.setup
+        .then((setup) => {
+          if (shared.isCurrent()) setProviderSetup(setup);
+        })
+        .catch((reason) => {
           if (!shared.isCurrent()) return;
-          console.warn('[model-catalog] quick catalog refresh failed', reason);
-          setCatalogError(reason instanceof Error ? reason.message : String(reason || 'Model catalog failed.'));
-        } finally {
-          if (shared.isCurrent()) {
-            setCatalogLoaded(true);
-          }
+          console.warn('[model-catalog] provider setup refresh failed', reason);
+          setProviderSetupError('unavailable');
+        });
+      const fullRequest = shared.full
+        .then((full) => {
+          if (!shared.isCurrent() || !Array.isArray(full)) return;
+          setModels(full);
+          setCatalogError('');
+        })
+        .catch((reason) => {
+          if (!shared.isCurrent()) return;
+          // The quick or persisted catalog stays usable. A background refresh
+          // failure must not become a boot-time error surface.
+          console.warn('[model-catalog] full catalog refresh failed', reason);
+        })
+        .finally(() => {
+          if (!shared.isCurrent()) return;
+          setCatalogRefreshing(false);
+          setStartupCatalogSettled(true);
+        });
+      try {
+        const quick = await shared.quick;
+        if (shared.isCurrent() && Array.isArray(quick) && quick.length > 0) {
+          setModels((current) => {
+            const merged = new Map(current.map((option) => [`${option.provider}:${option.model}`, option]));
+            for (const option of quick) {
+              merged.set(`${option.provider}:${option.model}`, option);
+            }
+            return [...merged.values()];
+          });
         }
-        void Promise.allSettled([fullRequest, setupRequest]);
-      })().finally(() => {
-        if (catalogInFlight.current === request) catalogInFlight.current = null;
-      });
-      catalogInFlight.current = request;
-      return request;
-    },
-    [invokeResult]
-  );
+      } catch (reason) {
+        if (!shared.isCurrent()) return;
+        console.warn('[model-catalog] quick catalog refresh failed', reason);
+        setCatalogError(reason instanceof Error ? reason.message : String(reason || 'Model catalog failed.'));
+      } finally {
+        if (shared.isCurrent()) {
+          setCatalogLoaded(true);
+        }
+      }
+      void Promise.allSettled([fullRequest, setupRequest]);
+    })().finally(() => {
+      if (catalogInFlight.current === request) catalogInFlight.current = null;
+    });
+    catalogInFlight.current = request;
+    return request;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -506,10 +486,10 @@ export const ModelSelector = memo(function ModelSelector({
       cancelled = true;
       if (refreshTimer !== null) window.clearTimeout(refreshTimer);
     };
-    // One boot request and one 24h timer per mounted control. The module-level
-    // request and daemon catalog epoch deduplicate panes and sessions.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // One boot request and one 24h timer per mounted control (loadCatalog is
+    // stable). The module-level request and daemon catalog epoch deduplicate
+    // panes and sessions.
+  }, [loadCatalog]);
 
   useEffect(
     () =>
@@ -557,7 +537,7 @@ export const ModelSelector = memo(function ModelSelector({
     const effortCandidates = [sameModel ? effort : '', remembered?.effort, option.savedEffort];
     const nextEffort =
       effortCandidates.find((candidate) => candidate && values.includes(candidate)) ||
-      ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'].find((value) => values.includes(value)) ||
+      EFFORT_FALLBACK_ORDER.find((value) => values.includes(value)) ||
       values[0];
     let requestedFast: boolean | undefined;
     if (option.fastCapable) {
@@ -570,15 +550,12 @@ export const ModelSelector = memo(function ModelSelector({
       option,
       sameModel ? selectedModelParameters : remembered?.modelParameters || {}
     );
-    const optionDefaultWindow = modelContextWindow(option);
     const optionMaxWindow = modelMaxContextWindow(option);
-    const optionDefaultPercent =
-      optionMaxWindow > 0
-        ? Math.max(10, Math.min(100, Math.round((optionDefaultWindow / optionMaxWindow) * 10) * 10))
-        : 100;
     const nextContextPercent = sameModel
       ? normalizedContextPercent
-      : Number(remembered?.contextPercent) || Number(option.savedContextPercent) || optionDefaultPercent;
+      : Number(remembered?.contextPercent) ||
+        Number(option.savedContextPercent) ||
+        defaultContextPercent(modelContextWindow(option), optionMaxWindow);
     const nextFast =
       requestedFast === undefined
         ? undefined
@@ -639,7 +616,7 @@ export const ModelSelector = memo(function ModelSelector({
         model,
         effort,
         ...(nextFast === undefined ? {} : { fast: nextFast }),
-        ...(Object.keys(routedModelParameters).length ? { modelParameters: routedModelParameters } : {}),
+        ...routedParameterFields,
         contextPercent: normalizedContextPercent,
       });
       return;
@@ -650,7 +627,7 @@ export const ModelSelector = memo(function ModelSelector({
         model,
         effort,
         fast: false,
-        ...(Object.keys(routedModelParameters).length ? { modelParameters: routedModelParameters } : {}),
+        ...routedParameterFields,
         contextPercent: normalizedContextPercent,
       });
       return;
@@ -681,7 +658,7 @@ export const ModelSelector = memo(function ModelSelector({
             model,
             effort,
             ...(nextFast === undefined ? {} : { fast: nextFast }),
-            ...(Object.keys(routedModelParameters).length ? { modelParameters: routedModelParameters } : {}),
+            ...routedParameterFields,
             contextPercent: normalizedContextPercent,
           });
         }
@@ -698,7 +675,7 @@ export const ModelSelector = memo(function ModelSelector({
       model,
       ...(effort ? { effort } : {}),
       ...(fastControlVisible ? { fast: displayedFast } : {}),
-      ...(Object.keys(routedModelParameters).length ? { modelParameters: routedModelParameters } : {}),
+      ...routedParameterFields,
       contextPercent: nextContextPercent,
     });
   };

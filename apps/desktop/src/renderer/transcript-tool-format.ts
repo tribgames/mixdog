@@ -2,19 +2,42 @@ import { t, tExisting } from './i18n';
 import { formatElapsed, oneLine } from './text-format';
 import { boundedTextOf } from './transcript-tool-core';
 
+// Getters: each read resolves in the ACTIVE language, not the boot language.
 export const TOOL_DETAIL_LABELS = {
-  arguments: t('Arguments'),
-  content: t('Content'),
-  before: t('Before'),
-  after: t('After'),
-  answer: t('Answer'),
-  questions: t('Questions'),
-  todos: t('Todos'),
-  plan: t('Plan'),
-  running: t('Running'),
-  completed: t('Completed'),
-  failed: t('Failed'),
-} as const;
+  get arguments() {
+    return t('Arguments');
+  },
+  get content() {
+    return t('Content');
+  },
+  get before() {
+    return t('Before');
+  },
+  get after() {
+    return t('After');
+  },
+  get answer() {
+    return t('Answer');
+  },
+  get questions() {
+    return t('Questions');
+  },
+  get todos() {
+    return t('Todos');
+  },
+  get plan() {
+    return t('Plan');
+  },
+  get running() {
+    return t('Running');
+  },
+  get completed() {
+    return t('Completed');
+  },
+  get failed() {
+    return t('Failed');
+  },
+};
 
 const TOOL_ACTIVITY_RESULT_COUNT_KEYS = new Map([
   ['line', '{{count}} lines'],
@@ -424,7 +447,7 @@ export function toolActivityFieldValue(key: string, value: unknown): string {
   if (key === 'timeout_ms' && Number(value) > 0) {
     return formatElapsed(Number(value));
   }
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'boolean') return value ? t('Yes') : t('No');
   if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
     return value.join(', ');
   }

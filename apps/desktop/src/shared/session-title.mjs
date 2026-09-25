@@ -140,10 +140,6 @@ export function isSyntheticSessionDisplayText(value) {
   return !text || GENERATED_TITLE_NOISE.some((pattern) => pattern.test(text));
 }
 
-export function isGeneratedSessionTitleNoise(value) {
-  return isSyntheticSessionDisplayText(value);
-}
-
 export function hasMeaningfulSessionTitleText(value) {
   return /[\p{L}\p{N}]/u.test(normalizeSessionTitle(value, ''));
 }
@@ -176,7 +172,7 @@ export function normalizeSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, m
 // long first prompts produced paragraph-length titles). Word-boundary clip
 // with an ellipsis comes from normalizeSessionTitle.
 export function generatedSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, maxLength = 32) {
-  if (isGeneratedSessionTitleNoise(value)) return String(fallback);
+  if (isSyntheticSessionDisplayText(value)) return String(fallback);
   const legacyMedia = legacyMediaDisplay(value);
   const title = legacyMedia
     ? normalizeSessionTitle(legacyMedia.text, legacyMedia.fallback || fallback, maxLength)

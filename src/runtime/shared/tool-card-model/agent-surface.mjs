@@ -3,6 +3,7 @@
  * parenthesized summary and the bridge-envelope response detection.
  */
 import { displayModelName } from '../tool-surface.mjs';
+import { titleWord } from '../tool-primitives.mjs';
 import { backgroundTaskFailureStatusLabel } from '../err-text.mjs';
 import { parseTaskNotification } from '../task-notification-envelope.mjs';
 
@@ -24,12 +25,7 @@ export function titleizeAgentName(value) {
   if (!text) return '';
   const key = text.toLowerCase().replace(/[\s_]+/g, '-');
   if (AGENT_DISPLAY_NAMES.has(key)) return AGENT_DISPLAY_NAMES.get(key);
-  return text
-    .replace(/[_-]+/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`)
-    .join(' ');
+  return text.replace(/[_-]+/g, ' ').split(/\s+/).filter(Boolean).map(titleWord).join(' ');
 }
 
 // The agent identity a card shows, from whichever field the caller supplied.
@@ -76,23 +72,28 @@ export function agentResponseTitle(args, count = 1) {
   return withModelAndTag(joinActionAgent('Response', name), args);
 }
 
+const AGENT_ACTION_VERBS = new Map([
+  ['spawn', 'Spawn'],
+  ['send', 'Send'],
+  ['cancel', 'Cancel'],
+  ['close', 'Close'],
+  ['cleanup', 'Cleanup'],
+  ['read', 'Status'],
+  ['status', 'Status'],
+]);
+
 export function agentActionTitle(args) {
   const name = agentDisplayName(args);
   // Runtime treats an omitted type/action as "spawn" (see agent-tool.mjs default),
   // so mirror that contract here instead of falling through to the generic
   // "Called agent" status copy.
   const action = String(args?.type || args?.action || 'spawn').toLowerCase();
+  if (action === 'list') return 'Agent status';
   // Fixed action verbs regardless of running/completed status. No generic
   // "Agent" fallback for the agent: when the agent is unknown render the action
   // word alone ("Spawn") instead of "Spawn Agent".
-  if (action === 'spawn') return withModelAndTag(joinActionAgent('Spawn', name), args);
-  if (action === 'send') return withModelAndTag(joinActionAgent('Send', name), args);
-  if (action === 'list') return 'Agent status';
-  if (action === 'cancel') return withModelAndTag(joinActionAgent('Cancel', name), args);
-  if (action === 'close') return withModelAndTag(joinActionAgent('Close', name), args);
-  if (action === 'cleanup') return withModelAndTag(joinActionAgent('Cleanup', name), args);
-  if (action === 'read' || action === 'status') return withModelAndTag(joinActionAgent('Status', name), args);
-  return '';
+  const verb = AGENT_ACTION_VERBS.get(action);
+  return verb ? withModelAndTag(joinActionAgent(verb, name), args) : '';
 }
 
 export function agentActionSummary(args, summary) {

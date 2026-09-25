@@ -747,6 +747,16 @@ export function PaneSideDock({
       /* session-only */
     }
   };
+  // The same deferred diff body serves the stacked 2뎁스 layer and the pair column.
+  const diffSurface = (selection: PaneSideDockDiff) => (
+    <DeferredPersistentSurface
+      active
+      startupDelayMs={DIFF_STARTUP_DELAY_MS}
+      fallback={<DesktopLoadingSurface label={t('Loading diff…')} />}
+    >
+      <ReadyGitDiffPane selection={selection} active={diffShowing} onOpenFile={openFileTab} onClose={onCloseDiff} />
+    </DeferredPersistentSurface>
+  );
   // Browser: standalone under the header (user: 브라우저는 단독 맞고) — a
   // persistent layer stacked over the panel body. In the narrow 2뎁스 stage
   // the diff rides the same layer, with a back step to the list (user:
@@ -759,13 +769,7 @@ export function PaneSideDock({
           <span>{t('Back')}</span>
         </button>
       </div>
-      <DeferredPersistentSurface
-        active
-        startupDelayMs={DIFF_STARTUP_DELAY_MS}
-        fallback={<DesktopLoadingSurface label={t('Loading diff…')} />}
-      >
-        <ReadyGitDiffPane selection={entry.diff} active={diffShowing} onOpenFile={openFileTab} onClose={onCloseDiff} />
-      </DeferredPersistentSurface>
+      {diffSurface(entry.diff)}
     </div>
   );
   const browserSurface = dockBodyMounted ? (renderBrowserSurface?.(browserShowing) ?? null) : null;
@@ -833,25 +837,16 @@ export function PaneSideDock({
           diffResizeStart.current = null;
           try {
             event.currentTarget.releasePointerCapture(event.pointerId);
-          } catch {}
+          } catch {
+            /* already released */
+          }
           commitWidthPref(PANE_SIDE_DOCK_DIFF_WIDTH_KEY, diffDragPending.current ?? diffWidth);
           diffDragPending.current = null;
         }}
       />
       <div className="pane-dock-diff-body">
         <div className="workbench-side-surface-slot" data-surface-active={diffShowing ? 'true' : 'false'}>
-          <DeferredPersistentSurface
-            active
-            startupDelayMs={DIFF_STARTUP_DELAY_MS}
-            fallback={<DesktopLoadingSurface label={t('Loading diff…')} />}
-          >
-            <ReadyGitDiffPane
-              selection={columnDiff}
-              active={diffShowing}
-              onOpenFile={openFileTab}
-              onClose={onCloseDiff}
-            />
-          </DeferredPersistentSurface>
+          {diffSurface(columnDiff)}
         </div>
       </div>
     </div>

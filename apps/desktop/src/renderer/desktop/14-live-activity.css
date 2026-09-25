@@ -559,18 +559,18 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-alpha-light-6);
+  background: var(--mx-chip-bg);
   box-shadow: var(--mx-button);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
 .approval-actions button:hover:not(:disabled),
 .diff-toggle:hover:not(:disabled) {
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-alpha-light-6);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-chip-bg);
 }
 .approval-actions button:active:not(:disabled),
 .diff-toggle:active:not(:disabled) {
-  background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-alpha-light-6);
+  background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-chip-bg);
 }
 .approval-actions button:disabled,
 .diff-toggle:disabled {

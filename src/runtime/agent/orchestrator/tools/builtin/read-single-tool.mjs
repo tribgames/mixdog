@@ -8,7 +8,7 @@
 import * as fsPromises from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
 import { normalizeInputPath } from './path-utils.mjs';
-import { detectReadEncodingFromBuffer } from './snapshot-helpers.mjs';
+import { detectReadEncodingFromBuffer, isUtf16Encoding } from './snapshot-helpers.mjs';
 import { inspectBinaryFile, isBinaryBuffer } from './binary-file.mjs';
 import {
   readInputPathGuard,
@@ -38,7 +38,6 @@ async function prefetchRawBody(fullPath, st, helpers) {
 
 export async function executeSingleReadTool(args, workDir, readStateScope, options = {}, helpers = {}) {
   const {
-    normalizeErrorMessage,
     parseLineLimitArg,
     parseOffsetArg,
     resolveAgainstCwd,
@@ -125,6 +124,14 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
   const prefetched = preferBufferedRead
     ? await prefetchRawBody(fullPath, st, helpers)
     : { buf: null, fromCache: false };
+  return await readBodyResult(ctx, { prefetched, preferRangeStream, preferSmartStream }, helpers);
+}
+
+// Body read: binary/encoding inspection, then the streamed (range or smart)
+// or buffered path. Owns the file handle shared by inspection and streaming.
+async function readBodyResult(ctx, { prefetched, preferRangeStream, preferSmartStream }, helpers) {
+  const { normalizeErrorMessage, READ_MAX_SIZE_BYTES } = helpers;
+  const { fullPath, st, hasRangeArgs } = ctx;
   let readHandle = null;
   try {
     // Encoding and binary detection share the same head sample and handle
@@ -139,7 +146,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     // and would be rejected as binary or mis-decoded by the utf-8 streaming
     // paths, so it always routes to the bounded in-memory decode.
     const readEnc = detectReadEncodingFromBuffer(prefetched.buf || binaryInspection.head);
-    const isUtf16 = readEnc.encoding === 'utf16le' || readEnc.encoding === 'utf16be';
+    const isUtf16 = isUtf16Encoding(readEnc);
     const inspectBinary = async () => {
       if (binaryInspection) return binaryInspection;
       binaryInspection = prefetched.buf

@@ -26,17 +26,6 @@ import {
   PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
 } from '../stall-policy.mjs';
 import { _wsErrLabel, WS_MAX_INCOMING_FRAME_BYTES } from './openai-ws-pool.mjs';
-import {
-  _sansInput,
-  _stableStringify,
-  _cloneJson,
-  _logicalResponseItemMatch,
-  _stripResponseItemsFromHead,
-  _computeDelta,
-  _estimateFrameTokens,
-  _buildResponseCreateFrame,
-} from './openai-ws-delta.mjs';
-import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
 import { createWsResponseState } from './openai-ws-response-state.mjs';
 import { createWsTextRelay } from './openai-ws-text-relay.mjs';
 import { createWsStreamWatchdogs } from './openai-ws-watchdogs.mjs';
@@ -52,19 +41,9 @@ import { stampTerminalOutcome } from './openai-ws-stream/outcome.mjs';
 
 // Facade re-exports so existing importers of openai-ws-stream.mjs
 // (openai-oauth-ws.mjs et al) keep resolving these symbols unchanged.
-export {
-  _sansInput,
-  _stableStringify,
-  _cloneJson,
-  _logicalResponseItemMatch,
-  _stripResponseItemsFromHead,
-  _computeDelta,
-  _estimateFrameTokens,
-  _buildResponseCreateFrame,
-  _combineUsageWithWarmup,
-};
+export { _logicalResponseItemMatch, _computeDelta, _estimateFrameTokens } from './openai-ws-delta.mjs';
+export { _combineUsageWithWarmup } from './openai-ws-events.mjs';
 export { parseToolSearchArgs } from './openai-ws-response-state.mjs';
-export { _endTurnFromEvent } from './openai-ws-stream/terminal-frames.mjs';
 export { _captureTurnStateFromEvent } from './openai-ws-stream/turn-state-headers.mjs';
 
 // Positive-int coercion for per-call timeout overrides: finite > 0 → floor,

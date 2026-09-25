@@ -7,7 +7,6 @@ import { SETUP_TOOL_DEFS } from '../../src/session-runtime/setup-tool/tool-defs.
 import { toGeminiTools } from '../../src/runtime/agent/orchestrator/providers/gemini-schema.mjs';
 import { sanitizeAnthropicInputSchema } from '../../src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs';
 import { normalizeGrokToolSchemas } from '../../src/runtime/agent/orchestrator/providers/lib/grok-tool-schema.mjs';
-import { TOOL_DEFS as browser } from '../../src/runtime/browser-bridge/tool-defs.mjs';
 import { BUILTIN_TOOLS } from '../../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import { validateBuiltinArgs } from '../../src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs';
 import { executeBuiltinTool } from '../../src/runtime/agent/orchestrator/tools/builtin.mjs';
@@ -219,13 +218,4 @@ test('Grok normalizes nested array and map schemas without interpreting data-val
   assert.deepEqual(tool.inputSchema.properties.literal.default, schema.properties.literal.default);
   assert.deepEqual(schema, original);
   assert.deepEqual(normalizeGrokToolSchemas([tool]), [tool], 'normalization is idempotent');
-});
-
-test('report this cycle model-visible contract size without adding runtime dispatch maps', (t) => {
-  const before = { setup: 5660, browser: 11888, browser_devtools: 8186 };
-  const rows = [...SETUP_TOOL_DEFS, ...browser].map(({ name, description, inputSchema }) => {
-    const after = JSON.stringify({ description, inputSchema }).length;
-    return { name, before: before[name], after, delta: after - before[name] };
-  });
-  t.diagnostic(JSON.stringify({ unit: 'serialized JSON characters, not tokenizer counts', rows }));
 });

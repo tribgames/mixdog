@@ -25,7 +25,7 @@ const TITLE_MAX_CHARS = 140;
 const BACKGROUND_AREA_SHARE = 0.7;
 const STEP_PRESETS = new Set(['chevron', 'homePlate', 'rightArrow', 'pentagon', 'arrow']);
 // A metric reads as a figure and its unit, never as a sentence.
-const VALUE_TEXT = /^[+-]?\d[\d.,]*\s*[%a-zA-Z가-힣]{0,6}$/;
+const VALUE_TEXT = /^[+\-−]?[₩$€£¥]?\d[\d.,]*\s*[%a-zA-Z가-힣]{0,6}$/;
 
 function area(shape) {
   return Math.max(0, Number(shape?.geometry?.width) || 0) * Math.max(0, Number(shape?.geometry?.height) || 0);
@@ -93,7 +93,9 @@ function inducedTitle(shapes) {
       .filter((members) => members.every((shape) => shape.fontSize === members[0].fontSize))
       .flatMap((members) => members.map((shape) => shape.shape))
   );
-  const candidates = sized.filter((shape) => !peers.has(shape.shape));
+  // A figure is the page's evidence, never its title: the 82 pt "18" beside a statement, or the "1 call" leading
+  // a summary, is the loudest type on its page, and read as the title it took the headline's slot.
+  const candidates = sized.filter((shape) => !peers.has(shape.shape) && !VALUE_TEXT.test(shape.text.trim()));
   if (!candidates.length) return null;
   const [largest, runnerUp] = [...candidates].sort((left, right) => right.fontSize - left.fontSize);
   if (largest.text.trim().length > TITLE_MAX_CHARS) return null;
@@ -190,11 +192,67 @@ export function annotatePptxSnapshotRoles(document) {
   return document;
 }
 
+// A source line names where the page's figures came from; on a page about
+// something else it names the wrong place.
+const SOURCE_TEXT = /^(출처|자료|주|단위|source|sources|note|notes|units?)\s*[:：]/i;
+// Prose, as opposed to a node label or a unit: a sentence the page states.
+const BODY_MIN_CHARS = 25;
+const EYEBROW_MAX_CHARS = 60;
+
+// The page's other words around its title and its structure: the kicker set
+// just above the title, the line just below it, the prose it states, and the
+// source at its foot. They are the template's words, not the deck's, so each
+// one needs a slot to be written or emptied through; left unnamed, a page built
+// from a drawn deck kept the old cover's date and the old summary's sentence
+// under a new title.
+function inducedFrame(shapes, title, taken) {
+  const roles = new Map();
+  const free = shapes.filter((shape) => shape.type === 'text' && shape.text.trim() && !taken.has(shape.shape));
+  for (const shape of free) if (SOURCE_TEXT.test(shape.text.trim())) roles.set(shape.shape, 'source');
+  const quieter = (shape) => !title || !(Number(shape.fontSize) >= Number(title.fontSize));
+  if (title) {
+    const head = title.geometry;
+    const bottom = (shape) => shape.geometry.top + shape.geometry.height;
+    const open = free.filter(
+      (shape) =>
+        !roles.has(shape.shape) &&
+        quieter(shape) &&
+        Math.abs(shape.geometry.left - head.left) <= head.width * COLUMN_ALIGN_TOLERANCE
+    );
+    const above = open
+      .filter((shape) => bottom(shape) <= head.top + head.height * 0.1 && head.top - bottom(shape) <= head.height)
+      .sort((left, right) => bottom(right) - bottom(left))[0];
+    if (above && above.text.trim().length <= EYEBROW_MAX_CHARS) roles.set(above.shape, 'eyebrow');
+    const below = open
+      .filter(
+        (shape) =>
+          !roles.has(shape.shape) &&
+          shape.geometry.top >= bottom(title) - head.height * 0.1 &&
+          shape.geometry.top - bottom(title) <= head.height
+      )
+      .sort((left, right) => left.geometry.top - right.geometry.top)[0];
+    if (below) roles.set(below.shape, 'subtitle');
+  }
+  let prose = 0;
+  for (const shape of free) {
+    if (roles.has(shape.shape) || !quieter(shape) || shape.text.trim().length < BODY_MIN_CHARS) continue;
+    prose += 1;
+    roles.set(shape.shape, prose === 1 ? 'body' : `body-${prose}`);
+  }
+  return roles;
+}
+
 export function inducePptxSampleRoles(sample, canvas = WIDE_CANVAS) {
   const roles = new Map();
   const shapes = (sample?.shapes || []).filter((shape) => drawable(shape, canvas));
   const title = inducedTitle(shapes);
   if (title) roles.set(title.shape, 'title');
+  inducePptxGroupRoles(roles, shapes, title);
+  for (const [shape, role] of inducedFrame(shapes, title, new Set(roles.keys()))) roles.set(shape, role);
+  return roles;
+}
+
+function inducePptxGroupRoles(roles, shapes, title) {
   // A band holds what the reader takes as one row: the boxes carrying the words
   // and the markers drawn behind them. A chevron with its label on top is one
   // step, so the marker names the structure and the label fills the slot.
@@ -210,14 +268,13 @@ export function inducePptxSampleRoles(sample, canvas = WIDE_CANVAS) {
   // states, and the caption row underneath belongs to it.
   const captions = (row) => texts.some((other) => other !== row && pairsWith(row, other));
   const leading = strongestRow(steps) || strongestRow(texts, captions);
-  if (!leading) return roles;
+  if (!leading) return;
   if (steps.includes(leading)) {
     assignGroup(roles, leading, 'step-title');
-    return roles;
+    return;
   }
   const metric = leading.every((shape) => VALUE_TEXT.test(shape.text.trim()));
   assignGroup(roles, leading, metric ? 'metric-value' : 'column-title');
   const partner = texts.find((row) => row !== leading && pairsWith(leading, row));
   if (partner) assignGroup(roles, partner, metric ? 'metric-label' : 'column-body');
-  return roles;
 }

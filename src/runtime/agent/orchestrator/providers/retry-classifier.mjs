@@ -45,7 +45,6 @@ export {
   ANTHROPIC_RETRY_BACKOFF_MS,
   ANTHROPIC_RETRY_JITTER_RATIO,
   AnthropicFallbackTriggeredError,
-  MIDSTREAM_BACKOFF_MS,
   STREAM_STALL_RETRY_BUDGET_MS,
   anthropicMaxAttempts,
   anthropicRequestTimeoutMs,
@@ -69,14 +68,3 @@ export {
   retryDelayLabel,
   withRetry,
 } from './retry-executor.mjs';
-
-export {
-  readStreamOutcome,
-  stampStreamOutcome,
-  isReplaySafe,
-  isReplayUnsafe,
-  canPromoteToSuccess,
-  hasObservedOutput,
-  hasDispatchedToolCalls,
-  STREAM_TRANSPORTS,
-} from './lib/stream-outcome.mjs';

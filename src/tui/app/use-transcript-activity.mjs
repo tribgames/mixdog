@@ -6,6 +6,28 @@ import { useMemo } from 'react';
 // eslint-disable-next-line import/no-relative-packages
 import { classifyToolCategory } from '../../runtime/shared/tool-surface.mjs';
 
+// Signature slots, in order: shell, web search, agent.
+const SIGNATURE_CATEGORIES = ['Shell', 'Web Research', 'Agent'];
+
+// Pending calls per signature slot for one unresolved tool card: aggregate
+// cards carry a `categories` map; standalone cards resolve their name/args.
+function pendingCategoryHits(it, count) {
+  const hits = [0, 0, 0];
+  const add = (category, calls) => {
+    const slot = SIGNATURE_CATEGORIES.indexOf(category);
+    if (slot >= 0) hits[slot] += calls;
+  };
+  if (it.aggregate && it.categories && typeof it.categories === 'object') {
+    for (const v of Object.values(it.categories)) {
+      const entry = v && typeof v === 'object' ? v : null;
+      add(entry ? entry.category : null, Math.max(1, Number(entry ? entry.count : 1) || 1));
+    }
+  } else if (it.name) {
+    add(classifyToolCategory(it.name, it.args || {}), count);
+  }
+  return hits;
+}
+
 export function useTranscriptActivity({ state }) {
   // agentRevision is a cheap change-detection key for downstream consumers, but
   // JSON.stringify over the worker/job arrays ran on EVERY render (including the
@@ -42,12 +64,8 @@ export function useTranscriptActivity({ state }) {
     // only when the engine did not publish it (older snapshot).
     if (state.activeToolSummary !== undefined) return state.activeToolSummary || '';
     const items = state.items || [];
-    let shellCount = 0,
-      shellStart = 0;
-    let webSearchCount = 0,
-      webSearchStart = 0;
-    let agentCount = 0,
-      agentStart = 0;
+    const counts = [0, 0, 0];
+    const starts = [0, 0, 0];
     for (const it of items) {
       if (it?.kind !== 'tool') continue;
       const count = Math.max(1, Number(it.count || 1));
@@ -64,38 +82,14 @@ export function useTranscriptActivity({ state }) {
         : Math.max(0, Math.min(count, Number(it.completedCount || fallbackDone)));
       if (done >= count) continue; // resolved card (matches toolItemPendingForRows)
       const started = Number(it.startedAt || 0);
-      let shellHits = 0;
-      let webSearchHits = 0;
-      let agentHits = 0;
-      if (it.aggregate && it.categories && typeof it.categories === 'object') {
-        for (const v of Object.values(it.categories)) {
-          const cat = v && typeof v === 'object' ? v.category : null;
-          const c = Math.max(1, Number(v && typeof v === 'object' ? v.count : 1) || 1);
-          if (cat === 'Shell') shellHits += c;
-          if (cat === 'Web Research') webSearchHits += c;
-          if (cat === 'Agent') agentHits += c;
-        }
-      } else if (it.name) {
-        const cat = classifyToolCategory(it.name, it.args || {});
-        if (cat === 'Shell') shellHits = count;
-        if (cat === 'Web Research') webSearchHits = count;
-        if (cat === 'Agent') agentHits = count;
-      }
-      if (shellHits > 0) {
-        shellCount += shellHits;
-        if (started > 0 && (shellStart === 0 || started < shellStart)) shellStart = started;
-      }
-      if (webSearchHits > 0) {
-        webSearchCount += webSearchHits;
-        if (started > 0 && (webSearchStart === 0 || started < webSearchStart)) webSearchStart = started;
-      }
-      if (agentHits > 0) {
-        agentCount += agentHits;
-        if (started > 0 && (agentStart === 0 || started < agentStart)) agentStart = started;
-      }
+      pendingCategoryHits(it, count).forEach((hits, slot) => {
+        if (hits <= 0) return;
+        counts[slot] += hits;
+        if (started > 0 && (starts[slot] === 0 || started < starts[slot])) starts[slot] = started;
+      });
     }
-    if (!shellCount && !webSearchCount && !agentCount) return '';
-    return `${shellCount}:${shellStart}:${webSearchCount}:${webSearchStart}:${agentCount}:${agentStart}`;
+    if (!counts.some(Boolean)) return '';
+    return counts.map((total, slot) => `${total}:${starts[slot]}`).join(':');
   }, [state.activeToolSummary, state.items]);
 
   const activeTools = useMemo(() => {

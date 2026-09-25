@@ -35,7 +35,7 @@ function pathKey(path) {
   return process.platform === 'win32' ? abs.toLowerCase() : abs;
 }
 
-function _pathIsWithin(root, candidate) {
+export function _pathIsWithin(root, candidate) {
   try {
     const rel = relative(resolve(root), resolve(candidate));
     return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));

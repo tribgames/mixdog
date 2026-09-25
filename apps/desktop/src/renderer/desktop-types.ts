@@ -87,6 +87,8 @@ export type GoalSnapshot = {
 };
 export type Snapshot = RecordValue & {
   items?: TranscriptItem[];
+  /** `items` is a tail window with older history available on demand. */
+  transcriptHasOlder?: boolean;
   streamingTail?: TranscriptItem | null;
   busy?: boolean;
   commandBusy?: boolean;

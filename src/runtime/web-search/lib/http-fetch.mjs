@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 import dns from 'node:dns';
-import { Agent, fetch as undiciFetch } from 'undici';
 
 import { assertPublicUrl, pinnedFetch } from './ssrf-guard.mjs';
 
@@ -187,6 +186,7 @@ async function pinnedLoopbackFetch(url, options = {}) {
     throw new Error(`Blocked non-loopback local_fetch resolution: ${host}`);
   }
   const pinned = addresses[0];
+  const { Agent, fetch: undiciFetch } = await import('undici');
   const dispatcher = new Agent({
     connect: {
       lookup: (_hostname, opts, cb) =>

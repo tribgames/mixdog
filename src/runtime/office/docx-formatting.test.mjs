@@ -120,7 +120,14 @@ test('prose composition preserves content without synthetic labels or forced pag
       ...operation.sections.flatMap((section) => [section.heading, ...section.paragraphs]),
     ]
   );
-  assert.ok(paragraphs.every((op) => op.properties.nameEastAsia === 'Malgun Gothic'));
+  // The Korean face takes the class of the Latin face beside it: a serif display role pairs with Batang.
+  const serif = /^(?:cambria|georgia|bookman old style)$/i;
+  assert.ok(
+    paragraphs.every(
+      (op) => op.properties.nameEastAsia === (serif.test(op.properties.name || '') ? 'Batang' : 'Malgun Gothic')
+    )
+  );
+  assert.ok(paragraphs.some((op) => op.properties.nameEastAsia === 'Malgun Gothic'));
   assert.ok(paragraphs.every((op) => op.properties.alignment === 'left'));
   assert.ok(paragraphs.every((op) => op.properties.pageBreakBefore !== true));
   assert.equal(paragraphs[0].properties.size, 24);

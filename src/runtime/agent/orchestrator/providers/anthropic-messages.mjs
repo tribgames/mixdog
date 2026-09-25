@@ -1,6 +1,5 @@
 // Anthropic model catalog + message conversion helpers.
 import { createRequire } from 'node:module';
-import { sleepWithAbort } from './retry-classifier.mjs';
 import { effortValuesForModel } from './anthropic-effort.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
@@ -30,12 +29,11 @@ export function systemBlockItems(systemMsgs) {
 export const systemBlockTtl = (tier, { tier3Ttl, systemTtl }) =>
   ({ tier3: tier3Ttl, env: null, system: systemTtl })[tier];
 
-export { _capabilitySupported, _defaultContextForModel, _prettyName };
 // Message lowering lives in the shared request-utils lib (one implementation
 // for both Anthropic providers); re-exported here for existing importers.
 export { toAnthropicMessages };
 
-export const require = createRequire(import.meta.url);
+const require = createRequire(import.meta.url);
 let _Anthropic = null;
 export function loadAnthropic() {
   if (!_Anthropic) {
@@ -43,12 +41,6 @@ export function loadAnthropic() {
     _Anthropic = mod.default || mod.Anthropic || mod;
   }
   return _Anthropic;
-}
-
-// Abort-aware mid-stream backoff sleep → shared sleepWithAbort
-// (retry-classifier.mjs). abortMessage preserves the prior fallback text.
-export function _midstreamSleepWithAbort(ms, signal) {
-  return sleepWithAbort(ms, signal, undefined, 'Anthropic mid-stream retry backoff aborted');
 }
 
 // 4-BP cache policy aligned with anthropic-oauth — system + tier3 +
@@ -205,7 +197,7 @@ export const _test = {
 // previously-harmless no-op into a hard 400 on exactly that turn. Attached
 // only when the request actually carries tools (see _doSend). Mirrors
 // anthropic-oauth.mjs.
-export function deferredAnthropicTools(activeTools, messages, opts) {
+function deferredAnthropicTools(activeTools, messages, opts) {
   return sharedDeferredAnthropicTools(activeTools, messages, opts, 'anthropic');
 }
 export function requestAnthropicTools(tools, messages, opts) {

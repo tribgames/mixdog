@@ -1,15 +1,11 @@
 /**
- * status-snapshot.mjs — v0.1.19
- *
  * Writes <DATA_DIR>/channels/status-snapshot.json every 10 seconds so that
  * setup-server can read cross-process state (cron next-fire, deferred count,
  * relay hook URL) without IPC.
  *
  * Atomic write: tmp → rename so readers never see a partial file.
  *
- * Usage (from channels/index.mjs):
- *   import { startSnapshotWriter } from './lib/status-snapshot.mjs';
- *   startSnapshotWriter(scheduler, provider, webhookServer);
+ * Usage: startSnapshotWriter(scheduler) once the scheduler exists.
  */
 
 import * as fs from 'node:fs';

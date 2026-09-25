@@ -2,8 +2,8 @@
 // with clickable progress bars, per-step hero titles, and Ctrl+Enter to
 // advance. The capability wiring (completeOnboarding / skipOnboarding and the
 // provider/model reads) is shared with Settings and stays authoritative.
-import { ArrowLeft, ArrowRight, Check, ExternalLink, Github, Star, UserRound, Users, X } from 'lucide-react';
-import { type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, ArrowRight, Check, ExternalLink, Github, Star, UserRound, X } from 'lucide-react';
+import { type FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type {
@@ -14,25 +14,16 @@ import type {
   DesktopGithubCliAccount,
   DesktopGithubCliLoginFlow,
   DesktopGithubCliStatus,
-  DesktopModelOption,
-  DesktopModelSelection,
 } from '../../shared/contract';
-import {
-  getDesktopThemePreference,
-  setDesktopThemePreference,
-  themePreviewPalette,
-  type DesktopThemePreference,
-} from '../desktop-theme';
 import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { OpenSelect } from '../OpenSelect';
 import { PaneSurfaceGate } from '../PaneSurfaceGate';
-import { modelOptionLabel, providerDisplayName } from '../provider-display';
+import { providerDisplayName } from '../provider-display';
 import { record } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { OAuthControl } from './CapabilitySettings';
-import { ConnectionPanel } from './connection-panel';
 import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
 import '../desktop/21-onboarding.css';
 
@@ -66,47 +57,10 @@ const STEPS = [
     subtitle: () => t('Sign in with API keys or OAuth. Local models are set up through chat.'),
   },
   {
-    id: 'models',
-    label: () => t('Models'),
-    title: () => t('Assign your models'),
-    subtitle: () =>
-      t('Pick the Main model. Web Search and every agent follow Main unless you set an explicit override.'),
-  },
-  {
-    id: 'workflow',
-    label: () => t('Workflow'),
-    title: () => t('Pick your workflow'),
-    subtitle: () => t('Workflows decide how much Mixdog delegates to agents. Pick one now — you can switch any time.'),
-  },
-  {
     id: 'git',
     label: () => t('Git'),
     title: () => t('Set up Git & GitHub'),
     subtitle: () => t('Connect the GitHub CLI and you are set — commits and pull requests just work.'),
-  },
-  {
-    id: 'memory',
-    label: () => t('Context'),
-    title: () => t('Keep context under control'),
-    subtitle: () => t('Auto-compact long chats, auto-clear idle sessions, and keep curated memories across projects.'),
-  },
-  {
-    id: 'theme',
-    label: () => t('Theme'),
-    title: () => t('Make it feel like home'),
-    subtitle: () => t('System follows your OS. Fine-tune colors any time in Settings.'),
-  },
-  {
-    id: 'output',
-    label: () => t('Output style'),
-    title: () => t('Choose how Mixdog answers'),
-    subtitle: () => t('The output style shapes how the Lead agent structures its responses.'),
-  },
-  {
-    id: 'connection',
-    label: () => t('Remote'),
-    title: () => t('Pair a remote'),
-    subtitle: () => t('Scan with your phone camera, install the app, then approve it here.'),
   },
   {
     id: 'star',
@@ -158,44 +112,13 @@ async function readCapabilityBatch(
   );
 }
 
-function routeFromModel(model: DesktopModelOption): DesktopModelSelection {
-  return {
-    provider: model.provider,
-    model: model.model,
-  };
-}
-
-function routeKey(route: DesktopModelSelection | null | undefined): string {
-  return route ? `${route.provider}:${route.model}` : '';
-}
-
 export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): void }) {
   const [step, setStep] = useState(savedStep);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
   const [providerSetup, setProviderSetup] = useState<RecordValue>({});
-  const [models, setModels] = useState<DesktopModelOption[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
-  const [modelsError, setModelsError] = useState('');
-  const modelReadSequence = useRef(0);
-  const [webSearchModels, setWebSearchModels] = useState<RecordValue[]>([]);
-  const [agents, setAgents] = useState<RecordValue[]>([]);
-  const [styles, setStyles] = useState<RecordValue[]>([]);
   const [profile, setProfile] = useState<RecordValue>({});
-  const [workflows, setWorkflows] = useState<RecordValue[]>([]);
-  const [autoClearOn, setAutoClearOn] = useState(true);
-  const [compactAuto, setCompactAuto] = useState(true);
-  const [themeMode, setThemeMode] = useState<DesktopThemePreference>(() => getDesktopThemePreference() || 'system');
-  const [style, setStyle] = useState('');
-  const [mainRoute, setMainRoute] = useState<DesktopModelSelection | null>(null);
-  const [webSearchRoute, setWebSearchRoute] = useState<DesktopModelSelection | null>({
-    provider: 'default',
-    model: 'default',
-  });
-  const [agentRoutes, setAgentRoutes] = useState<Record<string, DesktopModelSelection | null>>({});
-  const [mainRouteTouched, setMainRouteTouched] = useState(false);
-  const [webSearchRouteTouched, setWebSearchRouteTouched] = useState(false);
   const [confirmSkip, setConfirmSkip] = useState(false);
   const layerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
@@ -267,80 +190,20 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
     [api]
   );
 
-  const loadModels = useCallback(
-    async (force = false) => {
-      const sequence = ++modelReadSequence.current;
-      setModelsLoading(true);
-      setModelsError('');
-      try {
-        const next = await api.listProviderModels({ quick: false, force });
-        if (sequence === modelReadSequence.current) setModels(next);
-      } catch (reason) {
-        if (sequence === modelReadSequence.current) {
-          setModelsError(reason instanceof Error ? reason.message : String(reason));
-        }
-      } finally {
-        if (sequence === modelReadSequence.current) setModelsLoading(false);
-      }
-    },
-    [api]
-  );
-
   const load = useCallback(
     async (force = false) => {
       if (!loadedRef.current) setLoading(true);
       setError('');
       try {
-        const readRequests: DesktopCapabilityReadRequest[] = [
+        const readResults = await readCapabilityBatch(api, [
           { capability: 'getProviderSetup', args: [{ force }] },
-          { capability: 'listWebSearchModels', args: [{ quick: false, ...(force ? { force: true } : {}) }] },
-          { capability: 'listAgents' },
-          { capability: 'listOutputStyles' },
-          { capability: 'getWebSearchRoute' },
           { capability: 'getProfile' },
-          { capability: 'listWorkflows' },
-          { capability: 'getAutoClear' },
-          { capability: 'getCompactionSettings' },
-        ];
-        // The provider-model catalog is the slow read (remote catalogs); it must
-        // not hold the reveal gate — the Models step sits two steps in and its
-        // options fill in as they arrive (user: 처음 들어가면 검정 빈 화면).
-        void loadModels(force);
-        const [readResults, snapshotResult] = await Promise.all([
-          readCapabilityBatch(api, readRequests),
-          api.getSnapshot(),
         ]);
         const values = readResults.map((result) => (result.ok ? result.value : null));
         const readErrors = readResults.flatMap((result) => (result.ok ? [] : [result.error]));
         if (readErrors.length) setError(readErrors.join(' · '));
         setProviderSetup(record(values[0]));
-        setWebSearchModels(rows(values[1]));
-        setAgents(rows(values[2]));
-        const output = record(values[3]);
-        setStyles(rows(output.styles));
-        setStyle(String(record(output.current).id || output.configured || 'default'));
-        setProfile(record(values[5]));
-        setWorkflows(rows(values[6]));
-        setAutoClearOn(record(values[7]).enabled !== false);
-        setCompactAuto(record(values[8]).auto !== false);
-        const snapshot = record(snapshotResult);
-        if (!mainRouteTouched && snapshot.provider && snapshot.model) {
-          setMainRoute({
-            provider: String(snapshot.provider),
-            model: String(snapshot.model),
-            ...(snapshot.effort ? { effort: String(snapshot.effort) } : {}),
-            ...(typeof snapshot.fast === 'boolean' ? { fast: snapshot.fast } : {}),
-          });
-        }
-        const currentWebSearch = record(values[4]);
-        if (!webSearchRouteTouched && currentWebSearch.provider && currentWebSearch.model) {
-          setWebSearchRoute({
-            provider: String(currentWebSearch.provider),
-            model: String(currentWebSearch.model),
-            ...(currentWebSearch.effort ? { effort: String(currentWebSearch.effort) } : {}),
-            ...(typeof currentWebSearch.fast === 'boolean' ? { fast: currentWebSearch.fast } : {}),
-          });
-        }
+        setProfile(record(values[1]));
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : String(reason));
       } finally {
@@ -348,36 +211,12 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
         setLoading(false);
       }
     },
-    [api, loadModels, mainRouteTouched, webSearchRouteTouched]
+    [api]
   );
 
   useEffect(() => {
     if (!loadedRef.current) void load();
   }, [load]);
-
-  const webSearchOptions = useMemo(
-    () =>
-      webSearchModels.flatMap((entry): DesktopModelOption[] => {
-        const provider = String(entry.provider || '');
-        const model = String(entry.id || entry.model || '');
-        if (!provider || !model) return [];
-        const effortOptions = rows(entry.effortOptions).flatMap((option) =>
-          option.value ? [{ value: String(option.value), label: String(option.label || option.value) }] : []
-        );
-        return [
-          {
-            provider,
-            model,
-            display: String(entry.display || entry.name || model),
-            effortOptions,
-            fastCapable: entry.fastCapable === true,
-            fastPreferred: entry.fastPreferred === true || entry.savedFast === true,
-            ...(entry.savedEffort ? { savedEffort: String(entry.savedEffort) } : {}),
-          },
-        ];
-      }),
-    [webSearchModels]
-  );
 
   const saveApiKey = async (event: FormEvent<HTMLFormElement>, provider: string) => {
     event.preventDefault();
@@ -390,27 +229,10 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
     }
   };
 
+  // Every step saves as it changes (models stay untouched: the first turn picks
+  // a connected provider's model), so Finish and Skip both only mark it done.
   const finish = async () => {
-    const defaultRoute = mainRouteTouched ? mainRoute : null;
-    const explicitWebSearchRoute = webSearchRouteTouched ? webSearchRoute : null;
-    const hasAgentRoutes = Object.keys(agentRoutes).length > 0;
-    const completion = {
-      ...(defaultRoute ? { defaultRoute } : {}),
-      ...(explicitWebSearchRoute ? { webSearchRoute: explicitWebSearchRoute } : {}),
-      ...(hasAgentRoutes ? { agentRoutes } : {}),
-    };
-    const result =
-      defaultRoute || explicitWebSearchRoute || hasAgentRoutes
-        ? await run('completeOnboarding', [completion], 'finish-onboarding')
-        : await run('skipOnboarding', [], 'finish-onboarding');
-    if (result !== undefined) {
-      clearResume();
-      onDone();
-    }
-  };
-
-  const skip = async () => {
-    const result = await run('skipOnboarding', [], 'skip-onboarding');
+    const result = await run('skipOnboarding', [], 'finish-onboarding');
     if (result !== undefined) {
       clearResume();
       onDone();
@@ -429,7 +251,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
 
   const confirmSkipOnboarding = () => {
     setConfirmSkip(false);
-    void skip();
+    void finish();
   };
 
   advanceRef.current = () => {
@@ -512,7 +334,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
     };
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [skip]);
+  }, [finish]);
 
   const meta = STEPS[step];
 
@@ -594,80 +416,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
                     onReload={() => void load(true)}
                   />
                 )}
-                {meta.id === 'models' && (
-                  <ModelStep
-                    models={models}
-                    webSearchModels={webSearchOptions}
-                    agents={agents}
-                    loading={modelsLoading}
-                    error={modelsError}
-                    onRetry={() => void loadModels(true)}
-                    mainRoute={mainRoute}
-                    webSearchRoute={webSearchRoute}
-                    agentRoutes={agentRoutes}
-                    onMain={(route) => {
-                      setMainRouteTouched(true);
-                      setMainRoute(route);
-                    }}
-                    onWebSearch={(route) => {
-                      setWebSearchRouteTouched(true);
-                      setWebSearchRoute(route);
-                    }}
-                    onAgents={setAgentRoutes}
-                  />
-                )}
-                {meta.id === 'workflow' && (
-                  <WorkflowStep
-                    workflows={workflows}
-                    pending={pending}
-                    run={run}
-                    onChange={(id) =>
-                      setWorkflows((list) =>
-                        list.map((workflow) => ({ ...workflow, active: String(workflow.id) === id }))
-                      )
-                    }
-                  />
-                )}
                 {meta.id === 'git' && <GitStep api={api} />}
-                {meta.id === 'memory' && (
-                  <ContextStep
-                    autoClearOn={autoClearOn}
-                    compactAuto={compactAuto}
-                    pending={pending}
-                    run={run}
-                    onAutoClear={setAutoClearOn}
-                    onCompact={setCompactAuto}
-                  />
-                )}
-                {meta.id === 'theme' && (
-                  <ThemeStep
-                    mode={themeMode}
-                    onSelect={(next) => {
-                      setThemeMode(next);
-                      // Desktop-local preference (Settings → General grammar): persists
-                      // to desktop storage and applies instantly, never the TUI theme.
-                      setDesktopThemePreference(next);
-                    }}
-                  />
-                )}
-                {meta.id === 'output' && (
-                  <ChoiceStep
-                    rows={styles}
-                    selected={style}
-                    pending={pending}
-                    onSelect={(entry) => {
-                      const id = String(entry.id || 'default');
-                      void run('setOutputStyle', [id], 'onboarding-output').then((result) => {
-                        if (result !== undefined) setStyle(id);
-                      });
-                    }}
-                  />
-                )}
-                {meta.id === 'connection' && (
-                  <div className="onboarding-pair">
-                    <ConnectionPanel api={api} />
-                  </div>
-                )}
                 {meta.id === 'star' && <StarStep api={api} />}
               </div>
               {error && <ErrorNotice error={error} />}
@@ -675,14 +424,17 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
           </PaneSurfaceGate>
         </div>
         <footer>
-          <button
-            type="button"
-            className="secondary"
-            disabled={Boolean(pending)}
-            onClick={(event) => requestSkip(event.currentTarget)}
-          >
-            {t('Skip setup')}
-          </button>
+          {/* On the last step Finish does exactly what Skip does: one exit only. */}
+          {step < STEPS.length - 1 && (
+            <button
+              type="button"
+              className="secondary"
+              disabled={Boolean(pending)}
+              onClick={(event) => requestSkip(event.currentTarget)}
+            >
+              {t('Skip setup')}
+            </button>
+          )}
           <div>
             {step > 0 && (
               <button type="button" disabled={Boolean(pending)} onClick={() => setStep((value) => value - 1)}>
@@ -781,9 +533,6 @@ function ProviderStep({
   const oauthProviders = rows(setup.oauth);
   return (
     <>
-      <button type="button" className="secondary" disabled={Boolean(pending)} onClick={onReload}>
-        {t('Refresh')}
-      </button>
       {oauthProviders.length > 0 && (
         <div className="onboarding-model-section">
           <h3>{t('OAuth')}</h3>
@@ -791,30 +540,30 @@ function ProviderStep({
             {/* One status slot for every provider kind: the state reads under the
           name, never above the row's actions (user: 커넥티드 위치가 제각각).
           The token file/store location is plumbing, not setup guidance. */}
-            {oauthProviders.map((provider) => (
+            {oauthProviders.map((provider) => {
+              const connected =
+                provider.usable === true ||
+                (provider.usable == null && Boolean(provider.authenticated) && !provider.reauthRequired);
+              return (
               <div className="onboarding-provider-row" key={String(provider.id)}>
                 <div>
                   <b>{providerTitle(provider)}</b>
-                  <small
-                    className={`onboarding-provider-state${
-                      provider.usable === true ||
-                      (provider.usable == null && provider.authenticated && !provider.reauthRequired)
-                        ? ' connected'
-                        : ''
-                    }`}
-                  >
+                  <small className={`onboarding-provider-state${connected ? ' connected' : ''}`}>
                     {t(providerStatusText(provider))}
                   </small>
                 </div>
-                <span className="onboarding-provider-action">
-                  <OAuthControl
-                    api={api}
-                    provider={{ ...provider, label: providerTitle(provider) }}
-                    disabled={Boolean(pending)}
-                    run={run}
-                    onComplete={onReload}
-                  />
-                </span>
+                {/* A working login needs no Connect; Forget stays for switching. */}
+                {!connected && (
+                  <span className="onboarding-provider-action">
+                    <OAuthControl
+                      api={api}
+                      provider={{ ...provider, label: providerTitle(provider) }}
+                      disabled={Boolean(pending)}
+                      run={run}
+                      onComplete={onReload}
+                    />
+                  </span>
+                )}
                 {Boolean(provider.authenticated || provider.reauthRequired) && (
                   <button
                     type="button"
@@ -830,7 +579,8 @@ function ProviderStep({
                   </button>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -901,143 +651,6 @@ function ProviderStep({
   );
 }
 
-function ModelStep({
-  models,
-  webSearchModels,
-  agents,
-  mainRoute,
-  webSearchRoute,
-  agentRoutes,
-  onMain,
-  onWebSearch,
-  onAgents,
-  loading,
-  error,
-  onRetry,
-}: {
-  loading: boolean;
-  error: string;
-  onRetry(): void;
-  models: DesktopModelOption[];
-  webSearchModels: DesktopModelOption[];
-  agents: RecordValue[];
-  mainRoute: DesktopModelSelection | null;
-  webSearchRoute: DesktopModelSelection | null;
-  agentRoutes: Record<string, DesktopModelSelection | null>;
-  onMain(route: DesktopModelSelection | null): void;
-  onWebSearch(route: DesktopModelSelection | null): void;
-  onAgents(routes: Record<string, DesktopModelSelection | null>): void;
-}) {
-  const selectModel = (value: string, options: DesktopModelOption[]) => {
-    const model = options.find((entry) => `${entry.provider}:${entry.model}` === value);
-    return model ? routeFromModel(model) : null;
-  };
-  const agentRow = (agent: RecordValue) => {
-    const id = String(agent.id);
-    const saved = record(agent.route);
-    let route: DesktopModelSelection | null = null;
-    if (Object.hasOwn(agentRoutes, id)) route = agentRoutes[id];
-    else if (saved.provider && saved.model) route = saved as unknown as DesktopModelSelection;
-    return (
-      <label key={id}>
-        <span>
-          <b>{title(agent)}</b>
-          <small>{t(String(agent.description || record(agent.definition).description || ''))}</small>
-        </span>
-        <OpenSelect
-          ariaLabel={t('{{name}} model', { name: title(agent) })}
-          value={routeKey(route)}
-          disabled={loading || agent.disabled === true}
-          displayValue={agent.disabled === true ? t('Off') : undefined}
-          onChange={(value) => onAgents({ ...agentRoutes, [id]: selectModel(value, models) })}
-          options={[{ value: '', label: t('Same as Main') }, ...modelOptions(models, route)]}
-        />
-      </label>
-    );
-  };
-  // Three sections (user decision): Main → required defaults (web search +
-  // the slot-backed Explore/Maintainer) → the remaining custom roles.
-  const defaultAgents = agents.filter((agent) => Boolean(agent.workflowSlot));
-  const customAgents = agents.filter((agent) => !agent.workflowSlot);
-  return (
-    <>
-      {loading && <p role="status">{t('Loading models…')}</p>}
-      <ErrorNotice error={error} />
-      {!loading && (error || !models.length) && (
-        <div className="onboarding-note">
-          {!error && <p>{t('No models available. Connect a provider, then retry.')}</p>}
-          <button type="button" className="secondary" onClick={onRetry}>
-            {t('Retry')}
-          </button>
-        </div>
-      )}
-      <div className="onboarding-model-section">
-        <h3>{t('Main model')}</h3>
-        <div className="onboarding-model-grid">
-          <label>
-            <span>
-              <b>{t('Main')}</b>
-              <small>{t('Main chat, planning, and agent default')}</small>
-            </span>
-            <OpenSelect
-              ariaLabel={t('Main model')}
-              disabled={loading}
-              value={routeKey(mainRoute)}
-              options={[{ value: '', label: t('Select model…') }, ...modelOptions(models, mainRoute)]}
-              onChange={(value) => onMain(selectModel(value, models))}
-            />
-          </label>
-        </div>
-      </div>
-      <div className="onboarding-model-section">
-        <h3>{t('Default models')}</h3>
-        <div className="onboarding-model-grid">
-          <label>
-            <span>
-              <b>{t('Web Search')}</b>
-              <small>{t('Native web-search model')}</small>
-            </span>
-            <OpenSelect
-              ariaLabel={t('Web search model')}
-              value={
-                webSearchRoute?.provider === 'default' && webSearchRoute?.model === 'default'
-                  ? '__default__'
-                  : routeKey(webSearchRoute)
-              }
-              onChange={(value) => {
-                onWebSearch(
-                  value === '__default__'
-                    ? { provider: 'default', model: 'default' }
-                    : selectModel(value, webSearchModels)
-                );
-              }}
-              options={[{ value: '__default__', label: t('Default · follows Main') }, ...modelOptions(webSearchModels)]}
-            />
-          </label>
-          {defaultAgents.map(agentRow)}
-        </div>
-      </div>
-      {customAgents.length > 0 && (
-        <div className="onboarding-model-section">
-          <h3>{t('Custom models')}</h3>
-          <div className="onboarding-model-grid">{customAgents.map(agentRow)}</div>
-        </div>
-      )}
-    </>
-  );
-}
-
-function modelOptions(models: DesktopModelOption[], current?: DesktopModelSelection | null) {
-  const options = models.map((model) => ({
-    value: `${model.provider}:${model.model}`,
-    label: modelOptionLabel(model),
-  }));
-  if (current && !options.some((option) => option.value === routeKey(current))) {
-    options.unshift({ value: routeKey(current), label: `${providerDisplayName(current.provider)} · ${current.model}` });
-  }
-  return options;
-}
-
 // Settings → Git in onboarding clothes: GitHub CLI status, guided install, and
 // the device-flow Connect. A completed Connect adopts the account as the git
 // commit identity — the same rule the settings panel follows.
@@ -1089,7 +702,19 @@ function GitStep({ api }: { api: DesktopApi }) {
         .then((next) => {
           if (cancelled || !next) return;
           setFlow(next);
-          if (next.state === 'success') void refresh();
+          if (next.state === 'success') {
+            // Main reports success only after `gh auth status` confirmed the
+            // account: adopt it now. Waiting for the refresh probe flashed the
+            // Sign-in button back for ~1s, and a click there started a second
+            // device flow (a new 8-character code).
+            setStatus((current) => ({
+              installed: true,
+              ...current,
+              authenticated: true,
+              ...(next.login ? { login: next.login } : {}),
+            }));
+            void refresh();
+          }
         })
         .catch(() => {
           /* transient; the next tick retries */
@@ -1203,47 +828,45 @@ function GitStep({ api }: { api: DesktopApi }) {
     !status?.installed && !loading
       ? t('Mixdog installs the GitHub CLI and signs you in — one click, no terminal needed.')
       : t('Sign in opens github.com with a one-time code — Mixdog links your commits automatically.');
+  // In-card actions stay plated, not primary: the footer's Next is the one
+  // primary action on every step.
   return (
-    <div className="onboarding-star-card onboarding-connect-card">
-      <span className={`onboarding-connect-icon${showAvatar ? ' avatar' : ''}`} aria-hidden="true">
-        {showAvatar ? (
-          <img src={`https://github.com/${login}.png?size=128`} alt="" onError={() => setAvatarFailed(true)} />
-        ) : (
-          <Github size={26} />
-        )}
-      </span>
-      <div>
-        <span className="onboarding-connect-title">{authenticated && login ? login : t('Connect GitHub')}</span>
-        <span className="onboarding-connect-pills">
+    <div className="onboarding-card">
+      <div className="onboarding-card-head">
+        <span className={`onboarding-card-icon${showAvatar ? ' avatar' : ''}`} aria-hidden="true">
+          {showAvatar ? (
+            <img src={`https://github.com/${login}.png?size=128`} alt="" onError={() => setAvatarFailed(true)} />
+          ) : (
+            <Github size={20} />
+          )}
+        </span>
+        <div className="onboarding-card-heading">
+          <b className="onboarding-card-title">{authenticated && login ? login : t('Connect GitHub')}</b>
           <span className={`onboarding-pill ${pill[0]}`}>{pill[1]}</span>
           {Boolean(status?.version) && <span className="onboarding-pill neutral">gh {status?.version}</span>}
-        </span>
-        {authenticated ? (
-          <>
-            {Boolean(account?.email) && <p className="onboarding-connect-mail">{account?.email}</p>}
-            <p>{connectedNote}</p>
-          </>
-        ) : (
-          <p>{connectHint}</p>
-        )}
+          {authenticated && Boolean(account?.email) && <span className="onboarding-card-meta">{account?.email}</span>}
+        </div>
       </div>
+      <p className="onboarding-card-text">{authenticated ? connectedNote : connectHint}</p>
       {authenticated && (
-        <div className="onboarding-star-actions">
+        <div className="onboarding-card-actions">
+          <small>{t('Manage in Settings → Git.')}</small>
           {!identityReady && (
-            <button type="button" className="primary" disabled={busyAny} onClick={() => void syncIdentity()}>
+            <button type="button" disabled={busyAny} onClick={() => void syncIdentity()}>
               {t('Set up commit identity')}
             </button>
           )}
-          <small>{t('Manage in Settings → Git.')}</small>
         </div>
       )}
       {!authenticated && (
-        <div className="onboarding-star-actions">
+        <div className="onboarding-card-actions">
           {!loading && !status?.installed && (
             <>
+              <button type="button" className="ghost" disabled={busyAny} onClick={() => open(CLI_DOWNLOAD_URL)}>
+                <ExternalLink size={14} /> {t('Manual download')}
+              </button>
               <button
                 type="button"
-                className="primary"
                 disabled={busyAny}
                 onClick={() =>
                   act('install', () =>
@@ -1257,15 +880,11 @@ function GitStep({ api }: { api: DesktopApi }) {
               >
                 {busy === 'install' ? t('Installing…') : t('Install GitHub CLI')}
               </button>
-              <button type="button" className="ghost" disabled={busyAny} onClick={() => open(CLI_DOWNLOAD_URL)}>
-                <ExternalLink size={14} /> {t('Manual download')}
-              </button>
             </>
           )}
           {status?.installed && !status.authenticated && !flowLive && (
             <button
               type="button"
-              className="primary"
               disabled={busyAny}
               onClick={() =>
                 act('connect', () =>
@@ -1318,34 +937,16 @@ function GitStep({ api }: { api: DesktopApi }) {
   );
 }
 
-// Desktop surface modes only: the same desktop-local preference
-// Settings → General writes.
-const THEME_MODES: ReadonlyArray<{
-  id: DesktopThemePreference;
-  label(): string;
-  hint(): string;
-}> = [
-  { id: 'system', label: () => t('System'), hint: () => t('Match OS') },
-  { id: 'dark', label: () => t('Dark'), hint: () => t('Neutral charcoal') },
-  { id: 'white', label: () => t('White'), hint: () => t('Bright & crisp') },
-];
-
-/** The desktop surface ramps, mirrored from desktop.css for the mini preview
- *  (the TUI registry palette knows nothing about the desktop ramps). */
-const SURFACE_PREVIEW: Record<string, { deep: string; base: string; text: string; border: string }> = {
-  dark: { deep: '#101013', base: '#222225', text: '#e9e9e9', border: 'rgba(255,255,255,.16)' },
-  white: { deep: '#f5f5f5', base: '#ffffff', text: '#17181a', border: 'rgba(0,0,0,.14)' },
-};
-
 function progressBarState(index: number, step: number): string {
   if (index === step) return ' active';
   return index < step ? ' complete' : '';
 }
 
-function providerStatusText(provider: { reauthRequired?: unknown; status?: unknown; authenticated?: unknown }): string {
-  if (provider.reauthRequired) return String(provider.status || 'Reauth required');
-  if (provider.authenticated && /^(valid|set|access only)$/i.test(String(provider.status || ''))) return 'Connected';
-  return String(provider.status || (provider.authenticated ? 'Connected' : 'Not connected'));
+// The runtime's raw status words (Set / Not Set / Signed In / Reauth Required
+// …) have no catalog entries; onboarding shows the three translated states.
+function providerStatusText(provider: { reauthRequired?: unknown; authenticated?: unknown }): string {
+  if (provider.reauthRequired) return 'Reauth required';
+  return provider.authenticated ? 'Connected' : 'Not connected';
 }
 
 function githubPill(loading: boolean, installed: boolean, authenticated: boolean): [string, string] {
@@ -1357,134 +958,6 @@ function githubPill(loading: boolean, installed: boolean, authenticated: boolean
 function starLabel(starred: boolean, busy: boolean): string {
   if (starred) return t('Starred');
   return busy ? t('Starring…') : t('Star');
-}
-
-function ThemePreview({ id }: { id: DesktopThemePreference }) {
-  if (id === 'system') {
-    return (
-      <span className="onboarding-theme-split">
-        <ThemeChromeMock id="basic" surface="dark" />
-        <ThemeChromeMock id="light" surface="white" />
-      </span>
-    );
-  }
-  return <ThemeChromeMock id={id === 'white' ? 'light' : 'basic'} surface={String(id)} />;
-}
-
-function ThemeStep({ mode, onSelect }: { mode: DesktopThemePreference; onSelect(next: DesktopThemePreference): void }) {
-  return (
-    <div className="onboarding-theme-grid">
-      {THEME_MODES.map((entry) => (
-        <button
-          type="button"
-          key={entry.id}
-          className={mode === entry.id ? 'selected' : ''}
-          onClick={() => onSelect(entry.id)}
-        >
-          <span className="onboarding-theme-preview" aria-hidden="true">
-            <ThemePreview id={entry.id} />
-          </span>
-          <span className="onboarding-theme-name">
-            <b>{entry.label()}</b>
-            {mode === entry.id ? <Check size={14} /> : null}
-            <small>{entry.hint()}</small>
-          </span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// Tiny Mixdog chrome (sidebar, tab, transcript, composer) painted with the
-// theme's own registry palette so every card previews its real colors.
-function ThemeChromeMock({ id, surface }: { id: string; surface?: string }) {
-  const palette = themePreviewPalette(id);
-  if (!palette) return <span className="onboarding-theme-preview-empty" />;
-  const ramp = surface ? SURFACE_PREVIEW[surface] : undefined;
-  const deep = ramp?.deep ?? (palette.background === 'transparent' ? palette.inverseText : palette.background);
-  const base = ramp?.base ?? palette.mdCodeBlockBg;
-  const text = ramp?.text ?? palette.text;
-  const line = `color-mix(in srgb, ${text} 24%, transparent)`;
-  const lineDim = `color-mix(in srgb, ${text} 11%, transparent)`;
-  const border = ramp?.border ?? `color-mix(in srgb, ${palette.promptBorder} 55%, transparent)`;
-  return (
-    <span className="onboarding-theme-chrome" style={{ background: deep }}>
-      <span className="onboarding-theme-side" style={{ background: base, borderRight: `1px solid ${border}` }}>
-        <span style={{ background: line }} />
-        <span style={{ background: lineDim }} />
-        <span style={{ background: lineDim, width: '70%' }} />
-        <span style={{ background: lineDim, width: '85%' }} />
-        <span style={{ background: lineDim, width: '55%' }} />
-      </span>
-      <span className="onboarding-theme-main">
-        <span className="onboarding-theme-tab" style={{ background: base, boxShadow: `inset 0 0 0 1px ${border}` }} />
-        <span style={{ background: lineDim }} />
-        <span style={{ background: lineDim, width: '83%' }} />
-        <span style={{ background: lineDim, width: '58%' }} />
-        <span style={{ background: lineDim, width: '90%' }} />
-        <span style={{ background: lineDim, width: '40%' }} />
-        <span
-          className="onboarding-theme-composer"
-          style={{ background: base, boxShadow: `inset 0 0 0 1px ${border}` }}
-        >
-          <span style={{ background: palette.success }} />
-          <span style={{ background: lineDim }} />
-        </span>
-      </span>
-    </span>
-  );
-}
-
-// Relative reply volume per output style (Simple = 100% baseline, user
-// decision) plus a transcript mock whose line count mirrors that volume.
-function outputVolume(id: string): { badge: string; lines: string[] } {
-  const slug = id.toLowerCase();
-  if (slug.includes('extreme')) return { badge: '~20%', lines: ['64%'] };
-  if (slug.includes('minimal')) return { badge: '~50%', lines: ['88%', '52%'] };
-  if (slug.includes('detail')) {
-    return { badge: '~200%', lines: ['96%', '88%', '92%', '80%', '86%', '70%', '90%', '62%', '45%'] };
-  }
-  return { badge: '100%', lines: ['94%', '86%', '72%', '48%'] };
-}
-
-function ChoiceStep({
-  rows: entries,
-  selected,
-  pending,
-  onSelect,
-}: {
-  rows: RecordValue[];
-  selected: string;
-  pending: string;
-  onSelect(entry: RecordValue): void;
-}) {
-  return (
-    <div className="onboarding-choice-grid">
-      {entries.map((entry) => {
-        const id = String(entry.id || '');
-        const volume = outputVolume(id);
-        return (
-          <button
-            type="button"
-            key={id}
-            disabled={Boolean(pending)}
-            className={selected === id ? 'selected' : ''}
-            onClick={() => onSelect(entry)}
-          >
-            <span className="onboarding-choice-check">{selected === id ? <Check size={14} /> : null}</span>
-            <b>{title(entry)}</b>
-            <span className="onboarding-choice-preview" aria-hidden="true">
-              {volume.lines.map((width, index) => (
-                <i key={index} style={{ width }} />
-              ))}
-            </span>
-            <small>{t(String(entry.description || ''))}</small>
-            <span className="onboarding-choice-meta">{t('Output {{volume}}', { volume: volume.badge })}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
 }
 
 // Final step: the About panel's star action (gh CLI when signed in, repo page
@@ -1525,15 +998,17 @@ function StarStep({ api }: { api: DesktopApi }) {
   // A GitHub-repo-card composition (familiar, concrete) instead of a glowing
   // poster tile (user: AI slop 같다).
   return (
-    <div className="onboarding-repo-card">
-      <div className="onboarding-repo-head">
-        <Github size={18} aria-hidden="true" />
-        <b>
-          <span>mixdog</span>
-        </b>
-        <span className="onboarding-pill neutral">{t('Public')}</span>
+    <div className="onboarding-card">
+      <div className="onboarding-card-head">
+        <span className="onboarding-card-icon" aria-hidden="true">
+          <Github size={20} />
+        </span>
+        <div className="onboarding-card-heading">
+          <b className="onboarding-card-title">mixdog</b>
+          <span className="onboarding-pill neutral">{t('Public')}</span>
+        </div>
       </div>
-      <p>
+      <p className="onboarding-card-text">
         {t('Standalone coding agent — multi-provider agent workflows across CLI, desktop, and phone.')}{' '}
         {starred
           ? t('Thank you for the star — it genuinely helps mixdog grow!')
@@ -1546,14 +1021,14 @@ function StarStep({ api }: { api: DesktopApi }) {
         <span>{t('Runs on your machine')}</span>
         <span>{t('No sign-up')}</span>
       </div>
-      <div className="onboarding-star-actions onboarding-repo-actions">
+      <div className="onboarding-card-actions">
         <button type="button" className="ghost" disabled={busy} onClick={() => open(MIXDOG_REPO_URL)}>
           <ExternalLink size={14} /> {t('Open on GitHub')}
         </button>
         {/* Star sits at the card's bottom-right — the easiest spot to hit. */}
         <button
           type="button"
-          className={starred ? 'primary starred' : 'primary'}
+          className={starred ? 'starred' : undefined}
           disabled={busy || starred}
           onClick={star}
         >
@@ -1600,20 +1075,27 @@ function ProfileStep({
       if (result !== undefined) onProfile({ title: trimmed });
     });
   };
+  // Settings-row layout (label + hint left, control right) keeps the whole
+  // first step on screen without scrolling at the default window size.
   return (
-    <div className="onboarding-star-card onboarding-profile-card">
-      <span
-        className={`onboarding-connect-icon onboarding-profile-avatar${initial ? ' has-initial' : ''}`}
-        aria-hidden="true"
-      >
-        {initial ? <b>{initial}</b> : <UserRound size={26} />}
-      </span>
-      <p className="onboarding-profile-greeting" aria-live="polite">
-        {trimmed ? t('Hello, {{name}} 👋', { name: trimmed }) : t('Hello there 👋')}
-      </p>
+    <div className="onboarding-card onboarding-profile-card">
+      <div className="onboarding-card-head">
+        <span
+          className={`onboarding-card-icon round onboarding-profile-avatar${initial ? ' has-initial' : ''}`}
+          aria-hidden="true"
+        >
+          {initial ? <b>{initial}</b> : <UserRound size={20} />}
+        </span>
+        <p className="onboarding-card-title" aria-live="polite">
+          {trimmed ? t('Hello, {{name}} 👋', { name: trimmed }) : t('Hello there 👋')}
+        </p>
+      </div>
       <div className="onboarding-profile-fields">
         <label>
-          <span>{t('Title')}</span>
+          <span>
+            <b>{t('Title')}</b>
+            <small>{t('How Mixdog addresses you.')}</small>
+          </span>
           <input
             name="title"
             value={draft}
@@ -1629,10 +1111,16 @@ function ProfileStep({
               if (event.key === 'Enter') event.currentTarget.blur();
             }}
           />
-          <small>{t('How Mixdog addresses you.')}</small>
         </label>
         <label>
-          <span>{t('Experience level')}</span>
+          <span>
+            <b>{t('Experience level')}</b>
+            <small>
+              {t(
+                'How much development experience do you have? This only adjusts terminology and assumed background, not response length.'
+              )}
+            </small>
+          </span>
           <OpenSelect
             ariaLabel={t('Experience level')}
             value={String(profile.experienceLevel || '')}
@@ -1654,14 +1142,12 @@ function ProfileStep({
               });
             }}
           />
-          <small>
-            {t(
-              'How much development experience do you have? This only adjusts terminology and assumed background, not response length.'
-            )}
-          </small>
         </label>
         <label>
-          <span>{t('Language')}</span>
+          <span>
+            <b>{t('Language')}</b>
+            <small>{t('Every reply follows this language.')}</small>
+          </span>
           <OpenSelect
             ariaLabel={t('Response language')}
             value={String(profile.language || 'system')}
@@ -1673,168 +1159,7 @@ function ProfileStep({
               });
             }}
           />
-          <small>{t('Every reply follows this language.')}</small>
         </label>
-      </div>
-    </div>
-  );
-}
-
-// Beginner guide copy for the built-in workflow packs; custom packs fall back
-// to their own provider description.
-const WORKFLOW_GUIDE: Record<
-  string,
-  {
-    icon: typeof Users;
-    tagline(): string;
-    points(): string[];
-  }
-> = {
-  cowork: {
-    icon: Users,
-    tagline: () => t('Lead coordinates a team of agents working in parallel.'),
-    points: () => [t('Lead plans the task and splits the work'), t('Workers implement changes side by side')],
-  },
-  solo: {
-    icon: UserRound,
-    tagline: () => t('Lead does everything itself — simple and predictable.'),
-    points: () => [
-      t('One agent, no delegation overhead'),
-      t('Fastest turnaround for small tasks'),
-      t('Great for quick fixes, reviews, and Q&A'),
-    ],
-  },
-};
-// The built-in cowork pack ships under the id `default`.
-WORKFLOW_GUIDE.default = WORKFLOW_GUIDE.cowork;
-
-function WorkflowStep({
-  workflows,
-  pending,
-  run,
-  onChange,
-}: {
-  workflows: RecordValue[];
-  pending: string;
-  run: RunCapability;
-  onChange(id: string): void;
-}) {
-  if (!workflows.length) return <p className="onboarding-note">{t('No workflow profiles available yet.')}</p>;
-  return (
-    <div className="onboarding-workflow-grid">
-      {workflows.map((workflow) => {
-        const id = String(workflow.id || '');
-        const active = workflow.active === true;
-        const guide = WORKFLOW_GUIDE[id.toLowerCase()];
-        const Icon = guide?.icon || Users;
-        return (
-          <button
-            type="button"
-            key={id}
-            className={active ? 'selected' : ''}
-            disabled={Boolean(pending)}
-            onClick={() => {
-              if (active) return;
-              void run('setWorkflow', [id], 'onboarding-workflow').then((result) => {
-                if (result !== undefined) onChange(id);
-              });
-            }}
-          >
-            <span className="onboarding-choice-check">{active ? <Check size={14} /> : null}</span>
-            <span className="onboarding-workflow-icon" aria-hidden="true">
-              <Icon size={18} />
-            </span>
-            <b>{title(workflow)}</b>
-            <small>{guide?.tagline() || t(String(workflow.description || ''))}</small>
-            {guide && (
-              <ul className="onboarding-workflow-points">
-                {guide.points().map((point) => (
-                  <li key={point}>{point}</li>
-                ))}
-              </ul>
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// Context step: session-lifecycle toggles (auto-compact / auto-clear) — the
-// onboarding face of Settings → Context. Memory has one master in General.
-function ContextStep({
-  autoClearOn,
-  compactAuto,
-  pending,
-  run,
-  onAutoClear,
-  onCompact,
-}: {
-  autoClearOn: boolean;
-  compactAuto: boolean;
-  pending: string;
-  run: RunCapability;
-  onAutoClear(next: boolean): void;
-  onCompact(next: boolean): void;
-}) {
-  const lifecycle = [
-    {
-      key: 'compact',
-      label: t('Auto-compact'),
-      hint: t('Compact automatically as the context reaches its limit'),
-      value: compactAuto,
-      apply: onCompact,
-      save: (next: boolean) => run('setCompactionSettings', [{ auto: next }], 'onboarding-autocompact'),
-    },
-    {
-      key: 'clear',
-      label: t('Auto-clear'),
-      hint: t('Clear idle sessions after the provider default window'),
-      value: autoClearOn,
-      apply: onAutoClear,
-      save: (next: boolean) => run('setAutoClear', [{ enabled: next }], 'onboarding-autoclear'),
-    },
-  ];
-  return (
-    <div className="onboarding-star-card onboarding-connect-card onboarding-context-card">
-      <div>
-        <span className="onboarding-connect-title">{t('Session lifecycle')}</span>
-        <p>{t('Choose how Mixdog manages long-running and idle sessions.')}</p>
-      </div>
-      {/* Lifecycle toggles live inside the card: a separate section overflowed
-        the fixed-height dialog into a scrollbar (user: 스크롤 안 나오게). */}
-      <div className="onboarding-context-rows">
-        {lifecycle.map((row) => (
-          <div className="onboarding-context-row" key={row.key}>
-            <div>
-              <b>{row.label}</b>
-              <small>{row.hint}</small>
-            </div>
-            <div className="onboarding-provider-toggle" role="group" aria-label={row.label}>
-              {(
-                [
-                  [true, t('On')],
-                  [false, t('Off')],
-                ] as const
-              ).map(([value, name]) => (
-                <button
-                  key={name}
-                  type="button"
-                  className={row.value === value ? 'active' : ''}
-                  disabled={Boolean(pending)}
-                  onClick={() => {
-                    if (row.value === value) return;
-                    void row.save(value).then((result) => {
-                      if (result !== undefined) row.apply(value);
-                    });
-                  }}
-                >
-                  {name}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );

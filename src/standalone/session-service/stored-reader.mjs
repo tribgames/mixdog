@@ -1,17 +1,49 @@
 import { sanitizeForWire } from '../session-wire-values.mjs';
+import { budgetStoredWindow } from './projection/transcript-window.mjs';
 
 const SLOW_STORED_PROJECTION_MS = 250;
 
-export function createStoredSessionReader({ readStoredSession, readStoredGoal, sessionOwner, log }) {
+export function createStoredSessionReader({
+  readStoredSession,
+  readStoredGoal,
+  forgetStoredSession = null,
+  sessionOwner,
+  log,
+}) {
+  // The stored reader returns its cached projection object for unchanged
+  // content and callers never mutate it, so identity keys the wire clone. The
+  // 1s cold-view refresh otherwise re-sanitized the whole transcript per tick.
+  // Keyed weakly: dropping the store's cache entry releases the clone too.
+  const wireSnapshots = new WeakMap();
+  function wireSnapshot(snapshot, byteBudget) {
+    let cached = wireSnapshots.get(snapshot);
+    if (!cached || cached.byteBudget !== byteBudget) {
+      const wire = cached?.wire ?? sanitizeForWire(snapshot);
+      cached = { wire, byteBudget, value: budgetStoredWindow(wire, byteBudget) };
+      wireSnapshots.set(snapshot, cached);
+    }
+    return cached.value;
+  }
+
+  /** Drop every cold projection the store retains for this session. */
+  function forgetStoredProjection(sessionId) {
+    if (typeof forgetStoredSession !== 'function') return;
+    void Promise.resolve()
+      .then(() => forgetStoredSession(sessionId))
+      .catch((err) => log(`stored projection release failed session=${sessionId}: ${err?.message || err}`));
+  }
+
   function traceStoredProjectionRead({ sessionId, hit, ms, chars, items }) {
     // Shared parse waiters are cache hits; report only the parse itself.
     if (hit || ms < SLOW_STORED_PROJECTION_MS) return;
     log(`slow stored projection session=${sessionId} ${Math.round(ms)}ms` + ` chars=${chars} items=${items}`);
   }
 
-  async function storedSessionProjection(sessionId, hints) {
+  /** `window` (from requestedTranscriptWindow) selects a paged tail; without
+   *  one, the resume hint (default 512 items) keeps the legacy page. */
+  async function storedSessionProjection(sessionId, hints, window = null) {
     if (typeof readStoredSession !== 'function') return null;
-    const requested = Number(hints?.resumeOptions?.transcriptItemLimit);
+    const requested = window ? window.limit : Number(hints?.resumeOptions?.transcriptItemLimit);
     let snapshot = null;
     try {
       snapshot = await readStoredSession(sessionId, {
@@ -32,12 +64,13 @@ export function createStoredSessionReader({ readStoredSession, readStoredGoal, s
         goal = null;
       }
     }
-    return sanitizeForWire({
-      ...snapshot,
+    const wire = wireSnapshot(snapshot, window?.byteBudget ?? null);
+    return {
+      ...wire,
       sessionId,
-      ...(typeof readStoredGoal === 'function' ? { goal } : {}),
-      queued: Array.isArray(snapshot.queued) ? snapshot.queued : [],
-    });
+      ...(typeof readStoredGoal === 'function' ? { goal: sanitizeForWire(goal, 1) ?? null } : {}),
+      queued: Array.isArray(snapshot.queued) ? wire.queued : [],
+    };
   }
 
   async function requestedMessageSlice(params, sessionId) {
@@ -67,5 +100,5 @@ export function createStoredSessionReader({ readStoredSession, readStoredGoal, s
     };
   }
 
-  return { storedSessionProjection, requestedMessageSlice };
+  return { storedSessionProjection, requestedMessageSlice, forgetStoredSession: forgetStoredProjection };
 }

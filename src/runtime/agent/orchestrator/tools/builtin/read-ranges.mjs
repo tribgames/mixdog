@@ -11,17 +11,13 @@ export function mergeReadRanges(ranges) {
     .sort((a, b) => a.startLine - b.startLine);
   if (filtered.length === 0) return [];
   const out = [{ ...filtered[0] }];
+  // Infinity arithmetic covers open-ended ranges: nothing starts past
+  // Infinity + 1, and Math.max keeps an Infinity end.
   for (let i = 1; i < filtered.length; i++) {
     const top = out[out.length - 1];
     const cur = filtered[i];
-    const topEnd = top.endLine === Infinity ? Infinity : top.endLine;
-    const adjacent = topEnd === Infinity ? true : cur.startLine <= topEnd + 1;
-    if (adjacent) {
-      top.endLine =
-        top.endLine === Infinity || cur.endLine === Infinity ? Infinity : Math.max(top.endLine, cur.endLine);
-    } else {
-      out.push({ ...cur });
-    }
+    if (cur.startLine <= top.endLine + 1) top.endLine = Math.max(top.endLine, cur.endLine);
+    else out.push({ ...cur });
   }
   return out;
 }

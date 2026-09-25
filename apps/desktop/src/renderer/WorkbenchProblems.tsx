@@ -96,6 +96,9 @@ export const WorkbenchProblemsSeverityActions = memo(function WorkbenchProblemsS
   );
   const rows = projectProblems(projectPath, language.problems);
   const count = (severity: number) => rows.filter((problem) => problem.severity === severity).length;
+  const errors = count(1);
+  const warnings = count(2);
+  const infos = count(3) + count(4);
   const update = (patch: Partial<ProblemsPanelFilter>) => onFilter({ ...filter, ...patch });
   return (
     <div className="problems-panel-actions" aria-label={t('Problems actions')}>
@@ -103,34 +106,34 @@ export const WorkbenchProblemsSeverityActions = memo(function WorkbenchProblemsS
         type="button"
         className="problems-filter-toggle"
         data-severity="error"
-        aria-label={t('Show Errors ({{count}})', { count: count(1) })}
+        aria-label={t('Show Errors ({{count}})', { count: errors })}
         aria-pressed={filter.showErrors}
         onClick={() => update({ showErrors: !filter.showErrors })}
       >
         <CircleX size={14} aria-hidden="true" />
-        <span>{count(1)}</span>
+        <span>{errors}</span>
       </button>
       <button
         type="button"
         className="problems-filter-toggle"
         data-severity="warning"
-        aria-label={t('Show Warnings ({{count}})', { count: count(2) })}
+        aria-label={t('Show Warnings ({{count}})', { count: warnings })}
         aria-pressed={filter.showWarnings}
         onClick={() => update({ showWarnings: !filter.showWarnings })}
       >
         <TriangleAlert size={14} aria-hidden="true" />
-        <span>{count(2)}</span>
+        <span>{warnings}</span>
       </button>
       <button
         type="button"
         className="problems-filter-toggle"
         data-severity="info"
-        aria-label={t('Show Infos ({{count}})', { count: count(3) + count(4) })}
+        aria-label={t('Show Infos ({{count}})', { count: infos })}
         aria-pressed={filter.showInfos}
         onClick={() => update({ showInfos: !filter.showInfos })}
       >
         <Info size={14} aria-hidden="true" />
-        <span>{count(3) + count(4)}</span>
+        <span>{infos}</span>
       </button>
       {/* Low-frequency toggles live in one "…" menu. */}
       <RowOverflowMenu
@@ -192,33 +195,29 @@ export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
   onQuickFix?(problem: EditorProblem): void;
 }) {
   const language = useProblems(active);
-  const rows = useMemo(
-    () =>
-      projectProblems(projectPath, language.problems)
-        .filter((problem) => {
-          if (problem.severity === 1 && !filter.showErrors) return false;
-          if (problem.severity === 2 && !filter.showWarnings) return false;
-          if (problem.severity >= 3 && !filter.showInfos) return false;
-          if (filter.activeFileOnly && normalizedPath(problem.relPath) !== normalizedPath(activeFileRel)) {
-            return false;
-          }
-          const needle = filter.query.trim().toLocaleLowerCase();
-          return (
-            !needle ||
-            `${problem.message} ${problem.relPath} ${problem.source} ${problem.code}`
-              .toLocaleLowerCase()
-              .includes(needle)
-          );
-        })
-        .sort(
-          (left, right) =>
-            left.relPath.localeCompare(right.relPath) ||
-            (filter.sort === 'severity'
-              ? left.severity - right.severity || left.startLineNumber - right.startLineNumber
-              : left.startLineNumber - right.startLineNumber || left.severity - right.severity)
-        ),
-    [activeFileRel, filter, language.problems, projectPath]
-  );
+  const rows = useMemo(() => {
+    const needle = filter.query.trim().toLocaleLowerCase();
+    return projectProblems(projectPath, language.problems)
+      .filter((problem) => {
+        if (problem.severity === 1 && !filter.showErrors) return false;
+        if (problem.severity === 2 && !filter.showWarnings) return false;
+        if (problem.severity >= 3 && !filter.showInfos) return false;
+        if (filter.activeFileOnly && normalizedPath(problem.relPath) !== normalizedPath(activeFileRel)) {
+          return false;
+        }
+        return (
+          !needle ||
+          `${problem.message} ${problem.relPath} ${problem.source} ${problem.code}`.toLocaleLowerCase().includes(needle)
+        );
+      })
+      .sort(
+        (left, right) =>
+          left.relPath.localeCompare(right.relPath) ||
+          (filter.sort === 'severity'
+            ? left.severity - right.severity || left.startLineNumber - right.startLineNumber
+            : left.startLineNumber - right.startLineNumber || left.severity - right.severity)
+      );
+  }, [activeFileRel, filter, language.problems, projectPath]);
   const groups = useMemo(() => {
     const grouped = new Map<string, EditorProblem[]>();
     for (const problem of rows) {

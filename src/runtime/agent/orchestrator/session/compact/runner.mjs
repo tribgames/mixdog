@@ -352,16 +352,39 @@ function freshContextTail(source, budgetTokens, preserveConversation, opts) {
   };
 }
 
+// Native tool search exposes a skill's linked tools only through the executed
+// Skill result that referenced them. A restored body keeps that pair, unless
+// the retained tail already carries it, so its instructions never return
+// without the tools they require.
+function skillLoaderPair(live, bodyIndex, name, retainedCallIds) {
+  for (let index = bodyIndex - 1; index >= 0; index -= 1) {
+    const result = live[index];
+    if (result?.role !== 'tool') continue;
+    const owner = live
+      .slice(0, index)
+      .findLast(
+        (message) => message?.role === 'assistant' && message.toolCalls?.some((c) => c.id === result.toolCallId)
+      );
+    const call = owner?.toolCalls.find((entry) => entry.id === result.toolCallId);
+    if (call?.name !== 'Skill' || call.arguments?.name !== name) continue;
+    if (!result.nativeToolSearch || retainedCallIds.has(result.toolCallId)) return [];
+    return [{ role: 'assistant', content: '', toolCalls: [call] }, result];
+  }
+  return [];
+}
+
 // Preserve complete, most-recent skill bodies from the durable transcript.
 // Never summarize/truncate operating instructions or displace the handoff
 // and current task. An omitted body remains eligible for a normal reload.
-function restoreSkillBodies(live, skillBudget) {
+function restoreSkillBodies(live, skillBudget, retainedTail) {
+  const retainedCallIds = new Set(retainedTail.filter((m) => m?.role === 'tool').map((m) => m.toolCallId));
   const restoredSkills = [];
   let skillTokens = 0;
-  for (const { message } of latestSkillBodies(live).reverse()) {
-    const cost = estimateMessagesTokens([message]);
+  for (const { name, message } of latestSkillBodies(live).reverse()) {
+    const restored = [...skillLoaderPair(live, live.lastIndexOf(message), name, retainedCallIds), message];
+    const cost = estimateMessagesTokens(restored);
     if (skillTokens + cost > skillBudget) continue;
-    restoredSkills.unshift(message);
+    restoredSkills.unshift(...restored);
     skillTokens += cost;
   }
   return { restoredSkills, skillTokens };
@@ -398,7 +421,7 @@ function freshContextDiagnostics(plan) {
     retainedAssistantToolMessages: retainedTail.filter((message) => message.toolCalls?.length).length,
     retainedProviderReplayMessages: retainedTail.filter((message) => message.providerReplay).length,
     toolHistoryBudget: execution.toolBudget,
-    restoredSkillBodies: skills.restoredSkills.length,
+    restoredSkillBodies: latestSkillBodies(skills.restoredSkills).length,
     skillBodyBudget: skills.skillBudget,
     skillBodyTokens: skills.skillTokens,
     toolHistoryTokens: execution.toolTokens,
@@ -528,7 +551,7 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
   const summaryContent = String(summaryMessage?.content || '');
   assertHandoffFits(summaryMessage, handoff.room);
   const skillBudget = freshSkillBudget(targetBudget, budget, [...stableHead, ...tail.volatileTail]);
-  const skills = { ...restoreSkillBodies(source.live, skillBudget), skillBudget };
+  const skills = { ...restoreSkillBodies(source.live, skillBudget, tail.volatileTail), skillBudget };
   const stablePrefixMessages = [...stableHead, ...skills.restoredSkills];
   const result = rebaseCompactedEffortConfiguration(
     baseSanitized,

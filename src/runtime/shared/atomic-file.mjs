@@ -122,6 +122,39 @@ async function renameWithRetry(src, dst, opts = {}) {
   throw lastErr;
 }
 
+// Filesystems that refuse fsync on a file (or on a directory) answer with one of
+// these codes; durability is best-effort there, so they do not fail the write.
+const FILE_FSYNC_TOLERATED = ['EPERM', 'ENOTSUP', 'EINVAL'];
+const DIR_FSYNC_TOLERATED = ['EPERM', 'ENOTSUP', 'EINVAL', 'EACCES'];
+
+function fsyncPathSync(path, tolerated) {
+  let fd = null;
+  try {
+    fd = openSync(path, 'r');
+    fsyncSync(fd);
+  } catch (err) {
+    if (!tolerated.includes(err?.code)) throw err;
+  } finally {
+    try {
+      if (fd !== null) closeSync(fd);
+    } catch {}
+  }
+}
+
+async function fsyncPathAsync(path, tolerated) {
+  let fd = null;
+  try {
+    fd = await openAsync(path, 'r');
+    await fd.sync();
+  } catch (err) {
+    if (!tolerated.includes(err?.code)) throw err;
+  } finally {
+    try {
+      if (fd !== null) await fd.close();
+    } catch {}
+  }
+}
+
 export function writeFileAtomicSync(filePath, data, opts = {}) {
   const run = () => {
     const dir = dirname(filePath);
@@ -138,19 +171,7 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
       // file's ACL; resetting permissions afterward would expose a published
       // secret if the subsequent owner grant failed.
       if (opts.secret === true) _enforceOwnerOnlyAclWin32(tmp, { fresh: true });
-      if (opts.fsync !== false) {
-        let fd = null;
-        try {
-          fd = openSync(tmp, 'r');
-          fsyncSync(fd);
-        } catch (err) {
-          if (!['EPERM', 'ENOTSUP', 'EINVAL'].includes(err?.code)) throw err;
-        } finally {
-          try {
-            if (fd !== null) closeSync(fd);
-          } catch {}
-        }
-      }
+      if (opts.fsync !== false) fsyncPathSync(tmp, FILE_FSYNC_TOLERATED);
       if (opts.createOnly === true) {
         // Atomic create-if-absent: linkSync fails with EEXIST if the
         // target already exists at link time, so a concurrent
@@ -200,19 +221,7 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
           }
         }
       }
-      if (opts.fsyncDir === true) {
-        let dfd = null;
-        try {
-          dfd = openSync(dir, 'r');
-          fsyncSync(dfd);
-        } catch (err) {
-          if (!['EPERM', 'ENOTSUP', 'EINVAL', 'EACCES'].includes(err?.code)) throw err;
-        } finally {
-          try {
-            if (dfd !== null) closeSync(dfd);
-          } catch {}
-        }
-      }
+      if (opts.fsyncDir === true) fsyncPathSync(dir, DIR_FSYNC_TOLERATED);
       return true;
     } catch (err) {
       try {
@@ -278,19 +287,7 @@ export async function writeFileAtomicAsync(filePath, data, opts = {}) {
       await writeFileAsync(tmp, data, writeOpts);
       // Both publication paths retain the secured file's existing ACL.
       if (opts.secret === true) await _enforceOwnerOnlyAclWin32Async(tmp, { fresh: true });
-      if (opts.fsync !== false) {
-        let fd = null;
-        try {
-          fd = await openAsync(tmp, 'r');
-          await fd.sync();
-        } catch (err) {
-          if (!['EPERM', 'ENOTSUP', 'EINVAL'].includes(err?.code)) throw err;
-        } finally {
-          try {
-            if (fd !== null) await fd.close();
-          } catch {}
-        }
-      }
+      if (opts.fsync !== false) await fsyncPathAsync(tmp, FILE_FSYNC_TOLERATED);
       if (opts.createOnly === true) {
         try {
           await linkAsync(tmp, filePath);
@@ -307,19 +304,7 @@ export async function writeFileAtomicAsync(filePath, data, opts = {}) {
       } else {
         await renameWithRetry(tmp, filePath, opts);
       }
-      if (opts.fsyncDir === true) {
-        let dfd = null;
-        try {
-          dfd = await openAsync(dir, 'r');
-          await dfd.sync();
-        } catch (err) {
-          if (!['EPERM', 'ENOTSUP', 'EINVAL', 'EACCES'].includes(err?.code)) throw err;
-        } finally {
-          try {
-            if (dfd !== null) await dfd.close();
-          } catch {}
-        }
-      }
+      if (opts.fsyncDir === true) await fsyncPathAsync(dir, DIR_FSYNC_TOLERATED);
       return true;
     } catch (err) {
       try {

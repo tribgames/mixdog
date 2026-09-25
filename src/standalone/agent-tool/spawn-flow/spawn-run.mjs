@@ -8,8 +8,8 @@ import { createNotify } from '../notify.mjs';
 import {
   reconcileJobFinally,
   reconcileJobStreamStalled,
-  reconcileJobTerminalResult,
   reconcileJobWatchdogPartial,
+  terminalResultHook,
 } from '../job-task-reconcile.mjs';
 import { abnormalEmptyFinishError } from '../render.mjs';
 import { createProgressWatchdogRegistry } from '../../agent-watchdog-registry.mjs';
@@ -141,13 +141,13 @@ export function createSpawnRunner({
         onToolResult: (message) => turnReview.onToolResult(message),
         ...(job
           ? {
-              onTerminalResult: (terminalResult) => {
-                turnReview.complete();
-                const value = completionValue(terminalResult);
-                job._terminalResultValue = value;
-                notifyOwnerAgentCompletionEarly(job, value, notifyContext || {});
-                reconcileJobTerminalResult(job, value);
-              },
+              onTerminalResult: terminalResultHook({
+                job,
+                turnReview,
+                completionValue,
+                notifyEarly: notifyOwnerAgentCompletionEarly,
+                notifyContext,
+              }),
             }
           : {}),
       };

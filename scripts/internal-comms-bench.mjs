@@ -22,6 +22,8 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { argValue, hasFlag } from './lib/cli-args.mjs';
+import { median, sortedFinite } from './lib/trace-stats.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dir, '..');
@@ -71,17 +73,6 @@ const INITIAL_MATH_JS = `export function mul(a, b) {
   return a * b;
 }
 `;
-
-function argValue(name, fallback = null) {
-  const idx = process.argv.indexOf(name);
-  if (idx >= 0 && idx + 1 < process.argv.length) return process.argv[idx + 1];
-  const pref = `${name}=`;
-  const hit = process.argv.find((a) => a.startsWith(pref));
-  return hit ? hit.slice(pref.length) : fallback;
-}
-function hasFlag(name) {
-  return process.argv.includes(name);
-}
 
 function resolveModelOpts(modelArg, providerArg) {
   const key = String(modelArg || '')
@@ -472,13 +463,6 @@ export function leadModeExitCode(runsMeta, perVariant) {
   return allValid && anyUsage ? 0 : 1;
 }
 
-function median(values) {
-  const arr = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
-  if (!arr.length) return 0;
-  const mid = Math.floor(arr.length / 2);
-  return arr.length % 2 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
-}
-
 function mean(values) {
   const arr = values.filter((v) => Number.isFinite(v));
   return arr.length ? sum(arr) / arr.length : 0;
@@ -488,10 +472,10 @@ function aggregateVariant(splits) {
   const out = { byRole: {}, total: {} };
   for (const role of ROLES) {
     const totals = splits.map((s) => s.byRole[role].total_tokens);
-    out.byRole[role] = { median: median(totals), mean: mean(totals), runs: totals };
+    out.byRole[role] = { median: median(sortedFinite(totals)), mean: mean(totals), runs: totals };
   }
   const grand = splits.map((s) => s.total.total_tokens);
-  out.total = { median: median(grand), mean: mean(grand), runs: grand };
+  out.total = { median: median(sortedFinite(grand)), mean: mean(grand), runs: grand };
   return out;
 }
 

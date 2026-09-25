@@ -55,7 +55,7 @@ export const AssistantMessage = React.memo(function AssistantMessage({
       </Box>
       <Box flexDirection="column" flexShrink={0} width={bodyWidth}>
         <StreamingMarkdown themeEpoch={themeEpoch} columns={bodyWidth} streamKey={assistantId} streaming={streaming}>
-          {streaming ? renderText : text}
+          {renderText}
         </StreamingMarkdown>
       </Box>
     </Box>

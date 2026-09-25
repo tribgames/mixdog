@@ -23,6 +23,7 @@ export function createDocxWriter({ operation, design, state, composition }) {
   const append = (text, style, properties = {}) => {
     if (text == null || text === '') return 0;
     state.paragraph += 1;
+    const eastAsia = type.eastAsiaFor(properties.name);
     output.push({
       op: 'append_text',
       text: String(text),
@@ -31,7 +32,7 @@ export function createDocxWriter({ operation, design, state, composition }) {
         alignment: 'left',
         keepWithNext: false,
         widowControl: true,
-        ...(type.eastAsia ? { nameEastAsia: type.eastAsia } : {}),
+        ...(eastAsia ? { nameEastAsia: eastAsia } : {}),
         ...properties,
       },
     });

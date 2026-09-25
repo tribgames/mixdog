@@ -11,8 +11,7 @@ import { sleep as delay } from '../../../shared/sleep.mjs';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { createConnection } from 'node:net';
-import { createServer } from 'node:net';
+import { createConnection, createServer } from 'node:net';
 import { isPidAlive } from '../../../shared/pid-liveness.mjs';
 
 // ---------------------------------------------------------------------------
@@ -426,7 +425,7 @@ export async function startPg({
   const v2Applied = ensureConfV2(pgdataDir);
   const env = libEnv(runtimeDir);
 
-  const attached = await attachExistingPostmaster({ runtimeDir, pgdataDir, env, existingWaitMs, v2Applied });
+  const attached = await attachExistingPostmaster({ runtimeDir, pgdataDir, existingWaitMs, v2Applied });
   if (attached) return attached;
 
   const pgctl = pgBin(runtimeDir, 'pg_ctl');
@@ -451,7 +450,7 @@ export async function startPg({
 
   const errText = r.stderr || r.stdout || '';
   if (r.exited && errText.includes('another server might be running')) {
-    const winner = await attachRaceWinner({ runtimeDir, pgdataDir, pgctl, env, existingWaitMs });
+    const winner = await attachRaceWinner({ pgdataDir, pgctl, env, existingWaitMs });
     if (winner) return winner;
   }
   throw startFailure(r, errText, logFile);

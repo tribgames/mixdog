@@ -143,6 +143,7 @@ export function useUnreadSessions({
       // "Viewed" means the surface is on screen AND focused; see
       // sessionSurfaceEngaged.
       const engaged = sessionSurfaceEngaged();
+      const viewing = (id: string) => id === activeId && engaged;
       let dirty = false;
       for (const id of [...seen.keys()]) {
         if (liveIds.has(id)) continue;
@@ -173,16 +174,16 @@ export function useUnreadSessions({
         // session): their first sighting IS the notification, so they skip the
         // read-by-definition baseline until actually viewed.
         const automationBorn = row.sourceType === 'schedule' || row.sourceType === 'webhook';
-        if (last === undefined && automationBorn && !(row.id === activeId && engaged)) {
+        if (last === undefined && automationBorn && !viewing(row.id)) {
           if (count > 0) unread.add(row.id);
           continue;
         }
-        if (last === undefined || (row.id === activeId && engaged)) {
+        if (last === undefined || viewing(row.id)) {
           if (last !== count) {
             seen.set(row.id, count);
             dirty = true;
           }
-          if (row.id === activeId && engaged) {
+          if (viewing(row.id)) {
             publishRead(
               row,
               count,
@@ -197,10 +198,10 @@ export function useUnreadSessions({
       // Preserve completion-only dots across later catalog pushes until the row
       // is viewed on either surface. A shared revision advance consumes them.
       for (const id of unreadSessionIdsRef.current) {
-        if (liveIds.has(id) && !remotelyReadIds.has(id) && !(id === activeId && engaged)) unread.add(id);
+        if (liveIds.has(id) && !remotelyReadIds.has(id) && !viewing(id)) unread.add(id);
       }
       for (const id of completedIds) {
-        if (!remotelyReadIds.has(id) && !(id === activeId && engaged)) unread.add(id);
+        if (!remotelyReadIds.has(id) && !viewing(id)) unread.add(id);
       }
       commitUnread(unread);
     },

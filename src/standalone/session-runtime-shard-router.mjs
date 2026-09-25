@@ -18,14 +18,13 @@
 
 import { mergeKnownProviderCooldown, providerCooldownAdvanced } from './session-runtime-provider-cooldown.mjs';
 
-export const SESSION_RUNTIME_SHARD_ENV = 'MIXDOG_SESSION_RUNTIME_SHARDS';
 const MAX_SESSION_RUNTIME_SHARDS = 16;
 
 /**
  * The external-host compatibility seam defaults to one shared runtime process.
  * Production sessions now use the daemon's in-process actor host instead.
  *
- * The legacy env is intentionally ignored. Explicit multi-process counts stay
+ * The legacy MIXDOG_SESSION_RUNTIME_SHARDS env is intentionally ignored. Explicit multi-process counts stay
  * available only through createSessionRuntimeHost({ shardCount }) as a test
  * seam for recovery and routing contracts.
  */

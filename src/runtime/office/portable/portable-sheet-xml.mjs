@@ -315,15 +315,12 @@ export function areaReference(area) {
   return `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
 }
 
+// Hangul, CJK and fullwidth forms take two character cells of a column.
+const WIDE_CHARACTER = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/;
+
 export function displayWidth(text) {
   let width = 0;
-  for (const character of String(text ?? '')) {
-    width += /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(
-      character
-    )
-      ? 2
-      : 1;
-  }
+  for (const character of String(text ?? '')) width += WIDE_CHARACTER.test(character) ? 2 : 1;
   return width;
 }
 
@@ -383,11 +380,24 @@ function dateWidth(section) {
   return width;
 }
 
+// What Excel's General format prints: eleven characters at most, the decimals rounded to fit with trailing zeros
+// dropped, scientific notation past that. Counted from the stored digits, float noise such as 0.5700000000000001
+// measured eighteen characters for the 0.57 on the sheet.
+export function generalNumberText(number) {
+  const plain = String(number);
+  if (plain.length <= 11) return plain;
+  const magnitude = Math.abs(number);
+  if (magnitude >= 1e11 || magnitude < 1e-9) return number.toExponential(5).replace(/\.?0+e/, 'e').toUpperCase();
+  const integerDigits = magnitude < 1 ? 1 : Math.floor(Math.log10(magnitude)) + 1;
+  const decimals = Math.max(0, 10 - (number < 0 ? 1 : 0) - integerDigits);
+  return String(Number(number.toFixed(decimals)));
+}
+
 export function formattedNumberWidth(value, format = '') {
   const number = Number(value);
   if (!Number.isFinite(number)) return displayWidth(String(value ?? ''));
   const code = String(format || '').trim();
-  if (!code || /^general$/i.test(code) || code === '@') return displayWidth(String(number));
+  if (!code || /^general$/i.test(code) || code === '@') return displayWidth(generalNumberText(number));
   const sections = formatSections(code);
   let chosen = sections[0];
   if (number < 0) chosen = sections[1] ?? sections[0];

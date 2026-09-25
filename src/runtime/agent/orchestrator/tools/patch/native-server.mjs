@@ -621,33 +621,21 @@ class NativePatchServer {
   }
 
   ref() {
-    try {
-      this.#child.ref();
-    } catch {}
-    try {
-      this.#child.stdin.ref?.();
-    } catch {}
-    try {
-      this.#child.stdout.ref?.();
-    } catch {}
-    try {
-      this.#child.stderr.ref?.();
-    } catch {}
+    this.#setRefed(true);
   }
 
   unref() {
-    try {
-      this.#child.unref();
-    } catch {}
-    try {
-      this.#child.stdin.unref?.();
-    } catch {}
-    try {
-      this.#child.stdout.unref?.();
-    } catch {}
-    try {
-      this.#child.stderr.unref?.();
-    } catch {}
+    this.#setRefed(false);
+  }
+
+  #setRefed(refed) {
+    const child = this.#child;
+    for (const handle of [child, child.stdin, child.stdout, child.stderr]) {
+      try {
+        if (refed) handle.ref?.();
+        else handle.unref?.();
+      } catch {}
+    }
   }
 
   async ping() {
@@ -719,36 +707,14 @@ class NativePatchServer {
     //   OK layout:         <files> <readMs> <applyMs> <writeMs> <totalMs> <hashMs> <contentHashes>
     //   OK_PARTIAL layout: <files> <failed> <readMs> <applyMs> <writeMs> <totalMs> <hashMs> <contentHashes> <hexFailures>
     // The OK_PARTIAL line carries an extra <failed> count between <files>
-    // and the timing block, plus a trailing <hexFailures> column — keep
-    // the two decodes separate so SKIP failure counts stay accurate.
-    let files;
-    let readMs;
-    let applyMs;
-    let writeMs;
-    let totalMs;
-    let hashMs;
-    let contentHashesRaw;
-    let hexFailures;
-    if (okPartial) {
-      files = fields[1];
-      // fields[2] = <failed> count; the JS layer already derives a failure
-      // count from decodeNativeFailures(hexFailures), so skip the raw cell.
-      readMs = fields[3];
-      applyMs = fields[4];
-      writeMs = fields[5];
-      totalMs = fields[6];
-      hashMs = fields[7];
-      contentHashesRaw = fields[8];
-      hexFailures = fields[9];
-    } else {
-      files = fields[1];
-      readMs = fields[2];
-      applyMs = fields[3];
-      writeMs = fields[4];
-      totalMs = fields[5];
-      hashMs = fields[6];
-      contentHashesRaw = fields[7];
-    }
+    // and the timing block, plus a trailing <hexFailures> column — decode
+    // each layout at its own offset so SKIP failure counts stay accurate.
+    // The <failed> cell is skipped: the JS layer already derives a failure
+    // count from decodeNativeFailures(hexFailures).
+    const files = fields[1];
+    const timingStart = okPartial ? 3 : 2;
+    const [readMs, applyMs, writeMs, totalMs, hashMs, contentHashesRaw] = fields.slice(timingStart, timingStart + 6);
+    const hexFailures = okPartial ? fields[9] : undefined;
     const contentHashes = String(contentHashesRaw || '')
       .split(',')
       .filter((value) => value.length > 0)

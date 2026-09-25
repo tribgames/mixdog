@@ -18,8 +18,6 @@ import { createTextRelay } from './openai-http-sse-response-state/text-relay.mjs
 import { createResponseOutcome } from './openai-http-sse-response-state/response-outcome.mjs';
 import { createResponseEvents } from './openai-http-sse-response-state/response-events.mjs';
 
-export { _endTurnFromEvent } from './openai-http-sse-response-state/response-events.mjs';
-
 /**
  * @param {object} deps
  * @param {object} deps.body  request body (its `tools` seed the leak guard)

@@ -35,8 +35,7 @@ export function createTurnTranscript({ getTranscriptWriter, getLastAppendedAssis
   // re-write the parts into the transcript.
   function appendFinalAssistant(result) {
     if (!getTranscriptWriter()) return;
-    const finalSource = result?.historyContent ?? result?.content;
-    const finalText = finalSource != null ? String(finalSource) : '';
+    const finalText = transcriptText(result?.historyContent ?? result?.content);
     if (finalText.trim() && finalText !== getLastAppendedAssistant()) {
       append('appendAssistant', finalText, 'final append failed');
       setLastAppendedAssistant(finalText);

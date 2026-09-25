@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
-import JSZip from 'jszip';
 import { readFile, writeFile } from 'node:fs/promises';
+import { koreanParticleReplacements } from '../shared/korean-particles.mjs';
 import { presetLabels } from '../shared/labels.mjs';
 import {
   OFFICE_RELATIONSHIP_BASE,
@@ -31,12 +31,23 @@ export async function fillTemplateParts(zip, parts, tag, operation, { replace = 
     throw new Error('fill_template requires tokens as an object');
   }
   const filled = {};
+  const particles = koreanParticleReplacements(tokens);
   for (const part of parts) {
     let xml = await zipText(zip, part);
+    let changed = false;
+    // The token with the particle written after it first, so "{{company}}은" lands as 모아페이는.
+    const text = particles.length ? paragraphTexts(xml, tag).join('') : '';
+    for (const entry of particles) {
+      if (!text.includes(entry.find)) continue;
+      const replaced = replace(xml, tag, entry.find, entry.replace);
+      if (!replaced.count) continue;
+      xml = replaced.xml;
+      changed = true;
+      filled[entry.key] = (filled[entry.key] || 0) + replaced.count;
+    }
     const variants = new Map(
       templateTokenMatches(paragraphTexts(xml, tag).join('')).map((match) => [match.raw, match.key])
     );
-    let changed = false;
     for (const [raw, key] of variants) {
       if (!Object.hasOwn(tokens, key)) continue;
       const replaced = replace(xml, tag, raw, String(tokens[key] ?? ''));
@@ -75,6 +86,9 @@ export async function fillTemplateParts(zip, parts, tag, operation, { replace = 
 
 export async function loadPackage(path) {
   const data = await readFile(path);
+  // Office tool definitions reach this module at runtime boot; JSZip is only
+  // needed once a package is actually opened.
+  const { default: JSZip } = await import('jszip');
   try {
     return await JSZip.loadAsync(data, {
       checkCRC32: true,
@@ -415,8 +429,10 @@ export async function cloneOwnedSlideParts(zip, relationshipsPath) {
   const copied = [];
   let output = xml;
   for (const { block, raw, target } of internalRelationships(xml)) {
+    // A slide's comments are its own too: two slides pointing at one comments part are a file PowerPoint refuses
+    // as corrupted, and PowerPoint's Duplicate copies them with the slide.
     if (
-      !/\/(chart|chartEx|diagramData|diagramLayout|diagramColors|diagramQuickStyle|diagramDrawing)$/.test(
+      !/\/(chart|chartEx|diagramData|diagramLayout|diagramColors|diagramQuickStyle|diagramDrawing|comments)$/.test(
         xmlAttribute(block, 'Type')
       )
     )

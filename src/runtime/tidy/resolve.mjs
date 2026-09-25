@@ -10,9 +10,9 @@ import { ENGINE_CATALOG, ENGINE_IDS, engineEntry, enginesForLanguages } from './
 import { mapLimit, runProcess, which } from './process.mjs';
 import { managedEngineBinary, manifestAsset, readEnginesManifest } from './install.mjs';
 
-export const DOWNLOAD_POLICIES = Object.freeze(['ask', 'auto', 'never']);
+const DOWNLOAD_POLICIES = Object.freeze(['ask', 'auto', 'never']);
 export const DEFAULT_DOWNLOAD_POLICY = 'auto';
-export const TIDY_CONFIG_RELATIVE_PATH = '.mixdog/tidy.json';
+const TIDY_CONFIG_RELATIVE_PATH = '.mixdog/tidy.json';
 const VERSION_PROBE_TIMEOUT_MS = 5000;
 
 /** Read `.mixdog/tidy.json`; a malformed file is reported, never thrown. */
@@ -67,7 +67,8 @@ export function binNames(name) {
   return process.platform === 'win32' ? WINDOWS_BIN_SUFFIXES.map((suffix) => `${name}${suffix}`) : [name];
 }
 
-function firstExisting(dir, name) {
+/** First on-disk file name `name` takes inside `dir`, or null. */
+export function firstExisting(dir, name) {
   for (const candidate of binNames(name)) {
     const full = join(dir, candidate);
     if (existsSync(full)) return full;
@@ -76,7 +77,7 @@ function firstExisting(dir, name) {
 }
 
 /** Project-local lookup for one engine (node_modules/.bin and virtualenvs). */
-export function projectLocalBinary(cwd, entry) {
+function projectLocalBinary(cwd, entry) {
   const roots = entry.projectLocal || [];
   for (const root of roots) {
     if (root === 'node') {
@@ -127,6 +128,13 @@ function commandFor(entry, path) {
   return { command: path, args: extra };
 }
 
+// Installable means "this platform has an asset", not merely "the manifest
+// knows this engine": clang-format ships no linux-arm64 build, and promising
+// a download there would turn into a failed install instead of an installHint.
+function installableFlag(entry, manifest) {
+  return entry.managed && manifestAsset(manifest, entry.id) ? { installable: true } : {};
+}
+
 function resolveOne({ cwd, entry, config, env, manifest, pluginData }) {
   const base = {
     id: entry.id,
@@ -173,7 +181,6 @@ function resolveOne({ cwd, entry, config, env, manifest, pluginData }) {
         modulePath: managed.path,
       };
     }
-    const installable = Boolean(entry.managed) && Boolean(manifestAsset(manifest, entry.id));
     return {
       ...base,
       source: 'missing',
@@ -181,7 +188,7 @@ function resolveOne({ cwd, entry, config, env, manifest, pluginData }) {
       command: host.path,
       args: [],
       missing: true,
-      ...(installable ? { installable: true } : {}),
+      ...installableFlag(entry, manifest),
     };
   }
   const onPath = pathBinary(entry, env);
@@ -199,11 +206,7 @@ function resolveOne({ cwd, entry, config, env, manifest, pluginData }) {
       };
     }
   }
-  // Installable means "this platform has an asset", not merely "the manifest
-  // knows this engine": clang-format ships no linux-arm64 build, and promising
-  // a download there would turn into a failed install instead of an installHint.
-  const installable = Boolean(entry.managed) && Boolean(manifestAsset(manifest, entry.id));
-  return { ...base, source: 'missing', path: '', missing: true, ...(installable ? { installable: true } : {}) };
+  return { ...base, source: 'missing', path: '', missing: true, ...installableFlag(entry, manifest) };
 }
 
 /** Version of a host-provided managed module (PSScriptAnalyzer under

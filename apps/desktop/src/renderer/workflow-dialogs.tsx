@@ -8,11 +8,11 @@ import { ModelRouteEditor } from './ModelRouteEditor';
 import { record } from './record-utils';
 import { SidebarDialogLayer } from './sidebar-dialog';
 import { CompactSwitch } from './settings/capability-controls';
+import type { RecordValue } from './desktop-types';
 
 // Popup editors for the Projects panel's Workflow tab (WorkflowsView): the
 // workflow pack, agent definition, and built-in route dialogs. They portal
 // to document.body, so the hosting section closes them when it deactivates.
-type RecordValue = Record<string, unknown>;
 
 export type RouteEditorTarget = {
   id: string;
@@ -65,6 +65,49 @@ function RouteControls({
   );
 }
 
+/** Editor footer: the error line, an armed two-step delete when the entry is
+ *  deletable, then Cancel / Save. */
+function EditorDialogFooter({
+  error,
+  busy,
+  onCancel,
+  onDelete,
+}: {
+  error: string;
+  busy: boolean;
+  onCancel(): void;
+  onDelete?(): void;
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  return (
+    <footer>
+      {error && <ErrorNotice error={error} />}
+      {onDelete && (
+        <button
+          type="button"
+          className={`danger${confirmDelete ? ' confirming' : ''}`}
+          disabled={busy}
+          onClick={() => {
+            if (!confirmDelete) {
+              setConfirmDelete(true);
+              return;
+            }
+            onDelete();
+          }}
+        >
+          {confirmDelete ? t('Confirm delete') : t('Delete')}
+        </button>
+      )}
+      <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
+        {t('Cancel')}
+      </button>
+      <button type="submit" disabled={busy}>
+        {t('Save')}
+      </button>
+    </footer>
+  );
+}
+
 // Workflow instructions are independent of orchestration and global agents.
 export function WorkflowEditorDialog({
   pack,
@@ -85,7 +128,6 @@ export function WorkflowEditorDialog({
 }) {
   const editing = Boolean(pack);
   const [formError, setFormError] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <SidebarDialogLayer onClose={onCancel}>
       <section
@@ -158,31 +200,12 @@ export function WorkflowEditorDialog({
               aria-label="WORKFLOW.md body"
             />
           </label>
-          <footer>
-            {(formError || error) && <ErrorNotice error={formError || error} />}
-            {deletable && (
-              <button
-                type="button"
-                className={`danger${confirmDelete ? ' confirming' : ''}`}
-                disabled={busy}
-                onClick={() => {
-                  if (!confirmDelete) {
-                    setConfirmDelete(true);
-                    return;
-                  }
-                  onDelete();
-                }}
-              >
-                {confirmDelete ? t('Confirm delete') : t('Delete')}
-              </button>
-            )}
-            <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
-              {t('Cancel')}
-            </button>
-            <button type="submit" disabled={busy}>
-              {t('Save')}
-            </button>
-          </footer>
+          <EditorDialogFooter
+            error={formError || error}
+            busy={busy}
+            onCancel={onCancel}
+            onDelete={deletable ? onDelete : undefined}
+          />
         </form>
       </section>
     </SidebarDialogLayer>
@@ -216,7 +239,6 @@ export function AgentEditorDialog({
   const [route, setRoute] = useState<RecordValue>(() => record(agent?.route));
   const [enabled, setEnabled] = useState(() => record(agent).disabled !== true);
   const [formError, setFormError] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <SidebarDialogLayer onClose={onCancel}>
       <section
@@ -313,31 +335,12 @@ export function AgentEditorDialog({
               aria-label="AGENT.md body"
             />
           </label>
-          <footer>
-            {(formError || error) && <ErrorNotice error={formError || error} />}
-            {deletable && (
-              <button
-                type="button"
-                className={`danger${confirmDelete ? ' confirming' : ''}`}
-                disabled={busy}
-                onClick={() => {
-                  if (!confirmDelete) {
-                    setConfirmDelete(true);
-                    return;
-                  }
-                  onDelete();
-                }}
-              >
-                {confirmDelete ? t('Confirm delete') : t('Delete')}
-              </button>
-            )}
-            <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
-              {t('Cancel')}
-            </button>
-            <button type="submit" disabled={busy}>
-              {t('Save')}
-            </button>
-          </footer>
+          <EditorDialogFooter
+            error={formError || error}
+            busy={busy}
+            onCancel={onCancel}
+            onDelete={deletable ? onDelete : undefined}
+          />
         </form>
       </section>
     </SidebarDialogLayer>
@@ -419,15 +422,7 @@ export function RouteEditorDialog({
               />
             </div>
           </div>
-          <footer>
-            {error && <ErrorNotice error={error} />}
-            <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
-              {t('Cancel')}
-            </button>
-            <button type="submit" disabled={busy}>
-              {t('Save')}
-            </button>
-          </footer>
+          <EditorDialogFooter error={error} busy={busy} onCancel={onCancel} />
         </form>
       </section>
     </SidebarDialogLayer>

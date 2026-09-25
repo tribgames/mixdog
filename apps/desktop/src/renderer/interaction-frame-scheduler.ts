@@ -108,7 +108,7 @@ export function createFrameCoordinator({
   };
 }
 
-export const layoutFrameCoordinator = createFrameCoordinator();
+const layoutFrameCoordinator = createFrameCoordinator();
 export const scheduleLayoutFrame = (key: object, work: () => void): void => layoutFrameCoordinator.schedule(key, work);
 export const flushLayoutFrame = (key: object): void => layoutFrameCoordinator.flush(key);
 export const cancelLayoutFrame = (key: object): void => layoutFrameCoordinator.cancel(key);

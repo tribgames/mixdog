@@ -257,11 +257,9 @@ export function UsageStatsBody({
   const apiRows = providers.filter(
     (row) => statsPlan(String(row.provider || ''), String(row.providerKind || '')) === 'api'
   );
-  const subscriptionCost = subscriptionRows.reduce((sum, row) => sum + statsNumber(row.costUsd), 0);
-  const apiCost = apiRows.reduce((sum, row) => sum + statsNumber(row.costUsd), 0);
-  const moneyFor = (group: Row[], amount: number) =>
+  const moneyFor = (group: Row[]) =>
     statsMoney({
-      costUsd: amount,
+      costUsd: group.reduce((sum, row) => sum + statsNumber(row.costUsd), 0),
       turns: group.reduce((sum, row) => sum + statsNumber(row.turns), 0),
       costUnpricedTurns: group.reduce((sum, row) => sum + unpricedTurns(row), 0),
     });
@@ -430,13 +428,13 @@ export function UsageStatsBody({
       <div className="stats-cards">
         <StatCard
           label={t('Subscription list-price value')}
-          value={moneyFor(subscriptionRows, subscriptionCost)}
+          value={moneyFor(subscriptionRows)}
           detail={t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')}
           loading={loading}
         />
         <StatCard
           label={t('API cost')}
-          value={moneyFor(apiRows, apiCost)}
+          value={moneyFor(apiRows)}
           detail={t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')}
           loading={loading}
         />

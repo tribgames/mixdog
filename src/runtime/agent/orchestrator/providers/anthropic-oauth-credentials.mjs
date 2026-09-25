@@ -9,13 +9,14 @@
 import { readFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createServer } from 'node:http';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { updateJsonAtomicSync, writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
-import { resolveCliVersion } from './anthropic-oauth-client-version.mjs';
+import { claudeCliUserAgent, resolveCliVersion } from './anthropic-oauth-client-version.mjs';
 import { expiryFromAccessToken, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
+import { createOAuthPkce } from './lib/oauth-pkce.mjs';
 
 // SSRF guard for the OAuth token endpoint override. Env-supplied URLs must be
 // https with a valid http(s) URL shape; reject file:/data:/ftp:/etc. and any
@@ -32,7 +33,7 @@ function assertSafeTokenURL(rawURL) {
   }
   return rawURL;
 }
-export const TOKEN_URL = assertSafeTokenURL(
+const TOKEN_URL = assertSafeTokenURL(
   process.env.ANTHROPIC_OAUTH_TOKEN_URL || 'https://platform.claude.com/v1/oauth/token'
 );
 const DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
@@ -248,9 +249,25 @@ export function forgetAnthropicOAuthCredentials() {
   return { removed };
 }
 
-export function _normalizeExpiresAt(value) {
+function _normalizeExpiresAt(value) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0;
   return value < 1e12 ? value * 1000 : value;
+}
+
+// Token-endpoint expiry: an absolute expires_at wins, else expires_in seconds from now.
+function expiresAtFromTokenResponse(json) {
+  return (
+    _normalizeExpiresAt(json?.expires_at ?? json?.expiresAt) ||
+    (typeof json?.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0)
+  );
+}
+
+function tokenEndpointHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'anthropic-dangerous-direct-browser-access': 'true',
+    'user-agent': claudeCliUserAgent(),
+  };
 }
 
 export function _scrubTokens(text, secretValues = []) {
@@ -290,11 +307,7 @@ async function _refreshOAuthCredentialsUnlocked(creds) {
   try {
     const res = await fetch(TOKEN_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'anthropic-dangerous-direct-browser-access': 'true',
-        'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
-      },
+      headers: tokenEndpointHeaders(),
       body: JSON.stringify({
         grant_type: 'refresh_token',
         refresh_token: creds.refreshToken,
@@ -325,9 +338,7 @@ async function _refreshOAuthCredentialsUnlocked(creds) {
 
     const accessToken = json?.access_token || json?.accessToken;
     if (!accessToken) throw new Error('token refresh returned no access token');
-    const expiresAt =
-      _normalizeExpiresAt(json?.expires_at ?? json?.expiresAt) ||
-      (typeof json?.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0);
+    const expiresAt = expiresAtFromTokenResponse(json);
     const refreshed = {
       path: creds.path,
       accessToken,
@@ -500,12 +511,6 @@ export async function preflightAnthropicOAuthCredentials({
 
 // --- Login flow (PKCE loopback, export for setup UI / CLI) ---
 
-function _oauthGeneratePKCE() {
-  const verifier = randomBytes(32).toString('base64url');
-  const challenge = createHash('sha256').update(verifier).digest('base64url');
-  return { verifier, challenge };
-}
-
 // The login writes to the FIRST candidate, existing or not. A per-account
 // binding names a file that does not exist yet — that is the whole point of
 // adding an account — and falling back to an existing file wrote the second
@@ -551,11 +556,7 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
   if (!cleanCode) throw new Error('[anthropic-oauth] authorization code is required');
   const tokenRes = await fetch(TOKEN_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'anthropic-dangerous-direct-browser-access': 'true',
-      'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
-    },
+    headers: tokenEndpointHeaders(),
     body: JSON.stringify({
       grant_type: 'authorization_code',
       code: cleanCode,
@@ -582,9 +583,7 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
   if (!accessToken || !refreshToken) {
     throw new Error('[anthropic-oauth] token exchange response missing access_token or refresh_token');
   }
-  const expiresAt =
-    _normalizeExpiresAt(json?.expires_at ?? json?.expiresAt) ||
-    (typeof json?.expires_in === 'number' ? Date.now() + json.expires_in * 1000 : 0);
+  const expiresAt = expiresAtFromTokenResponse(json);
   const scopes = _oauthParseScopeField(json?.scope);
   const credPath = _oauthCredentialsWritePath();
   const raw = _updateCredentialsFile(credPath, (current) => {
@@ -613,7 +612,7 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
 }
 
 export async function beginOAuthLogin() {
-  const pkce = _oauthGeneratePKCE();
+  const pkce = createOAuthPkce();
   const state = randomBytes(32).toString('base64url');
   const buildUrl = (redirectUri) => {
     const url = new URL(CLAUDE_AI_AUTHORIZE_URL);

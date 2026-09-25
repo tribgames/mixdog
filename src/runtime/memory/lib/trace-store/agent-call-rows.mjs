@@ -7,12 +7,20 @@ export function eventSessionId(ev) {
   return ev.session_id ?? ev.sessionId ?? null;
 }
 
-export function eventTimestampIso(ev) {
+export function numberOrNull(value) {
+  return value != null ? Number(value) : null;
+}
+
+/** Event time in epoch ms (ISO strings parsed); now when absent or invalid. */
+export function eventTimestampMs(ev) {
   let ts = ev.ts;
   if (typeof ts === 'string') ts = Date.parse(ts);
   ts = Number(ts);
-  if (!Number.isFinite(ts)) ts = Date.now();
-  return new Date(ts).toISOString();
+  return Number.isFinite(ts) ? ts : Date.now();
+}
+
+export function eventTimestampIso(ev) {
+  return new Date(eventTimestampMs(ev)).toISOString();
 }
 
 function capToolArgs(args) {
@@ -40,7 +48,7 @@ function toolRow(ev, { sid, ts, iteration }) {
     ts,
     tool_name: ev.tool_name ?? ev.toolName ?? null,
     tool_kind: ev.tool_kind ?? ev.toolKind ?? null,
-    tool_ms: tool_ms != null ? Number(tool_ms) : null,
+    tool_ms: numberOrNull(tool_ms),
     tool_args: capToolArgs(ev.tool_args ?? ev.toolArgs ?? null),
     result_kind: ev.result_kind ?? ev.resultKind ?? null,
     result_error_category: ev.result_error_category ?? ev.resultErrorCategory ?? null,
@@ -71,7 +79,7 @@ export function collectAgentCallRows(events) {
   for (const ev of events) {
     const sid = eventSessionId(ev);
     if (!sid) continue;
-    const row = { sid, ts: eventTimestampIso(ev), iteration: ev.iteration != null ? Number(ev.iteration) : null };
+    const row = { sid, ts: eventTimestampIso(ev), iteration: numberOrNull(ev.iteration) };
     if (ev.kind === 'tool') toolRows.push(toolRow(ev, row));
     else if (ev.kind === 'usage_raw' || (ev.input_tokens != null && ev.output_tokens != null)) {
       llmRows.push(llmRow(ev, row));

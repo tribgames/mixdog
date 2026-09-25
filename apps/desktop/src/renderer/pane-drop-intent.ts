@@ -2,6 +2,8 @@
 // workspace model changes when it is dropped.
 import type { WorkspaceSelection } from './nav-types';
 import {
+  paneDropDirection,
+  paneDropPosition,
   paneHierarchyDropTarget,
   paneInnerDropZone,
   paneOuterDropZone,
@@ -152,7 +154,7 @@ function hierarchyDropIntent(input: {
   const { frame, current, panelRect, outerZone, direction, hierarchyTarget, sourceLeafId, sourceLeaf, groupDrag } =
     input;
   const addsPane = !groupDrag && (sourceLeaf?.tabs.length ?? 0) > 1;
-  const position = outerZone === 'left' || outerZone === 'top' ? 'before' : 'after';
+  const position = paneDropPosition(outerZone);
   const previewLayout = addsPane
     ? movePaneTabToNodeEdge(
         current.layout,
@@ -294,7 +296,7 @@ export function resolvePaneDropIntent(
           paneHierarchyCandidates(panelElement, panelRect)
         )
       : null;
-  const outerDirection = outerZone === 'left' || outerZone === 'right' ? 'row' : 'column';
+  const outerDirection = outerZone ? paneDropDirection(outerZone) : 'column';
   if (
     outerZone &&
     hierarchyTarget &&
@@ -350,8 +352,7 @@ function leafDropIntent(
   const overStrip = Boolean(pointedStrip);
   let zone: PaneDropZone | 'center' = overStrip ? 'center' : paneInnerDropZone(dropRect, frame.x, frame.y, groupDrag);
   if (zone !== 'center') {
-    const direction = zone === 'left' || zone === 'right' ? 'row' : 'column';
-    if (!canSplitPaneSize(direction, dropRect.width, dropRect.height)) zone = 'center';
+    if (!canSplitPaneSize(paneDropDirection(zone), dropRect.width, dropRect.height)) zone = 'center';
   }
   const targetActive = paneActiveSelection(target);
   if (zone === 'center') {
@@ -400,11 +401,7 @@ export function commitPaneDropAction(current: PaneWorkspaceModel, action: PaneDr
       current.moveGroupAt(action.sourceLeafId, action.targetLeafId, action.zone);
       return;
     case 'merge-group':
-      if (action.insertIndex === undefined) {
-        current.mergeGroup(action.sourceLeafId, action.targetLeafId);
-      } else {
-        current.mergeGroup(action.sourceLeafId, action.targetLeafId, action.insertIndex);
-      }
+      current.mergeGroup(action.sourceLeafId, action.targetLeafId, action.insertIndex);
       return;
     case 'open-in-leaf':
       current.openInLeaf(action.targetLeafId, action.selection, action.insertIndex);

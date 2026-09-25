@@ -16,7 +16,7 @@ import {
 import {
   OFFICE_RELATIONSHIP_BASE,
   containerInner,
-  replaceAcrossRuns,
+  replaceInParagraphs,
   topLevelElements,
   xmlAttribute,
   xmlEncode,
@@ -24,6 +24,7 @@ import {
 import {
   SLIDE_CONTENT_TYPE,
   addPresentationSlide,
+  copySlideNotes,
   deletePresentationSlide,
   ensureCommentAuthor,
   ensureSlideComments,
@@ -155,6 +156,7 @@ export async function handleDuplicateSlide(context, op) {
     // A copy that still pointed at the source's chart or diagram turned one
     // edit into two changed pages, with nothing in the result saying so.
     copiedParts = await cloneOwnedSlideParts(zip, partRelationshipPath(duplicated));
+    await copySlideNotes(zip, source.path, duplicated);
   }
   await ensureContentTypeOverride(zip, `/${duplicated}`, SLIDE_CONTENT_TYPE);
   const relationshipId = await addPackageRelationship(
@@ -201,7 +203,7 @@ export async function handleReplaceText(context, op) {
   );
   for (const path of paths) {
     const current = await zipText(zip, path);
-    const replaced = replaceAcrossRuns(current, 'a:t', String(op.find || ''), String(op.replace ?? ''));
+    const replaced = replaceInParagraphs(current, String(op.find || ''), String(op.replace ?? ''));
     if (replaced.count) zip.file(path, replaced.xml);
     count += replaced.count;
   }

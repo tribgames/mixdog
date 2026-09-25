@@ -86,7 +86,7 @@ function toolInFlight(state) {
   return state.pendingCalls?.size > 0 || state.toolTracker?.items?.size > 0 || state.toolInFlight === true;
 }
 
-export function pendingToolUseFor(state, leakedCalls) {
+function pendingToolUseFor(state, leakedCalls) {
   return (
     state.emittedToolCall === true ||
     leakedCalls.length > 0 ||

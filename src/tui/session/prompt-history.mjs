@@ -6,12 +6,14 @@
  * → array); callers decide when/whether to publish so the store's
  * immutable-emit contract is preserved.
  */
-export const PROMPT_HISTORY_LIMIT = 50;
+import { PROMPT_HISTORY_LIMIT, promptHistoryKey } from '../prompt-history-store.mjs';
 
-export const promptHistoryKey = (value) =>
-  String(value || '')
-    .trim()
-    .replace(/\s+/g, ' ');
+// The history list without `text` (compared by promptHistoryKey): a prompt
+// handed back to the draft must not also sit in the Up-arrow history.
+export function promptHistoryWithout(list, text) {
+  const key = promptHistoryKey(text);
+  return (list || []).filter((entry) => promptHistoryKey(entry) !== key);
+}
 
 export function recomputePromptHistory(sourceItems, limit = PROMPT_HISTORY_LIMIT) {
   const items = Array.isArray(sourceItems) ? sourceItems : [];

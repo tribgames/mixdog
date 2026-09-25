@@ -143,7 +143,11 @@ export async function inlineOfficeAudit(session, { operations = [] } = {}) {
       nextAction: 'The measured audit could not run on this change; call action:qa render:false before relying on it.',
     };
   }
-  const audit = summarizeOfficeAudit(measured.issues, {
+  // A formula this batch wrote has no cached value until the next recalculation, and render, qa, and finalize
+  // recalculate first: the audit reads it as pending, not as a defect to fix — every new portable model otherwise
+  // failed its first audit with nothing the author could change. qa and issues still report it as found.
+  const pending = (issue) => (issue?.code === 'formula_cache_missing' ? { ...issue, severity: 'info' } : issue);
+  const audit = summarizeOfficeAudit((measured.issues || []).map(pending), {
     touched: touchedLocations(session.format, operations),
   });
   return recordInlineAuditRound(session, audit);

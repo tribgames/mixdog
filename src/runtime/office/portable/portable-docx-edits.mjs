@@ -30,6 +30,7 @@ import {
   commentParagraphId,
   ensureCommentsPart,
   ensureDocxUpdateFields,
+  appendedNumbering,
   ensureNumbering,
   ensurePart,
   forgetCommentIdentity,
@@ -43,13 +44,12 @@ import {
   upsertSectionChild,
   upsertSectionReference,
   wordDrawingXml,
+  writeEverySectionProperties,
   writeHeaderFooterPart,
-  writeSectionPropertiesAt,
 } from './portable-docx-parts.mjs';
 import {
   alignWordTableColumns,
   blankTableCells,
-  docxStyleId,
   docxTable,
   insertDocxBlockAt,
   paragraphFormatXml,
@@ -57,7 +57,9 @@ import {
   replaceWordProperties,
   rewriteTableColumns,
   rowCellMatches,
+  sectionTextWidth,
   tableRowMatches,
+  wordJustification,
   wordParagraph,
   wordRunProperties,
   wordTableXml,
@@ -65,6 +67,7 @@ import {
   wordTextContent,
   withFirstRunText,
 } from './portable-docx-xml.mjs';
+import { documentStyleId } from './portable-docx-styles.mjs';
 import { normalizeDocxRuns } from './docx-runs.mjs';
 import { anchorPhraseInParagraph, trackedParagraphRewrite } from './docx-tracked-edits.mjs';
 import { formatFirstBodyPhrase, patchParagraphFormat } from './docx-formatting.mjs';
@@ -228,8 +231,11 @@ export async function appendDocxText(zip, op, { tracking }) {
   const properties = op.properties || {};
   const listKind = String(properties.listKind || '').toLowerCase();
   let numbering = null;
-  if (listKind) numbering = await ensureNumbering(zip, listKind === 'number' ? 'number' : 'bullet');
-  const style = docxStyleId(op.style || properties.style || (numbering ? 'List Paragraph' : ''));
+  // listKind:'none' is a plain paragraph, as Word's backend reads it; it had drawn a bullet here.
+  if (listKind === 'number') numbering = await appendedNumbering(zip, current);
+  else if (listKind && listKind !== 'none') numbering = await ensureNumbering(zip, 'bullet');
+  const requestedStyle = op.style || properties.style || (numbering ? 'List Paragraph' : '');
+  const { id: style, found: styleFound } = await documentStyleId(zip, requestedStyle);
   const format = paragraphFormatXml(
     properties,
     numbering ? { numId: numbering.numId, level: properties.listLevel } : null
@@ -246,34 +252,65 @@ export async function appendDocxText(zip, op, { tracking }) {
     : run;
   const block = `<w:p>${paragraphProperties}${content}</w:p>`;
   zip.file(DOCUMENT_PART, appendDocxBlock(current, block));
-  return { op: op.op, changed: true, style: style || '', ...(tracking ? { tracked: true } : {}) };
+  return {
+    op: op.op,
+    changed: true,
+    style: style || '',
+    ...(styleFound ? {} : { styleNotFound: String(requestedStyle) }),
+    ...(tracking ? { tracked: true } : {}),
+  };
 }
 
-export async function addDocxTable(zip, op) {
+// A table style the document does not define is dropped (and reported), so the table takes the default rules as the
+// Word backend draws it: kept, it named a style Word could not find and the table printed bare. Both styles take
+// the ids the document carries for them.
+async function withKnownTableStyle(zip, op) {
+  const { style, textStyle } = op.properties || {};
+  if (!style && !textStyle) return { op, styleNotFound: null };
+  const properties = { ...op.properties };
+  let styleNotFound = null;
+  if (style) {
+    const resolved = await documentStyleId(zip, style, 'table');
+    if (resolved.found) properties.style = resolved.id;
+    else {
+      delete properties.style;
+      styleNotFound = String(style);
+    }
+  }
+  if (textStyle) properties.textStyle = (await documentStyleId(zip, textStyle)).id;
+  return { op: { ...op, properties }, styleNotFound };
+}
+
+export async function addDocxTable(zip, requested) {
+  const { op, styleNotFound } = await withKnownTableStyle(zip, requested);
   let current = await zipText(zip, DOCUMENT_PART);
-  const table = wordTableXml(op);
   if (op.paragraph) {
     const model = docxBodyModel(current);
     const paragraph = bodyParagraphAt(model, op.paragraph);
     const position = paragraph.end;
+    const table = wordTableXml(op, { available: sectionTextWidth(current, model.body.start + position) / 20 });
     const nextInner = `${model.body.inner.slice(0, position)}${table}${model.body.inner.slice(position)}`;
     current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
   } else {
-    current = appendDocxBlock(current, table);
+    // Appended into the last section, whose properties close the body.
+    const trailing = Math.max(0, current.lastIndexOf('<w:sectPr'));
+    current = appendDocxBlock(current, wordTableXml(op, { available: sectionTextWidth(current, trailing) / 20 }));
   }
   zip.file(DOCUMENT_PART, current);
   return {
     op: op.op,
     changed: true,
     table: docxBodyModel(current).blocks.filter((block) => block.name === 'w:tbl').length,
+    ...(styleNotFound ? { styleNotFound } : {}),
   };
 }
 
 export async function setDocxParagraphStyle(zip, op) {
+  const resolved = await documentStyleId(zip, op.style || 'Normal');
   const current = await zipText(zip, DOCUMENT_PART);
   const model = docxBodyModel(current);
   const paragraph = bodyParagraphAt(model, op.paragraph);
-  const style = xmlEncode(op.style || 'Normal');
+  const style = xmlEncode(resolved.id);
   let nextParagraph = paragraph.xml;
   if (/<w:pPr(?:\s[^>]*)?>/.test(nextParagraph)) {
     if (/<w:pStyle\b[^>]*\/>/.test(nextParagraph)) {
@@ -288,7 +325,12 @@ export async function setDocxParagraphStyle(zip, op) {
     );
   }
   zip.file(DOCUMENT_PART, replaceBodyParagraph(current, model, paragraph, nextParagraph));
-  return { op: op.op, changed: true, style: op.style || 'Normal' };
+  return {
+    op: op.op,
+    changed: true,
+    style: op.style || 'Normal',
+    ...(resolved.found ? {} : { styleNotFound: String(op.style) }),
+  };
 }
 
 export async function setDocxTableCell(zip, op, { tracking }) {
@@ -339,7 +381,8 @@ export async function setDocxTableCell(zip, op, { tracking }) {
   return { op: op.op, changed: true, ...(tracking ? { tracked: true } : {}) };
 }
 
-export async function setDocxTableStyle(zip, op) {
+export async function setDocxTableStyle(zip, requested) {
+  const { op, styleNotFound } = await withKnownTableStyle(zip, requested);
   const current = await zipText(zip, DOCUMENT_PART);
   const table = docxTable(current, op.table);
   // Restyling a table must not undo its width: the declared width is part
@@ -355,7 +398,12 @@ export async function setDocxTableStyle(zip, op) {
     Array.isArray(op.properties?.columnAlignments) ? op.properties.columnAlignments : []
   );
   zip.file(DOCUMENT_PART, replaceDocxTable(current, table, nextTable));
-  return { op: op.op, changed: nextTable !== table[0], table: Number(op.table) };
+  return {
+    op: op.op,
+    changed: nextTable !== table[0],
+    table: Number(op.table),
+    ...(styleNotFound ? { styleNotFound } : {}),
+  };
 }
 
 export async function setDocxParagraphFormat(zip, op) {
@@ -379,16 +427,22 @@ export async function addDocxImage(zip, op) {
   const current = await zipText(zip, DOCUMENT_PART);
   const media = await addDocumentImage(zip, op.path);
   const pixels = media.pixels;
-  const naturalWidth = pixels ? pixels.width * PIXELS_TO_POINTS : 240;
+  // A picture given no size is as wide as its pixels up to the text width, as Word fits it on insertion: a 1400 px
+  // screenshot ran 1050 pt across a 450 pt column.
+  const textWidth = sectionTextWidth(current, Math.max(0, current.lastIndexOf('<w:sectPr'))) / 20;
+  const naturalWidth = pixels ? Math.min(pixels.width * PIXELS_TO_POINTS, textWidth) : 240;
   const width = Number(op.width) > 0 ? Number(op.width) : naturalWidth;
   // A requested width scales the natural height so the picture keeps its aspect ratio.
-  const scale = pixels && Number(op.width) > 0 ? Number(op.width) / (pixels.width * PIXELS_TO_POINTS) : 1;
+  const scale = pixels ? width / (pixels.width * PIXELS_TO_POINTS) : 1;
   const naturalHeight = pixels ? pixels.height * PIXELS_TO_POINTS * scale : 180;
   const height = Number(op.height) > 0 ? Number(op.height) : naturalHeight;
   const id =
     [...current.matchAll(/<wp:docPr\b[^>]*\bid="(\d+)"/g)].reduce((max, match) => Math.max(max, Number(match[1])), 0) +
     1;
-  const block = `<w:p><w:r>${wordDrawingXml({
+  // The picture keeps with the paragraph after it — its caption — unless the caller says otherwise: a picture that
+  // ended a page left "그림 1." alone at the top of the next. properties.alignment places it (a centred figure).
+  const format = paragraphFormatXml({ keepWithNext: true, ...(op.properties || {}) }, null);
+  const block = `<w:p>${format ? `<w:pPr>${format}</w:pPr>` : ''}<w:r>${wordDrawingXml({
     id,
     embedId: media.relationshipId,
     name: media.name,
@@ -440,6 +494,8 @@ export async function editDocxTableRowsOrColumns(zip, op) {
 export async function setDocxList(zip, op) {
   const kind = String(op.kind || 'bullet').toLowerCase() === 'number' ? 'number' : 'bullet';
   const numbering = await ensureNumbering(zip, kind);
+  // List Paragraph as the document names it ("a6" in a Korean Word document).
+  const { id: listStyle } = await documentStyleId(zip, 'List Paragraph');
   const current = await zipText(zip, DOCUMENT_PART);
   const model = docxBodyModel(current);
   const paragraph = bodyParagraphAt(model, op.paragraph);
@@ -449,7 +505,7 @@ export async function setDocxList(zip, op) {
     .replace(/<w:numPr\b[^>]*?(?:\/>|>[\s\S]*?<\/w:numPr>)/, '')
     .replace(/<w:pStyle\b[^>]*\/>/, '');
   const properties =
-    '<w:pStyle w:val="ListParagraph"/>' +
+    `<w:pStyle w:val="${xmlEncode(listStyle)}"/>` +
     `<w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="${numbering.numId}"/></w:numPr>` +
     cleaned;
   const nextParagraph = replaceWordProperties(paragraph.xml, 'p', 'pPr', properties);
@@ -641,13 +697,19 @@ export async function setDocxHeaderFooter(zip, op) {
   let header = op.header !== false;
   if (named === 'footer') header = false;
   else if (named === 'header') header = true;
+  // The running line is set in the author's type (name, nameEastAsia, size, color, bold, alignment): left to
+  // the document default it printed at body size in black above an eyebrow set at 9.5 pt.
+  const properties = op.properties || {};
   const written = await writeHeaderFooterPart(zip, {
     header,
     documentXml: current,
     kind,
-    body: wordParagraph(op.text, { alignment: header ? '' : 'center' }),
+    body: wordParagraph(op.text, {
+      alignment: wordJustification(properties.alignment) || (header ? '' : 'center'),
+      runProperties: wordRunProperties(properties),
+    }),
   });
-  const next = writeSectionPropertiesAt(current, op.section, (section) => {
+  const next = writeEverySectionProperties(current, op.section, (section) => {
     const referenced = upsertSectionReference(
       section,
       header ? 'headerReference' : 'footerReference',
@@ -680,15 +742,18 @@ export async function addDocxPageNumbers(zip, op) {
   const alignment = ['left', 'center', 'right'].includes(String(op.alignment || '').toLowerCase())
     ? String(op.alignment).toLowerCase()
     : 'center';
-  const prefix = op.prefix ? `<w:r><w:t xml:space="preserve">${xmlEncode(op.prefix)} </w:t></w:r>` : '';
+  // The number is set at 9 pt, as the Word backend sets it: left on the body size it printed a size and a half
+  // larger in the portable file than the same footer written through Word.
+  const size = '<w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr>';
+  const prefix = op.prefix ? `<w:r>${size}<w:t xml:space="preserve">${xmlEncode(op.prefix)} </w:t></w:r>` : '';
   const separator =
     op.includeTotal === true
-      ? `<w:r><w:t xml:space="preserve"> ${xmlEncode(op.separator || '/')} </w:t></w:r>` +
-        '<w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>1</w:t></w:r></w:fldSimple>'
+      ? `<w:r>${size}<w:t xml:space="preserve"> ${xmlEncode(op.separator || '/')} </w:t></w:r>` +
+        `<w:fldSimple w:instr=" NUMPAGES "><w:r>${size}<w:t>1</w:t></w:r></w:fldSimple>`
       : '';
   const numbering =
-    `<w:p><w:pPr><w:jc w:val="${alignment}"/></w:pPr>${prefix}` +
-    '<w:fldSimple w:instr=" PAGE "><w:r><w:t>1</w:t></w:r></w:fldSimple>' +
+    `<w:p><w:pPr><w:jc w:val="${alignment}"/><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:pPr>${prefix}` +
+    `<w:fldSimple w:instr=" PAGE "><w:r>${size}<w:t>1</w:t></w:r></w:fldSimple>` +
     `${separator}</w:p>`;
   // A footer line and its page number are two operations, and this one used
   // to write the story from scratch: the author's footer text was gone from
@@ -708,7 +773,7 @@ export async function addDocxPageNumbers(zip, op) {
       return `${around}${numbering}`;
     },
   });
-  const next = writeSectionPropertiesAt(current, op.section, (section) =>
+  const next = writeEverySectionProperties(current, op.section, (section) =>
     upsertSectionReference(section, header ? 'headerReference' : 'footerReference', kind, written.relationshipId)
   );
   zip.file(DOCUMENT_PART, next);
@@ -733,14 +798,22 @@ export async function insertDocxBreak(zip, op) {
     // A section break paragraph carries the properties of the section it
     // closes, so the text before it keeps the page it was written for and
     // the trailing sectPr — which set_page edits — governs what follows.
+    // A section's w:type says how that section itself begins, so the start
+    // the break asks for belongs to the section after it: written on the
+    // closing copy, a continuous break still began the next section on a new
+    // page, and a two-column body under a picture moved to page 2.
     const { match } = trailingSectionProperties(current);
-    const closing = upsertSectionChild(
-      match ? match[0] : '<w:sectPr></w:sectPr>',
-      'type',
-      `<w:type w:val="${kind === 'section_continuous' ? 'continuous' : 'nextPage'}"/>`
-    );
+    const closing = match ? match[0] : '<w:sectPr></w:sectPr>';
     const block = `<w:p><w:pPr>${closing}</w:pPr></w:p>`;
-    const next = insertDocxBlockAt(current, block, op.paragraph);
+    let next = insertDocxBlockAt(current, block, op.paragraph);
+    const start = `<w:type w:val="${kind === 'section_continuous' ? 'continuous' : 'nextPage'}"/>`;
+    const at = next.indexOf(block) + block.length;
+    const following = /<w:sectPr\b[^>]*>[\s\S]*?<\/w:sectPr>|<w:sectPr\b[^>]*\/>/.exec(next.slice(at));
+    if (following) {
+      const position = at + following.index;
+      const section = following[0].endsWith('/>') ? following[0].replace(/\/>$/, '></w:sectPr>') : following[0];
+      next = `${next.slice(0, position)}${upsertSectionChild(section, 'type', start)}${next.slice(position + following[0].length)}`;
+    }
     zip.file(DOCUMENT_PART, next);
     return { op: op.op, changed: true, kind, sections: documentSectionSpans(next).spans.length };
   }

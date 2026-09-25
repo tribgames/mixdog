@@ -474,17 +474,13 @@ export const WIRE_ERROR_FATAL_CODES = new Set([
   'billing_not_active',
 ]);
 
-function wireErrorCode(err) {
+export function typedErrorCode(err) {
   const failed = err?.responseFailed;
   const detail = failed?.response?.error || failed?.error || err?.providerError || failed || null;
   for (const field of [detail?.code, detail?.type, err?.providerErrorCode, err?.code, err?.error?.code]) {
     if (typeof field === 'string' && field.trim()) return field.trim().toLowerCase();
   }
   return '';
-}
-
-export function typedErrorCode(err) {
-  return wireErrorCode(err);
 }
 
 /**
@@ -541,7 +537,7 @@ function rateLimitRetryAfterMsFromMessage(err) {
 // null for everything else (no blanket retry for untyped local failures).
 function classifyWireErrorEvent(err) {
   if (!err || (err.responseFailed == null && err.providerWireError !== true)) return null;
-  const code = wireErrorCode(err);
+  const code = typedErrorCode(err);
   if (code && WIRE_ERROR_FATAL_CODES.has(code)) return 'permanent';
   return 'transient';
 }
@@ -567,7 +563,7 @@ export function isRetryableStreamErrorEvent(err) {
   if (err?.providerWireError !== true) return false;
   const status = Number(err.httpStatus || err.status || err.response?.status || 0) || 0;
   if (status && status >= 400 && status < 500 && !TRANSIENT_STATUSES.has(status)) return false;
-  const code = wireErrorCode(err);
+  const code = typedErrorCode(err);
   if (code && WIRE_ERROR_FATAL_CODES.has(code) && code !== 'invalid_request' && code !== 'invalid_request_error') {
     return false;
   }

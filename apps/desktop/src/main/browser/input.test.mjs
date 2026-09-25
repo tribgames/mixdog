@@ -32,11 +32,13 @@ test('browser CDP pointer input keeps CSS coordinates independent of WebContents
   const touchStarts = calls.filter(
     ({ method, params }) => method === 'Input.dispatchTouchEvent' && params.type === 'touchStart'
   );
+  // Touch lands at the CSS point a click would: CDP reads both in CSS pixels,
+  // so a zoomed page must not rescale a touch the mouse path leaves alone.
   assert.deepEqual(
     touchStarts.map(({ params }) => [params.touchPoints[0].x, params.touchPoints[0].y]),
     [
-      [587, 415],
-      [133, 160],
+      [440, 311],
+      [100, 120],
     ]
   );
   const touchMoves = calls.filter(
@@ -49,7 +51,7 @@ test('browser CDP pointer input keeps CSS coordinates independent of WebContents
       touchMoves.at(-1).params.touchPoints[0].x,
       touchMoves.at(-1).params.touchPoints[0].y,
     ],
-    [133, 160, 467, 167]
+    [100, 120, 350, 125]
   );
   const wheel = calls.find(({ params }) => params.type === 'mouseWheel');
   assert.deepEqual([wheel.params.x, wheel.params.y, wheel.params.deltaX, wheel.params.deltaY], [600, 400, 120, 180]);

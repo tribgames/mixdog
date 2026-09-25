@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { sweepStaleSessions, sweepStaleSessionsCooperative } from './listing.mjs';
+import { settleSessionSummaryIndex, sweepStaleSessions, sweepStaleSessionsCooperative } from './listing.mjs';
 
 // The stale-session sweep against a real temp store: which records it closes,
 // deletes, prunes or leaves untouched, and what it reports for each.
@@ -24,7 +24,13 @@ async function withStore(t, run) {
   process.env.MIXDOG_DATA_DIR = root;
   const dir = join(root, 'sessions');
   mkdirSync(dir);
-  t.after(() => {
+  t.after(async () => {
+    // After the sweep returns, its summary-index rebuild worker (spawned by
+    // the cold listing of this fresh store) and its deferred prune/upsert
+    // flush still write into this data dir, and the flush resolves the index
+    // path when it runs: let both finish HERE before the data dir is switched
+    // back or removed.
+    await settleSessionSummaryIndex();
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });

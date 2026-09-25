@@ -39,6 +39,31 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
     assertPresenting(sessionId, guest, token, signal);
   };
 
+  /** The native page facts every display frame carries, however its pixels
+   *  were read. */
+  function frameBase(
+    sessionId: string,
+    guest: WebContents,
+    token: string,
+    surface: { width: number; height: number },
+    texture?: BrowserDisplayTexture
+  ) {
+    return {
+      documentId: token,
+      webContentsId: guest.id,
+      url: guest.getURL(),
+      title: guest.getTitle(),
+      loading: guest.isLoadingMainFrame(),
+      canGoBack: guest.navigationHistory.canGoBack(),
+      canGoForward: guest.navigationHistory.canGoForward(),
+      surfaceWidth: surface.width,
+      surfaceHeight: surface.height,
+      ...(texture ? { textureId: texture.id } : {}),
+      ...(host.tabs ? { tabs: host.tabs.list(sessionId) } : {}),
+      ...host.prompts?.describe(guest),
+    };
+  }
+
   async function sample(
     guest: WebContents,
     geometryKey: string,
@@ -84,25 +109,14 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
     try {
       if (texture) await sendTexture(texture, sessionId, guest, token, signal);
       return {
+        ...frameBase(sessionId, guest, token, viewport, texture),
         frameId:
           texture?.id ?? cached?.frameId ?? `blocked_${token}_${viewport.width}_${viewport.height}_${viewport.zoom}`,
-        documentId: token,
-        webContentsId: guest.id,
-        url: guest.getURL(),
-        title: guest.getTitle(),
-        loading: guest.isLoadingMainFrame(),
-        canGoBack: guest.navigationHistory.canGoBack(),
-        canGoForward: guest.navigationHistory.canGoForward(),
         width: cached?.width ?? viewport.width,
         height: cached?.height ?? viewport.height,
         viewportWidth: cached?.viewportWidth ?? viewport.width,
         viewportHeight: cached?.viewportHeight ?? viewport.height,
-        surfaceWidth: viewport.width,
-        surfaceHeight: viewport.height,
         ...(cached && cached.frameId !== previousId && !texture ? { image: cached.image } : {}),
-        ...(texture ? { textureId: texture.id } : {}),
-        ...(host.tabs ? { tabs: host.tabs.list(sessionId) } : {}),
-        ...host.prompts?.describe(guest),
       };
     } finally {
       texture?.release();
@@ -198,24 +212,13 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
         images.set(guest, image);
       }
       const result: DesktopBrowserPageFrame = {
+        ...frameBase(sessionId, guest, token, nativeViewport, texture),
         frameId: image.id,
-        documentId: token,
-        webContentsId: guest.id,
         viewportWidth: viewport.width,
         viewportHeight: viewport.height,
-        surfaceWidth: nativeViewport.width,
-        surfaceHeight: nativeViewport.height,
-        url: guest.getURL(),
-        title: guest.getTitle(),
-        loading: guest.isLoadingMainFrame(),
-        canGoBack: guest.navigationHistory.canGoBack(),
-        canGoForward: guest.navigationHistory.canGoForward(),
         width: shot.width,
         height: shot.height,
         fault: host.state.for(guest).fault || undefined,
-        ...(texture ? { textureId: texture.id } : {}),
-        ...(host.tabs ? { tabs: host.tabs.list(sessionId) } : {}),
-        ...host.prompts?.describe(guest),
         ...(previousId === image.id || !shot.data ? {} : { image: { mimeType: shot.mimeType, data: shot.data } }),
       };
       if (texture) await sendTexture(texture, sessionId, guest, token, signal);

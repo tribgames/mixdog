@@ -31,7 +31,9 @@ unused page area with decoration or stretch a short validation table to a page.
 
 Native ranges, styles and charts are the default authoring route.
 `compose_sheet` is an optional preset; its `metrics` accept `formula`, `label`,
-`detail`, and `numberFormat`. Use it only when its arrangement fits the design.
+`detail`, and `numberFormat`. The preset decides where its table lands, so a
+metric reads the table by name, not by cell: give `tableName` and write
+`=SUM(Hubs[처리량 (건)])`. Use it only when its arrangement fits the design.
 Keep record tables unmerged; merged report labels live outside them. Set page
 setup after all intended charts and panels exist.
 
@@ -47,10 +49,14 @@ characters; colors are hex without `#`.
   (`=Calc!B12`), never repeats a number by hand; a workbook with one table needs one sheet.
 - **Title block on a report**: A1 eyebrow (`fontSize:9, bold:true, color:<accent>`), A2 title (`fontSize:16,
   bold:true`), A3 subtitle or period (`fontSize:10, color:'6B7280'`), one empty row, then the table or the
-  metric strip. Merge the title cells across the report width only; never merge inside a data table.
+  metric strip. Merge the title cells across the report width only; never merge inside a data table. A row
+  holding 16 pt or larger type, or a merged band that wraps, takes `set_row_height` (about 1.3 × the size per
+  line); a gutter or a label column takes `set_column_width`.
 - **Header row**: `set_style range:<header> properties:{ bold:true, fillColor:'EEF2F7', borders:{ bottom:{ style:'thin',
   color:'C9CED6' } }, verticalAlignment:'center' }`; figure columns `horizontalAlignment:'right'` (their header
-  too); the unit in the header (`처리량 (건)`), never in every cell.
+  too); the unit in the header (`처리량 (건)`), never in every cell. A label column right after a figure column
+  takes `indent:1` (header and body): the figures end on their column's right edge, and without it "38" and
+  "김서연" beside it read as one cell.
 - **Total row**: `bold:true, borders:{ top:{ style:'medium', color:<accent> } }`, formulas (`=SUM`), never typed.
 - **Body rows**: no borders; `numberFormat` per column (`#,##0`, `0.0%`, `yyyy-mm-dd`, years `0`); banding
   (`fillColor:'F7F9FB'` on every other row) only on a table over ~15 rows; `autofit_range` on the whole
@@ -70,7 +76,10 @@ characters; colors are hex without `#`.
   range's first cell (`B2<0.9`); a `colorScale` only on a heat-map the reader compares across, never on a
   total column.
 - **Print**: `set_page_setup printArea:<report range> fitToPagesWide:1 orientation:'landscape'` after the last
-  chart exists; a data sheet prints as it lies.
+  chart exists; a one-page report adds `fitToPagesTall:1` — fitted by width alone, a report a few rows taller than
+  the sheet printed its chart's axis on a second page; a data sheet prints as it lies, with `printTitleRows:'1'` (its
+  header row) so every printed page names its columns — the frozen header the screen shows does not print.
+  Margins are inches.
 
 ## Control visual noise
 

@@ -17,21 +17,8 @@ use serde::Serialize;
 use super::extractors::{extractors_for, LangExtractors, WalkedItem};
 use super::rules::{parse_rule_stream, rule_errors, DeclaredKind, RULES};
 use super::symbols::map_items;
+use crate::scan::{PositionJson, RangeJson};
 use crate::scan_lang::ScanLang;
-
-#[derive(Serialize)]
-struct PositionJson {
-    line: usize,
-    column: usize,
-}
-
-#[derive(Serialize)]
-struct RangeJson {
-    start: PositionJson,
-    end: PositionJson,
-    #[serde(rename = "byteOffset")]
-    byte_offset: [usize; 2],
-}
 
 #[derive(Serialize)]
 struct MemberJson {

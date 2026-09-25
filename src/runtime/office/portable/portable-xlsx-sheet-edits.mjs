@@ -2,7 +2,7 @@
 // to one worksheet. Every edit takes the sheet's current XML and returns the
 // operation result; the dispatcher in portable-xlsx.mjs owns the loop.
 import { posix } from 'node:path';
-import { applyCellStyle } from './portable-sheet-styles.mjs';
+import { applyCellStyle, styleHasNumberFormat } from './portable-sheet-styles.mjs';
 import { normalizeXlsxFormula } from './xlsx-contract.mjs';
 import {
   cellRecords,
@@ -53,6 +53,7 @@ import {
   workbookDefinedNameFault,
   worksheetSection,
   writeColumnVisibility,
+  writeColumnWidths,
   writeMergedRanges,
 } from './portable-sheet-xml.mjs';
 import {
@@ -68,13 +69,14 @@ const WORKBOOK_PATH = 'xl/workbook.xml';
 
 // set_cell / set_formula. `recalculate` tells the dispatcher a formula landed,
 // so the workbook is marked for a full recalculation once all edits are in.
-export function setWorksheetCell(zip, sheet, xml, op, sheets) {
+export async function setWorksheetCell(zip, sheet, xml, op, sheets) {
   const formula =
     op.op === 'set_formula'
       ? normalizeXlsxFormula(op.formula, { backend: 'mixdog-ooxml', sheetNames: sheets.map((entry) => entry.name) })
       : '';
   const anchored = mergedCellAnchor(xml, op.cell);
-  zip.file(sheet.path, setCellInSheet(xml, op.cell, op.value, formula));
+  if (!formula && typedDate(op.value) !== null) await writeTypedCells(zip, sheet, xml, [{ ref: parseCellRef(op.cell).ref, value: op.value }]);
+  else zip.file(sheet.path, setCellInSheet(xml, op.cell, op.value, formula));
   const normalized = formula && formula !== String(op.formula ?? '').replace(/^=/, '');
   const result = {
     op: op.op,
@@ -89,7 +91,58 @@ export function setWorksheetCell(zip, sheet, xml, op, sheets) {
   return { result, recalculate: Boolean(formula) };
 }
 
-export function setWorksheetRange(zip, sheet, xml, op) {
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
+
+// Excel types "2026-09-30" as the date it names, so the same set_range through Microsoft Office left a date in the
+// cell and here a text: =DATEVALUE(D5) worked on one backend and read #VALUE! on the other, and a date column sorted
+// and summed differently depending on which one wrote it. The portable writer stores the serial the way Excel does,
+// under yyyy-mm-dd unless the cell already carries a number format of its own.
+function typedDate(value) {
+  const match = typeof value === 'string' ? ISO_DATE.exec(value.trim()) : null;
+  if (!match) return null;
+  const [year, month, day] = match.slice(1).map(Number);
+  const time = Date.UTC(year, month - 1, day);
+  const date = new Date(time);
+  if (year < 1900 || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return (time - EXCEL_EPOCH) / 86_400_000;
+}
+
+async function writeTypedCells(zip, sheet, xml, entries) {
+  const dated = [];
+  const typed = entries.map((entry) => {
+    const serial = typedDate(entry.value);
+    if (serial === null) return entry;
+    dated.push(entry.ref);
+    return { ...entry, value: serial };
+  });
+  let next = setCellsInSheet(xml, typed);
+  if (dated.length) {
+    const stylesPath = 'xl/styles.xml';
+    let styles = await zipText(zip, stylesPath);
+    if (styles) {
+      const bases = cellStyleIndexes(next, dated);
+      const resolved = new Map();
+      const styled = [];
+      for (const ref of dated) {
+        const base = bases.get(ref) ?? 0;
+        if (styleHasNumberFormat(styles, base)) continue;
+        if (!resolved.has(base)) {
+          const applied = applyCellStyle(styles, base, { numberFormat: 'yyyy-mm-dd' });
+          styles = applied.xml;
+          resolved.set(base, applied.index);
+        }
+        styled.push({ ref, style: resolved.get(base) });
+      }
+      zip.file(stylesPath, styles);
+      if (styled.length) next = setCellStylesInSheet(next, styled);
+    }
+  }
+  zip.file(sheet.path, next);
+  return dated.length;
+}
+
+export async function setWorksheetRange(zip, sheet, xml, op) {
   const area = expandRange(op.range);
   const values = Array.isArray(op.values) ? op.values : [];
   const entries = [];
@@ -101,23 +154,19 @@ export function setWorksheetRange(zip, sheet, xml, op) {
       });
     }
   }
-  zip.file(sheet.path, setCellsInSheet(xml, entries));
-  return { op: op.op, changed: true, sheet: sheet.name, range: op.range };
+  const dates = await writeTypedCells(zip, sheet, xml, entries);
+  return { op: op.op, changed: true, sheet: sheet.name, range: op.range, ...(dates ? { dates } : {}) };
 }
 
 export async function appendWorksheetRow(zip, sheet, xml, op) {
   const cells = cellRecords(xml, await sharedStrings(zip));
   const maxRow = cells.reduce((max, cell) => Math.max(max, parseCellRef(cell.ref).row), 0);
   const row = maxRow + 1;
-  zip.file(
-    sheet.path,
-    setCellsInSheet(
-      xml,
-      (op.values || []).map((value, index) => ({
-        ref: `${columnLabel(index + 1)}${row}`,
-        value,
-      }))
-    )
+  await writeTypedCells(
+    zip,
+    sheet,
+    xml,
+    (op.values || []).map((value, index) => ({ ref: `${columnLabel(index + 1)}${row}`, value }))
   );
   return { op: op.op, changed: true, sheet: sheet.name, row };
 }
@@ -287,17 +336,82 @@ export async function setWorksheetVisibility(zip, sheet, _xml, op) {
   return { op: op.op, changed: true, sheet: sheet.name, visibility };
 }
 
+// The opening tag of a row rewritten by transform; a row with no element yet gets one (in row order) when create
+// is set, since an empty row still carries its height or its hidden state.
+function rewriteRowTag(xml, row, transform, create) {
+  const existing = new RegExp(`<row\\b[^>]*\\br="${row}"[^>]*?(?:/>|>)`).exec(xml);
+  if (existing) {
+    return `${xml.slice(0, existing.index)}${transform(existing[0])}${xml.slice(existing.index + existing[0].length)}`;
+  }
+  if (!create) return xml;
+  let next = xml;
+  const later = [...next.matchAll(/<row\b[^>]*\br="(\d+)"[^>]*?(?:\/>|>)/g)].find((entry) => Number(entry[1]) > row);
+  let anchor = later ? later.index : next.indexOf('</sheetData>');
+  if (anchor < 0) {
+    // A sheet with no rows yet carries <sheetData/> — what add_sheet
+    // writes — and the row still has to go inside it.
+    const empty = /<sheetData\b([^>]*?)\/>/.exec(next);
+    if (!empty) throw new Error('Worksheet has no sheetData to write a row in');
+    const opening = `<sheetData${empty[1]}>`;
+    next = `${next.slice(0, empty.index)}${opening}</sheetData>${next.slice(empty.index + empty[0].length)}`;
+    anchor = empty.index + opening.length;
+  }
+  return `${next.slice(0, anchor)}${transform(`<row r="${row}"/>`)}${next.slice(anchor)}`;
+}
+
+function rowOrColumnStart(op, rows) {
+  if (rows) return Math.round(Number(op.row));
+  if (typeof op.column === 'string' && /^[A-Za-z]+$/.test(op.column.trim())) {
+    return columnNumber(op.column.trim().toUpperCase());
+  }
+  return Math.round(Number(op.column));
+}
+
+// A report is laid out by its row heights and column widths: a merged title band never grows to its wrapped
+// lines in Excel or LibreOffice, so the title was cut at 15 pt, and a gutter column could not be made narrow.
+// Heights are points (Excel's 0-409), widths Excel's characters (0-255), the units the snapshot reports.
+export function setRowHeightOrColumnWidth(zip, sheet, xml, op) {
+  const rows = op.op === 'set_row_height';
+  const start = rowOrColumnStart(op, rows);
+  if (!Number.isFinite(start) || start < 1) {
+    throw new Error(
+      rows ? 'set_row_height requires row (1-based)' : 'set_column_width requires column (a letter such as D, or a 1-based number)'
+    );
+  }
+  const size = Number(rows ? op.height : op.width);
+  const limit = rows ? 409 : 255;
+  if (!Number.isFinite(size) || size < 0 || size > limit) {
+    throw new Error(rows ? 'set_row_height requires height in points, 0-409' : 'set_column_width requires width in characters, 0-255');
+  }
+  const count = Math.max(1, Math.round(Number(op.count) || 1));
+  const targets = Array.from({ length: count }, (_, index) => start + index);
+  let next = xml;
+  if (rows) {
+    for (const row of targets) {
+      next = rewriteRowTag(
+        next,
+        row,
+        (tag) =>
+          tag
+            .replace(/\s*\b(?:ht|customHeight)="[^"]*"/g, '')
+            .replace(/(\/?>)$/, ` ht="${Math.round(size * 100) / 100}" customHeight="1"$1`),
+        true
+      );
+    }
+  } else {
+    next = writeColumnWidths(next, new Map(targets.map((column) => [column, Math.round(size * 100) / 100])));
+  }
+  zip.file(sheet.path, next);
+  return { op: op.op, changed: true, sheet: sheet.name, ...(rows ? { rows: targets, height: size } : { columns: targets, width: size }) };
+}
+
 // Hiding a row or a column is how a sheet withholds a working note or a
 // filtered record without deleting it; the snapshot reports the same state
 // back as hiddenRows / hiddenColumns.
 export function setRowOrColumnVisibility(zip, sheet, xml, op) {
   if (typeof op.visible !== 'boolean') throw new Error(`${op.op} requires visible: true or false`);
   const rows = op.op === 'set_row_visibility';
-  let start;
-  if (rows) start = Math.round(Number(op.row));
-  else if (typeof op.column === 'string' && /^[A-Za-z]+$/.test(op.column.trim())) {
-    start = columnNumber(op.column.trim().toUpperCase());
-  } else start = Math.round(Number(op.column));
+  const start = rowOrColumnStart(op, rows);
   if (!Number.isFinite(start) || start < 1) {
     throw new Error(
       rows
@@ -310,29 +424,16 @@ export function setRowOrColumnVisibility(zip, sheet, xml, op) {
   let next = xml;
   if (rows) {
     for (const row of targets) {
-      const existing = new RegExp(`<row\\b[^>]*\\br="${row}"[^>]*?(?:/>|>)`).exec(next);
-      if (existing) {
-        const stripped = existing[0].replace(/\s*\bhidden="[^"]*"/, '');
-        const replacement = op.visible ? stripped : stripped.replace(/(\/?>)$/, ' hidden="1"$1');
-        next = `${next.slice(0, existing.index)}${replacement}${next.slice(existing.index + existing[0].length)}`;
-        continue;
-      }
-      if (op.visible) continue;
-      // An empty row still hides, and Excel needs the element to record it.
-      const later = [...next.matchAll(/<row\b[^>]*\br="(\d+)"[^>]*?(?:\/>|>)/g)].find(
-        (entry) => Number(entry[1]) > row
+      next = rewriteRowTag(
+        next,
+        row,
+        (tag) => {
+          const stripped = tag.replace(/\s*\bhidden="[^"]*"/, '');
+          return op.visible ? stripped : stripped.replace(/(\/?>)$/, ' hidden="1"$1');
+        },
+        // An empty row still hides, and Excel needs the element to record it.
+        !op.visible
       );
-      let anchor = later ? later.index : next.indexOf('</sheetData>');
-      if (anchor < 0) {
-        // A sheet with no rows yet carries <sheetData/> — what add_sheet
-        // writes — and the row still has to go inside it.
-        const empty = /<sheetData\b([^>]*?)\/>/.exec(next);
-        if (!empty) throw new Error('Worksheet has no sheetData to hide a row in');
-        const opening = `<sheetData${empty[1]}>`;
-        next = `${next.slice(0, empty.index)}${opening}</sheetData>${next.slice(empty.index + empty[0].length)}`;
-        anchor = empty.index + opening.length;
-      }
-      next = `${next.slice(0, anchor)}<row r="${row}" hidden="1"/>${next.slice(anchor)}`;
     }
   } else {
     next = writeColumnVisibility(next, targets, op.visible);
@@ -360,13 +461,17 @@ export async function defineWorkbookName(zip, op) {
     zip.file(WORKBOOK_PATH, next);
     return { op: op.op, changed: next !== workbook, name };
   }
-  const refersTo = String(op.refersTo || '').trim();
+  // The formula as the file stores it, without the = Excel's Name Manager shows and Names.Add takes: kept, the
+  // workbook was one Excel refused to open at all.
+  const refersTo = String(op.refersTo || '')
+    .trim()
+    .replace(/^=+/, '');
   if (!refersTo) throw new Error('define_name requires refersTo');
   zip.file(
     WORKBOOK_PATH,
     upsertDefinedName(workbook, `<definedName name="${xmlEncode(name)}">${xmlEncode(refersTo)}</definedName>`, matches)
   );
-  return { op: op.op, changed: true, name, refersTo };
+  return { op: op.op, changed: true, name, refersTo: `=${refersTo}` };
 }
 
 // add_note / add_provenance

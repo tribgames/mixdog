@@ -22,7 +22,6 @@ import {
   clearSelection,
   deleteBackwardWord,
   deleteForwardWord,
-  deleteSelectedText,
   deleteToLineEnd,
   deleteToLineStart,
   lineEnd,
@@ -44,6 +43,10 @@ import {
   draftStateEqual,
   isModifiedEnterSequence,
   isAnyModifiedEnterSequence,
+  leftArrowOffset,
+  rightArrowOffset,
+  deleteBackwardChar,
+  deleteForwardChar,
 } from './prompt-input/edit-helpers.mjs';
 import { cancelPromptImmediateFlush, schedulePromptImmediateFlush } from './prompt-input/immediate-render.mjs';
 import { classifyPromptEscape } from './prompt-input/escape-policy.mjs';
@@ -59,6 +62,14 @@ import {
 } from './prompt-input/key-signals.mjs';
 import { createPromptMouseSelection } from './prompt-input/mouse-selection.mjs';
 import { createUndoStack } from './prompt-input/undo-stack.mjs';
+
+// `suppressShiftNav` may be a predicate, a ref holding a predicate, or a ref
+// holding a flag; resolve it at event time.
+function gridSelectionActive(suppressShiftNavRef) {
+  if (typeof suppressShiftNavRef === 'function') return suppressShiftNavRef();
+  if (typeof suppressShiftNavRef?.current === 'function') return suppressShiftNavRef.current();
+  return Boolean(suppressShiftNavRef?.current);
+}
 
 export function PromptInput({
   onSubmit,
@@ -128,7 +139,8 @@ export function PromptInput({
   draftRef.current = draft;
   if (selectionRef) {
     const range = selectionRange(draft);
-    selectionRef.current = range ? { range, text: mask ? '' : draft.value.slice(range.start, range.end) } : null;
+    const text = range && !mask ? draft.value.slice(range.start, range.end) : '';
+    selectionRef.current = range ? { range, text } : null;
   }
 
   // Bypass ink's render throttle for keystroke echo. ink coalesces renders to
@@ -420,13 +432,7 @@ export function PromptInput({
       // Because the parent (App) useInput handler fires AFTER this child handler
       // for the same event, a flag SET in App's handler is always one event stale.
       // Instead call a synchronous predicate derived from dragRef at event time.
-      const gridSelectionActive =
-        typeof suppressShiftNavRef === 'function'
-          ? suppressShiftNavRef()
-          : typeof suppressShiftNavRef?.current === 'function'
-            ? suppressShiftNavRef.current()
-            : Boolean(suppressShiftNavRef?.current);
-      if (gridSelectionActive) {
+      if (gridSelectionActive(suppressShiftNavRef)) {
         const isShiftArrow =
           key.shift && (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow || key.home || key.end);
         if (isShiftArrow || rawShiftArrowForGrid) return;
@@ -691,15 +697,9 @@ export function PromptInput({
           onCommandPaletteNavigate?.('left');
           return;
         }
-        updateDraft((d) => {
-          const range = !shiftHeld && !key.ctrl && !key.meta ? selectionRange(d) : null;
-          const cursor = range
-            ? range.start
-            : key.ctrl || key.meta
-              ? previousWordOffset(d.value, d.cursor)
-              : previousOffset(d.value, d.cursor);
-          return moveCursor(d, cursor, { extend: shiftHeld });
-        });
+        updateDraft((d) =>
+          moveCursor(d, leftArrowOffset(d, { word: key.ctrl || key.meta, extend: shiftHeld }), { extend: shiftHeld })
+        );
         return;
       }
       if (key.rightArrow || rawShiftRight) {
@@ -707,15 +707,9 @@ export function PromptInput({
           onCommandPaletteNavigate?.('right');
           return;
         }
-        updateDraft((d) => {
-          const range = !shiftHeld && !key.ctrl && !key.meta ? selectionRange(d) : null;
-          const cursor = range
-            ? range.end
-            : key.ctrl || key.meta
-              ? nextWordOffset(d.value, d.cursor)
-              : nextOffset(d.value, d.cursor);
-          return moveCursor(d, cursor, { extend: shiftHeld });
-        });
+        updateDraft((d) =>
+          moveCursor(d, rightArrowOffset(d, { word: key.ctrl || key.meta, extend: shiftHeld }), { extend: shiftHeld })
+        );
         return;
       }
       if (key.home) {
@@ -727,16 +721,14 @@ export function PromptInput({
         return;
       }
 
-      const editingKey = String(input || '').toLowerCase();
-
       // Undo / redo. Covered encodings:
       //  • kitty protocol: ctrl+z → input 'z' + key.ctrl; ctrl+y → 'y' + key.ctrl;
       //    ctrl+shift+z → 'z' + key.ctrl + key.shift (redo).
       //  • legacy control bytes: Ctrl+Z is \x1a (SUB, 0x1A), Ctrl+Y is \x19 (EM,
       //    0x19). ink may deliver these as raw input without key.ctrl on some
       //    terminals, so match the byte directly too.
-      const isCtrlZ = (key.ctrl && editingKey === 'z') || rawInput === '\x1a';
-      const isCtrlY = (key.ctrl && editingKey === 'y') || rawInput === '\x19';
+      const isCtrlZ = (key.ctrl && inputKey === 'z') || rawInput === '\x1a';
+      const isCtrlY = (key.ctrl && inputKey === 'y') || rawInput === '\x19';
       if (isCtrlZ && (key.shift || shiftHeld)) {
         undoStack.redo();
         return;
@@ -751,77 +743,59 @@ export function PromptInput({
       }
 
       // ctrl+a selects all like a normal text box; ctrl+e keeps readline line-end.
-      if (key.ctrl && editingKey === 'a') {
+      if (key.ctrl && inputKey === 'a') {
         updateDraft((d) => (d.value ? { ...d, cursor: d.value.length, selectionAnchor: 0 } : clearSelection(d)));
         return;
       }
-      if (key.ctrl && editingKey === 'e') {
+      if (key.ctrl && inputKey === 'e') {
         updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: key.shift }));
         return;
       }
       // ctrl+b / ctrl+f — character left / right.
-      if (key.ctrl && editingKey === 'b') {
+      if (key.ctrl && inputKey === 'b') {
         updateDraft((d) => moveCursor(d, previousOffset(d.value, d.cursor), { extend: key.shift }));
         return;
       }
-      if (key.ctrl && editingKey === 'f') {
+      if (key.ctrl && inputKey === 'f') {
         updateDraft((d) => moveCursor(d, nextOffset(d.value, d.cursor), { extend: key.shift }));
         return;
       }
       // alt/option+b / alt/option+f — word left / right.
-      if (key.meta && editingKey === 'b') {
+      if (key.meta && inputKey === 'b') {
         updateDraft((d) => moveCursor(d, previousWordOffset(d.value, d.cursor), { extend: key.shift }));
         return;
       }
-      if (key.meta && editingKey === 'f') {
+      if (key.meta && inputKey === 'f') {
         updateDraft((d) => moveCursor(d, nextWordOffset(d.value, d.cursor), { extend: key.shift }));
         return;
       }
       // ctrl+u / ctrl+k — delete to line start / end.
-      if (key.ctrl && editingKey === 'u') {
+      if (key.ctrl && inputKey === 'u') {
         updateDraft(deleteToLineStart);
         return;
       }
-      if (key.ctrl && editingKey === 'k') {
+      if (key.ctrl && inputKey === 'k') {
         updateDraft(deleteToLineEnd);
         return;
       }
       // ctrl+w / alt+backspace — delete previous word.
-      if ((key.ctrl && editingKey === 'w') || ((key.ctrl || key.meta) && key.backspace)) {
+      if ((key.ctrl && inputKey === 'w') || ((key.ctrl || key.meta) && key.backspace)) {
         updateDraft(deleteBackwardWord);
         return;
       }
       // alt+d / ctrl+delete — delete next word.
-      if ((key.meta && editingKey === 'd') || (key.ctrl && key.delete)) {
+      if ((key.meta && inputKey === 'd') || (key.ctrl && key.delete)) {
         updateDraft(deleteForwardWord);
         return;
       }
 
       if (key.backspace) {
-        updateDraft((d) => {
-          if (selectionRange(d)) return deleteSelectedText(d);
-          if (d.cursor <= 0) return d;
-          const start = previousOffset(d.value, d.cursor);
-          return {
-            value: d.value.slice(0, start) + d.value.slice(d.cursor),
-            cursor: start,
-            selectionAnchor: null,
-          };
-        });
+        updateDraft(deleteBackwardChar);
         return;
       }
 
       if (key.delete) {
-        updateDraft((d) => {
-          if (selectionRange(d)) return deleteSelectedText(d);
-          if (d.cursor >= d.value.length) return d;
-          const end = nextOffset(d.value, d.cursor);
-          return {
-            value: d.value.slice(0, d.cursor) + d.value.slice(end),
-            cursor: d.cursor,
-            selectionAnchor: null,
-          };
-        });
+        updateDraft(deleteForwardChar);
         return;
       }
 

@@ -286,6 +286,64 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
   }
 });
 
+test('Studio detail keeps an expanded prompt until another asset opens', async () => {
+  window.localStorage.clear();
+  const api = {
+    mediaUrl: () => PIXEL,
+    invokeCapability: async ({ capability, args = [] }) => {
+      if (capability === 'listMediaLanes') return { value: [lane], snapshot: null };
+      if (capability === 'listMediaAssets') {
+        const rows = args[0]?.kind === 'image' ? assets : [];
+        return { value: { assets: rows, total: rows.length }, snapshot: null };
+      }
+      if (capability === 'readMediaAsset') {
+        return { value: { base64: PIXEL.split(',')[1], mime: 'image/png' }, snapshot: null };
+      }
+      if (capability === 'setMediaDefault') return { value: args[0], snapshot: null };
+      throw new Error(`unexpected capability: ${capability}`);
+    },
+  };
+  const referenceStore = {
+    async read() {
+      return undefined;
+    },
+    async write() {},
+    async remove() {},
+  };
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const promptOpen = () => host.querySelector('.studio-detail-prompt')?.getAttribute('data-open') === 'true';
+
+  try {
+    await act(async () => {
+      root.render(React.createElement(StudioPane, { api, referenceStore }));
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    });
+    await act(async () => host.querySelectorAll('.studio-tile-open')[0].click());
+    await act(async () => host.querySelector('.studio-detail-prompt').click());
+    assert.equal(promptOpen(), true);
+
+    // A broken display rendition re-runs the preview read for the SAME asset;
+    // that must not fold the prompt the reader just expanded.
+    await act(async () => {
+      host.querySelector('.studio-detail-media-open img').dispatchEvent(new window.Event('error'));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Newer image');
+    assert.equal(promptOpen(), true);
+
+    await act(async () => {
+      window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+    assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Older image');
+    assert.equal(promptOpen(), false, 'a newly opened asset starts with its prompt collapsed');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test('Studio becomes ready while its first thumbnail is still loading', async () => {
   window.localStorage.clear();
   let readyCount = 0;

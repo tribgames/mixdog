@@ -16,8 +16,12 @@ import { shortTextFingerprint } from './queue-helpers.mjs';
 import { modelVisibleToolCompletionMessage } from '../../runtime/shared/tool-execution-contract.mjs';
 import { taskNotificationHasBody } from '../../runtime/shared/task-notification-envelope.mjs';
 
+function eventMeta(event) {
+  return event?.meta && typeof event.meta === 'object' ? event.meta : {};
+}
+
 export function notificationQueueKey(event, text, parsed) {
-  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  const meta = eventMeta(event);
   const synthetic = parseSyntheticAgentMessage(text);
   if (synthetic?.name === 'agent' && String(synthetic.args?.type || '').toLowerCase() === 'result') {
     const taskId = String(synthetic.args?.task_id || '').trim();
@@ -57,15 +61,14 @@ export function notificationQueueKey(event, text, parsed) {
  * notificationQueueKey when no execution_id is present.
  */
 export function executionCardKey(event, text, parsed) {
-  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
-  const executionId = String(meta.execution_id || '').trim();
+  const executionId = String(eventMeta(event).execution_id || '').trim();
   if (!executionId) return notificationQueueKey(event, text, parsed);
   const hasBody = taskNotificationHasBody(text) ? 'b1' : 'b0';
   return `card:${executionId}:${hasBody}`;
 }
 
 function isExecutionNotification(event, text, parsed) {
-  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  const meta = eventMeta(event);
   if (meta.execution_id || meta.execution_surface) return true;
   if (parseAgentResultEnvelope(text)) return true;
   if (parseBackgroundTaskEnvelope(text)) return true;
@@ -77,7 +80,7 @@ export function resolveTuiRuntimeNotificationDelivery(event, text) {
   const trimmed = String(text ?? '').trim();
   if (!trimmed) return { action: 'ignore' };
   const parsed = parseAgentJob(trimmed);
-  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
+  const meta = eventMeta(event);
   // UI-only notices (e.g. boot auto-update outcome): render as a transient
   // notice, never enqueue anything model-visible or transcript-persistent.
   // Setup tool `open`: the attached UI navigates to a settings surface. The

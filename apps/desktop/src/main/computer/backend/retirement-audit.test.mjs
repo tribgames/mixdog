@@ -148,7 +148,11 @@ test('a new host removes scripts left by dead processes and keeps every live one
   const live = join(directory, `computer-host-${process.pid}-aaaaaaaaaaaaaaaaaaaaaaaa.ps1`);
   const unrelated = join(directory, 'computer-host.ps1');
   for (const path of [dead, live, unrelated]) await writeFile(path, '');
-  const pool = createWorkerPool({ dataDirectory: () => directory, isBridgeEnabled: () => false, isDisposed: () => false });
+  const pool = createWorkerPool({
+    dataDirectory: () => directory,
+    isBridgeEnabled: () => false,
+    isDisposed: () => false,
+  });
   try {
     const script = pool.ensureHostScript();
     assert.equal(existsSync(dead), false);

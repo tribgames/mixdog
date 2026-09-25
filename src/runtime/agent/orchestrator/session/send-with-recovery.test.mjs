@@ -298,6 +298,36 @@ test('a Cursor abort does not retry visible text when the owner rejects retracti
   assert.equal(resetAttempts, 1);
 });
 
+test('an image rejection with nothing left to strip surfaces the original error, not a context overflow', async () => {
+  const rejection = new Error('Could not process image');
+  rejection.status = 400;
+  const provider = {
+    send: async () => {
+      throw rejection;
+    },
+  };
+  // The only image sits in an earlier turn, so the latest-turn strip removes
+  // nothing.
+  const messages = [
+    { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } }] },
+    { role: 'assistant', content: 'seen' },
+    { role: 'user', content: 'describe it again' },
+  ];
+  const { opts } = recordingOpts();
+
+  await assert.rejects(
+    sendWithRecovery({
+      ...baseCtx,
+      messages,
+      provider,
+      opts,
+      sessionRef: { id: 'sess-image-strip', provider: 'anthropic', contextWindow: 200_000, compaction: { auto: true } },
+      transportRetriesUsed: 0,
+    }),
+    (error) => error === rejection
+  );
+});
+
 test('a Cursor abort does not replay a tool dispatched by the failing send', async () => {
   const abort = cursorStreamAbort();
   const { opts } = recordingOpts({ onToolCall: () => {} });

@@ -4,8 +4,8 @@
 import { CYCLE1_INPUT_TOKEN_BUDGET } from '../memory-chunk-quality.mjs';
 import { resolveMaintenancePreset } from '../../../shared/llm/index.mjs';
 
-export const CYCLE1_MIN_BATCH = 3;
-export const CYCLE1_SESSION_CAP = 10;
+const CYCLE1_MIN_BATCH = 3;
+const CYCLE1_SESSION_CAP = 10;
 export const CYCLE1_PACKET_MAX_ROWS = 50;
 export const CYCLE1_MAX_PACKETS = 4;
 export const CYCLE1_OMITTED_COOLDOWN_MS = 60 * 60 * 1000;

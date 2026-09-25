@@ -515,6 +515,11 @@ export class GrokOAuthProvider {
     // No swallow-to-[] fallback. Catalog/auth failures propagate to the
     // caller (registry warmup + setup model listing), both of which already
     // wrap this in their own catch.
+    return this._fetchAndCacheCatalog();
+  }
+
+  // Live /models (API + proxy) → normalize, mark latest, enrich, sanitize, persist.
+  async _fetchAndCacheCatalog() {
     const items = await this._fetchAllModelItems();
     const normalized = items.map(_normalizeGrokModel).filter(Boolean);
     _markLatestGrok(normalized);
@@ -527,11 +532,7 @@ export class GrokOAuthProvider {
     if (_modelRefreshInFlight) return _modelRefreshInFlight;
     _modelRefreshInFlight = (async () => {
       try {
-        const items = await this._fetchAllModelItems();
-        const normalized = items.map(_normalizeGrokModel).filter(Boolean);
-        _markLatestGrok(normalized);
-        const enriched = _sanitizeGrokList(await enrichModels(normalized));
-        _modelCache.save(enriched);
+        const enriched = await this._fetchAndCacheCatalog();
         if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
           process.stderr.write(`[grok-oauth] catalog refreshed (${enriched.length} models)\n`);
         return enriched;

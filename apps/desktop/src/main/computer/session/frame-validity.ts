@@ -5,6 +5,7 @@
  */
 import { screen } from 'electron';
 
+import { nativeDisplayGeometry } from '../shared/native-coordinates';
 import type { CaptureFrame } from '../shared/types';
 import type { SessionStateHost } from './state';
 
@@ -26,14 +27,13 @@ async function assertWindowUnchanged(host: SessionStateHost, frame: CaptureFrame
 
 function assertDisplayUnchanged(frame: CaptureFrame): void {
   const display = screen.getAllDisplays().find((candidate) => String(candidate.id) === frame.displayId);
-  const origin = display?.nativeOrigin ?? (display ? { x: display.bounds.x, y: display.bounds.y } : null);
+  const geometry = display ? nativeDisplayGeometry(display) : null;
   const same =
-    !!display &&
-    !!origin &&
-    origin.x === frame.displayX &&
-    origin.y === frame.displayY &&
-    Math.round(display.size.width * display.scaleFactor) === frame.displayWidth &&
-    Math.round(display.size.height * display.scaleFactor) === frame.displayHeight;
+    !!geometry &&
+    geometry.x === frame.displayX &&
+    geometry.y === frame.displayY &&
+    geometry.width === frame.displayWidth &&
+    geometry.height === frame.displayHeight;
   if (!same) throw new Error(`stale_frame: display layout changed (${frame.id})`);
 }
 

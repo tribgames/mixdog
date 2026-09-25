@@ -68,7 +68,7 @@ export function usePromptDraftFlow({
 
   const cancelProviderPrompt = useCallback(
     () => cancelProviderPromptFlow({ providerPrompt, oauthSubmitRef, setProviderPrompt }),
-    [providerPrompt, showPromptHint]
+    [providerPrompt, oauthSubmitRef, setProviderPrompt]
   );
 
   const cancelSettingsPrompt = useCallback(
@@ -80,7 +80,7 @@ export function usePromptDraftFlow({
         openMemoryCorePicker,
         openAutoClearPicker,
       }),
-    [settingsPrompt, showPromptHint]
+    [settingsPrompt, setSettingsPrompt, openProjectPicker, openMemoryCorePicker, openAutoClearPicker]
   );
 
   const acceptSlashPalette = useCallback(
@@ -101,7 +101,7 @@ export function usePromptDraftFlow({
         }, 3000);
       }
     },
-    [slashCommands, slashIndex]
+    [slashCommands, slashIndex, pickerOpenedFromEnterRef, pickerOpenedFromEnterTimerRef, runSlashCommand]
   );
 
   const completeSlashPalette = useCallback(

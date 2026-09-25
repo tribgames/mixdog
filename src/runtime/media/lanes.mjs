@@ -127,10 +127,10 @@ function laneKindView(lane, kind, models) {
       label: model.label,
       ...(model.description ? { description: model.description } : {}),
       ...(model.requestModel ? { requestModel: model.requestModel } : {}),
-      controls: JSON.parse(JSON.stringify({ ...laneControls, ...(model.controls || {}) })),
+      controls: structuredClone({ ...laneControls, ...(model.controls || {}) }),
     })),
     defaultModel: models[0].id,
-    controls: JSON.parse(JSON.stringify(laneControls)),
+    controls: structuredClone(laneControls),
   };
 }
 

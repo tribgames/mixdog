@@ -13,7 +13,7 @@
 //   - Dedupe drops any session row whose id already appears as a global row OR
 //     as a global root's inlined chunk member (prevents member/leaf double
 //     output).
-import { compareRecallNewestFirst } from './recall-order.mjs';
+import { compareRecallByScore, compareRecallNewestFirst } from './recall-order.mjs';
 
 export function mergeSessionRowsIntoGlobal(globalRows, sessionRows, { sort = 'importance' } = {}) {
   const filtered = Array.isArray(globalRows) ? [...globalRows] : [];
@@ -27,20 +27,6 @@ export function mergeSessionRowsIntoGlobal(globalRows, sessionRows, { sort = 'im
   const merged = sessionRows.filter((r) => !seen.has(Number(r.id)));
   if (merged.length === 0) return filtered;
   const out = [...filtered, ...merged];
-  const sa = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  };
-  if (sort === 'date') {
-    out.sort(compareRecallNewestFirst);
-  } else {
-    out.sort(
-      (a, b) =>
-        sa(b.retrievalScore ?? b.rrf ?? 0) - sa(a.retrievalScore ?? a.rrf ?? 0) ||
-        sa(b.score ?? 0) - sa(a.score ?? 0) ||
-        sa(b.ts ?? 0) - sa(a.ts ?? 0) ||
-        Number(a.id ?? 0) - Number(b.id ?? 0)
-    );
-  }
+  out.sort(sort === 'date' ? compareRecallNewestFirst : compareRecallByScore);
   return out;
 }

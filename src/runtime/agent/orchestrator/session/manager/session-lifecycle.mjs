@@ -96,6 +96,14 @@ function resolveAgentRuntimeProfile(opts, presetObj) {
   return { profile, providerCacheOpts };
 }
 
+// A requested context share, snapped to 10% steps within 10..100; null when unset.
+function normalizeContextPercent(value) {
+  const requested = Number(value);
+  return Number.isFinite(requested) && requested > 0
+    ? Math.max(10, Math.min(100, Math.round(requested / 10) * 10))
+    : null;
+}
+
 // Provider, model, tool preset, model parameters and the durable session id.
 function resolveSessionRoute(opts, presetObj, profile) {
   const providerName = opts.provider || presetObj?.provider || profile?.preferredProviders?.[0];
@@ -114,11 +122,7 @@ function resolveSessionRoute(opts, presetObj, profile) {
   } else if (presetObj?.modelParameters && typeof presetObj.modelParameters === 'object') {
     modelParameters = { ...presetObj.modelParameters };
   }
-  const requestedContextPercent = Number(opts.contextPercent);
-  const contextPercent =
-    Number.isFinite(requestedContextPercent) && requestedContextPercent > 0
-      ? Math.max(10, Math.min(100, Math.round(requestedContextPercent / 10) * 10))
-      : null;
+  const contextPercent = normalizeContextPercent(opts.contextPercent);
   if (!providerName) throw new Error('createSession: provider is required');
   if (!modelName) throw new Error('createSession: model is required');
   const provider = getProvider(providerName);
@@ -247,13 +251,7 @@ function applyRouteFields(session, route) {
     session.modelParameters =
       route.modelParameters && typeof route.modelParameters === 'object' ? { ...route.modelParameters } : {};
   }
-  if (Object.hasOwn(route, 'contextPercent')) {
-    const requestedContextPercent = Number(route.contextPercent);
-    session.contextPercent =
-      Number.isFinite(requestedContextPercent) && requestedContextPercent > 0
-        ? Math.max(10, Math.min(100, Math.round(requestedContextPercent / 10) * 10))
-        : null;
-  }
+  if (Object.hasOwn(route, 'contextPercent')) session.contextPercent = normalizeContextPercent(route.contextPercent);
   if (Object.hasOwn(route, 'selectedContextWindow')) {
     session.selectedContextWindow = Number(route.selectedContextWindow) || null;
   }

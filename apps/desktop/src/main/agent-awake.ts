@@ -65,10 +65,6 @@ export class AgentAwakeService {
     this.refresh();
   }
 
-  isBlocking(): boolean {
-    return this.blockerId !== null;
-  }
-
   dispose(): void {
     if (this.staleTimer) {
       clearTimeout(this.staleTimer);

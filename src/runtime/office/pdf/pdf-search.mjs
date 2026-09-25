@@ -122,9 +122,6 @@ function matchBox(spans, start, end, line) {
   return { x: round2(left), top: round2(top), width: round2(right - left), height: round2(bottom - top) };
 }
 
-// pdf.js hands text back as runs, and a phrase often spans several. Each line
-// is joined into one string that remembers which run owns every character, so
-// a match maps back to a box by the share of each run it covers.
 // Literal occurrences by indexOf on the case-folded line; a pattern runs on
 // the original text, case-insensitively.
 function* occurrences(text, haystack, target, pattern) {
@@ -144,7 +141,9 @@ function* occurrences(text, haystack, target, pattern) {
   }
 }
 
-// One line as a string that remembers which run owns every character.
+// pdf.js hands text back as runs, and a phrase often spans several. Each line
+// is joined into one string that remembers which run owns every character, so
+// a match maps back to a box by the share of each run it covers.
 function lineText(line) {
   let text = '';
   const spans = [];

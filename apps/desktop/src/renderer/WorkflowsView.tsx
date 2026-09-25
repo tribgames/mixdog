@@ -15,8 +15,8 @@ import { SidebarResourceTitle } from './sidebar-resource-row';
 import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-reference-cache';
 import { usePersistedListOrder } from './use-persisted-list-order';
 import { AgentEditorDialog, RouteEditorDialog, WorkflowEditorDialog, type RouteEditorTarget } from './workflow-dialogs';
+import type { RecordValue } from './desktop-types';
 
-type RecordValue = Record<string, unknown>;
 type WorkflowsApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels'>>;
 
 type AgentRouteSummary = {
@@ -286,6 +286,41 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     );
   };
 
+  // Built-in shared-service agents (explore, maintainer): route-only rows.
+  const renderDefaultAgentRow = (agent: AgentSummary, row: RecordValue | undefined) => {
+    const disabled = row?.disabled === true;
+    return (
+      <button
+        type="button"
+        className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
+        data-enabled={disabled ? 'false' : 'true'}
+        style={{ order: defaultAgentOrder.orderedIds.indexOf(agent.id) }}
+        data-tooltip={t('Agent settings')}
+        disabled={busy}
+        aria-label={t('Edit {{name}}', { name: agent.label })}
+        onClick={() =>
+          setRouteEditor({
+            id: agent.id,
+            label: agent.label,
+            route: record(row?.route),
+            disabled,
+            capability: 'setAgentRoute',
+            modelKind: 'agent',
+            description: agent.description,
+            readOnlyDefinition: true,
+          })
+        }
+        {...defaultAgentOrder.getReorderProps(agent.id)}
+      >
+        <span className="schedules-row-copy utilities-row-copy">
+          <SidebarResourceTitle label={agent.label} tag={disabled ? { label: t('Disabled'), tone: 'muted' } : null} />
+          <AgentRouteSummaryView summary={agentRouteSummary(record(row?.route), models)} />
+        </span>
+        <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+      </button>
+    );
+  };
+
   return (
     <>
       {active && loadingEditor && (
@@ -432,72 +467,8 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                 </span>
                 <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
               </button>
-              {exploreAgent && (
-                <button
-                  type="button"
-                  className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
-                  data-enabled={exploreRow?.disabled === true ? 'false' : 'true'}
-                  style={{ order: defaultAgentOrder.orderedIds.indexOf(exploreAgent.id) }}
-                  data-tooltip={t('Agent settings')}
-                  disabled={busy}
-                  aria-label={t('Edit {{name}}', { name: exploreAgent.label })}
-                  onClick={() =>
-                    setRouteEditor({
-                      id: exploreAgent.id,
-                      label: exploreAgent.label,
-                      route: record(exploreRow?.route),
-                      disabled: exploreRow?.disabled === true,
-                      capability: 'setAgentRoute',
-                      modelKind: 'agent',
-                      description: exploreAgent.description,
-                      readOnlyDefinition: true,
-                    })
-                  }
-                  {...defaultAgentOrder.getReorderProps(exploreAgent.id)}
-                >
-                  <span className="schedules-row-copy utilities-row-copy">
-                    <SidebarResourceTitle
-                      label={exploreAgent.label}
-                      tag={exploreRow?.disabled === true ? { label: t('Disabled'), tone: 'muted' } : null}
-                    />
-                    <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
-                  </span>
-                  <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-                </button>
-              )}
-              {maintainerAgent && (
-                <button
-                  type="button"
-                  className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
-                  data-enabled={maintainerRow?.disabled === true ? 'false' : 'true'}
-                  style={{ order: defaultAgentOrder.orderedIds.indexOf(maintainerAgent.id) }}
-                  data-tooltip={t('Agent settings')}
-                  disabled={busy}
-                  aria-label={t('Edit {{name}}', { name: maintainerAgent.label })}
-                  onClick={() =>
-                    setRouteEditor({
-                      id: maintainerAgent.id,
-                      label: maintainerAgent.label,
-                      route: record(maintainerRow?.route),
-                      disabled: maintainerRow?.disabled === true,
-                      capability: 'setAgentRoute',
-                      modelKind: 'agent',
-                      description: maintainerAgent.description,
-                      readOnlyDefinition: true,
-                    })
-                  }
-                  {...defaultAgentOrder.getReorderProps(maintainerAgent.id)}
-                >
-                  <span className="schedules-row-copy utilities-row-copy">
-                    <SidebarResourceTitle
-                      label={maintainerAgent.label}
-                      tag={maintainerRow?.disabled === true ? { label: t('Disabled'), tone: 'muted' } : null}
-                    />
-                    <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
-                  </span>
-                  <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-                </button>
-              )}
+              {exploreAgent && renderDefaultAgentRow(exploreAgent, exploreRow)}
+              {maintainerAgent && renderDefaultAgentRow(maintainerAgent, maintainerRow)}
             </div>
           </section>
           <section className="workflows-models" aria-label={t('Agents')}>

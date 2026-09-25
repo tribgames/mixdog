@@ -13,7 +13,16 @@
 //                                    (crates/database/src/file.rs line_number), and
 //                                    `edits` when an automatic fix exists.
 //   `mago lint --fix <paths>`        applies the safe fixes.
-import { diagnostic, parseReformatReport, runChunked, spawnFailureResult, tail, toRel } from './shared.mjs';
+import {
+  diagnostic,
+  emptyResult,
+  levelSeverity as severityOf,
+  parseReformatReport,
+  runChunked,
+  spawnFailureResult,
+  tail,
+  toRel,
+} from './shared.mjs';
 
 const DIFF_HEADER = /^diff of '(.+?)':\s*$/;
 const JSON_FLAGS = ['--reporting-format', 'json', '--reporting-target', 'stdout'];
@@ -25,13 +34,6 @@ const JSON_FLAGS = ['--reporting-format', 'json', '--reporting-target', 'stdout'
  */
 export function parseMagoFormatDryRun(output, cwd) {
   return parseReformatReport(output, { pattern: DIFF_HEADER, cwd, id: 'mago', code: 'mago/format', strip: true });
-}
-
-function severityOf(level) {
-  const value = String(level || '').toLowerCase();
-  if (value === 'error') return 'error';
-  if (value === 'warning') return 'warning';
-  return 'info';
 }
 
 /** Parse `mago lint --reporting-format json`. */
@@ -87,7 +89,7 @@ export const runner = {
     });
     if (lint.error) return spawnFailureResult('mago', lint);
     const format = await runChunked({ bin, baseArgs: [...args, 'format'], files, cwd, timeoutMs, signal });
-    return { diagnostics: [], changedFiles: [], stderrTail: tail(`${lint.stderr}\n${format.stderr}`) };
+    return emptyResult(tail(`${lint.stderr}\n${format.stderr}`));
   },
 };
 

@@ -13,8 +13,8 @@ import {
   providerDisplayName,
   providerDisplayRank,
 } from './provider-display';
+import type { RecordValue } from './desktop-types';
 
-type RecordValue = Record<string, unknown>;
 const RECENT_MODELS_KEY = 'mixdog.desktop-recent-models';
 const RECENT_MODELS_LIMIT = 7;
 // A drilled catalog can unmount between choices; acknowledgement order must

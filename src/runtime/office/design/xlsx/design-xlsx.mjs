@@ -1,8 +1,9 @@
 import { presetLabels, provenanceText, strings } from '../design-tokens.mjs';
 import { officeNumberFormat } from '../content-model.mjs';
-import { addXlsxDecisionPanel } from './design-xlsx-components.mjs';
+import { addXlsxDecisionPanel, bandHeight } from './design-xlsx-components.mjs';
 import { plainObject } from '../../shared/values.mjs';
 import { columnLabel } from '../../portable/portable-cells.mjs';
+import { displayWidth } from '../../portable/portable-sheet-xml.mjs';
 
 // A metric writes its notation the way a fact does (`format: 'percent'` as well
 // as an explicit pattern), and its unit rides in the format so the cell keeps a
@@ -26,8 +27,10 @@ function safeTableName(value) {
 // Bars share one value axis, so a series whose values are two orders of
 // magnitude away from the first one is drawn as a flat line on the baseline. The
 // chart keeps the run of columns that can be read together, starting at the
-// first series column.
-function comparableSeriesColumn(rows, dataColumns, chartRows) {
+// first column of figures: a label column after the categories (a region beside
+// each hub) is not a series, and taking it for one dropped the chart onto the
+// whole table — every column in the legend, one thin bar per hub.
+function comparableSeriesColumns(rows, dataColumns, chartRows) {
   const magnitude = (column) => {
     const values = rows
       .slice(0, chartRows)
@@ -36,16 +39,17 @@ function comparableSeriesColumn(rows, dataColumns, chartRows) {
       .map(Math.abs);
     return values.length ? Math.max(...values) : 0;
   };
-  const first = magnitude(2);
-  if (!first) return dataColumns;
-  let last = 2;
-  for (let column = 3; column <= dataColumns; column += 1) {
+  let first = 2;
+  while (first <= dataColumns && !magnitude(first)) first += 1;
+  if (first > dataColumns) return null;
+  let last = first;
+  for (let column = first + 1; column <= dataColumns; column += 1) {
     const next = magnitude(column);
     if (!next) break;
-    if (Math.max(first, next) / Math.min(first, next) > 25) break;
+    if (Math.max(magnitude(first), next) / Math.min(magnitude(first), next) > 25) break;
     last = column;
   }
-  return last;
+  return { first, last };
 }
 
 function isExcelTotalRow(row) {
@@ -85,7 +89,33 @@ function canvasGeometry({ dashboard, dataColumns, columns, hasDecisionPanel }) {
   };
 }
 
+// The bands a sheet's header is made of (title, subtitle, insights) run over its table and, when the chart sits
+// beside the table, over the chart too: held to the table's three columns, the title broke onto a second line
+// while the chart's top stood bare beside it. Columns past the table keep Excel's default 48 pt.
+function bandGeometry(layout, operation) {
+  const { chart } = operation;
+  const beside =
+    !layout.dashboard &&
+    plainObject(chart) &&
+    !Number(chart.left) &&
+    !Number(chart.top) &&
+    (layout.headers.length > 0 || layout.rows.length > 0);
+  if (!beside) return { bandLastColumn: layout.lastColumn, bandPoints: layout.canvasPoints };
+  const chartColumns = Math.ceil((Number(chart.width) || chartDefaults(layout).width) / 48);
+  let tablePoints = 0;
+  for (let index = 0; index < layout.dataColumns; index += 1) tablePoints += fittedColumnPoints(layout, index);
+  return {
+    bandLastColumn: columnLabel(layout.dataColumns + 1 + chartColumns),
+    bandPoints: tablePoints + 48 * (1 + chartColumns),
+  };
+}
+
 function sheetLayout(operation, design, composition) {
+  const layout = baseSheetLayout(operation, design, composition);
+  return { ...layout, ...bandGeometry(layout, operation) };
+}
+
+function baseSheetLayout(operation, design, composition) {
   const compositionId = String(composition?.id || 'monitor-dashboard');
   const headers = strings(operation.headers);
   const rows = Array.isArray(operation.rows) ? operation.rows : [];
@@ -94,7 +124,9 @@ function sheetLayout(operation, design, composition) {
   const dataColumns = Math.max(1, headers.length, ...rows.map((entry) => (Array.isArray(entry) ? entry.length : 1)));
   const columns = Math.max(dataColumns, dashboard ? metrics.length * 2 : 1);
   const decisionText = String(operation.decision || design.content?.decision || '').trim();
-  const hasDecisionPanel = dashboard && Boolean(decisionText);
+  // Every sheet carries the decision it was given: beside the table on a dashboard, under it otherwise. Only the
+  // dashboard drew one, and a report sheet's decision, gates, and actions were dropped without a word.
+  const hasDecisionPanel = Boolean(decisionText);
   return {
     design,
     colors: design.tokens.colors,
@@ -119,13 +151,13 @@ function sheetLayout(operation, design, composition) {
   };
 }
 
-// One full-width band: the value in column A, merged across the canvas when
-// there is more than one column, styled as a unit.
+// One full-width band: the value in column A, merged across the bands' width
+// when that is more than one column, styled as a unit.
 function pushBand(output, layout, row, value, properties) {
-  const { sheet, columns, lastColumn } = layout;
+  const { sheet, bandLastColumn } = layout;
   output.push({ op: 'set_cell', sheet, cell: `A${row}`, value });
-  if (columns > 1) output.push({ op: 'merge_cells', sheet, range: `A${row}:${lastColumn}${row}` });
-  output.push({ op: 'set_style', sheet, range: `A${row}:${lastColumn}${row}`, properties });
+  if (bandLastColumn !== 'A') output.push({ op: 'merge_cells', sheet, range: `A${row}:${bandLastColumn}${row}` });
+  output.push({ op: 'set_style', sheet, range: `A${row}:${bandLastColumn}${row}`, properties });
 }
 
 // Eyebrow (dashboards), title and subtitle bands; returns the first free row.
@@ -154,22 +186,29 @@ function pushTitleBands(output, layout, operation) {
       titleInk = colors.onAccent;
       titleFill = colors.accent;
     }
+    const titleSize = Number(operation.titleSize) || format.title + (dashboard ? 2 : 0);
     pushBand(output, layout, row, String(operation.title), {
       fontName: type.display,
-      fontSize: Number(operation.titleSize) || format.title + (dashboard ? 2 : 0),
+      fontSize: titleSize,
       bold: true,
       color: titleInk,
       fillColor: titleFill,
       verticalAlignment: 'center',
       wrapText: true,
     });
+    // A merged band never grows to its wrapped lines: the title cut at the default 15 pt row, its second line
+    // under the subtitle. The band takes the lines the title needs across its width.
+    const height = bandHeight(String(operation.title), titleSize, layout.bandPoints);
+    output.push({ op: 'set_row_height', sheet: layout.sheet, row, height });
     row += 1;
   }
   if (operation.subtitle) {
     pushBand(output, layout, row, String(operation.subtitle), {
       fontName: type.body,
       fontSize: dashboard ? Math.max(10.5, format.body) : format.body,
-      italic: true,
+      // Hangul, kana, and Han have no italic: the renderer slants them synthetically and "2026년 9월" leaned off its
+      // own baseline. Only a Latin subtitle takes the italic; the muted colour already sets it apart.
+      italic: !/[\u1100-\u11FF\u3040-\u30FF\u3130-\u318F\u3400-\u9FFF\uAC00-\uD7AF]/.test(String(operation.subtitle)),
       color: colors.muted,
       fillColor: colors.surface,
       wrapText: true,
@@ -316,10 +355,20 @@ function pushDataTable(output, layout, operation, values, startRow) {
         bold: true,
         color: colors.onAccent,
         fillColor: colors.accent,
-        horizontalAlignment: 'center',
+        // A header sits on the edge its column's text starts from: centred over a left-aligned column of names it
+        // floated off "대전" and the column read as two alignments.
+        horizontalAlignment: 'left',
         verticalAlignment: 'center',
         wrapText: true,
       },
+    });
+    // A header over a column of figures sits on the figures' right edge, where the eye reads them; centred over
+    // a 30-character column it floated away from 128,400.
+    values[0]?.forEach((_, index) => {
+      const body = values.slice(1).map((row) => row?.[index]);
+      if (index === 0 || !body.length || !body.every((cell) => typeof cell === 'number' || cell === '' || cell == null)) return;
+      const column = columnLabel(index + 1);
+      output.push({ op: 'set_style', sheet, range: `${column}${startRow}`, properties: { horizontalAlignment: 'right' } });
     });
     output.push({
       op: 'add_table',
@@ -345,6 +394,18 @@ function pushDataTable(output, layout, operation, values, startRow) {
       color: colors.ink,
       verticalAlignment: 'center',
     },
+  });
+  // A column of labels after a column of figures starts one indent in, header and body: the figures end on their
+  // column's right edge and the labels began on the next one's left, so "38" and "김서연" read as one cell.
+  const figures = (index) => {
+    const body = values.slice(headers.length ? 1 : 0).map((row) => row?.[index]);
+    return body.length > 0 && body.every((cell) => typeof cell === 'number' || cell === '' || cell == null);
+  };
+  (values[0] || []).forEach((_, index) => {
+    if (index === 0 || figures(index) || !figures(index - 1)) return;
+    const column = columnLabel(index + 1);
+    const range = `${column}${startRow}:${column}${endRow}`;
+    output.push({ op: 'set_style', sheet, range, properties: { indent: 1 } });
   });
   return endRow;
 }
@@ -411,16 +472,21 @@ function pushColumnFormats(output, layout, operation, { startRow, endRow }) {
   }
 }
 
+// The composition's default chart frame, in points.
+function chartDefaults(layout) {
+  const { dashboard, trendDashboard, comparisonBoard, analysisSheet, narrativeScorecard, canvasPoints } = layout;
+  if (dashboard) return { left: 0, top: 0, width: canvasPoints, height: 360 };
+  if (trendDashboard) return { left: 360, top: 172, width: 510, height: 286 };
+  if (comparisonBoard) return { left: 390, top: 184, width: 480, height: 278 };
+  if (!analysisSheet && narrativeScorecard) return { left: 430, top: 206, width: 450, height: 258 };
+  return { left: 520, top: 40, width: 480, height: 280 };
+}
+
 // Where the chart sits: the composition's default frame, pushed right of the
 // table and, on a dashboard, below it when the two would overlap.
-function chartFrame(layout, chart, dataEndRow) {
-  const { dashboard, trendDashboard, comparisonBoard, analysisSheet, narrativeScorecard } = layout;
-  const { canvasPoints, dataColumns, columnPoints } = layout;
-  let defaults = { left: 520, top: 40, width: 480, height: 280 };
-  if (dashboard) defaults = { left: 0, top: 0, width: canvasPoints, height: 360 };
-  else if (trendDashboard) defaults = { left: 360, top: 172, width: 510, height: 286 };
-  else if (comparisonBoard) defaults = { left: 390, top: 184, width: 480, height: 278 };
-  else if (!analysisSheet && narrativeScorecard) defaults = { left: 430, top: 206, width: 450, height: 258 };
+function chartFrame(layout, chart, dataEndRow, startRow) {
+  const { dashboard, dataColumns, columnPoints, canvasPoints } = layout;
+  const defaults = chartDefaults(layout);
   const requestedLeft = Number(chart.left) || defaults.left;
   const requestedTop = Number(chart.top) || defaults.top;
   const requestedWidth = Number(chart.width) || defaults.width;
@@ -428,13 +494,37 @@ function chartFrame(layout, chart, dataEndRow) {
   const width = Math.max(360, requestedWidth - (left - requestedLeft));
   const tableRightPoints = dataColumns * (dashboard ? columnPoints : 60);
   const overlapsTableHorizontally = left < tableRightPoints;
-  // A dashboard row is taller than the default 15 points - the metric strip
-  // alone sets 27 point type - so the estimate that placed the chart used a
-  // fixed 300 point floor and left an empty band between the table and the
-  // chart. The band heights are what the chart clears.
+  const height = Number(chart.height) || defaults.height;
+  // A dashboard chart under its table is anchored to the row after the table's gap, not placed in points: the
+  // rows above it take their height from their type, and every fixed per-row estimate (20 pt) left an empty band
+  // of a hundred points or more between the table and the chart. The print area still counts 15 pt rows, which
+  // only reaches further than the chart does.
+  // A frame that is to match the grid ends at a column rather than a width in points: a column's points depend on
+  // the workbook's font, and on a Korean Excel (Malgun Gothic, a wider character) the chart under a dashboard's
+  // table stopped at 88% of it.
+  const sized = Boolean(Number(chart.width));
+  if (dashboard && overlapsTableHorizontally && !Number(chart.left) && !Number(chart.top)) {
+    const span = !sized && width === canvasPoints ? { toColumn: layout.lastColumn } : { width };
+    return {
+      placement: { cell: `A${dataEndRow + 2}`, ...span, height },
+      bottom: (dataEndRow + 1) * 15 + height,
+      right: width,
+    };
+  }
+  // Any other sheet sets its chart beside the table, a column apart, its top on the header row: a fixed point
+  // frame (360 pt across, 172 pt down) left a three-column table with a gap of its own width and the chart
+  // starting a band below it. It ends where the header bands above it do.
+  if (!dashboard && !Number(chart.left) && !Number(chart.top)) {
+    const span = sized ? { width: requestedWidth } : { toColumn: layout.bandLastColumn };
+    return {
+      placement: { cell: `${columnLabel(dataColumns + 2)}${startRow}`, ...span, height },
+      bottom: (startRow - 1) * 15 + height,
+      right: (dataColumns + 1) * columnPoints + requestedWidth,
+    };
+  }
   const tableBottomPoints = (dataEndRow + 1) * (dashboard ? 20 : 15);
   const top = Math.max(requestedTop, dashboard && overlapsTableHorizontally ? tableBottomPoints + 24 : 0);
-  return { left, top, width, height: Number(chart.height) || defaults.height };
+  return { placement: { left, top, width, height }, bottom: top + height, right: left + width };
 }
 
 // Adds the chart over the comparable series; returns its bottom and right
@@ -449,19 +539,26 @@ function pushChart(output, layout, operation, { startRow, dataEndRow }) {
   // a rate (0.928) and a tally (96) drew one visible bar and two series
   // flattened onto the axis - the legend named three, the chart showed one.
   // Series that cannot share an axis are left out of the picture.
-  const seriesLastColumn = comparableSeriesColumn(rows, dataColumns, chartRows);
+  const series = comparableSeriesColumns(rows, dataColumns, chartRows);
+  const endRow = Math.max(startRow, chartEndRow);
+  // Categories in column A; a run of series that does not start beside them joins it by comma, the way Excel reads it.
+  let defaultRange = `A${startRow}:${columnLabel(series ? series.last : dataColumns)}${endRow}`;
+  if (series && series.first > 2) {
+    const seriesArea = `${columnLabel(series.first)}${startRow}:${columnLabel(series.last)}${endRow}`;
+    defaultRange = `A${startRow}:A${endRow},${seriesArea}`;
+  }
   const chartType = chart.type || 'column';
   const bars = ['column', 'bar'].includes(String(chartType).toLowerCase());
   const showValues = chart.showValues ?? (dashboard && chartRows <= 6);
   const dataLabelPosition = chart.dataLabelPosition || (showValues && bars ? 'inside_end' : '');
-  const frame = chartFrame(layout, chart, dataEndRow);
+  const frame = chartFrame(layout, chart, dataEndRow, startRow);
   output.push({
     op: 'add_chart',
     sheet,
-    range: chart.range || `A${startRow}:${columnLabel(seriesLastColumn)}${Math.max(startRow, chartEndRow)}`,
+    range: chart.range || defaultRange,
     chartType,
     title: chart.title || '',
-    ...frame,
+    ...frame.placement,
     seriesColors: chart.seriesColors || [colors.accent, colors.accent2, colors.muted],
     showValues,
     ...(dataLabelPosition ? { dataLabelPosition } : {}),
@@ -470,12 +567,39 @@ function pushChart(output, layout, operation, { startRow, dataEndRow }) {
     ...(chart.showLegend == null ? {} : { showLegend: chart.showLegend }),
     ...(chart.valueNumberFormat ? { valueNumberFormat: chart.valueNumberFormat } : {}),
   });
-  return { bottom: frame.top + frame.height, right: frame.left + frame.width };
+  return { bottom: frame.bottom, right: frame.right };
+}
+
+// The printed width, in points, autofit_range gives a table column: its widest text two characters over, eight at
+// least. A column past the table keeps Excel's default (48 pt).
+function fittedColumnPoints(layout, index) {
+  if (index >= layout.dataColumns) return 48;
+  const texts = [layout.headers, ...layout.rows].map((row) => String((Array.isArray(row) ? row[index] : '') ?? ''));
+  return (Math.max(8, ...texts.map((text) => displayWidth(text) + 2)) * 7 + 5) * 0.75;
 }
 
 function pushDecisionPanel(output, layout, operation, { startRow, dataEndRow }) {
-  const { sheet, design, dataColumns, panelColumns, hasDecisionPanel, decisionText } = layout;
+  const { sheet, design, dataColumns, panelColumns, hasDecisionPanel, decisionText, dashboard } = layout;
   if (!hasDecisionPanel) return { lastRow: dataEndRow, lastColumn: 0 };
+  if (!dashboard) {
+    // Under the table, a row apart, as wide as the table (four columns at least, the gate row's three spans).
+    const columns = Math.max(4, dataColumns);
+    const panel = addXlsxDecisionPanel(output, {
+      sheet,
+      row: dataEndRow + 2,
+      startColumn: 1,
+      columns,
+      design,
+      decision: decisionText,
+      gates: operation.gates,
+      actions: operation.actions,
+      widthPoints: Array.from({ length: columns }, (_, index) => fittedColumnPoints(layout, index)).reduce(
+        (total, points) => total + points,
+        0
+      ),
+    });
+    return { lastRow: panel.lastRow, lastColumn: columns };
+  }
   const panel = addXlsxDecisionPanel(output, {
     sheet,
     row: startRow,
@@ -485,6 +609,7 @@ function pushDecisionPanel(output, layout, operation, { startRow, dataEndRow }) 
     decision: decisionText,
     gates: operation.gates,
     actions: operation.actions,
+    widthPoints: Math.max(4, panelColumns) * 48,
   });
   // The panel sits to the right of the data and may run past the canvas columns (a four-column
   // table puts its Stop gate in column R while the canvas ends at L): the print area follows it.
@@ -526,6 +651,8 @@ function pushPrintSetup(output, layout, operation, { row, startRow, valueCount, 
     // then shrank the composition to make room for them.
     printArea: `A1:${columnLabel(printColumns)}${Math.max(row, decision.lastRow + 1, startRow + valueCount + 1, chartLastRow)}`,
     fitToContent: true,
+    // A table that runs past the page keeps naming its columns: its header row repeats on every printed page.
+    ...(layout.headers.length ? { printTitleRows: String(startRow) } : {}),
     orientation: landscape ? 'landscape' : 'portrait',
     fitToPagesWide: 1,
     fitToPagesTall: dashboard ? 1 : 0,
@@ -558,6 +685,16 @@ export function expandXlsxSheet(operation, design, composition) {
     pushColumnFormats(output, layout, operation, { startRow, endRow: dataEndRow });
     if (plainObject(operation.chart)) chart = pushChart(output, layout, operation, { startRow, dataEndRow });
   }
+  // A metric card's formula reads the data table ("=SUM(Hubs[처리량 (건)])"), and Microsoft Excel checks a formula
+  // the moment it is written: set before add_table named Hubs, it was refused (0x800A03EC) and the whole composed
+  // sheet failed on Excel while the portable file, which stores the text, went through. The formulas land once the
+  // table exists; the cards keep their place and style.
+  const formulas = output.filter((entry) => entry.op === 'set_formula');
+  if (formulas.length) {
+    const kept = output.filter((entry) => entry.op !== 'set_formula');
+    output.length = 0;
+    output.push(...kept, ...formulas);
+  }
   const decision = pushDecisionPanel(output, layout, operation, { startRow, dataEndRow });
   if (operation.source) {
     output.push({
@@ -571,6 +708,14 @@ export function expandXlsxSheet(operation, design, composition) {
     lastRow: Math.max(decision.lastRow, dataEndRow, row),
     lastColumn: Math.max(canvasColumns, decision.lastColumn),
   });
+  // The chart lands once the columns have their widths: sized in points, it then moves and sizes with its cells,
+  // so a chart added before the autofit stretched with the columns under it and ended five columns past the table.
+  const charts = output.filter((entry) => entry.op === 'add_chart');
+  if (charts.length) {
+    const rest = output.filter((entry) => entry.op !== 'add_chart');
+    output.length = 0;
+    output.push(...rest, ...charts);
+  }
   pushPrintSetup(output, layout, operation, { row, startRow, valueCount: values.length, decision, chart });
   return output;
 }

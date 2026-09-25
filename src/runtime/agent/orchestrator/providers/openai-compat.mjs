@@ -68,7 +68,6 @@ function includeCompletedXaiWarmup(result, warmup) {
 }
 
 export { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
-export { summarizeTraceMessages, extractCompatCachedTokens } from './openai-compat-trace.mjs';
 export { parseToolCalls, parseResponsesToolCalls } from './openai-compat-wire.mjs';
 export { applyCompatProviderChatOptions } from './openai-compat-options.mjs';
 export { compatReportedCostUsd } from './openai-compat-response-normalization.mjs';
@@ -130,22 +129,8 @@ export class OpenAICompatProvider {
     // extraHeaders behave exactly as before.
     this.defaultHeaders = { ...(preset?.extraHeaders || {}), ...(config.extraHeaders || {}) };
     this.defaultModel = preset?.defaultModel || 'default';
-    const OpenAI = preloadOpenAICompatRuntime();
-    this.client = new OpenAI({
-      baseURL,
-      apiKey,
-      defaultHeaders: this.defaultHeaders,
-      // The SDK's own retry loop (default 2) would nest underneath our
-      // withRetry wrapper and multiply tail latency on a transient
-      // backend. We own retry/backoff via withRetry, so disable the SDK's.
-      maxRetries: 0,
-      // Force the shared long-keepalive undici dispatcher to be installed
-      // globally (setGlobalDispatcher) so the SDK's global fetch rides a
-      // warm socket pool instead of Node's short-keepalive default. The
-      // return value is undefined once installed globally; the option is
-      // a harmless no-op then.
-      fetchOptions: { dispatcher: getLlmDispatcher() },
-    });
+    preloadOpenAICompatRuntime();
+    this.client = this._createClient(apiKey);
     // Provider registry initialization normally runs during daemon warmup.
     // Start the origin handshake there; the per-send call below remains as
     // the TTL-gated rewarm after long idle gaps.
@@ -160,6 +145,23 @@ export class OpenAICompatProvider {
   get _preconnectFn() {
     return typeof this.config?.preconnectFn === 'function' ? this.config.preconnectFn : preconnect;
   }
+  _createClient(apiKey) {
+    return new (loadOpenAI())({
+      baseURL: this.baseURL,
+      apiKey,
+      defaultHeaders: this.defaultHeaders,
+      // The SDK's own retry loop (default 2) would nest underneath our
+      // withRetry wrapper and multiply tail latency on a transient
+      // backend. We own retry/backoff via withRetry, so disable the SDK's.
+      maxRetries: 0,
+      // Force the shared long-keepalive undici dispatcher to be installed
+      // globally (setGlobalDispatcher) so the SDK's global fetch rides a
+      // warm socket pool instead of Node's short-keepalive default. The
+      // return value is undefined once installed globally; the option is
+      // a harmless no-op then.
+      fetchOptions: { dispatcher: getLlmDispatcher() },
+    });
+  }
   reloadApiKey() {
     try {
       const preset = PRESETS[this.name];
@@ -173,13 +175,7 @@ export class OpenAICompatProvider {
         this.baseURL = baseURL;
         this.apiKey = newKey;
         this.defaultHeaders = { ...(preset?.extraHeaders || {}), ...(this.config.extraHeaders || {}) };
-        this.client = new (loadOpenAI())({
-          baseURL,
-          apiKey: newKey,
-          defaultHeaders: this.defaultHeaders,
-          maxRetries: 0,
-          fetchOptions: { dispatcher: getLlmDispatcher() },
-        });
+        this.client = this._createClient(newKey);
       }
     } catch {
       /* best effort */
@@ -189,14 +185,13 @@ export class OpenAICompatProvider {
     try {
       return await this._doSend(messages, model, tools, sendOpts);
     } catch (err) {
-      const structuredStatus =
-        [err?.status, err?.httpStatus, err?.response?.status]
-          .map((value) => Number(value))
-          .find((value) => Number.isFinite(value) && value > 0) || 0;
       // Credential reload + reissue requires a TYPED 401. A message that
       // merely mentions "401" is not evidence, and a typed 403 is a
       // permission decision — reloading the key cannot change it.
-      const status = structuredStatus;
+      const status =
+        [err?.status, err?.httpStatus, err?.response?.status]
+          .map((value) => Number(value))
+          .find((value) => Number.isFinite(value) && value > 0) || 0;
       if (status === 401) {
         if (err.liveTextEmitted === true || err.emittedToolCall === true || err.unsafeToRetry === true) {
           throw err;

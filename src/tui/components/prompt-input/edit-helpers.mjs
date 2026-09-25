@@ -4,7 +4,15 @@
  * modified-Enter (kitty / modifyOtherKeys) sequence recognition.
  */
 import { theme } from '../../theme.mjs';
-import { replaceSelection } from '../../input-editing.mjs';
+import {
+  deleteSelectedText,
+  nextOffset,
+  nextWordOffset,
+  previousOffset,
+  previousWordOffset,
+  replaceSelection,
+  selectionRange,
+} from '../../input-editing.mjs';
 
 export function hintStyle(tone) {
   if (tone === 'error') return { textColor: theme.error };
@@ -33,6 +41,42 @@ export function draftStateEqual(a, b) {
   return a.value === b.value && a.cursor === b.cursor && a.selectionAnchor === b.selectionAnchor;
 }
 
+// Caret target for a Left/Right arrow press. A plain press collapses a live
+// selection to its near edge; otherwise the caret steps one word (`word`, the
+// Ctrl/Meta chord) or one character. `extend` (Shift) keeps growing the
+// selection instead of collapsing it.
+export function leftArrowOffset(draft, { word, extend }) {
+  const range = word || extend ? null : selectionRange(draft);
+  if (range) return range.start;
+  return word ? previousWordOffset(draft.value, draft.cursor) : previousOffset(draft.value, draft.cursor);
+}
+
+export function rightArrowOffset(draft, { word, extend }) {
+  const range = word || extend ? null : selectionRange(draft);
+  if (range) return range.end;
+  return word ? nextWordOffset(draft.value, draft.cursor) : nextOffset(draft.value, draft.cursor);
+}
+
+// Backspace: delete a live selection, else the grapheme before the caret.
+export function deleteBackwardChar(draft) {
+  if (selectionRange(draft)) return deleteSelectedText(draft);
+  if (draft.cursor <= 0) return draft;
+  const start = previousOffset(draft.value, draft.cursor);
+  return { value: draft.value.slice(0, start) + draft.value.slice(draft.cursor), cursor: start, selectionAnchor: null };
+}
+
+// Delete: delete a live selection, else the grapheme after the caret.
+export function deleteForwardChar(draft) {
+  if (selectionRange(draft)) return deleteSelectedText(draft);
+  if (draft.cursor >= draft.value.length) return draft;
+  const end = nextOffset(draft.value, draft.cursor);
+  return {
+    value: draft.value.slice(0, draft.cursor) + draft.value.slice(end),
+    cursor: draft.cursor,
+    selectionAnchor: null,
+  };
+}
+
 // Recognize a MODIFIED Enter delivered via the kitty keyboard protocol
 // (\x1b[13;<mod>u) or modifyOtherKeys (\x1b[27;<mod>;13~). The xterm modifier
 // param is (1 + bitmask) where the bitmask bits are shift=1, alt=2, ctrl=4. We
@@ -42,7 +86,7 @@ export function draftStateEqual(a, b) {
 const MODIFIED_ENTER_NEWLINE = 1 | 2 | 4;
 
 /** The CSI parameter body of an Enter sequence, with or without its ESC prefix; '' for anything else. */
-function csiBody(text) {
+export function csiBody(text) {
   if (text.startsWith('\x1b[')) return text.slice(2);
   return text.startsWith('[') ? text.slice(1) : '';
 }

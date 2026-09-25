@@ -19,6 +19,18 @@ export function compareRecallNewestFirst(a, b) {
   return (finite(b?.id) ?? 0) - (finite(a?.id) ?? 0);
 }
 
+// Relevance order for ranked recall rows: retrieval score, stored score, then
+// newest ts; id ascending breaks the remaining ties.
+export function compareRecallByScore(a, b) {
+  const score = (value) => finite(value) ?? 0;
+  return (
+    score(b.retrievalScore ?? b.rrf ?? 0) - score(a.retrievalScore ?? a.rrf ?? 0) ||
+    score(b.score ?? 0) - score(a.score ?? 0) ||
+    score(b.ts ?? 0) - score(a.ts ?? 0) ||
+    Number(a.id ?? 0) - Number(b.id ?? 0)
+  );
+}
+
 // Chronological (oldest-first) order for a single-session handoff, where the
 // reader must follow cause → effect instead of scanning for the latest hit.
 export function compareRecallOldestFirst(a, b) {

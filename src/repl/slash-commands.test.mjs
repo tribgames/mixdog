@@ -13,6 +13,16 @@ function compactContext(compactResult) {
   };
 }
 
+test('/help lists exactly the commands the plain REPL implements, on ctx.out', async () => {
+  const written = [];
+  assert.equal(await handleSlash('/help', { out: { write: (text) => written.push(text) } }), undefined);
+  const listed = new Set(written.join('').match(/\/[a-z][a-z-]*/gi));
+  assert.deepEqual(
+    [...listed].sort(),
+    ['/clear', '/compact', '/exit', '/help', '/mode', '/model', '/output-style', '/outputstyle', '/quit', '/style'].sort()
+  );
+});
+
 test('/compact reports the runtime reason, its default, both failures and a success', async () => {
   for (const [result, expected] of [
     [{ changed: false, reason: 'context is already small' }, /context is already small/],

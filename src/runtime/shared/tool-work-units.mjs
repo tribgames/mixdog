@@ -123,9 +123,7 @@ const CATEGORY_COPY = new Map([
 ]);
 
 export function categoryCopy(category) {
-  return (
-    CATEGORY_COPY.get(category) || CATEGORY_COPY.get('Other') || { active: 'Calling', done: 'Called', noun: 'tool' }
-  );
+  return CATEGORY_COPY.get(category) || CATEGORY_COPY.get('Other');
 }
 
 export function unitDescriptor(category, overrides = {}) {
@@ -341,9 +339,7 @@ function skillUnit(a) {
 }
 
 function codeGraphUnit(a) {
-  const mode = String(a.mode || a.action || '').toLowerCase();
-  const searching =
-    mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees';
+  const searching = codeGraphLabel(a) === 'Search';
   return unitDescriptor(searching ? 'Search' : 'Read', {
     count: queryCount(a, 'symbols', 'symbol', 'query', 'files', 'file', 'path') || 1,
     active: searching ? 'Mapping' : 'Reading',
@@ -351,6 +347,19 @@ function codeGraphUnit(a) {
     // "code map", not "file": an overview/imports/impact pass reads
     // structure, and sharing the plain read unit hid it behind file reads.
     noun: searching ? 'symbol' : 'code map',
+  });
+}
+
+function browserUnit() {
+  return unitDescriptor('Browser', { count: 1, active: 'Browsing', done: 'Browsed', noun: 'action' });
+}
+
+function gitStageUnit(a) {
+  return unitDescriptor('Git', {
+    count: queryCount(a, 'change_ids', 'change_id') || 1,
+    active: 'Staging',
+    done: 'Staged',
+    noun: 'change',
   });
 }
 
@@ -424,11 +433,8 @@ const TOOL_UNITS = new Map([
         pluralNoun: 'URLs',
       }),
   ],
-  ['browser', () => unitDescriptor('Browser', { count: 1, active: 'Browsing', done: 'Browsed', noun: 'action' })],
-  [
-    'browser_devtools',
-    () => unitDescriptor('Browser', { count: 1, active: 'Browsing', done: 'Browsed', noun: 'action' }),
-  ],
+  ['browser', browserUnit],
+  ['browser_devtools', browserUnit],
   ['computer', () => unitDescriptor('Computer', { count: 1, active: 'Operating', done: 'Operated', noun: 'action' })],
   ['office', () => unitDescriptor('Office', { count: 1, active: 'Editing', done: 'Edited', noun: 'document action' })],
   ['media', mediaUnit],
@@ -450,26 +456,12 @@ const TOOL_UNITS = new Map([
     'git',
     (a) =>
       a.action === 'stage'
-        ? unitDescriptor('Git', {
-            count: queryCount(a, 'change_ids', 'change_id') || 1,
-            active: 'Staging',
-            done: 'Staged',
-            noun: 'change',
-          })
+        ? gitStageUnit(a)
         : unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' }),
   ],
   ['github', () => unitDescriptor('Git', { count: 1, noun: 'GitHub operation' })],
   // Preserve the staging work unit when rendering historical transcripts.
-  [
-    'git_stage',
-    (a) =>
-      unitDescriptor('Git', {
-        count: queryCount(a, 'change_ids', 'change_id') || 1,
-        active: 'Staging',
-        done: 'Staged',
-        noun: 'change',
-      }),
-  ],
+  ['git_stage', gitStageUnit],
   ['agent', agentUnit],
   ['bridge', agentUnit],
   ['task', taskUnit],

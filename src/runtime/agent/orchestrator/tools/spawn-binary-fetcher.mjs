@@ -9,8 +9,8 @@ import {
   createBinaryDownloader,
   findCachedBinary,
   installVerifiedBinary,
-  platformKey,
   readBundledManifest,
+  resolvePlatformKey,
   singleFlight,
   validReleaseAsset,
 } from '../../../shared/native-asset.mjs';
@@ -37,7 +37,7 @@ const downloadSpawnBinary = createBinaryDownloader({ name: 'spawn', label: LABEL
 export function findCachedSpawnBinary(dataDir, options = {}) {
   try {
     const manifest = readBundledManifest(BUNDLED_MANIFEST_PATH, options);
-    const pkey = platformKey();
+    const pkey = resolvePlatformKey((key) => validSpawnAsset(manifest, key));
     if (!validSpawnAsset(manifest, pkey)) return null;
     return findCachedBinary({
       dir: spawnBinDir(dataDir),
@@ -51,7 +51,7 @@ export function findCachedSpawnBinary(dataDir, options = {}) {
 
 export const ensureSpawnBinary = singleFlight(async (dataDir, options = {}) => {
   const manifest = readBundledManifest(BUNDLED_MANIFEST_PATH, options);
-  const pkey = platformKey();
+  const pkey = resolvePlatformKey((key) => validSpawnAsset(manifest, key));
   if (!validSpawnAsset(manifest, pkey)) {
     const supported = Object.keys(manifest?.assets || {}).join(', ') || '(none; spawn release not synchronized)';
     throw new Error(

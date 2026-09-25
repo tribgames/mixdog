@@ -1,7 +1,6 @@
 // Search-history maintenance: summarization and relationship/index maintenance.
 export {
   syncRootEmbedding,
-  deleteRootEmbedding,
   flushEmbeddingDirty,
   flushRawEmbeddings,
   inferChunkProjectId,

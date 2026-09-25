@@ -3,7 +3,7 @@
 // `--mx-device-scale` (native CSS pixels = 1 on every phone). Installing
 // them in a mount effect meant the FIRST paint used the desktop grammar
 // and the phone visibly re-arranged itself a frame later (user: 처음
-// 들어가면 레이아웃 시프트가 심하다). main.tsx installs the marker
+// 들어가면 레이아웃 시프트가 심하다). bootstrap.tsx installs the marker
 // synchronously BEFORE React renders, so the phone lays out correctly
 // exactly once.
 import { isRemoteBrowserRenderer } from './remote-ui-projection';

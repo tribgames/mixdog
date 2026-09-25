@@ -17,11 +17,24 @@
 
 import { createHash } from 'node:crypto';
 
-const DEFAULT_MAX_TEXT_CHARS = 64 * 1024 * 1024;
+// Serialized (UTF-8 JSON) bytes of the retained PROJECTIONS. A tail-window
+// projection is ~0.1-1 MB; a legacy 512-item page of a worker transcript can
+// reach ~16 MB, so this keeps a couple of those or dozens of tail windows.
+export const STORED_TRANSCRIPT_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 // Coarse filesystems stamp mtime at whole seconds (FAT: two). A write landing
 // inside that window after our read could keep the same stat, so only a file
 // untouched for longer than this is trusted by stat alone.
 const SETTLED_FILE_AGE_MS = 2_500;
+// Thrash guard. The refresh clock reads every visible cold pane round-robin;
+// when their projections together exceed the byte budget (a handful of legacy
+// 512-item pages of worker transcripts), plain LRU evicts each entry just
+// before its next read and EVERY refresh re-reads and re-parses EVERY
+// unchanged file. A key evicted for space and requested again (a ghost) is
+// the signal: it is admitted only by evicting entries nobody has been served
+// for ACTIVE_ENTRY_MS; otherwise the entries being refreshed stay and the
+// newcomer is served uncached.
+const ACTIVE_ENTRY_MS = 5_000;
+const GHOST_LIMIT = 256;
 
 function sameFileStat(left, right) {
   return (
@@ -46,35 +59,70 @@ export function createStoredTranscriptCache({
   // Bound retained content, not the number of small sessions. An eight-entry
   // LRU reparsed every unchanged record when nine visible sessions refreshed.
   maxEntries = Number.POSITIVE_INFINITY,
-  maxTextChars = DEFAULT_MAX_TEXT_CHARS,
+  maxBytes = STORED_TRANSCRIPT_CACHE_MAX_BYTES,
 } = {}) {
   // Retain a content digest, not a second full transcript beside its projection.
-  // The original character count still bounds the amount of projected content.
-  /** key -> { textHash, textChars, fingerprint, value } (Map order is LRU order). */
+  // The bound is the size of what is actually retained: the projection.
+  /** key -> { textHash, textChars, bytes, group, fingerprint, value, usedAt } (Map order is LRU order). */
   const entries = new Map();
   /** key -> { text, fingerprint, promise } for reads still parsing. */
   const inFlight = new Map();
-  let retainedChars = 0;
+  /** Keys evicted for space (insertion order = age), bounded. */
+  const ghosts = new Set();
+  let retainedBytes = 0;
 
   const drop = (key) => {
     const entry = entries.get(key);
     if (!entry) return;
-    retainedChars -= entry.textChars;
+    retainedBytes -= entry.bytes;
     entries.delete(key);
   };
-  const prune = () => {
-    while (entries.size > 0 && (entries.size > maxEntries || retainedChars > maxTextChars)) {
-      drop(entries.keys().next().value);
-    }
-  };
-  const remember = (key, textChars, textHash, fingerprint, fileStat, value) => {
+  const evict = (key) => {
     drop(key);
-    if (textChars > maxTextChars) return;
-    entries.set(key, { textChars, textHash, fingerprint, fileStat, value });
-    retainedChars += textChars;
+    ghosts.delete(key);
+    ghosts.add(key);
+    if (ghosts.size > GHOST_LIMIT) ghosts.delete(ghosts.values().next().value);
+  };
+  const overBudget = (extraEntries = 0, extraBytes = 0) =>
+    entries.size + extraEntries > maxEntries || retainedBytes + extraBytes > maxBytes;
+  const prune = () => {
+    while (entries.size > 0 && overBudget()) evict(entries.keys().next().value);
+  };
+  // A returning ghost may displace only idle entries (oldest first).
+  const makeRoomForGhost = (bytes, now) => {
+    const idle = [];
+    let freedEntries = 0;
+    let freedBytes = 0;
+    for (const [other, entry] of entries) {
+      if (!overBudget(1 - freedEntries, bytes - freedBytes)) break;
+      if (now - entry.usedAt <= ACTIVE_ENTRY_MS) continue;
+      idle.push(other);
+      freedEntries += 1;
+      freedBytes += entry.bytes;
+    }
+    if (overBudget(1 - freedEntries, bytes - freedBytes)) return false;
+    for (const other of idle) evict(other);
+    return true;
+  };
+  const remember = (key, group, textChars, textHash, fingerprint, fileStat, value, now) => {
+    drop(key);
+    // One entry per group: a growing history window replaces its smaller
+    // predecessor instead of accumulating beside it.
+    if (group !== null) {
+      for (const [other, entry] of [...entries]) if (entry.group === group) drop(other);
+    }
+    const bytes = Buffer.byteLength(JSON.stringify(value));
+    if (bytes > maxBytes) return;
+    if (ghosts.has(key)) {
+      if (!makeRoomForGhost(bytes, now)) return;
+      ghosts.delete(key);
+    }
+    entries.set(key, { textChars, textHash, bytes, group, fingerprint, fileStat, value, usedAt: now });
+    retainedBytes += bytes;
     prune();
   };
-  const touch = (key, entry) => {
+  const touch = (key, entry, now) => {
+    entry.usedAt = now;
     entries.delete(key);
     entries.set(key, entry);
   };
@@ -82,8 +130,9 @@ export function createStoredTranscriptCache({
   return {
     /** The cached projection for this exact content, or a fresh one from
      *  `produce`. `loadText` runs only when stat alone cannot vouch for
-     *  the entry. Concurrent callers with the same content share one parse. */
-    async read({ key, fingerprint, fileStat = null, loadText, produce, now = Date.now() }) {
+     *  the entry. Concurrent callers with the same content share one parse.
+     *  Entries naming the same `group` replace each other. */
+    async read({ key, group = null, fingerprint, fileStat = null, loadText, produce, now = Date.now() }) {
       const cached = entries.get(key);
       if (
         cached &&
@@ -91,7 +140,7 @@ export function createStoredTranscriptCache({
         sameFileStat(cached.fileStat, fileStat) &&
         now - Math.max(fileStat.mtimeMs, fileStat.ctimeMs) > SETTLED_FILE_AGE_MS
       ) {
-        touch(key, cached);
+        touch(key, cached, now);
         return { value: cached.value, hit: true, read: false };
       }
       const text = loadText();
@@ -106,7 +155,7 @@ export function createStoredTranscriptCache({
         cached.textHash === textHash
       ) {
         cached.fileStat = fileStat;
-        touch(key, cached);
+        touch(key, cached, now);
         return { value: cached.value, hit: true, read: true };
       }
       const pending = inFlight.get(key);
@@ -117,7 +166,7 @@ export function createStoredTranscriptCache({
       const promise = (async () => {
         const value = await produce(text);
         if (inFlight.get(key) === record && value && typeof value === 'object') {
-          remember(key, text.length, textHash, fingerprint, fileStat, value);
+          remember(key, group, text.length, textHash, fingerprint, fileStat, value, now);
         }
         return value;
       })();
@@ -136,14 +185,18 @@ export function createStoredTranscriptCache({
       for (const key of [...entries.keys()]) {
         if (key.startsWith(keyPrefix)) drop(key);
       }
+      for (const key of [...ghosts]) {
+        if (key.startsWith(keyPrefix)) ghosts.delete(key);
+      }
     },
     clear() {
       entries.clear();
       inFlight.clear();
-      retainedChars = 0;
+      ghosts.clear();
+      retainedBytes = 0;
     },
     stats() {
-      return { entries: entries.size, retainedChars, inFlight: inFlight.size };
+      return { entries: entries.size, retainedBytes, inFlight: inFlight.size };
     },
   };
 }

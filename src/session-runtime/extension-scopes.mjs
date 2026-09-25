@@ -4,7 +4,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { pluginMcpServerName } from './plugin-mcp.mjs';
+import { pluginMcpServerName, pluginServerMatcher } from './plugin-mcp.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { loadConfig } from '../runtime/agent/orchestrator/config.mjs';
 import {
@@ -34,8 +34,7 @@ export function pluginIdForMcpServer(serverName, plugins) {
   const name = clean(serverName);
   if (!name) return '';
   for (const plugin of Array.isArray(plugins) ? plugins : []) {
-    const base = pluginMcpServerName(plugin);
-    if (name === base || name.startsWith(`${base}--`)) return clean(plugin?.id || plugin?.name);
+    if (pluginServerMatcher(pluginMcpServerName(plugin))(name)) return clean(plugin?.id || plugin?.name);
   }
   return '';
 }

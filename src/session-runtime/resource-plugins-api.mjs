@@ -6,8 +6,7 @@ import {
   setPluginEnabled as registrySetPluginEnabled,
   updatePlugin as registryUpdatePlugin,
 } from '../standalone/plugin-admin.mjs';
-import { pluginMcpServerName } from './plugin-mcp.mjs';
-import { pluginServerMatcher } from './resource-mcp-api.mjs';
+import { pluginMcpServerName, pluginServerMatcher } from './plugin-mcp.mjs';
 
 const pluginKey = (plugin) => clean(plugin.id || plugin.name || plugin);
 

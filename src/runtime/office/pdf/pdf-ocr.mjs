@@ -64,15 +64,6 @@ export function parseOcrTsv(value) {
     .filter((word) => word.text.trim() && word.width > 0 && word.height > 0);
 }
 
-// One text line per recognized row, with the words that belong to it.
-//
-// A word box is where ink sits, not where a word begins and ends: Korean and
-// CJK come back split at syllable boundaries ("출" "고" "율" for 출고율) while a
-// real word break can measure a single pixel. Geometry therefore cannot rebuild
-// the line, but the engine's own line text can — it is the reading the OCR
-// result already reports. The rows and the text come back in the same order, so
-// a line takes that text when it carries exactly the same characters, and falls
-// back to its word boxes when it does not.
 // The word boxes of each OCR line, keyed by the engine's page/block/paragraph/line ids.
 function ocrLineGroups(rows, at) {
   const groups = new Map();
@@ -138,6 +129,15 @@ function ocrLine(group, spokenReading) {
   };
 }
 
+// One text line per recognized row, with the words that belong to it.
+//
+// A word box is where ink sits, not where a word begins and ends: Korean and
+// CJK come back split at syllable boundaries ("출" "고" "율" for 출고율) while a
+// real word break can measure a single pixel. Geometry therefore cannot rebuild
+// the line, but the engine's own line text can — it is the reading the OCR
+// result already reports. The rows and the text come back in the same order, so
+// a line takes that text when it carries exactly the same characters, and falls
+// back to its word boxes when it does not.
 export function ocrTextLines(value, plainText = '') {
   const { at, rows } = ocrTsvRows(value);
   if (['line_num', 'left', 'text'].some((name) => at[name] === undefined)) return [];
@@ -173,12 +173,17 @@ export function parseOcrBlocks(blocks) {
   return words;
 }
 
+// Where each language's recognition data is downloaded to and kept.
+function ocrCachePath(dataDir) {
+  return join(dataDir, 'office', 'ocr', 'languages');
+}
+
 // Whether a scanned page can be read here and now. The engine ships with the
 // runtime, but each language's data is downloaded on first use and kept in the
 // cache: promising OCR of a Korean scan on a machine with no network and no
 // cached kor data fails in the middle of the task instead of before it.
 export async function pdfOcrReadiness(dataDir) {
-  const cachePath = join(dataDir, 'office', 'ocr', 'languages');
+  const cachePath = ocrCachePath(dataDir);
   let available = true;
   try {
     require.resolve('tesseract.js');
@@ -284,7 +289,7 @@ async function createOcrWorker(operation, dataDir) {
   const languages = Array.isArray(operation.languages)
     ? operation.languages.map(String).join('+')
     : String(operation.languages || 'eng+kor');
-  const cachePath = join(dataDir, 'office', 'ocr', 'languages');
+  const cachePath = ocrCachePath(dataDir);
   await mkdir(cachePath, { recursive: true });
   const tesseract = require('tesseract.js');
   const worker = await tesseract.createWorker(languages, tesseract.OEM.LSTM_ONLY, {

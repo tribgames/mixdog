@@ -7,8 +7,15 @@ import { markSessionClosed, bumpSessionGeneration, getSessionLifecycleCommitErro
 import { clearReadDedupSession } from '../read-dedup.mjs';
 import { SessionClosedError } from './session-errors.mjs';
 import { _dropPendingMessageState } from './pending-messages.mjs';
-import { _stopToolActivityHeartbeat, _getRuntimeEntry, _clearSessionRuntime } from './runtime-liveness.mjs';
+import {
+  IN_FLIGHT_STAGES,
+  _stopToolActivityHeartbeat,
+  _getRuntimeEntry,
+  _clearSessionRuntime,
+} from './runtime-liveness.mjs';
 import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
+import { forgetSessionSaveBaseline } from '../store/save-worker.mjs';
+import { forgetSessionLoadCache } from '../store/load-cache.mjs';
 import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
 import { cancelNativeTasks } from '../../tools/lib/native-spawn-client.mjs';
 
@@ -30,11 +37,10 @@ export function closeSession(id, reason = 'manual', opts = {}) {
   // tombstone=false: detach runtime resources (heartbeat, bash shells,
   // controller abort, runtime-map clear) WITHOUT planting the disk
   // tombstone. Used for non-empty sessions on /resume-away, /new, and
-  // TUI exit — previously every one of those paths unconditionally
-  // tombstoned the outgoing session, which made it vanish from the
-  // Resume list immediately and get hard-deleted by sweepTombstones()
-  // after 24h even though it had real conversation content worth
-  // resuming. Only truly-empty scratch sessions should still tombstone.
+  // TUI exit: a tombstone would drop the session from the Resume list
+  // immediately and let sweepTombstones() hard-delete it even though it
+  // has real conversation content worth resuming. Only truly-empty
+  // scratch sessions should still tombstone.
   const tombstone = opts.tombstone !== false;
   if (!id) return false;
   const entry = _getRuntimeEntry(id);
@@ -165,11 +171,7 @@ function teardownSessionRuntime({ id, entry, reason, tombstone, newGen }) {
       /* ignore */
     }
   }
-  try {
-    globalThis.__mixdogCloseProviderConnectionsForSession?.(id, `session-close:${reason}`);
-  } catch {
-    /* ignore */
-  }
+  closeProviderConnections(id, `session-close:${reason}`);
   // Diagnostic: one-line stderr so operators can distinguish the four close
   // pathways (request-abort / manual / idle-sweep / runner-crash). iterCount
   // is not currently tracked on runtime state; askStartedAt is — derive
@@ -185,16 +187,7 @@ function teardownSessionRuntime({ id, entry, reason, tombstone, newGen }) {
   }
   // Drop session-scoped read dedup cache so the Map doesn't accumulate
   // entries across mcp-server lifetime.
-  try {
-    clearReadDedupSession(id);
-  } catch {
-    /* ignore */
-  }
-  try {
-    releaseReadSnapshotScope(id);
-  } catch {
-    /* ignore */
-  }
+  releaseSessionReadCaches(id);
   // Artifact lifetime follows the durable transcript, not the live runtime.
   // Tombstone/explicit deletion cleanup removes it only after session data
   // itself is gone.
@@ -209,6 +202,44 @@ function teardownSessionRuntime({ id, entry, reason, tombstone, newGen }) {
     _clearSessionRuntime(id);
   });
 }
+
+function closeProviderConnections(id, cause) {
+  try {
+    globalThis.__mixdogCloseProviderConnectionsForSession?.(id, cause);
+  } catch {
+    /* ignore */
+  }
+}
+
+// Session-scoped read caches: pure caches a resumed turn rebuilds from the
+// transcript/disk. The save delta baselines (parent and save-worker thread)
+// are one of them: a resumed session's next save simply goes out full; the
+// store's parsed load-cache document is another. The
+// runtime teardown's own release misses these closes because the caller has
+// already dropped its session handle by then.
+function releaseSessionReadCaches(id) {
+  try {
+    clearReadDedupSession(id);
+  } catch {
+    /* ignore */
+  }
+  try {
+    forgetSessionSaveBaseline(id);
+  } catch {
+    /* ignore */
+  }
+  try {
+    forgetSessionLoadCache(id);
+  } catch {
+    /* ignore */
+  }
+  try {
+    releaseReadSnapshotScope(id);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function abortSessionTurn(id, reason = 'turn-abort') {
   if (!id) return false;
   _stopToolActivityHeartbeat(id);
@@ -222,17 +253,9 @@ export function abortSessionTurn(id, reason = 'turn-abort') {
   } catch {
     /* ignore */
   }
-  try {
-    globalThis.__mixdogCloseProviderConnectionsForSession?.(id, `turn-abort:${reason}`);
-  } catch {
-    /* ignore */
-  }
+  closeProviderConnections(id, `turn-abort:${reason}`);
   return true;
 }
-
-// Stages that still own live provider/tool work. An entry in one of them is
-// never unloaded — the caller's "this agent finished" belief lost a race.
-const _UNLOAD_BLOCKED_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'cancelling']);
 
 /**
  * Runtime-only unload for a session whose work is DONE.
@@ -268,25 +291,13 @@ export function unloadSessionRuntime(id, reason = 'runtime-unload') {
   // unaborted controller behind. Both are live work: veto and touch nothing.
   if (entry) {
     if (entry.controller && !entry.controller.signal?.aborted) return false;
-    if (_UNLOAD_BLOCKED_STAGES.has(entry.stage)) return false;
+    // An in-flight stage means the caller's "this agent finished" belief
+    // lost a race.
+    if (IN_FLIGHT_STAGES.has(entry.stage)) return false;
   }
   _stopToolActivityHeartbeat(id);
-  try {
-    globalThis.__mixdogCloseProviderConnectionsForSession?.(id, `runtime-unload:${reason}`);
-  } catch {
-    /* ignore */
-  }
-  // Pure caches — a resumed turn rebuilds them from the transcript/disk.
-  try {
-    clearReadDedupSession(id);
-  } catch {
-    /* ignore */
-  }
-  try {
-    releaseReadSnapshotScope(id);
-  } catch {
-    /* ignore */
-  }
+  closeProviderConnections(id, `runtime-unload:${reason}`);
+  releaseSessionReadCaches(id);
   _clearSessionRuntime(id);
   if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
     try {

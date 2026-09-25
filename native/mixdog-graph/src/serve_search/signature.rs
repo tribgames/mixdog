@@ -284,21 +284,13 @@ pub(super) fn persist_content_signature_cache() {
         CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(dirty, Ordering::Relaxed);
         return;
     }
-    let temp = path.with_extension(format!("tmp-{}", std::process::id()));
-    let written = (|| -> io::Result<()> {
-        let file = File::create(&temp)?;
-        let mut writer = BufWriter::new(file);
+    let written = replace_snapshot_file(&path, |writer| {
         writer.write_all(CONTENT_SIGNATURE_SNAPSHOT_MAGIC)?;
         writer.write_all(&CONTENT_SIGNATURE_SNAPSHOT_VERSION.to_le_bytes())?;
         writer.write_all(&(CONTENT_SIGNATURE_WORDS as u32).to_le_bytes())?;
         writer.write_all(&(checkpoints.len() as u32).to_le_bytes())?;
         writer.write_all(&0u32.to_le_bytes())?;
-        for checkpoint in &checkpoints {
-            writer.write_all(&checkpoint.volume.to_le_bytes())?;
-            writer.write_all(&checkpoint.volume_serial.to_le_bytes())?;
-            writer.write_all(&checkpoint.journal_id.to_le_bytes())?;
-            writer.write_all(&checkpoint.next_usn.to_le_bytes())?;
-        }
+        write_snapshot_checkpoints(writer, &checkpoints)?;
         let mut entry_count = 0u32;
         for shard in content_signature_cache() {
             let cache = lock_recover(shard);
@@ -335,13 +327,8 @@ pub(super) fn persist_content_signature_cache() {
         writer.seek(SeekFrom::Start(20))?;
         writer.write_all(&entry_count.to_le_bytes())?;
         writer.flush()
-    })()
-    .is_ok();
-    if !written
-        || (path.exists() && fs::remove_file(&path).is_err())
-        || fs::rename(&temp, &path).is_err()
-    {
-        let _ = fs::remove_file(&temp);
+    });
+    if !written {
         CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(dirty, Ordering::Relaxed);
     }
 }
@@ -420,35 +407,25 @@ pub(super) fn apply_content_signature_journal_sync(result: crate::serve_search_u
         return;
     }
     CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(1, Ordering::Relaxed);
+    let changed = |identity: Option<crate::serve_search_usn::FileIdentity>| {
+        identity.is_some_and(|identity| {
+            identity.volume == serial && result.changed.contains(&identity.file_id)
+        })
+    };
     for shard in content_signature_cache() {
-        lock_recover(shard).retain(|_, entry| {
-            !entry.identity.is_some_and(|identity| {
-                identity.volume == serial && result.changed.contains(&identity.file_id)
-            })
-        });
+        lock_recover(shard).retain(|_, entry| !changed(entry.identity));
     }
     for shard in file_metadata_cache() {
-        let mut cache = lock_recover(shard);
-        cache.retain(|_, entry| {
-            !entry.identity.is_some_and(|identity| {
-                identity.volume == serial && result.changed.contains(&identity.file_id)
-            })
-        });
+        lock_recover(shard).retain(|_, entry| !changed(entry.identity));
     }
 }
 
 pub(super) fn refresh_content_signature_journals(targets: &[String], cwd: &Path) {
     ensure_content_signature_cache_loaded();
+    // Path::join replaces the base when the target is absolute.
     let absolute_targets = targets
         .iter()
-        .map(|target| {
-            let target_path = Path::new(target);
-            if target_path.is_absolute() {
-                target_path.to_path_buf()
-            } else {
-                cwd.join(target_path)
-            }
-        })
+        .map(|target| cwd.join(target))
         .collect::<Vec<_>>();
     let mut volumes = HashSet::new();
     for absolute in absolute_targets {
@@ -552,15 +529,22 @@ pub(super) fn mandatory_regex_literal(pattern: &str) -> Option<Vec<u8>> {
     runs.into_iter().max_by_key(Vec::len)
 }
 
+/// Modification time in nanoseconds since the epoch, or `None` when the
+/// platform or filesystem cannot report one.
+fn modified_ns(metadata: &std::fs::Metadata) -> Option<u128> {
+    Some(
+        metadata
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_nanos(),
+    )
+}
+
 pub(super) fn file_content_fingerprint(path: &Path) -> Option<(u64, u128)> {
     let metadata = std::fs::metadata(path).ok()?;
-    let modified_ns = metadata
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_nanos();
-    Some((metadata.len(), modified_ns))
+    Some((metadata.len(), modified_ns(&metadata)?))
 }
 
 pub(super) fn file_mtime_ms(path: &Path, trust: &TrustSnapshot) -> Option<u128> {
@@ -578,12 +562,7 @@ pub(super) fn file_mtime_ms(path: &Path, trust: &TrustSnapshot) -> Option<u128> 
         }
     }
     let (metadata, identity) = crate::serve_search_usn::metadata_and_identity(path)?;
-    let modified_ns = metadata
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_nanos();
+    let modified_ns = modified_ns(&metadata)?;
     if cached
         .as_ref()
         .is_some_and(|entry| entry.size == metadata.len() && entry.modified_ns == modified_ns)
@@ -625,13 +604,7 @@ pub(super) fn cached_signature_state(
             .identity
             .is_some_and(|identity| trust.usn_volumes.contains(&identity.volume));
         if usn_trusted || (!entry.persisted && watcher_trusted) {
-            return if !requirements.is_empty()
-                && signature_excludes_requirements(&entry.signature, requirements, folded)
-            {
-                CachedSignatureState::Excludes
-            } else {
-                CachedSignatureState::Reusable
-            };
+            return reusable_signature_state(&entry.signature, requirements, folded);
         }
         entry.clone()
     };
@@ -643,8 +616,17 @@ pub(super) fn cached_signature_state(
         cache.remove(path);
         return CachedSignatureState::Missing;
     }
-    if !requirements.is_empty()
-        && signature_excludes_requirements(&entry.signature, requirements, folded)
+    reusable_signature_state(&entry.signature, requirements, folded)
+}
+
+/// What a trusted cached signature says about this request: the file cannot
+/// contain every required trigram, or it has to be scanned.
+fn reusable_signature_state(
+    signature: &TrigramSignature,
+    requirements: &[Vec<(usize, usize)>],
+    folded: bool,
+) -> CachedSignatureState {
+    if !requirements.is_empty() && signature_excludes_requirements(signature, requirements, folded)
     {
         CachedSignatureState::Excludes
     } else {

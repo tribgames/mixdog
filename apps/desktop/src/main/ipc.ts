@@ -20,6 +20,10 @@ import { DesktopStateBridge, type DesktopUpdater } from './ipc-state-bridge';
 import { registerTerminalIpc, type DesktopTerminalHost } from './ipc-terminal';
 import { registerWindowSettingsIpc } from './ipc-window-settings';
 import { SelectedFileAccess } from './selected-file-access';
+
+/** A sender-guarded `ipcMain.handle`, shared by every handler family. */
+export type IpcHandle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
+
 const SERVICE_OPERATION_NAMES = [
   'githubStarStatus',
   'starGithub',
@@ -148,7 +152,7 @@ export function registerDesktopIpc(
       throw new Error('IPC call rejected.');
     }
   };
-  const handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown): void => {
+  const handle: IpcHandle = (channel, listener) => {
     ipcMain.handle(channel, (event, ...args) => {
       assertSender(event);
       return listener(event, ...args);

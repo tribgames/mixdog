@@ -73,10 +73,6 @@ export function smartReadTruncate(renderedWithLineNos, totalLines, fileBytes, fi
   };
 }
 
-export function appendReadContextAdvisory(out, { filePath: _filePath, lineCount: _lineCount, bytes: _bytes }) {
-  return out;
-}
-
 export function parseOffsetArg(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;

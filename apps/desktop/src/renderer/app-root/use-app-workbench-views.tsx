@@ -150,46 +150,26 @@ export function useAppWorkbenchViews({
       prewarm?: boolean;
     }
   ): React.ReactNode => {
-    if (id === 'sessions') {
-      return (
-        <SessionSidebar
-          open={active}
-          panelTitleDragProps={titleDragProps}
-          sessions={sessions}
-          sessionsReady={sessionCatalogReady}
-          workingSessionIds={workingSessionIds}
-          unreadSessionIds={unreadSessionIds}
-          selection={sidebarSelection}
-          onNewTask={sidebarNewTask}
-          onNewStudio={sidebarNewStudio}
-          onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
-          onResumeSession={sidebarResumeSession}
-          onRenameSession={renameSession}
-          onArchiveSession={archiveSession}
-          onDeleteSession={deleteSession}
-        />
-      );
-    }
+    const sessionSidebarProps = {
+      open: active,
+      panelTitleDragProps: titleDragProps,
+      sessions,
+      sessionsReady: sessionCatalogReady,
+      workingSessionIds,
+      unreadSessionIds,
+      selection: sidebarSelection,
+      onNewTask: sidebarNewTask,
+      onNewStudio: sidebarNewStudio,
+      onPrefetchSession: window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined,
+      onResumeSession: sidebarResumeSession,
+      onRenameSession: renameSession,
+      onArchiveSession: archiveSession,
+      onDeleteSession: deleteSession,
+    };
+    if (id === 'sessions') return <SessionSidebar {...sessionSidebarProps} />;
     if (DEFAULT_SIDEBAR_VIEW_ORDER.includes(id as SidebarPanelKey)) {
       return (
-        <SessionSidebar
-          open={active}
-          panelActive
-          panelTitle={sideViewDescriptors.get(id)?.label}
-          panelTitleDragProps={titleDragProps}
-          sessions={sessions}
-          sessionsReady={sessionCatalogReady}
-          workingSessionIds={workingSessionIds}
-          unreadSessionIds={unreadSessionIds}
-          selection={sidebarSelection}
-          onNewTask={sidebarNewTask}
-          onNewStudio={sidebarNewStudio}
-          onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
-          onResumeSession={sidebarResumeSession}
-          onRenameSession={renameSession}
-          onArchiveSession={archiveSession}
-          onDeleteSession={deleteSession}
-        >
+        <SessionSidebar {...sessionSidebarProps} panelActive panelTitle={sideViewDescriptors.get(id)?.label}>
           {renderSidebarPanel(id as SidebarPanelKey, active)}
         </SessionSidebar>
       );

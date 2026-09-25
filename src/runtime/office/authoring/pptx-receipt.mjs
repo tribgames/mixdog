@@ -5,23 +5,13 @@
 // reason or a fix (pptx skill §2 step 7). Counts are not quotas.
 
 import { plannedCarrierGaps } from './pptx-brief.mjs';
-import { isPictureShape } from '../design/design-discipline.mjs';
+import { isPictureShape, relativeLuminance } from '../design/design-discipline.mjs';
 import { rectangleGap } from '../portable/pptx-relations.mjs';
 
 const CANVAS_AREA = 960 * 540; // 13.33 × 7.5 in, in points
 
-function luminance(hex) {
-  const value = String(hex || '').replace('#', '');
-  if (!/^[0-9A-Fa-f]{6}$/.test(value)) return null;
-  const channel = (i) => {
-    const v = parseInt(value.slice(i, i + 2), 16) / 255;
-    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
-}
-
 function backgroundRole(slide) {
-  const l = luminance(slide?.background?.color);
+  const l = relativeLuminance(slide?.background?.color);
   if (l === null) return '';
   if (l < 0.2) return 'dark';
   return l > 0.6 ? 'light' : 'mid';
@@ -39,7 +29,7 @@ function saturation(hex) {
 // sees as a beat (a cover, a section mark, a claim on a field), whatever the slide's own background says.
 function isBeatField(fill, area) {
   if (!fill || area < CANVAS_AREA * 0.6) return false;
-  const l = luminance(fill);
+  const l = relativeLuminance(fill);
   return (l !== null && l < 0.35) || saturation(fill) > 0.35;
 }
 
@@ -165,8 +155,14 @@ function textColorsOf(shape) {
     .filter((c) => /^[0-9A-F]{6}$/.test(c) && c !== surface);
   if (listed.length) return listed;
   const longs = asList(shape?.runs?.colors).map(Number);
-  const source = longs.length ? longs : [Number(shape?.font?.color)];
-  return [...new Set(source.filter((rgb) => Number.isFinite(rgb) && rgb >= 0).map(bgrHex))];
+  // Both snapshots name font.color as RRGGBB ("111827"), which Number() would misread as a BGR long.
+  if (!longs.length) {
+    const color = shape?.font?.color;
+    if (typeof color === 'number') return Number.isFinite(color) && color >= 0 ? [bgrHex(color)] : [];
+    const hex = String(color ?? '').replace(/^#/, '').toUpperCase();
+    return /^[0-9A-F]{6}$/.test(hex) ? [hex] : [];
+  }
+  return [...new Set(longs.filter((rgb) => Number.isFinite(rgb) && rgb >= 0).map(bgrHex))];
 }
 
 // The type sizes of a shape: every run size the portable or COM snapshot lists, else the box's font size.

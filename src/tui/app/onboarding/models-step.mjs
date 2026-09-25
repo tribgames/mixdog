@@ -11,7 +11,7 @@ const followsMainParts = () => [
   { text: '', width: 4 },
 ];
 
-export function modelsStepItems({ defaultRoute, webSearchRoute, overrides, agents }) {
+function modelsStepItems({ defaultRoute, webSearchRoute, overrides, agents }) {
   return [
     {
       value: 'main-model',

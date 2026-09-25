@@ -29,3 +29,20 @@ test('remote settings hide desktop-local credential categories', () => {
   assert.equal(settingsCategoryForSurface('providers', false), 'providers');
   assert.equal(settingsCategoryForSurface('mcp', false), 'general');
 });
+
+test('developer settings are a local-only Support category ahead of shortcuts', () => {
+  const developer = SETTINGS_CATEGORIES.find((category) => category.value === 'developer');
+  assert.deepEqual(developer && { group: developer.group, items: [...developer.items] }, {
+    group: 'Support',
+    items: ['developer'],
+  });
+  const local = settingsCategoriesForSurface(false).map((category) => category.value);
+  assert.ok(local.includes('developer'));
+  assert.ok(local.indexOf('developer') < local.indexOf('shortcuts'));
+  assert.equal(
+    settingsCategoriesForSurface(true).some((category) => category.value === 'developer'),
+    false
+  );
+  assert.equal(settingsCategoryForSurface('developer', true), 'general');
+  assert.equal(settingsCategoryForSurface('developer', false), 'developer');
+});

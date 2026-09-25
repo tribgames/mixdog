@@ -3,6 +3,7 @@
 export const VIEW_BASELINE_EVENT = 'viewBaseline';
 export const MAX_VIEW_BASELINES = 132;
 export const MAX_VIEW_BASELINE_BYTES = 8 * 1024 * 1024;
+const VIEW_BASELINE_TTL_MS = 5 * 60_000;
 
 export function readViewBaselineOffer(value: unknown): Set<string> | null {
   if (!value || typeof value !== 'object') return null;
@@ -59,7 +60,7 @@ export function createRemoteViewBaselineCache(maxBytes = MAX_VIEW_BASELINE_BYTES
             if (bytes + size <= maxBytes && entries.size < MAX_VIEW_BASELINES) break;
             remove(key);
           }
-          entries.set(value.key, { text, expires: now() + 5 * 60_000 });
+          entries.set(value.key, { text, expires: now() + VIEW_BASELINE_TTL_MS });
           bytes += size;
         }
       } else {
@@ -74,7 +75,7 @@ export function createRemoteViewBaselineCache(maxBytes = MAX_VIEW_BASELINE_BYTES
         const entry = entries.get(value.key);
         // Renew only a successfully reused, still-retained entry. A pinned
         // reference can outlive eviction; reusing it must not restore it.
-        if (entry && entry === pinned.get(value.key)) entry.expires = now() + 5 * 60_000;
+        if (entry && entry === pinned.get(value.key)) entry.expires = now() + VIEW_BASELINE_TTL_MS;
       }
       return frame;
     },

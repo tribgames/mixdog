@@ -38,7 +38,7 @@ export async function ensureScoreSchema(db) {
     ON CONFLICT (category) DO UPDATE SET grade = EXCLUDED.grade, decay = EXCLUDED.decay
   `);
 
-  // SQL function mirrors src/memory/lib/memory-score.mjs computeEntryScore.
+  // SQL function mirrors memory-score.mjs computeEntryScore.
   // STABLE (not IMMUTABLE) because the function reads category_score_params.
   // IMMUTABLE would let the planner cache results across rows where params
   // could legitimately differ if the table is updated.

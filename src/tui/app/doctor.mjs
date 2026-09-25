@@ -8,6 +8,7 @@
  * Configuration status does not prove service/database health.
  */
 import { compareSemver } from '../../runtime/shared/update-checker.mjs';
+import { providerRowUsable } from './provider-usable.mjs';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -80,15 +81,6 @@ function reportNode({ version, engines }, row) {
   row(supported ? 'ok' : 'fail', `v${version} · requires node ${engines}`);
 }
 
-function providerReady(p) {
-  return (
-    p.enabled !== false &&
-    p.reauthRequired !== true &&
-    p.usable !== false &&
-    (p.type === 'local' ? p.detected === true : p.authenticated === true)
-  );
-}
-
 function providerUnusableReason(entry) {
   if (entry.reauthRequired) return 'requires sign-in again';
   if (entry.enabled === false) return 'is disabled';
@@ -109,9 +101,9 @@ function reportProviders(getState) {
       return;
     }
     const lists = [...setup.api, ...setup.oauth, ...setup.local];
-    const ready = lists.filter(providerReady);
+    const ready = lists.filter(providerRowUsable);
     const activeEntry = active ? lists.find((p) => p.id === active) : null;
-    if (activeEntry && !providerReady(activeEntry)) {
+    if (activeEntry && !providerRowUsable(activeEntry)) {
       row('fail', `route ${active} ${providerUnusableReason(activeEntry)} · ${ready.length} ready · check /providers`);
       return;
     }

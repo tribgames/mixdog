@@ -294,8 +294,9 @@ export function stripShellProbeWrappers(tokens) {
   return out;
 }
 
+// Short flags are case-sensitive: grep -A takes a line count while -a does not.
 function shellOptionConsumesValue(cmd, tok) {
-  const lower = String(tok || '').toLowerCase();
+  const flag = String(tok || '');
   if (cmd === 'grep' || cmd === 'rg') {
     if (
       [
@@ -312,16 +313,16 @@ function shellOptionConsumesValue(cmd, tok) {
         '--type-add',
         '-m',
         '--max-count',
-      ].includes(lower)
+      ].includes(flag)
     )
       return true;
-    if (/^-[AABCegfmt]$/.test(lower)) return true;
+    if (/^-[AABCegfmt]$/.test(flag)) return true;
   }
   if (cmd === 'sed') {
-    if (['-e', '-f'].includes(lower)) return true;
+    if (['-e', '-f'].includes(flag)) return true;
   }
   if (cmd === 'awk') {
-    if (['-f', '-F', '-v'].includes(lower)) return true;
+    if (['-f', '-F', '-v'].includes(flag)) return true;
   }
   return false;
 }
@@ -394,6 +395,10 @@ function classifyShellProbeToken(token, cwd, { cwdKnown = true } = {}) {
 
 function extractShellProbeTargets(tokens, cwd, { minIndex = 1, cwdKnown = true } = {}) {
   const out = { paths: [], skippedRelativeUnknown: false };
+  const record = (info) => {
+    if (info.kind === 'path') out.paths.push(info.path);
+    else if (info.kind === 'relative-unknown') out.skippedRelativeUnknown = true;
+  };
   for (let i = minIndex; i < tokens.length; i++) {
     const tok = tokens[i];
     if (!tok || tok === '--') continue;
@@ -405,9 +410,7 @@ function extractShellProbeTargets(tokens, cwd, { minIndex = 1, cwdKnown = true }
       continue;
     }
     if (isShellInputRedirectToken(tok)) {
-      const info = classifyShellProbeToken(tokens[i + 1], cwd, { cwdKnown });
-      if (info.kind === 'path') out.paths.push(info.path);
-      else if (info.kind === 'relative-unknown') out.skippedRelativeUnknown = true;
+      record(classifyShellProbeToken(tokens[i + 1], cwd, { cwdKnown }));
       i++;
       continue;
     }
@@ -415,16 +418,32 @@ function extractShellProbeTargets(tokens, cwd, { minIndex = 1, cwdKnown = true }
     if (outputInline) continue;
     const inputInline = /^(?:\d*<<?)(.+)$/i.exec(tok);
     if (inputInline) {
-      const info = classifyShellProbeToken(inputInline[1], cwd, { cwdKnown });
-      if (info.kind === 'path') out.paths.push(info.path);
-      else if (info.kind === 'relative-unknown') out.skippedRelativeUnknown = true;
+      record(classifyShellProbeToken(inputInline[1], cwd, { cwdKnown }));
       continue;
     }
-    const info = classifyShellProbeToken(tok, cwd, { cwdKnown });
-    if (info.kind === 'path') out.paths.push(info.path);
-    else if (info.kind === 'relative-unknown') out.skippedRelativeUnknown = true;
+    record(classifyShellProbeToken(tok, cwd, { cwdKnown }));
   }
   return out;
+}
+
+// Index just past a sed/awk program: options (and their values) are skipped,
+// `--` ends them, and the first non-option token is the script itself.
+function indexAfterScriptOperand(cmd, tokens) {
+  let i = 1;
+  while (i < tokens.length) {
+    const tok = tokens[i];
+    if (!tok) {
+      i++;
+      continue;
+    }
+    if (tok === '--') return i + 1;
+    if (tok.startsWith('-')) {
+      i += shellOptionConsumesValue(cmd, tok) ? 2 : 1;
+      continue;
+    }
+    return i + 1;
+  }
+  return i;
 }
 
 function extractShellProbePaths(tokens, cwd, { cwdKnown = true } = {}) {
@@ -464,51 +483,12 @@ function extractShellProbePaths(tokens, cwd, { cwdKnown = true } = {}) {
     }
     return { ...extractShellProbeTargets(tokens, cwd, { minIndex: i, cwdKnown }), cmd };
   }
-  if (cmd === 'sed') {
-    if (isSedBounded(tokens)) return { paths: [], skippedRelativeUnknown: false, cmd };
-    let i = 1;
-    while (i < tokens.length) {
-      const tok = tokens[i];
-      if (!tok) {
-        i++;
-        continue;
-      }
-      if (tok === '--') {
-        i++;
-        break;
-      }
-      if (tok.startsWith('-')) {
-        i += shellOptionConsumesValue(cmd, tok) ? 2 : 1;
-        continue;
-      }
-      // First non-option token is the script/program. Remaining
-      // path-like args are candidate target files.
-      i++;
-      break;
-    }
-    return { ...extractShellProbeTargets(tokens, cwd, { minIndex: i, cwdKnown }), cmd };
-  }
-  if (cmd === 'awk') {
-    if (isAwkBounded(tokens)) return { paths: [], skippedRelativeUnknown: false, cmd };
-    let i = 1;
-    while (i < tokens.length) {
-      const tok = tokens[i];
-      if (!tok) {
-        i++;
-        continue;
-      }
-      if (tok === '--') {
-        i++;
-        break;
-      }
-      if (tok.startsWith('-')) {
-        i += shellOptionConsumesValue(cmd, tok) ? 2 : 1;
-        continue;
-      }
-      i++;
-      break;
-    }
-    return { ...extractShellProbeTargets(tokens, cwd, { minIndex: i, cwdKnown }), cmd };
+  if (cmd === 'sed' || cmd === 'awk') {
+    const bounded = cmd === 'sed' ? isSedBounded(tokens) : isAwkBounded(tokens);
+    if (bounded) return { paths: [], skippedRelativeUnknown: false, cmd };
+    // Remaining path-like args after the program are candidate target files.
+    const minIndex = indexAfterScriptOperand(cmd, tokens);
+    return { ...extractShellProbeTargets(tokens, cwd, { minIndex, cwdKnown }), cmd };
   }
   return { paths: [], skippedRelativeUnknown: false, cmd };
 }
@@ -579,10 +559,9 @@ function rewriteMsysDrivePaths(command) {
   let changed = false;
   let out = '';
   let last = 0;
-  let m;
   // Matches occur only in unquoted regions (quoted chars are '\0' in `mask`),
   // so the captured groups hold the real, unmasked path text.
-  while ((m = re.exec(mask)) !== null) {
+  for (const m of mask.matchAll(re)) {
     const [full, pre, drive, rest] = m;
     out += src.slice(last, m.index);
     out += `${pre}${drive.toUpperCase()}:\\${rest.replace(/\//g, '\\')}`;
@@ -686,6 +665,15 @@ function inlineScriptExtension(isNode, esm) {
   return esm ? '.mjs' : '.cjs';
 }
 
+// The hoisted file's extension and the interpreter flags that survive: the
+// `--input-type` flag only describes an inline body; the extension carries
+// the module kind for a file, so the flag is dropped with the body.
+function inlineScriptFileShape(exe, rawFlags) {
+  const flags = String(rawFlags || '');
+  const extension = inlineScriptExtension(/^node/i.test(exe), /--input-type=module/.test(flags));
+  return { extension, keptFlags: flags.replace(/\s+--input-type=\w+/g, '') };
+}
+
 export function planInlineScriptHoist(command) {
   const text = String(command || '');
   if (!text.trim()) return null;
@@ -694,13 +682,7 @@ export function planInlineScriptHoist(command) {
   const [whole, exe, rawFlags, , body] = match;
   if (INLINE_UNSAFE_BODY.test(body)) return null;
   if (INLINE_FILE_RELATIVE.test(body)) return null;
-  const flags = String(rawFlags || '');
-  const isNode = /^node/i.test(exe);
-  const esm = /--input-type=module/.test(flags);
-  const extension = inlineScriptExtension(isNode, esm);
-  // `--input-type` only describes an inline body; the extension carries the
-  // module kind for a file, so the flag is dropped with the body.
-  const keptFlags = flags.replace(/\s+--input-type=\w+/g, '');
+  const { extension, keptFlags } = inlineScriptFileShape(exe, rawFlags);
   return {
     exe,
     extension,
@@ -723,11 +705,7 @@ export function planLongInlineScriptFileTransport(
   const match = text.match(LONG_INLINE_SCRIPT_RE);
   if (!match) return null;
   const [whole, exe, rawFlags, , doubleBody, singleBody] = match;
-  const flags = String(rawFlags || '');
-  const isNode = /^node/i.test(exe);
-  const esm = /--input-type=module/.test(flags);
-  const extension = inlineScriptExtension(isNode, esm);
-  const keptFlags = flags.replace(/\s+--input-type=\w+/g, '');
+  const { extension, keptFlags } = inlineScriptFileShape(exe, rawFlags);
   let body = doubleBody;
   if (body === undefined) {
     body = String(singleBody || '');
@@ -832,6 +810,22 @@ export async function preflightShellLargeFileProbe(command, cwd) {
   return null;
 }
 
+// Commands whose arguments after the command name are the paths they write.
+const SHELL_PATH_ARG_MUTATORS = new Set([
+  'touch',
+  'mkdir',
+  'mktemp',
+  'rm',
+  'rmdir',
+  'chmod',
+  'chown',
+  'truncate',
+  'mv',
+  'cp',
+  'install',
+  'ln',
+]);
+
 export async function analyzeShellCommandEffects(command, cwd) {
   const text = String(command || '').trim();
   let localCwd = resolve(cwd || process.cwd());
@@ -908,23 +902,13 @@ export async function analyzeShellCommandEffects(command, cwd) {
       global = true;
       continue;
     }
+    // tee and >/>> segments were handled above, so only argument-taking
+    // mutators remain.
     let segmentPaths = [];
-    if (['touch', 'mkdir', 'mktemp', 'rm', 'rmdir', 'chmod', 'chown', 'truncate'].includes(cmd)) {
-      segmentPaths = extractShellPathArgs(tokens, localCwd, { minIndex: 1 });
-    } else if (['mv', 'cp', 'install', 'ln'].includes(cmd)) {
+    if (SHELL_PATH_ARG_MUTATORS.has(cmd) || (cmd === 'perl' && tokens.some((t) => /^-p/i.test(t) || /^-i/i.test(t)))) {
       segmentPaths = extractShellPathArgs(tokens, localCwd, { minIndex: 1 });
     } else if (cmd === 'sed' && tokens.includes('-i')) {
       segmentPaths = extractShellPathArgs(tokens, localCwd, { minIndex: tokens.lastIndexOf('-i') + 1 });
-    } else if (cmd === 'perl' && tokens.some((t) => /^-p/i.test(t) || /^-i/i.test(t))) {
-      segmentPaths = extractShellPathArgs(tokens, localCwd, { minIndex: 1 });
-    } else if (cmd === 'tee') {
-      segmentPaths = extractShellPathArgs(tokens, localCwd, { minIndex: 1 });
-    }
-    for (let i = 0; i < tokens.length; i++) {
-      if (tokens[i] === '>' || tokens[i] === '>>') {
-        const redirected = resolveShellPathToken(tokens[i + 1], localCwd);
-        if (redirected) segmentPaths.push(redirected);
-      }
     }
     if (segmentPaths.length === 0) {
       global = true;

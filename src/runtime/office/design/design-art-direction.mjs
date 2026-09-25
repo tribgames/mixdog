@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 import { hslToHex, normalizePaletteTokens } from './design-discipline.mjs';
-import { plainObject } from '../shared/values.mjs';
+import { plainObject, sha256 } from '../shared/values.mjs';
 
 const DIRECTION_BLUEPRINTS = Object.freeze([
   Object.freeze({
@@ -115,9 +114,7 @@ function creativeSystemOf(blueprint) {
 }
 
 function hash(value) {
-  return createHash('sha256')
-    .update(String(value || ''))
-    .digest('hex');
+  return sha256(String(value || ''));
 }
 
 function stableHue(value) {

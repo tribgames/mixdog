@@ -8,6 +8,7 @@ import { embeddingToSql } from '../memory.mjs';
 import { recallSubstringPredicate } from '../recall-substring-predicate.mjs';
 import { buildExactTerms } from '../recall-scoring.mjs';
 import { filterClause } from './plan.mjs';
+import { envNonNegativeInt } from '../../../shared/env.mjs';
 
 // Bounded lexical scan window. The trgm/exact CTE legs run `ILIKE '%…%'`
 // which are indexable when optional pg_trgm indexes exist. On portable
@@ -22,8 +23,7 @@ import { filterClause } from './plan.mjs';
 // rescued rows sat beyond the newest 20k inserts), so the default only guards
 // pathological table growth, not today's scale. MIXDOG_RECALL_LEXSCAN_ROWS
 // overrides; 0 restores the unbounded scan.
-const _envLexScan = Number(process.env.MIXDOG_RECALL_LEXSCAN_ROWS);
-const RECALL_LEXSCAN_ROWS = Number.isFinite(_envLexScan) && _envLexScan >= 0 ? Math.floor(_envLexScan) : 200_000;
+const RECALL_LEXSCAN_ROWS = envNonNegativeInt('MIXDOG_RECALL_LEXSCAN_ROWS', 200_000);
 function lexScanBound(alias = '') {
   if (RECALL_LEXSCAN_ROWS <= 0) return '';
   const col = alias ? `${alias}.id` : 'id';

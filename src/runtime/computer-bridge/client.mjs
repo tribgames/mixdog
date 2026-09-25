@@ -7,7 +7,12 @@
  * `computer` tool surface plus the async executor behind tool calls. The bridge
  * only exists while the desktop app runs with Computer Use enabled.
  */
-import { normalizeComputerToolArgs, toComputerHostCommand, validateComputerToolArgs } from './action-schema.mjs';
+import {
+  COMPUTER_OBSERVATION_ACTIONS,
+  normalizeComputerToolArgs,
+  toComputerHostCommand,
+  validateComputerToolArgs,
+} from './action-schema.mjs';
 import { computerResultRecovery, formatComputerToolError } from './error-recovery.mjs';
 import { computerErrorCode } from './error-code.mjs';
 import { bridgeDiscoveryChanged, readBridgeDiscovery } from '../bridge-discovery.mjs';
@@ -182,7 +187,7 @@ function computerErrorResult(text) {
 // "capture the exact window again", so the client does that capture itself and
 // returns it with the refusal instead of spending a separate call on it.
 const RECAPTURE_ON_REFUSAL_CODES = new Set(['stale_target', 'stale_frame']);
-const READ_ONLY_TOOL_ACTIONS = new Set(['list', 'diagnose', 'capture', 'verify', 'wait_for_user']);
+const READ_ONLY_TOOL_ACTIONS = new Set(COMPUTER_OBSERVATION_ACTIONS);
 
 async function refusalWithRecapture(message, args, context) {
   const windowId = args?.input?.window_id;
@@ -344,7 +349,8 @@ export async function executeComputerTool(rawArgs, context = {}) {
   if (!body?.ok) {
     const message = String(body?.error || `computer bridge request failed (HTTP ${response.status})`);
     return (
-      (await refusalWithRecapture(message, args, context)) ?? computerErrorResult(formatComputerToolError(message, args))
+      (await refusalWithRecapture(message, args, context)) ??
+      computerErrorResult(formatComputerToolError(message, args))
     );
   }
   const value = body.value || {};

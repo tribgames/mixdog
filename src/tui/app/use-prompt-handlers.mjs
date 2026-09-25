@@ -107,6 +107,7 @@ export function usePromptHandlers({
     },
     [
       contextPanel,
+      surface,
       usagePanel,
       closeUsagePanel,
       restoreQueuedToPrompt,

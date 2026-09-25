@@ -12,6 +12,8 @@ export const WORKSPACES = [
   {
     dir: '.',
     exclusions: {
+      test: 'the release gate runtime job runs the default lane on every gated push',
+      'test:slow': 'the release gate runtime-slow job runs it on every gated push',
       'smoke:all': 'aggregate; its components run individually',
       'smoke:loop': 'long-running local endurance harness',
       'smoke:loop:final': 'endurance-harness gate, needs hours of loop data',
@@ -24,6 +26,8 @@ export const WORKSPACES = [
   {
     dir: 'apps/desktop',
     exclusions: {
+      test: 'the release gate desktop-tests fast leg runs it on every gated push',
+      'test:slow': 'the release gate desktop-tests slow leg runs it on every gated push',
       'test:all': 'aggregate of the fast, slow, and live lanes',
       'test:live': 'needs built artifacts; the packaging workflow owns it',
       'test:daemon:e2e': 'needs the built daemon; the release gate desktop job owns it',

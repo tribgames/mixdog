@@ -8,6 +8,7 @@ import {
   pluginMcpServerName,
   pluginRawMcpServers,
   pluginMcpEnableScript,
+  pluginServerMatcher,
   resolveContainedPluginPath,
   mergeMcpServerConfig,
 } from './plugin-mcp.mjs';
@@ -15,12 +16,6 @@ import {
 /** The `mcpServers` map of a config as a fresh object (never the live one). */
 export function mcpServersOf(config) {
   return config.mcpServers && typeof config.mcpServers === 'object' ? { ...config.mcpServers } : {};
-}
-
-/** Every entry a plugin owns: `<name>` and `<name>--<key>`. */
-export function pluginServerMatcher(serverName) {
-  const prefix = `${serverName}--`;
-  return (name) => name === serverName || name.startsWith(prefix);
 }
 
 function pluginMcpEnv(pluginDataDir, plugin, serverName) {

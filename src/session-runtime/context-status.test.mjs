@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createContextStatus } from './context-status.mjs';
+import { createContextState } from '../tui/session/context-state.mjs';
+import { contextStatusForSession, createContextStatus } from './context-status.mjs';
 
 const emptyUsage = {
   reasoningUsage: null,
@@ -49,3 +50,72 @@ for (const [name, session] of [
     assert.deepEqual(api.contextStatus().usage, emptyUsage);
   });
 }
+
+test('a stats pulse after one appended message meters only that message and matches a fresh status', () => {
+  const reads = new Map();
+  const counted = (id, text) => {
+    reads.set(id, 0);
+    return [
+      {
+        type: 'text',
+        get text() {
+          reads.set(id, reads.get(id) + 1);
+          return text;
+        },
+      },
+    ];
+  };
+  const walked = () => [...reads].filter(([, count]) => count > 0).map(([id]) => id);
+  const resetReads = () => {
+    for (const id of reads.keys()) reads.set(id, 0);
+  };
+  const session = {
+    id: 'pulse',
+    provider: 'openai',
+    model: 'test',
+    contextWindow: 100000,
+    cwd: process.cwd(),
+    tools: [{ name: 'read', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } }],
+    messages: [
+      { role: 'system', content: 'rules' },
+      { role: 'user', content: 'question' },
+      { role: 'assistant', content: counted('answer', 'answer '.repeat(30)) },
+      { role: 'tool', toolCallId: 'c1', content: counted('result', 'body '.repeat(80)) },
+      { role: 'user', content: 'again' },
+    ],
+  };
+  const api = createContextStatus({
+    getSession: () => session,
+    getRoute: () => ({ provider: session.provider, model: session.model, contextWindow: session.contextWindow }),
+    getCurrentCwd: () => session.cwd,
+    getMode: () => 'default',
+  });
+  let state = { stats: {} };
+  const { syncContextStats } = createContextState({
+    runtime: { contextStatus: api.contextStatus, session },
+    getState: () => state,
+    updateState: (patch) => {
+      state = { ...state, ...patch };
+    },
+    getPendingSessionReset: () => false,
+    getVisibleGoal: () => null,
+  });
+  const tick = () => syncContextStats({ allowEstimated: true });
+  const fresh = () => contextStatusForSession(structuredClone(session), { getMode: () => 'default' });
+
+  tick();
+  resetReads();
+  session.messages.push({ role: 'assistant', content: counted('in-place', 'reply '.repeat(20)) });
+  const grown = tick();
+  assert.deepEqual(walked(), ['in-place']);
+  assert.deepEqual(grown, fresh());
+
+  session.messages.push({ role: 'user', content: 'ack' });
+  tick();
+  resetReads();
+  session.messages = [...session.messages, { role: 'assistant', content: counted('replaced', 'final '.repeat(20)) }];
+  const replaced = tick();
+  assert.deepEqual(walked(), ['replaced']);
+  assert.deepEqual(replaced, fresh());
+  assert.ok(replaced.usedTokens > grown.usedTokens);
+});

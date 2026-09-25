@@ -27,8 +27,6 @@
 .sidebar.session-sidebar,
 .workspace-tabs-shell,
 .bottom-panel-tabs,
-.pane-session-header,
-.pane-draft,
 .workspace-empty {
   user-select: none;
   -webkit-user-select: none;

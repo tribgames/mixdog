@@ -53,12 +53,8 @@ export function useSourceControlHistory({
       setLoading(true);
       try {
         const page = await api.gitLog(projectPath, query, skip, HISTORY_PAGE_SIZE);
-        const next = reset
-          ? page
-          : [
-              ...historyRef.current,
-              ...page.filter((entry) => !historyRef.current.some((existing) => existing.hash === entry.hash)),
-            ];
+        const known = new Set(historyRef.current.map((existing) => existing.hash));
+        const next = reset ? page : [...historyRef.current, ...page.filter((entry) => !known.has(entry.hash))];
         historyRef.current = next;
         setHistory(next);
         setHasMore(page.length === HISTORY_PAGE_SIZE);

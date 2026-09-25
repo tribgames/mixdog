@@ -12,7 +12,6 @@ const REDEEM_REFRESH_BUDGET_MS = 15_000;
 
 export function createProviderUsage({
   caches,
-  getConfig: _getConfig,
   getReg,
   displayConfig,
   providerSetup,

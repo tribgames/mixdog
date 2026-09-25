@@ -133,9 +133,9 @@ function runDetached({ spec, baseOpts, stdin, timeoutMs, onSpawnError }) {
     // Explicit async hooks outlive the initiating turn, but retain a bounded lifetime.
     const killTimer = setTimeout(() => terminateTree(child), timeoutMs);
     killTimer.unref?.();
-    child.on('error', () => clearTimeout(killTimer));
     child.on('close', () => clearTimeout(killTimer));
     child.on('error', (error) => {
+      clearTimeout(killTimer);
       if (typeof onSpawnError === 'function') onSpawnError(error);
     });
     writeHookInput(child, stdin, (error) => {

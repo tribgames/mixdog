@@ -77,7 +77,10 @@
   min-width: 0;
   flex: 1;
 }
+/* Margins are set here, not inherited from settings.css (the dialog <p>/<h1>
+   reset), which is not guaranteed to be loaded alongside the wizard. */
 .onboarding-dialog h1 {
+  margin: 0;
   color: var(--mx-text);
   font-size: 29px;
   font-weight: var(--mx-weight-semibold);
@@ -85,7 +88,7 @@
   letter-spacing: -0.45px;
 }
 .onboarding-hero p {
-  margin-top: 10px;
+  margin: 10px 0 0;
   max-width: 640px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-ui);
@@ -111,9 +114,9 @@
   min-height: 240px;
   width: 100%;
   flex: 0 0 auto;
-  /* Sparse steps center vertically; overflowing steps zero the margins and
-     scroll as usual (flex auto-margin behavior). */
-  margin-block: auto;
+  /* Steps pin to the top under the hero: a vertically centered card moved
+     every time a step or its state changed height. */
+  margin-block: 0;
   display: block;
   overflow: visible;
   background: transparent;
@@ -165,8 +168,10 @@
    denser and wear the popup's quiet action plate (the usage card's Compact
    button) so a button reads as a button on the same base plate. */
 .onboarding-provider-list button,
-.onboarding-star-actions button {
-  min-height: 28px;
+.onboarding-card-actions button {
+  /* 32px: the same height as the wizard's fields, so a row's input and its
+     buttons share one line. */
+  min-height: 32px;
   padding: 0 11px;
   border: 0;
   border-radius: var(--mx-radius-md);
@@ -177,14 +182,14 @@
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
 }
-.onboarding-star-actions button {
+.onboarding-card-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
 }
 .onboarding-provider-list button:hover:not(:disabled),
-.onboarding-star-actions button:hover:not(:disabled) {
+.onboarding-card-actions button:hover:not(:disabled) {
   color: var(--mx-text);
   background: var(--mx-hover);
   box-shadow: var(--mx-popup-action-ring-hover);
@@ -193,13 +198,13 @@
    keeps ONE plated action. A hairline still reads as a BUTTON (user: 포갓엔
    버튼이 없고) — the quiet twin differs by ink, not by losing its frame. */
 .onboarding-provider-list button.ghost,
-.onboarding-star-actions button.ghost {
+.onboarding-card-actions button.ghost {
   color: var(--mx-text-muted);
   background: transparent;
   box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
 .onboarding-provider-list button.ghost:hover:not(:disabled),
-.onboarding-star-actions button.ghost:hover:not(:disabled) {
+.onboarding-card-actions button.ghost:hover:not(:disabled) {
   color: var(--mx-text);
   background: var(--mx-hover);
   box-shadow: inset 0 0 0 0.5px var(--mx-border);
@@ -208,8 +213,7 @@
    rhythm and no half-cut hairline at the fold. The rows are FLAT (user:
    아이템 프레임이 블록처럼 느껴진다) — a hairline ring on the card's own
    plate, a hover wash, no lift gradient and no drop shadow. */
-.onboarding-provider-list,
-.onboarding-model-grid {
+.onboarding-provider-list {
   display: grid;
   gap: 8px;
   border: 0;
@@ -217,8 +221,7 @@
   box-shadow: none;
 }
 .onboarding-provider-list > form,
-.onboarding-provider-row,
-.onboarding-model-grid > label {
+.onboarding-provider-row {
   min-height: 0;
   padding: 10px 16px;
   border: 0;
@@ -228,8 +231,7 @@
   transition: background-color var(--mx-motion-ink);
 }
 .onboarding-provider-list > form:hover,
-.onboarding-provider-row:hover,
-.onboarding-model-grid > label:hover {
+.onboarding-provider-row:hover {
   background: var(--mx-hover);
 }
 /* Provider rows: the state sits under the name for every kind, and the OAuth
@@ -260,20 +262,14 @@
   width: 100%;
   min-width: 0;
 }
-.onboarding-provider-row > span {
-  grid-column: 3;
-  justify-self: end;
+/* Fixed action slots: the main action (Connect/Replace) always takes slot
+   4 and Forget slot 5, so every row's buttons share one width and column. */
+.onboarding-provider-list > form > input + button {
+  grid-column: 4;
 }
-/* A lone trailing action (Enable/Connect/Forget) pins to the last slot. */
-.onboarding-provider-list > form > button:last-child,
+.onboarding-provider-list > form > button.ghost:last-child,
 .onboarding-provider-row > button:last-child {
   grid-column: 5;
-}
-/* input + single action (channel Save, LM Studio Enable, token Replace):
-   the button spans both action slots, so no empty track floats between the
-   input and the button or at the card's right edge. */
-.onboarding-provider-list > form > input + button:last-child {
-  grid-column: 4 / 6;
 }
 /* Saved secrets show a masked value instead of an empty password box. */
 .onboarding-provider-list input.masked {
@@ -283,11 +279,6 @@
 /* Git rows keep a free-flowing right cluster (no input column to align). */
 .onboarding-provider-row.onboarding-provider-row--plain {
   display: flex;
-  gap: 14px;
-}
-.onboarding-model-grid > label {
-  display: flex;
-  align-items: center;
   gap: 14px;
 }
 .onboarding-model-section {
@@ -314,26 +305,22 @@
   background: var(--mx-border);
 }
 .onboarding-provider-list form > div,
-.onboarding-provider-row > div,
-.onboarding-model-grid label > span {
+.onboarding-provider-row > div {
   min-width: 150px;
   flex: 1;
   display: grid;
 }
 .onboarding-provider-list form > div,
-.onboarding-provider-row > div,
-.onboarding-model-grid label > span {
+.onboarding-provider-row > div {
   gap: 8px;
 }
-.onboarding-provider-list b,
-.onboarding-model-grid b {
+.onboarding-provider-list b {
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-semibold);
   line-height: 1;
 }
-.onboarding-provider-list small,
-.onboarding-model-grid small {
+.onboarding-provider-list small {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
@@ -343,7 +330,6 @@
    (user: 테두리 스타일이 중구난방): 32px, 8px radius, hairline at rest, the
    keyboard ring tucked one pixel off the field. */
 .onboarding-provider-list input,
-.onboarding-model-grid input,
 .onboarding-profile-fields input,
 .onboarding-dialog .mx-select-root .mx-select-trigger {
   box-sizing: border-box;
@@ -361,169 +347,30 @@
   font-weight: var(--mx-weight-regular);
 }
 .onboarding-provider-list input:hover:not(:disabled),
-.onboarding-model-grid input:hover:not(:disabled),
 .onboarding-profile-fields input:hover:not(:disabled),
 .onboarding-dialog .mx-select-root .mx-select-trigger:hover:not(:disabled) {
   box-shadow: var(--mx-button-contrast);
 }
 .onboarding-provider-list input:focus,
-.onboarding-model-grid input:focus,
 .onboarding-profile-fields input:focus,
 .onboarding-dialog .mx-select-root .mx-select-trigger:focus-visible {
   outline-color: var(--mx-focus);
   box-shadow: var(--mx-button);
 }
 .onboarding-provider-list input::placeholder,
-.onboarding-model-grid input::placeholder,
 .onboarding-profile-fields input::placeholder {
   color: var(--mx-text-faint);
 }
 .onboarding-provider-list input {
   min-width: 150px;
 }
-.onboarding-model-grid .mx-select-root {
-  width: min(280px, 44vw);
-  min-width: 150px;
-}
-.onboarding-model-grid input {
-  width: min(280px, 44vw);
-  min-width: 150px;
-}
-/* Workflow profile cards */
-.onboarding-workflow-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 320px));
-  justify-content: center;
-  gap: 12px;
-}
-.onboarding-workflow-grid > button {
-  position: relative;
-  min-height: 216px;
-  display: grid;
-  gap: 8px;
-  align-content: start;
-  padding: 18px;
-  border: 0;
-  border-radius: var(--mx-radius-lg);
-  text-align: left;
-  color: var(--mx-text);
-  background: transparent;
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-  cursor: pointer;
-  transition:
-    background-color var(--mx-motion-ink),
-    box-shadow var(--mx-motion-ink);
-}
-.onboarding-workflow-grid > button:hover:not(:disabled) {
-  background: var(--mx-hover);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border);
-}
-/* Selected keeps its own plate: one raised step and a full-pixel ring. */
-.onboarding-workflow-grid > button.selected {
-  background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 1px var(--mx-border-strong);
-}
-.onboarding-workflow-icon {
-  width: 38px;
-  height: 38px;
-  margin-bottom: 2px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--mx-radius-lg);
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-3);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-}
-.onboarding-workflow-grid > button b {
-  font-size: var(--mx-font-body);
-  font-weight: var(--mx-weight-semibold);
-}
-.onboarding-workflow-grid > button small {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-.onboarding-workflow-points {
-  margin: 4px 0 0;
-  padding: 12px 0 0;
-  list-style: none;
-  display: grid;
-  gap: 7px;
-  border-top: 0.5px solid var(--mx-border-muted);
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-minor);
-  line-height: var(--mx-line-meta);
-}
-.onboarding-workflow-points li {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.onboarding-workflow-points li::before {
-  content: "";
-  flex: none;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--mx-success);
-  transform: translateY(-2px);
-}
-.onboarding-workflow-grid > button .onboarding-choice-check {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  color: var(--mx-success);
-}
-/* Phone pairing (reuses the Settings → Connection QR cards). */
-.onboarding-pair {
-  display: grid;
-  justify-items: center;
-  gap: 12px;
-  width: min(600px, 100%);
-  margin-inline: auto;
-}
-/* Channels: authenticated providers pick which one Mixdog talks through. */
-/* Beats `.onboarding-provider-row > div` (grid/flex:1): the segmented toggle
-   must stay a compact side-by-side pair, not stacked full-width rows. */
-.onboarding-provider-row > div.onboarding-provider-toggle,
-.onboarding-provider-toggle {
-  min-width: 0;
-  flex: none;
-  display: flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-}
-.onboarding-provider-toggle > button {
-  min-height: 24px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text-muted);
-  background: transparent;
-  box-shadow: none;
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-regular);
-  cursor: pointer;
-}
-.onboarding-provider-toggle > button:hover:not(:disabled) {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-}
-.onboarding-provider-toggle > button.active {
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-3);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border);
-}
-.onboarding-provider-row > span,
 .onboarding-provider-list .connected {
   color: var(--mx-success);
   font-size: var(--mx-font-meta);
 }
 /* Step prose primitives */
 .onboarding-note {
+  margin: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-minor);
@@ -546,298 +393,98 @@
   cursor: pointer;
   font-size: inherit;
 }
-/* Theme mode cards (System/Dark/White): previews paint the built-in dark and
-   light palettes; System splits the two halves. */
-.onboarding-theme-grid {
+/* One card grammar for every step (profile, Git, star): the full body width
+   like the provider lists, so every step shares the hero's left edge; a
+   left-aligned head (44px icon + title + pills), body copy, and a hairline
+   action row — moving between steps never shifts the frame. */
+.onboarding-card {
+  width: 100%;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 220px));
-  justify-content: center;
   gap: 12px;
-}
-.onboarding-theme-grid > button {
-  display: grid;
-  gap: 8px;
-  padding: 8px;
-  border: 0;
+  padding: 22px 26px 18px;
   border-radius: var(--mx-radius-lg);
   text-align: left;
   color: var(--mx-text);
   background: transparent;
   box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-  cursor: pointer;
-  transition:
-    background-color var(--mx-motion-ink),
-    box-shadow var(--mx-motion-ink);
 }
-.onboarding-theme-grid > button:hover:not(:disabled) {
-  background: var(--mx-hover);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border);
-}
-.onboarding-theme-grid > button.selected {
-  background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 1px var(--mx-border-strong);
-}
-.onboarding-theme-preview {
-  display: block;
-  /* Portrait thumbnails (user decision): tall cards fill the fixed dialog. */
-  aspect-ratio: 3 / 4;
-  border-radius: var(--mx-radius-md);
-  overflow: hidden;
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-}
-.onboarding-theme-preview-empty {
-  display: block;
-  width: 100%;
-  height: 100%;
-  background: var(--mx-bg-layer-2);
-}
-.onboarding-theme-split {
-  display: flex;
-  width: 100%;
-  height: 100%;
-}
-.onboarding-theme-split > .onboarding-theme-chrome {
-  width: 50%;
-  flex: none;
-}
-.onboarding-theme-chrome {
-  display: flex;
-  width: 100%;
-  height: 100%;
-}
-.onboarding-theme-side {
-  width: 32%;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 7px;
-}
-.onboarding-theme-side > span,
-.onboarding-theme-main > span {
-  flex: none;
-  height: 3px;
-  border-radius: var(--mx-radius-hair);
-}
-.onboarding-theme-main {
-  flex: 1;
+.onboarding-card-head {
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 9px;
-}
-.onboarding-theme-main > .onboarding-theme-tab {
-  width: 38px;
-  height: 8px;
-  border-radius: var(--mx-radius-hair);
-  margin-bottom: 2px;
-}
-.onboarding-theme-main > .onboarding-theme-composer {
-  margin-top: auto;
-  height: 13px;
-  border-radius: var(--mx-radius-sm);
-  display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 5px;
-}
-.onboarding-theme-composer > span:first-child {
-  flex: none;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-}
-.onboarding-theme-composer > span:last-child {
-  flex: 1;
-  height: 2px;
-  border-radius: var(--mx-radius-hair);
-}
-.onboarding-theme-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 3px 2px;
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-semibold);
-}
-.onboarding-theme-name svg {
-  color: var(--mx-success);
-}
-.onboarding-theme-name small {
-  margin-left: auto;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-regular);
-}
-/* Output styles: one horizontal row of tile cards (check pinned top-right). */
-.onboarding-choice-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 220px));
-  justify-content: center;
-  gap: 12px;
-}
-.onboarding-choice-grid > button {
-  position: relative;
-  min-height: 300px;
-  gap: 8px;
-  padding: 16px;
-  border: 0;
-  border-radius: var(--mx-radius-lg);
-  color: var(--mx-text);
-  background: transparent;
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background-color var(--mx-motion-ink),
-    box-shadow var(--mx-motion-ink);
-}
-.onboarding-choice-grid > button:hover:not(:disabled) {
-  border: 0;
-  color: var(--mx-text);
-  background: var(--mx-hover);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border);
-}
-.onboarding-choice-grid > button.selected {
-  border: 0;
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 1px var(--mx-border-strong);
-}
-.onboarding-choice-grid > button .onboarding-choice-check {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  color: var(--mx-success);
-}
-.onboarding-choice-grid > button b {
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-semibold);
-}
-/* Two reserved lines: 1-line and 2-line descriptions must not shift the
-   badge/text baselines between neighboring cards (user: 정렬 틀어짐). */
-.onboarding-choice-grid > button small {
-  min-height: 32px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-/* Reply-length mock: line count mirrors the style's output volume. */
-.onboarding-choice-preview {
-  width: 100%;
-  flex: 1;
-  margin-top: 4px;
-  padding: 12px 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  border-radius: var(--mx-radius-md);
-  background: color-mix(in srgb, var(--mx-bg-deep) 55%, var(--mx-bg-layer-1));
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-}
-/* Reply header dot ties the mock to the green Output badge below. */
-.onboarding-choice-preview::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  margin-bottom: 3px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--mx-success) 65%, transparent);
-}
-.onboarding-choice-preview > i {
-  display: block;
-  height: 3px;
-  border-radius: var(--mx-radius-hair);
-  background: color-mix(in srgb, var(--mx-text) 16%, transparent);
-}
-.onboarding-choice-preview > i:first-child {
-  background: color-mix(in srgb, var(--mx-text) 34%, transparent);
-}
-.onboarding-choice-meta {
-  margin-top: 4px;
-  padding: 2px 8px;
-  border-radius: var(--mx-radius-pill);
-  color: var(--mx-success);
-  background: var(--mx-success-bg);
-  box-shadow: inset 0 0 0 0.5px var(--mx-success-border);
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-semibold);
-  font-variant-numeric: tabular-nums;
-}
-.onboarding-choice-grid > button:active:not(:disabled) {
-  background: var(--mx-pressed);
-}
-.onboarding-choice-grid > button.selected:active:not(:disabled) {
-  background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-bg-layer-1);
-}
-/* Closing star ask */
-.onboarding-star-card {
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  width: min(440px, 100%);
-  /* Fixed footprint: the starred / connected state swaps must not jump. */
-  min-height: 300px;
-  margin-inline: auto;
   gap: 14px;
-  padding: 40px 28px;
-  border-radius: var(--mx-radius-lg);
-  text-align: center;
-  background: transparent;
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
-.onboarding-star-icon {
-  width: 52px;
-  height: 52px;
+.onboarding-card-icon {
+  width: 44px;
+  height: 44px;
+  flex: none;
   display: grid;
   place-items: center;
-  border-radius: 14px;
-  color: var(--mx-warning);
-  background: var(--mx-warning-bg);
-}
-/* Final star ask: a flat GitHub-repo card (name, Public pill, description,
-   left-aligned actions over a hairline) — concrete, not a glow poster. */
-.onboarding-repo-card {
-  width: min(520px, 100%);
-  margin-inline: auto;
-  display: grid;
-  gap: 12px;
-  padding: 24px 26px 18px;
   border-radius: var(--mx-radius-lg);
-  text-align: left;
   color: var(--mx-text);
-  background: transparent;
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  background: var(--mx-bg-layer-2);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
 }
-.onboarding-repo-head {
+.onboarding-card-icon.round {
+  border-radius: 50%;
+}
+/* Connected GitHub: round avatar with a soft success ring. */
+.onboarding-card-icon.avatar {
+  overflow: hidden;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 0.5px var(--mx-border),
+    0 0 0 4px color-mix(in srgb, var(--mx-success) 16%, transparent);
+}
+.onboarding-card-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.onboarding-card-heading {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  color: var(--mx-icon-muted);
+  flex-wrap: wrap;
+  gap: 6px 10px;
 }
-/* GitHub mark in a small hairline tile — same grammar as the connect cards. */
-.onboarding-repo-head > svg {
-  width: 32px;
-  height: 32px;
-  padding: 7px;
-  border-radius: 9px;
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+/* Card copy owns its margins: settings.css (which zeroes dialog <p>) is not
+   loaded with the wizard, so the UA's 1em paragraph margins leaked in. */
+.onboarding-card-title,
+.onboarding-card-text,
+.onboarding-card-meta {
+  margin: 0;
 }
-.onboarding-repo-head b > span {
+.onboarding-card-title {
+  min-width: 0;
   color: var(--mx-text);
   font-size: var(--mx-font-body);
   font-weight: var(--mx-weight-semibold);
 }
-.onboarding-repo-card > p {
-  margin: 0;
+.onboarding-card-text {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-code);
   line-height: var(--mx-line-ui);
+}
+.onboarding-card-meta {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-minor);
+}
+/* Actions sit bottom-right over a hairline; a note takes the left. */
+.onboarding-card-actions {
+  margin-top: 4px;
+  padding-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 0.5px solid var(--mx-border-muted);
+}
+.onboarding-card-actions > small {
+  margin-right: auto;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
 }
 /* GitHub-style meta row: product facts instead of language/license trivia. */
 .onboarding-repo-meta {
@@ -859,8 +506,8 @@
   background: var(--mx-success);
 }
 /* Starred state gets a visible amber celebration instead of a dimmed gray. */
-.onboarding-star-actions button.primary.starred,
-.onboarding-star-actions button.primary.starred:disabled {
+.onboarding-card-actions button.starred,
+.onboarding-card-actions button.starred:disabled {
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 10%, var(--mx-bg-base));
   box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-warning) 45%, transparent);
@@ -922,34 +569,14 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-/* Two classes so this outranks .onboarding-star-actions' centered default. */
-.onboarding-star-actions.onboarding-repo-actions {
-  margin-top: 4px;
-  padding-top: 14px;
-  border-top: 0.5px solid var(--mx-border-muted);
-  justify-content: flex-end;
-}
-/* GitHub connect card (Git step): icon tile, status pill, identity chip. */
-.onboarding-connect-card {
-  width: min(480px, 100%);
-}
-/* Profile setup card: stacked labeled fields on the shared card sheet. */
+/* Profile setup card: settings-style rows (label and hint left, control
+   right) under the shared card head; the last row's own padding closes the
+   card, so the card's bottom inset shrinks to match. */
 .onboarding-profile-card {
-  width: min(420px, 100%);
-  justify-items: stretch;
-  text-align: left;
-  gap: 12px;
-  padding: 34px 30px;
-}
-.onboarding-profile-card > .onboarding-connect-icon {
-  justify-self: center;
-  margin-bottom: 2px;
+  padding-bottom: 6px;
 }
 /* Live initial avatar: adopts the primary-button identity, so the letter you
    type paints the same chrome the app uses for its main action. */
-.onboarding-profile-avatar {
-  border-radius: 50%;
-}
 .onboarding-profile-avatar.has-initial {
   color: var(--mx-grey-100);
   background: linear-gradient(
@@ -958,85 +585,40 @@
     color-mix(in srgb, var(--mx-bg-contrast) 55%, var(--mx-success))
   );
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--mx-bg-contrast) 16%, transparent);
-  font-size: 22px;
+  font-size: 19px;
   font-weight: var(--mx-weight-semibold);
-}
-.onboarding-profile-greeting {
-  justify-self: center;
-  margin: 0 0 6px;
-  padding: 6px 14px;
-  border-radius: var(--mx-radius-pill);
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-  font-size: var(--mx-font-code);
 }
 .onboarding-profile-fields {
   display: grid;
-  gap: 18px;
-  width: 100%;
 }
 .onboarding-profile-fields label {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 0;
+  border-top: 0.5px solid var(--mx-border-muted);
 }
 .onboarding-profile-fields label > span {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+.onboarding-profile-fields b {
   color: var(--mx-text);
-  font-size: var(--mx-font-minor);
+  font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-semibold);
-}
-/* Profile inputs wear the shared wizard field skin declared above. */
-.onboarding-profile-fields input {
-  width: 100%;
-}
-.onboarding-profile-fields .mx-select-root {
-  width: 100%;
 }
 .onboarding-profile-fields small {
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
 }
-.onboarding-connect-icon {
-  width: 56px;
-  height: 56px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--mx-radius-sheet);
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border);
-}
-.onboarding-connect-title {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  font-size: 16px;
-  font-weight: var(--mx-weight-semibold);
-}
-/* Connected profile: round GitHub avatar with a soft success ring. */
-.onboarding-connect-icon.avatar {
-  padding: 0;
-  overflow: hidden;
-  border-radius: 50%;
-  box-shadow:
-    inset 0 0 0 0.5px var(--mx-border),
-    0 0 0 4px color-mix(in srgb, var(--mx-success) 16%, transparent);
-}
-.onboarding-connect-icon img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.onboarding-connect-pills {
-  margin-top: 8px;
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-}
-.onboarding-star-card p.onboarding-connect-mail {
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-minor);
+/* Profile inputs wear the shared wizard field skin declared above. */
+.onboarding-profile-fields input,
+.onboarding-profile-fields .mx-select-root {
+  flex: none;
+  width: 220px;
 }
 .onboarding-pill {
   padding: 2.5px 9px;
@@ -1059,83 +641,6 @@
   background: var(--mx-bg-layer-2);
   box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
 }
-.onboarding-star-card small.onboarding-connect-identity {
-  padding: 4px 10px;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text-muted);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-}
-.onboarding-star-card b {
-  font-size: var(--mx-font-body);
-  font-weight: var(--mx-weight-semibold);
-}
-.onboarding-star-card p {
-  margin-top: 6px;
-  max-width: 420px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-code);
-  line-height: var(--mx-line-ui);
-}
-.onboarding-star-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.onboarding-star-card small {
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-}
-/* Context step: the session-lifecycle toggles live inside the memory card and
-   the card drops the 300px star floor, so the fixed-height dialog never grows
-   a scrollbar (user: 스크롤 안 나오게). */
-.onboarding-context-card {
-  min-height: 0;
-  gap: 12px;
-  padding: 24px 28px;
-}
-/* The decorative brain tile bought nothing but height and pushed the
-   fixed-height card into a scrollbar (user: 메모리에 스크롤 안 생기게, 아이콘
-   빼고 제목 살짝 키우자). The heading carries the step instead. */
-.onboarding-context-card .onboarding-connect-title {
-  font-size: 18px;
-}
-.onboarding-context-card > p,
-.onboarding-context-card div > p {
-  margin-top: 5px;
-}
-.onboarding-context-rows {
-  width: 100%;
-  display: grid;
-  gap: 8px;
-}
-.onboarding-context-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  border-radius: var(--mx-radius-lg);
-  text-align: left;
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-}
-.onboarding-context-row > div:first-child {
-  min-width: 0;
-  display: grid;
-}
-.onboarding-context-row b {
-  font-size: var(--mx-font-code);
-  font-weight: var(--mx-weight-semibold);
-}
-.onboarding-context-row small {
-  margin-top: 1px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
 .onboarding-dialog > footer {
   flex: none;
   margin-top: 20px;
@@ -1147,25 +652,12 @@
      card (user: 확인/취소 구역이 분리돼 보이는 게 별로다). */
   padding-top: 12px;
 }
+/* margin-left keeps Back/Next right-aligned on the last step, where Skip
+   is not rendered. */
 .onboarding-dialog > footer > div {
+  margin-left: auto;
   display: flex;
   gap: 8px;
-}
-/* Footer buttons take the dialog system's ladder; only the star card's
-   in-body primary repeats the contrast plate here. */
-.onboarding-star-actions button.primary {
-  color: var(--mx-grey-100);
-  background: var(--mx-bg-contrast);
-  box-shadow: var(--mx-button-contrast);
-  font-weight: var(--mx-weight-semibold);
-}
-.onboarding-star-actions button.primary:hover:not(:disabled) {
-  color: var(--mx-grey-100);
-  background: var(--mx-flat-hover-contrast);
-  box-shadow: var(--mx-button-contrast);
-}
-.onboarding-star-actions button.primary:active:not(:disabled) {
-  background: var(--mx-flat-press-contrast);
 }
 .onboarding-error {
   color: var(--mx-danger);
@@ -1174,6 +666,29 @@
 .onboarding-dialog button:disabled {
   opacity: var(--mx-op-disabled);
   cursor: wait;
+}
+/* Short windows (down to the 600px minimum height): tighter chrome keeps
+   the profile and Git steps inside the dialog without a scrollbar. */
+@media (max-height: 660px) {
+  .onboarding-dialog {
+    padding: 18px 30px 14px;
+  }
+  .onboarding-dialog h1 {
+    font-size: 23px;
+  }
+  .onboarding-hero p {
+    margin-top: 6px;
+  }
+  .onboarding-body {
+    margin-top: 12px;
+  }
+  .onboarding-dialog > footer {
+    margin-top: 10px;
+    padding-top: 8px;
+  }
+  .onboarding-profile-fields label {
+    padding-block: 9px;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1434,25 +949,19 @@ html[data-mixdog-mobile-tabs] .model-trigger {
     margin-top: 0;
     justify-content: space-between;
   }
-  .onboarding-model-grid .mx-select-root {
-    width: 100%;
-    max-width: none;
-  }
-  .onboarding-choice-grid {
-    grid-template-columns: 1fr;
-  }
-  .onboarding-theme-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .onboarding-workflow-grid {
-    grid-template-columns: 1fr;
-  }
   .onboarding-provider-list > form,
   .onboarding-provider-row,
-  .onboarding-model-grid > label {
+  .onboarding-profile-fields label {
     display: flex;
     align-items: stretch;
     flex-direction: column;
+  }
+  .onboarding-profile-fields label {
+    gap: 8px;
+  }
+  .onboarding-profile-fields input,
+  .onboarding-profile-fields .mx-select-root {
+    width: 100%;
   }
   .onboarding-provider-list form > input,
   .onboarding-provider-list input {

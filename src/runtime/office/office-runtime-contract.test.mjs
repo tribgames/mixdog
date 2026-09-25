@@ -247,6 +247,7 @@ test('describe exposes backend-aware advanced object operations', async () => {
     'horizontalAlignment',
     'verticalAlignment',
     'wrapText',
+    'indent',
     'locked',
     'borders',
   ]);
@@ -339,6 +340,15 @@ test('an operation error suggests a field only when it reads as a typo', async (
   assert.throws(
     () => assertOfficeOperationContracts({ format: 'docx', backend: 'mixdog-ooxml', operations: [{ op: 'add_toc' }] }),
     /Did you mean: insert_toc/
+  );
+  // A bulleted text box is its paragraphs; text beside them was required and then ignored.
+  const box = { op: 'add_textbox', slide: 1, paragraphs: [{ text: '요점', bullet: true }] };
+  assert.doesNotThrow(() =>
+    assertOfficeOperationContracts({ format: 'pptx', backend: 'mixdog-ooxml', operations: [box] })
+  );
+  assert.throws(
+    () => assertOfficeOperationContracts({ format: 'pptx', backend: 'mixdog-ooxml', operations: [{ op: 'add_textbox', slide: 1 }] }),
+    /requires one of: text or paragraphs/
   );
   // A property the writer would drop is rejected rather than silently ignored:
   // otherwise only the rendered page shows that the table was never styled.

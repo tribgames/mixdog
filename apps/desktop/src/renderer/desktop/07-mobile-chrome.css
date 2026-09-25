@@ -293,7 +293,6 @@ html[data-mixdog-mobile-tabs]
 :is(
   .composer-tool:not(.is-recording),
   .model-trigger,
-  .fast-mode-toggle,
   .pane-dock-toggle,
   .workspace-tab-home,
   .workspace-tab-compact-current,
@@ -445,8 +444,7 @@ html[data-mixdog-mobile-tabs] .desktop-body {
   border-top: 0;
   padding-inline: 0;
 }
-html[data-mixdog-mobile-tabs] .pane-cell > .workspace-tabs-shell,
-html[data-mixdog-mobile-tabs] .pane-strip-row > .workspace-tabs-shell {
+html[data-mixdog-mobile-tabs] .pane-cell > .workspace-tabs-shell {
   border-top: 0;
   border-bottom: 0;
   background: var(--mx-window-band);
@@ -1097,7 +1095,6 @@ html[data-mixdog-mobile-tabs]
 html[data-mixdog-mobile-tabs] .message .message-actions,
 html[data-mixdog-mobile-tabs] .tool-output-copy,
 html[data-mixdog-mobile-tabs] .sidebar-section-action,
-html[data-mixdog-mobile-tabs] .project-task-add,
 html[data-mixdog-mobile-tabs] .dock-pr-row-actions {
   opacity: 1;
   visibility: visible;
@@ -1133,18 +1130,11 @@ html[data-mixdog-mobile-tabs] .effort-control select {
   line-height: var(--mx-touch-main);
 }
 html[data-mixdog-mobile-tabs] .fast-control,
-html[data-mixdog-mobile-tabs] .route-controls > .fast-control,
-html[data-mixdog-mobile-tabs] .fast-mode-toggle {
+html[data-mixdog-mobile-tabs] .route-controls > .fast-control {
   width: var(--mx-touch-main);
   min-width: var(--mx-touch-main);
   height: var(--mx-touch-main);
   flex-basis: var(--mx-touch-main);
-}
-/* Fast rides the same bar as attach/mic/send, so it takes THEIR glyph measure
-   rather than the standalone 22 — the bar reads as one instrument. */
-html[data-mixdog-mobile-tabs] .fast-mode-toggle > svg {
-  width: calc(36px * 16 / 28 * var(--mx-device-scale, 2.5));
-  height: calc(36px * 16 / 28 * var(--mx-device-scale, 2.5));
 }
 html[data-mixdog-mobile-tabs] .composer-attachments > div:not(.image) {
   height: calc(36px * var(--mx-device-scale, 2.5));
@@ -1242,9 +1232,7 @@ html[data-mixdog-mobile-tabs] .session-sidebar-panels .schedules-row .row-overfl
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - var(--mx-rail-gutter, 12px) - 18px);
 }
 html[data-mixdog-mobile-tabs] .sidebar-section-heading,
-html[data-mixdog-mobile-tabs] .project-group-heading,
-html[data-mixdog-mobile-tabs] .sidebar-section-toggle,
-html[data-mixdog-mobile-tabs] .project-group-toggle {
+html[data-mixdog-mobile-tabs] .sidebar-section-toggle {
   height: var(--mx-touch);
   min-height: var(--mx-touch);
 }
@@ -1252,8 +1240,7 @@ html[data-mixdog-mobile-tabs] .sidebar-usage-heading {
   min-height: var(--mx-touch);
 }
 /* Section "+" actions answer to the tier-2 action + above, not to the row. */
-html[data-mixdog-mobile-tabs] .sidebar-section-action,
-html[data-mixdog-mobile-tabs] .project-task-add {
+html[data-mixdog-mobile-tabs] .sidebar-section-action {
   width: var(--mx-touch);
   height: var(--mx-touch);
   flex-basis: var(--mx-touch);
@@ -1291,7 +1278,6 @@ html[data-mixdog-mobile-tabs] .session-sidebar .sidebar-view-section-actions > .
 html[data-mixdog-mobile-tabs] .dock-language-toolbar,
 html[data-mixdog-mobile-tabs] .dock-scm-check-all,
 html[data-mixdog-mobile-tabs] .workbench-side-panel-tabs,
-html[data-mixdog-mobile-tabs] .workbench-side-panel-title,
 html[data-mixdog-mobile-tabs] .workbench-side-icon-bar.is-horizontal,
 html[data-mixdog-mobile-tabs] .workbench-search-input,
 html[data-mixdog-mobile-tabs] .dock-language-search,
@@ -1355,8 +1341,7 @@ html[data-mixdog-mobile-tabs] .workspace-pr-editor-header-actions > button {
    The composer bar moved with the chat footer above; the surface around it
    did not. The stage close floats over media as a control of its own. */
 html[data-mixdog-mobile-tabs] .studio-tile-actions button,
-html[data-mixdog-mobile-tabs] .studio-detail-close,
-html[data-mixdog-mobile-tabs] .studio-folder {
+html[data-mixdog-mobile-tabs] .studio-detail-close {
   width: var(--mx-touch-row-main);
   height: var(--mx-touch-row-main);
   flex-basis: var(--mx-touch-row-main);
@@ -1375,7 +1360,6 @@ html[data-mixdog-mobile-tabs] .model-catalog-panel .model-search {
 }
 html[data-mixdog-mobile-tabs] .model-search button,
 html[data-mixdog-mobile-tabs] .webhook-connection-copy,
-html[data-mixdog-mobile-tabs] .workflows-agent-remove,
 html[data-mixdog-mobile-tabs] .mx-toast-close {
   width: var(--mx-touch-row);
   height: var(--mx-touch-row);
@@ -1403,8 +1387,7 @@ html[data-mixdog-mobile-tabs]
     .editor-call-hierarchy-expand,
     .workspace-pr-editor-header-actions > button,
     .studio-tile-actions button,
-    .studio-detail-close,
-    .studio-folder
+    .studio-detail-close
   )
   > svg {
   width: var(--mx-touch-row-glyph-main);
@@ -1424,7 +1407,6 @@ html[data-mixdog-mobile-tabs]
     .workbench-search-input button,
     .model-search button,
     .webhook-connection-copy,
-    .workflows-agent-remove,
     .mx-toast-close
   )
   > svg {
@@ -1432,12 +1414,7 @@ html[data-mixdog-mobile-tabs]
   height: var(--mx-touch-row-glyph);
 }
 html[data-mixdog-mobile-tabs]
-  :is(
-    .sidebar-section-action,
-    .project-task-add,
-    .workbench-side-icon-bar.is-horizontal > button,
-    .onboarding-top-actions > button
-  )
+  :is(.sidebar-section-action, .workbench-side-icon-bar.is-horizontal > button, .onboarding-top-actions > button)
   > svg {
   width: var(--mx-touch-glyph);
   height: var(--mx-touch-glyph);

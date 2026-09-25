@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
+import { median, sortedFinite } from './lib/trace-stats.mjs';
 
 const USAGE = `usage: node scripts/graph-parity.mjs --old <binary> --new <binary> [--root <dir>] [--files <rel>...] [--json <out>] [--kind-map <path.json>] [--tokens] [--allow-new-languages <ids>] [--max-symbol-loss N] [--max-import-diff N] [--max-token-loss N] [--max-time-ratio 1.10] [--runs 3]
        node scripts/graph-parity.mjs --old-jsonl <file> --new-jsonl <file> [thresholds...]`;
@@ -225,13 +226,6 @@ function asArray(v) {
 
 function asStr(v) {
   return typeof v === 'string' ? v : '';
-}
-
-function median(values) {
-  const s = [...values].sort((a, b) => a - b);
-  if (!s.length) return 0;
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
 function normalizeSymbol(s) {
@@ -1018,7 +1012,7 @@ async function runTimedWalks(bin, root, runs) {
     times.push(result.ms);
     last = result;
   }
-  return { times, medianMs: median(times), stdout: last.stdout };
+  return { times, medianMs: median(sortedFinite(times)), stdout: last.stdout };
 }
 
 function kindMapError(message) {

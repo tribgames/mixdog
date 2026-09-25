@@ -178,41 +178,7 @@ export function useEditorFileSession({
     setPreview(null);
     setDocumentPreview(null);
     setDocumentError('');
-    if (filePreviewTypeForPath(relPath) && api?.previewProjectFile) {
-      void api
-        .previewProjectFile(projectPath, relPath, accessToken)
-        .then((result) => {
-          loadedRef.current = true;
-          savedMtime.current = result.mtimeMs;
-          savedDiskText.current = '';
-          savedText.current = '';
-          setPreview(result);
-          setLoad({
-            content: '',
-            mtimeMs: result.mtimeMs,
-            binary: true,
-            tooLarge: false,
-            encoding: 'utf8',
-          });
-          setRecovery(null);
-          setDiskChanged(false);
-          markDirty(false);
-        })
-        .catch((reason) => {
-          setLoad(null);
-          setError(reason instanceof Error ? reason.message : String(reason));
-        });
-      return;
-    }
-    // Desktop document clicks use the default app. Restored tabs must not
-    // launch programs on mount or retry the PDF viewer: keep the manual escape.
-    // A paired phone cannot launch the desktop app, so retain its page viewer.
-    const documentFormat = documentPreviewFormatForPath(relPath);
-    const documentFailed = (reason: unknown): void => {
-      setDocumentError(reason instanceof Error ? reason.message : String(reason));
-      readFileContents();
-    };
-    const documentOpened = (result: { mtimeMs: number }): void => {
+    const previewOpened = (result: { mtimeMs: number }): void => {
       loadedRef.current = true;
       savedMtime.current = result.mtimeMs;
       savedDiskText.current = '';
@@ -228,6 +194,27 @@ export function useEditorFileSession({
       setDiskChanged(false);
       markDirty(false);
     };
+    if (filePreviewTypeForPath(relPath) && api?.previewProjectFile) {
+      void api
+        .previewProjectFile(projectPath, relPath, accessToken)
+        .then((result) => {
+          setPreview(result);
+          previewOpened(result);
+        })
+        .catch((reason) => {
+          setLoad(null);
+          setError(reason instanceof Error ? reason.message : String(reason));
+        });
+      return;
+    }
+    // Desktop document clicks use the default app. Restored tabs must not
+    // launch programs on mount or retry the PDF viewer: keep the manual escape.
+    // A paired phone cannot launch the desktop app, so retain its page viewer.
+    const documentFormat = documentPreviewFormatForPath(relPath);
+    const documentFailed = (reason: unknown): void => {
+      setDocumentError(reason instanceof Error ? reason.message : String(reason));
+      readFileContents();
+    };
     if (documentFormat && isRemoteBrowserRenderer() && api?.previewDocumentPages) {
       void api
         .previewDocumentPages(projectPath, relPath, accessToken, { pages: [1] })
@@ -239,7 +226,7 @@ export function useEditorFileSession({
             pageCount: result.pageCount,
             pages: result.pages,
           });
-          documentOpened(result);
+          previewOpened(result);
         })
         .catch(documentFailed);
       return;

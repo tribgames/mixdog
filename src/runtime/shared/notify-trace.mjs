@@ -5,14 +5,17 @@
 // the delivery chain reconstructable after the fact. Small, bounded lines;
 // best-effort writes; never throws into the caller.
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { resolvePluginData } from './plugin-paths.mjs';
 
 let traceDir = null;
 
+// Resolved per call: a pristine boundary retargets MIXDOG_DATA_DIR/MIXDOG_HOME
+// at runtime, and its traces must stay inside that isolated root.
 function tracePath() {
-  if (!traceDir) {
-    traceDir = join(homedir(), '.mixdog', 'data', 'diagnostics');
+  const dir = join(resolvePluginData(), 'diagnostics');
+  if (dir !== traceDir) {
+    traceDir = dir;
     try {
       mkdirSync(traceDir, { recursive: true });
     } catch {

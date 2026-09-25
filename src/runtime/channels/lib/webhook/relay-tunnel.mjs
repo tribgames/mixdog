@@ -10,7 +10,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
-import WebSocket from 'ws';
 import { DATA_DIR } from '../config.mjs';
 import { logWebhook } from './log.mjs';
 import { MAX_HOOK_FRAME_BYTES, MAX_HOOK_HEADER_BYTES, MAX_TUNNEL_BODY_BYTES } from './relay-tunnel/limits.mjs';
@@ -215,12 +214,15 @@ export function startHookTunnel({ relayUrl, getLocalPort }) {
 
   const scheduleReconnect = () => {
     if (leg.closed) return;
-    leg.reconnectTimer = setTimeout(connect, leg.retryMs);
+    leg.reconnectTimer = setTimeout(connectSafely, leg.retryMs);
     leg.reconnectTimer.unref?.();
     leg.retryMs = Math.min(30_000, leg.retryMs * 2);
   };
 
-  const connect = () => {
+  const connect = async () => {
+    if (leg.closed) return;
+    // `ws` loads with the first dial, not when channel-admin boots.
+    const { default: WebSocket } = await import('ws');
     if (leg.closed) return;
     const connection = hookLegSocketOptions(relayUrl, { deviceId, deviceSecret });
     let ws;
@@ -257,7 +259,14 @@ export function startHookTunnel({ relayUrl, getLocalPort }) {
     });
   };
 
-  connect();
+  // A dial that rejects (the `ws` import, an invalid relay URL) must not become
+  // an unhandled rejection; it logs and retries like a failed dial.
+  const connectSafely = () =>
+    connect().catch((err) => {
+      logWebhook(`hook tunnel: connect failed — ${err?.message || err}`);
+      scheduleReconnect();
+    });
+  connectSafely();
   return {
     deviceId,
     publicBase: hookPublicBase(relayUrl, deviceId),

@@ -16,9 +16,9 @@ function standaloneStatusRouteInfo(session) {
   // labels a derived full-window value as an explicit limit, which the
   // runtime would treat as the compaction trigger and collapse the buffer.
   // The boundary/window stays available via contextWindow/rawContextWindow.
-  const _boundary = Number(session.compactBoundaryTokens || session.contextWindow || 0);
-  const _limit = Number(session.autoCompactTokenLimit || 0);
-  const explicitAutoCompactTokenLimit = _limit > 0 && (!_boundary || _limit < _boundary) ? _limit : null;
+  const boundary = Number(session.compactBoundaryTokens || session.contextWindow || 0);
+  const limit = Number(session.autoCompactTokenLimit || 0);
+  const explicitAutoCompactTokenLimit = limit > 0 && (!boundary || limit < boundary) ? limit : null;
   return {
     provider: session.provider,
     model: session.model,
@@ -50,16 +50,16 @@ export function recordStandaloneStatusTelemetry(session, result, durationMs) {
   // as afterTokens. This lights up summarizeGatewayUsage's estimate-based
   // contextUsedPct branch (provider input_tokens swing wildly / unbounded on
   // e.g. OpenAI gpt-5.5), and lets a genuine >100% pass through.
-  const _estTokens = estimateTranscriptContextUsage(session.messages, session.tools || [], {
+  const estimatedTokens = estimateTranscriptContextUsage(session.messages, session.tools || [], {
     provider: session.provider,
   });
-  const _compactArg = {
+  const compactArg = {
     ...(result.compact && typeof result.compact === 'object' ? result.compact : {}),
-    afterTokens: _estTokens,
+    afterTokens: estimatedTokens,
   };
   try {
     const summary = {
-      ...summarizeGatewayUsage(routeInfo, providerOut, _compactArg, durationMs),
+      ...summarizeGatewayUsage(routeInfo, providerOut, compactArg, durationMs),
       requestKind: 'chat',
       sessionId: session.id || null,
       sourceType: session.sourceType || 'lead',

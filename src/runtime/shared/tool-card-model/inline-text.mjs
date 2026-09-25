@@ -62,9 +62,7 @@ export function splitLineDeltaTokens(text) {
   const value = String(text ?? '');
   const parts = [];
   let last = 0;
-  let match;
-  LINE_DELTA_RE.lastIndex = 0;
-  while ((match = LINE_DELTA_RE.exec(value))) {
+  for (const match of value.matchAll(LINE_DELTA_RE)) {
     const prefix = match[1] || '';
     const token = (match[2] || '').replace(/\s+/g, '');
     const tokenStart = match.index + prefix.length;

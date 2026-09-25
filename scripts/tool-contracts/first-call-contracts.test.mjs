@@ -252,13 +252,3 @@ test('Gemini uses its JSON Schema wire field for opaque values instead of guessi
   assert.equal(Object.hasOwn(typed, 'parametersJsonSchema'), false);
   assert.ok(typed.parameters);
 });
-
-test('report model-visible contract size against the measured pre-fix baseline', (t) => {
-  const before = { browser: 11540, browser_devtools: 8119, computer: 10391, office: 7588, goal: 3767, github: 3074 };
-  const rows = Object.entries(before).map(([name, chars]) => {
-    const tool = catalog.find((entry) => entry.name === name);
-    const after = JSON.stringify({ description: tool.description, inputSchema: tool.inputSchema }).length;
-    return { tool: name, before: chars, after, delta: after - chars };
-  });
-  t.diagnostic(JSON.stringify({ unit: 'serialized JSON characters, not tokenizer counts', rows }));
-});

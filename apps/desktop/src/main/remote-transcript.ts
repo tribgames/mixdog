@@ -1,3 +1,8 @@
+// Provider replay material, not display data: `thinkingBlocks` are Anthropic's
+// thinking/redacted_thinking blocks, kept so a later request can hand the model
+// its own prior reasoning back verbatim. No renderer reads them, and in a long
+// session they are a THIRD of the stored transcript — bytes a phone pays for on
+// every join and can never show.
 const REMOTE_TRANSCRIPT_DROP_FIELDS = ['thinkingBlocks', 'providerReplay'] as const;
 const projectedTranscriptItems = new WeakMap<object, object>();
 

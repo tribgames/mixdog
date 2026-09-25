@@ -1,0 +1,37 @@
+// A workbook someone fills in (model-conventions §6): legend, example row, validation, conditional format,
+// protected sheet with unlocked entry cells.
+const HEAD = { bold: true, fillColor: 'EEF2F7', borders: { bottom: { style: 'thin', color: 'C9CED6' } } };
+export default {
+  path: 'outputs/office-live-test/xlsx/expense-form-com.xlsx',
+  create: { format: 'xlsx', mode: 'background' },
+  operations: [
+    { op: 'rename_sheet', name: '경비청구' },
+    { op: 'set_range', range: 'A1:A3', values: [['노란 칸에 입력하세요. 나머지는 자동으로 계산됩니다.'], ['2행은 입력 예시입니다.'], ['']] },
+    { op: 'set_style', range: 'A1:A2', properties: { fontSize: 9, color: '6B7280' } },
+    { op: 'set_range', range: 'A4:F4', values: [['날짜', '항목', '금액 (원)', '부가세 (원)', '합계 (원)', '승인 상태']] },
+    { op: 'set_style', range: 'A4:F4', properties: HEAD },
+    { op: 'set_style', range: 'C4:E4', properties: { horizontalAlignment: 'right' } },
+    { op: 'set_range', range: 'A5:C5', values: [['예시 2026-09-01', '교통비', 45000]] },
+    { op: 'set_style', range: 'A5:F5', properties: { italic: true, color: '6B7280' } },
+    ...Array.from({ length: 10 }, (_, i) => i + 5).flatMap((row) => [
+      { op: 'set_formula', cell: `D${row}`, formula: `=IF(C${row}="","",ROUND(C${row}*0.1,0))` },
+      { op: 'set_formula', cell: `E${row}`, formula: `=IF(C${row}="","",C${row}+D${row})` },
+    ]),
+    { op: 'set_style', range: 'A6:C14', properties: { fillColor: 'FFFF00', color: '0000FF', locked: false } },
+    { op: 'set_style', range: 'F6:F14', properties: { fillColor: 'FFFF00', locked: false } },
+    { op: 'set_style', range: 'C5:E14', properties: { numberFormat: '#,##0' } },
+    { op: 'add_validation', range: 'B6:B14', formula1: '"교통비,식비,숙박비,소모품"' },
+    { op: 'add_validation', range: 'F6:F14', formula1: '"대기,승인,반려"' },
+    { op: 'add_conditional_format', range: 'F6:F14', formula: 'F6="반려"', fillColor: 'FBE4E1', color: '8A2A20' },
+    { op: 'add_conditional_format', range: 'F6:F14', formula: 'F6="승인"', fillColor: 'E3F1E8', color: '1B6B3A' },
+    { op: 'set_range', range: 'D16:D16', values: [['합계']] },
+    { op: 'set_formula', cell: 'E16', formula: '=SUM(E6:E14)' },
+    { op: 'set_style', range: 'D16:E16', properties: { bold: true, numberFormat: '#,##0', borders: { top: { style: 'medium', color: '0A2540' } } } },
+    { op: 'set_column_width', column: 'A', width: 16 },
+    { op: 'set_column_width', column: 'B', width: 12 },
+    { op: 'set_column_width', column: 'C', width: 14, count: 3 },
+    { op: 'set_column_width', column: 'F', width: 12 },
+    { op: 'freeze_panes', row: 4 },
+    { op: 'protect_sheet' },
+  ],
+};

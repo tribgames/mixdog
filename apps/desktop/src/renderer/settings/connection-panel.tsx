@@ -12,6 +12,8 @@ import {
 
 const CONNECTION_RETRY_MS = 2_000;
 const CONNECTION_STALLED_ATTEMPTS = 5;
+const RELAY_CONNECTING_MESSAGE =
+  'Connecting to the Mixdog relay… this card refreshes automatically. If this persists, check this PC’s internet connection.';
 
 function unpairLabel(busy: boolean, confirming: boolean): string {
   if (busy) return 'Unpairing…';
@@ -235,20 +237,12 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
             'This web app is paired and connected through {{server}}. Pairing QR codes for other browsers live in the desktop app under Settings → Connection.',
             { server: remoteServer }
           )
-        : t(
-            'Connecting to the Mixdog relay… this card refreshes automatically. If this persists, check this PC’s internet connection.'
-          )
+        : t(RELAY_CONNECTING_MESSAGE)
     );
   }
 
   if (!ready) {
-    if (stalledAttempts >= CONNECTION_STALLED_ATTEMPTS) {
-      return renderConnectionNote(
-        t(
-          'Connecting to the Mixdog relay… this card refreshes automatically. If this persists, check this PC’s internet connection.'
-        )
-      );
-    }
+    if (stalledAttempts >= CONNECTION_STALLED_ATTEMPTS) return renderConnectionNote(t(RELAY_CONNECTING_MESSAGE));
     return renderPairingPlaceholder();
   }
 

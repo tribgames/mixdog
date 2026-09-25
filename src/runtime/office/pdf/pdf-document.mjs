@@ -5,7 +5,7 @@ import { DOMMatrix, ImageData, Path2D } from '@napi-rs/canvas';
 import { resolvedPdfJs } from '../../attachments/pdfjs-runtime.mjs';
 import { MAX_PDF_ANALYSIS_PAGES } from './pdf-limits.mjs';
 
-function installPdfGlobals() {
+export function installPdfGlobals() {
   globalThis.DOMMatrix ??= DOMMatrix;
   globalThis.ImageData ??= ImageData;
   globalThis.Path2D ??= Path2D;

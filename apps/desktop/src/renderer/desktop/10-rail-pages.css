@@ -259,11 +259,6 @@
 }
 /* Settings-style resources use one functional glyph, one title/status line,
    one supporting line, then one trailing chevron. */
-.session-sidebar-panels .utilities-pane .utilities-row-icon {
-  flex: 0 0 16px;
-  align-self: center;
-  color: var(--mx-icon-muted);
-}
 .session-sidebar-panels .utilities-row-copy {
   gap: 4px;
 }
@@ -487,23 +482,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-/* Inline route-summary bolt sits BESIDE 12px meta text, unlike the 28px
-   composer toggle: 14px overflowed the line box and the zap glyph's built-in
-   side bearing widened the 4px gap (user: 상하정렬/좌우간격이 안맞는다).
-   12px matches the text; -1px eats the glyph's left padding. */
-.fast-mode-indicator {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 12px;
-  display: inline-grid;
-  place-items: center;
-  margin-left: -1px;
-  color: var(--mx-text-accent);
-}
-.fast-mode-indicator svg {
-  width: 12px;
-  height: 12px;
 }
 .utility-dock .agent-activity-elapsed {
   color: var(--mx-text-muted);
@@ -1114,8 +1092,7 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
 }
-.sidebar-section-heading,
-.project-group-heading {
+.sidebar-section-heading {
   min-width: 0;
   height: 32px;
   display: flex;
@@ -1126,15 +1103,12 @@
   margin-top: 2px;
 }
 .sidebar-section-toggle,
-.project-group-toggle,
-.sidebar-section-action,
-.project-task-add {
+.sidebar-section-action {
   border: 0;
   color: var(--mx-text-faint);
   background: transparent;
 }
-.sidebar-section-toggle,
-.project-group-toggle {
+.sidebar-section-toggle {
   min-width: 0;
   flex: 1;
   height: 32px;
@@ -1157,59 +1131,14 @@
   line-height: var(--mx-line-ui);
   letter-spacing: 0;
 }
-.project-group-toggle {
-  /* Nested one level under a section head: it steps down by INK only, and
-     faint dropped it below its own rows. */
-  color: var(--mx-text-muted);
-}
-.project-group-toggle.selected {
-  color: var(--mx-text);
-  background: var(--mx-pressed);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-}
-.project-group-label {
-  min-width: 0;
-  overflow: hidden;
-  color: inherit;
-  font-size: var(--mx-font-category);
-  font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-ui);
-  letter-spacing: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-group-chevron {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 14px;
-  display: grid;
-  place-items: center;
-  color: var(--mx-icon-muted);
-  opacity: var(--mx-op-dim);
-  transition: opacity var(--mx-motion-ink);
-}
-.project-group-toggle:hover .project-group-chevron,
-.project-group-toggle:focus-visible .project-group-chevron,
-.project-group-toggle.selected .project-group-chevron {
-  opacity: 1;
-}
-.project-row-icon {
-  flex: 0 0 16px;
-  color: var(--mx-icon-muted);
-}
 .sidebar-section-toggle:hover,
-.project-group-toggle:hover,
 .sidebar-section-action:hover,
-.project-task-add:hover,
 .sidebar-section-toggle:focus-visible,
-.project-group-toggle:focus-visible,
-.sidebar-section-action:focus-visible,
-.project-task-add:focus-visible {
+.sidebar-section-action:focus-visible {
   color: var(--mx-icon);
   background: var(--mx-hover);
 }
-.sidebar-section-action,
-.project-task-add {
+.sidebar-section-action {
   width: 28px;
   height: 28px;
   flex: 0 0 28px;
@@ -1217,8 +1146,7 @@
   place-items: center;
   border-radius: var(--mx-radius-md);
 }
-.sidebar-section-action,
-.project-task-add {
+.sidebar-section-action {
   opacity: 0;
   pointer-events: none;
 }
@@ -1228,24 +1156,10 @@
   opacity: 1;
   pointer-events: auto;
 }
-.project-group-heading:hover .project-task-add,
-.project-group-heading:focus-within .project-task-add,
-.project-task-add:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-}
 .session-sidebar .recent-session-list {
   padding: 0;
 }
 .session-sidebar .recent-session-list .sidebar-section-empty {
-  padding-left: 8px;
-}
-/* Titles start at the compact rail inset; the trailing working status overlays
-   the existing fade instead of reserving a permanent leading column. */
-/* Session labels keep a small inner inset so text never collides with the
-   rounded hover/selection frame. */
-.session-sidebar .project-group .session-row,
-.session-sidebar .standalone-session-list .session-row {
   padding-left: 8px;
 }
 /* Session rows sit tighter than the 36px nav links: 31px keeps the 14px title
@@ -1254,8 +1168,7 @@
   height: 31px;
   min-height: 31px;
 }
-.sidebar-section-empty,
-.project-sessions-empty {
+.sidebar-section-empty {
   margin: 0;
   padding: 3px 8px 6px 24px;
   color: var(--mx-text-faint);

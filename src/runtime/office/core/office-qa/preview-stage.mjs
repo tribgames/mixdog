@@ -58,7 +58,8 @@ export async function acquireQaPreview(session, args, cwd, { reuseRender, struct
     reuseRender && !structuralReview ? await cachedOfficePreview(session, args, cwd, { reuseLatest: true }) : null;
   if (priorPreview) return priorPreview;
   if (structuralReview || measureOnly) return unrenderedPreview(session, measureOnly);
-  return renderOfficePreview(session, args, cwd);
+  const maxWidth = args.maxWidth ?? session.designState?.renderedMaxWidth;
+  return renderOfficePreview(session, maxWidth ? { ...args, maxWidth } : args, cwd);
 }
 
 export async function compareQaBaseline(session, args, cwd, preview, { structuralReview, measureOnly }) {

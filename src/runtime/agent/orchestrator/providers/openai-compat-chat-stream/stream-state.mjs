@@ -83,7 +83,7 @@ export function flushLeak(state) {
   relayGuarded(state, state.leakGuard.flush());
 }
 
-export function pendingToolUse(state) {
+function pendingToolUse(state) {
   return state.toolAcc.byKey.size > 0 || state.leakedCalls.length > 0;
 }
 

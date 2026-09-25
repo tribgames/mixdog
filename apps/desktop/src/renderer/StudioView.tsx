@@ -637,13 +637,9 @@ export function StudioPane({
     const key = `${kind}|${lane.id}|${activeModel}`;
     if (pushedDefault.current === key) return;
     pushedDefault.current = key;
-    try {
-      void Promise.resolve(callCapability(api, 'setMediaDefault', [{ kind, lane: lane.id, model: activeModel }])).catch(
-        () => {}
-      );
-    } catch {
+    void callCapability(api, 'setMediaDefault', [{ kind, lane: lane.id, model: activeModel }]).catch(() => {
       // A host without the capability keeps the local selection only.
-    }
+    });
   }, [active, activeModel, api, kind, lane, laneId, model]);
 
   // Keep lane/model selection valid whenever the kind or catalog changes.
@@ -674,7 +670,6 @@ export function StudioPane({
   // Selected asset preview. With a byte-lane URL the DOM loads it directly;
   // this RPC payload is only the fallback for a host without that lane.
   useEffect(() => {
-    setPromptOpen(false);
     // While the lane probe is in flight the RPC fallback would race it and
     // pull a payload the DOM is about to fetch itself.
     if (!selected || laneReady === null || assetUrl(selected.id, selected.kind === 'video' ? 'original' : 'display')) {
@@ -734,8 +729,11 @@ export function StudioPane({
     const timer = window.setInterval(() => setProgressTick((value) => value + 1), 500);
     return () => window.clearInterval(timer);
   }, [active, generating]);
+  // Controls belong to the MODEL: Veo takes 4/6/8s, Grok takes a 1-15s range,
+  // Omni takes none — a lane-wide guess would offer rejected values.
+  const controls = modelControls(spec, activeModel);
   // The model publishes its own reference cap (Veo 1, Gemini 3, Grok 5/7).
-  const maxRefs = modelControls(spec, activeModel).maxReferences ?? (kind === 'video' ? 7 : 5);
+  const maxRefs = controls.maxReferences ?? (kind === 'video' ? 7 : 5);
   useEffect(() => {
     if (!lane) return;
     setRefs((current) => (current.length > maxRefs ? current.slice(0, maxRefs) : current));
@@ -819,7 +817,7 @@ export function StudioPane({
       kind,
       model: activeModel,
       prompt: prompt.trim(),
-      options: { ...requestOptions(modelControls(spec, activeModel), kind, options) },
+      options: { ...requestOptions(controls, kind, options) },
       references: refs.map((ref) => ({ ...ref })),
     });
   };
@@ -924,9 +922,6 @@ export function StudioPane({
     setSelected(asset);
   };
 
-  // Controls belong to the MODEL: Veo takes 4/6/8s, Grok takes a 1-15s range,
-  // Omni takes none — a lane-wide guess would offer rejected values.
-  const controls = modelControls(spec, activeModel);
   const kindSettled = kindsOffered.length === 0 || kindsOffered.includes(kind);
   const routeSettled = !lane || (lane.id === laneId && model === activeModel);
   const optionsSettled =

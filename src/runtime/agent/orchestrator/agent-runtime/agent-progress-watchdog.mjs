@@ -302,7 +302,7 @@ export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
     now - snapshot.toolStartedAt > policy.toolRunningMs
   ) {
     // Deadline-aware ceiling for tools that self-enforce their own deadline
-    // ('shell'/'task'). Rather than a blanket exemption (which would hang
+    // (SELF_DEADLINE_TOOLS). Rather than a blanket exemption (which would hang
     // forever if the tool's own timer died), raise the tool-running ceiling
     // to max(toolRunningMs, selfDeadlineMs + grace): normal long runs are
     // allowed because the tool kills itself first, but a dead deadline timer

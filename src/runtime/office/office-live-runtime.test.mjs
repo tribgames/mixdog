@@ -9,7 +9,7 @@ import test from 'node:test';
 import JSZip from 'jszip';
 
 import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
-import { value } from './office-test-support.mjs';
+import { PNG_PIXEL, value } from './office-test-support.mjs';
 import { describeOfficeSnapshotViolations, officeSnapshotContractViolations } from './core/snapshot-contract.mjs';
 
 const enabled = process.platform === 'win32' && process.env.MIXDOG_TEST_LIVE_OFFICE === '1';
@@ -133,7 +133,7 @@ test('[excel] persistent Excel sessions own one document and preserve UTF-8 text
           { op: 'set_range', sheet: 'Sheet1', range: 'C1:D1', values: [[true, 22.5]] },
           { op: 'append_row', sheet: 'Sheet1', values: ['추가 행', 23] },
           { op: 'add_validation', sheet: 'Sheet1', range: 'E1:E3', formula1: 'Yes,No', inputMessage: 'Choose a value' },
-          { op: 'freeze_panes', sheet: 'Sheet1', row: 1 },
+          { op: 'freeze_panes', sheet: 'Sheet1', row: 2 },
           { op: 'set_sheet_view', sheet: 'Sheet1', showGridlines: false, zoom: 95 },
         ],
       },
@@ -1599,4 +1599,711 @@ await pres.writeFile({ fileName: OUTPUT });
   const staged = (await readdir(cwd)).filter((entry) => entry.includes('.authoring.'));
   assert.deepEqual(staged, [], 'no staging file is left beside the target');
   value(await executeOfficeTool({ action: 'close', session: again.session }, { cwd }));
+});
+
+test('[word] move_paragraph moves the paragraph instead of deleting it', { skip: !enabled }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'move.docx'),
+        format: 'docx',
+        mode: 'background',
+        operations: ['A', 'B', 'C', 'D'].map((text) => ({ op: 'append_text', text })),
+      },
+      { cwd }
+    )
+  );
+  const texts = async () =>
+    value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd })).document.paragraphs
+      .map((paragraph) => paragraph.text)
+      .filter(Boolean);
+  const move = async (paragraph, index) =>
+    value(
+      await executeOfficeTool(
+        { action: 'batch', session: created.session, operations: [{ op: 'move_paragraph', paragraph, index }] },
+        { cwd }
+      )
+    );
+  // Before the index-th paragraph that remains, or after the last one, as the portable writer moves it.
+  await move(4, 2);
+  assert.deepEqual(await texts(), ['A', 'D', 'B', 'C']);
+  await move(1, 9);
+  assert.deepEqual(await texts(), ['D', 'B', 'C', 'A']);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('[excel] freeze_panes freezes above and left of the cell it names, under a tall title band', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'frozen.xlsx'),
+        format: 'xlsx',
+        mode: 'background',
+        operations: [
+          { op: 'set_range', sheet: 'Sheet1', range: 'A7:C9', values: [['지역', '매출', '비중'], ['서울', 1, 2], ['부산', 3, 4]] },
+          { op: 'set_row_height', sheet: 'Sheet1', row: 1, height: 86 },
+          // The portable writer's reading: row 8 and column B scroll, so rows 1-7 and column A stay.
+          { op: 'freeze_panes', sheet: 'Sheet1', row: 8, column: 2 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.equal(snapshot.document.sheets[0].freezePanes.splitRow, 7);
+  assert.equal(snapshot.document.sheets[0].freezePanes.splitColumn, 1);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('[excel] a chart ended at toColumn reaches that column in the workbook font', { skip: !enabled }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  const path = join(cwd, 'spanned.xlsx');
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'xlsx',
+        mode: 'background',
+        operations: [
+          { op: 'set_range', sheet: 'Sheet1', range: 'A1:B3', values: [['지역', '매출'], ['서울', 120], ['부산', 95]] },
+          { op: 'set_column_width', sheet: 'Sheet1', column: 'A', width: 20, count: 4 },
+          { op: 'add_chart', sheet: 'Sheet1', range: 'A1:B3', chartType: 'column', cell: 'A5', toColumn: 'D', height: 200 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const drawing = await (await JSZip.loadAsync(await readFile(path))).file('xl/drawings/drawing1.xml').async('string');
+  // The frame's right edge is column D's: the anchor ends at E with no offset, whatever a column measures here.
+  assert.match(drawing, /<xdr:to><xdr:col>4<\/xdr:col><xdr:colOff>0<\/xdr:colOff>/);
+});
+
+test('[word] set_paragraph_text rewrites a table cell paragraph without adding one', { skip: !enabled }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'cell.docx'),
+        format: 'docx',
+        mode: 'background',
+        operations: [
+          { op: 'append_text', text: '첫 문단' },
+          { op: 'add_table', values: [['가', '나'], ['다', '라']] },
+          { op: 'append_text', text: '표 뒤 문단' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const listed = async () =>
+    value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd })).document.paragraphs.map(
+      (paragraph) => `${paragraph.index}:${paragraph.text}`
+    );
+  const before = await listed();
+  // Word numbers the cell paragraphs too: 2 is the first cell, and the paragraphs after it keep their numbers.
+  value(
+    await executeOfficeTool(
+      { action: 'batch', session: created.session, operations: [{ op: 'set_paragraph_text', paragraph: 2, text: '수정' }] },
+      { cwd }
+    )
+  );
+  assert.deepEqual(await listed(), before.map((entry) => (entry === '2:가' ? '2:수정' : entry)));
+  // A cleared body paragraph stays in the reading, with its number to fill it by, as the portable reader lists it.
+  value(
+    await executeOfficeTool(
+      { action: 'batch', session: created.session, operations: [{ op: 'set_paragraph_text', paragraph: 1, text: '' }] },
+      { cwd }
+    )
+  );
+  assert.equal((await listed())[0], '1:');
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('[word] a link or note placed by paragraph lands at the end of its text', { skip: !enabled }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  const path = join(cwd, 'placed.docx');
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'docx',
+        mode: 'background',
+        operations: ['첫 문단', '둘째 문단', '셋째 문단'].map((text) => ({ op: 'append_text', text })),
+      },
+      { cwd }
+    )
+  );
+  value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [
+          { op: 'add_hyperlink', paragraph: 2, address: 'https://example.com', display: '링크' },
+          { op: 'add_note', paragraph: 1, text: '출처' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const body = await (await JSZip.loadAsync(await readFile(path))).file('word/document.xml').async('string');
+  const paragraphs = [...body.matchAll(/<w:p[ >][\s\S]*?<\/w:p>/g)].map((match) => match[0]);
+  const text = (xml) => [...xml.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((match) => match[1]).join('');
+  // Laid over the paragraph's mark, the link joined the second paragraph to the third and its display replaced
+  // the paragraph's text; the note's mark opened the second paragraph.
+  assert.deepEqual(paragraphs.slice(0, 3).map(text), ['첫 문단', '둘째 문단링크', '셋째 문단']);
+  assert.match(paragraphs[0], /<w:footnoteReference /);
+  assert.doesNotMatch(paragraphs[1], /<w:footnoteReference /);
+});
+
+test('[word][excel] an unlabelled picture is reported on the Office backend as it is portably', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const picture = join(cwd, 'logo.png');
+  await writeFile(picture, PNG_PIXEL);
+  const placed = {
+    docx: [{ op: 'append_text', text: '로고' }, { op: 'add_image', path: picture, width: 40 }],
+    xlsx: [
+      { op: 'set_cell', sheet: 'Sheet1', cell: 'A1', value: '로고' },
+      { op: 'add_image', sheet: 'Sheet1', path: picture, cell: 'C2', width: 40 },
+    ],
+  };
+  for (const [format, operations] of Object.entries(placed)) {
+    const created = value(
+      await executeOfficeTool(
+        { action: 'create', path: join(cwd, `picture.${format}`), format, mode: 'background', operations },
+        { cwd }
+      )
+    );
+    const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues;
+    assert.ok(
+      issues.some((entry) => entry.code === 'missing_alt_text'),
+      `${format}: ${JSON.stringify(issues.map((entry) => entry.code))}`
+    );
+    value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  }
+});
+
+test('[excel] charts and pictures are reviewed against the print area and each other on Excel too', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const picture = join(cwd, 'logo.png');
+  await writeFile(picture, PNG_PIXEL);
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'drawings.xlsx'),
+        format: 'xlsx',
+        mode: 'background',
+        operations: [
+          { op: 'set_range', sheet: 'Sheet1', range: 'A1:B4', values: [['지역', '매출'], ['서울', 120], ['부산', 80], ['대구', 60]] },
+          { op: 'add_chart', sheet: 'Sheet1', range: 'A1:B4', chartType: 'column', cell: 'D2', width: 300, height: 200 },
+          { op: 'add_chart', sheet: 'Sheet1', range: 'A1:B4', chartType: 'pie', cell: 'F6', width: 240, height: 180 },
+          { op: 'add_image', sheet: 'Sheet1', path: picture, cell: 'D20', width: 40, altText: '회사 로고' },
+          // Excel reports the area as $A$1:$C$10; read that way it was no print area at all.
+          { op: 'set_page_setup', sheet: 'Sheet1', printArea: 'A1:C10' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues;
+  const found = issues.map((entry) => `${entry.code} ${entry.path}`);
+  for (const expected of [
+    'drawing_outside_print_area /sheet[Sheet1]/chart[1]',
+    'drawing_outside_print_area /sheet[Sheet1]/image[1]',
+    'drawing_overlap /sheet[Sheet1]/chart[2]',
+  ]) {
+    assert.ok(found.includes(expected), `${expected} in ${JSON.stringify(found)}`);
+  }
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('[word] an edit of a table-of-contents entry says what to edit instead', { skip: !enabled }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'toc.docx'),
+        format: 'docx',
+        mode: 'background',
+        operations: [
+          { op: 'append_text', text: '개요', style: 'Heading 1' },
+          { op: 'append_text', text: '본문' },
+          { op: 'append_text', text: '결론', style: 'Heading 1' },
+          { op: 'insert_toc', paragraph: 1 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  // Paragraph 2 is the first entry of the contents Word filled in after the heading.
+  const refused = await executeOfficeTool(
+    { action: 'batch', session: created.session, operations: [{ op: 'remove_paragraph', paragraph: 2 }] },
+    { cwd }
+  );
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /table of contents.*edit the heading it lists/);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('[word] name sets the Latin face alone and leaves the Hangul face to nameEastAsia', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  const path = join(cwd, 'faces.docx');
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'docx',
+        mode: 'background',
+        operations: [
+          { op: 'append_text', text: '서울 매출' },
+          // Font.Name given an East Asian face set the Hangul face too; the portable writer sets w:ascii alone.
+          { op: 'set_font', find: '서울', properties: { name: 'Batang' } },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const xml = await (await JSZip.loadAsync(await readFile(path))).file('word/document.xml').async('string');
+  const run = [...xml.matchAll(/<w:r\b[\s\S]*?<\/w:r>/g)].map((m) => m[0]).find((r) => r.includes('서울'));
+  const fonts = /<w:rFonts\b[^>]*\/>/.exec(run)?.[0] || '';
+  assert.match(fonts, /w:ascii="(?:Batang|바탕)"/, fonts);
+  assert.doesNotMatch(fonts, /w:eastAsia="(?:Batang|바탕)"/, fonts);
+});
+
+test('[excel] a border set on a block rules the lines between its cells, as the portable writer does', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  const path = join(cwd, 'grid.xlsx');
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'xlsx',
+        mode: 'background',
+        operations: [
+          { op: 'set_range', sheet: 'Sheet1', range: 'A1:C3', values: [['a', 'b', 'c'], [1, 2, 3], [4, 5, 6]] },
+          // The edge indexes alone drew one box around the block; the file writer borders every cell.
+          { op: 'set_style', sheet: 'Sheet1', range: 'A1:C3', properties: { borders: { style: 'thin' } } },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const zip = await JSZip.loadAsync(await readFile(path));
+  const styles = await zip.file('xl/styles.xml').async('string');
+  const sheet = await zip.file('xl/worksheets/sheet1.xml').async('string');
+  const xfs = [.../<cellXfs\b[\s\S]*?<\/cellXfs>/.exec(styles)[0].matchAll(/<xf\b[^>]*>/g)].map((m) => m[0]);
+  const borders = [.../<borders\b[\s\S]*?<\/borders>/.exec(styles)[0].matchAll(/<border\b[\s\S]*?<\/border>/g)];
+  const style = Number(/<c r="B2"[^>]*?\ss="(\d+)"/.exec(sheet)?.[1] || 0);
+  const border = borders[Number(/borderId="(\d+)"/.exec(xfs[style])?.[1] || 0)]?.[0] || '';
+  assert.match(border, /<left style="thin"/, border);
+  assert.match(border, /<top style="thin"/, border);
+});
+
+test('[excel] copy_sheet copies and insert_columns takes a column letter', { skip: !enabled }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'sheets.xlsx'),
+        format: 'xlsx',
+        mode: 'background',
+        operations: [{ op: 'set_range', sheet: 'Sheet1', range: 'A1:B2', values: [['a', 'b'], [1, 2]] }],
+      },
+      { cwd }
+    )
+  );
+  const edited = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [
+          { op: 'copy_sheet', sheet: 'Sheet1', name: '사본' },
+          { op: 'insert_columns', sheet: 'Sheet1', column: 'B', count: 1 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(edited.results.find((result) => result.op === 'copy_sheet')?.sheet, '사본');
+  assert.equal(edited.results.find((result) => result.op === 'insert_columns')?.column, 2);
+  const missing = await executeOfficeTool(
+    { action: 'batch', session: created.session, operations: [{ op: 'delete_sheet', sheet: '없는 시트' }] },
+    { cwd }
+  );
+  assert.equal(missing.isError, true);
+  assert.match(missing.content[0].text, /Worksheet not found: 없는 시트/);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('[powerpoint] default layout and data label names work in any PowerPoint language', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  const path = join(cwd, 'layouts.pptx');
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pptx',
+        mode: 'background',
+        operations: [
+          { op: 'add_slide', layout: 'Title Only' },
+          { op: 'add_slide', layout: 'title and content' },
+          {
+            op: 'add_chart',
+            slide: 1,
+            chartType: 'column',
+            categories: ['A', 'B'],
+            series: [
+              { name: 'S1', values: [1, 2] },
+              { name: 'S2', values: [3, 4] },
+            ],
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const labelled = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [{ op: 'set_chart_data_labels', slide: 1, shape: 2, position: 'outside_end' }],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(labelled.results[0].series, 'all');
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const zip = await JSZip.loadAsync(await readFile(path));
+  const slides = await Promise.all(
+    [1, 2].map((slide) => zip.file(`ppt/slides/_rels/slide${slide}.xml.rels`).async('string'))
+  );
+  const layoutPart = (rels) => /slideLayouts\/(slideLayout\d+\.xml)/.exec(rels)[1];
+  const layoutType = async (rels) =>
+    /<p:sldLayout\b[^>]*\btype="(\w+)"/.exec(await zip.file(`ppt/slideLayouts/${layoutPart(rels)}`).async('string'))[1];
+  assert.deepEqual(await Promise.all(slides.map(layoutType)), ['titleOnly', 'obj']);
+  const chartPart = Object.keys(zip.files).find((name) => /^ppt\/charts\/chart\d+\.xml$/.test(name));
+  const chart = await zip.file(chartPart).async('string');
+  const positions = [...chart.matchAll(/<c:dLblPos val="outEnd"\/>/g)].length;
+  assert.ok(positions >= 2, 'both series carry the named position');
+});
+
+test('[powerpoint] a large glyph its box holds is not an overflow; words past the box still are', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'glyph.pptx'),
+        format: 'pptx',
+        mode: 'background',
+        operations: [
+          { op: 'add_slide', layout: 'blank' },
+          // The kit's quotation mark: 120 pt in a box its ink fills, 30 pt short of PowerPoint's BoundWidth.
+          { op: 'add_textbox', slide: 1, text: '“', left: 227, top: 153, width: 66, height: 148, fontSize: 120, fontName: 'Noto Serif KR' },
+          { op: 'add_textbox', slide: 1, text: '넘치는 긴 문장이 좁은 상자를 벗어난다', left: 400, top: 60, width: 80, height: 24, fontSize: 18 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues;
+  const overflowing = issues.filter((entry) => entry.code === 'text_overflow').map((entry) => entry.path);
+  assert.ok(!overflowing.includes('/slide[1]/shape[1]'), JSON.stringify(overflowing));
+  assert.ok(overflowing.includes('/slide[1]/shape[2]'), JSON.stringify(overflowing));
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('[powerpoint] qa repairs a box past the slide edge after fitting another', { skip: !enabled }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'qa.pptx'),
+        format: 'pptx',
+        mode: 'background',
+        operations: [
+          { op: 'add_slide', layout: 'blank' },
+          { op: 'add_textbox', slide: 1, text: '넘치는 문장 '.repeat(8), left: 40, top: 40, width: 200, height: 40, fontSize: 24 },
+          { op: 'add_textbox', slide: 1, text: '밖으로 나간 상자', left: 900, top: 480, width: 200, height: 60, fontSize: 18 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  // The second fit_text set a width computed as a Double after the first had set one as a Single; PowerShell's COM
+  // binder refused it and qa returned an error in place of its repairs.
+  const qa = value(await executeOfficeTool({ action: 'qa', session: created.session, autoFix: true, render: false }, { cwd }));
+  assert.equal(qa.fixes.length, 2, JSON.stringify(qa.fixes));
+  assert.ok(!(qa.issuesAfter || []).some((entry) => entry.code === 'text_outside_slide'), JSON.stringify(qa.issuesAfter));
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+test('[powerpoint] trendline codes and error bar sides read as the portable writer reads them', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  const path = join(cwd, 'kinds.pptx');
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pptx',
+        mode: 'background',
+        operations: [
+          { op: 'add_slide', layout: 'blank' },
+          {
+            op: 'add_chart',
+            slide: 1,
+            chartType: 'line',
+            categories: ['1월', '2월', '3월'],
+            series: [
+              { name: 'A', values: [1, 3, 9] },
+              { name: 'B', values: [2, 4, 8] },
+            ],
+          },
+          // 'exp' was drawn as a straight line on the first series alone.
+          { op: 'set_chart_trendline', slide: 1, shape: 1, type: 'exp' },
+          { op: 'set_chart_error_bars', slide: 1, shape: 1, amount: 1, endStyle: 'plus' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const both = { op: 'set_chart_error_bars', slide: 1, shape: 1, amount: 1, direction: 'both' };
+  const refused = await executeOfficeTool({ action: 'batch', session: created.session, operations: [both] }, { cwd });
+  assert.match(refused.content[0].text, /direction must be x or y/);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const zip = await JSZip.loadAsync(await readFile(path));
+  const part = Object.keys(zip.files).find((name) => /^ppt\/charts\/chart\d+\.xml$/.test(name));
+  const chart = await zip.file(part).async('string');
+  assert.equal([...chart.matchAll(/<c:trendlineType val="exp"\/>/g)].length, 2);
+  assert.equal([...chart.matchAll(/<c:errBarType val="plus"\/>/g)].length, 2);
+});
+
+test('[powerpoint] a named face, a transparency, and paragraph spacing are written as the portable file writes them', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  const path = join(cwd, 'faces.pptx');
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pptx',
+        mode: 'background',
+        operations: [
+          { op: 'add_slide', layout: 'blank' },
+          // Font.Name alone set the Latin face; the Hangul stayed in the theme's East Asian font.
+          // A text box's fill, outline and description were not read either.
+          {
+            op: 'add_textbox',
+            slide: 1,
+            text: '매출 증가',
+            fontName: 'Batang',
+            properties: { paragraphSpacing: 6, fillColor: 'F2F2F2', lineColor: '1F3A5F', altText: '요약' },
+          },
+          // The shadow set_shape draws was dropped by add_shape.
+          { op: 'add_shape', slide: 1, shapeType: 'rect', text: '핵심', fillColor: 'EAF2F8', properties: { shadow: true } },
+          // A fraction here: 30 was not the 30% add_shape and the portable writer read.
+          {
+            op: 'set_shape',
+            slide: 1,
+            shape: 2,
+            properties: { fillTransparency: 30, paragraphSpacing: 4, fontName: 'Batang' },
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const zip = await JSZip.loadAsync(await readFile(path));
+  const part = Object.keys(zip.files).find((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name));
+  const [box, card] = [...(await zip.file(part).async('string')).matchAll(/<p:sp>[\s\S]*?<\/p:sp>/g)].map((m) => m[0]);
+  for (const shape of [box, card]) assert.match(shape, /<a:ea typeface="Batang"/);
+  assert.match(box, /<a:spcBef><a:spcPts val="600"\/><\/a:spcBef>/);
+  assert.match(box, /descr="요약"/);
+  assert.match(box, /<p:spPr>[\s\S]*<a:solidFill><a:srgbClr val="F2F2F2"\/>[\s\S]*<a:ln\b[^>]*><a:solidFill><a:srgbClr val="1F3A5F"/);
+  assert.match(card, /<a:spcBef><a:spcPts val="400"\/><\/a:spcBef>/);
+  assert.match(card, /<a:srgbClr val="EAF2F8"><a:alpha val="70000"\/>/);
+  assert.match(card, /<a:outerShdw blurRad="63500"/);
+});
+
+test('[powerpoint] a footer and page number on a dark slide take the portable writer\u2019s quiet ink and place', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  const path = join(cwd, 'footer.pptx');
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pptx',
+        mode: 'background',
+        operations: [
+          { op: 'add_slide', layout: 'blank' },
+          { op: 'set_slide_background', slide: 1, color: '172C2C' },
+          // The theme's 12 pt grey 767676 read 3.2:1 on this field.
+          { op: 'set_footer', slide: 1, text: '모아페이 · 2025 IR' },
+          { op: 'set_slide_number', slide: 1, visible: true },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const zip = await JSZip.loadAsync(await readFile(path));
+  const part = Object.keys(zip.files).find((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name));
+  const shapes = [...(await zip.file(part).async('string')).matchAll(/<p:sp>[\s\S]*?<\/p:sp>/g)].map((m) => m[0]);
+  const footer = shapes.find((shape) => /<p:ph\b[^>]*type="ftr"/.test(shape));
+  const number = shapes.find((shape) => /<p:ph\b[^>]*type="sldNum"/.test(shape));
+  for (const shape of [footer, number]) {
+    assert.match(shape, /\bsz="1000"/);
+    assert.match(shape, /<a:srgbClr val="A9B1B9"\/>/);
+  }
+  assert.match(footer, /<a:off x="736600"/, 'the footer starts 58 pt from the left edge');
+  assert.match(number, /<a:off x="10185400"/, 'the number box ends 58 pt from the right edge');
+});
+
+test('[powerpoint] a cover picture is cropped about its focus, centred by default', { skip: !enabled }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
+  const path = join(cwd, 'cover.pptx');
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const { default: sharp } = await import('sharp');
+  const wide = join(cwd, 'wide.png');
+  await writeFile(wide, await sharp({ create: { width: 200, height: 100, channels: 3, background: '#2563EB' } }).png().toBuffer());
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'pptx',
+        mode: 'background',
+        operations: [
+          { op: 'add_slide', layout: 'blank' },
+          // The focus was rounded to 0 or 1, so the crop took the whole excess from the right.
+          { op: 'add_image', slide: 1, path: wide, left: 40, top: 40, width: 200, height: 200, fit: 'cover' },
+          { op: 'add_image', slide: 1, path: wide, left: 300, top: 40, width: 200, height: 200, fit: 'cover', focusX: 0.3 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+  const zip = await JSZip.loadAsync(await readFile(path));
+  const part = Object.keys(zip.files).find((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name));
+  const crops = [...(await zip.file(part).async('string')).matchAll(/<a:srcRect\b[^>]*\/>/g)].map((m) => m[0]);
+  assert.match(crops[0], /\bl="25000"/, crops[0]);
+  assert.match(crops[0], /\br="25000"/, crops[0]);
+  // Half the picture shows; its centre sits at 0.3 of the width: 5% off the left, 45% off the right.
+  assert.match(crops[1], /\bl="5000"/, crops[1]);
+  assert.match(crops[1], /\br="45000"/, crops[1]);
 });

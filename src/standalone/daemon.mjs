@@ -64,6 +64,7 @@ import { createBootPhaseProfiler } from './boot-phase-profiler.mjs';
 import { createDaemonBootCoordinator } from './daemon-boot-coordinator.mjs';
 import { createDaemonLog } from './daemon-log.mjs';
 import { createDaemonTelemetry } from './daemon-telemetry.mjs';
+import { createLagProfiler } from './daemon-lag-profiler.mjs';
 import { createChannelsRuntimeLoader } from './daemon-channels-loader.mjs';
 import { createDesktopRuntime } from './daemon-desktop-runtime.mjs';
 import { createCanonicalAgentControl } from './daemon-agent-control.mjs';
@@ -260,11 +261,22 @@ function inFlightWork() {
   };
 }
 
+// Opt-in CPU profiling of lag windows while DATA_DIR/lag-profile.on exists.
+const lagProfiler = createLagProfiler({ dataDir: DATA_DIR, log });
+
 daemonTelemetry = createDaemonTelemetry({
   log,
   getWork: inFlightWork,
   onInterval() {
+    // eventLoopDelay is reset at the end of every tick, so this status is the
+    // lag of the 30s window that just ended — the same window the lag
+    // profiler stops and judges below.
     const status = eventLoopStatus();
+    void lagProfiler.tick({
+      p99Ms: status.eventLoopP99Ms,
+      maxMs: status.eventLoopMaxMs,
+      busySessions: inFlightWork().busySessions,
+    });
     if (status.eventLoopP99Ms >= 250) {
       log(
         `event-loop lag p95=${status.eventLoopP95Ms}ms p99=${status.eventLoopP99Ms}ms max=${status.eventLoopMaxMs}ms`

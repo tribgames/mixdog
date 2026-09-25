@@ -75,3 +75,39 @@ test('a cold read with the held projection stamp answers without a body', async 
     await service.stop('test complete');
   }
 });
+
+test('repeated cold reads of unchanged content reuse one wire clone and keep the goal current', async () => {
+  const id = 'sess_cold_clone';
+  const snapshot = {
+    sessionId: id,
+    projectionStamp: '1:abc:1',
+    items: [{ id: 'row', kind: 'assistant', text: 'Persisted transcript', drop: () => {} }],
+    queued: [{ id: 'q1', text: 'queued' }],
+  };
+  let goal = { status: 'active', objective: 'first' };
+  const service = createSessionService({
+    createSessionRuntime: async () => {
+      throw new Error('cold views never materialize');
+    },
+    sessionExists: async (sessionId) => sessionId === id,
+    readStoredSession: async () => snapshot,
+    readStoredGoal: async () => goal,
+    idleEvictMs: 60_000,
+    evictSweepMs: 60_000,
+  });
+  try {
+    const first = await service.readSession({ sessionId: id });
+    assert.deepEqual(first.full.items, [{ id: 'row', kind: 'assistant', text: 'Persisted transcript' }]);
+    assert.deepEqual(first.full.queued, [{ id: 'q1', text: 'queued' }]);
+    assert.equal(first.full.goal.objective, 'first');
+
+    goal = { status: 'active', objective: 'second' };
+    const second = await service.readSession({ sessionId: id });
+    assert.equal(second.full.items, first.full.items, 'unchanged content is not re-cloned per read');
+    assert.notEqual(second.full.items, snapshot.items, 'the stored object itself never crosses the wire');
+    assert.equal(second.full.goal.objective, 'second');
+    assert.equal(first.full.goal.objective, 'first');
+  } finally {
+    await service.stop('test complete');
+  }
+});

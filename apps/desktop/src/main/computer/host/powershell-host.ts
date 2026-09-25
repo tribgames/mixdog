@@ -1,11 +1,12 @@
 /**
- * Computer-use host — main-process owner of local Windows desktop control and
- * of the loopback bridge that lets the session runtime's `computer` tool drive
- * it. Windows only for now.
+ * Computer-use host — main-process owner of local desktop control and of the
+ * loopback bridge that lets the session runtime's `computer` tool drive it.
  *
- * Engine: one resident PowerShell worker per agent session holds .NET UI
- * Automation state (an element map that survives between snapshot and invoke,
- * which spawning per command could not) and dispatches Win32 input. Screenshots are captured
+ * Engine: one resident worker per agent session holds accessibility state (an
+ * element map that survives between snapshot and invoke, which spawning per
+ * command could not) and dispatches native input. On Windows the worker is a
+ * PowerShell host over .NET UI Automation and Win32; on macOS and Linux it is
+ * the native `mixdog-computer` backend speaking the same protocol. Screenshots are captured
  * on demand from window-owned Electron or native render surfaces. The runtime half discovers
  * this bridge through a heartbeated data-dir file, so the tool surface exists
  * only while the desktop app runs with Computer Use enabled — no daemon
@@ -26,6 +27,7 @@ import { createComputerAuthorizationSettings } from './authorization-settings';
 import { createComputerFailureDiagnostics } from '../session/failure-diagnostics';
 import { bridgeDiscoveryDirectory } from '../../bridge/discovery-file';
 import { mixdogDataDirectory } from '../shared/common';
+import { nativeDisplayGeometry } from '../shared/native-coordinates';
 import { createWorkerPool } from '../backend/worker-pool';
 import { createCaptureEngine } from '../observation/capture';
 import { electronWindowForNativeId } from '../observation/window-handles';
@@ -128,6 +130,16 @@ export function createPowerShellComputerHost(
       lifecycle.onSessionWorkerRetired(sessionId, child, interruptedInput),
     maxWorkers: options.maxWorkers,
     onPointerProgress: publishPointerProgress,
+    nativeEnvironment: () => {
+      // The union of every display in native coordinates: the Wayland input
+      // device spans it when the compositor cannot report its outputs.
+      const areas = screen.getAllDisplays().map(nativeDisplayGeometry);
+      const left = Math.min(...areas.map((area) => area.x));
+      const top = Math.min(...areas.map((area) => area.y));
+      const right = Math.max(...areas.map((area) => area.x + area.width));
+      const bottom = Math.max(...areas.map((area) => area.y + area.height));
+      return { MIXDOG_COMPUTER_DESKTOP_BOUNDS: `${left},${top},${right - left},${bottom - top}` };
+    },
   });
   const { callPowerShell, powerShellBySession, retirePowerShell } = workerPool;
 

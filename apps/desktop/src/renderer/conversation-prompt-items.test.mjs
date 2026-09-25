@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { nextComposerSubmissionId } from './composer-draft.ts';
 import {
   desktopPromptDisplayText,
-  nextDesktopSubmissionId,
   pendingPromptImages,
   pendingPromptTranscriptItems,
   promptWaitsBehindActiveTurn,
@@ -23,9 +23,9 @@ test('settledUserRowCount counts user rows correctly', () => {
   );
 });
 
-test('nextDesktopSubmissionId mints unique id tokens', () => {
-  const id1 = nextDesktopSubmissionId();
-  const id2 = nextDesktopSubmissionId();
+test('nextComposerSubmissionId mints unique id tokens', () => {
+  const id1 = nextComposerSubmissionId();
+  const id2 = nextComposerSubmissionId();
   assert.ok(id1.startsWith('desktop-submit-'));
   assert.ok(id2.startsWith('desktop-submit-'));
   assert.notEqual(id1, id2);

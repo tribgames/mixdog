@@ -15,6 +15,7 @@ import { _summaryCacheVersions } from './summary-cache.mjs';
 import { probePath, PROBE_PRESENT } from './fs-probe.mjs';
 import { sessionPath } from './paths-heartbeat.mjs';
 import { _hasPendingPersistence } from './pending-saves.mjs';
+import { forgetSessionLoadCache } from './load-cache.mjs';
 
 /**
  * Drop one session's same-process snapshot once its state is durable on disk.
@@ -22,6 +23,8 @@ import { _hasPendingPersistence } from './pending-saves.mjs';
  */
 export function evictLiveSession(id) {
   if (!id || _hasPendingPersistence(id)) return false;
+  // An evicted session's parsed disk document goes with its snapshot.
+  forgetSessionLoadCache(id);
   return _liveSessions.delete(id);
 }
 
@@ -53,7 +56,7 @@ export function evictIdleLiveSessions(options = {}) {
     // Same reasoning for a save that FAILED at the commit edge (rename/IO
     // fault): the file on disk is the last-good copy from BEFORE the
     // failed write, so this snapshot is the only good state for the newest
-    // turn. `existsSync` above is satisfied by exactly that stale file, so
+    // turn. The presence probe above is satisfied by exactly that stale file, so
     // without this guard the idle sweep silently discards the newer
     // transcript. Pinned only until a save lands (clearSessionSaveError).
     if (hasSessionSaveFailure(id)) continue;
@@ -62,6 +65,7 @@ export function evictIdleLiveSessions(options = {}) {
       if (lastActive > 0 && now - lastActive <= LIVE_MEDIA_RETENTION_MS) continue;
     }
     _liveSessions.delete(id);
+    forgetSessionLoadCache(id);
     // With no pending persistence the rollback-race version counter for
     // this id is dead weight — reclaim it too (it regrows from 1 on the
     // next save, which is safe precisely because nothing is in flight).

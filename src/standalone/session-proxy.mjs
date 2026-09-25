@@ -91,10 +91,7 @@ export function createSessionProxyFactory({ attachSession, ensureDaemon, closeId
       dispose: proxyView.dispose,
     };
 
-    for (const action of SESSION_READ_ACTIONS) {
-      if (!Object.hasOwn(base, action)) base[action] = (...args) => remoteCall(action, args);
-    }
-    for (const action of SESSION_CONFIGURE_ACTIONS) {
+    for (const action of [...SESSION_READ_ACTIONS, ...SESSION_CONFIGURE_ACTIONS]) {
       if (!Object.hasOwn(base, action)) base[action] = (...args) => remoteCall(action, args);
     }
     return base;

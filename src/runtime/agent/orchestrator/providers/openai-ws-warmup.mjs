@@ -6,10 +6,9 @@
  * instructions/tools but no live user/transcript input; its response id
  * becomes the anchor the first real request chains from.
  */
-import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { releaseWebSocket } from './openai-ws-pool.mjs';
-import { _buildResponseCreateFrame, _cloneJson, _sansInput, _stableStringify } from './openai-ws-delta.mjs';
+import { _anchorResponseChain, _buildResponseCreateFrame } from './openai-ws-delta.mjs';
 import { _metadataTrace, _withCodexWsClientMetadata } from './openai-codex-metadata.mjs';
 
 /** Only when the session has no prior request state. A reused pooled socket
@@ -114,17 +113,12 @@ export async function runStartupWarmup({
     responseId: warmupResult.responseId,
     usage: warmupResult.usage,
   };
-  entry.lastResponseId = warmupResult.responseId;
-  entry.lastRequestSansInput = _stableStringify(
-    _sansInput(parityWarmupBody, {
-      normalizeWarmupGenerate: useCodexWsClientMetadata,
-    })
-  );
-  const warmupInputArr = Array.isArray(parityWarmupBody.input) ? parityWarmupBody.input : [];
-  entry.lastRequestInput = _cloneJson(warmupInputArr);
-  entry.lastResponseItems = _cloneJson(Array.isArray(warmupResult.responseItems) ? warmupResult.responseItems : []);
-  entry.lastInputLen = warmupInputArr.length;
-  entry.lastInputPrefixHash = createHash('sha256').update(JSON.stringify(warmupInputArr)).digest('hex');
+  _anchorResponseChain(entry, {
+    responseId: warmupResult.responseId,
+    requestBody: parityWarmupBody,
+    responseItems: warmupResult.responseItems,
+    normalizeWarmupGenerate: useCodexWsClientMetadata,
+  });
   try {
     const warmupPayload = {
       provider: traceProvider,

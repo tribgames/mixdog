@@ -60,7 +60,7 @@ function dirBytes(dir) {
 }
 
 /** On-disk size of one installed managed engine version, 0 when absent. */
-export function managedEngineBytes(pluginData, id, version) {
+function managedEngineBytes(pluginData, id, version) {
   if (!pluginData || !version) return 0;
   const dir = managedEngineDir(pluginData, id, version);
   return existsSync(dir) ? dirBytes(dir) : 0;
@@ -87,6 +87,7 @@ let statusStamp = 0;
 // any install state change invalidates it through statusStamp.
 const STATUS_CACHE_TTL_MS = 2_000;
 let statusCache = null;
+let inventoryRefreshing = false;
 
 // PSScriptAnalyzer's version needs a PowerShell host (~700ms). A poll must
 // never wait for that: serve the cached value (empty until the first probe
@@ -368,8 +369,6 @@ export async function tidyEngineStatus({
   statusCache = { key, manifestArg: manifest, env, at: Date.now(), inventory };
   return withInstallStatus(inventory);
 }
-
-let inventoryRefreshing = false;
 
 function refreshInventory(key, args) {
   if (inventoryRefreshing) return;

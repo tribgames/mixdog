@@ -634,15 +634,8 @@ async function syncBatchEmbeddings(db, ids, options = {}) {
   return writtenIds;
 }
 
-// Kept for external callers that still import syncRootEmbedding directly.
+// Embeds one root; true when its fresh vector was written.
 export async function syncRootEmbedding(db, rootId, options = {}) {
   const writtenIds = await syncBatchEmbeddings(db, [rootId], options);
   return writtenIds.length > 0;
-}
-
-export async function deleteRootEmbedding(db, rootId) {
-  await db.transaction(async (tx) => {
-    await tx.query(`UPDATE entries SET embedding = NULL WHERE id = $1 AND is_root = 1`, [rootId]);
-  });
-  return true;
 }

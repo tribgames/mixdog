@@ -241,7 +241,7 @@ function typography({ script = 'ko', pairing = 'weight', fonts = 'noto' } = {}) 
   if (!cjk) return Object.assign(T, latin);
   const [sans, serifFace, safeSans, safeLight] = cjk;
   return Object.assign(T, fonts === 'noto'
-    ? { display: serif ? serifFace : sans, sans, light: sans, data: 'Arial' }
+    ? { display: serif ? serifFace : sans, sans, light: sans, data: sans }   // the data face also sets sources, labels, and page numbers in the deck's script: Arial carries no Hangul, so those fell back to a system face
     : { display: safeSans, sans: safeSans, light: safeLight, data: safeSans });
 }
 typography({ script: 'ko', pairing: 'weight', fonts: 'noto' });
@@ -267,14 +267,24 @@ let CHROME = 'bare';
 // dark, the type form of the accent → onDarkAccent; the beats (dark(), quiet(), the takeaway) go a step darker than
 // the body so a section mark still reads as one. A state word keeps its solid form on dark (its text form is made
 // for paper). light() then draws the theme's body page; a script never chooses colours per slide.
-function darkTheme(hue) {
+function darkTheme(hue, accentHue = counterHue(hue)) {
   const body = hsl(hue, 0.42, 0.10), beat = hsl(hue, 0.45, 0.06);
+  // The mark form of the accent was made for paper (L ≈ 0.5, ≥ 2:1 on white): on charcoal the accent line and the
+  // one accent bar sat darker than the gray peers around them (2:1 against the gray's 5:1), so the series the title
+  // named read as the quiet one. On dark the mark is lifted until it reads at 3:1 against the page, and the type it
+  // carries is whichever of white or the beat ink reads on it.
+  let accentFill = T.onDarkAccent;
+  for (let l = 0.5; l <= 0.8; l += 0.02) {
+    const candidate = hsl(accentHue, 0.8, l);
+    if (contrast(candidate, body) >= 3) { accentFill = candidate; break; }
+  }
+  const accentLabel = { fill: accentFill, color: contrast('FFFFFF', accentFill) >= 4.5 ? 'FFFFFF' : beat };
   Object.assign(T, {
     paper: body, paperAlt: hsl(hue, 0.34, 0.16), tint: hsl(hue, 0.30, 0.22),
     ink: T.onDark, body: T.onDark, muted: T.onDarkMuted,
     lineSubtle: hsl(hue, 0.20, 0.20), line: hsl(hue, 0.18, 0.28), lineStrong: hsl(hue, 0.16, 0.44),
     mark: hsl(hue, 0.12, 0.64), markSoft: hsl(hue, 0.14, 0.34),
-    accent: T.onDarkAccent, accentDeep: T.onDarkAccent,
+    accent: T.onDarkAccent, accentDeep: T.onDarkAccent, accentFill, accentLabel,
     dark: beat, darkAlt: hsl(hue, 0.36, 0.11),
     state: Object.fromEntries(Object.entries(T.state || {}).map(([name, s]) => [name, { ...s, text: s.solid, weak: hsl({ positive: 150, warning: 40, critical: 5, informative: 215 }[name] ?? hue, 0.35, 0.20) }])),
   });
@@ -318,7 +328,7 @@ function deck({ style = 'custom', hue = 205, accentHue, accentSat, accentLight, 
   MOTIF_AT = 0;
   // A single-hue style (swiss-minimal, brutalist, blueprint) keeps the accent on the seed; the rest take the counter hue.
   Object.assign(T, palette({ hue, accentHue: accentHue ?? (STYLE.singleHue ? hue : undefined), accentSat, accentLight }));
-  if ((theme ?? STYLE.theme) === 'dark') darkTheme(hue);
+  if ((theme ?? STYLE.theme) === 'dark') darkTheme(hue, accentHue ?? (STYLE.singleHue ? hue : counterHue(hue)));
   // The face pairing is the style's too (an editorial page sets its display in the serif, a masthead in the sans),
   // unless the brief names one here.
   typography({ script, pairing: pairing ?? STYLE.pairing ?? 'weight', fonts });
@@ -487,7 +497,7 @@ async function motif(slide, kind = '', x, y, w, h, { color = T.accent, alpha = 0
 ## 3. Measured text
 `MEASURE` is injected by the runtime with the review's own font metrics; every text box here is sized with it, never by guessing. `lh` is the box's `lineSpacingMultiple` (1 = single); PowerPoint lays every face out at 1.2 em per single line, Hangul and Latin alike. Leading is the author's call per box (`direction.md` §6); the helpers only default it.
 
-**Default — Hangul wraps by the eojeol**: PowerPoint breaks Korean at any character (정답/률, 그라디언/트, a one-syllable last line), so every kit text helper pre-breaks Hangul text where the last whole word fits (`wrapKo`, `wrapRuns`) and writes the break as a soft break (`a:br`) inside one paragraph. Author-written `\n` breaks are kept; a word wider than its zone is left to PowerPoint. **Default — a shrinking box lands on the scale**: `fitSize` steps down through the deck's type scale and diagram sizes (22 → 18 → 14 → 13), never to a free number 1 pt under.
+**Default — Hangul wraps by the eojeol**: PowerPoint breaks Korean at any character (정답/률, 그라디언/트, a one-syllable last line), so every kit text helper pre-breaks Hangul text where the last whole word fits (`wrapKo`, `wrapRuns`) and writes the break as a soft break (`a:br`) inside one paragraph; a numeral or determiner stays with its noun and a counter or bound noun with its word ("한 분기", "3.5조 원", "할 수"), and a last word left alone under a line of three or more takes the word before it along. Author-written `\n` breaks are kept; a word wider than its zone is left to PowerPoint. **Default — a shrinking box lands on the scale**: `fitSize` steps down through the deck's type scale and diagram sizes (22 → 18 → 14 → 13), never to a free number 1 pt under.
 ```js
 // fitH: the height a box of width w needs for text at size; fitSize: the largest scale step ≤ size that fits w × h.
 const fitH = (text, w, size, font = T.sans, { bold = false, lh = 1 } = {}) => MEASURE(text, { font, size, bold, width: w, lineHeight: lh }).height + 0.06;
@@ -498,6 +508,12 @@ const textW = (text, size, font = T.sans, bold = false) => MEASURE(text, { font,
 // a word wider than the zone is left to PowerPoint. Latin already wraps at spaces; Japanese and Chinese carry none.
 const HANGUL = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/;
 const NO_BREAK_BEFORE = /^[,.:;!?%)\]}」』’”…·]/;   // a closing mark never starts a line
+// Korean words that belong to their neighbour: a numeral or determiner before its noun ("한 / 분기", "두 / 기능") and
+// a short adverb before its verb never end a line; a counter or bound noun after its word ("3.5조 / 원", "할 / 수")
+// never starts one.
+const BINDS_FORWARD = /^(?:한|두|세|네|몇|첫|새|옛|각|매|총|약|이|그|저|더|안|잘|못|꼭|또|좀|맨|온|딴|헌)$/;   // 맨 위, 온 가족, 딴 곳, 헌 옷
+const BINDS_BACK = /^(?:원|명|개|건|곳|배|수|것|등|때|번|중)[,.:;!?)…]*$/;
+const breaksBetween = (left, right) => !NO_BREAK_BEFORE.test(right) && !BINDS_FORWARD.test(left) && !BINDS_BACK.test(right);
 const WRAP_MARGIN = 0.98;
 function wrapKo(str, w, size, font = T.sans, bold = false) {
   const s = String(str ?? '');
@@ -508,9 +524,27 @@ function wrapKo(str, w, size, font = T.sans, bold = false) {
     let line = '';
     for (const word of para.split(' ').filter(Boolean)) {
       const next = line ? `${line} ${word}` : word;
-      if (line && !NO_BREAK_BEFORE.test(word) && width(next) > limit) { lines.push(line); line = word; } else line = next;
+      if (!line || width(next) <= limit) { line = next; continue; }
+      const words = line.split(' ');
+      if (breaksBetween(words.at(-1), word)) { lines.push(line); line = word; continue; }
+      // No break here: the pair moves down together when the line keeps a word. Otherwise a closing mark stays on
+      // its line whatever it costs, and a word that only prefers its neighbour breaks as usual.
+      if (words.length > 1 && breaksBetween(words.at(-2), words.at(-1)) && width(`${words.at(-1)} ${word}`) <= limit) {
+        lines.push(words.slice(0, -1).join(' '));
+        line = `${words.at(-1)} ${word}`;
+      } else if (NO_BREAK_BEFORE.test(word)) line = next;
+      else { lines.push(line); line = word; }
     }
     lines.push(line);
+    // A runt — one word alone under a full line ("…두 번째 서비스를 / 쓴다.", "송금 세 번 탭이 한 / 번으로") — takes the
+    // word before it along, as CSS text-wrap: pretty ends a paragraph; the line count stays. A glued contrast phrase
+    // is left on its line, and so is a runt whose move would leave the line above it the shorter one ("낮은 두 /
+    // 기능부터 연다" traded one short line for another and split "두 기능").
+    const last = lines.at(-1), prev = lines.length > 1 ? lines.at(-2).split(' ') : [];
+    if (prev.length >= 3 && !/[ \u00A0]/.test(last) && breaksBetween(prev.at(-2), prev.at(-1))) {
+      const moved = `${prev.at(-1)} ${last}`, rest = prev.slice(0, -1).join(' ');
+      if (width(moved) <= limit && width(rest) >= width(moved)) lines.splice(-2, 2, rest, moved);
+    }
     return lines.join('\n');
   }).join('\n');
 }
@@ -543,6 +577,7 @@ function wrapRuns(runs, w, size, font = T.light) {
   if (!runs.some((run) => HANGUL.test(String(run.text)))) return runs;
   const limit = w * WRAP_MARGIN, out = [];
   let used = 0, space = null;   // space: the blank waiting for the next word, and the piece it appends to when no break falls there
+  let last = null;              // last: the word before that blank, the piece it closes, and its width
   for (const run of runs) {
     const o = run.options || {}, face = o.fontFace || font, bold = Boolean(o.bold), sz = o.fontSize || size;
     const width = (t) => MEASURE(t, { font: face, size: sz, bold }).width;
@@ -551,24 +586,57 @@ function wrapRuns(runs, w, size, font = T.light) {
     let piece = { text: '', options: { ...o, breakLine: false } };
     out.push(piece);
     for (const tok of String(run.text).split(/( +|\n)/).filter(Boolean)) {
-      if (tok === '\n') { piece = { text: '', options: { ...style, softBreakBefore: true } }; out.push(piece); used = 0; space = null; continue; }   // an author's break
+      if (tok === '\n') { piece = { text: '', options: { ...style, softBreakBefore: true } }; out.push(piece); used = 0; space = null; last = null; continue; }   // an author's break
       if (/^ +$/.test(tok)) { space = { text: tok, width: width(tok), at: piece }; continue; }
       const wt = width(tok);
       if (space && used > 0 && !NO_BREAK_BEFORE.test(tok) && used + space.width + wt > limit) {
-        piece = { text: tok, options: { ...style, softBreakBefore: true } };
+        // A word that belongs to its neighbour ("3.5조 / 원", "한 / 분기") moves down with it when it closes this piece
+        // and the line keeps a word: the wrapKo rule, inside one run's type.
+        const bound = last && !breaksBetween(last.word, tok) && last.piece === piece && piece.text.endsWith(last.word) && piece.text.length > last.word.length;
+        if (bound) piece.text = piece.text.slice(0, -last.word.length).replace(/ +$/, '');
+        piece = { text: bound ? `${last.word}${space.text}${tok}` : tok, options: { ...style, softBreakBefore: true } };
         out.push(piece);
-        used = wt;
+        used = bound ? last.width + space.width + wt : wt;
       } else {
         if (space) { space.at.text += space.text; used += space.width; }
         piece.text += tok;
         used += wt;
       }
+      last = { word: tok, piece, width: wt };
       space = null;
     }
     if (o.breakLine) { piece.options.breakLine = true; used = 0; }
   }
   if (space) space.at.text += space.text;
-  return out.filter((piece) => piece.text || piece.options.breakLine);
+  return prettyEnds(out.filter((piece) => piece.text || piece.options.breakLine), limit, size, font);
+}
+// wrapKo's runt rule on inline runs: a paragraph's last line of one word takes the word before it along when that
+// word ends a piece of the same type, the line above keeps three words or more and stays the longer line, and the
+// pair fits the zone. A word in another run's type stays where it is: moving it would change its type.
+function prettyEnds(pieces, limit, size, font) {
+  const width = (p, t) => MEASURE(t, { font: p.options.fontFace || font, size: p.options.fontSize || size, bold: Boolean(p.options.bold) }).width;
+  const typeOf = (p) => JSON.stringify(['fontFace', 'fontSize', 'bold', 'italic', 'color', 'highlight', 'underline'].map((k) => p.options[k] ?? null));
+  let start = 0;
+  for (let i = 0; i < pieces.length; i += 1) {
+    if (!pieces[i].options.breakLine && i < pieces.length - 1) continue;
+    const lines = [];
+    for (let j = start; j <= i; j += 1) {
+      if (j === start || pieces[j].options.softBreakBefore) lines.push([]);
+      lines.at(-1).push(pieces[j]);
+    }
+    start = i + 1;
+    if (lines.length < 2 || lines.at(-1).length !== 1) continue;
+    const runt = lines.at(-1)[0], above = lines.at(-2), tail = above.at(-1), word = runt.text.trim();
+    const tailWords = tail.text.trimEnd().split(/ +/);
+    if (!word || /[ \u00A0]/.test(word) || tailWords.length < 2 || typeOf(tail) !== typeOf(runt)) continue;
+    if (above.map((p) => p.text).join('').trim().split(/ +/).length < 3 || !breaksBetween(tailWords.at(-2), tailWords.at(-1))) continue;
+    const moved = `${tailWords.at(-1)} ${word}`, rest = tailWords.slice(0, -1).join(' ');
+    const restWidth = above.slice(0, -1).reduce((total, p) => total + width(p, p.text), 0) + width(tail, rest);
+    if (width(runt, moved) > limit || restWidth < width(runt, moved)) continue;
+    tail.text = rest;
+    runt.text = runt.text.replace(word, moved);
+  }
+  return pieces;
 }
 // The sizes a shrinking box may land on: the deck's scale and the diagram sizes, largest first.
 const scaleSteps = () => [...new Set([...Object.values(TYPE), DIAG.label, DIAG.note])].sort((a, b) => b - a);
@@ -577,6 +645,30 @@ function fitSize(text, w, h, size, font = T.sans, { bold = false, lh = 1, min = 
   for (const s of steps) if (fitH(wrapKo(text, w, s, font, bold), w, s, font, { bold, lh }) <= h) return s;
   return steps[steps.length - 1];
 }
+// wordFit: the largest scale step ≤ size at which every word of str fits w — wrapKo never breaks inside a word, so a
+// word wider than its zone is split by the renderer mid-word; a narrow unit (a satellite, a block) steps down instead.
+function wordFit(str, w, size, font = T.sans, bold = false, { min = 12 } = {}) {
+  const words = String(str ?? '').split(/\s+/).filter(Boolean), limit = w * WRAP_MARGIN;
+  const steps = [size, ...scaleSteps().filter((s) => s < size && s >= min)];
+  return steps.find((s) => words.every((word) => MEASURE(word, { font, size: s, bold }).width <= limit)) ?? steps[steps.length - 1];
+}
+// glue / unglue: the contrast phrase (emph) travels through the eojeol wrap as one unit when it fits a line, so a
+// headline never splits it across two lines ("첫 / 분기 흑자"); the no-break spaces are restored after the wrap.
+const NBSP = '\u00A0';
+// Japanese and Chinese carry no spaces and break between any two characters, so a no-break space cannot hold the
+// phrase: "夜が変わると、昼の道路が / 空いた" split the contrast phrase. The line it would cross ends before it instead.
+const KANA_HAN = /[\u3040-\u30FF\u3400-\u9FFF\uF900-\uFAFF]/;
+function glue(str, phrase, w, size, font = T.sans, bold = false) {
+  const s = String(str ?? ''), p = String(phrase || '').trim(), limit = w * WRAP_MARGIN, width = (t) => MEASURE(t, { font, size, bold }).width;
+  if (!p || !s.includes(p) || width(p) > limit) return s;
+  if (/\s/.test(p)) return s.replace(p, p.replace(/\s+/g, NBSP));
+  if (!KANA_HAN.test(p) || HANGUL.test(s)) return s;
+  const at = s.indexOf(p);
+  let line = '';
+  for (const ch of s.slice(0, at).split('\n').pop()) line = width(line + ch) > limit ? ch : line + ch;
+  return line && width(line + p) > limit ? `${s.slice(0, at)}\n${s.slice(at)}` : s;
+}
+const unglue = (s) => String(s).split(NBSP).join(' ');
 // The general measured text box. Returns the bottom edge so the next element registers under it.
 // size is a number or a role name ('caption', 'label', …): a role brings its face, weight, color, and leading;
 // any of them may be overridden per box. Numeric size defaults: light face, lh 1.2 for lead size and above, 1.35 under it.
@@ -593,7 +685,7 @@ function text(slide, str, x, y, w, size, { color, font, bold, align = 'left', va
 // Title: display face, bold; the size steps down the scale (to 24) when the text would need more than maxLines. Returns the bottom edge.
 // emph: one phrase of the title in the accent (composition.md §8 — a claim page's title, not every title).
 function title(slide, str, { x = M, y = 1.0, w = W - 2 * M, size = TYPE.title, color = T.ink, align = 'left', maxLines = 2, lh = 1.15, emph = '', emphColor = T.accent } = {}) {
-  const wrapped = (at) => wrapKo(str, w, at, T.display, true);
+  const wrapped = (at) => unglue(wrapKo(glue(str, emph, w, at, T.display, true), w, at, T.display, true));
   const steps = [size, ...scaleSteps().filter((v) => v < size && v >= 24)];
   const s = steps.find((at) => MEASURE(wrapped(at), { font: T.display, size: at, bold: true, width: w, lineHeight: lh }).lines <= maxLines) ?? steps[steps.length - 1];
   const out = wrapped(s), h = Math.max(0.6, fitH(out, w, s, T.display, { bold: true, lh }));
@@ -601,7 +693,11 @@ function title(slide, str, { x = M, y = 1.0, w = W - 2 * M, size = TYPE.title, c
   return y + h;
 }
 // Kicker: a real section or topic name above a title. Latin gets tracking (charSpacing); Hangul never does.
+// The first kicker a page sets is the row the page's marks share: dateline() hangs its meta on it, so the corner
+// marks of a display() page (its kicker 0.4 in lower than a head() kicker) sit on one line, not 12 pt apart.
+const KICKER_ROW = new WeakMap();
 function kicker(slide, str, x = M, y = 0.6, color = T.accent, w = 6, align = 'left') {
+  if (!KICKER_ROW.has(slide)) KICKER_ROW.set(slide, y);
   const latin = !/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3040-\u30FF\u4E00-\u9FFF]/.test(str);
   slide.addText(latin ? str.toUpperCase() : str, { ...box(x, y, w, 0.3), fontFace: latin ? T.data : T.sans, fontSize: TYPE.kicker, bold: true, color, align,
     ...(latin ? { charSpacing: 4 } : {}), margin: 0 });
@@ -637,7 +733,11 @@ function hero(slide, x, y, w, value, label, { scale = 'hero', size, color, unit 
   size = steps.find((at) => runWidth(at) <= w) ?? steps[steps.length - 1];
   const runs = [{ text: value, options: { fontSize: size } }];
   if (unit) runs.push({ text: unit, options: { fontSize: Math.round(size * sp.unit) } });
-  const h = Math.max(minH, fitH(String(value) + unit, w, size, T.data, { bold: true }) - 0.02), bind = GAP.bind;
+  // One line by construction (the size fits the run with its smaller unit), so the box is one line tall: measured as
+  // value + unit all at the numeral's size, "+4.3%p" read as two lines, its box grew, and the bottom-anchored figure
+  // sat a line below its peer "38.1%" in the same band.
+  const oneLine = runWidth(size) <= w;
+  const h = Math.max(minH, (oneLine ? lineH(size, T.data) + 0.06 : fitH(String(value) + unit, w, size, T.data, { bold: true })) - 0.02), bind = GAP.bind;
   slide.addText(runs, { ...box(x, y, w, h), fontFace: T.data, bold: true, color, margin: 0, valign: 'bottom', objectName: specName('stat', scale) });
   if (!label) return y + h;
   const l = wrapKo(label, w, labelSize, T.sans), lh = fitH(l, w, labelSize);
@@ -739,8 +839,9 @@ function poster(slide, str, { x = M, y = 1.6, w = W - 2 * M, size = TYPE.poster,
   kickerColor ??= paper ? T.accent : T.onDarkAccent;
   lineColor ??= paper ? T.body : T.onDarkMuted;
   emphColor ??= paper ? T.accent : T.onDarkAccent;
+  if (x < Z.body.x) PAGE_COLUMN.set(slide, x);   // the page's foot follows this column (source())
   if (k) kicker(slide, k, x, y - 0.3 - GAP.within, kickerColor, Math.min(w, 8));
-  const wrapped = (at) => wrapKo(str, w, at, font, true);
+  const wrapped = (at) => unglue(wrapKo(glue(str, emph, w, at, font, true), w, at, font, true));
   const steps = [size, ...scaleSteps().filter((v) => v < size && v >= TYPE.title)];
   // Three fits at once: the line count, a measure of at least eight ems (a narrower box carries one or two words a
   // line — the audit's text_box_too_narrow), and room under the phrase for its line above the lower margin.
@@ -749,7 +850,20 @@ function poster(slide, str, { x = M, y = 1.6, w = W - 2 * M, size = TYPE.poster,
   const s = steps.find(fits) ?? steps[steps.length - 1];
   const out = wrapped(s), h = fitH(out, w, s, font, { bold: true, lh });
   slide.addText(emph ? runsWith(out, emph, { color: emphColor }) : runsOf(out), { ...box(x, y, w, h), fontFace: font, fontSize: s, bold: true, color, margin: 0, valign: 'top', lineSpacingMultiple: lh });
-  return line ? text(slide, line, x, y + h + GAP.between, Math.min(w, 8), lineSize, { color: lineColor, font: T.light, lh: lineLh }) : y + h;
+  return line ? text(slide, balanced(line, Math.min(w, 8), lineSize, T.light), x, y + h + GAP.between, Math.min(w, 8), lineSize, { color: lineColor, font: T.light, lh: lineLh }) : y + h;
+}
+// Balanced wrap (CSS text-wrap: balance) for a short display line: the narrowest measure that keeps the line count,
+// so a two-line deck line splits evenly — "캐나다 로키 · 요세미티 · 시카고 11박 / 12일" left one word stranded under a
+// full line. Returns the text with its breaks written in; the box keeps its own width.
+function balanced(str, w, size, font = T.light, bold = false) {
+  const s = String(str ?? '');
+  if (s.includes('\n')) return s;
+  const count = (at) => wrapKo(s, at, size, font, bold).split('\n').length;
+  const lines = count(w);
+  if (lines < 2) return s;
+  let lo = w / lines, hi = w;
+  for (let i = 0; i < 12; i += 1) { const mid = (lo + hi) / 2; if (count(mid) > lines) lo = mid; else hi = mid; }
+  return wrapKo(s, hi, size, font, bold);
 }
 // Display headline on paper: the editorial hero page. Measured September 2026 across 26 rendered mock pages of a
 // styles gallery (Linear, Stripe, Apple, NYT, Anthropic idioms): the headline runs 58-78 px of a 720 px page — 43-58 pt
@@ -761,7 +875,9 @@ function poster(slide, str, { x = M, y = 1.6, w = W - 2 * M, size = TYPE.poster,
 // pushed the strip off the page in presentation mode) in the body colour, the measure 60% of the canvas. The
 // headline takes a quarter of the page at two lines, so what follows is measured from the returned bottom: a
 // `statBand()` at the band scale, a `ruledList()`, or `columns()`, never a second paragraph. Returns the bottom edge.
-function display(slide, str, { x = M, y = Z.head.display, w = (W - 2 * M) * 0.6, size = TYPE.cover, maxLines = 2, color = T.ink, kicker: k = '', kickerColor = T.accent, line = '', lineColor = T.body, lineSize = TYPE.body, lineLh = 1.35, font = T.display, lh = 1.1, emph = '', emphColor = T.accent } = {}) {
+// The colours are poster()'s: they follow the page's field, so display() on quiet() or dark() sets the on-dark pair
+// (fixed paper defaults drew T.ink on the quiet page at 1.08:1 and the cover read as a blank dark slide).
+function display(slide, str, { x = M, y = Z.head.display, w = (W - 2 * M) * 0.6, size = TYPE.cover, maxLines = 2, color, kicker: k = '', kickerColor, line = '', lineColor, lineSize = TYPE.body, lineLh = 1.35, font = T.display, lh = 1.1, emph = '', emphColor } = {}) {
   return poster(slide, str, { x, y, w, size, maxLines, color, kicker: k, kickerColor, line, lineColor, lineSize, lineLh, font, lh, emph, emphColor });
 }
 // Dateline: the running meta at the top-right corner (a date, a document number, the section) in the data face at
@@ -770,7 +886,7 @@ function display(slide, str, { x = M, y = Z.head.display, w = (W - 2 * M) * 0.6,
 // text pages). One per page at most, only when the page has a real date or number to carry; the 'bands' chrome
 // already puts the kicker in that corner. A date reads as chrome to the facts gate (2026.09, 2026-09-12, 2026년 9월);
 // a document number that looks like a figure ("No. 0073") needs its fact like any other.
-function dateline(slide, str, { y = Z.head.kicker, w = 3.6, color = T.muted } = {}) {
+function dateline(slide, str, { y = KICKER_ROW.get(slide) ?? Z.head.kicker, w = 3.6, color = fieldOf(slide) === 'paper' ? T.muted : T.onDarkMuted } = {}) {
   if (Z.chrome === 'bands') throw new Error('dateline: the bands chrome carries the kicker at the top-right — pass the meta to source() instead');
   kicker(slide, str, W - M - w, y, color, w, 'right');
 }
@@ -873,7 +989,11 @@ function head(slide, kickerText, titleText, { size = TYPE.title, color, kickerCo
   // A head that hangs its kicker at the right edge (a band, a masthead) shortens the title box by that much: a
   // full-width title box runs under the kicker, and the two read as one line crossing itself.
   const tx = plane ? M : x, tw = plane ? Z.plane.w - 2 * M : (masthead || bands) && kickerText ? w - 3.6 : w;
-  const lh = 1.15, t = wrapKo(titleText, tw, size, T.display, true), th = fitH(t, tw, size, T.display, { bold: true, lh });
+  // The plane's column is narrow (3.2 in on the wide canvas): a presentation-mode title at 36 pt got six ems a line
+  // and set one or two words per line (text_box_too_narrow). It steps down the scale to the first size that leaves
+  // the eight ems poster() also keeps, never under 24 pt.
+  if (plane) size = [size, ...scaleSteps().filter((v) => v < size && v >= 24)].find((at) => (tw * 72) / at >= 8) ?? Math.max(24, Math.min(size, ...scaleSteps().filter((v) => v >= 24)));
+  const lh = 1.15, t = unglue(wrapKo(glue(titleText, emph, tw, size, T.display, true), tw, size, T.display, true)), th = fitH(t, tw, size, T.display, { bold: true, lh });
   // The sub line reads at body size: the reference subs (NVIDIA's green line, Kakao's, the bento subtitle) sit at or
   // under the body, and a lead-size sub pushed the body top to 28-36% of the page against their 11-20%.
   const s = sub ? wrapKo(sub, tw, TYPE.body, T.light) : '', sh = sub ? fitH(s, tw, TYPE.body, T.light, { lh: 1.25 }) : 0;
@@ -915,8 +1035,14 @@ function foot(slide) {
   FOOTED.add(slide);
 }
 // source: the running source line on the foot; never moves. It stops short of the page number.
-// The foot follows the chrome's column too: on a plane the source line starts beside the plane, not on it.
-function source(slide, str, { color = T.muted, w = Z.body.w - 0.9 } = {}) { foot(slide); text(slide, str, Z.body.x, Z.foot.source, w, TYPE.caption, { color, font: T.data, lh: 1.1 }); }
+// The foot follows the chrome's column too: on a plane the source line starts beside the plane, not on it. A page drawn
+// on the open canvas left of that column (a display() or poster() at the margin) keeps its foot on its own column:
+// under the rail chrome the cover's source sat on the rail's main column, 3.9 in right of every other line on it.
+const PAGE_COLUMN = new WeakMap();
+function source(slide, str, { color = T.muted, x = PAGE_COLUMN.get(slide) ?? Z.body.x, w } = {}) {
+  foot(slide);
+  text(slide, str, x, Z.foot.source, w ?? Z.body.x + Z.body.w - x - 0.9, TYPE.caption, { color, font: T.data, lh: 1.1 });
+}
 
 // Content weight of a peer: an explicit `weight`, else the length of what it says; an active peer counts more.
 const weightOf = (item, { active = false } = {}) => (Number(item?.weight)
@@ -1182,9 +1308,20 @@ const stageOf = (st) => (typeof st === 'string' ? { label: st } : st);
 // A unit's face: the optional icon at glyph size in the state's type colour, the label in the spec face, the detail as
 // a note under it when the unit is at least an inch tall. layout: 'stack' (icon over the label — a disc) | 'row'
 // (icon before the label — a block). One text box carries the label and the detail, as labelBlock does.
+// The size a unit's label is set at, from `size` down the scale: a word wider than the unit is broken inside the word
+// by the renderer ("신용관 / 리" in a 1 in satellite), so the longest word fits; in a stack the label hangs from the
+// centre axis and has the lower half of the disc ("고객 지원" set in two lines under an icon ran 9 pt past a 1 in
+// satellite), so its lines fit that half, down to 10 pt.
+function unitLabelSize(s, lw, h, size, { stack = false, font = spec('structure').font, bold = true } = {}) {
+  const at = wordFit(s.label, lw, size, font, bold);
+  if (!stack) return at;
+  const room = h / 2 - GAP.bind - 0.04;
+  return [at, ...scaleSteps().filter((v) => v < at && v >= 10)].find((v) => fitH(wrapKo(s.label, lw, v, font, bold), lw, v, font, { bold, lh: 1.15 }) <= room) ?? at;
+}
 async function unitFace(slide, x, y, w, h, kind, s, { state = 'default', layout = 'stack', size, color, iconD = ICON_SIZE.glyph } = {}) {
-  const sp = spec('structure'), at = size ?? sp.size, col = color ?? sp.color[state], bold = true;
+  const sp = spec('structure'), col = color ?? sp.color[state], bold = true;
   const row = layout === 'row', stack = !row && Boolean(s.icon), lx = row && s.icon ? x + iconD + GAP.within : x, lw = w - (lx - x);
+  const at = unitLabelSize(s, lw, h, size ?? sp.size, { stack, font: sp.font, bold });
   const detail = h >= (row ? 1.0 : 1.4) && s.detail ? wrapKo(s.detail, lw, sp.note, T.light) : '';
   const lines = wrapKo(s.label, lw, at, sp.font, bold);
   // The icon registers to the unit, not to a measured line: in a row it is centred on the block (an icon centred on
@@ -1227,16 +1364,19 @@ function timeline(slide, x, y, w, stages, { alternate = true, labelW = 3.0, grou
   const lw = (i) => Math.min(labelW, cols[i].w - sep), lx = (i) => Math.min(Math.max(mid(cols[i]) - lw(i) / 2, x), x + w - lw(i));
   const hs = st.map((s, i) => labelBlockH(lw(i), s.label, s.detail));
   const above = Math.max(0, ...hs.filter((_, i) => up(i))), below = Math.max(0, ...hs.filter((_, i) => !up(i)));
-  const natural = above + (above ? GAP.within : 0) + sp.node + (below ? GAP.within : 0) + below;
+  // A node that carries its `when` is as wide as the date in it plus an inset ("26.4Q" ran past a 0.46 in disc onto
+  // the spine); every node takes that one diameter so the run stays one set.
+  const nd = Math.max(sp.node, ...st.map((s) => (s.when ? textW(String(s.when), sp.note, T.data, true) + 2 * SPACE.tight : 0)));
+  const natural = above + (above ? GAP.within : 0) + nd + (below ? GAP.within : 0) + below;
   if (h > natural) y += (h - natural) / 2;
-  const sy = y + above + (above ? GAP.within : 0) + sp.node / 2;
+  const sy = y + above + (above ? GAP.within : 0) + nd / 2;
   slide.addShape(S.line, { ...box(x, sy, w, 0), line: { color: sp.edge, width: 1.5 } });
-  let bottom = sy + sp.node / 2;
+  let bottom = sy + nd / 2;
   st.forEach((s, i) => {
     const state = s.active ? 'active' : 'default';
-    node(slide, mid(cols[i]), sy, sp.node, s.when ?? '', { fill: sp.fill[state], color: sp.color[state], size: sp.note });
-    if (up(i)) labelBlock(slide, lx(i), sy - sp.node / 2 - GAP.within - hs[i], lw(i), 'timeline', s.label, s.detail, { state, align: 'center', valign: 'bottom' });
-    else bottom = Math.max(bottom, labelBlock(slide, lx(i), sy + sp.node / 2 + GAP.within, lw(i), 'timeline', s.label, s.detail, { state, align: 'center' }));
+    node(slide, mid(cols[i]), sy, nd, s.when ?? '', { fill: sp.fill[state], color: sp.color[state], size: sp.note });
+    if (up(i)) labelBlock(slide, lx(i), sy - nd / 2 - GAP.within - hs[i], lw(i), 'timeline', s.label, s.detail, { state, align: 'center', valign: 'bottom' });
+    else bottom = Math.max(bottom, labelBlock(slide, lx(i), sy + nd / 2 + GAP.within, lw(i), 'timeline', s.label, s.detail, { state, align: 'center' }));
   });
   return bottom;
 }
@@ -1248,12 +1388,17 @@ async function steps(slide, x, y, w, h, stages, { rising = true, blockH = 1.3, g
   // keeps the label alone). Refused before the draw with the fix named.
   if (h < 0.7) throw new Error(`steps: ${h.toFixed(2)} in is under the 0.7 in floor a block needs for its label — give the run more height (shareDown)`);
   const sp = onGround(spec('structure'), ground), st = stages.map(stageOf), n = st.length, bw = (w - GUTTER * (n - 1)) / n, bh = Math.min(blockH, h), rise = n > 1 ? (h - bh) / (n - 1) : 0;
+  // A block's text needs seven ems of its label size (the review's text_box_too_narrow floor): four steps with
+  // details in a plane-chrome column left 0.7 in and set every detail one word a line. Refused before the draw.
+  const labelSize = bh >= 0.9 ? TYPE.body : sp.size, floor = (labelSize * 7) / 72;
+  const measure = bw - PAD * 2 - (st.some((s) => s.icon) ? ICON_SIZE.glyph + GAP.within : 0);
+  if (measure < floor - 0.01) throw new Error(`steps: ${n} blocks in ${w.toFixed(2)} in leave ${measure.toFixed(2)} in for each block's text (floor ${floor.toFixed(2)} at ${labelSize} pt) — use fewer steps, drop the icons, or give the run a wider column`);
   const at = (i) => ({ x: x + i * (bw + GUTTER), y: rising ? y + h - bh - i * rise : y + i * rise });
   st.forEach((s, i) => { if (i < n - 1) { const a = at(i), b = at(i + 1); connector(slide, a.x + bw, a.y + bh / 2, b.x, b.y + bh / 2, { color: sp.edge }); } });
   for (let i = 0; i < n; i += 1) {
     const s = st[i], p = at(i), state = s.active ? 'active' : 'default';
     slide.addShape(S.roundRect, { ...box(p.x, p.y, bw, bh), rectRadius: RADIUS, fill: { color: sp.fill[state] }, line: { color: sp.fill[state] }, ...(s.active ? { shadow: LIFT() } : {}) });
-    await unitFace(slide, p.x + PAD, p.y, bw - PAD * 2, bh, 'steps', s, { state, layout: 'row', size: bh >= 0.9 ? TYPE.body : sp.size });
+    await unitFace(slide, p.x + PAD, p.y, bw - PAD * 2, bh, 'steps', s, { state, layout: 'row', size: labelSize });
   }
   return y + h;
 }
@@ -1285,14 +1430,19 @@ async function hub(slide, cx, cy, center, satellites, opts = {}) {
   // A spoke is drawn when there is a spoke to see: satellites that sit against the hub (a stage-filling hub, r ≈ hubD / 2
   // + d / 2) show the link by touching it, and a stub under a quarter inch between them only adds edges the page's axes trip on.
   const reach = r - d / 2 - hubD / 2;
+  // The satellites are peers: one size for all of them, the one at which every label fits its disc — its longest word,
+  // and under an icon its lines in the lower half (one satellite stepping down alone read as a lesser peer).
+  const satSize = Math.min(...st.map((s) => unitLabelSize(s, d * 0.76, d, sp.size, { stack: Boolean(s.icon), font: sp.font })));
   if (reach >= 0.25) st.forEach((s, i) => { const a = angle(s, i), ux = Math.cos(a), uy = Math.sin(a); connector(slide, cx + ux * hubD / 2, cy + uy * hubD / 2, cx + ux * (r - d / 2), cy + uy * (r - d / 2), { color: sp.edge, arrow: 'none' }); });
   for (let i = 0; i < n; i += 1) {
     const s = st[i], a = angle(s, i), state = s.active ? 'active' : 'default', sx = cx + Math.cos(a) * r, sy = cy + Math.sin(a) * r;
     slide.addShape(S.ellipse, { ...box(sx - d / 2, sy - d / 2, d, d), fill: { color: sp.fill[state] }, line: { color: sp.fill[state] }, ...(s.active ? { shadow: LIFT() } : {}) });
-    await unitFace(slide, sx - d / 2 + d * 0.12, sy - d / 2, d * 0.76, d, 'hub', s, { state });
+    await unitFace(slide, sx - d / 2 + d * 0.12, sy - d / 2, d * 0.76, d, 'hub', s, { state, size: satSize });
   }
   slide.addShape(S.ellipse, { ...box(cx - hubD / 2, cy - hubD / 2, hubD, hubD), fill: { color: T.ink }, line: { color: T.ink } });
-  await unitFace(slide, cx - hubD / 2 + hubD * 0.12, cy - hubD / 2, hubD * 0.76, hubD, 'hub', hc, { color: T.paper, size: TYPE.body, iconD: ICON_SIZE.marker });   // the centre's icon a band up: it is the structure's hero
+  // The centre is the structure's hero: its icon a band up, and its label never smaller than a satellite's (set at the
+  // body size under 16 pt satellites, "플랫폼" read as the least of the eight).
+  await unitFace(slide, cx - hubD / 2 + hubD * 0.12, cy - hubD / 2, hubD * 0.76, hubD, 'hub', hc, { color: T.paper, size: Math.max(TYPE.body, satSize), iconD: ICON_SIZE.marker });
   return cy + r + d / 2;
 }
 // Loop: a closed order as block-arc segments around a center, each label outside its segment at the mid-angle, an
@@ -1367,10 +1517,16 @@ async function lanes(slide, x, y, w, h, rows, { labelW = 1.6, unitH = 0.7 } = {}
   for (let i = 0; i < n; i += 1) {
     const lane = rows[i], ly = y + i * laneH;
     if (i % 2 === 0) field(slide, x, ly, w, laneH, T.paperAlt);
-    slabel(slide, lane.name, x + GAP.within, ly + (laneH - uh) / 2, labelW - GAP.within * 2, uh, 'lanes', { align: 'left', bold: true });
-    for (const it of lane.items || []) {   // units register to the track: a unit ending at span 1 ends on the track's edge
-      const u = stageOf(it), on = Boolean(u.active), state = on ? 'active' : 'default', ux = tx + tw * (u.at ?? 0), uw = Math.max(0.6, tw * (u.span ?? 0.25)), uy = ly + (laneH - uh) / 2;
-      slide.addShape(S.roundRect, { ...box(ux, uy, uw, uh), rectRadius: RADIUS, fill: { color: on ? T.accent : T.paper }, line: { color: on ? T.accent : T.lineStrong, width: 1 }, ...(on ? { shadow: LIFT() } : {}) });
+    slabel(slide, lane.name ?? lane.label, x + GAP.within, ly + (laneH - uh) / 2, labelW - GAP.within * 2, uh, 'lanes', { align: 'left', bold: true });
+    // Units given without `at` are a sequence: they share the track in order, one slot each with a gutter between.
+    // Every one of them used to land at 0 with a quarter span, stacked on each other until only the last showed.
+    const items = lane.items || [], slots = items.length, slot = 1 / Math.max(1, slots), gutter = GUTTER / tw;
+    for (const [k, it] of items.entries()) {   // units register to the track: a unit ending at span 1 ends on the track's edge
+      const u = stageOf(it), placed = u.at !== undefined, on = Boolean(u.active), state = on ? 'active' : 'default';
+      const ux = tx + tw * (placed ? u.at : k * slot), uw = Math.max(0.6, tw * (u.span ?? (placed ? 0.25 : slot - (k < slots - 1 ? gutter : 0)))), uy = ly + (laneH - uh) / 2;
+      // The active unit is the accent's mark form with the type that reads on it (T.accentLabel), the pair every
+      // other structure uses: the type form under the label colour chosen for the mark read at 2.8:1.
+      slide.addShape(S.roundRect, { ...box(ux, uy, uw, uh), rectRadius: RADIUS, fill: { color: on ? T.accentLabel.fill : T.paper }, line: { color: on ? T.accentLabel.fill : T.lineStrong, width: 1 }, ...(on ? { shadow: LIFT() } : {}) });
       await unitFace(slide, ux + GAP.within, uy, uw - GAP.within * 2, uh, 'lanes', u, { state, layout: 'row' });
     }
     if (i) hairline(slide, x, ly, w, T.line);
@@ -1396,8 +1552,13 @@ async function quadrants(slide, x, y, w, h, { axes = { x: ['', ''], y: ['', ''] 
   // had its label and detail written straight across the horizontal rule).
   const rules = [{ x: fx - 0.02, y: c.y, w: 0.04, h: c.h }, { x: c.x, y: fy - 0.02, w: c.w, h: 0.04 }];
   const note = (str, nx, ny, align, bold = false) => { if (!str) return; const font = bold ? T.sans : T.data, nw = textW(str, sp.note, font, bold) + 0.1, bx = align === 'right' ? nx - nw : nx; notes.push({ x: bx, y: ny, w: nw, h: noteH }); slabel(slide, str, bx, ny, nw, noteH, 'quadrants', { size: sp.note, color: T.muted, align, bold, font }); };
-  const shared = (b, list = notes) => list.reduce((sum, n) => sum + Math.max(0, Math.min(b.x + b.w, n.x + n.w) - Math.max(b.x, n.x)) * Math.max(0, Math.min(b.y + b.h, n.y + n.h) - Math.max(b.y, n.y)), 0);
+  // A label that merely touches a note is not free either: "로드맵 뷰" set flush against the axis name "영향 큼" read
+  // as one phrase. The obstacles carry a small clearance; the rules keep their own width.
+  const shared = (b, list = notes, pad = list === notes ? 0.08 : 0) => list.reduce((sum, n) => sum + Math.max(0, Math.min(b.x + b.w, n.x + n.w + pad) - Math.max(b.x, n.x - pad)) * Math.max(0, Math.min(b.y + b.h, n.y + n.h + pad) - Math.max(b.y, n.y - pad)), 0);
   note(axes.x[0], c.x, fy - noteH - GAP.bind, 'left'); note(axes.x[1], c.x + c.w, fy - noteH - GAP.bind, 'right');
+  // The row the horizontal axis names sit on is theirs: a label set on it read as a third word of the axis
+  // ("구현 비용 낮음 주간 리포트"). An item label takes that row only when no other spot is free.
+  if (axes.x[0] || axes.x[1]) notes.push({ x: c.x, y: fy - noteH - GAP.bind, w: c.w, h: noteH });
   note(axes.y[1], fx + GAP.within, c.y, 'left'); note(axes.y[0], fx + GAP.within, c.y + c.h - noteH, 'left');
   [[c.x, c.y, 'left'], [c.x + c.w, c.y, 'right'], [c.x, c.y + c.h - noteH, 'left'], [c.x + c.w, c.y + c.h - noteH, 'right']]
     .forEach(([nx, ny, align], i) => note(names[i], nx, ny, align, true));
@@ -1418,13 +1579,22 @@ async function quadrants(slide, x, y, w, h, { axes = { x: ['', ''], y: ['', ''] 
     // placed (a detail under "대전" near the top-right corner reached the corner name, then the label of "서울");
     // when none is free, the one sharing least. Under and over sit a within step off the marker, never tight.
     const cx = Math.min(Math.max(px - lw / 2, c.x), c.x + c.w - lw);
+    const under = py + d / 2 + GAP.within, over = py - d / 2 - GAP.within - bh;
+    // Over and under may also slide to start at the marker's left edge or end at its right one, still reading as the
+    // marker's label: centred over a marker near the top rule, "로드맵 뷰" ran into the axis name "영향 큼" beside it.
+    const inField = (sx) => sx >= c.x && sx + lw <= c.x + c.w;
     const spots = [
       { x: px + reach, y: py - bh / 2, align: 'left', fits: px + reach + lw <= c.x + c.w },
       { x: px - reach - lw, y: py - bh / 2, align: 'right', fits: px - reach - lw >= c.x },
-      { x: cx, y: py + d / 2 + GAP.within, align: 'center', fits: py + d / 2 + GAP.within + bh <= c.y + c.h },
-      { x: cx, y: py - d / 2 - GAP.within - bh, align: 'center', fits: py - d / 2 - GAP.within - bh >= c.y },
+      { x: cx, y: under, align: 'center', fits: under + bh <= c.y + c.h },
+      { x: cx, y: over, align: 'center', fits: over >= c.y },
+      // The slid spots answer only when none of the four is free.
+      { x: px - d / 2, y: under, align: 'left', slid: true, fits: under + bh <= c.y + c.h && inField(px - d / 2) },
+      { x: px + d / 2 - lw, y: under, align: 'right', slid: true, fits: under + bh <= c.y + c.h && inField(px + d / 2 - lw) },
+      { x: px - d / 2, y: over, align: 'left', slid: true, fits: over >= c.y && inField(px - d / 2) },
+      { x: px + d / 2 - lw, y: over, align: 'right', slid: true, fits: over >= c.y && inField(px + d / 2 - lw) },
     ].filter((k) => k.fits).map((k) => ({ ...k, w: lw, h: bh, cost: shared({ ...k, w: lw, h: bh }), onRule: shared({ ...k, w: lw, h: bh }, rules) }));
-    const free = spots.filter((k) => k.cost === 0).sort((a, b) => a.onRule - b.onRule);
+    const free = spots.filter((k) => k.cost === 0).sort((a, b) => Number(Boolean(a.slid)) - Number(Boolean(b.slid)) || a.onRule - b.onRule);
     const at = free[0] ?? [...spots].sort((a, b) => a.cost - b.cost)[0] ?? { x: px + reach, y: py - bh / 2, w: lw, h: bh, align: 'left', onRule: 1 };
     notes.push(at);
     if (at.onRule > 0) field(slide, at.x - 0.04, at.y - 0.02, lw + 0.08, bh + 0.04);

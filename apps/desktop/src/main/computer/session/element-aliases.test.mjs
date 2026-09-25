@@ -33,13 +33,17 @@ test('an OCR ref resolves to the frame point its capture published', () => {
 
 test('an OCR ref from an older frame is refused instead of reusing the mark number', () => {
   assert.throws(
-    () => resolveElementAliases({ action: 'click', window_id: 'hwnd:0x1', ref: 'ocr:frame-2:7' }, ocrTargets('frame-3')),
+    () =>
+      resolveElementAliases({ action: 'click', window_id: 'hwnd:0x1', ref: 'ocr:frame-2:7' }, ocrTargets('frame-3')),
     /stale_element/
   );
 });
 
 test('a semantic ref is left untouched', () => {
-  const resolved = resolveElementAliases({ action: 'click', window_id: 'hwnd:0x1', ref: 's1:e4' }, ocrTargets('frame-3'));
+  const resolved = resolveElementAliases(
+    { action: 'click', window_id: 'hwnd:0x1', ref: 's1:e4' },
+    ocrTargets('frame-3')
+  );
   assert.equal(resolved.ref, 's1:e4');
   assert.equal(resolved.x, undefined);
 });

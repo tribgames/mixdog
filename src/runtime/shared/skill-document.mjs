@@ -1,6 +1,11 @@
 import { parseDocument } from 'yaml';
 
-const SKILL_FRONTMATTER_RE = /^(?:\uFEFF)?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+// The model's skill listing cuts each trigger at MAX characters and, when many
+// skills share the listing budget, shrinks every trigger evenly down to MIN.
+export const SKILL_TRIGGER_LISTING_MAX = 100;
+export const SKILL_TRIGGER_LISTING_MIN = 60;
+
+const SKILL_FRONTMATTER_RE =/^(?:\uFEFF)?---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 const scalarText = (value, field) => {
   if (typeof value !== 'string') {

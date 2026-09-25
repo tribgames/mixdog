@@ -1,5 +1,6 @@
 import { findOutputStyle } from '../output-styles.mjs';
 import { ORCHESTRATION_MODES, configuredOrchestrationMode } from '../../runtime/shared/orchestration.mjs';
+import { configWithOutputStyle } from '../config-lifecycle/config-writers.mjs';
 
 // Output style + orchestration mode: global configuration for future
 // turns/sessions, never a reason to replace an addressed session.
@@ -25,13 +26,7 @@ export function createStyleAndModeApi(deps) {
     }
     // Adopt in-memory immediately so same-tick readers see the new style;
     // persist off the key-handler tick via the flushOutputStyleSave debounce.
-    const nextConfig = { ...getConfig(), outputStyle: selected.id };
-    if (nextConfig.agent && typeof nextConfig.agent === 'object' && !Array.isArray(nextConfig.agent)) {
-      const agent = { ...nextConfig.agent };
-      delete agent.outputStyle;
-      nextConfig.agent = agent;
-    }
-    adoptConfig(nextConfig);
+    adoptConfig(configWithOutputStyle(getConfig(), selected.id));
     scheduleOutputStyleSave(selected.id);
     const freshStatus = { configured: selected.id, current: selected, styles: before.styles };
     seedOutputStyleStatusCache(freshStatus);

@@ -116,4 +116,4 @@ function createWebhookListener({ getConfig, setConfig, handleRequest }) {
   return { start, stop, reloadConfig, getUrl };
 }
 
-export { WEBHOOK_BIND_HOST, createWebhookListener };
+export { createWebhookListener };

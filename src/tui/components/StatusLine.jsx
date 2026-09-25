@@ -85,27 +85,21 @@ function hasActiveStatuslineTools(activeTools = null) {
 }
 
 function hasActiveStatuslineWork(line, agentWorkers = [], agentJobs = [], activeTools = null) {
-  return (
-    hasRunningStatuslineWorkers(agentWorkers, agentJobs) ||
-    hasActiveStatuslineTools(activeTools) ||
-    /\bRunning \d+ (?:Agents?|Shells?)\b/.test(stripAnsi(line)) ||
-    /\b(?:Exploring|Searching|Memory)\b/.test(stripAnsi(line))
-  );
+  if (hasRunningStatuslineWorkers(agentWorkers, agentJobs) || hasActiveStatuslineTools(activeTools)) return true;
+  const plain = stripAnsi(line);
+  return /\bRunning \d+ (?:Agents?|Shells?)\b/.test(plain) || /\b(?:Exploring|Searching|Memory)\b/.test(plain);
 }
 
-function bootFullRenderEligible(mountAtMs, line, agentWorkers = [], agentJobs = [], activeTools = null) {
-  const elapsed = Date.now() - mountAtMs;
+// Milliseconds left before the boot full render may run (<= 0 once eligible);
+// the delay is longer while agents/shells/tools are active.
+function bootFullRenderDelayRemainingMs(mountAtMs, line, agentWorkers = [], agentJobs = [], activeTools = null) {
   const active = hasActiveStatuslineWork(line, agentWorkers, agentJobs, activeTools);
   const delay = active ? STATUSLINE_BOOT_FULL_DELAY_ACTIVE_MS : STATUSLINE_BOOT_FULL_DELAY_MS;
-  return elapsed >= delay;
+  return delay - (Date.now() - mountAtMs);
 }
 
 function canAttemptBootFullRender(nextAttemptAtMs = 0) {
   return Date.now() >= nextAttemptAtMs;
-}
-
-function shouldSnapLocalStatusline(args, lastArgs) {
-  return statuslineFooterIdentityChanged(args, lastArgs);
 }
 
 function scheduleBootFullRetry(backoffMsRef, nextAttemptAtRef) {
@@ -434,7 +428,7 @@ function StatusLineView({
     renderEffectIdRef.current = effectId;
     const isCurrentEffect = () => alive && renderEffectIdRef.current === effectId;
     const args = statuslineArgsRef.current || statuslineArgs;
-    const identityChanged = shouldSnapLocalStatusline({ ...args, agentRevision }, lastImmediateArgsRef.current);
+    const identityChanged = statuslineFooterIdentityChanged({ ...args, agentRevision }, lastImmediateArgsRef.current);
     // ROUTE identity = the subset that actually changes the async full line's L1
     // usage/quota segment (provider/model/session/effort/fast). agentRevision,
     // compactBoundaryTokens, autoCompactTokenLimit, stats-reset AND the context
@@ -527,42 +521,39 @@ function StatusLineView({
       autoCompactTokenLimit: args.autoCompactTokenLimit,
       stats: args.stats,
     };
+    // Re-fire this effect after `waitMs` (at least 150ms) via refreshTick.
+    const armBootRetry = (waitMs) => {
+      bootRetryTimer = setTimeout(
+        () => {
+          if (!isCurrentEffect()) return;
+          setRefreshTick((tick) => (tick + 1) % 1_000_000);
+        },
+        Math.max(150, waitMs)
+      );
+      bootRetryTimer.unref?.();
+    };
     const timer = setTimeout(() => {
       if (bootFullDoneRef.current !== true) {
-        if (
-          !bootFullRenderEligible(
-            mountAtRef.current,
-            lineRef.current,
-            args.agentWorkers,
-            args.agentJobs,
-            args.activeTools
-          )
-        ) {
+        const bootDelayRemainingMs = bootFullRenderDelayRemainingMs(
+          mountAtRef.current,
+          lineRef.current,
+          args.agentWorkers,
+          args.agentJobs,
+          args.activeTools
+        );
+        if (bootDelayRemainingMs > 0) {
           // Not eligible yet (boot delay not elapsed). Don't just bail and wait
           // for the next refreshTick interval (250ms/2000ms) — arm a follow-up
           // timeout for the REMAINING boot delay so the first full render still
           // fires on schedule instead of stalling/flickering until the next tick.
-          const active = hasActiveStatuslineWork(lineRef.current, args.agentWorkers, args.agentJobs, args.activeTools);
-          const bootDelay = active ? STATUSLINE_BOOT_FULL_DELAY_ACTIVE_MS : STATUSLINE_BOOT_FULL_DELAY_MS;
-          const elapsed = Date.now() - mountAtRef.current;
-          const remaining = Math.max(150, bootDelay - elapsed);
-          bootRetryTimer = setTimeout(() => {
-            if (!isCurrentEffect()) return;
-            setRefreshTick((tick) => (tick + 1) % 1_000_000);
-          }, remaining);
-          bootRetryTimer.unref?.();
+          armBootRetry(bootDelayRemainingMs);
           return;
         }
         if (!canAttemptBootFullRender(bootFullNextAttemptAtRef.current)) {
           // Backoff window not elapsed yet — arm a follow-up timeout for exactly
           // the remaining backoff so the retry fires on time instead of waiting
           // for the next refreshTick interval.
-          const remaining = Math.max(150, bootFullNextAttemptAtRef.current - Date.now());
-          bootRetryTimer = setTimeout(() => {
-            if (!isCurrentEffect()) return;
-            setRefreshTick((tick) => (tick + 1) % 1_000_000);
-          }, remaining);
-          bootRetryTimer.unref?.();
+          armBootRetry(bootFullNextAttemptAtRef.current - Date.now());
           return;
         }
       }

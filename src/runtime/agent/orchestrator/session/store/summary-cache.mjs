@@ -191,7 +191,13 @@ export function _scanStoredSessionSummaryRows() {
   }
   const rows = [];
   const invalidStorageIds = new Set();
-  const markInvalid = (filename) => {
+  // A file without a usable row is marked invalid, so no pending/live overlay
+  // may stand in for it.
+  const keepRow = (filename, row) => {
+    if (row) {
+      rows.push(row);
+      return;
+    }
     const storageId = filename.slice(0, -5);
     if (/^[A-Za-z0-9_-]+$/.test(storageId)) invalidStorageIds.add(storageId);
   };
@@ -207,17 +213,13 @@ export function _scanStoredSessionSummaryRows() {
       // Unreadable probe (EACCES/EIO/EBUSY): NOT a deletion. Keep the
       // cache entry exactly as it is — `changed` stays untouched so no
       // sidecar rewrite can drop this row — and keep serving the last
-      // known row. With no cached row the id is marked invalid instead,
-      // so no pending/live overlay may stand in for the unreadable file.
-      const stale = _summaryScanCache.get(f);
-      if (stale?.row) rows.push(stale.row);
-      else markInvalid(f);
+      // known row. With no cached row the id is marked invalid instead.
+      keepRow(f, _summaryScanCache.get(f)?.row);
       continue;
     }
     const cached = _summaryScanCache.get(f);
     if (cached && cached.mtimeMs === fileProbe.mtimeMs && cached.size === fileProbe.size) {
-      if (cached.row) rows.push(cached.row);
-      else markInvalid(f);
+      keepRow(f, cached.row);
       continue;
     }
     const session = _storedSessionFromFile(dir, f);
@@ -226,17 +228,14 @@ export function _scanStoredSessionSummaryRows() {
       // unreadable probe. Retain the last known row, leave `changed`
       // untouched (no sidecar rewrite may drop it) and never cache a
       // null row for a file we could not read.
-      const stale = _summaryScanCache.get(f);
-      if (stale?.row) rows.push(stale.row);
-      else markInvalid(f);
+      keepRow(f, _summaryScanCache.get(f)?.row);
       continue;
     }
     const summary = session ? _sessionSummary(session) : null;
     const row = summary ? { ...summary, storageMtimeMs: fileProbe.mtimeMs, storageSize: fileProbe.size } : null;
     _summaryScanCache.set(f, { mtimeMs: fileProbe.mtimeMs, size: fileProbe.size, row });
     changed = true;
-    if (row) rows.push(row);
-    else markInvalid(f);
+    keepRow(f, row);
   }
   rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   return { rows, invalidStorageIds, changed };

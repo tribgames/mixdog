@@ -9,6 +9,7 @@ import { createPixelCapture } from './capture-pixels';
 import { mergeCaptureOcr } from './capture-ocr';
 import { captureResultPayload } from './capture-result';
 import { createCaptureAfter } from './capture-after';
+import { createCaptureImageDedupStore } from './capture-image-dedup';
 import {
   assertCaptureTargetShape,
   assertScreenTargetMode,
@@ -160,7 +161,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       let generation: unknown = null;
       let accessibilityError = '';
       if (accessibilityRead) {
-        let applied;
+        let applied: ReturnType<typeof applyAccessibilityRead>;
         try {
           applied = applyAccessibilityRead(host, accessibilityRead, {
             mode,
@@ -342,11 +343,13 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     }
   }
 
-  const captureAfterAction = createCaptureAfter(host, ocrPreferences, captureComputer);
+  const imageDedup = createCaptureImageDedupStore();
+  const captureAfterAction = createCaptureAfter(host, ocrPreferences, captureComputer, imageDedup);
 
   function releaseCaptureSession(sessionId: string): void {
     ocrPreferences.release(sessionId);
     visualOnly.releasePrefix(`${sessionId}\u0000`);
+    imageDedup.releasePrefix(`${sessionId}\u0000`);
   }
 
   return {

@@ -4,7 +4,12 @@
 // from session-close.mjs (one-way dependency, no cycle).
 import { sweepStaleSessions, sweepStaleSessionsCooperative, evictIdleLiveSessions } from '../store.mjs';
 import { sweepOrphanedPendingMessages } from './pending-messages.mjs';
-import { _getRuntimeEntry, _clearSessionRuntime, _sweepTerminalSessionRuntimes } from './runtime-liveness.mjs';
+import {
+  IN_FLIGHT_STAGES,
+  _getRuntimeEntry,
+  _clearSessionRuntime,
+  _sweepTerminalSessionRuntimes,
+} from './runtime-liveness.mjs';
 import { envNonNegativeInt } from '../../../../shared/env.mjs';
 
 // --- Periodic idle session cleanup ---
@@ -41,8 +46,6 @@ function _previewIds(items, limit = 5) {
   return ` (${ids.join(', ')}${more})`;
 }
 
-const IN_FLIGHT_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'cancelling']);
-
 function _finalizeSweptSessionRuntime(detail) {
   if (!detail?.id) return false;
   const rtEntry = _getRuntimeEntry(detail.id);
@@ -62,6 +65,24 @@ const _sweepLog = (line) => {
   if (process.env.MIXDOG_DEBUG_SESSION_LOG) process.stderr.write(line);
 };
 
+function _clearTombstonedRuntimes(tombstoneDetails) {
+  for (const d of tombstoneDetails) {
+    if (d?.id && !_isSessionLive(d.id)) _clearSessionRuntime(d.id);
+  }
+}
+
+function _logTombstoneSweep(tombstonesCleaned, tombstoneDetails, tombstoneErrors) {
+  if (tombstonesCleaned > 0) {
+    _sweepLog(`[session-sweep] unlinked ${tombstonesCleaned} tombstone(s)${_previewIds(tombstoneDetails)}\n`);
+  }
+  if (tombstoneErrors.length > 0) {
+    const first = tombstoneErrors[0];
+    _sweepLog(
+      `[session-sweep] tombstone unlink failed for ${tombstoneErrors.length} session(s): ${first?.id || 'unknown'} ${first?.message || ''}\n`
+    );
+  }
+}
+
 async function sweepIdleSessions({ includeTombstones = true, sweepIdle = true } = {}) {
   const startedAt = Date.now();
   try {
@@ -78,18 +99,8 @@ async function sweepIdleSessions({ includeTombstones = true, sweepIdle = true } 
       }
       _sweepLog(`[agent-session] idle sweep: cleaned ${cleaned} session(s), ${remaining} remaining\n`);
     }
-    if (tombstonesCleaned > 0) {
-      for (const d of tombstoneDetails) {
-        if (d?.id && !_isSessionLive(d.id)) _clearSessionRuntime(d.id);
-      }
-      _sweepLog(`[session-sweep] unlinked ${tombstonesCleaned} tombstone(s)${_previewIds(tombstoneDetails)}\n`);
-    }
-    if (tombstoneErrors.length > 0) {
-      const first = tombstoneErrors[0];
-      _sweepLog(
-        `[session-sweep] tombstone unlink failed for ${tombstoneErrors.length} session(s): ${first?.id || 'unknown'} ${first?.message || ''}\n`
-      );
-    }
+    if (tombstonesCleaned > 0) _clearTombstonedRuntimes(tombstoneDetails);
+    _logTombstoneSweep(tombstonesCleaned, tombstoneDetails, tombstoneErrors);
     const elapsed = Date.now() - startedAt;
     if (elapsed >= CLEANUP_SLOW_LOG_MS) {
       _sweepLog(
@@ -124,18 +135,8 @@ export function sweepTombstones() {
       tombstoneMaxAgeMs: TOMBSTONE_MAX_AGE_MS,
       isSessionLive: _isSessionLive,
     });
-    for (const d of tombstoneDetails) {
-      if (d?.id && !_isSessionLive(d.id)) _clearSessionRuntime(d.id);
-    }
-    if (tombstonesCleaned > 0) {
-      _sweepLog(`[session-sweep] unlinked ${tombstonesCleaned} tombstone(s)${_previewIds(tombstoneDetails)}\n`);
-    }
-    if (tombstoneErrors.length > 0) {
-      const first = tombstoneErrors[0];
-      _sweepLog(
-        `[session-sweep] tombstone unlink failed for ${tombstoneErrors.length} session(s): ${first?.id || 'unknown'} ${first?.message || ''}\n`
-      );
-    }
+    _clearTombstonedRuntimes(tombstoneDetails);
+    _logTombstoneSweep(tombstonesCleaned, tombstoneDetails, tombstoneErrors);
     return tombstonesCleaned;
   } catch (e) {
     process.stderr.write(`[session-sweep] tombstone sweep error: ${e?.message || e}\n`);

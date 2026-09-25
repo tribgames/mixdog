@@ -1,6 +1,7 @@
 /** A deterministic same-page batch. Dispatch is never replayed, and a
  * partial result always hands the caller a fresh observation for recovery. */
 import { SEQUENCE_STEP_ACTIONS } from '../command';
+import { throwIfBrowserCancelled } from '../settle';
 import { measureBrowserStep } from '../timing';
 import { defineBrowserActions } from './types';
 
@@ -22,7 +23,7 @@ export const sequenceActions = defineBrowserActions({
         .trim()
         .toLowerCase();
       try {
-        if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+        throwIfBrowserCancelled(signal);
         // A SPA URL transition can keep the same document generation.
         // Loading also fences the interval before a navigation commits.
         if (state.for(guest).documentGeneration !== generation || guest.getURL() !== url || guest.isLoading()) {

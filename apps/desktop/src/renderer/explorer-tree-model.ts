@@ -2,8 +2,38 @@
 // its project-relative path grammar, and every pure transition that loading,
 // refresh and auto-reveal apply to that map. No React and no IPC here, so
 // explorer-tree-model.test.mjs pins the ordering rules directly.
-import type { DesktopDirEntry } from '../shared/contract';
+import type { DesktopDirEntry, DesktopGitStatus } from '../shared/contract';
 import { sortExplorerEntries } from './explorer-logic';
+
+/** Git decorations for the tree: each changed file's one-letter badge, and
+ *  every ancestor folder of a change. Outside a repository both stay empty. */
+export function explorerGitDecorations(status: DesktopGitStatus | null): {
+  gitFiles: Map<string, string>;
+  gitDirs: Set<string>;
+} {
+  const gitFiles = new Map<string, string>();
+  const gitDirs = new Set<string>();
+  if (!status?.repository) return { gitFiles, gitDirs };
+  for (const file of status.files || []) {
+    const rel = String(file.path || '').replace(/\\/g, '/');
+    if (!rel) continue;
+    const badge = file.untracked ? 'U' : String(file.index || '').trim() || String(file.worktree || '').trim() || 'M';
+    gitFiles.set(rel, badge);
+    let parent = rel;
+    while (parent.includes('/')) {
+      parent = parent.slice(0, parent.lastIndexOf('/'));
+      gitDirs.add(parent);
+    }
+  }
+  return { gitFiles, gitDirs };
+}
+
+/** Row class for a file's Git badge; files without one stay undecorated. */
+export function explorerGitClass(badge?: string): string {
+  if (!badge) return '';
+  if (badge === 'U' || badge === 'A' || badge === '?') return ' git-added';
+  return badge === 'D' ? ' git-deleted' : ' git-modified';
+}
 
 /** One directory level. `entries` stays undefined until it has been listed. */
 export interface ExplorerDirState {

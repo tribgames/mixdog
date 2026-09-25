@@ -78,7 +78,7 @@ export function expandOfficeDesignOperations({
       output.push(...expandXlsxSheet(contentOperation, design, composition));
       semantic.push({
         op: name,
-        sheet: String(contentOperation.sheet || 'Sheet1'),
+        sheet: sheetName,
         composition,
         ...(bound.binding ? { contentBinding: bound.binding } : {}),
       });

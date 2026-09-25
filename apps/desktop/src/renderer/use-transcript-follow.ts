@@ -284,9 +284,8 @@ function scrollShouldReattachFollow(element: HTMLElement, previousTop: number): 
 /** Is the tail far enough out of sight to offer the jump? One viewport, and
  *  never less than 400px, on a transcript that actually overflows. */
 function jumpButtonVisible(element: HTMLElement): boolean {
-  const max = element.scrollHeight - element.clientHeight;
-  if (max <= 1) return false;
-  return max - element.scrollTop > Math.max(400, element.clientHeight);
+  if (!canScroll(element)) return false;
+  return distanceFromBottom(element) > Math.max(400, element.clientHeight);
 }
 
 interface TranscriptFollow {

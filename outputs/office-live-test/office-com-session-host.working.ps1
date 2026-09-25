@@ -1,0 +1,1172 @@
+$ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+$env:MIXDOG_OFFICE_HOST_LIBRARY = '1'
+. (Join-Path $PSScriptRoot 'office-com-host.ps1')
+Remove-Item Env:MIXDOG_OFFICE_HOST_LIBRARY -ErrorAction SilentlyContinue
+
+if (-not ('MixdogOfficeInterop' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text;
+
+public static class MixdogOfficeInterop
+{
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("ole32.dll")]
+    private static extern int GetRunningObjectTable(int reserved, out IRunningObjectTable runningObjectTable);
+
+    [DllImport("ole32.dll")]
+    private static extern int CreateBindCtx(int reserved, out IBindCtx bindContext);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder className, int maxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint attachThreadId, uint attachToThreadId, bool attach);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindowAsync(IntPtr hWnd, int command);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    private static string NormalizePath(string value)
+    {
+        if (String.IsNullOrWhiteSpace(value)) return String.Empty;
+        value = value.Trim();
+        while (value.StartsWith("!", StringComparison.Ordinal)) value = value.Substring(1);
+        Uri uri;
+        if (Uri.TryCreate(value, UriKind.Absolute, out uri) && uri.IsFile) value = uri.LocalPath;
+        try { return Path.GetFullPath(value).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar); }
+        catch { return String.Empty; }
+    }
+
+    public static object TryGetRunningFile(string path)
+    {
+        IRunningObjectTable table = null;
+        IBindCtx context = null;
+        IEnumMoniker enumerator = null;
+        try
+        {
+            if (GetRunningObjectTable(0, out table) != 0 || table == null) return null;
+            if (CreateBindCtx(0, out context) != 0 || context == null) return null;
+            table.EnumRunning(out enumerator);
+            if (enumerator == null) return null;
+            enumerator.Reset();
+            string expected = NormalizePath(path);
+            IMoniker[] monikers = new IMoniker[1];
+            while (enumerator.Next(1, monikers, IntPtr.Zero) == 0)
+            {
+                IMoniker moniker = monikers[0];
+                try
+                {
+                    string displayName;
+                    moniker.GetDisplayName(context, null, out displayName);
+                    if (!String.Equals(NormalizePath(displayName), expected, StringComparison.OrdinalIgnoreCase)) continue;
+                    object value;
+                    table.GetObject(moniker, out value);
+                    return value;
+                }
+                catch { }
+                finally
+                {
+                    if (moniker != null && Marshal.IsComObject(moniker)) Marshal.ReleaseComObject(moniker);
+                }
+            }
+            return null;
+        }
+        finally
+        {
+            if (enumerator != null && Marshal.IsComObject(enumerator)) Marshal.ReleaseComObject(enumerator);
+            if (context != null && Marshal.IsComObject(context)) Marshal.ReleaseComObject(context);
+            if (table != null && Marshal.IsComObject(table)) Marshal.ReleaseComObject(table);
+        }
+    }
+
+    public static void RegisterExcelInstances()
+    {
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            StringBuilder className = new StringBuilder(64);
+            GetClassName(hWnd, className, className.Capacity);
+            if (String.Equals(className.ToString(), "XLMAIN", StringComparison.OrdinalIgnoreCase))
+            {
+                SendMessage(hWnd, 0x0400u + 18u, IntPtr.Zero, IntPtr.Zero);
+            }
+            return true;
+        }, IntPtr.Zero);
+    }
+
+    public static int ProcessIdForWindow(long hWnd)
+    {
+        uint processId;
+        GetWindowThreadProcessId(new IntPtr(hWnd), out processId);
+        return unchecked((int)processId);
+    }
+
+    public static long ForegroundWindow()
+    {
+        return GetForegroundWindow().ToInt64();
+    }
+
+    public static int HideVisibleWindowsForProcess(int processId)
+    {
+        int hidden = 0;
+        if (processId <= 0) return hidden;
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            uint owner;
+            GetWindowThreadProcessId(hWnd, out owner);
+            if (owner == unchecked((uint)processId) && IsWindowVisible(hWnd))
+            {
+                if (ShowWindowAsync(hWnd, 0)) hidden++;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return hidden;
+    }
+
+    public static int VisibleWindowCountForProcess(int processId)
+    {
+        int visible = 0;
+        if (processId <= 0) return visible;
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            uint owner;
+            GetWindowThreadProcessId(hWnd, out owner);
+            if (owner == unchecked((uint)processId) && IsWindowVisible(hWnd)) visible++;
+            return true;
+        }, IntPtr.Zero);
+        return visible;
+    }
+
+    public static string[] VisibleWindowDescriptionsForProcess(int processId)
+    {
+        List<string> windows = new List<string>();
+        if (processId <= 0) return windows.ToArray();
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            uint owner;
+            GetWindowThreadProcessId(hWnd, out owner);
+            if (owner != unchecked((uint)processId) || !IsWindowVisible(hWnd)) return true;
+            StringBuilder className = new StringBuilder(128);
+            StringBuilder title = new StringBuilder(1024);
+            GetClassName(hWnd, className, className.Capacity);
+            GetWindowText(hWnd, title, title.Capacity);
+            windows.Add(className.ToString() + "|" + title.ToString());
+            return true;
+        }, IntPtr.Zero);
+        return windows.ToArray();
+    }
+
+    public static bool RestoreForegroundWindow(long hWnd)
+    {
+        return ActivateWindow(hWnd);
+    }
+
+    public static long FindWindowByClassAndTitle(string expectedClass, string titlePart)
+    {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            if (!IsWindowVisible(hWnd)) return true;
+            StringBuilder className = new StringBuilder(64);
+            GetClassName(hWnd, className, className.Capacity);
+            if (!String.Equals(className.ToString(), expectedClass, StringComparison.OrdinalIgnoreCase)) return true;
+            StringBuilder title = new StringBuilder(1024);
+            GetWindowText(hWnd, title, title.Capacity);
+            if (title.ToString().IndexOf(titlePart, StringComparison.OrdinalIgnoreCase) < 0) return true;
+            found = hWnd;
+            return false;
+        }, IntPtr.Zero);
+        return found.ToInt64();
+    }
+
+    public static bool ActivateWindow(long hWnd)
+    {
+        IntPtr target = new IntPtr(hWnd);
+        if (target == IntPtr.Zero) return false;
+        uint ignored;
+        uint currentThread = GetCurrentThreadId();
+        uint foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out ignored);
+        uint targetThread = GetWindowThreadProcessId(target, out ignored);
+        bool attachedForeground = false;
+        bool attachedTarget = false;
+        try
+        {
+            if (foregroundThread != 0 && foregroundThread != currentThread)
+                attachedForeground = AttachThreadInput(currentThread, foregroundThread, true);
+            if (targetThread != 0 && targetThread != currentThread)
+                attachedTarget = AttachThreadInput(currentThread, targetThread, true);
+            ShowWindowAsync(target, IsIconic(target) ? 9 : 5);
+            BringWindowToTop(target);
+            SetForegroundWindow(target);
+            return GetForegroundWindow() == target;
+        }
+        finally
+        {
+            if (attachedTarget) AttachThreadInput(currentThread, targetThread, false);
+            if (attachedForeground) AttachThreadInput(currentThread, foregroundThread, false);
+        }
+    }
+
+    public static bool HideWindow(long hWnd)
+    {
+        IntPtr target = new IntPtr(hWnd);
+        return target != IntPtr.Zero && ShowWindowAsync(target, 0);
+    }
+
+    public static bool WindowVisible(long hWnd)
+    {
+        IntPtr target = new IntPtr(hWnd);
+        return target != IntPtr.Zero && IsWindowVisible(target);
+    }
+}
+'@
+}
+
+function Office-ProcessName([string]$format) {
+    switch ($format) {
+        'docx' { return 'WINWORD' }
+        'xlsx' { return 'EXCEL' }
+        'pptx' { return 'POWERPNT' }
+    }
+    return ''
+}
+
+function Office-ProcessIds([string]$format) {
+    $name = Office-ProcessName $format
+    if (-not $name) { return @() }
+    return @(
+        Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
+            try { [int]$_.Id } finally { try { $_.Dispose() } catch {} }
+        }
+    )
+}
+
+function Background-OwnedProcessIds($state) {
+    $ids = New-Object 'System.Collections.Generic.HashSet[int]'
+    if ([int]$state.AppPid -gt 0) { [void]$ids.Add([int]$state.AppPid) }
+    if ($state.Format -eq 'pptx' -and $null -ne $script:PowerPointChartExcelProcessIds) {
+        foreach ($processId in @($script:PowerPointChartExcelProcessIds.Keys)) {
+            if ([int]$processId -gt 0) { [void]$ids.Add([int]$processId) }
+        }
+    }
+    return @($ids)
+}
+
+function Window-ProcessId([long]$hWnd) {
+    if (-not $hWnd) { return 0 }
+    return [MixdogOfficeInterop]::ProcessIdForWindow($hWnd)
+}
+
+function Enforce-BackgroundIsolation($state) {
+    if ($state.Mode -ne 'background') { return $null }
+    $processIds = @(Background-OwnedProcessIds $state)
+    $foregroundBefore = [long]$state.ForegroundBeforeAction
+    $observedVisibleWindows = @()
+    $hidden = 0
+    $visible = 0
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        $visible = 0
+        foreach ($processId in $processIds) {
+            if ($attempt -eq 0) {
+                $observedVisibleWindows += @(
+                    [MixdogOfficeInterop]::VisibleWindowDescriptionsForProcess([int]$processId)
+                )
+            }
+            $visible += [int][MixdogOfficeInterop]::VisibleWindowCountForProcess([int]$processId)
+        }
+        if ($visible -eq 0) { break }
+        foreach ($processId in $processIds) {
+            $hidden += [int][MixdogOfficeInterop]::HideVisibleWindowsForProcess([int]$processId)
+        }
+        Start-Sleep -Milliseconds 25
+    }
+    $foregroundCurrent = [long][MixdogOfficeInterop]::ForegroundWindow()
+    $ownedForeground = $processIds -contains [int](Window-ProcessId $foregroundCurrent)
+    $focusRestored = $false
+    if ($ownedForeground -and $foregroundBefore -and $foregroundCurrent -ne $foregroundBefore) {
+        $focusRestored = [bool][MixdogOfficeInterop]::RestoreForegroundWindow($foregroundBefore)
+        Start-Sleep -Milliseconds 25
+    }
+    $foregroundAfter = [long][MixdogOfficeInterop]::ForegroundWindow()
+    $ownedForegroundRemaining = $processIds -contains [int](Window-ProcessId $foregroundAfter)
+    $state.BackgroundIsolationChecks = [int]$state.BackgroundIsolationChecks + 1
+    $state.BackgroundHiddenWindows = [int]$state.BackgroundHiddenWindows + $hidden
+    if ($focusRestored) {
+        $state.BackgroundFocusRestorations = [int]$state.BackgroundFocusRestorations + 1
+    }
+    if ($visible -gt 0 -or $ownedForegroundRemaining) {
+        throw "Background Office isolation failed: $visible owned window(s) remain visible and ownedForeground=$ownedForegroundRemaining."
+    }
+    return [ordered]@{
+        strict                 = $true
+        isolatedProcess        = [bool]$state.IsolatedProcess
+        checks                 = [int]$state.BackgroundIsolationChecks
+        hiddenWindows          = [int]$state.BackgroundHiddenWindows
+        focusRestorations      = [int]$state.BackgroundFocusRestorations
+        observedVisibleWindows = @($observedVisibleWindows)
+        foregroundBefore       = $foregroundBefore
+        foregroundAfter        = $foregroundAfter
+        visibleOwnedWindows    = $visible
+        ownedForeground        = $ownedForegroundRemaining
+    }
+}
+
+function Session-Response($state, $value) {
+    $isolation = Enforce-BackgroundIsolation $state
+    $result = [ordered]@{
+        ok              = $true
+        session         = [string]$state.Id
+        mode            = [string]$state.Mode
+        backend         = 'microsoft-office-com'
+        ownership       = $state.Ownership
+        ownsApplication = [bool]$state.OwnsApplication
+        appPid          = $state.AppPid
+        windowHwnd      = $state.WindowHwnd
+        documentId      = $state.DocumentId
+    }
+    if ($null -ne $isolation) { $result.backgroundIsolation = $isolation }
+    foreach ($entry in $value.GetEnumerator()) { $result[$entry.Key] = $entry.Value }
+    return $result
+}
+
+function Same-DocumentPath($document, [string]$path) {
+    try {
+        return [string]::Equals(
+            [System.IO.Path]::GetFullPath([string]$document.FullName),
+            [System.IO.Path]::GetFullPath($path),
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+    }
+    catch {
+        return $false
+    }
+}
+
+function Find-RunningDocumentExact([string]$format, [string]$path) {
+    if ($format -eq 'xlsx') { [MixdogOfficeInterop]::RegisterExcelInstances() }
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        $candidate = [MixdogOfficeInterop]::TryGetRunningFile($path)
+        if ($null -ne $candidate) {
+            if (Same-DocumentPath $candidate $path) { return $candidate }
+            try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($candidate) } catch {}
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    $app = Active-Application (ProgId-ForFormat $format)
+    if ($null -eq $app) { return $null }
+    try {
+        return Find-OpenDocument $app $format $path
+    }
+    finally {
+        try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($app) } catch {}
+    }
+}
+
+function File-AppearsOpen([string]$path) {
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::Open(
+            $path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+        return $false
+    }
+    catch {
+        return $true
+    }
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+function Wait-NewOfficeProcessId([string]$format, $baselineProcessIds) {
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        $newProcessIds = @(Office-ProcessIds $format | Where-Object { $baselineProcessIds -notcontains [int]$_ })
+        if ($newProcessIds.Count -eq 1) { return [int]$newProcessIds[0] }
+        Start-Sleep -Milliseconds 50
+    }
+    return 0
+}
+
+function Initialize-OwnedOfficeApplication($app, [string]$format, [bool]$visible) {
+    try { $app.DisplayAlerts = 0 } catch {}
+    try { $app.AutomationSecurity = 3 } catch {}
+    if ($format -ne 'pptx') {
+        try { $app.Visible = $visible } catch {}
+    }
+}
+
+function Set-OfficeVisible($app, $document, [string]$format) {
+    try { $app.Visible = $true } catch {}
+    switch ($format) {
+        'docx' { try { $document.ActiveWindow.Visible = $true } catch {} }
+        'xlsx' { try { $document.Windows.Item(1).Visible = $true } catch {} }
+    }
+}
+
+function Open-OwnedDocument($app, [string]$format, [string]$path, [bool]$visible) {
+    switch ($format) {
+        'docx' { $document = $app.Documents.Open($path) }
+        'xlsx' {
+            $document = $app.Workbooks.Open($path)
+            try { $app.CalculateFullRebuild() } catch {}
+        }
+        'pptx' { $document = $app.Presentations.Open($path, $false, $false, $visible) }
+    }
+    if ($visible) { Set-OfficeVisible $app $document $format }
+    return $document
+}
+
+function Create-OwnedDocument($app, [string]$format, [string]$path, [bool]$visible) {
+    $saveFormat = Office-SaveFormatForPath $format $path
+    $document = $null
+    try {
+        switch ($format) {
+            'docx' {
+                $document = $app.Documents.Add()
+                # A Hangul word stays whole at the line end: Korean Word's Normal style
+                # ships with WordWrap off ("한글 단어 잘림 허용") and breaks 내려갔다 as
+                # 내려/갔다 at the margin; WordWrap on wraps by word (verified in Word
+                # 2026-09-12). The portable template writes the same default.
+                try { $document.Styles.Item(-1).ParagraphFormat.WordWrap = $true } catch {}
+                try { $document.SaveAs2($path, $saveFormat) } catch { $document.SaveAs($path, $saveFormat) }
+            }
+            'xlsx' {
+                $document = $app.Workbooks.Add()
+                $document.SaveAs($path, $saveFormat)
+            }
+            'pptx' {
+                $document = $app.Presentations.Add($visible)
+                $document.SaveAs($path, $saveFormat)
+            }
+        }
+        if ($visible) { Set-OfficeVisible $app $document $format }
+        return $document
+    }
+    catch {
+        $createError = [string]$_.Exception.Message
+        if ($null -ne $document) {
+            try { Close-OfficeDocument $document $format }
+            catch { $createError += "; document cleanup failed: $($_.Exception.Message)" }
+            try { Release-OfficeObject $document }
+            catch { $createError += "; document release failed: $($_.Exception.Message)" }
+        }
+        throw $createError
+    }
+}
+
+function Application-Hwnd($app, $document, [string]$format) {
+    if ($format -eq 'docx' -and $null -ne $document) {
+        try {
+            $hWnd = [long]$document.ActiveWindow.Hwnd
+            if ($hWnd) { return $hWnd }
+        }
+        catch {}
+    }
+    if ($format -eq 'pptx' -and $null -ne $document) {
+        try {
+            $hWnd = [long]$document.Windows.Item(1).HWND
+            if ($hWnd) { return $hWnd }
+        }
+        catch {}
+    }
+    try {
+        $hWnd = [long]$app.Hwnd
+        if ($hWnd) { return $hWnd }
+    }
+    catch {}
+    try {
+        $hWnd = [long]$app.HWND
+        if ($hWnd) { return $hWnd }
+    }
+    catch {}
+    if ($format -eq 'pptx' -and $null -ne $document) {
+        try {
+            $title = [System.IO.Path]::GetFileName([string]$document.FullName)
+            $hWnd = [long][MixdogOfficeInterop]::FindWindowByClassAndTitle('PPTFrameClass', $title)
+            if ($hWnd) { return $hWnd }
+        }
+        catch {}
+    }
+    return 0
+}
+
+function Set-OfficeForeground([long]$hWnd) {
+    if (-not $hWnd) { return $false }
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        try {
+            if ([MixdogOfficeInterop]::ActivateWindow($hWnd)) { return $true }
+        }
+        catch {
+            return $false
+        }
+        Start-Sleep -Milliseconds 50
+    }
+    return $false
+}
+
+function Open-SessionState($payload) {
+    $id = [string]$payload.session
+    if ([string]::IsNullOrWhiteSpace($id)) { throw 'open_session requires session' }
+    $format = ([string]$payload.format).ToLowerInvariant()
+    if (@('docx', 'xlsx', 'pptx') -notcontains $format) { throw "Unsupported Office session format: $format" }
+    $path = [System.IO.Path]::GetFullPath([string]$payload.path)
+    $mode = ([string]$payload.mode).ToLowerInvariant()
+    if ($mode -eq 'live') { $mode = 'attach' }
+    if (@('attach', 'visible', 'background') -notcontains $mode) { throw "Unsupported Office session mode: $mode" }
+    $create = [bool]$payload.create
+    if ($create -and $mode -eq 'attach') { throw 'create does not support attach mode' }
+
+    $foregroundBefore = [long][MixdogOfficeInterop]::ForegroundWindow()
+    $baselineProcessIds = @(Office-ProcessIds $format)
+    $app = $null
+    $document = $null
+    $ownership = 'owned'
+    $sharedBackgroundProcess = $false
+    $ownsApplication = $false
+    $processId = 0
+    $appStartTicks = 0
+    try {
+        if (-not $create -and @('attach', 'visible') -contains $mode) {
+            $document = Find-RunningDocumentExact $format $path
+            if ($null -ne $document) {
+                $app = $document.Application
+                $ownership = 'attached'
+            }
+            elseif ($mode -eq 'attach') {
+                throw "The exact document is not registered as open in Microsoft Office: $path"
+            }
+            elseif (File-AppearsOpen $path) {
+                throw "The document appears open but its exact COM object is unavailable; refusing to open a duplicate: $path"
+            }
+        }
+
+        if ($null -eq $document) {
+            if ($create) {
+                if ((Test-Path -LiteralPath $path) -and -not [bool]$payload.overwrite) {
+                    throw "Office create target already exists: $path"
+                }
+                $directory = [System.IO.Path]::GetDirectoryName($path)
+                if ($directory) { [System.IO.Directory]::CreateDirectory($directory) | Out-Null }
+            }
+            elseif (-not (Test-Path -LiteralPath $path)) {
+                throw "Office document not found: $path"
+            }
+            $visible = $mode -eq 'visible'
+            $app = New-Object -ComObject (ProgId-ForFormat $format)
+            $applicationHwnd = Application-Hwnd $app $null $format
+            $processId = Window-ProcessId $applicationHwnd
+            if (-not $processId) { $processId = Wait-NewOfficeProcessId $format $baselineProcessIds }
+            $ownsApplication = $processId -gt 0 -and $baselineProcessIds -notcontains [int]$processId
+            $sharedBackgroundProcess = -not $ownsApplication
+            if ($mode -eq 'background' -and -not $ownsApplication) {
+                throw "Background Office refused a shared or unidentified application before opening the document (pid $processId). Existing documents were not opened, hidden, or closed."
+            }
+            if ($ownsApplication) {
+                $appStartTicks = Office-ProcessStartTicks $processId
+                Initialize-OwnedOfficeApplication $app $format $visible
+            }
+            # Publish ownership before a document open can block. Cancellation still
+            # lets this host finish its operation and run the EOF cleanup.
+            Emit-Json ([ordered]@{ ok = $true; session = $id; ownership = 'owned'; ownsApplication = $ownsApplication; appPid = $processId; lifecycle = 'initializing' })
+            $document = if ($create) {
+                Create-OwnedDocument $app $format $path $visible
+            }
+            else {
+                Open-OwnedDocument $app $format $path $visible
+            }
+        }
+        elseif ($mode -eq 'visible') {
+            Set-OfficeVisible $app $document $format
+        }
+
+        $hWnd = Application-Hwnd $app $document $format
+        if ($mode -eq 'visible' -and $format -eq 'pptx') {
+            for ($attempt = 0; -not $hWnd -and $attempt -lt 20; $attempt++) {
+                Start-Sleep -Milliseconds 100
+                $hWnd = Application-Hwnd $app $document $format
+            }
+        }
+        $foregroundActivated = $mode -eq 'visible' -and $format -eq 'pptx' -and (Set-OfficeForeground $hWnd)
+        $processId = Window-ProcessId $hWnd
+        if ($mode -eq 'background' -and -not $processId) {
+            $processId = Wait-NewOfficeProcessId $format $baselineProcessIds
+        }
+        $isolatedProcess = $mode -ne 'background' -or (
+            $processId -gt 0 -and $baselineProcessIds -notcontains [int]$processId
+        )
+        if ($mode -eq 'background' -and -not $isolatedProcess) {
+            $sharedBackgroundProcess = $true
+            throw "Background Office refused a COM application that reused an existing Office process (pid $processId). Close that Office window, or end the process if it is a leftover background instance, then retry."
+        }
+        $state = [pscustomobject]@{
+            Id                          = $id
+            Format                      = $format
+            Path                        = $path
+            Mode                        = $mode
+            Ownership                   = $ownership
+            OwnsApplication             = $ownsApplication
+            AppStartTicks               = $appStartTicks
+            App                         = $app
+            Document                    = $document
+            Visible                     = $mode -ne 'background'
+            AppPid                      = $processId
+            WindowHwnd                  = $hWnd
+            ForegroundActivated         = [bool]$foregroundActivated
+            ForegroundBeforeAction      = $foregroundBefore
+            IsolatedProcess             = [bool]$isolatedProcess
+            BackgroundIsolationChecks   = 0
+            BackgroundHiddenWindows     = 0
+            BackgroundFocusRestorations = 0
+            ExcelDpiRepairs             = 0
+            PptxExports                 = 0
+            DocumentId                  = "${format}:$($path.ToLowerInvariant())"
+        }
+        return $state
+    }
+    catch {
+        $openError = [string]$_.Exception.Message
+        $cleanupState = [pscustomobject]@{
+            Document = $document; App = $app; Format = $format; Mode = $mode
+            Ownership = $ownership; OwnsApplication = $ownsApplication -and -not $sharedBackgroundProcess
+            AppPid = $processId; AppStartTicks = $appStartTicks
+        }
+        $cleanup = Close-SessionState $cleanupState $false
+        Write-OfficeCleanupFailure $cleanup
+        if (-not $cleanup.ok) { $openError += "; cleanup incomplete: $($cleanup.errors -join '; ')" }
+        throw $openError
+    }
+}
+
+function Repair-ExcelPageSetupDpi([string]$path) {
+    Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    $stream = $null
+    $archive = $null
+    $changed = 0
+    try {
+        $stream = [System.IO.File]::Open(
+            [System.IO.Path]::GetFullPath($path),
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+        $archive = [System.IO.Compression.ZipArchive]::new(
+            $stream,
+            [System.IO.Compression.ZipArchiveMode]::Update,
+            $false
+        )
+        $entries = @($archive.Entries | Where-Object { $_.FullName -match '^xl/worksheets/sheet\d+\.xml$' })
+        foreach ($entry in $entries) {
+            $part = $entry.Open()
+            $reader = [System.IO.StreamReader]::new($part, [System.Text.Encoding]::UTF8, $true, 4096, $false)
+            try { $xml = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $updated = [regex]::Replace($xml, '\b(horizontalDpi|verticalDpi)="0"', '$1="96"')
+            if ($updated -eq $xml) { continue }
+            $part = $entry.Open()
+            $part.SetLength(0)
+            $writer = [System.IO.StreamWriter]::new($part, [System.Text.UTF8Encoding]::new($false), 4096, $false)
+            try { $writer.Write($updated) } finally { $writer.Dispose() }
+            $changed++
+        }
+    }
+    finally {
+        if ($null -ne $archive) { $archive.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+    return $changed
+}
+
+# Word's and Excel's Close both take "save changes" first; the reference is
+# dropped even when Close throws, so the caller reopens from a clean state.
+function Close-StateDocumentWithoutSaving($state) {
+    $current = $state.Document
+    try { $current.Close($false) } finally {
+        try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($current) } catch {}
+        $state.Document = $null
+    }
+}
+
+function Reopen-BackgroundExcelSession($state, [string]$restorePath = '') {
+    if ($state.Format -ne 'xlsx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
+        throw 'Full-file Excel restore is available only for owned background sessions'
+    }
+    Close-StateDocumentWithoutSaving $state
+    if (-not [string]::IsNullOrWhiteSpace($restorePath)) {
+        [System.IO.File]::Copy([System.IO.Path]::GetFullPath($restorePath), [System.IO.Path]::GetFullPath($state.Path), $true)
+    }
+    $state.ExcelDpiRepairs = Repair-ExcelPageSetupDpi $state.Path
+    $state.Document = $state.App.Workbooks.Open($state.Path)
+    try { $state.App.CalculateFullRebuild() } catch {}
+}
+
+function Reopen-BackgroundWordSession($state) {
+    if ($state.Format -ne 'docx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
+        throw 'Word reopen validation is available only for owned background sessions'
+    }
+    Close-StateDocumentWithoutSaving $state
+    $state.Document = $state.App.Documents.Open($state.Path)
+}
+
+function Reopen-BackgroundPowerPointSession($state, [string]$restorePath = '') {
+    if ($state.Format -ne 'pptx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
+        throw 'PowerPoint process reopen is available only for owned background sessions'
+    }
+    $cleanup = Close-SessionState $state $false
+    if (-not $cleanup.ok) { throw "PowerPoint reopen cleanup incomplete: $($cleanup.errors -join '; ')" }
+    if (-not [string]::IsNullOrWhiteSpace($restorePath)) {
+        [System.IO.File]::Copy(
+            [System.IO.Path]::GetFullPath($restorePath),
+            [System.IO.Path]::GetFullPath($state.Path),
+            $true
+        )
+    }
+    $opened = Open-SessionState ([pscustomobject]@{ session = $state.Id; format = 'pptx'; path = $state.Path; mode = 'background' })
+    foreach ($name in @('App', 'Document', 'WindowHwnd', 'AppPid', 'OwnsApplication', 'AppStartTicks', 'IsolatedProcess')) {
+        $state.$name = $opened.$name
+    }
+    return $state.Document
+}
+
+# Re-authoring rewrites the whole deck, and starting PowerPoint again costs seconds. The application
+# stays and only the document is swapped: the freshly written file is moved onto the session's path
+# while nothing holds it open, then reopened in place. A dead application falls back to a full reopen.
+function Reload-SessionDocument($state, [string]$sourcePath) {
+    if ($state.Format -ne 'pptx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
+        throw 'Document reload is available only for owned background PowerPoint sessions'
+    }
+    if ($null -ne $state.Document) {
+        Close-OfficeDocument $state.Document $state.Format
+        try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($state.Document) } catch {}
+        $state.Document = $null
+    }
+    $target = [System.IO.Path]::GetFullPath($state.Path)
+    if (-not [string]::IsNullOrWhiteSpace($sourcePath)) {
+        $source = [System.IO.Path]::GetFullPath($sourcePath)
+        if (-not (Test-Path -LiteralPath $source)) { throw "Document reload source not found: $source" }
+        if ($source -ne $target) {
+            [System.IO.File]::Copy($source, $target, $true)
+            try { [System.IO.File]::Delete($source) } catch {}
+        }
+    }
+    try {
+        $state.Document = Open-OwnedDocument $state.App 'pptx' $target $false
+    }
+    catch {
+        $state.Document = $null
+        $null = Reopen-BackgroundPowerPointSession $state
+    }
+    return $state.Document
+}
+
+function Snapshot-SessionDocument($document, [string]$format, $payload) {
+    if ($format -eq 'xlsx') {
+        return Invoke-ExcelComRetry {
+            return Snapshot-Document $document $format $payload
+        } 'Excel session snapshot'
+    }
+    return Snapshot-Document $document $format $payload
+}
+
+function Issues-SessionDocument($document, [string]$format, $payload) {
+    if ($format -eq 'xlsx') {
+        return Invoke-ExcelComRetry {
+            return Issues-Document $document $format $payload
+        } 'Excel session issue inspection'
+    }
+    return Issues-Document $document $format $payload
+}
+
+function Invoke-SessionAction($state, $payload) {
+    $document = $state.Document
+    $format = $state.Format
+    switch ([string]$payload.action) {
+        'snapshot' {
+            $value = Snapshot-SessionDocument $document $format $payload
+            return Session-Response $state ([ordered]@{ value = $value })
+        }
+        'issues' {
+            $wasSaved = [bool]$document.Saved
+            $value = Issues-SessionDocument $document $format $payload
+            if ($wasSaved -and -not [bool]$document.Saved) { $document.Saved = $true }
+            return Session-Response $state ([ordered]@{ value = $value })
+        }
+        'validate' {
+            # The persistent session already proves that the exact document is open.
+            # Starting a second Word/Excel/PowerPoint COM application can bind to the
+            # same process; quitting that validator then destroys this live session.
+            $wasSaved = [bool]$document.Saved
+            $snapshot = Snapshot-SessionDocument $document $format ([ordered]@{})
+            $inspection = if ($null -ne $payload.inspectIssues -and -not [bool]$payload.inspectIssues) {
+                [ordered]@{ ok = $true; issueCount = 0; issues = @() }
+            }
+            else {
+                Issues-SessionDocument $document $format ([ordered]@{})
+            }
+            if ($wasSaved -and -not [bool]$document.Saved) { $document.Saved = $true }
+            $value = [ordered]@{
+                ok                  = [bool]$inspection.ok
+                opened              = $true
+                issueCount          = [int]$inspection.issueCount
+                issues              = @($inspection.issues)
+                snapshotFingerprint = Snapshot-Fingerprint $snapshot
+                documentSaved       = [bool]$document.Saved
+            }
+            return Session-Response $state ([ordered]@{ value = $value })
+        }
+        'checkpoint' {
+            $output = [System.IO.Path]::GetFullPath([string]$payload.output)
+            $value = Snapshot-SessionDocument $document $format $payload
+            if ($format -eq 'docx') {
+                return Session-Response $state ([ordered]@{
+                        fingerprint = Snapshot-Fingerprint $value
+                        saved       = [bool]$document.Saved
+                        value       = $value
+                    })
+            }
+            Save-DocumentCopy $document $format $output
+            return Session-Response $state ([ordered]@{
+                    output = $output
+                    saved  = [bool]$document.Saved
+                    value  = $value
+                })
+        }
+        'save_copy' {
+            $output = [System.IO.Path]::GetFullPath([string]$payload.output)
+            Save-DocumentCopy $document $format $output
+            return Session-Response $state ([ordered]@{
+                    output = $output
+                    saved  = [bool]$document.Saved
+                })
+        }
+        'reload_document' {
+            $null = Reload-SessionDocument $state ([string]$payload.source)
+            return Session-Response $state ([ordered]@{
+                    reloaded   = $true
+                    path       = $state.Path
+                    appPid     = $state.AppPid
+                    documentId = $state.DocumentId
+                })
+        }
+        'replace_presentation_from_source' {
+            if ($format -ne 'pptx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
+                throw 'PowerPoint source replacement is available only for owned background sessions'
+            }
+            $sourcePath = [System.IO.Path]::GetFullPath([string]$payload.source)
+            $checkpoint = [System.IO.Path]::GetFullPath([string]$payload.checkpoint)
+            $current = $state.Document
+            try {
+                $current.Close()
+                try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($current) } catch {}
+                $state.Document = $null
+                $document = $state.App.Presentations.Open($sourcePath, $false, $false, $false)
+                $state.Document = $document
+                $document.SaveAs($state.Path, (Office-SaveFormatForPath 'pptx' $state.Path))
+                $sourceSlideCount = [int]$document.Slides.Count
+                $selected = if ($payload.slides) {
+                    @($payload.slides | ForEach-Object { [int]$_ })
+                }
+                else {
+                    if ($sourceSlideCount -le 0) { @() } else { @(1..$sourceSlideCount) }
+                }
+                if (@($selected | Where-Object { $_ -lt 1 -or $_ -gt $sourceSlideCount }).Count -gt 0) {
+                    throw "import_slides selection is outside source deck range 1-$sourceSlideCount"
+                }
+                $identitySelection = $selected.Count -eq $sourceSlideCount
+                if ($identitySelection) {
+                    for ($identityIndex = 1; $identityIndex -le $sourceSlideCount; $identityIndex++) {
+                        if ([int]$selected[$identityIndex - 1] -ne $identityIndex) {
+                            $identitySelection = $false
+                            break
+                        }
+                    }
+                }
+                if (-not $identitySelection) {
+                    $sourceIds = @{}
+                    $keep = @{}
+                    foreach ($slideNumber in $selected) {
+                        if (-not $keep.ContainsKey([int]$slideNumber)) {
+                            $keep[[int]$slideNumber] = $true
+                            $sourceIds[[int]$slideNumber] = [int]$document.Slides.Item([int]$slideNumber).SlideID
+                        }
+                    }
+                    for ($slideIndex = $sourceSlideCount; $slideIndex -ge 1; $slideIndex--) {
+                        if (-not $keep.ContainsKey($slideIndex)) { $document.Slides.Item($slideIndex).Delete() }
+                    }
+                    $placed = @{}
+                    for ($targetIndex = 1; $targetIndex -le $selected.Count; $targetIndex++) {
+                        $sourceSlide = [int]$selected[$targetIndex - 1]
+                        $sourceId = [int]$sourceIds[$sourceSlide]
+                        if (-not $placed.ContainsKey($sourceSlide)) {
+                            $document.Slides.FindBySlideID($sourceId).MoveTo($targetIndex)
+                            $placed[$sourceSlide] = $true
+                        }
+                        else {
+                            $duplicates = $document.Slides.FindBySlideID($sourceId).Duplicate()
+                            $duplicates.Item(1).MoveTo($targetIndex)
+                        }
+                    }
+                }
+                Save-Document $document $format
+                $null = Reopen-BackgroundPowerPointSession $state
+                $document = $state.Document
+                $value = Snapshot-Document $document $format ([ordered]@{})
+                return Session-Response $state ([ordered]@{
+                        saved   = $true
+                        results = @([ordered]@{
+                                op                = 'import_slides'
+                                changed           = $true
+                                count             = [int]$selected.Count
+                                source            = $sourcePath
+                                replacedEmptyDeck = $true
+                            })
+                        value   = $value
+                    })
+            }
+            catch {
+                $line = [int]$_.InvocationInfo.ScriptLineNumber
+                $message = $_.Exception.Message
+                if ($null -ne $state.Document) {
+                    try { $state.Document.Close() } catch {}
+                    try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($state.Document) } catch {}
+                    $state.Document = $null
+                }
+                $restoreWarning = ''
+                try {
+                    $restorePath = if (Test-Path -LiteralPath $checkpoint) { $checkpoint } else { '' }
+                    $null = Reopen-BackgroundPowerPointSession $state $restorePath
+                }
+                catch {
+                    $restoreWarning = " Restore reopen failed: $($_.Exception.Message)"
+                }
+                throw "replace_presentation_from_source failed at office-com-session-host.ps1:$line`: $message$restoreWarning"
+            }
+        }
+        'batch' {
+            $excelCheckpoint = ''
+            if ($format -eq 'xlsx') {
+                $extension = [System.IO.Path]::GetExtension($state.Path)
+                $excelCheckpoint = Join-Path ([System.IO.Path]::GetTempPath()) "mixdog-excel-batch-$([guid]::NewGuid().ToString('N'))$extension"
+                Save-DocumentCopy $document $format $excelCheckpoint
+            }
+            try {
+                $allowUiActivation = $state.Mode -ne 'background'
+                $applied = Apply-Operations $document $format $payload.operations $true ([bool]$payload.requireChanges) $allowUiActivation
+                $shouldSave = $state.Mode -eq 'background' -or [bool]$payload.save
+                if ($shouldSave) { Save-Document $document $format }
+                return Session-Response $state ([ordered]@{
+                        saved     = $shouldSave
+                        results   = $applied.results
+                        undoUnits = $applied.undoUnits
+                    })
+            }
+            catch {
+                if ($excelCheckpoint) {
+                    try {
+                        if ($state.Mode -eq 'background' -and $state.Ownership -eq 'owned') {
+                            Reopen-BackgroundExcelSession $state
+                        }
+                        else {
+                            Restore-ExcelCheckpoint $document $excelCheckpoint
+                        }
+                    }
+                    catch {}
+                }
+                throw
+            }
+            finally {
+                if ($excelCheckpoint) { Remove-Item $excelCheckpoint -Force -ErrorAction SilentlyContinue }
+            }
+        }
+        'rollback' {
+            if ($format -eq 'xlsx' -and $state.Mode -eq 'background' -and $state.Ownership -eq 'owned') {
+                Reopen-BackgroundExcelSession $state ([string]$payload.checkpoint)
+                $document = $state.Document
+            }
+            else {
+                Rollback-LiveDocument $document $format ([string]$payload.checkpoint) ([int]$payload.undoUnits)
+            }
+            $value = Snapshot-SessionDocument $document $format $payload
+            if ($state.Mode -eq 'background') { Save-Document $document $format }
+            return Session-Response $state ([ordered]@{ rolledBack = $true; value = $value })
+        }
+        'save' {
+            Save-Document $document $format
+            return Session-Response $state ([ordered]@{ saved = $true; path = $state.Path })
+        }
+        'post_save_validate' {
+            Save-Document $document $format
+            $reopened = $false
+            if ($state.Mode -eq 'background' -and $state.Ownership -eq 'owned') {
+                switch ($format) {
+                    'docx' { $null = Reopen-BackgroundWordSession $state }
+                    'xlsx' { $null = Reopen-BackgroundExcelSession $state }
+                    'pptx' { $null = Reopen-BackgroundPowerPointSession $state }
+                }
+                $document = $state.Document
+                $reopened = $true
+            }
+            if ($format -eq 'xlsx' -and -not [bool]$document.Saved) {
+                Save-Document $document $format
+            }
+            $wasSaved = [bool]$document.Saved
+            $snapshot = Snapshot-SessionDocument $document $format ([ordered]@{})
+            $inspection = Issues-SessionDocument $document $format ([ordered]@{})
+            if ($wasSaved -and -not [bool]$document.Saved) { $document.Saved = $true }
+            return Session-Response $state ([ordered]@{
+                    value = [ordered]@{
+                        ok                  = [bool]$inspection.ok
+                        opened              = $true
+                        reopened            = $reopened
+                        persisted           = $reopened
+                        excelDpiRepairs     = $(if ($format -eq 'xlsx') { [int]$state.ExcelDpiRepairs } else { 0 })
+                        issueCount          = [int]$inspection.issueCount
+                        issues              = @($inspection.issues)
+                        snapshot            = $snapshot
+                        snapshotFingerprint = Snapshot-Fingerprint $snapshot
+                        documentSaved       = [bool]$document.Saved
+                    }
+                })
+        }
+        'render' {
+            $output = [System.IO.Path]::GetFullPath([string]$payload.output)
+            if ($format -eq 'pptx') {
+                # PowerPoint silently ignores every SaveCopyAs PDF export after the
+                # first one for an open presentation, so repeat renders save the deck
+                # and reopen it to get a fresh export slot.
+                if (-not [bool]$document.Saved) { Save-Document $document $format }
+                if ([int]$state.PptxExports -gt 0 -and $state.Mode -eq 'background' -and $state.Ownership -eq 'owned') {
+                    $null = Reopen-BackgroundPowerPointSession $state
+                    $document = $state.Document
+                }
+                Render-Document $document $format $output
+                $state.PptxExports = [int]$state.PptxExports + 1
+            }
+            else {
+                $wasSaved = [bool]$document.Saved
+                Render-Document $document $format $output
+                if ($wasSaved -and -not [bool]$document.Saved) { $document.Saved = $true }
+            }
+            return Session-Response $state ([ordered]@{ output = $output })
+        }
+        default { throw "Unsupported Office session action: $($payload.action)" }
+    }
+}
+
+$state = $null
+try {
+    while ($null -ne ($raw = [Console]::In.ReadLine())) {
+        if ([string]::IsNullOrWhiteSpace($raw)) { continue }
+        $requestId = ''
+        $closeAfterResponse = $false
+        try {
+            $payload = $raw | ConvertFrom-Json
+            $requestId = [string]$payload.requestId
+            if ($payload.action -eq 'open_session') {
+                if ($null -ne $state) { throw 'Office session is already open in this host' }
+                $state = Open-SessionState $payload
+                $result = Session-Response $state ([ordered]@{
+                        opened              = $true
+                        ownership           = $state.Ownership
+                        visible             = $state.Visible
+                        appPid              = $state.AppPid
+                        windowHwnd          = $state.WindowHwnd
+                        foregroundActivated = $state.ForegroundActivated
+                        documentId          = $state.DocumentId
+                        path                = $state.Path
+                    })
+            }
+            else {
+                if ($null -eq $state) { throw 'Office session host has no open document' }
+                if ([string]$payload.session -ne [string]$state.Id) { throw 'Office session id does not match this host' }
+                $state.ForegroundBeforeAction = [long][MixdogOfficeInterop]::ForegroundWindow()
+                if ($payload.action -eq 'close_session') {
+                    if ([bool]$payload.save) { Save-Document $state.Document $state.Format }
+                    $result = Session-Response $state ([ordered]@{
+                            closed    = $false
+                            saved     = [bool]$payload.save
+                            ownership = $state.Ownership
+                            appPid    = $state.AppPid
+                            path      = $state.Path
+                        })
+                    $cleanup = Close-SessionState $state $false
+                    $result.cleanup = $cleanup
+                    $result.ok = [bool]$cleanup.ok
+                    $result.closed = [bool]$cleanup.ok
+                    if ($cleanup.ok) {
+                        $state = $null
+                        $closeAfterResponse = $true
+                    }
+                    else {
+                        $result.error = "Office cleanup incomplete: $($cleanup.errors -join '; ')"
+                    }
+                }
+                else {
+                    $result = Invoke-SessionAction $state $payload
+                }
+            }
+        }
+        catch {
+            $result = [ordered]@{
+                ok      = $false
+                backend = 'microsoft-office-com'
+                error   = [string]$_.Exception.Message
+            }
+            # A reopen may have changed the application before a later step failed.
+            if ($null -ne $state) {
+                $result.session = [string]$state.Id
+                $result.appPid = $state.AppPid
+            }
+        }
+        if ($requestId) { $result['requestId'] = $requestId }
+        Emit-Json $result
+        if ($closeAfterResponse) {
+            break
+        }
+    }
+}
+finally {
+    if ($null -ne $state) {
+        try { Write-OfficeCleanupFailure (Close-SessionState $state $false) }
+        catch { [Console]::Error.WriteLine("MIXDOG_OFFICE_CLEANUP $($_.Exception.Message)") }
+    }
+}

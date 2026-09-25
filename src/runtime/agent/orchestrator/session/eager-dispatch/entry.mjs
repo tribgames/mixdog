@@ -33,17 +33,18 @@ function notifyEarlyResult(call, entry, settled, opts) {
     // stub for envelope returns), never the envelope object
     // or its injected newMessages body — no [object Object],
     // no full skill body in the tool card.
-    const _earlyVisible = settled?.ok ? normalizeToolEnvelope(settled.value).result : null;
-    let _earlyContent;
-    if (!settled?.ok) {
+    let content;
+    if (settled?.ok) {
+      const visible = normalizeToolEnvelope(settled.value).result;
+      content = visible == null ? '' : String(visible);
+    } else {
       const failure = settled && settled.error instanceof Error ? settled.error.message : String(settled?.error);
-      _earlyContent = `Error: ${failure}`;
-    } else if (typeof _earlyVisible === 'string') _earlyContent = _earlyVisible;
-    else _earlyContent = _earlyVisible == null ? '' : String(_earlyVisible);
+      content = `Error: ${failure}`;
+    }
     opts.onToolResult?.({
       role: 'tool',
       toolCallId: call.id,
-      content: _earlyContent,
+      content,
       isError: !settled?.ok,
       __earlyNotify: true,
       toolTiming: {

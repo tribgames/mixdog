@@ -1,5 +1,7 @@
 /** Only non-input discovery/diagnostics remain available during user control.
  * Captures, clipboard access and tools that may restore/focus windows stay gated. */
+const RECOVERY_READ_ACTIONS = new Set(['list_windows', 'list_apps', 'list_history', 'diagnose']);
+
 export function isComputerRecoveryRead(action: string): boolean {
-  return action === 'list_windows' || action === 'list_apps' || action === 'list_history' || action === 'diagnose';
+  return RECOVERY_READ_ACTIONS.has(action);
 }

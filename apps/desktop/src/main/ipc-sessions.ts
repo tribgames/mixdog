@@ -1,6 +1,5 @@
 // Session list and lifecycle, prompt/abort/approval routing, model routes,
 // and the Settings → Connection remote-access controls.
-import type { IpcMainInvokeEvent } from 'electron';
 import { DESKTOP_IPC, type DesktopRemoteAccessInfo } from '../shared/contract';
 import type { BrowserHost } from './browser/host';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
@@ -18,8 +17,7 @@ import {
   requiredToolApprovalDecision,
   sessionDisplayName,
 } from './ipc-validation';
-
-type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
+import type { IpcHandle as Handle } from './ipc';
 
 interface SessionIpcOptions {
   handle: Handle;

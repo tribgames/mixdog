@@ -44,6 +44,17 @@ pub(super) fn complete_operand_files(
                 parsed.clone(),
             );
         }
+        // What the walk published so far, served as an incomplete and
+        // uncacheable answer.
+        let partial_snapshot = || {
+            (
+                Arc::new(lock_recover(&live.files).clone()),
+                false,
+                live.walk_errors.load(Ordering::Acquire),
+                live_walk_error_details(&live),
+                false,
+            )
+        };
         match wait_live_complete(&live, cancelled, deadline_at) {
             Ok(Some(files)) => {
                 return Ok((
@@ -57,27 +68,11 @@ pub(super) fn complete_operand_files(
             Ok(None) => {
                 restarts += 1;
                 if restarts > MAX_WALK_RESTARTS {
-                    let snapshot = lock_recover(&live.files).clone();
-                    return Ok((
-                        Arc::new(snapshot),
-                        false,
-                        live.walk_errors.load(Ordering::Acquire),
-                        live_walk_error_details(&live),
-                        false,
-                    ));
+                    return Ok(partial_snapshot());
                 }
                 continue;
             }
-            Err(reason) if reason == SOFT_TIMEOUT => {
-                let snapshot = lock_recover(&live.files).clone();
-                return Ok((
-                    Arc::new(snapshot),
-                    false,
-                    live.walk_errors.load(Ordering::Acquire),
-                    live_walk_error_details(&live),
-                    false,
-                ));
-            }
+            Err(reason) if reason == SOFT_TIMEOUT => return Ok(partial_snapshot()),
             Err(reason) => return Err(reason),
         }
     }
@@ -125,6 +120,56 @@ pub(super) fn next_live_batch(
     let batch = files[*cursor..].to_vec();
     *cursor = files.len();
     Ok(LiveBatch::Files(batch))
+}
+
+/// The next batch a live walk published for an inventory consumer, or the
+/// reason the stream ended. Unlike [`LiveBatch`], a finished enumeration ends
+/// the stream before the walk settles, and an abandoned walk is an outcome
+/// rather than an error; a failed walk and cancellation are errors.
+pub(super) enum StreamBatch<T> {
+    Items(T),
+    Complete,
+    Abandoned,
+    TimedOut,
+}
+
+/// Hand the paths published past `cursor` to `take`, waiting in short slices
+/// while the walk runs, and advance the cursor past them.
+pub(super) fn next_stream_batch<T>(
+    live: &LiveWalk,
+    cursor: &mut usize,
+    cancelled: &AtomicBool,
+    deadline_at: Option<Instant>,
+    take: impl FnOnce(&[PathBuf]) -> T,
+) -> Result<StreamBatch<T>, String> {
+    let mut files = lock_recover(&live.files);
+    while *cursor >= files.len() {
+        if live.enumeration_done.load(Ordering::Acquire) {
+            return Ok(StreamBatch::Complete);
+        }
+        let state = lock_recover(&live.state);
+        match &*state {
+            LiveState::Done(_) => return Ok(StreamBatch::Complete),
+            LiveState::Abandoned => return Ok(StreamBatch::Abandoned),
+            LiveState::Failed(error) => return Err(error.clone()),
+            LiveState::Running => {}
+        }
+        drop(state);
+        files = live
+            .files_cond
+            .wait_timeout(files, Duration::from_millis(10))
+            .unwrap_or_else(|e| e.into_inner())
+            .0;
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(CANCELLED.to_string());
+        }
+        if deadline_expired(deadline_at) {
+            return Ok(StreamBatch::TimedOut);
+        }
+    }
+    let batch = take(&files[*cursor..]);
+    *cursor = files.len();
+    Ok(StreamBatch::Items(batch))
 }
 
 pub(super) fn scan_streaming_operand(
@@ -297,11 +342,8 @@ fn handle_inventory(
             out.timed_out = true;
             break;
         }
-        let operand_path = if Path::new(operand).is_absolute() {
-            PathBuf::from(operand)
-        } else {
-            cwd.join(operand)
-        };
+        // Path::join replaces the base when the operand is absolute.
+        let operand_path = cwd.join(operand);
         let watched = store.watch_root(&operand_path);
         out.cache_safe &= watched;
         let filter = PathFilter::new(&operand_path, parsed)?;
@@ -494,7 +536,7 @@ fn handle_content_search(
         scan_errors: &scan_errors,
         files_scanned: &files_scanned,
     };
-    'operands: for operand in &parsed.targets {
+    for operand in &parsed.targets {
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
         }
@@ -502,43 +544,34 @@ fn handle_content_search(
             timed_out = true;
             break;
         }
-        let operand_path = if Path::new(operand).is_absolute() {
-            PathBuf::from(operand)
-        } else {
-            cwd.join(operand)
-        };
+        // Path::join replaces the base when the operand is absolute.
+        let operand_path = cwd.join(operand);
         let use_prefix = parsed.with_filename
             || parsed.files_with_matches
             || multi_target
             || operand_path.is_dir();
         let filter = PathFilter::new(&operand_path, parsed)?;
-        {
-            let scope = OperandScope {
-                operand,
-                operand_path: &operand_path,
-                filter: &filter,
+        let scope = OperandScope {
+            operand,
+            operand_path: &operand_path,
+            filter: &filter,
+        };
+        let (reached_limit, operand_timed_out, operand_cache_safe, details) = {
+            let mut out = ScanOutput {
+                all_lines: &mut all_lines,
+                emitted_blocks: &mut emitted_blocks,
+                collect_until,
             };
-            let (reached_limit, operand_timed_out, operand_cache_safe, details) = {
-                let mut out = ScanOutput {
-                    all_lines: &mut all_lines,
-                    emitted_blocks: &mut emitted_blocks,
-                    collect_until,
-                };
-                scan_streaming_operand(store, &scope, use_prefix, req.keep_warm, &ctx, &mut out)?
-            };
-            cache_safe &= operand_cache_safe;
-            append_walk_error_details(&mut walk_error_details, details);
-            if operand_timed_out {
-                timed_out = true;
-                break 'operands;
-            }
-            if reached_limit {
-                break 'operands;
-            }
-            if all_lines.len() >= collect_until {
-                break 'operands;
-            }
-            continue;
+            scan_streaming_operand(store, &scope, use_prefix, req.keep_warm, &ctx, &mut out)?
+        };
+        cache_safe &= operand_cache_safe;
+        append_walk_error_details(&mut walk_error_details, details);
+        if operand_timed_out {
+            timed_out = true;
+            break;
+        }
+        if reached_limit || all_lines.len() >= collect_until {
+            break;
         }
     }
     // scan_standard/scan_summary swallow a mid-file soft-deadline expiry: the

@@ -52,6 +52,11 @@ export function shapeParagraphs(shapeXml) {
     const runProperties = /^<a:rPr\b([^>]*?)(?:\/>|>)/.exec(runElement)?.[1] || '';
     const size = Number(xmlAttribute(runProperties, 'sz'));
     if (!Number.isFinite(size) || size <= 0) return null;
+    // Each run with its own size, so a figure and its smaller unit are measured as they are set.
+    const runs = [...block.matchAll(/<a:r>([\s\S]*?)<\/a:r>/g)].map((run) => ({
+      text: [...run[1].matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g)].map((node) => xmlDecode(node[1])).join(''),
+      fontSize: (Number(/<a:rPr\b[^>]*\bsz="(\d+)"/.exec(run[1])?.[1]) || size) / 100,
+    }));
     // Tracking is stored in hundredths of a point on the run. Latin small caps
     // want it; Hangul and CJK break apart under it, so the reading is kept.
     const tracking = Number(xmlAttribute(runProperties, 'spc'));
@@ -65,6 +70,7 @@ export function shapeParagraphs(shapeXml) {
       ...(spaceBefore > 0 ? { spaceBefore } : {}),
       ...(Number.isFinite(tracking) && tracking !== 0 ? { charSpacing: tracking / 100 } : {}),
       fontSize: size / 100,
+      ...(new Set(runs.map((run) => run.fontSize)).size > 1 ? { runs } : {}),
       bold: xmlAttribute(runProperties, 'b') === '1',
       italic: xmlAttribute(runProperties, 'i') === '1',
       color: /<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(runElement)?.[1] || '',
@@ -150,8 +156,14 @@ function shapeOwnFill(shapeXml, bounds, painted, slideBackground) {
   return ownFill;
 }
 
-function textInsets(bodyProperties) {
-  const inset = (name, fallback) => fromEmu(Number(xmlAttribute(bodyProperties, name)), fallback);
+// A bodyPr that states no inset takes PowerPoint's (7.2 pt at the sides, 3.6 pt top and bottom): the missing
+// attribute read as Number('') = 0, so every box written without insets was measured 14 pt wider and 7 pt taller
+// than PowerPoint lays it out, and fit_text reported a 24 pt paragraph fitted that still overflowed at 8 pt.
+export function textInsets(bodyProperties) {
+  const inset = (name, fallback) => {
+    const stated = xmlAttribute(bodyProperties, name);
+    return stated === '' ? fallback : fromEmu(Number(stated), fallback);
+  };
   return {
     insetLeft: inset('lIns', DEFAULT_TEXT_INSETS.left),
     insetTop: inset('tIns', DEFAULT_TEXT_INSETS.top),
@@ -277,11 +289,52 @@ export function setTableValues(shapeXml, values) {
     inner = `${inner.slice(0, row.start)}<a:tr${attrs}>${body}</a:tr>${inner.slice(row.end)}`;
     filledRows += 1;
   }
+  // Data wider or longer than the table grows it, as PowerPoint's own table grows under the Office backend: a new
+  // column repeats the last one (its width, its cells' formatting), a new row repeats the last row. The rows past
+  // the table's end had been dropped, so a refresh with one more hub lost that hub.
+  const columns = Math.max(...values.map((source) => source.length));
+  const grid = elementSpans(inner, 'a:gridCol');
+  const addedColumns = Math.max(0, columns - grid.length);
+  let addedWidth = 0;
+  if (addedColumns) {
+    const last = grid.at(-1);
+    addedWidth = (Number(/\bw="(\d+)"/.exec(last.xml)?.[1]) || 0) * addedColumns;
+    inner = `${inner.slice(0, last.end)}${last.xml.repeat(addedColumns)}${inner.slice(last.end)}`;
+    const current = elementSpans(inner, 'a:tr');
+    for (let rowIndex = current.length - 1; rowIndex >= 0; rowIndex -= 1) {
+      const row = current[rowIndex];
+      const cells = elementSpans(row.xml, 'a:tc');
+      const source = values[rowIndex] || [];
+      const extra = Array.from({ length: addedColumns }, (_, offset) =>
+        setTableCellText(cells.at(-1).xml, source[cells.length + offset] ?? '')
+      ).join('');
+      const nextRow = `${row.xml.slice(0, cells.at(-1).end)}${extra}${row.xml.slice(cells.at(-1).end)}`;
+      inner = `${inner.slice(0, row.start)}${nextRow}${inner.slice(row.end)}`;
+    }
+  }
+  let addedHeight = 0;
+  const current = elementSpans(inner, 'a:tr');
+  const template = current.at(-1);
+  const appended = values.slice(current.length).map((source) => {
+    const cells = elementSpans(template.xml, 'a:tc');
+    let body = template.xml;
+    for (let cellIndex = cells.length - 1; cellIndex >= 0; cellIndex -= 1) {
+      const cell = cells[cellIndex];
+      body = `${body.slice(0, cell.start)}${setTableCellText(cell.xml, source[cellIndex] ?? '')}${body.slice(cell.end)}`;
+    }
+    addedHeight += Number(/^<a:tr\b[^>]*\bh="(\d+)"/.exec(template.xml)?.[1]) || 0;
+    return body;
+  });
+  if (appended.length) inner = `${inner.slice(0, template.end)}${appended.join('')}${inner.slice(template.end)}`;
   return {
     xml: `${shapeXml.slice(0, table.start)}${inner}${shapeXml.slice(table.end)}`,
-    rows: filledRows,
+    rows: filledRows + appended.length,
     cells: filledCells,
     capacity: rows.length,
+    ...(appended.length ? { addedRows: appended.length } : {}),
+    ...(addedColumns ? { addedColumns } : {}),
+    addedWidth,
+    addedHeight,
     ...(removedRows ? { removedRows } : {}),
   };
 }
@@ -372,9 +425,17 @@ export function updateShapeGeometry(shape, properties) {
     else if (frameTag === 'p:xfrm') next = next.replace('</p:nvGraphicFramePr>', `$&${frame}`);
     else next = next.replace(/<p:spPr(?:\s[^>]*)?>/, `$&${frame}`);
   }
-  if (properties.fillColor != null) {
+  // A transparency alone keeps the fill's colour, as the Office backend's Fill.Transparency does; it was dropped here.
+  const fillColor =
+    properties.fillColor ??
+    (properties.fillTransparency != null
+      ? /<a:solidFill>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/.exec(
+          (containerInner(next, 'p:spPr')?.inner || '').replace(/<a:ln\b[^>]*?(?:\/>|>[\s\S]*?<\/a:ln>)/, '')
+        )?.[1]
+      : undefined);
+  if (fillColor != null) {
     const shapeProperties = containerInner(next, 'p:spPr');
-    const fill = solidFillXml(properties.fillColor, properties.fillTransparency);
+    const fill = solidFillXml(fillColor, properties.fillTransparency);
     if (shapeProperties && fill) {
       const cleaned = shapeProperties.inner
         .replace(/<a:solidFill\b[^>]*?(?:\/>|>[\s\S]*?<\/a:solidFill>)/, '')

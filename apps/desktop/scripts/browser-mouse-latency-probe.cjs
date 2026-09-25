@@ -88,5 +88,7 @@ void app
 app.on('quit', () => {
   try {
     rmSync(root, { recursive: true, force: true });
-  } catch {}
+  } catch {
+    /* a still-open handle leaves the temp profile for the OS cleanup */
+  }
 });

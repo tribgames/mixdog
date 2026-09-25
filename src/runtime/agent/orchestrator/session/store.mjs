@@ -41,8 +41,6 @@ export {
   isSessionHeartbeatOwnerDead,
   isProcessAlive,
 } from './store/paths-heartbeat.mjs';
-// Every canonical commit now goes through _commitSessionWrite (fault-aware
-// rename + scratch ownership), so the raw rename helper is no longer imported.
 import { _sessionForDisk, _ensureLifecycleFields } from './store/serialize.mjs';
 import {
   _cacheSessionSummary,
@@ -50,6 +48,11 @@ import {
   _queueSessionSummaryUpsert,
 } from './store/summary-cache.mjs';
 import { _shouldDrop, _sessionWriteAuthorityRefusal } from './store/write-admission.mjs';
+import {
+  lifecycleOfSessionDocument as _lifecycleOfSessionDocument,
+  stampSessionScratch as _stampSessionScratch,
+  recordOwnSessionCommit as _recordOwnSessionCommit,
+} from './store/canonical-reader.mjs';
 // Durable lifecycle reads, heartbeat freshness and live-cache reclamation are
 // owned by dedicated modules; re-exported so prior importers of store.mjs
 // stay unchanged.
@@ -112,12 +115,25 @@ export { registerSessionPurgeHook, subscribeLiveSessions } from './store/session
  * stamped while this payload still speaks for the id — after a hard delete (or
  * an id reuse) it belongs to another incarnation.
  */
-function _recordAsyncSaveError(_id, _payload, err) {
+function _recordAsyncSaveError(err) {
   // DIAGNOSTIC ONLY. The authoritative marker (with its immutable failure
   // snapshot and incarnation check) is stamped inside _doSave; stamping a
   // second, unconditional one here is exactly how a delayed rejection used
   // to mark a hard-deleted or re-created id.
   process.stderr.write(`[session-store] save failed: ${err?.message}\n`);
+}
+
+/** Start the async write of `payload`; a write that does not land rolls back
+ *  the optimistic summary row it cached. */
+function _startAsyncSave(id, payload) {
+  _doSave(payload)
+    .then((outcome) => {
+      if (outcome !== SAVE_OUTCOME_SAVED) _rollbackCachedSessionSummary(id, payload.summaryVersion);
+    })
+    .catch((err) => {
+      _rollbackCachedSessionSummary(id, payload.summaryVersion);
+      _recordAsyncSaveError(err);
+    });
 }
 
 // Self-registered exit drain; bare 'exit' hook stays as idempotent backup. Use the more comprehensive
@@ -181,31 +197,27 @@ export function saveSession(session, opts) {
   }
   // Immediate-flush override: tombstone plants and explicit flushes skip the
   // debounce so close-session writes are always durable.
-  if (opts?.immediate) {
-    _clearDebounce(id);
-    const pending = _savePending.get(id);
-    if (pending) {
-      if (pending.writing) {
-        _releasePayloadIncarnation(pending.queued);
-        _savePending.set(id, { ...pending, queued: payload });
-      } else {
-        _releasePayloadIncarnation(pending.payload);
-        _savePending.set(id, { ...pending, payload });
-        _flushScheduled(id);
-      }
-    } else {
-      _savePending.set(id, { writing: true, payload });
-      _doSave(payload)
-        .then((outcome) => {
-          if (outcome !== SAVE_OUTCOME_SAVED) _rollbackCachedSessionSummary(id, summaryVersion);
-        })
-        .catch((err) => {
-          _rollbackCachedSessionSummary(id, summaryVersion);
-          _recordAsyncSaveError(id, payload, err);
-        });
-    }
-    return;
+  if (opts?.immediate) _saveImmediate(id, payload);
+  else _saveDebounced(id, payload);
+}
+
+function _saveImmediate(id, payload) {
+  _clearDebounce(id);
+  const pending = _savePending.get(id);
+  if (!pending) {
+    _savePending.set(id, { writing: true, payload });
+    _startAsyncSave(id, payload);
+  } else if (pending.writing) {
+    _releasePayloadIncarnation(pending.queued);
+    _savePending.set(id, { ...pending, queued: payload });
+  } else {
+    _releasePayloadIncarnation(pending.payload);
+    _savePending.set(id, { ...pending, payload });
+    _flushScheduled(id);
   }
+}
+
+function _saveDebounced(id, payload) {
   const pending = _savePending.get(id);
   if (pending) {
     if (pending.writing) {
@@ -246,14 +258,7 @@ function _flushScheduled(id) {
   const cur = _savePending.get(id);
   if (!cur?.scheduled) return;
   _savePending.set(id, { writing: true, payload: cur.payload });
-  _doSave(cur.payload)
-    .then((outcome) => {
-      if (outcome !== SAVE_OUTCOME_SAVED) _rollbackCachedSessionSummary(id, cur.payload.summaryVersion);
-    })
-    .catch((err) => {
-      _rollbackCachedSessionSummary(id, cur.payload.summaryVersion);
-      _recordAsyncSaveError(id, cur.payload, err);
-    });
+  _startAsyncSave(id, cur.payload);
 }
 
 /**
@@ -275,6 +280,12 @@ export function _saveSessionSync(session, opts, options = {}) {
     // snapshot look like the newest attempt and let it clear markers.
     epoch: [options.epoch, guardEpoch].find(Number.isFinite) ?? _nextSaveEpoch(),
     commitTimeoutMs: options.commitTimeoutMs,
+    // The save worker realm passes false: its parent publishes the row it
+    // captured for this payload when the write lands (save-worker.mjs
+    // _settleLandedWrite). Publishing here too flushed the index a second
+    // time from the worker thread, after its reply told the parent the save
+    // was done and where no parent drain or settle can see it.
+    publishSummary: options.publishSummary !== false,
     // Own reference to the id's current incarnation (released by
     // _doSaveSync): a hard delete during this write makes its markers
     // inert without affecting anybody else's stamp.
@@ -283,7 +294,15 @@ export function _saveSessionSync(session, opts, options = {}) {
 }
 
 function _doSaveSync(payload) {
-  const { session, opts, summaryVersion = null, epoch = null, commitTimeoutMs = null, incarnation = null } = payload;
+  const {
+    session,
+    opts,
+    summaryVersion = null,
+    epoch = null,
+    commitTimeoutMs = null,
+    incarnation = null,
+    publishSummary = true,
+  } = payload;
   const id = session.id;
   // Settlement identity is IMMUTABLE and separate from the (releasable)
   // ownership reference: purging may null the ref, but a late settlement
@@ -307,7 +326,10 @@ function _doSaveSync(payload) {
     // rebuilt from them, never re-read from the later mutable live session.
     let attempted = null;
     try {
-      attempted = JSON.stringify(_sessionForDisk(session));
+      const disk = _sessionForDisk(session);
+      attempted = JSON.stringify(disk);
+      // The lifecycle these exact bytes carry, recorded with the commit stamp.
+      const lifecycle = _lifecycleOfSessionDocument(disk);
       writeFileSync(tmp, attempted, 'utf-8');
       if (_shouldDrop(id, opts)) {
         _discardSaveTmp(tmp);
@@ -336,11 +358,13 @@ function _doSaveSync(payload) {
         return SAVE_OUTCOME_DROPPED;
       }
       try {
+        const scratch = _stampSessionScratch(tmp);
         _commitSessionWrite(tmp, target, id);
+        _recordOwnSessionCommit(target, scratch, lifecycle);
         _publishLandedWriteEpoch(opts, epoch);
         _untrackSaveTmp(tmp);
         if (mayMutate()) {
-          _queueSessionSummaryUpsert(session, summaryVersion);
+          if (publishSummary) _queueSessionSummaryUpsert(session, summaryVersion);
           _clearSaveStateIfCurrent(id, epoch);
         }
       } finally {
@@ -407,33 +431,7 @@ const DRAIN_BUDGET_MS = 400;
 export function drainSessionStore() {
   for (const t of _debounceTimers.values()) clearTimeout(t);
   _debounceTimers.clear();
-  // ── 1. newest payload per id, by SAVE EPOCH ────────────────────────────
-  const newest = new Map(); // id → { session, opts, epoch, revision, ok }
-  // Ranked by (epoch, revision). The revision breaks ties WITHIN one
-  // issuance identity: an in-flight worker payload and a parked snapshot can
-  // share an epoch while the park already holds a NEWER distinct payload
-  // (the ref was replaced behind the write). Map/source order must never
-  // decide that, and minting a newer epoch here would hand an old snapshot
-  // fresh write authority.
-  const record = (id, session, opts, epoch, revision) => {
-    if (!id || !session) return;
-    const issued = Number.isFinite(epoch) ? epoch : 0;
-    const rev = Number.isFinite(revision) ? revision : 0;
-    const current = newest.get(id);
-    if (current && (current.epoch > issued || (current.epoch === issued && current.revision >= rev))) return;
-    newest.set(id, { session, opts: opts || null, epoch: issued, revision: rev, ok: false });
-  };
-  for (const [id, pending] of _savePending) {
-    // Both slots are candidates; the payload's own epoch decides, so a
-    // `queued` follow-up wins because it is NEWER, not because of its slot.
-    record(id, pending.payload?.session, pending.payload?.opts, pending.payload?.epoch, 0);
-    record(id, pending.queued?.session, pending.queued?.opts, pending.queued?.epoch, 0);
-  }
-  for (const [, pending] of _saveWorkerPending)
-    record(pending.id, pending.session, pending.opts, pending.epoch, pending.revision);
-  for (const [id, q] of _saveAsyncQueued) record(id, q.session, q.opts, q.epoch, q.revision);
-  for (const [, pending] of _deferredSessionSaves)
-    record(pending.session?.id, pending.session, pending.opts, pending.epoch, pending.revision);
+  const newest = _collectNewestDrainPayloads();
   // ── 2/3. cancel, then retire in-flight commits inside ONE deadline ─────
   const deadline = Date.now() + DRAIN_BUDGET_MS;
   const remainingMs = () => Math.max(0, deadline - Date.now());
@@ -464,12 +462,68 @@ export function drainSessionStore() {
   }
   for (const [, pending] of _savePending) _releasePendingSlot(pending);
   _savePending.clear();
-  // Settle every async waiter: the drain already wrote their newest state,
-  // so the promise result is informational (the caller is at process exit).
-  // The marker makes this settlement TERMINAL for its owner: the drain took
-  // ownership of durability for these ids and cleared their deferred
-  // handles, so a receiver must not re-park or retry (that would mint a
-  // fresh epoch and could overwrite a save that lands after the drain).
+  _settleDrainedWaiters(newest);
+  // Also unrefs the worker for writes retired above, so a superseded write
+  // can never keep the process alive.
+  _resetSaveWorkerBookkeeping();
+  // Summary-index ops queued by the writes above: one last best-effort sync
+  // flush before exit (losing them is acceptable — the index self-heals).
+  try {
+    _flushPendingSummaryOps({ sync: true });
+  } catch {
+    /* best-effort */
+  }
+  // Last retry of the scratch files THIS realm minted and failed to unlink.
+  // `drain` walks the WHOLE registry in bounded chunks (bounded total
+  // attempts, one attempt per path) so more than one chunk of orphans cannot
+  // survive exit; registry-only, nothing in sessions/ is scanned.
+  try {
+    sweepOrphanSessionTmpFiles({ drain: true });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Drain step 1: the newest payload per id, by SAVE EPOCH. */
+function _collectNewestDrainPayloads() {
+  const newest = new Map(); // id → { session, opts, epoch, revision, ok }
+  // Ranked by (epoch, revision). The revision breaks ties WITHIN one
+  // issuance identity: an in-flight worker payload and a parked snapshot can
+  // share an epoch while the park already holds a NEWER distinct payload
+  // (the ref was replaced behind the write). Map/source order must never
+  // decide that, and minting a newer epoch here would hand an old snapshot
+  // fresh write authority.
+  const record = (id, session, opts, epoch, revision) => {
+    if (!id || !session) return;
+    const issued = Number.isFinite(epoch) ? epoch : 0;
+    const rev = Number.isFinite(revision) ? revision : 0;
+    const current = newest.get(id);
+    if (current && (current.epoch > issued || (current.epoch === issued && current.revision >= rev))) return;
+    newest.set(id, { session, opts: opts || null, epoch: issued, revision: rev, ok: false });
+  };
+  for (const [id, pending] of _savePending) {
+    // Both slots are candidates; the payload's own epoch decides, so a
+    // `queued` follow-up wins because it is NEWER, not because of its slot.
+    record(id, pending.payload?.session, pending.payload?.opts, pending.payload?.epoch, 0);
+    record(id, pending.queued?.session, pending.queued?.opts, pending.queued?.epoch, 0);
+  }
+  for (const [, pending] of _saveWorkerPending)
+    record(pending.id, pending.session, pending.opts, pending.epoch, pending.revision);
+  for (const [id, q] of _saveAsyncQueued) record(id, q.session, q.opts, q.epoch, q.revision);
+  for (const [, pending] of _deferredSessionSaves)
+    record(pending.session?.id, pending.session, pending.opts, pending.epoch, pending.revision);
+  return newest;
+}
+
+/**
+ * Settle every async waiter: the drain already wrote their newest state,
+ * so the promise result is informational (the caller is at process exit).
+ * The marker makes this settlement TERMINAL for its owner: the drain took
+ * ownership of durability for these ids and cleared their deferred
+ * handles, so a receiver must not re-park or retry (that would mint a
+ * fresh epoch and could overwrite a save that lands after the drain).
+ */
+function _settleDrainedWaiters(newest) {
   const _drainErr = new Error('[session-store] drain: worker-queue interrupted by process exit');
   _drainErr.code = 'ESESSIONSTOREDRAINED';
   _drainErr.sessionStoreDrained = true;
@@ -502,25 +556,6 @@ export function drainSessionStore() {
   }
   _deferredSessionSaves.clear();
   _saveWorkerPending.clear();
-  // Also unrefs the worker for writes retired above, so a superseded write
-  // can never keep the process alive.
-  _resetSaveWorkerBookkeeping();
-  // Summary-index ops queued by the writes above: one last best-effort sync
-  // flush before exit (losing them is acceptable — the index self-heals).
-  try {
-    _flushPendingSummaryOps({ sync: true });
-  } catch {
-    /* best-effort */
-  }
-  // Last retry of the scratch files THIS realm minted and failed to unlink.
-  // `drain` walks the WHOLE registry in bounded chunks (bounded total
-  // attempts, one attempt per path) so more than one chunk of orphans cannot
-  // survive exit; registry-only, nothing in sessions/ is scanned.
-  try {
-    sweepOrphanSessionTmpFiles({ drain: true });
-  } catch {
-    /* best-effort */
-  }
 }
 
 /**
@@ -537,14 +572,7 @@ function _drainQueue(id, payload = null) {
     const next = pending.queued;
     _releasePayloadIncarnation(pending.payload === next ? null : pending.payload);
     _savePending.set(id, { writing: true, payload: next });
-    _doSave(next)
-      .then((outcome) => {
-        if (outcome !== SAVE_OUTCOME_SAVED) _rollbackCachedSessionSummary(id, next.summaryVersion);
-      })
-      .catch((err) => {
-        _rollbackCachedSessionSummary(id, next.summaryVersion);
-        _recordAsyncSaveError(id, next, err);
-      });
+    _startAsyncSave(id, next);
   } else {
     _releasePendingSlot(pending);
     _savePending.delete(id);
@@ -578,7 +606,10 @@ async function _doSave(payload) {
   // payload, never the live session as it looks at settlement time.
   let attempted = null;
   try {
-    attempted = JSON.stringify(_sessionForDisk(session));
+    const disk = _sessionForDisk(session);
+    attempted = JSON.stringify(disk);
+    // Captured before the await: the lifecycle of exactly these bytes.
+    const lifecycle = _lifecycleOfSessionDocument(disk);
     await fsp.writeFile(tmp, attempted, 'utf-8');
     // Second check: between the temp write and the rename, closeSession()
     // may have planted a tombstone. Re-check on disk; if a newer tombstone
@@ -607,7 +638,9 @@ async function _doSave(payload) {
       return SAVE_OUTCOME_DROPPED;
     }
     try {
+      const scratch = _stampSessionScratch(tmp);
       _commitSessionWrite(tmp, target, id);
+      _recordOwnSessionCommit(target, scratch, lifecycle);
       _publishLandedWriteEpoch(opts, epoch);
       _untrackSaveTmp(tmp);
       if (mayMutate()) {

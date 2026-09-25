@@ -44,27 +44,6 @@ export function printableFromInput(rawInput) {
 }
 
 export function decodeArrowSignals(rawInput, key) {
-  const rawShiftArrowForGrid =
-    rawInput === '\x1b[1;2A' ||
-    rawInput === '\x1b[a' ||
-    rawInput === '[1;2A' ||
-    rawInput === '\x1b[1;2B' ||
-    rawInput === '\x1b[b' ||
-    rawInput === '[1;2B' ||
-    rawInput === '\x1b[1;2C' ||
-    rawInput === '\x1b[c' ||
-    rawInput === '[1;2C' ||
-    rawInput === '\x1b[1;2D' ||
-    rawInput === '\x1b[d' ||
-    rawInput === '[1;2D' ||
-    rawInput === '\x1b[1;6A' ||
-    rawInput === '[1;6A' ||
-    rawInput === '\x1b[1;6B' ||
-    rawInput === '[1;6B' ||
-    rawInput === '\x1b[1;6C' ||
-    rawInput === '[1;6C' ||
-    rawInput === '\x1b[1;6D' ||
-    rawInput === '[1;6D';
   const rawUpArrow = rawInput === '\x1b[A' || rawInput === '\x1bOA' || rawInput === '[A' || rawInput === 'OA';
   const rawDownArrow = rawInput === '\x1b[B' || rawInput === '\x1bOB' || rawInput === '[B' || rawInput === 'OB';
   // Shift+Arrow modifier sequences (xterm `\x1b[1;2<dir>`, rxvt `\x1b[<dir>`
@@ -94,16 +73,17 @@ export function decodeArrowSignals(rawInput, key) {
     rawCtrlShiftLeft ||
     rawCtrlShiftRight ||
     (key.shift && key.ctrl && (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow));
-  const shiftHeld =
-    key.shift ||
+  // Any raw Shift or Ctrl+Shift arrow chord (the grid-selection handoff signal).
+  const rawShiftArrowForGrid =
     rawShiftUp ||
     rawShiftDown ||
-    rawShiftLeft ||
     rawShiftRight ||
+    rawShiftLeft ||
     rawCtrlShiftUp ||
     rawCtrlShiftDown ||
-    rawCtrlShiftLeft ||
-    rawCtrlShiftRight;
+    rawCtrlShiftRight ||
+    rawCtrlShiftLeft;
+  const shiftHeld = key.shift || rawShiftArrowForGrid;
   return {
     ctrlShiftHeld,
     rawCtrlShiftDown,

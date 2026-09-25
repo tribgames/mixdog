@@ -7,10 +7,10 @@
   the repository the check can never pass: the build takes ~5 minutes and edits
   land every minute or two.
 
-  This wrapper removes the race instead of tolerating it. `git stash create`
-  records the working tree (uncommitted changes included) as a commit object
-  WITHOUT touching the tree itself, a temporary worktree checks that commit out,
-  and the deploy runs there. Later edits cannot reach the frozen copy, so the
+  This wrapper removes the race instead of tolerating it. A throwaway index
+  records the working tree (uncommitted and untracked changes included) as a
+  commit object WITHOUT touching the tree itself, a temporary worktree checks
+  that commit out, and the deploy runs there. Later edits cannot reach the frozen copy, so the
   build is exactly one point in time and the assertion passes on the first try.
 
   The install target and the FastDirect caches stay with the real checkout, so

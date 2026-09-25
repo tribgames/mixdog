@@ -4,12 +4,15 @@
  */
 import { carryTranscriptMeasuredRowsCache } from '../../app/transcript-window.mjs';
 
+/** The live item for `id` through the id index, or null when the index is stale. */
+export function indexedItem(items, itemIndexById, id) {
+  const index = itemIndexById?.get(id);
+  const item = Number.isInteger(index) ? items[index] : null;
+  return item?.id === id ? item : null;
+}
+
 export function createItemPatcher({ getState, patchItem, itemIndexById }) {
-  const itemById = (id) => {
-    const index = itemIndexById?.get(id);
-    const item = Number.isInteger(index) ? getState().items[index] : null;
-    return item?.id === id ? item : null;
-  };
+  const itemById = (id) => indexedItem(getState().items, itemIndexById, id);
   function patchToolItem(id, patch) {
     const prev = itemById(id);
     const ok = patchItem(id, patch);

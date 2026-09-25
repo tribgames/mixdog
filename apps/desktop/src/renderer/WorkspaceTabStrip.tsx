@@ -624,7 +624,7 @@ export function WorkspaceTabStrip({
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [draggingGroup, setDraggingGroup] = useState(false);
   const [dragScroll, setDragScroll] = useState(false);
-  const [tabMenu, setTabMenu] = useState<{ key: string; left: number; top: number } | null>(null);
+  const [tabMenu, setTabMenu] = useState<TabMenuAnchor | null>(null);
   const tabMenuNode = useRef<HTMLDivElement>(null);
   // Every renderer follows ONE tab-strip layout —
   // tabs shrink to sliver floors and never switch to a device-specific mode.

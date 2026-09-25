@@ -114,6 +114,24 @@ function invalidArgsResponse(error) {
   };
 }
 
+/** `{ args }` on success, `{ invalid }` for a Zod rejection; any other error propagates. */
+function parseToolArgs(schema, value) {
+  try {
+    return { args: schema.parse(value) };
+  } catch (error) {
+    const invalid = invalidArgsResponse(error);
+    if (invalid) return { invalid };
+    throw error;
+  }
+}
+
+function toolFailure(prefix, error, surface) {
+  const message = presentErrorText(normalizeErrorMessage(error instanceof Error ? error.message : String(error)), {
+    surface,
+  });
+  return { content: [{ type: 'text', text: `${prefix}: ${message}` }], isError: true };
+}
+
 function formattedText(tool, payload) {
   const text = formatResponse(tool, tool === 'web_search' ? dropInvalidWebSearchResults(payload) : payload);
   return {
@@ -334,17 +352,21 @@ async function _webSearchCore(args, { cacheState, nativeWebSearch, signal }) {
   const cachedWebSearch = getCachedEntry(cacheState, webSearchCacheKey);
   if (cachedWebSearch) return { ...cachedWebSearch.payload, cache: buildCacheMeta(cachedWebSearch, true) };
 
+  if (signal?.aborted) throw signal.reason || new Error('web search aborted');
   const existing = _webSearchInFlight.get(webSearchCacheKey);
-  if (existing) return existing;
+  if (existing) return joinWebSearch(existing, webSearchCacheKey, signal);
 
+  // The shared run owns its own controller: it is aborted only once every
+  // caller waiting on it has left, so one caller's cancel never fails another.
+  const controller = new AbortController();
   const run = (async () => {
-    if (signal?.aborted) throw signal.reason || new Error('web search aborted');
     if (typeof nativeWebSearch === 'function') {
       const startedAt = Date.now();
       const result = await nativeWebSearch({
         ...args,
         ...cacheArgs,
         prompt: buildAgentWebSearchPrompt({ ...args, ...cacheArgs }),
+        signal: controller.signal,
       });
       const payload = normalizeNativeWebSearchPayload(result, { ...args, ...cacheArgs }, startedAt);
       const cachedEntry = setCachedEntry(
@@ -359,13 +381,44 @@ async function _webSearchCore(args, { cacheState, nativeWebSearch, signal }) {
     throw new Error('web search provider unavailable: open /websearch to choose a web search provider/model');
   })();
 
-  run.catch(() => {});
-  _webSearchInFlight.set(webSearchCacheKey, run);
-  try {
-    return await run;
-  } finally {
-    if (_webSearchInFlight.get(webSearchCacheKey) === run) _webSearchInFlight.delete(webSearchCacheKey);
-  }
+  const entry = { run, controller, waiters: 0 };
+  run
+    .finally(() => {
+      if (_webSearchInFlight.get(webSearchCacheKey) === entry) _webSearchInFlight.delete(webSearchCacheKey);
+    })
+    .catch(() => {});
+  _webSearchInFlight.set(webSearchCacheKey, entry);
+  return joinWebSearch(entry, webSearchCacheKey, signal);
+}
+
+/** Wait on a shared in-flight search; an aborted caller leaves at once, and
+ *  the last one to leave aborts the provider work. */
+function joinWebSearch(entry, key, signal) {
+  entry.waiters += 1;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const leave = () => {
+      if (settled) return false;
+      settled = true;
+      entry.waiters -= 1;
+      signal?.removeEventListener('abort', onAbort);
+      return true;
+    };
+    const onAbort = () => {
+      if (!leave()) return;
+      const reason = signal.reason || new Error('web search aborted');
+      if (entry.waiters === 0) {
+        if (_webSearchInFlight.get(key) === entry) _webSearchInFlight.delete(key);
+        entry.controller.abort(reason);
+      }
+      reject(reason);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    entry.run.then(
+      (value) => leave() && resolve(value),
+      (error) => leave() && reject(error)
+    );
+  });
 }
 
 const FETCH_CACHE_VERSION = 'document-pipeline-v3';
@@ -467,6 +520,68 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: toolDefinitions.filter((t) => t.public !== false),
 }));
 
+/** One web_search call per distinct keyword, joined into one text result. */
+async function webSearchFanout(rawArgs, keywordList, { signal, nativeWebSearch }) {
+  const concurrency = Math.max(1, Number(process.env.WEB_SEARCH_FANOUT_CONCURRENCY) || 10);
+  const keywords = [...new Set(keywordList.map((kw) => String(kw || '').trim()).filter(Boolean))];
+  const sections = new Array(keywords.length);
+  let cursor = 0;
+  let failed = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, keywords.length) }, async () => {
+      while (cursor < keywords.length) {
+        const index = cursor++;
+        const kw = keywords[index];
+        const sub = await handleToolCall('web_search', { ...rawArgs, keywords: kw }, { signal, nativeWebSearch });
+        const text = (sub.content || [])
+          .filter((p) => p.type === 'text')
+          .map((p) => p.text)
+          .join('\n');
+        if (sub.isError) failed++;
+        sections[index] = `### Query: ${kw}\n\n${text}`;
+      }
+    })
+  );
+  const summary = failed
+    ? `[web_search] ${failed}/${keywords.length} queries failed; successful results are retained.\n\n`
+    : '';
+  return {
+    content: [{ type: 'text', text: summary + sections.join('\n\n---\n\n') }],
+    ...(failed ? { isError: true } : {}),
+  };
+}
+
+/** local_fetch (loopback text) and image_fetch (public image) share URL limits and the timeout signal. */
+async function fetchLocalOrImage(name, urlArgs, { signal, timeoutMs }) {
+  const urls = Array.isArray(urlArgs.url) ? urlArgs.url : [urlArgs.url];
+  if (urls.length > 8)
+    return { content: [{ type: 'text', text: 'Error: fetch batch exceeds maximum of 8 URLs.' }], isError: true };
+  const fetchSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+    : AbortSignal.timeout(timeoutMs);
+  try {
+    const parts = [];
+    if (name === 'local_fetch') {
+      for (const url of urls) {
+        const text = await fetchLoopbackText(url, { signal: fetchSignal });
+        const start = urlArgs.startIndex || 0;
+        const max = urlArgs.maxLength == null ? 50_000 : urlArgs.maxLength;
+        const body = max === 0 ? text.slice(start) : text.slice(start, start + max);
+        parts.push({ type: 'text', text: `${url}\n\n${body}` });
+      }
+      return { content: parts };
+    }
+    for (const url of urls) {
+      const image = await fetchPublicImage(url, { signal: fetchSignal });
+      parts.push({ type: 'text', text: `Downloaded image: ${url} (${image.mimeType}, ${image.bytes} bytes)` });
+      parts.push({ type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.data } });
+    }
+    return { content: parts };
+  } catch (error) {
+    return toolFailure('Fetch failed', error, name);
+  }
+}
+
 async function handleToolCall(name, rawArgs, options = {}) {
   const { signal, nativeWebSearch } = options || {};
   const config = loadConfig();
@@ -476,7 +591,6 @@ async function handleToolCall(name, rawArgs, options = {}) {
 
   switch (name) {
     case 'web_search': {
-      let args;
       if (rawArgs && rawArgs.pattern !== undefined && rawArgs.query === undefined && rawArgs.keywords === undefined) {
         return {
           content: [{ type: 'text', text: 'Error: web search requires query; use glob(pattern=...) for file paths.' }],
@@ -487,41 +601,10 @@ async function handleToolCall(name, rawArgs, options = {}) {
         rawArgs = { ...rawArgs, keywords: rawArgs.query };
         delete rawArgs.query;
       }
-      try {
-        args = webSearchArgsSchema.parse(normalizeWebSearchArgs(rawArgs || {}));
-      } catch (e) {
-        const invalid = invalidArgsResponse(e);
-        if (invalid) return invalid;
-        throw e;
-      }
+      const { args, invalid } = parseToolArgs(webSearchArgsSchema, normalizeWebSearchArgs(rawArgs || {}));
+      if (invalid) return invalid;
       if (Array.isArray(args.keywords) && args.keywords.length > 1) {
-        const concurrency = Math.max(1, Number(process.env.WEB_SEARCH_FANOUT_CONCURRENCY) || 10);
-        const keywords = [...new Set(args.keywords.map((kw) => String(kw || '').trim()).filter(Boolean))];
-        const sections = new Array(keywords.length);
-        let cursor = 0;
-        let failed = 0;
-        await Promise.all(
-          Array.from({ length: Math.min(concurrency, keywords.length) }, async () => {
-            while (cursor < keywords.length) {
-              const index = cursor++;
-              const kw = keywords[index];
-              const sub = await handleToolCall('web_search', { ...rawArgs, keywords: kw }, { signal, nativeWebSearch });
-              const text = (sub.content || [])
-                .filter((p) => p.type === 'text')
-                .map((p) => p.text)
-                .join('\n');
-              if (sub.isError) failed++;
-              sections[index] = `### Query: ${kw}\n\n${text}`;
-            }
-          })
-        );
-        const summary = failed
-          ? `[web_search] ${failed}/${keywords.length} queries failed; successful results are retained.\n\n`
-          : '';
-        return {
-          content: [{ type: 'text', text: summary + sections.join('\n\n---\n\n') }],
-          ...(failed ? { isError: true } : {}),
-        };
+        return webSearchFanout(rawArgs, args.keywords, { signal, nativeWebSearch });
       }
       try {
         const result = await _webSearchCore(args, { cacheState, nativeWebSearch, signal });
@@ -529,20 +612,12 @@ async function handleToolCall(name, rawArgs, options = {}) {
         return formattedText('web_search', result);
       } catch (error) {
         flushUsageState();
-        const _rawErr = normalizeErrorMessage(error instanceof Error ? error.message : String(error));
-        const _cleanErr = presentErrorText(_rawErr, { surface: 'web_search' });
-        return { content: [{ type: 'text', text: `Web search failed: ${_cleanErr}` }], isError: true };
+        return toolFailure('Web search failed', error, 'web_search');
       }
     }
     case 'web_fetch': {
-      let urlArgs;
-      try {
-        urlArgs = urlArgsSchema.parse(normalizeUrlArgs(rawArgs || {}));
-      } catch (e) {
-        const invalid = invalidArgsResponse(e);
-        if (invalid) return invalid;
-        throw e;
-      }
+      const { args: urlArgs, invalid } = parseToolArgs(urlArgsSchema, normalizeUrlArgs(rawArgs || {}));
+      if (invalid) return invalid;
       try {
         const result = await _fetchCore(urlArgs, { usageState, cacheState, timeoutMs, signal });
         flushCacheState();
@@ -553,53 +628,14 @@ async function handleToolCall(name, rawArgs, options = {}) {
         };
       } catch (error) {
         flushUsageState();
-        const _rawErr = normalizeErrorMessage(error instanceof Error ? error.message : String(error));
-        const _cleanErr = presentErrorText(_rawErr, { surface: 'web_fetch' });
-        return { content: [{ type: 'text', text: `Fetch failed: ${_cleanErr}` }], isError: true };
+        return toolFailure('Fetch failed', error, 'web_fetch');
       }
     }
     case 'local_fetch':
     case 'image_fetch': {
-      let urlArgs;
-      try {
-        urlArgs = urlArgsSchema.parse(normalizeUrlArgs(rawArgs || {}));
-      } catch (e) {
-        const invalid = invalidArgsResponse(e);
-        if (invalid) return invalid;
-        throw e;
-      }
-      const urls = Array.isArray(urlArgs.url) ? urlArgs.url : [urlArgs.url];
-      if (urls.length > 8)
-        return { content: [{ type: 'text', text: 'Error: fetch batch exceeds maximum of 8 URLs.' }], isError: true };
-      const fetchSignal = signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
-        : AbortSignal.timeout(timeoutMs);
-      try {
-        if (name === 'local_fetch') {
-          const parts = [];
-          for (const url of urls) {
-            const text = await fetchLoopbackText(url, { signal: fetchSignal });
-            const start = urlArgs.startIndex || 0;
-            const max = urlArgs.maxLength == null ? 50_000 : urlArgs.maxLength;
-            const body = max === 0 ? text.slice(start) : text.slice(start, start + max);
-            parts.push({ type: 'text', text: `${url}\n\n${body}` });
-          }
-          return { content: parts };
-        }
-        const parts = [];
-        for (const url of urls) {
-          const image = await fetchPublicImage(url, { signal: fetchSignal });
-          parts.push({ type: 'text', text: `Downloaded image: ${url} (${image.mimeType}, ${image.bytes} bytes)` });
-          parts.push({ type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.data } });
-        }
-        return { content: parts };
-      } catch (error) {
-        const message = presentErrorText(
-          normalizeErrorMessage(error instanceof Error ? error.message : String(error)),
-          { surface: name }
-        );
-        return { content: [{ type: 'text', text: `Fetch failed: ${message}` }], isError: true };
-      }
+      const { args: urlArgs, invalid } = parseToolArgs(urlArgsSchema, normalizeUrlArgs(rawArgs || {}));
+      if (invalid) return invalid;
+      return fetchLocalOrImage(name, urlArgs, { signal, timeoutMs });
     }
     default:
       throw new Error(`Unknown tool: ${name}`);

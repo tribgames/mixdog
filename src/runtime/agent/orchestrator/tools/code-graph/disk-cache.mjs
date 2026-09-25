@@ -142,6 +142,15 @@ function _isCodeGraphCacheHash(value) {
   return /^[0-9a-f]{8,64}$/i.test(String(value || ''));
 }
 
+// Every entry hash a manifest references — the files the orphan sweep keeps.
+function _manifestHashes(manifest) {
+  const hashes = new Set();
+  for (const meta of Object.values(manifest)) {
+    if (meta && typeof meta === 'object' && meta.hash) hashes.add(meta.hash);
+  }
+  return hashes;
+}
+
 // Every cached root with its on-disk footprint, oldest build first. Roots
 // whose cache file is gone are skipped. The call-site sidecar is part of a
 // root's footprint, so the byte budget sees it even though no mode parses it
@@ -321,13 +330,9 @@ function _loadDiskCodeGraphCache(now = Date.now()) {
   try {
     const dir = _codeGraphDiskDir();
     mkdirSync(dir, { recursive: true });
-    const validHashes = new Set();
-    for (const meta of Object.values(_diskManifest)) {
-      if (meta && typeof meta === 'object' && meta.hash) validHashes.add(meta.hash);
-    }
     // Without a successfully loaded manifest we must not delete <hash>.json
-    // files (validHashes would be empty or incomplete after a parse failure).
-    _sweepCodeGraphCacheDir(dir, validHashes, { now, sweepJson: manifestTrusted });
+    // files (the hash set would be empty or incomplete after a parse failure).
+    _sweepCodeGraphCacheDir(dir, _manifestHashes(_diskManifest), { now, sweepJson: manifestTrusted });
   } catch {
     /* boot sweep best-effort */
   }
@@ -418,16 +423,12 @@ function _commitDiskCodeGraphCache(dir, writeJson) {
   for (const row of pruned.evicted) {
     _dropDiskEntry(row.cwd);
   }
-  const validHashes = new Set();
-  for (const meta of Object.values(manifest)) {
-    if (meta && typeof meta === 'object' && meta.hash) validHashes.add(meta.hash);
-  }
   writeJson(join(dir, 'manifest.json'), manifest, { compact: true, lock: false });
   _diskManifest = manifest;
-  // Sweep orphan per-cwd files. validHashes now includes every hash in
-  // the merged manifest (preserved + ours) so cross-instance cache files
-  // are never collateral damage.
-  _sweepCodeGraphCacheDir(dir, validHashes, { sweepJson: true });
+  // Sweep orphan per-cwd files. The kept set includes every hash in the
+  // merged manifest (preserved + ours) so cross-instance cache files are
+  // never collateral damage.
+  _sweepCodeGraphCacheDir(dir, _manifestHashes(manifest), { sweepJson: true });
 }
 
 function _persistDiskCodeGraphCacheNow({ strict = false, writeJson = writeJsonAtomicSync } = {}) {

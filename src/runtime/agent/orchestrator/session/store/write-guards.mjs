@@ -114,27 +114,34 @@ export const WRITE_COMMIT_TIMEOUT = Symbol('session-write-commit-timeout');
  */
 export const WRITE_COMMIT_STALE = Symbol('session-write-commit-stale');
 
+// Absolute deadline for an optional non-negative `timeoutMs` (Infinity when absent).
+function _lockDeadline(timeoutMs) {
+  return Number.isFinite(timeoutMs) && timeoutMs >= 0 ? Date.now() + timeoutMs : Infinity;
+}
+
+// One bounded Atomics.wait on the commit-lock slot, never past the deadline.
+function _waitLockSlice(control, deadline) {
+  const slice = deadline === Infinity ? 25 : Math.min(25, Math.max(1, deadline - Date.now()));
+  Atomics.wait(control, 1, 1, slice);
+}
+
 export function acquireWriteCommit(opts, options = {}) {
   const guard = opts?._sessionWriteGuard;
   if (!guard?.buffer) return null;
   const control = new Int32Array(guard.buffer);
-  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs >= 0 ? options.timeoutMs : Infinity;
-  const deadline = timeoutMs === Infinity ? Infinity : Date.now() + timeoutMs;
+  const deadline = _lockDeadline(options.timeoutMs);
   while (Atomics.compareExchange(control, 1, 0, 1) !== 0) {
     if (Date.now() >= deadline) return WRITE_COMMIT_TIMEOUT;
-    const slice = deadline === Infinity ? 25 : Math.min(25, Math.max(1, deadline - Date.now()));
-    Atomics.wait(control, 1, 1, slice);
+    _waitLockSlice(control, deadline);
   }
   if (isCancelledWrite(opts)) {
-    Atomics.store(control, 1, 0);
-    Atomics.notify(control, 1);
+    releaseWriteCommit(control);
     return false;
   }
   // Re-checked UNDER the lock: the newer write may have landed while this
   // one was waiting for it.
   if (isStaleWriteEpoch(opts)) {
-    Atomics.store(control, 1, 0);
-    Atomics.notify(control, 1);
+    releaseWriteCommit(control);
     return WRITE_COMMIT_STALE;
   }
   return control;
@@ -155,12 +162,10 @@ export function releaseWriteCommit(control) {
  */
 export function waitForWriteCommit(id, opts = {}) {
   const control = writeControl(id);
-  const timeoutMs = Number.isFinite(opts.timeoutMs) && opts.timeoutMs >= 0 ? opts.timeoutMs : Infinity;
-  const deadline = timeoutMs === Infinity ? Infinity : Date.now() + timeoutMs;
+  const deadline = _lockDeadline(opts.timeoutMs);
   while (Atomics.load(control, 1) !== 0) {
     if (Date.now() >= deadline) return false;
-    const slice = deadline === Infinity ? 25 : Math.min(25, Math.max(1, deadline - Date.now()));
-    Atomics.wait(control, 1, 1, slice);
+    _waitLockSlice(control, deadline);
   }
   return true;
 }

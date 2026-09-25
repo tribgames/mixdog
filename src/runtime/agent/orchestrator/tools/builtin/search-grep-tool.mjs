@@ -504,15 +504,10 @@ async function runPlainGrep(scope, rgArgs, effectiveHeadLimit) {
     headLimit,
     offset,
     outputMode,
-    patterns: scope.patterns,
     beforeN: scope.beforeN,
     afterN: scope.afterN,
     contextN: scope.contextN,
-    searchPath: scope.searchPath,
-    grepResolvedPath,
     workDir: scope.workDir,
-    globPatterns: scope.normalizedGlobPatterns,
-    fileType: scope.fileType,
     filenameOmitted: scope.filenameOmitted,
     disableContentGrouping: scope.forceGrepFilename,
     includeMatchCount: false,
@@ -626,9 +621,7 @@ async function grepFailureResult(scope, err) {
       headLimit: scope.headLimit,
       offset: scope.offset,
       workDir: scope.workDir,
-      grepResolvedPath: scope.grepResolvedPath,
       patternCapNote: scope.patternCapNote,
-      globPatterns: scope.normalizedGlobPatterns,
     });
     if (rescued !== null) return rescued;
   }

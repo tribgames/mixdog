@@ -13,6 +13,7 @@ import { dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { enforceOwnerOnlyAclWin32, enforceOwnerOnlyAclWin32Async } from './file-permissions.mjs';
+import { createKeyedSerialQueue } from './keyed-serial-queue.mjs';
 import { sleep, sleepSync } from './sleep.mjs';
 
 const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
@@ -22,7 +23,8 @@ const DEFAULT_LOCK_TIMEOUT_MS =
   Number.isFinite(configuredLockTimeoutMs) && configuredLockTimeoutMs >= 0 ? configuredLockTimeoutMs : 2000;
 const OWNER_TOKEN = randomBytes(12).toString('hex');
 const osHeldPaths = new Set();
-const lockQueues = new Map();
+// In-process waiters queue per lock path before contending for the OS lock.
+const lockQueue = createKeyedSerialQueue();
 const heldLockPaths = new AsyncLocalStorage();
 const LOCK_WAIT_WARN_MS = 500;
 const LOCK_WAIT_WARN_INTERVAL_MS = 10_000;
@@ -109,6 +111,13 @@ function tryAcquireReclaimGuard(lockPath) {
   }
 }
 
+// A lock is reclaimable when its recorded owner is dead, or when it names no
+// owner at all and has outlived the stale window.
+function lockReclaimable(owner, stat, staleMs) {
+  if (owner.pid !== null) return !ownerIsLive(owner);
+  return Date.now() - (Number(stat.mtimeMs) || 0) >= Math.max(0, staleMs);
+}
+
 function tryReclaimStaleLock(lockPath, staleMs) {
   let initial;
   try {
@@ -117,9 +126,7 @@ function tryReclaimStaleLock(lockPath, staleMs) {
     return false;
   }
   const owner = readLockOwner(lockPath);
-  const dead = owner.pid !== null && !ownerIsLive(owner);
-  const pidlessStale = owner.pid === null && Date.now() - (Number(initial.mtimeMs) || 0) >= Math.max(0, staleMs);
-  if (!dead && !pidlessStale) return false;
+  if (!lockReclaimable(owner, initial, staleMs)) return false;
   const reclaim = tryAcquireReclaimGuard(lockPath);
   if (reclaim === null) return false;
   try {
@@ -131,10 +138,7 @@ function tryReclaimStaleLock(lockPath, staleMs) {
     }
     const currentOwner = readLockOwner(lockPath);
     if (currentOwner.pid !== owner.pid || currentOwner.token !== owner.token) return false;
-    const currentDead = currentOwner.pid !== null && !ownerIsLive(currentOwner);
-    const currentPidlessStale =
-      currentOwner.pid === null && Date.now() - (Number(current.mtimeMs) || 0) >= Math.max(0, staleMs);
-    if (currentDead || currentPidlessStale) {
+    if (lockReclaimable(currentOwner, current, staleMs)) {
       try {
         unlinkSync(lockPath);
         return true;
@@ -202,9 +206,17 @@ function timeoutError(lockPath, timeoutMs, cause) {
   return error;
 }
 
+function lockTimeoutMs(opts) {
+  return Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_LOCK_TIMEOUT_MS;
+}
+
+function lockStaleMs(opts) {
+  return Number.isFinite(opts.staleMs) ? opts.staleMs : 30000;
+}
+
 export function withFileLockSync(lockPath, fn, opts = {}) {
-  const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_LOCK_TIMEOUT_MS;
-  const staleMs = Number.isFinite(opts.staleMs) ? opts.staleMs : 30000;
+  const timeoutMs = lockTimeoutMs(opts);
+  const staleMs = lockStaleMs(opts);
   // A synchronous wait prevents this process's async holder from releasing.
   if (timeoutMs > 0 && osHeldPaths.has(lockPath)) {
     const error = new Error(
@@ -247,25 +259,14 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
 }
 
 export async function withFileLock(lockPath, fn, opts = {}) {
-  const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_LOCK_TIMEOUT_MS;
   if (heldLockPaths.getStore()?.get(lockPath)?.active) return fn();
-  if (timeoutMs <= 0) return withOsFileLock(lockPath, fn, opts);
-  const previous = lockQueues.get(lockPath) ?? Promise.resolve();
-  const task = previous.catch(() => {}).then(() => withOsFileLock(lockPath, fn, opts));
-  const settled = task.then(
-    () => {},
-    () => {}
-  );
-  lockQueues.set(lockPath, settled);
-  void settled.then(() => {
-    if (lockQueues.get(lockPath) === settled) lockQueues.delete(lockPath);
-  });
-  return task;
+  if (lockTimeoutMs(opts) <= 0) return withOsFileLock(lockPath, fn, opts);
+  return lockQueue(lockPath, () => withOsFileLock(lockPath, fn, opts));
 }
 
 async function withOsFileLock(lockPath, fn, opts = {}) {
-  const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_LOCK_TIMEOUT_MS;
-  const staleMs = Number.isFinite(opts.staleMs) ? opts.staleMs : 30000;
+  const timeoutMs = lockTimeoutMs(opts);
+  const staleMs = lockStaleMs(opts);
   const deadline = Date.now() + timeoutMs;
   mkdirSync(dirname(lockPath), { recursive: true });
   const waitStartedAt = Date.now();

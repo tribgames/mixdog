@@ -27,7 +27,7 @@ const LIVE_STATS_KEYS = [
   'contextTokens',
 ];
 
-export function liveStateOf(st) {
+function liveStateOf(st) {
   const stats = st.stats && typeof st.stats === 'object' ? st.stats : {};
   const statsSubset = {};
   for (const key of LIVE_STATS_KEYS) {

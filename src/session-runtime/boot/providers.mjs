@@ -130,7 +130,6 @@ function wireNativeWebSearch(boot) {
     ensureProvidersReady,
     ensureProviderEnabled,
     normalizeWebSearchProviderId,
-    normalizeWebSearchRouteConfig,
     isDefaultWebSearchRouteConfig,
     isWebSearchCapableProvider,
     webSearchCapableFor,
@@ -153,7 +152,6 @@ function wireProviderUsage(boot) {
     consumeCodexRateLimitResetCredit,
   } = createProviderUsage({
     caches: providerUsageCaches,
-    getConfig: () => rt.config,
     getReg: () => boot.reg,
     displayConfig,
     providerSetup,

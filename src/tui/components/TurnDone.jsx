@@ -13,19 +13,8 @@ import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
 import { formatDuration } from '../time-format.mjs';
 import { TURN_DONE_MARKER } from '../figures.mjs';
-import { cleanRightMessage, promptStatusColor } from '../app/app-format.mjs';
-
-// Return the same element tree without introducing a component boundary.
-function renderRightMessage(rightText, rightWidth, rightTone) {
-  if (!rightText) return null;
-  return (
-    <Box flexShrink={0} width={rightWidth} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
-      <Text color={promptStatusColor(rightTone)} wrap="truncate">
-        {rightText}
-      </Text>
-    </Box>
-  );
-}
+import { cleanRightMessage } from '../app/app-format.mjs';
+import { renderRightHint } from './ItemRightHintOverprint.jsx';
 
 export function TurnDone({
   elapsedMs = 0,
@@ -53,7 +42,6 @@ export function TurnDone({
     copy = elapsed ? `${doneVerb} for ${elapsed}` : doneVerb;
   }
   const rightText = cleanRightMessage(rightMessage);
-  const rightWidth = Math.max(1, Number(rightMessageWidth) || 24);
 
   return (
     <Box marginTop={marginTop} flexDirection="row" width="100%">
@@ -63,7 +51,7 @@ export function TurnDone({
           <Text color={theme.thinkingAccent}>{copy}</Text>
         </Text>
       </Box>
-      {renderRightMessage(rightText, rightWidth, rightTone)}
+      {renderRightHint(rightText, rightMessageWidth, rightTone)}
     </Box>
   );
 }
@@ -79,7 +67,6 @@ export function StatusDone({
   const copy = String(label || 'Complete').trim() || 'Complete';
   const suffix = String(detail || '').trim();
   const rightText = cleanRightMessage(rightMessage);
-  const rightWidth = Math.max(1, Number(rightMessageWidth) || 24);
 
   return (
     <Box marginTop={marginTop} flexDirection="row" width="100%">
@@ -90,7 +77,7 @@ export function StatusDone({
           {suffix ? <Text color={theme.subtle}> · {suffix}</Text> : null}
         </Text>
       </Box>
-      {renderRightMessage(rightText, rightWidth, rightTone)}
+      {renderRightHint(rightText, rightMessageWidth, rightTone)}
     </Box>
   );
 }

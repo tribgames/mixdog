@@ -129,6 +129,83 @@ export function replaceAcrossRuns(xml, tag, find, replacement) {
   return { xml: rebuildTextNodes(xml, tag, nodes), count: occurrences.length };
 }
 
+// replace_text on a slide, paragraph by paragraph, reading a soft break as the space it stands for. An authored
+// deck pre-wraps Hangul by the eojeol with <a:br/> between runs, and the space at the wrap is gone: "올해 상반기에도"
+// is stored as "올해", a break, "상반기에도", so the phrase the reader sees could never be found. A space in find
+// matches a space or a break; a break inside a match is removed with it, so the new words run as one line. A match
+// never crosses from one paragraph (or shape) into the next.
+export function replaceInParagraphs(xml, find, replacement, { paragraph = 'a:p', run = 'a:t', lineBreak = 'a:br' } = {}) {
+  if (!find) throw new Error('replace_text requires non-empty find');
+  const words = String(find).trim().split(/\s+/).filter(Boolean);
+  if (!words.length) throw new Error('replace_text requires non-empty find');
+  const lead = /^\s/.test(find) ? '[ \\n]+' : '', tail = /\s$/.test(find) ? '[ \\n]+' : '';
+  const pattern = new RegExp(`${lead}${words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[ \\n]+')}${tail}`, 'g');
+  const tokenPattern = new RegExp(
+    `<${tagPattern(run)}(\\s[^>]*)?>([\\s\\S]*?)</${tagPattern(run)}>|<${tagPattern(lineBreak)}\\b(?:[^>]*?/>|[^>]*>[\\s\\S]*?</${tagPattern(lineBreak)}>)`,
+    'g'
+  );
+  let count = 0;
+  const next = String(xml).replace(new RegExp(`<${tagPattern(paragraph)}\\b[^>]*>[\\s\\S]*?</${tagPattern(paragraph)}>`, 'g'), (source) => {
+    const tokens = [...source.matchAll(tokenPattern)].map((match) => ({
+      start: match.index,
+      end: match.index + match[0].length,
+      raw: match[0],
+      isBreak: match[2] === undefined,
+      attrs: match[1] || '',
+      text: match[2] === undefined ? '\n' : xmlDecode(match[2]),
+      removed: false,
+    }));
+    const text = tokens.map((token) => token.text).join('');
+    const matches = [...text.matchAll(pattern)];
+    if (!matches.length) return source;
+    count += matches.length;
+    const at = (offset) => {
+      let position = 0;
+      for (let index = 0; index < tokens.length; index += 1) {
+        if (offset < position + tokens[index].text.length) return { index, offset: offset - position };
+        position += tokens[index].text.length;
+      }
+      return { index: tokens.length - 1, offset: tokens.at(-1).text.length };
+    };
+    for (const match of matches.reverse()) {
+      const first = at(match.index);
+      const last = at(match.index + match[0].length - 1);
+      for (let index = first.index; index <= last.index; index += 1) {
+        const token = tokens[index];
+        if (token.isBreak) {
+          token.removed = true;
+          continue;
+        }
+        const from = index === first.index ? first.offset : 0;
+        const to = index === last.index ? last.offset + 1 : token.text.length;
+        token.text = `${token.text.slice(0, from)}${index === first.index ? replacement : ''}${token.text.slice(to)}`;
+      }
+      // The replacement lands in the first run the match touches; a match that starts on a break (never, since
+      // find starts with a word unless it leads with a space) would leave it in the next run instead.
+      if (tokens[first.index].isBreak) {
+        const host = tokens.slice(first.index).find((token) => !token.isBreak);
+        if (host) host.text = `${replacement}${host.text}`;
+      }
+    }
+    let rebuilt = '';
+    let cursor = 0;
+    for (const token of tokens) {
+      rebuilt += source.slice(cursor, token.start);
+      if (!token.removed) {
+        if (token.isBreak) rebuilt += token.raw;
+        else {
+          let attrs = token.attrs;
+          if (/^\s|\s$/.test(token.text) && !/\bxml:space=/.test(attrs)) attrs += ' xml:space="preserve"';
+          rebuilt += `<${run}${attrs}>${xmlEncode(token.text)}</${run}>`;
+        }
+      }
+      cursor = token.end;
+    }
+    return rebuilt + source.slice(cursor);
+  });
+  return { xml: next, count };
+}
+
 export function paragraphTexts(xml, tag) {
   return textNodes(xml, tag)
     .map((node) => node.text)

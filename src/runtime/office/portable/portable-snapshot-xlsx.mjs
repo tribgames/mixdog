@@ -66,8 +66,6 @@ async function worksheetTables(zip, sheet) {
   return tables;
 }
 
-/** Charts and pictures a worksheet carries, each placed on the cell grid so a
- *  review can compare them with the print area the sheet actually declares. */
 function drawingAnchor(drawing) {
   const round = (value) => Math.round(value * 100) / 100;
   return {
@@ -99,6 +97,8 @@ function drawingImage(sheet, drawing, index, anchor) {
   };
 }
 
+/** Charts and pictures a worksheet carries, each placed on the cell grid so a
+ *  review can compare them with the print area the sheet actually declares. */
 async function worksheetVisuals(zip, sheet, xml) {
   const charts = [];
   const images = [];
@@ -216,7 +216,7 @@ function worksheetFreezePanes(xml) {
 function worksheetProtection(xml) {
   const guard = /<sheetProtection\b([^>]*?)\/?>/.exec(xml)?.[1] || '';
   return {
-    protected: Boolean(/<sheetProtection\b/.test(xml)),
+    protected: /<sheetProtection\b/.test(xml),
     ...(guard
       ? {
           password: /\b(?:password|hashValue)="[^"]+"/.test(guard),

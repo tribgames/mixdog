@@ -413,30 +413,6 @@ export function disableProvider(name) {
 export function providerCatalogRevision() {
   return _providerCatalogRevision;
 }
-// Narrow synchronous test seam for the lazy-OAuth boundary. It models a
-// constructor whose module is already loaded while guaranteeing every touched
-// registry entry is restored, even when the assertion callback throws.
-export function _withLoadedProviderCtorForTest(name, Ctor, fn) {
-  const hadProvider = providers.has(name);
-  const priorProvider = providers.get(name);
-  const hadCtor = providerCtors.has(name);
-  const priorCtor = providerCtors.get(name);
-  const hadSignature = signatures.has(name);
-  const priorSignature = signatures.get(name);
-  providers.delete(name);
-  signatures.delete(name);
-  providerCtors.set(name, Ctor);
-  try {
-    return fn();
-  } finally {
-    if (hadProvider) providers.set(name, priorProvider);
-    else providers.delete(name);
-    if (hadCtor) providerCtors.set(name, priorCtor);
-    else providerCtors.delete(name);
-    if (hadSignature) signatures.set(name, priorSignature);
-    else signatures.delete(name);
-  }
-}
 // Companion seam for registry walks that iterate live INSTANCES (what
 // initProviders leaves behind) rather than constructors — the startup catalog
 // refresh is one. Restores the prior entry even when the callback throws.

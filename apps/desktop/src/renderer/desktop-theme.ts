@@ -149,13 +149,6 @@ export function desktopThemeOptions(): Array<{ value: DesktopThemePreference; la
   ];
 }
 
-/** Onboarding theme cards: raw registry palette for the mini chrome preview.
- *  Aliases resolve; unknown ids return null and the card stays neutral. */
-export function themePreviewPalette(value: unknown): Record<string, string> | null {
-  const resolved = resolveRegisteredThemeId(themeId(value));
-  return resolved ? { ...registry[resolved].palette } : null;
-}
-
 /** Registered theme id for a requested id, following aliases; null when unknown. */
 function resolveRegisteredThemeId(requested: string): string | null {
   if (registry[requested]) return requested;
@@ -189,7 +182,7 @@ export function setDesktopThemePreference(preference: DesktopThemePreference): s
   return applyDesktopThemePreference(preference);
 }
 
-export function applyDesktopTheme(value: unknown): string {
+function applyDesktopTheme(value: unknown): string {
   const resolved = resolveRegisteredThemeId(themeId(value)) ?? DEFAULT_THEME_ID;
   const root = document.documentElement;
   suppressThemeSwapTransitions(root);

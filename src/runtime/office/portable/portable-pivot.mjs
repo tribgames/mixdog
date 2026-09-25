@@ -9,7 +9,10 @@ const CACHE_RECORDS_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocumen
 const PIVOT_TABLE_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.pivotTable+xml';
 const RELATIONSHIP_BASE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
-export function summarizePivotFields(headers, records) {
+// axes: the field indexes laid out as rows or columns. A numeric field on an axis is still a set of items — "Year"
+// across the top is 2013 and 2014, not a sum — so its values are listed as numeric items; left as a bare number
+// range it had no items to lay out, and the pivot showed a lone "Grand Total" column under the "Year" heading.
+export function summarizePivotFields(headers, records, axes = []) {
   return headers.map((name, index) => {
     const column = records.map((record) => record[index]);
     const numeric =
@@ -17,14 +20,15 @@ export function summarizePivotFields(headers, records) {
       column.every((value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)));
     if (numeric) {
       const numbers = column.map(Number);
-      return {
-        name,
-        numeric: true,
+      const range = {
         min: Math.min(...numbers),
         max: Math.max(...numbers),
         integer: numbers.every((value) => Number.isInteger(value)),
-        items: [],
       };
+      if (axes.includes(index)) {
+        return { name, numeric: false, numericItems: true, ...range, items: [...new Set(numbers.map(String))] };
+      }
+      return { name, numeric: true, ...range, items: [] };
     }
     const items = new Set();
     for (const value of column) {
@@ -35,15 +39,25 @@ export function summarizePivotFields(headers, records) {
 }
 
 function displayOrder(field) {
-  return [...field.items.keys()].sort((left, right) => field.items[left].localeCompare(field.items[right], 'en'));
+  const compare = field.numericItems
+    ? (left, right) => Number(field.items[left]) - Number(field.items[right])
+    : (left, right) => field.items[left].localeCompare(field.items[right], 'en');
+  return [...field.items.keys()].sort(compare);
 }
 
 function sharedItemsXml(field) {
+  const integer = field.integer ? ' containsInteger="1"' : '';
   if (field.numeric) {
-    const integer = field.integer ? ' containsInteger="1"' : '';
     return (
       `<sharedItems containsSemiMixedTypes="0" containsString="0" containsNumber="1"` +
       `${integer} minValue="${field.min}" maxValue="${field.max}"/>`
+    );
+  }
+  if (field.numericItems) {
+    const items = field.items.map((item) => `<n v="${Number(item)}"/>`).join('');
+    return (
+      `<sharedItems containsSemiMixedTypes="0" containsString="0" containsNumber="1"${integer}` +
+      ` minValue="${field.min}" maxValue="${field.max}" count="${field.items.length}">${items}</sharedItems>`
     );
   }
   const items = field.items.map((item) => `<s v="${xmlEncode(item)}"/>`).join('');
@@ -65,7 +79,18 @@ function cacheDefinitionXml(fields, records, sourceSheet, sourceRef, recordsRela
   );
 }
 
+// Each text item's position among its field's shared items (the first, when
+// an item repeats), read once per field instead of searched for every cell.
+function itemPositions(field) {
+  const positions = new Map();
+  field.items.forEach((item, index) => {
+    if (!positions.has(item)) positions.set(item, index);
+  });
+  return positions;
+}
+
 function cacheRecordsXml(fields, records) {
+  const positions = fields.map((field) => (field.numeric ? null : itemPositions(field)));
   const rows = records
     .map(
       (record) =>
@@ -73,7 +98,7 @@ function cacheRecordsXml(fields, records) {
           .map((value, index) => {
             const field = fields[index];
             if (field.numeric) return `<n v="${Number(value)}"/>`;
-            const position = field.items.indexOf(String(value ?? ''));
+            const position = positions[index].get(itemKey(field, value)) ?? -1;
             return `<x v="${Math.max(0, position)}"/>`;
           })
           .join('')}</r>`
@@ -91,25 +116,36 @@ function cacheRecordsXml(fields, records) {
 // autofit, or a fit audit to read, so the computed grid is written as cells.
 const GRAND_TOTAL = 'Grand Total';
 
+// The key a record's value is filed under: a numeric item compares as the number it is ("2013" and 2013 alike).
+function itemKey(field, value) {
+  return field.numericItems ? String(Number(value)) : String(value ?? '');
+}
+
 function pivotGrid({ fields, records, rowField, columnField, valueFields }) {
   const itemsOf = (index) => displayOrder(fields[index]).map((item) => fields[index].items[item]);
+  // A numeric item heads its row or column as the number it is, so it sorts and formats as one.
+  const shown = (index, label) => (fields[index].numericItems ? Number(label) : label);
   const rowLabels = rowField >= 0 ? itemsOf(rowField) : [];
   const columnLabels = columnField >= 0 ? itemsOf(columnField) : [];
   const sum = (valueIndex, matches) =>
     records.reduce((total, record) => (matches(record) ? total + (Number(record[valueIndex]) || 0) : total), 0);
   const heading = (valueIndex) => `Sum of ${fields[valueIndex].name}`;
   const rows = [];
+  const inRow = (record, label) => itemKey(fields[rowField], record[rowField]) === label;
   if (columnField >= 0) {
     const valueIndex = valueFields[0];
-    const inRow = (record, label) => String(record[rowField] ?? '') === label;
-    const inColumn = (record, label) => String(record[columnField] ?? '') === label;
+    const inColumn = (record, label) => itemKey(fields[columnField], record[columnField]) === label;
     rows.push([heading(valueIndex), fields[columnField].name]);
-    rows.push([rowField >= 0 ? fields[rowField].name : '', ...columnLabels, GRAND_TOTAL]);
+    rows.push([
+      rowField >= 0 ? fields[rowField].name : '',
+      ...columnLabels.map((label) => shown(columnField, label)),
+      GRAND_TOTAL,
+    ]);
     for (const label of rowLabels) {
       const cells = columnLabels.map((column) =>
         sum(valueIndex, (record) => inRow(record, label) && inColumn(record, column))
       );
-      rows.push([label, ...cells, sum(valueIndex, (record) => inRow(record, label))]);
+      rows.push([shown(rowField, label), ...cells, sum(valueIndex, (record) => inRow(record, label))]);
     }
     const totals = columnLabels.map((column) => sum(valueIndex, (record) => inColumn(record, column)));
     rows.push([GRAND_TOTAL, ...totals, sum(valueIndex, () => true)]);
@@ -117,10 +153,7 @@ function pivotGrid({ fields, records, rowField, columnField, valueFields }) {
   }
   rows.push([rowField >= 0 ? fields[rowField].name : '', ...valueFields.map(heading)]);
   for (const label of rowLabels) {
-    rows.push([
-      label,
-      ...valueFields.map((valueIndex) => sum(valueIndex, (record) => String(record[rowField] ?? '') === label)),
-    ]);
+    rows.push([shown(rowField, label), ...valueFields.map((valueIndex) => sum(valueIndex, (record) => inRow(record, label)))]);
   }
   rows.push([rowField >= 0 ? GRAND_TOTAL : 'Total', ...valueFields.map((valueIndex) => sum(valueIndex, () => true))]);
   return rows;
@@ -312,5 +345,7 @@ export async function writePivotTable(
   });
   zip.file(destinationSheetPath, sheetXml);
 
-  return { definitionPart, recordsPart, tablePart, cacheId, rows: grid.length, columns: grid[0]?.length || 0 };
+  // The first row of a pivot with a column field holds two cells (the value heading and the field's name); the widest
+  // row is the grid's width.
+  return { definitionPart, recordsPart, tablePart, cacheId, rows: grid.length, columns: Math.max(0, ...grid.map((row) => row.length)) };
 }

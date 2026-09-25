@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto';
 import { TABULAR_FORMATS, stableJson } from './office-core.mjs';
+import { sha256 } from '../shared/values.mjs';
 
 export function documentSnapshotFingerprint(document) {
-  return createHash('sha256').update(stableJson(document)).digest('hex');
+  return sha256(stableJson(document));
 }
 
 function scalarState(value) {
@@ -64,7 +64,6 @@ export function diffDocuments(before, after, limit = 500) {
 }
 
 export function operationDocumentPaths(format, operation, result = {}) {
-  const op = String(operation?.op || '');
   if (format === 'docx') {
     if (operation.paragraph) return [`/body/p[${Number(operation.paragraph)}]`];
     if (operation.table && operation.row && operation.col)
@@ -81,7 +80,6 @@ export function operationDocumentPaths(format, operation, result = {}) {
     if (sheet && operation.cell) return [`/sheet[${sheet}]/cell[${String(operation.cell).toUpperCase()}]`];
     if (sheet && operation.range) return [`/sheet[${sheet}]/range[${String(operation.range).toUpperCase()}]`];
     if (sheet) return [`/sheet[${sheet}]`];
-    if (op === 'add_sheet' && result.sheet) return [`/sheet[${String(result.sheet)}]`];
     if (operation.name) return [`/defined-name[${String(operation.name)}]`];
     return ['/'];
   }

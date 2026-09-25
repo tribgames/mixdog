@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, RwLock};
 
 use ast_grep_core::language::Language;
 use ast_grep_core::matcher::{Pattern, PatternBuilder, PatternError};
@@ -307,6 +307,23 @@ pub fn scan_lang_for_ext(ext: &str) -> Option<ScanLang> {
         _ => return None,
     };
     Some(ScanLang::Builtin(builtin))
+}
+
+/// The per-grammar value in `cache`, built by `build` on first use and shared
+/// after. Built outside the lock, so two first callers may both build; the
+/// later insert wins. `what` names the cache in the poisoned-lock panic.
+pub(crate) fn cached_for_lang<T>(
+    cache: &RwLock<HashMap<ScanLang, Arc<T>>>,
+    lang: ScanLang,
+    what: &str,
+    build: impl FnOnce() -> T,
+) -> Arc<T> {
+    if let Some(found) = cache.read().expect(what).get(&lang) {
+        return Arc::clone(found);
+    }
+    let built = Arc::new(build());
+    cache.write().expect(what).insert(lang, Arc::clone(&built));
+    built
 }
 
 pub fn scan_lang_for_path(path: &Path) -> Option<ScanLang> {

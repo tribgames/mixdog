@@ -1,11 +1,10 @@
 // Replaying one relayed request against the LOCAL webhook HTTP server and
 // answering the relay with the response (or the failure) over the leg.
 import * as http from 'node:http';
-import WebSocket from 'ws';
 import { LOCAL_TIMEOUT_MS, MAX_TUNNEL_BODY_BYTES } from './limits.mjs';
 
 export function respondOverLeg(ws, id, status, headers, bodyBuffer) {
-  if (ws.readyState !== WebSocket.OPEN) return;
+  if (ws.readyState !== ws.OPEN) return;
   try {
     ws.send(
       JSON.stringify({

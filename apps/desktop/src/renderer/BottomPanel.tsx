@@ -18,8 +18,8 @@ import {
 import { usePageHideFlush } from './layout-persistence';
 
 const BOTTOM_PANEL_KEY = 'mixdog.desktop.bottom-panel.v1';
-export const BOTTOM_PANEL_MIN_HEIGHT = 120;
-export const BOTTOM_PANEL_DEFAULT_HEIGHT = 380;
+const BOTTOM_PANEL_MIN_HEIGHT = 120;
+const BOTTOM_PANEL_DEFAULT_HEIGHT = 380;
 /** Sheet exit hold: --mx-side-panel-duration (180ms) plus one frame of slack. */
 const SHEET_EXIT_MS = 200;
 
@@ -29,7 +29,7 @@ interface BottomPanelTab {
   badge?: React.ReactNode;
 }
 
-export function clampBottomPanelHeight(value: number, viewportHeight: number): number {
+function clampBottomPanelHeight(value: number, viewportHeight: number): number {
   const max = Math.max(BOTTOM_PANEL_MIN_HEIGHT, Math.floor(viewportHeight * 0.7));
   if (!Number.isFinite(value)) return BOTTOM_PANEL_DEFAULT_HEIGHT;
   return Math.min(max, Math.max(BOTTOM_PANEL_MIN_HEIGHT, Math.round(value)));

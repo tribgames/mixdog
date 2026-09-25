@@ -6,6 +6,7 @@ import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
 import { isSessionId } from './desktop-state';
 import { longRunningRequestTimeout } from './local-provider-install-timeout';
+import type { TranscriptWindowRequest } from './session-transcript-windows';
 
 export interface SessionCallOptions {
   callId?: string;
@@ -34,6 +35,8 @@ export interface SessionHostTransportOwner {
   isDisposed(): boolean;
   taskWorkspace(): Promise<string>;
   openHints(sessionId: string): Record<string, unknown>;
+  /** The transcript window this read asks for (see SessionTranscriptWindows). */
+  transcriptWindow(sessionId: string): TranscriptWindowRequest;
   projection(sessionId: string): SessionHostProjection | undefined;
   applySessionResult(
     sessionId: string,
@@ -45,7 +48,7 @@ export interface SessionHostTransportOwner {
 
 const READ_CAPABILITIES = new Set<string>(DESKTOP_READ_CAPABILITIES);
 
-function sessionIdOf(value: unknown): string {
+export function sessionIdOf(value: unknown): string {
   const id = String(value || '');
   if (!isSessionId(id)) throw new TypeError('session id is invalid.');
   return id;
@@ -87,6 +90,7 @@ export class SessionHostTransport {
       {
         sessionId: id,
         open: this.owner.openHints(id),
+        ...this.owner.transcriptWindow(id),
         baseRevision: forceFull ? null : (prior?.revision ?? null),
         ...(!forceFull && prior?.projectionStamp ? { baseProjectionStamp: prior.projectionStamp } : {}),
       },

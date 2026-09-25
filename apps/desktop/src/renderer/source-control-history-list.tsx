@@ -9,7 +9,7 @@ import { EMPTY_SUMMARY, RowSpacer, UNKNOWN_AUTHOR, type ScmRowWindow } from './s
 
 export type MenuPoint = { x: number; y: number };
 
-export type HistoryRowProps = {
+type HistoryRowProps = {
   entry: DesktopGitLogEntry;
   remoteName: string;
   pushBlocked: boolean;

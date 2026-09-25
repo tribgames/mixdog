@@ -4,7 +4,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { SidebarUsage, usagePinEntries } from './SidebarUsage.tsx';
-import { publishUsageDashboard } from './usage-dashboard-store.ts';
+import { applyAccountUsageWindows, publishUsageDashboard } from './usage-dashboard-store.ts';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -140,6 +140,26 @@ test('Antigravity meters never invent a missing weekly window', async (t) => {
     { label: '5H', usedPct: 4, resetAt: NOW + 4 * HOUR + 16 * 60_000, source: 'antigravity-quota' },
   ]);
   assert.deepEqual(meterRows(), [['5H', '4%', '4h 16m']]);
+});
+
+function connectedRowText() {
+  const row = document.querySelector('[data-usage-provider="antigravity"]');
+  return {
+    state: row?.querySelector('.sidebar-usage-line small')?.textContent ?? null,
+    meters: [...(row?.querySelectorAll('.sidebar-usage-meter-empty small') ?? [])].map((node) => node.textContent),
+  };
+}
+
+test('a connected provider without quota windows reads as connected with no current window', async (t) => {
+  await renderUsage(t, []);
+  assert.deepEqual(connectedRowText(), { state: 'Connected', meters: ['No current quota window'] });
+});
+
+test('a connected provider still checking its quota shows only the usage loader', async (t) => {
+  await renderUsage(t, [{ label: '5H', usedPct: 4 }]);
+  // An account switch with no recorded usage keeps the provider and marks it checking.
+  await act(async () => applyAccountUsageWindows('antigravity-oauth', []));
+  assert.deepEqual(connectedRowText(), { state: null, meters: ['Loading usage…'] });
 });
 
 test('Antigravity meters keep reset presentation and never invent a weekly percentage', async (t) => {

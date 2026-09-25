@@ -142,6 +142,12 @@ function acknowledgePendingMessages(sessionId, deliveredEntries, options = {}) {
     }
   };
   purgeMemory();
+  // Re-read at settlement: the map state may have been replaced meanwhile.
+  const forgetAckedIds = () => {
+    const settledAcked = _ackedPendingIds.get(sessionId);
+    for (const id of ids) settledAcked?.delete(id);
+    pruneEmptyPendingIdSet(_ackedPendingIds, sessionId);
+  };
   let epochMoved = false;
   const precedingPersist = _pendingPersistTails.get(sessionId) || Promise.resolve();
   const operation = precedingPersist
@@ -181,9 +187,7 @@ function acknowledgePendingMessages(sessionId, deliveredEntries, options = {}) {
       // acked-id suppression again — those durable rows now belong to the
       // reopened owner and its hydrate must be able to take them.
       if (epochMoved) {
-        const movedAcked = pendingIdSet(_ackedPendingIds, sessionId);
-        for (const id of ids) movedAcked.delete(id);
-        if (movedAcked.size === 0) _ackedPendingIds.delete(sessionId);
+        forgetAckedIds();
         return false;
       }
       // Keep the acked ids when the spool cleanup FAILED: the durable entry
@@ -193,9 +197,7 @@ function acknowledgePendingMessages(sessionId, deliveredEntries, options = {}) {
       // ids also keep suppressing the hydrate path; they are dropped only
       // once a later ack round actually lands.
       if (!ok) return false;
-      const currentAcked = pendingIdSet(_ackedPendingIds, sessionId);
-      for (const id of ids) currentAcked.delete(id);
-      if (currentAcked.size === 0) _ackedPendingIds.delete(sessionId);
+      forgetAckedIds();
       return true;
     });
   return reported;
@@ -263,6 +265,28 @@ export function releasePendingMessages(sessionId, deliveredEntries) {
   pruneEmptyPendingIdSet(_ackedPendingIds, sessionId);
 }
 
+/** Splits one session's spool rows for hydration: rows this process may take
+ *  over, rows the durable ledger already records as delivered, and ledger ids
+ *  whose spool row is gone. */
+function partitionHydratableSpoolRows(q, { deliveredLedger, inDelivery, acked }) {
+  const spoolIds = new Set(q.map(pendingMessageId).filter(Boolean));
+  // Ledger IDs only suppress matching durable spool entries. If no
+  // such entry exists, cleanup was already completed (possibly just
+  // before a crash) and the ledger ID is structurally stale.
+  const staleLedgerEntries = [...deliveredLedger].filter((id) => !spoolIds.has(id)).map((id) => ({ id }));
+  const alreadyDelivered = [];
+  const hydrated = q.filter((entry) => {
+    const id = pendingMessageId(entry);
+    if (id && deliveredLedger.has(id)) {
+      alreadyDelivered.push(entry);
+      return false;
+    }
+    if (!id || inDelivery?.has(id) || acked?.has(id)) return false;
+    return true;
+  });
+  return { hydrated, alreadyDelivered, staleLedgerEntries };
+}
+
 export function hydratePendingMessages(sessionId) {
   if (!isValidPendingSessionId(sessionId)) return Promise.resolve(0);
   const existingHydration = _pendingHydrations.get(sessionId);
@@ -294,20 +318,10 @@ export function hydratePendingMessages(sessionId) {
       await updateSpool((raw) => {
         const next = normalizePendingStore(raw);
         const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
-        const spoolIds = new Set(q.map(pendingMessageId).filter(Boolean));
-        // Ledger IDs only suppress matching durable spool entries. If no
-        // such entry exists, cleanup was already completed (possibly just
-        // before a crash) and the ledger ID is structurally stale.
-        staleLedgerEntries = [...deliveredLedger].filter((id) => !spoolIds.has(id)).map((id) => ({ id }));
-        hydrated = q.filter((entry) => {
-          const id = pendingMessageId(entry);
-          if (id && deliveredLedger.has(id)) {
-            alreadyDelivered.push(entry);
-            return false;
-          }
-          if (!id || inDelivery?.has(id) || acked?.has(id)) return false;
-          return true;
-        });
+        const rows = partitionHydratableSpoolRows(q, { deliveredLedger, inDelivery, acked });
+        staleLedgerEntries = rows.staleLedgerEntries;
+        hydrated = rows.hydrated;
+        alreadyDelivered.push(...rows.alreadyDelivered);
         // Stale genuine user/steering entries DELIVER with a
         // late-delivery header instead of being silently dropped (the old
         // behavior discarded them; user report: remote/steering sends
@@ -536,6 +550,14 @@ export async function drainForeignUserInjections(sessionId) {
   return foreignPendingMessages.drainUserInjections(sessionId);
 }
 
+// Drain order: enqueue time, then source (hydrated < buffered < memory), then
+// position within the source.
+function byEnqueueOrder(a, b) {
+  const at = Number(a.entry?.enqueuedAt) || 0;
+  const bt = Number(b.entry?.enqueuedAt) || 0;
+  return at - bt || a.source - b.source || a.index - b.index;
+}
+
 export function drainPendingMessages(sessionId) {
   const q = _sessionPendingMessages.get(sessionId);
   const memory = q && q.length > 0 ? q.slice() : [];
@@ -579,11 +601,7 @@ export function drainPendingMessages(sessionId) {
     ...bufferedKept.map((entry, index) => ({ entry, source: 1, index })),
     ...memoryKept.map((entry, index) => ({ entry, source: 2, index })),
   ];
-  tagged.sort((a, b) => {
-    const at = Number(a.entry?.enqueuedAt) || 0;
-    const bt = Number(b.entry?.enqueuedAt) || 0;
-    return at - bt || a.source - b.source || a.index - b.index;
-  });
+  tagged.sort(byEnqueueOrder);
   const byId = new Map();
   for (const item of tagged) {
     const normalized = pendingMessageQueueEntry(item.entry);
@@ -593,11 +611,7 @@ export function drainPendingMessages(sessionId) {
     const prior = byId.get(normalized.id);
     if (!prior || item.source > prior.source) byId.set(normalized.id, { ...item, entry: normalized });
   }
-  const ordered = [...byId.values()].sort((a, b) => {
-    const at = Number(a.entry.enqueuedAt) || 0;
-    const bt = Number(b.entry.enqueuedAt) || 0;
-    return at - bt || a.source - b.source || a.index - b.index;
-  });
+  const ordered = [...byId.values()].sort(byEnqueueOrder);
   const dropped = ordered
     .filter(({ entry, source }) => source === 0 && isCompletionNotificationEntry(entry))
     .map(({ entry }) => entry);

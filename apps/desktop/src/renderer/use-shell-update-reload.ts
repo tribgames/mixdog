@@ -100,12 +100,8 @@ export function useShellUpdateReload({
       if (delay === null) return;
       if (delay === 0) {
         settled = true;
-        (
-          reloadRef.current ??
-          (() => {
-            window.location.reload();
-          })
-        )();
+        if (reloadRef.current) reloadRef.current();
+        else window.location.reload();
         return;
       }
       timer = window.setTimeout(decide, delay);

@@ -1,7 +1,6 @@
 /**
  * components/Markdown.jsx — markdown → ink, hybrid renderer.
  *
- * Markdown → ink hybrid renderer:
  *   - marked.lexer() produces the token stream.
  *   - Non-table tokens are rendered to ANSI strings via formatToken and emitted
  *     through <AnsiText> as styled spans.
@@ -9,29 +8,18 @@
  *   - Block tokens are emitted as separate Ink children so lists, code fences,
  *     and tables keep their markdown block boundaries.
  *
- * Syntax highlighting is omitted, but token cache + streaming-split are
- * kept so partial markdown does not repaint stable text on every delta.
+ * The token cache and streaming split keep partial markdown from repainting
+ * stable text on every delta.
  */
 import React from 'react';
 import { Box, Text } from 'ink';
 import { renderTokenAnsiSegments } from '../markdown/render-ansi.mjs';
-import { resolveStreamingMarkdownParts } from '../markdown/streaming-markdown.mjs';
+import { resolveStreamingMarkdownParts, streamingStableChunks } from '../markdown/streaming-markdown.mjs';
 import { AnsiText } from './AnsiText.jsx';
 import { MarkdownTable } from './MarkdownTable.jsx';
 import { theme } from '../theme.mjs';
 
-export {
-  balanceStreamingMarkdown,
-  resolveStreamingMarkdownParts,
-  resetStreamingMarkdownStablePrefix,
-  resetAllStreamingMarkdownStablePrefixes,
-  streamingLayoutText,
-  windowPlainStreamingText,
-} from '../markdown/streaming-markdown.mjs';
-export {
-  measureMarkdownRenderedRows,
-  measureStreamingMarkdownRenderedRows,
-} from '../markdown/measure-rendered-rows.mjs';
+export { resetStreamingMarkdownStablePrefix, windowPlainStreamingText } from '../markdown/streaming-markdown.mjs';
 
 function renderMarkdownElements(content, trimPartialFences = false, tableWidth) {
   // `tableWidth` is the App's body/content width; it doubles as the hr fill
@@ -116,10 +104,7 @@ export function StreamingMarkdown({ children, themeEpoch = 0, columns, streamKey
       </Box>
     );
   }
-  let stableChunks = parts.stableChunks;
-  if (!stableChunks?.length) {
-    stableChunks = parts.stablePrefix ? [parts.stablePrefix] : [];
-  }
+  const stableChunks = streamingStableChunks(parts);
   return (
     <Box flexDirection="column" gap={1}>
       {stableChunks.map((text, index) => (

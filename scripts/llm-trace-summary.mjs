@@ -3,19 +3,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { parseSince } from './lib/parse-since.mjs';
-
-function argValue(name, fallback = null) {
-  const idx = process.argv.indexOf(name);
-  if (idx >= 0 && idx + 1 < process.argv.length) return process.argv[idx + 1];
-  const pref = `${name}=`;
-  const hit = process.argv.find((arg) => arg.startsWith(pref));
-  return hit ? hit.slice(pref.length) : fallback;
-}
-
-function intArg(name, fallback) {
-  const n = Number.parseInt(argValue(name, String(fallback)), 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
+import { argValue, intArg } from './lib/cli-args.mjs';
+import { stats } from './lib/trace-stats.mjs';
 
 const pathArg = argValue('--path', null);
 const dataDir = argValue('--data-dir', null);
@@ -92,27 +81,6 @@ function countBy(rows, fn) {
 
 function values(rows, name) {
   return rows.map((row) => numberField(row, name)).filter((n) => n != null);
-}
-
-function percentile(sorted, p) {
-  if (sorted.length === 0) return null;
-  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
-  return sorted[idx];
-}
-
-function stats(nums) {
-  const arr = nums.filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
-  if (arr.length === 0) return null;
-  const sum = arr.reduce((a, b) => a + b, 0);
-  return {
-    n: arr.length,
-    sum,
-    avg: Math.round(sum / arr.length),
-    p50: percentile(arr, 50),
-    p90: percentile(arr, 90),
-    p99: percentile(arr, 99),
-    max: arr[arr.length - 1],
-  };
 }
 
 function formatStats(s) {

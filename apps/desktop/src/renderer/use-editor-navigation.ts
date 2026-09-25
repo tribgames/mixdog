@@ -129,23 +129,14 @@ export function useEditorNavigation({
         const existing = current[existingIndex];
         if (existing.selection.kind !== 'file') return current;
         const resolvedAccessToken = accessToken || existing.selection.accessToken;
-        if (
-          existing.key ===
-            navigationKey({
-              ...fileSelection,
-              ...(resolvedAccessToken ? { accessToken: resolvedAccessToken } : {}),
-            }) &&
-          existing.selection.accessToken === resolvedAccessToken
-        )
-          return current;
         const resolvedSelection: NavigationSelection = {
           ...fileSelection,
           ...(resolvedAccessToken ? { accessToken: resolvedAccessToken } : {}),
         };
+        const resolvedKey = navigationKey(resolvedSelection);
+        if (existing.key === resolvedKey && existing.selection.accessToken === resolvedAccessToken) return current;
         return current.map((tab, index) =>
-          index === existingIndex
-            ? { ...tab, key: navigationKey(resolvedSelection), selection: resolvedSelection }
-            : tab
+          index === existingIndex ? { ...tab, key: resolvedKey, selection: resolvedSelection } : tab
         );
       });
       openSelectionInFocusedPane(fileSelection, '', { preview: openMode === 'preview' });

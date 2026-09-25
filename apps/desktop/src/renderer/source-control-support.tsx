@@ -28,11 +28,14 @@ export const DEFAULT_BRANCH_NAMES = ['main', 'master', 'trunk'];
 
 const GIT_RESET_DIRTY_CODE = 'git-reset-dirty-worktree';
 
+export function reasonText(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
 export function isDirtyResetRefusal(reason: unknown): boolean {
   if (typeof reason === 'object' && reason !== null && (reason as { code?: unknown }).code === GIT_RESET_DIRTY_CODE)
     return true;
-  const message = reason instanceof Error ? reason.message : String(reason);
-  return /--mixed reset rewrites the index/.test(message);
+  return /--mixed reset rewrites the index/.test(reasonText(reason));
 }
 
 export function leavesStateBehind(key: string): boolean {

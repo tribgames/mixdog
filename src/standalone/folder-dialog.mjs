@@ -278,8 +278,9 @@ async function runUnixPicker(cmd, args) {
 
 /**
  * Open the native folder picker.
- * @returns {Promise<{ available: boolean, path: string|null }>}
- *   available=false → no usable dialog tool; caller should fall back to typing.
+ * @returns {Promise<{ available: boolean, path: string|null, reason?: string }>}
+ *   available=false → no usable dialog tool; caller should fall back to typing
+ *   (reason names the tool to install when none exists).
  *   path=null with available=true → the user cancelled.
  */
 export async function pickFolder({ title = 'Select a project folder', initialPath = '' } = {}) {
@@ -321,5 +322,9 @@ export async function pickFolder({ title = 'Select a project folder', initialPat
     return await runUnixPicker('kdialog', ['--getexistingdirectory', '.']);
   }
 
-  return { available: false, path: null };
+  return {
+    available: false,
+    path: null,
+    reason: 'No folder dialog is installed; install zenity or kdialog to pick folders.',
+  };
 }

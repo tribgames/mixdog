@@ -1,6 +1,4 @@
 import { useEffect, useRef } from 'react';
-// react-markdown and the remark/unified ecosystem are heavy; they load as a
-// separate lazy chunk (MarkdownBody) so the first paint never pays for them.
 import { X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';

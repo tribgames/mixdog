@@ -1,10 +1,9 @@
-import type { BrowserWindow, IpcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
+import type { BrowserWindow, IpcMain, IpcMainEvent } from 'electron';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import { TerminalDataBufferer } from './terminal-data-buffer';
+import type { IpcHandle as Handle } from './ipc';
 import { requiredString } from './ipc-validation';
-
-type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
 
 export interface DesktopTerminalHost {
   ensure(

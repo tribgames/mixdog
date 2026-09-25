@@ -22,18 +22,24 @@ import {
 import { OFFICE_RELATIONSHIP_BASE, tagPattern, xmlAttribute, xmlDecode, xmlEncode } from './portable-xml.mjs';
 import { ensureWorksheetDrawing } from './portable-sheet-parts.mjs';
 
-// A snapshot reports where a picture or chart sits as cells (A1 to C5), so a
-// caller placing one names a cell too. The sheet's own column widths and row
-// heights turn that cell into the point offset the drawing anchor stores.
-export function cellAnchorPoints(xml, cell) {
-  const { columnPoints, rowPoints } = worksheetGeometry(xml);
-  const { col, row } = parseCellRef(cell);
-  const column = columnNumber(col);
-  let left = 0;
-  for (let index = 1; index < column; index += 1) left += columnPoints(index);
-  let top = 0;
-  for (let index = 1; index < row; index += 1) top += rowPoints(index);
-  return { left, top };
+// The anchor a new chart or picture frame takes. Placed at a cell (and no point position), the frame hangs off
+// that cell as a oneCellAnchor and moves with it: an absolute position written from the widths at the time stayed
+// put when a later autofit widened the columns, and a chart placed beside its table at E9 ended up across it (C9).
+export function frameAnchorXml({ cell, left, top, width, height }, frame) {
+  const ext = `<xdr:ext cx="${Math.max(1, toEmu(width))}" cy="${Math.max(1, toEmu(height))}"/>`;
+  if (cell && left === undefined && top === undefined) {
+    const { col, row } = parseCellRef(cell);
+    return (
+      '<xdr:oneCellAnchor><xdr:from>' +
+      `<xdr:col>${columnNumber(col) - 1}</xdr:col><xdr:colOff>0</xdr:colOff>` +
+      `<xdr:row>${row - 1}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>` +
+      `${ext}${frame}<xdr:clientData/></xdr:oneCellAnchor>`
+    );
+  }
+  return (
+    `<xdr:absoluteAnchor><xdr:pos x="${toEmu(left ?? 0)}" y="${toEmu(top ?? 0)}"/>` +
+    `${ext}${frame}<xdr:clientData/></xdr:absoluteAnchor>`
+  );
 }
 
 // A reader who cannot see the picture hears this description; Excel reads it
@@ -74,17 +80,14 @@ function imagePlacementSize(op, data) {
   };
 }
 
-function imageAnchorXml({ embedId, anchorCount, left, top, width, height, altText }) {
-  return (
-    '<xdr:absoluteAnchor>' +
-    `<xdr:pos x="${toEmu(left)}" y="${toEmu(top)}"/>` +
-    `<xdr:ext cx="${Math.max(1, toEmu(width))}" cy="${Math.max(1, toEmu(height))}"/>` +
+function imageAnchorXml({ embedId, anchorCount, cell, left, top, width, height, altText }) {
+  return frameAnchorXml(
+    { cell, left, top, width, height },
     `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${anchorCount + 2}" name="Picture ${anchorCount + 1}"${pictureDescription(altText)}/>` +
-    '<xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>' +
-    `<xdr:blipFill><a:blip r:embed="${embedId}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>` +
-    '<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm>' +
-    '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>' +
-    '<xdr:clientData/></xdr:absoluteAnchor>'
+      '<xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>' +
+      `<xdr:blipFill><a:blip r:embed="${embedId}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>` +
+      '<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm>' +
+      '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>'
   );
 }
 
@@ -108,12 +111,12 @@ export async function addWorksheetImage(zip, sheet, xml, op) {
   );
   const drawingXml = await zipText(zip, drawing.part);
   const anchorCount = countDrawingAnchors(drawingXml);
-  const placement = op.cell ? cellAnchorPoints(xml, op.cell) : { left: 0, top: 0 };
   const anchor = imageAnchorXml({
     embedId,
     anchorCount,
-    left: op.left ?? placement.left,
-    top: op.top ?? placement.top,
+    cell: op.cell,
+    left: op.left,
+    top: op.top,
     ...imagePlacementSize(op, data),
     altText: op.altText,
   });

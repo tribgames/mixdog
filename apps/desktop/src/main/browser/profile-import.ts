@@ -622,7 +622,7 @@ export class BrowserProfileImportService {
       // Passwords and cookies both drive the elevated helper over a single
       // fixed-name pipe, so items must run sequentially. Running them together
       // makes the second helper launch collide on the pipe (first_pipe_instance)
-      // and fail — which is why a combined import dropped only the second item.
+      // and fail, dropping only the second item of a combined import.
       for (const item of items) {
         try {
           let count: number;

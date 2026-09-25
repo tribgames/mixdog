@@ -36,16 +36,16 @@ use manifests::{
     by_key_length_desc, go_import_path, load_dart_packages, load_js_packages, load_php_psr4,
     load_rust_crate_srcs, load_ts_configs, JsPackage, TsConfigScope,
 };
-use paths::{file_stem_rel, normalize_import_spec, path_join_norm, rel_dir};
+use paths::{file_stem_rel, is_same_or_under, normalize_import_spec, path_join_norm, rel_dir};
 
 // Case-insensitive strip of a leading `static\s+` (Java/C# static imports).
 fn strip_static_prefix(s: &str) -> String {
-    let lower = s.to_ascii_lowercase();
-    if lower.starts_with("static") {
-        let rest = &s["static".len()..];
-        if rest.starts_with(char::is_whitespace) {
-            return rest.trim_start().to_string();
-        }
+    let keyword = "static".len();
+    if s.get(..keyword)
+        .is_some_and(|head| head.eq_ignore_ascii_case("static"))
+        && s[keyword..].starts_with(char::is_whitespace)
+    {
+        return s[keyword..].trim_start().to_string();
     }
     s.to_string()
 }
@@ -61,10 +61,7 @@ fn resolve_ts_alias(
     }
     let importer_dir = rel_dir(rel);
     for scope in &index.ts_configs {
-        let in_scope = scope.dir.is_empty()
-            || importer_dir == scope.dir
-            || importer_dir.starts_with(&format!("{}/", scope.dir));
-        if !in_scope {
+        if !(scope.dir.is_empty() || is_same_or_under(importer_dir, &scope.dir)) {
             continue;
         }
         for (prefix, targets) in &scope.aliases {
@@ -103,11 +100,7 @@ fn resolve_js_hash_import(
         .js_packages
         .iter()
         .map(|(_, pkg)| pkg)
-        .filter(|pkg| {
-            pkg.dir.is_empty()
-                || importer_dir == pkg.dir
-                || importer_dir.starts_with(&format!("{}/", pkg.dir))
-        })
+        .filter(|pkg| pkg.dir.is_empty() || is_same_or_under(importer_dir, &pkg.dir))
         .collect();
     pkgs.sort_by(|left, right| by_key_length_desc(&left.dir, &right.dir));
     for pkg in pkgs {
@@ -350,20 +343,15 @@ fn push_index_set(map: &mut HashMap<String, Vec<String>>, key: &str, value: &str
 }
 
 fn build_graph_index(records: &[FileRecord], root: &Path) -> GraphIndex {
+    // The manifest-backed fields; the record-backed maps start empty and are
+    // filled below.
     let mut index = GraphIndex {
-        package_members: HashMap::new(),
-        type_by_fqcn: HashMap::new(),
-        csharp_namespaces: HashMap::new(),
-        go_import_paths: HashMap::new(),
         dart_packages: load_dart_packages(root),
         php_psr4: load_php_psr4(root),
-        elixir_modules: HashMap::new(),
-        swift_modules: HashMap::new(),
-        scala_types: HashMap::new(),
-        objc_headers: HashMap::new(),
         ts_configs: load_ts_configs(root),
         js_packages: load_js_packages(root),
         rust_crate_srcs: load_rust_crate_srcs(root),
+        ..GraphIndex::default()
     };
     let mut go_mod_cache: HashMap<String, Option<(String, String)>> = HashMap::new();
     for rec in records {
@@ -549,9 +537,7 @@ fn resolve_indexed_graph_import(
         // fallback — a solidity spec that is not vendored in the tree and a
         // haskell module that is not in the source path are external
         // dependencies, not edges.
-        "bash" | "lua" => Vec::new(),
-        "r" => Vec::new(),
-        "solidity" | "haskell" => Vec::new(),
+        "bash" | "lua" | "r" | "solidity" | "haskell" => Vec::new(),
         // A terraform module is a directory, so this one resolves to MANY
         // files and cannot use the single-answer direct leg.
         "hcl" => resolve_hcl_module(&rec.rel, &normalized, file_set),

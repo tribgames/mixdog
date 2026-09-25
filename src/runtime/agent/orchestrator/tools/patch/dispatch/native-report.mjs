@@ -30,8 +30,8 @@ export function traceNativeApply({ writtenEntries, stats, dryRun, timings }) {
   }
 }
 
-const countLabel = (count, singular, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
-const kindLabel = (kind) => {
+export const countLabel = (count, singular, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
+export const kindLabel = (kind) => {
   const text = String(kind || '').trim();
   return text ? `${text.charAt(0).toUpperCase()}${text.slice(1).toLowerCase()}` : 'Update';
 };

@@ -48,7 +48,7 @@ import {
   withCaptureTimeout,
   type LiveCaptureAssertions,
 } from './capture-assertions';
-import { CaptureService } from './capture-host';
+import { CaptureService, jitterProbeEnabled } from './capture-host';
 
 /** The capture renderer window and the IPC surface it answers. Renderer console
  *  errors land both in the returned buffer, which the final validation reads,
@@ -124,17 +124,6 @@ async function loadCaptureRenderer(window: BrowserWindow): Promise<void> {
 
 /** Jitter probe mode: measure streaming follow, warm compositor handoff,
  *  and session/panel transition stability, then exit — no capture passes. */
-function captureJitterProbeRequested(): boolean {
-  return (
-    process.env.MIXDOG_JITTER_PROBE === '1' ||
-    process.env.MIXDOG_JITTER_PROBE === 'entry' ||
-    process.env.MIXDOG_JITTER_PROBE === 'keys' ||
-    process.env.MIXDOG_JITTER_PROBE === 'switch' ||
-    process.env.MIXDOG_JITTER_PROBE === 'width' ||
-    process.env.MIXDOG_JITTER_PROBE === 'select'
-  );
-}
-
 async function runCaptureJitterProbe(window: BrowserWindow, host: CaptureService): Promise<void> {
   const { runJitterProbe, jitterProbeOutPath } = await import('./jitter-probe');
   await runJitterProbe({
@@ -196,16 +185,16 @@ async function readCaptureStartupGeometry(window: BrowserWindow): Promise<{
     sampleStartupGeometry
   )) as CaptureGeometrySample;
   await new Promise((resolve) => setTimeout(resolve, 500));
-  const startupGeometrydSettled = (await window.webContents.executeJavaScript(
+  const startupGeometrySettled = (await window.webContents.executeJavaScript(
     sampleStartupGeometry
   )) as CaptureGeometrySample;
   return {
     early: startupGeometryEarly,
-    settled: startupGeometrydSettled,
+    settled: startupGeometrySettled,
     deltas: Object.fromEntries(
-      Object.keys(startupGeometrydSettled).map((key) => {
+      Object.keys(startupGeometrySettled).map((key) => {
         const before = startupGeometryEarly[key];
-        const after = startupGeometrydSettled[key];
+        const after = startupGeometrySettled[key];
         if (!before || !after) return [key, before === after ? 0 : -1];
         return [
           key,
@@ -765,16 +754,11 @@ async function captureWindow(): Promise<void> {
   if (!requestedOutputPath) throw new Error('Capture output path is required and must end in .png.');
   if (!captureId) throw new Error('Capture ID is required.');
   await app.whenReady();
-  const host = new CaptureService({
-    getUserDataPath: () => app.getPath('userData'),
-    packaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    appPath: resolve(__dirname, '../..'),
-  });
+  const host = new CaptureService();
   const { window, removeIpc, rendererConsoleErrors } = createCaptureRendererWindow(host);
   try {
     await loadCaptureRenderer(window);
-    if (captureJitterProbeRequested()) {
+    if (jitterProbeEnabled()) {
       await runCaptureJitterProbe(window, host);
       removeIpc();
       window.destroy();
@@ -912,9 +896,7 @@ async function captureWindow(): Promise<void> {
       toolShowcase: { ...toolShowcase, dimensions: toolShowcaseDimensions },
       expectedSettingsCategoryLabels: expectedNarrowSettingsCategoryLabels,
       startupGeometry,
-      nativeWindow: {
-        ...nativeWindow,
-      },
+      nativeWindow,
     };
 
     if (!window.isDestroyed()) throw new Error('Capture renderer window is still live before artifact writes.');

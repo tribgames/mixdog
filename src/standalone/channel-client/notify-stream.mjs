@@ -12,13 +12,6 @@ import { createSseFrameParser } from '../sse-frames.mjs';
 const STREAM_LIVENESS_MS = 45_000;
 const STABLE_STREAM_MS = 5_000;
 
-function clearTimer(timer) {
-  if (!timer) return;
-  try {
-    clearTimeout(timer);
-  } catch {}
-}
-
 export function createNotifyStream({ port, serverToken, getClientToken, onNotify, log, onLoss, onFatal, onStable }) {
   let current = null;
   let stableTimer = null;
@@ -26,9 +19,9 @@ export function createNotifyStream({ port, serverToken, getClientToken, onNotify
   let stopped = false;
 
   function clearTimers() {
-    clearTimer(stableTimer);
+    clearTimeout(stableTimer);
     stableTimer = null;
-    clearTimer(livenessTimer);
+    clearTimeout(livenessTimer);
     livenessTimer = null;
   }
 
@@ -44,13 +37,13 @@ export function createNotifyStream({ port, serverToken, getClientToken, onNotify
   function watchResponse(req, res, flags) {
     res.setEncoding('utf8');
     // Only reset the bounded reconnect budget after this exact stream stays live.
-    clearTimer(stableTimer);
+    clearTimeout(stableTimer);
     stableTimer = setTimeout(() => {
       if (!stopped && req === current) onStable();
     }, STABLE_STREAM_MS);
     stableTimer.unref?.();
     const armLiveness = () => {
-      clearTimer(livenessTimer);
+      clearTimeout(livenessTimer);
       livenessTimer = setTimeout(() => {
         if (stopped || req !== current) return;
         // A liveness expiry is a transient stream loss (reconnect), not a dead

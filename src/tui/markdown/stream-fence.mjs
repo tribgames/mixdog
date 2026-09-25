@@ -11,6 +11,8 @@
  * Kept in its own dependency-free module so it can be unit-tested without the
  * ink/JSX render stack.
  */
+import { touchLru } from './lru.mjs';
+
 // The opening run of a code token: three or more of ONE fence char at the very
 // start of `raw`. An indented (list/blockquote-nested) fence never matches, so
 // its block is left alone rather than trimmed against the wrong marker.
@@ -119,13 +121,7 @@ function scanOpenFence(value, startAt = 0, initialOpen = null) {
 }
 
 function touchOpenFenceScan(key, entry) {
-  if (openFenceScanByStreamKey.has(key)) openFenceScanByStreamKey.delete(key);
-  openFenceScanByStreamKey.set(key, entry);
-  while (openFenceScanByStreamKey.size > OPEN_FENCE_SCAN_LRU_MAX) {
-    const oldest = openFenceScanByStreamKey.keys().next().value;
-    if (oldest === undefined) break;
-    openFenceScanByStreamKey.delete(oldest);
-  }
+  touchLru(openFenceScanByStreamKey, key, entry, OPEN_FENCE_SCAN_LRU_MAX);
 }
 
 export function resetOpenFenceScan(streamKey) {

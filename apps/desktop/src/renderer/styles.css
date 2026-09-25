@@ -172,34 +172,9 @@ button {
 }
 .sidebar-primary-nav,
 .sidebar-recent,
-.sidebar-project-list,
 .recent-session-list,
 .session-list {
   display: grid;
-}
-.sidebar-section-heading,
-.project-group-heading {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-.sidebar-section-toggle,
-.project-group-toggle {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  border: 0;
-  background: transparent;
-  text-align: left;
-}
-.sidebar-section-action,
-.project-task-add {
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  background: transparent;
 }
 .session-row-main {
   min-width: 0;
@@ -230,9 +205,6 @@ button {
   padding: 0;
   border: 0;
   background: transparent;
-}
-.session-sidebar-footer {
-  flex: 0 0 auto;
 }
 
 .main-panel {
@@ -308,20 +280,6 @@ button {
   margin: auto;
   text-align: center;
 }
-.welcome-mark {
-  margin: auto;
-  display: grid;
-  place-items: center;
-}
-.starter-grid {
-  display: grid;
-}
-.starter-grid button {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 .message {
   width: 100%;
 }
@@ -394,15 +352,6 @@ button {
 :root[data-mixdog-motion="paused"] .window-loading-mark-arc {
   animation-play-state: paused !important;
 }
-.stream-cursor {
-  display: inline-block;
-  animation: blink 1s step-end infinite;
-}
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
-}
 
 .tool-card {
   overflow: hidden;
@@ -438,17 +387,6 @@ button {
 .detail-block pre {
   margin: 0;
   overflow: auto;
-}
-.tool-args {
-  display: grid;
-}
-.tool-arg {
-  display: contents;
-}
-.tool-args pre {
-  margin: 0;
-  overflow-x: auto;
-  white-space: pre-wrap;
 }
 .turn-status,
 .live-activity {
@@ -600,13 +538,11 @@ button {
   display: flex;
   flex-direction: column;
 }
-.queue-summary,
 .queue-item {
   min-width: 0;
   display: flex;
   align-items: center;
 }
-.queue-collapsed-preview,
 .queue-item-text {
   min-width: 0;
   flex: 1;
@@ -619,13 +555,6 @@ button {
   align-items: flex-start;
 }
 
-.approval-layer {
-  position: fixed;
-  z-index: 100;
-  inset: 0;
-  display: grid;
-  place-items: center;
-}
 .approval-heading {
   display: flex;
   align-items: center;
@@ -701,8 +630,5 @@ button {
     inset: 0;
     border: 0;
     background: var(--mx-scrim);
-  }
-  .starter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

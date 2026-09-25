@@ -1,4 +1,4 @@
-import type { BrowserWindow, IpcMain, IpcMainEvent, IpcMainInvokeEvent, PowerMonitor } from 'electron';
+import type { BrowserWindow, IpcMain, IpcMainEvent, PowerMonitor } from 'electron';
 import {
   DESKTOP_IPC,
   type DesktopSessionStateUpdate,
@@ -15,8 +15,7 @@ import {
   shouldPublishSessionState,
   type SnapshotDeltaEncoder,
 } from './state-delta';
-
-type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
+import type { IpcHandle as Handle } from './ipc';
 
 export interface DesktopUpdater {
   getState(): DesktopUpdaterState;

@@ -10,11 +10,6 @@ import { createRemoteStreamingMailbox } from './remote-streaming-mailbox';
 import { remoteTranscriptSnapshot } from './remote-transcript';
 import { createSnapshotDeltaEncoder, isNoDelta } from './state-delta';
 
-// Provider replay material, not display data: `thinkingBlocks` are Anthropic's
-// thinking/redacted_thinking blocks, kept so a later request can hand the model
-// its own prior reasoning back verbatim. No renderer reads them, and in a long
-// session they are a THIRD of the stored transcript — bytes a phone pays for on
-// every join and can never show.
 /** The host owns bounded history pages. A second transport-only slice hid
  * user prompts behind tool activity and prevented the renderer from ever
  * reaching its history paging threshold. Keep that page intact; compression

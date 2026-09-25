@@ -32,18 +32,18 @@ export function hasRecallEntity(text) {
   return /[A-Za-z0-9_./:-]/u.test(String(text ?? ''));
 }
 
-export function hasLatestRecallIntent(text) {
-  const value = String(text ?? '')
+function intentText(text) {
+  return String(text ?? '')
     .normalize('NFKC')
     .toLowerCase();
-  return /최신|현재|최근|방금|latest|current|most\s+recent/.test(value);
+}
+
+export function hasLatestRecallIntent(text) {
+  return /최신|현재|최근|방금|latest|current|most\s+recent/.test(intentText(text));
 }
 
 export function hasVagueLatestWorkIntent(text) {
-  const value = String(text ?? '')
-    .normalize('NFKC')
-    .toLowerCase();
-  return /방금.*(?:작업|결과)|(?:latest|recent|most\s+recent).*(?:work|result)/u.test(value);
+  return /방금.*(?:작업|결과)|(?:latest|recent|most\s+recent).*(?:work|result)/u.test(intentText(text));
 }
 
 export function latestRecallTopicTerms(text) {
@@ -281,10 +281,7 @@ export function annotateRecallRootContext(rows) {
 }
 
 export function hasTimelineIntent(text) {
-  const value = String(text ?? '')
-    .normalize('NFKC')
-    .toLowerCase();
-  return /처음(?:부터)?|나중|변천|히스토리|과정|history|timeline|from\s+the\s+start/.test(value);
+  return /처음(?:부터)?|나중|변천|히스토리|과정|history|timeline|from\s+the\s+start/.test(intentText(text));
 }
 
 export function sampleRecallTimeline(rows, limit) {

@@ -29,6 +29,15 @@ export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
   useEffect(() => {
     let alive = true;
     const refreshConditionalWelcomeHint = async () => {
+      // The no-model and web-search-default probes both read the quick model
+      // list: fetch it once per refresh (a failed read is retried by the next).
+      let quickModels;
+      const listQuickModels = async () => {
+        if (quickModels === undefined) {
+          quickModels = await Promise.resolve(store.listProviderModels?.({ quick: true }) || []);
+        }
+        return quickModels;
+      };
       let next = '';
       try {
         const setup = await store.getProviderSetup?.();
@@ -45,7 +54,7 @@ export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
           next = CONDITIONAL_WELCOME_PROMPT_HINTS.noModel;
         } else {
           try {
-            const models = await Promise.resolve(store.listProviderModels?.({ quick: true }) || []);
+            const models = await listQuickModels();
             if (Array.isArray(models) && models.length === 0) {
               next = CONDITIONAL_WELCOME_PROMPT_HINTS.noModel;
             }
@@ -78,7 +87,7 @@ export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
           webSearchProvider.toLowerCase() === 'default' && webSearchModel.toLowerCase() === 'default';
         if (defaultWebSearchRoute) {
           try {
-            const models = await Promise.resolve(store.listProviderModels?.({ quick: true }) || []);
+            const models = await listQuickModels();
             const current = Array.isArray(models)
               ? models.find((model) => model?.provider === state.provider && model?.id === state.model)
               : null;

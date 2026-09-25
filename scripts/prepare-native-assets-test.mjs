@@ -51,12 +51,32 @@ test('npm postinstall prepares every required release-native asset', async () =>
   }
 });
 
+test('Windows on ARM prepares the native assets it runs under x64 emulation', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-native-install-arm64-'));
+  try {
+    const installers = Object.fromEntries(
+      Object.keys(NATIVE_TOOL_FILENAMES).map((name) => [
+        name,
+        async () => {
+          const source = join(root, `${name}.source`);
+          await writeFile(source, `${name}-fixture`);
+          return source;
+        },
+      ])
+    );
+    const prepared = await prepareRequiredNativeAssets({ packageRoot: root, platform: 'win32', arch: 'arm64', installers });
+    assert.deepEqual(Object.keys(prepared), ['graph', 'patch', 'spawn']);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('unsupported host platforms fail closed before downloading native assets', async () => {
   await assert.rejects(
     prepareRequiredNativeAssets({
       packageRoot: join(tmpdir(), 'mixdog-native-unsupported-'),
-      platform: 'win32',
-      arch: 'arm64',
+      platform: 'freebsd',
+      arch: 'x64',
       installers: {
         graph: async () => {
           throw new Error('should not download');
@@ -69,7 +89,7 @@ test('unsupported host platforms fail closed before downloading native assets', 
         },
       },
     }),
-    /not published for win32-arm64.*use x64 Node\.js under Windows x64 emulation/
+    /not published for freebsd-x64/
   );
 });
 

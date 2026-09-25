@@ -22,6 +22,12 @@ import { mixdogGlobalDir, mtimeWithTtl, readSafe } from './skill-catalog.mjs';
 // Classification is dynamic — hidden retrieval/maintenance sets come from the
 // `kind` field in internal-agents.mjs. Any other non-null agent is public/custom.
 
+// One catalog/rules section; selectRoleInstructionSections matches sections
+// by this `## <name>\n` heading.
+function roleSection(name, body) {
+  return `## ${name}\n\n${body}`;
+}
+
 function loadAgentClassification() {
   // Not cached — called only on instruction rebuild (mtime-busted), and
   // listHiddenAgentsByKind now reads from the mtime-aware cache inside
@@ -103,7 +109,7 @@ function loadAgentSections(pluginRoot) {
       if (!name || !raw) continue;
       const { body } = readMarkdownDocument(raw);
       if (!body) continue;
-      byName.set(name, `## ${name}\n\n${body}`);
+      byName.set(name, roleSection(name, body));
     }
   }
   return [...byName.entries()].sort((a, b) => compareCodePoints(a[0], b[0])).map(([, text]) => text);
@@ -115,12 +121,12 @@ function loadAgentSections(pluginRoot) {
 const EXPLICIT_CACHE_PROVIDERS = new Set();
 
 function hiddenRuleSections(hiddenPairs) {
-  return hiddenPairs.map((p) => `## ${p.name}\n\n${p.body}`);
+  return hiddenPairs.map((p) => roleSection(p.name, p.body));
 }
 
 function selfHiddenRuleSection(hiddenPairs, agent) {
   const self = hiddenPairs.find((p) => p.name === agent);
-  return self ? [`## ${self.name}\n\n${self.body}`] : [];
+  return self ? [roleSection(self.name, self.body)] : [];
 }
 
 function selectRoleInstructionSections({
@@ -244,9 +250,7 @@ export function composeSystemPrompt(opts) {
   const skip = opts.profile?.skip || {};
 
   // ── BP1: globally shared tool policy ────────────────────────────────
-  const baseParts = [];
-  if (opts.agentRules) baseParts.push(opts.agentRules);
-  const baseRules = baseParts.join('\n\n---\n\n');
+  const baseRules = opts.agentRules || '';
 
   // ── BP2: persistent profile/tool catalog layer ──────────────────────
   // deferredToolManifest: optional BP2 slice; production path is

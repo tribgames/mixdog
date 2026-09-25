@@ -28,10 +28,8 @@ interface SessionClientModule {
   }): Promise<AttachedDaemon>;
 }
 
-type SessionClientLoader = (
-  options: Extract<DesktopServiceInbound, { kind: 'init' }>['options']
-) => Promise<SessionClientModule>;
 type DesktopInitOptions = Extract<DesktopServiceInbound, { kind: 'init' }>['options'];
+type SessionClientLoader = (options: DesktopInitOptions) => Promise<SessionClientModule>;
 
 /** Diagnostic timings are reported to one decimal place. */
 function roundMs(elapsed: number): number {
@@ -492,7 +490,7 @@ export class SessionTransport implements DesktopTransport {
   }
 
   async close(): Promise<void> {
-    if (!this.closed) this.closed = true;
+    this.closed = true;
     await this.closeClient('desktop view closed');
   }
 }

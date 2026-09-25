@@ -1,6 +1,6 @@
 type MotionVisibilityState = 'running' | 'paused';
 
-export function motionStateForVisibility(visibilityState: DocumentVisibilityState): MotionVisibilityState {
+function motionStateForVisibility(visibilityState: DocumentVisibilityState): MotionVisibilityState {
   return visibilityState === 'visible' ? 'running' : 'paused';
 }
 

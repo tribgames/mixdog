@@ -22,11 +22,7 @@ import {
   preloadCapabilitySettings,
 } from './capability-data';
 import { CategoryPanel } from './capability-panels';
-export {
-  getCachedCapabilitySettings,
-  preloadCapabilitySettings,
-  type CachedCapabilitySettings,
-} from './capability-data';
+export { getCachedCapabilitySettings, preloadCapabilitySettings } from './capability-data';
 export { OAuthControl } from './capability-panels';
 
 export function CapabilitySettings({
@@ -230,7 +226,7 @@ export function CapabilitySettings({
             : preferredModelEffort(model);
         let fast: boolean | undefined;
         if (model.fastCapable) {
-          if (isActiveRoute && typeof active.fast === 'boolean') fast = active.fast === true;
+          if (isActiveRoute && typeof active.fast === 'boolean') fast = active.fast;
           else if (typeof model.savedFast === 'boolean') fast = model.savedFast;
           else fast = model.fastPreferred;
         }

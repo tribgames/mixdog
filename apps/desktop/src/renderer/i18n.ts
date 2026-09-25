@@ -67,10 +67,6 @@ export function resolveUiLanguage(preference: UiLanguagePreference = getUiLangua
   return selectUiLanguage(preference, systemLocales);
 }
 
-// Synchronous init (initImmediate: false): t() is usable from the first
-// module that imports it — no async gate ahead of React's first render.
-// fallbackLng false + returnEmptyString false make every unknown or
-// still-untranslated key fall back to its English key text.
 // Catalogs load per language: eleven static imports put ~750KB of JSON — a
 // quarter of the first-paint bundle — in front of every visitor, ten
 // languages of which they will never see. English needs no network catalog:
@@ -89,8 +85,9 @@ const CATALOGS: Record<Exclude<UiLanguage, 'en'>, () => Promise<{ default: Recor
   'zh-TW': () => import('./locales/zh-TW.json'),
 };
 
-// Synchronous English init: t() stays usable from the moment this module is
-// evaluated — node tests, and any module that runs before the entry has
+// Synchronous English init (initImmediate: false): t() stays usable from the
+// moment this module is evaluated — no async gate ahead of React's first
+// render, for node tests, and for any module that runs before the entry has
 // finished loading a catalog. fallbackLng false + returnEmptyString false
 // make every unknown or still-untranslated key fall back to its English text.
 void i18next.init({

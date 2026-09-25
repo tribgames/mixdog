@@ -792,11 +792,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     const previousIds = recentRowIdsRef.current;
     const nextIds = rows.map((session) => session.id);
     recentRowIdsRef.current = nextIds;
-    if (scroller && scroller.scrollTop <= 1 && sessionListInsertedAtTop(previousIds, nextIds)) {
-      recentScrollAnchorRef.current = null;
-      return;
-    }
-    if (scroller && scroller.scrollTop <= 1 && sessionListKeepsExistingTopInsert(previousIds, nextIds)) {
+    if (
+      scroller &&
+      scroller.scrollTop <= 1 &&
+      (sessionListInsertedAtTop(previousIds, nextIds) || sessionListKeepsExistingTopInsert(previousIds, nextIds))
+    ) {
       recentScrollAnchorRef.current = null;
       return;
     }
@@ -1201,10 +1201,10 @@ const SessionRow = React.memo(function SessionRow({
   const dragSourceMounted = useRef(true);
   const suppressClick = useRef(false);
   const [dragging, setDragging] = useState(false);
-  const dragTitle = sessionLabel(session);
+  const label = sessionLabel(session);
   const dragSelection = useMemo(
-    () => ({ kind: 'session' as const, id: session.id, title: dragTitle }),
-    [dragTitle, session.id]
+    () => ({ kind: 'session' as const, id: session.id, title: label }),
+    [label, session.id]
   );
   useLayoutEffect(() => {
     if (!editing) return;
@@ -1275,7 +1275,7 @@ const SessionRow = React.memo(function SessionRow({
         const drag: PaneDragSession = {
           kind: 'session',
           key: `session:${session.id}`,
-          title: dragTitle,
+          title: label,
           selection: dragSelection,
         };
         beginPaneDrag(event.nativeEvent, drag, event.currentTarget, clearNativeDrag);
@@ -1309,7 +1309,7 @@ const SessionRow = React.memo(function SessionRow({
         disabled={!editing}
         tabIndex={editing ? undefined : -1}
         aria-hidden={editing ? undefined : true}
-        aria-label={t('Rename {{name}}', { name: sessionLabel(session) })}
+        aria-label={t('Rename {{name}}', { name: label })}
         aria-invalid={titleInvalid || undefined}
         onInput={(event) => onTitleDraftChange(event.currentTarget.value)}
         onClick={(event) => event.stopPropagation()}
@@ -1335,7 +1335,7 @@ const SessionRow = React.memo(function SessionRow({
         aria-hidden={editing ? true : undefined}
       >
         <span className="session-row-copy" data-i18n-skip>
-          <b>{sessionLabel(session)}</b>
+          <b>{label}</b>
         </span>
         <span className="session-row-status" data-working={working || undefined}>
           {working && (
@@ -1343,7 +1343,7 @@ const SessionRow = React.memo(function SessionRow({
               size={12}
               className="session-row-spinner"
               role="status"
-              aria-label={t('{{name}} is working', { name: sessionLabel(session) })}
+              aria-label={t('{{name}} is working', { name: label })}
             />
           )}
         </span>
@@ -1351,7 +1351,7 @@ const SessionRow = React.memo(function SessionRow({
           <span
             className="session-row-unread-dot"
             role="status"
-            aria-label={t('{{name}} has new activity', { name: sessionLabel(session) })}
+            aria-label={t('{{name}} has new activity', { name: label })}
           />
         )}
       </button>
@@ -1363,8 +1363,8 @@ const SessionRow = React.memo(function SessionRow({
               className={`session-row-action ${confirmingDelete ? 'session-row-delete-cancel' : 'session-row-restore'}`}
               aria-label={
                 confirmingDelete
-                  ? t('Cancel deleting {{name}}', { name: sessionLabel(session) })
-                  : t('Restore {{name}}', { name: sessionLabel(session) })
+                  ? t('Cancel deleting {{name}}', { name: label })
+                  : t('Restore {{name}}', { name: label })
               }
               data-tooltip={confirmingDelete ? t('Cancel') : t('Restore')}
               disabled={confirmingDelete && deleting}
@@ -1384,8 +1384,8 @@ const SessionRow = React.memo(function SessionRow({
               }`}
               aria-label={
                 confirmingDelete
-                  ? t('Confirm deleting {{name}}', { name: sessionLabel(session) })
-                  : t('Delete {{name}}', { name: sessionLabel(session) })
+                  ? t('Confirm deleting {{name}}', { name: label })
+                  : t('Delete {{name}}', { name: label })
               }
               data-tooltip={confirmingDelete ? t('Delete') : undefined}
               disabled={confirmingDelete && deleting}
@@ -1404,7 +1404,7 @@ const SessionRow = React.memo(function SessionRow({
           <button
             type="button"
             className="session-row-action session-row-archive"
-            aria-label={t('Archive {{name}}', { name: sessionLabel(session) })}
+            aria-label={t('Archive {{name}}', { name: label })}
             data-tooltip={t('Archive')}
             onClick={(event) => {
               event.preventDefault();

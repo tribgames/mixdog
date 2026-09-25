@@ -1,7 +1,7 @@
 ---
 name: code-tidy
 description: Format, lint, apply structural rules, and clean up user-selected code with the tidy tool.
-when_to_use: 'Tidy, format, lint, deslop, or clean up selected code, behavior unchanged; not features or bugs.'
+when_to_use: 'Tidy, format, lint, deslop, or clean up code; not new features or bug fixes.'
 metadata:
   requires: tidy
 dependencies:
@@ -25,10 +25,12 @@ tracking, risk classification, completion criteria, and the closing report.
 **Hard rule — tidy owns format/lint/structure/cleanup, not feature work.**
 New behavior, refactors that change a public API, and adding formatter configs
 are not this skill. A correctness bug found while cleaning is reported under
-"Bugs found", never folded into a cleanup edit.**Hard rule — never invent a formatter config**: a project that already has
+"Bugs found", never folded into a cleanup edit.
+**Hard rule — never invent a formatter config**: a project that already has
 Biome, Prettier, clang-format, rustfmt, gofmt, or equivalent keeps it. Do not
 add or rewrite `biome.json`, `.prettierrc`, `.clang-format`, or similar unless
-the user asks.**Mode**: `apply` unless the user asks to check, review, or "just report" —
+the user asks.
+**Mode**: `apply` unless the user asks to check, review, or "just report" —
 report-only requests stay read-only across all layers and never edit; the report
 lists what would change. Apply still follows the active workflow's approval rules.
 **Focus**: an explicit restriction applies to every layer. "Formatting only"
@@ -71,18 +73,17 @@ limitation and ask before widening the work.
      every survivor; a partition that cannot get that pass is too big, so split
      it further before starting. Hundreds of files in one partition is the
      usual failure.
-   - **Run the partitions one at a time, and the whole set through to the
-     end.** Start the next partition as soon as the current round closes.
-     Never run two partitions concurrently, including when rounds are
-     delegated: concurrent edits make each round's verification unattributable.
-     Each round declares the test lane it uses (runner plus paths); two rounds
-     must never share a lane that cannot run concurrently, because a
+   - **Run the whole set of partitions through to the end.** Start the next
+     partition as soon as a round closes. Do not pause for user input between
+     rounds — section 7 owns reporting.
+   - **Keep every round attributable.** Rounds in progress at the same time
+     edit disjoint files, and each round's verification reflects only its own
+     edits. Each round declares the test lane it uses (runner plus paths); two
+     rounds never share a lane that cannot run concurrently, because a
      load-sensitive suite then fails for a reason neither round owns.
-     Do not pause for user input between rounds — section 7 owns reporting.
-   - **More than one partition runs under a Goal.** Record the partition list
-     and the accumulating candidate inventory as durable tasks
-     (`goal-management`), so the remaining partitions and IDs survive turn
-     boundaries instead of being rebuilt from scratch.
+   - **The partition list and the accumulated candidate inventory are durable
+     state**: they must survive turn boundaries instead of being rebuilt from
+     scratch.
    - Finish all applicable read-only checks and lens analysis for the current
      round before its edits, not for the whole scope. Accumulate registered
      candidates across rounds using `references/agent-cleanup.md`.
@@ -105,13 +106,15 @@ limitation and ask before widening the work.
 2. **Hard rule — downloads are automatic under the default `auto` policy;
    only when the user set `tidy.downloads` to `ask` does a result carry
    `needsApproval` — then ask once**, list engines and bytes, and re-call
-   that action with `approveDownloads:true`.3. **Hard rule — engines run only through tidy, and never get installed by
+   that action with `approveDownloads:true`.
+3. **Hard rule — engines run only through tidy, and never get installed by
    hand** (rustfmt, gofmt, dart, swift, zig, mix, dotnet): report
    `installHint`. Managed engines download only through tidy (`auto`,
    `approveDownloads`, or `action:'install'`). An ad-hoc `npx <engine>`, global
    binary, or package script is not verification — the name can resolve to an
    unrelated package and report a false clean. An engine tidy cannot resolve
-   leaves its check blocked, never clean.4. Plan the approved deterministic work with `fix` without `apply:true`;
+   leaves its check blocked, never clean.
+4. Plan the approved deterministic work with `fix` without `apply:true`;
    do not repeat an equivalent `check` first. Use one combined plan when both
    engines and structural rules are in scope:
    - `structural:false` disables structural rules, not engine lint fixes.

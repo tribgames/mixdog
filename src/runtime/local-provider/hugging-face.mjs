@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
-import { registerLocalModel } from './registered-models.mjs';
+import { huggingFaceFileUrl, registerLocalModel } from './registered-models.mjs';
 import { parseGgufHeader, ggufMemoryPlan } from './gguf-header.mjs';
 
 const ORIGIN = 'https://huggingface.co';
@@ -24,6 +24,31 @@ async function boundedBody(response, limit) {
   } finally {
     await reader.cancel().catch(() => {});
   }
+}
+
+// Read the GGUF header through growing bounded Range requests (64 KiB up to 16 MiB).
+async function fetchGgufHeader(request, url, fileSize) {
+  for (let size = 64 * 1024; size <= 16 * 1024 * 1024; size *= 2) {
+    const end = Math.min(fileSize, size) - 1;
+    const response = await request(url, { headers: { Range: `bytes=0-${end}` } });
+    const range = /^bytes 0-(\d+)\/(\d+)$/.exec(response.headers.get('content-range') || '');
+    if (
+      response.status !== 206 ||
+      !range ||
+      Number(range[1]) !== end ||
+      Number(range[2]) !== fileSize ||
+      (response.url && new URL(response.url).protocol !== 'https:')
+    ) {
+      await response.body?.cancel();
+      throw new Error('The GGUF host did not honor the bounded metadata range request.');
+    }
+    try {
+      return parseGgufHeader(await boundedBody(response, end + 1));
+    } catch (error) {
+      if (error.code !== 'GGUF_NEED_MORE' || end + 1 === fileSize) throw error;
+    }
+  }
+  throw new Error('GGUF metadata exceeds the 16 MiB inspection limit.');
 }
 
 export function createHuggingFaceCatalog({ fetchFn = fetch, dataDir = resolvePluginData(), now = Date.now } = {}) {
@@ -95,6 +120,7 @@ export function createHuggingFaceCatalog({ fetchFn = fetch, dataDir = resolvePlu
         };
       if (
         typeof filename !== 'string' ||
+        // biome-ignore lint/suspicious/noControlCharactersInRegex: rejects control characters in an untrusted remote file name
         /[\\\x00-\x1f]/.test(filename) ||
         filename.split('/').some((part) => !part || part === '.' || part === '..') ||
         /-\d{5}-of-\d{5}\.gguf$/i.test(filename)
@@ -109,30 +135,8 @@ export function createHuggingFaceCatalog({ fetchFn = fetch, dataDir = resolvePlu
         file.lfs.size !== file.size
       )
         throw new Error('Selected GGUF is missing verified LFS size/SHA-256 metadata.');
-      const url = `${ORIGIN}/${repository}/resolve/${info.sha}/${filename.split('/').map(encodeURIComponent).join('/')}`;
-      let header;
-      for (let size = 64 * 1024; size <= 16 * 1024 * 1024; size *= 2) {
-        const end = Math.min(file.size, size) - 1;
-        const response = await request(url, { headers: { Range: `bytes=0-${end}` } });
-        const range = /^bytes 0-(\d+)\/(\d+)$/.exec(response.headers.get('content-range') || '');
-        if (
-          response.status !== 206 ||
-          !range ||
-          Number(range[1]) !== end ||
-          Number(range[2]) !== file.size ||
-          (response.url && new URL(response.url).protocol !== 'https:')
-        ) {
-          await response.body?.cancel();
-          throw new Error('The GGUF host did not honor the bounded metadata range request.');
-        }
-        try {
-          header = parseGgufHeader(await boundedBody(response, end + 1));
-          break;
-        } catch (error) {
-          if (error.code !== 'GGUF_NEED_MORE' || end + 1 === file.size) throw error;
-        }
-      }
-      if (!header) throw new Error('GGUF metadata exceeds the 16 MiB inspection limit.');
+      const url = huggingFaceFileUrl(repository, info.sha, filename);
+      const header = await fetchGgufHeader(request, url, file.size);
       const plan = ggufMemoryPlan(header, file.size, contextWindow);
       const id = `hf-${createHash('sha256').update(`${repository}|${info.sha}|${filename}`).digest('hex').slice(0, 24)}`;
       const model = {

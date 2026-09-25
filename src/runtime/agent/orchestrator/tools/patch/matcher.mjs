@@ -3,7 +3,7 @@
 // semantics mirror the native engine.
 
 import { readFileSync } from 'node:fs';
-import { classifyEntry, stripDiffPrefix } from './paths.mjs';
+import { entryHeaderName, stripDiffPrefix } from './paths.mjs';
 import { normalizeOutputPath } from '../builtin.mjs';
 import { normalizeTypographic } from './text-lines.mjs';
 
@@ -41,19 +41,7 @@ function collectUnifiedOldLines(hunk) {
   return oldLines;
 }
 
-export function collectUnifiedOps(hunk) {
-  const ops = [];
-  for (const raw of hunk?.lines || []) {
-    if (typeof raw !== 'string' || raw.length === 0) continue;
-    const tag = raw[0];
-    if (tag === ' ') ops.push('context');
-    else if (tag === '-') ops.push('delete');
-    else if (tag === '+') ops.push('add');
-  }
-  return ops;
-}
-
-/** collectUnifiedOps plus each op's line text (terminator inheritance needs it). */
+/** Each op of a unified hunk with its line text (terminator inheritance needs it). */
 export function collectUnifiedOpEntries(hunk) {
   const ops = [];
   for (const raw of hunk?.lines || []) {
@@ -122,7 +110,7 @@ export function assertSafeReplacementPlan(replacements, label = 'apply_patch') {
   return plan;
 }
 
-export function computeUnifiedChangeBand(ops) {
+function computeUnifiedChangeBand(ops) {
   let first = null;
   let last = null;
   let oldCursor = 0;
@@ -376,7 +364,7 @@ function fuzzyLineMatch(actualBytes, expectedBytes, expected, fuzz) {
   return null;
 }
 
-export function unifiedOldLinesMatchAt(sourceLines, oldLines, startIdx, fuzz, band) {
+function unifiedOldLinesMatchAt(sourceLines, oldLines, startIdx, fuzz, band) {
   if (startIdx < 0 || startIdx + oldLines.length > sourceLines.length) return null;
   let fuzzUsed = 0;
   let normCount = 0;
@@ -416,7 +404,7 @@ export function unifiedOldLinesMatchAt(sourceLines, oldLines, startIdx, fuzz, ba
 
 export function findUnifiedHunkMatch(sourceLines, hunk, minStartIdx, fuzz) {
   const oldLines = collectUnifiedOldLines(hunk);
-  const band = computeUnifiedChangeBand(collectUnifiedOps(hunk));
+  const band = computeUnifiedChangeBand(collectUnifiedOpEntries(hunk).map((entry) => entry.op));
   const oldStart = Math.max(0, (Number(hunk?.oldStart) || 1) - 1);
   if (oldLines.length === 0) {
     // jsdiff bumps `oldStart` by one for a zero-old-count hunk (the unified
@@ -461,8 +449,7 @@ export function findFirstFailingUnifiedHunk(entry, sourceLines, fuzz) {
 function nativeFailurePathCandidates(parsed) {
   const candidates = new Set();
   for (const entry of Array.isArray(parsed) ? parsed : []) {
-    const kind = classifyEntry(entry);
-    const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
+    const headerName = entryHeaderName(entry);
     if (!headerName) continue;
     const stripped = stripDiffPrefix(headerName);
     const display = normalizeOutputPath(stripped);
@@ -494,8 +481,7 @@ export function extractNativeFailurePath(message, parsed) {
 
 export function nativeFailureMatchesEntry(entry, failedPath) {
   if (!failedPath) return true;
-  const kind = classifyEntry(entry);
-  const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
+  const headerName = entryHeaderName(entry);
   if (!headerName) return false;
   const failed = normalizeOutputPath(stripDiffPrefix(failedPath));
   const display = normalizeOutputPath(stripDiffPrefix(headerName));

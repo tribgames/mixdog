@@ -135,7 +135,8 @@ export function CodeDiff({ patch }: { patch: string }) {
                   )}
                   <CopyControl
                     value={file.patch}
-                    label={`Copy diff for ${file.newFile.fileName}`}
+                    label="Copy diff for {{value0}}"
+                    labelOptions={{ value0: file.newFile.fileName }}
                     className="tool-detail-copy diff-copy"
                   />
                 </header>

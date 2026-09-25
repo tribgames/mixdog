@@ -480,7 +480,9 @@ export async function pruneOffloadSession(sessionId, getMessages) {
   } catch {
     /* best-effort */
   }
-  if (!candidates) return;
+  // Only an old sidecar can be deleted. Without one, nothing below could have
+  // any effect, so skip serializing the transcript and walking the archives.
+  if (!candidates?.length) return;
   let serialized;
   try {
     serialized = JSON.stringify(getMessages());
@@ -488,9 +490,27 @@ export async function pruneOffloadSession(sessionId, getMessages) {
     return;
   }
   const haystack = process.platform === 'win32' ? serialized.toLowerCase() : serialized;
+  // A sidecar whose path or name the transcript mentions is retained. Every
+  // name the walk below can reach from the transcript itself is such a
+  // mention, so only the unmentioned candidates depend on the archive graph.
+  let unreferenced = candidates.filter(({ name, filePath }) => {
+    const needles = [normalizeOutputPath(filePath), name];
+    return !needles.some((needle) => {
+      const value = process.platform === 'win32' ? needle.toLowerCase() : needle;
+      return haystack.includes(value);
+    });
+  });
+  if (!unreferenced.length) return;
   // Compact archives may themselves reference older archives or offloaded
-  // results. Keep the reachable graph, not just directly visible files.
+  // results. Keep the reachable graph, not just directly visible files. The
+  // walk ends as soon as every candidate is known reachable: from there it
+  // could only either finish or abort, and neither deletes anything.
   const reachable = new Set(haystack.match(/\b[a-f0-9]{64}\.txt\b/g) || []);
+  const retainReachable = () => {
+    unreferenced = unreferenced.filter(({ name }) => !reachable.has(name));
+    return unreferenced.length > 0;
+  };
+  if (!retainReachable()) return;
   const pending = [...reachable];
   for (let i = 0; i < pending.length; i += 1) {
     let text;
@@ -499,28 +519,21 @@ export async function pruneOffloadSession(sessionId, getMessages) {
     } catch {
       return;
     } // An unreadable root must not destroy recovery evidence.
+    let grew = false;
     for (const name of text.match(/\b[a-f0-9]{64}\.txt\b/g) || []) {
       if (reachable.has(name)) continue;
       reachable.add(name);
       pending.push(name);
+      grew = true;
     }
+    if (grew && !retainReachable()) return;
   }
   await Promise.all(
-    candidates
-      .filter(({ name, filePath }) => {
-        if (reachable.has(name)) return false;
-        const normalizedPath = normalizeOutputPath(filePath);
-        const needles = [normalizedPath, name];
-        return !needles.some((needle) => {
-          const value = process.platform === 'win32' ? needle.toLowerCase() : needle;
-          return haystack.includes(value);
-        });
+    unreferenced.map(({ filePath }) =>
+      unlink(filePath).catch(() => {
+        /* best-effort */
       })
-      .map(({ filePath }) =>
-        unlink(filePath).catch(() => {
-          /* best-effort */
-        })
-      )
+    )
   );
 }
 

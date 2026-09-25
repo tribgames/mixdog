@@ -9,6 +9,7 @@
  * The singleton daemon and explicit parity tests are the only callers.
  */
 import { performance } from 'node:perf_hooks';
+import { isDeepStrictEqual } from 'node:util';
 import { bootProfile } from './session/boot-profile.mjs';
 import { createGoalContinuation } from './session/goal-continuation.mjs';
 import { createToolApproval } from './session/tool-approval.mjs';
@@ -131,6 +132,62 @@ export {
   TRANSCRIPT_SPILL_CHUNK_ITEMS,
 } from './session/transcript-spill.mjs';
 export { parseBackgroundTaskEnvelope } from './session/agent-envelope.mjs';
+
+/**
+ * The 2s runtime pulse picks up runtime-derived state that changes without a
+ * notification: the route (model/effort/context window/cwd/Goal), the context
+ * gauge stats, and agent status. It publishes ONLY when one of those values
+ * actually differs from the draft or the published snapshot. Re-publishing an
+ * unchanged session minted a fresh snapshot every 2s, which the session
+ * service projected as a new revision and which kept its idle-projection
+ * release from ever firing for a watched session.
+ */
+export function createRuntimePulse({
+  flags,
+  liveShareMirroring,
+  getState,
+  getPublishedState,
+  set,
+  emit,
+  routeState,
+  agentStatusState,
+  syncContextStats,
+}) {
+  const publishChanged = (patch) => {
+    const draftState = getState();
+    const published = getPublishedState();
+    const changed = {};
+    let dirty = false;
+    for (const [key, value] of Object.entries(patch)) {
+      // syncContextStats stages its fields straight into the draft without
+      // scheduling a frame, so a value equal to the draft may still be
+      // unpublished.
+      if (isDeepStrictEqual(draftState[key], value) && isDeepStrictEqual(published[key], value)) continue;
+      changed[key] = value;
+      dirty = true;
+    }
+    if (!dirty) return false;
+    if (!set(changed)) emit();
+    return true;
+  };
+  return () => {
+    if (flags.disposed) return;
+    if (flags.pendingSessionReset) return;
+    // Attached viewer with a live pipe: the owner's frames are authoritative
+    // for stats/agent/tool state. Recomputing them locally here would stomp
+    // the mirror with this process's empty registries every 2s.
+    if (liveShareMirroring()) {
+      publishChanged({ ...routeState() });
+      return;
+    }
+    syncContextStats({ allowEstimated: true });
+    publishChanged({
+      ...routeState(),
+      stats: { ...getState().stats },
+      ...agentStatusState(),
+    });
+  };
+}
 
 export async function createLocalSessionRuntime({
   provider: providerName,
@@ -278,23 +335,20 @@ export async function createLocalSessionRuntime({
       timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
     }
   );
-  lifecycle.runtimePulseTimer = setInterval(() => {
-    if (flags.disposed) return;
-    if (flags.pendingSessionReset) return;
-    // Attached viewer with a live pipe: the owner's frames are authoritative
-    // for stats/agent/tool state. Recomputing them locally here would stomp
-    // the mirror with this process's empty registries every 2s.
-    if (bag.liveShareMirroring?.()) {
-      set({ ...routeState() });
-      return;
-    }
-    syncContextStats({ allowEstimated: true });
-    set({
-      ...routeState(),
-      stats: { ...getState().stats },
-      ...agentStatusState(),
-    });
-  }, 2000);
+  lifecycle.runtimePulseTimer = setInterval(
+    createRuntimePulse({
+      flags,
+      liveShareMirroring: () => bag.liveShareMirroring?.() === true,
+      getState,
+      getPublishedState,
+      set,
+      emit: store.emit,
+      routeState,
+      agentStatusState,
+      syncContextStats,
+    }),
+    2000
+  );
   lifecycle.runtimePulseTimer.unref?.();
 
   const {

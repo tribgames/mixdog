@@ -127,19 +127,25 @@ export class ResourceAdmissionController {
     return total < this.limits.maxHighLoad && this.active[kind] < kindLimit;
   }
 
+  _adjustOwnerCount(kind, ownerKey, delta) {
+    if (!ownerKey) return;
+    const owners = this.activeByOwner[kind];
+    const count = Math.max(0, (owners.get(ownerKey) || 0) + delta);
+    if (count > 0) owners.set(ownerKey, count);
+    else owners.delete(ownerKey);
+  }
+
+  // Stop counting a lease against its kind and owner (suspension or release).
+  _uncount(lease) {
+    lease.counted = false;
+    this.active[lease.kind] = Math.max(0, this.active[lease.kind] - 1);
+    this._adjustOwnerCount(lease.kind, lease.ownerKey, -1);
+  }
+
   _suspendParent(parent) {
     if (!parent || parent.controller !== this || parent.released) return null;
     parent.dependencyDepth += 1;
-    if (parent.counted) {
-      parent.counted = false;
-      this.active[parent.kind] = Math.max(0, this.active[parent.kind] - 1);
-      if (parent.ownerKey) {
-        const owners = this.activeByOwner[parent.kind];
-        const count = Math.max(0, (owners.get(parent.ownerKey) || 0) - 1);
-        if (count > 0) owners.set(parent.ownerKey, count);
-        else owners.delete(parent.ownerKey);
-      }
-    }
+    if (parent.counted) this._uncount(parent);
     return parent;
   }
 
@@ -184,7 +190,7 @@ export class ResourceAdmissionController {
   _lease(kind, queuedAt = null, parent = null, ownerKey = '', priority = 'user-visible') {
     this.active[kind] += 1;
     const owner = String(ownerKey || '');
-    if (owner) this.activeByOwner[kind].set(owner, (this.activeByOwner[kind].get(owner) || 0) + 1);
+    this._adjustOwnerCount(kind, owner, 1);
     const lease = {
       controller: this,
       kind,
@@ -212,15 +218,7 @@ export class ResourceAdmissionController {
           lease.restorePending = null;
           item.resolve();
         }
-        if (lease.counted) {
-          lease.counted = false;
-          this.active[kind] = Math.max(0, this.active[kind] - 1);
-          if (lease.ownerKey) {
-            const count = Math.max(0, (this.activeByOwner[kind].get(lease.ownerKey) || 0) - 1);
-            if (count > 0) this.activeByOwner[kind].set(lease.ownerKey, count);
-            else this.activeByOwner[kind].delete(lease.ownerKey);
-          }
-        }
+        if (lease.counted) this._uncount(lease);
         lease.releasePromise = this._resumeParent(lease.parent);
         this._drain();
         return lease.releasePromise;
@@ -435,9 +433,7 @@ export class ResourceAdmissionController {
         item.parent.restorePending = null;
         item.parent.counted = true;
         this.active[item.kind] += 1;
-        if (item.ownerKey) {
-          this.activeByOwner[item.kind].set(item.ownerKey, (this.activeByOwner[item.kind].get(item.ownerKey) || 0) + 1);
-        }
+        this._adjustOwnerCount(item.kind, item.ownerKey, 1);
         item.resolve();
         continue;
       }

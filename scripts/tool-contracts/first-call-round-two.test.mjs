@@ -6,7 +6,6 @@ import { TOOL_DEFS as browser } from '../../src/runtime/browser-bridge/tool-defs
 import { validateBrowserToolArgs } from '../../src/runtime/browser-bridge/action-schema.mjs';
 import { COMPUTER_INPUT_SCHEMA, validateComputerToolArgs } from '../../src/runtime/computer-bridge/action-schema.mjs';
 import { COMPUTER_CORE_ACTION_SCHEMA } from '../../src/runtime/computer-bridge/core-actions.mjs';
-import { TOOL_DEFS as computer } from '../../src/runtime/computer-bridge/tool-defs.mjs';
 import { GOAL_TOOL_DEFS } from '../../src/session-runtime/goal-tool-defs.mjs';
 import { normalizeGoalTasks, patchGoalTasks } from '../../src/session-runtime/goal-tasks.mjs';
 import { SETUP_TOOL_DEFS } from '../../src/session-runtime/setup-tool/tool-defs.mjs';
@@ -231,13 +230,4 @@ test('Goal describes the retained-task total without weakening the cap', () => {
     () => patchGoalTasks(previous, { tasks: [added, { ...added, text: 'Overflow' }] }),
     /at most 20 entries/
   );
-});
-
-test('report round-two context change without confusing characters with tokens', (t) => {
-  const before = { browser: 11872, browser_devtools: 8212, computer: 10391, goal: 3827, setup: 5605 };
-  const rows = [...browser, ...computer, ...GOAL_TOOL_DEFS, ...SETUP_TOOL_DEFS].map((tool) => {
-    const after = JSON.stringify({ description: tool.description, inputSchema: tool.inputSchema }).length;
-    return { tool: tool.name, before: before[tool.name], after, delta: after - before[tool.name] };
-  });
-  t.diagnostic(JSON.stringify({ unit: 'serialized JSON characters', rows }));
 });

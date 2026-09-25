@@ -109,11 +109,6 @@ const INSTRUCTIONS = '';
 // through IPC to the parent (server.mjs), which owns the single connected
 // MCP `Server` instance. The parent's IPC message handler translates
 // `{type:'notify', method, params}` into `server.notification({method, params})`.
-//
-// Before v0.6.7 the worker had its own orphan `Server` instance that was
-// never `connect()`ed to any transport, so `.notification()` silently
-// threw 'Not connected' inside the SDK and every call was dropped by an
-// outer `.catch(() => {})`. That regression is what this path replaces.
 const { sendNotifyToParent, handleMemoryCallResponse } = createParentBridge({
   getInstanceId: () => INSTANCE_ID,
 });
@@ -166,8 +161,6 @@ const {
   stopOwnedRuntime,
   refreshBridgeOwnership,
   reloadRuntimeConfig,
-  armBridgeOwnershipTimer,
-  clearBridgeOwnershipTimer,
   notifyRemoteAcquired,
 } = createOwnedRuntime({
   getConfig: () => config,
@@ -336,9 +329,6 @@ async function start(options = {}) {
   } catch {
     // Non-fatal: owned-runtime start errors degrade to automation-only mode.
   }
-  // No-op under the daemon model (kept for call-site stability): there is no
-  // ownership timer — the singleton daemon guarantees exactly one owner.
-  armBridgeOwnershipTimer();
   // Hot-reload config on file change (schedules/webhooks/events).
   // Cross-process edits invalidate the raw config cache before the debounced
   // reload so both messaging and automation-only daemon modes stay current.
@@ -373,7 +363,6 @@ async function stop() {
   } catch {}
   await stopOwnedRuntime('unified server stop');
   cleanupInstanceRuntimeFiles(INSTANCE_ID);
-  clearBridgeOwnershipTimer();
   if (_reloadDebounce) {
     clearTimeout(_reloadDebounce);
     _reloadDebounce = null;

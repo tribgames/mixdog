@@ -16,10 +16,14 @@ import { buildAgentDispatchAskSessionArgs } from './ask-args.mjs';
 const BRIEF_CAP_BYTES = 12 * 1024;
 function applyBriefCap(text) {
   if (typeof text !== 'string') return text;
-  if (text.length <= BRIEF_CAP_BYTES) return text;
-  const head = text.slice(0, BRIEF_CAP_BYTES);
-  const approxTokens = Math.round(text.length / 4);
-  return `${head}\n\n... [TRUNCATED — full answer was ~${approxTokens} tokens / ${Math.round(text.length / 1024)} KB. Re-run with brief:false for the complete synthesis]`;
+  const byteLength = Buffer.byteLength(text, 'utf8');
+  if (byteLength <= BRIEF_CAP_BYTES) return text;
+  // encodeInto stops before any character that would not fit, so `read`
+  // (UTF-16 units consumed) never splits a multi-byte character.
+  const { read } = new TextEncoder().encodeInto(text, new Uint8Array(BRIEF_CAP_BYTES));
+  const head = text.slice(0, read);
+  const approxTokens = Math.round(byteLength / 4);
+  return `${head}\n\n... [TRUNCATED — full answer was ~${approxTokens} tokens / ${Math.round(byteLength / 1024)} KB. Re-run with brief:false for the complete synthesis]`;
 }
 
 function formatCompactElapsedSeconds(ms) {

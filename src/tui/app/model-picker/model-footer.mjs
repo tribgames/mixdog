@@ -5,25 +5,28 @@ import { theme } from '../../theme.mjs';
 import { effortDisplayLabel, fastDisplayLabel, formatContextWindow } from '../model-options.mjs';
 import { effortItemsFor } from './route-selection.mjs';
 
-const effortGlyph = (value) => {
-  if (value === 'none') return '○';
-  if (value === 'low') return '◔';
-  if (value === 'medium') return '◑';
-  if (value === 'high') return '◕';
-  if (value === 'max') return '◆';
-  if (value === 'ultra') return '✦';
-  return '●';
-};
+const EFFORT_GLYPHS = new Map([
+  ['none', '○'],
+  ['low', '◔'],
+  ['medium', '◑'],
+  ['high', '◕'],
+  ['max', '◆'],
+  ['ultra', '✦'],
+]);
 
-const effortColor = (value) => {
-  if (value === 'none') return theme.inactive;
-  if (value === 'low') return theme.warning;
-  if (value === 'medium') return theme.claude;
-  if (value === 'high') return theme.error;
-  if (value === 'max') return theme.permission;
-  if (value === 'ultra') return theme.permission;
-  return theme.error;
-};
+// Theme keys, resolved at call time so a theme switch re-tones the footer.
+const EFFORT_COLOR_KEYS = new Map([
+  ['none', 'inactive'],
+  ['low', 'warning'],
+  ['medium', 'claude'],
+  ['high', 'error'],
+  ['max', 'permission'],
+  ['ultra', 'permission'],
+]);
+
+const effortGlyph = (value) => EFFORT_GLYPHS.get(value) ?? '●';
+
+const effortColor = (value) => theme[EFFORT_COLOR_KEYS.get(value) ?? 'error'];
 
 const effortLabel = (selection, value) => {
   const found = selection.providerEffortItems().find((effort) => effort.value === value);

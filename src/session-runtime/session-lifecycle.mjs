@@ -119,10 +119,8 @@ export function createSessionLifecycle(deps) {
     isCloseRequested: () => rt.closeRequested,
     getActiveTurnCount: () => rt.activeTurnCount,
     getSessionCreatePromise: () => rt.sessionCreatePromise,
-    getSession: () => rt.session,
     hasActiveAutomation,
     getCodeGraphModule,
-    createCurrentSession,
     channels,
     envFlag,
     delays: {

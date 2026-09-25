@@ -48,13 +48,23 @@ async function _refresh() {
  * handshake must never await a registry fetch.
  */
 function codexClientVersionSync() {
-  if (_cache.value && Date.now() - _cache.fetchedAt < VERSION_TTL_MS) return _cache.value;
+  if (_cacheFresh()) return _cache.value;
+  _ensureRefresh();
+  return _cache.value || CODEX_CLIENT_VERSION_FLOOR;
+}
+
+function _cacheFresh() {
+  return Boolean(_cache.value) && Date.now() - _cache.fetchedAt < VERSION_TTL_MS;
+}
+
+// One registry fetch at a time; concurrent callers share the in-flight refresh.
+function _ensureRefresh() {
   if (!_refreshInFlight) {
     _refreshInFlight = _refresh().finally(() => {
       _refreshInFlight = null;
     });
   }
-  return _cache.value || CODEX_CLIENT_VERSION_FLOOR;
+  return _refreshInFlight;
 }
 
 /**
@@ -65,15 +75,8 @@ function codexClientVersionSync() {
  * backend's minimal_client_version gate never sees a stale floor.
  */
 export function warmCodexClientVersion() {
-  if (_cache.value && Date.now() - _cache.fetchedAt < VERSION_TTL_MS) {
-    return Promise.resolve(_cache.value);
-  }
-  if (!_refreshInFlight) {
-    _refreshInFlight = _refresh().finally(() => {
-      _refreshInFlight = null;
-    });
-  }
-  return _refreshInFlight;
+  if (_cacheFresh()) return Promise.resolve(_cache.value);
+  return _ensureRefresh();
 }
 
 function _osType() {

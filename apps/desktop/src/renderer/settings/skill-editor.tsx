@@ -153,8 +153,9 @@ export function SkillEditorDialog({
       >
         <div className="extensions-mcp-list-rows">
           {dependencies.map((entry, index) => {
-            const updateValue = (value: string) =>
-              changeDependencies(dependencies.map((row, i) => (i === index ? { ...row, value } : row)));
+            const updateRow = (patch: Partial<Dependency>) =>
+              changeDependencies(dependencies.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+            const updateValue = (value: string) => updateRow({ value });
             const placeholder = entry.type === 'mcp' ? 'figma' : 'office';
             return (
               <div className="extensions-mcp-list-row extensions-mcp-pair-row" key={index}>
@@ -162,11 +163,7 @@ export function SkillEditorDialog({
                   aria-label={t('Dependency type')}
                   value={entry.type}
                   disabled={busy}
-                  onChange={(event) =>
-                    changeDependencies(
-                      dependencies.map((row, i) => (i === index ? { ...row, type: event.target.value } : row))
-                    )
-                  }
+                  onChange={(event) => updateRow({ type: event.target.value })}
                 >
                   <option value="tool">{t('Tool')}</option>
                   <option value="mcp">{t('MCP server')}</option>

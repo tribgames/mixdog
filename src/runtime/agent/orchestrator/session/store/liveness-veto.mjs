@@ -11,7 +11,7 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { getStoreDir, deleteHeartbeat } from './paths-heartbeat.mjs';
 
-export function _heartbeatMtime(id) {
+function _heartbeatMtime(id) {
   try {
     const path = join(getStoreDir(), `${id}.hb`);
     return existsSync(path) ? statSync(path).mtimeMs || 0 : 0;

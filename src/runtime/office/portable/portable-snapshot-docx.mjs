@@ -216,6 +216,23 @@ function docxPictures(xml) {
   return pictures;
 }
 
+// A localized Word writes its built-in styles under ids of its own — Korean Word saves "heading 2" as w:styleId="2"
+// and "Title" as "a3" — so the id alone named no heading, and the audit read a titled, sectioned newsletter as a
+// document without one (heading_hierarchy_missing). The style's name travels beside its id when the two differ.
+function applyDocxStyleNames(model, stylesXml) {
+  if (!stylesXml) return;
+  const names = new Map();
+  for (const match of stylesXml.matchAll(/<w:style\b([^>]*)>([\s\S]*?)<\/w:style>/g)) {
+    const id = xmlDecode(/\bw:styleId="([^"]+)"/.exec(match[1])?.[1] || '');
+    const name = xmlDecode(/<w:name\b[^>]*\bw:val="([^"]+)"/.exec(match[2])?.[1] || '');
+    if (id && name && name.replace(/\s+/g, '').toLowerCase() !== id.toLowerCase()) names.set(id, name);
+  }
+  for (const paragraph of model.paragraphs) {
+    const name = names.get(paragraph.style);
+    if (name) paragraph.styleName = name;
+  }
+}
+
 // What a paragraph's style says about its font, filled in where the
 // paragraph's own runs state nothing.
 function applyDocxStyleFonts(model, styleFonts) {
@@ -597,7 +614,9 @@ async function docxAnnotations(zip, model, storyXml) {
 export async function snapshotDocx(zip, options = {}) {
   const { partXml, content, storyXml } = await docxStoryParts(zip);
   const model = docxBodyModel(partXml.get('word/document.xml') ?? '');
-  applyDocxStyleFonts(model, resolveDocxStyleFonts(await zipText(zip, 'word/styles.xml')));
+  const stylesXml = await zipText(zip, 'word/styles.xml');
+  applyDocxStyleFonts(model, resolveDocxStyleFonts(stylesXml));
+  applyDocxStyleNames(model, stylesXml);
   applyDocxListKinds(model, await zipText(zip, 'word/numbering.xml'));
   const page = selectDocxBlocks(model, options);
   const body = pagedDocxBody(model, page, content);

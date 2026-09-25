@@ -5,7 +5,7 @@
 // already-processed section; surface them in BOTH the success and failure
 // reports so the reported disk state stays complete even when a later
 // section fails.
-function rejectedHunkTail(rejected) {
+export function rejectedHunkTail(rejected) {
   if (rejected.length === 0) return '';
   return (
     '\n' +

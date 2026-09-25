@@ -10,6 +10,7 @@ import { basename, join } from 'node:path';
 
 import type { WebContents } from 'electron';
 
+import { boundedInteger } from './command';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 
 export interface TrackedBrowserDownload {
@@ -119,16 +120,9 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
     // Pin the newest download once. Older completed files must not satisfy a
     // wait for the file that is currently arriving.
     let selectedId = command.downloadId;
-    const timeoutMs = Math.min(
-      MAX_WAIT_MS,
-      Math.max(
-        MIN_WAIT_MS,
-        Number.isFinite(command.timeoutMs) ? Math.trunc(command.timeoutMs as number) : DEFAULT_WAIT_MS
-      )
-    );
+    const timeoutMs = boundedInteger(command.timeoutMs, DEFAULT_WAIT_MS, MIN_WAIT_MS, MAX_WAIT_MS);
     if (command.wait) {
       const startedAt = Date.now();
-      selectedId ||= downloads(sessionId)[0]?.id;
       for (;;) {
         signal?.throwIfAborted();
         selectedId ||= downloads(sessionId)[0]?.id;

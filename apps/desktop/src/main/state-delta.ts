@@ -169,6 +169,23 @@ function snapshotFieldsFrom(record: Record<string, unknown>): Record<string, unk
   return fields;
 }
 
+function diffStateFields(
+  previousFields: Record<string, unknown>,
+  nextFields: Record<string, unknown>
+): { changed: Record<string, unknown>; removed: string[] } {
+  const changed: Record<string, unknown> = {};
+  const removed: string[] = [];
+  for (const [key, value] of Object.entries(nextFields)) {
+    if (!Object.hasOwn(previousFields, key) || !sameSnapshotField(previousFields[key], value)) {
+      changed[key] = value;
+    }
+  }
+  for (const key of Object.keys(previousFields)) {
+    if (!Object.hasOwn(nextFields, key)) removed.push(key);
+  }
+  return { changed, removed };
+}
+
 function streamingTailFrom(record: Record<string, unknown> | null): Record<string, unknown> | null {
   const value = record?.streamingTail;
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -260,17 +277,7 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
         }
 
         const nextFields = snapshotFieldsFrom(record);
-        const previousFields = sentStateFields || {};
-        const changed: Record<string, unknown> = {};
-        const removed: string[] = [];
-        for (const [key, value] of Object.entries(nextFields)) {
-          if (!Object.hasOwn(previousFields, key) || !sameSnapshotField(previousFields[key], value)) {
-            changed[key] = value;
-          }
-        }
-        for (const key of Object.keys(previousFields)) {
-          if (!Object.hasOwn(nextFields, key)) removed.push(key);
-        }
+        const { changed, removed } = diffStateFields(sentStateFields || {}, nextFields);
         const changedCount = Object.keys(changed).length;
         const stateChanged = changedCount > 0 || removed.length > 0;
         if (stateChanged) carriesNews = true;

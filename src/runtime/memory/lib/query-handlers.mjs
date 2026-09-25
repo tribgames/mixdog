@@ -26,6 +26,7 @@ import { readRawRowsInWindow } from './query-raw-window.mjs';
 import { recallSessionRows } from './query-session-recall.mjs';
 import { recallCoreRows } from './query-core-recall.mjs';
 import { browseEntries } from './query-window-browse.mjs';
+import { throwIfAborted } from './memory-cycle2-shared.mjs';
 
 /** Cold-recall log throttle: one line per 10s window per memory runtime. */
 function createColdRecallNote(log) {
@@ -49,7 +50,7 @@ export function createQueryHandlers({ getDb, log, resolveProjectScope, embedding
     const db = getDb();
     // Cooperative abort check: throw early if the caller already aborted
     // (IPC cancel handler signals the AbortController before re-entry).
-    if (signal?.aborted) throw signal.reason ?? new Error('aborted');
+    throwIfAborted(signal);
     // No pre-search drain: recall NEVER runs LLM chunking inline. Unchunked
     // rows are served directly by the raw leg (readRawRowsInWindow on the
     // query path, the chunk_root IS NULL selection in recallSessionRows) and

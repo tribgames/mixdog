@@ -3,7 +3,7 @@
 // rename executor, and a multi-file model-surface patch or an explicit
 // ordered/sequence mode takes the ordered section sequence.
 import { isV4APatchInput, parseV4APatch } from '../parsing.mjs';
-import { resolveV4AEntryPath } from '../paths.mjs';
+import { pathKey, resolveV4AEntryPath } from '../paths.mjs';
 import { rewriteV4AReadRedirects } from '../read-redirects.mjs';
 import { isV4ARenameSection } from '../v4a-convert.mjs';
 
@@ -25,12 +25,7 @@ export function selectApplyPatchRoute({ args, patchStr, requestedFormat, basePat
   const modelSurfaceFilePartial =
     Array.isArray(preParsedV4ASections) &&
     !preParsedV4ASections.some(isV4ARenameSection) &&
-    new Set(
-      preParsedV4ASections.map((section) => {
-        const fullPath = resolveV4AEntryPath(basePath, section.path);
-        return process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
-      })
-    ).size > 1;
+    new Set(preParsedV4ASections.map((section) => pathKey(resolveV4AEntryPath(basePath, section.path)))).size > 1;
   // The model-visible default matches Codex: validate the complete patch before
   // writing and reject duplicate targets. Ordered partial application remains
   // an internal compatibility mode only.

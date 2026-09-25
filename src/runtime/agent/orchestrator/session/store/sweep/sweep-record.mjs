@@ -36,9 +36,25 @@ export const BLANK_SCRATCH_MAX_AGE_MS = 60 * 60 * 1000; // 1h
 // the conversation count), yet it used to read and strictly parse EVERY
 // session transcript on each 5-minute pass — measured at 1,198 files / 758MB
 // per pass on one store. A file whose mtime and size are unchanged yields the
-// same verdict, so only changed files are parsed; the transcript itself is
-// dropped from the cached record (see the summary-repair path, which re-reads).
+// same verdict, so only changed files are parsed; only the decision fields
+// are kept in the cached record (see the summary-repair path, which re-reads).
 const sweepRecordCache = new Map();
+
+// The only document fields sweep-row reads (effectiveFields, the closed
+// check and retainedLinkedAgent). Caching the whole top-level document kept
+// every session's tool catalogs, schemas and provider state alive — one
+// entry per session file, measured at ~290MB of a 470MB daemon heap.
+const SWEEP_DOC_FIELDS = [
+  'id',
+  'owner',
+  'status',
+  'provider',
+  'updatedAt',
+  'lastHeartbeatAt',
+  'createdAt',
+  'ownerSessionId',
+  'parentSessionId',
+];
 
 function conversationCountOf(doc) {
   const messages = Array.isArray(doc?.messages) ? doc.messages : [];
@@ -62,8 +78,10 @@ export function readSweepRecord(id, jsonPath, probe) {
   }
   const full = readTopLevelLifecycleRecord(raw);
   if (isLifecycleUnreadable(full)) return full;
-  const doc = { ...full.doc };
-  delete doc.messages;
+  const doc = {};
+  for (const field of SWEEP_DOC_FIELDS) {
+    if (Object.hasOwn(full.doc, field)) doc[field] = full.doc[field];
+  }
   const record = {
     id: full.id,
     closed: full.closed,

@@ -128,6 +128,10 @@ function useHarnessTranscriptWindow({
 // physically measured tree, which is what the repro compares.
 function useFrameRecorder({ text, step, viewRows, measuredRowsVersion, transcriptWindow, refs, recordFrame, onFrame }) {
   const { transcriptGeomRef, contentRef, tailRef, scrollTargetRef, followingRef, transcriptAnchorRef } = refs;
+  // Callers pass inline sinks; reading them through a ref keeps one record
+  // per layout change instead of one per parent re-render.
+  const frameSinkRef = React.useRef({ recordFrame, onFrame });
+  frameSinkRef.current = { recordFrame, onFrame };
   React.useLayoutEffect(() => {
     const geometry = transcriptGeomRef.current || {};
     const prefix = geometry.prefixRows || [];
@@ -154,8 +158,8 @@ function useFrameRecorder({ text, step, viewRows, measuredRowsVersion, transcrip
       following: followingRef.current,
       anchor: transcriptAnchorRef.current?.id || '-',
     };
-    if (recordFrame) frames.push(frame);
-    onFrame(frame);
+    if (frameSinkRef.current.recordFrame) frames.push(frame);
+    frameSinkRef.current.onFrame(frame);
   }, [
     step,
     text,
@@ -165,6 +169,10 @@ function useFrameRecorder({ text, step, viewRows, measuredRowsVersion, transcrip
     transcriptWindow.effectiveScrollOffset,
     transcriptAnchorRef,
     transcriptGeomRef,
+    contentRef,
+    tailRef,
+    scrollTargetRef,
+    followingRef,
   ]);
 }
 
@@ -201,7 +209,7 @@ function Harness({
       text,
       streaming: true,
     }),
-    [text]
+    [streamId, text]
   );
   const { transcriptWindow, renderedTranscriptItems, transcriptMeasureRef } = useHarnessTranscriptWindow({
     history,
@@ -223,7 +231,7 @@ function Harness({
       tailHookRef?.(element);
       tailRef.current = element;
     },
-    [tailHookRef]
+    [tailHookRef, tailRef]
   );
 
   useFrameRecorder({
@@ -287,9 +295,11 @@ async function settle(instance) {
 
 function AssistantSettleHeightProbe({ text, streaming, assistantId, onHeight }) {
   const ref = React.useRef(null);
+  // Re-measure after every commit: a text/streaming change re-renders the
+  // probe, and the body reads only the ref and the callback.
   React.useLayoutEffect(() => {
     if (ref.current) onHeight(measureElement(ref.current).height);
-  }, [onHeight, streaming, text]);
+  });
   return (
     <Box ref={ref} width={COLUMNS} flexDirection="column">
       <AssistantMessage text={text} streaming={streaming} columns={COLUMNS} assistantId={assistantId} />

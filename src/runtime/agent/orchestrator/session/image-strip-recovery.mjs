@@ -94,8 +94,7 @@ export function stripInlineImagesFromLatestTurn(messages) {
 
 export function confirmedImageRejection(err) {
   if (errorStatus(err) !== 400) return false;
-  const code = errorCode(err);
-  if (code === 'invalid_image' || code === 'invalid-image') return true;
+  if (isInvalidImageCode(errorCode(err))) return true;
   return /does not represent a valid image/i.test(errorMessage(err));
 }
 
@@ -105,8 +104,12 @@ export function persistenceMessagesForConfirmedImageRejection(err, messages) {
   return tail.stripped > 0 && tail.uniqueImages === 1 ? tail.messages : null;
 }
 
+function providerErrorDetail(err) {
+  return err?.providerError || err?.responseFailed?.response?.error || err?.responseFailed?.error || null;
+}
+
 function errorCode(err) {
-  const detail = err?.providerError || err?.responseFailed?.response?.error || err?.responseFailed?.error || null;
+  const detail = providerErrorDetail(err);
   for (const field of [detail?.code, err?.providerErrorCode, err?.code]) {
     if (typeof field === 'string' && field.trim()) return field.trim().toLowerCase();
   }
@@ -114,8 +117,11 @@ function errorCode(err) {
 }
 
 function errorMessage(err) {
-  const detail = err?.providerError || err?.responseFailed?.response?.error || err?.responseFailed?.error || null;
-  return String(detail?.message || err?.message || '');
+  return String(providerErrorDetail(err)?.message || err?.message || '');
+}
+
+function isInvalidImageCode(code) {
+  return code === 'invalid_image' || code === 'invalid-image';
 }
 
 /** Grok Build `is_image_processing_error` + 413. */
@@ -123,8 +129,7 @@ export function isImageProcessingError(err) {
   if (!err || typeof err !== 'object') return false;
   const status = errorStatus(err);
   if (status === 413) return true;
-  const code = errorCode(err);
-  if (code === 'invalid_image' || code === 'invalid-image') return true;
+  if (isInvalidImageCode(errorCode(err))) return true;
   if (status === 400 || status === 500) {
     const message = errorMessage(err);
     return message.includes('Could not process image') || /does not represent a valid image/i.test(message);

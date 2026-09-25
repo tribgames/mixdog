@@ -40,6 +40,7 @@ async function _getPgProc() {
     healthcheckPg: mod.healthcheckPg,
     reconcileConfV2: mod.reconcileConfV2,
     stopPgSync: mod.stopPgSync,
+    sweepOrphanTempPostmasters: mod.sweepOrphanTempPostmasters,
   };
   return _pgProc;
 }
@@ -209,16 +210,16 @@ function _readPgAdvert() {
 // discovery write so it backs off and retries rather than dropping the advert.
 const _LOCK_CONTENTION_CODES = new Set(['ELOCKTIMEOUT', 'ELOCKCONTENDED', 'EPERM', 'EBUSY', 'EACCES']);
 
-// Is the current on-disk advert owned by a DIFFERENT, still-live supervisor?
-// A clear (pg_port → null) must never unlink a NEWER supervisor's fresh advert:
-// re-read under the lock and, if pg_owner_pid names another live process, leave
-// it. Our own pid, a dead owner, or a missing/legacy owner → safe to unlink.
 /** Drop stale fields (pid/startedAt/updatedAt) written by older versions. */
 function _withoutLegacyAdvertFields(advert) {
   const { pid: _legacyPid, startedAt: _legacyStartedAt, updatedAt: _prevUpdatedAt, ...rest } = advert;
   return rest;
 }
 
+// Is the current on-disk advert owned by a DIFFERENT, still-live supervisor?
+// A clear (pg_port → null) must never unlink a NEWER supervisor's fresh advert:
+// re-read under the lock and, if pg_owner_pid names another live process, leave
+// it. Our own pid, a dead owner, or a missing/legacy owner → safe to unlink.
 function _pgAdvertIsForeignLive(adv) {
   const owner = Number(adv?.pg_owner_pid);
   if (!Number.isInteger(owner) || owner <= 0) return false;
@@ -304,9 +305,7 @@ let _pendingPatchRetry = null; // { timer, generation }
 
 function _cancelPendingPatchRetry() {
   if (_pendingPatchRetry) {
-    try {
-      clearTimeout(_pendingPatchRetry.timer);
-    } catch {}
+    clearTimeout(_pendingPatchRetry.timer);
     _pendingPatchRetry = null;
   }
 }
@@ -381,8 +380,7 @@ function readPostmasterInfo(pgdata) {
 async function isPostgresPid(pid) {
   try {
     if (process.platform === 'linux') {
-      const { readFileSync: rfs } = await import('node:fs');
-      const comm = rfs(`/proc/${pid}/comm`, 'utf8').trim();
+      const comm = readFileSync(`/proc/${pid}/comm`, 'utf8').trim();
       return comm.includes('postgres');
     }
     if (process.platform === 'darwin') {

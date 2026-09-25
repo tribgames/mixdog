@@ -4,7 +4,7 @@
 // loaded by exact canonical session id only when a caller needs one.
 import { SESSION_ID_PATTERN } from './agent-registry.mjs';
 
-export function validLinkedSessionId(value, ownId = '') {
+function validLinkedSessionId(value, ownId = '') {
   const id = String(value || '').trim();
   return SESSION_ID_PATTERN.test(id) && id !== ownId ? id : '';
 }

@@ -29,7 +29,8 @@ import { approvalInstanceKey, transcriptTurnKeys } from './renderer-logic.mjs';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 
 import { ApprovalCard } from './ApprovalCard';
-import { Composer, ProjectContextSelector, WorkflowSelect, OrchestrationModeSelect } from './Composer';
+import { Composer, WorkflowSelect, OrchestrationModeSelect } from './Composer';
+import { ProjectContextSelector } from './composer-support';
 import { BrandTile } from './WorkspaceEmptyState';
 import { EMPTY_TRANSCRIPT_ITEMS, type RecordValue, type Snapshot, type TranscriptItem } from './desktop-types';
 import { ComposerDock } from './ComposerDock';
@@ -57,7 +58,6 @@ import { useTranscriptFollow } from './use-transcript-follow';
 import { useTranscriptReveal } from './use-transcript-reveal';
 import {
   desktopPromptDisplayText,
-  nextDesktopSubmissionId,
   pendingPromptImages,
   pendingPromptTranscriptItems,
   promptWaitsBehindActiveTurn,
@@ -65,17 +65,7 @@ import {
   unsettledQueueEntries,
   type PendingPromptItem,
 } from './conversation-prompt-items';
-
-export type { PendingPromptItem } from './conversation-prompt-items';
-export {
-  desktopPromptDisplayText,
-  nextDesktopSubmissionId,
-  pendingPromptImages,
-  pendingPromptTranscriptItems,
-  promptWaitsBehindActiveTurn,
-  settledUserRowCount,
-  unsettledQueueEntries,
-} from './conversation-prompt-items';
+import { nextComposerSubmissionId } from './composer-draft';
 
 /** The pane-local actions the composer is handed. They are wired once and
  *  address the pane's own route through refs, so a prop change never
@@ -119,7 +109,7 @@ function useConversationComposerActions({
   const composerSubmit = useCallback(async (content: DesktopPromptContent, options?: DesktopSubmitOptions) => {
     const submittedAt = Number(options?.submittedAt);
     const trackedSubmittedAt = Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : Date.now();
-    const submissionId = String(options?.id || '').trim() || nextDesktopSubmissionId();
+    const submissionId = String(options?.id || '').trim() || nextComposerSubmissionId();
     const images = pendingPromptImages(options);
     const optimistic: PendingPromptItem = {
       id: submissionId,
@@ -488,6 +478,7 @@ export function Conversation({
   // Latched once this identity has painted its timeline. A promotion whose
   // Markdown-readiness flag lags one tick must not unmount measured rows.
   const timelineMounted = useRef(false);
+  const transcriptSessionKey = draftMode ? 'new-task' : String(routeSnapshot.sessionId || 'new-task');
   // Auto-scroll + message-gesture split.
   const {
     following,
@@ -510,7 +501,7 @@ export function Conversation({
   } = useTranscriptFollow({
     viewport,
     content,
-    sessionKey: draftMode ? 'new-task' : String(routeSnapshot.sessionId || 'new-task'),
+    sessionKey: transcriptSessionKey,
     contentMounted: !transcriptPending || timelineMounted.current,
     setAnchorBottomRef: setTranscriptAnchorBottomRef,
     scrollToEndRef,
@@ -533,19 +524,7 @@ export function Conversation({
       suppressDraftSubmitPaintHandoff.current = false;
     }
   }, [draftMode, warmPaintHandoff]);
-  const composerActions = useRef({
-    submit,
-    invokeResult,
-    applySnapshot,
-    onNewTask,
-    onResumeSession,
-    onOpenSessions,
-    onOpenProjects,
-    onOpenSettings,
-    onOpenCommandSurface,
-    onClearToNewTask,
-  });
-  composerActions.current = {
+  const latestComposerActions: ConversationComposerActions = {
     submit,
     invokeResult,
     applySnapshot,
@@ -557,6 +536,8 @@ export function Conversation({
     onOpenCommandSurface,
     onClearToNewTask,
   };
+  const composerActions = useRef(latestComposerActions);
+  composerActions.current = latestComposerActions;
   // TUI parity: a prompt only reads as "Queued" when it actually waits behind
   // an active turn. An idle submit — including a draft's first prompt, whose
   // atomic RPC spans session materialization — renders as a normal user row.
@@ -592,10 +573,10 @@ export function Conversation({
     streamingTail && (tailSettledIndex < 0 || tailSettledIndex === settledItems.length - 1) ? streamingTail : null;
   const tailAppended = Boolean(activeStreamingTail) && tailSettledIndex < 0;
   const liveItemCount = settledItems.length + (tailAppended ? 1 : 0);
-  const transcriptSessionKey = draftMode ? 'new-task' : String(routeSnapshot.sessionId || 'new-task');
   const requestEarlierTranscript = useTranscriptHistory(
     draftMode ? '' : String(routeSnapshot.sessionId || ''),
-    settledItems.length
+    settledItems.length,
+    typeof snapshot.transcriptHasOlder === 'boolean' ? snapshot.transcriptHasOlder : undefined
   );
   const previousTranscriptSessionKey = useRef(transcriptSessionKey);
   // A pane's OWN draft -> session promotion must NOT rebuild the timeline. The
@@ -950,6 +931,8 @@ export function Conversation({
   });
 
   const disclosureScope = String(routeSnapshot.sessionId || 'new-task');
+  const routeProject = String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '');
+  const routeScope = String(routeSnapshot.sessionId || routeProject || 'new-task');
   const retryDisabled = Boolean(snapshot.busy) || transitioning;
   // Session retry: a failed turn that produced no output resubmits its prompt
   // and the runtime rewinds the unanswered copy, so the model sees the prompt
@@ -1059,9 +1042,7 @@ export function Conversation({
               shell mounted first made the virtual core resolve its end anchor
               against an empty list and again on the 0 -> N row swap — the
               visible up/down bounce on entering a session. */}
-            <MarkdownProjectContext.Provider
-              value={String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '')}
-            >
+            <MarkdownProjectContext.Provider value={routeProject}>
               <MarkdownOpenFileContext.Provider value={onOpenFile ?? null}>
                 {showTranscriptTimeline && (
                   <TranscriptList
@@ -1172,41 +1153,17 @@ export function Conversation({
           reviewActive={reviewActive}
           reviewBusy={Boolean(snapshot.busy || routeSnapshot.commandBusy)}
           reviewSessionId={draftMode ? '' : String(sessionAddress || routeSnapshot.sessionId || '')}
-          reviewCwd={String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '')}
+          reviewCwd={routeProject}
         >
           <Composer
             turnBusy={Boolean(snapshot.busy)}
             commandBusy={!draftMode && Boolean(routeSnapshot.commandBusy)}
             transitioning={transitioning}
             focusRequest={composerFocusRequest}
-            historyScope={
-              draftMode
-                ? `new-task:${activeProjectPath || 'local'}`
-                : String(
-                    routeSnapshot.sessionId ||
-                      routeSnapshot.currentProject ||
-                      routeSnapshot.project ||
-                      routeSnapshot.cwd ||
-                      'new-task'
-                  )
-            }
-            identityScope={
-              draftMode
-                ? `draft:${draftId || 'default'}`
-                : String(
-                    routeSnapshot.sessionId ||
-                      routeSnapshot.currentProject ||
-                      routeSnapshot.project ||
-                      routeSnapshot.cwd ||
-                      'new-task'
-                  )
-            }
+            historyScope={draftMode ? `new-task:${activeProjectPath || 'local'}` : routeScope}
+            identityScope={draftMode ? `draft:${draftId || 'default'}` : routeScope}
             recoveryScope={transcriptIdentity.current}
-            projectScope={
-              draftMode
-                ? activeProjectPath
-                : String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '')
-            }
+            projectScope={draftMode ? activeProjectPath : routeProject}
             sessionId={draftMode ? '' : String(routeSnapshot.sessionId || '')}
             hasConversation={itemCount > 0 || (Array.isArray(snapshot.queued) && snapshot.queued.length > 0)}
             promptHistoryList={routeSnapshot.promptHistoryList}

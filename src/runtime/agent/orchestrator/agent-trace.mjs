@@ -36,13 +36,7 @@ function estimateProviderPayloadBytes(messages, model, tools) {
   }
 }
 
-function extractCachedTokens(usage) {
-  const candidates = [
-    usage?.input_tokens_details?.cached_tokens,
-    usage?.prompt_tokens_details?.cached_tokens,
-    usage?.inputTokensDetails?.cachedTokens,
-    usage?.promptTokensDetails?.cachedTokens,
-  ];
+function firstFiniteNumberOrZero(candidates) {
   for (const value of candidates) {
     const n = Number(value);
     if (Number.isFinite(n)) return n;
@@ -50,20 +44,24 @@ function extractCachedTokens(usage) {
   return 0;
 }
 
+function extractCachedTokens(usage) {
+  return firstFiniteNumberOrZero([
+    usage?.input_tokens_details?.cached_tokens,
+    usage?.prompt_tokens_details?.cached_tokens,
+    usage?.inputTokensDetails?.cachedTokens,
+    usage?.promptTokensDetails?.cachedTokens,
+  ]);
+}
+
 function extractCacheWriteTokens(usage) {
-  const candidates = [
+  return firstFiniteNumberOrZero([
     usage?.input_tokens_details?.cache_write_tokens,
     usage?.prompt_tokens_details?.cache_write_tokens,
     usage?.inputTokensDetails?.cacheWriteTokens,
     usage?.promptTokensDetails?.cacheWriteTokens,
     usage?.cache_write_tokens,
     usage?.cacheWriteTokens,
-  ];
-  for (const value of candidates) {
-    const n = Number(value);
-    if (Number.isFinite(n)) return n;
-  }
-  return 0;
+  ]);
 }
 
 // Lightweight fingerprint of the conversation prefix. Hashes the first 4096
@@ -255,6 +253,12 @@ function traceAgentUsage({
   const promptTotal = typeof promptTokens === 'number' ? promptTokens : accounting.promptTokens;
   const resolvedServiceTier = serviceTier || rawUsage?.service_tier || rawUsage?.serviceTier || null;
   const thinkingTokens = reasoningUsage(rawUsage).reasoningTokens;
+  // Cache-chain fields ride both the row and its payload, only when supplied.
+  const chainFields = {
+    ...(requestPrevResponseId !== undefined ? { request_prev_response_id: requestPrevResponseId } : {}),
+    ...(chainContinuous !== undefined ? { chain_continuous: chainContinuous } : {}),
+    ...(continuationResetReason !== undefined ? { continuation_reset_reason: continuationResetReason } : {}),
+  };
   appendAgentTrace({
     sessionId,
     iteration,
@@ -273,9 +277,7 @@ function traceAgentUsage({
     response_id: responseId || null,
     request_kind: typeof requestKind === 'string' && requestKind ? requestKind : null,
     service_tier: resolvedServiceTier,
-    ...(requestPrevResponseId !== undefined ? { request_prev_response_id: requestPrevResponseId } : {}),
-    ...(chainContinuous !== undefined ? { chain_continuous: chainContinuous } : {}),
-    ...(continuationResetReason !== undefined ? { continuation_reset_reason: continuationResetReason } : {}),
+    ...chainFields,
     payload: {
       provider: provider || null,
       requested_model: identity?.requestedModel || null,
@@ -288,9 +290,7 @@ function traceAgentUsage({
       response_id: responseId || null,
       service_tier: resolvedServiceTier,
       raw_usage: rawUsage || null,
-      ...(requestPrevResponseId !== undefined ? { request_prev_response_id: requestPrevResponseId } : {}),
-      ...(chainContinuous !== undefined ? { chain_continuous: chainContinuous } : {}),
-      ...(continuationResetReason !== undefined ? { continuation_reset_reason: continuationResetReason } : {}),
+      ...chainFields,
     },
   });
 }

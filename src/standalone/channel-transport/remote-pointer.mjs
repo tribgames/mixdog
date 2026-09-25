@@ -16,20 +16,17 @@ import { remoteStateFrame } from './remote-binding.mjs';
 // control client receives the immediate state; session routing is independent.
 function acquireRemoteState({ state, log, publishRemoteState, resolveTarget }, frame) {
   const target = resolveTarget();
-  if (!target) {
-    if (!state.pinnedSessionId) {
-      log('remote-state acquired ignored (no pinned session)');
-      return false;
-    }
-    state.remoteAcquired = true;
-    state.stickyRemoteFrame = frame;
-    publishRemoteState();
-    log(`remote-state acquired for session=${state.pinnedSessionId}`);
-    return true;
+  if (!target && !state.pinnedSessionId) {
+    log('remote-state acquired ignored (no pinned session)');
+    return false;
   }
   state.remoteAcquired = true;
   state.stickyRemoteFrame = frame;
   publishRemoteState();
+  if (!target) {
+    log(`remote-state acquired for session=${state.pinnedSessionId}`);
+    return true;
+  }
   if (!target.sse) {
     log('remote-state acquired not delivered (control client has no SSE); sticky set');
     return false;

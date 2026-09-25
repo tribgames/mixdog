@@ -12,7 +12,7 @@ function normalizedPath(path: string): string {
     .toLocaleLowerCase();
 }
 
-export function normalizeProjectCatalog(value: unknown): DesktopProjectSummary[] {
+function normalizeProjectCatalog(value: unknown): DesktopProjectSummary[] {
   if (!Array.isArray(value)) return [];
   const projects: DesktopProjectSummary[] = [];
   const seen = new Set<string>();

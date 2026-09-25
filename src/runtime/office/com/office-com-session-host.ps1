@@ -289,6 +289,11 @@ function Background-OwnedProcessIds($state) {
     return @($ids)
 }
 
+function Window-ProcessId([long]$hWnd) {
+    if (-not $hWnd) { return 0 }
+    return [MixdogOfficeInterop]::ProcessIdForWindow($hWnd)
+}
+
 function Enforce-BackgroundIsolation($state) {
     if ($state.Mode -ne 'background') { return $null }
     $processIds = @(Background-OwnedProcessIds $state)
@@ -313,26 +318,14 @@ function Enforce-BackgroundIsolation($state) {
         Start-Sleep -Milliseconds 25
     }
     $foregroundCurrent = [long][MixdogOfficeInterop]::ForegroundWindow()
-    $foregroundProcess = if ($foregroundCurrent) {
-        [MixdogOfficeInterop]::ProcessIdForWindow($foregroundCurrent)
-    }
-    else {
-        0
-    }
-    $ownedForeground = $processIds -contains [int]$foregroundProcess
+    $ownedForeground = $processIds -contains [int](Window-ProcessId $foregroundCurrent)
     $focusRestored = $false
     if ($ownedForeground -and $foregroundBefore -and $foregroundCurrent -ne $foregroundBefore) {
         $focusRestored = [bool][MixdogOfficeInterop]::RestoreForegroundWindow($foregroundBefore)
         Start-Sleep -Milliseconds 25
     }
     $foregroundAfter = [long][MixdogOfficeInterop]::ForegroundWindow()
-    $foregroundAfterProcess = if ($foregroundAfter) {
-        [MixdogOfficeInterop]::ProcessIdForWindow($foregroundAfter)
-    }
-    else {
-        0
-    }
-    $ownedForegroundRemaining = $processIds -contains [int]$foregroundAfterProcess
+    $ownedForegroundRemaining = $processIds -contains [int](Window-ProcessId $foregroundAfter)
     $state.BackgroundIsolationChecks = [int]$state.BackgroundIsolationChecks + 1
     $state.BackgroundHiddenWindows = [int]$state.BackgroundHiddenWindows + $hidden
     if ($focusRestored) {
@@ -425,9 +418,13 @@ function File-AppearsOpen([string]$path) {
     }
 }
 
-function New-OfficeApplication([string]$format, [bool]$visible) {
-    $app = New-Object -ComObject (ProgId-ForFormat $format)
-    return $app
+function Wait-NewOfficeProcessId([string]$format, $baselineProcessIds) {
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        $newProcessIds = @(Office-ProcessIds $format | Where-Object { $baselineProcessIds -notcontains [int]$_ })
+        if ($newProcessIds.Count -eq 1) { return [int]$newProcessIds[0] }
+        Start-Sleep -Milliseconds 50
+    }
+    return 0
 }
 
 function Initialize-OwnedOfficeApplication($app, [string]$format, [bool]$visible) {
@@ -471,6 +468,57 @@ function Create-OwnedDocument($app, [string]$format, [string]$path, [bool]$visib
                 # 내려/갔다 at the margin; WordWrap on wraps by word (verified in Word
                 # 2026-09-12). The portable template writes the same default.
                 try { $document.Styles.Item(-1).ParagraphFormat.WordWrap = $true } catch {}
+                # Normal as the portable template writes it: 1.08 lines (259/240) and widow control on. A Korean
+                # Word's Normal sets single lines with widow control off, so the same paragraphs ran shorter and broke
+                # onto their pages differently. (wdLineSpaceMultiple = 5; 12 pt is one line)
+                try {
+                    $normal = $document.Styles.Item(-1).ParagraphFormat
+                    $normal.LineSpacingRule = 5
+                    $normal.LineSpacing = [single](12 * 259 / 240)
+                    $normal.WidowControl = $true
+                }
+                catch {}
+                # Korean Word's Title style ("제목") is centred; the portable template's Title is set flush left with the
+                # text under it. A new document starts from the portable default, so a title written with style:'Title'
+                # sits where the same file from the portable writer puts it. (wdStyleTitle = -63)
+                try { $document.Styles.Item(-63).ParagraphFormat.Alignment = 0 } catch {}
+                # The subtitle and the headings as the portable template sets them: a Korean Word centres the subtitle
+                # and sets "제목 1" in the light heading face at a regular weight, so style:'Heading 1' printed a thin
+                # heading through Word and a bold one in the portable file. Headings take the body face, bold, at
+                # 16 / 14 / 13 / 12 pt with 12 / 10 / 8 / 8 pt before and 6 pt after. (wdStyleSubtitle = -75,
+                # wdStyleHeading1..4 = -2..-5)
+                try { $document.Styles.Item(-75).ParagraphFormat.Alignment = 0 } catch {}
+                # The portable page's margins, 25 mm on every side with the header and footer 12.5 mm in: a Korean
+                # Word's A4 opens 30 mm at the top and 25.4 mm elsewhere, so the same text broke onto its pages
+                # differently through the two backends.
+                try {
+                    $setup = $document.PageSetup
+                    $setup.TopMargin = [single]70.9
+                    $setup.BottomMargin = [single]70.9
+                    $setup.LeftMargin = [single]70.9
+                    $setup.RightMargin = [single]70.9
+                    $setup.HeaderDistance = [single]35.45
+                    $setup.FooterDistance = [single]35.45
+                }
+                catch {}
+                $bodyFont = $document.Styles.Item(-1).Font
+                $headings = @(@(-2, 16, 12), @(-3, 14, 10), @(-4, 13, 8), @(-5, 12, 8))
+                foreach ($heading in $headings) {
+                    try {
+                        $style = $document.Styles.Item($heading[0])
+                        $style.Font.Name = [string]$bodyFont.Name
+                        $style.Font.NameFarEast = [string]$bodyFont.NameFarEast
+                        $style.Font.Bold = $true
+                        $style.Font.Size = $heading[1]
+                        $style.ParagraphFormat.SpaceBefore = $heading[2]
+                        $style.ParagraphFormat.SpaceAfter = 6
+                    }
+                    catch {}
+                }
+                # Korean Word's template balances single-byte against double-byte widths, which sets every space between
+                # Hangul words half a Hangul wide: the Word page ran about 60% wider gaps than the portable preview and
+                # wrapped earlier (verified in Word 2026-09-25). wdDontBalanceSingleByteDoubleByteWidth = 16.
+                try { $document.Compatibility(16) = $true } catch {}
                 try { $document.SaveAs2($path, $saveFormat) } catch { $document.SaveAs($path, $saveFormat) }
             }
             'xlsx' {
@@ -595,14 +643,10 @@ function Open-SessionState($payload) {
                 throw "Office document not found: $path"
             }
             $visible = $mode -eq 'visible'
-            $app = New-OfficeApplication $format $visible
+            $app = New-Object -ComObject (ProgId-ForFormat $format)
             $applicationHwnd = Application-Hwnd $app $null $format
-            $processId = if ($applicationHwnd) { [MixdogOfficeInterop]::ProcessIdForWindow($applicationHwnd) } else { 0 }
-            for ($attempt = 0; -not $processId -and $attempt -lt 20; $attempt++) {
-                $newProcessIds = @(Office-ProcessIds $format | Where-Object { $baselineProcessIds -notcontains [int]$_ })
-                if ($newProcessIds.Count -eq 1) { $processId = [int]$newProcessIds[0] }
-                if (-not $processId) { Start-Sleep -Milliseconds 50 }
-            }
+            $processId = Window-ProcessId $applicationHwnd
+            if (-not $processId) { $processId = Wait-NewOfficeProcessId $format $baselineProcessIds }
             $ownsApplication = $processId -gt 0 -and $baselineProcessIds -notcontains [int]$processId
             $sharedBackgroundProcess = -not $ownsApplication
             if ($mode -eq 'background' -and -not $ownsApplication) {
@@ -634,15 +678,9 @@ function Open-SessionState($payload) {
             }
         }
         $foregroundActivated = $mode -eq 'visible' -and $format -eq 'pptx' -and (Set-OfficeForeground $hWnd)
-        $processId = if ($hWnd) { [MixdogOfficeInterop]::ProcessIdForWindow($hWnd) } else { 0 }
+        $processId = Window-ProcessId $hWnd
         if ($mode -eq 'background' -and -not $processId) {
-            for ($attempt = 0; -not $processId -and $attempt -lt 20; $attempt++) {
-                $newProcessIds = @(
-                    Office-ProcessIds $format | Where-Object { $baselineProcessIds -notcontains [int]$_ }
-                )
-                if ($newProcessIds.Count -eq 1) { $processId = [int]$newProcessIds[0] }
-                if (-not $processId) { Start-Sleep -Milliseconds 50 }
-            }
+            $processId = Wait-NewOfficeProcessId $format $baselineProcessIds
         }
         $isolatedProcess = $mode -ne 'background' -or (
             $processId -gt 0 -and $baselineProcessIds -notcontains [int]$processId
@@ -729,15 +767,21 @@ function Repair-ExcelPageSetupDpi([string]$path) {
     return $changed
 }
 
-function Reopen-BackgroundExcelSession($state, [string]$restorePath = '') {
-    if ($state.Format -ne 'xlsx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
-        throw 'Full-file Excel restore is available only for owned background sessions'
-    }
+# Word's and Excel's Close both take "save changes" first; the reference is
+# dropped even when Close throws, so the caller reopens from a clean state.
+function Close-StateDocumentWithoutSaving($state) {
     $current = $state.Document
     try { $current.Close($false) } finally {
         try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($current) } catch {}
         $state.Document = $null
     }
+}
+
+function Reopen-BackgroundExcelSession($state, [string]$restorePath = '') {
+    if ($state.Format -ne 'xlsx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
+        throw 'Full-file Excel restore is available only for owned background sessions'
+    }
+    Close-StateDocumentWithoutSaving $state
     if (-not [string]::IsNullOrWhiteSpace($restorePath)) {
         [System.IO.File]::Copy([System.IO.Path]::GetFullPath($restorePath), [System.IO.Path]::GetFullPath($state.Path), $true)
     }
@@ -750,11 +794,7 @@ function Reopen-BackgroundWordSession($state) {
     if ($state.Format -ne 'docx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
         throw 'Word reopen validation is available only for owned background sessions'
     }
-    $current = $state.Document
-    try { $current.Close($false) } finally {
-        try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($current) } catch {}
-        $state.Document = $null
-    }
+    Close-StateDocumentWithoutSaving $state
     $state.Document = $state.App.Documents.Open($state.Path)
 }
 

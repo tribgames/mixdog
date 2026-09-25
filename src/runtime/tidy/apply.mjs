@@ -87,7 +87,7 @@ export function applyReplacements(buffer, replacements) {
 }
 
 /** Post-write bookkeeping for one path; every step is best-effort. */
-export function noteWrittenFile(fullPath, { sessionId = null } = {}) {
+function noteWrittenFile(fullPath, { sessionId = null } = {}) {
   try {
     invalidateBuiltinResultCache([fullPath]);
   } catch {
@@ -115,7 +115,7 @@ export function noteWrittenFiles(fullPaths, options = {}) {
 }
 
 /** Write one file through the pipeline and invalidate. */
-export async function writeThroughPipeline(fullPath, content, { sessionId = null, signal = null } = {}) {
+async function writeThroughPipeline(fullPath, content, { sessionId = null, signal = null } = {}) {
   const guard = guardTidyWritePath(fullPath);
   if (guard) throw new Error(guard);
   await atomicWrite(fullPath, content, { sessionId, signal });

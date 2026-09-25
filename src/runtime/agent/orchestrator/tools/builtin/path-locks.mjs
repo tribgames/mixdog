@@ -11,18 +11,18 @@ export function withPathLock(absPath, fn) {
   const lockKey = pathLockKey(absPath);
   const prev = editLocks.get(lockKey) ?? Promise.resolve();
   const next = prev.then(fn, fn); // pass through errors so chain never stalls
-  editLocks.set(
-    lockKey,
-    next.then(
-      () => {
-        if (editLocks.get(lockKey) === next) editLocks.delete(lockKey);
-      },
-      () => {
-        if (editLocks.get(lockKey) === next) editLocks.delete(lockKey);
-      }
-    )
-  );
+  // The map holds the settled tail, so that is what a later caller replaces;
+  // an entry still equal to it once it settles has no waiter behind it.
+  const release = () => {
+    if (editLocks.get(lockKey) === tail) editLocks.delete(lockKey);
+  };
+  const tail = next.then(release, release);
+  editLocks.set(lockKey, tail);
   return next;
+}
+
+export function _pathLockCountForTest() {
+  return editLocks.size;
 }
 
 export function withBuiltinPathLocks(paths, fn) {

@@ -2,7 +2,7 @@
 // session id. External agent views never enter the index, so a later ordinary
 // materialization can adopt their viewers and take authority.
 
-export function createSessionAddressIndex({ sessionsById, externalViewEntries, addSubscriber }) {
+export function createSessionAddressIndex({ sessionsById, externalViewEntries, addSubscriber, onSessionLive }) {
   function currentSessionId(entry) {
     return String(entry?.runtime?.getState?.()?.sessionId || '');
   }
@@ -35,6 +35,8 @@ export function createSessionAddressIndex({ sessionsById, externalViewEntries, a
     }
     sessionsById.set(nextId, entry);
     entry.indexedSessionId = nextId;
+    // A live runtime is now the authority: its cold disk projections are dead.
+    if (existing !== entry) onSessionLive(nextId);
     return nextId;
   }
 

@@ -43,7 +43,10 @@ test('a formula reading a defined name that links to another workbook is an exte
   ];
   const findings = auditXlsxFormulas([rates], { definedNames });
   assert.deepEqual(codesAt(findings, 'external_link_reference'), ['/sheet[Plan]/cell[B2]']);
-  assert.match(findings.find((entry) => entry.code === 'external_link_reference').message, /reads FxRate, a defined name/);
+  assert.match(
+    findings.find((entry) => entry.code === 'external_link_reference').message,
+    /reads FxRate, a defined name/
+  );
   assert.deepEqual(codesAt(auditXlsxFormulas([rates]), 'external_link_reference'), []);
 });
 
@@ -604,4 +607,20 @@ test('recalculation error summary tallies error cells by type with locations', a
   assert.deepEqual(summary.byType['#DIV/0!'], { count: 2, cells: ['Model!B1', 'Checks!A1'], truncated: 0 });
   assert.deepEqual(summary.byType['#NAME?'].cells, ['Model!C1']);
   assert.deepEqual(summary.unparsed, ['Model!C1']);
+});
+
+// The Office reader reports the workbook font on every cell; counted as styling, a sheet of plain data passed the
+// hierarchy review on Excel and failed it portably.
+test('the workbook face on every cell is not a hierarchy', () => {
+  const face = { fontName: '맑은 고딕', fontSize: 11 };
+  const cells = Array.from({ length: 12 }, (_, index) => ({ ref: `A${index + 1}`, value: `행 ${index + 1}`, style: face }));
+  const document = { sheets: [{ name: 'Data', path: '/sheet[Data]', cells }] };
+  const codes = (sheetCells) =>
+    reviewOfficeStructure({ format: 'xlsx', document: { sheets: [{ ...document.sheets[0], cells: sheetCells }] } }).map(
+      (entry) => entry.code
+    );
+  assert.ok(codes(cells).includes('worksheet_hierarchy_missing'));
+  // A bold header is a hierarchy, as it is portably.
+  const headed = [{ ...cells[0], style: { ...face, bold: true } }, ...cells.slice(1)];
+  assert.ok(!codes(headed).includes('worksheet_hierarchy_missing'));
 });

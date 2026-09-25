@@ -262,64 +262,6 @@ fn rank_cached_corpus(
     })
 }
 
-/// The next candidates a live fuzzy walk published, or the reason the stream
-/// ended: an abandoned walk is not an error here, it simply ranks nothing
-/// more, while a failed walk and cancellation are.
-enum RankedBatch {
-    Paths(Vec<String>),
-    Complete,
-    Abandoned,
-    TimedOut,
-}
-
-/// Take the paths published past `cursor` as the wire-relative strings the
-/// ranker scores, waiting in short slices while the walk runs.
-fn next_ranked_batch(
-    live: &LiveWalk,
-    cursor: &mut usize,
-    scope: &FuzzyScope<'_>,
-    cancelled: &AtomicBool,
-    deadline_at: Option<Instant>,
-) -> Result<RankedBatch, String> {
-    let root = scope.root;
-    let mut files = lock_recover(&live.files);
-    while *cursor >= files.len() {
-        if live.enumeration_done.load(Ordering::Acquire) {
-            return Ok(RankedBatch::Complete);
-        }
-        let state = lock_recover(&live.state);
-        match &*state {
-            LiveState::Done(_) => return Ok(RankedBatch::Complete),
-            LiveState::Abandoned => return Ok(RankedBatch::Abandoned),
-            LiveState::Failed(error) => return Err(error.clone()),
-            LiveState::Running => {}
-        }
-        drop(state);
-        files = live
-            .files_cond
-            .wait_timeout(files, Duration::from_millis(10))
-            .unwrap_or_else(|e| e.into_inner())
-            .0;
-        if cancelled.load(Ordering::Relaxed) {
-            return Err(CANCELLED.to_string());
-        }
-        if deadline_expired(deadline_at) {
-            return Ok(RankedBatch::TimedOut);
-        }
-    }
-    // Materialize the wire-relative strings once while advancing the
-    // published cursor. The old path cloned every PathBuf into a temporary
-    // batch and then allocated the same strings, which was costly across
-    // hundreds of thousands of broad candidates.
-    let batch: Vec<String> = files[*cursor..]
-        .iter()
-        .filter(|file| scope.filter.allows(file))
-        .map(|file| relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file)))
-        .collect::<Vec<_>>();
-    *cursor = files.len();
-    Ok(RankedBatch::Paths(batch))
-}
-
 /// Rank a walk that is still running: score every batch of paths the walker
 /// publishes, then wait for the next one, so the response is bounded by the
 /// deadline rather than by the size of the tree.
@@ -355,14 +297,25 @@ fn rank_live_walk(
     }
     let mut cursor = 0usize;
     loop {
-        let batch = match next_ranked_batch(&live, &mut cursor, scope, cancelled, deadline_at)? {
-            RankedBatch::Paths(batch) => batch,
-            RankedBatch::Complete => {
+        // Materialize the wire-relative strings the ranker scores once, under
+        // the published-files lock, instead of cloning every PathBuf into a
+        // temporary batch first: that was costly across hundreds of thousands
+        // of broad candidates.
+        let take = |files: &[PathBuf]| -> Vec<String> {
+            files
+                .iter()
+                .filter(|file| scope.filter.allows(file))
+                .map(|file| relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file)))
+                .collect()
+        };
+        let batch = match next_stream_batch(&live, &mut cursor, cancelled, deadline_at, take)? {
+            StreamBatch::Items(batch) => batch,
+            StreamBatch::Complete => {
                 walk_complete = true;
                 break;
             }
-            RankedBatch::Abandoned => break,
-            RankedBatch::TimedOut => {
+            StreamBatch::Abandoned => break,
+            StreamBatch::TimedOut => {
                 timed_out = true;
                 break;
             }
@@ -446,14 +399,13 @@ pub(super) fn handle_fuzzy(
 
     let inventory_ms = inventory_started_at.elapsed().as_secs_f64() * 1_000.0;
     let inventory_complete = walk_complete && walk_errors == 0;
-    let mut matches = matches.into_vec();
-    matches.sort_by(|left, right| {
-        right
-            .score
-            .cmp(&left.score)
-            .then_with(|| left.path.cmp(&right.path))
-    });
-    let paths: Vec<String> = matches.into_iter().map(|entry| entry.path).collect();
+    // FuzzyHit orders best score first, then path, so the ascending heap
+    // order is the response order.
+    let paths: Vec<String> = matches
+        .into_sorted_vec()
+        .into_iter()
+        .map(|entry| entry.path)
+        .collect();
     Ok(serde_json::json!({
         "id": req.id,
         "matches": paths,

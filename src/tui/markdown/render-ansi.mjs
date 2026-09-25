@@ -17,6 +17,7 @@ import { marked } from 'marked';
 import { formatToken } from './format-token.mjs';
 import { trimPartialClosingFences, findOpenFenceStart } from './stream-fence.mjs';
 import { getThemeVersion } from '../theme.mjs';
+import { touchLru } from './lru.mjs';
 
 const TOKEN_CACHE_MAX = 500;
 const tokenCache = new Map();
@@ -109,16 +110,11 @@ function lexMarkdown(content, { trimPartialFences = false } = {}) {
   }
   const hit = tokenCache.get(text);
   if (hit) {
-    tokenCache.delete(text);
-    tokenCache.set(text, hit);
+    touchLru(tokenCache, text, hit, TOKEN_CACHE_MAX);
     return hit;
   }
   const tokens = marked.lexer(text);
-  if (tokenCache.size >= TOKEN_CACHE_MAX) {
-    const first = tokenCache.keys().next().value;
-    if (first !== undefined) tokenCache.delete(first);
-  }
-  tokenCache.set(text, tokens);
+  touchLru(tokenCache, text, tokens, TOKEN_CACHE_MAX);
   return tokens;
 }
 

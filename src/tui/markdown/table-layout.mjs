@@ -3,7 +3,7 @@
  *
  * This is the SINGLE SOURCE OF TRUTH for how a marked `table` token is laid out
  * into terminal lines. Both the renderer (components/MarkdownTable.jsx) and the
- * row-height estimator (App.jsx) call `buildTableRender` so the visible line
+ * row-height estimator (measure-rendered-rows.mjs) call `buildTableRender` so the visible line
  * count and the estimated line count can never drift (lockstep).
  *
  * `buildTableRender(token, terminalWidth)` returns the exact array of strings

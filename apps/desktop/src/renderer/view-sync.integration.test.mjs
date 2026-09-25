@@ -23,6 +23,7 @@ test('real host, relay and browser shim recover through reconnects and backgroun
   const f = await viewSyncHost({ runTurns: true });
   let relay, handle, dom, stop, stopPane;
   const sockets = [];
+  const graceTimers = new Map();
   const priorWindow = globalThis.window;
   const store = createSessionLaneStore({ decorator: { decorate: (value) => value, clear() {} } });
   try {
@@ -79,6 +80,10 @@ test('real host, relay and browser shim recover through reconnects and backgroun
         }
         return super.emit(event, ...args);
       }
+      close(code, reason) {
+        this.closeArgs ??= [code, reason];
+        return super.close(code, reason);
+      }
       releaseDeferredEvents() {
         this.holdMessages = false;
         this.holdClose = false;
@@ -86,6 +91,26 @@ test('real host, relay and browser shim recover through reconnects and backgroun
       }
     }
     w.WebSocket = BrowserSocket;
+    // The 30s background grace is driven by hand instead of waited out.
+    const realSetTimeout = w.setTimeout.bind(w);
+    const realClearTimeout = w.clearTimeout.bind(w);
+    w.setTimeout = (fn, ms, ...args) => {
+      if (ms !== 30_000) return realSetTimeout(fn, ms, ...args);
+      const id = realSetTimeout(() => {}, 2 ** 31 - 1);
+      graceTimers.set(id, fn);
+      return id;
+    };
+    w.clearTimeout = (id) => {
+      graceTimers.delete(id);
+      realClearTimeout(id);
+    };
+    const expireBackgroundGrace = () => {
+      assert.equal(graceTimers.size, 1, 'going hidden arms exactly one grace timer');
+      const [[id, fn]] = graceTimers;
+      graceTimers.delete(id);
+      realClearTimeout(id);
+      fn();
+    };
     for (const [key, value] of Object.entries({
       'mixdog.remote-token': registered.token,
       'mixdog.remote-paired': '1',
@@ -164,12 +189,37 @@ test('real host, relay and browser shim recover through reconnects and backgroun
       w.dispatchEvent(new w.Event('pageshow'));
       w.dispatchEvent(new w.Event('focus'));
     };
+    // A return within the grace keeps the relay leg: no close, no redial, and
+    // the wake still resyncs whatever was pushed while hidden.
+    {
+      const live = sockets.at(-1);
+      const count = sockets.length;
+      background();
+      assert.equal(graceTimers.size, 1, 'going hidden arms exactly one grace timer');
+      assert.notEqual(w.document.documentElement.dataset.mixdogRemotePhase, 'background');
+      f.put('lead', 'answer within grace');
+      foreground();
+      assert.equal(graceTimers.size, 0, 'a return within the grace cancels it');
+      await until(
+        () =>
+          text.textContent === 'answer within grace' &&
+          w.document.documentElement.dataset.mixdogRemoteConnection === 'connected'
+      );
+      await api.getSnapshot();
+      assert.equal(sockets.length, count, 'a return within the grace must not redial');
+      assert.equal(sockets.at(-1), live);
+      assert.equal(live.closeArgs, undefined, 'a return within the grace must not close the socket');
+      assert.equal(live.readyState, WebSocket.OPEN);
+    }
     for (let cycle = 0; cycle < 3; cycle++) {
       const previous = sockets.at(-1);
       const count = sockets.length;
       previous.holdClose = true;
       background();
+      assert.equal(previous.closeArgs, undefined, 'going hidden alone must not close the socket');
+      expireBackgroundGrace();
       assert.equal(w.document.documentElement.dataset.mixdogRemotePhase, 'background');
+      assert.deepEqual(previous.closeArgs, [1000, 'background']);
       await until(() => previous.deferredEvents.some(([event]) => event === 'close'));
       assert.equal(sockets.length, count, 'background suspension must not redial');
       f.put('lead', `background answer ${cycle}`);
@@ -191,6 +241,7 @@ test('real host, relay and browser shim recover through reconnects and backgroun
     // Suspend before encryption is ready. The pending open must settle even
     // without onclose, and its queued challenge must not rekey the new socket.
     background();
+    expireBackgroundGrace();
     holdNextMessages = true;
     const beforeHandshake = sockets.length;
     foreground();
@@ -206,6 +257,7 @@ test('real host, relay and browser shim recover through reconnects and backgroun
     });
     await delay(0);
     background();
+    expireBackgroundGrace();
     await until(() => interrupted !== undefined);
     await waiting;
     assert.equal(interrupted.code, 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED');
@@ -292,6 +344,9 @@ test('real host, relay and browser shim recover through reconnects and backgroun
     if (dom) {
       Object.defineProperty(dom.window.document, 'visibilityState', { value: 'hidden', configurable: true });
       dom.window.dispatchEvent(new dom.window.Event('pagehide'));
+      // Suspend now, so closing sockets never redial into a closed window.
+      for (const expire of graceTimers.values()) expire();
+      graceTimers.clear();
     }
     for (const socket of sockets) socket.terminate();
     dom?.window.close();

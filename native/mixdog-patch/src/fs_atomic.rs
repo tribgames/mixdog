@@ -148,8 +148,9 @@ pub(crate) fn atomic_write_replace(path: &Path, bytes: &[u8]) -> Result<(), Stri
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let existing_permissions = fs::metadata(path).ok().map(|m| m.permissions());
-    let original_snapshot = fs::metadata(path).ok().map(|m| snapshot_from_metadata(&m));
+    let existing = fs::metadata(path).ok();
+    let existing_permissions = existing.as_ref().map(|m| m.permissions());
+    let original_snapshot = existing.as_ref().map(snapshot_from_metadata);
 
     for attempt in 0..32u32 {
         let tmp = parent.join(format!(

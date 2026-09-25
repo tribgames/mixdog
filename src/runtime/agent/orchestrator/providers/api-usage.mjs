@@ -8,6 +8,8 @@ import { JsonMemoryCache } from './lib/json-memory-cache.mjs';
 const CACHE_FILE = 'api-usage-cache.json';
 const LIVE_TTL_MS = 5 * 60_000;
 const STALE_TTL_MS = 60 * 60_000;
+// Billing/usage reports cover the trailing 31 days.
+const USAGE_LOOKBACK_MS = 31 * 24 * 60 * 60_000;
 const diskJsonCache = new JsonMemoryCache();
 
 function cachePath() {
@@ -273,7 +275,7 @@ async function fetchOpenAIDashboardUsageSnapshot(sessionKey) {
   }
   try {
     const endDate = ymd(Date.now());
-    const startDate = ymd(Date.now() - 31 * 24 * 60 * 60_000);
+    const startDate = ymd(Date.now() - USAGE_LOOKBACK_MS);
     usage = await fetchJson(
       `https://api.openai.com/dashboard/billing/usage?start_date=${startDate}&end_date=${endDate}`,
       { headers }
@@ -309,7 +311,7 @@ async function fetchOpenAIDashboardUsageSnapshot(sessionKey) {
 
 async function fetchOpenAICostSnapshot(apiKey) {
   if (!apiKey) return null;
-  const start = Math.floor((Date.now() - 31 * 24 * 60 * 60_000) / 1000);
+  const start = Math.floor((Date.now() - USAGE_LOOKBACK_MS) / 1000);
   const url = new URL('https://api.openai.com/v1/organization/costs');
   url.searchParams.set('start_time', String(start));
   url.searchParams.set('limit', '31');
@@ -321,7 +323,7 @@ async function fetchOpenAICostSnapshot(apiKey) {
 
 async function fetchOpenAICompletionUsageSnapshot(apiKey) {
   if (!apiKey) return null;
-  const start = Math.floor((Date.now() - 31 * 24 * 60 * 60_000) / 1000);
+  const start = Math.floor((Date.now() - USAGE_LOOKBACK_MS) / 1000);
   const url = new URL('https://api.openai.com/v1/organization/usage/completions');
   url.searchParams.set('start_time', String(start));
   url.searchParams.set('bucket_width', '1d');
@@ -389,7 +391,7 @@ async function fetchAnthropicCostSnapshot() {
   const keys = anthropicAdminKeys();
   if (!keys.length)
     return unavailableSnapshot('anthropic', { message: 'Set ANTHROPIC_ADMIN_API_KEY for usage/cost report' });
-  const start = new Date(Date.now() - 31 * 24 * 60 * 60_000).toISOString();
+  const start = new Date(Date.now() - USAGE_LOOKBACK_MS).toISOString();
   const url = new URL('https://api.anthropic.com/v1/organizations/cost_report');
   url.searchParams.set('starting_at', start);
   url.searchParams.set('bucket_width', '1d');

@@ -1,5 +1,5 @@
 import { posix } from 'node:path';
-import { chartWorkbookRows, chartXml } from './portable-chart.mjs';
+import { CHART_TEXT, chartWorkbookRows, chartXml } from './portable-chart.mjs';
 import {
   addPackageRelationship,
   partRelationshipPath,
@@ -47,6 +47,7 @@ export async function handleAddChart(context, op) {
       showLegend: op.showLegend,
       zeroBaseline: op.zeroBaseline,
       externalDataId: 'rId1',
+      text: CHART_TEXT.slide,
     }),
     rows: chartWorkbookRows(categories, series),
   });
@@ -72,6 +73,61 @@ export async function handleAddChart(context, op) {
     )
   );
   return { op: op.op, changed: true, shapeId: id, chart: chartPart };
+}
+
+// A data refresh changes the numbers, not the chart: the deck's label face and size, the number format on the
+// labels, the gap between the bars, the accent point, and the axis the author hid all stay as authored. The chart
+// used to be written again from the generic template around the new values, which kept a list of properties and
+// lost the rest ("1,420" came back "1510" in a bold label face with an axis line drawn). When the new data has the
+// chart's own series and every series one value per category, the caches and ranges are rewritten in place;
+// anything else (another series count, a type or title change) takes the rebuild below.
+const REBUILD_FIELDS = ['chartType', 'title', 'showValues', 'showLegend', 'zeroBaseline', 'valueNumberFormat', 'dataLabelPosition', 'dataLabelColor'];
+function refreshChartDataInPlace(xml, categories, series, op) {
+  if (REBUILD_FIELDS.some((field) => op[field] !== undefined)) return null;
+  const blocks = [...String(xml).matchAll(/<c:ser>[\s\S]*?<\/c:ser>/g)];
+  const count = categories.length;
+  if (!blocks.length || blocks.length !== series.length || !count) return null;
+  if (series.some((entry) => !Array.isArray(entry?.values) || entry.values.length !== count)) return null;
+  const lastRow = count + 1;
+  const toRow = (formula) => formula.replace(/\$(\d+)$/, () => `$${lastRow}`);
+  const categoryPoints = categories.map((entry, index) => `<c:pt idx="${index}"><c:v>${xmlEncode(String(entry ?? ''))}</c:v></c:pt>`).join('');
+  let next = String(xml);
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    let block = blocks[index][0];
+    const entry = series[index];
+    if (!/<c:val>[\s\S]*?<c:numCache>/.test(block)) return null;
+    if (entry.name != null) {
+      block = block.replace(
+        /(<c:tx>\s*<c:strRef>[\s\S]*?<c:strCache>)[\s\S]*?(<\/c:strCache>)/,
+        (_, open, close) => `${open}<c:ptCount val="1"/><c:pt idx="0"><c:v>${xmlEncode(String(entry.name))}</c:v></c:pt>${close}`
+      );
+    }
+    if (/<c:cat>[\s\S]*?<c:multiLvlStrCache>/.test(block)) {
+      block = block.replace(
+        /(<c:cat>[\s\S]*?<c:multiLvlStrCache>)[\s\S]*?(<\/c:multiLvlStrCache>)/,
+        (_, open, close) => `${open}<c:ptCount val="${count}"/><c:lvl>${categoryPoints}</c:lvl>${close}`
+      );
+    } else if (/<c:cat>[\s\S]*?<c:strCache>/.test(block)) {
+      block = block.replace(
+        /(<c:cat>[\s\S]*?<c:strCache>)[\s\S]*?(<\/c:strCache>)/,
+        (_, open, close) => `${open}<c:ptCount val="${count}"/>${categoryPoints}${close}`
+      );
+    } else return null;
+    const valuePoints = entry.values
+      .map((value, point) => (value === null || value === '' || !Number.isFinite(Number(value)) ? '' : `<c:pt idx="${point}"><c:v>${Number(value)}</c:v></c:pt>`))
+      .join('');
+    block = block
+      .replace(
+        /(<c:val>[\s\S]*?<c:numCache>\s*(?:<c:formatCode>[\s\S]*?<\/c:formatCode>\s*)?)[\s\S]*?(<\/c:numCache>)/,
+        (_, open, close) => `${open}<c:ptCount val="${count}"/>${valuePoints}${close}`
+      )
+      .replace(/(<c:cat>[\s\S]*?<c:f>)([^<]*)(<\/c:f>)/, (_, open, formula, close) => `${open}${toRow(formula)}${close}`)
+      .replace(/(<c:val>[\s\S]*?<c:f>)([^<]*)(<\/c:f>)/, (_, open, formula, close) => `${open}${toRow(formula)}${close}`)
+      // A point override past the new last point has nothing to colour.
+      .replace(/<c:dPt>[\s\S]*?<\/c:dPt>/g, (point) => (Number(/<c:idx val="(\d+)"/.exec(point)?.[1]) < count ? point : ''));
+    next = `${next.slice(0, blocks[index].index)}${block}${next.slice(blocks[index].index + blocks[index][0].length)}`;
+  }
+  return next;
 }
 
 export async function handleSetChartData(context, op) {
@@ -100,10 +156,11 @@ export async function handleSetChartData(context, op) {
     const filled = entry.color === undefined && kept.seriesColors[index] ? { color: kept.seriesColors[index] } : {};
     return Object.keys(carried).length || Object.keys(filled).length ? { ...entry, ...filled, ...carried } : entry;
   });
+  const refreshed = refreshChartDataInPlace(existing, categories, series, op);
   await writePresentationChart(zip, {
     chartPart,
     embeddingPart,
-    chart: chartXml({
+    chart: refreshed || chartXml({
       chartType: op.chartType || detectChartType(existing),
       title: op.title ?? chartTitleText(existing),
       categories,
@@ -116,6 +173,7 @@ export async function handleSetChartData(context, op) {
       zeroBaseline: op.zeroBaseline === undefined ? kept.zeroBaseline : op.zeroBaseline === true,
       axis: kept.axis,
       externalDataId: 'rId1',
+      text: CHART_TEXT.slide,
     }),
     rows: chartWorkbookRows(categories, coloured),
   });
@@ -272,11 +330,27 @@ export async function handleSetChartSeries(context, op) {
   return { op: op.op, changed: true, slide: Number(op.slide), series: wanted };
 }
 
+// The kinds by their names (exponential, moving_average) or the file's own codes (exp, movingAvg): the Office
+// backend took only the names and drew 'exp' as a straight line, this one only the codes.
+const TRENDLINE_TYPES = Object.freeze({
+  linear: 'linear',
+  exponential: 'exp',
+  exp: 'exp',
+  logarithmic: 'log',
+  log: 'log',
+  polynomial: 'poly',
+  poly: 'poly',
+  power: 'power',
+  movingaverage: 'movingAvg',
+  movingavg: 'movingAvg',
+});
+
 function trendlineXml(op) {
-  const types = ['linear', 'poly', 'exp', 'log', 'movingAvg', 'power'];
-  const type = String(op.type || 'linear').trim();
-  if (!types.includes(type)) {
-    throw new Error(`set_chart_trendline type must be one of: ${types.join(', ')}`);
+  const type = TRENDLINE_TYPES[String(op.type || 'linear').trim().toLowerCase().replace(/[\s_-]+/g, '')];
+  if (!type) {
+    throw new Error(
+      'set_chart_trendline type must be linear, exponential, logarithmic, polynomial, power, or moving_average'
+    );
   }
   return (
     `<c:trendline><c:trendlineType val="${type}"/>` +

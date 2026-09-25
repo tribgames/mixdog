@@ -41,12 +41,14 @@ function _compactedPatchTargets(value) {
       .replace(/[[\]\r\n]/g, '');
     if (p && p !== '/dev/null' && !seen.has(p)) seen.add(p);
   };
-  const v4a = /^\*\*\*\s*(?:Update|Add|Delete) File:\s*(.+)$/gim;
-  for (let m; seen.size < 12 && (m = v4a.exec(value)); ) add(m[1]);
-  if (!seen.size) {
-    const uni = /^(?:\+\+\+|---)\s+(?:[ab]\/)?(\S+)/gm;
-    for (let m; seen.size < 12 && (m = uni.exec(value)); ) add(m[1]);
-  }
+  const addMatches = (re) => {
+    for (const m of value.matchAll(re)) {
+      if (seen.size >= 12) break;
+      add(m[1]);
+    }
+  };
+  addMatches(/^\*\*\*\s*(?:Update|Add|Delete) File:\s*(.+)$/gim);
+  if (!seen.size) addMatches(/^(?:\+\+\+|---)\s+(?:[ab]\/)?(\S+)/gm);
   const all = [...seen];
   const shown = all.slice(0, 4).map((p) => (p.length > 70 ? `…${p.slice(-70)}` : p));
   if (!shown.length) return '';

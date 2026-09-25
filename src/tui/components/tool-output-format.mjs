@@ -111,7 +111,7 @@ const GREP_LINE_RE = /^(\s*)((?:[A-Za-z]:[\\/](?:[^\n:])*|[^\n:]*):\d+:|\d+:)(\s
 // http(s) URLs not wrapped in quotes/brackets/whitespace (conservative).
 const URL_RE = /https?:\/\/[^\s"'<>\x1b\\)\]]+/g;
 // CSI SGR and OSC sequences (BEL- or ST-terminated) — linkify plain text only.
-// eslint-disable-next-line no-control-regex
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matches ESC/BEL terminal escape bytes
 const ANSI_ESCAPE_RE = /\x1b(?:\[[0-9;]*m|\][\s\S]*?(?:\x07|\x1b\\))/g;
 
 // Visible-text tab stop for expanded tool output (cosmetic; what matters is that
@@ -120,7 +120,7 @@ const TOOL_OUTPUT_TAB_SIZE = 2;
 // Match ONE CSI-SGR or OSC sequence anchored at the string start (for the
 // ANSI-aware control normalizer below). Kept separate from the global
 // ANSI_ESCAPE_RE so neither one's lastIndex perturbs the other.
-// eslint-disable-next-line no-control-regex
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matches ESC/BEL terminal escape bytes
 const ANSI_SEQ_AT_START_RE = /^\x1b(?:\[[0-9;]*m|\][\s\S]*?(?:\x07|\x1b\\))/;
 
 /**
@@ -206,7 +206,7 @@ function inferLangFamily(pathArg) {
 /** Strip ONLY underline SGR (4 / 24) — other styles/colors are preserved. */
 function stripUnderlineAnsi(text) {
   return String(text ?? '').replace(
-    // eslint-disable-next-line no-control-regex
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: matches the ESC byte of SGR sequences
     /\x1b\[([0-9;]*)m/g,
     (seq, params) => {
       if (!params) return seq;

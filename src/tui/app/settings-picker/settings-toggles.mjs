@@ -34,27 +34,34 @@ export function createSettingsToggles({
   });
   const { cycleTheme } = createThemeCycler({ store, themeNotice, refreshSettings });
 
+  // Rows whose Enter flips them; ←/→ flips these too.
+  const toggles = new Map([
+    ['autocompact', toggleCompaction],
+    ['web-search-enabled', toggleWebSearch],
+    ['memory-enabled', toggleMemory],
+    ['voice', applyVoice],
+  ]);
+  // ←/→ only: Auto-clear's Enter opens its picker instead.
+  const cyclers = new Map([
+    ['autoclear', () => toggleAutoClear()],
+    ['output-style', (direction) => cycleOutputStyle(direction)],
+    ['theme', (direction) => cycleTheme(direction)],
+    ['workflow', (direction) => cycleWorkflow(direction)],
+  ]);
+
   /** ←/→ on a row: toggles flip, cyclers step in `direction`. */
   const cycleRow = (item, direction) => {
     const action = item?._action;
-    if (action === 'autoclear') toggleAutoClear();
-    else if (action === 'autocompact') toggleCompaction();
-    else if (action === 'web-search-enabled') toggleWebSearch();
-    else if (action === 'memory-enabled') toggleMemory();
-    else if (action === 'voice') applyVoice();
-    else if (action === 'output-style') cycleOutputStyle(direction);
-    else if (action === 'theme') cycleTheme(direction);
-    else if (action === 'workflow') cycleWorkflow(direction);
+    const toggle = toggles.get(action);
+    if (toggle) toggle();
+    else cyclers.get(action)?.(direction);
   };
 
   /** Enter on a toggle row flips it; false when the row is not a toggle. */
   const toggleRow = (item) => {
-    const action = item?._action;
-    if (action === 'autocompact') toggleCompaction();
-    else if (action === 'web-search-enabled') toggleWebSearch();
-    else if (action === 'memory-enabled') toggleMemory();
-    else if (action === 'voice') applyVoice();
-    else return false;
+    const toggle = toggles.get(item?._action);
+    if (!toggle) return false;
+    toggle();
     return true;
   };
 

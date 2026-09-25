@@ -14,15 +14,13 @@ const CLOSE_REASON = 'cancelled by agent close';
 // close / cleanup / closeAll: tearing workers down without leaving lingering
 // worker rows or tasks that would republish a closed session as `running`.
 export function createCloseFlow({ mgr, registry, views }) {
-  const { tags, tagAgents, tagCwds } = registry;
+  const { tags, tagAgents } = registry;
 
   // Stale local metadata only: resolveTag found no session in this
   // terminal/scope, so there is no sessionId-safe worker row to delete. Never
   // turn it into a tag-wide persisted-row removal.
   function forgetStaleLocalTag(target, task) {
-    tags.delete(target);
-    tagAgents.delete(target);
-    tagCwds.delete(target);
+    registry.unbindTag(target);
     if (task?.taskId) cancelBackgroundTask(task.taskId, CLOSE_REASON);
     return { closed: true, forgotten: true, tag: target, sessionId: null, task_id: task?.taskId || null };
   }

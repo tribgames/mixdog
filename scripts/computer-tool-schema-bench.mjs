@@ -7,6 +7,7 @@ import { getProvider, initProviders } from '../src/runtime/agent/orchestrator/pr
 import { estimateToolSchemaTokens } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
 import { validateComputerToolArgs } from '../src/runtime/computer-bridge/action-schema.mjs';
 import { TOOL_DEFS as COMPUTER_TOOL_DEFS } from '../src/runtime/computer-bridge/tool-defs.mjs';
+import { percentile, sortedFinite } from './lib/trace-stats.mjs';
 
 function arg(name, fallback) {
   const prefix = `--${name}=`;
@@ -32,16 +33,11 @@ function parseArgs(value) {
   }
 }
 
-function percentile(values, p) {
-  const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
-  if (!sorted.length) return null;
-  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * p) - 1))];
-}
-
 function distribution(values) {
+  const sorted = sortedFinite(values.map(Number));
   return {
-    p50: percentile(values.map(Number), 0.5),
-    p95: percentile(values.map(Number), 0.95),
+    p50: percentile(sorted, 50),
+    p95: percentile(sorted, 95),
   };
 }
 
@@ -450,8 +446,8 @@ const summary = {
   passed: rows.filter((row) => row.passed).length,
   total: rows.length,
   first_call_success_rate: rows.filter((row) => row.passed).length / rows.length,
-  p50_ms: percentile(durations, 0.5),
-  p95_ms: percentile(durations, 0.95),
+  p50_ms: percentile(sortedFinite(durations), 50),
+  p95_ms: percentile(sortedFinite(durations), 95),
   usage: {
     total_input_tokens: distribution(usageValues('inputTokens')),
     main_input_tokens: distribution(usageValues('mainInputTokens')),

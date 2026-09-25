@@ -587,8 +587,7 @@ html:not([data-mixdog-mobile-tabs]) :is(.session-sidebar, .session-sidebar-panel
   margin-right: calc(var(--mx-rail-trailing-center) - var(--mx-rail-gutter) - 12px);
 }
 .session-sidebar .session-group h2,
-.session-sidebar .sidebar-section-heading,
-.session-sidebar .project-group-heading {
+.session-sidebar .sidebar-section-heading {
   padding-inline: 0;
 }
 /* Recent/Automations/Remote/Archived rows share one inner frame inset while
@@ -633,8 +632,7 @@ html:not([data-mixdog-mobile-tabs]) :is(.session-sidebar, .session-sidebar-panel
 }
 /* Grouped rows keep the shared axis instead of stacking a second gutter. */
 .session-sidebar .automation-group-past,
-.session-sidebar .automation-group > div,
-.session-sidebar .project-group > div {
+.session-sidebar .automation-group > div {
   padding-left: 0;
 }
 .session-sidebar-panels .schedules-page,

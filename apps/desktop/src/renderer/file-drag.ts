@@ -24,7 +24,7 @@ function cleanStringPaths(value: unknown): string[] {
   ].slice(0, 100);
 }
 
-export function dataTransferHasPathPayload(transfer: DataTransfer): boolean {
+function dataTransferHasPathPayload(transfer: DataTransfer): boolean {
   const types = transferTypes(transfer);
   return types.includes(MIXDOG_PROJECT_PATHS_MIME) || types.includes(MIXDOG_ABSOLUTE_PATHS_MIME);
 }

@@ -149,7 +149,14 @@ async function parseWebhookBody(name, body, headers, deliveryId, res) {
     res.end(JSON.stringify({ error: 'unsupported content-type', expected: 'application/json' }));
     return REQUEST_HANDLED;
   }
-  const parsed = body ? JSON.parse(body) : {};
+  let parsed;
+  try {
+    parsed = body ? JSON.parse(body) : {};
+  } catch (error) {
+    // Tagged so the caller answers 400 for a malformed body only.
+    error.invalidJson = true;
+    throw error;
+  }
   const eventType = headers['x-github-event'] || null;
   // Invariant: skip self-generated GitHub issue_comment events. All
   // mixdog-authored issue comments are prefixed with "[mixdog "
@@ -191,21 +198,24 @@ async function processWebhookBody(req, res, name, rawBody, { getConfig, verifyRe
     await updateDeliveryStatus(name, deliveryId, 'pending');
     await handleWebhook(name, parsed, headers, res, deliveryId, dbEndpoint);
   } catch (err) {
-    logWebhook(`JSON parse error for ${name}: ${err}`);
-    // Terminal failed row: a 400 return must close out the `received` claim
+    const invalidJson = err?.invalidJson === true;
+    logWebhook(invalidJson ? `JSON parse error for ${name}: ${err}` : `${name}: request failed: ${err}`);
+    // Terminal failed row: an error return must close out the `received` claim
     // so retries don't loop on dedup.
     const _id = typeof deliveryId === 'string' && deliveryId ? deliveryId : null;
     if (_id) {
       try {
-        await updateDeliveryStatus(name, _id, 'failed', { error: `invalid JSON: ${err?.message || err}` });
+        await updateDeliveryStatus(name, _id, 'failed', {
+          error: invalidJson ? `invalid JSON: ${err?.message || err}` : String(err?.message || err),
+        });
       } catch (e2) {
         process.stderr.write(
           `mixdog webhook: failed to mark delivery ${name}/${_id} failed \u2014 ${e2?.message || e2}\n`
         );
       }
     }
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'invalid JSON' }));
+    res.writeHead(invalidJson ? 400 : 500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: invalidJson ? 'invalid JSON' : 'internal error' }));
   }
 }
 

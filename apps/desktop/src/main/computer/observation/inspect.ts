@@ -77,10 +77,10 @@ function diagnoseReport(diagnosis: Diagnosis): ComputerCommandResult {
     text: JSON.stringify({
       ok: windows !== null,
       action: 'diagnose',
-      platform: 'win32',
+      platform: process.platform,
       ready:
         windows !== null && (!requestedWindowId || Boolean(target)) && !inputBlocked && inputObservation.ready === true,
-      backend: 'win32_uia_powershell_electron',
+      backend: process.platform === 'win32' ? 'win32_uia_powershell_electron' : `${process.platform}_mixdog_computer_electron`,
       windows: {
         available: windows !== null,
         count: windows?.length || 0,

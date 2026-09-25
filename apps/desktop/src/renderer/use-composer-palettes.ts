@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { useMobileBack } from './mobile-back';
 import { desktopComposerSlashCommands } from './slash-commands';
 
-export type MentionMatch = { start: number; end: number; query: string };
+type MentionMatch = { start: number; end: number; query: string };
 
 export function scrollSelectedOptionIntoView(panel: RefObject<HTMLDivElement | null>) {
   panel.current

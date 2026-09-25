@@ -655,12 +655,10 @@ async function run(): Promise<void> {
   }
 }
 
-// Losing every fixture window ends this process with exit 0, which would hide a
-// mid-run failure behind nothing but a missing success marker. Keep the quit, and
-// say why it happened.
+// Losing every fixture window would otherwise quit with exit 0 and hide a
+// mid-run failure behind nothing but a missing success marker. run() owns the
+// exit code, so this only says why the windows are gone and never quits.
 app.on('window-all-closed', () => {
-  // run() owns the exit code. Quitting here races ahead of a failing assertion
-  // and ends the process with exit 0, hiding the real error.
   console.error('computer host integration lost every window before its success marker');
 });
 void app

@@ -25,9 +25,8 @@ import {
 import { ProgressSpinner } from './ProgressSpinner';
 import { GitFileDiff } from './ReviewPane';
 import { createSingleFlightRefresh } from './git-diff-refresh';
-import { createGitRefreshScheduler } from './git-refresh-scheduler';
+import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { prefetchDiffView } from './lazy-widgets';
-import { subscribeProjectFileChanges } from './project-file-changes';
 import { navigationKey } from './text-format';
 import { fetchSessionDiffFilePatch } from './session-diff-cache';
 
@@ -39,14 +38,6 @@ function diffSourceLabel(selection: GitDiffSelection): string {
     return t('Commit {{hash}}', { hash: String(selection.hash || '').slice(0, 8) });
   }
   return selection.source === 'staged' ? t('Staged Changes') : t('Working Tree Changes');
-}
-
-/** The session review diff is ONE patch for every file the session touched;
- *  the pane shows the slice for `rel` (the Session Diff rows open here),
- *  served from the shared session-diff cache so opening a file never
- *  recomputes the whole session diff. */
-async function loadSessionFilePatch(sessionId: string, rel: string): Promise<string> {
-  return fetchSessionDiffFilePatch(sessionId, rel);
 }
 
 export function GitDiffPane({
@@ -113,7 +104,10 @@ export function GitDiffPane({
     const request = epoch.current;
     setError('');
     const loadSelectionPatch = () => {
-      if (selection.source === 'session') return loadSessionFilePatch(String(selection.hash || ''), selection.rel);
+      // The session review diff is ONE patch for every file the session
+      // touched; the pane shows the slice for `rel`, served from the shared
+      // session-diff cache so opening a file never recomputes the whole diff.
+      if (selection.source === 'session') return fetchSessionDiffFilePatch(String(selection.hash || ''), selection.rel);
       if (selection.source === 'commit') {
         return api?.gitShowDiff?.(selection.project, String(selection.hash || ''), selection.rel);
       }
@@ -160,29 +154,14 @@ export function GitDiffPane({
       void load();
       return undefined;
     }
-    const scheduler = createGitRefreshScheduler(() => load(), {
-      safetyIntervalMs: 30_000,
-      activityDebounceMs: 125,
-      activityMinGapMs: 1_000,
-    });
-    const signal = () => scheduler.signal();
-    const refreshNow = () => scheduler.refreshNow();
-    const visibilityChanged = () => {
-      if (document.visibilityState === 'hidden') scheduler.pause();
-      else scheduler.resume();
-    };
-    const unsubscribeProject = subscribeProjectFileChanges(selection.project, signal);
-    window.addEventListener('focus', refreshNow);
-    window.addEventListener('mixdog:git-changed', signal);
-    document.addEventListener('visibilitychange', visibilityChanged);
-    if (document.visibilityState !== 'hidden') scheduler.resume();
-    return () => {
-      scheduler.dispose();
-      unsubscribeProject();
-      window.removeEventListener('focus', refreshNow);
-      window.removeEventListener('mixdog:git-changed', signal);
-      document.removeEventListener('visibilitychange', visibilityChanged);
-    };
+    return watchGitRefreshEvidence(
+      selection.project,
+      createGitRefreshScheduler(() => load(), {
+        safetyIntervalMs: 30_000,
+        activityDebounceMs: 125,
+        activityMinGapMs: 1_000,
+      })
+    );
   }, [active, load, metricKey, selection.source]);
   // Hunk staging exists for the index/worktree sources only: a commit or a
   // session slice is read-only, so it renders as ONE continuous diff.

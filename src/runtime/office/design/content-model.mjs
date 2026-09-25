@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { clone, plainObject, stableValue } from '../shared/values.mjs';
+import { clone, plainObject, sha256, stableValue } from '../shared/values.mjs';
 
 // A content id names a figure inside this package — nothing in the file format
 // reads it — so it takes letters of any script: a Korean deck should identify
@@ -135,9 +134,7 @@ export function normalizeOfficeContentModel(value) {
     facts,
     claims,
   };
-  normalized.fingerprint = createHash('sha256')
-    .update(JSON.stringify(stableValue(normalized)))
-    .digest('hex');
+  normalized.fingerprint = sha256(JSON.stringify(stableValue(normalized)));
   return normalized;
 }
 

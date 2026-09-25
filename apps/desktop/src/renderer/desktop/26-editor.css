@@ -292,8 +292,7 @@
 .editor-breadcrumb-picker-tree > button.selected > small {
   color: inherit;
 }
-.editor-pane-recovery,
-.editor-pane-conflict {
+.editor-pane-recovery {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -302,13 +301,11 @@
   background: color-mix(in srgb, var(--mx-warning) 12%, transparent);
   border-bottom: 0.5px solid var(--mx-border-muted);
 }
-.editor-pane-recovery > span,
-.editor-pane-conflict > span {
+.editor-pane-recovery > span {
   min-width: 0;
   flex: 1;
 }
-.editor-pane-recovery button,
-.editor-pane-conflict button {
+.editor-pane-recovery button {
   border: 0.5px solid var(--mx-border-muted);
   background: var(--mx-workspace-sheet);
   font-size: var(--mx-font-minor);
@@ -706,32 +703,6 @@
   width: 100%;
   height: auto;
 }
-.editor-pane-document-note {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-top: 0.5px solid var(--mx-border-muted);
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-code);
-}
-.editor-pane-document-note p {
-  margin: 0;
-}
-.editor-pane-document-note button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 0.5px solid var(--mx-border-muted);
-  background: none;
-  color: var(--mx-text);
-  font-size: var(--mx-font-minor);
-  padding: 4px 10px;
-  border-radius: var(--mx-radius-md);
-  cursor: pointer;
-}
 .editor-pane-notice {
   display: flex;
   flex-direction: column;
@@ -872,13 +843,6 @@
   padding: 13px 10px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
-}
-.workbench-unsaved-dialog > p.workbench-unsaved-error {
-  margin: -8px 20px 16px;
-  padding: 8px 10px;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-danger);
-  background: var(--mx-danger-bg);
 }
 .workbench-unsaved-dialog > footer button:disabled {
   opacity: var(--mx-op-disabled);

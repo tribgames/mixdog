@@ -123,24 +123,20 @@ export function takeWarmShellStandby({ shell, env, cwd: _cwd }) {
       /* best-effort */
     }
   };
+  const alive = _slotAlive(slot);
+  const drifted =
+    alive &&
+    (slot.shell !== String(shell) || Date.now() - slot.createdAt > STANDBY_TTL_MS || slot.envSig !== envSignature(env));
   const usable =
-    _slotAlive(slot) &&
-    slot.shell === String(shell) &&
+    alive &&
+    !drifted &&
     typeof slot.native.child.writeStdin === 'function' &&
     Number.isFinite(slot.native.child.pid) &&
-    slot.native.child.pid > 0 &&
-    Date.now() - slot.createdAt <= STANDBY_TTL_MS &&
-    slot.envSig === envSignature(env);
+    slot.native.child.pid > 0;
   if (!usable) {
     // Stale (TTL/env/shell drift): kill so it cannot linger; a still-
     // warming slot (no pid yet) is left in place for a later call.
-    if (
-      _slotAlive(slot) &&
-      Number.isFinite(slot.native.child.pid) &&
-      (slot.shell !== String(shell) ||
-        Date.now() - slot.createdAt > STANDBY_TTL_MS ||
-        slot.envSig !== envSignature(env))
-    ) {
+    if (drifted && Number.isFinite(slot.native.child.pid)) {
       _slot = null;
       _clearSlotIdleTimer();
       try {

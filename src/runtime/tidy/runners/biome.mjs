@@ -4,6 +4,7 @@ import {
   FILES_PER_SPAWN,
   chunkFiles,
   diagnostic,
+  emptyResult,
   positionAt,
   runChunked,
   spawnFailureResult,
@@ -31,7 +32,7 @@ function emptyParse(truncated) {
 }
 
 /** Byte index just past a JSON object/array starting at `start`, or -1 if truncated. */
-export function endOfJsonValue(text, start = 0) {
+function endOfJsonValue(text, start = 0) {
   const source = String(text || '');
   let index = start;
   while (index < source.length && /\s/.test(source[index])) index += 1;
@@ -138,7 +139,7 @@ function locationOf(row, cwd) {
 }
 
 /** Lint/assist rule id from a diagnostic category (`lint/style/useConst` → `useConst`). */
-export function biomeRuleName(category) {
+function biomeRuleName(category) {
   const value = String(category || '');
   if (!value.startsWith('lint/') && !value.startsWith('assist/')) return '';
   return value.split('/').pop() || '';
@@ -198,7 +199,7 @@ export function applyBiomeFixKinds(diagnostics, kinds = new Map()) {
   return diagnostics;
 }
 
-export async function loadBiomeFixKinds({
+async function loadBiomeFixKinds({
   bin,
   names = [],
   run = runProcess,
@@ -414,7 +415,7 @@ export const runner = {
       });
     }
     if (result.error) return spawnFailureResult('biome', result);
-    return { diagnostics: [], changedFiles: [], stderrTail: tail(result.stderr) };
+    return emptyResult(tail(result.stderr));
   },
 };
 

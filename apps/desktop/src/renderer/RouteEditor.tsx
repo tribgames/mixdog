@@ -120,6 +120,15 @@ function preferredFlyoutWidth(pane: RouteSheetPane): number | undefined {
 
 type RouteModelParameter = NonNullable<DesktopModelOption['modelParameterOptions']>[number];
 
+/** Trailing check mark of the selected option in every radio pane. */
+function RouteSelectionCheck() {
+  return (
+    <span className="route-selection-check">
+      <Check size={14} aria-hidden="true" />
+    </span>
+  );
+}
+
 /** Roving focus inside a menu surface; the caller names the container and the
  *  row selector, so sheet rows and pane options share one grammar. */
 function moveRouteFocus(
@@ -171,11 +180,7 @@ function routeEffortPane({
         onKeyDown={onOptionKeyDown}
       >
         <span>{option.label}</span>
-        {selected && (
-          <span className="route-selection-check">
-            <Check size={14} aria-hidden="true" />
-          </span>
-        )}
+        {selected && <RouteSelectionCheck />}
       </button>
     );
   });
@@ -219,11 +224,7 @@ function routeSpeedPane({
           <span>{option.label}</span>
           <small>{option.description}</small>
         </span>
-        {selected && (
-          <span className="route-selection-check">
-            <Check size={14} aria-hidden="true" />
-          </span>
-        )}
+        {selected && <RouteSelectionCheck />}
       </button>
     );
   });
@@ -293,11 +294,13 @@ function routeParameterPane({
   value,
   tuningDisabled,
   onChangeModelParameter,
+  onOptionKeyDown,
 }: {
   parameter: RouteModelParameter;
   value: string | undefined;
   tuningDisabled: boolean;
   onChangeModelParameter?(id: string, value: string): void;
+  onOptionKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void;
 }): ReactNode {
   return parameter.options.map((option) => {
     const selected = option.value === value;
@@ -312,13 +315,10 @@ function routeParameterPane({
         onClick={() => {
           if (!selected) onChangeModelParameter?.(parameter.id, option.value);
         }}
+        onKeyDown={onOptionKeyDown}
       >
         <span>{option.label}</span>
-        {selected && (
-          <span className="route-selection-check">
-            <Check size={14} aria-hidden="true" />
-          </span>
-        )}
+        {selected && <RouteSelectionCheck />}
       </button>
     );
   });
@@ -592,21 +592,26 @@ export function RouteEditor({
     [sheetHeight]
   );
 
-  const layout = useCallback(() => {
-    const triggerRect = trigger.current?.getBoundingClientRect();
-    if (!triggerRect) return;
-    const viewport = currentViewport(trigger.current);
-    const nextSheet = measureSheet(triggerRect, viewport);
-    setSheetBox(nextSheet);
-    if (!pane) {
-      setFlyoutBox(null);
-      setDrill(false);
-      return;
-    }
-    const nextBox = paneLayout(nextSheet, pane, viewport);
-    setFlyoutBox(nextBox.box);
-    setDrill(nextBox.drilled);
-  }, [measureSheet, pane, paneLayout]);
+  /** Place the sheet and, when a pane is open, its flyout or drilled box. */
+  const layoutFor = useCallback(
+    (target: RouteSheetPane | null) => {
+      const triggerRect = trigger.current?.getBoundingClientRect();
+      if (!triggerRect) return;
+      const viewport = currentViewport(trigger.current);
+      const nextSheet = measureSheet(triggerRect, viewport);
+      setSheetBox(nextSheet);
+      if (!target) {
+        setFlyoutBox(null);
+        setDrill(false);
+        return;
+      }
+      const nextBox = paneLayout(nextSheet, target, viewport);
+      setFlyoutBox(nextBox.box);
+      setDrill(nextBox.drilled);
+    },
+    [measureSheet, paneLayout]
+  );
+  const layout = useCallback(() => layoutFor(pane), [layoutFor, pane]);
 
   const show = (focusRow: 'first' | 'last' | null = null) => {
     const triggerRect = trigger.current?.getBoundingClientRect();
@@ -649,15 +654,7 @@ export function RouteEditor({
       setModelCatalogReady(true);
       onOpenModelPane?.();
     }
-    const triggerRect = trigger.current?.getBoundingClientRect();
-    if (triggerRect) {
-      const viewport = currentViewport(trigger.current);
-      const nextSheet = measureSheet(triggerRect, viewport);
-      setSheetBox(nextSheet);
-      const nextBox = paneLayout(nextSheet, next, viewport);
-      setFlyoutBox(nextBox.box);
-      setDrill(nextBox.drilled);
-    }
+    layoutFor(next);
     setPane(next);
   };
 
@@ -777,8 +774,15 @@ export function RouteEditor({
     }, 0);
   };
 
+  const cancelHoverSwitch = () => {
+    if (hoverSwitchTimer.current === null) return;
+    window.clearTimeout(hoverSwitchTimer.current);
+    hoverSwitchTimer.current = null;
+  };
+
   const row = (id: RouteSheetPane, label: string, value: string, disabled = false) => (
     <button
+      key={id}
       ref={(node) => {
         rowButtons.current[id] = node;
       }}
@@ -804,17 +808,11 @@ export function RouteEditor({
         openPane(id);
       }}
       onPointerLeave={() => {
-        if (hoverSwitchTimer.current !== null) {
-          window.clearTimeout(hoverSwitchTimer.current);
-          hoverSwitchTimer.current = null;
-        }
+        cancelHoverSwitch();
         if (hoverLock.current === id) hoverLock.current = null;
       }}
       onClick={() => {
-        if (hoverSwitchTimer.current !== null) {
-          window.clearTimeout(hoverSwitchTimer.current);
-          hoverSwitchTimer.current = null;
-        }
+        cancelHoverSwitch();
         // Click always OPENS (hover already opened it — a toggle here would
         // close the flyout under the very click that targeted it). Escape /
         // ArrowLeft / outside-click remain the ways to close.
@@ -914,6 +912,7 @@ export function RouteEditor({
       value: modelParameters[parameter.id],
       tuningDisabled,
       onChangeModelParameter,
+      onOptionKeyDown: paneOptionKeyDown(target),
     });
   };
 
@@ -922,6 +921,25 @@ export function RouteEditor({
   // second card floating over it (user: 한 창이라는 느낌이 덜하다).
   const drilled = drill && Boolean(pane);
   const panelBox = drilled && flyoutBox ? flyoutBox : sheetBox;
+  // One catalog, hosted either by the drilled sheet or by its own flyout.
+  const renderModelCatalog = (active: boolean) => (
+    <ModelCatalog
+      models={models}
+      provider={provider}
+      model={model}
+      active={active}
+      catalogLoaded={catalogLoaded}
+      catalogRefreshing={catalogRefreshing}
+      catalogError={catalogError}
+      providerSetupError={providerSetupError}
+      onSelect={onSelectModel}
+      onClose={() => closePane('model', true)}
+      onOpenProviders={() => {
+        closeAll();
+        onOpenProviders?.();
+      }}
+    />
+  );
 
   return (
     <div className="route-editor">
@@ -987,26 +1005,7 @@ export function RouteEditor({
             {drilled && pane && (
               <div className="route-sheet-pane" key={`pane:${pane}`}>
                 {paneHeader(paneLabel(pane), pane)}
-                {pane === 'model' ? (
-                  <ModelCatalog
-                    models={models}
-                    provider={provider}
-                    model={model}
-                    active
-                    catalogLoaded={catalogLoaded}
-                    catalogRefreshing={catalogRefreshing}
-                    catalogError={catalogError}
-                    providerSetupError={providerSetupError}
-                    onSelect={onSelectModel}
-                    onClose={() => closePane('model', true)}
-                    onOpenProviders={() => {
-                      closeAll();
-                      onOpenProviders?.();
-                    }}
-                  />
-                ) : (
-                  paneBody(pane)
-                )}
+                {pane === 'model' ? renderModelCatalog(true) : paneBody(pane)}
               </div>
             )}
             {!(drilled && pane) && (
@@ -1050,22 +1049,7 @@ export function RouteEditor({
             data-state={closing ? 'closing' : 'open'}
             style={pane === 'model' && flyoutBox ? flyoutBox : { display: 'none' }}
           >
-            <ModelCatalog
-              models={models}
-              provider={provider}
-              model={model}
-              active={pane === 'model'}
-              catalogLoaded={catalogLoaded}
-              catalogRefreshing={catalogRefreshing}
-              catalogError={catalogError}
-              providerSetupError={providerSetupError}
-              onSelect={onSelectModel}
-              onClose={() => closePane('model', true)}
-              onOpenProviders={() => {
-                closeAll();
-                onOpenProviders?.();
-              }}
-            />
+            {renderModelCatalog(pane === 'model')}
           </div>,
           document.body
         )}

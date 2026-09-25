@@ -65,7 +65,7 @@ export function documentPreviewFormatForPath(path: string): string {
 /** Browser-native read-only preview support, selected by the final extension. */
 export function filePreviewTypeForPath(path: string): DesktopFilePreviewType | null {
   const extension = fileExtension(path);
-  return extension ? (FILE_PREVIEW_TYPES[extension] ?? null) : null;
+  return extension && Object.hasOwn(FILE_PREVIEW_TYPES, extension) ? FILE_PREVIEW_TYPES[extension] : null;
 }
 
 /** Keep native previews inside; use the safe OS allowlist for everything else.

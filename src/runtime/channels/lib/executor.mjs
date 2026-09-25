@@ -78,36 +78,18 @@ function applyParser(parser, body, headers) {
       return { raw: JSON.stringify(body) };
   }
 }
-function evaluateFilter(expr, data) {
-  const orParts = expr.split('||').map((s) => s.trim());
-  for (const orPart of orParts) {
-    const andParts = orPart.split('&&').map((s) => s.trim());
-    let andResult = true;
-    for (const condition of andParts) {
-      const match = condition.match(/^(\w+)\s*==\s*['"](.*)['"]$/);
-      if (!match) {
-        const neqMatch = condition.match(/^(\w+)\s*!=\s*['"](.*)['"]$/);
-        if (neqMatch) {
-          const [, field2, value2] = neqMatch;
-          if ((data[field2] ?? '') === value2) {
-            andResult = false;
-            break;
-          }
-        } else {
-          andResult = false;
-          break;
-        }
-        continue;
-      }
-      const [, field, value] = match;
-      if ((data[field] ?? '') !== value) {
-        andResult = false;
-        break;
-      }
-    }
-    if (andResult) return true;
-  }
+/** One `field == "value"` / `field != "value"` condition; anything else is false. */
+function conditionHolds(condition, data) {
+  const eq = condition.match(/^(\w+)\s*==\s*['"](.*)['"]$/);
+  if (eq) return (data[eq[1]] ?? '') === eq[2];
+  const neq = condition.match(/^(\w+)\s*!=\s*['"](.*)['"]$/);
+  if (neq) return (data[neq[1]] ?? '') !== neq[2];
   return false;
+}
+function evaluateFilter(expr, data) {
+  return expr
+    .split('||')
+    .some((orPart) => orPart.split('&&').every((condition) => conditionHolds(condition.trim(), data)));
 }
 function applyTemplate(template, data) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? '');

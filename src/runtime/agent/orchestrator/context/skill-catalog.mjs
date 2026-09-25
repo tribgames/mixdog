@@ -6,7 +6,11 @@ import { basename, dirname, join } from 'node:path';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
 import { mixdogHome, resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { pluginSkillsRoots } from '../../../shared/plugin-manifest.mjs';
-import { parseSkillDocument } from '../../../shared/skill-document.mjs';
+import {
+  parseSkillDocument,
+  SKILL_TRIGGER_LISTING_MAX,
+  SKILL_TRIGGER_LISTING_MIN,
+} from '../../../shared/skill-document.mjs';
 import { readSkillToolDependencies, skillToolDependenciesRoot } from '../../../shared/skill-tool-dependencies.mjs';
 import { loadConfig, normalizeSkillsConfig } from '../config.mjs';
 import { builtinFeatureActive, withGrandfatheredBuiltins } from '../../../../session-runtime/builtin-features.mjs';
@@ -211,18 +215,21 @@ function followsBuiltinFeature(skill) {
   return skill?.source === 'builtin' && Array.isArray(skill.requires) && skill.requires.length > 0;
 }
 
+function findCachedSkillByKey(key) {
+  return collectSkillsCached(null).find((entry) => normalizeSkillNameKey(entry.name) === key);
+}
+
 export function isSkillDisabled(name, config = null) {
   const n = normalizeSkillNameKey(name);
   if (!n) return false;
-  const skill = collectSkillsCached(null).find((entry) => normalizeSkillNameKey(entry.name) === n);
+  const skill = findCachedSkillByKey(n);
   if (!followsBuiltinFeature(skill) && getDisabledSkillNameSet(config).has(n)) return true;
   return Boolean(skill && missingFeature(skill, featureConfig(config)));
 }
 
 /** The built-in feature a skill needs that is not active, or null. */
 export function skillMissingFeature(name, config = null) {
-  const n = normalizeSkillNameKey(name);
-  const skill = collectSkillsCached(null).find((entry) => normalizeSkillNameKey(entry.name) === n);
+  const skill = findCachedSkillByKey(normalizeSkillNameKey(name));
   return skill ? missingFeature(skill, featureConfig(config)) : null;
 }
 
@@ -402,8 +409,6 @@ export function buildSkillToolEnvelope(
 
 // Only selection triggers enter the model's listing. Descriptions belong to
 // the UI; operating instructions arrive in the body through Skill().
-const SKILL_MANIFEST_TRIGGER_MAX = 100;
-const SKILL_MANIFEST_TRIGGER_MIN = 60;
 // Whole-manifest ceiling (~1% of a 200k-token window at 4 chars/token).
 const SKILL_MANIFEST_CHAR_BUDGET = 8_000;
 
@@ -444,8 +449,8 @@ export function buildSkillManifest(skills, { limit = 80, charBudget = SKILL_MANI
   const nameOverhead = visible.reduce((sum, skill) => sum + skill.name.length + toolSuffix(skill).length + 4, 0);
   const perEntry = Math.floor((budget - nameOverhead) / visible.length);
   const triggerCap = Math.min(
-    SKILL_MANIFEST_TRIGGER_MAX,
-    Math.max(SKILL_MANIFEST_TRIGGER_MIN, Number.isFinite(perEntry) ? perEntry : SKILL_MANIFEST_TRIGGER_MAX)
+    SKILL_TRIGGER_LISTING_MAX,
+    Math.max(SKILL_TRIGGER_LISTING_MIN, Number.isFinite(perEntry) ? perEntry : SKILL_TRIGGER_LISTING_MAX)
   );
   for (const skill of visible) skill.trigger = compactPromptManifestText(skill.trigger, triggerCap);
   const lines = [

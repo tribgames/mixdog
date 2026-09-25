@@ -504,7 +504,7 @@ export function planOfficeComposition(format, operation = {}, design = {}, { usa
     expressionMode: context.expressionMode,
     topology,
     historyPenalty: selected.historyPenalty,
-    source: operation.variant ? 'explicit' : 'content-planner',
+    source: String(operation.variant || '').trim() ? 'explicit' : 'content-planner',
   });
 }
 

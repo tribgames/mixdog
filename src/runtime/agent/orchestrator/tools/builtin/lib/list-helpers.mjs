@@ -1,7 +1,7 @@
 import { buildNotFoundHint, finalizeReadFamilyEnoentTail } from '../search-path-diagnostics.mjs';
 import { normalizeErrorMessage } from '../path-diagnostics.mjs';
 import { isUncPath, isWindowsDevicePath, hasUnsafeWin32Component } from '../device-paths.mjs';
-import { normalizeOutputPath } from '../path-utils.mjs';
+import { normalizeOutputPath, resolveAgainstCwd } from '../path-utils.mjs';
 
 /** Report the requested path's result; suggestions never retarget the operation. */
 export async function readFamilyPathEnoentOrError(workDir, fullPath, inputPath, err) {
@@ -30,11 +30,26 @@ export function normalizeListHeadLimit(raw, defaultCap) {
 // hang or grant raw access. Mirrors the read path's string-based checks.
 // Returns an Error string when the path is blocked, else null.
 export function listGuardPath(p) {
-  if (typeof isUncPath === 'function' && isUncPath(p))
+  if (isUncPath(p))
     return `Error: cannot walk UNC / SMB path (network credential leak risk): ${normalizeOutputPath(p)}`;
-  if (typeof isWindowsDevicePath === 'function' && isWindowsDevicePath(p))
+  if (isWindowsDevicePath(p))
     return `Error: cannot walk Windows device path (reserved name or raw-device namespace): ${normalizeOutputPath(p)}`;
-  if (typeof hasUnsafeWin32Component === 'function' && hasUnsafeWin32Component(p))
+  if (hasUnsafeWin32Component(p))
     return `Error: cannot walk Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard): ${normalizeOutputPath(p)}`;
   return null;
+}
+
+// The walk root for `inputPath`, guarded both as written and once resolved
+// against workDir: `{ fullPath }`, or `{ error }` when either form is blocked.
+export function guardedWalkRoot(inputPath, workDir) {
+  const guard = listGuardPath(inputPath);
+  if (guard) return { error: guard };
+  const fullPath = resolveAgainstCwd(inputPath, workDir);
+  const guardFull = listGuardPath(fullPath);
+  if (guardFull) return { error: guardFull };
+  return { fullPath };
+}
+
+export function pageContinuationLine(offset, shown, total) {
+  return `... [entries ${offset + 1}-${offset + shown} of ${total}; pass offset:${offset + shown} to continue]`;
 }

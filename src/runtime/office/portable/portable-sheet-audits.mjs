@@ -35,9 +35,6 @@ function cellText(cell, strings) {
   return type === 'str' ? raw : '';
 }
 
-// A protected sheet locks every cell unless one is marked unlocked, so a form
-// whose entry cells stay locked cannot be filled in at all — the dropdown is
-// there, and Excel refuses the keystroke.
 // Every cell of one A1 reference, capped at 512 rows by 64 columns.
 function addReferenceCells(entryCells, reference) {
   const [start, end] = reference.split(':');
@@ -88,6 +85,9 @@ function protectedInputIssue(sheet, locked) {
   };
 }
 
+// A protected sheet locks every cell unless one is marked unlocked, so a form
+// whose entry cells stay locked cannot be filled in at all — the dropdown is
+// there, and Excel refuses the keystroke.
 export async function protectedInputIssues(zip, sheets) {
   const styles = resolveCellStyles(await zipText(zip, 'xl/styles.xml'));
   const issues = [];
@@ -137,6 +137,14 @@ function sortedByColumn(byColumn) {
   return [...byColumn.entries()].sort((left, right) => left[0] - right[0]);
 }
 
+// A column width counts characters of the workbook's default size (the first
+// cell style's face), so a cell set larger needs proportionally more of it —
+// the measure autofit_range sizes columns by.
+function sizeScale(styles, styleIndex) {
+  const base = Number(styles[0]?.fontSize) || 11;
+  return (Number(styles[styleIndex]?.fontSize) || base) / base;
+}
+
 // Numbers a column is too narrow to show: one narrow column cuts every value
 // in it; reporting each cell would fill the issue list with one fault and
 // hide the rest.
@@ -156,9 +164,14 @@ function narrowNumberColumns(xml, { widths, withheld, styles }) {
     const width = widths.get(column) ?? DEFAULT_COLUMN_WIDTH;
     const style = Number(/\bs="(\d+)"/.exec(attributes)?.[1]);
     const format = Number.isInteger(style) ? styles[style]?.numberFormat || '' : '';
-    const needed = formattedNumberWidth(value, format);
+    // General never prints ###: Excel rounds the decimals to the column, so only an integer part wider than the
+    // column changes what is read (into scientific notation). Measured whole, 0.5700000000000001 was a false cut.
+    const general = !format || /^general$/i.test(format);
+    const integerWidth = String(Math.trunc(Math.abs(value))).length + (value < 0 ? 1 : 0);
+    const printed = general ? integerWidth : formattedNumberWidth(value, format);
+    const needed = printed * sizeScale(styles, Number.isInteger(style) ? style : 0);
     if (needed <= width + 0.5) continue;
-    noteCutCell(narrowColumns, column, { reference, needed, width });
+    noteCutCell(narrowColumns, column, { reference, needed, width, general });
   }
   return sortedByColumn(narrowColumns);
 }
@@ -175,11 +188,6 @@ function mergedAreas(xml) {
   return mergedRanges(xml).map((reference) => referenceArea(reference));
 }
 
-// Labels cut at the column edge: text spills into an empty neighbour, but is
-// cut as soon as the next cell holds something — the reader sees half a
-// label. The label runs until the first column to its right that holds
-// something: the empty columns before it lend their width, and a hidden
-// column lends none, because the sheet gives it no room on the page.
 // Whether a merge that continues past this column covers the cell.
 function insideMergedArea(merged, column, row) {
   return merged.some(
@@ -198,6 +206,11 @@ function labelRoom(column, neighbourColumn, { widths, withheld }) {
   return available;
 }
 
+// Labels cut at the column edge: text spills into an empty neighbour, but is
+// cut as soon as the next cell holds something — the reader sees half a
+// label. The label runs until the first column to its right that holds
+// something: the empty columns before it lend their width, and a hidden
+// column lends none, because the sheet gives it no room on the page.
 function cutLabelColumns(xml, { widths, withheld, styles, strings }) {
   const merged = mergedAreas(xml);
   const cutLabels = new Map();
@@ -224,19 +237,45 @@ function cutLabelColumns(xml, { widths, withheld, styles, strings }) {
       if (insideMergedArea(merged, cell.column, rowNumber)) continue;
       const width = widths.get(cell.column) ?? DEFAULT_COLUMN_WIDTH;
       const available = labelRoom(cell.column, neighbour.column, { widths, withheld });
-      const needed = displayWidth(text);
+      const needed = displayWidth(text) * sizeScale(styles, styleIndex) + (Number(styles[styleIndex]?.indent) || 0);
       if (needed <= available + 0.5) continue;
       const neighbourRef = `${columnLabel(neighbour.column)}${rowNumber}`;
-      const found = cutLabels.get(cell.column);
-      if (!found) {
-        cutLabels.set(cell.column, { reference: cell.ref, text, needed, width, neighbour: neighbourRef, count: 1 });
-      } else {
-        found.count += 1;
-        if (needed > found.needed) Object.assign(found, { reference: cell.ref, text, needed, neighbour: neighbourRef });
-      }
+      noteCutCell(cutLabels, cell.column, { reference: cell.ref, text, needed, width, neighbour: neighbourRef });
     }
   }
   return sortedByColumn(cutLabels);
+}
+
+// A figure set on its column's right edge with a label set on the next column's left edge: two cells' padding
+// between them, so "38" and "김서연" read as one cell. Counted per pair of columns over the rows that hold both;
+// a label column with an indent, or alignment of its own away from the figure, is clear of it.
+const FIGURE_LABEL_ROWS = 2;
+function figureLabelPairs(xml, { withheld, styles, strings }) {
+  const pairs = new Map();
+  for (const row of iterateSheetRows(xml)) {
+    const cells = new Map(
+      [...iterateSheetCells(row.body)]
+        .filter((cell) => cell.ref)
+        .map((cell) => [columnNumber(parseCellRef(cell.ref).col), cell])
+    );
+    for (const [column, cell] of cells) {
+      const next = cells.get(column + 1);
+      if (!next || withheld.columns.has(column) || withheld.columns.has(column + 1)) continue;
+      if (withheld.rows.has(parseCellRef(cell.ref).row)) continue;
+      const style = (entry) => styles[Number(/\bs="(\d+)"/.exec(entry.attributes)?.[1] ?? 0)] || {};
+      const figure = !/\bt="(?:s|inlineStr|str|b)"/.test(cell.attributes) && /<v>/.test(cell.body);
+      const figureAlign = style(cell).horizontalAlignment || 'general';
+      const label = /\bt="(?:s|inlineStr|str)"/.test(next.attributes) && cellText(next, strings).trim();
+      const labelStyle = style(next);
+      const labelAlign = labelStyle.horizontalAlignment || 'general';
+      if (!figure || !['general', 'right'].includes(figureAlign)) continue;
+      if (!label || !['general', 'left'].includes(labelAlign) || Number(labelStyle.indent) > 0) continue;
+      const found = pairs.get(column);
+      if (found) found.count += 1;
+      else pairs.set(column, { reference: next.ref, count: 1 });
+    }
+  }
+  return sortedByColumn(new Map([...pairs].filter(([, entry]) => entry.count >= FIGURE_LABEL_ROWS)));
 }
 
 export async function columnFitIssues(zip, sheets) {
@@ -257,7 +296,8 @@ export async function columnFitIssues(zip, sheets) {
         code: 'column_too_narrow',
         path: `/sheet[${sheet.name}]/cell[${entry.reference}]`,
         message:
-          `Number needs about ${entry.needed} characters but column ${columnLabel(column)} is ${entry.width.toFixed(1)} wide; Excel shows ###.` +
+          `Number needs about ${Math.ceil(entry.needed)} characters but column ${columnLabel(column)} is ${entry.width.toFixed(1)} wide; ` +
+          `${entry.general ? 'Excel prints it in scientific notation.' : 'Excel shows ###.'}` +
           `${entry.count > 1 ? ` ${entry.count} cells in this column are cut.` : ''} Run autofit_range.`,
         source: 'number-format',
       });
@@ -270,8 +310,18 @@ export async function columnFitIssues(zip, sheets) {
         code: 'label_truncated',
         path: `/sheet[${sheet.name}]/cell[${entry.reference}]`,
         message:
-          `"${shown}" needs about ${entry.needed} characters but column ${columnLabel(column)} is ${entry.width.toFixed(1)} wide and ${entry.neighbour} has content, so the label is cut.` +
+          `"${shown}" needs about ${Math.ceil(entry.needed)} characters but column ${columnLabel(column)} is ${entry.width.toFixed(1)} wide and ${entry.neighbour} has content, so the label is cut.` +
           `${entry.count > 1 ? ` ${entry.count} labels in this column are cut.` : ''} Run autofit_range or widen the column.`,
+        source: 'column-fit',
+      });
+      if (issues.length >= 50) return issues;
+    }
+    for (const [column, entry] of figureLabelPairs(xml, measure)) {
+      issues.push({
+        severity: 'info',
+        code: 'figure_label_adjacent',
+        path: `/sheet[${sheet.name}]/cell[${entry.reference}]`,
+        message: `Column ${columnLabel(column)}'s figures end on its right edge and column ${columnLabel(column + 1)}'s labels start on its left edge in ${entry.count} rows, so the two read as one cell; set_style indent:1 on column ${columnLabel(column + 1)} (header too).`,
         source: 'column-fit',
       });
       if (issues.length >= 50) return issues;

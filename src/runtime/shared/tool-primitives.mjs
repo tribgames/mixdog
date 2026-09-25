@@ -114,18 +114,6 @@ export function compactParts(parts) {
     .join(STATUS_SEPARATOR);
 }
 
-function compactSlash(left, right) {
-  const a = String(left ?? '').trim();
-  const b = String(right ?? '').trim();
-  return a && b ? `${a}/${b}` : a || b;
-}
-
-export function mcpToolTarget(name, max = DEFAULT_SUMMARY_MAX) {
-  const mcp = parseMcpToolName(name);
-  if (!mcp) return '';
-  return truncateToolText(compactSlash(mcp.server, mcp.tool), max);
-}
-
 export function quoted(value, max) {
   const text = truncateToolText(value || '', max);
   return text ? `"${text}"` : '';
@@ -151,15 +139,8 @@ function toolSearchTargetKind(value) {
     .trim()
     .toLowerCase();
   if (!lower) return '';
-  if (lower.startsWith('mcp__') || lower.includes('_mcp_') || lower.includes('mcp')) return 'MCP';
-  if (
-    lower === 'skill' ||
-    lower.startsWith('skill:') ||
-    lower.startsWith('skill_') ||
-    lower.startsWith('skills_') ||
-    lower.includes('skill')
-  )
-    return 'Skills';
+  if (lower.includes('mcp')) return 'MCP';
+  if (lower.includes('skill')) return 'Skills';
   return 'Tools';
 }
 
@@ -193,18 +174,23 @@ export function displayToolSearchTarget(value) {
   return stripToolPrefix(text);
 }
 
+const TITLE_ACRONYMS = new Map([
+  ['ui', 'UI'],
+  ['mcp', 'MCP'],
+  ['id', 'ID'],
+]);
+
+function titleToken(part) {
+  const lower = part.toLowerCase();
+  return TITLE_ACRONYMS.get(lower) || titleWord(lower);
+}
+
 export function titleizeToolName(name) {
   return (
     stripToolPrefix(name)
       .split(/[_\s-]+/)
       .filter(Boolean)
-      .map((part) => {
-        const lower = part.toLowerCase();
-        if (lower === 'ui') return 'UI';
-        if (lower === 'mcp') return 'MCP';
-        if (lower === 'id') return 'ID';
-        return `${lower.slice(0, 1).toUpperCase()}${lower.slice(1)}`;
-      })
+      .map(titleToken)
       .join(' ') || 'Tool'
   );
 }
@@ -219,18 +205,7 @@ const AGENT_DISPLAY_NAMES = new Map([
 function titleizeDisplayName(value) {
   const text = String(value || '').trim();
   if (!text) return '';
-  return text
-    .replace(/[_-]+/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => {
-      const lower = part.toLowerCase();
-      if (lower === 'ui') return 'UI';
-      if (lower === 'mcp') return 'MCP';
-      if (lower === 'id') return 'ID';
-      return `${lower.slice(0, 1).toUpperCase()}${lower.slice(1)}`;
-    })
-    .join(' ');
+  return text.replace(/[_-]+/g, ' ').split(/\s+/).filter(Boolean).map(titleToken).join(' ');
 }
 
 export function displayAgentName(value) {
@@ -275,11 +250,13 @@ export function summarizeLineWindow(a) {
   return '';
 }
 
+const PATCH_FILE_HEADER_RE = /^\*\*\*\s+(?:Update|Add|Delete) File:\s+(.+)\s*$/;
+
 export function summarizePatch(patch, basePath) {
   const text = String(patch ?? '');
   const files = [];
   for (const line of text.split('\n')) {
-    const match = /^\*\*\*\s+(?:Update|Add|Delete) File:\s+(.+)\s*$/.exec(line);
+    const match = PATCH_FILE_HEADER_RE.exec(line);
     if (match) files.push(displayToolPath(match[1]));
   }
   if (files.length === 1) return files[0];
@@ -310,7 +287,7 @@ export function patchFileCount(args = {}) {
   if (patchText) {
     const files = new Set();
     for (const line of patchText.split('\n')) {
-      const match = /^\*\*\*\s+(?:Update|Add|Delete) File:\s+(.+)\s*$/.exec(line);
+      const match = PATCH_FILE_HEADER_RE.exec(line);
       if (match) files.add(match[1].trim());
     }
     if (files.size > 0) return files.size;

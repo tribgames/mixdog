@@ -262,12 +262,12 @@ export function App() {
   // a different id, which left the clicked row's dot unconsumed (user report).
   const unreadViewedSessionRef = useRef('');
 
-  // Sidebar catalog state, optimistic rename/archive/delete overlay, push + poll
-  // freshness: app-session-catalog.ts.
   const { unreadSessionIds, reconcileUnreadSessions, consumeUnread } = useUnreadSessions({
     viewedSessionRef: unreadViewedSessionRef,
   });
 
+  // Sidebar catalog state, optimistic rename/archive/delete overlay, push + poll
+  // freshness: app-session-catalog.ts.
   const {
     sessions,
     setSessions,

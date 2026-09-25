@@ -1189,7 +1189,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   padding: 1px 5px;
   border-radius: var(--mx-radius-sm);
   color: var(--mx-text-muted);
-  background: var(--mx-alpha-light-6);
+  background: var(--mx-chip-bg);
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-minor);
   white-space: nowrap;
@@ -1860,6 +1860,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .session-goal-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
   padding-top: 4px;
   border-top: 0.5px solid var(--mx-border);

@@ -6,16 +6,45 @@
 // download on its own.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-const args = new Map(
-  process.argv.slice(2).map((value) => {
-    const index = value.indexOf('=');
-    return index < 0 ? [value.replace(/^--/, ''), 'true'] : [value.slice(2, index), value.slice(index + 1)];
-  })
-);
-const root = resolve(String(args.get('dir') || process.cwd()));
-const port = Number(args.get('port')) || 9357;
+/** The file a request path names inside `root`, or null when it escapes it
+ *  (a sibling folder that merely shares the prefix included) or is malformed. */
+export function feedFilePath(root, pathname) {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+  const target = normalize(join(root, decoded));
+  const fromRoot = relative(root, target);
+  if (fromRoot.startsWith('..') || isAbsolute(fromRoot)) return null;
+  return target;
+}
+
+/** One `bytes=` range against a file of `size` bytes: null serves the whole
+ *  file, 'unsatisfiable' answers 416, otherwise the inclusive, clamped span. */
+export function feedByteRange(header, size) {
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(header || ''));
+  if (!range || (!range[1] && !range[2])) return null;
+  let start;
+  let end;
+  if (!range[1]) {
+    // Suffix range: the last N bytes.
+    const length = Number(range[2]);
+    if (length === 0 || size === 0) return 'unsatisfiable';
+    start = Math.max(0, size - length);
+    end = size - 1;
+  } else {
+    start = Number(range[1]);
+    end = range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+  }
+  if (start >= size || start > end) return 'unsatisfiable';
+  return { start, end };
+}
+
 const TYPES = {
   '.yml': 'text/yaml',
   '.yaml': 'text/yaml',
@@ -24,10 +53,10 @@ const TYPES = {
   '.blockmap': 'application/octet-stream',
 };
 
-const server = createServer((req, res) => {
+function serveFeed(root, req, res) {
   const url = new URL(req.url || '/', 'http://127.0.0.1');
-  const target = normalize(join(root, decodeURIComponent(url.pathname)));
-  if (!target.startsWith(root)) {
+  const target = feedFilePath(root, url.pathname);
+  if (!target) {
     res.writeHead(403).end('forbidden');
     return;
   }
@@ -43,10 +72,13 @@ const server = createServer((req, res) => {
     return;
   }
   const type = TYPES[extname(target).toLowerCase()] || 'application/octet-stream';
-  const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
+  const range = feedByteRange(req.headers.range, info.size);
+  if (range === 'unsatisfiable') {
+    res.writeHead(416, { 'Content-Range': `bytes */${info.size}` }).end();
+    return;
+  }
   if (range) {
-    const start = range[1] ? Number(range[1]) : 0;
-    const end = range[2] ? Number(range[2]) : info.size - 1;
+    const { start, end } = range;
     res.writeHead(206, {
       'Content-Type': type,
       'Content-Length': String(end - start + 1),
@@ -70,8 +102,18 @@ const server = createServer((req, res) => {
     return;
   }
   createReadStream(target).pipe(res);
-});
+}
 
-server.listen(port, '127.0.0.1', () => {
-  console.log(`dev update feed on http://127.0.0.1:${port} (${root})`);
-});
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+  const args = new Map(
+    process.argv.slice(2).map((value) => {
+      const index = value.indexOf('=');
+      return index < 0 ? [value.replace(/^--/, ''), 'true'] : [value.slice(2, index), value.slice(index + 1)];
+    })
+  );
+  const root = resolve(String(args.get('dir') || process.cwd()));
+  const port = Number(args.get('port')) || 9357;
+  createServer((req, res) => serveFeed(root, req, res)).listen(port, '127.0.0.1', () => {
+    console.log(`dev update feed on http://127.0.0.1:${port} (${root})`);
+  });
+}

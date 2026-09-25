@@ -30,14 +30,13 @@ export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: Pa
     assertCurrent: () => void,
     signal?: AbortSignal
   ): Promise<void> {
-    await host.cdp.waitForIdle(guest, signal);
-    assertCurrent();
-    if (host.state.for(guest).pendingDialog) throw new Error('Browser dialog is blocking input.');
-    host.state.invalidateInteraction(guest);
     const assertDispatch = () => {
       assertCurrent();
       if (host.state.for(guest).pendingDialog) throw new Error('Browser dialog is blocking input.');
     };
+    await host.cdp.waitForIdle(guest, signal);
+    assertDispatch();
+    host.state.invalidateInteraction(guest);
     const send = async (
       target: WebContents,
       method: string,

@@ -15,6 +15,11 @@ interface EditorNavigationHistory {
   index: number;
 }
 
+/** Runs one editor command in the focused editor. */
+const editorAction = (detail: string) => () => {
+  window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail }));
+};
+
 export function buildAppWorkbenchCommands({
   quickAccessMode,
   editorNavigationHistory,
@@ -129,9 +134,7 @@ export function buildAppWorkbenchCommands({
           label: 'Toggle Word Wrap',
           shortcut: 'Alt+Z',
           enabled: Boolean(activeFileKey),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.action.toggleWordWrap' }));
-          },
+          run: editorAction('editor.action.toggleWordWrap'),
         },
         {
           id: 'workbench.action.showSearch',
@@ -174,9 +177,7 @@ export function buildAppWorkbenchCommands({
           label: 'Go to Definition',
           shortcut: 'F12',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.definition),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.action.revealDefinition' }));
-          },
+          run: editorAction('editor.action.revealDefinition'),
         },
         {
           id: 'editor.action.peekDefinition',
@@ -184,31 +185,21 @@ export function buildAppWorkbenchCommands({
           label: 'Peek Definition',
           shortcut: 'Alt+F12',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.definition),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.action.peekDefinition' }));
-          },
+          run: editorAction('editor.action.peekDefinition'),
         },
         {
           id: 'editor.action.revealDeclaration',
           category: 'Editor',
           label: 'Go to Declaration',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.declaration),
-          run: () => {
-            window.dispatchEvent(
-              new CustomEvent('mixdog:editor-action', { detail: 'editor.action.revealDeclaration' })
-            );
-          },
+          run: editorAction('editor.action.revealDeclaration'),
         },
         {
           id: 'editor.action.goToTypeDefinition',
           category: 'Editor',
           label: 'Go to Type Definition',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.typeDefinition),
-          run: () => {
-            window.dispatchEvent(
-              new CustomEvent('mixdog:editor-action', { detail: 'editor.action.goToTypeDefinition' })
-            );
-          },
+          run: editorAction('editor.action.goToTypeDefinition'),
         },
         {
           id: 'editor.action.goToImplementation',
@@ -216,11 +207,7 @@ export function buildAppWorkbenchCommands({
           label: 'Go to Implementations',
           shortcut: 'Ctrl+F12',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.implementation),
-          run: () => {
-            window.dispatchEvent(
-              new CustomEvent('mixdog:editor-action', { detail: 'editor.action.goToImplementation' })
-            );
-          },
+          run: editorAction('editor.action.goToImplementation'),
         },
         {
           id: 'editor.action.goToReferences',
@@ -228,20 +215,14 @@ export function buildAppWorkbenchCommands({
           label: 'Go to References',
           shortcut: 'Shift+F12',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.references),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.action.goToReferences' }));
-          },
+          run: editorAction('editor.action.goToReferences'),
         },
         {
           id: 'editor.action.referenceSearch.trigger',
           category: 'Editor',
           label: 'Peek References',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.references),
-          run: () => {
-            window.dispatchEvent(
-              new CustomEvent('mixdog:editor-action', { detail: 'editor.action.referenceSearch.trigger' })
-            );
-          },
+          run: editorAction('editor.action.referenceSearch.trigger'),
         },
         {
           id: 'editor.action.triggerSuggest',
@@ -249,9 +230,7 @@ export function buildAppWorkbenchCommands({
           label: 'Trigger Suggest',
           shortcut: 'Ctrl+Space',
           enabled: Boolean(activeFileKey),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.action.triggerSuggest' }));
-          },
+          run: editorAction('editor.action.triggerSuggest'),
         },
         {
           id: 'editor.action.triggerParameterHints',
@@ -259,11 +238,7 @@ export function buildAppWorkbenchCommands({
           label: 'Trigger Parameter Hints',
           shortcut: 'Ctrl+Shift+Space',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.signatureHelp),
-          run: () => {
-            window.dispatchEvent(
-              new CustomEvent('mixdog:editor-action', { detail: 'editor.action.triggerParameterHints' })
-            );
-          },
+          run: editorAction('editor.action.triggerParameterHints'),
         },
         {
           id: 'editor.action.quickOutline',
@@ -271,9 +246,7 @@ export function buildAppWorkbenchCommands({
           label: 'Go to Symbol in Editor…',
           shortcut: 'Ctrl+Shift+O',
           enabled: Boolean(activeFileKey),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.action.quickOutline' }));
-          },
+          run: editorAction('editor.action.quickOutline'),
         },
         {
           id: 'editor.action.rename',
@@ -281,9 +254,7 @@ export function buildAppWorkbenchCommands({
           label: 'Rename Symbol',
           shortcut: 'F2',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.rename),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'rename' }));
-          },
+          run: editorAction('rename'),
         },
         {
           id: 'editor.action.changeAll',
@@ -291,9 +262,7 @@ export function buildAppWorkbenchCommands({
           label: 'Change All Occurrences',
           shortcut: 'Ctrl+F2',
           enabled: Boolean(activeFileKey),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.action.changeAll' }));
-          },
+          run: editorAction('editor.action.changeAll'),
         },
         {
           id: 'editor.action.quickFix',
@@ -301,27 +270,21 @@ export function buildAppWorkbenchCommands({
           label: 'Quick Fix…',
           shortcut: 'Ctrl+.',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.codeAction),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'quickFix' }));
-          },
+          run: editorAction('quickFix'),
         },
         {
           id: 'editor.action.refactor',
           category: 'Editor',
           label: 'Refactor…',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.codeAction),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'refactor' }));
-          },
+          run: editorAction('refactor'),
         },
         {
           id: 'editor.action.sourceAction',
           category: 'Editor',
           label: 'Source Action…',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.codeAction),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.action.sourceAction' }));
-          },
+          run: editorAction('editor.action.sourceAction'),
         },
         {
           id: 'editor.action.formatDocument',
@@ -329,20 +292,14 @@ export function buildAppWorkbenchCommands({
           label: 'Format Document',
           shortcut: 'Shift+Alt+F',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.formatting),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'format' }));
-          },
+          run: editorAction('format'),
         },
         {
           id: 'editor.action.formatDocument.multiple',
           category: 'Editor',
           label: 'Format Document With…',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.formatting),
-          run: () => {
-            window.dispatchEvent(
-              new CustomEvent('mixdog:editor-action', { detail: 'editor.action.formatDocument.multiple' })
-            );
-          },
+          run: editorAction('editor.action.formatDocument.multiple'),
         },
         {
           id: 'editor.action.formatSelection',
@@ -352,9 +309,7 @@ export function buildAppWorkbenchCommands({
           enabled: Boolean(
             activeFileKey && (editorCommandCapabilities.rangeFormatting || editorCommandCapabilities.formatting)
           ),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.action.formatSelection' }));
-          },
+          run: editorAction('editor.action.formatSelection'),
         },
         {
           id: 'editor.action.commentLine',
@@ -362,9 +317,7 @@ export function buildAppWorkbenchCommands({
           label: 'Toggle Line Comment',
           shortcut: 'Ctrl+/',
           enabled: Boolean(activeFileKey),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.action.commentLine' }));
-          },
+          run: editorAction('editor.action.commentLine'),
         },
         {
           id: 'editor.fold',
@@ -372,9 +325,7 @@ export function buildAppWorkbenchCommands({
           label: 'Fold',
           shortcut: 'Ctrl+Shift+[',
           enabled: Boolean(activeFileKey),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.fold' }));
-          },
+          run: editorAction('editor.fold'),
         },
         {
           id: 'editor.unfold',
@@ -382,9 +333,7 @@ export function buildAppWorkbenchCommands({
           label: 'Unfold',
           shortcut: 'Ctrl+Shift+]',
           enabled: Boolean(activeFileKey),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'editor.unfold' }));
-          },
+          run: editorAction('editor.unfold'),
         },
         {
           id: 'editor.showCallHierarchy',
@@ -392,9 +341,7 @@ export function buildAppWorkbenchCommands({
           label: 'Peek Call Hierarchy',
           shortcut: 'Shift+Alt+H',
           enabled: Boolean(activeFileKey && editorCommandCapabilities.callHierarchy),
-          run: () => {
-            window.dispatchEvent(new CustomEvent('mixdog:editor-action', { detail: 'callHierarchy' }));
-          },
+          run: editorAction('callHierarchy'),
         },
         {
           id: 'workbench.action.toggleSidebar',

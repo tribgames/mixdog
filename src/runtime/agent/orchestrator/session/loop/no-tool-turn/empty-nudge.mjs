@@ -8,7 +8,7 @@
 // empty termination instead.
 import { writeLoopDiagnostic } from './diagnostic.mjs';
 
-export const EMPTY_NUDGE_MAX = 3;
+const EMPTY_NUDGE_MAX = 3;
 
 export function nudgeEmptyTurn(response, { stopReason, isIncompleteStop }, { state, messages, sessionId }) {
   state.emptyNudgeStreak += 1;

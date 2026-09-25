@@ -15,6 +15,7 @@ import {
   listNativeTasks,
   promoteNativeTask,
   releaseNativeTask,
+  setNativeTaskOutputPaths,
   setNativeTaskStartedAt,
   subscribeNativeTask,
   trackNativeForegroundTask,
@@ -381,6 +382,8 @@ export async function promoteForegroundShellJob({
   clientHostPid,
   ownerSessionId,
   startedAtMs = 0,
+  stdoutPath = null,
+  stderrPath = null,
 }) {
   const native = await promoteNativeTask({
     jobId,
@@ -401,6 +404,13 @@ export async function promoteForegroundShellJob({
   if (started > 0) {
     setNativeTaskStartedAt(native.jobId, started);
     native.startedAt = new Date(started).toISOString();
+  }
+  // Task reads follow the same spill files the promotion result read from, so
+  // both advance one output cursor.
+  if (stdoutPath || stderrPath) {
+    setNativeTaskOutputPaths(native.jobId, { stdoutPath, stderrPath });
+    native.stdoutPath = stdoutPath || null;
+    native.stderrPath = stderrPath || null;
   }
   trackShellJobRecord(native, { ownerSessionId, clientHostPid, startedAtMs: started });
   return native;

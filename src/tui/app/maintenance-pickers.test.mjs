@@ -5,7 +5,7 @@ import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './panel-epoch.mj
 import { createPanelSurface } from './panel-surface.mjs';
 import { createMaintenancePickers } from './maintenance-pickers.mjs';
 
-// Update / Auto-clear / Profile panels against a fake store: rows from the
+// Update / Auto-clear / Profile / Developer panels against a fake store: rows from the
 // daemon reads, what each key writes, and where Esc returns.
 
 function createHarness(storeOverrides = {}) {
@@ -207,4 +207,114 @@ test('Profile with no experience level starts cycling from the first/last entry'
   h.current().onRight(h.row('experience-level'));
   await flush();
   assert.deepEqual(writes.at(-1), { experienceLevel: 'beginner' });
+});
+
+function developerStore() {
+  const values = { devProviders: false, traceWire: false };
+  const writes = [];
+  const option = (id, label, env, envForced = false) => ({
+    id,
+    label,
+    description: `${label} description.`,
+    env,
+    enabled: envForced || values[id],
+    envForced,
+  });
+  const view = () => ({
+    sections: [
+      { id: 'providers', label: 'Providers', options: [option('devProviders', 'Dev providers', 'MIXDOG_DEV_PROVIDERS')] },
+      {
+        id: 'diagnostics',
+        label: 'Diagnostics',
+        options: [
+          option('traceWire', 'Trace wire', 'MIXDOG_TRACE_WIRE'),
+          option('forced', 'Forced', 'MIXDOG_FORCED', true),
+        ],
+      },
+    ],
+  });
+  return {
+    writes,
+    store: {
+      getDeveloperSettings: async () => view(),
+      setDeveloperOption: async (id, enabled) => {
+        writes.push([id, enabled]);
+        values[id] = enabled;
+        return view();
+      },
+    },
+  };
+}
+
+test('Developer: sections render from the data, Enter opens a section, Esc walks back to Settings', async () => {
+  const { store } = developerStore();
+  const h = createHarness(store);
+  const returned = [];
+  await h.openDeveloperPicker({ returnTo: () => returned.push('settings') });
+  await flush();
+  assert.equal(h.current().title, 'Developer');
+  assert.deepEqual(
+    h.current().items.map((item) => [item.value, item.label, item.meta]),
+    [
+      ['providers', 'Providers', '0 on'],
+      ['diagnostics', 'Diagnostics', '1 on'],
+    ]
+  );
+
+  h.current().onSelect('diagnostics', h.row('diagnostics'));
+  await flush();
+  assert.equal(h.current().title, 'Developer · Diagnostics');
+  assert.deepEqual(
+    h.current().items.map((item) => [item.value, item.meta]),
+    [
+      ['traceWire', 'Off'],
+      ['forced', 'On (env)'],
+    ]
+  );
+
+  h.current().onCancel();
+  await flush();
+  assert.equal(h.current().title, 'Developer');
+  assert.equal(h.current().items[h.current().initialIndex].value, 'diagnostics');
+  h.current().onCancel();
+  assert.equal(h.current(), null);
+  assert.deepEqual(returned, ['settings']);
+});
+
+test('Developer: ←/→ set and Enter flips an option; env-forced options are not toggled', async () => {
+  const { store, writes } = developerStore();
+  const h = createHarness(store);
+  await h.openDeveloperPicker({});
+  await flush();
+  h.current().onSelect('providers', h.row('providers'));
+  await flush();
+  assert.equal(h.current().title, 'Developer · Providers');
+  assert.equal(h.row('devProviders').meta, 'Off');
+
+  h.current().onRight(h.row('devProviders'));
+  await flush();
+  assert.deepEqual(writes, [['devProviders', true]]);
+  assert.deepEqual(h.notices.at(-1), ['Dev providers on', 'info']);
+  assert.equal(h.row('devProviders').meta, 'On');
+
+  h.current().onSelect('devProviders', h.row('devProviders'));
+  await flush();
+  assert.deepEqual(writes.at(-1), ['devProviders', false]);
+  assert.deepEqual(h.notices.at(-1), ['Dev providers off', 'info']);
+  assert.equal(h.row('devProviders').meta, 'Off');
+
+  h.current().onLeft(h.row('devProviders'));
+  await flush();
+  assert.equal(writes.length, 2, 'setting the current value writes nothing');
+
+  h.current().onCancel();
+  await flush();
+  h.current().onSelect('diagnostics', h.row('diagnostics'));
+  await flush();
+  h.current().onSelect('forced', h.row('forced'));
+  h.current().onLeft(h.row('forced'));
+  await flush();
+  assert.equal(writes.length, 2);
+  assert.deepEqual(h.notices.at(-1), ['Forced is forced on by MIXDOG_FORCED', 'warn']);
+  assert.equal(h.row('forced').meta, 'On (env)');
 });

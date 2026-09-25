@@ -190,6 +190,12 @@ export function buildSettingsItems({
       _action: 'system-shell',
     },
     {
+      value: 'developer',
+      label: 'Developer',
+      description: 'Developer-only options.',
+      _action: 'developer',
+    },
+    {
       value: 'update',
       label: 'Update',
       meta: updateMeta(snapshot.updateSettings),

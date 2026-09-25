@@ -16,6 +16,7 @@ import {
 import { readTopLevelLifecycleRecord } from '../../src/runtime/agent/orchestrator/session/lifecycle-scan.mjs';
 import { createCanonicalSessionReader } from '../../src/runtime/agent/orchestrator/session/store/canonical-reader.mjs';
 import { yieldToRenderer } from '../../src/tui/session/render-timing.mjs';
+import { median, sortedFinite } from '../lib/trace-stats.mjs';
 
 const directory = mkdtempSync(join(tmpdir(), 'mixdog-transcript-perf-'));
 const messages = Array.from({ length: 1000 }, (_, i) => ({
@@ -28,7 +29,6 @@ writeFileSync(target, raw);
 const currentReader = createCanonicalSessionReader();
 const oldReader = () => readTopLevelLifecycleRecord(readFileSync(target, 'utf8'));
 const currentFloors = (value) => Math.max(denseTokenFloor(value), structuredTokenFloor(value));
-const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 const timed = async (name, action, repetitions = 5) => {
   const samples = [];
   for (let i = 0; i < repetitions; i++) {
@@ -37,7 +37,7 @@ const timed = async (name, action, repetitions = 5) => {
     await action();
     samples.push(performance.now() - start);
   }
-  return { name, medianMs: +median(samples).toFixed(3), samplesMs: samples.map((n) => +n.toFixed(3)) };
+  return { name, medianMs: +median(sortedFinite(samples)).toFixed(3), samplesMs: samples.map((n) => +n.toFixed(3)) };
 };
 const results = [];
 results.push(

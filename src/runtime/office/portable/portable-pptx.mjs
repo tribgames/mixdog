@@ -111,7 +111,7 @@ export async function applyPptx(zip, operations) {
   let structural = false;
   for (const operation of operations) {
     const op = await resolvePptxTargets(context, operation);
-    const handler = PPTX_OPERATIONS[op.op];
+    const handler = Object.hasOwn(PPTX_OPERATIONS, op.op) ? PPTX_OPERATIONS[op.op] : null;
     if (!handler) throw new Error(`Portable PPTX backend does not support operation: ${op.op}`);
     const result = await handler(context, op);
     if (result) results.push(result);

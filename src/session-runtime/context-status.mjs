@@ -9,24 +9,13 @@ import {
   summarizeContextMessagesAtRevision,
   toolSchemaSignature,
 } from '../runtime/agent/orchestrator/session/context-utils.mjs';
-import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
-import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { scopedProviderRequestTools } from './provider-request-tools.mjs';
+import { hasRouteHistoryMessage } from './session-route-policy.mjs';
 import { contextGauge, contextStatusValue, emptyContextStatus, requestTokenBudget } from './context-status-shape.mjs';
 import { createContextStatusCache } from './context-status-cache.mjs';
 import { createInspectionSnapshots } from './context-status-inspection.mjs';
 
 const NO_NATIVE_TOOLS = Object.freeze([]);
-
-function hasConversationActivity(messages) {
-  return (
-    hasUserConversationMessage(messages) ||
-    messages.some(
-      (message) =>
-        message?.role === 'user' && typeof message.content === 'string' && message.content.startsWith(SUMMARY_PREFIX)
-    )
-  );
-}
 
 export function createContextStatus({
   getSession,
@@ -51,7 +40,7 @@ export function createContextStatus({
     // authoritative committed transcript.
     const liveMessages = Array.isArray(session?.liveTurnMessages) ? session.liveTurnMessages : null;
     const messages = liveMessages || committedMessages;
-    const active = hasConversationActivity(messages);
+    const active = hasRouteHistoryMessage(messages);
     if (!session?.id || !active) {
       return withInspection(emptyContextStatus(session, route, env()), [], [], options, session);
     }
@@ -61,7 +50,7 @@ export function createContextStatus({
     // scope owns the complete immutable provider surface.
     const scopedRequest = scopedProviderRequestTools(session, requestProvider, messages);
     const requestTools =
-      scopedRequest?.requestTools || cache.requestTools(session, requestProvider, messages, messagesRevision);
+      scopedRequest?.requestTools || cache.requestTools(session, requestProvider, messages);
     const requestToolsSignature = toolSchemaSignature(requestTools);
     const key = cache.keyFor(session, route, env(), {
       messages,

@@ -20,7 +20,7 @@ function folderName(path: string): string {
   );
 }
 
-export function normalizedWorkspace(value: unknown): DesktopWorkspace | null {
+function normalizedWorkspace(value: unknown): DesktopWorkspace | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (!Array.isArray(record.folders)) return null;

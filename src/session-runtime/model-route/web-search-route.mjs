@@ -10,6 +10,7 @@ import {
   isDefaultWebSearchRouteConfig,
   isWebSearchCapableProvider,
   normalizeWebSearchRouteConfig,
+  webSearchRouteOrDefault,
   WEB_SEARCH_DEFAULT_MODEL,
   WEB_SEARCH_DEFAULT_PROVIDER,
 } from '../workflow.mjs';
@@ -38,10 +39,7 @@ export function createWebSearchRouteApi(deps) {
 
   function getWebSearchRoute() {
     // Unset === the default marker route (follow Main), never "unconfigured".
-    const webSearchRoute =
-      normalizeWebSearchRouteConfig(getConfig().webSearchRoute) ||
-      normalizeWebSearchRouteConfig(getWebSearchRouteState()) ||
-      defaultWebSearchRoute();
+    const webSearchRoute = webSearchRouteOrDefault(getConfig().webSearchRoute, getWebSearchRouteState());
     setWebSearchRouteState(webSearchRoute);
     return webSearchRoute;
   }

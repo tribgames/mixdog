@@ -1,9 +1,8 @@
 // Worksheet-level operations the portable XLSX backend applies: sheet
 // management, images, header/footer, conditional formats, validation, sort,
 // autofit, pivot tables and charts.
-import { posix } from 'node:path';
 import { conditionalFormatKind, listValidationChoices, listValidationFormula } from './xlsx-contract.mjs';
-import { nextRelationshipId, zipText } from './portable-opc.mjs';
+import { nextRelationshipId, partRelationshipPath, zipText } from './portable-opc.mjs';
 import {
   OFFICE_RELATIONSHIP_BASE,
   SPREADSHEET_MAIN,
@@ -22,7 +21,6 @@ import {
   upsertDefinedName,
   upsertWorksheetSection,
   worksheetSection,
-  writeColumnWidths,
 } from './portable-sheet-xml.mjs';
 
 export const WORKSHEET_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml';
@@ -197,7 +195,7 @@ export async function deleteWorksheet(zip, sheets, sheet) {
   const rels = await zipText(zip, relsPath);
   zip.file(relsPath, rels.replace(new RegExp(`<Relationship\\b[^>]*\\bId="${tagPattern(sheet.rid)}"[^>]*\\/>`), ''));
   zip.remove(sheet.path);
-  const partRels = `${posix.dirname(sheet.path)}/_rels/${posix.basename(sheet.path)}.rels`;
+  const partRels = partRelationshipPath(sheet.path);
   if (zip.file(partRels)) zip.remove(partRels);
   const types = await zipText(zip, '[Content_Types].xml');
   zip.file(
@@ -328,8 +326,9 @@ async function expressionConditionalRule(zip, op, priority) {
 function validationOperator(op, type) {
   const requested = String(op.operator || '').trim();
   let operator = '';
-  if (requested) operator = XLSX_VALIDATION_OPERATORS[requested.toLowerCase()];
-  else if (op.formula2 != null && !['list', 'custom'].includes(type)) operator = 'between';
+  if (requested && Object.hasOwn(XLSX_VALIDATION_OPERATORS, requested.toLowerCase())) {
+    operator = XLSX_VALIDATION_OPERATORS[requested.toLowerCase()];
+  } else if (op.formula2 != null && !['list', 'custom'].includes(type)) operator = 'between';
   if (requested && !operator) {
     throw new Error(`add_validation operator must be one of ${Object.keys(XLSX_VALIDATION_OPERATORS).join(', ')}`);
   }
@@ -361,7 +360,7 @@ export function addWorksheetValidation(zip, sheet, xml, op) {
   const kind = String(op.type || (listValidationFormula(op.formula1) ? 'list' : 'custom'))
     .trim()
     .toLowerCase();
-  const type = XLSX_VALIDATION_TYPES[kind];
+  const type = Object.hasOwn(XLSX_VALIDATION_TYPES, kind) ? XLSX_VALIDATION_TYPES[kind] : '';
   if (!type) {
     throw new Error(`add_validation type must be one of ${Object.keys(XLSX_VALIDATION_TYPES).join(', ')}`);
   }

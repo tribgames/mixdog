@@ -40,20 +40,20 @@ function bindEditDialectDescription(tool, selected) {
   };
 }
 
+// Keep every non-edit tool and only the edit dialect the model can call.
+function keepsEditTool(name, selected) {
+  const key = String(name || '').toLowerCase();
+  return !MODEL_EDIT_TOOL_NAMES.has(key) || key === selected;
+}
+
 export function filterModelEditTools(tools, modelName) {
   const selected = modelEditToolName(modelName);
   return (Array.isArray(tools) ? tools : [])
-    .filter((tool) => {
-      const name = String(tool?.name || '').toLowerCase();
-      return !MODEL_EDIT_TOOL_NAMES.has(name) || name === selected;
-    })
+    .filter((tool) => keepsEditTool(tool?.name, selected))
     .map((tool) => bindEditDialectDescription(tool, selected));
 }
 
 export function filterModelEditToolNames(names, modelName) {
   const selected = modelEditToolName(modelName);
-  return (Array.isArray(names) ? names : []).filter((name) => {
-    const key = String(name || '').toLowerCase();
-    return !MODEL_EDIT_TOOL_NAMES.has(key) || key === selected;
-  });
+  return (Array.isArray(names) ? names : []).filter((name) => keepsEditTool(name, selected));
 }

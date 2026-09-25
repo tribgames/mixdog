@@ -1,6 +1,6 @@
 /** The queue a command belongs to: session metadata, the visible page, or one
  *  named background page. Commands on different keys run in parallel. */
-import type { BrowserCommand } from './command';
+import { type BrowserCommand, normalizeBrowserAction } from './command';
 import { normalizeBackgroundTabName } from './tab-policy';
 
 export interface QueueKeyHost {
@@ -10,16 +10,10 @@ export interface QueueKeyHost {
   backgroundEntryByPageId(sessionId: string, pageId: string): [string, unknown] | null;
 }
 
-export function normalizedAction(command: BrowserCommand): string {
-  return String(command.action || '')
-    .trim()
-    .toLowerCase();
-}
-
 export function commandQueueKey(host: QueueKeyHost, command: BrowserCommand): string {
   const owner = host.sessionId?.(command);
   const prefix = owner ? `session:${owner}:` : '';
-  const action = normalizedAction(command);
+  const action = normalizeBrowserAction(command);
   if (action === 'list_tabs' || action === 'downloads') return `${prefix}metadata`;
   const tab = String(
     command.tab || (command.background !== true ? host.currentPageId?.(owner ?? '') : '') || ''

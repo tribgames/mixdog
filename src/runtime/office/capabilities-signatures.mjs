@@ -63,7 +63,7 @@ export const FORMAT_SIGNATURES = {
     add_table: signature(['values'], ['paragraph', 'rows', 'columns', 'properties'], {
       propertySets: ['table'],
       notes:
-        'properties.alignment places the table on the page (left, center, right); properties.columnAlignments sets the text of each column (one of left, center, right, justify per column). Without style, borders, or shading the table takes a bold header row with a rule under it and hairlines between rows; headerBold:false keeps the header plain.',
+        'properties.alignment places the table on the page (left, center, right); properties.columnAlignments sets the text of each column (one of left, center, right, justify per column); without it a column of figures (184,200, 2.1%, 2.6억 원) sets right and the rest left. Without style, borders, or shading the table takes a bold header row with a rule under it and hairlines between rows; headerBold:false keeps the header plain.',
     }),
     set_table_style: signature(['table', 'properties'], [], {
       propertySets: ['table'],
@@ -88,9 +88,10 @@ export const FORMAT_SIGNATURES = {
       notes:
         'Formats only the first matching body phrase across runs; excludes headers/footers and preserves unrelated formatting. nameEastAsia sets the East Asian font independently.',
     }),
-    add_image: signature(['path'], ['paragraph', 'width', 'height', 'altText'], {
+    add_image: signature(['path'], ['paragraph', 'width', 'height', 'altText', 'properties'], {
+      propertySets: ['paragraphFormat'],
       notes:
-        'altText describes the picture for a reader who cannot see it; without it the audit reports missing_alt_text.',
+        "altText describes the picture for a reader who cannot see it; without it the audit reports missing_alt_text. The picture's paragraph keeps with the next one (its caption) unless properties.keepWithNext is false; properties.alignment:'center' centres it.",
     }),
     add_comment: signature(['find', 'text'], ['author', 'initials'], {
       notes:
@@ -103,7 +104,7 @@ export const FORMAT_SIGNATURES = {
     delete_table_row: signature(['table', 'row']),
     insert_table_column: signature(['table', 'column']),
     delete_table_column: signature(['table', 'column']),
-    set_header_footer: signature(['text'], ['section', 'kind', 'variant', 'header'], {
+    set_header_footer: signature(['text'], ['section', 'kind', 'variant', 'header', 'properties'], {
       propertySets: ['headerFooter'],
       notes:
         "kind names what to write — 'header' or 'footer' (header:false means the footer too). variant picks the page it applies to: default, first (also sets titlePg), or even.",
@@ -222,6 +223,7 @@ export const FORMAT_SIGNATURES = {
       [
         'sheet',
         'cell',
+        'toColumn',
         'chartType',
         'title',
         'left',
@@ -240,7 +242,7 @@ export const FORMAT_SIGNATURES = {
       {
         propertySets: ['chart'],
         notes:
-          "plotBy:'rows' reads one bounded range the other way — the first row supplies the categories and every other row is a series named by its first cell — for a sheet that grows a column per period. The first source column supplies categories; remaining columns become series. A series that is not beside its categories joins by comma the way Excel reads it (range:'A7:A12,D7:D12', same rows in every area). cell (H2) places the frame's top-left corner on the grid; left/top are points and win when both are given; width/height are points (420 × 260 at F5 reaches about N22), and the print area has to reach past the frame.",
+          "plotBy:'rows' reads one bounded range the other way — the first row supplies the categories and every other row is a series named by its first cell — for a sheet that grows a column per period. The first source column supplies categories; remaining columns become series. A series that is not beside its categories joins by comma the way Excel reads it (range:'A7:A12,D7:D12', same rows in every area). cell (H2) places the frame's top-left corner on the grid; left/top are points and win when both are given; width/height are points (420 × 260 at F5 reaches about N22), and the print area has to reach past the frame. toColumn (F) with cell ends the frame at that column's right edge in place of width, so a chart spans a table exactly: a column's points depend on the workbook's font (a Korean Excel's is wider), which a width cannot know.",
       }
     ),
     add_conditional_format: signature(
@@ -260,7 +262,10 @@ export const FORMAT_SIGNATURES = {
           'type is list, whole, decimal, date, time, textLength, or custom; without it a formula naming choices ("a,b,c" or $A$1:$A$9) becomes a list and any other formula a custom rule. A ranged kind takes operator (between by default with formula2) and its bounds. Under protect_sheet the entry cells need set_style properties { locked: false } or nobody can type in them.',
       }
     ),
-    freeze_panes: signature([], ['sheet', 'row', 'column']),
+    freeze_panes: signature([], ['sheet', 'row', 'column'], {
+      notes:
+        'row and column are the first row and column that scroll, as Excel freezes at the selected cell: row:2 keeps row 1 in view, column:2 keeps column A; neither unfreezes.',
+    }),
     add_pivot_table: signature(
       ['source', 'destination'],
       ['sheet', 'destinationSheet', 'name', 'rows', 'columns', 'values'],
@@ -275,6 +280,7 @@ export const FORMAT_SIGNATURES = {
       [
         'sheet',
         'printArea',
+        'printTitleRows',
         'fitToContent',
         'orientation',
         'fitToPagesWide',
@@ -288,6 +294,8 @@ export const FORMAT_SIGNATURES = {
       ],
       {
         propertySets: ['pageSetup'],
+        notes:
+          'Margins are inches, as Excel\'s Page Setup shows them. printTitleRows repeats header rows on every printed page: "1" or "4:5".',
       }
     ),
     set_sheet_view: signature([], ['sheet', 'showGridlines', 'zoom'], {
@@ -313,11 +321,19 @@ export const FORMAT_SIGNATURES = {
     }),
     set_header_footer: signature(['kind', 'text'], ['sheet', 'alignment'], {
       notes:
-        "What every printed page of the sheet carries. kind is 'header' or 'footer'; alignment places the text left, center (default), or right. The snapshot reports both under pageSetup.",
+        "What every printed page of the sheet carries. kind is 'header' or 'footer'; alignment places the text left, center (default), or right. {page}, {pages}, {date}, and {time} print the page number, the page count, and the print date and time (text: '{page} / {pages}'); an '&' is printed as written, so Excel's own &P codes are not the way to number pages. The snapshot reports both under pageSetup.",
     }),
     set_row_visibility: signature(['row', 'visible'], ['sheet', 'count'], {
       notes:
         'A hidden row keeps its values and the sheet stops showing them; the snapshot reports the same state as hiddenRows.',
+    }),
+    set_row_height: signature(['row', 'height'], ['sheet', 'count'], {
+      notes:
+        'height is points (0-409). A merged title band never grows to its wrapped lines on its own, so a report sets the band rows it wraps; count extends the span.',
+    }),
+    set_column_width: signature(['column', 'width'], ['sheet', 'count'], {
+      notes:
+        "column takes a letter (D) or a 1-based number; width is Excel's characters (0-255) — a narrow gutter, a label column set to its report width. autofit_range sizes to the content instead.",
     }),
     set_column_visibility: signature(['column', 'visible'], ['sheet', 'count'], {
       notes:
@@ -336,13 +352,15 @@ export const FORMAT_SIGNATURES = {
       notes:
         "Replaces the shape's whole text with one paragraph in the formatting of the paragraph that held its first text, as PowerPoint does; the other paragraphs go. To change one bullet of several, use replace_text; to rebuild a list, add_textbox paragraphs.",
     }),
+    // paragraphs alone is a whole text box, as it is for add_shape: text was required beside it and then ignored.
     add_textbox: signature(
-      ['slide', 'text'],
-      ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'name', 'properties'],
+      ['slide'],
+      ['text', 'paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'name', 'properties'],
       {
+        oneOf: [['text'], ['paragraphs']],
         propertySets: ['shape', 'authoring'],
         notes:
-          'left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script.',
+          'left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script. fillTransparency and lineTransparency are percentages (0-100); properties.shadow is true (PowerPoint’s own) or { color, transparency 0-1, blur, offsetX, offsetY } in points.',
       }
     ),
     delete_shape: signature(['slide', 'shape']),
@@ -351,9 +369,9 @@ export const FORMAT_SIGNATURES = {
     move_slide: signature(['slide', 'index']),
     duplicate_slide: signature(['slide'], ['index']),
     import_slides: signature(['path'], ['after', 'slides']),
-    use_template_page: signature(['path', 'after'], ['role', 'slide', 'title', 'items', 'notes'], {
+    use_template_page: signature(['path', 'after'], ['role', 'slide', 'title', 'eyebrow', 'subtitle', 'body', 'source', 'items', 'notes'], {
       notes:
-        "Takes a page from the template deck at path and fills it: role picks the page by the job it does (the snapshot reports it as slide.role — cover, comparison, process, metrics, split, statement, closing, content), or slide names one exact page. after is the slide the new page follows, 0 for the front. title fills the title slot; items[] fill the page's repeated group in order, each { title, body } (a metric page reads them as { value, label }). Fewer items than slots empties the unused ones; more items than the page holds is refused, since a page takes another item by being replaced, never by shrinking its type.",
+        "Takes a page from the template deck at path and fills it: role picks the page by the job it does (the snapshot reports it as slide.role — cover, comparison, process, metrics, split, statement, closing, content), or slide names one exact page. after is the slide the new page follows, 0 for the front. title fills the title slot; eyebrow, subtitle, body (the page's lead prose), and source (its 출처/Source line) fill their own, and text given for a box the page lacks is refused; items[] fill the page's repeated group in order, each { title, body } (a metric page reads them as { value, label }). A template's sidecar (<path>.mixdog.json) names the roles when it has one. Fewer items than slots empties the unused ones, and an eyebrow, subtitle, body, or detail line given no text is emptied rather than left in the template's words; more items than the page holds is refused, since a page takes another item by being replaced, never by shrinking its type.",
     }),
     keep_slides: signature(['slides']),
     set_notes: signature(['slide', 'text']),
@@ -386,7 +404,7 @@ export const FORMAT_SIGNATURES = {
     set_shape: signature(['slide', 'shape', 'properties'], [], {
       propertySets: ['shape'],
       notes:
-        'properties.left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script.',
+        'properties.left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script. fillTransparency and lineTransparency are percentages (0-100); shadow is true (PowerPoint’s own) or { color, transparency 0-1, blur, offsetX, offsetY } in points; paragraphSpacing is the space before each paragraph in points.',
     }),
     group_shapes: signature(['slide', 'shapes']),
     ungroup_shape: signature(['slide', 'shape']),
@@ -417,7 +435,11 @@ export const FORMAT_SIGNATURES = {
         'dataLabelPosition',
         'dataLabelColor',
       ],
-      { propertySets: ['chart'] }
+      {
+        propertySets: ['chart'],
+        notes:
+          "series[] is { name, values, color?, pointColors? }: color fills the series, pointColors[] one bar or slice each. A chart added to an existing deck takes the deck's colours from the page it joins — the snapshot reports each shape's font.color and fill.color — rather than the neutral default blue, so it does not read as pasted in. left/top/width/height are points (960 × 540 on the wide canvas).",
+      }
     ),
     fit_text: signature(['slide', 'shape'], ['minFontSize', 'allowNoChange']),
     add_shape: signature(
@@ -426,13 +448,19 @@ export const FORMAT_SIGNATURES = {
       {
         propertySets: ['shape', 'authoring'],
         notes:
-          'left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script.',
+          'left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script. fillTransparency and lineTransparency are percentages (0-100); properties.shadow is true (PowerPoint’s own) or { color, transparency 0-1, blur, offsetX, offsetY } in points.',
       }
     ),
     add_table: signature(['slide', 'values'], ['rows', 'columns', 'left', 'top', 'width', 'height', 'properties'], {
       propertySets: ['table'],
+      notes:
+        'properties.columnWidths (points, one per column) share the table width in their proportions; without them each column takes the width its text needs.',
     }),
-    set_table_data: signature(['slide', 'shape', 'values'], [], { propertySets: ['table'] }),
+    set_table_data: signature(['slide', 'shape', 'values'], [], {
+      propertySets: ['table'],
+      notes:
+        'The table takes the shape of the data on both backends: a row or column past its edge repeats the last one (formatting and width), and rows past the data are removed.',
+    }),
     set_chart_data: signature(
       ['slide', 'shape', 'series'],
       [
@@ -465,13 +493,21 @@ export const FORMAT_SIGNATURES = {
     set_chart_data_labels: signature(
       ['slide', 'shape'],
       ['series', 'showValue', 'showCategoryName', 'position', 'numberFormat'],
-      { propertySets: ['chart'] }
+      {
+        propertySets: ['chart'],
+        notes:
+          'Without series every series is labelled. position is center, inside_end, inside_base, outside_end, or best_fit, as add_chart takes dataLabelPosition; a stacked bar sets outside_end at the center and a pie or doughnut keeps its own placement.',
+      }
     ),
     set_chart_trendline: signature(['slide', 'shape'], ['series', 'type', 'displayEquation', 'displayRSquared'], {
       propertySets: ['chart'],
+      notes:
+        'type is linear (default), exponential, logarithmic, polynomial, power, or moving_average (the file codes exp, log, poly, movingAvg also read); without series every series takes one.',
     }),
     set_chart_error_bars: signature(['slide', 'shape'], ['series', 'amount', 'direction', 'endStyle'], {
       propertySets: ['chart'],
+      notes:
+        'amount is a positive fixed value; direction is y (default) or x; endStyle is which side the bars reach: both (default), plus, or minus. Without series every series takes them.',
     }),
     set_hyperlink: signature(['slide', 'shape'], ['address', 'subAddress'], { propertySets: ['authoring'] }),
     z_order: signature(['slide', 'shape', 'command']),
@@ -486,7 +522,7 @@ export const FORMAT_SIGNATURES = {
       {
         propertySets: ['text', 'textFont'],
         notes:
-          "x, y are the baseline start in points from the bottom-left; align center|right places the run between the margins when x is omitted. {page} and {pages} in text become each page's number and the page count. Non-Latin text embeds an installed Unicode font (fontPath chooses).",
+          "x, y are the baseline start in points from the bottom-left; align center|right places the run between the margins when x is omitted, and with x puts the run's centre or right end at x. {page} and {pages} in text become each page's number and the page count. Non-Latin text embeds an installed Unicode font (fontPath chooses).",
       }
     ),
     highlight: signature(

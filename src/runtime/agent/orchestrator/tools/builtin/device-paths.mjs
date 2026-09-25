@@ -87,6 +87,9 @@ const WIN_RESERVED_BASENAMES = new Set([
   'LPT\u00B2',
   'LPT\u00B3',
 ]);
+// Unicode invisibles (BOM, zero-width joiners, bidi controls) that Win32
+// path-open codepaths collapse or ignore.
+const WIN32_IGNORED_INVISIBLES = /[\uFEFF\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g;
 export function isWindowsDevicePath(p) {
   if (typeof p !== 'string' || p.length === 0) return false;
   // \\.\ and \\?\ raw-device / DOS-device namespace (both slash forms).
@@ -120,7 +123,7 @@ export function isWindowsDevicePath(p) {
   // and a number of file APIs collapse / ignore these characters when
   // opening, so "CON\u200B" or "\uFEFFCON" can resolve to the CON device
   // even though byte-comparison says "not reserved". Drop them defensively.
-  stem = stem.replace(/[\uFEFF\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, '');
+  stem = stem.replace(WIN32_IGNORED_INVISIBLES, '');
   // Strip trailing dots / spaces — Win32 ignores them when opening a
   // file, so "CON. " and "CON " resolve to CON. Loop instead of regex
   // to keep allocation-free hot path.
@@ -173,7 +176,7 @@ export function hasUnsafeWin32Component(p) {
     // BEFORE the trailing-dot / ADS-colon checks. Win32 ignores these
     // characters in many path-open codepaths, so "foo \u200B" (trailing
     // space + ZWSP) or "name\uFEFF:stream" must still trip the guard.
-    const part = rawPart.replace(/[\uFEFF\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, '');
+    const part = rawPart.replace(WIN32_IGNORED_INVISIBLES, '');
     if (!part) continue;
     // `.` and `..` are the standard current/parent-dir components — they end
     // in '.' but are NOT a trailing-dot bypass, so exempt them (without this

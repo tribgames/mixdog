@@ -123,7 +123,7 @@ test('a timed-out provider stays an error while later captures use fresh pixels 
 });
 
 test('the observation after an action takes the cached stall instead of spending the timeout again', async (t) => {
-  let now = 10_000;
+  const now = 10_000;
   t.mock.method(Date, 'now', () => now);
   let snapshots = 0;
   const f = fixture({
@@ -133,8 +133,17 @@ test('the observation after an action takes the cached stall instead of spending
       throw new Error('computer_command_timeout: snapshot exceeded 2500ms');
     },
   });
-  const observation = { action: 'capture', mode: 'ax', window_id: 'hwnd:0x1', session_id: 'a', observation_after: true };
-  await assert.rejects(f.run(() => f.capture.captureComputer(observation)), /computer_command_timeout/);
+  const observation = {
+    action: 'capture',
+    mode: 'ax',
+    window_id: 'hwnd:0x1',
+    session_id: 'a',
+    observation_after: true,
+  };
+  await assert.rejects(
+    f.run(() => f.capture.captureComputer(observation)),
+    /computer_command_timeout/
+  );
   assert.equal(snapshots, 1);
   const cached = await f.run(() => f.capture.captureComputer(observation));
   assert.equal(cached.payload.ok, true);
@@ -147,6 +156,21 @@ test('the observation after an action takes the cached stall instead of spending
     /computer_command_timeout/
   );
   assert.equal(snapshots, 2);
+});
+
+test('releasing a session forgets which frames it was already sent', async () => {
+  const f = fixture();
+  const action = { action: 'click', window_id: 'hwnd:0x1', session_id: 'a' };
+  const after = () => f.run(() => f.capture.captureAfterAction(action, 'hwnd:0x1', 0));
+  assert.ok((await after()).image);
+  const repeated = await after();
+  assert.equal(repeated.image, undefined);
+  assert.equal(repeated.metadata.image_unchanged, true);
+  // A released session starts over: its next observation carries the frame again.
+  f.capture.releaseCaptureSession('a');
+  const fresh = await after();
+  assert.ok(fresh.image, 'the first frame after release must not be dropped as a repeat');
+  assert.equal(fresh.metadata.image_unchanged, undefined);
 });
 
 test('a provider that keeps timing out is retried on a doubling delay, and one good read clears it', async (t) => {

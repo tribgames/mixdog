@@ -44,6 +44,9 @@ export function createSessionRetention({
     entry.itemCache = null;
     entry.publishedSnapshot = null;
     entry.publishedSessionId = '';
+    // The window survives (its views are still attached); its cached windowed
+    // snapshot is one more copy of the released projection.
+    if (entry.transcriptView) entry.transcriptView.cache = null;
   }
 
   function startEvictionSweep() {
@@ -103,6 +106,8 @@ export function createSessionRetention({
     if (!entry || entry.disposed || (entry.subscribers?.size || 0) > 0) return;
     entry.headless = true;
     entry.retainedAt = Date.now();
+    // No view remains to hold a window; the next one starts from the tail.
+    entry.transcriptView = null;
     releaseProjection(entry);
     startEvictionSweep();
   }

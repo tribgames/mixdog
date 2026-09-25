@@ -35,7 +35,7 @@ export async function statLocalEntryAbs(path: string): Promise<{
 }
 
 /** Read one local file as base64 for an attachment, with a bounded payload. */
-export async function readLocalFileAbs(path: string): Promise<{
+export async function readLocalFileAbs(path: unknown): Promise<{
   name: string;
   size: number;
   mimeType: string;

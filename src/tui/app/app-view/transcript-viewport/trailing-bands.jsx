@@ -8,17 +8,11 @@ import { Box, Text } from 'ink';
 import { theme, surfaceBackground } from '../../../theme.mjs';
 import { centerLine, promptStatusColor } from '../../app-format.mjs';
 
-/** The right-aligned hint cell shared by the overlay band and the guard band. */
-function hintCell({ inputHint, inputHintTone, guardHintWidth }) {
+/** The right-aligned hint cell shared by the overlay band, the guard band and
+ *  the prompt meta row (app-view.jsx). */
+export function hintCell({ inputHint, inputHintTone, width }) {
   return (
-    <Box
-      flexShrink={0}
-      width={guardHintWidth || 1}
-      marginLeft={1}
-      marginRight={1}
-      justifyContent="flex-end"
-      overflow="hidden"
-    >
+    <Box flexShrink={0} width={width || 1} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
       <Text color={promptStatusColor(inputHintTone)} wrap="truncate">
         {inputHint}
       </Text>
@@ -62,7 +56,7 @@ export function renderOverlayHintBand({ overlayHintBandRows, inputHint, inputHin
       overflow="hidden"
     >
       <Box flexGrow={1} flexShrink={1} overflow="hidden" />
-      {hintCell({ inputHint, inputHintTone, guardHintWidth })}
+      {hintCell({ inputHint, inputHintTone, width: guardHintWidth })}
     </Box>
   );
 }
@@ -87,7 +81,7 @@ export function renderTranscriptGuardBand({
     >
       <Box flexGrow={1} flexShrink={1} overflow="hidden" />
       {overlayHintFallbackRow && overlayHintBandRows === 0
-        ? hintCell({ inputHint, inputHintTone, guardHintWidth })
+        ? hintCell({ inputHint, inputHintTone, width: guardHintWidth })
         : null}
     </Box>
   );

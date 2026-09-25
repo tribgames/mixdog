@@ -121,19 +121,14 @@ export function useSourceControlBranches({
     setMergeMode(false);
   }, [projectPath]);
 
-  const visibleBranches = branches.filter(
-    (branch) => !query.trim() || branch.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
-  );
+  const needle = query.trim().toLocaleLowerCase();
+  const visibleBranches = branches.filter((branch) => !needle || branch.name.toLocaleLowerCase().includes(needle));
   // Put the resolved default branch first; only guess from conventional names
   // when the repository exposes no remote HEAD.
-  const defaultBranch =
-    (defaultBranchName
-      ? (visibleBranches.find((branch) => !branch.remote && branch.name === defaultBranchName) ??
-        visibleBranches.find((branch) => branch.name.endsWith(`/${defaultBranchName}`)))
-      : undefined) ??
-    (defaultBranchName
-      ? undefined
-      : visibleBranches.find((branch) => !branch.remote && DEFAULT_BRANCH_NAMES.includes(branch.name)));
+  const defaultBranch = defaultBranchName
+    ? (visibleBranches.find((branch) => !branch.remote && branch.name === defaultBranchName) ??
+      visibleBranches.find((branch) => branch.name.endsWith(`/${defaultBranchName}`)))
+    : visibleBranches.find((branch) => !branch.remote && DEFAULT_BRANCH_NAMES.includes(branch.name));
   const otherBranches = visibleBranches.filter((branch) => branch !== defaultBranch);
   const openPicker = () => {
     setPickerOpen(true);

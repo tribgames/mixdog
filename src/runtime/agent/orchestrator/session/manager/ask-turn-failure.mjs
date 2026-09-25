@@ -22,7 +22,7 @@ import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
  *  structured line to stderr — the shard host mirrors it into daemon.log — so
  *  post-hoc diagnosis never depends on the renderer's ephemeral failure
  *  toast. */
-export function logAskError(sessionId, err, providerOutcome) {
+function logAskError(sessionId, err, providerOutcome) {
   try {
     const status = Number(err?.httpStatus || err?.status || err?.response?.status || 0) || 0;
     const errorDetails = err?.details && typeof err.details === 'object' ? err.details : null;
@@ -72,6 +72,40 @@ async function persistFinalizedSession({ session, sessionId, generation, pending
   }
 }
 
+/** A SessionClosedError unwind: keeps the interruption snapshot unless the
+ *  runtime already closed, in which case the consumed queue entries are
+ *  released untouched. */
+async function finalizeCancelledTurn({
+  sessionId,
+  err,
+  turn,
+  session,
+  prepareCloseSnapshot,
+  generation,
+  turnCheckpointToken,
+}) {
+  const currentRuntime = _getRuntimeEntry(sessionId);
+  if (currentRuntime?.closed || !session) {
+    releasePendingMessages(sessionId, turn.pendingEntries);
+    if (!currentRuntime?.closed) markSessionCancelled(sessionId);
+    return;
+  }
+  const finalized = prepareCloseSnapshot(err.reason);
+  if (currentRuntime?.prepareCloseSnapshot === prepareCloseSnapshot) {
+    currentRuntime.prepareCloseSnapshot = null;
+  }
+  const settled = await persistFinalizedSession({
+    session,
+    sessionId,
+    generation,
+    pendingEntries: turn.pendingEntries,
+    promptSurvived: finalized.responsePreserved,
+  });
+  if (settled) clearTurnCheckpoint(sessionId, turnCheckpointToken);
+  if (currentRuntime) currentRuntime.session = session;
+  markSessionCancelled(sessionId);
+}
+
 /**
  * Unwinds one failed turn. Always returns so the caller rethrows `err`.
  * @param {object} input
@@ -117,27 +151,17 @@ export async function finalizeAskTurnFailure({
   // partial response that was already exposed.
   const restoredResetText = interruption.restoreTombstonedText();
   if (err instanceof SessionClosedError) {
-    const currentRuntime = _getRuntimeEntry(sessionId);
-    if (!currentRuntime?.closed) {
-      if (session) {
-        const finalized = prepareCloseSnapshot(err.reason);
-        if (currentRuntime?.prepareCloseSnapshot === prepareCloseSnapshot) {
-          currentRuntime.prepareCloseSnapshot = null;
-        }
-        const settled = await persistFinalizedSession({
-          session,
-          sessionId,
-          generation,
-          pendingEntries: turn.pendingEntries,
-          promptSurvived: finalized.responsePreserved,
-        });
-        if (settled) clearTurnCheckpoint(sessionId, turnCheckpointToken);
-        if (currentRuntime) currentRuntime.session = session;
-      } else releasePendingMessages(sessionId, turn.pendingEntries);
-      markSessionCancelled(sessionId);
-    } else releasePendingMessages(sessionId, turn.pendingEntries);
     // Cancellation is not an error; the caller propagates it silently so
     // surfaces render "cancelled" rather than a red failure.
+    await finalizeCancelledTurn({
+      sessionId,
+      err,
+      turn,
+      session,
+      prepareCloseSnapshot,
+      generation,
+      turnCheckpointToken,
+    });
     return;
   }
   if (runtime.prepareCloseSnapshot === prepareCloseSnapshot) {

@@ -323,7 +323,9 @@ fn haskell_export_list(text: &str) -> Option<HashSet<String>> {
             }
             _ => {
                 // `where` before any parenthesis: no export list at all.
-                if depth == 0 && rest[index..].starts_with("where") && index > 0 {
+                // Compare bytes: `index` walks every byte, so slicing the
+                // str here would panic inside a multi-byte character.
+                if depth == 0 && bytes[index..].starts_with(b"where") && index > 0 {
                     return None;
                 }
             }
@@ -352,7 +354,23 @@ fn haskell_export_names(list: &str) -> HashSet<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::haskell_export_list;
     use crate::outline::test_support::{record, records};
+
+    #[test]
+    fn haskell_export_list_survives_non_ascii_before_the_list() {
+        // A multi-byte character ahead of the export list used to panic the
+        // whole graph build: the `where` probe sliced the str at every byte.
+        let text = "module A -- é\n  ( foo ) where\nfoo = 1\n";
+        let names = haskell_export_list(text).expect("export list");
+        assert!(names.contains("foo"));
+        assert_eq!(names.len(), 1);
+        let haskell = records("haskell", "hs", text);
+        assert!(record(&haskell, "foo").exported);
+
+        let open = "module Größe where\n\nshown :: Int\nshown = 1\n";
+        assert!(haskell_export_list(open).is_none());
+    }
 
     #[test]
     fn exported_follows_each_language_visibility_rule() {

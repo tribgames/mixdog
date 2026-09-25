@@ -17,8 +17,14 @@ import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './stor
 import { createStoredTranscriptCache } from './store-transcript-cache.mjs';
 import { projectStoredTranscript } from './store-transcript-projection.mjs';
 import { dataDir, sessionHeartbeatMtimes } from './store-summary-locations.mjs';
-import { desktopSession, positiveNumber } from './store-summary-fields.mjs';
+import { desktopSession, isStoredSessionId, positiveNumber } from './store-summary-fields.mjs';
 import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
+import {
+  readCanonicalSessionRecord as readCanonicalLifecycle,
+  statSessionStamp,
+  sameSessionStamp,
+  isSettledSessionStamp,
+} from './store/canonical-reader.mjs';
 // Worker-pool row projection (child + Lead indexes, heartbeat lease, cancel
 // ranking) lives in store-agent-worker-rows.mjs; re-exported so prior
 // importers of this module stay unchanged.
@@ -32,6 +38,63 @@ const storedTranscriptCache = createStoredTranscriptCache();
 /** Test seam: forget every cached projection. */
 export function clearStoredTranscriptCache() {
   storedTranscriptCache.clear();
+}
+
+/** Drop one session's cold projections: it went live, or its last view left. */
+export function forgetStoredSessionTranscript(sessionId) {
+  storedTranscriptCache.forget(`${String(sessionId || '').trim()}|`);
+}
+
+/** Test/diagnostic seam: size of the retained cold projections. */
+export function storedTranscriptCacheStats() {
+  return storedTranscriptCache.stats();
+}
+
+// ── Stamp-keyed strict derivations ──────────────────────────────────────────
+// Session metadata and catalog rows are small values derived from a strict
+// parse of the whole record. They are reused only while the file still has
+// the FULL stamp { dev, ino, size, mtimeNs, ctimeNs } the parsed bytes were
+// proven to come from (stat → read → stat) and that stamp is past the racy
+// window. Any other file — changed, replaced by another writer, unreadable —
+// is read and strictly parsed again.
+const STAMPED_DERIVATION_LIMIT = 2048;
+const stampedDerivations = new Map(); // `${kind}|${path}` → { stamp, value }
+
+function observeStamp(path) {
+  try {
+    return statSessionStamp(path);
+  } catch {
+    return null;
+  }
+}
+
+/** `{ state, value }`: `derive(text)` for the record at `path`, or its cached
+ *  result while the file is provably unchanged. */
+function stampedDerivation(kind, path, derive) {
+  const key = `${kind}|${path}`;
+  const before = observeStamp(path);
+  const cached = stampedDerivations.get(key);
+  if (before && cached && sameSessionStamp(cached.stamp, before)) {
+    stampedDerivations.delete(key);
+    stampedDerivations.set(key, cached);
+    return { state: PROBE_PRESENT, value: cached.value };
+  }
+  stampedDerivations.delete(key);
+  const read = readTextFile(path);
+  if (read.state !== PROBE_PRESENT) return { state: read.state, value: null };
+  const value = derive(read.text);
+  if (isSettledSessionStamp(before) && sameSessionStamp(before, observeStamp(path))) {
+    stampedDerivations.set(key, { stamp: before, value });
+    if (stampedDerivations.size > STAMPED_DERIVATION_LIMIT) {
+      stampedDerivations.delete(stampedDerivations.keys().next().value);
+    }
+  }
+  return { state: PROBE_PRESENT, value };
+}
+
+/** Test seam: forget every stamp-keyed derivation. */
+export function clearStoredSessionDerivations() {
+  stampedDerivations.clear();
 }
 
 const SESSION_SUMMARY_INDEX_VERSION = 2;
@@ -97,7 +160,7 @@ function messageText(content) {
 }
 
 function normalizedRow(row, heartbeatAt = 0) {
-  if (!row || typeof row.id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(row.id)) return null;
+  if (!row || typeof row.id !== 'string' || !isStoredSessionId(row.id)) return null;
   return {
     id: row.id,
     updatedAt: positiveNumber(row.updatedAt, 0),
@@ -235,7 +298,15 @@ function scanSessionFiles(
         continue;
       }
     }
-    const read = readTextFile(path);
+    // A file the index does not describe (never saved by the store, or
+    // saved after the index was written) is parsed once per full stamp.
+    const read = stampedDerivation('row', path, (text) => {
+      // Same strict authority as the store: a duplicate/ambiguous top-level
+      // record or a foreign identity is not this file's session.
+      const record = readTopLevelLifecycleRecord(text);
+      if (isLifecycleUnreadable(record) || record.id !== storageId) return null;
+      return rowFromSession(record.doc, 0);
+    });
     // Provably gone: the row legitimately disappears with the file.
     if (read.state === PROBE_ABSENT) continue;
     if (read.state !== PROBE_PRESENT) {
@@ -244,17 +315,21 @@ function scanSessionFiles(
       if (retained) rows.push(retained);
       continue;
     }
-    // Same strict authority as the store: a duplicate/ambiguous top-level
-    // record or a foreign identity is not this file's session.
-    const record = readTopLevelLifecycleRecord(read.text);
-    if (isLifecycleUnreadable(record) || record.id !== storageId) continue;
-    const summary = rowFromSession(record.doc, heartbeatMtimes.get(record.id) || 0);
-    const row = summary ? { ...summary, storageMtimeMs: probe.mtimeMs, storageSize: probe.size } : null;
-    if (row) rows.push(row);
+    if (read.value) {
+      rows.push({
+        ...structuredClone(read.value),
+        heartbeatAt: positiveNumber(heartbeatMtimes.get(storageId), 0),
+        storageMtimeMs: probe.mtimeMs,
+        storageSize: probe.size,
+      });
+    }
   }
-  return leadRowsWithAgentHeartbeat(rows).sort(
-    (left, right) => (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0)
-  );
+  return leadRowsWithAgentHeartbeat(rows).sort(byRecentActivity);
+}
+
+// Newest conversation activity first (see normalizedRow's lastUsedAt note).
+function byRecentActivity(left, right) {
+  return (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0);
 }
 
 export function listStoredSessionSummaries(options = {}) {
@@ -274,9 +349,7 @@ export function listStoredSessionSummaries(options = {}) {
           .map((row) => normalizedRow(row, heartbeatMtimes.get(row?.id) || 0))
           .filter(Boolean);
         for (const row of normalizedRows) indexRowsById.set(row.id, row);
-        indexRows = leadRowsWithAgentHeartbeat(normalizedRows).sort(
-          (left, right) => (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0)
-        );
+        indexRows = leadRowsWithAgentHeartbeat(normalizedRows).sort(byRecentActivity);
       }
     } catch {
       /* malformed sidecar: the files below are the authority */
@@ -304,11 +377,56 @@ export function listStoredSessionSummaries(options = {}) {
  * make a missing sessions/<id>.json record addressable again. */
 export function storedSessionExists(id) {
   const sessionId = String(id || '').trim();
-  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return false;
-  const read = readTextFile(join(dataDir(), 'sessions', `${sessionId}.json`));
-  if (read.state !== PROBE_PRESENT) return false;
-  const record = readTopLevelLifecycleRecord(read.text);
-  return !isLifecycleUnreadable(record) && record.id === sessionId;
+  if (!isStoredSessionId(sessionId)) return false;
+  // The store's strict lifecycle authority: a stat when the file is this
+  // process's own commit or an unchanged settled stamp, a strict read
+  // otherwise. Absent, unreadable, ambiguous or foreign → false.
+  const lifecycle = readCanonicalLifecycle(join(dataDir(), 'sessions', `${sessionId}.json`), true);
+  return Boolean(lifecycle && typeof lifecycle === 'object' && lifecycle.id === sessionId);
+}
+
+/** Metadata of the strictly parsed record at `recordPath`, or null when it is
+ *  absent, unreadable, ambiguous or foreign to `sessionId`. */
+function readStoredSessionMetadata(recordPath, sessionId) {
+  const { value } = stampedDerivation('metadata', recordPath, (text) => {
+    const record = readTopLevelLifecycleRecord(text);
+    if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
+    return storedSessionMetadata(sessionId, record.doc);
+  });
+  // Callers own what they get back; the cached value stays pristine.
+  return value ? structuredClone(value) : null;
+}
+
+function storedSessionMetadata(sessionId, session) {
+  return {
+    id: sessionId,
+    sessionId,
+    owner: session.owner || null,
+    agent: session.agent || null,
+    parentSessionId: session.parentSessionId || null,
+    ownerSessionId: session.ownerSessionId || session.parentSessionId || null,
+    visibility: sessionVisibility(session),
+    agentTag: session.agentTag || null,
+    cwd: session.cwd || '',
+    provider: session.provider || null,
+    model: session.model || null,
+    presetName: session.presetName || session.profileId || null,
+    effort: session.effort || null,
+    fast: session.fast === true,
+    modelParameters: session.modelParameters || null,
+    taskType: session.taskType || null,
+    permission: session.permission || null,
+    permissionMode: session.permissionMode || null,
+    toolPermission: session.toolPermission || null,
+    schemaAllowedTools: Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
+    sourceType: session.sourceType || null,
+    sourceName: session.sourceName || null,
+    clientHostPid: session.clientHostPid || null,
+    createdAt: session.createdAt || null,
+    updatedAt: session.updatedAt || session.lastUsedAt || null,
+    status: session.status || (session.closed === true ? 'closed' : 'idle'),
+    closed: session.closed === true,
+  };
 }
 
 /** Read exactly one persisted session for a visible desktop pane. This never
@@ -317,46 +435,11 @@ export function storedSessionExists(id) {
  * resumeSession before projecting the transcript. */
 export async function readStoredSessionTranscript(id, options = {}) {
   const sessionId = String(id || '').trim();
-  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
+  if (!isStoredSessionId(sessionId)) return null;
   // Same strict authority as the store, and the same fail-closed rule: an
   // absent, unreadable, ambiguous or foreign record yields no transcript.
   const recordPath = join(dataDir(), 'sessions', `${sessionId}.json`);
-  if (options.metadataOnly === true) {
-    const read = readTextFile(recordPath);
-    if (read.state !== PROBE_PRESENT) return null;
-    const record = readTopLevelLifecycleRecord(read.text);
-    if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
-    const session = record.doc;
-    return {
-      id: sessionId,
-      sessionId,
-      owner: session.owner || null,
-      agent: session.agent || null,
-      parentSessionId: session.parentSessionId || null,
-      ownerSessionId: session.ownerSessionId || session.parentSessionId || null,
-      visibility: sessionVisibility(session),
-      agentTag: session.agentTag || null,
-      cwd: session.cwd || '',
-      provider: session.provider || null,
-      model: session.model || null,
-      presetName: session.presetName || session.profileId || null,
-      effort: session.effort || null,
-      fast: session.fast === true,
-      modelParameters: session.modelParameters || null,
-      taskType: session.taskType || null,
-      permission: session.permission || null,
-      permissionMode: session.permissionMode || null,
-      toolPermission: session.toolPermission || null,
-      schemaAllowedTools: Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
-      sourceType: session.sourceType || null,
-      sourceName: session.sourceName || null,
-      clientHostPid: session.clientHostPid || null,
-      createdAt: session.createdAt || null,
-      updatedAt: session.updatedAt || session.lastUsedAt || null,
-      status: session.status || (session.closed === true ? 'closed' : 'idle'),
-      closed: session.closed === true,
-    };
-  }
+  if (options.metadataOnly === true) return readStoredSessionMetadata(recordPath, sessionId);
   // The checkpoint sidecar shapes the projection as much as the record does,
   // so its identity joins the cache fingerprint. Only a PROVABLY absent
   // checkpoint skips recovery: an unreadable probe must not silently
@@ -371,8 +454,11 @@ export async function readStoredSessionTranscript(id, options = {}) {
   let readState = PROBE_PRESENT;
   // The strict record parse (full JSON + duplicate-key scan) is itself a
   // large share of a cold read, so it only runs when the content is new.
+  const mode = options.includeMessages === true ? 'messages' : 'items';
   const { value, hit, read } = await storedTranscriptCache.read({
-    key: `${sessionId}|${itemLimit}|${options.includeMessages === true ? 'messages' : 'items'}`,
+    key: `${sessionId}|${itemLimit}|${mode}`,
+    // Growing history windows of one session replace each other.
+    group: `${sessionId}|${mode}`,
     fingerprint: [
       checkpoint.state,
       checkpoint.mtimeMs,

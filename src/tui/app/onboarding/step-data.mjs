@@ -3,7 +3,7 @@
 // a background prefetch kicked as soon as Step 1 opens so advancing renders
 // instantly instead of flashing an empty panel, and the on-entry loads Step 2
 // falls back to when the prefetch has not landed.
-export const agentRosterEntry = (a) => ({ id: a.id, label: a.label || a.id, description: a.description || '' });
+const agentRosterEntry = (a) => ({ id: a.id, label: a.label || a.id, description: a.description || '' });
 
 export function createOnboardingStepData({ store, onboardingRef, providerModelsCacheRef, onboardingPrefetchSeqRef }) {
   const hasProviderModels = () =>

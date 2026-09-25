@@ -93,17 +93,24 @@ export function hasVisibleStyle(style) {
   return Number.isFinite(size) && size > 0 && size !== 11;
 }
 
+// A range as an area bounded by both rows and columns, or null: a malformed
+// range, or a whole-row or whole-column one, excludes nothing.
+function boundedArea(range) {
+  try {
+    const area = parseAreaRange(String(range || '').replace(/\$/g, ''));
+    return area.startRow && area.startCol ? area : null;
+  } catch {
+    return null;
+  }
+}
+
 // The Excel tables a sheet lists (both readers: `tables` [{ range }]), as
 // areas; the body rows are records the table sources, not assumptions.
 export function tableAreas(sheet) {
   const areas = [];
   for (const table of sheet?.tables || []) {
-    try {
-      const area = parseAreaRange(String(table?.range || '').replace(/\$/g, ''));
-      if (area.startRow && area.startCol) areas.push({ ...area, table });
-    } catch {
-      // A malformed range excludes nothing.
-    }
+    const area = boundedArea(table?.range);
+    if (area) areas.push({ ...area, table });
   }
   return areas;
 }
@@ -113,12 +120,8 @@ export function tableAreas(sheet) {
 export function mergedAreas(sheet) {
   const areas = [];
   for (const range of sheet?.mergedRanges || []) {
-    try {
-      const area = parseAreaRange(String(range || '').replace(/\$/g, ''));
-      if (area.startRow && area.startCol) areas.push(area);
-    } catch {
-      // A malformed range excludes nothing.
-    }
+    const area = boundedArea(range);
+    if (area) areas.push(area);
   }
   return areas;
 }

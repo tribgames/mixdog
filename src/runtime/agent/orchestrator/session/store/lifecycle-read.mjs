@@ -5,8 +5,7 @@
  * lifecycle gate fail closed on, so they stay independent of every write
  * path and of the in-memory snapshot caches.
  */
-import { readFileSync } from 'node:fs';
-import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../lifecycle-scan.mjs';
+import { readCanonicalSessionRecord, CANONICAL_RECORD_UNREADABLE } from './canonical-reader.mjs';
 import { sessionPath } from './paths-heartbeat.mjs';
 
 /**
@@ -37,20 +36,15 @@ export function readSessionLifecycleFromDisk(id) {
  */
 export function readSessionLifecycleStateFromDisk(id) {
   if (!id) return { state: 'unreadable', generation: 0 };
-  let raw;
-  try {
-    raw = readFileSync(sessionPath(id), 'utf-8');
-  } catch (err) {
-    const code = err?.code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return { state: 'absent', generation: 0 };
-    return { state: 'unreadable', generation: 0 };
-  }
-  // ONE authority, no fallback: readTopLevelLifecycleRecord already IS the
-  // strict parse, so a malformed/ambiguous document ends here. A JSON.parse
-  // retry would resolve duplicate keys last-wins and defeat the check —
-  // even (especially) when one of the duplicates matches the requested id.
-  const onDisk = readTopLevelLifecycleRecord(raw);
-  if (isLifecycleUnreadable(onDisk)) return { state: 'unreadable', generation: 0 };
+  // ONE authority, no fallback: the canonical reader's strict parse (reused
+  // only for an own-commit or settled stat stamp), so a malformed/ambiguous
+  // document ends here. A JSON.parse retry would resolve duplicate keys
+  // last-wins and defeat the check — even (especially) when one of the
+  // duplicates matches the requested id. ENOENT/ENOTDIR read as null (absent);
+  // every other IO failure as unreadable.
+  const onDisk = readCanonicalSessionRecord(sessionPath(id), true);
+  if (onDisk === null) return { state: 'absent', generation: 0 };
+  if (onDisk === CANONICAL_RECORD_UNREADABLE) return { state: 'unreadable', generation: 0 };
   // Durable identity is MANDATORY: the record is this session's authority
   // only when its top-level `id` is a non-empty string exactly equal to the
   // requested id. Missing / empty / non-string identity is not "probably

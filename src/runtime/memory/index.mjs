@@ -40,6 +40,7 @@ import {
   getMetaValue,
   setMetaValue,
   mergeMetaValue,
+  cleanMemoryText,
 } from './lib/memory.mjs';
 import {
   configureEmbedding,
@@ -188,13 +189,6 @@ let mainConfig = null;
 let _embeddingReindexController = null;
 let _embeddingReindexPromise = null;
 let _bootTimestamp = null;
-// Boot-edge background warmup. ONNX session creation on the embedding worker
-// thread is CPU-heavy, so it must not overlap the worker's own init (DB open,
-// schema, cycle wiring). Previously this was gated behind a fixed setTimeout —
-// a wall-clock guess at "boot settled". Now the warmup is queued during
-// _initStore and fired at the _initRuntime completion edge (see _initRuntime),
-// so it starts the instant boot's CPU-heavy work is done — no magic-number
-// delay. MIXDOG_EMBED_WARMUP=0 disables it (model loads lazily on first use).
 
 const TRANSCRIPT_OFFSETS_KEY = 'state.transcript_offsets';
 const CYCLE_LAST_RUN_KEY = 'state.cycle_last_run';
@@ -612,6 +606,9 @@ export async function appendEntry(data = {}) {
   const role = String(data.role ?? 'user');
   const content = String(data.content ?? '');
   if (!content.trim()) return { error: 'content required' };
+  // Same scrubber as the HTTP /entry route (http-router/ingest-routes.mjs).
+  const cleaned = cleanMemoryText(content);
+  if (!cleaned?.trim()) return { error: 'empty after clean' };
   const sourceRef = String(data.sourceRef ?? `manual:${Date.now()}-${process.pid}`);
   const sessionId = data.sessionId ?? null;
   const tsMs = parseTsToMs(data.ts ?? Date.now());
@@ -623,7 +620,7 @@ export async function appendEntry(data = {}) {
     ON CONFLICT DO NOTHING
     RETURNING id
   `,
-    [tsMs, role, content, sourceRef, sessionId, projectId]
+    [tsMs, role, cleaned, sourceRef, sessionId, projectId]
   );
   const insertedId = result.rows[0]?.id ?? null;
   return {

@@ -234,7 +234,7 @@ export function UsagePanel({ dashboard, loading = false, columns = 80, fillHeigh
   const isChecking = dashboard?.checking === true;
   const rows = Array.isArray(dashboard?.rows) ? dashboard.rows : [];
   const indexWidth = rows.length > 0 ? stringWidth(`${rows.length}.`) : 0;
-  const labelWidth = Math.max(12, Math.min(PROVIDER_LABEL_WIDTH, Math.max(12, Math.floor(columns * 0.45))));
+  const labelWidth = Math.min(PROVIDER_LABEL_WIDTH, Math.max(12, Math.floor(columns * 0.45)));
   const statusWidth = Math.max(0, columns - indexWidth - labelWidth - 8);
   const panelTitle = dashboard?.title || 'Provider Quotas';
   const panelDescription = truncate(
@@ -309,16 +309,11 @@ export function UsagePanel({ dashboard, loading = false, columns = 80, fillHeigh
               <Text color={theme.text}>{provider}</Text>
               <Text color={theme.inactive}> </Text>
               <Box flexDirection="row" width={statusWidth}>
-                {statusParts.map((part, partIdx) => {
-                  if (part.color) {
-                    return (
-                      <Text key={partIdx} color={part.color}>
-                        {part.text}
-                      </Text>
-                    );
-                  }
-                  return <Text key={partIdx}>{part.text}</Text>;
-                })}
+                {statusParts.map((part, partIdx) => (
+                  <Text key={partIdx} color={part.color}>
+                    {part.text}
+                  </Text>
+                ))}
               </Box>
             </Box>
           );

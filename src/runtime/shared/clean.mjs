@@ -3,3 +3,9 @@
 export function clean(value) {
   return String(value ?? '').trim();
 }
+
+// Strict variant for persisted/record fields: only a string counts, anything
+// else becomes '' instead of being stringified.
+export function cleanString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}

@@ -12,17 +12,20 @@ export interface RelayPushLaneDeps {
   subscribeDesktopEvents?: DesktopService['subscribeDesktopEvents'];
 }
 
-export const readsLane =
+const readsLane =
   (lane: string) =>
   (state: RelayClientState): boolean =>
     clientReadsLane(state.lanes, lane);
+const readsTerminal = readsLane('terminal');
+const readsFiles = readsLane('files');
+const readsEditor = readsLane('editor');
 
 export function createRelayPushLanes(deps: RelayPushLaneDeps): { dispose(): void } {
   let terminalBuffer!: TerminalDataBufferer;
   terminalBuffer = new TerminalDataBufferer(
     (event) => {
       if (deps.clients.size > 0) {
-        deps.broadcastEncrypted({ event: 'termData', payload: event }, true, readsLane('terminal'));
+        deps.broadcastEncrypted({ event: 'termData', payload: event }, true, readsTerminal);
       }
       terminalBuffer.acknowledge(event.id, event.data.length);
     },
@@ -30,7 +33,7 @@ export function createRelayPushLanes(deps: RelayPushLaneDeps): { dispose(): void
   );
   const terminalReaderAttached = (): boolean => {
     for (const state of deps.clients.values()) {
-      if (state.channel && readsLane('terminal')(state)) return true;
+      if (state.channel && readsTerminal(state)) return true;
     }
     return false;
   };
@@ -48,11 +51,11 @@ export function createRelayPushLanes(deps: RelayPushLaneDeps): { dispose(): void
       // None of them is droppable: a dropped frame leaves a stale listing or a
       // stale squiggle behind with no later push to correct it.
       if (name === 'folder-changed') {
-        deps.broadcastEncrypted({ event: 'folderChanged', payload: value }, false, readsLane('files'));
+        deps.broadcastEncrypted({ event: 'folderChanged', payload: value }, false, readsFiles);
       } else if (name === 'lsp-diagnostics') {
-        deps.broadcastEncrypted({ event: 'lspDiagnostics', payload: value }, false, readsLane('editor'));
+        deps.broadcastEncrypted({ event: 'lspDiagnostics', payload: value }, false, readsEditor);
       } else if (name === 'lsp-status') {
-        deps.broadcastEncrypted({ event: 'lspStatus', payload: value }, false, readsLane('editor'));
+        deps.broadcastEncrypted({ event: 'lspStatus', payload: value }, false, readsEditor);
       }
     }) ?? (() => {});
   return {

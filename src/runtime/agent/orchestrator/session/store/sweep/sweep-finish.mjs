@@ -58,7 +58,7 @@ export function* reapOrphanSidecars({ plan, dir, now, tally }) {
     for (const h of readdirSync(dir).filter((f) => f.endsWith('.hb') || f.endsWith('.own'))) {
       yield undefined;
       // Only a PROVEN-absent session file makes its sidecar an orphan.
-      if (!(probePath(join(dir, h.replace(/\.(hb|own)$/, '.json'))).state === PROBE_ABSENT)) continue;
+      if (probePath(join(dir, h.replace(/\.(hb|own)$/, '.json'))).state !== PROBE_ABSENT) continue;
       const sidecarProbe = probePath(join(dir, h));
       if (sidecarProbe.state !== PROBE_PRESENT) continue;
       if (now - sidecarProbe.mtimeMs > plan.maxAge) {

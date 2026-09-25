@@ -158,8 +158,8 @@ function makeGeneratedHandoffMessage(oldHistory, summary, handoffMeta = {}, pres
 // every required anchor. Returns null only when even the minimal schema-valid
 // summary cannot fit (caller throws).
 export function fitGeneratedHandoffMessage(oldHistory, summary, remainingTokens, handoffMeta, preservedFacts = '') {
+  const text = String(summary || '').trim();
   const tryFit = (factsText) => {
-    const text = String(summary || '').trim();
     // Minimal schema-valid body (headings + "(none)"). If even this does
     // not fit, this facts variant cannot produce a valid message.
     const minimalBody = text ? minimalSchemaSummary() : '';
@@ -167,21 +167,16 @@ export function fitGeneratedHandoffMessage(oldHistory, summary, remainingTokens,
     if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
     if (!text) return minimal;
     // Binary search the per-section body budget; keep all anchors intact.
-    let lo = 0;
-    let hi = text.length;
-    let best = minimal;
-    while (lo <= hi) {
-      const mid = Math.floor((lo + hi) / 2);
-      const body = truncateSummaryBySections(text, mid);
-      const candidate = makeGeneratedHandoffMessage(oldHistory, body, handoffMeta, factsText);
-      if (estimateMessagesTokens([candidate]) <= remainingTokens && summaryIsSchemaValid(body)) {
-        best = candidate;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    return best;
+    const best = largestFitting(
+      0,
+      text.length,
+      (perSectionChars) => {
+        const body = truncateSummaryBySections(text, perSectionChars);
+        return { body, message: makeGeneratedHandoffMessage(oldHistory, body, handoffMeta, factsText) };
+      },
+      ({ body, message }) => estimateMessagesTokens([message]) <= remainingTokens && summaryIsSchemaValid(body)
+    );
+    return best ? best.message : minimal;
   };
   let result = null;
   if (preservedFacts) result = tryFit(preservedFacts);

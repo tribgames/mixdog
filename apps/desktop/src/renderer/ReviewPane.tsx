@@ -151,7 +151,8 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   // ABB: hardware back closes the menu instead of leaving the PWA.
   useMobileBack(Boolean(menu), () => setMenu(null));
   const [forced, setForced] = useState<string[]>([]);
-  const [diffs, setDiffs] = useState<Record<string, string | null>>({});
+  // null = loading; a failed read keeps its message apart from patch text.
+  const [diffs, setDiffs] = useState<Record<string, string | null | { error: string }>>({});
   // No manual refresh control: file-watch evidence plus the safety lane owns
   // freshness, so cached diffs self-invalidate when a file's stats change.
   const reviewRef = useRef<GitReviewInfo | null>(null);
@@ -252,7 +253,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
         .catch((reason) =>
           setDiffs((current) => ({
             ...current,
-            [file.path]: describeSourceControlError(reason).summary,
+            [file.path]: { error: describeSourceControlError(reason).summary },
           }))
         );
     }
@@ -397,8 +398,8 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
               );
             } else if (patch === undefined || patch === null) {
               fileBody = <p className="review-empty">{t('Loading diff…')}</p>;
-            } else if (patch.startsWith('Error:')) {
-              fileBody = <p className="review-empty">{patch}</p>;
+            } else if (typeof patch === 'object') {
+              fileBody = <p className="review-empty">{patch.error}</p>;
             } else if (patch) {
               fileBody = <GitFileDiff patch={patch} mode={diffStyle} />;
             } else {

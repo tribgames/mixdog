@@ -4,6 +4,7 @@
  */
 import { boundedInteger } from '../command';
 import { browserPostconditionMatches, describeBrowserPostcondition } from '../postcondition';
+import { throwIfBrowserCancelled } from '../settle';
 import { measureBrowserPhase } from '../timing';
 import { sequenceActions } from './sequence';
 import { defineBrowserActions } from './types';
@@ -27,7 +28,7 @@ export const flowActions = defineBrowserActions({
       const changes = await documents.observeChanges(guest, signal);
       try {
         for (;;) {
-          if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+          throwIfBrowserCancelled(signal);
           const revision = changes.latch.version;
           const url = guest.getURL();
           let text: string | null = null;

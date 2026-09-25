@@ -3,6 +3,7 @@
 import type { WebContents } from 'electron';
 import { BROWSER_EDITABILITY_CHECK } from './editability';
 import { checkedBrowserRefResult, createBrowserRefAccess, type BrowserRefAccessHost } from './ref-access';
+import { throwIfBrowserCancelled } from './settle';
 
 interface SelectionResult {
   error?: string;
@@ -150,7 +151,7 @@ export function createBrowserRefSelection(
     checkedBrowserRefResult(await callRef<SelectionResult>(guest, ref, OPEN_CUSTOM, [], signal), ref);
     const deadline = Date.now() + host.dropdownTimeoutMs;
     for (;;) {
-      if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+      throwIfBrowserCancelled(signal);
       const result = checkedBrowserRefResult(
         await callRef<SelectionResult>(guest, ref, PICK_CUSTOM, [values[0].trim()], signal),
         ref

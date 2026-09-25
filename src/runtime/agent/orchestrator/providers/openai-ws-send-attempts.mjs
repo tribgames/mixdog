@@ -24,8 +24,6 @@ export {
   _classifyHandshakeError,
   _classifyMidstreamError,
   _defaultSleep,
-  _mustSurfaceCurrentAttempt,
-  _sleepWithAbort,
   HANDSHAKE_MAX_ATTEMPTS,
   MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT,
 } from './openai-ws-send-attempts/policy.mjs';

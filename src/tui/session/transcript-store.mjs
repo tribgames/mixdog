@@ -11,19 +11,13 @@
  */
 import { buildMergedPromptHistory, loadPromptHistory } from '../prompt-history-store.mjs';
 import { recomputePromptHistory } from './prompt-history.mjs';
-import { createSessionItemMutators } from './transcript-spill.mjs';
+import { createSessionItemMutators, reindexItems } from './transcript-spill.mjs';
 import { createReplaceItems } from './transcript-store/replace-items.mjs';
 import { createStreamingTailMutators } from './transcript-store/streaming-tail.mjs';
 
 export function createTranscriptStore({ draft, store, flags, transcriptSpill, itemIndexById, onBulkReplace }) {
   const { set, emit, flushEmitImmediate, markStructureChange } = store;
-  const reindexLiveItems = (items) => {
-    itemIndexById.clear();
-    for (let i = 0; i < items.length; i++) {
-      const id = items[i]?.id;
-      if (id != null) itemIndexById.set(id, i);
-    }
-  };
+  const reindexLiveItems = (items) => reindexItems(itemIndexById, items);
   const transcriptHistoryFlags = () => ({
     transcriptHistoryBefore: transcriptSpill.hasOlder,
     transcriptHistoryAfter: transcriptSpill.hasNewer,

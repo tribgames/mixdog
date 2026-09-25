@@ -129,4 +129,4 @@ function createWebhookSessionDispatcher({ getConfig, getBridgeDispatch }) {
   return { dispatchEndpoint };
 }
 
-export { DISPATCH_TIMEOUT_MS, buildFencedPayload, createWebhookSessionDispatcher };
+export { buildFencedPayload, createWebhookSessionDispatcher };

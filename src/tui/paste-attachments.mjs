@@ -5,6 +5,7 @@ import { existsSync, unlinkSync } from 'node:fs';
 import { readFile as readFileAsync, stat as statAsync } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, extname, isAbsolute, resolve } from 'node:path';
+import { noClipboardReaderError } from './app/clipboard.mjs';
 import {
   API_IMAGE_MAX_BASE64_SIZE,
   IMAGE_TARGET_RAW_SIZE,
@@ -92,20 +93,6 @@ export {
 export function pastedTextReferenceIds(input) {
   const re = /\[Pasted text #(\d+) \+\d+ lines\]/g;
   return new Set([...String(input || '').matchAll(re)].map((m) => Number(m[1]) || 0).filter(Boolean));
-}
-
-// Expand every intact pasted-text token in `value` back to its original text.
-// Broken / partially-deleted tokens simply do not match and are left as-is.
-export function expandPastedTextTokens(value, pastedTexts = {}) {
-  let out = String(value ?? '');
-  if (!pastedTexts || typeof pastedTexts !== 'object') return out;
-  const re = /\[Pasted text #(\d+) \+\d+ lines\]/g;
-  out = out.replace(re, (match, idRaw) => {
-    const entry = pastedTexts[Number(idRaw)] || pastedTexts[idRaw];
-    if (entry && typeof entry.text === 'string') return entry.text;
-    return match;
-  });
-  return out;
 }
 
 export function buildPromptContentWithImages(text, pastedImages = {}) {
@@ -226,6 +213,7 @@ export async function readClipboardImageAttachment({ provider = '' } = {}) {
     if (wl.ok && wl.stdout?.length) return imageAttachmentFromBuffer(wl.stdout, 'image/png', { provider });
     const xc = await execFileBuffer('xclip', ['-selection', 'clipboard', '-t', 'image/png', '-o'], { timeout: 3000 });
     if (xc.ok && xc.stdout?.length) return imageAttachmentFromBuffer(xc.stdout, 'image/png', { provider });
+    if (wl.code === 'ENOENT' && xc.code === 'ENOENT') throw noClipboardReaderError();
     return null;
   }
   const file = await readClipboardImageToTempFile();
@@ -242,8 +230,9 @@ export async function readClipboardImageAttachment({ provider = '' } = {}) {
 
 // Cross-platform OS-clipboard TEXT read. Mirrors the per-OS command pattern in
 // clipboard.mjs (writes) and readClipboardImageAttachment (reads). Returns '' on
-// any miss/error so callers can cleanly fall through to the image path. Windows
-// round-trips through base64 so non-ASCII survives the console codepage.
+// any miss/error so callers can cleanly fall through to the image path, except
+// on Linux with no clipboard reader installed, which throws the install hint.
+// Windows round-trips through base64 so non-ASCII survives the console codepage.
 export async function readClipboardText() {
   if (process.platform === 'win32') {
     const ps =
@@ -267,6 +256,7 @@ export async function readClipboardText() {
     if (wl.ok && wl.stdout?.length) return wl.stdout.toString('utf8');
     const xc = await execFileBuffer('xclip', ['-selection', 'clipboard', '-o'], { timeout: 3000 });
     if (xc.ok && xc.stdout?.length) return xc.stdout.toString('utf8');
+    if (wl.code === 'ENOENT' && xc.code === 'ENOENT') throw noClipboardReaderError();
     return '';
   }
   return '';

@@ -5,9 +5,14 @@
 // point (a timed-out old worker can therefore expose only a complete page,
 // never a partial target file). A page that fails twice is PINNED: it keeps
 // its items in memory and the writer reports it so the owner stops spilling.
+// A worker thread costs ~10 MB RSS, so it is retired once every write has
+// settled and nothing arrived for idleMs; the next enqueue spawns a fresh one.
+// Pages are self-contained files named by the owner, so a restart continues
+// the same spill directory with nothing to hand over.
 import { randomUUID } from 'node:crypto';
 
 const MAX_ATTEMPTS = 2;
+export const SPILL_WRITER_IDLE_MS = 10_000;
 
 const WORKER_SOURCE = `
     const { parentPort } = require('node:worker_threads');
@@ -22,12 +27,41 @@ const WORKER_SOURCE = `
       }
     });`;
 
-export function createSpillWriter({ workerFactory, writeTimeoutMs = 5000, onPinned }) {
+export function createSpillWriter({ workerFactory, writeTimeoutMs = 5000, idleMs = SPILL_WRITER_IDLE_MS, onPinned }) {
   const queue = [];
   let worker = null;
   let spawnCount = 0;
   let active = null;
   let activeTimer = null;
+  let idleTimer = null;
+
+  function clearIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+
+  /** Detach first so the worker's own exit event is ignored, then end it. */
+  function retireWorker() {
+    const current = worker;
+    worker = null;
+    try {
+      current?.terminate?.();
+    } catch {}
+  }
+
+  function armIdleTimer() {
+    clearIdleTimer();
+    if (!worker) return;
+    idleTimer = setTimeout(
+      () => {
+        idleTimer = null;
+        if (active || queue.length) return;
+        retireWorker();
+      },
+      Math.max(1, Number(idleMs) || SPILL_WRITER_IDLE_MS)
+    );
+    idleTimer.unref?.();
+  }
 
   function retryOrPin(record, error) {
     if (record.cancelled) return;
@@ -109,7 +143,11 @@ export function createSpillWriter({ workerFactory, writeTimeoutMs = 5000, onPinn
   function pump() {
     if (active) return;
     while (queue.length && queue[0].cancelled) queue.shift();
-    if (!queue.length) return;
+    if (!queue.length) {
+      armIdleTimer();
+      return;
+    }
+    clearIdleTimer();
     active = queue.shift();
     const current = ensureWorker();
     if (!current) {
@@ -146,15 +184,16 @@ export function createSpillWriter({ workerFactory, writeTimeoutMs = 5000, onPinn
     get pendingCount() {
       return queue.length + (active ? 1 : 0);
     },
+    get workerAlive() {
+      return worker !== null;
+    },
     dispose() {
       queue.length = 0;
       active = null;
       if (activeTimer) clearTimeout(activeTimer);
       activeTimer = null;
-      try {
-        worker?.terminate();
-      } catch {}
-      worker = null;
+      clearIdleTimer();
+      retireWorker();
     },
   };
 }

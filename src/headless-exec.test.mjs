@@ -150,7 +150,6 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
       effort: 'high',
       fast: true,
       usageLogPath,
-      idlePollMs: 1,
       write: (text) => output.push(text),
       writeErr: (text) => errors.push(text),
       boundaryFactory: () => ({
@@ -295,7 +294,6 @@ test('headless exec flushes the usage snapshot mid-session, before any exit path
       effort: 'high',
       fast: true,
       usageLogPath,
-      idlePollMs: 1,
       write: () => {},
       writeErr: () => {},
       boundaryFactory: () => ({

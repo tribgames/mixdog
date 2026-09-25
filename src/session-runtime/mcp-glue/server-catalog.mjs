@@ -43,7 +43,7 @@ export function createMcpServerCatalog({ mcpClient, getConfig, getMcpScopeId, st
   function getMcpServerConfig(name) {
     const serverName = clean(name);
     if (!serverName) throw new Error('MCP server name is required');
-    const { servers } = resolveEffectiveMcpServers();
+    const { servers, sources } = resolveEffectiveMcpServers();
     const effective = servers[serverName];
     if (!effective) throw new Error(`MCP server not configured: ${serverName}`);
     const raw = getConfig()?.mcpServers?.[serverName];
@@ -52,7 +52,7 @@ export function createMcpServerCatalog({ mcpClient, getConfig, getMcpScopeId, st
     }
     return {
       name: serverName,
-      source: raw?.env?.MIXDOG_PLUGIN_ROOT ? 'plugin' : 'config',
+      source: sources[serverName],
       enabled: effective.enabled !== false,
       config: { ...raw },
     };

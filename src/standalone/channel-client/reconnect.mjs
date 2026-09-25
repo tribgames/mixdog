@@ -34,9 +34,7 @@ export function createReconnectLoop({
     stopped = true;
     lifecycle++;
     if (timer) {
-      try {
-        clearTimeout(timer);
-      } catch {}
+      clearTimeout(timer);
       timer = null;
     }
     return { pending, registrationId, replaceToken };

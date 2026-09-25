@@ -126,7 +126,7 @@ export function createRelayClientCallDispatch(
       }
       client.visibleSessionIds = nextVisible;
       const value =
-        (await deps.host.setVisibleSessionsForSource?.(`remote:${clientId}`, requested)) ??
+        (await deps.host.setVisibleSessionsForSource?.(`remote:${clientId}`, requested, !client.transcriptPaging)) ??
         (await deps.host.setVisibleSessions?.(requested)) ??
         false;
       if (typeof call.id === 'number') {

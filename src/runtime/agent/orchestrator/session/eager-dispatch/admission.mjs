@@ -81,7 +81,6 @@ export function createEagerAdmission({
         toolName: _stripMcpPrefix(call.name),
         args: call.arguments,
         cwd,
-        countStats: false,
         touch: false,
       }) !== null
     );

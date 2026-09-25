@@ -75,6 +75,10 @@ export function contextPreviewMarkdown(text: string, kind?: string): string {
   return `${fence}json\n${text}\n${fence}`;
 }
 
+function sumTokens(rows: readonly { tokens: number }[]): number {
+  return rows.reduce((sum, row) => sum + row.tokens, 0);
+}
+
 const ROLE_LABELS: Record<string, string> = {
   user: 'User',
   assistant: 'Assistant',
@@ -311,13 +315,12 @@ export function ContextInspector({
       };
       const byOrder = rank(a) - rank(b);
       if (byOrder) return byOrder;
-      return bRows.reduce((sum, row) => sum + row.tokens, 0) - aRows.reduce((sum, row) => sum + row.tokens, 0);
+      return sumTokens(bRows) - sumTokens(aRows);
     });
     const grouped = ordered.length > 1;
-    const groupTokens = (group: (typeof ordered)[number]) => group[1].reduce((sum, row) => sum + row.tokens, 0);
     let largest = '';
     if (grouped) {
-      largest = ordered.reduce((best, current) => (groupTokens(current) > groupTokens(best) ? current : best))[0];
+      largest = ordered.reduce((best, current) => (sumTokens(current[1]) > sumTokens(best[1]) ? current : best))[0];
     }
     const isOpen = (key: string) => expanded[key] ?? (entries.length <= COLLAPSE_THRESHOLD || key === largest);
     const row = (entry: Entry) => (
@@ -359,7 +362,7 @@ export function ContextInspector({
           {grouped &&
             ordered.map(([key, rows]) => {
               const open = isOpen(key);
-              const total = rows.reduce((sum, item) => sum + item.tokens, 0);
+              const total = sumTokens(rows);
               return (
                 <div className="context-entry-group" key={key} data-open={open ? 'true' : undefined}>
                   <button

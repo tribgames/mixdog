@@ -8,7 +8,7 @@ import { NOISE_DIR_NAMES, walkDir } from './glob-walk.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 import { runRgWindowedLines } from './native-search-runner.mjs';
 import { tryServeListMetadata } from './native-search-client.mjs';
-import { listGuardPath, normalizeListHeadLimit } from './lib/list-helpers.mjs';
+import { guardedWalkRoot, normalizeListHeadLimit, pageContinuationLine } from './lib/list-helpers.mjs';
 import { reportToolProgress } from './lib/tool-progress.mjs';
 import {
   recordRuntimeDirectoryReadSuccess,
@@ -79,10 +79,6 @@ function walkRootFailureLine(options, fullPath, walkResult, walkWarnings, label)
   recordDirectoryWalkTelemetry(options, 'failed', walkResult, walkWarnings.length);
   if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
   return directoryReadFailureLine(rootFailure);
-}
-
-function pageContinuationLine(offset, shown, total) {
-  return `... [entries ${offset + 1}-${offset + shown} of ${total}; pass offset:${offset + shown} to continue]`;
 }
 
 // A/B override surface for the default result caps (stock: list 100, tree 200,
@@ -185,11 +181,9 @@ async function tryNativeDeepListRows({ fullPath, workDir, depth, hidden, include
 
 function listRequest(args, workDir) {
   const inputPath = args.path || '.';
-  const guard = listGuardPath(inputPath);
-  if (guard) return { error: guard };
-  const fullPath = resolveAgainstCwd(inputPath, workDir);
-  const guardFull = listGuardPath(fullPath);
-  if (guardFull) return { error: guardFull };
+  const target = guardedWalkRoot(inputPath, workDir);
+  if (target.error) return target;
+  const { fullPath } = target;
   const sort = ['name', 'mtime', 'size'].includes(args.sort) ? args.sort : 'name';
   const listHeadLimitCap = _listDefaultHeadLimit(100);
   const requestedHeadLimit = normalizeListHeadLimit(args.head_limit, listHeadLimitCap);
@@ -498,11 +492,9 @@ function renderTreeOutput(lines, walkWarnings, { headLimit, offset }) {
 export async function executeTreeTool(args, workDir, options = {}) {
   args.path = normalizeInputPath(args.path);
   const inputPath = args.path || '.';
-  const guard = listGuardPath(inputPath);
-  if (guard) return guard;
-  const fullPath = resolveAgainstCwd(inputPath, workDir);
-  const guardFull = listGuardPath(fullPath);
-  if (guardFull) return guardFull;
+  const target = guardedWalkRoot(inputPath, workDir);
+  if (target.error) return target.error;
+  const { fullPath } = target;
   const request = {
     depth: Math.min(Math.max(parseInt(args.depth ?? 3, 10) || 3, 1), 6),
     hidden: Boolean(args.hidden),

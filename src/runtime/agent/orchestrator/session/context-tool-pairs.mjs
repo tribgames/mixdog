@@ -4,7 +4,9 @@ import { isOffloadedToolResultText } from './tool-result-offload.mjs';
 import { createHash } from 'node:crypto';
 
 const TOOL_MISSING_STUB = '[Older tool result unavailable after context compaction]';
-function collectAssistantToolCallIds(message) {
+/** Unique tool-call ids an assistant message carries, in order: toolCalls
+ *  first, then tool_use blocks from assistantBlocks and content. */
+export function collectAssistantToolCallIds(message) {
   if (message?.role !== 'assistant') return [];
   const ids = [];
   const seen = new Set();
@@ -40,14 +42,12 @@ function collectAssistantToolCallIds(message) {
 // The tool result answering `toolCallId`: first in the tool block right after
 // the assistant turn, then anywhere later, then anywhere earlier.
 function pickToolResultForAssistant(messages, assistantIdx, toolCallId) {
-  let i = assistantIdx + 1;
-  while (i < messages.length && messages[i]?.role === 'tool') {
-    const tm = messages[i];
-    if (tm.toolCallId === toolCallId) return tm;
-    i += 1;
-  }
   let afterBlock = assistantIdx + 1;
-  while (afterBlock < messages.length && messages[afterBlock]?.role === 'tool') afterBlock += 1;
+  while (afterBlock < messages.length && messages[afterBlock]?.role === 'tool') {
+    const tm = messages[afterBlock];
+    if (tm.toolCallId === toolCallId) return tm;
+    afterBlock += 1;
+  }
   for (let j = afterBlock; j < messages.length; j += 1) {
     const tm = messages[j];
     if (tm?.role === 'tool' && tm.toolCallId === toolCallId) return tm;

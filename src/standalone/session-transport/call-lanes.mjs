@@ -14,6 +14,7 @@
  * set finite lane limits for constrained hosts.
  */
 import { createFairCallScheduler } from '../fair-call-scheduler.mjs';
+import { positiveInt } from '../../runtime/shared/numbers.mjs';
 
 const CRITICAL_CALLS = new Set([
   'session.abort',
@@ -40,10 +41,7 @@ const INTERACTIVE_CALLS = new Set([
 ]);
 const INTERACTIVE_DESKTOP_METHODS = new Set(['termEnsure', 'termWrite', 'termResize', 'termDispose', 'termProfiles']);
 
-const configuredLaneLimit = (name) => {
-  const parsed = Math.floor(Number(process.env[name]));
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : Infinity;
-};
+const configuredLaneLimit = (name) => positiveInt(process.env[name], Infinity);
 
 export function callLane(name, args = {}) {
   if (CRITICAL_CALLS.has(name)) return 'critical';

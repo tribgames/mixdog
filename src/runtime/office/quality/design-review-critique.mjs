@@ -22,6 +22,38 @@ function parseChecks(raw) {
     .filter((check) => check.item);
 }
 
+// A template answer is not a review: one sentence with the slide number swapped
+// in, or the same three questions asked of every slide, says nothing about the
+// page it judges. Both are read past the index so the formula cannot hide.
+function repeatedCritiqueIssue(entries, total) {
+  const asTemplate = (value) =>
+    String(value || '')
+      .toLowerCase()
+      .replace(/\d+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  const notes = entries.map((entry) => asTemplate(entry.note)).filter(Boolean);
+  const repeatedNotes = total > 1 && notes.length === total && new Set(notes).size !== total;
+  const checkSets = entries
+    .map((entry) =>
+      (entry.checks || [])
+        .map((check) => asTemplate(check.item))
+        .sort()
+        .join(' | ')
+    )
+    .filter(Boolean);
+  const repeatedChecks = total > 1 && checkSets.length === total && new Set(checkSets).size === 1;
+  if (!repeatedNotes && !repeatedChecks) return null;
+  let message = "Each slide's checks come from its own plan line; every slide here asks the same questions.";
+  if (repeatedNotes && repeatedChecks) {
+    message =
+      'Each slide needs its own critique note and its own checks; this critique repeats one note and one set of questions across the deck.';
+  } else if (repeatedNotes) {
+    message = 'Each slide needs a distinct visual critique note; changing only the slide number is the same note.';
+  }
+  return issue('visual_critique_repeated_note', '/', message, 'visual-critique');
+}
+
 export function reviewPptxVisualCritique({ critique = [], pageCount = 0, requireChecks = false } = {}) {
   const total = Math.max(0, Number(pageCount) || 0);
   const issues = [];
@@ -106,36 +138,8 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0, require
       );
     }
   }
-  // A template answer is not a review: one sentence with the slide number swapped
-  // in, or the same three questions asked of every slide, says nothing about the
-  // page it judges. Both are read past the index so the formula cannot hide.
-  const asTemplate = (value) =>
-    String(value || '')
-      .toLowerCase()
-      .replace(/\d+/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  const notes = entries.map((entry) => asTemplate(entry.note)).filter(Boolean);
-  const repeatedNotes = total > 1 && notes.length === total && new Set(notes).size !== total;
-  const checkSets = entries
-    .map((entry) =>
-      (entry.checks || [])
-        .map((check) => asTemplate(check.item))
-        .sort()
-        .join(' | ')
-    )
-    .filter(Boolean);
-  const repeatedChecks = total > 1 && checkSets.length === total && new Set(checkSets).size === 1;
-  if (repeatedNotes || repeatedChecks) {
-    let message = "Each slide's checks come from its own plan line; every slide here asks the same questions.";
-    if (repeatedNotes && repeatedChecks) {
-      message =
-        'Each slide needs its own critique note and its own checks; this critique repeats one note and one set of questions across the deck.';
-    } else if (repeatedNotes) {
-      message = 'Each slide needs a distinct visual critique note; changing only the slide number is the same note.';
-    }
-    issues.push(issue('visual_critique_repeated_note', '/', message, 'visual-critique'));
-  }
+  const repeated = repeatedCritiqueIssue(entries, total);
+  if (repeated) issues.push(repeated);
   return {
     ok: total > 0 && issues.length === 0,
     status: total > 0 && issues.length === 0 ? 'pass' : 'needs-polish',

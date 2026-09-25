@@ -349,8 +349,8 @@ test('a promoted non-zero command reports one consistent status on every surface
   assert.equal(shellJobTaskStatus(canonical), 'completed');
   const completion = buildShellCompletion(canonical.jobId, canonical);
   assert.equal(completion.taskStatus, 'completed');
-  assert.match(completion.body, /\[status: completed\]/);
-  assert.match(completion.body, /\[outcome: command-failed\]/);
+  assert.match(completion.body, /<status>completed<\/status>/);
+  assert.match(completion.body, /<exit-code>3<\/exit-code>/);
   assert.equal(completion.error, null);
   assert.equal(completion.result.status, 'completed');
   assert.equal(completion.result.exit_code, 3);
@@ -363,7 +363,7 @@ test('a promoted non-zero command reports one consistent status on every surface
   assert.equal(signalled.nativeStatus, 'failed');
   const signalledCompletion = buildShellCompletion(signalled.jobId, signalled);
   assert.equal(signalledCompletion.taskStatus, 'failed');
-  assert.match(signalledCompletion.body, /\[status: failed\]/);
+  assert.match(signalledCompletion.body, /<status>failed<\/status>/);
   assert.equal(shellJobPublicTaskResult(signalled).status, 'failed');
   // The failure carries its cause on every surface, even though the native
   // task has no `error` of its own for a signal death.

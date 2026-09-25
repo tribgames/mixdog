@@ -1,13 +1,6 @@
 // ShellCheck — JSON reporter. Lint-only: `fix` re-runs the same read-only
 // analysis (shellcheck never writes), so structural rules stay the fixer.
-import { diagnostic, runChunked, spawnFailureResult, tail, toRel } from './shared.mjs';
-
-function severityOf(level) {
-  const value = String(level || '').toLowerCase();
-  if (value === 'error') return 'error';
-  if (value === 'warning') return 'warning';
-  return 'info';
-}
+import { diagnostic, levelSeverity as severityOf, runChunked, spawnFailureResult, tail, toRel } from './shared.mjs';
 
 /** Parse `shellcheck -f json`. */
 export function parseShellcheckJson(stdout, cwd) {

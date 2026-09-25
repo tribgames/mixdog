@@ -4,7 +4,7 @@
 // contains useful text. Preserve each partial in the provider transcript and
 // grant at most MAX_OUTPUT_RECOVERY_LIMIT direct continuations before
 // surfacing a hard truncation.
-export const MAX_OUTPUT_RECOVERY_LIMIT = 3;
+const MAX_OUTPUT_RECOVERY_LIMIT = 3;
 const MAX_OUTPUT_EXHAUSTED_NOTICE = `[mixdog-runtime] Output remained truncated after ${MAX_OUTPUT_RECOVERY_LIMIT} continuation attempts.`;
 const MAX_OUTPUT_RESUME_PROMPT =
   'Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where the previous text stopped.';

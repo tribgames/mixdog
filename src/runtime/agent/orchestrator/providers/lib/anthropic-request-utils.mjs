@@ -6,6 +6,7 @@ import { sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '.
 import { normalizeContentForAnthropic } from '../media-normalization.mjs';
 import { createProviderReplay, providerReplayItems } from './provider-replay.mjs';
 import { anthropicFallbackProviderMetadata, parseAnthropicFallbackBlock } from '../anthropic-server-fallback.mjs';
+import { mergeFlatSchemaProperty } from './flat-schema-merge.mjs';
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
 
@@ -329,38 +330,6 @@ export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = 
   };
 }
 
-function mergeAnthropicFlatProperty(current, incoming) {
-  if (!current || typeof current !== 'object') return structuredClone(incoming);
-  if (!incoming || typeof incoming !== 'object') return structuredClone(current);
-  const merged = { ...structuredClone(incoming), ...structuredClone(current) };
-  if (Array.isArray(current.enum) || Array.isArray(incoming.enum)) {
-    merged.enum = [
-      ...new Set([
-        ...(Array.isArray(current.enum) ? current.enum : []),
-        ...(Array.isArray(incoming.enum) ? incoming.enum : []),
-      ]),
-    ];
-  }
-  if (current.properties || incoming.properties) {
-    merged.properties = {};
-    for (const [name, property] of Object.entries(current.properties || {})) {
-      merged.properties[name] = structuredClone(property);
-    }
-    for (const [name, property] of Object.entries(incoming.properties || {})) {
-      merged.properties[name] = mergeAnthropicFlatProperty(merged.properties[name], property);
-    }
-  }
-  if (Array.isArray(current.required) && Array.isArray(incoming.required)) {
-    const incomingRequired = new Set(incoming.required);
-    const sharedRequired = current.required.filter((name) => incomingRequired.has(name));
-    if (sharedRequired.length) merged.required = sharedRequired;
-    else delete merged.required;
-  } else {
-    delete merged.required;
-  }
-  return merged;
-}
-
 export function sanitizeAnthropicInputSchema(schema, toolName, logTag) {
   if (!schema || typeof schema !== 'object') {
     return { type: 'object', properties: {} };
@@ -382,7 +351,7 @@ export function sanitizeAnthropicInputSchema(schema, toolName, logTag) {
         mergedProps[name] =
           conjunctive && Object.hasOwn(mergedProps, name)
             ? { allOf: [structuredClone(mergedProps[name]), structuredClone(property)] }
-            : mergeAnthropicFlatProperty(mergedProps[name], property);
+            : mergeFlatSchemaProperty(mergedProps[name], property);
       }
     }
     if (conjunctive) {

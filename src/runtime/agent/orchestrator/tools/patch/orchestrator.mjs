@@ -80,10 +80,6 @@ async function apply_patch(rawArgs, cwd, options = {}) {
   });
 }
 
-export async function executePatchTool(name, args, cwd, options = {}) {
-  return _executePatchTool(name, args, cwd, options);
-}
-
 function reportPatchProgress(result, args, onProgress) {
   try {
     const _body = String(result);
@@ -100,7 +96,7 @@ function reportPatchProgress(result, args, onProgress) {
   }
 }
 
-async function _executePatchTool(name, args, cwd, options = {}) {
+export async function executePatchTool(name, args, cwd, options = {}) {
   const effectiveCwd = cwd || process.cwd();
   switch (name) {
     case 'apply_patch': {

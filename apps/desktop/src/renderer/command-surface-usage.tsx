@@ -71,7 +71,7 @@ export function usageProviderLabel(provider: Row): string {
   return stripPlanSuffix(String(provider.label || provider.id || 'Provider'));
 }
 
-export function UsageTableFrame({ children }: React.PropsWithChildren) {
+function UsageTableFrame({ children }: React.PropsWithChildren) {
   return (
     <div className="usage-table-shell">
       <table className="usage-table" aria-label={t('Provider usage')}>
@@ -127,7 +127,7 @@ export function UsageSkeleton() {
 // OpenAI platform expose spend only, Gemini nothing), so the row links to the
 // console that does show it instead of printing a dead "—" (user decision).
 // OpenCode Go is excluded: its console usage already lands in the row.
-export const BILLING_CONSOLES: Record<string, string> = {
+const BILLING_CONSOLES: Record<string, string> = {
   openai: 'https://platform.openai.com/settings/organization/billing/overview',
   anthropic: 'https://console.anthropic.com/settings/billing',
   xai: 'https://console.x.ai',

@@ -37,6 +37,19 @@ function settledDurationWait(goal) {
 // re-scoped, or re-planned Goal earns a fresh one without any extra clearing.
 const idleReviewKey = (goal) => `${goal.id}:${goal.turnCount}:${goal.revision}`;
 
+// An automatic turn that called no tool answered its prompt without progress.
+// Asking again over the same list only repeats that answer every few seconds
+// until the deadline (a Goal with an unfinished row never reached the settled
+// wait above), so the list waits for a change, the user, or its time boundary.
+function automaticTurnWithoutActivity(detail, goal) {
+  return (
+    detail?.automatic === true &&
+    detail.preserveGoalState !== true &&
+    Number(detail.toolCalls) === 0 &&
+    goal?.status === 'active'
+  );
+}
+
 // Continuation prompts are enqueued as meta user messages, so a delivered rules
 // block stays in the transcript until the context is compacted or rewound. The
 // marker records which Goal's rules are already there: a new session or Goal, a
@@ -151,7 +164,9 @@ export function createGoalTurnLifecycle(ctx) {
           applyTurnOutcome(goal, detail, at);
         }
         goal.updatedAt = at;
-        return commit(id, goal);
+        const published = await commit(id, goal);
+        if (automaticTurnWithoutActivity(detail, published)) idleReviewTurns.set(id, idleReviewKey(published));
+        return published;
       });
     },
     continuation(sessionId, { agentStatus = null } = {}) {
@@ -159,13 +174,12 @@ export function createGoalTurnLifecycle(ctx) {
       if (goal?.status !== 'active') return { run: false, reason: goal?.status || 'missing', goal };
       if (runningAgentWork(agentStatus)) return { run: false, reason: 'agent-running', goal };
       const id = assertSessionId(sessionId);
+      const answered = idleReviewTurns.get(id) === idleReviewKey(goal);
       if (settledDurationWait(goal)) {
         // The model already answered this exact list with no new work, so the
         // deadline timer owns the rest of the wait and delivers closeout;
         // task/scope changes still publish and wake newly actionable work.
-        if (idleReviewTurns.get(id) === idleReviewKey(goal)) {
-          return { run: false, reason: 'duration-wait', goal };
-        }
+        if (answered) return { run: false, reason: 'duration-wait', goal };
         // One turn to spend the remaining duration on new work or to park
         // approval-dependent work: idling it away is not the requested wait.
         // This turn has to decide the rest of the duration, so it carries the
@@ -173,6 +187,9 @@ export function createGoalTurnLifecycle(ctx) {
         continuationTiers.set(id, { goalId: goal.id, revision: goal.revision, quietTurns: 0 });
         return { run: true, reason: 'idle-review', goal, prompt: continuationPrompt(goal, { idleReview: true }) };
       }
+      // The same wait for an unfinished list: a task change, a user turn, or
+      // the deadline's closeout starts the next Goal turn.
+      if (answered) return { run: false, reason: 'no-progress-wait', goal };
       const entry = continuationTiers.get(id);
       if (needsFullContinuationRules(entry?.goalId, goal)) {
         continuationTiers.set(id, { goalId: goal.id, revision: goal.revision, quietTurns: 0 });

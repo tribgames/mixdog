@@ -13,6 +13,10 @@ import { parseTaskNotification, taskNotificationHasBody } from '../../runtime/sh
 // deliberately drop `denied`/`canceled` and must stay written out separately.
 const TERMINAL_ERROR_STATUS = /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i;
 
+// Execution surfaces that render as their own tool card; any other surface
+// renders as a generic task card.
+const CARD_SURFACES = new Set(['agent', 'shell', 'web_search']);
+
 function stripSyntheticAgentTags(text) {
   const value = String(text ?? '').trim();
   const finalAnswer = textBetweenTag(value, 'final-answer');
@@ -72,13 +76,15 @@ export function parseAgentResultEnvelope(text, fallback = {}) {
   }
   const providerModel = /\s([a-zA-Z0-9_.-]+)\/([^\s]+)\s*$/i.exec(head);
   const agent = attrs.agent || fallback.agent || '';
+  const status = fallback.status || attrs.status || 'completed';
+  const taskId = fallback.taskId || attrs.task_id || attrs.taskid || '';
   return {
     name: 'agent',
-    label: String(fallback.status || attrs.status || 'completed').toLowerCase(),
+    label: String(status).toLowerCase(),
     args: {
       type: 'result',
-      status: fallback.status || attrs.status || 'completed',
-      task_id: fallback.taskId || attrs.task_id || attrs.taskid || undefined,
+      status,
+      task_id: taskId || undefined,
       tag: fallback.tag || attrs.tag || undefined,
       agent: agent || undefined,
       provider: fallback.provider || attrs.provider || providerModel?.[1] || undefined,
@@ -87,13 +93,8 @@ export function parseAgentResultEnvelope(text, fallback = {}) {
       effort: fallback.effort || attrs.effort || undefined,
       fast: fallback.fast ?? attrs.fast,
     },
-    result:
-      body ||
-      agentJobStatusText({
-        status: fallback.status || attrs.status || 'completed',
-        taskId: fallback.taskId || attrs.task_id || attrs.taskid || '',
-      }),
-    isError: TERMINAL_ERROR_STATUS.test(fallback.status || attrs.status || ''),
+    result: body || agentJobStatusText({ status, taskId }),
+    isError: TERMINAL_ERROR_STATUS.test(status),
   };
 }
 
@@ -136,7 +137,7 @@ export function parseBackgroundTaskEnvelope(text) {
     if (match) fields[match[1].toLowerCase()] = match[2].trim();
   }
   const surface = String(fields.surface || fields.operation || 'task').toLowerCase();
-  const name = surface === 'web_search' || surface === 'shell' || surface === 'agent' ? surface : 'task';
+  const name = CARD_SURFACES.has(surface) ? surface : 'task';
   const status = String(fields.status || '').toLowerCase();
   const taskId = fields.task_id || fields.taskid || '';
   const errorText = fields.error || '';
@@ -220,7 +221,7 @@ export function completionCardFromExecution(execution, text) {
   const value = String(text ?? '').trim();
   if (!exec && !value) return null;
   const surface = String(exec?.surface || 'task').toLowerCase();
-  const name = surface === 'shell' || surface === 'agent' || surface === 'web_search' ? surface : 'task';
+  const name = CARD_SURFACES.has(surface) ? surface : 'task';
   const status = String(exec?.status || toolResultStatus(value) || '').toLowerCase();
   const split = /\n\nResult:\n/.exec(value);
   const body = split
@@ -349,7 +350,7 @@ export function buildExecutionResponseToolItem(
   const status = String(executionStatus || '')
     .trim()
     .toLowerCase();
-  const explicitName = /^(agent|shell|web_search)$/.test(surface) ? surface : '';
+  const explicitName = CARD_SURFACES.has(surface) ? surface : '';
   const parsed = parseSyntheticAgentMessage(text);
   const synthetic =
     parsed ||

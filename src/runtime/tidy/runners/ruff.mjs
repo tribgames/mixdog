@@ -1,6 +1,6 @@
 // Ruff — `check --output-format json` for lint, `format --check` for the
 // would-reformat list; fix runs both write modes.
-import { diagnostic, parsePatternPaths, runChunked, spawnFailureResult, tail, toRel } from './shared.mjs';
+import { diagnostic, emptyResult, parsePatternPaths, runChunked, spawnFailureResult, tail, toRel } from './shared.mjs';
 
 /** Parse `ruff check --output-format json`. */
 export function parseRuffJson(stdout, cwd) {
@@ -55,7 +55,7 @@ export const runner = {
     const lint = await runChunked({ bin, baseArgs: [...args, 'check', '--fix'], files, cwd, timeoutMs, signal });
     if (lint.error) return spawnFailureResult('ruff', lint);
     const format = await runChunked({ bin, baseArgs: [...args, 'format'], files, cwd, timeoutMs, signal });
-    return { diagnostics: [], changedFiles: [], stderrTail: tail(`${lint.stderr}\n${format.stderr}`) };
+    return emptyResult(tail(`${lint.stderr}\n${format.stderr}`));
   },
 };
 

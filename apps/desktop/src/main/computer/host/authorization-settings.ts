@@ -88,12 +88,8 @@ export function createComputerAuthorizationSettings(options: {
       // Copy before awaiting so the caller cannot alter already-validated authority.
       const candidate = normalizeAuthorization(structuredClone(value));
       const next = createComputerExecutionPolicy(candidate);
-      if (
-        !candidate ||
-        next.authorizationExpiry() === null ||
-        next.authorizationExpiry()! <= Date.now() ||
-        next.authorizationExpiry()! > Date.now() + 24 * 60 * 60_000
-      ) {
+      const expiry = next.authorizationExpiry();
+      if (expiry === null || expiry <= Date.now() || expiry > Date.now() + 24 * 60 * 60_000) {
         throw new Error('computer_policy_invalid: authorization must expire within 24 hours');
       }
       updating = true;
@@ -105,8 +101,7 @@ export function createComputerAuthorizationSettings(options: {
             throw new Error('computer_policy_denied: selected window is no longer available; refresh the list');
           }
         }
-        if (next.authorizationExpiry()! <= Date.now())
-          throw new Error('computer_policy_expired: authorization expired while saving');
+        if (expiry <= Date.now()) throw new Error('computer_policy_expired: authorization expired while saving');
         raw = candidate;
         current = next;
       } finally {

@@ -164,57 +164,19 @@ async function tryWindowedSmartReadSummary(fullPath, st, source = 'read_smart_st
       rendered: renderReadLine(tailStartLine + i, raw),
     }));
 
-    let headTake = headRows.length;
-    let tailTake = tailEntries.length;
-    let text = '';
-    let selectedHeadRows = headRows;
-    let selectedHeadRaw = head.lines;
-    let selectedTailEntries = tailEntries;
-    const marker = () => buildSmartReadTruncationMarker(totalLines, st.size, displayPath);
-    while (true) {
-      selectedHeadRows = headRows.slice(0, headTake);
-      selectedHeadRaw = head.lines.slice(0, headTake);
-      selectedTailEntries = tailEntries.slice(Math.max(0, tailEntries.length - tailTake));
-      const headText = selectedHeadRows.join('\n');
-      const tailText = selectedTailEntries.map((entry) => entry.rendered).join('\n');
-      text = `${headText}\n${marker()}\n${tailText}`;
-      // Byte-accurate compare against the byte-oriented cap; head/tail
-      // shrinking drops whole rendered rows so the seam never lands
-      // mid-codepoint.
-      if (Buffer.byteLength(text, 'utf8') <= READ_MAX_OUTPUT_BYTES || (headTake <= 1 && tailTake <= 1)) break;
-      if (headTake >= tailTake && headTake > 1) {
-        headTake = Math.max(1, Math.floor(headTake * 0.75));
-      } else if (tailTake > 1) {
-        tailTake = Math.max(1, Math.floor(tailTake * 0.75));
-      } else {
-        break;
-      }
-    }
-
-    const ranges = [];
-    const rangeHashes = [];
-    if (selectedHeadRaw.length > 0) {
-      ranges.push({ startLine: 1, endLine: selectedHeadRaw.length });
-      rangeHashes.push({ startLine: 1, endLine: selectedHeadRaw.length, hash: hashText(selectedHeadRaw.join('\n')) });
-    }
-    if (selectedTailEntries.length > 0) {
-      const selectedTailStart = selectedTailEntries[0].lineNo;
-      const selectedTailEnd = selectedTailEntries[selectedTailEntries.length - 1].lineNo;
-      ranges.push({ startLine: selectedTailStart, endLine: selectedTailEnd });
-      rangeHashes.push({
-        startLine: selectedTailStart,
-        endLine: selectedTailEnd,
-        hash: hashText(selectedTailEntries.map((entry) => entry.raw).join('\n')),
-      });
-    }
+    const { text, selectedHeadRaw, selectedTailEntries } = fitSmartReadText({
+      headRows,
+      headRaw: head.lines,
+      tailEntries,
+      marker: () => buildSmartReadTruncationMarker(totalLines, st.size, displayPath),
+    });
     const result = {
       text,
       prefixHash: head.prefixHash,
       snapshotMeta: {
         source,
         fileLineCount: totalLines,
-        ranges: mergeReadRanges(ranges),
-        rangeHashes,
+        ...smartReadSnapshotRanges(selectedHeadRaw, selectedTailEntries),
       },
     };
     ioTraceDone('read_smart_window', traceStart, {
@@ -494,6 +456,27 @@ function fitSmartReadText({ headRows, headRaw, tailEntries, marker }) {
   return { text, selectedHeadRaw, selectedTailEntries };
 }
 
+// The delivered head and tail rows as snapshot ranges plus their hashes.
+function smartReadSnapshotRanges(selectedHeadRaw, selectedTailEntries) {
+  const ranges = [];
+  const rangeHashes = [];
+  if (selectedHeadRaw.length > 0) {
+    ranges.push({ startLine: 1, endLine: selectedHeadRaw.length });
+    rangeHashes.push({ startLine: 1, endLine: selectedHeadRaw.length, hash: hashText(selectedHeadRaw.join('\n')) });
+  }
+  if (selectedTailEntries.length > 0) {
+    const tailStartLine = selectedTailEntries[0].lineNo;
+    const tailEndLine = selectedTailEntries[selectedTailEntries.length - 1].lineNo;
+    ranges.push({ startLine: tailStartLine, endLine: tailEndLine });
+    rangeHashes.push({
+      startLine: tailStartLine,
+      endLine: tailEndLine,
+      hash: hashText(selectedTailEntries.map((entry) => entry.raw).join('\n')),
+    });
+  }
+  return { ranges: mergeReadRanges(ranges), rangeHashes };
+}
+
 export async function streamSmartReadSummary(fullPath, st, source = 'read_smart_stream', hooks = {}) {
   const windowed = await tryWindowedSmartReadSummary(fullPath, st, source, hooks);
   if (windowed) return windowed;
@@ -522,30 +505,13 @@ export async function streamSmartReadSummary(fullPath, st, source = 'read_smart_
       marker: () => buildSmartReadTruncationMarker(lineNo, st.size, displayPath),
     });
 
-    const ranges = [];
-    const rangeHashes = [];
-    if (selectedHeadRaw.length > 0) {
-      ranges.push({ startLine: 1, endLine: selectedHeadRaw.length });
-      rangeHashes.push({ startLine: 1, endLine: selectedHeadRaw.length, hash: hashText(selectedHeadRaw.join('\n')) });
-    }
-    if (selectedTailEntries.length > 0) {
-      const tailStartLine = selectedTailEntries[0].lineNo;
-      const tailEndLine = selectedTailEntries[selectedTailEntries.length - 1].lineNo;
-      ranges.push({ startLine: tailStartLine, endLine: tailEndLine });
-      rangeHashes.push({
-        startLine: tailStartLine,
-        endLine: tailEndLine,
-        hash: hashText(selectedTailEntries.map((entry) => entry.raw).join('\n')),
-      });
-    }
     return {
       text,
       prefixHash,
       snapshotMeta: {
         source,
         fileLineCount: lineNo,
-        ranges: mergeReadRanges(ranges),
-        rangeHashes,
+        ...smartReadSnapshotRanges(selectedHeadRaw, selectedTailEntries),
       },
     };
   } finally {

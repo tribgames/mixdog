@@ -4,8 +4,6 @@
  * measured-rows, sig-part). Pure module: no React, no App closures. The App
  * imports the functions and (for the measured-height cache it writes from a
  * layout effect) the shared cache + variant-key helper by name.
- *
- * The env-tunable constants and their comments are preserved.
  */
 import { streamingLayoutText } from '../markdown/streaming-markdown.mjs';
 import { normalizeToolName } from '../../runtime/shared/tool-surface.mjs';
@@ -438,8 +436,8 @@ export function estimateTranscriptItemRowsCached(item, columns, toolOutputExpand
     // Item settled (no longer streaming): the id-keyed floor and the estimate
     // high-water are no longer relevant — the normal WeakMap-measured path now
     // owns its height. Clear both so a later id reuse / this run cannot leak.
-    if (streamingEstimateHighWaterById.has(item.id)) streamingEstimateHighWaterById.delete(item.id);
-    if (streamingTailEstimateById.has(item.id)) streamingTailEstimateById.delete(item.id);
+    streamingEstimateHighWaterById.delete(item.id);
+    streamingTailEstimateById.delete(item.id);
   }
   const variantKey = transcriptItemVariantKey(item);
   const toolExpanded = toolOutputExpanded ? 1 : 0;

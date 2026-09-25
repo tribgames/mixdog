@@ -8,7 +8,7 @@ export interface IdleObservation {
   held: boolean;
 }
 
-export function isIdleResumePause(snapshot: ComputerUseSnapshot): boolean {
+function isIdleResumePause(snapshot: ComputerUseSnapshot): boolean {
   return (
     snapshot.userControlActive &&
     snapshot.cleanupState === 'ready' &&
@@ -94,25 +94,13 @@ export function createComputerUserWait(options: {
       await options.resume(currentGeneration, signal, async () => {
         const started = now();
         const last = await options.observe();
-        if (
-          !signal.aborted &&
-          eligible() &&
-          currentGeneration === generation &&
-          (now() - started > 2_000 || !valid(last))
-        ) {
-          observationFailed(!valid(last) ? 'idle_observation_invalid' : 'idle_observation_slow', now() - started);
+        const elapsed = now() - started;
+        if (signal.aborted || !eligible() || currentGeneration !== generation) return false;
+        if (elapsed > 2_000 || !valid(last)) {
+          observationFailed(!valid(last) ? 'idle_observation_invalid' : 'idle_observation_slow', elapsed);
           return false;
         }
-        return (
-          !signal.aborted &&
-          eligible() &&
-          currentGeneration === generation &&
-          now() - started <= 2_000 &&
-          valid(last) &&
-          !last.held &&
-          same(expected, last) &&
-          last.idleMs >= seconds * 1000
-        );
+        return !last.held && same(expected, last) && last.idleMs >= seconds * 1000;
       });
     } catch (error) {
       if (eligible() && generation === currentGeneration) {

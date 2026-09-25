@@ -49,7 +49,7 @@ export class AnthropicFallbackTriggeredError extends Error {
 export const DEFAULT_BACKOFF_MS = PROVIDER_RETRY_BACKOFF_MS;
 export const DEFAULT_MAX_ATTEMPTS = PROVIDER_RETRY_MAX_ATTEMPTS;
 
-export const MIDSTREAM_BACKOFF_MS = [250, 1000, 2000, 4000];
+const MIDSTREAM_BACKOFF_MS = [250, 1000, 2000, 4000];
 
 export function midstreamBackoffFor(retryNumber, schedule = MIDSTREAM_BACKOFF_MS) {
   const raw = schedule[Math.min(Math.max(retryNumber, 1), schedule.length) - 1];
@@ -110,13 +110,7 @@ export function createStallRetryBudget(budgetMs = STREAM_STALL_RETRY_BUDGET_MS, 
 export function resolveStallRetryBudget(opts) {
   const existing = opts?._stallRetryBudget;
   if (existing && typeof existing.allowStallRetry === 'function') return existing;
-  const budget = createStallRetryBudget();
-  if (opts && typeof opts === 'object') {
-    try {
-      opts._stallRetryBudget = budget;
-    } catch {}
-  }
-  return budget;
+  return resetStallRetryBudget(opts);
 }
 
 // A loop-level replay issues a BRAND NEW request, so it opens a new stall
@@ -146,10 +140,7 @@ export async function sleepWithAbort(ms, signal, sleepFn = _defaultAbortSleep, a
   let remaining = Math.max(0, Number(ms) || 0);
   const sleeper = sleepFn || _defaultAbortSleep;
   while (remaining > 0) {
-    if (signal?.aborted) {
-      const reason = signal.reason;
-      throw reason instanceof Error ? reason : new Error(abortMessage);
-    }
+    if (signal?.aborted) throw abortError(signal, abortMessage);
     const chunk = Math.min(remaining, MAX_SAFE_TIMEOUT_MS);
     await _sleepChunkWithAbort(chunk, signal, sleeper, abortMessage);
     remaining -= chunk;

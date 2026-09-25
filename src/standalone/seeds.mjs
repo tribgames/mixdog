@@ -76,12 +76,7 @@ export function retireSeededSkillCopies({ rootDir, dataDir }) {
       const copy = join(targetRoot, entry.name);
       if (!existsSync(copy)) continue;
       if (!sameTree(join(bundledDir, entry.name), copy)) continue;
-      try {
-        rmSync(copy, { recursive: true, force: true });
-        retired.push(entry.name);
-      } catch {
-        // best-effort; a stuck copy simply keeps shadowing until removed by hand
-      }
+      if (removeEntry(copy)) retired.push(entry.name);
     }
   }
   return retired;

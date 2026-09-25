@@ -107,14 +107,7 @@ pub enum DeclaredKind {
 /// Elixir def vs defmacro). Rules WITHOUT the marker — ast-grep's defaults and
 /// our `parity.yml` — resolve through `symbol_kind` instead.
 fn declared_kind_of(doc: &str) -> Option<DeclaredKind> {
-    let mut found: Option<&str> = None;
-    for line in doc.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("# mixdog-kind:") {
-            found = Some(rest.trim());
-        }
-    }
-    let token = found?;
+    let token = marker_value(doc, "# mixdog-kind:")?;
     if token.is_empty() {
         return None;
     }
@@ -122,6 +115,16 @@ fn declared_kind_of(doc: &str) -> Option<DeclaredKind> {
         return Some(DeclaredKind::Import);
     }
     Some(DeclaredKind::Symbol(intern_kind(token)))
+}
+
+/// The trimmed value of the LAST `marker` comment line in one rule document
+/// (`# mixdog-kind:`, `# mixdog-call-kind:`, `# mixdog-call-recv:`), or
+/// `None` when the document carries no such line.
+pub(crate) fn marker_value<'d>(doc: &'d str, marker: &str) -> Option<&'d str> {
+    doc.lines()
+        .filter_map(|line| line.trim().strip_prefix(marker))
+        .last()
+        .map(str::trim)
 }
 
 /// Graph kinds are `&'static str` in the FileRecord, and a rule file may name

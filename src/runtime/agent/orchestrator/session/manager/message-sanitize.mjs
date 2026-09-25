@@ -23,9 +23,7 @@ function sessionMessagesSnapshotChanged(before, after) {
 }
 
 function isCompactedOutgoingFinalAssistantMessage(message) {
-  if (message?.role !== 'assistant') return false;
-  if (message.emptyFinal === true) return true;
-  return true;
+  return message?.role === 'assistant';
 }
 
 function sessionMessagesAdvancedBeyondCompactedOutgoing(currentSanitized, compactedSanitized) {

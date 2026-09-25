@@ -32,6 +32,8 @@ const servers = new Map();
 const reconnects = createKeyedSingleflight();
 const callAdmissions = new Map();
 const DEFAULT_MCP_SCOPE_ID = 'global';
+// `mcp__{serverName}__{toolName}` → [, serverName, toolName].
+const MCP_TOOL_NAME_RE = /^mcp__(.+?)__(.+)$/;
 const _knownMcpScopes = new Set([DEFAULT_MCP_SCOPE_ID]);
 const _connectAbortGenerations = new Map();
 const _pendingConnects = new Set();
@@ -314,7 +316,7 @@ async function reconnectMcpServer(scopeId, serverName, failedServer) {
  * Name format: `mcp__{serverName}__{toolName}`
  */
 export async function executeMcpTool(name, args, options = {}) {
-  const match = name.match(/^mcp__(.+?)__(.+)$/);
+  const match = name.match(MCP_TOOL_NAME_RE);
   if (!match) throw new Error(`Not an MCP tool name: ${name}`);
   const [, serverName, toolName] = match;
   const scopeId = normalizeMcpScopeId(options);
@@ -422,39 +424,45 @@ async function _callMcpFeatureWithTimeout(server, operation, args, signal = null
   } else {
     throw new Error(`Unsupported MCP feature operation: ${operation}`);
   }
-  let timer;
   const timeoutMs = resolveMcpCallTimeoutMs(server?.cfg);
   const abortMessage = `MCP feature call aborted (server="${server?.name}", operation="${operation}")`;
-  const bounded =
+  const timeout =
     timeoutMs > 0
-      ? Promise.race([
-          request,
-          new Promise((_, reject) => {
-            timer = setTimeout(() => {
-              try {
-                _closeServer(server).catch(() => {});
-              } catch {
-                /* ignore */
-              }
-              const error = new Error(
-                `MCP feature call timed out after ${timeoutMs}ms (server="${server.name}", operation="${operation}")`
-              );
-              error.code = 'EMCPTOOLTIMEOUT';
-              reject(error);
-            }, timeoutMs);
-            if (timer.unref) timer.unref();
-          }),
-        ])
-      : request;
+      ? mcpCallTimeout(
+          server,
+          timeoutMs,
+          `MCP feature call timed out after ${timeoutMs}ms (server="${server.name}", operation="${operation}")`
+        )
+      : null;
   try {
-    const result = await raceMcpAbort(bounded, signal, abortMessage);
+    const result = await raceMcpAbort(
+      timeout ? Promise.race([request, timeout.promise]) : request,
+      signal,
+      abortMessage
+    );
     return {
       content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
       isError: false,
     };
   } finally {
-    if (timer) clearTimeout(timer);
+    timeout?.clear();
   }
+}
+
+// Server-side per-call deadline. On expiry the server goes through the full
+// tree-shutdown path so a timed-out stdio server never orphans grandchildren
+// (fire-and-forget), and the call rejects with EMCPTOOLTIMEOUT. The caller
+// clears the timer once its own (abort-aware) race settles.
+function mcpCallTimeout(server, timeoutMs, message, errorFields = {}) {
+  let timer;
+  const promise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      _closeServer(server).catch(() => {});
+      reject(Object.assign(new Error(message), { code: 'EMCPTOOLTIMEOUT', ...errorFields }));
+    }, timeoutMs);
+    if (timer.unref) timer.unref();
+  });
+  return { promise, clear: () => clearTimeout(timer) };
 }
 
 // Preserve MCP failure metadata across the object→string boundary. The
@@ -520,7 +528,6 @@ function raceMcpAbort(promise, signal, message) {
 }
 
 async function _callToolWithTimeout(server, toolName, args, signal = null) {
-  let timer;
   const timeoutMs = resolveMcpCallTimeoutMs(server?.cfg);
   // The signal goes INTO the SDK request: an aborted caller cancels the live
   // JSON-RPC request (notifications/cancelled) instead of merely walking away
@@ -535,34 +542,23 @@ async function _callToolWithTimeout(server, toolName, args, signal = null) {
       abortMessage
     );
   }
-  const timeout = new Promise((_, rej) => {
-    timer = setTimeout(() => {
-      // Route through the full tree-shutdown path so a timed-out stdio
-      // server never orphans grandchildren. Fire-and-forget.
-      try {
-        _closeServer(server).catch(() => {});
-      } catch {
-        /* ignore */
-      }
-      const err = new Error(
-        `MCP tool call timed out after ${timeoutMs}ms (server="${server.name}", tool="${toolName}")`
-      );
-      err.code = 'EMCPTOOLTIMEOUT';
-      err.serverName = server.name;
-      err.toolName = toolName;
-      err.timeoutMs = timeoutMs;
-      rej(err);
-    }, timeoutMs);
-    if (timer.unref) timer.unref();
-  });
+  const timeout = mcpCallTimeout(
+    server,
+    timeoutMs,
+    `MCP tool call timed out after ${timeoutMs}ms (server="${server.name}", tool="${toolName}")`,
+    { serverName: server.name, toolName, timeoutMs }
+  );
   try {
     return await raceMcpAbort(
-      Promise.race([server.client.callTool({ name: toolName, arguments: args }, undefined, requestOptions), timeout]),
+      Promise.race([
+        server.client.callTool({ name: toolName, arguments: args }, undefined, requestOptions),
+        timeout.promise,
+      ]),
       signal,
       abortMessage
     );
   } finally {
-    if (timer) clearTimeout(timer);
+    timeout.clear();
   }
 }
 
@@ -609,8 +605,7 @@ export function isMcpTool(name) {
 }
 /** True when the prefixed name exists on a connected MCP server. */
 export function isRegisteredMcpTool(name, scopeId = DEFAULT_MCP_SCOPE_ID) {
-  if (!isMcpTool(name)) return false;
-  const match = name.match(/^mcp__(.+?)__(.+)$/);
+  const match = name.match(MCP_TOOL_NAME_RE);
   if (!match) return false;
   const [, serverName] = match;
   const server = scopedServer(scopeId, serverName);
@@ -628,23 +623,10 @@ export function mcpToolHasField(name, field, scopeId = DEFAULT_MCP_SCOPE_ID) {
   const memoKey = `${normalizedScopeId}|${name}|${field}`;
   const memoized = _mcpToolFieldMemo.get(memoKey);
   if (memoized !== undefined) return memoized;
-  const match = name.match(/^mcp__(.+?)__(.+)$/);
-  if (!match) {
-    _mcpToolFieldMemo.set(memoKey, false);
-    return false;
-  }
-  const [, serverName] = match;
-  const server = scopedServer(normalizedScopeId, serverName);
-  if (!server) {
-    _mcpToolFieldMemo.set(memoKey, false);
-    return false;
-  }
-  const tool = server.tools.find((t) => t.name === name);
-  if (!tool) {
-    _mcpToolFieldMemo.set(memoKey, false);
-    return false;
-  }
-  const props = tool.inputSchema?.properties;
+  const match = name.match(MCP_TOOL_NAME_RE);
+  const server = match ? scopedServer(normalizedScopeId, match[1]) : null;
+  const tool = server ? server.tools.find((t) => t.name === name) : null;
+  const props = tool?.inputSchema?.properties;
   const result = Boolean(props && Object.hasOwn(props, field));
   _mcpToolFieldMemo.set(memoKey, result);
   return result;

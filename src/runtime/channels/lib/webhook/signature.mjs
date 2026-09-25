@@ -57,4 +57,4 @@ function verifySignature(secret, rawBody, signatureValue, parser) {
   }
 }
 
-export { SIGNATURE_HEADERS, extractSignature, STRIPE_TOLERANCE_MS, verifySignature };
+export { extractSignature, verifySignature };

@@ -43,10 +43,6 @@ export function createOwnedRuntime(deps) {
     stopOwnedRuntime,
     refreshBridgeOwnershipSafe,
   });
-  // Daemon model: no ownership timer or takeover handler. Kept as no-ops so
-  // the worker start()/teardown call sites stay unchanged.
-  const armBridgeOwnershipTimer = () => {};
-  const clearBridgeOwnershipTimer = () => {};
   return {
     startAutomationRuntime,
     startOwnedRuntime,
@@ -54,8 +50,6 @@ export function createOwnedRuntime(deps) {
     refreshBridgeOwnership,
     refreshBridgeOwnershipSafe,
     reloadRuntimeConfig,
-    armBridgeOwnershipTimer,
-    clearBridgeOwnershipTimer,
     notifyRemoteAcquired,
   };
 }

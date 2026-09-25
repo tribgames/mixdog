@@ -186,16 +186,6 @@ export function clearSessionSaveError(id) {
 }
 
 /**
- * Record a failed atomic save. The disk copy is now BEHIND this process's live
- * snapshot, so the id is flagged on BOTH channels:
- *  - _lastSaveError: surfaced to callers (getSessionSaveError) and used by the
- *    idle sweep / loadSession to keep the only-good in-memory state readable.
- *  - _droppedSaveIds: the existing "disk is behind the snapshot" marker, so a
- *    stale/lower-generation disk record cannot shadow the live transcript.
- * Both are cleared by the next successful save (clearSessionSaveError +
- * _droppedSaveIds.delete in the store's commit path).
- */
-/**
  * Point-in-time COPY of the exact payload whose save failed.
  *
  * Never the live reference: the caller keeps mutating that object (the next
@@ -216,6 +206,16 @@ function _failedSaveClone(session) {
   }
 }
 
+/**
+ * Record a failed atomic save. The disk copy is now BEHIND this process's live
+ * snapshot, so the id is flagged on BOTH channels:
+ *  - _lastSaveError: surfaced to callers (getSessionSaveError) and used by the
+ *    idle sweep / loadSession to keep the only-good in-memory state readable.
+ *  - _droppedSaveIds: the existing "disk is behind the snapshot" marker, so a
+ *    stale/lower-generation disk record cannot shadow the live transcript.
+ * Both are cleared by the next successful save (clearSessionSaveError +
+ * _droppedSaveIds.delete in the store's commit path).
+ */
 export function _recordSaveFailure(id, err, epoch = null, session = null) {
   if (!id) return;
   _lastSaveError.set(id, { message: err?.message ?? String(err), at: Date.now() });
@@ -264,10 +264,7 @@ export function _clearSaveStateIfCurrent(id, epoch = null) {
   if (!id) return false;
   const marked = _failureEpochs.get(id);
   if (marked !== undefined && Number.isFinite(epoch) && epoch < marked) return false;
-  _failureEpochs.delete(id);
-  _lastSaveError.delete(id);
-  _failedSaveSnapshots.delete(id);
-  _droppedSaveIds.delete(id);
+  _clearSessionSaveState(id);
   return true;
 }
 

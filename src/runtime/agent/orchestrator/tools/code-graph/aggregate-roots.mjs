@@ -6,7 +6,7 @@ import { resolve as pathResolve, isAbsolute, relative as pathRelative, dirname a
 import { homedir as osHomedir } from 'node:os';
 import { existsSync, statSync } from 'node:fs';
 import { _resolveFileProjectRoot, _findDirProjectRoot, _childProjectRoots } from './project-root.mjs';
-import { _isFilesystemRootPath, formatFederatedProjectLabel } from './trusted-roots.mjs';
+import { _isFilesystemRootPath, _pathIsWithin, formatFederatedProjectLabel } from './trusted-roots.mjs';
 
 export const _AGGREGATE_FILE_WILDCARD_RE = /[*?[\]{}]/;
 export const ROOT_FEDERATED_MODES = new Set([
@@ -283,18 +283,9 @@ export function _resolveBoundedSentinelFreeAggregateRootForTest(args, baseCwd) {
 // sentinel of its own is never adopted as a project root.
 function _outermostContainingRoot(roots) {
   for (const candidate of roots) {
-    if (roots.every((root) => _isSameOrInside(root, candidate))) return candidate;
+    if (roots.every((root) => _pathIsWithin(candidate, root))) return candidate;
   }
   return null;
-}
-
-function _isSameOrInside(child, parent) {
-  try {
-    const rel = pathRelative(pathResolve(parent), pathResolve(child));
-    return rel === '' || (!!rel && !rel.startsWith('..') && !isAbsolute(rel));
-  } catch {
-    return false;
-  }
 }
 
 // Aggregate recovery resolves relative anchors against the caller's original

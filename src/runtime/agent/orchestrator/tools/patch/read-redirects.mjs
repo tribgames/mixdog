@@ -5,12 +5,7 @@ import { existsSync, statSync } from 'node:fs';
 import { resolve as pathResolve, relative as pathRelative, isAbsolute } from 'node:path';
 import { findBySuffixStrip, findFileByBasename } from '../builtin/path-diagnostics.mjs';
 import { resolveReadPathRedirect } from '../builtin/snapshot-store.mjs';
-import { resolveEntryPath, resolveV4AEntryPath, classifyEntry } from './paths.mjs';
-
-export function patchPathKey(fullPath) {
-  const value = String(fullPath || '');
-  return process.platform === 'win32' ? value.toLowerCase() : value;
-}
+import { resolveEntryPath, resolveV4AEntryPath, classifyEntry, pathKey } from './paths.mjs';
 
 function uniqueExistingPatchTarget(basePath, requestedFullPath) {
   // Auto-relocation is only valid for a missing target lexically inside the
@@ -54,7 +49,7 @@ export function rewriteV4AReadRedirects(sections, basePath, readStateScope) {
     if (!section || section.kind === 'add' || !section.path) return section;
     const requested = resolveV4AEntryPath(basePath, section.path);
     const redirected = redirectedPatchPath(requested, readStateScope, basePath);
-    if (patchPathKey(redirected) === patchPathKey(requested)) return section;
+    if (pathKey(redirected) === pathKey(requested)) return section;
     return { ...section, path: patchHeaderPathForResolved(basePath, redirected) };
   });
 }
@@ -65,14 +60,14 @@ export function rewriteParsedReadRedirects(parsed, basePath, readStateScope) {
     if (kind === 'create' || !entry?.oldFileName) return entry;
     const requested = resolveEntryPath(basePath, entry.oldFileName);
     const redirected = redirectedPatchPath(requested, readStateScope, basePath);
-    if (patchPathKey(redirected) === patchPathKey(requested)) return entry;
+    if (pathKey(redirected) === pathKey(requested)) return entry;
     const rewritten = {
       ...entry,
       oldFileName: patchHeaderPathForResolved(basePath, redirected),
     };
     if (kind === 'modify' && entry.newFileName) {
       const newRequested = resolveEntryPath(basePath, entry.newFileName);
-      if (patchPathKey(newRequested) === patchPathKey(requested)) {
+      if (pathKey(newRequested) === pathKey(requested)) {
         rewritten.newFileName = rewritten.oldFileName;
       }
     }

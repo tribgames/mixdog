@@ -59,14 +59,9 @@ export function shouldPersistModelVisibleToolCompletion(text, meta = {}) {
     return Boolean(notificationResultBody(message));
   }
 
-  if (meta?.execution_id || meta?.execution_surface) {
-    if (NON_PERSISTENT_TOOL_STATUSES.has(metaStatus)) return false;
-    if (!TERMINAL_TOOL_STATUSES.has(metaStatus)) return false;
-    return Boolean(notificationResultBody(message));
-  }
-
-  if (/^(?:agent task:|task_id:)/im.test(message)) {
-    if (NON_PERSISTENT_TOOL_STATUSES.has(metaStatus)) return false;
+  // Execution-tagged or legacy task-header completions persist only once the
+  // metadata reports a terminal status and a result body follows the header.
+  if (meta?.execution_id || meta?.execution_surface || /^(?:agent task:|task_id:)/im.test(message)) {
     if (!TERMINAL_TOOL_STATUSES.has(metaStatus)) return false;
     return Boolean(notificationResultBody(message));
   }
@@ -188,7 +183,6 @@ const INTERNAL_TRANSCRIPT_CONTEXT_RE =
   /^<(?:system-reminder|skill|memory-context|mcp-instructions|available-deferred-tools|event)\b/i;
 const INTERNAL_TRANSCRIPT_SYNTHETIC_RE =
   /^(?:\[mixdog-runtime\]|A previous model worked on this task and produced the compacted handoff summary below\b|Re-attached after compaction\b|Reference files:\s)/i;
-const INTERNAL_TRANSCRIPT_ASYNC_HEAD_RE = /^Async .+ finished\./i;
 const TRANSCRIPT_HIDDEN_CONTROL_TOOL_NAMES = new Set([
   'goal',
   'create_goal',
@@ -274,7 +268,7 @@ export function isInternalTranscriptDisplayText(text, { lenientWrapper = true } 
   ) {
     return true;
   }
-  if (INTERNAL_TRANSCRIPT_ASYNC_HEAD_RE.test(value) && !/\bResult:\s*(?:\r?\n|$)/i.test(value)) {
+  if (MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(value) && !/\bResult:\s*(?:\r?\n|$)/i.test(value)) {
     return true;
   }
   const resultSplit = /\r?\n(?:[ \t]*\r?\n)?Result:[ \t]*\r?\n/i.exec(value);

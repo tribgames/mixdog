@@ -35,6 +35,7 @@ jobs:
   changes:
     runs-on: ubuntu-22.04
     outputs:
+      computer: ${{ steps.paths.outputs.computer }}
       desktop: ${{ steps.paths.outputs.desktop }}
       desktop_css_only: ${{ steps.paths.outputs.desktop_css_only }}
       graph: ${{ steps.paths.outputs.graph }}
@@ -58,6 +59,7 @@ jobs:
           set -euo pipefail
           if [[ "$EVENT_NAME" == push && "$ACTOR" == github-actions\[bot\] && "$HEAD_MESSAGE" =~ ^mixdog\ v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release workflow owns validation for this generated version commit."
+            echo "computer=false" >> "$GITHUB_OUTPUT"
             echo "desktop=false" >> "$GITHUB_OUTPUT"
             echo "desktop_css_only=false" >> "$GITHUB_OUTPUT"
             echo "graph=false" >> "$GITHUB_OUTPUT"
@@ -91,6 +93,11 @@ jobs:
           else
             echo "graph=false" >> "$GITHUB_OUTPUT"
           fi
+          if grep -Eq '^native/mixdog-computer/|^scripts/computer-backend-smoke\.mjs$|^src/runtime/computer-bridge/actions\.mjs$' /tmp/changed; then
+            echo "computer=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "computer=false" >> "$GITHUB_OUTPUT"
+          fi
           if grep -Eq '^apps/relay/' /tmp/changed; then
             echo "relay=true" >> "$GITHUB_OUTPUT"
           else
@@ -102,10 +109,17 @@ jobs:
             echo "runtime=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # The default lane is split across two legs (node --test --test-shard), so
+  # its minutes of test time run side by side instead of in one job; each leg
+  # repeats only the setup.
   runtime:
     needs: changes
     if: needs.changes.outputs.runtime == 'true'
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -115,31 +129,27 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install
         run: npm ci --prefer-offline --no-audit --no-fund
-      # Office audits measure text in the deck's own faces and Ubuntu ships none of the
-      # Microsoft families; the metric-compatible Liberation faces stand in for Arial,
-      # Times New Roman, and Courier New (src/runtime/office/portable/text-metrics.mjs).
-      # The PDF suites write Hangul through an installed Unicode face: NanumGothic.ttf
-      # heads the Linux list in pdf-fonts.mjs (a .ttc collection such as Noto CJK
-      # cannot be embedded), and portable rendering and recalculation go through
-      # LibreOffice; neither is on the runner image.
       - name: Install fonts and LibreOffice for the Office suites
-        # The image's LibreOffice 7.3 draws the provisioned variable Noto faces at
-        # their default (Thin) instance, and the rendered review then reads the
-        # type as low contrast; the LibreOffice PPA's current release draws the
-        # named instances the way the desktop build does.
-        run: |
-          sudo add-apt-repository -y ppa:libreoffice/ppa
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends fonts-liberation fonts-nanum libreoffice-writer libreoffice-impress libreoffice-calc
+        uses: ./.github/actions/office-runtime
       # The tool-contract and shell-hardening suites drive the debug native
       # spawn binary; the build reuses the runner's preinstalled Rust toolchain.
+      - name: Cache the native spawn test build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-spawn/target
+          key: spawn-test-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/src/**') }}
+          restore-keys: spawn-test-cargo-${{ runner.os }}-
       - name: Build the native spawn test binary
         run: npm run build:spawn:test
       # Every *.test.mjs under src/ and scripts/ runs here by existing
       # (scripts/test.mjs); a suite that guards a contract cannot stay local.
-      - name: Run the default test lane
-        run: npm test
+      - name: Run the default test lane (shard ${{ matrix.shard }}/2)
+        run: npm test -- --test-shard=${{ matrix.shard }}/2
       - name: Smoke apply_patch edits
+        if: matrix.shard == 1
         run: npm run smoke:patch
 
   # Files over ~10s (*.slow.test.mjs) run beside the default lane, not inside
@@ -158,14 +168,7 @@ jobs:
       - name: Install
         run: npm ci --prefer-offline --no-audit --no-fund
       - name: Install fonts and LibreOffice for the Office suites
-        # The image's LibreOffice 7.3 draws the provisioned variable Noto faces at
-        # their default (Thin) instance, and the rendered review then reads the
-        # type as low contrast; the LibreOffice PPA's current release draws the
-        # named instances the way the desktop build does.
-        run: |
-          sudo add-apt-repository -y ppa:libreoffice/ppa
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends fonts-liberation fonts-nanum libreoffice-writer libreoffice-impress libreoffice-calc
+        uses: ./.github/actions/office-runtime
       # The kit decks author in Noto Sans / Noto Sans KR. The runtime's own
       # provisioner installs them into the user font directory, as it does for a
       # user, so the rendered review sees the faces the deck declares.
@@ -177,10 +180,98 @@ jobs:
           console.log(JSON.stringify(results, null, 2));
           if (!Object.values(results).every((font) => font.installed)) process.exit(1);
           NODE
+      - name: Cache the native spawn test build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-spawn/target
+          key: spawn-test-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/src/**') }}
+          restore-keys: spawn-test-cargo-${{ runner.os }}-
       - name: Build the native spawn test binary
         run: npm run build:spawn:test
       - name: Run the slow test lane
         run: npm run test:slow
+
+  # The same default lane on macOS, where the CLI and desktop runtime ship as
+  # well: platform branches (paths, shells, keychain, native assets) are only
+  # exercised on the system they were written for.
+  runtime-macos:
+    needs: changes
+    if: needs.changes.outputs.runtime == 'true'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install
+        run: npm ci --prefer-offline --no-audit --no-fund
+      - name: Install LibreOffice for the Office suites
+        run: brew install --cask --no-quarantine libreoffice
+      - name: Cache the native spawn test build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-spawn/target
+          key: spawn-test-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-spawn/Cargo.lock', 'native/mixdog-spawn/src/**') }}
+          restore-keys: spawn-test-cargo-${{ runner.os }}-
+      - name: Build the native spawn test binary
+        run: npm run build:spawn:test
+      - name: Run the default test lane
+        run: npm test
+
+  # The macOS/Linux Computer Use backend: unit tests on both systems, and on
+  # Linux a real X11 session (Xvfb with a window manager) in which a GTK
+  # dialog is driven end to end through the backend's line protocol.
+  computer-backend:
+    needs: changes
+    if: needs.changes.outputs.computer == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-22.04, macos-14]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        with:
+          toolchain: "1.95.0"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-computer/target
+          key: computer-cargo-${{ runner.os }}-${{ hashFiles('native/mixdog-computer/Cargo.lock', 'native/mixdog-computer/src/**') }}
+          restore-keys: computer-cargo-${{ runner.os }}-
+      - name: Unit tests
+        run: cargo test --locked --manifest-path native/mixdog-computer/Cargo.toml
+      - name: Install an X11 session with accessibility
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends xvfb openbox zenity at-spi2-core libatk-adaptor dbus-x11 xinput
+      - name: Drive a real X11 desktop through the backend
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --locked --release --manifest-path native/mixdog-computer/Cargo.toml
+          dbus-run-session -- bash -euc '
+            Xvfb :99 -screen 0 1280x800x24 &
+            export DISPLAY=:99
+            sleep 1
+            openbox &
+            sleep 1
+            node scripts/computer-backend-smoke.mjs native/mixdog-computer/target/release/mixdog-computer
+          '
 
   desktop:
     needs: changes
@@ -341,17 +432,30 @@ jobs:
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
         with:
           toolchain: "1.95.0"
+      # The graph gate runs only when its sources changed, so the exact key
+      # rarely hits; the prefix still restores the compiled dependency tree.
+      - name: Cache the graph test build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/mixdog-graph/target
+          key: graph-test-cargo-1.95.0-${{ hashFiles('native/mixdog-graph/Cargo.lock', 'native/mixdog-graph/src/**') }}
+          restore-keys: graph-test-cargo-1.95.0-
       - run: cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml
 
   complete:
     if: always()
-    needs: [runtime, runtime-slow, desktop, desktop-tests, relay, graph]
+    needs: [runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, relay, graph]
     runs-on: ubuntu-22.04
     steps:
       - name: Require every selected gate
         env:
           RUNTIME: ${{ needs.runtime.result }}
           RUNTIME_SLOW: ${{ needs.runtime-slow.result }}
+          RUNTIME_MACOS: ${{ needs.runtime-macos.result }}
+          COMPUTER_BACKEND: ${{ needs.computer-backend.result }}
           DESKTOP: ${{ needs.desktop.result }}
           DESKTOP_TESTS: ${{ needs.desktop-tests.result }}
           RELAY: ${{ needs.relay.result }}
@@ -359,6 +463,8 @@ jobs:
         run: |
           [[ "$RUNTIME" == success || "$RUNTIME" == skipped ]]
           [[ "$RUNTIME_SLOW" == success || "$RUNTIME_SLOW" == skipped ]]
+          [[ "$RUNTIME_MACOS" == success || "$RUNTIME_MACOS" == skipped ]]
+          [[ "$COMPUTER_BACKEND" == success || "$COMPUTER_BACKEND" == skipped ]]
           [[ "$DESKTOP" == success || "$DESKTOP" == skipped ]]
           [[ "$DESKTOP_TESTS" == success || "$DESKTOP_TESTS" == skipped ]]
           [[ "$RELAY" == success || "$RELAY" == skipped ]]

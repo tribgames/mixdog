@@ -202,33 +202,39 @@ export function applyRetryAction(state, result) {
 
 /** Fold a completed send into the state: prefix guard, image-strip
  *  rebaseline, per-request budgets, provider state, usage and diagnostics. */
+// An image-strip retry succeeded: persist the stripped transcript when the
+// recovery asked for it, otherwise drop the prefix guard so the next send
+// rebaselines against the unstripped history.
+function settleImageStrip(state, round, sent) {
+  const { sessionRef, sessionId, provider, model, messages } = state;
+  if (Array.isArray(state.pendingImageStripPersistMessages)) {
+    messages.splice(0, messages.length, ...state.pendingImageStripPersistMessages);
+  } else {
+    state.prefixGuardState = null;
+    if (sessionRef) delete sessionRef._providerPrefixGuardState;
+    traceCacheBreak({
+      sessionId,
+      iteration: round.nextIteration,
+      classification: 'intentional',
+      reason: 'image_strip_nonpersistent_rebaseline',
+      source: 'image_strip_retry',
+      provider: sessionRef?.provider || provider?.name || null,
+      model: model || null,
+      previousCount: sent.providerMessages.length,
+      nextCount: messages.length,
+    });
+  }
+  state.imageStripActive = false;
+  state.pendingImageStripPersistMessages = null;
+}
+
 export function settleSendResult(state, round, sent) {
-  const { opts, sessionRef, sessionId, provider, model, messages } = state;
+  const { opts, sessionRef, sessionId, model, messages } = state;
   const response = sent.result.response;
   state.response = response;
   state.prefixGuardState = sent.prefixGuardCandidate;
   if (sessionRef) sessionRef._providerPrefixGuardState = state.prefixGuardState;
-  if (state.imageStripActive) {
-    if (Array.isArray(state.pendingImageStripPersistMessages)) {
-      messages.splice(0, messages.length, ...state.pendingImageStripPersistMessages);
-    } else {
-      state.prefixGuardState = null;
-      if (sessionRef) delete sessionRef._providerPrefixGuardState;
-      traceCacheBreak({
-        sessionId,
-        iteration: round.nextIteration,
-        classification: 'intentional',
-        reason: 'image_strip_nonpersistent_rebaseline',
-        source: 'image_strip_retry',
-        provider: sessionRef?.provider || provider?.name || null,
-        model: model || null,
-        previousCount: sent.providerMessages.length,
-        nextCount: messages.length,
-      });
-    }
-    state.imageStripActive = false;
-    state.pendingImageStripPersistMessages = null;
-  }
+  if (state.imageStripActive) settleImageStrip(state, round, sent);
   opts.onToolCall = undefined;
   delete opts.cacheBreakIntent;
   state.contextOverflowRetryUsed = false;

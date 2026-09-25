@@ -364,9 +364,11 @@ async function cancel(args, { deps }) {
   const { jobs } = await mediaGraph(deps);
   const id = clean(args.job);
   if (!id) throw new MediaToolError('cancel requires job');
-  const job = jobs.cancelMediaJob(id);
-  if (!job) throw new MediaToolError(`job "${id}" is not known`);
-  return { ok: true, ...jobView(job) };
+  // cancelMediaJob answers `{ id, canceled }` even for an unknown id, so the job
+  // itself is looked up for both the existence check and the view.
+  if (!jobs.getMediaJob(id)) throw new MediaToolError(`job "${id}" is not known`);
+  const { canceled } = jobs.cancelMediaJob(id);
+  return { ok: true, ...jobView(jobs.getMediaJob(id)), canceled: canceled === true };
 }
 
 export async function executeMediaTool(args = {}, { cwd = process.cwd(), signal = null, deps = null } = {}) {

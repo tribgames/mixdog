@@ -1,6 +1,6 @@
 // One compose_document section: eyebrow + heading, paragraphs, the roadmap or
 // bullet list, quote, table, and callout.
-import { presetLabels, strings } from '../../design-tokens.mjs';
+import { strings } from '../../design-tokens.mjs';
 import { STATE_ROLES } from '../../design-discipline.mjs';
 import { addDocxDecisionCallout, addDocxRoadmap, addDocxSectionTable } from '../design-docx-components.mjs';
 import { composeTableRows } from '../../design-table-input.mjs';
@@ -69,7 +69,35 @@ function writeSectionList(w, section, sectionKind) {
   }
 }
 
+// What a section can carry. A field outside this list used to vanish: a plan written as `roadmap:[…]` reached the
+// page as a heading with nothing under it, and the composer reported success.
+const SECTION_FIELDS = new Set([
+  'heading',
+  'title',
+  'eyebrow',
+  'level',
+  'pageBreak',
+  'accent',
+  'kind',
+  'paragraphs',
+  'body',
+  'bullets',
+  'steps',
+  'quote',
+  'table',
+  'callout',
+  'calloutLabel',
+  'calloutTone',
+]);
+
 export function writeDocxSection(w, section, sectionIndex, operation) {
+  const unknown = Object.keys(section || {}).filter((field) => !SECTION_FIELDS.has(field));
+  if (unknown.length) {
+    throw new Error(
+      `compose_document sections[${sectionIndex + 1}] has field(s) it cannot draw: ${unknown.join(', ')}. ` +
+        `A section takes ${[...SECTION_FIELDS].join(', ')}; a plan is steps:[{ title, detail }].`
+    );
+  }
   const { append, colors, type, bodySize, compactMemo, editorialReport, spacing } = w;
   const sectionKind = String(section.kind || '')
     .trim()
@@ -90,7 +118,8 @@ export function writeDocxSection(w, section, sectionIndex, operation) {
     append(section.quote, 'Quote', {
       name: type.display,
       size: bodySize + (editorialReport ? 2 : 1),
-      italic: true,
+      // Hangul, kana, and Han have no italic, only a synthetic slant; a CJK quote is set apart by the accent alone.
+      italic: !/[\u1100-\u11FF\u3040-\u30FF\u3130-\u318F\u3400-\u9FFF\uAC00-\uD7AF]/.test(String(section.quote)),
       color: colors.accent,
       spacingBefore: 5,
       spacingAfter: 9,
@@ -105,10 +134,9 @@ export function writeDocxSection(w, section, sectionIndex, operation) {
   }
   if (section.callout) {
     addDocxDecisionCallout(w.output, w.state, String(section.callout), w.design, {
-      label: String(
-        section.calloutLabel || presetLabels([section.callout, section.heading, operation.title]).checkpoint
-      ),
+      label: section.calloutLabel ? String(section.calloutLabel) : null,
       emphasis: STATE_ROLES.includes(String(section.calloutTone || '')) ? String(section.calloutTone) : 'accent',
+      eastAsia: w.type.eastAsiaFor(w.type.display),
     });
   }
 }

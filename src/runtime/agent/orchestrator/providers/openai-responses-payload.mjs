@@ -55,7 +55,7 @@ export function buildCodexStartupPrewarmBody(body) {
 // Effort normalization: `ultra` collapses to
 // `max` on the wire — the openai-oauth backend does not accept `ultra`. Every
 // other effort passes through unchanged; empty/unknown falls back to medium.
-export function _normalizeReasoningEffort(effort) {
+function _normalizeReasoningEffort(effort) {
   const e = String(effort || '')
     .trim()
     .toLowerCase();

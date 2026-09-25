@@ -109,6 +109,7 @@ export const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, u
   ['skills', 'skillsStatus'],
   ['disabledSkills', 'getDisabledSkills'],
   ['voice', 'getVoiceStatus'],
+  ['developer', 'getDeveloperSettings'],
 ];
 
 export interface CachedCapabilitySettings {

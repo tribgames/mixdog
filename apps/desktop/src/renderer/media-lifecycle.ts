@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-export function mediaPlaybackAllowed(
+function mediaPlaybackAllowed(
   active: boolean,
   visibilityState: DocumentVisibilityState,
   documentFocused: boolean

@@ -48,10 +48,6 @@ export function buildProjectPickerState(
     metaWidth: 40,
     items,
     onSelect: (_value, item) => {
-      if (item?._action === 'new') {
-        actions.beginNewProject();
-        return;
-      }
       if (item?._action === 'current') {
         void actions.enterProject(currentPath, { notice: !initialEntry, register: false });
         return;
@@ -65,7 +61,7 @@ export function buildProjectPickerState(
         return;
       }
       // 'r' renames the highlighted registered project (not the current-dir
-      // shortcut or the create row).
+      // shortcut).
       if ((input === 'r' || input === 'R') && item?._project?.path) {
         actions.beginRenameProject(item._project);
       }

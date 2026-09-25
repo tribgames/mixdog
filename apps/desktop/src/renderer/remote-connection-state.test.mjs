@@ -60,65 +60,93 @@ test('a transient disconnect carries no user-facing wording', () => {
   assert.equal(error.message, '');
 });
 
-test('a persistent disconnect shows diagnostics without resetting its countdown or retry behavior', async () => {
+// The threshold timers are the whole contract of the overlay, so both are
+// driven by hand instead of waiting out real seconds: `pendingDisconnect` is
+// the 10s countdown and `pendingRecovery` the 3s connected hold.
+async function withBanner(run) {
   clearRemoteConnectionState();
   const mount = document.querySelector('main');
   const root = createRoot(mount);
-  // The threshold timer is the whole contract here, so it is driven by hand
-  // instead of waiting out ten real seconds.
   const TIMER_ID = 987654;
+  const RECOVERY_ID = 987655;
   const realSetTimeout = window.setTimeout;
   const realClearTimeout = window.clearTimeout;
-  let pendingDisconnect = null;
+  const timers = { pendingDisconnect: null, pendingRecovery: null };
   window.setTimeout = (fn, ms) => {
     if (ms === 10_000) {
-      pendingDisconnect = fn;
+      timers.pendingDisconnect = fn;
       return TIMER_ID;
+    }
+    if (ms === 3_000) {
+      timers.pendingRecovery = fn;
+      return RECOVERY_ID;
     }
     return realSetTimeout(fn, ms);
   };
   window.clearTimeout = (id) => {
     if (id === TIMER_ID) {
-      pendingDisconnect = null;
+      timers.pendingDisconnect = null;
+      return;
+    }
+    if (id === RECOVERY_ID) {
+      timers.pendingRecovery = null;
       return;
     }
     realClearTimeout(id);
+  };
+  const fire = async (name) => {
+    const fn = timers[name];
+    assert.ok(fn, `${name} is armed`);
+    timers[name] = null;
+    await act(async () => fn());
+  };
+  const setState = async (state) => {
+    await act(async () => setRemoteConnectionState(state));
   };
   try {
     await act(async () => {
       root.render(React.createElement(RemoteConnectionBanner));
     });
     assert.equal(document.querySelector('.remote-connection-overlay'), null);
+    await run({ timers, fire, setState });
+  } finally {
+    window.setTimeout = realSetTimeout;
+    window.clearTimeout = realClearTimeout;
+    await act(async () => root.unmount());
+    clearRemoteConnectionState();
+  }
+}
 
+const overlayElement = () => document.querySelector('.remote-connection-overlay');
+
+test('a persistent disconnect shows diagnostics without resetting its countdown or retry behavior', async () => {
+  await withBanner(async ({ timers, fire, setState }) => {
     // A short gap — every background return costs one — stays invisible.
     await act(async () => {
       setRemoteConnectionState('reconnecting');
       setRemoteConnectionPhase('websocket');
     });
-    assert.equal(document.querySelector('.remote-connection-overlay'), null);
-    assert.ok(pendingDisconnect);
-    const countdown = pendingDisconnect;
+    assert.equal(overlayElement(), null);
+    assert.ok(timers.pendingDisconnect);
+    const countdown = timers.pendingDisconnect;
     await act(async () => {
       reportRemoteConnectionIssue('websocket-timeout');
     });
-    assert.equal(pendingDisconnect, countdown, 'diagnostic updates must not postpone the disconnect display');
+    assert.equal(timers.pendingDisconnect, countdown, 'diagnostic updates must not postpone the disconnect display');
 
-    // Recovering inside the window cancels the countdown instead of banking it.
-    await act(async () => {
-      setRemoteConnectionState('connected');
-    });
-    assert.equal(pendingDisconnect, null);
-    assert.equal(document.querySelector('.remote-connection-overlay'), null);
+    // A recovery that holds cancels the countdown instead of banking it.
+    await setState('connected');
+    await fire('pendingRecovery');
+    assert.equal(timers.pendingDisconnect, null);
+    assert.equal(overlayElement(), null);
 
     await act(async () => {
       setRemoteConnectionState('reconnecting');
       setRemoteConnectionPhase('encryption');
       reportRemoteConnectionIssue('encryption-timeout');
     });
-    await act(async () => {
-      pendingDisconnect?.();
-    });
-    const overlay = document.querySelector('.remote-connection-overlay');
+    await fire('pendingDisconnect');
+    const overlay = overlayElement();
     assert.ok(overlay);
     assert.equal(overlay.textContent, '', 'connection diagnostics never reach the screen');
     assert.equal(overlay.getAttribute('aria-label'), 'Retry');
@@ -129,18 +157,133 @@ test('a persistent disconnect shows diagnostics without resetting its countdown 
     window.removeEventListener('mixdog:remote-wake', onRetry);
     assert.equal(retries, 1);
 
-    await act(async () => {
-      setRemoteConnectionState('connected');
-    });
-    assert.equal(document.querySelector('.remote-connection-overlay'), null);
+    await setState('connected');
+    assert.equal(overlayElement(), overlay, 'a fresh connection has not proven itself yet');
+    await fire('pendingRecovery');
+    assert.equal(overlayElement(), null);
     assert.equal(document.documentElement.dataset.mixdogRemotePhase, 'connected');
     assert.equal(document.documentElement.dataset.mixdogRemoteError, undefined);
+  });
+});
+
+test('a flapping connection keeps the overlay up until a connection holds', async () => {
+  await withBanner(async ({ timers, fire, setState }) => {
+    await setState('reconnecting');
+    await fire('pendingDisconnect');
+    const overlay = overlayElement();
+    assert.ok(overlay);
+    for (let flap = 0; flap < 3; flap++) {
+      await setState('connected');
+      assert.ok(timers.pendingRecovery);
+      assert.equal(overlayElement(), overlay, 'a connected blip must not hide the overlay');
+      await setState('reconnecting');
+      assert.equal(timers.pendingRecovery, null, 'leaving connected abandons the hold');
+      assert.equal(overlayElement(), overlay, 'the overlay never cycles through hidden');
+    }
+    await setState('connected');
+    await fire('pendingRecovery');
+    assert.equal(overlayElement(), null);
+  });
+});
+
+test('a connecting state after the overlay is shown keeps it up', async () => {
+  await withBanner(async ({ fire, setState }) => {
+    await setState('reconnecting');
+    await fire('pendingDisconnect');
+    const overlay = overlayElement();
+    assert.ok(overlay);
+    await setState('connecting');
+    assert.equal(overlayElement(), overlay);
+    await setState('syncing');
+    assert.equal(overlayElement(), overlay);
+    await setState('connected');
+    assert.equal(overlayElement(), overlay);
+    await fire('pendingRecovery');
+    assert.equal(overlayElement(), null);
+  });
+});
+
+test('a connected blip before the overlay appears does not restart the countdown', async () => {
+  await withBanner(async ({ timers, fire, setState }) => {
+    await setState('reconnecting');
+    const countdown = timers.pendingDisconnect;
+    assert.ok(countdown);
+    await setState('connected');
+    assert.equal(timers.pendingDisconnect, countdown, 'an unproven connection keeps the countdown running');
+    await setState('connecting');
+    await setState('reconnecting');
+    assert.equal(timers.pendingDisconnect, countdown, 'the countdown is never restarted mid-outage');
+    await setState('syncing');
+    assert.equal(timers.pendingDisconnect, countdown);
+    await fire('pendingDisconnect');
+    assert.ok(overlayElement());
+  });
+});
+
+test('a countdown that expires during a connected blip surfaces only if the link drops again', async () => {
+  await withBanner(async ({ fire, setState }) => {
+    await setState('reconnecting');
+    await setState('connected');
+    await fire('pendingDisconnect');
+    assert.equal(overlayElement(), null, 'no overlay while the link is up');
+    await setState('reconnecting');
+    assert.ok(overlayElement());
+  });
+  await withBanner(async ({ timers, fire, setState }) => {
+    await setState('reconnecting');
+    await setState('connected');
+    await fire('pendingDisconnect');
+    await fire('pendingRecovery');
+    assert.equal(overlayElement(), null);
+    await setState('reconnecting');
+    assert.equal(overlayElement(), null, 'a held connection starts the countdown over');
+    assert.ok(timers.pendingDisconnect);
+  });
+});
+
+test('a hidden page neither counts toward nor keeps the disconnect overlay', async () => {
+  const setVisibility = async (value) => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => value });
+    await act(async () => document.dispatchEvent(new window.Event('visibilitychange')));
+  };
+  try {
+    await withBanner(async ({ timers, fire, setState }) => {
+      await setState('syncing');
+      assert.ok(timers.pendingDisconnect);
+      await setVisibility('hidden');
+      assert.equal(timers.pendingDisconnect, null, 'going hidden cancels the countdown');
+      await setState('connecting');
+      await setState('reconnecting');
+      assert.equal(timers.pendingDisconnect, null, 'no countdown runs while hidden');
+      await setVisibility('visible');
+      assert.equal(overlayElement(), null, 'a return from background never opens on the overlay');
+      assert.ok(timers.pendingDisconnect, 'the return starts a fresh countdown');
+      await fire('pendingDisconnect');
+      assert.ok(overlayElement());
+      await setVisibility('hidden');
+      assert.equal(overlayElement(), null, 'going hidden drops a shown overlay');
+    });
   } finally {
-    window.setTimeout = realSetTimeout;
-    window.clearTimeout = realClearTimeout;
-    await act(async () => root.unmount());
-    clearRemoteConnectionState();
+    delete document.visibilityState;
   }
+});
+
+test('a gap that recovers inside ten seconds shows nothing', async () => {
+  await withBanner(async ({ timers, fire, setState }) => {
+    await setState('reconnecting');
+    const countdown = timers.pendingDisconnect;
+    assert.ok(countdown);
+    await setState('syncing');
+    await setState('connected');
+    assert.equal(overlayElement(), null);
+    await fire('pendingRecovery');
+    assert.equal(timers.pendingDisconnect, null, 'a held connection cancels the countdown');
+    assert.equal(overlayElement(), null);
+    await setState('reconnecting');
+    assert.ok(timers.pendingDisconnect);
+    assert.notEqual(timers.pendingDisconnect, countdown, 'the next gap starts a fresh countdown');
+    assert.equal(overlayElement(), null);
+  });
 });
 
 test('a connection timeline reports each wait once, in order, with fixed tokens only', () => {

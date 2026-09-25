@@ -6,15 +6,12 @@ import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { acquireTitleBarDim } from './titlebar-dim';
 
-/** Shared lifecycle for dialogs launched from a sidebar destination.
- *  Content keeps its own card and form grammar; this layer owns the portal,
- *  backdrop dismissal, Escape, mobile back, and native title-bar dimming. */
-export function SidebarDialogLayer({ onClose, children }: { onClose(): void; children: ReactNode }) {
-  useMobileBack(true, onClose);
-  useEffect(() => acquireTitleBarDim(), []);
+/** The portaled scrim both dialog layers share: a backdrop press or Escape
+ *  closes it. */
+function dialogLayerPortal(className: string, host: HTMLElement, onClose: () => void, children: ReactNode) {
   return createPortal(
     <div
-      className="schedules-dialog-layer"
+      className={className}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -28,8 +25,17 @@ export function SidebarDialogLayer({ onClose, children }: { onClose(): void; chi
     >
       {children}
     </div>,
-    document.body
+    host
   );
+}
+
+/** Shared lifecycle for dialogs launched from a sidebar destination.
+ *  Content keeps its own card and form grammar; this layer owns the portal,
+ *  backdrop dismissal, Escape, mobile back, and native title-bar dimming. */
+export function SidebarDialogLayer({ onClose, children }: { onClose(): void; children: ReactNode }) {
+  useMobileBack(true, onClose);
+  useEffect(() => acquireTitleBarDim(), []);
+  return dialogLayerPortal('schedules-dialog-layer', document.body, onClose, children);
 }
 
 /** A dialog scoped to the PANE that raised it (user: 골 설정 뜨는 게 PANE
@@ -49,23 +55,11 @@ export function PaneDialogLayer({
   const [pane] = useState<HTMLElement | null>(() => anchor.current?.closest<HTMLElement>('.pane-cell') ?? null);
   useMobileBack(true, onClose);
   useEffect(() => (pane ? undefined : acquireTitleBarDim()), [pane]);
-  return createPortal(
-    <div
-      className={pane ? 'pane-dialog-layer' : 'schedules-dialog-layer'}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          event.stopPropagation();
-          onClose();
-        }
-      }}
-    >
-      {children}
-    </div>,
-    pane ?? document.body
+  return dialogLayerPortal(
+    pane ? 'pane-dialog-layer' : 'schedules-dialog-layer',
+    pane ?? document.body,
+    onClose,
+    children
   );
 }
 

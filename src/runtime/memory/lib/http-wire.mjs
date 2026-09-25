@@ -39,9 +39,10 @@ export function sendError(res, msg, status = 500) {
 // attacker-controlled Host while routing the request to loopback.
 // Server-to-server callers (setup-server, hooks) issue raw http.request
 // without a browser Origin/Referer, but still send a loopback Host.
+const LOOP = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i;
+const LOOP_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+
 export function isLocalOrigin(req) {
-  const LOOP = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i;
-  const LOOP_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
   const host = String(req.headers.host || '').trim();
   const origin = req.headers.origin || '';
   const referer = req.headers.referer || '';

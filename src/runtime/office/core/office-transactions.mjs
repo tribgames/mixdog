@@ -82,8 +82,8 @@ export async function captureSessionState(session, checkpoint = '') {
   let fingerprintPath = session.target;
   let document;
   if (isMicrosoftOfficeSession(session)) {
-    const needsFileCopy = ['xlsx', 'pptx'].includes(session.format);
-    const temporaryCheckpoint = !checkpoint && needsFileCopy ? transactionCheckpointPath(session) : '';
+    const fileBacked = ['xlsx', 'pptx'].includes(session.format);
+    const temporaryCheckpoint = !checkpoint && fileBacked ? transactionCheckpointPath(session) : '';
     const snapshotPath = checkpoint || temporaryCheckpoint;
     const result = await callMicrosoftOffice(
       {
@@ -100,8 +100,7 @@ export async function captureSessionState(session, checkpoint = '') {
       throw new Error(result.error || `Microsoft Office ${snapshotPath ? 'checkpoint' : 'snapshot'} failed`);
     try {
       document = result.value;
-      const fileBackedFingerprint = ['xlsx', 'pptx'].includes(session.format);
-      const fingerprint = fileBackedFingerprint
+      const fingerprint = fileBacked
         ? await documentFingerprint(snapshotPath || session.target, session.format)
         : documentSnapshotFingerprint(document);
       return { fingerprint, document, checkpoint: checkpoint || '' };

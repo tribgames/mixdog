@@ -49,9 +49,9 @@ export function isActiveDesktopAgentEntry(value: unknown): boolean {
 }
 
 export function isQueuedDesktopAgentEntry(value: unknown): boolean {
+  if (!isActiveDesktopAgentEntry(value)) return false;
   const statuses = statusValues(value);
-  if (statuses.includes('resource_wait') && isActiveDesktopAgentEntry(value)) return true;
-  return isActiveDesktopAgentEntry(value) && statuses.every((status) => DESKTOP_QUEUED_AGENT_STATUS.test(status));
+  return statuses.includes('resource_wait') || statuses.every((status) => DESKTOP_QUEUED_AGENT_STATUS.test(status));
 }
 
 export function isCancelledDesktopAgentEntry(value: unknown): boolean {

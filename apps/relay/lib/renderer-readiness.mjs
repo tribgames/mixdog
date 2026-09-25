@@ -70,8 +70,8 @@ export function inspectRenderer(rendererDir) {
  *  Deployments restart the process, so the first check always sees the new
  *  release; later checks notice missing files without a process restart. */
 export function createRendererReadiness(rendererDir, { cacheMs = 2000, now = Date.now } = {}) {
-  let cached,
-    expiresAt = 0;
+  let cached;
+  let expiresAt = 0;
   return () => {
     const time = now();
     if (cached && time < expiresAt) return cached;

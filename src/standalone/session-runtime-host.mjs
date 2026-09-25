@@ -20,6 +20,32 @@ import { AgentControlRouter } from './session-runtime-agent-control.mjs';
 import { SessionRuntimeProxy } from './session-runtime-proxy.mjs';
 import { aggregateShardWorkload } from './session-runtime-workload.mjs';
 
+function logTurnTiming(shard, message) {
+  const row = message.row && typeof message.row === 'object' ? message.row : {};
+  const ms = (value) => (Number.isFinite(Number(value)) ? Math.round(Number(value)) : -1);
+  shard.log(
+    `turn timing status=${row.status || 'unknown'} session=${row.sessionId || '-'}` +
+      ` e2e=${ms(row.endToEndTtftMs)}ms runtime=${ms(row.ttftMs)}ms` +
+      ` queue=${ms(row.queueMs)}ms route=${ms(row.routeMs)}ms` +
+      ` preflight=${ms(row.preflightMs)}ms mcp=${ms(row.mcpMs)}ms` +
+      ` provider=${ms(row.providerMs)}ms`
+  );
+}
+
+// Child → host IPC messages other than request responses, by message type.
+const CHILD_MESSAGE_HANDLERS = new Map([
+  ['spawn-lease', (shard, message) => void shard.spawnLeases.grant(message)],
+  ['spawn-release', (shard, message) => shard.spawnLeases.settle(String(message.leaseId || ''))],
+  ['event-loop-lag', (shard, message) => shard.recordLag(message.sample)],
+  ['provider-cooldown', (shard, message) => shard.pool?.recordProviderCooldown(shard, message)],
+  ['agent-control', (shard, message, child) => void shard.pool?.agentControl.handleAgentControl(shard, child, message)],
+  ['agent-control-cancel', (shard, message) => shard.pool?.agentControl.cancelAgentControl(message)],
+  ['agent-control-notification', (shard, message) => shard.pool?.agentControl.routeAgentControlNotification(message)],
+  ['unhealthy', (shard, message, child) => shard.recycleUnhealthy(child, message.detail)],
+  ['state', (shard, message) => shard.proxies.get(String(message.runtimeId || ''))?.applyFrame(message)],
+  ['turn-timing', logTurnTiming],
+]);
+
 /**
  * One runtime child process = one shard = one event-loop failure domain.
  *
@@ -87,52 +113,9 @@ class SessionRuntimeShard {
     // queued frames after its replacement is live. Its late state/response must
     // never outrank the replacement's revision or settle its pending calls.
     if (child !== this.child) return;
-    if (message.type === 'spawn-lease') {
-      void this.spawnLeases.grant(message);
-      return;
-    }
-    if (message.type === 'spawn-release') {
-      this.spawnLeases.settle(String(message.leaseId || ''));
-      return;
-    }
-    if (message.type === 'event-loop-lag') {
-      this.recordLag(message.sample);
-      return;
-    }
-    if (message.type === 'provider-cooldown') {
-      this.pool?.recordProviderCooldown(this, message);
-      return;
-    }
-    if (message.type === 'agent-control') {
-      void this.pool?.agentControl.handleAgentControl(this, child, message);
-      return;
-    }
-    if (message.type === 'agent-control-cancel') {
-      this.pool?.agentControl.cancelAgentControl(message);
-      return;
-    }
-    if (message.type === 'agent-control-notification') {
-      this.pool?.agentControl.routeAgentControlNotification(message);
-      return;
-    }
-    if (message.type === 'unhealthy') {
-      this.recycleUnhealthy(child, message.detail);
-      return;
-    }
-    if (message.type === 'state') {
-      this.proxies.get(String(message.runtimeId || ''))?.applyFrame(message);
-      return;
-    }
-    if (message.type === 'turn-timing') {
-      const row = message.row && typeof message.row === 'object' ? message.row : {};
-      const ms = (value) => (Number.isFinite(Number(value)) ? Math.round(Number(value)) : -1);
-      this.log(
-        `turn timing status=${row.status || 'unknown'} session=${row.sessionId || '-'}` +
-          ` e2e=${ms(row.endToEndTtftMs)}ms runtime=${ms(row.ttftMs)}ms` +
-          ` queue=${ms(row.queueMs)}ms route=${ms(row.routeMs)}ms` +
-          ` preflight=${ms(row.preflightMs)}ms mcp=${ms(row.mcpMs)}ms` +
-          ` provider=${ms(row.providerMs)}ms`
-      );
+    const handler = CHILD_MESSAGE_HANDLERS.get(message.type);
+    if (handler) {
+      handler(this, message, child);
       return;
     }
     if (message.type !== 'response') return;

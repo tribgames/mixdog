@@ -117,12 +117,8 @@ export function resolveResponsesTransportPolicy(env = process.env, capabilities 
       transport = 'ws';
       delta = DELTA_OFF; // explicit full frames
       break;
-    case 'auto':
-    case 'ws-delta':
-      transport = 'ws';
-      // Reachable only when caps.delta is true (else gated to ws-full).
-      delta = caps.delta ? DELTA_REFS : DELTA_OFF;
-      break;
+    // 'auto' / 'ws-delta' are reachable only when caps.delta is true (else
+    // gated to ws-full).
     default:
       transport = 'ws';
       delta = caps.delta ? DELTA_REFS : DELTA_OFF;

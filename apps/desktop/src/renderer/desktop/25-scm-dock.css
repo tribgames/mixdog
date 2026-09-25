@@ -858,7 +858,7 @@
   border-top: 1px solid var(--mx-border-muted);
   border-radius: 0;
   /* :11 `background-color: var(--box-alt-background-color)` — ONE tone darker
-     than the panel sheet (--mx-workspace-sheet #101013 / #fafafa) in both
+     than the panel sheet (--mx-workspace-sheet #101013 / #f8f8fb) in both
      themes, so the form reads as its own region under the list. */
   background: var(--mx-window-band);
   box-shadow: none;

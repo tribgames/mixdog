@@ -810,7 +810,7 @@ export function rejectOversizeFrame(socket, raw, limit, announced = false, binar
 
 /** Oversize toward a PHONE leg. Everything on that leg is E2EE ciphertext and
  *  the shim handles exactly two CLEARTEXT keys before decryption
- *  (apps/desktop/src/renderer/remote-shim.ts:1591-1604 — `pong` and `resync`);
+ *  (apps/desktop/src/renderer/remote-shim.ts, its cleartext branch — `pong` and `resync`);
  *  any other cleartext object is handed to decryptJson, throws, and closes the
  *  socket. So the refusal rides the `resync` key: a shim that predates this
  *  frame recovers with a resync instead of disconnecting, and one that reads
@@ -884,7 +884,7 @@ function oversizeFrameClientId(raw, binary = false) {
  *  to nobody.
  *
  *  It is the router's decision, taken with the router's own tool. The text lane
- *  routes by `JSON.parse` (`runDesktopLeg` in relay-legs.mjs) and reads `clientId` off the
+ *  routes by `JSON.parse` (`handleDesktopFrame` in relay-legs.mjs) and reads `clientId` off the
  *  result, so every question about what JSON accepts — duplicate keys, escapes,
  *  control bytes, primitive tokens, matching delimiters, trailing bytes — is
  *  answered by the parser instead of being re-litigated here. Every re-

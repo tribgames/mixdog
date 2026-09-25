@@ -28,9 +28,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
 
   function stopTimerIfIdle() {
     if (watched.size > 0 || !timer) return;
-    try {
-      clearInterval(timer);
-    } catch {}
+    clearInterval(timer);
     timer = null;
   }
 

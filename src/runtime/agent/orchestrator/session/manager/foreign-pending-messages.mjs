@@ -8,6 +8,7 @@ import {
   pendingMessageText,
 } from './pending-message-entry.mjs';
 import { isInternalRuntimeNotificationText } from './prompt-utils.mjs';
+import { lifecycleTokenClosed } from './pending-lifecycle-epoch.mjs';
 
 const HANDOFF_RETRY_MS = 1000;
 const HANDOFF_RELEASE_SLACK_MS = 50;
@@ -67,36 +68,26 @@ function takeForeignMessagesFromQueue(queue, request, handoffReleaseMs) {
       !isCompletionNotificationEntry(entry) &&
       text &&
       !isInternalRuntimeNotificationText(text);
-    const normalized = normalizePendingMessageEntry(entry);
-    const structured = Array.isArray(normalized?.content) || Boolean(normalized?.options);
-    if (foreignUser && isStaleUserInjection(entry)) {
-      const lateText = lateDeliveryText(text, entry);
-      const content = Array.isArray(normalized?.content)
-        ? [
-            {
-              type: 'text',
-              text: lateText.slice(0, lateText.length - text.length),
-            },
-            ...normalized.content,
-          ]
-        : lateText;
-      request.taken.push({
-        ...(structured ? { content } : {}),
-        text: lateText,
-        id,
-        ...(normalized?.options ? { options: normalized.options } : {}),
-      });
-    } else if (foreignUser) {
-      request.taken.push({
-        ...(structured ? { content: normalized?.content ?? text } : {}),
-        text,
-        id,
-        ...(normalized?.options ? { options: normalized.options } : {}),
-      });
-    } else {
+    if (!foreignUser) {
       kept.push(entry);
       continue;
     }
+    const normalized = normalizePendingMessageEntry(entry);
+    const structured = Array.isArray(normalized?.content) || Boolean(normalized?.options);
+    let takenText = text;
+    let content = normalized?.content ?? text;
+    if (isStaleUserInjection(entry)) {
+      takenText = lateDeliveryText(text, entry);
+      content = Array.isArray(normalized?.content)
+        ? [{ type: 'text', text: takenText.slice(0, takenText.length - text.length) }, ...normalized.content]
+        : takenText;
+    }
+    request.taken.push({
+      ...(structured ? { content } : {}),
+      text: takenText,
+      id,
+      ...(normalized?.options ? { options: normalized.options } : {}),
+    });
     // Park rather than delete until the consumer owns a copy.
     kept.push({ ...entry, handoffAt: now, handoffPid: process.pid });
   }
@@ -133,10 +124,11 @@ export class ForeignPendingMessageController {
   }
 
   async drainUserInjections(sessionId) {
-    const { currentLifecycleToken, isValidSessionId, lifecycleInvalidated } = this._dependencies;
+    const { currentLifecycleToken, isValidSessionId } = this._dependencies;
     if (!isValidSessionId(sessionId)) return [];
+    // One durable read decides both the epoch and the tombstone refusal.
     const epochToken = currentLifecycleToken(sessionId);
-    if (lifecycleInvalidated(sessionId)) return [];
+    if (lifecycleTokenClosed(epochToken)) return [];
     return new Promise((resolve) => {
       const existing = this._drainRequests.get(sessionId);
       if (existing && existing.epochToken === epochToken) {

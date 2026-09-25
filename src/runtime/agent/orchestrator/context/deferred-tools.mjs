@@ -14,15 +14,14 @@ export function compactPromptManifestText(value, max = 250) {
 
 const DEFERRED_TOOLS_BLOCK_RE = /(\n\n---\n*)?<available-deferred-tools>[\s\S]*?<\/available-deferred-tools>\s*/gi;
 const MCP_INSTRUCTIONS_BLOCK_RE = /(\n\n---\n*)?<mcp-instructions>[\s\S]*?<\/mcp-instructions>\s*/gi;
-const DEFERRED_TOOL_NAME_SAFE_RE = /^[A-Za-z0-9_.:-]+$/;
-const MCP_SERVER_NAME_SAFE_RE = /^[A-Za-z0-9_.:-]+$/;
+// Tool and MCP server names enter the manifests only as plain identifiers
+// (no markup can be smuggled into the prompt through a name).
+const MANIFEST_NAME_SAFE_RE = /^[A-Za-z0-9_.:-]+$/;
 const MCP_INSTRUCTION_MAX_CHARS = 600;
 
-function sanitizeDeferredToolManifestName(name) {
+function sanitizeManifestName(name) {
   const text = String(name || '').trim();
-  if (!text || text.includes('<') || text.includes('>')) return '';
-  if (!DEFERRED_TOOL_NAME_SAFE_RE.test(text)) return '';
-  return text;
+  return MANIFEST_NAME_SAFE_RE.test(text) ? text : '';
 }
 
 function skillRoutedToolNames(messages) {
@@ -64,7 +63,7 @@ export function buildDeferredToolManifest(entries) {
   const seen = new Set();
   for (const entry of Array.isArray(entries) ? entries : []) {
     const rawName = typeof entry === 'string' ? entry : entry?.name;
-    const name = sanitizeDeferredToolManifestName(rawName);
+    const name = sanitizeManifestName(rawName);
     if (!name || seen.has(name)) continue;
     seen.add(name);
     const description =
@@ -81,13 +80,6 @@ export function buildDeferredToolManifest(entries) {
     ...list.map((entry) => (entry.description ? `- ${entry.name}: ${entry.description}` : `- ${entry.name}`)),
     '</available-deferred-tools>',
   ].join('\n');
-}
-
-function sanitizeMcpManifestServerName(name) {
-  const text = String(name || '').trim();
-  if (!text || text.includes('<') || text.includes('>')) return '';
-  if (!MCP_SERVER_NAME_SAFE_RE.test(text)) return '';
-  return text;
 }
 
 function sanitizeMcpInstructionText(text, max = MCP_INSTRUCTION_MAX_CHARS) {
@@ -111,9 +103,7 @@ function sanitizeMcpInstructionText(text, max = MCP_INSTRUCTION_MAX_CHARS) {
 function buildMcpInstructionsManifest(mcpServerInstructions, poolNames) {
   const map = mcpServerInstructions && typeof mcpServerInstructions === 'object' ? mcpServerInstructions : {};
   const pool = [
-    ...new Set(
-      (Array.isArray(poolNames) ? poolNames : []).map((name) => sanitizeDeferredToolManifestName(name)).filter(Boolean)
-    ),
+    ...new Set((Array.isArray(poolNames) ? poolNames : []).map((name) => sanitizeManifestName(name)).filter(Boolean)),
   ];
   const deferredServers = new Set();
   for (const name of pool) {
@@ -122,14 +112,12 @@ function buildMcpInstructionsManifest(mcpServerInstructions, poolNames) {
     deferredServers.add(match[1]);
   }
   const servers = [...deferredServers]
-    .filter((server) => sanitizeMcpManifestServerName(server) && sanitizeMcpInstructionText(map[server]))
+    .filter((server) => sanitizeManifestName(server) && sanitizeMcpInstructionText(map[server]))
     .sort((a, b) => a.localeCompare(b));
   if (!servers.length) return '';
   const lines = ['<mcp-instructions>'];
   for (const server of servers) {
-    const safeServer = sanitizeMcpManifestServerName(server);
-    const body = sanitizeMcpInstructionText(map[server]);
-    lines.push(`## ${safeServer}`, body);
+    lines.push(`## ${sanitizeManifestName(server)}`, sanitizeMcpInstructionText(map[server]));
   }
   lines.push('</mcp-instructions>');
   return lines.join('\n');

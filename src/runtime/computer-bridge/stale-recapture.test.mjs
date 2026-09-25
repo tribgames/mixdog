@@ -75,7 +75,7 @@ test('a stale-target refusal returns a fresh capture of the exact window with it
 
 test('a failed recapture leaves the original refusal and its recovery unchanged', async () => {
   await withBridge(
-    (command, index) =>
+    (_command, index) =>
       index === 1
         ? { ok: false, error: 'stale_target|background input window is stale' }
         : { ok: false, error: 'window_target_not_found: hwnd:0x1 is closed' },

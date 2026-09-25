@@ -75,15 +75,22 @@ export function assistantMessageWithoutThinkingReplay(message) {
   return changed ? next : null;
 }
 
-/** Whether any assistant turn still carries replay blocks a repair would drop. */
-export function canRepairThinkingReplay(messages) {
-  if (!Array.isArray(messages)) return false;
+/** The newest assistant turn that still carries replay blocks a repair would
+ *  drop, with its repaired copy; null when there is none. */
+function newestRepairableAssistant(messages) {
+  if (!Array.isArray(messages)) return null;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role !== 'assistant') continue;
-    if (assistantMessageWithoutThinkingReplay(message)) return true;
+    const repaired = assistantMessageWithoutThinkingReplay(message);
+    if (repaired) return { index, repaired };
   }
-  return false;
+  return null;
+}
+
+/** Whether any assistant turn still carries replay blocks a repair would drop. */
+export function canRepairThinkingReplay(messages) {
+  return newestRepairableAssistant(messages) !== null;
 }
 
 /**
@@ -92,16 +99,10 @@ export function canRepairThinkingReplay(messages) {
  * any later request. Returns the repaired index, or -1 when nothing matched.
  */
 export function repairThinkingReplayInPlace(messages) {
-  if (!Array.isArray(messages)) return -1;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== 'assistant') continue;
-    const repaired = assistantMessageWithoutThinkingReplay(message);
-    if (!repaired) continue;
-    // Replace the reference (never edit in place): the session store's
-    // delta writer only re-sends messages whose reference changed.
-    messages[index] = repaired;
-    return index;
-  }
-  return -1;
+  const found = newestRepairableAssistant(messages);
+  if (!found) return -1;
+  // Replace the reference (never edit in place): the session store's
+  // delta writer only re-sends messages whose reference changed.
+  messages[found.index] = found.repaired;
+  return found.index;
 }

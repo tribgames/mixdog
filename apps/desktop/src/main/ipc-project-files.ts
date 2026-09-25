@@ -1,4 +1,4 @@
-import type { App, IpcMainInvokeEvent, Shell } from 'electron';
+import type { App, Shell } from 'electron';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import { registerFilePreview } from './file-preview';
@@ -11,8 +11,7 @@ import {
   requiredTextFileEncoding,
   requiredWorkspaceTextWrites,
 } from './ipc-validation';
-
-type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
+import type { IpcHandle as Handle } from './ipc';
 
 type GrantedFile = {
   root: string;

@@ -17,8 +17,6 @@ export function visibleTranscriptItems(transcriptItems, transcriptWindow, stream
     const last = visible.length - 1;
     if (visible[last]?.id === streamingTailItem.id) visible[last] = streamingTailItem;
   }
-  // The bottom meta band is spinner-only; a finished turn's done row renders
-  // inline in scrollback like any other item — no filtering, no double-paint.
   return visible;
 }
 

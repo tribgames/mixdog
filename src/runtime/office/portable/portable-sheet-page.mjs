@@ -158,11 +158,6 @@ export async function contentPrintArea(zip, sheet, xml) {
   return `A1:${columnLabel(lastColumn)}${lastRow}`;
 }
 
-// A chart or picture beside a table is wider than a portrait page, and a sheet
-// with no page setup exports by column blocks — the page break runs through the
-// chart. A sheet that declares nothing takes one page wide and keeps paging down
-// (a fit only scales down, so a small sheet prints as before); a declared fit,
-// print scale, or print area is the author's and stays.
 // The sheet's own sheetPr with fitToPage turned on: whatever else it declares
 // travels with it, and the fit flag it may already carry is replaced rather
 // than written twice.
@@ -176,6 +171,11 @@ function sheetPrWithFitToPage(xml) {
   return `<sheetPr${attrs}>${body.replace(/<pageSetUpPr\b[^>]*?\/>/, '')}<pageSetUpPr fitToPage="1"/></sheetPr>`;
 }
 
+// A chart or picture beside a table is wider than a portrait page, and a sheet
+// with no page setup exports by column blocks — the page break runs through the
+// chart. A sheet that declares nothing takes one page wide and keeps paging down
+// (a fit only scales down, so a small sheet prints as before); a declared fit,
+// print scale, or print area is the author's and stays.
 export function fitDrawingSheetOnePageWide(xml) {
   if (/<pageSetUpPr\b[^>]*\bfitToPage="1"/.test(xml)) return { xml, applied: false };
   const setup = worksheetSection(xml, 'pageSetup');
@@ -238,6 +238,39 @@ export async function applyWorksheetPageSetup(zip, sheets, sheet, xml, op) {
       )
     );
   }
+  // The header rows every printed page repeats (Print_Titles): a data sheet longer than a page named its columns on
+  // the first page only, and the frozen header the screen shows does not print.
+  const titles = printTitleRowSpan(op.printTitleRows);
+  if (titles) {
+    const reference = `${quoteSheetName(sheet.name)}!$${titles.first}:$${titles.last}`;
+    const localSheetId = sheets.findIndex((entry) => entry.name === sheet.name);
+    zip.file(
+      'xl/workbook.xml',
+      upsertDefinedName(
+        await zipText(zip, 'xl/workbook.xml'),
+        `<definedName name="_xlnm.Print_Titles" localSheetId="${localSheetId}">${xmlEncode(reference)}</definedName>`,
+        (item) =>
+          xmlAttribute(item, 'name') === '_xlnm.Print_Titles' &&
+          Number(xmlAttribute(item, 'localSheetId')) === localSheetId
+      )
+    );
+  }
   zip.file(sheet.path, xml);
-  return { op: op.op, changed: true, sheet: sheet.name, ...(printArea ? { printArea } : {}) };
+  return {
+    op: op.op,
+    changed: true,
+    sheet: sheet.name,
+    ...(printArea ? { printArea } : {}),
+    ...(titles ? { printTitleRows: `${titles.first}:${titles.last}` } : {}),
+  };
+}
+
+// printTitleRows: a row or a span of rows, "1", "4:5", or "$1:$1".
+function printTitleRowSpan(value) {
+  if (value == null || String(value).trim() === '') return null;
+  const [first, last = first] = String(value).replace(/\$/g, '').split(':').map((part) => Number(part.trim()));
+  if (!Number.isInteger(first) || !Number.isInteger(last) || first < 1 || last < first) {
+    throw new Error(`set_page_setup printTitleRows is a row or a span of rows such as "1" or "4:5", not "${value}"`);
+  }
+  return { first, last };
 }

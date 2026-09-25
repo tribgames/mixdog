@@ -8,17 +8,19 @@ import { resolvePluginData, mixdogRoot } from '../../../../shared/plugin-paths.m
 // path is missing: same stem with a different extension, or a same-name
 // sibling differing only in case. Pure best-effort; any fs error returns
 // null so the caller falls back to the bare "not found" message.
+function similarSibling(fullPath, entries) {
+  const dir = dirname(fullPath);
+  const base = basename(fullPath);
+  const stem = basename(fullPath, extname(fullPath));
+  const sameStem = entries.find((e) => e !== base && basename(e, extname(e)) === stem);
+  if (sameStem) return join(dir, sameStem);
+  const caseMatch = entries.find((e) => e !== base && e.toLowerCase() === base.toLowerCase());
+  return caseMatch ? join(dir, caseMatch) : null;
+}
+
 export function findSimilarFile(fullPath) {
   try {
-    const dir = dirname(fullPath);
-    const base = basename(fullPath);
-    const stem = basename(fullPath, extname(fullPath));
-    const entries = readdirSync(dir);
-    const sameStem = entries.find((e) => e !== base && basename(e, extname(e)) === stem);
-    if (sameStem) return join(dir, sameStem);
-    const caseMatch = entries.find((e) => e !== base && e.toLowerCase() === base.toLowerCase());
-    if (caseMatch) return join(dir, caseMatch);
-    return null;
+    return similarSibling(fullPath, readdirSync(dirname(fullPath)));
   } catch {
     return null;
   }
@@ -26,14 +28,7 @@ export function findSimilarFile(fullPath) {
 
 export async function findSimilarFileAsync(fullPath) {
   try {
-    const dir = dirname(fullPath);
-    const base = basename(fullPath);
-    const stem = basename(fullPath, extname(fullPath));
-    const entries = await readdir(dir);
-    const sameStem = entries.find((e) => e !== base && basename(e, extname(e)) === stem);
-    if (sameStem) return join(dir, sameStem);
-    const caseMatch = entries.find((e) => e !== base && e.toLowerCase() === base.toLowerCase());
-    return caseMatch ? join(dir, caseMatch) : null;
+    return similarSibling(fullPath, await readdir(dirname(fullPath)));
   } catch {
     return null;
   }

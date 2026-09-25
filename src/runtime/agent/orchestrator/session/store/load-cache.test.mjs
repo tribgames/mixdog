@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { loadSession } from '../store.mjs';
+import { evictIdleLiveSessions, loadSession } from '../store.mjs';
+import { forgetSessionLoadCache, sessionLoadCacheStats } from './load-cache.mjs';
 import {
   _clearSessionSaveState,
   _liveSessions,
@@ -151,6 +153,93 @@ test('failed-save recovery keeps the exact failed snapshot while unrelated corru
   clearSessionSaveError(f.id);
   assert.equal(loadSession(f.id), null);
   assert.equal(_liveSessions.get(f.id), failed);
+});
+
+test('retained documents stay within the byte budget, and an oversized one keeps only its header', (t) => {
+  const f = fixture(t);
+  const big = (label, chars) => ({ ...f.saved, messages: [{ role: 'user', content: label + 'x'.repeat(chars) }] });
+  // 5M characters: one fits the 8M budget, two do not.
+  const first = big('first', 5 * 1024 * 1024);
+  f.write(first);
+  assert.deepEqual(loadSession(f.id), first);
+  assert.ok(sessionLoadCacheStats().chars >= 5 * 1024 * 1024, 'the document is retained');
+  const otherId = `${f.id}_other`;
+  const second = { ...big('second', 5 * 1024 * 1024), id: otherId };
+  writeFileSync(join(f.path, '..', `${otherId}.json`), JSON.stringify(second));
+  const entries = sessionLoadCacheStats().entries;
+  assert.deepEqual(loadSession(otherId), second);
+  assert.ok(sessionLoadCacheStats().chars <= 8 * 1024 * 1024, 'the older document was released');
+  assert.ok(sessionLoadCacheStats().chars >= 5 * 1024 * 1024, 'the newer one is retained');
+  assert.equal(sessionLoadCacheStats().entries, entries + 1, 'the released one keeps its validation header');
+  // That header still serves a live copy without reading the file again.
+  const live = { ...first };
+  setLiveSession(live);
+  assert.equal(loadSession(f.id), live);
+  _liveSessions.delete(f.id);
+  // Larger than the whole budget: served from disk, never retained.
+  const huge = big('huge', 9 * 1024 * 1024);
+  f.write(huge);
+  assert.deepEqual(loadSession(f.id), huge);
+  assert.ok(sessionLoadCacheStats().chars <= 8 * 1024 * 1024);
+  assert.deepEqual(loadSession(f.id), huge, 'and re-read, not lost');
+});
+
+test('closing, unloading or evicting a session drops its load-cache entry', (t) => {
+  const f = fixture(t);
+  assert.deepEqual(loadSession(f.id), f.saved);
+  const before = sessionLoadCacheStats();
+  assert.ok(before.chars > 0);
+  forgetSessionLoadCache(f.id);
+  const after = sessionLoadCacheStats();
+  assert.equal(after.entries, before.entries - 1);
+  assert.ok(after.chars < before.chars);
+  // The idle sweep evicts the live snapshot and the parsed document with it.
+  assert.deepEqual(loadSession(f.id), f.saved);
+  setLiveSession(loadSession(f.id));
+  const cached = sessionLoadCacheStats().entries;
+  assert.equal(evictIdleLiveSessions({ isSessionLive: () => false }) >= 1, true);
+  assert.equal(sessionLoadCacheStats().entries, cached - 1);
+});
+
+test('a same-size in-place rewrite with a restored mtime is noticed through ctime', async (t) => {
+  const f = fixture(t);
+  const time = new Date('2025-01-01T00:00:00.000Z');
+  const write = (content) => {
+    writeFileSync(f.path, JSON.stringify({ ...f.saved, messages: [{ role: 'user', content }] }));
+    utimesSync(f.path, time, time);
+  };
+  write('old!');
+  assert.equal(loadSession(f.id).messages[0].content, 'old!');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  write('new!');
+  assert.equal(loadSession(f.id).messages[0].content, 'new!');
+});
+
+test('more than eight live sessions keep their validation headers and are not re-read', (t) => {
+  const f = fixture(t);
+  const sessions = Array.from({ length: 12 }, (_, index) => ({ ...f.saved, id: `${f.id}_n${index}` }));
+  for (const session of sessions) {
+    writeFileSync(join(f.path, '..', `${session.id}.json`), JSON.stringify(session));
+    t.after(() => _liveSessions.delete(session.id));
+  }
+  for (const session of sessions) assert.deepEqual(loadSession(session.id), session);
+  for (const session of sessions) setLiveSession(session);
+  let reads = 0;
+  const original = fs.readFileSync;
+  fs.readFileSync = function (file, ...rest) {
+    if (String(file).includes(f.id)) reads++;
+    return original.call(this, file, ...rest);
+  };
+  syncBuiltinESMExports();
+  t.after(() => {
+    fs.readFileSync = original;
+    syncBuiltinESMExports();
+  });
+  for (let round = 0; round < 2; round++) {
+    for (const session of sessions) assert.equal(loadSession(session.id), session);
+  }
+  assert.equal(reads, 0, 'every file is validated by its header without reading it');
+  assert.ok(sessionLoadCacheStats().documents <= 8);
 });
 
 test('a genuinely absent disk record does not discard an unsaved live conversation', (t) => {

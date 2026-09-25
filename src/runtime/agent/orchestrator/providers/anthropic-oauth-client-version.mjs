@@ -89,6 +89,11 @@ export function resolveCliVersion() {
   return loadLearnedCliVersion() || DEFAULT_CLI_VERSION;
 }
 
+/** The `user-agent` every Claude OAuth request sends for the resolved CLI version. */
+export function claudeCliUserAgent() {
+  return `claude-cli/${resolveCliVersion()} (external, sdk-cli)`;
+}
+
 /**
  * Learn Anthropic's exact minimum-version rejection. Returns null for every
  * other response shape. Learned versions only move upward and are persisted

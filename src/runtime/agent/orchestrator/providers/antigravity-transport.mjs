@@ -12,7 +12,7 @@ import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { GEMINI_FIRST_BYTE_TIMEOUT_MS } from './gemini-stream.mjs';
 import { _scrubTokens } from './antigravity-oauth-tokens.mjs';
 
-export function antigravityError(res, text, endpoint) {
+function antigravityError(res, text, endpoint) {
   let payload = null;
   try {
     payload = text ? JSON.parse(text) : null;

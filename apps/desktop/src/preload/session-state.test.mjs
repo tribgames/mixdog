@@ -103,6 +103,62 @@ test('preload resets only the failed session and tolerates resync delivery failu
   stop();
 });
 
+test('preload reassembles state patches and resyncs once the patch chain breaks', () => {
+  const f = fixture();
+  const snapshots = [];
+  const stop = f.api.subscribeState((snapshot) => snapshots.push(snapshot));
+  const emit = (wire) => f.ipc.emit(DESKTOP_IPC.state, {}, wire);
+  // The bridge runs in its own VM realm; compare its objects by value.
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  const items = [{ id: 'a', text: 'one' }];
+  emit({ items, __itemsRevision: 1, __statePatch: {}, title: 'T', streamingTail: { id: 'tail', text: 'he' } });
+  assert.equal(snapshots[0].items, items);
+  assert.equal(snapshots[0].title, 'T');
+  assert.equal(Object.hasOwn(snapshots[0], '__itemsRevision'), false);
+  assert.equal(Object.hasOwn(snapshots[0], '__statePatch'), false);
+  assert.deepEqual(snapshots[0].streamingTail, { id: 'tail', text: 'he' });
+
+  emit({
+    __itemsPatch: { base: 1, revision: 2, prefix: 1, append: [] },
+    __streamingTailPatch: { tail: { id: 'tail' }, prefix: 2, append: 'llo' },
+    title: 'T',
+  });
+  assert.equal(snapshots[1].items, items, 'an empty items patch keeps the array identity');
+  assert.deepEqual(plain(snapshots[1].streamingTail), { id: 'tail', text: 'hello' });
+  assert.equal(snapshots[1].title, 'T');
+  assert.equal(Object.hasOwn(snapshots[1], '__itemsPatch'), false);
+  assert.equal(Object.hasOwn(snapshots[1], '__streamingTailPatch'), false);
+
+  emit({
+    __itemsPatch: { base: 2, revision: 3, prefix: 1, append: [{ id: 'b' }] },
+    __statePatch: { base: 2, revision: 3, removed: ['title'], changed: { busy: true } },
+  });
+  assert.deepEqual(plain(snapshots[2].items), [{ id: 'a', text: 'one' }, { id: 'b' }]);
+  assert.equal(Object.hasOwn(snapshots[2], 'title'), false);
+  assert.equal(snapshots[2].busy, true);
+  assert.deepEqual(plain(snapshots[2].streamingTail), { id: 'tail', text: 'hello' });
+  assert.equal(f.sent.length, 0);
+
+  emit({
+    __itemsPatch: { base: 3, revision: 4, prefix: 2, append: [] },
+    __streamingTailPatch: { tail: { id: 'other' }, prefix: 0, append: 'x' },
+  });
+  assert.equal(snapshots.length, 3);
+  assert.deepEqual(f.sent, [[DESKTOP_IPC.stateResync]]);
+  emit({ __itemsPatch: { base: 3, revision: 4, prefix: 2, append: [] } });
+  assert.equal(snapshots.length, 3);
+  assert.equal(f.sent.length, 2);
+
+  emit({ items: [], __itemsRevision: 9 });
+  emit({ __itemsPatch: { base: 9, revision: 10, prefix: 0, append: [] }, streamingTail: null });
+  assert.equal(snapshots.length, 5);
+  assert.equal(snapshots[4].streamingTail, null);
+  emit(null);
+  assert.equal(snapshots[5], null);
+  stop();
+  assert.equal(f.ipc.listenerCount(DESKTOP_IPC.state), 0);
+});
+
 test('preload drops ended sessions and unsubscribing does not disturb another subscription', () => {
   const f = fixture();
   const first = [];

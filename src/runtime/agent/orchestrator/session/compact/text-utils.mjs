@@ -6,12 +6,11 @@ const TOOL_ARG_STRING_MAX_CHARS = 360;
 const TOOL_ARG_ARRAY_MAX_ITEMS = 8;
 const TOOL_ARG_MAX_DEPTH = 4;
 const TOOL_CALL_ARGS_MAX_CHARS = 260;
-export const TOOL_CALL_FACT_ARGS_MAX_CHARS = 140;
 const TOOL_CALLS_MAX = 4;
 const SENSITIVE_TOOL_ARG_KEY_RE =
   /(?:^|[_-])(?:api[_-]?key|authorization|auth|cookie|credential|passwd|password|refresh[_-]?token|secret|token)(?:$|[_-])/i;
 // Word alternation for raw-string (non-JSON) secret redaction. Mirrors the
-// keys in SENSITIVE_TOOL_ARG_KEY_RE and the session-ingest redactor so a raw
+// keys in SENSITIVE_TOOL_ARG_KEY_RE so a raw
 // tool-call argument string like `authorization: Bearer abc.def` or
 // `password="abc def"` never reaches preserved facts or the compaction prompt.
 const SENSITIVE_TOOL_ARG_KEY_WORD =
@@ -42,9 +41,7 @@ const SENSITIVE_RAW_KEY_RES = [
 // Redact `key: value` / `key=value` secret pairs inside a raw (non-JSON)
 // string. Consumes the WHOLE value after the key — spaces, `Bearer `/`Basic `
 // scheme words, quoted values with internal spaces, and `;`-separated cookie
-// pairs — so no secret fragment survives. Kept local to compact-core to avoid a
-// cross-module dependency on the memory lib; logic matches session-ingest's
-// redactRawArgString.
+// pairs — so no secret fragment survives.
 function redactRawSecretString(text) {
   let value = String(text ?? '');
   if (!value) return value;

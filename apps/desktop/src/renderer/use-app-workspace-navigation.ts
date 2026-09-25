@@ -4,6 +4,7 @@ import type { WorkspaceSelection, WorkspaceTab } from './navigation';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import { navigationKey } from './text-format';
 import { useWorkspaceShortcuts } from './app-workspace-shortcuts';
+import { useStableEvent } from './use-stable-event';
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
 
@@ -87,10 +88,12 @@ export function useAppWorkspaceNavigation({
     });
   };
 
-  const navigateFocusedPaneTab = (tab: WorkspaceTab) => {
+  // Stable identity: the tab-switcher listeners below must not rebind on
+  // every render while the switcher is open.
+  const navigateFocusedPaneTab = useStableEvent((tab: WorkspaceTab) => {
     paneWorkspace.activateTab(paneWorkspace.focusedLeafId, tab.key);
     navigateTab(tab);
-  };
+  });
 
   useEffect(() => {
     if (!tabSwitcher) return undefined;

@@ -1,3 +1,9 @@
+import type { WebContents } from 'electron';
+
+import type { BrowserCdpPort } from './cdp';
+import { browserCharLimit } from './command';
+import { redactBrowserText, redactBrowserUrl } from './redaction';
+
 export interface BrowserNetworkRequest {
   id: string;
   cdpRequestId: string;
@@ -24,11 +30,6 @@ export interface BrowserNetworkRequest {
   redirectedTo?: string;
   webSocketFrames?: BrowserWebSocketFrame[];
 }
-
-import type { WebContents } from 'electron';
-
-import type { BrowserCdpPort } from './cdp';
-import { redactBrowserText, redactBrowserUrl } from './redaction';
 
 /** This guest runs no extensions, so the only client that refuses a request is
  *  the partition's own request policy (private or internal addresses, DNS
@@ -178,12 +179,7 @@ export function createBrowserNetworkReports(host: BrowserNetworkReportHost) {
     signal?: AbortSignal
   ): Promise<{ text: string }> {
     const target = { sessionId: request.sessionId };
-    const maxChars = Math.min(
-      maxBodyChars,
-      Number.isFinite(command.maxChars) && (command.maxChars as number) > 0
-        ? Math.trunc(command.maxChars as number)
-        : DEFAULT_BODY_CHARS
-    );
+    const maxChars = browserCharLimit(command.maxChars, DEFAULT_BODY_CHARS, maxBodyChars);
     let requestBody = request.requestBody;
     if (!requestBody && request.hasPostData) {
       try {
@@ -311,6 +307,12 @@ function mergeSentHeaders(provisional: Record<string, string>, sent: Record<stri
   return Object.fromEntries(Array.from(merged.values()).slice(0, LEDGER_HEADER_COUNT));
 }
 
+/** A document address as the ledger compares it: the fragment never reaches
+ *  the server, so it names the same request. */
+function withoutFragment(url: string): string {
+  return String(url || '').split('#', 1)[0];
+}
+
 function scopedRequestId(sessionId: string | undefined, requestId: string): string {
   return `${sessionId || 'top'}:${requestId}`;
 }
@@ -328,6 +330,11 @@ export class BrowserNetworkLedger {
 
   constructor(maxRequests = 250) {
     this.#maxRequests = Math.max(1, Math.trunc(maxRequests) || 250);
+  }
+
+  /** The in-flight request a CDP event names, while this ledger still tracks it. */
+  #inflightFor(params: Record<string, unknown>, sessionId?: string): BrowserNetworkRequest | undefined {
+    return this.#inflight.get(scopedRequestId(sessionId, String(params.requestId || '')));
   }
 
   requestWillBeSent(
@@ -375,14 +382,14 @@ export class BrowserNetworkLedger {
    *  asked for them, so the sent headers are merged in when they arrive.
    *  Credentials are still named and never shown by the report. */
   requestWillBeSentExtraInfo(params: Record<string, unknown>, sessionId?: string): BrowserNetworkRequest | null {
-    const entry = this.#inflight.get(scopedRequestId(sessionId, String(params.requestId || '')));
+    const entry = this.#inflightFor(params, sessionId);
     if (!entry) return null;
     entry.requestHeaders = mergeSentHeaders(entry.requestHeaders, headers(params.headers));
     return entry;
   }
 
   responseReceived(params: Record<string, unknown>, sessionId?: string): BrowserNetworkRequest | null {
-    const entry = this.#inflight.get(scopedRequestId(sessionId, String(params.requestId || '')));
+    const entry = this.#inflightFor(params, sessionId);
     if (!entry) return null;
     this.#applyResponse(entry, responseData(params.response));
     if (params.type) entry.resourceType = String(params.type).toLowerCase();
@@ -413,10 +420,10 @@ export class BrowserNetworkLedger {
   }
 
   finishDocument(url: string, now = Date.now()): number {
-    const normalizedUrl = String(url || '').split('#', 1)[0];
+    const normalizedUrl = withoutFragment(url);
     let finished = 0;
     for (const [scopedId, entry] of this.#inflight) {
-      if (entry.resourceType !== 'document' || String(entry.url || '').split('#', 1)[0] !== normalizedUrl) continue;
+      if (entry.resourceType !== 'document' || withoutFragment(entry.url) !== normalizedUrl) continue;
       entry.finishedAt = now;
       this.#inflight.delete(scopedId);
       finished += 1;
@@ -456,14 +463,14 @@ export class BrowserNetworkLedger {
    *  address alone, so without this a WebSocket detail shows no request headers
    *  at all — and a refused upgrade is usually explained by one of them. */
   webSocketWillSendHandshakeRequest(params: Record<string, unknown>, sessionId?: string): BrowserNetworkRequest | null {
-    const entry = this.#inflight.get(scopedRequestId(sessionId, String(params.requestId || '')));
+    const entry = this.#inflightFor(params, sessionId);
     if (!entry) return null;
     entry.requestHeaders = mergeSentHeaders(entry.requestHeaders, headers(responseData(params.request).headers));
     return entry;
   }
 
   webSocketHandshakeResponse(params: Record<string, unknown>, sessionId?: string): BrowserNetworkRequest | null {
-    const entry = this.#inflight.get(scopedRequestId(sessionId, String(params.requestId || '')));
+    const entry = this.#inflightFor(params, sessionId);
     if (!entry) return null;
     this.#applyResponse(entry, responseData(params.response));
     entry.resourceType = 'websocket';
@@ -476,7 +483,7 @@ export class BrowserNetworkLedger {
     sessionId?: string,
     now = Date.now()
   ): BrowserNetworkRequest | null {
-    const entry = this.#inflight.get(scopedRequestId(sessionId, String(params.requestId || '')));
+    const entry = this.#inflightFor(params, sessionId);
     if (!entry) return null;
     const frame = responseData(params.response);
     const frames = entry.webSocketFrames || [];
@@ -501,13 +508,13 @@ export class BrowserNetworkLedger {
   /** The HTTP answer behind the document at `url`: the newest document
    *  request for that address, so a 404 page reads as one. */
   documentStatus(url: string): { status: number; statusText?: string; mimeType?: string } | null {
-    const wanted = String(url || '').split('#', 1)[0];
+    const wanted = withoutFragment(url);
     if (!wanted) return null;
     const requests = [...this.#requests.values()];
     for (let index = requests.length - 1; index >= 0; index -= 1) {
       const request = requests[index];
       if (request.resourceType !== 'document' || request.status === undefined) continue;
-      if (String(request.url || '').split('#', 1)[0] !== wanted) continue;
+      if (withoutFragment(request.url) !== wanted) continue;
       return { status: request.status, statusText: request.statusText, mimeType: request.mimeType };
     }
     return null;

@@ -43,10 +43,30 @@ let bufferCacheBytes = 0;
 let cacheHits = 0;
 let cacheMisses = 0;
 let attachmentGcTimer = null;
-let lastAttachmentGcAt = 0;
+let lastAttachmentGcAt = readAttachmentGcStamp();
 
 function attachmentsDir() {
   return join(resolvePluginData(), 'prompt-attachments', 'sha256');
+}
+
+// The census reads every session file, so its 6-hour cadence must hold across
+// processes: an in-memory timestamp alone re-ran it 5 s after every CLI, TUI
+// and daemon launch (a 1.9 GB census spiked the heap past 500 MB).
+function attachmentGcStampPath() {
+  return join(resolvePluginData(), 'prompt-attachments', 'gc-last-run');
+}
+
+function readAttachmentGcStamp() {
+  try {
+    return statSync(attachmentGcStampPath()).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+function writeAttachmentGcStamp() {
+  mkdirSync(join(resolvePluginData(), 'prompt-attachments'), { recursive: true });
+  writeFileSync(attachmentGcStampPath(), '');
 }
 
 function attachmentPath(ref) {
@@ -457,21 +477,46 @@ async function persistedAttachmentReferencePaths() {
   return paths;
 }
 
+const ATTACHMENT_REF_KEY = Buffer.from('"attachmentRef"');
+
+function isJsonSpace(byte) {
+  return byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d;
+}
+
+// Matches `"attachmentRef" : "<64 hex>"` on the raw bytes. Decoding each
+// session file to a UTF-8 string and running a regex over it dominated the
+// census CPU; the key and value are ASCII, so no decode is needed.
+function addReferencedAttachments(buffer, referenced) {
+  let at = buffer.indexOf(ATTACHMENT_REF_KEY);
+  while (at !== -1) {
+    let i = at + ATTACHMENT_REF_KEY.length;
+    while (isJsonSpace(buffer[i])) i += 1;
+    if (buffer[i] === 0x3a) {
+      i += 1;
+      while (isJsonSpace(buffer[i])) i += 1;
+      if (buffer[i] === 0x22 && buffer[i + 65] === 0x22) {
+        const ref = buffer.toString('latin1', i + 1, i + 65);
+        if (ATTACHMENT_REF_RE.test(ref)) referenced.add(ref);
+      }
+    }
+    at = buffer.indexOf(ATTACHMENT_REF_KEY, at + ATTACHMENT_REF_KEY.length);
+  }
+}
+
 export async function collectPromptAttachments({ now = Date.now(), minAgeMs = ATTACHMENT_GC_MIN_AGE_MS } = {}) {
   const referenced = new Set();
   let referenceFiles = 0;
   for (const path of await persistedAttachmentReferencePaths()) {
     let raw;
     try {
-      raw = await readFileAsync(path, 'utf8');
+      raw = await readFileAsync(path);
     } catch (error) {
       if (error?.code === 'ENOENT') continue;
       // A partial reference census must never authorize deletion.
       return { deleted: 0, referenced: 0, fresh: 0, scanned: 0, incomplete: true };
     }
     referenceFiles += 1;
-    const regex = /"attachmentRef"\s*:\s*"([a-f0-9]{64})"/g;
-    for (let match = regex.exec(raw); match !== null; match = regex.exec(raw)) referenced.add(match[1]);
+    addReferencedAttachments(raw, referenced);
   }
 
   const cutoff = Number(now) - Math.max(0, Number(minAgeMs) || 0);
@@ -531,6 +576,9 @@ function armAttachmentGc(delayMs) {
     () => {
       attachmentGcTimer = null;
       void collectPromptAttachments()
+        .then((result) => {
+          if (!result?.incomplete) writeAttachmentGcStamp();
+        })
         .catch(() => undefined)
         .finally(() => {
           lastAttachmentGcAt = Date.now();

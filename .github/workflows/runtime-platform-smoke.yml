@@ -31,4 +31,4 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Verify embedding and core memory runtime
-        run: npm run test:embedding-runtime:core
+        run: node scripts/verify-embedding-runtime.mjs --core

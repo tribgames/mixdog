@@ -145,9 +145,11 @@ export function useCommandSurfaceLifecycle({
         setError(reason instanceof Error ? reason.message : String(reason));
       }
     } finally {
-      if (loadSequence.current === request) setLoading(false);
-      if (loadSequence.current === request) setRefreshing(false);
-      if (loadSequence.current === request && loadingSurface.current === surface) loadingSurface.current = null;
+      if (loadSequence.current === request) {
+        setLoading(false);
+        setRefreshing(false);
+        if (loadingSurface.current === surface) loadingSurface.current = null;
+      }
     }
   }, [api, cacheKey, cacheable, capabilityRequest, surface]);
 

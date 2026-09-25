@@ -12,7 +12,6 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
 
   function normalizeToolApprovalRequest(input = {}, id = nextId()) {
     const now = Date.now();
-    const requestTimeoutMs = timeoutMs;
     return {
       id,
       name: String(input?.name || input?.tool_name || 'tool'),
@@ -22,8 +21,8 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       toolCallId: input?.toolCallId || input?.tool_use_id || null,
       reason: String(input?.reason || input?.message || 'approval requested by hook').trim(),
       requestedAt: now,
-      timeoutMs: requestTimeoutMs,
-      expiresAt: now + requestTimeoutMs,
+      timeoutMs,
+      expiresAt: now + timeoutMs,
     };
   }
   // Every request expires from ITS OWN requestedAt, queued or active. Arming

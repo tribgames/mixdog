@@ -247,7 +247,7 @@
   gap: 0;
   padding: 2px;
   border-radius: var(--mx-radius-md);
-  background: var(--mx-alpha-light-6);
+  background: var(--mx-chip-bg);
 }
 .turn-review-style button {
   min-height: 20px;

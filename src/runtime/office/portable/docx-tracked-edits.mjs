@@ -122,18 +122,50 @@ export function anchorPhraseInParagraph(paragraphXml, find, id, markers = null) 
  *  wearing the formatting of the run they cut, so the rest of the paragraph
  *  keeps its runs untouched. Returns `count: 0` when no match lies entirely
  *  inside text-only runs. */
-export function trackedParagraphReplace(paragraphXml, find, replacement, id, author) {
+// The words a replacement shares with its find at either end are not an edit: "86억 원으로" → "86억 원(잠정)으로"
+// struck through the whole phrase and wrote it again, where a reviewer marks only "원으로" → "원(잠정)으로". The
+// match is found whole; the revision covers the words between the shared ones. Word granularity, never characters
+// — "22%" → "21.6%" reads as one changed figure, not "2" kept and "2" → "1.6".
+export function sharedWordEdges(find, replacement) {
+  const tokens = (value) => String(value).match(/\s+|\S+/g) || [];
+  const before = tokens(find);
+  const after = tokens(replacement);
+  let lead = 0;
+  while (lead < before.length && lead < after.length && before[lead] === after[lead]) lead += 1;
+  let trail = 0;
+  while (
+    trail < before.length - lead &&
+    trail < after.length - lead &&
+    before[before.length - 1 - trail] === after[after.length - 1 - trail]
+  ) {
+    trail += 1;
+  }
+  return {
+    lead: before.slice(0, lead).join('').length,
+    trail: before.slice(before.length - trail).join('').length,
+    insert: after.slice(lead, after.length - trail).join(''),
+  };
+}
+
+export function trackedParagraphReplace(paragraphXml, find, fullReplacement, id, author) {
   if (!find) throw new Error('replace_text requires non-empty find');
   const runs = paragraphRuns(paragraphXml);
   const joined = runs.map((run) => run.text).join('');
+  const edges = sharedWordEdges(find, fullReplacement);
+  const replacement = edges.insert;
   const intervals = [];
+  let found = 0;
   let cursor = 0;
   while (cursor <= joined.length - find.length) {
     const index = joined.indexOf(find, cursor);
     if (index < 0) break;
-    intervals.push({ start: index, end: index + find.length });
+    found += 1;
+    const start = index + edges.lead;
+    const end = index + find.length - edges.trail;
+    if (end > start || replacement) intervals.push({ start, end });
     cursor = index + find.length;
   }
+  if (found && !intervals.length) return { xml: paragraphXml, count: found, nextId: id };
   if (!intervals.length) return { xml: paragraphXml, count: 0, nextId: id };
   let nextId = id;
   const output = [];
@@ -145,9 +177,13 @@ export function trackedParagraphReplace(paragraphXml, find, replacement, id, aut
     const runStart = offset;
     const runEnd = offset + run.text.length;
     offset = runEnd;
-    const overlapping = run.textOnly
-      ? intervals.filter((interval) => interval.start < runEnd && interval.end > runStart)
-      : [];
+    // A pure insertion (nothing between the shared words is deleted) is a point: it belongs to the run it falls
+    // in, or to the paragraph's last run when it falls at the very end.
+    const touches = (interval) =>
+      interval.start === interval.end
+        ? interval.start >= runStart && (interval.start < runEnd || (interval.start === runEnd && runEnd === joined.length))
+        : interval.start < runEnd && interval.end > runStart;
+    const overlapping = run.textOnly ? intervals.filter(touches) : [];
     if (!overlapping.length) {
       output.push(run.xml);
       continue;
@@ -176,5 +212,5 @@ export function trackedParagraphReplace(paragraphXml, find, replacement, id, aut
     if (tail) output.push(textRun(run, tail));
   }
   output.push(paragraphXml.slice(sourceCursor));
-  return { xml: output.join(''), count: intervals.length, nextId };
+  return { xml: output.join(''), count: found, nextId };
 }

@@ -3,11 +3,11 @@
 // answers, with a bounded deadline. A generation counter invalidates attaches
 // still in flight when the client is dropped (transport failure, SSE fatal,
 // stop), so a superseded attach closes itself instead of becoming current.
+import { sleep as delay } from '../../runtime/shared/sleep.mjs';
 import { attachChannel, probeChannelHealth } from '../channel-client.mjs';
 
 const ATTACH_DEADLINE_MS = 30_000;
 const MAX_AUTH_REJECTIONS = 5;
-const delay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
 function attachCancelledError() {
   const error = new Error('channel service attach superseded');

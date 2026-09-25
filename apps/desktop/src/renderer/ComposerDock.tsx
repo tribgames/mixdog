@@ -29,7 +29,7 @@ type ComposerContextBarPhase = 'open' | 'collapsing' | 'closed';
  *  the bar collapses over ~140ms (CSS) before unmounting, instead of
  *  vanishing in one frame and dropping the composer 34px (measured layout
  *  shift; user: 첫 프롬 직후 화면이 한 번 툭 튐). */
-export function useComposerContextBarPhase(
+function useComposerContextBarPhase(
   showProjectSelector: boolean,
   softCollapse: MutableRefObject<boolean>
 ): ComposerContextBarPhase {

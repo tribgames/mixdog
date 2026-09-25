@@ -5,21 +5,10 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { actionableFailureCount } from './smoke-loop-failure-summary.mjs';
 import { DURATION_UNIT_MS } from './lib/parse-since.mjs';
+import { argValue, hasFlag as argFlag } from './lib/cli-args.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_DURATION_MS = 5 * 60 * 60 * 1000;
-
-function argValue(name, fallback = null) {
-  const idx = process.argv.indexOf(name);
-  if (idx >= 0 && idx + 1 < process.argv.length) return process.argv[idx + 1];
-  const prefix = `${name}=`;
-  const hit = process.argv.find((arg) => arg.startsWith(prefix));
-  return hit ? hit.slice(prefix.length) : fallback;
-}
-
-function argFlag(name) {
-  return process.argv.includes(name);
-}
 
 function parseDuration(value, fallback) {
   const raw = String(value || '').trim();

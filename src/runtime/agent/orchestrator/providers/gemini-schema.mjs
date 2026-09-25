@@ -798,48 +798,25 @@ export function toGeminiContents(messages, model = '', { repairToolSignatures = 
   return repairToolSignatures ? ensureGeminiToolCallSignatures(contents, model) : contents;
 }
 
-export function parseGeminiThinkingParts(parts) {
-  if (!Array.isArray(parts)) return undefined;
-  const blocks = [];
-  for (const part of parts) {
-    if (part?.thought !== true) continue;
-    const block = {
-      type: 'thinking',
-      thinking: typeof part.text === 'string' ? part.text : '',
-    };
-    const signature = part.thoughtSignature || part.thought_signature;
-    if (typeof signature === 'string' && signature && signature.length <= 16_384) {
-      block.signature = signature;
-    }
-    blocks.push(block);
+function signedTextPart(part) {
+  const out = { text: part.text };
+  const signature = part.thoughtSignature || part.thought_signature;
+  if (typeof signature === 'string' && signature && signature.length <= 16_384) {
+    out.thoughtSignature = signature;
   }
-  return blocks.length ? blocks : undefined;
+  return out;
 }
 
 export function parseGeminiTextPartMetadata(parts) {
   if (!Array.isArray(parts)) return undefined;
   const thoughtParts = parts
     .filter((part) => part?.thought === true && typeof part?.text === 'string')
-    .map((part) => {
-      const out = { text: part.text };
-      const signature = part.thoughtSignature || part.thought_signature;
-      if (typeof signature === 'string' && signature && signature.length <= 16_384) {
-        out.thoughtSignature = signature;
-      }
-      return out;
-    })
+    .map(signedTextPart)
     // Unsigned reasoning must never become persisted hidden prompt text.
     .filter((part) => typeof part.thoughtSignature === 'string' && part.thoughtSignature);
   const textParts = parts
     .filter((part) => part?.thought !== true && typeof part?.text === 'string')
-    .map((part) => {
-      const out = { text: part.text };
-      const signature = part.thoughtSignature || part.thought_signature;
-      if (typeof signature === 'string' && signature && signature.length <= 16_384) {
-        out.thoughtSignature = signature;
-      }
-      return out;
-    });
+    .map(signedTextPart);
   if (!thoughtParts.length && !textParts.some((part) => part.thoughtSignature)) return undefined;
   return {
     gemini: {

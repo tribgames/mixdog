@@ -45,7 +45,6 @@ use ast_grep_config::{
 };
 use ast_grep_core::tree_sitter::StrDoc;
 use ast_grep_core::{AstGrep, NodeMatch};
-use ignore::WalkBuilder;
 use rayon::prelude::*;
 use serde::Serialize;
 
@@ -60,18 +59,20 @@ pub enum ScanError {
     Internal(String),
 }
 
+/// Zero-based row and character column, as `--scan` and `--outline` report
+/// them.
 #[derive(Serialize)]
-struct PositionJson {
-    line: usize,
-    column: usize,
+pub(crate) struct PositionJson {
+    pub(crate) line: usize,
+    pub(crate) column: usize,
 }
 
 #[derive(Serialize)]
-struct RangeJson {
-    start: PositionJson,
-    end: PositionJson,
+pub(crate) struct RangeJson {
+    pub(crate) start: PositionJson,
+    pub(crate) end: PositionJson,
     #[serde(rename = "byteOffset")]
-    byte_offset: [usize; 2],
+    pub(crate) byte_offset: [usize; 2],
 }
 
 #[derive(Serialize)]
@@ -299,27 +300,7 @@ pub fn scan_source(
 /// files over 2MB skipped, results sorted by path. The language classifier is
 /// the scan registry (31 languages) instead of the extraction one.
 pub fn collect_scan_files(root: &Path) -> Result<Vec<ScanFile>, String> {
-    let mut candidates: Vec<(PathBuf, ScanLang)> = Vec::new();
-    for entry in WalkBuilder::new(root)
-        .standard_filters(true)
-        .hidden(false)
-        .build()
-    {
-        let dir_entry =
-            entry.map_err(|err| format!("walk failed under {}: {err}", root.display()))?;
-        if !dir_entry
-            .file_type()
-            .map(|kind| kind.is_file())
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        let path = dir_entry.path();
-        let Some(lang) = scan_lang_for_path(path) else {
-            continue;
-        };
-        candidates.push((path.to_path_buf(), lang));
-    }
+    let candidates = crate::walk_classified_files(root, scan_lang_for_path)?;
     let results: Vec<Result<Option<ScanFile>, String>> = candidates
         .par_iter()
         .map(|(path, lang)| {
@@ -497,12 +478,7 @@ fn scan_file(file: &ScanFile, rules: &Rules, include_fix: bool) -> FileOutcome {
 fn emit(records: &[MatchRecord], summary: SummaryLine) -> Result<(), String> {
     let stdout = std::io::stdout();
     let mut handle = std::io::BufWriter::new(stdout.lock());
-    for (index, record) in records.iter().enumerate() {
-        let line = serde_json::to_string(record)
-            .map_err(|err| format!("serialize failed for match {index}: {err}"))?;
-        writeln!(handle, "{line}")
-            .map_err(|err| format!("stdout write failed for match {index}: {err}"))?;
-    }
+    crate::write_jsonl(records, "match", &mut handle)?;
     let line = serde_json::to_string(&summary)
         .map_err(|err| format!("serialize failed for summary: {err}"))?;
     writeln!(handle, "{line}").map_err(|err| format!("stdout write failed for summary: {err}"))?;

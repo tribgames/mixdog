@@ -345,9 +345,3 @@ export function aggregateScoredRows(rows) {
   return { overall: aggregate(rows), byLanguage };
 }
 
-export function percentile(values, ratio) {
-  if (!Array.isArray(values) || values.length === 0) return 0;
-  const sorted = [...values].sort((left, right) => left - right);
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * ratio) - 1));
-  return sorted[index];
-}

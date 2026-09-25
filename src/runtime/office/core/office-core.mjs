@@ -6,6 +6,7 @@ import { resolveOfficeDesign } from '../design/design-system.mjs';
 import { nativeOfficeDesign, usesNativeOfficeDesign } from '../design/native-design.mjs';
 import { persistOfficeDesignBinding, resolveOfficeDesignLibrary } from '../design/library/design-library.mjs';
 import { FACTS_SAMPLE_DISCLOSURE } from '../authoring/pptx-brief.mjs';
+import { plainObject } from '../shared/values.mjs';
 
 export const FILE_KIND_TO_FORMAT = Object.freeze({
   docx: 'docx',
@@ -130,8 +131,8 @@ export async function ensureOfficeSessionDesign(
 }
 
 export function mergeOfficeDesignRequest(current, next) {
-  const left = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
-  const right = next && typeof next === 'object' && !Array.isArray(next) ? next : {};
+  const left = plainObject(current) ? current : {};
+  const right = plainObject(next) ? next : {};
   return {
     ...left,
     ...right,
@@ -374,7 +375,7 @@ export function documentFormat(path) {
 export async function documentFingerprint(path, format) {
   const buffer = await readFile(path);
   const hash = createHash('sha256');
-  if (!['docx', 'xlsx', 'pptx'].includes(format)) return hash.update(buffer).digest('hex');
+  if (!OOXML_FORMATS.has(format)) return hash.update(buffer).digest('hex');
   const zip = await JSZip.loadAsync(buffer);
   const names = Object.keys(zip.files)
     .filter((name) => !zip.files[name].dir && !['docProps/core.xml', 'docProps/app.xml'].includes(name))

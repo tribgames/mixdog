@@ -228,7 +228,10 @@ export function auditSheetLayout(list, sheet, cells) {
   if (!located.length) return;
   const freeze = sheet.freezePanes;
   if (freeze && typeof freeze === 'object' && freeze.frozen === false) {
-    const lastRow = Math.max(...located.map((entry) => entry.at.row));
+    // A reading cut to its first page (the Office reader's 500 cells) still names the sheet's last row: counted
+    // from the page, a 60-row sheet read as 32 rows scrolling.
+    const readLast = Math.max(...located.map((entry) => entry.at.row));
+    const lastRow = sheet.truncated && Number(sheet.lastRow) > readLast ? Number(sheet.lastRow) : readLast;
     const headerRow = Math.min(...located.map((entry) => entry.at.row));
     const headers = located.filter((entry) => entry.at.row === headerRow && entry.cell.dataType === 'text');
     if (lastRow - headerRow >= LONG_SHEET_ROWS && headers.length >= 2) {
@@ -257,7 +260,7 @@ export function auditSheetLayout(list, sheet, cells) {
     list.push(
       'info',
       'numeric_column_unformatted',
-      area.table.path || `${sheetPath(sheet)}/table[${index + 1}]`,
+      tablePath,
       `Column${unformatted.length > 1 ? 's' : ''} ${unformatted.join(', ')} of ${area.table.name || 'the table'}` +
         ` hold numbers under the General format; an explicit format (#,##0, 0.0%, yyyy-mm-dd) aligns the figures and names their unit.`
     );

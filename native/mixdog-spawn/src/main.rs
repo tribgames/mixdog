@@ -3,7 +3,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs::{metadata, File, OpenOptions};
 use std::io::{BufRead, Read, Seek, SeekFrom, Write};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -96,10 +96,10 @@ fn now_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 
-fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
-    let id = req.id;
-    let capture_files = open_capture_files(req.stdout_path.as_deref(), req.stderr_path.as_deref());
-    let file_capture = capture_files.is_some();
+/// The child command a spawn request describes: stdio wiring (capture files
+/// when both opened, pipes otherwise), cwd, a replaced environment, and the
+/// platform flags that keep the child windowless / in its own process group.
+fn build_command(req: &SpawnRequest, capture_files: Option<(File, File)>) -> Command {
     let mut cmd = Command::new(&req.program);
     cmd.args(&req.args).stdin(if req.stdin_pipe {
         Stdio::piped()
@@ -126,6 +126,141 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     cmd.creation_flags(CREATE_NO_WINDOW);
     #[cfg(unix)]
     cmd.process_group(0);
+    cmd
+}
+
+fn initial_task_state(
+    req: &SpawnRequest,
+    job_id: Option<String>,
+    output_limit: usize,
+) -> TaskState {
+    TaskState {
+        job_id,
+        status: "running".to_string(),
+        command: req
+            .command
+            .clone()
+            .unwrap_or_else(|| format!("{} {}", req.program, req.args.join(" "))),
+        cwd: req.cwd.clone().unwrap_or_default(),
+        shell_type: req.shell_type.clone(),
+        owner_session_id: req.owner_session_id.clone(),
+        client_host_pid: req.client_host_pid,
+        exit_code: None,
+        signal: None,
+        timed_out: false,
+        killed: false,
+        error: None,
+        started_at_ms: now_ms(),
+        finished_at_ms: None,
+        stdout_bytes: 0,
+        stderr_bytes: 0,
+        stdout_tail: Vec::new(),
+        stderr_tail: Vec::new(),
+        merge_stderr: req.merge_stderr,
+        output_limit,
+    }
+}
+
+/// Fold the root process's exit into the task's terminal status, exit code
+/// and signal. A timeout, cancellation, recorded error or kill outranks the
+/// raw exit status.
+fn settle_exit(state: &mut TaskState, status: std::io::Result<ExitStatus>) {
+    state.finished_at_ms = Some(now_ms());
+    match status {
+        Ok(exit) => {
+            state.exit_code = exit.code();
+            // Unix: a signal death has code()==None; surface the signal
+            // name so the JS contract (killed => result.signal) holds.
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::ExitStatusExt;
+                if state.signal.is_none() {
+                    if let Some(signal) = exit.signal() {
+                        state.signal = Some(signal_name(signal));
+                    }
+                }
+            }
+            if state.timed_out {
+                state.status = "failed".to_string();
+                state.exit_code = Some(124);
+            } else if state.status == "cancelled" {
+                state.exit_code = Some(137);
+                #[cfg(unix)]
+                if state.signal.is_none() {
+                    state.signal = Some("SIGKILL".to_string());
+                }
+            } else if state.error.is_some() {
+                state.status = "failed".to_string();
+                state.exit_code = Some(137);
+            } else if state.killed {
+                state.status = "cancelled".to_string();
+                state.exit_code = Some(137);
+                #[cfg(unix)]
+                if state.signal.is_none() {
+                    state.signal = Some("SIGKILL".to_string());
+                }
+            } else {
+                state.status = if exit.success() {
+                    "completed".to_string()
+                } else {
+                    "failed".to_string()
+                };
+            }
+        }
+        Err(error) => {
+            state.status = "failed".to_string();
+            state.error = Some(error.to_string());
+        }
+    }
+}
+
+/// A pipe pump: its drained flag and its thread. The flag starts true when
+/// there is no pipe to pump (file capture).
+type Pump = (Arc<AtomicBool>, Option<thread::JoinHandle<()>>);
+
+fn start_pump<R: Read + Send + 'static>(
+    id: u64,
+    kind: &'static str,
+    pipe: Option<R>,
+    managed: &Arc<ManagedProcess>,
+    stream: bool,
+    raw_output: bool,
+) -> Pump {
+    let done = Arc::new(AtomicBool::new(pipe.is_none()));
+    let thread = pipe.map(|pipe| {
+        let managed = Arc::clone(managed);
+        let done = Arc::clone(&done);
+        thread::spawn(move || {
+            pump_pipe(id, kind, pipe, managed, stream, raw_output);
+            done.store(true, Ordering::Release);
+        })
+    });
+    (done, thread)
+}
+
+/// Wait up to 2s (200 x 10ms) for every pump to drain, then join only the
+/// pumps that did.
+fn join_drained_pumps(pumps: [Pump; 2]) {
+    for _ in 0..200 {
+        if pumps.iter().all(|(done, _)| done.load(Ordering::Acquire)) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    for (done, thread) in pumps {
+        if done.load(Ordering::Acquire) {
+            if let Some(thread) = thread {
+                let _ = thread.join();
+            }
+        }
+    }
+}
+
+fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
+    let id = req.id;
+    let capture_files = open_capture_files(req.stdout_path.as_deref(), req.stderr_path.as_deref());
+    let file_capture = capture_files.is_some();
+    let mut cmd = build_command(&req, capture_files);
 
     #[cfg(windows)]
     let control = match ProcessControl::create() {
@@ -171,31 +306,7 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
         request_id: id,
         pid,
         control,
-        state: Mutex::new(TaskState {
-            job_id: job_id.clone(),
-            status: "running".to_string(),
-            command: req
-                .command
-                .clone()
-                .unwrap_or_else(|| format!("{} {}", req.program, req.args.join(" "))),
-            cwd: req.cwd.clone().unwrap_or_default(),
-            shell_type: req.shell_type.clone(),
-            owner_session_id: req.owner_session_id.clone(),
-            client_host_pid: req.client_host_pid,
-            exit_code: None,
-            signal: None,
-            timed_out: false,
-            killed: false,
-            error: None,
-            started_at_ms: now_ms(),
-            finished_at_ms: None,
-            stdout_bytes: 0,
-            stderr_bytes: 0,
-            stdout_tail: Vec::new(),
-            stderr_tail: Vec::new(),
-            merge_stderr: req.merge_stderr,
-            output_limit,
-        }),
+        state: Mutex::new(initial_task_state(&req, job_id.clone(), output_limit)),
         done: AtomicBool::new(false),
         retained: AtomicBool::new(req.background),
         stdin: Mutex::new(stdin_handle),
@@ -227,29 +338,24 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     }
 
     // File capture leaves both handles None, so the pump threads below are
-    // skipped and out_done/err_done start already satisfied.
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
+    // skipped and both drained flags start already satisfied.
     let stream = !req.background;
-    let raw_output = req.raw_output;
-    let out_done = Arc::new(AtomicBool::new(stdout.is_none()));
-    let err_done = Arc::new(AtomicBool::new(stderr.is_none()));
-    let out_thread = stdout.map(|pipe| {
-        let managed = Arc::clone(&managed);
-        let done = Arc::clone(&out_done);
-        thread::spawn(move || {
-            pump_pipe(id, "stdout", pipe, managed, stream, raw_output);
-            done.store(true, Ordering::Release);
-        })
-    });
-    let err_thread = stderr.map(|pipe| {
-        let managed = Arc::clone(&managed);
-        let done = Arc::clone(&err_done);
-        thread::spawn(move || {
-            pump_pipe(id, "stderr", pipe, managed, stream, raw_output);
-            done.store(true, Ordering::Release);
-        })
-    });
+    let stdout_pump = start_pump(
+        id,
+        "stdout",
+        child.stdout.take(),
+        &managed,
+        stream,
+        req.raw_output,
+    );
+    let stderr_pump = start_pump(
+        id,
+        "stderr",
+        child.stderr.take(),
+        &managed,
+        stream,
+        req.raw_output,
+    );
 
     let status = child.wait();
     // Final sizes and preview tails before the terminal snapshot: the watchdog
@@ -284,70 +390,9 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
         "code": root_code,
         "signal": root_signal,
     }));
-    for _ in 0..200 {
-        if out_done.load(Ordering::Acquire) && err_done.load(Ordering::Acquire) {
-            break;
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-    if out_done.load(Ordering::Acquire) {
-        if let Some(thread) = out_thread {
-            let _ = thread.join();
-        }
-    }
-    if err_done.load(Ordering::Acquire) {
-        if let Some(thread) = err_thread {
-            let _ = thread.join();
-        }
-    }
+    join_drained_pumps([stdout_pump, stderr_pump]);
     if let Ok(mut state) = managed.state.lock() {
-        state.finished_at_ms = Some(now_ms());
-        match status {
-            Ok(exit) => {
-                state.exit_code = exit.code();
-                // Unix: a signal death has code()==None; surface the signal
-                // name so the JS contract (killed => result.signal) holds.
-                #[cfg(unix)]
-                {
-                    use std::os::unix::process::ExitStatusExt;
-                    if state.signal.is_none() {
-                        if let Some(signal) = exit.signal() {
-                            state.signal = Some(signal_name(signal));
-                        }
-                    }
-                }
-                if state.timed_out {
-                    state.status = "failed".to_string();
-                    state.exit_code = Some(124);
-                } else if state.status == "cancelled" {
-                    state.exit_code = Some(137);
-                    #[cfg(unix)]
-                    if state.signal.is_none() {
-                        state.signal = Some("SIGKILL".to_string());
-                    }
-                } else if state.error.is_some() {
-                    state.status = "failed".to_string();
-                    state.exit_code = Some(137);
-                } else if state.killed {
-                    state.status = "cancelled".to_string();
-                    state.exit_code = Some(137);
-                    #[cfg(unix)]
-                    if state.signal.is_none() {
-                        state.signal = Some("SIGKILL".to_string());
-                    }
-                } else {
-                    state.status = if exit.success() {
-                        "completed".to_string()
-                    } else {
-                        "failed".to_string()
-                    };
-                }
-            }
-            Err(error) => {
-                state.status = "failed".to_string();
-                state.error = Some(error.to_string());
-            }
-        }
+        settle_exit(&mut state, status);
     }
     manager
         .live
@@ -474,162 +519,178 @@ fn main() {
                 stdin_write,
                 data,
                 close,
-            }) => {
-                let managed = manager
-                    .live
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .get(&stdin_write)
-                    .cloned();
-                if let Some(managed) = managed {
-                    // Write off the wire thread: a stalled child pipe must not
-                    // block request processing.
-                    thread::spawn(move || {
-                        let mut stdin = managed.stdin.lock().unwrap_or_else(|e| e.into_inner());
-                        if let Some(handle) = stdin.as_mut() {
-                            let _ = handle.write_all(data.as_bytes());
-                            let _ = handle.flush();
-                        }
-                        if close {
-                            let _ = stdin.take();
-                        }
-                    });
-                }
-            }
+            }) => stdin_write_request(&manager, stdin_write, data, close),
             Ok(WireRequest::StdinClose { stdin_close }) => {
-                let managed = manager
-                    .live
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .get(&stdin_close)
-                    .cloned();
-                if let Some(managed) = managed {
-                    let _ = managed
-                        .stdin
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .take();
-                }
+                stdin_close_request(&manager, stdin_close)
             }
-            Ok(WireRequest::Cancel { cancel }) => {
-                if let Some(managed) = manager
-                    .live
-                    .lock()
-                    .ok()
-                    .and_then(|map| map.get(&cancel).cloned())
-                {
-                    if let Ok(mut state) = managed.state.lock() {
-                        if !managed.done.load(Ordering::Acquire) {
-                            state.killed = true;
-                            managed.terminate();
-                        }
-                    }
-                }
-            }
+            Ok(WireRequest::Cancel { cancel }) => cancel_request(&manager, cancel),
             Ok(WireRequest::Track(req)) => track(req, &manager),
             Ok(WireRequest::Promote(req)) => promote(req, &manager),
             Ok(WireRequest::CancelTask { id, cancel_task }) => {
-                let managed = manager
-                    .jobs
-                    .lock()
-                    .ok()
-                    .and_then(|map| map.get(&cancel_task).cloned());
-                if let Some(managed) = managed {
-                    if let Ok(mut state) = managed.state.lock() {
-                        if !managed.done.load(Ordering::Acquire) && state.status == "running" {
-                            state.killed = true;
-                            state.status = "cancelled".to_string();
-                            state.error = Some("cancelled by task control".to_string());
-                            managed.terminate();
-                        }
-                    }
-                } else {
-                    spawn_error(id, format!("task not found: {cancel_task}"));
-                }
+                cancel_task_request(&manager, id, &cancel_task)
             }
             Ok(WireRequest::CancelOwner {
                 id,
                 cancel_owner_session,
-            }) => {
-                let live: Vec<Arc<ManagedProcess>> = manager
-                    .live
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .values()
-                    .cloned()
-                    .collect();
-                let mut cancelled = 0usize;
-                for managed in live {
-                    if let Ok(mut state) = managed.state.lock() {
-                        if state.owner_session_id.as_deref() != Some(cancel_owner_session.as_str())
-                            || managed.done.load(Ordering::Acquire)
-                            || state.status != "running"
-                        {
-                            continue;
-                        }
-                        state.killed = true;
-                        state.status = "cancelled".to_string();
-                        state.error =
-                            Some("cancelled because the owning session closed".to_string());
-                        managed.terminate();
-                        cancelled += 1;
-                    }
-                }
-                emit(&json!({ "id": id, "event": "owner_cancelled", "count": cancelled }));
-            }
+            }) => cancel_owner_request(&manager, id, &cancel_owner_session),
             Ok(WireRequest::ReleaseTask { id, release_task }) => {
-                // Drop a SETTLED task's retained slot. A live task keeps its
-                // slot: releasing it would strand a running process with no
-                // way left to observe or cancel it.
-                let released = {
-                    let mut jobs = manager.jobs.lock().unwrap_or_else(|e| e.into_inner());
-                    match jobs.get(&release_task) {
-                        Some(managed) if managed.done.load(Ordering::Acquire) => {
-                            jobs.remove(&release_task);
-                            true
-                        }
-                        _ => false,
-                    }
-                };
-                if released {
-                    emit(&json!({ "id": id, "event": "task_released", "jobId": release_task }));
-                } else {
-                    emit(&json!({
-                        "id": id,
-                        "event": "task_release_declined",
-                        "jobId": release_task,
-                    }));
-                }
+                release_task_request(&manager, id, release_task)
             }
             Ok(WireRequest::TaskStatus { id, task_status }) => {
-                let managed = manager
-                    .jobs
-                    .lock()
-                    .ok()
-                    .and_then(|map| map.get(&task_status).cloned());
-                if let Some(managed) = managed {
-                    emit_task(id, "task_status", &managed);
-                } else {
-                    spawn_error(id, format!("task not found: {task_status}"));
-                }
+                task_status_request(&manager, id, &task_status)
             }
             Ok(WireRequest::TaskList { id, task_list }) => {
-                if !task_list {
-                    spawn_error(id, "invalid task list request");
-                    continue;
-                }
-                let tasks: Vec<TaskSnapshot> = manager
-                    .jobs
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .values()
-                    .filter_map(|managed| managed.snapshot())
-                    .collect();
-                emit(&json!({ "id": id, "event": "task_list", "tasks": tasks }));
+                task_list_request(&manager, id, task_list)
             }
             Err(error) => spawn_error(0, format!("bad request: {error}")),
         }
     }
+    reap_on_shutdown(&manager);
+}
+
+fn stdin_write_request(manager: &Manager, stdin_write: u64, data: String, close: bool) {
+    let managed = manager
+        .live
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&stdin_write)
+        .cloned();
+    if let Some(managed) = managed {
+        // Write off the wire thread: a stalled child pipe must not
+        // block request processing.
+        thread::spawn(move || {
+            let mut stdin = managed.stdin.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(handle) = stdin.as_mut() {
+                let _ = handle.write_all(data.as_bytes());
+                let _ = handle.flush();
+            }
+            if close {
+                let _ = stdin.take();
+            }
+        });
+    }
+}
+
+fn stdin_close_request(manager: &Manager, stdin_close: u64) {
+    let managed = manager
+        .live
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&stdin_close)
+        .cloned();
+    if let Some(managed) = managed {
+        let _ = managed
+            .stdin
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+    }
+}
+
+fn cancel_request(manager: &Manager, cancel: u64) {
+    if let Some(managed) = manager.live_process(cancel) {
+        if let Ok(mut state) = managed.state.lock() {
+            if !managed.done.load(Ordering::Acquire) {
+                state.killed = true;
+                managed.terminate();
+            }
+        }
+    }
+}
+
+fn cancel_task_request(manager: &Manager, id: u64, cancel_task: &str) {
+    let managed = manager.job(cancel_task);
+    if let Some(managed) = managed {
+        if let Ok(mut state) = managed.state.lock() {
+            if !managed.done.load(Ordering::Acquire) && state.status == "running" {
+                state.killed = true;
+                state.status = "cancelled".to_string();
+                state.error = Some("cancelled by task control".to_string());
+                managed.terminate();
+            }
+        }
+    } else {
+        spawn_error(id, format!("task not found: {cancel_task}"));
+    }
+}
+
+fn cancel_owner_request(manager: &Manager, id: u64, cancel_owner_session: &str) {
+    let live: Vec<Arc<ManagedProcess>> = manager
+        .live
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .values()
+        .cloned()
+        .collect();
+    let mut cancelled = 0usize;
+    for managed in live {
+        if let Ok(mut state) = managed.state.lock() {
+            if state.owner_session_id.as_deref() != Some(cancel_owner_session)
+                || managed.done.load(Ordering::Acquire)
+                || state.status != "running"
+            {
+                continue;
+            }
+            state.killed = true;
+            state.status = "cancelled".to_string();
+            state.error = Some("cancelled because the owning session closed".to_string());
+            managed.terminate();
+            cancelled += 1;
+        }
+    }
+    emit(&json!({ "id": id, "event": "owner_cancelled", "count": cancelled }));
+}
+
+fn release_task_request(manager: &Manager, id: u64, release_task: String) {
+    // Drop a SETTLED task's retained slot. A live task keeps its
+    // slot: releasing it would strand a running process with no
+    // way left to observe or cancel it.
+    let released = {
+        let mut jobs = manager.jobs.lock().unwrap_or_else(|e| e.into_inner());
+        match jobs.get(&release_task) {
+            Some(managed) if managed.done.load(Ordering::Acquire) => {
+                jobs.remove(&release_task);
+                true
+            }
+            _ => false,
+        }
+    };
+    if released {
+        emit(&json!({ "id": id, "event": "task_released", "jobId": release_task }));
+    } else {
+        emit(&json!({
+            "id": id,
+            "event": "task_release_declined",
+            "jobId": release_task,
+        }));
+    }
+}
+
+fn task_status_request(manager: &Manager, id: u64, task_status: &str) {
+    let managed = manager.job(task_status);
+    if let Some(managed) = managed {
+        emit_task(id, "task_status", &managed);
+    } else {
+        spawn_error(id, format!("task not found: {task_status}"));
+    }
+}
+
+fn task_list_request(manager: &Manager, id: u64, task_list: bool) {
+    if !task_list {
+        spawn_error(id, "invalid task list request");
+        return;
+    }
+    let tasks: Vec<TaskSnapshot> = manager
+        .jobs
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .values()
+        .filter_map(|managed| managed.snapshot())
+        .collect();
+    emit(&json!({ "id": id, "event": "task_list", "tasks": tasks }));
+}
+
+fn reap_on_shutdown(manager: &Manager) {
     // Shutdown reap, on client EOF. A child still bound to a FOREGROUND call
     // dies here: its caller is gone and nothing will ever read its result.
     // A RETAINED task is the opposite — the client promoted it on purpose and

@@ -108,6 +108,27 @@ test('accepts independent strict patch, runtime, app, and graph versions', () =>
   assert.equal(validateSpawnManifest(spawnFixture(), `[package]\nversion = "${VERSION}"\n`).version, VERSION);
 });
 
+test('tool manifests may add a verified win32-arm64 asset beyond the required platforms', () => {
+  const cargo = `[package]\nversion = "${VERSION}"\n`;
+  const withArm = (fixture, kind, tag) => {
+    fixture.assets['win32-arm64'] = {
+      url: `https://github.com/tribgames/mixdog/releases/download/${tag}/mixdog-${kind}-win32-arm64.exe`,
+      sha256,
+    };
+    return fixture;
+  };
+  assert.ok(validatePatchManifest(withArm(patchFixture(), 'patch', `patch-v${VERSION}`), cargo).assets['win32-arm64']);
+  assert.ok(validateSpawnManifest(withArm(spawnFixture(), 'spawn', `spawn-v${VERSION}`), cargo).assets['win32-arm64']);
+  assert.ok(
+    validateGraphManifest(withArm(graphFixture(), 'graph', `graph-v${GRAPH_VERSION}`), { version: APP_VERSION }).assets[
+      'win32-arm64'
+    ]
+  );
+  const misnamed = withArm(patchFixture(), 'patch', `patch-v${VERSION}`);
+  misnamed.assets['win32-arm64'].url = misnamed.assets['win32-arm64'].url.replace('win32-arm64', 'win32-x64');
+  assert.throws(() => validatePatchManifest(misnamed, cargo), /patch asset URL must be/);
+});
+
 test('rejects stale Cargo version, partial schema, and wrong patch tag URL', () => {
   assert.throws(
     () => validatePatchManifest(patchFixture(), '[package]\nversion = "1.2.2"\n'),
@@ -445,6 +466,12 @@ function assertIncrementalGateContract(automaticGate) {
     automaticGate,
     /runtime:[\s\S]*npm run build:spawn:test[\s\S]*run:\s*npm test\b/,
     'the runtime gate must build the spawn test binary and run the default lane'
+  );
+  // A shard flag without its matrix would silently drop half the lane.
+  assert.match(
+    automaticGate,
+    /runtime:[\s\S]*shard:\s*\[1,\s*2\][\s\S]*npm test -- --test-shard=\$\{\{\s*matrix\.shard\s*\}\}\/2/,
+    'the default lane must run every shard of its split'
   );
   assert.match(
     automaticGate,

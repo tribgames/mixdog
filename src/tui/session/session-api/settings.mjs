@@ -125,6 +125,8 @@ export function createSessionSettingsApi(bag) {
     // them by name on this surface (session-protocol.mjs).
     getTidyEngineStatus: () => runtime.getTidyEngineStatus?.(),
     getTidyInstallStatus: () => runtime.getTidyInstallStatus?.(),
+    getDeveloperSettings: () => runtime.getDeveloperSettings?.(),
+    setDeveloperOption: lockedRuntimeCall((id, enabled) => runtime.setDeveloperOption?.(id, enabled)),
     setWebSearchEnabled: lockedRuntimeCall((enabled) => runtime.setWebSearchEnabled?.(enabled)),
     setMemoryToolsEnabled: lockedRuntimeCall((enabled) => runtime.setMemoryToolsEnabled?.(enabled)),
     setBuiltinToolEnabled: lockedRuntimeCall((name, enabled) => runtime.setBuiltinToolEnabled?.(name, enabled)),

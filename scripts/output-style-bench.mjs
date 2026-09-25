@@ -16,6 +16,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { findOutputStyle, listOutputStyleCatalog } from '../src/session-runtime/output-styles.mjs';
+import { argValue, hasFlag } from './lib/cli-args.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dir, '..');
@@ -42,16 +43,6 @@ const AUTH_ARTIFACT_BY_PROVIDER = {
   'openai-oauth': ['openai-oauth.json', 'openai-oauth-models.json'],
 };
 
-function argValue(name, fallback = null) {
-  const idx = process.argv.indexOf(name);
-  if (idx >= 0 && idx + 1 < process.argv.length) return process.argv[idx + 1];
-  const pref = `${name}=`;
-  const hit = process.argv.find((a) => a.startsWith(pref));
-  return hit ? hit.slice(pref.length) : fallback;
-}
-function hasFlag(name) {
-  return process.argv.includes(name);
-}
 function resolveModelOpts(modelArg, providerArg) {
   const key = String(modelArg || '')
     .trim()

@@ -8,7 +8,9 @@ import { titleizeAgentName } from './agent-surface.mjs';
 import { displayTerminalStatus, prefixElapsed } from './terminal-status.mjs';
 import { parseTaskNotification } from '../task-notification-envelope.mjs';
 
-const BACKGROUND_TASK_TOOL_NAMES = new Set(['web_search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
+// Surfaces whose background task renders as a Shell job.
+const SHELL_TASK_SURFACES = new Set(['shell', 'bash', 'bash_session', 'shell_command', 'task']);
+const BACKGROUND_TASK_TOOL_NAMES = new Set(['web_search', ...SHELL_TASK_SURFACES]);
 
 export function isBackgroundTaskTool(normalizedName) {
   return BACKGROUND_TASK_TOOL_NAMES.has(String(normalizedName || '').toLowerCase());
@@ -109,14 +111,7 @@ export function backgroundTaskElapsed(meta = {}, fallback = '') {
 function backgroundTaskDisplayName(normalizedName, meta = {}) {
   const surface = String(meta.surface || normalizedName || '').toLowerCase();
   if (surface === 'web_search') return 'Web Search';
-  if (
-    surface === 'shell' ||
-    surface === 'bash' ||
-    surface === 'bash_session' ||
-    surface === 'shell_command' ||
-    surface === 'task'
-  )
-    return 'Shell';
+  if (SHELL_TASK_SURFACES.has(surface)) return 'Shell';
   return titleizeAgentName(surface || normalizedName || 'Task');
 }
 

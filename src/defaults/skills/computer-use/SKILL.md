@@ -1,6 +1,6 @@
 ---
 name: computer-use
-description: Drive the built-in computer tool (Mixdog Computer Use) on the local Windows desktop.
+description: Drive the built-in computer tool (Mixdog Computer Use) on the local Windows, macOS, or Linux desktop.
 when_to_use: 'External browser windows, native apps, OS dialogs, desktop capture; not Mixdog browser or shell.'
 metadata:
   requires: computer
@@ -10,11 +10,17 @@ dependencies:
       value: computer
 ---
 
-# Computer Use (Windows)
+# Computer Use
 
-Operates the local Windows desktop through the Mixdog app's loopback bridge
-via the `computer` tool. Observe before touching, keep input within the
-observed target, and leave windows where they were.
+Operates the local desktop (Windows, macOS, Linux) through the Mixdog app's
+loopback bridge via the `computer` tool. Observe before touching, keep input
+within the observed target, and leave windows where they were.
+
+Platform notes: on macOS, `cmd` is the Command key and Mixdog needs the
+Accessibility and Screen Recording permissions. On Linux Wayland there is no
+background pixel input, pointer and keys need write access to `/dev/uinput`,
+and window control needs a compositor that exposes it (sway, Hyprland, or
+GNOME with the Window Calls extension); prefer accessibility refs there.
 
 > Method and pointers only. The tool description and input schema are the
 > authority for every field; when this file and the schema disagree, the
@@ -223,8 +229,9 @@ frames that should stay out of the conversation.
 - Destructive or irreversible actions (closing unsaved work, deleting,
   sending, purchasing, changing settings) need the user's go-ahead in the
   conversation first.
-- `foreground_unavailable` is a Windows foreground-lock result, not a
-  permission error unless `diagnose` says so. Inspect the refusal and fresh
+- `foreground_unavailable` means the system refused to activate the target
+  (Windows foreground lock, a Wayland compositor without window control), not
+  a permission error unless `diagnose` says so. Inspect the refusal and fresh
   state; do not substitute background input for a requested visible action.
 - If the bridge is unavailable, Computer Use is off or the desktop app is
   closed: say so and stop.

@@ -177,7 +177,7 @@ export async function runCycle1(db, config = {}, options = {}, dataDir = null) {
         __mixdogMemoryLog(`[cycle1] retrying coalesced requests=${pending}\n`);
       }
       try {
-        result = await _runCycle1Impl(db, config, options, dataDir);
+        result = await _runCycle1Impl(db, config, options);
       } catch (err) {
         if (coalescedRetry) {
           await markCycleRequest(db, 'cycle1', 'retry-error', requestSignature);
@@ -196,7 +196,7 @@ export async function runCycle1(db, config = {}, options = {}, dataDir = null) {
         coalescedRequests += pending;
         __mixdogMemoryLog(`[cycle1] draining coalesced requests=${pending}\n`);
         try {
-          const next = await _runCycle1Impl(db, config, options, dataDir);
+          const next = await _runCycle1Impl(db, config, options);
           result = mergeCycle1Results(result, next);
         } catch (err) {
           await markCycleRequest(db, 'cycle1', 'drain-error', requestSignature);
@@ -245,7 +245,7 @@ function shouldQuickExit(pendingRowsAtStart, rawUnchunkedAtStart, minBatch) {
   return Number.isFinite(pendingRowsAtStart) && pendingRowsAtStart < minBatch && !bypassMinBatchForCooldown;
 }
 
-async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
+async function _runCycle1Impl(db, config = {}, options = {}) {
   const cycleStartedAt = Date.now();
   const signal = options?.signal;
   throwIfAborted(signal);

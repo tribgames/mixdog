@@ -90,6 +90,21 @@ pub(super) fn collect_mtime_candidates(
     Ok((candidates, deadline_expired(deadline_at)))
 }
 
+/// Keep a candidate in the statted top-k by mtime, or, when it could not be
+/// stat'd in time, in the walk-order fallback.
+fn retain_mtime_candidate(
+    statted: &mut std::collections::BinaryHeap<MtimeHit>,
+    unstatted: &mut std::collections::BinaryHeap<UnstattedHit>,
+    (index, path, mtime_ms): (usize, String, Option<u128>),
+    cap: usize,
+) {
+    if let Some(mtime_ms) = mtime_ms {
+        retain_bounded(statted, MtimeHit { mtime_ms, path }, cap);
+    } else {
+        retain_bounded(unstatted, UnstattedHit { index, path }, cap);
+    }
+}
+
 pub(super) fn handle_mtime_inventory(
     req: &ServeRequest,
     parsed: &ParsedArgs,
@@ -118,11 +133,8 @@ pub(super) fn handle_mtime_inventory(
             timed_out = true;
             break;
         }
-        let operand_path = if Path::new(operand).is_absolute() {
-            PathBuf::from(operand)
-        } else {
-            cwd.join(operand)
-        };
+        // Path::join replaces the base when the operand is absolute.
+        let operand_path = cwd.join(operand);
         let filter = PathFilter::new(&operand_path, parsed)?;
         let scope = OperandScope {
             operand,
@@ -137,12 +149,8 @@ pub(super) fn handle_mtime_inventory(
             let (candidates, expired) =
                 collect_mtime_candidates(&files, 0, &scope, &trust, cancelled, deadline_at)?;
             total_seen = total_seen.saturating_add(candidates.len());
-            for (index, path, mtime_ms) in candidates {
-                if let Some(mtime_ms) = mtime_ms {
-                    retain_bounded(&mut statted, MtimeHit { mtime_ms, path }, cap);
-                } else {
-                    retain_bounded(&mut unstatted, UnstattedHit { index, path }, cap);
-                }
+            for candidate in candidates {
+                retain_mtime_candidate(&mut statted, &mut unstatted, candidate, cap);
             }
             if expired {
                 timed_out = true;
@@ -167,46 +175,26 @@ pub(super) fn handle_mtime_inventory(
         }
         let mut cursor = 0usize;
         let mut operand_complete = false;
-        'stream: loop {
-            let (batch_start, batch) = {
-                let mut files = lock_recover(&live.files);
-                while cursor >= files.len() {
-                    if live.enumeration_done.load(Ordering::Acquire) {
-                        operand_complete = true;
-                        break 'stream;
-                    }
-                    let state = lock_recover(&live.state);
-                    match &*state {
-                        LiveState::Done(_) => {
-                            operand_complete = true;
-                            break 'stream;
-                        }
-                        LiveState::Abandoned => break 'stream,
-                        LiveState::Failed(error) => return Err(error.clone()),
-                        LiveState::Running => {}
-                    }
-                    drop(state);
-                    files = live
-                        .files_cond
-                        .wait_timeout(files, Duration::from_millis(10))
-                        .unwrap_or_else(|e| e.into_inner())
-                        .0;
-                    if cancelled.load(Ordering::Relaxed) {
-                        return Err(CANCELLED.to_string());
-                    }
-                    if deadline_expired(deadline_at) {
-                        timed_out = true;
-                        break 'stream;
-                    }
-                }
-                let start = cursor;
-                let batch: Vec<PathBuf> = files[cursor..]
+        loop {
+            let batch_start = cursor;
+            let take = |files: &[PathBuf]| -> Vec<PathBuf> {
+                files
                     .iter()
                     .filter(|file| filter.allows(file))
                     .cloned()
-                    .collect();
-                cursor = files.len();
-                (start, batch)
+                    .collect()
+            };
+            let batch = match next_stream_batch(&live, &mut cursor, cancelled, deadline_at, take)? {
+                StreamBatch::Items(batch) => batch,
+                StreamBatch::Complete => {
+                    operand_complete = true;
+                    break;
+                }
+                StreamBatch::Abandoned => break,
+                StreamBatch::TimedOut => {
+                    timed_out = true;
+                    break;
+                }
             };
             let (candidates, expired) = collect_mtime_candidates(
                 &batch,
@@ -218,7 +206,7 @@ pub(super) fn handle_mtime_inventory(
             )?;
             timed_out |= expired;
             total_seen = total_seen.saturating_add(candidates.len());
-            for (index, path, mtime_ms) in candidates {
+            for candidate in candidates {
                 if cancelled.load(Ordering::Relaxed) {
                     return Err(CANCELLED.to_string());
                 }
@@ -226,11 +214,7 @@ pub(super) fn handle_mtime_inventory(
                     timed_out = true;
                     break;
                 }
-                if let Some(mtime_ms) = mtime_ms {
-                    retain_bounded(&mut statted, MtimeHit { mtime_ms, path }, cap);
-                } else {
-                    retain_bounded(&mut unstatted, UnstattedHit { index, path }, cap);
-                }
+                retain_mtime_candidate(&mut statted, &mut unstatted, candidate, cap);
             }
             if timed_out {
                 break;
@@ -250,16 +234,12 @@ pub(super) fn handle_mtime_inventory(
         }
     }
 
-    let mut statted = statted.into_vec();
-    statted.sort_by(|left, right| {
-        right
-            .mtime_ms
-            .cmp(&left.mtime_ms)
-            .then_with(|| left.path.cmp(&right.path))
-    });
+    // MtimeHit orders newest first, then path, so the ascending heap order is
+    // the response order.
     let mut unstatted = unstatted.into_vec();
     unstatted.sort_by_key(|entry| entry.index);
     let ordered: Vec<String> = statted
+        .into_sorted_vec()
         .into_iter()
         .map(|entry| entry.path)
         .chain(unstatted.into_iter().map(|entry| entry.path))

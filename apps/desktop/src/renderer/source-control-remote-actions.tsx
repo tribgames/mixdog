@@ -2,6 +2,7 @@ import { ArrowUp, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { DesktopGitStatus } from '../shared/contract';
+import { repositoryBusyReason } from './source-control-actions';
 
 interface SourceControlRemoteAction {
   key: string;
@@ -38,8 +39,8 @@ export function sourceControlRemoteActions({
   // Shared gate for every remote action: a running action, an unfinished
   // Git operation, a missing channel, then a missing remote — in that order.
   const remoteGate = (capable: boolean, action: string, verb: string): string => {
-    if (busy) return 'Another Git action is running';
-    if (status?.operation) return `Finish the in-progress ${status.operation.replace('-', ' ')} first`;
+    const busyReason = repositoryBusyReason(busy, status);
+    if (busyReason) return busyReason;
     if (!capable) return missingChannel(action);
     return status?.remote ? '' : `Add a remote before ${verb}`;
   };

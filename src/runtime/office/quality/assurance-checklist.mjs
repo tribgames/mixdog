@@ -21,7 +21,8 @@ const CHECKLIST_RULES = Object.freeze({
     {
       id: 'table-integrity',
       label: 'Short tables are not split and fit inside page margins.',
-      codes: ['short_table_split', 'table_width'],
+      // The Office backend's name and the portable audit's for one table running past the margins.
+      codes: ['short_table_split', 'table_width', 'table_wider_than_page'],
     },
     {
       id: 'page-utilization',
@@ -75,7 +76,8 @@ const CHECKLIST_RULES = Object.freeze({
     {
       id: 'slide-geometry',
       label: 'Text and visual shapes respect margins, spacing, and non-overlap constraints.',
-      codes: ['shape_overlap', 'text_outside_slide', 'edge_margin', 'text_spacing_tight'],
+      // text_outside_slide is PowerPoint's measure of a text box past the canvas, shape_out_of_bounds the portable one.
+      codes: ['shape_overlap', 'text_outside_slide', 'shape_out_of_bounds', 'edge_margin', 'text_spacing_tight'],
     },
     {
       id: 'slide-legibility',

@@ -25,6 +25,11 @@ function safeRelativePath(value) {
   return value;
 }
 
+/** `path` under `root` as a validated, slash-separated manifest path. */
+function manifestRelativePath(root, path) {
+  return safeRelativePath(relative(root, path).split(sep).join('/'));
+}
+
 async function pathType(path) {
   try {
     const metadata = await stat(path);
@@ -106,7 +111,7 @@ export async function buildRendererManifest(root) {
   for (const path of paths) {
     const metadata = await stat(path);
     files.push({
-      path: safeRelativePath(relative(resolvedRoot, path).split(sep).join('/')),
+      path: manifestRelativePath(resolvedRoot, path),
       size: metadata.size,
       sha256: await hashFile(path),
     });
@@ -134,7 +139,7 @@ async function cloneTreeWithHardlinks(sourceRoot, outputRoot) {
   const resolvedOutput = resolve(outputRoot);
   await mkdir(resolvedOutput, { recursive: true });
   for (const path of await walk(resolvedSource)) {
-    const relativePath = safeRelativePath(relative(resolvedSource, path).split(sep).join('/'));
+    const relativePath = manifestRelativePath(resolvedSource, path);
     const destination = join(resolvedOutput, ...relativePath.split('/'));
     await mkdir(dirname(destination), { recursive: true });
     await link(path, destination);
@@ -216,12 +221,12 @@ export async function applyRendererDelta({ baseDir, deltaDir, manifest, outputDi
   }
 
   for (const path of await walk(resolve(outputDir))) {
-    const relativePath = safeRelativePath(relative(resolve(outputDir), path).split(sep).join('/'));
+    const relativePath = manifestRelativePath(resolve(outputDir), path);
     if (!targetFiles.has(relativePath)) await rm(path, { force: true });
   }
 
   for (const path of await walk(resolve(deltaDir))) {
-    const relativePath = safeRelativePath(relative(resolve(deltaDir), path).split(sep).join('/'));
+    const relativePath = manifestRelativePath(resolve(deltaDir), path);
     const expected = targetFiles.get(relativePath);
     if (!expected) throw new Error(`Renderer delta contains an unlisted file: ${relativePath}`);
     const metadata = await stat(path);

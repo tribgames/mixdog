@@ -9,7 +9,7 @@
 import type { ComputerWindowRecord } from '../shared/window-transition';
 
 /** Win32 registers every standard dialog under this class. */
-export const DIALOG_WINDOW_CLASS_NAME = '#32770';
+const DIALOG_WINDOW_CLASS_NAME = '#32770';
 
 /** Keys the dialog manager interprets for the whole dialog rather than for
  *  the focused control. */

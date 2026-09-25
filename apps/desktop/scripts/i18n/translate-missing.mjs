@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { catalogState, localesUrl, rendererUrl, readJson, pluralVariants } from './catalog-state.mjs';
-import { reusableTranslation, sameInterpolationTokens } from './source-keys.mjs';
+import { hasLatinText, reusableTranslation, sameInterpolationTokens } from './source-keys.mjs';
 
 if (process.argv[2] !== '--write' || process.argv.length !== 3) {
   throw new Error('Usage: node scripts/i18n/translate-missing.mjs --write (sends missing UI keys to Google Translate)');
@@ -105,7 +105,7 @@ async function complete(language, catalog) {
     if (typeof value === 'string' && value.trim()) continue;
     const reused = reusableTranslation(key, catalog);
     if (reused) catalog[key] = reused;
-    else if (neutral.has(key) || !/[A-Za-z]/.test(key.replace(/\{\{[^}]+\}\}/g, ''))) catalog[key] = key;
+    else if (neutral.has(key) || !hasLatinText(key)) catalog[key] = key;
     else missing.push([key, value]);
   }
   const save = () => {

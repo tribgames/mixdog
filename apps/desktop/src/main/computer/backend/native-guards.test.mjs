@@ -200,6 +200,62 @@ $results | ConvertTo-Json -Compress
   assert.match(rows[2].error, /target_mismatch/);
 });
 
+test('every background scroll route re-checks authorization against its exact target before any wheel message', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const output = await isolatedProgram(
+    `
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+  (Join-Path $env:AUDIT_DIRECTORY 'input.ps1'), [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw 'fixture source did not parse' }
+foreach ($name in @('New-ActionResult','Background-Unavailable','Native-BackgroundFailure','Do-Scroll')) {
+  $node = $ast.Find({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name}, $true)
+  . ([scriptblock]::Create($node.Extent.Text))
+}
+Add-Type @'
+using System;
+public static class MixWin32 {
+  public static int Wheels;
+  public static string WindowId(IntPtr target) { return "hwnd:0x" + target.ToInt64(); }
+  public static string BackgroundWheel(IntPtr target, int x, int y, int clicks, string modifiers, bool horizontal) {
+    Wheels++; return WindowId(target);
+  }
+}
+'@
+function Resolve-WindowInfo($window, $id) { return @{ Handle=[IntPtr]1; Id='hwnd:0x1'; X=0; Y=0; Width=100; Height=100 } }
+function Get-RefRecord($ref) { return @{ Kind='msaa'; WindowId='hwnd:0x3' } }
+function Get-ElPoint($ref, $requireTopmost) { return @(10, 20, [IntPtr]3) }
+function Get-ObservableTargetState($record, $action) { return $null }
+$script:authorized = @()
+function Assert-ExecutionAuthorization($req, $target) {
+  $script:authorized += [long]$target
+  throw 'computer_policy_denied: native target is outside the authorization'
+}
+$rows = @()
+foreach ($request in @(
+  @{action='scroll';direction='down';delivery='background';window_id='hwnd:0x1';x=5;y=6},
+  @{action='scroll';direction='down';delivery='background';ref='s1:e0'},
+  @{action='scroll';direction='down';delivery='background';window_id='hwnd:0x1'}
+)) {
+  [MixWin32]::Wheels = 0
+  $result = Do-Scroll $request
+  $rows += @{ wheels=[MixWin32]::Wheels; accepted=$result.delivery_accepted; text=[string]$result.text }
+}
+@{ rows=$rows; authorized=$script:authorized } | ConvertTo-Json -Compress -Depth 4
+`,
+    { 'input.ps1': PS_INPUT }
+  );
+  const result = JSON.parse(output);
+  // Coordinate, ref and whole-window routes each name their own exact target.
+  assert.deepEqual(result.authorized, [1, 3, 1]);
+  for (const row of result.rows) {
+    assert.equal(row.wheels, 0, 'no wheel message may precede the authorization check');
+    assert.match(row.text, /policy_denied/);
+  }
+});
+
 test('all foreground native actions keep one intervention scope even on failure, while reads do not acquire one', {
   skip: process.platform !== 'win32',
 }, async () => {

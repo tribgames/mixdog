@@ -1,6 +1,8 @@
+import { SESSION_ID_PATTERN } from './lifecycle/shared.mjs';
+
 function requiredSessionId(value) {
   const sessionId = String(value || '').trim();
-  if (!sessionId || !/^[A-Za-z0-9_-]+$/.test(sessionId)) {
+  if (!sessionId || !SESSION_ID_PATTERN.test(sessionId)) {
     throw new TypeError('session id is invalid');
   }
   return sessionId;

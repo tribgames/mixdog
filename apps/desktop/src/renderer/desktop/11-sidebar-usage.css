@@ -395,11 +395,6 @@
   border-radius: 50%;
   background: var(--mx-accent);
 }
-.session-sidebar .standalone-group,
-.session-sidebar .project-group {
-  max-height: none;
-  overflow: visible;
-}
 .session-group {
   gap: 2px;
 }

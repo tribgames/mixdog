@@ -13,6 +13,7 @@ import {
 } from './turn-worktree-snapshot.mjs';
 import { loadSessionSnapshotRecords, loadTurnSnapshotRecord, saveTurnSnapshotRecord } from './turn-snapshot-store.mjs';
 import { boundReviewPatch } from './review-diff.mjs';
+import { cleanString as clean } from './clean.mjs';
 
 // Turn-scoped review registry.
 //
@@ -36,10 +37,6 @@ const MAX_AGENT_REVIEW_BYTES_PER_TURN = 4 * 1024 * 1024;
 const _turnsBySession = new Map();
 const _diffTrackersBySession = new Map();
 let _agentTurnSeq = 0;
-
-function clean(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function trimTurnCache() {
   while (_turnsBySession.size > TURN_CACHE_MAX) {
@@ -383,6 +380,11 @@ async function revertTrackedPairs(tracker, worktree, pairs) {
   if (!tracker.unifiedDiff) releaseDiffTrackerContent(tracker);
 }
 
+/** A path's first observed state is its baseline; later changes never replace it. */
+function recordFirstBaseline(tracker, key, entry) {
+  if (!tracker.currentByPath.has(key) && !tracker.baselineByPath.has(key)) tracker.baselineByPath.set(key, entry);
+}
+
 /**
  * Fold exact committed before/after file states into a session's current turn.
  * A change is `{ path, displayPath, before, after }`; a rename additionally
@@ -437,13 +439,7 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
         continue;
       }
       if (before === null && after === null) continue;
-      if (!tracker.currentByPath.has(sourceKey) && !tracker.baselineByPath.has(sourceKey)) {
-        tracker.baselineByPath.set(sourceKey, {
-          path: sourcePath,
-          displayPath: sourceDisplay,
-          content: before,
-        });
-      }
+      recordFirstBaseline(tracker, sourceKey, { path: sourcePath, displayPath: sourceDisplay, content: before });
       tracker.currentByPath.set(sourceKey, {
         path: sourcePath,
         displayPath: sourceDisplay,
@@ -454,13 +450,7 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
 
     const destinationKey = pathKey(destinationPath);
     const destinationDisplay = displayPath(raw?.newDisplayPath || destinationPath);
-    if (!tracker.currentByPath.has(sourceKey) && !tracker.baselineByPath.has(sourceKey)) {
-      tracker.baselineByPath.set(sourceKey, {
-        path: sourcePath,
-        displayPath: sourceDisplay,
-        content: before,
-      });
-    }
+    recordFirstBaseline(tracker, sourceKey, { path: sourcePath, displayPath: sourceDisplay, content: before });
     const originKey = tracker.originByCurrentPath.get(sourceKey) || sourceKey;
     tracker.currentByPath.delete(sourceKey);
     tracker.originByCurrentPath.delete(sourceKey);
@@ -498,7 +488,7 @@ function publicAgentReviews(sessionId) {
 }
 
 /** Start a new user turn and invalidate the prior turn's child review group. */
-export async function beginTurnSnapshot(_worktree, sessionId, options = {}) {
+export async function beginTurnSnapshot(worktree, sessionId, options = {}) {
   const ownerSessionId = clean(sessionId);
   if (DISABLED || !ownerSessionId) return;
   const generation = (_turnsBySession.get(ownerSessionId)?.generation || 0) + 1;
@@ -512,7 +502,7 @@ export async function beginTurnSnapshot(_worktree, sessionId, options = {}) {
     checkpointId,
     agents: new Map(),
   });
-  const worktreeRequest = pathKey(_worktree);
+  const worktreeRequest = pathKey(worktree);
   const tracker = resetDiffTracker(ownerSessionId, {
     ownerGeneration: generation,
     checkpointId,
@@ -527,7 +517,7 @@ export async function beginTurnSnapshot(_worktree, sessionId, options = {}) {
     other.worktreeContended = true;
   }
   try {
-    const snapshot = await createTurnWorktreeSnapshot(_worktree);
+    const snapshot = await createTurnWorktreeSnapshot(worktree);
     if (_diffTrackersBySession.get(ownerSessionId) === tracker) {
       tracker.worktreeSnapshot = snapshot;
       if (snapshot?.root) {
@@ -748,7 +738,6 @@ async function scopedReviewFromRecord(ownerSessionId) {
   };
 }
 
-/** Restore recorded paths — every one of them, or just the file the user picked. */
 function assertCheckpointMatches(expectedCheckpointId, actualCheckpointId) {
   const expected = clean(expectedCheckpointId);
   if (!expected) return;
@@ -759,6 +748,7 @@ function assertCheckpointMatches(expectedCheckpointId, actualCheckpointId) {
   }
 }
 
+/** Restore recorded paths — every one of them, or just the file the user picked. */
 async function revertFromRecord(worktree, ownerSessionId, file, expectedCheckpointId = '') {
   const resumed = await resumeRecordedSnapshot(ownerSessionId);
   if (!resumed) return null;
@@ -826,14 +816,14 @@ function scopeMatchesWorktree(scope, worktree, tracker) {
  * current worktree, scoped only to paths its own tools changed. Unlike
  * getTurnReviewDiff this survives user-turn boundaries and has no revert
  * contract; the composer keeps owning latest-turn Undo. */
-export async function getSessionReviewDiff(_worktree, sessionId) {
+export async function getSessionReviewDiff(worktree, sessionId) {
   if (DISABLED) return { supported: false, files: [], patch: '' };
   const ownerSessionId = clean(sessionId);
   if (!ownerSessionId) return { supported: true, files: [], patch: '', authoritative: true };
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   const scopes = await loadSessionSnapshotRecords(ownerSessionId).catch(() => []);
-  const stored = scopes.find((scope) => scopeMatchesWorktree(scope, _worktree, tracker));
-  const root = stored?.root || tracker?.worktreeSnapshot?.root || clean(_worktree);
+  const stored = scopes.find((scope) => scopeMatchesWorktree(scope, worktree, tracker));
+  const root = stored?.root || tracker?.worktreeSnapshot?.root || clean(worktree);
   // A running turn is still mutating the worktree: shell, office and script
   // edits only reach the checkpoint diff once it is refreshed, exactly as the
   // turn review bar does.
@@ -906,51 +896,51 @@ function unavailableTrackedRevertReason(tracker) {
 }
 
 /** Restore one reviewed file to this turn's worktree baseline, never to HEAD. */
-export async function revertTurnReviewFile(_worktree, sessionId, file, expectedCheckpointId = '') {
+export async function revertTurnReviewFile(worktree, sessionId, file, expectedCheckpointId = '') {
   const ownerSessionId = clean(sessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   if (tracker) assertCheckpointMatches(expectedCheckpointId, tracker.checkpointId);
   if (tracker && !worktreeSnapshotUsable(tracker)) {
     const pairs = trackedPairs(tracker);
     if (pairs.length > 0) {
-      const pair = pairs.find((entry) => pairMatchesFile(entry, _worktree, file));
+      const pair = pairs.find((entry) => pairMatchesFile(entry, worktree, file));
       if (!pair) throw new Error('turn review tracked file snapshot is unavailable');
-      await revertTrackedPairs(tracker, _worktree, [pair]);
-      return await getTurnReviewDiff(_worktree, ownerSessionId);
+      await revertTrackedPairs(tracker, worktree, [pair]);
+      return await getTurnReviewDiff(worktree, ownerSessionId);
     }
-    const recorded = await revertFromRecord(_worktree, ownerSessionId, file, expectedCheckpointId);
+    const recorded = await revertFromRecord(worktree, ownerSessionId, file, expectedCheckpointId);
     if (recorded) return recorded;
     throw new Error(unavailableTrackedRevertReason(tracker));
   }
   if (tracker?.worktreeSnapshot) {
     await revertTurnWorktreeFile(tracker.worktreeSnapshot, file);
-    return await getTurnReviewDiff(_worktree, ownerSessionId);
+    return await getTurnReviewDiff(worktree, ownerSessionId);
   }
-  const recorded = await revertFromRecord(_worktree, ownerSessionId, file, expectedCheckpointId);
+  const recorded = await revertFromRecord(worktree, ownerSessionId, file, expectedCheckpointId);
   if (recorded) return recorded;
   throw new Error('turn worktree snapshot is unavailable');
 }
 
 /** Restore every file in the reviewed turn to its turn-start state. */
-export async function revertTurnReview(_worktree, sessionId, expectedCheckpointId = '') {
+export async function revertTurnReview(worktree, sessionId, expectedCheckpointId = '') {
   const ownerSessionId = clean(sessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   if (tracker) assertCheckpointMatches(expectedCheckpointId, tracker.checkpointId);
   if (tracker && !worktreeSnapshotUsable(tracker)) {
     const pairs = trackedPairs(tracker);
     if (pairs.length > 0) {
-      await revertTrackedPairs(tracker, _worktree, pairs);
-      return await getTurnReviewDiff(_worktree, ownerSessionId);
+      await revertTrackedPairs(tracker, worktree, pairs);
+      return await getTurnReviewDiff(worktree, ownerSessionId);
     }
-    const recorded = await revertFromRecord(_worktree, ownerSessionId, null, expectedCheckpointId);
+    const recorded = await revertFromRecord(worktree, ownerSessionId, null, expectedCheckpointId);
     if (recorded) return recorded;
     throw new Error(unavailableTrackedRevertReason(tracker));
   }
   if (tracker?.worktreeSnapshot) {
     await revertTurnWorktreeSnapshot(tracker.worktreeSnapshot);
-    return await getTurnReviewDiff(_worktree, ownerSessionId);
+    return await getTurnReviewDiff(worktree, ownerSessionId);
   }
-  const recorded = await revertFromRecord(_worktree, ownerSessionId, null, expectedCheckpointId);
+  const recorded = await revertFromRecord(worktree, ownerSessionId, null, expectedCheckpointId);
   if (recorded) return recorded;
   throw new Error('turn worktree snapshot is unavailable');
 }

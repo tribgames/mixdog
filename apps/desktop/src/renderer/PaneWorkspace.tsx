@@ -109,13 +109,7 @@ function isConversationSelection(
 /** Every selection that renders its own persistent surface behind the chat
  *  layer: the conversation stays mounted and parked underneath it. */
 function parksConversationBehindSelection(selection: WorkspaceSelection | null): boolean {
-  return (
-    selection?.kind === 'file' ||
-    selection?.kind === 'studio' ||
-    selection?.kind === 'terminal' ||
-    selection?.kind === 'diff' ||
-    selection?.kind === 'pull-request'
-  );
+  return selection?.kind === 'file' || usesPersistentUtilityPortal(selection);
 }
 
 function usesPersistentUtilityPortal(selection: WorkspaceSelection | null): boolean {
@@ -670,6 +664,16 @@ export function PaneWorkspace({
       </div>
     );
   };
+  // Every cell layout stacks the same four parts: strip, surfaces, the file
+  // editor's Problems panel and the pane's side dock.
+  const paneCellBody = (leaf: PaneLeaf, focused: boolean) => (
+    <>
+      {renderStrip?.(leaf)}
+      {renderPaneSurfaceStack(leaf, focused)}
+      {renderProblems?.(leaf, focused)}
+      {renderSideDock?.(leaf, focused)}
+    </>
+  );
   if (workspace.layout.type === 'leaf') {
     const leaf = workspace.layout;
     // A single pane still owns its tab strip (one editor group);
@@ -677,10 +681,7 @@ export function PaneWorkspace({
     return (
       <>
         <div className="pane-cell is-focused" data-pane-id={leaf.id} {...fileDropPropsFor(leaf.id)}>
-          {renderStrip?.(leaf)}
-          {renderPaneSurfaceStack(leaf, true)}
-          {renderProblems?.(leaf, true)}
-          {renderSideDock?.(leaf, true)}
+          {paneCellBody(leaf, true)}
           {overlay}
         </div>
         {conversationPortals}
@@ -708,10 +709,7 @@ export function PaneWorkspace({
                 inert={focused ? undefined : true}
                 aria-hidden={focused ? undefined : true}
               >
-                {renderStrip?.(leaf)}
-                {renderPaneSurfaceStack(leaf, focused)}
-                {renderProblems?.(leaf, focused)}
-                {renderSideDock?.(leaf, focused)}
+                {paneCellBody(leaf, focused)}
               </div>
             );
           })}
@@ -733,10 +731,7 @@ export function PaneWorkspace({
             .join(' ');
           return (
             <div className={cellClass} {...fileDropPropsFor(leaf.id)}>
-              {renderStrip?.(leaf)}
-              {renderPaneSurfaceStack(leaf, focused)}
-              {renderProblems?.(leaf, focused)}
-              {renderSideDock?.(leaf, focused)}
+              {paneCellBody(leaf, focused)}
             </div>
           );
         }}

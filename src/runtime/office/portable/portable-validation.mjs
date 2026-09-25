@@ -2,7 +2,7 @@ import { posix } from 'node:path';
 import sharp from 'sharp';
 import {
   contrastRatio,
-  measureTextBlock,
+  measureTextWidth,
   reviewCjkTracking,
   reviewShapeSpacing,
   reviewStatLabelProximity,
@@ -24,7 +24,7 @@ import {
 } from './portable-opc.mjs';
 import { chartFaultIssues } from './portable-chart-faults.mjs';
 import { reviewDeadVectorChart, reviewTextFragmentation } from './review-editability.mjs';
-import { docxTables } from './portable-docx-xml.mjs';
+import { docxTables, sectionTextWidth } from './portable-docx-xml.mjs';
 import { inspectPptxTextBoxes } from './portable-pptx.mjs';
 import { FULL_READ_CELL_LIMIT, snapshotDocx, snapshotPptx, snapshotXlsx } from './portable-snapshot.mjs';
 import { reviewOfficeStructure } from '../quality/assurance-structure.mjs';
@@ -38,8 +38,39 @@ import {
 import { paragraphTexts, topLevelElements, xmlAttribute, xmlDecode } from './portable-xml.mjs';
 import { placeholderTextIssues } from './placeholder-scan.mjs';
 import { validatePortableOoxml } from './portable-validation-package.mjs';
+import { tableRowCells } from './pptx-table-fit.mjs';
 
 export { validatePortableOoxml } from './portable-validation-package.mjs';
+
+// Word's highlighter colours, by the names w:highlight stores.
+const HIGHLIGHT_FILLS = Object.freeze({
+  black: '000000',
+  blue: '0000FF',
+  cyan: '00FFFF',
+  green: '00FF00',
+  magenta: 'FF00FF',
+  red: 'FF0000',
+  yellow: 'FFFF00',
+  white: 'FFFFFF',
+  darkBlue: '000080',
+  darkCyan: '008080',
+  darkGreen: '008000',
+  darkMagenta: '800080',
+  darkRed: '800000',
+  darkYellow: '808000',
+  darkGray: '808080',
+  lightGray: 'C0C0C0',
+});
+
+// A run's own shading or highlight is the field its letters sit on: white
+// "inverse video" on a black run shade was measured against the page and
+// reported as 1:1 ink nobody could read.
+function runField(properties, fill) {
+  const shade = /<w:shd\b[^>]*\bw:fill="([0-9A-Fa-f]{6})"/.exec(properties)?.[1];
+  if (shade) return shade;
+  const highlight = /<w:highlight\b[^>]*\bw:val="([A-Za-z]+)"/.exec(properties)?.[1];
+  return HIGHLIGHT_FILLS[highlight] || fill;
+}
 
 // The worst readable ratio among a block's runs, with the size and weight that
 // decide the minimum. Word keeps sizes in half-points.
@@ -59,7 +90,7 @@ function runInkReading(xml, fill) {
     if (!color) continue;
     const size = Number(/<w:sz\b[^>]*\bw:val="(\d+)"/.exec(properties)?.[1] || 0) / 2 || 11;
     const bold = /<w:b(?:\s[^>]*)?\/>/.test(properties);
-    const ratio = contrastRatio(color, fill);
+    const ratio = contrastRatio(color, runField(properties, fill));
     if (ratio == null) continue;
     const minimum = size >= 18 || (size >= 14 && bold) ? 3 : 4.5;
     if (ratio >= minimum) continue;
@@ -138,13 +169,10 @@ function documentInkIssues(document) {
 // body, headers, and footers of a document (a header prints on every page),
 // nothing for a workbook.
 function textParts(zip, format) {
-  const pattern =
-    format === 'pptx'
-      ? /^ppt\/slides\/slide\d+\.xml$/
-      : format === 'docx'
-        ? /^word\/(?:document|header\d+|footer\d+)\.xml$/
-        : null;
-  if (!pattern) return [];
+  let pattern;
+  if (format === 'pptx') pattern = /^ppt\/slides\/slide\d+\.xml$/;
+  else if (format === 'docx') pattern = /^word\/(?:document|header\d+|footer\d+)\.xml$/;
+  else return [];
   return Object.keys(zip.files)
     .filter((name) => pattern.test(name))
     .sort();
@@ -161,13 +189,13 @@ async function placeholderIssues(zip, format) {
     const text = paragraphTexts(xml, tag).join(' ');
     const slide = Number(/slide(\d+)\.xml$/.exec(part)?.[1]) || 0;
     const story = /^word\/(header|footer)\d+\.xml$/.exec(part)?.[1];
-    const path = slide ? `/slide[${slide}]` : story ? `/${story}` : '/body';
+    let path = '/body';
+    if (slide) path = `/slide[${slide}]`;
+    else if (story) path = `/${story}`;
     issues.push(...placeholderTextIssues(text, path, story ? { part } : {}));
   }
   return issues;
 }
-
-const DEFAULT_CELL_INSETS = Object.freeze({ left: 91440, right: 91440, top: 45720, bottom: 45720 });
 
 // A header row on a dark fill with the body's dark ink is unreadable in
 // exactly the way a shape's text would be; cells are measured the same way,
@@ -184,38 +212,14 @@ function tableCellContrast(cellXml, body, slideSurface) {
   return fill && ink ? contrastRatio(ink, fill) : null;
 }
 
-// The height a cell's text needs against the room its row gives it, or null
-// when the row or column carries no size. A merged label cell (rowSpan) owns
-// the rows it spans: its room is theirs together, not one row's.
-function tableCellFit(cellXml, { text, size, bold, widths, columnOrdinal, declared }) {
-  const width = widths[columnOrdinal - 1];
-  if (!declared || !width) return null;
-  const rowSpan = Math.max(1, Number(/<a:tc\b[^>]*\browSpan="(\d+)"/.exec(cellXml)?.[1]) || 1);
-  const gridSpan = Math.max(1, Number(/<a:tc\b[^>]*\bgridSpan="(\d+)"/.exec(cellXml)?.[1]) || 1);
-  const spannedWidth =
-    widths.slice(columnOrdinal - 1, columnOrdinal - 1 + gridSpan).reduce((sum, value) => sum + value, 0) || width;
-  const usable = (spannedWidth - DEFAULT_CELL_INSETS.left - DEFAULT_CELL_INSETS.right) / EMU_PER_POINT;
-  const available = (declared * rowSpan - DEFAULT_CELL_INSETS.top - DEFAULT_CELL_INSETS.bottom) / EMU_PER_POINT;
-  if (usable <= 0 || available <= 0) return null;
-  return { measured: measureTextBlock([{ text, fontSize: size, bold }], { width: usable }), rowSpan, available };
-}
-
-// Measures one table row's cells for contrast and overflow, pushing at most
-// twenty cell reports in total; returns the row's drawn height in EMU (the
+// Measures one table row's cells for contrast (pushing at most twenty reports in total) and collects the cells
+// whose text needs more height than the row declares into overflows; returns the row's drawn height in EMU (the
 // larger of its declared height and its tallest cell).
-function auditTableRow(rowXml, { widths, pathPrefix, slideSurface }, issues) {
-  const declared = Number(/<a:tr\b[^>]*\bh="(\d+)"/.exec(rowXml)?.[1]) || 0;
-  let tallest = declared;
-  let columnOrdinal = 0;
-  for (const cell of rowXml.matchAll(/<a:tc(?:\s[^>]*)?>[\s\S]*?<\/a:tc>/g)) {
-    columnOrdinal += 1;
-    const body = /<a:txBody>[\s\S]*?<\/a:txBody>/.exec(cell[0])?.[0] || '';
-    const text = paragraphTexts(body, 'a:t').join(' ').trim();
-    if (!text) continue;
-    const size = Number(/<a:rPr\b[^>]*\bsz="(\d+)"/.exec(body)?.[1] || 0) / 100 || 18;
-    const bold = /<a:rPr\b[^>]*\bb="1"/.test(body);
+function auditTableRow(rowXml, { widths, pathPrefix, slideSurface }, issues, overflows) {
+  const { cells, height } = tableRowCells(rowXml, widths);
+  for (const { xml, body, size, bold, columnOrdinal, fit } of cells) {
     const cellPath = `${pathPrefix}/cell[${columnOrdinal}]`;
-    const ratio = tableCellContrast(cell[0], body, slideSurface);
+    const ratio = tableCellContrast(xml, body, slideSurface);
     const minimum = size >= 18 || (size >= 14 && bold) ? 3 : 4.5;
     // The cap is on the reports; the rows are still measured so the table's height is known.
     if (ratio != null && ratio < minimum && issues.length < MAX_ISSUES) {
@@ -227,27 +231,28 @@ function auditTableRow(rowXml, { widths, pathPrefix, slideSurface }, issues) {
         source: 'text-metrics',
       });
     }
-    const fit = tableCellFit(cell[0], { text, size, bold, widths, columnOrdinal, declared });
     if (!fit) continue;
-    const { measured, rowSpan, available } = fit;
-    if (rowSpan === 1) {
-      tallest = Math.max(
-        tallest,
-        measured.height * EMU_PER_POINT + DEFAULT_CELL_INSETS.top + DEFAULT_CELL_INSETS.bottom
-      );
-    }
-    if (measured.height <= available * 1.08 || issues.length >= MAX_ISSUES) continue;
-    issues.push({
-      severity: 'warning',
-      code: 'table_cell_overflow',
-      path: cellPath,
-      message:
-        `Cell text needs about ${Math.round(measured.height)}pt across ${measured.lines} line(s)` +
-        ` but the row offers ${Math.round(available)}pt; shorten the text or widen the column.`,
-      source: 'text-metrics',
-    });
+    const { measured, available } = fit;
+    if (measured.height > available * 1.08) overflows.push({ cellPath, measured, available });
   }
-  return tallest;
+  return height;
+}
+
+// One report per table for the cells that outgrow their rows: a frame declared too short for its ten rows named every
+// one of its cells, twenty reports of one fault. The first cell names the place; the count names the extent.
+function tableOverflowIssue(overflows) {
+  if (!overflows.length) return null;
+  const [first] = overflows;
+  const tallest = overflows.reduce((top, entry) => (entry.measured.height > top.measured.height ? entry : top), first);
+  const message =
+    overflows.length === 1
+      ? `Cell text needs about ${Math.round(first.measured.height)}pt across ${first.measured.lines} line(s)` +
+        ` but the row offers ${Math.round(first.available)}pt; shorten the text or widen the column.`
+      : `${overflows.length} cells need more height than their rows give (the tallest about` +
+        ` ${Math.round(tallest.measured.height)}pt in a ${Math.round(tallest.available)}pt row); each row grows to` +
+        ' its text, so the table draws taller than its frame — widen the columns, shorten the text, or give the frame' +
+        ' the height.';
+  return { severity: 'warning', code: 'table_cell_overflow', path: first.cellPath, message, source: 'text-metrics' };
 }
 
 async function tableCellOverflowIssues(zip) {
@@ -277,14 +282,18 @@ async function tableCellOverflowIssues(zip) {
       const tablePath = `/slide[${slide}]/table[${tableOrdinal}]`;
       let predicted = 0;
       let rowOrdinal = 0;
+      const overflows = [];
       for (const row of table[0].matchAll(/<a:tr\b[^>]*>[\s\S]*?<\/a:tr>/g)) {
         rowOrdinal += 1;
         predicted += auditTableRow(
           row[0],
           { widths, pathPrefix: `${tablePath}/row[${rowOrdinal}]`, slideSurface },
-          issues
+          issues,
+          overflows
         );
       }
+      const overflow = tableOverflowIssue(overflows);
+      if (overflow && issues.length < MAX_ISSUES) issues.push(overflow);
       // The lower safe margin is 0.4 in (a source line or page number may sit there; a table may not).
       const room = slideHeight - 0.4 * 914400 - frameTop;
       if (slideHeight && frameTop >= 0 && predicted > room) {
@@ -660,19 +669,67 @@ async function presentationMetricIssues(zip) {
 // shaded — is owed the mark; a table whose first row is data is not.
 const DOCX_LONG_TABLE_ROWS = 25;
 
+// Word's default cell padding, left and right, when the table names none.
+const DOCX_DEFAULT_CELL_MARGIN = 108;
+// Hangul and CJK break between any two characters; only a Latin or numeric word has a width it cannot be broken below.
+const UNBREAKABLE_WORD = /^[^\s\u1100-\u11FF\u3000-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF00-\uFFEF]+$/;
+
+// A word wider than its cell is broken between letters: "Sun" set as "Su / n", a date "11" stacked as "1 / 1".
+// Word and LibreOffice both do it without a warning, so the column reads as a typo on the printed page.
+function brokenCellWord(table) {
+  const grid = /<w:tblGrid(?:\s[^>]*)?>[\s\S]*?<\/w:tblGrid>/.exec(table)?.[0] || '';
+  const columns = [...grid.matchAll(/<w:gridCol\b[^>]*\bw:w="(\d+)"/g)].map((match) => Number(match[1]));
+  if (!columns.length) return null;
+  const margins = /<w:tblCellMar\b[^>]*>[\s\S]*?<\/w:tblCellMar>/.exec(table)?.[0] || '';
+  // A cell's own w:tcMar wins over the table's, which wins over Word's default.
+  const side = (name, own = '') => {
+    const found =
+      new RegExp(`<w:${name}\\b[^>]*\\bw:w="(\\d+)"`).exec(own) || new RegExp(`<w:${name}\\b[^>]*\\bw:w="(\\d+)"`).exec(margins);
+    return found ? Number(found[1]) : DOCX_DEFAULT_CELL_MARGIN;
+  };
+  let rowOrdinal = 0;
+  for (const row of table.matchAll(/<w:tr[\s>][\s\S]*?<\/w:tr>/g)) {
+    rowOrdinal += 1;
+    let column = 0;
+    let cellOrdinal = 0;
+    for (const cell of row[0].matchAll(/<w:tc[\s>][\s\S]*?<\/w:tc>/g)) {
+      cellOrdinal += 1;
+      const span = Math.max(1, Number(/<w:gridSpan\b[^>]*\bw:val="(\d+)"/.exec(cell[0])?.[1]) || 1);
+      const width = columns.slice(column, column + span).reduce((total, value) => total + value, 0);
+      column += span;
+      if (!width || /<w:tbl[\s>]/.test(cell[0])) continue;
+      const own = /<w:tcMar\b[^>]*>[\s\S]*?<\/w:tcMar>/.exec(cell[0])?.[0] || '';
+      const room = (width - side('left', own) - side('right', own)) / 20;
+      for (const paragraph of cell[0].matchAll(/<w:p[\s>][\s\S]*?<\/w:p>/g)) {
+        const run = /<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/.exec(paragraph[0])?.[0] || '';
+        const font = {
+          fontName: /<w:rFonts\b[^>]*\bw:ascii="([^"]+)"/.exec(run)?.[1] || 'Calibri',
+          fontSize: Number(/<w:sz\b[^>]*\bw:val="(\d+)"/.exec(run)?.[1] || 22) / 2,
+          bold: /<w:b(?:\s+w:val="(?:1|true|on)")?\s*\/>/.test(run),
+        };
+        const indent = /<w:pPr\b[^>]*>[\s\S]*?<w:ind\b([^>]*)\/>/.exec(paragraph[0])?.[1] || '';
+        const inset = ['left', 'start', 'right', 'end', 'firstLine'].reduce(
+          (total, name) => total + (Number(new RegExp(`\\bw:${name}="(\\d+)"`).exec(indent)?.[1]) || 0),
+          0
+        );
+        const words = paragraphTexts(paragraph[0], 'w:t').join('').split(/\s+/).filter((word) => UNBREAKABLE_WORD.test(word));
+        const widest = words.map((word) => ({ word, width: measureTextWidth(word, font) })).sort((a, b) => b.width - a.width)[0];
+        const line = room - inset / 20;
+        if (widest && widest.width > Math.max(0, line) * 1.05) return { rowOrdinal, cellOrdinal, room: line, ...widest };
+      }
+    }
+  }
+  return null;
+}
+
 // Tables wider than the text column, and long tables whose styled header
 // row does not repeat after a page break.
 function documentTableIssues(document) {
   const issues = [];
-  const section = /<w:sectPr\b[\s\S]*?<\/w:sectPr>/.exec(document)?.[0] || '';
-  const page = /<w:pgSz\b[^>]*\bw:w="(\d+)"/.exec(section);
-  const margins =
-    /<w:pgMar\b[^>]*\bw:left="(\d+)"[^>]*\bw:right="(\d+)"/.exec(section) ||
-    /<w:pgMar\b[^>]*\bw:right="(\d+)"[^>]*\bw:left="(\d+)"/.exec(section);
-  const usable = (page ? Number(page[1]) : 12240) - (margins ? Number(margins[1]) + Number(margins[2]) : 2880);
   let ordinal = 0;
   for (const table of docxTables(document)) {
     ordinal += 1;
+    const usable = sectionTextWidth(document, table.index + table[0].length);
     const rowCount = [...table[0].matchAll(/<w:tr[\s>]/g)].length;
     const firstRow = /<w:tr[\s>][\s\S]*?<\/w:tr>/.exec(table[0])?.[0] || '';
     if (
@@ -685,6 +742,16 @@ function documentTableIssues(document) {
         code: 'table_header_not_repeated',
         path: `/body/table[${ordinal}]`,
         message: `Table runs ${rowCount} rows and its header row does not repeat, so every page after the break shows columns with nothing naming them; add_table properties.repeatHeader carries the first row onto each continuation page.`,
+      });
+    }
+    const broken = brokenCellWord(table[0]);
+    if (broken) {
+      issues.push({
+        severity: 'warning',
+        code: 'table_cell_word_broken',
+        path: `/body/table[${ordinal}]/row[${broken.rowOrdinal}]/cell[${broken.cellOrdinal}]`,
+        message: `"${broken.word}" needs ${broken.width.toFixed(0)}pt and its cell leaves ${Math.max(0, broken.room).toFixed(0)}pt, so the word breaks between letters; give that column more of the width (add_table properties.columnWidths), shorten the word, or set it smaller.`,
+        source: 'text-metrics',
       });
     }
     const grid = /<w:tblGrid(?:\s[^>]*)?>[\s\S]*?<\/w:tblGrid>/.exec(table[0])?.[0] || '';
@@ -753,15 +820,55 @@ function missingAltTextIssue(path) {
   };
 }
 
-function pictureDescriptionIssues(snapshot) {
+export function pictureDescriptionIssues(snapshot) {
   return (snapshot.images || [])
     .filter((picture) => !describesPicture(picture.altText))
     .map((picture) => missingAltTextIssue(picture.path));
 }
 
+// The serif faces, Latin and Korean, a document is likely to name; any other face reads as a sans here.
+const SERIF_FACE =
+  /^(?:cambria|georgia|times new roman|garamond|book antiqua|palatino linotype|constantia|bookman old style|noto serif(?: kr)?|batang|바탕|바탕체|gungsuh|궁서|nanummyeongjo|나눔명조)$/i;
+const faceClass = (face) => (SERIF_FACE.test(String(face).trim()) ? 'serif' : 'sans');
+
+// A run that sets Hangul beside Latin letters or digits in two classes of face — Cambria digits in a Malgun Gothic
+// sentence, the setting a serif `name` without its `nameEastAsia` falls into — reads as two typefaces in one line.
+// Only a Latin face the run names is judged; its Korean face is the run's own or the document default.
+function documentFontPairingIssues(document, styles) {
+  const defaults = /<w:rPrDefault\b[\s\S]*?<\/w:rPrDefault>/.exec(styles)?.[0] || '';
+  const defaultEastAsia = xmlDecode(/<w:rFonts\b[^>]*\bw:eastAsia="([^"]+)"/.exec(defaults)?.[1] || 'Malgun Gothic');
+  const body = /<w:body\b[^>]*>([\s\S]*)<\/w:body>/.exec(document)?.[1] || '';
+  const mixed = [];
+  let paragraphOrdinal = 0;
+  for (const block of topLevelElements(body, ['w:p', 'w:tbl'])) {
+    if (block.name === 'w:p') paragraphOrdinal += 1;
+    for (const run of block.xml.matchAll(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)) {
+      const text = paragraphTexts(run[0], 'w:t').join('');
+      if (!/[\uAC00-\uD7A3]/.test(text) || !/[A-Za-z0-9]/.test(text)) continue;
+      const fonts = /<w:rFonts\b[^>]*>/.exec(run[0])?.[0] || '';
+      const latin = xmlDecode(/\bw:ascii="([^"]+)"/.exec(fonts)?.[1] || '');
+      const eastAsia = xmlDecode(/\bw:eastAsia="([^"]+)"/.exec(fonts)?.[1] || '') || defaultEastAsia;
+      if (!latin || faceClass(latin) === faceClass(eastAsia)) continue;
+      mixed.push({ path: block.name === 'w:p' ? `/body/p[${paragraphOrdinal}]` : '/body', latin, eastAsia });
+      break;
+    }
+  }
+  if (!mixed.length) return [];
+  const [first] = mixed;
+  return [
+    {
+      severity: 'info',
+      code: 'font_pairing_mismatch',
+      path: first.path,
+      message: `${mixed.length} block${mixed.length > 1 ? 's set' : ' sets'} Hangul in ${first.eastAsia} beside Latin and digits in ${first.latin}, a ${faceClass(first.eastAsia)} and a ${faceClass(first.latin)}: the line reads as two typefaces. Pair the faces by class (nameEastAsia beside name, fontNameEastAsia on a table) — Cambria with Batang, Calibri with Malgun Gothic.`,
+      source: 'document-lint',
+    },
+  ];
+}
+
 /** What the Word document says about itself: revisions, comments, lint, emptiness,
  *  tables wider than the text column or losing their header after a page break,
- *  ink, and pictures without a description. */
+ *  ink, font pairing, and pictures without a description. */
 async function documentContentIssues(zip, validation) {
   const snapshot = await snapshotDocx(zip);
   const document = await zipText(zip, 'word/document.xml');
@@ -777,6 +884,7 @@ async function documentContentIssues(zip, validation) {
     ...emptyDocumentIssues(document),
     ...documentTableIssues(document),
     ...documentInkIssues(document),
+    ...documentFontPairingIssues(document, await zipText(zip, 'word/styles.xml')),
     ...pictureDescriptionIssues(snapshot),
   ];
 }

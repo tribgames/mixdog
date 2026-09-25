@@ -6,7 +6,6 @@ import { pageSizePoints } from '../shared/page-sizes.mjs';
 
 export const SAVE_OPTIONS = Object.freeze({ useObjectStreams: true, addDefaultPage: false });
 
-
 export function round2(value) {
   return Number(Number(value).toFixed(2));
 }

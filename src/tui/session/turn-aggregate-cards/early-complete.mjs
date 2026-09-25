@@ -5,15 +5,9 @@
  */
 import { toolResultText } from '../tool-result-text.mjs';
 import { aggregateResultPatch, applyAggregateCallFields, toolResultDisplay } from '../tool-result-status.mjs';
+import { indexedItem } from '../tool-card-results/item-patch.mjs';
 
 export function createAggregateEarlyComplete({ cardByCallId, getState, patchItem, itemIndexById, markToolCallDone }) {
-  const currentItemFor = (itemId) => {
-    const currentIndex = itemIndexById.get(itemId);
-    return Number.isInteger(currentIndex) && getState().items[currentIndex]?.id === itemId
-      ? getState().items[currentIndex]
-      : null;
-  };
-
   return (callId, message) => {
     const card = cardByCallId.get(callId);
     if (!card) return;
@@ -28,20 +22,12 @@ export function createAggregateEarlyComplete({ cardByCallId, getState, patchItem
     if (!callRec || callRec.resolved || callRec.completedEarly) return;
     aggregate.ensureVisible?.();
     const rawText = toolResultText(message?.content);
-    const { exitCode, isExitError, isCallError, isError, text } = toolResultDisplay(message, rawText, callRec.name);
-    applyAggregateCallFields(callRec, aggregate, {
-      isError,
-      isCallError,
-      isExitError,
-      exitCode,
-      text,
-      rawText,
-      message,
-    });
+    const outcome = toolResultDisplay(message, rawText, callRec.name);
+    applyAggregateCallFields(callRec, aggregate, { ...outcome, rawText, message });
     callRec.completedEarly = true;
     const allCalls = [...aggregate.calls.values()];
     const completedCount = allCalls.filter((r) => r.resolved || r.completedEarly).length;
-    const currentItem = currentItemFor(card.itemId);
+    const currentItem = indexedItem(getState().items, itemIndexById, card.itemId);
     const visualCompleted = Math.max(
       completedCount,
       Math.min(allCalls.length, Number(currentItem?.completedCount || 0))

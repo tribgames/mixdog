@@ -404,7 +404,9 @@ test('anthropic thinking display: preamble models default to updates, env overri
     if (prev === undefined) delete process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY;
     else process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY = prev;
   }
-  assert.ok(buildAnthropicBetaHeaders({ thinkingDisplayUpdates: true }).includes('thinking-display-updates-2026-08-18'));
+  assert.ok(
+    buildAnthropicBetaHeaders({ thinkingDisplayUpdates: true }).includes('thinking-display-updates-2026-08-18')
+  );
   assert.ok(!buildAnthropicBetaHeaders().includes('thinking-display-updates-2026-08-18'));
 });
 

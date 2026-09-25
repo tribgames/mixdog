@@ -12,7 +12,6 @@ import {
   metricText,
   metricValue,
   resolveUsageTrendGrouping,
-  statsMoney,
   statsNumber,
   statsPlan,
   statsPlanLabel,
@@ -48,8 +47,7 @@ function TrendBar({
     .map((id) => ({ id, value: statsNumber(bucket.providers.get(id)?.[metric]) }))
     .filter((part) => part.value > 0);
   const summed = parts.reduce((sum, part) => sum + part.value, 0);
-  const totalText = metric === 'costUsd' ? statsMoney(bucket) : metricText(total, metric, bucket.unmeasuredTurns > 0);
-  const title = bucket.future ? bucket.label : `${bucket.label} · ${totalText}`;
+  const title = bucket.future ? bucket.label : `${bucket.label} · ${trendMetricText(bucket, metric)}`;
   return (
     <button
       type="button"
@@ -178,8 +176,8 @@ export function UsageTrend({
     return plan ? ` · ${statsPlanLabel(plan)}` : '';
   };
   // Partial weeks/months must not label the axis outside the queried dates.
-  const axisStart = view === 'hour' ? series[0]?.label : String(period.startDay || daily[0]?.day || '');
-  const axisEnd = view === 'hour' ? series.at(-1)?.label : String(period.endDay || daily.at(-1)?.day || '');
+  const axisStart = view === 'hour' ? series[0]?.label : startDay;
+  const axisEnd = view === 'hour' ? series.at(-1)?.label : endDay;
   const peak = series.reduce((max, entry) => Math.max(max, metricValue(entry, metric)), 0);
   const peakLabel = t('Peak per {{interval}}', {
     interval: new Intl.NumberFormat(uiFormatLocale(), { style: 'unit', unit: grain, unitDisplay: 'long' }).format(

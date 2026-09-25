@@ -13,15 +13,10 @@ import { useSharedTick } from '../hooks/useSharedTick.mjs';
 import stringWidth from 'string-width';
 import { theme, TURN_MARKER, AGENT_CALL_MARKER, AGENT_RESPONSE_MARKER } from '../theme.mjs';
 import { BULLET_OPERATOR } from '../figures.mjs';
-import {
-  displayToolName as surfaceDisplayToolName,
-  formatToolSurface,
-  formatAggregateHeader,
-} from '../../runtime/shared/tool-surface.mjs';
+import { formatToolSurface, formatAggregateHeader } from '../../runtime/shared/tool-surface.mjs';
 import { deriveToolCardModel } from '../../runtime/shared/tool-card-model.mjs';
 import {
-  MIN_RESULT_LINE_CHARS,
-  RESULT_LINE_HARD_MAX,
+  resultLineMaxChars,
   SUMMARY_MAX_CHARS,
   HEADER_FAILURE_STATUS_MAX,
   safeInlineText,
@@ -37,10 +32,6 @@ import {
   toolStatusColor,
 } from './tool-execution/surface-detail.mjs';
 import { ResultBody } from './tool-execution/ResultBody.jsx';
-
-export function displayToolName(name, args) {
-  return surfaceDisplayToolName(name, args);
-}
 
 const TOOL_BLINK_MS = 500;
 const TOOL_PENDING_SHOW_DELAY_MS = 1000;
@@ -138,7 +129,7 @@ export function ToolExecution({
 
   // While a freshly-started tool is still inside its pending-show delay we used
   // to `return null` (0 rendered rows). But estimateTranscriptItemRows() in
-  // App.jsx counts a collapsed tool item from the moment it is pushed (1 row for
+  // app/transcript-row-estimate.mjs counts a collapsed tool item from the moment it is pushed (1 row for
   // a skill surface, 2 rows otherwise), so the scroll/window math reserved that
   // height while the component painted 0. The moment the delay elapsed (or the
   // tool completed) the real card popped in, the rendered transcript grew and
@@ -180,7 +171,7 @@ export function ToolExecution({
     let detailText;
     if (hasResult) {
       // The aggregate card reserves EXACTLY ONE detail row when it is not
-      // expanded-with-raw (App.jsx estimateTranscriptItemRows counts
+      // expanded-with-raw (estimateTranscriptItemRows counts
       // margin + header + 1 detail row for the no-raw aggregate case). The
       // summary `rt` can be multiline; a single <Text> containing '\n' renders
       // MULTIPLE terminal rows, which desyncs the estimate and makes the card
@@ -281,7 +272,7 @@ export function ToolExecution({
   // status merging, detail row) consumed by BOTH the TUI and the desktop
   // renderer (apps/desktop TranscriptView ToolCard). Width fitting, theme
   // colors, blink, and expansion handling stay TUI-side below.
-  const maxResultChars = Math.min(RESULT_LINE_HARD_MAX, Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7));
+  const maxResultChars = resultLineMaxChars(columns);
   const model = deriveToolCardModel(
     {
       name,
@@ -390,7 +381,7 @@ export function ToolExecution({
   const gutter = 2;
   const hintReserveLabel = `ctrl+o ${expanded ? 'collapse' : 'expand'}`;
   const hintReserveText = ` ${BULLET_OPERATOR} ${hintReserveLabel}`;
-  const hintText = showHeaderExpandHint ? hintReserveText : '';
+  const trailingText = showHeaderExpandHint ? hintReserveText : '';
   // The header right-side trailing slot only ever shows the ctrl+o hint. The
   // pending elapsed meta was removed from the header — it lives on the detail
   // row now (`Running · 12s`) so a per-second digit change (9s→10s) or the
@@ -401,7 +392,6 @@ export function ToolExecution({
   const inlineFailureText = headerFailureText ? ` ${BULLET_OPERATOR} ${headerFailureText}` : '';
   const rightReserve = stringWidth(hintReserveText) + stringWidth(inlineFailureText);
   const avail = Math.max(1, (Number(columns) || 80) - 1 - gutter - rightReserve);
-  const trailingText = showHeaderExpandHint ? hintText : '';
   const trailingColor = expandHintColor;
   let labelOut;
   let summaryOut;

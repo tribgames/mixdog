@@ -7,11 +7,13 @@ import { spawn } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// The `electron` package resolves the platform's binary (same as electron-harness).
+import electron from 'electron';
+
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const projectPath = resolve(desktopDir, '..', '..');
 const artifactDir = join(desktopDir, 'artifacts', 'tab-focus-probe');
 const profilePath = join(artifactDir, `profile-${Date.now()}`);
-const electron = join(desktopDir, 'node_modules', 'electron', 'dist', 'electron.exe');
 const port = 9333;
 
 class Cdp {
@@ -240,14 +242,7 @@ async function main() {
       return true;
     })()`
     );
-    await client
-      .evaluate(`(async () => {
-      const bridge = window.mixdogDesktop;
-      try { await bridge?.windowControl?.('maximize'); } catch {}
-      try { await bridge?.maximizeWindow?.(); } catch {}
-      return true;
-    })()`)
-      .catch(() => undefined);
+    // The desktop bridge has no maximize call; the launch's --window-size sets the geometry.
     await sleep(3_000);
     report.before = await client.evaluate(DUMP);
     report.beforeShot = await screenshot(client, 'before');

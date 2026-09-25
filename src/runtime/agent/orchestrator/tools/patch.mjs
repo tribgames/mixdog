@@ -1,9 +1,8 @@
 // apply_patch — one-turn multi-file edits from a unified diff.
 //
-// This file is now a FACADE. The implementation was split into cohesive
-// modules under ./patch/ during a behavior-preserving refactor; this module
-// re-exports the identical public surface so existing importers
-// (session/loop.mjs, scripts/*, code-graph, memory, etc.) are unaffected:
+// This file is a FACADE over the cohesive modules under ./patch/; it
+// re-exports the public surface importers use (session/loop.mjs, scripts/*,
+// code-graph, memory, etc.):
 //
 //   ./patch/native-server.mjs — NativePatchServer transport, env gating,
 //     binary resolution, prewarm/idle lifecycle, runServerEdit,
@@ -20,11 +19,10 @@
 //   ./patch/orchestrator.mjs  — apply_patch orchestration + executePatchTool
 //     + replay capture + UI-diff side-channel.
 //
-// Executor is unchanged: NATIVE-ONLY dispatch to the mixdog-patch Rust engine,
-// no JS apply fallback. Public exports below match the pre-split surface.
+// Executor: NATIVE-ONLY dispatch to the mixdog-patch Rust engine, no JS apply
+// fallback.
 
-// Side-effect import: schedules the native-patch prewarm on module load, as
-// the original patch.mjs did at top level.
+// Side-effect import: schedules the native-patch prewarm on module load.
 import { scheduleNativePatchPrewarm } from './patch/native-server.mjs';
 
 export { PATCH_TOOL_DEFS } from './patch-tool-defs.mjs';

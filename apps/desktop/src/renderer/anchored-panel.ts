@@ -78,9 +78,8 @@ export function anchoredPanelGeometry({
   const above = placement === 'above' ? !flipped : flipped;
   const maxHeight = above ? spaceAbove : spaceBelow;
   const height = Math.min(naturalHeight, maxHeight);
-  const top = above
-    ? clamp(trigger.top - gap - height, bounds.top + edge, Math.max(bounds.top + edge, bounds.bottom - edge - height))
-    : clamp(trigger.bottom + gap, bounds.top + edge, Math.max(bounds.top + edge, bounds.bottom - edge - height));
+  const idealTop = above ? trigger.top - gap - height : trigger.bottom + gap;
+  const top = clamp(idealTop, bounds.top + edge, bounds.bottom - edge - height);
 
   return {
     left: Math.round(left),

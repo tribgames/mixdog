@@ -107,7 +107,7 @@ export function createAppPickers({
     getDisabledSkills: () => disabledSkills,
     setDisabledSkills,
   });
-  const { openUpdatePicker, openAutoClearPicker, openProfilePicker } = createMaintenancePickers({
+  const { openUpdatePicker, openAutoClearPicker, openProfilePicker, openDeveloperPicker } = createMaintenancePickers({
     store,
     theme,
     formatDuration,
@@ -196,6 +196,7 @@ export function createAppPickers({
     openSkillsPicker: (...a) => openSkillsPicker(...a),
     openMemoryCorePicker: (...a) => openMemoryCorePicker(...a),
     openUpdatePicker: (...a) => openUpdatePicker(...a),
+    openDeveloperPicker: (...a) => openDeveloperPicker(...a),
   });
   const { runSlashCommand } = createSlashDispatch({
     state,

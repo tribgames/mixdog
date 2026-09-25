@@ -20,11 +20,11 @@ type RendererFailureLocation = {
 let lastFingerprint = '';
 let lastReportedAt = 0;
 
-export function isResizeObserverDeliveryWarning(error: unknown, message: unknown): boolean {
+function isResizeObserverDeliveryWarning(error: unknown, message: unknown): boolean {
   return !error && message === 'ResizeObserver loop completed with undelivered notifications.';
 }
 
-export function isMonacoRestoreCancellation(reason: unknown): boolean {
+function isMonacoRestoreCancellation(reason: unknown): boolean {
   if (!reason || typeof reason !== 'object') return false;
   const value = reason as {
     name?: unknown;

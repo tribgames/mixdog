@@ -700,7 +700,7 @@
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 70%), var(--mx-bg-layer-1);
   box-shadow:
     inset 0 0 0 0.5px var(--mx-border-muted),
-    0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 38%, transparent);
+    0 1px 2px color-mix(in srgb, var(--mx-shadow-tint) 38%, transparent);
 }
 .model-search-container {
   min-width: 0;
@@ -761,7 +761,7 @@
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 65%), var(--mx-bg-layer-1);
   box-shadow:
     inset 0 0 0 0.5px var(--mx-border-muted),
-    0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 34%, transparent);
+    0 1px 2px color-mix(in srgb, var(--mx-shadow-tint) 34%, transparent);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
@@ -779,13 +779,13 @@
   background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-1);
   box-shadow:
     inset 0 0 0 0.5px var(--mx-border),
-    0 2px 5px color-mix(in srgb, var(--mx-bg-deep) 42%, transparent);
+    0 2px 5px color-mix(in srgb, var(--mx-shadow-tint) 42%, transparent);
 }
 .model-option-row[aria-selected="true"] {
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 65%), var(--mx-bg-layer-2);
   box-shadow:
     inset 0 0 0 1px var(--mx-border-strong),
-    0 2px 5px color-mix(in srgb, var(--mx-bg-deep) 42%, transparent);
+    0 2px 5px color-mix(in srgb, var(--mx-shadow-tint) 42%, transparent);
 }
 .model-option-row[aria-selected="true"]:hover,
 .model-option-row[aria-selected="true"]:focus-visible,

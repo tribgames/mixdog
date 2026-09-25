@@ -55,6 +55,14 @@ pub(crate) fn path_join_norm(base: &str, spec: &str) -> String {
     parts.join("/")
 }
 
+// `dir` is `ancestor` itself or lies below it. "a/b" is under "a", "ab" is
+// not; the root "" contains only "" and absolute-looking "/…" paths, exactly
+// like the `"{ancestor}/"` prefix test it replaces.
+pub(crate) fn is_same_or_under(dir: &str, ancestor: &str) -> bool {
+    dir.strip_prefix(ancestor)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
 pub(crate) fn file_stem_rel(rel: &str) -> Option<&str> {
     let name = rel.rsplit('/').next().unwrap_or(rel);
     name.rsplit_once('.')

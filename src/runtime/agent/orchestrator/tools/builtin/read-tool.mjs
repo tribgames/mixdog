@@ -67,6 +67,16 @@ async function executeBatchRead(args, workDir, readStateScope, executeChildBuilt
   return renderBatchResults(orderedResults, args, helpers);
 }
 
+// Glance modes served by their own child tool: the tool name and the args it
+// takes.
+const MODE_CHILD_CALLS = {
+  head: (args) => ['head', { path: args.path, n: args.n }],
+  tail: (args) => ['tail', { path: args.path, n: args.n }],
+  count: (args) => ['wc', { path: args.path }],
+  summary: (args) => ['summary', { path: args.path, n: args.n, limit: args.limit }],
+  hex: (args) => ['hex', { path: args.path, n: args.n, offset: args.offset }],
+};
+
 // Mode routing. A window already dropped any conflicting head/tail/summary
 // glance (so the window is served by executeSingleReadTool); what remains
 // here is a mode-only read, or count/hex which are not text windows.
@@ -75,19 +85,10 @@ function executeModeRead(args, workDir, readStateScope, executeChildBuiltinTool,
     readIoAdmission.run(options?.callerSessionId || options?.sessionId || currentToolExecutionOwner(), task, {
       signal: options?.signal || options?.abortSignal || null,
     });
-  if (args.mode === 'head')
-    return runReadIo(() => executeChildBuiltinTool('head', { path: args.path, n: args.n }, workDir));
-  if (args.mode === 'tail')
-    return runReadIo(() => executeChildBuiltinTool('tail', { path: args.path, n: args.n }, workDir));
-  if (args.mode === 'count') return runReadIo(() => executeChildBuiltinTool('wc', { path: args.path }, workDir));
-  if (args.mode === 'summary')
-    return runReadIo(() =>
-      executeChildBuiltinTool('summary', { path: args.path, n: args.n, limit: args.limit }, workDir)
-    );
-  if (args.mode === 'hex')
-    return runReadIo(() =>
-      executeChildBuiltinTool('hex', { path: args.path, n: args.n, offset: args.offset }, workDir)
-    );
+  if (Object.hasOwn(MODE_CHILD_CALLS, args.mode)) {
+    const [toolName, childArgs] = MODE_CHILD_CALLS[args.mode](args);
+    return runReadIo(() => executeChildBuiltinTool(toolName, childArgs, workDir));
+  }
   return runReadIo(() => executeSingleReadTool(args, workDir, readStateScope, options, helpers));
 }
 

@@ -6,6 +6,7 @@ import { DATA_DIR } from './config.mjs';
 import { ensureNopluginDir } from './executor.mjs';
 import { withFileLockSync } from '../../shared/atomic-file.mjs';
 import { resolveRuntimeRoot } from '../../shared/runtime-root.mjs';
+import { isPidAlive } from '../../shared/pid-liveness.mjs';
 import {
   advanceScheduleCursor,
   claimScheduleRun,
@@ -174,6 +175,13 @@ class Scheduler {
   noteActivity() {
     this.lastActivity = Date.now();
   }
+  /** Every loaded schedule with its routing type, non-interactive first. */
+  typedSchedules() {
+    return [
+      ...this.nonInteractive.map((schedule) => ({ schedule, type: 'non-interactive' })),
+      ...this.interactive.map((schedule) => ({ schedule, type: 'interactive' })),
+    ];
+  }
   /** Find a loaded schedule def by name (either routing bucket). */
   findSchedule(name) {
     return [...this.nonInteractive, ...this.interactive].find((s) => s.name === name) ?? null;
@@ -293,10 +301,8 @@ ${prompt}`;
     try {
       const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
       const pid = parseInt(content.split('\n')[0], 10);
-      try {
-        process.kill(pid, 0);
-        return pid;
-      } catch {}
+      // EPERM means the process exists under another user: still the owner.
+      if (isPidAlive(pid)) return pid;
     } catch {}
     return 0;
   }
@@ -368,11 +374,7 @@ ${prompt}`;
   /** Register schedule entries. `when_cron` entries bind to node-cron (dow
    *  field covers the day guard); `when_at` entries arm a one-shot timer. */
   registerCronJobs() {
-    const all = [
-      ...this.nonInteractive.map((s) => ({ schedule: s, type: 'non-interactive' })),
-      ...this.interactive.map((s) => ({ schedule: s, type: 'interactive' })),
-    ];
-    for (const { schedule: s, type } of all) {
+    for (const { schedule: s, type } of this.typedSchedules()) {
       if (s.whenCron) {
         if (!isCronExpression(s.whenCron)) {
           process.stderr.write(`mixdog scheduler: invalid cron "${s.name}" (${s.whenCron}) — skipped\n`);
@@ -592,11 +594,7 @@ ${prompt}`;
     this.restart();
   }
   getStatus() {
-    const rows = [
-      ...this.nonInteractive.map((s) => ({ s, type: 'non-interactive' })),
-      ...this.interactive.map((s) => ({ s, type: 'interactive' })),
-    ];
-    return rows.map(({ s, type }) => ({
+    return this.typedSchedules().map(({ schedule: s, type }) => ({
       name: s.name,
       time: s.whenCron ?? s.whenAt ?? null,
       type,
@@ -608,7 +606,7 @@ ${prompt}`;
     }));
   }
   async triggerManual(name) {
-    const timed = [...this.nonInteractive, ...this.interactive].find((e) => e.name === name);
+    const timed = this.findSchedule(name);
     if (timed) {
       if (this.running.has(name)) return `"${name}" is already running`;
       const isNonInteractive = this.nonInteractive.includes(timed);

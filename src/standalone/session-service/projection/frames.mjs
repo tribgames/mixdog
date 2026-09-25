@@ -12,10 +12,14 @@ export function createFramePublisher({
   publishIntervalMs,
   updateEntryBusy,
   releaseProjection,
+  startEvictionSweep,
 }) {
   function publishStep(entry, step) {
     const sessionId = index.currentSessionId(entry);
     if (!sessionId) return;
+    // This step rebuilt a watched projection; the sweep may have stopped when
+    // the last one was released, and it alone reclaims this one when idle.
+    startEvictionSweep();
     // Session runtime revisions may predate the session address (a reservation becomes
     // a materialized session during newSession/resume). A session subscriber
     // has no copy of that session runtime-only base, so the first frame for each session

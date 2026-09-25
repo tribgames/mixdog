@@ -1,5 +1,6 @@
 // Workbook structure review: sheet layout, formulas, charts and print areas.
 import { auditXlsxFormulas } from '../portable/xlsx-formula-audit.mjs';
+import { columnNumber as columnIndex } from '../portable/portable-cells.mjs';
 import { issue } from './assurance-issue.mjs';
 
 function cellRow(ref) {
@@ -35,12 +36,6 @@ function numericCell(cell) {
   return Number.isFinite(Number(raw.replaceAll(',', '').replace(/%$/, '')));
 }
 
-function columnIndex(label) {
-  let index = 0;
-  for (const character of String(label).toUpperCase()) index = index * 26 + (character.charCodeAt(0) - 64);
-  return index;
-}
-
 // A print area is one or more A1 ranges; Excel prints each as its own page set.
 function printAreas(reference) {
   return String(reference || '')
@@ -62,9 +57,34 @@ function sheetAt(sheet) {
   return sheet.path || `/sheet[${sheet.name || ''}]`;
 }
 
-function reviewXlsxHierarchy(sheet, cells, issues) {
+// The face a sheet's plain cells wear: the workbook's default where the reading states it, else the commonest.
+function baseFace(cells, defaults) {
+  if (defaults?.fontName || defaults?.fontSize) return { fontName: defaults.fontName, fontSize: defaults.fontSize };
+  const counts = new Map();
+  for (const cell of cells) {
+    const face = `${cell.style?.fontName ?? ''}\u0000${cell.style?.fontSize ?? ''}`;
+    counts.set(face, (counts.get(face) || 0) + 1);
+  }
+  const [face = '\u0000'] = [...counts].sort((left, right) => right[1] - left[1])[0] || [];
+  const [fontName, fontSize] = face.split('\u0000');
+  return { fontName, fontSize: fontSize === '' ? undefined : Number(fontSize) };
+}
+
+// A cell is styled by what it states beyond that face. The Office reader reports the workbook font (맑은 고딕 11)
+// on every cell, which counted a sheet of plain data as styled and kept this check from ever firing there.
+function styledCell(style, base) {
+  return Object.entries(style || {}).some(([key, value]) => {
+    if (key === 'fontName') return Boolean(value) && value !== base.fontName;
+    if (key === 'fontSize') return value != null && Number(value) !== Number(base.fontSize);
+    if (key === 'color') return !/^(?:#?000000|auto)?$/i.test(String(value ?? ''));
+    return value != null && value !== '' && value !== false;
+  });
+}
+
+function reviewXlsxHierarchy(sheet, cells, issues, defaults) {
   if (cells.length < 8) return;
-  const styled = cells.filter((cell) => cell.style && Object.keys(cell.style).length);
+  const base = baseFace(cells, defaults);
+  const styled = cells.filter((cell) => styledCell(cell.style, base));
   if (styled.length) return;
   issues.push(
     issue(
@@ -242,7 +262,7 @@ export function reviewXlsxStructure(document, auditProfile = '') {
     const cells = Array.isArray(sheet.cells) ? sheet.cells : [];
     const pageSetup = sheet.pageSetup || {};
     const drawings = sheetDrawings(sheet);
-    reviewXlsxHierarchy(sheet, cells, issues);
+    reviewXlsxHierarchy(sheet, cells, issues, document?.defaultStyle);
     reviewXlsxFormulaErrors(sheet, cells, issues);
     reviewXlsxChartRanges(sheet, cells, xlsxTotalRows(cells), issues);
     reviewXlsxPrintFit(sheet, pageSetup, issues);

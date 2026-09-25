@@ -63,7 +63,9 @@ function collapseRepeats(entries: string[]): string[] {
 
 /** Elements a brief reply no longer sees, by role and name; they have no ref. */
 function goneList(gone: Array<{ role: string; name: string }>): string {
-  const named = gone.slice(0, 5).map((el) => `${redactBrowserText(el.role)} ${JSON.stringify(redactBrowserText(el.name))}`);
+  const named = gone
+    .slice(0, 5)
+    .map((el) => `${redactBrowserText(el.role)} ${JSON.stringify(redactBrowserText(el.name))}`);
   return named.join(', ') + (gone.length > named.length ? ', …' : '');
 }
 
@@ -152,7 +154,7 @@ export function formatSnapshot(
 
 // A capped or filtered baseline never reported the rest of the page, so an
 // element missing from it may be untouched rather than new. Listing both
-// kinds as "changed" made one filled field read as a page-wide change, so
+// kinds as "changed" would make one filled field read as a page-wide change, so
 // what this action demonstrably altered is kept apart from what the caller
 // simply had not seen yet. Nothing is hidden either way.
 function briefLines(

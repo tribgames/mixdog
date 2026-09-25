@@ -290,6 +290,13 @@
   --mx-overlay:
     0 16px 32px var(--mx-alpha-dark-30), 0 8px 16px var(--mx-alpha-dark-30), 0 0 0 0.5px var(--mx-alpha-light-16),
     0 -0.5px 0 var(--mx-alpha-light-6);
+  /* Soft contact shadow under cards/rows (composer, context dock, model
+     rows). Dark shades with its own deepest surface; light overrides with a
+     real ink tint, because a paper-grey "shadow" disappears on paper. */
+  --mx-shadow-tint: var(--mx-bg-deep);
+  /* Quiet chip/segmented-control plate. Dark lifts with a white wash; light
+     overrides with an ink wash — a white wash vanishes on white. */
+  --mx-chip-bg: var(--mx-alpha-light-6);
   /* Buttons are flat (user): one hairline boundary, no drop or bevel. */
   --mx-button: 0 0 0 0.5px var(--mx-alpha-light-20);
   --mx-button-contrast: 0 0 0 0.5px var(--mx-alpha-light-40);
@@ -431,26 +438,31 @@
      raw brown set. The neutral values live on the theme itself now, so
      light and dark share one temperature everywhere. */
 
-  /* ── 2. Surfaces (back → front) ── */
-  --mx-bg-deep: #f5f5f5;
-  /* Band/sheet keep the strong separation fixed earlier, on the neutral axis. */
-  --mx-window-band: #f0f0f0;
-  /* Grok-web chat canvas: a step deeper than white so white cards (code,
-     tables, composer field) float on it. */
-  --mx-workspace-sheet: #fafafa;
+  /* ── 2. Surfaces (back → front) ──
+     The dark ramp mirrored onto paper (user: 다크랑 통일감): the same depth
+     order deep < band < sheet < base, the same +3 blue offset on every grey,
+     and steps wide enough to read on white — the old set ran 2-5 steps apart
+     and put deep ABOVE the band, so the shell read as one flat grey sheet. */
+  --mx-bg-deep: #e8e8eb;
+  --mx-window-band: #efeff2;
+  /* Chat canvas one clear step under white so white cards (code, tables,
+     composer field) float on it, as base floats on the dark sheet. */
+  --mx-workspace-sheet: #f8f8fb;
   --mx-bg-base: #ffffff;
-  --mx-bg-layer-1: #f7f7f7;
-  --mx-bg-layer-2: #f0f0f0;
-  --mx-bg-layer-3: #e8e8e8;
-  --mx-bg-contrast: #242424;
+  --mx-bg-layer-1: #f4f4f7;
+  --mx-bg-layer-2: #ececef;
+  --mx-bg-layer-3: #e3e3e6;
+  --mx-bg-contrast: #242427;
   --mx-surface-plate: rgba(23, 24, 26, 0.045);
 
   /* ── 3. Ink ── */
-  /* Deep ink: main prose reads a step deeper than Grok's; softness stays in
-     the canvas, never in grey text (user-flagged twice). */
-  --mx-text: #17181a;
-  --mx-text-muted: #5c6066;
-  --mx-text-faint: #717171; /* 4.7:1 on the neutral paper; #8a8f95 sat at 3.1 and read washed under its own rows */
+  /* Deep ink, one step off black — the paper mirror of dark's #e9e9e9 (not
+     pure white), matching the ink reference light themes use. It still sits
+     at ≥13:1, so prose never reads grey (user-flagged twice). Muted/faint carry
+     the surfaces' +3 offset instead of their own stronger blue cast. */
+  --mx-text: #242529;
+  --mx-text-muted: #5c5c60;
+  --mx-text-faint: #6a6a6e; /* ≥4.5:1 on the band; #8a8f95 sat at 3.1 and read washed under its own rows */
   --mx-text-accent: #1a73e8;
   --mx-accent: var(--mx-text-accent);
   /* Paper needs the darker rung of the same blue: #79b8ff sits ~2:1 on white. */
@@ -470,12 +482,12 @@
   --mx-hover: rgba(0, 0, 0, 0.05);
   --mx-pressed: rgba(0, 0, 0, 0.09);
   /* Opaque sidebar-row tones (hover/selected under opaque action gradients). */
-  --mx-hover-opaque: #e9e9e9;
-  --mx-pressed-opaque: #e2e2e2;
-  /* Light tab pill: OPAQUE grey ≈6% below the #f2f2f2 band so the active tab
+  --mx-hover-opaque: #e8e8eb;
+  --mx-pressed-opaque: #e1e1e4;
+  /* Light tab pill: OPAQUE grey ≈4% below the band so the active tab
      stays visible — an alpha pill stacked with the close-button gradient into
      blotchy double-darkening. */
-  --mx-tab-pill: #e6e6e6;
+  --mx-tab-pill: #e5e5e8;
   --mx-scrim: rgba(20, 20, 22, 0.38);
   --mx-accent-bg: #1967d2;
   --mx-contrast-hover: rgba(255, 255, 255, 0.122);
@@ -521,9 +533,14 @@
     inset 0 2px 2px rgba(0, 0, 0, 0.102), inset 0 1px 1px rgba(0, 0, 0, 0.102), inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
   --mx-switch-thumb-shadow: 0 0.5px 0.5px rgba(0, 0, 0, 0.4);
   --mx-switch-thumb-border: rgba(23, 24, 26, 0.25);
-  --mx-raised: 0 2px 4px rgba(0, 0, 0, 0.039), 0 1px 2px -1px rgba(0, 0, 0, 0.078), 0 0 0 0.5px rgba(0, 0, 0, 0.122);
-  --mx-floating: 0 8px 16px rgba(0, 0, 0, 0.039), 0 4px 8px rgba(0, 0, 0, 0.078), 0 0 0 0.5px rgba(0, 0, 0, 0.122);
-  --mx-overlay: 0 16px 32px rgba(0, 0, 0, 0.039), 0 8px 16px rgba(0, 0, 0, 0.078), 0 0 0 0.5px rgba(0, 0, 0, 0.122);
+  /* Same two-drop + hairline build as the dark set; the drops are strong
+     enough to lift a white card off the paper sheet (the old 4%/8% pair did
+     not register, so cards leaned on the hairline alone). */
+  --mx-raised: 0 2px 4px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  --mx-floating: 0 8px 16px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  --mx-overlay: 0 16px 32px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  --mx-shadow-tint: rgba(0, 0, 0, 0.22);
+  --mx-chip-bg: rgba(23, 24, 26, 0.05);
   --mx-button: 0 0 0 0.5px rgba(0, 0, 0, 0.141);
   --mx-button-contrast: 0 0 0 0.5px #3a3a3a;
 }

@@ -6,25 +6,17 @@
 // valid transcript instead of leaking the 400 to the user.
 import { sanitizeToolPairs } from '../context-utils.mjs';
 
-// Transcript pairing guard. Anthropic 400-rejects when an assistant message
-// ends with tool_use blocks and the next message isn't tool results for
-// those exact ids. abort/timeout/error race in the loop body can leave a
-// dangling assistant tool_use at the tail (e.g. the structure_probe loop
-// running 12 deep then aborting between push-assistant and push-tool).
-// Strip any trailing assistant tool_use that has no matching tool result
-// so provider.send sees a valid transcript instead of leaking the 400 to
-// the user. Repair runs every iteration but is a no-op on healthy paths.
+// Example: a loop aborting between push-assistant and push-tool leaves the
+// dangling tool_use at the tail. Repair runs every iteration but is a no-op on
+// healthy paths.
 function _ensureTranscriptPairing(msgs, sessionId) {
   // Walk backwards to find the last assistant message that emitted
   // tool_use, then validate that every id has a matching tool result
   // inside the CONTIGUOUS tool-message block immediately following it.
-  // Earlier guard splice'd the entire tail — which silently deleted any
-  // user prompt appended after the dangling assistant by manager.mjs:
-  // when the guard fired with shape
-  //     [..., assistant{a,b}, tool{a}, user{new prompt}]
-  // the splice removed user{new prompt} along with the orphan suffix.
-  // Fix: remove only assistant + the contiguous tool block; preserve
-  // anything past it (user / system / next assistant) untouched.
+  // Remove only that assistant + its contiguous tool block: anything past
+  // it (a user prompt manager.mjs appended, system, next assistant) must
+  // survive — for [..., assistant{a,b}, tool{a}, user{new prompt}] the new
+  // prompt stays.
   let popped = 0;
   while (msgs.length > 0) {
     let lastAssistantIdx = -1;

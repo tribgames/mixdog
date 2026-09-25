@@ -32,6 +32,11 @@ export const NATIVE_TOOL_PLATFORM_KEYS = Object.freeze([
   'win32-x64',
 ]);
 
+/** Platforms a native tool release may add beyond the required set. A host
+ *  whose manifest lacks one runs the asset platformKeyCandidates falls back to
+ *  (Windows on ARM runs win32-x64 under emulation). */
+export const OPTIONAL_NATIVE_TOOL_PLATFORM_KEYS = Object.freeze(['win32-arm64']);
+
 /** Released asset name. */
 export function nativeToolAssetName(kind, target) {
   const suffix = target.platform === 'win32' ? '.exe' : '';

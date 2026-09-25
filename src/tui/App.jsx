@@ -552,7 +552,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     applySelectionRectThrottled,
     selectionPointAtCurrentScroll,
     buildSpanRect,
-    scrollTranscriptRows,
     queueScrollCoalesced,
     setSlashIndex,
     setMeasuredRowsVersion,

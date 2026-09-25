@@ -29,15 +29,17 @@ export function sessionColor(sessionId: string): string {
   return SESSION_COLORS[hash % SESSION_COLORS.length] || SESSION_COLORS[0];
 }
 
+/** Which activity the banner speaks for; unlisted phases rank last. */
+const ACTIVITY_PHASE_RANK: Partial<Record<ComputerUseActivity['phase'], number>> = {
+  paused_user_takeover: 0,
+  active_foreground: 1,
+  active_background: 2,
+  queued_foreground: 3,
+  queued_target: 4,
+};
+
 function primaryActivity(activities: ComputerUseActivity[]): ComputerUseActivity | undefined {
-  const rank = (activity: ComputerUseActivity): number => {
-    if (activity.phase === 'paused_user_takeover') return 0;
-    if (activity.phase === 'active_foreground') return 1;
-    if (activity.phase === 'active_background') return 2;
-    if (activity.phase === 'queued_foreground') return 3;
-    if (activity.phase === 'queued_target') return 4;
-    return 5;
-  };
+  const rank = (activity: ComputerUseActivity): number => ACTIVITY_PHASE_RANK[activity.phase] ?? 5;
   return [...activities].sort((left, right) => rank(left) - rank(right))[0];
 }
 

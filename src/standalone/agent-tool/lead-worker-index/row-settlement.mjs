@@ -3,11 +3,15 @@
 // terminal reap deadline from config.
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { resolveAgentTerminalReapMs } from '../../../session-runtime/config-helpers.mjs';
 import { clean, runtimeAlive } from '../helpers.mjs';
+import { createRowLiveness } from '../worker-index/row-liveness.mjs';
 import { isActiveLeadRow, LEAD_POOL_FRESH_MS } from './lead-rows.mjs';
 
 export function createRowSettlement({ dataDir, cfgMod }) {
+  // Lead rows settle to idle exactly like worker rows: same stamps, same
+  // config-driven terminal reap deadline.
+  const { idleRow } = createRowLiveness({ dataDir, cfgMod });
+
   function leadHeartbeatFresh(sessionId, now) {
     const id = clean(sessionId);
     if (!dataDir || !id) return false;
@@ -29,31 +33,8 @@ export function createRowSettlement({ dataDir, cfgMod }) {
     return !(updated > 0 && now - updated <= LEAD_POOL_FRESH_MS);
   }
 
-  function terminalReapAt(row, now) {
-    let reapMs = null;
-    try {
-      reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row?.provider);
-    } catch {
-      reapMs = null;
-    }
-    return reapMs == null ? null : new Date(now + reapMs).toISOString();
-  }
-
   /** Settle one active row. `touch` marks a turn that ended HERE (fresh idle
    *  stamps + reap window); recovery leaves the dead runtime's stamps alone so
    *  ordering and an already scheduled reap keep their original moment. */
-  function idleLeadRow(row, now, touch = false) {
-    const stamp = new Date(now).toISOString();
-    return {
-      ...row,
-      status: 'idle',
-      stage: 'idle',
-      turnStartedAt: null,
-      finishedAt: touch ? stamp : clean(row.finishedAt) || clean(row.updatedAt) || stamp,
-      updatedAt: touch ? stamp : clean(row.updatedAt) || stamp,
-      reapAt: touch ? terminalReapAt(row, now) : clean(row.reapAt) || terminalReapAt(row, now),
-    };
-  }
-
-  return { staleActiveLeadRow, idleLeadRow };
+  return { staleActiveLeadRow, idleLeadRow: idleRow };
 }

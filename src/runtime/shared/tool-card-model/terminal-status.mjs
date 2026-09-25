@@ -41,6 +41,14 @@ export function deriveToolOutcomeTone({
   return 'success';
 }
 
+const TERMINAL_STATUS_LABELS = new Map([
+  ['running', 'Running'],
+  ['completed', 'Finished'],
+  ['failed', 'Failed'],
+  ['cancelled', 'Cancelled'],
+  ['denied', 'Denied'],
+]);
+
 export function displayTerminalStatus(value) {
   // 'exit' is a shell-only pseudo-status (command RAN but exited non-zero); it
   // is intentionally NOT a normalized terminal status so it never colors red.
@@ -50,13 +58,7 @@ export function displayTerminalStatus(value) {
       .toLowerCase() === 'exit'
   )
     return 'Exited';
-  const status = normalizeTerminalStatus(value);
-  if (status === 'running') return 'Running';
-  if (status === 'completed') return 'Finished';
-  if (status === 'failed') return 'Failed';
-  if (status === 'cancelled') return 'Cancelled';
-  if (status === 'denied') return 'Denied';
-  return '';
+  return TERMINAL_STATUS_LABELS.get(normalizeTerminalStatus(value)) || '';
 }
 
 export function resultTerminalStatus(value) {
@@ -94,7 +96,7 @@ export function prefixElapsed(detail, elapsed = '') {
   if (!time) return text;
   // Unified convention: the elapsed time ALWAYS goes at the END, ` · ` separated.
   // Guard against a double-append when the text already ends with the same time.
-  if (text?.endsWith(`· ${time}`)) return text;
+  if (text.endsWith(`· ${time}`)) return text;
   return text ? `${text} · ${time}` : time;
 }
 

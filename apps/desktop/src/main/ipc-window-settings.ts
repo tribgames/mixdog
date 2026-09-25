@@ -1,5 +1,5 @@
 // Desktop settings, zoom, the native title bar, capability calls, and quit.
-import type { App, BrowserWindow, IpcMainInvokeEvent } from 'electron';
+import type { App, BrowserWindow } from 'electron';
 import { DESKTOP_IPC, type DesktopSettings } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import { readOnboardingStatusFromDisk } from './onboarding-status-file';
@@ -12,8 +12,7 @@ import {
   requiredString,
   requiredZoomFactor,
 } from './ipc-validation';
-
-type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
+import type { IpcHandle as Handle } from './ipc';
 
 interface WindowSettingsIpcOptions {
   window: BrowserWindow;

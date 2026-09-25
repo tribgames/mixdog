@@ -23,6 +23,11 @@ const REMOTE_DEVICE_ID = /^[0-9a-f-]{8,64}$/u;
 const REMOTE_CLIENT_CREDENTIAL = /^[0-9a-f]{32,128}$/u;
 const DEVICE_COOKIE_NAME = 'mixdog_device';
 
+/** The per-browser credential format the relay mints on registration and approval. */
+export function isRemoteClientCredential(value: string): boolean {
+  return REMOTE_CLIENT_CREDENTIAL.test(value);
+}
+
 /** A pairing that has completed one E2EE WebSocket handshake already owns a
  * per-browser credential. Dial it directly; the relay's 4003/4005 close path
  * remains the authoritative revoked/stale-credential check. */
@@ -35,7 +40,7 @@ export function canReuseStoredRemoteClientRegistration({
   token: string;
   hasE2eePairing: boolean;
 }): boolean {
-  return everPaired && hasE2eePairing && REMOTE_CLIENT_CREDENTIAL.test(token);
+  return everPaired && hasE2eePairing && isRemoteClientCredential(token);
 }
 
 function isLoopbackHostname(hostname: string): boolean {

@@ -16,7 +16,7 @@ import {
   parseV4APatch,
   prepareInput,
 } from '../parsing.mjs';
-import { classifyEntry, parsedEntryResolvedPath, resolveV4AEntryPath, stripDiffPrefix } from '../paths.mjs';
+import { entryHeaderName, parsedEntryResolvedPath, resolveV4AEntryPath, stripDiffPrefix } from '../paths.mjs';
 import { rewriteParsedReadRedirects, rewriteV4AReadRedirects } from '../read-redirects.mjs';
 import { coalesceCompatibleV4ASections } from '../section-coalesce.mjs';
 import {
@@ -64,8 +64,7 @@ function sectionUnit(section, basePath, { v4aConvertOpts, readStateScope, dryRun
 }
 
 function parsedEntryUnit(entry, basePath) {
-  const kind = classifyEntry(entry);
-  const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
+  const headerName = entryHeaderName(entry);
   if (!headerName) {
     throw new Error(
       'apply_patch: a file section header could not be parsed (no target path) — the patch body is not a valid diff. ' +
@@ -74,7 +73,7 @@ function parsedEntryUnit(entry, basePath) {
     );
   }
   return {
-    displayPath: normalizeOutputPath(stripDiffPrefix(headerName || '')),
+    displayPath: normalizeOutputPath(stripDiffPrefix(headerName)),
     fullPath: parsedEntryResolvedPath(entry, basePath),
     buildParsed: async () => [entry],
   };

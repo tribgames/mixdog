@@ -13,16 +13,7 @@ import {
 } from './http-fetch.mjs';
 import { extractDocument } from './document-content.mjs';
 import { abortable, runFetchPipeline } from './fetch-pipeline.mjs';
-
-// Facade re-exports: keep the original public surface resolving unchanged for
-// importers that predate the ssrf-guard / http-fetch split.
-export {
-  assertPublicUrl,
-  resolveAndValidate,
-  assertResolvedIps,
-  pinnedFetch,
-} from './ssrf-guard.mjs';
-export { isFatalHttpPathPolicyError } from './http-fetch.mjs';
+import { noteProviderFailure, noteProviderSuccess, classifyProviderError } from './state.mjs';
 
 // Browser automation is loaded only when the HTTP path needs rendering.
 let _puppeteer = null;
@@ -30,7 +21,6 @@ async function loadPuppeteer() {
   if (!_puppeteer) _puppeteer = (await import('puppeteer-core')).default;
   return _puppeteer;
 }
-import { noteProviderFailure, noteProviderSuccess, classifyProviderError } from './state.mjs';
 
 const COMMON_BROWSER_PATHS = (() => {
   const platform = process.platform;

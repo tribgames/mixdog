@@ -1,6 +1,5 @@
 /**
  * Transcript spill storage, history paging, and session item-state mutations.
- * Compatibility re-exports preserve the session runtime's public surface.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -11,9 +10,6 @@ import {
   writeOwnerRegistry,
 } from './transcript-spill/spill-dir.mjs';
 import { createSpillWriter } from './transcript-spill/spill-writer.mjs';
-import { toolResultText, toolAggregateDetailFallback, toolGroupedDisplayFallback } from './tool-result-text.mjs';
-import { parseBackgroundTaskEnvelope } from './agent-envelope.mjs';
-import { resolveTuiRuntimeNotificationDelivery } from './notification-plan.mjs';
 
 export const TUI_DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_TUI_DEBUG || ''));
 export const tuiDebug = (msg) => {
@@ -23,7 +19,7 @@ export const tuiDebug = (msg) => {
   } catch {}
 };
 
-export let _idSeq = 0;
+let _idSeq = 0;
 export const nextId = () => `it_${++_idSeq}`;
 
 export const TRANSCRIPT_LIVE_ITEM_CAP = 512;
@@ -213,21 +209,18 @@ export function refillTranscriptViewOverlap(viewItems, previousLiveItems, nextLi
   return [...historical, ...(nextLiveItems || []).slice(0, TRANSCRIPT_RESTORE_OVERLAP_ITEMS)];
 }
 
-// Re-export the shared tool-result/notification helpers so importers (and tests)
-// keep resolving them from session-local.mjs unchanged.
-export { toolResultText, toolAggregateDetailFallback, toolGroupedDisplayFallback };
-export { parseBackgroundTaskEnvelope };
-// Re-export the pure notification delivery plan (moved to ./session/notification-plan.mjs)
-// so importers/tests keep resolving resolveTuiRuntimeNotificationDelivery from session-local.mjs.
-export { resolveTuiRuntimeNotificationDelivery };
+// Rebuild the id → live-index map for a replaced item list.
+export function reindexItems(itemIndexById, items) {
+  itemIndexById.clear();
+  for (let i = 0; i < items.length; i++) {
+    const id = items[i]?.id;
+    if (id != null) itemIndexById.set(id, i);
+  }
+}
 
 export function replaceSessionItemsState({ state, items, itemIndexById, preserveStreamingTail = false, extra = {} }) {
   const nextItems = Array.isArray(items) ? items : [];
-  itemIndexById.clear();
-  for (let i = 0; i < nextItems.length; i++) {
-    const id = nextItems[i]?.id;
-    if (id != null) itemIndexById.set(id, i);
-  }
+  reindexItems(itemIndexById, nextItems);
   return {
     ...state,
     ...extra,
@@ -281,18 +274,14 @@ export function createSessionItemMutators({
     }
     if (existingIndex >= 0) return false;
     const item = {
-      ...(tail || {}),
+      ...tail,
       ...patch,
       kind: 'assistant',
       id,
       streaming: false,
     };
     const items = normalizeItems([...state.items, item]);
-    itemIndexById.clear();
-    for (let i = 0; i < items.length; i++) {
-      const itemId = items[i]?.id;
-      if (itemId != null) itemIndexById.set(itemId, i);
-    }
+    reindexItems(itemIndexById, items);
     const settledIndex = items.findIndex((entry) => entry?.id === id);
     set({
       items,

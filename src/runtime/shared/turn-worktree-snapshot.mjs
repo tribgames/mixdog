@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { cleanString as clean } from './clean.mjs';
+import { resolvePluginData } from './plugin-paths.mjs';
 
 const COMMAND_TIMEOUT_MS = 30_000;
 const COMMAND_MAX_BYTES = 8 * 1024 * 1024;
@@ -10,18 +11,12 @@ const PATCH_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_UNTRACKED_FILE_BYTES = 2 * 1024 * 1024;
 // Baselines used to live in the OS temp directory, where a reboot or a disk
 // cleaner could remove the only copy of a turn's revert source. Keep them with
-// the rest of the runtime data (same resolution as
-// session-runtime/runtime-paths.mjs; shared code cannot import that layer).
-const DATA_DIR = process.env.MIXDOG_DATA_DIR || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
-const SNAPSHOT_ROOT = join(DATA_DIR, 'turn-worktree-snapshots-v1');
+// the rest of the runtime data.
+const SNAPSHOT_ROOT = join(resolvePluginData(), 'turn-worktree-snapshots-v1');
 // A baseline tree is unreachable by design (no commit, no ref), so collection
 // is what bounds how long a review stays revertible.
 const SHADOW_GC_PRUNE = '7.days.ago';
 const states = new Map();
-
-function clean(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function pathKey(value) {
   const text = clean(value).replace(/\\/g, '/');

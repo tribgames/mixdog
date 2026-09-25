@@ -34,10 +34,7 @@ export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfg
       // A disabled agent must not silently fall back to the Main model:
       // "off" means the maintenance role does not run at all.
       if (isAgentDisabled(config, role)) return null;
-      const candidates = [
-        ...configuredAgentRouteCandidates(config, role),
-        role && includeDefault ? config?.default : null,
-      ];
+      const candidates = [...configuredAgentRouteCandidates(config, role), includeDefault ? config?.default : null];
       for (const candidate of candidates) {
         const route = normalizeMaintenanceCandidate(candidate);
         if (route) return route;

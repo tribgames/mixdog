@@ -22,6 +22,14 @@ function pixelStatus(pixelUnavailable: unknown, mode: ReturnType<typeof captureM
   return mode === 'ax' ? 'not_requested' : 'available';
 }
 
+function pixelUnavailableFields(pixelUnavailable: ScreenshotCapture['pixelUnavailable']) {
+  if (!pixelUnavailable) return {};
+  return {
+    pixel_unavailable: pixelUnavailable,
+    escalation: pixelUnavailable.reason === 'window_hidden' ? 'focus_window' : 'recapture',
+  };
+}
+
 export function captureResultPayload(input: {
   captureOk: boolean;
   mode: ReturnType<typeof captureMode>;
@@ -93,11 +101,6 @@ export function captureResultPayload(input: {
     ...(mode !== 'vision' ? { elements } : {}),
     ...(ocrPayload ? { ocr: ocrPayload } : {}),
     pixel_status: pixelStatus(screenshot?.pixelUnavailable, mode),
-    ...(screenshot?.pixelUnavailable
-      ? {
-          pixel_unavailable: screenshot.pixelUnavailable,
-          escalation: screenshot.pixelUnavailable.reason === 'window_hidden' ? 'focus_window' : 'recapture',
-        }
-      : {}),
+    ...pixelUnavailableFields(screenshot?.pixelUnavailable),
   };
 }

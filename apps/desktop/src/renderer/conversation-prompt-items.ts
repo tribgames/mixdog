@@ -23,13 +23,6 @@ export function settledUserRowCount(items: readonly TranscriptItem[]): number {
   return count;
 }
 
-let desktopSubmissionSequence = 0;
-
-export function nextDesktopSubmissionId(): string {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  return `desktop-submit-${uuid || `${Date.now()}-${++desktopSubmissionSequence}`}`;
-}
-
 export function desktopPromptDisplayText(content: DesktopPromptContent, options?: DesktopSubmitOptions): string {
   const explicit = String(options?.displayText || '').trim();
   if (explicit) return explicit;

@@ -21,7 +21,7 @@ function readStoredBrowserFeatureInstalled(): boolean | null {
 
 let cachedBrowserFeatureInstalled: boolean | null = readStoredBrowserFeatureInstalled();
 
-export async function readBrowserFeatureInstalled(): Promise<boolean | null> {
+async function readBrowserFeatureInstalled(): Promise<boolean | null> {
   try {
     const settings = await window.mixdogDesktop?.readSettings?.();
     cachedBrowserFeatureInstalled = settings?.browserInstalled !== false;

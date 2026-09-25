@@ -1,4 +1,5 @@
-import { screen, type BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
+import { nativeToDip } from '../shared/native-coordinates';
 
 /** Return only readiness, never field contents or application text. */
 export function typingTargetProbe(point?: { x: number; y: number }): string {
@@ -38,7 +39,7 @@ export async function waitForElectronTypingTarget(
     await assertAllowed();
     if (window.isDestroyed() || window.webContents.isDestroyed()) return false;
     const bounds = window.getContentBounds();
-    const dip = point ? screen.screenToDipPoint(point) : undefined;
+    const dip = point ? nativeToDip(point) : undefined;
     const zoom = window.webContents.getZoomFactor();
     if (!Number.isFinite(zoom) || zoom <= 0) return false;
     const relative = dip ? { x: (dip.x - bounds.x) / zoom, y: (dip.y - bounds.y) / zoom } : undefined;

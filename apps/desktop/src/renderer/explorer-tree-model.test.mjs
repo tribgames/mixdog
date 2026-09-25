@@ -9,6 +9,8 @@ import {
   collapseExplorerDirs,
   explorerAbsolutePath,
   explorerChildRel,
+  explorerGitClass,
+  explorerGitDecorations,
   explorerHasExpandedDirs,
   explorerParentRel,
   explorerRefreshTargets,
@@ -29,6 +31,42 @@ test('path grammar keeps the project root separator-free', () => {
   assert.equal(explorerChildRel('src', 'app'), 'src/app');
   assert.equal(explorerAbsolutePath('C:/demo', 'src/app.ts'), 'C:/demo/src/app.ts');
   assert.equal(explorerAbsolutePath('C:/demo/', 'a.txt'), 'C:/demo/a.txt');
+});
+
+test('git decorations badge each change and mark every ancestor folder', () => {
+  const { gitFiles, gitDirs } = explorerGitDecorations({
+    repository: true,
+    files: [
+      { path: 'src\\app\\main.ts', index: ' ', worktree: 'M' },
+      { path: 'notes.md', untracked: true },
+      { path: 'src/old.ts', index: 'D', worktree: ' ' },
+      { path: 'docs/guide.md', index: '', worktree: '' },
+      { path: '' },
+    ],
+  });
+  assert.deepEqual(
+    [...gitFiles],
+    [
+      ['src/app/main.ts', 'M'],
+      ['notes.md', 'U'],
+      ['src/old.ts', 'D'],
+      ['docs/guide.md', 'M'],
+    ]
+  );
+  assert.deepEqual([...gitDirs].sort(), ['docs', 'src', 'src/app']);
+  const outside = explorerGitDecorations({ repository: false, files: [{ path: 'a.ts', worktree: 'M' }] });
+  assert.equal(outside.gitFiles.size + outside.gitDirs.size, 0);
+  assert.equal(explorerGitDecorations(null).gitFiles.size, 0);
+
+  assert.deepEqual(['U', 'A', '?', 'D', 'M', 'R', undefined].map(explorerGitClass), [
+    ' git-added',
+    ' git-added',
+    ' git-added',
+    ' git-deleted',
+    ' git-modified',
+    ' git-modified',
+    '',
+  ]);
 });
 
 test('visible rows list directories first and descend only into expanded ones', () => {

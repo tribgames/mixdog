@@ -536,8 +536,8 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
     webFetchUrlArrayShape?.maxItems !== 10 ||
     webFetchUrlArrayShape?.items?.minLength !== undefined ||
     webFetchUrlArrayShape?.items?.format !== 'uri' ||
-    !/Public HTTP\(S\) URL/i.test(webFetchProps.url?.description || '') ||
-    !/array of up to 10 URLs/i.test(webFetchProps.url?.description || '')
+    !/Public or loopback HTTP\(S\) URL/i.test(webFetchProps.url?.description || '') ||
+    !/array of up to 10\b/i.test(webFetchProps.url?.description || '')
   ) {
     throw new Error('web_fetch schema must preserve body-fetch capability and string/array url shape');
   }

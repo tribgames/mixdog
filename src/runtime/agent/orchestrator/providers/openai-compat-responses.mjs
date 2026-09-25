@@ -6,11 +6,10 @@
 // encrypted reasoning replay) mirrors the reference OpenAI client so multi-
 // turn tool loops keep the model's reasoning chain without server storage.
 
-import { markProviderRecoveryExhausted, retryDelayLabel, withRetry } from './retry-classifier.mjs';
+import { markProviderRecoveryExhausted, withRetry } from './retry-classifier.mjs';
 import { consumeCompatResponsesStream } from './openai-compat-stream.mjs';
 import { getModelMetadataSync } from './model-catalog.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
-import { providerRetryStatusText } from '../../../shared/err-text.mjs';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, createPassthroughSignal } from '../stall-policy.mjs';
 import { extractCompatCachedTokens } from './openai-compat-trace.mjs';
 import {
@@ -24,20 +23,16 @@ import {
 } from './openai-compat-wire.mjs';
 import { normalizeOpencodeGoReasoningEffort } from './openai-compat-xai.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
-import { applyCompatToolChoice, compatResponsesReplayProvider } from './compat-request-policy.mjs';
+import {
+  applyCompatToolChoice,
+  compatResponsesReplayProvider,
+  compatStreamRetryReporter,
+} from './compat-request-policy.mjs';
+import { encryptedXaiReasoningItems } from './openai-compat-response-normalization.mjs';
 
 // providerState slot + providerReplay tag. Distinct from the xAI slot so a
 // provider switch never replays foreign encrypted items into this gateway.
 const COMPAT_RESPONSES_STATE_KEY = 'compatResponses';
-
-function encryptedReasoningItems(output) {
-  if (!Array.isArray(output)) return [];
-  return output
-    .filter(
-      (item) => item?.type === 'reasoning' && typeof item?.encrypted_content === 'string' && item.encrypted_content
-    )
-    .map((item) => ({ ...item }));
-}
 
 function resolveReasoningEffort(provider, useModel, opts) {
   const modelInfo =
@@ -118,23 +113,7 @@ async function streamCompatResponses({ provider, params, label, signal, opts }) 
       },
       {
         signal: totalSignal.signal,
-        onRetry: ({ attempt, maxAttempts, lastErr, delayMs, delayReason }) => {
-          const delayLabel = retryDelayLabel(delayMs, delayReason);
-          process.stderr.write(
-            `[${label}] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`
-          );
-          try {
-            opts.onStageChange?.('reconnecting', {
-              attempt: attempt + 1,
-              max: maxAttempts,
-              waitMs: delayMs,
-              classifier: lastErr?.retryClassifier || lastErr?.code || null,
-              message: providerRetryStatusText(lastErr, { attempt: attempt + 1, maxAttempts, delayMs }),
-            });
-          } catch {
-            /* display-only */
-          }
-        },
+        onRetry: compatStreamRetryReporter(label, opts),
       }
     );
   } finally {
@@ -191,7 +170,7 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
       continuationResetReason: continuationResetReason || null,
     });
   }
-  const reasoningItems = encryptedReasoningItems(response?.output);
+  const reasoningItems = encryptedXaiReasoningItems(response?.output);
   const priorState = opts.providerState?.[COMPAT_RESPONSES_STATE_KEY];
   const messageIndex = Array.isArray(messages) ? messages.length : 0;
   const encryptedReasoningHistory = [

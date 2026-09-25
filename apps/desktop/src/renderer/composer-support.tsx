@@ -120,7 +120,7 @@ export function queuedFollowupPreview(entry: unknown) {
   );
 }
 
-export function queuedImageCount(entry: unknown) {
+function queuedImageCount(entry: unknown) {
   const record = asRecord(entry);
   const images = Array.isArray(record?.images) ? record.images.filter(Boolean).length : 0;
   if (images > 0) return images;

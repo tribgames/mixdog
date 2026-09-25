@@ -224,42 +224,36 @@ function recordExecutionInterval(exec) {
 // rejected edit had no side effects, so re-execution is safe.
 async function retryAmbiguousEdit(batch, call, exec) {
   const group = editSeqGroupFor(batch.plan, call);
-  if (
-    group &&
-    exec.resultKind === 'error' &&
-    typeof exec.result === 'string' &&
-    /old_string found \d+ times/.test(exec.result)
-  ) {
-    const remaining = group.total - group.applied;
-    if (remaining >= 1) {
-      const retryStartedAt = Date.now();
-      try {
-        const retry = await batch.executeToolFn(
-          call.name,
-          call.arguments,
-          batch.cwd,
-          batch.sessionId,
-          batch.sessionRef,
-          {
-            ...invocationOptions(batch, call, exec),
-            ...(remaining >= 2 ? { editOccurrence: { expected: remaining } } : {}),
-          }
-        );
-        if (classifyToolReturn(retry, call.name) !== 'error') {
-          exec.result = retry;
-          exec.resultKind = 'normal';
-          exec.executeOk = true;
-          exec.toolEndedAt = Date.now();
-          // Mirror the eager mutation epoch: later read-only eager results
-          // computed against pre-edit content must re-execute.
-          batch.epoch.mutation += 1;
-        }
-      } catch {
-        /* keep the original ambiguity error */
-      } finally {
-        exec.executionIntervals.push({ started_at_ms: retryStartedAt, completed_at_ms: Date.now() });
-      }
-    }
+  if (!group) return;
+  const remaining = group.total - group.applied;
+  if (remaining >= 1 && isAmbiguousEditFailure(exec)) await rerunAmbiguousEdit(batch, call, exec, remaining);
+  if (exec.executeOk && exec.resultKind !== 'skipped') group.applied += 1;
+}
+
+function isAmbiguousEditFailure(exec) {
+  return (
+    exec.resultKind === 'error' && typeof exec.result === 'string' && /old_string found \d+ times/.test(exec.result)
+  );
+}
+
+async function rerunAmbiguousEdit(batch, call, exec, remaining) {
+  const retryStartedAt = Date.now();
+  try {
+    const retry = await batch.executeToolFn(call.name, call.arguments, batch.cwd, batch.sessionId, batch.sessionRef, {
+      ...invocationOptions(batch, call, exec),
+      ...(remaining >= 2 ? { editOccurrence: { expected: remaining } } : {}),
+    });
+    if (classifyToolReturn(retry, call.name) === 'error') return;
+    exec.result = retry;
+    exec.resultKind = 'normal';
+    exec.executeOk = true;
+    exec.toolEndedAt = Date.now();
+    // Mirror the eager mutation epoch: later read-only eager results
+    // computed against pre-edit content must re-execute.
+    batch.epoch.mutation += 1;
+  } catch {
+    /* keep the original ambiguity error */
+  } finally {
+    exec.executionIntervals.push({ started_at_ms: retryStartedAt, completed_at_ms: Date.now() });
   }
-  if (group && exec.executeOk && exec.resultKind !== 'skipped') group.applied += 1;
 }

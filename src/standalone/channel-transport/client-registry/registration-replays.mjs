@@ -6,7 +6,7 @@
 // how long an unflushed registration can stay cancellable.
 import { parsePid } from '../../../runtime/shared/pid-liveness.mjs';
 
-const replayIdOf = (registrationId) => (registrationId ? String(registrationId).slice(0, 200) : null);
+export const replayIdOf = (registrationId) => (registrationId ? String(registrationId).slice(0, 200) : null);
 
 /** A replayed reconnect must name the same logical client. */
 export function replayMatchesRegistration(replay, { pid, cwd, replacementToken, restoreId }) {
@@ -38,9 +38,7 @@ export function createRegistrationReplays({ registrationReplays, ttlMs, onExpire
   function remove(replayId, replay = registrationReplays.get(replayId)) {
     if (!replay || registrationReplays.get(replayId) !== replay) return;
     registrationReplays.delete(replayId);
-    try {
-      clearTimeout(replay.timer);
-    } catch {}
+    clearTimeout(replay.timer);
   }
 
   /** Forget every replay record that names `token` (a live stream or a call
@@ -59,9 +57,7 @@ export function createRegistrationReplays({ registrationReplays, ttlMs, onExpire
    *  creates a valid client even if its SSE/call is delayed; the TTL only
    *  bounds cancellation metadata and retires an UNFLUSHED registration. */
   function arm(replayId, replay) {
-    try {
-      clearTimeout(replay.timer);
-    } catch {}
+    clearTimeout(replay.timer);
     replay.timer = setTimeout(() => {
       if (registrationReplays.get(replayId) !== replay) return;
       remove(replayId, replay);

@@ -13,6 +13,7 @@ import {
   configureLocalProviderIdleTtl,
 } from '../../runtime/local-provider/managed-runtime.mjs';
 import { deferComputerSessionRelease, endComputerExecution } from '../../runtime/computer-bridge/client.mjs';
+import { developerOptionEnabled } from '../../runtime/shared/developer-options.mjs';
 import { hasOwn } from '../session-text.mjs';
 import {
   normalizeSystemShellConfig,
@@ -170,6 +171,27 @@ function localProviderAdapters(boot) {
   };
 }
 
+const DEV_ONLY_PROVIDER_IDS = Object.freeze(['cursor-oauth', 'antigravity-oauth']);
+
+function developerAdapters(boot) {
+  const { reg, invalidateProviderCaches, ensureProvidersReady } = boot;
+  return {
+    // After setDeveloperOption: flush the pending save and reload so gates that
+    // read the stored value (developerOptionEnabled) see it now, then apply
+    // live effects. Dev providers appear/disappear in the registry at once.
+    syncDeveloperOption: async (id) => {
+      const config = boot.reloadFullConfig();
+      if (id !== 'devProviders') return;
+      invalidateProviderCaches();
+      if (!developerOptionEnabled('devProviders')) {
+        for (const provider of DEV_ONLY_PROVIDER_IDS) reg.disableProvider?.(provider);
+        return;
+      }
+      await ensureProvidersReady(config?.providers || {});
+    },
+  };
+}
+
 // Pure settings-delegate methods (onboarding status/skip, autoClear, profile,
 // compaction, recap/memory, channels, systemShell, update settings), spread
 // into the facade so the external surface is unchanged.
@@ -196,6 +218,7 @@ function settingsApiFor(boot) {
     setModuleEnabledInConfig,
     ...builtinFeatureAdapters(boot),
     ...localProviderAdapters(boot),
+    ...developerAdapters(boot),
     summarizeWorkflowRoutes,
     parseDurationMs,
     formatDurationMs,

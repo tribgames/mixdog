@@ -424,14 +424,8 @@ export class ComputerUseCoordinator {
   }
 
   endExecution(sessionId: string): void {
-    this.activeCounts.delete(sessionId);
-    this.activities.delete(sessionId);
-    this.cursors.delete(sessionId);
-    this.keystrokes.delete(sessionId);
-    if (this.attentionRequired?.sessionId === sessionId) this.attentionRequired = null;
-    if (this.activities.size === 0 && !this.cleanup.blocked && !this.userControlActive) {
-      this.takeoverReason = '';
-    }
+    this.forgetSession(sessionId);
+    this.clearTakeoverReasonWhenIdle();
     this.changed();
   }
 
@@ -461,9 +455,7 @@ export class ComputerUseCoordinator {
 
   touchTargets(sessionId: string): void {
     this.pruneExpiredLeases();
-    const expiresAt = this.activeCounts.has(sessionId)
-      ? Number.POSITIVE_INFINITY
-      : this.now() + this.targetLeaseGraceMs;
+    const expiresAt = this.leaseExpiryFor(sessionId);
     let touched = false;
     for (const lease of this.targetLeases.values()) {
       if (lease.sessionId !== sessionId) continue;
@@ -559,15 +551,9 @@ export class ComputerUseCoordinator {
   }
 
   cancelSession(sessionId: string): void {
-    this.activeCounts.delete(sessionId);
-    this.activities.delete(sessionId);
-    this.cursors.delete(sessionId);
-    this.keystrokes.delete(sessionId);
-    if (this.attentionRequired?.sessionId === sessionId) this.attentionRequired = null;
+    this.forgetSession(sessionId);
     this.releaseTargets(sessionId);
-    if (this.activities.size === 0 && !this.cleanup.blocked && !this.userControlActive) {
-      this.takeoverReason = '';
-    }
+    this.clearTakeoverReasonWhenIdle();
   }
 
   pauseForUser(reason = 'user_takeover', additionalSessionIds: Iterable<string> = []): string[] {
@@ -601,13 +587,7 @@ export class ComputerUseCoordinator {
     }
     for (const request of this.pendingTargetLeases.splice(0)) {
       if (request.timer) clearTimeout(request.timer);
-      request.resolve({
-        status: 'user_takeover',
-        queued: true,
-        waitedMs: Math.max(0, now - request.enqueuedAt),
-        queuePosition: request.queuePosition,
-        windowIds: request.windowIds,
-      });
+      this.resolveUnacquired(request, 'user_takeover', now);
     }
     this.targetLeases.clear();
     this.scheduleLeaseExpiry();
@@ -642,13 +622,7 @@ export class ComputerUseCoordinator {
     if (this.cleanup.blocked) return;
     for (const request of this.pendingTargetLeases.splice(0)) {
       if (request.timer) clearTimeout(request.timer);
-      request.resolve({
-        status: 'cancelled',
-        queued: true,
-        waitedMs: Math.max(0, this.now() - request.enqueuedAt),
-        queuePosition: request.queuePosition,
-        windowIds: request.windowIds,
-      });
+      this.resolveUnacquired(request, 'cancelled', this.now());
     }
     if (this.leaseExpiryTimer) clearTimeout(this.leaseExpiryTimer);
     this.leaseExpiryTimer = null;
@@ -723,9 +697,7 @@ export class ComputerUseCoordinator {
   }
 
   private assignTargets(sessionId: string, windowIds: string[]): void {
-    const expiresAt = this.activeCounts.has(sessionId)
-      ? Number.POSITIVE_INFINITY
-      : this.now() + this.targetLeaseGraceMs;
+    const expiresAt = this.leaseExpiryFor(sessionId);
     for (const windowId of windowIds) this.targetLeases.set(windowId, { sessionId, expiresAt });
     this.setCommandTarget(sessionId, windowIds[0] || '');
     this.scheduleLeaseExpiry();
@@ -744,15 +716,39 @@ export class ComputerUseCoordinator {
     const now = this.now();
     for (const request of [...this.pendingTargetLeases]) {
       if (request.sessionId !== sessionId || !this.removePendingRequest(request)) continue;
-      request.resolve({
-        status,
-        queued: true,
-        waitedMs: Math.max(0, now - request.enqueuedAt),
-        queuePosition: request.queuePosition,
-        windowIds: request.windowIds,
-      });
+      this.resolveUnacquired(request, status, now);
     }
     this.refreshTargetQueueActivities();
+  }
+
+  /** Answers a queued lease request that leaves the queue without its targets. */
+  private resolveUnacquired(request: PendingTargetLease, status: 'cancelled' | 'user_takeover', now: number): void {
+    request.resolve({
+      status,
+      queued: true,
+      waitedMs: Math.max(0, now - request.enqueuedAt),
+      queuePosition: request.queuePosition,
+      windowIds: request.windowIds,
+    });
+  }
+
+  private forgetSession(sessionId: string): void {
+    this.activeCounts.delete(sessionId);
+    this.activities.delete(sessionId);
+    this.cursors.delete(sessionId);
+    this.keystrokes.delete(sessionId);
+    if (this.attentionRequired?.sessionId === sessionId) this.attentionRequired = null;
+  }
+
+  private clearTakeoverReasonWhenIdle(): void {
+    if (this.activities.size === 0 && !this.cleanup.blocked && !this.userControlActive) {
+      this.takeoverReason = '';
+    }
+  }
+
+  /** An executing session holds its targets indefinitely; an idle one for the grace period. */
+  private leaseExpiryFor(sessionId: string): number {
+    return this.activeCounts.has(sessionId) ? Number.POSITIVE_INFINITY : this.now() + this.targetLeaseGraceMs;
   }
 
   private drainTargetQueue(): void {

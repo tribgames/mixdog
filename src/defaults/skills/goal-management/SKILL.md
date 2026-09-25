@@ -1,7 +1,7 @@
 ---
 name: goal-management
 description: Manage durable goals, task progress, approvals, and completion.
-when_to_use: 'Explicit Goals, or approved work spanning several rounds: staged refactors and migrations, repeated improvement passes, open-ended objectives; not single-turn tasks, plans, or estimates.'
+when_to_use: 'Explicit Goals, approved multi-round work (migrations, improvement passes); not single-turn tasks.'
 dependencies:
   tools:
     - type: tool
@@ -98,6 +98,9 @@ Each continuation should do concrete work or wait on a verified live handle.
 Evidence that changes the next action is progress; repeated reports and plan
 updates alone are not. Reassess a no-progress turn and take the next safe action.
 Observation timeouts do not terminate the observed work or justify restarting it.
+An automatic continuation that ends without a tool call stops automatic turns
+until the task list changes, the user acts, or the time boundary arrives; end a
+turn that way only when no safe action remains, not to idle out the clock.
 
 ## Completion and recovery
 

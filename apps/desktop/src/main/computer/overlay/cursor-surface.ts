@@ -6,6 +6,7 @@
  */
 import { BrowserWindow, screen } from 'electron';
 
+import { nativeToDip } from '../shared/native-coordinates';
 import { CURSOR_HOTSPOT, CURSOR_SIZE, cursorHtml, cursorScript } from './cursor-art';
 import { recordCursorDiagnostic } from './cursor-diagnostics';
 import type { GlidePoint } from './cursor-glide';
@@ -31,14 +32,7 @@ export function newCursorSurface(): CursorSurface {
 }
 
 export function dipPoint(point: { x: number; y: number }): { x: number; y: number } {
-  try {
-    return screen.screenToDipPoint({
-      x: Math.round(point.x),
-      y: Math.round(point.y),
-    });
-  } catch {
-    return { x: Math.round(point.x), y: Math.round(point.y) };
-  }
+  return nativeToDip(point);
 }
 
 export function cursorBoundsDip(dip: GlidePoint): Electron.Rectangle {

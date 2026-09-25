@@ -407,9 +407,9 @@ const bootstrap = harnessInstalled
       return { available: false, itemCount: 0, renderedRows: 0, virtualized: false };
     }
     const current = await api.getSnapshot();
-    if (row.getAttribute('aria-current') === 'page' && String(current?.sessionId || '') !== sessionId) {
-      await api.resumeSession(sessionId);
-    } else if (row.getAttribute('aria-current') !== 'page' || String(current?.sessionId || '') !== sessionId) {
+    // The bridge has no resume call: selecting the sidebar row is how the app
+    // opens a stored session.
+    if (row.getAttribute('aria-current') !== 'page' || String(current?.sessionId || '') !== sessionId) {
       row.click();
     }
     const state = await waitFor(async () => {
@@ -452,8 +452,8 @@ const bootstrap = harnessInstalled
   const api = window.mixdogDesktop;
   if (!api) throw new Error('Desktop preload bridge is missing.');
   const requiredMethods = [
-    'startTask', 'startProject', 'listProjects', 'listSessions', 'getSnapshot', 'submit',
-    'abort', 'readSettings', 'readCapabilities', 'invokeCapability', 'dispose', 'quit',
+    'startTask', 'startProject', 'listProjects', 'listSessions', 'getSnapshot', 'submitNewTask',
+    'submitToSession', 'abortSession', 'readSettings', 'readCapabilities', 'invokeCapability', 'quit',
   ];
   const missingMethods = requiredMethods.filter((name) => typeof api[name] !== 'function');
   if (missingMethods.length) throw new Error('Desktop bridge is missing: ' + missingMethods.join(', '));

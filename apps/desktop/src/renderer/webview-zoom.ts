@@ -3,6 +3,7 @@ import { isRemoteBrowserRenderer } from './remote-ui-projection';
 const MAX_ZOOM = 10;
 const MIN_ZOOM = 0.2;
 const STEP = 0.2;
+const WEB_ZOOM_STORAGE_KEY = 'mixdog.web-zoom';
 const remoteWebSurface = isRemoteBrowserRenderer();
 
 const clampZoom = (value: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(value * 100) / 100));
@@ -14,7 +15,7 @@ function clearRemoteWebZoom(): void {
   document.documentElement.style.zoom = '';
   document.documentElement.style.removeProperty('zoom');
   try {
-    window.localStorage.removeItem('mixdog.web-zoom');
+    window.localStorage.removeItem(WEB_ZOOM_STORAGE_KEY);
   } catch {
     /* private storage */
   }
@@ -32,7 +33,7 @@ async function applyZoom(value: number) {
     if (next === 1) document.documentElement.style.removeProperty('zoom');
     else document.documentElement.style.zoom = String(next);
     try {
-      window.localStorage.setItem('mixdog.web-zoom', String(next));
+      window.localStorage.setItem(WEB_ZOOM_STORAGE_KEY, String(next));
     } catch {
       /* session only */
     }
@@ -67,7 +68,7 @@ if (remoteWebSurface) {
       .catch(() => {});
   } else {
     try {
-      const stored = Number(window.localStorage.getItem('mixdog.web-zoom') || '');
+      const stored = Number(window.localStorage.getItem(WEB_ZOOM_STORAGE_KEY) || '');
       if (stored) void applyZoom(stored);
     } catch {
       /* default 1 */

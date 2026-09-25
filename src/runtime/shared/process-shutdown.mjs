@@ -88,6 +88,10 @@ export function installProcessSignalCleanup({
     running = true;
     removeHandlers();
     let cleanupFailed = false;
+    const reportCleanupFailure = (cleanupError) => {
+      cleanupFailed = true;
+      if (typeof log === 'function') log(`[${name}] cleanup failed: ${errorText(cleanupError)}`);
+    };
 
     if (error) recordCatchableFatal(code);
 
@@ -109,22 +113,19 @@ export function installProcessSignalCleanup({
     try {
       beforeCleanup?.(reason, { code, error });
     } catch (cleanupError) {
-      cleanupFailed = true;
-      if (typeof log === 'function') log(`[${name}] cleanup failed: ${errorText(cleanupError)}`);
+      reportCleanupFailure(cleanupError);
     }
     try {
       if (typeof cleanup === 'function') {
         await waitWithTimeout(cleanup(reason, { code, error }), timeoutMs, `${name} shutdown`);
       }
     } catch (cleanupError) {
-      cleanupFailed = true;
-      if (typeof log === 'function') log(`[${name}] cleanup failed: ${errorText(cleanupError)}`);
+      reportCleanupFailure(cleanupError);
     }
     try {
       afterCleanup?.(reason, { code, error });
     } catch (cleanupError) {
-      cleanupFailed = true;
-      if (typeof log === 'function') log(`[${name}] cleanup failed: ${errorText(cleanupError)}`);
+      reportCleanupFailure(cleanupError);
     }
     if (hardExitTimer) {
       clearTimeout(hardExitTimer);

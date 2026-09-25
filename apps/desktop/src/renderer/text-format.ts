@@ -40,10 +40,7 @@ export function navigationKey(selection: WorkspaceSelection) {
 // Every call mints an independent draft tab (Chrome-style Ctrl+N): the unique
 // draftId keeps navigationKey distinct so multiple New task tabs can coexist.
 export function newDraftSelection(): NavigationSelection {
-  return {
-    kind: 'new',
-    draftId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-  };
+  return { kind: 'new', draftId: workspaceInstanceId() };
 }
 
 function workspaceInstanceId(): string {

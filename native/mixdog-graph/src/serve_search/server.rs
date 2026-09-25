@@ -234,12 +234,7 @@ impl SearchServer {
     /// lines into `writer`, and the idle window releases caches rather than
     /// exiting — the host owns this process.
     pub fn embedded<W: Write + Send + 'static>(writer: W) -> Self {
-        let queue = Arc::new(ResponseQueue::new(response_queue_capacity()));
-        let writer_queue = Arc::clone(&queue);
-        std::thread::Builder::new()
-            .name("mixdog-search-response-writer".to_string())
-            .spawn(move || writer_queue.run(writer))
-            .expect("mixdog response writer");
+        let queue = spawn_response_writer(writer);
         // Unsolicited watcher events must reach THIS host rather than a stdout
         // the addon does not own. Installed before the engine starts, so no
         // event can escape down the wrong route.

@@ -5,7 +5,7 @@
 //                                 per changed file on stderr (path underlined
 //                                 with ANSI when colored), exits non-zero.
 //   `air format <paths>`          formats in place.
-import { parseReformatReport, runChunked, spawnFailureResult, tail } from './shared.mjs';
+import { emptyResult, parseReformatReport, runChunked, spawnFailureResult, tail } from './shared.mjs';
 
 const WOULD_REFORMAT = /^Would reformat:\s*(.+?)\s*$/;
 
@@ -25,7 +25,7 @@ export const runner = {
   async fix({ files, cwd, bin, args = [], timeoutMs, signal }) {
     const result = await runChunked({ bin, baseArgs: [...args, 'format'], files, cwd, timeoutMs, signal });
     if (result.error) return spawnFailureResult('air', result);
-    return { diagnostics: [], changedFiles: [], stderrTail: tail(result.stderr) };
+    return emptyResult(tail(result.stderr));
   },
 };
 

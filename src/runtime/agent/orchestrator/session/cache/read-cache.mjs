@@ -1,7 +1,7 @@
 // Session-scoped read result cache with stat-tuple invalidation.
 // Scoped per sessionId; write-class tools explicitly invalidate touched paths.
 import { _normalizeAbs, _statTuple, _statEqual } from './util.mjs';
-import { clearScopedToolsForSession, clearScopedCounters } from './scoped-cache.mjs';
+import { clearScopedToolsForSession } from './scoped-cache.mjs';
 import { registerSessionPurgeHook } from '../store.mjs';
 import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
 import { setBoundedTextCacheEntry } from './text-cache-budget.mjs';
@@ -282,14 +282,13 @@ export function invalidatePathForSession(sessionId, path, cwd) {
 
 /**
  * Drop everything for a session. Called when the session closes.
- * Also clears scoped cache and counters for the session.
+ * Also clears the scoped cache for the session.
  */
 export function clearReadDedupSession(sessionId) {
   if (!sessionId) return;
   _bySession.delete(sessionId);
   _reverseIdx.delete(sessionId);
   clearScopedToolsForSession(sessionId);
-  clearScopedCounters(sessionId);
 }
 
 /**

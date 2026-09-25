@@ -89,11 +89,12 @@ export function cleanSessionPreview(text, max = 160) {
     .slice(0, limit);
 }
 
-// Stable sentinel carried in every late-tool (deferred MCP) announcement
-// reminder — must stay byte-identical to LATE_TOOL_REMINDER_SENTINEL in
-// src/session-runtime/tool-catalog.mjs. Detection keys on this exact string
-// (never fuzzy matching) so the raw announcement block can be hidden from
-// user-facing surfaces while the model context stays untouched.
+// Stable sentinel carried in late-tool (deferred MCP) announcement reminders.
+// Nothing in this repository emits it any more (late tools now travel as a
+// deferred_tools_delta), but stored transcripts may still hold such blocks.
+// Detection keys on this exact string (never fuzzy matching) so the raw
+// announcement block stays hidden from user-facing surfaces while the model
+// context stays untouched.
 const LATE_TOOL_ANNOUNCEMENT_SENTINEL = 'connected after this session started';
 
 export function isLateToolAnnouncement(text) {

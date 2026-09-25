@@ -88,12 +88,7 @@ function fileFallbackText(file, kind) {
 
 function imageUrlFromPart(block) {
   if (!block || typeof block !== 'object') return null;
-  if (block.type === 'image_url') {
-    const value = block.image_url;
-    if (typeof value === 'string') return value;
-    if (value && typeof value.url === 'string') return value.url;
-  }
-  if (block.type === 'input_image') {
+  if (block.type === 'image_url' || block.type === 'input_image') {
     const value = block.image_url;
     if (typeof value === 'string') return value;
     if (value && typeof value.url === 'string') return value.url;

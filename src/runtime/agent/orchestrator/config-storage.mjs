@@ -17,6 +17,41 @@ const RETIRED_AGENT_FIELDS = Object.freeze([
   'mcpProjectOverrides',
 ]);
 
+// Compaction keys that no longer configure anything; both the stored config
+// and the per-session compaction policy drop them.
+export const RETIRED_COMPACTION_FIELDS = Object.freeze([
+  'type',
+  'compactType',
+  'compact_type',
+  'semantic',
+  'semanticModel',
+  'prune',
+  'tailTurns',
+  'recallMemoryTimeoutMs',
+  'recallIngestLimit',
+  'recallChunkLimit',
+  'recallLimit',
+  'recallCycle1BatchSize',
+  'recallRowsPerSession',
+  'recallWindowSize',
+  'recallConcurrency',
+  'recallCycle1DeadlineMs',
+]);
+
+function isRetiredLocalRoute(route) {
+  return RETIRED_LOCAL_PROVIDER_IDS.has(String(route?.provider || '').trim());
+}
+
+function isRetiredLocalModelKey(key) {
+  return [...RETIRED_LOCAL_PROVIDER_IDS].some((id) => key.startsWith(`${id}/`));
+}
+
+// Keep a canonicalized section only when it still carries something.
+function setOrDelete(target, key, value) {
+  if (value) target[key] = value;
+  else delete target[key];
+}
+
 export function removeRetiredAgentFields(value) {
   for (const key of RETIRED_AGENT_FIELDS) delete value[key];
   return value;
@@ -116,25 +151,7 @@ function canonicalizeCompactionStorage(value) {
   if (Object.hasOwn(raw, 'auto') || Object.hasOwn(raw, 'enabled')) {
     next.auto = raw.auto !== false && raw.enabled !== false;
   }
-  for (const key of [
-    'type',
-    'compactType',
-    'compact_type',
-    'semantic',
-    'semanticModel',
-    'prune',
-    'tailTurns',
-    'recallMemoryTimeoutMs',
-    'recallIngestLimit',
-    'recallChunkLimit',
-    'recallLimit',
-    'recallCycle1BatchSize',
-    'recallRowsPerSession',
-    'recallWindowSize',
-    'recallConcurrency',
-    'recallCycle1DeadlineMs',
-  ])
-    delete next[key];
+  for (const key of RETIRED_COMPACTION_FIELDS) delete next[key];
   delete next.enabled;
   return nonEmptyConfigObject(next);
 }
@@ -179,15 +196,12 @@ export function canonicalizeBuiltinsStorage(raw) {
 }
 
 function retiredLocalProviderStoragePresent(value = {}) {
-  const retiredRoute = (route) => RETIRED_LOCAL_PROVIDER_IDS.has(String(route?.provider || '').trim());
   return (
     [...RETIRED_LOCAL_PROVIDER_IDS].some((id) => Object.hasOwn(value?.providers || {}, id)) ||
-    (Array.isArray(value?.presets) && value.presets.some(retiredRoute)) ||
-    Object.values(configObject(value?.agents)).some(retiredRoute) ||
-    Object.values(configObject(value?.maintenance)).some(retiredRoute) ||
-    Object.keys(configObject(value?.modelSettings)).some((key) =>
-      [...RETIRED_LOCAL_PROVIDER_IDS].some((id) => key.startsWith(`${id}/`))
-    )
+    (Array.isArray(value?.presets) && value.presets.some(isRetiredLocalRoute)) ||
+    Object.values(configObject(value?.agents)).some(isRetiredLocalRoute) ||
+    Object.values(configObject(value?.maintenance)).some(isRetiredLocalRoute) ||
+    Object.keys(configObject(value?.modelSettings)).some(isRetiredLocalModelKey)
   );
 }
 
@@ -195,42 +209,28 @@ export function canonicalizeAgentStorage(value = {}) {
   const next = canonicalizeAgentRouteStorage(value);
   const removedPresetIds = new Set(
     (Array.isArray(next.presets) ? next.presets : [])
-      .filter((preset) => RETIRED_LOCAL_PROVIDER_IDS.has(String(preset?.provider || '').trim()))
+      .filter(isRetiredLocalRoute)
       .map((preset) => String(preset?.id || preset?.name || '').trim())
       .filter(Boolean)
   );
   next.providers = configObject(next.providers);
   for (const id of RETIRED_LOCAL_PROVIDER_IDS) delete next.providers[id];
   next.presets = Array.isArray(next.presets)
-    ? next.presets
-        .map((preset) => normalizePreset(preset))
-        .filter((preset) => preset && !RETIRED_LOCAL_PROVIDER_IDS.has(preset.provider))
+    ? next.presets.map((preset) => normalizePreset(preset)).filter((preset) => preset && !isRetiredLocalRoute(preset))
     : [];
   if (removedPresetIds.has(String(next.default || '').trim())) next.default = null;
   next.agents = Object.fromEntries(
-    Object.entries(configObject(next.agents)).filter(
-      ([, route]) => !RETIRED_LOCAL_PROVIDER_IDS.has(String(route?.provider || '').trim())
-    )
+    Object.entries(configObject(next.agents)).filter(([, route]) => !isRetiredLocalRoute(route))
   );
   next.maintenance = Object.fromEntries(
-    Object.entries(configObject(next.maintenance)).filter(
-      ([, route]) => !RETIRED_LOCAL_PROVIDER_IDS.has(String(route?.provider || '').trim())
-    )
+    Object.entries(configObject(next.maintenance)).filter(([, route]) => !isRetiredLocalRoute(route))
   );
   next.modelSettings = Object.fromEntries(
-    Object.entries(normalizedModelSettings(value)).filter(
-      ([key]) => ![...RETIRED_LOCAL_PROVIDER_IDS].some((id) => key.startsWith(`${id}/`))
-    )
+    Object.entries(normalizedModelSettings(value)).filter(([key]) => !isRetiredLocalModelKey(key))
   );
-  const autoClear = canonicalizeAutoClearStorage(next.autoClear);
-  if (autoClear) next.autoClear = autoClear;
-  else delete next.autoClear;
-  const compaction = canonicalizeCompactionStorage(next.compaction);
-  if (compaction) next.compaction = compaction;
-  else delete next.compaction;
-  const shell = canonicalizeShellStorage(next.shell);
-  if (shell) next.shell = shell;
-  else delete next.shell;
+  setOrDelete(next, 'autoClear', canonicalizeAutoClearStorage(next.autoClear));
+  setOrDelete(next, 'compaction', canonicalizeCompactionStorage(next.compaction));
+  setOrDelete(next, 'shell', canonicalizeShellStorage(next.shell));
   if (Object.hasOwn(next, 'profile')) {
     next.profile = normalizeProfileConfig(next.profile);
   }
@@ -245,9 +245,7 @@ export function canonicalizeAgentStorage(value = {}) {
     else delete next.extensionScopes;
   }
   next.webSearchRoute = normalizeWebSearchRoute(next.webSearchRoute);
-  const modules = canonicalizeModulesStorage(next.modules);
-  if (modules) next.modules = modules;
-  else delete next.modules;
+  setOrDelete(next, 'modules', canonicalizeModulesStorage(next.modules));
   return removeRetiredAgentFields(next);
 }
 

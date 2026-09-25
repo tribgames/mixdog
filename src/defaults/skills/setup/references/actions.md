@@ -126,8 +126,9 @@ bridge state.
   fonts as well as the runtime component.
 - Browser Use, Computer Use, and voice installation/toggles use the same
   `install_builtin` and `set_builtin_enabled` actions through a live Desktop
-  receipt. Computer Use is Windows-only. These actions do not approve OS
-  permission dialogs or first-use tool approval on the user's behalf.
+  receipt. Computer Use runs on Windows, macOS, and Linux desktops. These
+  actions do not approve OS permission dialogs or first-use tool approval on
+  the user's behalf.
 - Environment feature overrides are diagnostics for headless or benchmark
   environments, not ordinary user settings.
 

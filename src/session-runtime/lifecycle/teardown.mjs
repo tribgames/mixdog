@@ -6,6 +6,7 @@
  *   teardown/runtime-stops.mjs — process-wide service stops and their settlement
  */
 import { SessionClosedError } from '../../runtime/agent/orchestrator/session/manager/session-errors.mjs';
+import { forgetSessionSaveBaseline } from '../../runtime/agent/orchestrator/session/store/save-worker.mjs';
 import { unregisterLiveSession } from '../../runtime/shared/staged-update.mjs';
 import { abortRuntime, closeCanonicalSession, closeOwnSession, dispatchSessionEnd } from './teardown/session-close.mjs';
 import { settleAll, settleDetached, startRuntimeStops, startWorkStops } from './teardown/runtime-stops.mjs';
@@ -150,6 +151,8 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     const stops = { channelStop, ...runtimeStops, ...startWorkStops(deps, reason, scope) };
     if (scope.detach) await settleDetached(withTeardownDeadline, stops);
     else await settleAll(withTeardownDeadline, stops);
+    // The session went away (idle eviction included): free its save baselines.
+    if (scope.closingSessionId) forgetSessionSaveBaseline(scope.closingSessionId);
     // Self-update stages in the background and swaps on the next clean launch
     // (see staged-update.mjs) — nothing installs at shutdown. On a real
     // process exit we just drop this session's live-refcount pid file so a

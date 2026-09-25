@@ -328,9 +328,6 @@ html[data-mixdog-mobile-tabs] .conversation {
   width: 100%;
   height: 100%;
 }
-.starter-grid {
-  display: none;
-}
 /* The empty workspace surface (no pane yet): flat on the window band,
    content centered in the whole main area. */
 .workspace-empty {

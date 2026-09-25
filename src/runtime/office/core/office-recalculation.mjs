@@ -17,11 +17,7 @@ export async function recalculateForReview(session, signal, calculate = recalcul
         const refit = await applyPortableOoxmlBatch(
           session.target,
           'xlsx',
-          ranges.map((entry) => ({
-            op: 'autofit_range',
-            ...(entry.sheet ? { sheet: entry.sheet } : {}),
-            range: entry.range,
-          }))
+          ranges.map((entry) => ({ op: 'autofit_range', ...entry }))
         );
         result.refittedColumns = refit.reduce((total, entry) => total + Number(entry.columns || 0), 0);
       } catch (error) {

@@ -97,14 +97,26 @@ export function commandHasShellSyntax(command) {
   return quote !== null;
 }
 
+// The action a bare `git <operation>` performs when no sub-action is named.
+const DEFAULT_GIT_ACTIONS = new Map([
+  ['stash', 'push'],
+  ['reflog', 'show'],
+]);
+
 function gitActionOf(operation, args) {
   const first = args.find((value) => value && !value.startsWith('-'));
-  if (operation === 'stash') return first || 'push';
-  if (operation === 'worktree') return first || 'list';
-  if (operation === 'remote') return first || 'list';
-  if (operation === 'reflog') return first || 'show';
-  return first || 'list';
+  return first || DEFAULT_GIT_ACTIONS.get(operation) || 'list';
 }
+
+const GIT_CONFIG_MUTATION_FLAGS = new Set([
+  '--add',
+  '--edit',
+  '--rename-section',
+  '--remove-section',
+  '--replace-all',
+  '--unset',
+  '--unset-all',
+]);
 
 export function gitPlanIsReadOnly(plan) {
   const { operation, args } = plan;
@@ -133,16 +145,7 @@ export function gitPlanIsReadOnly(plan) {
     );
   }
   if (operation === 'config') {
-    const mutationFlags = new Set([
-      '--add',
-      '--edit',
-      '--rename-section',
-      '--remove-section',
-      '--replace-all',
-      '--unset',
-      '--unset-all',
-    ]);
-    if (args.some((value) => mutationFlags.has(value))) return false;
+    if (args.some((value) => GIT_CONFIG_MUTATION_FLAGS.has(value))) return false;
     const readFlag = args.some((value) =>
       /^--(?:get|get-all|get-regexp|get-urlmatch|list|show-origin|show-scope)$/.test(value)
     );

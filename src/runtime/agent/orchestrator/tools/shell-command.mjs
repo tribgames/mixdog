@@ -49,20 +49,6 @@ const _envAdmissionWait = Math.floor(Number(process.env.MIXDOG_SHELL_ADMISSION_W
 const SHELL_ADMISSION_WAIT_MS =
   Number.isFinite(_envAdmissionWait) && _envAdmissionWait >= 0 ? _envAdmissionWait : 30_000;
 
-// Default: capture child output via file fds (direct mode) instead of
-// parent-side pipes. Opt back into pipe capture with
-// MIXDOG_SHELL_PIPE_CAPTURE=1 (diagnostic escape hatch).
-// win32 EXCEPTION: fd-based stdio entries are UV_INHERIT_FD, which makes
-// libuv DROP CREATE_NO_WINDOW (libuv PR #1659) — the child shell then
-// attaches to the PARENT console (the TUI terminal) instead of a fresh
-// invisible one. Console-writing grandchildren (plink 0.82+ writes host-key
-// prompts straight to CONOUT$, bypassing redirected stderr) tear through the
-// ink render and can even consume keystrokes. Verified empirically:
-// stdio ['ignore','pipe','pipe'] → GetConsoleProcessList = child only;
-// stdio ['ignore', fd, fd]      → shares the console with node + terminal.
-// Pipe capture keeps the hide flag; the exit→2s-grace settle fallback below
-// already covers the grandchild-holds-pipe wedge that direct mode was
-// built to avoid.
 function _admissionSaturationError(admission, waitMs) {
   let detail = '';
   try {

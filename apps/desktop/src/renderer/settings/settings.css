@@ -303,12 +303,11 @@
   .onboarding-top-actions,
   .onboarding-top-actions > nav,
   .onboarding-dialog > footer > div,
-  .onboarding-star-actions {
+  .onboarding-card-actions {
     display: flex;
     align-items: center;
   }
-  .onboarding-top-actions > button,
-  .onboarding-star-icon {
+  .onboarding-top-actions > button {
     display: grid;
     place-items: center;
   }
@@ -323,42 +322,25 @@
     overflow: auto;
   }
   .onboarding-step-view,
-  .onboarding-theme-grid,
-  .onboarding-star-card,
-  .onboarding-workflow-grid,
-  .onboarding-pair {
+  .onboarding-card {
     display: grid;
   }
-  .onboarding-provider-list,
-  .onboarding-model-grid,
-  .onboarding-theme-preview {
+  .onboarding-provider-list {
     overflow: hidden;
   }
   .onboarding-provider-list > form,
-  .onboarding-provider-row,
-  .onboarding-model-grid > label {
+  .onboarding-provider-row {
     display: flex;
     align-items: center;
   }
   .onboarding-provider-list form > div,
-  .onboarding-provider-row > div,
-  .onboarding-model-grid label > span {
+  .onboarding-provider-row > div {
     min-width: 150px;
     flex: 1;
     display: grid;
   }
   .onboarding-provider-list form > input {
     flex: 0 1 260px;
-  }
-  .onboarding-choice-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .onboarding-choice-grid > button,
-  .onboarding-theme-grid > button,
-  .onboarding-workflow-grid > button {
-    display: grid;
-    text-align: left;
   }
 
   @media (max-width: 860px) {
@@ -385,12 +367,8 @@
     }
   }
   @media (max-width: 640px) {
-    .onboarding-choice-grid {
-      grid-template-columns: 1fr;
-    }
     .onboarding-provider-list > form,
-    .onboarding-provider-row,
-    .onboarding-model-grid > label {
+    .onboarding-provider-row {
       align-items: stretch;
       flex-direction: column;
     }

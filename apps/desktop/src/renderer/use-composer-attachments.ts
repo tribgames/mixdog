@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -79,10 +78,6 @@ export function useComposerAttachments({
   const attachmentSequence = useRef(1);
   const fileInput = useRef<HTMLInputElement>(null);
   const insertTokenAtCaret = useCaretTokenInsert({ draftRef, setDraft, textarea, historyNavigation });
-
-  useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
 
   const replaceAttachments = useCallback((next: ComposerAttachment[]) => {
     for (const attachment of next) {

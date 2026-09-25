@@ -889,8 +889,7 @@
   gap: 12px;
   padding: 16px 16px 18px;
 }
-.inherit-surface-lede,
-.inherit-surface-note {
+.inherit-surface-lede {
   margin: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
@@ -936,13 +935,6 @@
 .inherit-surface-actions > button:active:not(:disabled) {
   background: var(--mx-flat-press-contrast);
 }
-.command-surface .settings-section-heading p {
-  display: block;
-  margin: 5px 0 0;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
 .command-surface .settings-group-body {
   min-width: 0;
   overflow: hidden;
@@ -966,24 +958,6 @@
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-}
-.command-surface-form {
-  box-sizing: border-box;
-  width: 100%;
-  flex-wrap: wrap;
-}
-.command-surface-form > label {
-  min-width: 180px;
-  flex: 1;
-  display: grid;
-  gap: 6px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-}
-.command-surface-form input:not([type="checkbox"]):focus-visible {
-  outline: 1px solid var(--mx-focus);
-  outline-offset: 0;
-  box-shadow: none;
 }
 .command-surface button:disabled {
   opacity: var(--mx-op-disabled);

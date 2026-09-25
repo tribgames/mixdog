@@ -189,13 +189,21 @@ function gitBashFromKnownWindowsRoots() {
   if (env.LOCALAPPDATA) roots.push(join(env.LOCALAPPDATA, 'Programs', 'Git'));
   roots.push('C:\\Program Files\\Git', 'C:\\Program Files (x86)\\Git');
   for (const root of roots) {
-    for (const rel of [
-      ['bin', 'bash.exe'],
-      ['usr', 'bin', 'bash.exe'],
-    ]) {
-      const cand = join(root, ...rel);
-      if (existsSync(cand)) return cand;
-    }
+    const bash = gitBashUnder(root);
+    if (bash) return bash;
+  }
+  return null;
+}
+
+// The Git-for-Windows bash launcher under an install root: bin\bash.exe, then
+// usr\bin\bash.exe.
+function gitBashUnder(root) {
+  for (const rel of [
+    ['bin', 'bash.exe'],
+    ['usr', 'bin', 'bash.exe'],
+  ]) {
+    const cand = join(root, ...rel);
+    if (existsSync(cand)) return cand;
   }
   return null;
 }
@@ -206,13 +214,8 @@ function gitBashFromKnownWindowsRoots() {
 function probeGitBashFromGitExe(gitExe) {
   let dir = dirname(gitExe);
   for (let level = 0; level < 3 && dir; level++) {
-    for (const rel of [
-      ['bin', 'bash.exe'],
-      ['usr', 'bin', 'bash.exe'],
-    ]) {
-      const cand = join(dir, ...rel);
-      if (existsSync(cand)) return cand;
-    }
+    const bash = gitBashUnder(dir);
+    if (bash) return bash;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;

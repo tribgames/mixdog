@@ -7,6 +7,11 @@ const MAX_REGISTRY_BYTES = 1024 * 1024;
 const cache = new Map();
 const registryPath = (dataDir) => join(dataDir, 'local-provider', 'registered-models.json');
 
+/** Pinned Hugging Face download URL for one repository file at an exact revision. */
+export function huggingFaceFileUrl(repository, revision, remoteFilename) {
+  return `https://huggingface.co/${repository}/resolve/${revision}/${remoteFilename.split('/').map(encodeURIComponent).join('/')}`;
+}
+
 function validateModel(entry) {
   if (
     !entry ||
@@ -25,11 +30,12 @@ function validateModel(entry) {
     !/^[\w.-]+\/[\w.-]+$/.test(entry.repository || '') ||
     typeof entry.remoteFilename !== 'string' ||
     entry.remoteFilename.split('/').some((part) => !part || part === '.' || part === '..') ||
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: rejects control characters in an untrusted remote file name
     /[\\\x00-\x1f]/.test(entry.remoteFilename)
   ) {
     throw new Error('[local-provider] invalid registered model metadata');
   }
-  const url = `https://huggingface.co/${entry.repository}/resolve/${entry.revision}/${entry.remoteFilename.split('/').map(encodeURIComponent).join('/')}`;
+  const url = huggingFaceFileUrl(entry.repository, entry.revision, entry.remoteFilename);
   if (entry.url !== url) throw new Error('[local-provider] registered model URL does not match its pinned source');
   return entry;
 }

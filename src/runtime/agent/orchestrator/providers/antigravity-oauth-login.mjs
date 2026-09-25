@@ -37,10 +37,6 @@ const CALLBACK_FAILURE_HTML =
   '<html><body><h2>Antigravity sign-in was not completed.</h2>' +
   '<p>Return to Mixdog for the error details and any account verification link.</p></body></html>';
 
-export function generatePKCE() {
-  return createOAuthPkce();
-}
-
 function extractProjectId(payload) {
   return typeof payload?.cloudaicompanionProject === 'string' ? payload.cloudaicompanionProject : '';
 }
@@ -293,7 +289,7 @@ export async function beginOAuthLogin({
   openBrowserFn = null,
 } = {}) {
   const controller = new AbortController();
-  const pkce = generatePKCE();
+  const pkce = createOAuthPkce();
   const state = randomBytes(16).toString('hex');
   const url = new URL(AUTH_URL);
   url.searchParams.set('client_id', CLIENT_ID);

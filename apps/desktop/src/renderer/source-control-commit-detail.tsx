@@ -5,6 +5,7 @@ import { GitFileDiff } from './ReviewPane';
 import { ScmPathText } from './ScmPathText';
 import { ScmStatusIcon, scmStatusKind } from './ScmStatusIcon';
 import { EMPTY_SUMMARY, UNKNOWN_AUTHOR, type SourceControlDiffRequest } from './source-control-support';
+import { fileBaseName } from './text-format';
 
 /** Compact `YYYY-MM-DD HH:mm` for the byline; the full locale string stays
  *  in the tooltip. Falls back to the raw value when git gave no ISO date. */
@@ -16,11 +17,6 @@ function formatCommitDate(iso: string): string {
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
     `${pad(date.getHours())}:${pad(date.getMinutes())}`
   );
-}
-
-function baseName(path: string): string {
-  const slash = path.lastIndexOf('/');
-  return slash >= 0 ? path.slice(slash + 1) : path;
 }
 
 function copyStatusText(copyState: { ok: boolean } | null | undefined): string {
@@ -123,8 +119,8 @@ export function SourceControlCommitDetail({
       {detailFiles.map((file) => {
         const open = openCommitFile === file.path;
         const patch = commitDiffs[file.path];
-        const fileName = baseName(file.path);
-        const oldFileName = file.oldPath ? baseName(file.oldPath) : '';
+        const fileName = fileBaseName(file.path);
+        const oldFileName = file.oldPath ? fileBaseName(file.oldPath) : '';
         const displayName = file.oldPath ? `${oldFileName} → ${fileName}` : fileName;
         return (
           <section className="dock-scm-commit-file" data-open={open || undefined} key={file.path}>

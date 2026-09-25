@@ -172,7 +172,6 @@
   max-height: 65vh;
   overflow: auto;
 }
-.github-error,
 .github-action-form [role="alert"] {
   color: var(--error-foreground, #ff8b83);
   white-space: pre-wrap;

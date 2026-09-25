@@ -5,7 +5,7 @@ import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { WorkspaceTabStrip, type NavigationSelection, type WorkspaceSelection, type WorkspaceTab } from './navigation';
 import type { PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
-import { navigationKey } from './text-format';
+import { displayProject, navigationKey } from './text-format';
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
 
@@ -69,12 +69,7 @@ export function useAppPaneChrome({
       case 'terminal':
         return 'Terminal';
       case 'project':
-        return (
-          selection.path
-            .replace(/[\\/]+$/, '')
-            .split(/[\\/]/)
-            .at(-1) || selection.path
-        );
+        return displayProject(selection.path).name;
       default:
         return 'New task';
     }

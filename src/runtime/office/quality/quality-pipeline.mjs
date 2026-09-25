@@ -24,6 +24,8 @@ const CRITICAL_CODES = new Set([
   // whatever the author meant by it. They sat among the warnings, where a deck
   // went out with the overlap its own audit had already named.
   'shape_overlap',
+  // A text box past the canvas, as PowerPoint measures it and as the portable audit does.
+  'shape_out_of_bounds',
   'text_outside_slide',
   'text_overflow',
   'unsafe_font_family',
@@ -240,6 +242,8 @@ const POLISH_GUIDANCE = Object.freeze({
   text_clipped: 'Enlarge the box or shorten the copy; text cut at a box edge is always visible to the reader.',
   text_box_too_narrow: 'Widen the text box so lines wrap at a readable measure instead of one or two words per line.',
   shape_out_of_bounds: 'Move or resize the shape inside the 13.33 × 7.5 canvas; nothing past the edge is shown.',
+  oversized_heading_text:
+    'Set the paragraph in the body style, or lift its first line out as a heading over body text: prose at heading size reads as one shouted block.',
   shapes_too_close: 'Open the gap between the shapes to at least 0.3 in, or merge them into one block.',
   vertical_imbalance:
     'Move the content down into the field or enlarge the containers so the canvas is filled with intent, not a hollow bottom.',

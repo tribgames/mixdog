@@ -281,15 +281,13 @@ export function stripFinalAnswerWrapper(value) {
 const _frontmatterPermCache = new Map(); // key -> { value, atMs }
 const FRONTMATTER_PERM_CACHE_TTL_MS = envTimeoutMs('MIXDOG_AGENT_FRONTMATTER_TTL_MS', 5_000);
 
-export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceRoot) {
-  const cleanAgent = clean(agent);
-  if (!cleanAgent) return null;
-  if (dataDir && existsSync(join(dataDir, 'agents', cleanAgent, '.deleted'))) return null;
-  const cacheKey = `${dataDir || ''}\u0000${cleanAgent}`;
-  const cached = _frontmatterPermCache.get(cacheKey);
-  if (cached && Date.now() - cached.atMs < FRONTMATTER_PERM_CACHE_TTL_MS) {
-    return cached.value;
-  }
+function agentDeleted(cleanAgent, dataDir) {
+  return Boolean(dataDir) && existsSync(join(dataDir, 'agents', cleanAgent, '.deleted'));
+}
+
+/** Where an agent's definition may live, in precedence order: the data dir
+ *  (user/custom agents) before the shipped source root. */
+function agentDefinitionFiles(cleanAgent, dataDir, standaloneSourceRoot) {
   const candidates = [];
   if (dataDir) {
     candidates.push(join(dataDir, 'agents', cleanAgent, 'AGENT.md'));
@@ -297,8 +295,20 @@ export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceR
   }
   candidates.push(join(standaloneSourceRoot, 'agents', cleanAgent, 'AGENT.md'));
   candidates.push(join(standaloneSourceRoot, 'agents', `${cleanAgent}.md`));
+  return candidates;
+}
+
+export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceRoot) {
+  const cleanAgent = clean(agent);
+  if (!cleanAgent) return null;
+  if (agentDeleted(cleanAgent, dataDir)) return null;
+  const cacheKey = `${dataDir || ''}\u0000${cleanAgent}`;
+  const cached = _frontmatterPermCache.get(cacheKey);
+  if (cached && Date.now() - cached.atMs < FRONTMATTER_PERM_CACHE_TTL_MS) {
+    return cached.value;
+  }
   let resolved = null;
-  for (const file of candidates) {
+  for (const file of agentDefinitionFiles(cleanAgent, dataDir, standaloneSourceRoot)) {
     if (!existsSync(file)) continue;
     const fm = parseMarkdownFrontmatter(readFileSync(file, 'utf8'));
     const permission = normalizeAgentPermissionOrNone(fm.permission);
@@ -318,13 +328,6 @@ export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceR
 export function agentDefinitionExists(agent, dataDir, standaloneSourceRoot) {
   const cleanAgent = clean(agent);
   if (!cleanAgent) return false;
-  if (dataDir && existsSync(join(dataDir, 'agents', cleanAgent, '.deleted'))) return false;
-  const candidates = [];
-  if (dataDir) {
-    candidates.push(join(dataDir, 'agents', cleanAgent, 'AGENT.md'));
-    candidates.push(join(dataDir, 'agents', `${cleanAgent}.md`));
-  }
-  candidates.push(join(standaloneSourceRoot, 'agents', cleanAgent, 'AGENT.md'));
-  candidates.push(join(standaloneSourceRoot, 'agents', `${cleanAgent}.md`));
-  return candidates.some((file) => existsSync(file));
+  if (agentDeleted(cleanAgent, dataDir)) return false;
+  return agentDefinitionFiles(cleanAgent, dataDir, standaloneSourceRoot).some((file) => existsSync(file));
 }

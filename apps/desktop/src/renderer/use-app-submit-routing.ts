@@ -136,10 +136,9 @@ export function useAppSubmitRouting({
       }
       if (accepted === true) {
         if (routeSelection.kind === 'new' && draftRouteStillExists()) {
-          const activeSessionId = startedSessionId;
-          if (activeSessionId) {
+          if (startedSessionId) {
             const title = promptTitle(content, options?.displayText || '') || 'New task';
-            const sessionSelection = { kind: 'session', id: activeSessionId } as const;
+            const sessionSelection = { kind: 'session', id: startedSessionId } as const;
             const submittedAt = Number(options?.submittedAt);
             const activityAt = Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : Date.now();
             // One commit owns both visible changes: the draft pane promotes and
@@ -147,7 +146,7 @@ export function useAppSubmitRouting({
             // metadata onto this row instead of inserting/removing it around the
             // first prompt acknowledgement.
             stageCreatedSession({
-              id: activeSessionId,
+              id: startedSessionId,
               preview: title,
               title,
               updatedAt: activityAt,
@@ -221,12 +220,10 @@ export function useAppSubmitRouting({
   const paneSessionSubmitCache = useRef(
     new Map<string, (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>>()
   );
-  const submitToPaneSessionRef = useRef(submitToPaneSession);
-  submitToPaneSessionRef.current = submitToPaneSession;
   const paneSubmitFor = (sessionId: string) => {
     let fn = paneSessionSubmitCache.current.get(sessionId);
     if (!fn) {
-      fn = (content, options) => submitToPaneSessionRef.current(sessionId, content, options);
+      fn = (content, options) => submitToPaneSession(sessionId, content, options);
       paneSessionSubmitCache.current.set(sessionId, fn);
       while (paneSessionSubmitCache.current.size > 32) {
         const oldest = paneSessionSubmitCache.current.keys().next().value;

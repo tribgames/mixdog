@@ -1,8 +1,7 @@
 // Background-task reconcile for a worker turn (spawn AND send paths).
 //
 // A worker turn has to mark its background task terminal from three separate
-// windows, and both paths must do it identically — they used to carry two
-// byte-identical copies of every block:
+// windows, and both paths must do it identically:
 //
 //   1. TERMINAL RESULT — the worker produced its final result. Reconciling
 //      here (rather than after the session save) keeps a hung/slow post-result
@@ -41,6 +40,19 @@ export function reconcileJobTerminalResult(job, value) {
           }
     );
   } catch {}
+}
+
+/** The turn's onTerminalResult hook: close the turn review, record the
+ *  completion value on the job, send the early owner preview, and reconcile
+ *  the task (window 1 above). */
+export function terminalResultHook({ job, turnReview, completionValue, notifyEarly, notifyContext }) {
+  return (terminalResult) => {
+    turnReview.complete();
+    const value = completionValue(terminalResult);
+    job._terminalResultValue = value;
+    notifyEarly(job, value, notifyContext || {});
+    reconcileJobTerminalResult(job, value);
+  };
 }
 
 /** Watchdog stall that still recovered a partial handoff: a completion. */

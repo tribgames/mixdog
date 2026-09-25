@@ -91,7 +91,7 @@ function answerInterceptedRequest(
   } else if (rule.abort) {
     answered = answer('Fetch.failRequest', { requestId: pausedRequestId, errorReason: 'Aborted' });
   } else {
-    answered = answer('Fetch.fulfillRequest', interceptFulfillParams(rule, pausedRequestId));
+    answered = answer('Fetch.fulfillRequest', interceptFulfillParams(rule, pausedRequestId, params));
   }
   // A request that could not be answered would otherwise fail silently
   // and look like a hung page, so the reason stays in the console — as the

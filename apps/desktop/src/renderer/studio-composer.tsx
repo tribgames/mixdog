@@ -1,5 +1,5 @@
 import { Plus, Sparkles, X } from 'lucide-react';
-import { type Dispatch, type RefObject, type SetStateAction, useRef, useState } from 'react';
+import { type Dispatch, type DragEvent, type RefObject, type SetStateAction, useRef, useState } from 'react';
 
 import { t } from './i18n';
 import { StudioRouteMenu, type StudioModelEntry, type StudioOptionRow, type StudioSliderRow } from './StudioRouteMenu';
@@ -11,6 +11,12 @@ type ReferenceDrop = {
   target: number;
   position: 'before' | 'after';
 };
+
+/** Which side of the hovered reference chip the dragged one lands on. */
+function dropPosition(event: DragEvent<HTMLElement>): ReferenceDrop['position'] {
+  const bounds = event.currentTarget.getBoundingClientRect();
+  return event.clientX < bounds.left + bounds.width / 2 ? 'before' : 'after';
+}
 
 export function StudioComposer({
   dropping,
@@ -91,15 +97,12 @@ export function StudioComposer({
                 if (source === null || source === index) return;
                 event.preventDefault();
                 event.dataTransfer.dropEffect = 'move';
-                const bounds = event.currentTarget.getBoundingClientRect();
-                const position = event.clientX < bounds.left + bounds.width / 2 ? 'before' : 'after';
-                setReferenceDrop({ source, target: index, position });
+                setReferenceDrop({ source, target: index, position: dropPosition(event) });
               }}
               onDrop={(event) => {
                 event.preventDefault();
                 const source = draggedReferenceIndex.current ?? Number(event.dataTransfer.getData('text/plain'));
-                const bounds = event.currentTarget.getBoundingClientRect();
-                const position = event.clientX < bounds.left + bounds.width / 2 ? 'before' : 'after';
+                const position = dropPosition(event);
                 if (Number.isInteger(source) && source >= 0 && source < references.length && source !== index) {
                   onReferencesChange((current) => {
                     if (source >= current.length || index >= current.length) return current;

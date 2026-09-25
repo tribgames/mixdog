@@ -8,6 +8,7 @@ import { issuesPdf, validatePdf } from '../pdf/pdf-adapter.mjs';
 import { validateOoxmlSchema } from '../portable/ooxml-validator.mjs';
 import { evaluateXlsxAssertions } from '../portable/xlsx-assertions.mjs';
 import { mergeXlsxFormulaAudit } from '../portable/xlsx-formula-audit.mjs';
+import { pictureDescriptionIssues } from '../portable/portable-validation.mjs';
 import { issuesTabular, validateTabular } from './tabular.mjs';
 import { evaluateOfficeSubmissionGate, normalizeOfficeReviewIssues } from '../quality/quality-pipeline.mjs';
 import { reviewOfficeStructure } from '../quality/assurance.mjs';
@@ -41,7 +42,7 @@ export async function reviewSnapshot(session, args = {}) {
 // a sheet with no reading order — is read from the document, not the package.
 // Without it `issues` answered "ok, nothing found" for a file qa reports on.
 async function structureIssues(session, args) {
-  if (!['docx', 'xlsx', 'pptx'].includes(session.format)) return [];
+  if (!OOXML_FORMATS.has(session.format)) return [];
   try {
     const read = await reviewSnapshot(session, args);
     if (!read?.document) return [];
@@ -128,7 +129,7 @@ export async function validate(session, args = {}) {
   const schema = await schemaValidation(session, args);
   const assertions = await assertionValidation(session, args);
   const compatibility =
-    args.compatibility === true && ['docx', 'xlsx', 'pptx'].includes(session.format)
+    args.compatibility === true && OOXML_FORMATS.has(session.format)
       ? await validateLibreOfficeReopen(session.target, { signal: session.activeSignal || null })
       : null;
   const postSaveGate =
@@ -235,6 +236,16 @@ async function microsoftOfficeIssues(session, args) {
     result = mergeXlsxFormulaAudit(result, read?.document, { auditProfile: args.auditProfile, sheet: args.sheet });
   }
   if (session.format === 'pptx') result = await mergeComPptxMeasuredRead(session, result, args);
+  // Word's host audits no picture's description; its reading lists every picture with the one Word holds, so the
+  // portable rule applies to it and an unlabelled figure no longer passes on Word alone.
+  if (session.format === 'docx') {
+    const read = await snapshot(session, {}, { full: true });
+    const known = new Set((result.issues || []).map((entry) => `${entry.code}\0${entry.path}`));
+    const added = pictureDescriptionIssues(read?.document || {}).filter(
+      (entry) => !known.has(`${entry.code}\0${entry.path}`)
+    );
+    if (added.length) result = { ...result, issues: normalizeOfficeReviewIssues([...(result.issues || []), ...added]) };
+  }
   return result;
 }
 
@@ -249,22 +260,22 @@ export async function issues(session, args = {}) {
     session.backend === 'microsoft-office-com'
       ? await microsoftOfficeIssues(session, args)
       : await portableIssues(session, args);
-  const structural = await structureIssues(session, args);
-  const merged = structural.length
-    ? normalizeOfficeReviewIssues([...(result.issues || []), ...structural])
-    : result.issues;
+  // A finding the package reader already made at the same place is the same finding worded twice: the portable
+  // contrast measure (against the resolved surface) and the format review's (against the slide) both reported
+  // "Hard to read" once the portable snapshot carried text colours. The package reader's, the more exact, stays.
+  const found = new Set((result.issues || []).map((entry) => `${entry.code}\0${entry.path}`));
+  const structural = (await structureIssues(session, args)).filter((entry) => !found.has(`${entry.code}\0${entry.path}`));
+  // Normalized whether or not the structure review added anything: skipped when it found nothing, a portable deck's
+  // overflow and overlap kept the warning the Office backend's copy of the same finding had been raised from.
+  const merged = normalizeOfficeReviewIssues([...(result.issues || []), ...structural]);
   return {
     session: session.id,
     mode: session.mode,
     backend: session.backend,
     path: session.target,
     ...result,
-    ...(structural.length
-      ? {
-          issues: merged,
-          issueCount: merged.length,
-          ok: !merged.some((entry) => entry.severity === 'error'),
-        }
-      : {}),
+    issues: merged,
+    issueCount: merged.length,
+    ok: !merged.some((entry) => entry.severity === 'error'),
   };
 }

@@ -1,10 +1,10 @@
 /**
  * components/tool-execution/text-format.mjs — width/theme-bound text helpers
  * for the tool card. The pure, surface-agnostic pieces (inline sanitization,
- * status parsing/casing, count normalization) moved VERBATIM to
+ * status parsing/casing, count normalization) live in
  * runtime/shared/tool-card-model.mjs so the desktop renderer derives IDENTICAL
- * tool-card text; this module re-exports them for existing TUI imports and
- * keeps only what needs the live terminal theme or display-width math.
+ * tool-card text; this module re-exports the ones the TUI card uses and keeps
+ * only what needs the live terminal theme or display-width math.
  */
 import { displayWidth } from '../../display-width.mjs';
 import { theme } from '../../theme.mjs';
@@ -15,21 +15,18 @@ import {
 } from '../../../runtime/shared/tool-card-model.mjs';
 
 export {
-  MIN_RESULT_LINE_CHARS,
-  RESULT_LINE_HARD_MAX,
   SUMMARY_MAX_CHARS,
   HEADER_FAILURE_STATUS_MAX,
   safeInlineText,
   normalizeCountMap,
-  plural,
-  shellResultStatus,
-  normalizeTerminalStatus,
-  displayTerminalStatus,
   resultTerminalStatus,
-  stripLeadingStatusMarkerLines,
   stripLeadingStatusMarkerFromText,
-  shellResultElapsed,
 } from '../../../runtime/shared/tool-card-model.mjs';
+
+/** Visible width budget for one collapsed result line at `columns`. */
+export function resultLineMaxChars(columns) {
+  return Math.min(RESULT_LINE_HARD_MAX, Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7));
+}
 
 function deltaColor(token) {
   return String(token || '').startsWith('+') ? theme.success : theme.error;
@@ -54,7 +51,7 @@ export function deltaTextParts(text) {
 }
 
 export function fitResultLine(line, columns) {
-  const max = Math.min(RESULT_LINE_HARD_MAX, Math.max(MIN_RESULT_LINE_CHARS, Number(columns || 80) - 7));
+  const max = resultLineMaxChars(columns);
   const text = safeInlineText(line);
   return displayWidth(text) > max ? truncateToWidth(text, max) : text;
 }

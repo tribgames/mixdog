@@ -7,6 +7,8 @@ import {
   WORKFLOW_ROUTE_SLOTS,
   FIXED_AGENT_SLOTS,
   normalizeWebSearchRouteConfig,
+  WEB_SEARCH_DEFAULT_MODEL,
+  WEB_SEARCH_DEFAULT_PROVIDER,
 } from '../workflow.mjs';
 import { ONBOARDING_VERSION } from '../quick-web-search-models.mjs';
 import { canonicalizeAgentRouteStorage } from '../../runtime/shared/agent-route-config.mjs';
@@ -45,7 +47,11 @@ function applyAgentRouteInput(agentInput, agentRoutes, configurableIds) {
 
 function webSearchRouteToSave(webSearchRoute) {
   if (clean(webSearchRoute.provider)) return normalizeWebSearchRouteConfig(webSearchRoute);
-  return normalizeWebSearchRouteConfig({ provider: 'default', model: 'default', toolType: webSearchRoute.toolType });
+  return normalizeWebSearchRouteConfig({
+    provider: WEB_SEARCH_DEFAULT_PROVIDER,
+    model: WEB_SEARCH_DEFAULT_MODEL,
+    toolType: webSearchRoute.toolType,
+  });
 }
 
 export function createOnboardingApi(deps) {

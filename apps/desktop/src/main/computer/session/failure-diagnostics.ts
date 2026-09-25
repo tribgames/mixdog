@@ -4,14 +4,13 @@ import { join } from 'node:path';
 import { computerStepTimings, computerTimings } from '../shared/timings';
 import { computerCursorFeedback } from '../shared/cursor-feedback';
 import { captureAttempts } from '../shared/capture-attempts';
+import { diagnosticCategory } from '../shared/diagnostic-category';
 import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
 
 const MAX_BUNDLES = 20;
 const MAX_SESSIONS = 32;
 const MAX_RECORDS = 40;
 const MAX_BYTES = 128 * 1024;
-const category = (value: unknown) =>
-  typeof value === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(value) ? value : undefined;
 const object = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 const booleanEvidence = (key: string, value: unknown) =>
@@ -39,7 +38,9 @@ function recoveryEvidence(recovery: Record<string, unknown>): Record<string, unk
 
 function nativeResultEvidence(native: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries([
-    ...['code', 'path', 'effect', 'delivery'].filter((key) => category(native[key])).map((key) => [key, native[key]]),
+    ...['code', 'path', 'effect', 'delivery']
+      .filter((key) => diagnosticCategory(native[key]))
+      .map((key) => [key, native[key]]),
     ...['delivery_accepted', 'input_may_have_executed', 'verified', 'goal_verified']
       .filter((key) => booleanEvidence(key, native[key]))
       .map((key) => [key, native[key]]),
@@ -58,13 +59,14 @@ function observedRecord(input: Record<string, unknown>): {
 
 function observationEvidence(observed: Record<string, unknown>): Record<string, unknown> {
   const pixels = object(observed.pixel_unavailable);
-  const accessibilityError = computerErrorCode(observed.accessibility_error) || category(observed.accessibility_error);
+  const accessibilityError =
+    computerErrorCode(observed.accessibility_error) || diagnosticCategory(observed.accessibility_error);
   return Object.fromEntries([
     ...['pixel_status', 'accessibility_status']
-      .filter((key) => category(observed[key]))
+      .filter((key) => diagnosticCategory(observed[key]))
       .map((key) => [key, observed[key]]),
     ...(typeof observed.ok === 'boolean' ? [['ok', observed.ok]] : []),
-    ...(category(observed.pixel_reason ?? pixels.reason)
+    ...(diagnosticCategory(observed.pixel_reason ?? pixels.reason)
       ? [['pixel_reason', observed.pixel_reason ?? pixels.reason]]
       : []),
     ...(accessibilityError ? [['accessibility_error', accessibilityError]] : []),
@@ -75,7 +77,7 @@ export function diagnosticRecord(input: Record<string, unknown>): Record<string,
   const result: Record<string, unknown> = {};
   if (typeof input.at === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(input.at)) result.at = input.at;
   for (const key of ['action', 'delivery', 'effect', 'code', 'error', 'path', 'escalation', 'stage']) {
-    const value = category(input[key]);
+    const value = diagnosticCategory(input[key]);
     if (value) result[key] = value;
   }
   for (const key of ['ok', 'verified', 'goal_verified', 'completed', 'input_may_have_executed', 'delivery_accepted']) {

@@ -48,41 +48,84 @@ export function readTextForSnapshotCheck(fullPath, cache = null, st = null) {
   return content;
 }
 
+// The stat identity a snapshot is keyed on: the caller's stat when it has
+// one, else a fresh stat; an unstattable path gets a never-matching identity.
+function snapshotStatIdentity(fullPath, st) {
+  try {
+    const source = st && typeof st.mtimeMs === 'number' ? st : statSync(fullPath);
+    return { mtimeMs: source.mtimeMs, ctimeMs: source.ctimeMs, size: source.size };
+  } catch {
+    const now = Date.now();
+    return { mtimeMs: now, ctimeMs: now, size: 0 };
+  }
+}
+
+function isMutationSource(source) {
+  return source === 'edit' || String(source || '').startsWith('apply_patch_');
+}
+
+// Body-delivery provenance. An edit / apply_patch snapshot claims full-file
+// coverage (it knows the bytes it wrote), which let a later Read answer
+// "[file unchanged]" for a body this session had NEVER received. Full-file
+// knowledge is inherited only from a prior full-file READ of the same path.
+// Returns undefined when the incoming meta's own value stands.
+function resolveBodyDelivered({ next, meta, priorSnapshot, identity, incomingIsGrep }) {
+  if (isMutationSource(meta.source)) {
+    const priorLineCount = Number(priorSnapshot?.fileLineCount);
+    const priorPagedFull =
+      Number.isFinite(priorLineCount) &&
+      priorLineCount > 0 &&
+      snapshotRangesCoverAllLines(priorSnapshot, priorLineCount);
+    // The earlier read only describes THIS file if it still matched when
+    // the mutation ran: the caller passes the target's pre-write identity
+    // and it must equal the snapshot's. Missing evidence fails closed, so
+    // an external write landing between read and edit can never hide
+    // behind "[file unchanged]".
+    const priorStillCurrent =
+      !!priorSnapshot && !!meta.preMutationStat && statMatchesSnapshot(meta.preMutationStat, priorSnapshot);
+    return (
+      priorStillCurrent &&
+      priorSnapshot.grepOnly !== true &&
+      (priorSnapshot.bodyDelivered === true || snapshotCoversFullFile(priorSnapshot) || priorPagedFull)
+    );
+  }
+  if (!incomingIsGrep && snapshotCoversFullFile(next)) return true;
+  // A partial read cannot carry full-body delivery across file versions.
+  if (priorSnapshot?.bodyDelivered === true && statMatchesSnapshot(identity, priorSnapshot)) return true;
+  return undefined;
+}
+
+// Range hashes carried over from the same file version, then the incoming
+// read's own; malformed rows are dropped.
+function collectRangeHashRows(existing, sameFile, meta) {
+  const candidates = [];
+  if (sameFile && Array.isArray(existing.rangeHashes)) {
+    candidates.push(...existing.rangeHashes);
+  } else if (sameFile && existing.rangeHash && Array.isArray(existing.ranges) && existing.ranges.length === 1) {
+    candidates.push({ ...existing.ranges[0], hash: existing.rangeHash });
+  }
+  if (meta.rangeHash && Array.isArray(meta.ranges) && meta.ranges.length === 1) {
+    candidates.push({ ...meta.ranges[0], hash: meta.rangeHash });
+  }
+  if (Array.isArray(meta.rangeHashes)) candidates.push(...meta.rangeHashes);
+  return candidates.map((row) => normaliseRangeHashEntry(row)).filter(Boolean);
+}
+
 export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
   const readFiles = readFilesForScope(scope);
-  let mtimeMs;
-  let ctimeMs;
-  let size;
-  try {
-    if (st && typeof st.mtimeMs === 'number') {
-      mtimeMs = st.mtimeMs;
-      ctimeMs = st.ctimeMs;
-      size = st.size;
-    } else {
-      const fresh = statSync(fullPath);
-      mtimeMs = fresh.mtimeMs;
-      ctimeMs = fresh.ctimeMs;
-      size = fresh.size;
-    }
-  } catch {
-    mtimeMs = Date.now();
-    ctimeMs = mtimeMs;
-    size = 0;
-  }
+  const identity = snapshotStatIdentity(fullPath, st);
+  const { mtimeMs, ctimeMs, size } = identity;
   const incomingRanges = Array.isArray(meta.ranges) ? meta.ranges : [{ startLine: 1, endLine: Infinity }];
   const replaceExisting = meta.replaceExisting === true;
   const existing = replaceExisting ? null : readFiles.get(fullPath);
-  const sameFile =
-    existing && statMatchesSnapshot({ mtimeMs, ctimeMs, size }, existing) && Array.isArray(existing.ranges);
+  const sameFile = existing && statMatchesSnapshot(identity, existing) && Array.isArray(existing.ranges);
   // A mutation snapshot claims the full range because it knows the bytes it
   // wrote, not because the session received them. Merging a later partial
   // read into that synthetic range produced full coverage, which promoted
   // bodyDelivered and let the next edit hide never-delivered ranges behind
   // "[file unchanged]". Only delivered ranges take part in the merge.
   const existingIsUndeliveredMutation =
-    sameFile &&
-    (existing.source === 'edit' || String(existing.source || '').startsWith('apply_patch_')) &&
-    existing.bodyDelivered !== true;
+    sameFile && isMutationSource(existing.source) && existing.bodyDelivered !== true;
   const retainedRanges = sameFile && !existingIsUndeliveredMutation ? existing.ranges : [];
   const merged = mergeReadRanges([...retainedRanges, ...incomingRanges]);
   // fileLineCount is omitted here so it can ONLY be set via the explicit
@@ -109,55 +152,15 @@ export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
   // replaceExisting.
   const incomingIsGrep = meta.source === 'grep';
   next.grepOnly = incomingIsGrep && (sameFile ? existing.grepOnly === true : true);
-  // Body-delivery provenance. An edit / apply_patch snapshot claims full-file
-  // coverage (it knows the bytes it wrote), which let a later Read answer
-  // "[file unchanged]" for a body this session had NEVER received. Full-file
-  // knowledge is inherited only from a prior full-file READ of the same path.
-  const priorSnapshot = readFiles.get(fullPath);
-  const incomingIsMutation = meta.source === 'edit' || String(meta.source || '').startsWith('apply_patch_');
-  if (incomingIsMutation) {
-    const priorLineCount = Number(priorSnapshot?.fileLineCount);
-    const priorPagedFull =
-      Number.isFinite(priorLineCount) &&
-      priorLineCount > 0 &&
-      snapshotRangesCoverAllLines(priorSnapshot, priorLineCount);
-    // The earlier read only describes THIS file if it still matched when
-    // the mutation ran: the caller passes the target's pre-write identity
-    // and it must equal the snapshot's. Missing evidence fails closed, so
-    // an external write landing between read and edit can never hide
-    // behind "[file unchanged]".
-    const priorStillCurrent =
-      !!priorSnapshot && !!meta.preMutationStat && statMatchesSnapshot(meta.preMutationStat, priorSnapshot);
-    next.bodyDelivered =
-      priorStillCurrent &&
-      priorSnapshot.grepOnly !== true &&
-      (priorSnapshot.bodyDelivered === true || snapshotCoversFullFile(priorSnapshot) || priorPagedFull);
-  } else if (!incomingIsGrep && snapshotCoversFullFile(next)) {
-    next.bodyDelivered = true;
-  } else if (priorSnapshot?.bodyDelivered === true && statMatchesSnapshot({ mtimeMs, ctimeMs, size }, priorSnapshot)) {
-    // A partial read cannot carry full-body delivery across file versions.
-    next.bodyDelivered = true;
-  }
-  const rangeHashRows = [];
-  if (sameFile && Array.isArray(existing.rangeHashes)) {
-    for (const row of existing.rangeHashes) {
-      const nextRow = normaliseRangeHashEntry(row);
-      if (nextRow) rangeHashRows.push(nextRow);
-    }
-  } else if (sameFile && existing.rangeHash && Array.isArray(existing.ranges) && existing.ranges.length === 1) {
-    const nextRow = normaliseRangeHashEntry({ ...existing.ranges[0], hash: existing.rangeHash });
-    if (nextRow) rangeHashRows.push(nextRow);
-  }
-  if (meta.rangeHash && Array.isArray(meta.ranges) && meta.ranges.length === 1) {
-    const nextRow = normaliseRangeHashEntry({ ...meta.ranges[0], hash: meta.rangeHash });
-    if (nextRow) rangeHashRows.push(nextRow);
-  }
-  if (Array.isArray(meta.rangeHashes)) {
-    for (const row of meta.rangeHashes) {
-      const nextRow = normaliseRangeHashEntry(row);
-      if (nextRow) rangeHashRows.push(nextRow);
-    }
-  }
+  const bodyDelivered = resolveBodyDelivered({
+    next,
+    meta,
+    priorSnapshot: readFiles.get(fullPath),
+    identity,
+    incomingIsGrep,
+  });
+  if (bodyDelivered !== undefined) next.bodyDelivered = bodyDelivered;
+  const rangeHashRows = collectRangeHashRows(existing, sameFile, meta);
   if (!next.contentHash && snapshotCoversFullFile(next)) {
     try {
       // Reuse the raw-content cache (populated by the read that produced

@@ -9,9 +9,7 @@ export function createClientGrace({ state, clients, log, clientGraceMs, sweepMs,
 
   function cancel() {
     if (!graceTimer) return;
-    try {
-      clearTimeout(graceTimer);
-    } catch {}
+    clearTimeout(graceTimer);
     graceTimer = null;
   }
 

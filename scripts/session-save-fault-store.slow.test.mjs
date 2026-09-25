@@ -1241,7 +1241,7 @@ process.exit(0);
       metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => null });
     });
 
-    await t.test('C30 stale completions stay inert after >512 deletes and id reuse', async () => {
+    await t.test('C38 stale completions stay inert after >512 deletes and id reuse', async () => {
       const { _droppedSaveIds } = await import('../src/runtime/agent/orchestrator/session/store/live-state.mjs');
       // Churn well past any bounded generation table: an incarnation is
       // an object identity, so there is nothing to wrap or reset.

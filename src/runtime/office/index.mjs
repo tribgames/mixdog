@@ -5,17 +5,15 @@ import { runSessionlessOfficeAction } from './core/office-sessionless-actions.mj
 import { dispatchOfficeSessionAction } from './core/office-session-dispatch.mjs';
 import {
   OfficeConflictError,
-  documentSessionKey,
   documentSessions,
   ensureOfficeSessionDesign,
   finalizeOfficeResult,
   isMicrosoftOfficeSession,
+  releaseOfficeSession,
   sessions,
   toolResult,
 } from './core/office-core.mjs';
 import { resolveSession } from './core/office-sessions.mjs';
-
-export { initializeOfficeTransactions } from './core/office-transactions.mjs';
 
 // Office work is minutes of real application time, and guessing which action carries it is how
 // tuning goes wrong. MIXDOG_OFFICE_TRACE writes one line per call so a slow run maps itself; it
@@ -66,18 +64,11 @@ async function runOfficeTool(args = {}, { cwd = process.cwd(), dataDir = default
     const images = Array.isArray(value?._images) ? value._images : [];
     if (value && typeof value === 'object') delete value._images;
     finalizeOfficeResult(value, { action, session, startedAt });
-    if (activeSession) delete activeSession.activeSignal;
     return toolResult(value, false, images);
   } catch (error) {
-    if (activeSession) delete activeSession.activeSignal;
     if (error instanceof OfficeConflictError) return toolResult(error.details, true);
     if (signal?.aborted || /cancelled/i.test(String(error?.message || ''))) {
-      if (activeSession && isMicrosoftOfficeSession(activeSession)) {
-        sessions.delete(activeSession.id);
-        if (documentSessions.get(documentSessionKey(activeSession.target)) === activeSession.id) {
-          documentSessions.delete(documentSessionKey(activeSession.target));
-        }
-      }
+      if (activeSession && isMicrosoftOfficeSession(activeSession)) releaseOfficeSession(activeSession);
       return toolResult(
         {
           ok: false,
@@ -89,6 +80,8 @@ async function runOfficeTool(args = {}, { cwd = process.cwd(), dataDir = default
       );
     }
     return toolResult(`Error: ${error?.message || String(error)}`, true);
+  } finally {
+    if (activeSession) delete activeSession.activeSignal;
   }
 }
 

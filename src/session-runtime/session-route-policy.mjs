@@ -1,7 +1,8 @@
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 
-function hasRouteHistoryMessage(messages) {
+/** A real user exchange, or the summary anchor a compaction left behind. */
+export function hasRouteHistoryMessage(messages) {
   const list = Array.isArray(messages) ? messages : [];
   return (
     hasUserConversationMessage(list) ||

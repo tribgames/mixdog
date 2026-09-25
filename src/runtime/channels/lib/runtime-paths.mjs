@@ -114,57 +114,15 @@ function getControlResponsePath(instanceId) {
 function getStopFlagPath(instanceId) {
   return join(RUNTIME_ROOT, `stop-${sanitize(instanceId)}.flag`);
 }
-function getChannelOwnerPath(channelId) {
-  return join(OWNER_DIR, `${sanitize(channelId)}.json`);
-}
-// Transient read during an atomic rename may yield empty/partial content.
-// Retry once after 50 ms before reporting the advert as unreadable.
-function readActiveInstanceRetrying() {
+// Pure metadata-advert read: ownership is the OS seat lock, so a leftover
+// advert is never evicted here. A transient read during an atomic rename may
+// yield empty/partial content: retry once after 50 ms before reporting the
+// advert as unreadable.
+function readActiveInstance() {
   const first = readJsonFile(ACTIVE_INSTANCE_FILE, null);
   if (first) return first;
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-  return readJsonFile(ACTIVE_INSTANCE_FILE, null);
-}
-function readActiveInstance() {
-  const state = readActiveInstanceRetrying();
-  if (!state) return null;
-  // Pure metadata-advert read: ownership is the OS seat lock now, so this no
-  // longer evicts a "stale" owner (the false-stale ui_heartbeat eviction was
-  // the Discord-flapping root cause). A crashed holder auto-releases the seat;
-  // its leftover advert is harmless and refreshActiveInstance's own
-  // preservation logic decides which fields to carry forward.
-  return state;
-}
-// Non-blocking ownership probe for the periodic refresh/heartbeat tick. Reads
-// active-instance WITHOUT taking the lock (never blocks). Distinguishes:
-//   'absent'  — file does not exist            → seat is claimable
-//   'stale'   — parseable but owner PID is dead → seat is claimable
-//   'live'    — parseable, owner PID alive      → seat is held (state.instanceId)
-//   'unknown' — file present but unreadable/partial (concurrent atomic rename)
-//               → INDETERMINATE; callers must treat as busy and NEVER claim.
-// This is the read-side guard for "locked/unreadable = busy/unknown owner,
-// never claimable/no-owner": a torn read during another writer's rename must
-// not be mistaken for an empty seat.
-function probeActiveOwner() {
-  try {
-    statSync(ACTIVE_INSTANCE_FILE);
-  } catch {
-    return { status: 'absent', state: null };
-  }
-  const raw = readActiveInstanceRetrying();
-  if (!raw) {
-    // Re-check existence to disambiguate a completed delete (absent) from a
-    // still-unreadable file (unknown/busy).
-    try {
-      statSync(ACTIVE_INSTANCE_FILE);
-    } catch {
-      return { status: 'absent', state: null };
-    }
-    return { status: 'unknown', state: null };
-  }
-  const staleReason = activeInstanceStaleReason(raw);
-  if (staleReason) return { status: 'stale', state: raw, staleReason };
-  return { status: 'live', state: raw };
+  return readJsonFile(ACTIVE_INSTANCE_FILE, null) || null;
 }
 /** Caller-supplied advert fields, in the order every writer publishes them. */
 function metaFields(meta) {
@@ -364,36 +322,27 @@ function clearServerPid() {
     if (current === String(process.pid)) removeFileIfExists(SERVER_PID_FILE);
   } catch {}
 }
+/** Remove `fullPath` when `pid` is a positive pid of a process that no longer exists; true when removed.
+ *  EPERM means the process exists under another user, so its file is kept. */
+function removeIfPidDead(fullPath, pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  if (isPidAlive(pid)) return false;
+  removeFileIfExists(fullPath);
+  return true;
+}
 function cleanupStaleRuntimeFiles(now = Date.now()) {
   ensureRuntimeDirs();
   forEachFile(RUNTIME_ROOT, (fullPath, file) => {
     if (file === 'owners' || file === 'active-instance.json') return;
     try {
       const heartbeat = /^supervisor-heartbeat\.(\d+)\.json$/.exec(file);
-      if (heartbeat) {
-        const pid = Number(heartbeat[1]);
-        if (Number.isFinite(pid) && pid > 0) {
-          try {
-            process.kill(pid, 0);
-          } catch {
-            removeFileIfExists(fullPath);
-            return;
-          }
-        }
-      }
+      if (heartbeat && removeIfPidDead(fullPath, Number(heartbeat[1]))) return;
       if (/^server-.*\.pid$/.test(file)) {
         let pid = NaN;
         try {
           pid = Number(readFileSync(fullPath, 'utf8').trim());
         } catch {}
-        if (Number.isFinite(pid) && pid > 0) {
-          try {
-            process.kill(pid, 0);
-          } catch {
-            removeFileIfExists(fullPath);
-            return;
-          }
-        }
+        if (removeIfPidDead(fullPath, pid)) return;
       }
       const age = now - statSync(fullPath).mtimeMs;
       // status snapshots and atomic-write .tmp leftovers churn quickly;
@@ -409,15 +358,7 @@ function cleanupStaleRuntimeFiles(now = Date.now()) {
       // Owner liveness check beats mtime — a record pointing at a dead
       // instanceId is stale immediately regardless of when it was written.
       const owner = readJsonFile(fullPath, null);
-      const ownerPid = Number(owner?.pid ?? owner?.instanceId);
-      if (Number.isFinite(ownerPid) && ownerPid > 0) {
-        try {
-          process.kill(ownerPid, 0);
-        } catch {
-          removeFileIfExists(fullPath);
-          return;
-        }
-      }
+      if (removeIfPidDead(fullPath, Number(owner?.pid ?? owner?.instanceId))) return;
       if (now - statSync(fullPath).mtimeMs > RUNTIME_STALE_TTL) removeFileIfExists(fullPath);
     } catch {}
   });
@@ -461,17 +402,11 @@ export {
   clearActiveInstance,
   clearServerPid,
   ensureRuntimeDirs,
-  getActiveOwnerPid,
-  getChannelOwnerPath,
-  getControlPath,
-  getControlResponsePath,
   getTerminalLeadPid,
   getStatusPath,
-  getTurnEndPath,
   notePreviousServerIfAny,
   makeInstanceId,
   readActiveInstance,
-  probeActiveOwner,
   refreshActiveInstance,
   releaseOwnedChannelLocks,
   setOwnerContext,

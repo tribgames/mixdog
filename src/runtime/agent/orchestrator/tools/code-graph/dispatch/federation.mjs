@@ -128,7 +128,7 @@ function federateRoots(name, args, plan, signal, options, execute) {
   const runOne = async (root, nextArgs) =>
     execute(name, nextArgs, root, signal, { ...options, excludedProjectRoots: excludedRootsFor(root, roots) });
   const work = _runCodeGraphFederation(roots, runOne, projectArgs).then((sections) => sections.join('\n\n'));
-  return work ? raceAbort(work, signal) : null;
+  return raceAbort(work, signal);
 }
 
 /**
@@ -137,8 +137,9 @@ function federateRoots(name, args, plan, signal, options, execute) {
  * child call re-roots exactly like a direct one.
  */
 export function runFederation(name, args, plan, baseCwd, signal, options, execute) {
-  const canFederate = plan.files.length > 0 || ROOT_FEDERATED_MODES.has(plan.rawMode);
   if (plan.files.length) return federateFileAnchors(name, args, plan, baseCwd, signal, options, execute);
-  if (plan.roots.length && canFederate) return federateRoots(name, args, plan, signal, options, execute);
+  if (plan.roots.length && ROOT_FEDERATED_MODES.has(plan.rawMode)) {
+    return federateRoots(name, args, plan, signal, options, execute);
+  }
   return null;
 }

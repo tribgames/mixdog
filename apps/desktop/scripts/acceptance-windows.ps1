@@ -265,8 +265,8 @@ try {
         $value | ConvertTo-Json -Depth 20 | Set-Content (Join-Path $distDir 'acceptance-tui-e2e.log') -Encoding UTF8
         return $value
     }
-    # Keep the legacy smoke last: it intentionally disposes the EngineHost and
-    # clears its state subscribers as part of shutdown verification.
+    # Keep the bridge smoke after the full E2E: it submits a prompt into a new
+    # task session, which the E2E's session audit must not pick up.
     $null = Invoke-AcceptanceStep 'project-chat-approval-routing' "node scripts/cdp-smoke.mjs `"$($target.webSocketDebuggerUrl)`" `"$ProjectPath`"" {
         $json = & node 'scripts/cdp-smoke.mjs' $target.webSocketDebuggerUrl $ProjectPath
         if ($LASTEXITCODE -ne 0) { throw "CDP smoke exited with $LASTEXITCODE" }

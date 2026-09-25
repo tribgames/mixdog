@@ -31,6 +31,10 @@ export interface RelayE2EEChallenge {
   /** Compact transcript frames: unchanged patch sections are omitted and the
    *  envelope is addressed by session handle instead of by name. */
   compactWire?: 1;
+  /** Transcripts open on a bounded tail and page older history on demand
+   *  (`transcriptHasOlder`); a browser that does not echo it keeps the
+   *  512-item page. */
+  transcriptPaging?: 1;
 }
 
 interface RelayE2EEHello {
@@ -43,6 +47,7 @@ interface RelayE2EEHello {
   listDelta?: 1;
   deflate?: 1;
   compactWire?: 1;
+  transcriptPaging?: 1;
   viewSync?: 1;
 }
 
@@ -157,10 +162,46 @@ async function verifyHelloProof(identity: RelayE2EEServerIdentity, hello: RelayE
   );
 }
 
+const ECDH_P256 = { name: 'ECDH', namedCurve: 'P-256' } as const;
+
 async function importPublicKey(raw: string): Promise<CryptoKey> {
   const bytes = base64UrlDecode(raw);
   if (bytes.byteLength !== 65 || bytes[0] !== 4) throw new Error('Invalid P-256 public key.');
-  return cryptoApi().subtle.importKey('raw', arrayBuffer(bytes), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  return cryptoApi().subtle.importKey('raw', arrayBuffer(bytes), ECDH_P256, false, []);
+}
+
+async function importEcdhPrivateKey(jwk: JsonWebKey, extractable: boolean): Promise<CryptoKey> {
+  return cryptoApi().subtle.importKey('jwk', jwk, ECDH_P256, extractable, ['deriveBits']);
+}
+
+async function generateEcdhKeyPair(): Promise<CryptoKeyPair> {
+  return (await cryptoApi().subtle.generateKey(ECDH_P256, true, ['deriveBits'])) as CryptoKeyPair;
+}
+
+async function exportRawPublicKey(key: CryptoKey): Promise<string> {
+  return base64UrlEncode(new Uint8Array(await cryptoApi().subtle.exportKey('raw', key)));
+}
+
+/** ECDH shared secret → HKDF-SHA-256 → non-extractable AES-GCM-256 key. */
+async function deriveAesGcmKey(
+  privateKey: CryptoKey,
+  peerPublicKey: string,
+  salt: Uint8Array,
+  info: Uint8Array
+): Promise<CryptoKey> {
+  const sharedBits = await cryptoApi().subtle.deriveBits(
+    { name: 'ECDH', public: await importPublicKey(peerPublicKey) },
+    privateKey,
+    256
+  );
+  const keyMaterial = await cryptoApi().subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
+  return cryptoApi().subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: arrayBuffer(salt), info: arrayBuffer(info) },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
 }
 
 async function deriveChannelKey(input: {
@@ -171,29 +212,11 @@ async function deriveChannelKey(input: {
   serverPublicKey: string;
   clientPublicKey: string;
 }): Promise<CryptoKey> {
-  const sharedBits = await cryptoApi().subtle.deriveBits(
-    {
-      name: 'ECDH',
-      public: await importPublicKey(input.peerPublicKey),
-    },
+  return deriveAesGcmKey(
     input.privateKey,
-    256
-  );
-  const keyMaterial = await cryptoApi().subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
-  const info = encoder.encode(
-    `${E2EE_CONTEXT}\0key\0${input.challenge}\0${input.serverPublicKey}\0${input.clientPublicKey}`
-  );
-  return cryptoApi().subtle.deriveKey(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: arrayBuffer(base64UrlDecode(input.pairingSecret)),
-      info: arrayBuffer(info),
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
+    input.peerPublicKey,
+    base64UrlDecode(input.pairingSecret),
+    encoder.encode(`${E2EE_CONTEXT}\0key\0${input.challenge}\0${input.serverPublicKey}\0${input.clientPublicKey}`)
   );
 }
 
@@ -351,17 +374,15 @@ export function isRelayE2EEHello(value: unknown): value is RelayE2EEHello {
 }
 
 export async function generateRelayE2EEServerIdentity(): Promise<RelayE2EEServerIdentity> {
-  const pair = (await cryptoApi().subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
-    'deriveBits',
-  ])) as CryptoKeyPair;
-  const [privateKeyJwk, publicKeyJwk, publicKeyRaw] = await Promise.all([
+  const pair = await generateEcdhKeyPair();
+  const [privateKeyJwk, publicKeyJwk, serverPublicKey] = await Promise.all([
     cryptoApi().subtle.exportKey('jwk', pair.privateKey),
     cryptoApi().subtle.exportKey('jwk', pair.publicKey),
-    cryptoApi().subtle.exportKey('raw', pair.publicKey),
+    exportRawPublicKey(pair.publicKey),
   ]);
   return {
     version: E2EE_VERSION,
-    serverPublicKey: base64UrlEncode(new Uint8Array(publicKeyRaw)),
+    serverPublicKey,
     pairingSecret: base64UrlEncode(randomBytes(32)),
     privateKeyJwk,
     publicKeyJwk,
@@ -378,19 +399,10 @@ export async function validateRelayE2EEServerIdentity(value: RelayE2EEServerIden
       !value.publicKeyJwk
     )
       return false;
-    const publicKey = await cryptoApi().subtle.importKey(
-      'jwk',
-      value.publicKeyJwk,
-      { name: 'ECDH', namedCurve: 'P-256' },
-      true,
-      []
-    );
-    await cryptoApi().subtle.importKey('jwk', value.privateKeyJwk, { name: 'ECDH', namedCurve: 'P-256' }, false, [
-      'deriveBits',
-    ]);
-    const raw = await cryptoApi().subtle.exportKey('raw', publicKey);
+    const publicKey = await cryptoApi().subtle.importKey('jwk', value.publicKeyJwk, ECDH_P256, true, []);
+    await importEcdhPrivateKey(value.privateKeyJwk, false);
     return (
-      base64UrlEncode(new Uint8Array(raw)) === value.serverPublicKey &&
+      (await exportRawPublicKey(publicKey)) === value.serverPublicKey &&
       base64UrlDecode(value.pairingSecret).byteLength === 32
     );
   } catch {
@@ -435,32 +447,18 @@ async function claimSealKey(input: {
   clientPublicKey: string;
   ephemeralPublicKey: string;
 }): Promise<CryptoKey> {
-  const sharedBits = await cryptoApi().subtle.deriveBits(
-    { name: 'ECDH', public: await importPublicKey(input.peerPublicKey) },
+  return deriveAesGcmKey(
     input.privateKey,
-    256
-  );
-  const keyMaterial = await cryptoApi().subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
-  return cryptoApi().subtle.deriveKey(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: arrayBuffer(new Uint8Array(32)),
-      info: arrayBuffer(encoder.encode(`${E2EE_CLAIM_CONTEXT}\0${input.clientPublicKey}\0${input.ephemeralPublicKey}`)),
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
+    input.peerPublicKey,
+    new Uint8Array(32),
+    encoder.encode(`${E2EE_CLAIM_CONTEXT}\0${input.clientPublicKey}\0${input.ephemeralPublicKey}`)
   );
 }
 
 export async function generateRelayClaimKeyPair(): Promise<RelayClaimKeyPair> {
-  const pair = (await cryptoApi().subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
-    'deriveBits',
-  ])) as CryptoKeyPair;
+  const pair = await generateEcdhKeyPair();
   return {
-    publicKey: base64UrlEncode(new Uint8Array(await cryptoApi().subtle.exportKey('raw', pair.publicKey))),
+    publicKey: await exportRawPublicKey(pair.publicKey),
     privateKey: pair.privateKey,
   };
 }
@@ -487,13 +485,7 @@ export async function importRelayClaimKeyPair(stored: unknown): Promise<RelayCla
     if (!value || !isRelayClaimPublicKey(value.publicKey) || !value.privateKeyJwk) return null;
     return {
       publicKey: value.publicKey,
-      privateKey: await cryptoApi().subtle.importKey(
-        'jwk',
-        value.privateKeyJwk,
-        { name: 'ECDH', namedCurve: 'P-256' },
-        true,
-        ['deriveBits']
-      ),
+      privateKey: await importEcdhPrivateKey(value.privateKeyJwk, true),
     };
   } catch {
     return null;
@@ -507,10 +499,8 @@ export async function sealRelayE2EEPairingMaterial(
   if (!isRelayClaimPublicKey(clientPublicKey)) {
     throw new Error('Invalid approval key.');
   }
-  const pair = (await cryptoApi().subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
-    'deriveBits',
-  ])) as CryptoKeyPair;
-  const ephemeralPublicKey = base64UrlEncode(new Uint8Array(await cryptoApi().subtle.exportKey('raw', pair.publicKey)));
+  const pair = await generateEcdhKeyPair();
+  const ephemeralPublicKey = await exportRawPublicKey(pair.publicKey);
   const key = await claimSealKey({
     privateKey: pair.privateKey,
     peerPublicKey: clientPublicKey,
@@ -587,10 +577,8 @@ export async function createRelayE2EEClientHandshake(
   if (pairing.version !== E2EE_VERSION || !isRelayE2EEChallenge(challenge)) {
     throw new Error('Unsupported relay encryption handshake.');
   }
-  const pair = (await cryptoApi().subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, [
-    'deriveBits',
-  ])) as CryptoKeyPair;
-  const clientPublicKey = base64UrlEncode(new Uint8Array(await cryptoApi().subtle.exportKey('raw', pair.publicKey)));
+  const pair = await generateEcdhKeyPair();
+  const clientPublicKey = await exportRawPublicKey(pair.publicKey);
   const hello: RelayE2EEHello = {
     type: 'e2ee-hello',
     version: E2EE_VERSION,
@@ -602,6 +590,7 @@ export async function createRelayE2EEClientHandshake(
     // Echoed only when this browser can also inflate what it asks for.
     ...(challenge.deflate === 1 && relayE2EECompressionSupported() ? { deflate: 1 as const } : {}),
     ...(challenge.compactWire === 1 ? { compactWire: 1 as const } : {}),
+    ...(challenge.transcriptPaging === 1 ? { transcriptPaging: 1 as const } : {}),
   };
   const key = await deriveChannelKey({
     privateKey: pair.privateKey,
@@ -626,13 +615,7 @@ export async function acceptRelayE2EEClientHello(
   ) {
     throw new Error('Relay encryption authentication failed.');
   }
-  const privateKey = await cryptoApi().subtle.importKey(
-    'jwk',
-    identity.privateKeyJwk,
-    { name: 'ECDH', namedCurve: 'P-256' },
-    false,
-    ['deriveBits']
-  );
+  const privateKey = await importEcdhPrivateKey(identity.privateKeyJwk, false);
   const key = await deriveChannelKey({
     privateKey,
     peerPublicKey: hello.clientPublicKey,

@@ -165,6 +165,12 @@ function _setServerReferenced(server, referenced) {
   } catch {}
 }
 
+// The graph module's binary path; its resolver shape is duck-typed so a
+// refactor there degrades to "server unavailable", never throws.
+function graphBinaryCandidate(mod) {
+  return mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
+}
+
 function _resolveBinary() {
   if (_binaryPath !== undefined) return _binaryPath;
   // The graph and resident-search protocols ship in the same executable.
@@ -177,12 +183,11 @@ function _resolveBinary() {
   }
   if (!_binaryResolveStarted) {
     _binaryResolveStarted = true;
-    // Reuse the code-graph binary resolution lazily; resolver shape is duck-
-    // typed so a refactor there degrades to "server unavailable", never throws.
+    // Reuse the code-graph binary resolution lazily.
     void import('../code-graph/graph-binary.mjs')
       .then((mod) => {
         try {
-          const candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
+          const candidate = graphBinaryCandidate(mod);
           _binaryPath = candidate && existsSync(candidate) ? candidate : null;
         } catch {
           _binaryPath = null;
@@ -419,8 +424,6 @@ function armNativeCancellationWatchdog(server, request) {
 
 export { completeNativeCancellation as _ackNativeSearchCancellationForTest };
 
-/** Returns a runRgWindowedLines-shaped result, or null when the native server
- *  is unavailable or the request shape is unsupported. */
 // Boot-time prewarm: binary resolution is async (dynamic import), so the
 // first search of a cold session otherwise waits for startup. Long-lived hosts
 // call this fire-and-forget to have the resident
@@ -432,7 +435,7 @@ export async function warmNativeSearchServer(timeoutMs = 5_000) {
       try {
         if (!_resolveBinary()) {
           const mod = await import('../code-graph/graph-binary.mjs');
-          let candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
+          let candidate = graphBinaryCandidate(mod);
           if (!candidate) candidate = await ensureGraphBinary(getPluginData());
           if (candidate && existsSync(candidate)) _binaryPath = candidate;
           else if (_binaryPath === undefined) _binaryPath = null;
@@ -606,13 +609,39 @@ async function requestNativeWithRestart(buildRequest, execOptions, deadlineMs) {
   throw unavailableError();
 }
 
+// The caller's timeout, bounded by REQUEST_TIMEOUT_MS; `fallbackMs` when the
+// caller set none.
+function callerDeadlineMs(execOptions, fallbackMs) {
+  const callerTimeoutMs = Number(execOptions.timeout);
+  return Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
+    ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
+    : fallbackMs;
+}
+
+// An empty answer the server calls complete with nothing else vouching for it.
+function isUnverifiedEmpty(response) {
+  return (
+    Array.isArray(response.lines) &&
+    response.lines.length === 0 &&
+    response.complete === true &&
+    response.partial !== true &&
+    response.inventoryChecked !== true
+  );
+}
+
+// Queue plus handler time used up the soft deadline budget.
+function consumedDeadline(response, deadlineMs) {
+  return (
+    (Number(response.queueMs) || 0) + (Number(response.handlerMs) || 0) >=
+    Math.max(500, softDeadlineMs(deadlineMs) - 250)
+  );
+}
+
+/** Returns a runRgWindowedLines-shaped result, or null when the native server
+ *  is disabled or the response carries no line list. */
 export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   if (process.env.MIXDOG_SEARCH_SERVER === '0') return null;
-  const callerTimeoutMs = Number(execOptions.timeout);
-  const deadlineMs =
-    Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
-      ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
-      : REQUEST_TIMEOUT_MS;
+  const deadlineMs = callerDeadlineMs(execOptions, REQUEST_TIMEOUT_MS);
   const buildRequest = (server, remaining) => ({
     id: ++server.sequence,
     cwd: String(execOptions.cwd || process.cwd()),
@@ -634,13 +663,8 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
   // (served from a now-warm server) returns either the real matches or a
   // fast, trustworthy empty.
   const legacySuspectEmpty =
-    Array.isArray(response.lines) &&
-    response.lines.length === 0 &&
-    response.complete === true &&
-    response.partial !== true &&
-    response.inventoryChecked !== true &&
-    ((Number(response.queueMs) || 0) + (Number(response.handlerMs) || 0) >=
-      Math.max(500, softDeadlineMs(deadlineMs) - 250) ||
+    isUnverifiedEmpty(response) &&
+    (consumedDeadline(response, deadlineMs) ||
       // filesScanned===0 on an empty "complete" answer: the scan loops never
       // opened a single file. Either the scope truly has no eligible files
       // (retry returns the same answer in ~ms) or the server's file list was
@@ -663,15 +687,7 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
         error
       );
     }
-    const retryConsumedDeadline =
-      Array.isArray(response.lines) &&
-      response.lines.length === 0 &&
-      response.complete === true &&
-      response.partial !== true &&
-      response.inventoryChecked !== true &&
-      (Number(response.queueMs) || 0) + (Number(response.handlerMs) || 0) >=
-        Math.max(500, softDeadlineMs(deadlineMs) - 250);
-    if (retryConsumedDeadline) {
+    if (isUnverifiedEmpty(response) && consumedDeadline(response, deadlineMs)) {
       throw codedError(
         'NATIVE_SEARCH_INTEGRITY',
         'native search returned an unverified empty result after a fresh-server retry'
@@ -715,11 +731,7 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
 
 export async function tryServeFuzzySearch(args, execOptions = {}) {
   if (process.env.MIXDOG_SEARCH_SERVER === '0') return null;
-  const callerTimeoutMs = Number(execOptions.timeout);
-  const deadlineMs =
-    Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
-      ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
-      : REQUEST_TIMEOUT_MS;
+  const deadlineMs = callerDeadlineMs(execOptions, REQUEST_TIMEOUT_MS);
   const response = await requestNativeWithRestart(
     (server, remaining) => ({
       id: ++server.sequence,
@@ -777,11 +789,7 @@ export async function tryServeListMetadata(paths, execOptions = {}) {
   if (list.length > 50_000) {
     throw codedError('NATIVE_SEARCH_UNSUPPORTED', 'list metadata request exceeds 50000 paths');
   }
-  const callerTimeoutMs = Number(execOptions.timeout);
-  const deadlineMs =
-    Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
-      ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
-      : Math.min(5_000, REQUEST_TIMEOUT_MS);
+  const deadlineMs = callerDeadlineMs(execOptions, Math.min(5_000, REQUEST_TIMEOUT_MS));
   const response = await requestNativeWithRestart(
     (server) => ({
       id: ++server.sequence,

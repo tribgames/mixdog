@@ -8,7 +8,7 @@ import { ensurePgInstance, checkedConnect, closePgInstance } from './pg/adapter.
 import { resolve } from 'node:path';
 import { cleanupTraceWhenDisabled, traceEnabled } from './trace-mode.mjs';
 import { sessionIndexSql } from './pg/compact-indexes.mjs';
-import { collectAgentCallRows } from './trace-store/agent-call-rows.mjs';
+import { collectAgentCallRows, eventTimestampMs, numberOrNull } from './trace-store/agent-call-rows.mjs';
 import { summarizeAgentSessions } from './trace-store/agent-session-summary.mjs';
 import { insertLlmRows, insertToolRows, upsertAgentSessions } from './trace-store/agent-call-inserts.mjs';
 
@@ -753,15 +753,9 @@ function clearTraceQueue(db) {
 function unregisterTraceExitDrain(db) {
   const handlers = _registeredExitDbs.get(db);
   if (!handlers) return;
-  try {
-    process.off('exit', handlers.onExit);
-  } catch {}
-  try {
-    process.off('SIGTERM', handlers.onSigterm);
-  } catch {}
-  try {
-    process.off('beforeExit', handlers.onBeforeExit);
-  } catch {}
+  process.off('exit', handlers.onExit);
+  process.off('SIGTERM', handlers.onSigterm);
+  process.off('beforeExit', handlers.onBeforeExit);
   _registeredExitDbs.delete(db);
 }
 
@@ -802,9 +796,7 @@ export async function closeTraceDatabase(dataDir) {
   if (!db) return false;
   const timer = partitionTimers.get(key);
   if (timer) {
-    try {
-      clearInterval(timer);
-    } catch {}
+    clearInterval(timer);
     partitionTimers.delete(key);
   }
   await drainTraceQueue(db);
@@ -861,34 +853,29 @@ export async function insertTraceEvents(db, events) {
   let p = 1;
 
   for (const ev of events) {
-    let ts = ev.ts;
-    if (typeof ts === 'string') ts = Date.parse(ts);
-    ts = Number(ts);
-    if (!Number.isFinite(ts)) ts = Date.now();
-
     const payload = ev.payload != null ? ev.payload : {};
 
     const cols = [
-      ts,
+      eventTimestampMs(ev),
       ev.session_id ?? null,
-      ev.iteration != null ? Number(ev.iteration) : null,
+      numberOrNull(ev.iteration),
       String(ev.kind ?? 'unknown'),
       ev.agent ?? null,
       ev.model ?? null,
       ev.tool_name ?? null,
-      ev.tool_ms != null ? Number(ev.tool_ms) : null,
+      numberOrNull(ev.tool_ms),
       ev.result_kind ?? ev.resultKind ?? null,
       ev.result_error_category ?? ev.resultErrorCategory ?? null,
       ev.result_error_first_line ?? ev.resultErrorFirstLine ?? null,
-      ev.input_tokens != null ? Number(ev.input_tokens) : null,
-      ev.output_tokens != null ? Number(ev.output_tokens) : null,
-      ev.cached_tokens != null ? Number(ev.cached_tokens) : null,
-      ev.cache_write_tokens != null ? Number(ev.cache_write_tokens) : null,
-      ev.duration_ms != null ? Number(ev.duration_ms) : null,
+      numberOrNull(ev.input_tokens),
+      numberOrNull(ev.output_tokens),
+      numberOrNull(ev.cached_tokens),
+      numberOrNull(ev.cache_write_tokens),
+      numberOrNull(ev.duration_ms),
       ev.error_message ?? null,
       typeof payload === 'string' ? payload : JSON.stringify(payload),
-      ev.parent_span_id != null ? Number(ev.parent_span_id) : null,
-      ev.entry_id != null ? Number(ev.entry_id) : null,
+      numberOrNull(ev.parent_span_id),
+      numberOrNull(ev.entry_id),
     ];
     valuePlaceholders.push(`(${cols.map(() => `$${p++}`).join(', ')})`);
     params.push(...cols);

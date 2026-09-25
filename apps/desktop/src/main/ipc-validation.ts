@@ -46,6 +46,7 @@ const BOOLEAN_SECOND_CAPABILITIES = new Set<DesktopCapability>([
   'setScheduleEnabled',
   'setWebhookEnabled',
   'setBuiltinToolEnabled',
+  'setDeveloperOption',
 ]);
 const SUBMIT_OPTION_KEYS = new Set([
   'id',
@@ -88,6 +89,8 @@ const CAPABILITY_ARITY = {
   getToolModuleSettings: [0, 0],
   setWebSearchEnabled: [1, 1],
   setMemoryToolsEnabled: [1, 1],
+  getDeveloperSettings: [0, 0],
+  setDeveloperOption: [2, 2],
   setBuiltinToolEnabled: [2, 2],
   installBuiltinFeature: [1, 1],
   getTidyEngineStatus: [0, 0],
@@ -262,8 +265,10 @@ export function requiredFileSearchLimit(value: unknown): number {
   return value as number;
 }
 
-export function requiredTranscriptItemLimit(value: unknown): number {
-  if (value === undefined) return 512;
+/** Absent (JSON transports carry an omitted argument as null): re-read the
+ *  session's current transcript window without growing it. */
+export function requiredTranscriptItemLimit(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
   if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 8_192) {
     throw new TypeError('transcript item limit is invalid.');
   }
@@ -507,6 +512,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   if (capability === 'setBuiltinToolEnabled' && !TOGGLEABLE_BUILTIN_TOOLS.has(args[0] as string)) {
     throw new TypeError('setBuiltinToolEnabled requires git, office, localProvider, or tidy.');
   }
+  if (capability === 'setDeveloperOption') requiredString(args[0], 'developer option id', 128);
   if (capability === 'installBuiltinFeature' && !INSTALLABLE_BUILTIN_FEATURES.has(args[0] as string)) {
     throw new TypeError('installBuiltinFeature requires git, memory, office, localProvider, or tidy.');
   }

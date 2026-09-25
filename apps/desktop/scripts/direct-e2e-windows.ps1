@@ -127,7 +127,9 @@ try {
             $targets = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/json/list" -TimeoutSec 2
             $target = @($targets | Where-Object { $_.type -eq 'page' })[0]
         }
-        catch {}
+        catch {
+            # CDP is not listening yet; the deadline loop retries.
+        }
     } while (-not $target -and [DateTime]::UtcNow -lt $deadline)
     if (-not $target) { throw "Mixdog CDP target did not appear on port $Port." }
 

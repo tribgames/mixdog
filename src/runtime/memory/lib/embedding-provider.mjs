@@ -265,6 +265,20 @@ export function getEmbeddingDims() {
   return cachedDims;
 }
 
+// Checks a worker result's dimension against the cached one, records it, and
+// marks the model ready unless the dtype was reconfigured mid-request.
+function acceptWorkerDims(result, label, dtype, fallbackDevice) {
+  if (!result.dims) throw new Error(`${label} result missing dims (model=${MODEL_ID})`);
+  if (cachedDims && result.dims !== cachedDims) {
+    throw new Error(`${label} vector dims mismatch: expected ${cachedDims}, got ${result.dims}`);
+  }
+  cachedDims = result.dims;
+  if (dtype === _configuredDtype) {
+    _modelReady = true;
+    _device = result.device || fallbackDevice;
+  }
+}
+
 async function runEmbeddingWarmup() {
   if (_modelReady && cachedDims) return true;
   const dtype = _configuredDtype;
@@ -309,16 +323,7 @@ export async function embedText(text, options = {}) {
     inputType,
     priority: options?.priority === true,
   });
-  if (!result.dims) throw new Error(`embed result missing dims (model=${MODEL_ID})`);
-  const resultDims = result.dims;
-  if (cachedDims && resultDims !== cachedDims) {
-    throw new Error(`embed vector dims mismatch: expected ${cachedDims}, got ${resultDims}`);
-  }
-  cachedDims = resultDims;
-  if (dtype === _configuredDtype) {
-    _modelReady = true;
-    _device = result.device || 'cpu';
-  }
+  acceptWorkerDims(result, 'embed', dtype, 'cpu');
   const vector = result.vector;
   if (!Array.isArray(vector) || vector.length !== cachedDims) {
     throw new Error(`embed vector length mismatch: expected ${cachedDims}, got ${vector?.length}`);
@@ -365,16 +370,7 @@ export async function embedTexts(texts, options = {}) {
     });
   if (missing.length === 0) return cachedResults();
   const result = await sendToWorker('embed-batch', { texts: missing, inputType });
-  if (!result.dims) throw new Error(`embed-batch result missing dims (model=${MODEL_ID})`);
-  const resultDims = result.dims;
-  if (cachedDims && resultDims !== cachedDims) {
-    throw new Error(`embed-batch vector dims mismatch: expected ${cachedDims}, got ${resultDims}`);
-  }
-  cachedDims = resultDims;
-  if (dtype === _configuredDtype) {
-    _modelReady = true;
-    _device = result.device || _device;
-  }
+  acceptWorkerDims(result, 'embed-batch', dtype, _device);
   if (!Array.isArray(result.vectors) || result.vectors.length !== missing.length) {
     throw new Error(`embed-batch vectors count mismatch: expected ${missing.length}, got ${result.vectors?.length}`);
   }

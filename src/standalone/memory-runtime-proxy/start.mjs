@@ -7,14 +7,6 @@ const running = (port) => ({ running: true, port, mode: 'http-proxy' });
 // a cached deterministic crash, and otherwise share one claim + fork across
 // concurrent callers.
 export function createDaemonStarter({ state, ownerPath, singletonEnabled, discovery, ownerClaim, spawner }) {
-  async function findReusablePort() {
-    if (state.portCache) {
-      const port = await discovery.findLivePort();
-      if (port) return port;
-      state.portCache = null;
-    }
-    return await discovery.findLivePort();
-  }
   // Persistent crash-loop guard: no live daemon and a recent deterministic
   // spawn crash → fail fast with the cached reason. But a healthy singleton
   // owner may be mid-boot and not yet advertising a port; await it before
@@ -34,11 +26,14 @@ export function createDaemonStarter({ state, ownerPath, singletonEnabled, discov
     return await spawner.spawnDaemon();
   }
   return async function start() {
-    const existing = await findReusablePort();
+    // findLivePort re-reads the published endpoint; a cached port it cannot
+    // confirm is stale.
+    const existing = await discovery.findLivePort();
     if (existing) {
       state.crashState = null;
       return running(existing);
     }
+    state.portCache = null;
     if (state.crashState && Date.now() - state.crashState.at < MEMORY_CRASH_COOLDOWN_MS) {
       return running(await resolveCachedCrash());
     }

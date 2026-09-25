@@ -11,7 +11,7 @@ export function mergeRoutePreference(
   };
 }
 
-export function createRoutePreferenceStore() {
+function createRoutePreferenceStore() {
   const selections = new Map<string, DesktopModelSelection>();
   const keyFor = (provider: string, model: string) => `${provider}/${model}`;
   return {

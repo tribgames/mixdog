@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { percentile, sortedFinite } from './lib/trace-stats.mjs';
 
 const ROOT = mkdtempSync(join(tmpdir(), 'mixdog-session-transport-bench-'));
 process.env.MIXDOG_RUNTIME_ROOT = ROOT;
@@ -56,11 +57,6 @@ function createBenchSessionRuntime(itemCount) {
     },
     async dispose() {},
   };
-}
-
-function percentile(values, fraction) {
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))];
 }
 
 async function benchmark(itemCount) {
@@ -122,9 +118,10 @@ async function benchmark(itemCount) {
     await new Promise((resolve) => setTimeout(resolve, 400));
     const streamMs = performance.now() - streamStarted;
 
+    const sortedLatencies = sortedFinite(latencies);
     console.log(
-      `items=${String(itemCount).padStart(5)}  call p50=${percentile(latencies, 0.5).toFixed(1)}ms ` +
-        `p95=${percentile(latencies, 0.95).toFixed(1)}ms  store-scans/60-calls=${scansAfterCalls}  ` +
+      `items=${String(itemCount).padStart(5)}  call p50=${percentile(sortedLatencies, 50).toFixed(1)}ms ` +
+        `p95=${percentile(sortedLatencies, 95).toFixed(1)}ms  store-scans/60-calls=${scansAfterCalls}  ` +
         `full-frame=${firstFrameBytes}B delta-frames=${deltaFrames} ` +
         `bytes/delta=${deltaFrames ? Math.round(deltaFrameBytes / deltaFrames) : 0} ` +
         `stream200=${streamMs.toFixed(0)}ms received=${received}`

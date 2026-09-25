@@ -57,7 +57,7 @@ export function isCompletionTranscriptItem(item: TranscriptItem | undefined): bo
   return item?.kind === 'statusdone' || item?.kind === 'turndone';
 }
 
-export function transcriptRowKey(sessionKey: string, item: TranscriptItem | undefined, index: number): string {
+function transcriptRowKey(sessionKey: string, item: TranscriptItem | undefined, index: number): string {
   const id = item?.id;
   return id !== undefined && id !== null
     ? `${sessionKey}:${String(id)}`

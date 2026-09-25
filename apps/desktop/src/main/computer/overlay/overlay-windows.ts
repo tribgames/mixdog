@@ -11,6 +11,7 @@ import { app, BrowserWindow, type Display, screen } from 'electron';
 import { OVERLAY_HEIGHT, OVERLAY_WIDTH, overlayHtml, overlayScript } from './content';
 import type { createComputerOverlayController, ComputerUseOverlayControls } from './controls';
 import { recordCursorDiagnostic } from './cursor-diagnostics';
+import { overlayWindowOptions } from './cursor-surface';
 import { registerComputerUseInternalWindow } from './internal-windows';
 import { bindComputerOverlayControls } from './ipc-controls';
 import type { computerUseOverlayPresentation } from './model';
@@ -42,7 +43,7 @@ function overlayPreloadPath(): string {
   return join(directory, 'computer-overlay.js');
 }
 
-export function overlayBounds(display: Display): Electron.Rectangle {
+function overlayBounds(display: Display): Electron.Rectangle {
   return {
     x: Math.round(display.workArea.x + (display.workArea.width - OVERLAY_WIDTH) / 2),
     y: display.workArea.y + 6,
@@ -55,29 +56,14 @@ function boundsKey(bounds: Electron.Rectangle): string {
   return `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`;
 }
 
-function overlayWindowOptions(display: Display): Electron.BrowserWindowConstructorOptions {
+/** The shared overlay surface, always on top and carrying the controls preload. */
+function pillWindowOptions(display: Display): Electron.BrowserWindowConstructorOptions {
+  const shared = overlayWindowOptions();
   return {
     ...overlayBounds(display),
+    ...shared,
     alwaysOnTop: true,
-    backgroundColor: '#00000000',
-    focusable: false,
-    frame: false,
-    fullscreenable: false,
-    hasShadow: false,
-    maximizable: false,
-    minimizable: false,
-    movable: false,
-    resizable: false,
-    show: false,
-    skipTaskbar: true,
-    transparent: true,
-    webPreferences: {
-      preload: overlayPreloadPath(),
-      backgroundThrottling: false,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
+    webPreferences: { ...shared.webPreferences, preload: overlayPreloadPath() },
   };
 }
 
@@ -89,7 +75,7 @@ export function createOverlayWindows(host: OverlayWindowsHost) {
   const liveEntries = (): OverlayWindowEntry[] => [...windows.values()].filter((entry) => !entry.window.isDestroyed());
 
   async function createWindow(display: Display): Promise<BrowserWindow> {
-    const next = new BrowserWindow(overlayWindowOptions(display));
+    const next = new BrowserWindow(pillWindowOptions(display));
     const unregisterInternalWindow = registerComputerUseInternalWindow(next);
     next.setTitle('');
     next.setAlwaysOnTop(true, 'screen-saver');

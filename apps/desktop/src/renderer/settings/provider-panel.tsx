@@ -61,7 +61,9 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
                 aria-label={`${providerLabel(provider)} API key`}
                 required
               />
-              <button disabled={busy}>{t('Save')}</button>
+              <button type="submit" disabled={busy}>
+                {t('Save')}
+              </button>
             </form>
           )}
           {Boolean(provider.stored || (!provider.env && provider.authenticated)) && (

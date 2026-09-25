@@ -58,14 +58,6 @@
   grid-column: 3;
   justify-self: end;
 }
-/* Right slot holds the side-panel toggle; a loose child fell to a new row. */
-.studio-topbar-tools {
-  grid-column: 3;
-  justify-self: end;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
 .studio-density {
   box-sizing: border-box;
   display: inline-flex;
@@ -81,22 +73,6 @@
   flex: 1 1 auto;
   min-width: 0;
   width: 100%;
-}
-.studio-folder {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  margin-left: 6px;
-  border: 0;
-  border-radius: var(--mx-radius-pill);
-  color: var(--mx-icon);
-  background: var(--mx-bg-layer-1);
-  cursor: pointer;
-}
-.studio-folder:hover {
-  color: var(--mx-text);
-  background: var(--mx-hover);
 }
 /* Studio is a full-height tab surface. Its result list reaches the pane floor
    while the composer floats over it. */
@@ -118,19 +94,10 @@
   transition: none;
 }
 /* Range controls follow the app ink instead of the OS accent (user: 색이 튄다). */
-.studio-density input[type="range"],
-.studio-duration input[type="range"] {
+.studio-density input[type="range"] {
   height: 4px;
   accent-color: var(--mx-text);
   cursor: pointer;
-}
-.studio-duration-slot {
-  display: inline-flex;
-  align-items: center;
-}
-.studio-duration-slot[data-empty="true"] {
-  visibility: hidden;
-  pointer-events: none;
 }
 .studio-results {
   min-height: 0;
@@ -495,46 +462,6 @@
 .studio-tile--failed .studio-tile-open::after {
   content: none;
 }
-.studio-failed-body {
-  display: grid;
-  gap: 8px;
-  justify-items: center;
-  padding: 12px;
-  color: var(--mx-danger);
-  text-align: center;
-}
-.studio-failed-body p {
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  margin: 0;
-  max-width: 240px;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-.studio-failed-actions {
-  display: flex;
-  gap: 6px;
-}
-.studio-failed-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border: 0;
-  border-radius: var(--mx-radius-pill);
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-2);
-  box-shadow: var(--mx-button);
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-regular);
-  cursor: pointer;
-}
-.studio-failed-actions button:hover {
-  background: var(--mx-hover);
-}
 .studio-pending-cancel {
   display: inline-flex;
   align-items: center;
@@ -701,9 +628,6 @@
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
 }
-.studio-status-error {
-  color: var(--mx-danger);
-}
 .studio-model-id,
 .studio-model-description {
   display: block;
@@ -833,40 +757,6 @@
   background: var(--mx-bg-base);
   box-shadow: var(--mx-button);
 }
-.studio-pill-select .mx-select-trigger {
-  height: 28px;
-  /* Chat-composer grammar (user): frameless natural-width value + chevron,
-     hover reveals the plate — matches the session effort/fast controls. */
-  width: max-content;
-  min-width: 0;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: none;
-  box-shadow: none;
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-}
-.studio-pill-select .mx-select-trigger:hover:not(:disabled),
-.studio-pill-select .mx-select-trigger[aria-expanded="true"]:not(:disabled) {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-}
-/* Truncate only the trigger: the open menu must size to its longest label so
-   provider names never read as "Grok Imagine (…". */
-.studio-pill-select .mx-select-value {
-  max-width: 148px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.studio-pill-select .mx-select-menu {
-  min-width: max-content;
-}
-.studio-pill-select .mx-select-menu .mx-select-option {
-  white-space: nowrap;
-}
 .studio-model-trigger {
   display: inline-flex;
   align-items: center;
@@ -895,56 +785,10 @@
   color: var(--mx-text);
   background: var(--mx-hover);
 }
-/* Model menu: wide enough that no row truncates, trigger stays fixed width. */
-.studio-model-select .mx-select-trigger {
-  height: 28px;
-  width: max-content;
-  min-width: 0;
-  max-width: 200px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: none;
-  box-shadow: none;
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-}
-.studio-model-select .mx-select-trigger:hover:not(:disabled),
-.studio-model-select .mx-select-trigger[aria-expanded="true"]:not(:disabled) {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-}
-.studio-model-select .mx-select-value {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.studio-model-select .mx-select-menu {
-  min-width: 240px;
-}
-/* Anchored model popover: own width, provider headings, opens upward. */
+/* Anchored model popover: opens upward from the trigger. */
 .studio-model-menu {
   position: relative;
   display: inline-flex;
-}
-.studio-model-panel {
-  position: fixed;
-  z-index: 950;
-  width: 268px;
-  max-height: 320px;
-  overflow-y: auto;
-  padding: 8px;
-  border: var(--mx-popup-border);
-  border-radius: var(--mx-popup-radius);
-  background: var(--mx-popup-bg);
-  box-shadow: var(--mx-popup-shadow);
-  /* Chat-composer parity: the panel scales out of the expanding pill. */
-  transform-origin: bottom left;
-  animation: route-sheet-morph-in var(--mx-motion-slow) var(--mx-ease-emphasized) both;
-}
-.studio-model-panel > * {
-  animation: route-sheet-content-in var(--mx-motion-chrome) 40ms both;
 }
 /* Codex-style pill: expands to the panel width while open. */
 .studio-model-trigger[data-morph] {
@@ -954,62 +798,6 @@
   background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 1px var(--mx-border-muted);
   transition: width var(--mx-motion-base) var(--mx-ease-emphasized);
-}
-.studio-model-panel section + section {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 0.5px solid var(--mx-border-muted);
-}
-.studio-model-panel h4 {
-  margin: 4px 8px 5px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-micro);
-  font-weight: var(--mx-weight-semibold);
-  letter-spacing: var(--mx-tracking-wide);
-  text-transform: uppercase;
-}
-.studio-model-panel button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  min-height: 34px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: transparent;
-  font-size: var(--mx-font-ui);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background var(--mx-motion-ink),
-    box-shadow var(--mx-motion-ink);
-}
-.studio-model-panel button:hover,
-.studio-model-panel button:focus-visible {
-  outline: 0;
-  background: var(--mx-hover);
-}
-/* Flat rows (chat catalog parity): the neutral check alone marks selection. */
-.studio-model-panel button.active {
-  background: transparent;
-  box-shadow: none;
-  font-weight: var(--mx-weight-regular);
-}
-.studio-model-panel button.active:hover,
-.studio-model-panel button.active:focus-visible {
-  background: var(--mx-hover);
-}
-.studio-model-panel button.active svg {
-  color: var(--mx-text);
-}
-/* The panel is portalled to the viewport, so on a phone it must fit one:
-   the component clamps its left edge, this caps the box itself. */
-.studio-model-panel {
-  max-width: calc(100vw - 16px);
-  max-height: min(320px, 60vh);
 }
 /* The generation controls ride one strip; the send action sits outside it,
    exactly like the chat composer's route strip and send button. */
@@ -1052,27 +840,12 @@
    its media contract changes. */
 .studio-composer-bar,
 .studio-model-trigger,
-.studio-pill-select .mx-select-trigger,
-.studio-model-select .mx-select-trigger,
-.studio-kind button,
-.studio-duration {
+.studio-kind button {
   font-family: var(--mx-font-sans);
 }
 .studio-model-trigger,
-.studio-pill-select .mx-select-trigger,
-.studio-model-select .mx-select-trigger,
 .studio-kind button {
   transition: none;
-}
-.studio-duration {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--mx-text);
-  font-size: var(--mx-font-minor);
-}
-.studio-duration input {
-  width: 88px;
 }
 .studio-generate {
   display: inline-flex;

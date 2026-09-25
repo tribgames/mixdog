@@ -1,4 +1,4 @@
-import { xmlAttribute, xmlDecode, xmlEncode } from './portable-xml.mjs';
+import { tagPattern, xmlAttribute, xmlDecode, xmlEncode } from './portable-xml.mjs';
 
 const XML_EDGE_SPACE = /^[ \t\r\n]+|[ \t\r\n]+$/g;
 const EXCERPT_CHARS = 200;
@@ -9,9 +9,7 @@ const EXCERPT_CHARS = 200;
  *  is meant. */
 export function revisionOwner(author = '') {
   if (!author) return '';
-  const encoded = xmlEncode(String(author))
-    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    .replace(/&apos;/g, "(?:&apos;|')");
+  const encoded = tagPattern(xmlEncode(String(author))).replace(/&apos;/g, "(?:&apos;|')");
   return `(?=[^>]*\\bw:author="${encoded}")`;
 }
 

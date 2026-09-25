@@ -30,6 +30,9 @@ export function parseModelRef(ref: string): ParsedModelRef {
   return { route, effort, fast, modelParameters };
 }
 
+/** Effort picked for a model whose remembered choices it does not offer. */
+export const EFFORT_FALLBACK_ORDER = ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'] as const;
+
 export function preferredModelEffort(model: DesktopModelOption | undefined): string | undefined {
   if (!model?.effortOptions.length) return undefined;
   if (model.savedEffort && model.effortOptions.some((entry) => entry.value === model.savedEffort)) {
@@ -38,7 +41,7 @@ export function preferredModelEffort(model: DesktopModelOption | undefined): str
   if (model.defaultEffort && model.effortOptions.some((entry) => entry.value === model.defaultEffort)) {
     return model.defaultEffort;
   }
-  for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra']) {
+  for (const value of EFFORT_FALLBACK_ORDER) {
     if (model.effortOptions.some((entry) => entry.value === value)) return value;
   }
   return model.effortOptions[0]?.value;

@@ -18,6 +18,7 @@ import { LanguageServerProcessManager } from './language-server-process';
 import { LanguageServerRouter } from './language-server-routing';
 import { LanguageServerState } from './language-server-state';
 import type { DynamicCapabilityRegistration, LanguageServerSpec } from './language-server-types';
+import { objectRecord } from './workflow-config';
 
 const TYPESCRIPT_LANGUAGE_SERVER: LanguageServerSpec = {
   id: 'typescript-language-server',
@@ -143,10 +144,6 @@ function parseProjectLanguageServerConfig(value: unknown, root: string): Readonl
     }
   }
   return Object.freeze(byLanguage);
-}
-
-function objectRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 function providerEnabled(value: unknown): boolean {
@@ -735,7 +732,6 @@ export class LanguageServerManager {
       languageServerInitializationOptions,
       normalizeLanguageServerCapabilities,
       relativeDocumentPath,
-      objectRecord,
     });
     this.router = new LanguageServerRouter(this.state, this.process, {
       capabilitiesWithDynamicRegistrations,

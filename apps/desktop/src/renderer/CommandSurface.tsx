@@ -14,8 +14,6 @@ import { SurfaceBody } from './command-surface-body';
 import { UsageSkeleton } from './command-surface-usage';
 import './settings/settings.css';
 
-export { ContextBody } from './ContextBody';
-
 export function commandSurfaceTitle(surface: CommandSurfaceName): string {
   switch (surface) {
     case 'context':
@@ -63,10 +61,9 @@ export function CommandSurface({
   });
 
   useErrorToast(open && surface !== 'stats' ? error : '', `command:${surface}`);
-  const visible = open;
 
   useEffect(() => {
-    if (!visible) return undefined;
+    if (!open) return undefined;
     const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const shell = document.querySelector<HTMLElement>('.app-shell');
     const isolatedElements = Array.from(shell?.children || []).filter(
@@ -109,7 +106,7 @@ export function CommandSurface({
       layer.release();
       prior?.focus();
     };
-  }, [visible]);
+  }, [open]);
 
   const title = commandSurfaceTitle(surface);
   if (surface === 'stats' && !open) return null;

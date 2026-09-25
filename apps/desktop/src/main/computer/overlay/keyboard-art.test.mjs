@@ -7,8 +7,7 @@ const board = () => {
   const dom = new JSDOM(keyboardHtml(), { runScripts: 'outside-only' });
   dom.window.eval(keyboardScript());
   const surface = dom.window.document.getElementById('board');
-  const lit = () =>
-    [...dom.window.document.querySelectorAll('.key.down')].map((key) => key.textContent).sort();
+  const lit = () => [...dom.window.document.querySelectorAll('.key.down')].map((key) => key.textContent).sort();
   return { dom, surface, lit };
 };
 

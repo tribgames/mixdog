@@ -183,3 +183,72 @@ test('an aborted batch stays failed and never starts provider work', async () =>
   assert.match(text(result), /2\/2 queries failed/);
   assert.match(text(result), /audit cancellation/);
 });
+
+const within = (promise, ms = 1000) =>
+  Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve('still waiting'), ms))]);
+
+test('a cancelled search stops its provider work and returns without waiting for it', async () => {
+  const controller = new AbortController();
+  let providerSignal;
+  const pending = handleToolCall(
+    'web_search',
+    { query: 'cancel-mid-flight' },
+    {
+      signal: controller.signal,
+      nativeWebSearch: ({ signal }) =>
+        new Promise((_resolve, reject) => {
+          providerSignal = signal;
+          signal?.addEventListener('abort', () => reject(signal.reason));
+        }),
+    }
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  controller.abort(new Error('user cancelled'));
+  const result = await within(pending);
+  assert.notEqual(result, 'still waiting');
+  assert.equal(result.isError, true);
+  assert.match(text(result), /user cancelled/);
+  assert.equal(providerSignal?.aborted, true);
+});
+
+test('one caller leaving a shared search does not cancel it for the others', async () => {
+  const first = new AbortController();
+  const hold = gate();
+  let providerSignal;
+  let calls = 0;
+  const nativeWebSearch = ({ keywords, signal }) => {
+    calls += 1;
+    providerSignal = signal;
+    return hold.promise.then(() => success(keywords));
+  };
+  const leaving = handleToolCall('web_search', { query: 'shared-leave' }, { signal: first.signal, nativeWebSearch });
+  const staying = handleToolCall('web_search', { query: 'shared-leave' }, { nativeWebSearch });
+  await new Promise((resolve) => setImmediate(resolve));
+  first.abort(new Error('first caller left'));
+  const left = await within(leaving);
+  hold.release();
+  assert.notEqual(left, 'still waiting');
+  assert.equal(left.isError, true);
+  const kept = await staying;
+  assert.notEqual(kept.isError, true);
+  assert.match(text(kept), /Answer for shared-leave/);
+  assert.equal(calls, 1);
+  assert.equal(providerSignal.aborted, false);
+});
+
+test('local and image fetch reject oversized batches, invalid arguments and blocked targets as tool errors', async () => {
+  const urls = Array.from({ length: 9 }, (_, index) => `http://127.0.0.1/${index}`);
+  for (const name of ['local_fetch', 'image_fetch']) {
+    const oversized = await handleToolCall(name, { url: urls });
+    assert.deepEqual(oversized, {
+      content: [{ type: 'text', text: 'Error: fetch batch exceeds maximum of 8 URLs.' }],
+      isError: true,
+    });
+    const invalid = await handleToolCall(name, { url: 'not a url' });
+    assert.equal(invalid.isError, true);
+    assert.equal(JSON.parse(text(invalid)).error, 'Invalid arguments');
+  }
+  const blocked = await handleToolCall('local_fetch', { url: 'http://example.invalid/' });
+  assert.equal(blocked.isError, true);
+  assert.match(text(blocked), /^Fetch failed: .*non-loopback/);
+});

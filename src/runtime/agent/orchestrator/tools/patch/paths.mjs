@@ -78,10 +78,14 @@ export function classifyEntry(entry) {
   return 'modify';
 }
 
+// The header that names an entry's target: the new side for a create, the
+// old side otherwise.
+export function entryHeaderName(entry, kind = classifyEntry(entry)) {
+  return kind === 'create' ? entry.newFileName : entry.oldFileName;
+}
+
 export function parsedEntryResolvedPath(entry, basePath) {
-  const kind = classifyEntry(entry);
-  const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
-  return resolveEntryPath(basePath, headerName);
+  return resolveEntryPath(basePath, entryHeaderName(entry));
 }
 
 // win32 filesystems are case-insensitive, so `Foo` and `foo` name the same
@@ -97,7 +101,7 @@ export function splitParsedModifyWaves(parsed, basePath) {
   const kindsByPath = new Map();
   for (const entry of entries) {
     const kind = classifyEntry(entry);
-    const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
+    const headerName = entryHeaderName(entry, kind);
     if (!headerName || DEV_NULL.test(headerName)) continue;
     const full = resolveEntryPath(basePath, headerName);
     const key = pathKey(full);
@@ -172,8 +176,7 @@ export function countHunkChanges(hunks) {
 // Lexical `..` and out-of-base absolutes resolve via resolveEntryPath;
 // write permission is enforced at the hook layer, not here.
 function nativeHeaderSupported(entry) {
-  const kind = classifyEntry(entry);
-  const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
+  const headerName = entryHeaderName(entry);
   return !!(headerName && !DEV_NULL.test(headerName));
 }
 
@@ -231,7 +234,7 @@ export async function preValidateNativeBatch(parsed, basePath) {
   const headerRewrites = [];
   for (const entry of parsed) {
     const kind = classifyEntry(entry);
-    const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
+    const headerName = entryHeaderName(entry, kind);
     if (!nativeHeaderSupported(entry)) {
       throw new Error(
         'apply_patch: a file section header could not be parsed (no target path). ' +
@@ -249,12 +252,11 @@ export async function preValidateNativeBatch(parsed, basePath) {
     }
     const fullPath = resolveEntryPath(basePath, headerName);
     const seenKey = pathKey(fullPath);
+    const displayPath = normalizeOutputPath(stripDiffPrefix(headerName));
     if (seenPaths.has(seenKey)) {
-      const display = normalizeOutputPath(stripDiffPrefix(headerName));
-      throw new Error(`apply_patch: duplicate target ${display} — patch lists the same path twice.`);
+      throw new Error(`apply_patch: duplicate target ${displayPath} — patch lists the same path twice.`);
     }
     seenPaths.add(seenKey);
-    const displayPath = normalizeOutputPath(stripDiffPrefix(headerName));
     const { added, removed } = countHunkChanges(entry.hunks);
     entries.push({
       kind,

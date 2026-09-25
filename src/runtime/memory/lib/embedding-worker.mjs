@@ -91,6 +91,10 @@ const _envWorkerMaxChars = Number(process.env.MIXDOG_EMBED_MAX_CHARS);
 const WORKER_MAX_CHARS =
   Number.isFinite(_envWorkerMaxChars) && _envWorkerMaxChars > 0 ? Math.floor(_envWorkerMaxChars) : 8000;
 const EXTRACT_OPTS = { pooling: getEmbeddingPooling(MODEL_ID), normalize: true, truncation: true };
+// Rows per ONNX call. One call pads every row to the longest text and the CPU
+// arena keeps that peak for the worker's lifetime: 320 long texts measured
+// 1175MB peak / 19.1s at 64 per call versus 610MB / 16.5s at 8.
+const INFERENCE_BATCH_SIZE = 8;
 function capEmbedText(text) {
   if (typeof text !== 'string') return '';
   return text.length > WORKER_MAX_CHARS ? text.slice(0, WORKER_MAX_CHARS) : text;
@@ -450,18 +454,22 @@ async function processMessage(msg) {
         }
         const t0 = Date.now();
         const inputType = normalizeEmbeddingInputType(msg.inputType);
-        const output = await extractor(
-          texts.map((text) => prepareWorkerText(text, inputType)),
-          EXTRACT_OPTS
-        );
-        const wallMs = Date.now() - t0;
-        if (!output.data?.length) throw new Error(`embed-batch output missing data (model=${MODEL_ID})`);
-        const total = output.data.length;
-        if (total % texts.length !== 0)
-          throw new Error(`embed-batch data length ${total} not divisible by texts ${texts.length}`);
-        const dims = total / texts.length;
+        const prepared = texts.map((text) => prepareWorkerText(text, inputType));
         const vectors = new Array(texts.length);
-        for (let i = 0; i < texts.length; i++) vectors[i] = Array.from(output.data.subarray(i * dims, (i + 1) * dims));
+        let dims = 0;
+        for (let start = 0; start < prepared.length; start += INFERENCE_BATCH_SIZE) {
+          const slice = prepared.slice(start, start + INFERENCE_BATCH_SIZE);
+          const output = await extractor(slice, EXTRACT_OPTS);
+          if (!output.data?.length) throw new Error(`embed-batch output missing data (model=${MODEL_ID})`);
+          const total = output.data.length;
+          if (total % slice.length !== 0)
+            throw new Error(`embed-batch data length ${total} not divisible by texts ${slice.length}`);
+          dims = total / slice.length;
+          for (let i = 0; i < slice.length; i++) {
+            vectors[start + i] = Array.from(output.data.subarray(i * dims, (i + 1) * dims));
+          }
+        }
+        const wallMs = Date.now() - t0;
         parentPort.postMessage({ id, type: 'result', vectors, dims, wallMs, device: _device, dtype: configuredDtype });
         break;
       }

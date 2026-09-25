@@ -50,7 +50,7 @@ const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
 export function localFileMimeTypeForPath(path: string): string {
   const extension = fileExtension(path);
   if (!extension) return 'application/octet-stream';
-  return MIME_TYPES[extension] || 'application/octet-stream';
+  return Object.hasOwn(MIME_TYPES, extension) ? MIME_TYPES[extension] : 'application/octet-stream';
 }
 
 // Binary documents and media that only an OS-associated app can show. Chat

@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { installBoundedAssertions } from './bounded-assert.mjs';
 
 // A fixture must never write diagnostic history into the signed-in app's store.
 // Each test process owns its directory, including when the caller set a live path.
@@ -98,7 +99,11 @@ registerHooks({
 
 const reactModule = await import('react');
 globalThis.React = reactModule.default ?? reactModule;
-// Bounded assertion rendering is NOT installed here on purpose: a preload-only
-// shim silently disappears whenever a suite is run with a different command.
-// scripts/bounded-assert.mjs is installed by the DOM harness instead, so every
-// file that can hold a JSDOM graph carries it through its own imports.
+// Bounded assertion rendering: renderer DOM suites build their own JSDOM and
+// share no harness module, so this preload is the one place every desktop test
+// process passes through (every package test script and any direct run that
+// needs the React/CSS setup above). A failing comparison against a JSDOM node
+// would otherwise inspect and diff the whole document/window/React-fiber graph.
+// The `node:assert/strict` object is patched in place, so suites that import
+// it later are covered. See scripts/bounded-assert.mjs.
+installBoundedAssertions();

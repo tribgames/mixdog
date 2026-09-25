@@ -44,6 +44,7 @@ use mixdog_graph::outline::{self, SymbolInfo};
 use mixdog_graph::scan;
 use mixdog_graph::scan_lang::scan_lang_for_path;
 use mixdog_graph::serve_search;
+use mixdog_graph::{walk_classified_files, write_jsonl};
 
 mod resolve;
 
@@ -340,13 +341,7 @@ fn run_search(root: &Path, symbol: &str) -> Result<(), String> {
 // dropped hit would otherwise leave the caller with a silently short list and
 // exit code 0.
 fn emit_search_hits(hits: &[SearchHit], out: &mut impl std::io::Write) -> Result<(), String> {
-    for (index, hit) in hits.iter().enumerate() {
-        let line = serde_json::to_string(hit)
-            .map_err(|err| format!("serialize failed for hit {index}: {err}"))?;
-        writeln!(out, "{}", line)
-            .map_err(|err| format!("stdout write failed for hit {index}: {err}"))?;
-    }
-    Ok(())
+    write_jsonl(hits, "hit", out)
 }
 
 // A source file discovered by the walk, with its metadata read exactly once.
@@ -465,16 +460,7 @@ fn parse_file(
 }
 
 fn emit_records(records: &[FileRecord]) -> Result<(), String> {
-    use std::io::Write;
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
-    for (index, rec) in records.iter().enumerate() {
-        let line = serde_json::to_string(rec)
-            .map_err(|err| format!("serialize failed for record {index}: {err}"))?;
-        writeln!(handle, "{}", line)
-            .map_err(|err| format!("stdout write failed for record {index}: {err}"))?;
-    }
-    Ok(())
+    write_jsonl(records, "record", &mut std::io::stdout().lock())
 }
 
 // Collect source files under root with metadata read exactly once. Applies
@@ -486,27 +472,9 @@ fn collect_source_files(root: &Path) -> Result<Vec<SrcFile>, String> {
     // Phase 1 (sequential walk, no stat): gather candidate paths + lang. The
     // ignore-crate walk is inherently sequential, but doing zero I/O here keeps
     // it cheap.
-    let mut candidates: Vec<(PathBuf, &'static str)> = Vec::new();
-    for entry in WalkBuilder::new(root)
-        .standard_filters(true)
-        .hidden(false)
-        .build()
-    {
-        let dir_entry =
-            entry.map_err(|err| format!("walk failed under {}: {err}", root.display()))?;
-        if !dir_entry
-            .file_type()
-            .map(|kind| kind.is_file())
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        let path = dir_entry.path();
-        let Some(lang) = path.extension().and_then(|s| s.to_str()).and_then(lang_for) else {
-            continue;
-        };
-        candidates.push((path.to_path_buf(), lang));
-    }
+    let candidates = walk_classified_files(root, |path| {
+        path.extension().and_then(|s| s.to_str()).and_then(lang_for)
+    })?;
     // Phase 2 (parallel): one stat per candidate for size/mtime + the 2MB gate.
     let file_results: Vec<Result<Option<SrcFile>, String>> = candidates
         .par_iter()
@@ -541,17 +509,8 @@ fn run_walk(root: &Path) -> Result<(), String> {
 
 fn run_files(root: &Path, files: &[String]) -> Result<(), String> {
     let patterns = TypePatterns::new();
-    let paths: Vec<PathBuf> = files
-        .iter()
-        .map(|f| {
-            let p = Path::new(f);
-            if p.is_absolute() {
-                p.to_path_buf()
-            } else {
-                root.join(p)
-            }
-        })
-        .collect();
+    // Path::join replaces the root when a path is absolute.
+    let paths: Vec<PathBuf> = files.iter().map(|f| root.join(f)).collect();
     // Full-parse the fresh subset (tokens/symbols/imports/package/types).
     let fresh_results: Vec<Result<Option<FileRecord>, String>> = paths
         .par_iter()
@@ -642,6 +601,19 @@ fn run_manifest(root: &Path) -> Result<(), String> {
     emit_records(&records)
 }
 
+/// A usage or rule-parse problem exits 2 like the other argument errors; an
+/// internal failure falls through to the exit-1 path in `main`.
+fn exit_on_usage_error(result: Result<(), scan::ScanError>) -> Result<(), String> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(scan::ScanError::Usage(message)) => {
+            eprintln!("mixdog-graph: {message}");
+            process::exit(2);
+        }
+        Err(scan::ScanError::Internal(message)) => Err(message),
+    }
+}
+
 fn main() {
     // Before any work: the identity has to be in place while Task Manager is
     // free to sample this process, and it costs nothing on the CLI paths.
@@ -667,24 +639,10 @@ fn main() {
         // Structural ast-grep scan. Usage / rule-parse problems exit 2 like
         // the other argument errors; everything else falls through to the
         // exit-1 internal error path below.
-        Some(flag) if flag == "--scan" => match scan::run(root, &args[3..]) {
-            Ok(()) => Ok(()),
-            Err(scan::ScanError::Usage(message)) => {
-                eprintln!("mixdog-graph: {message}");
-                process::exit(2);
-            }
-            Err(scan::ScanError::Internal(message)) => Err(message),
-        },
+        Some(flag) if flag == "--scan" => exit_on_usage_error(scan::run(root, &args[3..])),
         // Outline debug dump: the raw rule output per file, for validating
         // outline rule files against real sources.
-        Some(flag) if flag == "--outline" => match outline::run(root, &args[3..]) {
-            Ok(()) => Ok(()),
-            Err(scan::ScanError::Usage(message)) => {
-                eprintln!("mixdog-graph: {message}");
-                process::exit(2);
-            }
-            Err(scan::ScanError::Internal(message)) => Err(message),
-        },
+        Some(flag) if flag == "--outline" => exit_on_usage_error(outline::run(root, &args[3..])),
         Some(flag) if flag == "--langs" => scan::run_langs(),
         Some(flag) if flag == "--serve-search" => {
             serve_search::run();

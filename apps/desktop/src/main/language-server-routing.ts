@@ -4,9 +4,7 @@ import type { DesktopLspDocumentInput, DesktopLspRequestResult, DesktopLspServer
 import { projectEntryPathIn } from './project-files';
 import { publicState, sessionKey, type LanguageServerState } from './language-server-state';
 import type { LanguageServerProcessManager } from './language-server-process';
-import type { CapabilityResolver, LanguageServerSpec } from './language-server-types';
-
-type WithTimeout = <T>(promise: Promise<T>, timeoutMs: number, message: string) => Promise<T>;
+import type { CapabilityResolver, LanguageServerSpec, WithTimeout } from './language-server-types';
 
 interface LanguageServerRoutingDependencies {
   capabilitiesWithDynamicRegistrations: CapabilityResolver;

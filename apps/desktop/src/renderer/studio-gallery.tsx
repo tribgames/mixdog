@@ -124,6 +124,7 @@ export function StudioGallery({
     () => new Map(visibleAssets.map((asset, index) => [asset.id, index])),
     [visibleAssets]
   );
+  const lastRowIndex = layoutRows.length - 1;
 
   return (
     <>
@@ -205,7 +206,7 @@ export function StudioGallery({
                     data-studio-asset-id={pending.id}
                     data-studio-prompt={queuedPrompt || undefined}
                     data-size={box.size}
-                    style={tileStyle(tile, rowIndex === layoutRows.length - 1, gridWidth)}
+                    style={tileStyle(tile, rowIndex === lastRowIndex, gridWidth)}
                   >
                     {pending.status === 'failed' && (
                       <div className="studio-tile-open">
@@ -276,30 +277,28 @@ export function StudioGallery({
                 if (pendingById.has(tile.asset.id)) return null;
                 const asset = tile.asset;
                 const assetIndex = assetIndexById.get(asset.id) ?? 0;
+                // Mount at most one local decoder. Remote hover previews would
+                // stream originals repeatedly, and narrow panes keep the still
+                // to avoid the renderer GPU exhaustion this guard fixed.
+                const hoverPreview = !narrowPane && asset.kind === 'video' && localTransport;
+                const eagerLocalImage = localTransport && asset.kind === 'image' && assetIndex < eagerThumbnailCount;
                 return (
                   <figure
                     key={asset.id}
                     className={`studio-tile ${selectedId === asset.id ? 'selected' : ''}`}
                     data-studio-asset-id={asset.id}
-                    style={tileStyle(tile, rowIndex === layoutRows.length - 1, gridWidth)}
+                    style={tileStyle(tile, rowIndex === lastRowIndex, gridWidth)}
                   >
                     <button
                       type="button"
                       className="studio-tile-open"
                       onClick={() => onOpen(asset)}
                       aria-label={`Open ${asset.kind}: ${asset.prompt}`}
-                      // Mount at most one local decoder. Remote hover previews would
-                      // stream originals repeatedly, and narrow panes keep the still
-                      // to avoid the renderer GPU exhaustion this guard fixed.
-                      onMouseEnter={
-                        !narrowPane && asset.kind === 'video' && localTransport ? () => onHoverStart(asset) : undefined
-                      }
-                      onMouseLeave={!narrowPane && asset.kind === 'video' && localTransport ? onHoverEnd : undefined}
+                      onMouseEnter={hoverPreview ? () => onHoverStart(asset) : undefined}
+                      onMouseLeave={hoverPreview ? onHoverEnd : undefined}
                     >
                       {mediaForeground &&
-                      !narrowPane &&
-                      localTransport &&
-                      asset.kind === 'video' &&
+                      hoverPreview &&
                       hoverId === asset.id &&
                       (assetUrl(asset.id, 'original') || fullUrls[asset.id]) ? (
                         <video
@@ -312,21 +311,10 @@ export function StudioGallery({
                         />
                       ) : null}
                       <StudioThumbnail
-                        src={
-                          thumbs[asset.id] ||
-                          (localTransport && asset.kind === 'image' && assetIndex < eagerThumbnailCount
-                            ? ''
-                            : assetUrl(asset.id, 'thumb'))
-                        }
+                        src={thumbs[asset.id] || (eagerLocalImage ? '' : assetUrl(asset.id, 'thumb'))}
                         kind={asset.kind}
                         eager={assetIndex < eagerThumbnailCount}
-                        pending={
-                          localTransport &&
-                          asset.kind === 'image' &&
-                          assetIndex < eagerThumbnailCount &&
-                          !thumbs[asset.id] &&
-                          !failedThumbs[asset.id]
-                        }
+                        pending={eagerLocalImage && !thumbs[asset.id] && !failedThumbs[asset.id]}
                         // A missing media route falls back tile-by-tile through RPC.
                         onError={thumbs[asset.id] ? undefined : () => onThumbnailError(asset.id)}
                         // A cold custom-protocol rendition may still be live; start

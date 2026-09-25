@@ -24,13 +24,9 @@ function nextCallId() {
   return `mem-${process.pid}-${Date.now()}-${_idSeq}`;
 }
 
-function runtimeRoot() {
-  return resolveRuntimeRoot();
-}
-
 function readBrokerDiscovery() {
   try {
-    const raw = JSON.parse(readFileSync(join(runtimeRoot(), 'daemon.json'), 'utf8'));
+    const raw = JSON.parse(readFileSync(join(resolveRuntimeRoot(), 'daemon.json'), 'utf8'));
     const endpoint = raw?.endpoints?.channel;
     const port = Number(endpoint?.port);
     if (!Number.isInteger(port) || port <= 0 || port >= 65536 || !endpoint?.token || !isPidAlive(raw?.pid)) {

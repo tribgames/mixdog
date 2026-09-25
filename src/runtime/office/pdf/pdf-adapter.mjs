@@ -3,7 +3,7 @@ import { inspectPdfBuffer } from '../../attachments/pdf-extract.mjs';
 import { extractPdfOutline } from './pdf-analysis.mjs';
 import { SAVE_OPTIONS, round2 } from './pdf-draw.mjs';
 import { activeContentIssues } from './pdf-safety.mjs';
-import { describeFormField, rectanglesOverlap } from './pdf-forms.mjs';
+import { describeFormField, minimumFieldSize, rectanglesOverlap } from './pdf-forms.mjs';
 import { PDF_ENCRYPTED_HINT, loadPdf, pdfAttachments } from './pdf-edit-document.mjs';
 import { MARK_OPERATIONS } from './pdf-marks.mjs';
 import { CONTENT_OPERATIONS } from './pdf-batch-content.mjs';
@@ -234,7 +234,14 @@ export async function issuesPdf(path, options = {}) {
     });
   }
   for (const page of snapshot.pages) issues.push(...placeholderTextIssues(page.text, page.path));
-  for (const field of snapshot.fields) {
+  issues.push(...formFieldIssues(snapshot.fields));
+  return { ok: true, format: 'pdf', issueCount: issues.length, issues };
+}
+
+// Form fields a filler cannot address, cannot hit, or that cover each other.
+function formFieldIssues(fields) {
+  const issues = [];
+  for (const field of fields) {
     if (!field.name) {
       issues.push({
         severity: 'warning',
@@ -243,19 +250,18 @@ export async function issuesPdf(path, options = {}) {
         message: 'Form field has no name, so fill_form cannot address it.',
       });
     }
-    const mark = ['checkbox', 'radio'].includes(field.type);
-    const [minWidth, minHeight] = mark ? [8, 8] : [24, 12];
+    const [minWidth, minHeight] = minimumFieldSize(field.type);
     const small = field.widgets.find((widget) => widget.width < minWidth || widget.height < minHeight);
     if (small) {
       issues.push({
         severity: 'warning',
         code: 'field_too_small',
         path: field.path,
-        message: `Form field ${field.name || field.index} has a ${round2(small.width)} x ${round2(small.height)} pt box on page ${small.page}; a ${field.type} field needs at least ${minWidth} x ${minHeight}.`,
+        message: `Form field ${field.name || field.index} has a ${round2(small.width)} x ${round2(small.height)} pt box on page ${small.page}; a ${field.type} field needs at least ${Math.round(minWidth)} x ${Math.round(minHeight)}.`,
       });
     }
   }
-  const widgets = snapshot.fields.flatMap((field) =>
+  const widgets = fields.flatMap((field) =>
     field.widgets.map((widget) => ({ ...widget, name: field.name, path: field.path }))
   );
   for (let left = 0; left < widgets.length; left += 1) {
@@ -270,5 +276,5 @@ export async function issuesPdf(path, options = {}) {
       }
     }
   }
-  return { ok: true, format: 'pdf', issueCount: issues.length, issues };
+  return issues;
 }

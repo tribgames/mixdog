@@ -254,7 +254,7 @@ export function strings(value) {
   return [String(value)];
 }
 
-export function slideNumbers(value) {
+function slideNumbers(value) {
   return [
     ...new Set(
       (Array.isArray(value) ? value : [])

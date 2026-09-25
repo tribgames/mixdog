@@ -1,4 +1,4 @@
-import { PDFRawStream, decodePDFRawStream } from 'pdf-lib';
+import { PDFHexString, PDFName, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
 import { color } from './pdf-draw.mjs';
 
 export function fieldWidgets(field, document) {
@@ -17,6 +17,26 @@ export function fieldWidgets(field, document) {
     });
   } catch {
     return [];
+  }
+}
+
+// A box a person cannot hit or read: 8 pt squares for marks, 24 x 12 pt for anything typed. The comparison carries a
+// hundredth of a point: a form's rectangle stored as 11.999 pt is the 12 pt box its author drew, and the W-9's
+// 284-point line was reported as too small to type in.
+export function minimumFieldSize(type) {
+  return ['checkbox', 'radio'].includes(type) ? [8 - 0.01, 8 - 0.01] : [24 - 0.01, 12 - 0.01];
+}
+
+// The words a form gives a field for the person filling it: the tooltip (/TU) a reader shows on hover — "Line 1
+// Name of entity/individual" behind the IRS W-9's "topmostSubform[0].Page1[0].f1_01[0]". Without it a filler had only
+// the internal name to go on and had to guess which box took the name.
+function fieldLabel(field) {
+  try {
+    const tooltip = field.acroField.dict.lookup(PDFName.of('TU'));
+    const text = tooltip?.decodeText?.().replace(/\s+/g, ' ').trim();
+    return text || '';
+  } catch {
+    return '';
   }
 }
 
@@ -102,15 +122,13 @@ export function lintPdfFormFields(fields = [], pages = []) {
         message: `Form field is outside page ${field.page}.`,
       });
     } else {
-      // A box a person cannot hit or read: 8 pt squares for marks, 24 x 12 pt for anything typed.
-      const mark = ['checkbox', 'radio'].includes(field.type);
-      const [minWidth, minHeight] = mark ? [8, 8] : [24, 12];
+      const [minWidth, minHeight] = minimumFieldSize(field.type);
       if (field.width < minWidth || field.height < minHeight) {
         issues.push({
           severity: 'warning',
           code: 'field_too_small',
           path: `/field[${field.index}]`,
-          message: `Form field ${field.name || field.index} is ${field.width} x ${field.height} pt; a ${field.type} field needs at least ${minWidth} x ${minHeight}.`,
+          message: `Form field ${field.name || field.index} is ${field.width} x ${field.height} pt; a ${field.type} field needs at least ${Math.round(minWidth)} x ${Math.round(minHeight)}.`,
         });
       }
     }
@@ -141,7 +159,12 @@ export function lintPdfFormFields(fields = [], pages = []) {
  * options are Korean needs the embedded face here, not only at save time.
  */
 export async function addFormField(document, field, font = null) {
-  const page = document.getPage(Math.max(1, Number(field.page) || 1) - 1);
+  // Named as every page operation names it, rather than pdf-lib's "`index` must be at most …".
+  const number = Math.max(1, Number(field.page) || 1);
+  if (!Number.isInteger(number) || number > document.getPageCount()) {
+    throw new Error(`PDF page out of range: ${field.page}`);
+  }
+  const page = document.getPage(number - 1);
   const form = document.getForm();
   const name = String(field.name);
   const options = {
@@ -197,6 +220,11 @@ export async function addFormField(document, field, font = null) {
   }
   if (field.required) control.enableRequired();
   if (field.readOnly) control.enableReadOnly();
+  // The caption is also the field's tooltip (/TU): what a screen reader announces and what a later filler reads as
+  // the field's label, instead of its internal name.
+  if (String(field.label ?? '').trim()) {
+    control.acroField.dict.set(PDFName.of('TU'), PDFHexString.fromText(String(field.label).trim()));
+  }
 }
 
 /** Every string a field carries, so the writer can pick a font that covers it. */
@@ -268,10 +296,12 @@ export function describeFormField(field, document, index) {
       if (maxLength != null) flags.maxLength = maxLength;
     } catch {}
   }
+  const label = fieldLabel(field);
   return {
     path: `/field[${index + 1}]`,
     index: index + 1,
     name: field.getName(),
+    ...(label ? { label } : {}),
     type: kind,
     value: fieldValue(field, kind),
     ...(options ? { options } : {}),

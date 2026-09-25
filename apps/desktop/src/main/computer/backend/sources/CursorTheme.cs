@@ -147,6 +147,11 @@ public sealed class MixCursorTheme : System.IDisposable
         writer = new System.IO.StreamWriter(pipe) { AutoFlush = true };
     }
     static string Quote(string text) { return "'" + text.Replace("'", "''") + "'"; }
+    /// The user's input, not the theme, stopped the lease: that reason reaches the caller unchanged.
+    static bool IsInputObservationFailure(System.Exception error)
+    {
+        return error.Message.StartsWith("user_input_active:") || error.Message.StartsWith("input_observation_unavailable:");
+    }
     static string Encode(string text) { return System.Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(text)); }
     static string ReadWithin(System.IO.StreamReader input, int milliseconds)
     {
@@ -242,7 +247,7 @@ public sealed class MixCursorTheme : System.IDisposable
         catch (System.Exception error)
         {
             pipe.Dispose();
-            if (error.Message.StartsWith("user_input_active:") || error.Message.StartsWith("input_observation_unavailable:")) throw;
+            if (IsInputObservationFailure(error)) throw;
             throw new System.Exception("computer_cursor_unavailable: theme activation was not confirmed; no input sent");
         }
     }
@@ -271,7 +276,7 @@ public sealed class MixCursorTheme : System.IDisposable
             if (guard != null && guard.activationRequested) guard.Dispose();
             else pipe.Dispose();
             if (guard != null && guard.activationRequested) MixInputObservation.AssertContinue();
-            if (error.Message.StartsWith("user_input_active:") || error.Message.StartsWith("input_observation_unavailable:")) throw;
+            if (IsInputObservationFailure(error)) throw;
             throw new System.Exception("computer_cursor_unavailable: theme activation was not confirmed; no input sent");
         }
     }

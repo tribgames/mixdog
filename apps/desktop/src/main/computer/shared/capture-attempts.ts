@@ -1,3 +1,5 @@
+import { diagnosticCategory } from './diagnostic-category';
+
 export type NativeCaptureBackend = 'print_window' | 'wgc';
 export type CaptureBackend = 'app_owned' | 'composited' | NativeCaptureBackend;
 export interface CaptureCleanup {
@@ -50,7 +52,7 @@ export function captureAttempts(value: unknown): CaptureAttempt[] {
         scope: row.scope,
         status: row.status,
         elapsed_ms: row.elapsed_ms,
-        ...(typeof row.code === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(row.code) ? { code: row.code } : {}),
+        ...(diagnosticCategory(row.code) ? { code: row.code } : {}),
         ...(cleanup ? { cleanup } : {}),
       },
     ];

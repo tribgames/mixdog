@@ -7,11 +7,11 @@
 //   - auto-deletes a comment/block only when EVERY sentence is history
 //   - reports mixed comments as manual (no fix) with the offending sentence
 
-export const HISTORY_COMMENT_RULE_ID = 'no-history-comment';
+const HISTORY_COMMENT_RULE_ID = 'no-history-comment';
 
 const LOCATION_TOKEN = String.raw`(?:\.\.?/)*[\w][\w.-]*(?:/[\w.-]+)*`;
 
-export const HISTORY_SENTENCE_RE = new RegExp(
+const HISTORY_SENTENCE_RE = new RegExp(
   `^(?:(?:extracted|moved|copied|lifted|split)(?:\\s+verbatim)?\\s+(?:from|out of)\\s+${LOCATION_TOKEN}` +
     `(?:\\s+\\((?:behaviou?r-preserving|no behaviou?r change)\\))?` +
     `|behaviou?r-preserving\\s+(?:move|extraction)` +
@@ -31,7 +31,7 @@ export function isHistorySentence(text) {
   return HISTORY_SENTENCE_RE.test(sentence);
 }
 
-export function splitCommentSentences(text) {
+function splitCommentSentences(text) {
   const cleaned = String(text || '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -42,7 +42,7 @@ export function splitCommentSentences(text) {
     .filter(Boolean);
 }
 
-export function commentBody(text) {
+function commentBody(text) {
   const raw = String(text || '').replace(/\r\n/g, '\n');
   let inner = raw.trim();
   if (inner.startsWith('/*')) inner = inner.replace(/^\/\*+/, '').replace(/\*+\/\s*$/, '');
@@ -152,7 +152,7 @@ function rangeIsCommentOnly(buf, start, end) {
  * via lineEnd(end-1) used to swallow a sibling `continue;`). Trailing comments
  * on a code line stay on the comment node; never the following statement.
  */
-export function expandCommentRange(buf, start, end) {
+function expandCommentRange(buf, start, end) {
   const nodeStart = Math.max(0, Math.min(Number(start) || 0, buf.length));
   const nodeEnd = Math.max(nodeStart, Math.min(Number(end) || nodeStart, buf.length));
   const slice = buf.subarray(nodeStart, nodeEnd).toString('utf8');

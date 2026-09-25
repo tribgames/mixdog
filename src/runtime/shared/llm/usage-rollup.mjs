@@ -43,14 +43,8 @@
  *     }
  *   }
  */
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
-import { updateJsonAtomicSync } from '../atomic-file.mjs';
-import { resolvePluginData } from '../plugin-paths.mjs';
 import { billableInputTokensForProvider } from './cost.mjs';
 
-const USAGE_ROLLUP_FILE = 'usage-rollup.local.json';
 const USAGE_ROLLUP_VERSION = 2;
 
 // A day costs well under a kilobyte, so a long retention stays cheap while
@@ -65,17 +59,18 @@ const MAX_SESSION_TOKENS_PER_DAY = 400;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
-function num(value) {
+// Shared with usage-session-history.mjs, which folds the same bucket shape.
+export function num(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function cleanId(value) {
+export function cleanId(value) {
   const text = typeof value === 'string' ? value.trim() : '';
   return text && !UNSAFE_KEYS.has(text) ? text.slice(0, 200) : '';
 }
 
-function round6(value) {
+export function round6(value) {
   return Math.round(value * 1e6) / 1e6;
 }
 
@@ -419,72 +414,4 @@ export function freezeRestoredDays(current, historyDays, now = Date.now()) {
   }
   if (frozen > 0) rollup.updatedAt = now;
   return { rollup, frozen };
-}
-
-function resolveRollupPath() {
-  const explicit = process.env.MIXDOG_USAGE_ROLLUP_PATH;
-  if (explicit) return explicit;
-  // Repo test workers drive synthetic turns; those must never land in the
-  // user's real rollup. An explicit path above still works inside tests.
-  if (process.env.NODE_TEST_CONTEXT) return null;
-  try {
-    return join(resolvePluginData(), USAGE_ROLLUP_FILE);
-  } catch {
-    return null;
-  }
-}
-
-export function usageRollupPath() {
-  return resolveRollupPath();
-}
-
-/** Fire-and-forget: usage accounting must never affect the model turn. */
-export function recordUsageRollup(summary) {
-  const path = resolveRollupPath();
-  if (!path) return;
-  try {
-    updateJsonAtomicSync(path, (current) => foldUsageRollup(current, summary), {
-      compact: true,
-      fsync: false,
-      fsyncDir: false,
-    });
-  } catch {
-    // Local telemetry only.
-  }
-}
-
-/**
- * Persist the rebuilt days. Returns how many were newly frozen, so a caller
- * can tell "nothing left to do" from "the store could not be written".
- */
-export function persistRestoredDays(historyDays, now = Date.now()) {
-  const path = resolveRollupPath();
-  if (!path) return 0;
-  let frozen = 0;
-  try {
-    updateJsonAtomicSync(
-      path,
-      (current) => {
-        const result = freezeRestoredDays(current, historyDays, now);
-        frozen = result.frozen;
-        // An unchanged document is not rewritten: the mutator returning
-        // undefined leaves the file untouched.
-        return frozen > 0 ? result.rollup : undefined;
-      },
-      { compact: true, fsync: false, fsyncDir: false }
-    );
-  } catch {
-    return 0;
-  }
-  return frozen;
-}
-
-export function loadUsageRollup() {
-  const path = resolveRollupPath();
-  if (!path) return normalizeUsageRollup(null);
-  try {
-    return normalizeUsageRollup(JSON.parse(readFileSync(path, 'utf8')));
-  } catch {
-    return normalizeUsageRollup(null);
-  }
 }

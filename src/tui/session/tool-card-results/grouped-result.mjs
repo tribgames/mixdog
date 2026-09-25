@@ -15,7 +15,7 @@ import { closeCard } from './item-patch.mjs';
  * minimal non-empty fallback, preferring meaningful text, then exit status,
  * then a bare Failed status.
  */
-export function finalizedErrorFallbackBody(body, text, exitCode) {
+function finalizedErrorFallbackBody(body, text, exitCode) {
   if (String(body || '').trim()) return body;
   if (String(text || '').trim()) return text;
   if (exitCode != null) return `Exited ${exitCode}`;
@@ -79,7 +79,7 @@ export function applyGroupedResult(ctx, card, callId, outcome, message, rawText,
 }
 
 export function finalizeGroupedCard(ctx, card, toolGroups, done, { cancelled }) {
-  const group = toolGroups.get(card.itemId) || { count: 1, completed: 0, errors: 0, exitErrors: 0, results: [] };
+  const group = toolGroups.get(card.itemId) || newGroup();
   group.completed = Math.min(group.count, group.completed + 1);
   toolGroups.set(card.itemId, group);
   let resultText = groupedToolResultText(group);

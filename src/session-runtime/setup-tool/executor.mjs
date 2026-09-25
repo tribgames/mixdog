@@ -17,8 +17,8 @@ import {
   SETUP_BUILTIN_TOGGLE_FEATURES,
 } from './tool-defs.mjs';
 import { schemaValueError } from '../../runtime/shared/schema-value-error.mjs';
+import { clean } from '../session-text.mjs';
 
-const clean = (value) => String(value ?? '').trim();
 const ACTION_APPLIES_TO = {
   set_recap_enabled: 'background Memory cycles; no restart required',
   set_auto_update: 'subsequent automatic update checks',
@@ -165,8 +165,6 @@ async function automationStatus(rt, { domain }) {
   };
 }
 
-// status readers per non-desktop domain: (rt, { domain, getConfig }) → the
-// public status shape. Desktop-hosted domains never reach this table.
 function featureFlags(rt) {
   return Object.fromEntries(
     Object.entries(rt.getToolModuleSettings?.() || {}).map(([name, settings]) => [
@@ -176,6 +174,8 @@ function featureFlags(rt) {
   );
 }
 
+// status readers per non-desktop domain: (rt, { domain, getConfig }) → the
+// public status shape. Desktop-hosted domains never reach this table.
 const SETUP_STATUS_READERS = {
   capabilities: () => ({
     actions: SETUP_ACTION_FIELDS,

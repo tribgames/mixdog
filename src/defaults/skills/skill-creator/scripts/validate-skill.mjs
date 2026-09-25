@@ -3,7 +3,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseSkillDocument } from '../../../../runtime/shared/skill-document.mjs';
+import { parseSkillDocument, SKILL_TRIGGER_LISTING_MAX } from '../../../../runtime/shared/skill-document.mjs';
 import { normalizeSkillToolDependencies } from '../../../../runtime/shared/skill-tool-dependencies.mjs';
 
 const ALLOWED_FIELDS = new Set([
@@ -20,7 +20,7 @@ const ALLOWED_FIELDS = new Set([
 // UI descriptions and model selection triggers have separate budgets.
 // Only when_to_use enters the model's listing; instructions live in the body.
 const DESCRIPTION_MAX = 100;
-const LISTING_MAX = 250;
+const LISTING_MAX = SKILL_TRIGGER_LISTING_MAX;
 
 function referencedPaths(body) {
   const found = new Set();
@@ -123,6 +123,10 @@ export function validateSkillDirectory(inputPath) {
     errors.push('metadata must be a mapping.');
   }
   if (!body) errors.push('SKILL.md must contain non-empty instructions after frontmatter.');
+  const fenceLines = body ? body.split('\n').filter((line) => /^ {0,3}(```|~~~)/.test(line)).length : 0;
+  if (fenceLines % 2) {
+    errors.push('SKILL.md has an unclosed code fence; every ``` must start its own line.');
+  }
 
   const bodyLines = body ? body.split('\n').length : 0;
   if (bodyLines > 500) {

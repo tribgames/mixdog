@@ -64,8 +64,13 @@ function completeOAuthCode(ctx, target, commandText) {
   }
   oauthSubmitRef.current = true;
   setProviderPrompt((prompt) => (prompt === target ? { ...prompt, submitting: true } : prompt));
-  void target.login
-    ?.completeCode(commandText)
+  // Every exit below must drop oauthSubmitRef: a missing login or a synchronous
+  // throw lands on the same failure path as a rejected completion.
+  const completion =
+    typeof target.login?.completeCode === 'function'
+      ? new Promise((resolve) => resolve(target.login.completeCode(commandText)))
+      : Promise.reject(new Error('OAuth login is no longer active'));
+  void completion
     .then(() => {
       const successReturn = target.successReturn;
       const afterSave = target.afterSave;

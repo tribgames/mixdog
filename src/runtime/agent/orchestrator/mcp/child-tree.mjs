@@ -20,6 +20,21 @@ function delay(ms) {
   });
 }
 
+// Best-effort signal: a pid that already exited (or cannot be signalled) is skipped.
+function signalQuietly(pid, signal) {
+  try {
+    process.kill(pid, signal);
+  } catch {
+    /* ignore */
+  }
+}
+
+// The live child's pid: the transport's own `pid` when it exposes one, else
+// the spawned ChildProcess (stdio transports keep it on `_process`).
+function transportPid(transport) {
+  return (typeof transport?.pid === 'number' ? transport.pid : null) ?? transport?._process?.pid ?? null;
+}
+
 // Spawn a helper command and resolve its stdout (empty string on any error).
 function run(cmd, args) {
   return new Promise((resolve) => {
@@ -111,22 +126,10 @@ export async function killProcessTrees(pids) {
     await run('taskkill', args);
     return;
   }
-  for (const pid of targets) {
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch {
-      /* ignore */
-    }
-  }
+  for (const pid of targets) signalQuietly(pid, 'SIGTERM');
   await delay(300);
   for (const pid of targets) {
-    if (isAlive(pid)) {
-      try {
-        process.kill(pid, 'SIGKILL');
-      } catch {
-        /* ignore */
-      }
-    }
+    if (isAlive(pid)) signalQuietly(pid, 'SIGKILL');
   }
 }
 
@@ -140,7 +143,7 @@ export async function killProcessTrees(pids) {
  */
 export function killStdioChildTreeFast(transport) {
   const proc = transport?._process;
-  const pid = (typeof transport?.pid === 'number' ? transport.pid : null) ?? proc?.pid ?? null;
+  const pid = transportPid(transport);
   if (!pid) return false;
   if (proc && (proc.exitCode !== null || proc.signalCode !== null)) return false;
   try {
@@ -176,13 +179,7 @@ export function killStdioChildTreeFast(transport) {
   // and un-awaited; a straggler orphan is reparented to init, not leaked by us.
   void collectDescendants(pid)
     .then((pids) => {
-      for (const p of [...pids, pid]) {
-        try {
-          process.kill(p, 'SIGKILL');
-        } catch {
-          /* ignore */
-        }
-      }
+      for (const p of [...pids, pid]) signalQuietly(p, 'SIGKILL');
     })
     .catch(() => {
       /* ignore */
@@ -250,23 +247,11 @@ async function killVerified(pids, snapshotToken, currentTokens) {
   }
   // POSIX: terminate, brief wait, then hard-kill survivors. Re-verify with a
   // single fresh batched table read (not per-pid) before the SIGKILL pass.
-  for (const p of verified) {
-    try {
-      process.kill(p, 'SIGTERM');
-    } catch {
-      /* ignore */
-    }
-  }
+  for (const p of verified) signalQuietly(p, 'SIGTERM');
   await delay(500);
   const { tokenOf: fresh } = await enumerate().catch(() => ({ tokenOf: new Map() }));
   for (const p of verified) {
-    if (isAlive(p) && stillSame(p, snapshotToken, fresh)) {
-      try {
-        process.kill(p, 'SIGKILL');
-      } catch {
-        /* ignore */
-      }
-    }
+    if (isAlive(p) && stillSame(p, snapshotToken, fresh)) signalQuietly(p, 'SIGKILL');
   }
 }
 
@@ -277,7 +262,7 @@ async function killVerified(pids, snapshotToken, currentTokens) {
  */
 export async function shutdownStdioChild(transport, { graceMs = 2000 } = {}) {
   const proc = transport?._process;
-  const pid = (typeof transport?.pid === 'number' ? transport.pid : null) ?? proc?.pid ?? null;
+  const pid = transportPid(transport);
   if (!pid) return false;
   const empty = { childrenOf: new Map(), tokenOf: new Map() };
   const snapshotToken = new Map();

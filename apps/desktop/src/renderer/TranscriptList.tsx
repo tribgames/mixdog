@@ -19,6 +19,7 @@ import {
   TRANSCRIPT_VIRTUAL_OVERSCAN,
 } from './transcript-virtual-cache';
 import { scheduleConnectedMeasure, TRANSCRIPT_ROW_MEASURE_EVENT } from './transcript-measure';
+import { MAX_SURVIVOR_PROBE, prependedRowsShift } from './transcript-prepend-anchor';
 import { createTranscriptEndPin } from './transcript-end-pin';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 import {
@@ -26,6 +27,10 @@ import {
   type TranscriptSelectionEndpoint,
   type TranscriptSelectionPin,
 } from './transcript-selection-drag';
+
+/** End band while the tail is owned: every append and measured-size delta is
+ *  an end pin (see the virtualizer options below). */
+const SCROLL_END_THRESHOLD_PX = 80;
 
 function measureTranscriptRow(element: Element, entry?: ResizeObserverEntry): number {
   if (!(element instanceof HTMLElement) || !element.isConnected) {
@@ -204,7 +209,7 @@ export function TranscriptList({
     // While the tail is owned, every append and measured-size delta is an
     // end pin. An 80px band lost tall rows in a short split and invited a
     // second scrollToEnd writer. Reader release flips followOnAppend off.
-    scrollEndThreshold: 80,
+    scrollEndThreshold: SCROLL_END_THRESHOLD_PX,
     paddingEnd: TRANSCRIPT_BOTTOM_SPACER,
     // The virtual core commits its state to the DOM in the same task as every
     // notify. React's default async rerender let the core
@@ -399,6 +404,24 @@ export function TranscriptList({
   // no such hook and never reads it, so only the core's own isScrolling
   // deferral guards the bottom pin now. Watch for the "tears and snaps back at
   // the bottom" symptom if the end anchor starts fighting a live wheel ramp.
+  // Older history paged in above a reader who scrolled up keeps the rows they
+  // are reading still (the core only anchors while the end is owned).
+  const laidOutRows = useRef(rows);
+  useLayoutEffect(() => {
+    const previous = laidOutRows.current;
+    laidOutRows.current = rows;
+    const instance = virtualizerRef.current;
+    if (previous === rows || previous.length === 0 || instance.options.anchorTo === 'end') return;
+    const shift = prependedRowsShift({
+      previousKeys: previous.slice(0, MAX_SURVIVOR_PROBE).map((row) => row.key),
+      indexOfKey: (key) => rows.findIndex((row) => row.key === key),
+      // This commit's render already resolved the new geometry.
+      startOf: (index) => instance.measurementsCache[index]?.start,
+      sizeOfKey: (key) => instance.itemSizeCache.get(key) ?? TRANSCRIPT_ROW_ESTIMATE,
+      paddingStart: instance.options.paddingStart ?? 0,
+    });
+    if (shift !== 0) instance.scrollToOffset(logicalScrollOffset(instance) + shift);
+  }, [rows]);
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
     if (shouldDeferTranscriptScrollAdjustment(hasScrollGestureRef.current())) return false;
     return item.end <= logicalScrollOffset(instance);
@@ -475,14 +498,14 @@ export function TranscriptList({
       if (
         instance.options.anchorTo === anchorTo &&
         instance.options.followOnAppend === bottom &&
-        instance.options.scrollEndThreshold === 80
+        instance.options.scrollEndThreshold === SCROLL_END_THRESHOLD_PX
       )
         return;
       instance.setOptions({
         ...instance.options,
         anchorTo,
         followOnAppend: bottom,
-        scrollEndThreshold: 80,
+        scrollEndThreshold: SCROLL_END_THRESHOLD_PX,
       });
     };
     setAnchorBottomRef.current = setAnchorBottom;

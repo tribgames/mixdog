@@ -218,8 +218,8 @@ export async function renderedAestheticMetric(image, index) {
       );
       const occupied = distance >= 28 ? 1 : 0;
       foreground += occupied;
-      if (occupied) foregroundLuminanceDelta += Math.abs(luminance[pixelIndex] - backgroundLuminance);
       if (occupied) {
+        foregroundLuminanceDelta += Math.abs(luminance[pixelIndex] - backgroundLuminance);
         const channelMaximum = Math.max(red, green, blue);
         const channelMinimum = Math.min(red, green, blue);
         const saturation = channelMaximum ? (channelMaximum - channelMinimum) / channelMaximum : 0;

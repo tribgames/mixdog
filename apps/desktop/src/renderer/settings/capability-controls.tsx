@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { registerMobileBack } from '../mobile-back';
 import { OpenSelect } from '../OpenSelect';
@@ -148,46 +148,6 @@ export function SelectRow({
         />
       </div>
     </div>
-  );
-}
-
-export function FormRow({
-  title,
-  description: _description,
-  status,
-  children,
-  resetOnSubmit = false,
-  onSubmit,
-}: {
-  title: string;
-  description?: string;
-  status?: string;
-  children: ReactNode;
-  resetOnSubmit?: boolean;
-  onSubmit(data: FormData): void;
-}) {
-  const state = status ? settingsStatus(status) : null;
-  return (
-    <form
-      className="settings-form-row"
-      onSubmit={(event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        onSubmit(new FormData(form));
-        if (resetOnSubmit) form.reset();
-      }}
-    >
-      <div className="settings-resource-title">
-        <b>{t(title)}</b>
-        {state && (
-          <span className={`settings-status settings-status--${state.tone}`}>
-            <i aria-hidden="true" />
-            {t(state.label)}
-          </span>
-        )}
-      </div>
-      <div className="settings-form-controls">{children}</div>
-    </form>
   );
 }
 

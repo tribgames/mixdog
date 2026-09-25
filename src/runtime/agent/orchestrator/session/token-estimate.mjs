@@ -89,8 +89,21 @@ function codePointTokenWeight(cp) {
 export function estimateTokens(text) {
   const s = String(text ?? '');
   if (s.length === 0) return 0;
+  // Walk code points exactly like `for (const ch of s)` (a lone surrogate is
+  // its own code point) without materializing a string per character.
   let weighted = 0;
-  for (const ch of s) weighted += codePointTokenWeight(ch.codePointAt(0));
+  const length = s.length;
+  for (let index = 0; index < length; index += 1) {
+    let cp = s.charCodeAt(index);
+    if (cp >= 0xd800 && cp <= 0xdbff && index + 1 < length) {
+      const low = s.charCodeAt(index + 1);
+      if (low >= 0xdc00 && low <= 0xdfff) {
+        cp = (cp - 0xd800) * 0x400 + (low - 0xdc00) + 0x10000;
+        index += 1;
+      }
+    }
+    weighted += codePointTokenWeight(cp);
+  }
   const denseAsciiFloor = Math.max(denseTokenFloor(s), structuredTokenFloor(s));
   const asciiFloor = s.length / 4; // never below the legacy chars/4 lower bound
   return Math.ceil(Math.max(weighted, asciiFloor, denseAsciiFloor) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);

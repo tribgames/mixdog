@@ -189,14 +189,7 @@ html[data-mx-input="pointer"]
 }
 /* The composer, route, and SCM controls draw that ring as a box-shadow. */
 html[data-mx-input="pointer"]
-:is(
-  .composer-tool,
-  .model-trigger,
-  .fast-mode-toggle,
-  .mx-select-trigger,
-  .send-button,
-  .dock-scm-unpushed
-):focus-visible {
+:is(.composer-tool, .model-trigger, .mx-select-trigger, .send-button, .dock-scm-unpushed):focus-visible {
   box-shadow: none !important;
 }
 /* The attach/mic tools also share the hover wash with :focus-visible. A REAL
@@ -207,7 +200,6 @@ html[data-mx-input="pointer"] .composer-tool:focus-visible:not(:hover) {
 /* Dialog titles tighten 15px headings to -0.13px. */
 .settings-confirm-dialog > header h3,
 .approval-heading b,
-.settings-section-heading h2,
 .settings-group > header h3 {
   letter-spacing: var(--mx-tracking-tight);
 }

@@ -11,13 +11,7 @@ export function rewoundFailedTurnItems(items, text) {
   const list = Array.isArray(items) ? items : [];
   const resubmitted = String(text || '').trim();
   if (!resubmitted) return null;
-  let start = -1;
-  for (let index = list.length - 1; index >= 0; index -= 1) {
-    if (list[index]?.kind === 'user') {
-      start = index;
-      break;
-    }
-  }
+  const start = list.findLastIndex((item) => item?.kind === 'user');
   if (start < 0 || String(list[start].text || '').trim() !== resubmitted) return null;
   const tail = list.slice(start + 1);
   const failed = tail.some((item) => item?.kind === 'turndone' && String(item.status || '').toLowerCase() === 'failed');

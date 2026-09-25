@@ -256,22 +256,11 @@ export function basePathDiagnostic(basePaths, workDir, statCache = null) {
       const resolved = resolveSearchScope(basePath, workDir);
       // Reuse the caller's call-scoped stat cache (glob preflight + per-group
       // rg runs already stat'd this same resolved root) instead of re-stating.
-      let st = null;
-      let err = null;
-      const cached = statCache?.get(resolved);
-      if (cached) {
-        st = cached.st;
-        err = cached.err;
-      } else {
-        try {
-          st = statSync(resolved);
-        } catch (e) {
-          err = e;
-        }
-      }
       // Older/in-flight cache entries may be Promises rather than settled
-      // {st,err} records. Fall back to a direct stat instead of dereferencing
-      // an undefined `st` in an empty-result diagnostic.
+      // {st,err} records; those, like a miss, fall back to a direct stat.
+      const cached = statCache?.get(resolved);
+      let st = cached?.st ?? null;
+      let err = cached?.err ?? null;
       if (!err && !st) {
         try {
           st = statSync(resolved);

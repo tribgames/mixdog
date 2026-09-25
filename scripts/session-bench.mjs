@@ -5,18 +5,8 @@ import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { resolvePluginData } from '../src/runtime/shared/plugin-paths.mjs';
 import { parseSince } from './lib/parse-since.mjs';
-
-function argValue(name, fallback = null) {
-  const idx = process.argv.indexOf(name);
-  if (idx >= 0 && idx + 1 < process.argv.length) return process.argv[idx + 1];
-  const pref = `${name}=`;
-  const hit = process.argv.find((arg) => arg.startsWith(pref));
-  return hit ? hit.slice(pref.length) : fallback;
-}
-
-function hasFlag(name) {
-  return process.argv.includes(name);
-}
+import { argValue, hasFlag } from './lib/cli-args.mjs';
+import { percentile, sortedFinite } from './lib/trace-stats.mjs';
 
 const opts = {
   trace: argValue('--trace', null),
@@ -175,13 +165,6 @@ function compactText(value, max = 140) {
     .replace(/\s+/g, ' ')
     .trim();
   return s.length > max ? `${s.slice(0, Math.max(0, max - 1))}…` : s;
-}
-
-function percentile(values, p) {
-  const arr = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
-  if (!arr.length) return null;
-  const idx = Math.min(arr.length - 1, Math.max(0, Math.ceil((p / 100) * arr.length) - 1));
-  return arr[idx];
 }
 
 function sum(values) {
@@ -392,10 +375,7 @@ function buildRouteGroups(rows) {
       tool_ms: sum(toolRows.map((r) => num(r, 'tool_ms'))),
       llm_stream_ms: sum(sseRows.map((r) => num(r, 'stream_total_ms') ?? num(r, 'sse_parse_ms'))),
       headers_ms: sum(fetchRows.map((r) => num(r, 'headers_ms'))),
-      ttft_p50_ms: percentile(
-        sseRows.map((r) => num(r, 'ttft_ms')).filter((n) => n != null),
-        50
-      ),
+      ttft_p50_ms: percentile(sortedFinite(sseRows.map((r) => num(r, 'ttft_ms'))), 50),
       prompt_tokens: promptTokens,
       output_tokens: outputTokens,
       cached_tokens: cachedTokens,
@@ -652,14 +632,8 @@ function toolsByName(tools) {
       errors,
       result_kinds: kindCounts,
       total_ms: sum(trows.map((r) => num(r, 'tool_ms'))),
-      p50_ms: percentile(
-        trows.map((r) => num(r, 'tool_ms')).filter((n) => n != null),
-        50
-      ),
-      p95_ms: percentile(
-        trows.map((r) => num(r, 'tool_ms')).filter((n) => n != null),
-        95
-      ),
+      p50_ms: percentile(sortedFinite(trows.map((r) => num(r, 'tool_ms'))), 50),
+      p95_ms: percentile(sortedFinite(trows.map((r) => num(r, 'tool_ms'))), 95),
       bytes: sum(trows.map((r) => num(r, 'result_bytes_est'))),
       lines: sum(trows.map((r) => num(r, 'result_lines_est'))),
     });

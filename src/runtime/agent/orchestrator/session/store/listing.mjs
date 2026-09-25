@@ -1,7 +1,7 @@
-// Session listing, summary projection and stale-session sweeping. Extracted
-// from store.mjs, which keeps the persistence half (save/load/close/delete).
-// The two halves share the in-flight save map so an unpersisted session still
-// shows up in listings; the cycle is import-only (calls happen at runtime).
+// Session listing, summary projection and stale-session sweeping; store.mjs
+// owns the persistence half (save/load/close/delete). The two halves share
+// the in-flight save map so an unpersisted session still shows up in
+// listings; the cycle is import-only (calls happen at runtime).
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import { getPluginData } from '../../config.mjs';
@@ -15,6 +15,7 @@ import {
   _normalizeSummaryIndex,
   _writeSummaryIndex,
   _hasUnsettledSummaryOps,
+  settleSummaryIndexWrites,
 } from '../store-summary-index.mjs';
 import {
   _ensureSummaryCacheDataDir,
@@ -80,17 +81,19 @@ function _withUnpersistedSessions(stored, invalidStorageIds = new Set()) {
     if (sessionsById.has(id) || invalidStorageIds.has(id) || _isCancelledWrite(opts)) return;
     if (session?.id === id) sessionsById.set(id, _ensureLifecycleFields(session));
   };
+  _forEachUnpersistedWrite(addIfUnpersisted);
+  return [...sessionsById.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+// Every save that may not be on disk yet: debounced (queued or in-flight
+// payload), the worker's in-flight writes and its latest-wins queue.
+function _forEachUnpersistedWrite(visit) {
   for (const [id, pending] of _savePending) {
     const payload = pending.queued || pending.payload;
-    addIfUnpersisted(id, payload?.session, payload?.opts);
+    visit(id, payload?.session, payload?.opts);
   }
-  for (const [, pending] of _saveWorkerPending) {
-    addIfUnpersisted(pending.id, pending.session, pending.opts);
-  }
-  for (const [id, pending] of _saveAsyncQueued) {
-    addIfUnpersisted(id, pending.session, pending.opts);
-  }
-  return [...sessionsById.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  for (const [, pending] of _saveWorkerPending) visit(pending.id, pending.session, pending.opts);
+  for (const [id, pending] of _saveAsyncQueued) visit(id, pending.session, pending.opts);
 }
 
 // Summary-level twin of _withUnpersistedSessions: overlay queued/in-flight
@@ -103,12 +106,7 @@ function _overlayUnpersistedSummaryRows(rows, invalidStorageIds = new Set()) {
     const row = _sessionSummary(_ensureLifecycleFields(session));
     if (row) byId.set(id, row);
   };
-  for (const [id, pending] of _savePending) {
-    const payload = pending.queued || pending.payload;
-    addIfUnpersisted(id, payload?.session, payload?.opts);
-  }
-  for (const [, pending] of _saveWorkerPending) addIfUnpersisted(pending.id, pending.session, pending.opts);
-  for (const [id, pending] of _saveAsyncQueued) addIfUnpersisted(id, pending.session, pending.opts);
+  _forEachUnpersistedWrite(addIfUnpersisted);
   return [...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
@@ -152,68 +150,93 @@ function scheduleSessionSummaryIndexRebuild() {
   worker.unref();
 }
 
+/**
+ * Resolves once no summary-index writer of this process is running: the
+ * background rebuild worker a cold listing (or sweep) spawned has exited and
+ * every queued index mutation has landed. Both write the index, its lock and
+ * temp files into the data dir after the listing/sweep/save that caused them
+ * has returned, so an owner that removes or switches the data dir awaits this
+ * first.
+ */
+export async function settleSessionSummaryIndex() {
+  const worker = _summaryRebuildWorker;
+  if (worker) {
+    // The rebuild worker is unref'd; an awaited exit must keep the process up.
+    worker.ref();
+    await new Promise((resolve) => worker.once('exit', resolve));
+  }
+  await settleSummaryIndexWrites();
+}
+
 export function listStoredSessionSummaries(options = {}) {
   _ensureSummaryCacheDataDir();
   // This is intentionally the only path that rescans every session JSON:
   // callers use it as an on-demand authoritative refresh (including resume
   // authorization), so it must not trust either the cache or sidecar.
-  if (options.refreshFromStorage === true) {
-    try {
-      const { rows: persistedRows, invalidStorageIds, changed } = _scanStoredSessionSummaryRows();
-      const rows = _overlayUnpersistedSummaryRows(persistedRows, invalidStorageIds);
-      // Unchanged scans skip the sidecar rewrite — refresh is called on
-      // every sidebar poll/push and must not grind a multi-MB atomic
-      // write when no session actually changed.
-      if (changed) {
-        try {
-          _writeSummaryIndex(persistedRows);
-        } catch {
-          /* sidecar remains best-effort */
-        }
-      }
-      // A direct scan settles deletion state too; retain only active
-      // optimistic write overlays, never a stale local removal.
-      _summaryCacheRemovals.clear();
-      _setSummaryRowsCache(persistedRows);
-      return rows;
-    } catch {
-      // A refresh is an authorization boundary for desktop resume. If
-      // authoritative storage cannot be enumerated, stale cached/sidecar
-      // rows must not be treated as proof that a session is available.
-      return [];
-    }
-  }
-  if (_summaryRowsCache !== null) {
-    // A local session save has already updated the in-memory cache but its
-    // non-blocking sidecar merge may still be queued/in flight. Re-reading
-    // the older sidecar in that window would temporarily erase the new row.
-    if (_hasUnsettledSummaryOps()) return _cachedSummaryRows().slice();
-    // Cross-process freshness: another live process (terminal CLI owning a
-    // session this surface only views) advances messageCount/updatedAt by
-    // rewriting the summary index FILE — an in-memory cache that never
-    // looks back at disk serves frozen rows forever (user: the unread dot
-    // never fired for terminal-owned growth). One stat per call; when the
-    // index advanced, re-read the cheap index JSON as the new cache base
-    // (local optimistic overlays stay applied on top).
-    let diskMtime = 0;
-    try {
-      diskMtime = statSync(summaryIndexPath()).mtimeMs || 0;
-    } catch {
-      /* no index yet */
-    }
-    if (diskMtime <= _summaryIndexMtimeSeen) return _cachedSummaryRows().slice();
-    try {
-      const raw = JSON.parse(readFileSync(summaryIndexPath(), 'utf-8'));
-      if (Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION) {
-        _summaryIndexMtimeSeen = diskMtime;
-        return _setSummaryRowsCache(_normalizeSummaryIndex(raw).rows).slice();
-      }
-    } catch {
-      /* torn concurrent write — keep serving the cache; retry next call */
-    }
-    return _cachedSummaryRows().slice();
-  }
+  if (options.refreshFromStorage === true) return _refreshSummariesFromStorage();
+  if (_summaryRowsCache !== null) return _warmSummaryRows();
+  return _coldSummaryRows();
+}
 
+function _refreshSummariesFromStorage() {
+  try {
+    const { rows: persistedRows, invalidStorageIds, changed } = _scanStoredSessionSummaryRows();
+    const rows = _overlayUnpersistedSummaryRows(persistedRows, invalidStorageIds);
+    // Unchanged scans skip the sidecar rewrite — refresh is called on
+    // every sidebar poll/push and must not grind a multi-MB atomic
+    // write when no session actually changed.
+    if (changed) {
+      try {
+        _writeSummaryIndex(persistedRows);
+      } catch {
+        /* sidecar remains best-effort */
+      }
+    }
+    // A direct scan settles deletion state too; retain only active
+    // optimistic write overlays, never a stale local removal.
+    _summaryCacheRemovals.clear();
+    _setSummaryRowsCache(persistedRows);
+    return rows;
+  } catch {
+    // A refresh is an authorization boundary for desktop resume. If
+    // authoritative storage cannot be enumerated, stale cached/sidecar
+    // rows must not be treated as proof that a session is available.
+    return [];
+  }
+}
+
+function _warmSummaryRows() {
+  // A local session save has already updated the in-memory cache but its
+  // non-blocking sidecar merge may still be queued/in flight. Re-reading
+  // the older sidecar in that window would temporarily erase the new row.
+  if (_hasUnsettledSummaryOps()) return _cachedSummaryRows().slice();
+  // Cross-process freshness: another live process (terminal CLI owning a
+  // session this surface only views) advances messageCount/updatedAt by
+  // rewriting the summary index FILE — an in-memory cache that never
+  // looks back at disk serves frozen rows forever (user: the unread dot
+  // never fired for terminal-owned growth). One stat per call; when the
+  // index advanced, re-read the cheap index JSON as the new cache base
+  // (local optimistic overlays stay applied on top).
+  let diskMtime = 0;
+  try {
+    diskMtime = statSync(summaryIndexPath()).mtimeMs || 0;
+  } catch {
+    /* no index yet */
+  }
+  if (diskMtime <= _summaryIndexMtimeSeen) return _cachedSummaryRows().slice();
+  try {
+    const raw = JSON.parse(readFileSync(summaryIndexPath(), 'utf-8'));
+    if (Number(raw?.version) === SESSION_SUMMARY_INDEX_VERSION) {
+      _summaryIndexMtimeSeen = diskMtime;
+      return _setSummaryRowsCache(_normalizeSummaryIndex(raw).rows).slice();
+    }
+  } catch {
+    /* torn concurrent write — keep serving the cache; retry next call */
+  }
+  return _cachedSummaryRows().slice();
+}
+
+function _coldSummaryRows() {
   let indexedRows = [];
   let p;
   let hasIndex = false;

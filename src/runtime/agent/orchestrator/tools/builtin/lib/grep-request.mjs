@@ -6,7 +6,6 @@ import { isAbsolute } from 'node:path';
 import { markScopedCacheIncomplete } from '../../../session/cache/scoped-cache-outcome.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, hasUnsupportedRipgrepRegex } from '../arg-guard.mjs';
 import { statReachable } from '../fs-reachability.mjs';
-import { rgSupportsPcre2 } from '../native-search-runner.mjs';
 import {
   canonicalizeGlobSlashes,
   extractGlobBaseDirectory,
@@ -150,7 +149,7 @@ function resolveGrepWindow(args) {
   if (Number.isNaN(offsetCoerced)) {
     return { result: `Error: invalid offset ${JSON.stringify(args.offset)}; expected a non-negative integer` };
   }
-  const offset = offsetCoerced === null || offsetCoerced === 0 ? 0 : offsetCoerced;
+  const offset = offsetCoerced || 0;
   const context = resolveGrepContextFlags(args, wantAutoContext);
   if (context.result !== undefined) return context;
   return { outputMode, headLimit, headLimitCoerced, offset, ...context };
@@ -257,14 +256,7 @@ export async function resolveGrepRequest(args, workDir, options) {
   const multilineMode = args.multiline === true || patternsWantMultiline;
   // Rescue: rg's default Rust regex engine rejects lookaround/backreferences.
   // The embedded native PCRE2 matcher accepts the same syntax via -P/--pcre2.
-  const patternsWantPcre2 = hasUnsupportedRipgrepRegex(patterns);
-  const pcre2Mode = patternsWantPcre2 && (await rgSupportsPcre2());
-  if (patternsWantPcre2 && !pcre2Mode) {
-    return {
-      result:
-        'Error: grep pattern uses regex syntax ripgrep does not support here (lookaround/backrefs), and the installed rg build has no PCRE2 support (-P unavailable). Use plain pattern arrays or simpler regex.',
-    };
-  }
+  const pcre2Mode = hasUnsupportedRipgrepRegex(patterns);
 
   const scope = await resolveGrepScope(args, workDir);
   if (scope.result !== undefined) return scope;

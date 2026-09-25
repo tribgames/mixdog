@@ -34,11 +34,7 @@ pub(super) fn declaration_head(text: &str, start: usize, end: usize, name: &str)
     if start >= text.len() {
         return String::new();
     }
-    let mut limit = end.min(text.len()).min(start + HEAD_SCAN_BYTES);
-    while limit > start && !text.is_char_boundary(limit) {
-        limit -= 1;
-    }
-    let window = &text[start..limit];
+    let window = head_window(text, start, end, HEAD_SCAN_BYTES);
     let name_end = word_index(window, name).map(|at| at + name.len());
     let bytes = window.as_bytes();
     let mut depth: i32 = 0;
@@ -174,12 +170,12 @@ fn rest_of_line_is_empty(bytes: &[u8], from: usize) -> bool {
     index >= bytes.len() || matches!(bytes[index], b'\n' | b'#')
 }
 
-/// Whitespace-collapsed head, cut at a CHARACTER boundary: `SIG_MAX_CHARS`
-/// characters plus `…`, never a byte slice through a multi-byte character.
-fn collapse_head(head: &str) -> String {
-    let mut out = String::with_capacity(head.len());
+/// `text` trimmed, with every internal whitespace run (newlines included)
+/// collapsed to one space. Shared by the `sig` head and the call `recv`.
+pub(crate) fn collapse_whitespace(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
     let mut pending_space = false;
-    for ch in head.trim().chars() {
+    for ch in text.trim().chars() {
         if ch.is_whitespace() {
             pending_space = !out.is_empty();
             continue;
@@ -190,6 +186,13 @@ fn collapse_head(head: &str) -> String {
         }
         out.push(ch);
     }
+    out
+}
+
+/// Whitespace-collapsed head, cut at a CHARACTER boundary: `SIG_MAX_CHARS`
+/// characters plus `…`, never a byte slice through a multi-byte character.
+fn collapse_head(head: &str) -> String {
+    let out = collapse_whitespace(head);
     if out.chars().count() <= SIG_MAX_CHARS {
         return out;
     }
@@ -207,15 +210,21 @@ pub(super) fn name_line(text: &str, start: usize, end: usize, start_line: u32, n
     if name.is_empty() || start >= text.len() {
         return start_line;
     }
-    let mut head_end = end.min(text.len()).min(start + HEAD_BYTES);
-    while head_end > start && !text.is_char_boundary(head_end) {
-        head_end -= 1;
-    }
-    let head = &text[start..head_end];
+    let head = head_window(text, start, end, HEAD_BYTES);
     match word_index(head, name) {
         Some(index) => start_line + head[..index].matches('\n').count() as u32,
         None => start_line,
     }
+}
+
+/// The first `cap` bytes of the declaration at `start..end`, shortened to the
+/// nearest character boundary. `start` must be below `text.len()`.
+fn head_window(text: &str, start: usize, end: usize, cap: usize) -> &str {
+    let mut limit = end.min(text.len()).min(start + cap);
+    while limit > start && !text.is_char_boundary(limit) {
+        limit -= 1;
+    }
+    &text[start..limit]
 }
 
 /// Byte index of `needle` in `haystack` as a whole word, or `None`.

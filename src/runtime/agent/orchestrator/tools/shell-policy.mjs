@@ -41,25 +41,23 @@ export const WRAPPER_NAMES = new Set([
 // Wrapper names are sourced from WRAPPER_NAMES above so this path and the
 // destructive-warning peeler cannot drift apart. Each chain unit ends in \s+
 // (no zero-width iteration) so the nested quantifier cannot backtrack-blow.
-const _WRAP_CHAIN =
-  '(?:' +
-  '(?:[A-Za-z_]\\w*=\\S*\\s+)' +
-  '|(?:(?:' +
-  [...WRAPPER_NAMES].join('|') +
-  ')\\s+(?:(?:[-+]\\S*|\\d+[smhd]?|\\d+m\\d+s?)\\s+)*)' +
-  ')*';
+function _wrapChain(wrapperNames) {
+  return (
+    '(?:' +
+    '(?:[A-Za-z_]\\w*=\\S*\\s+)' +
+    '|(?:(?:' +
+    wrapperNames.join('|') +
+    ')\\s+(?:(?:[-+]\\S*|\\d+[smhd]?|\\d+m\\d+s?)\\s+)*)' +
+    ')*'
+  );
+}
+const _WRAP_CHAIN = _wrapChain([...WRAPPER_NAMES]);
 const _CMD_START = `(?:^|[;&|\\n(){}]\\s*|\\$[\\({]\\s*|[<>]\\(\\s*|\`\\s*)${_WRAP_CHAIN}`;
-// Wrapper chain for the token-level rm guard. Same shape as _WRAP_CHAIN
-// (backtrack-safe: every unit ends in \s+) but also peels `command`, the
-// bash builtin that execs its first non-option argument. Lets the rm guard
-// see `sudo rm -r -f /`, `env X=1 rm -r -f ~`, `timeout 5 rm -rf /`, etc.
-const _RM_WRAP_CHAIN =
-  '(?:' +
-  '(?:[A-Za-z_]\\w*=\\S*\\s+)' +
-  '|(?:(?:' +
-  [...WRAPPER_NAMES, 'command'].join('|') +
-  ')\\s+(?:(?:[-+]\\S*|\\d+[smhd]?|\\d+m\\d+s?)\\s+)*)' +
-  ')*';
+// Wrapper chain for the token-level rm guard. Same shape as _WRAP_CHAIN but
+// also peels `command`, the bash builtin that execs its first non-option
+// argument. Lets the rm guard see `sudo rm -r -f /`, `env X=1 rm -r -f ~`,
+// `timeout 5 rm -rf /`, etc.
+const _RM_WRAP_CHAIN = _wrapChain([...WRAPPER_NAMES, 'command']);
 const BLOCKED_PATTERNS = [
   // Recursive deletes (bash `rm -rf`, PowerShell `Remove-Item -Recurse -Force`,
   // cmd `del /s` / `rd /s`) are NOT blocked outright — each is target-checked
@@ -97,7 +95,8 @@ const BLOCKED_PATTERNS = [
 // a previously-blocked command through.
 const _ENCODED_CMD_RE =
   /(?:^|\s)(?:powershell(?:\.exe)?|pwsh(?:\.exe)?)\s+(?:[-/](?:NoP(?:rofile)?|NoL(?:ogo)?|NonI(?:nteractive)?|Sta|Mta|(?:ExecutionPolicy|Ep|Ex)\s+\S+|(?:WindowStyle|Win|W)\s+\S+|(?:InputFormat|Inp|If)\s+\S+|(?:OutputFormat|Out|Of)\s+\S+|Command|(?:File|Fi)\s+\S+|(?:Version|Ver)\s+\S+)\s+)*[-/](?:EncodedCommand|enc|e)\s+["']?([A-Za-z0-9+/=]+)["']?/gi;
-function _decodePowerShellEncodedCommand(command) {
+// Shared decode for policy scan targets (hard-block + destructive warnings).
+export function decodePowerShellEncodedCommand(command) {
   const cmd = String(command || '');
   // Scan ALL -EncodedCommand occurrences (quoted or unquoted) so a chained
   // payload like `powershell -enc A...; powershell -enc B...` exposes both
@@ -113,11 +112,6 @@ function _decodePowerShellEncodedCommand(command) {
     }
   }
   return decoded.length > 0 ? decoded.join('\n') : null;
-}
-
-// Shared decode for policy scan targets (hard-block + destructive warnings).
-export function decodePowerShellEncodedCommand(command) {
-  return _decodePowerShellEncodedCommand(command);
 }
 
 // Token-level rm guard. BLOCKED_PATTERNS catches inline split-flag forms
@@ -269,7 +263,7 @@ export function isBlockedCommand(command) {
   if (_cmdRecursiveDeleteUnsafe(command)) return true;
   // One decode feeds both scans below: the target-checked delete guards and
   // the BLOCKED_PATTERNS re-scan see exactly the same payload.
-  const decoded = _decodePowerShellEncodedCommand(command);
+  const decoded = decodePowerShellEncodedCommand(command);
   if (decoded && _rmRecursiveForceUnsafe(decoded)) return true;
   if (decoded && _removeItemRecursiveForceUnsafe(decoded)) return true;
   if (decoded && _cmdRecursiveDeleteUnsafe(decoded)) return true;

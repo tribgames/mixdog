@@ -40,8 +40,9 @@ export function editorLoadKey(projectPath: string, relPath: string, accessToken?
 }
 
 export function beginEditorLoad(projectPath: string, relPath: string, accessToken?: string): void {
-  beginBootSurface('editor', editorLoadKey(projectPath, relPath, accessToken));
-  editorMetrics.set(editorLoadKey(projectPath, relPath, accessToken), {
+  const key = editorLoadKey(projectPath, relPath, accessToken);
+  beginBootSurface('editor', key);
+  editorMetrics.set(key, {
     token: ++nextMetricToken,
     startedAt: now(),
     stages: new Set(),
@@ -71,8 +72,10 @@ export function reportEditorLoadStage(
     `editor-load stage=${cleanField(stage)} total=${Math.max(0, now() - metric.startedAt).toFixed(1)}ms` +
       ` file=${cleanField(relPath)}${suffix}`
   );
-  if (complete) reportBootSurfaceReady('editor', key, details);
-  if (complete) editorMetrics.delete(key);
+  if (complete) {
+    reportBootSurfaceReady('editor', key, details);
+    editorMetrics.delete(key);
+  }
 }
 
 export function beginStudioLoad(): number {
@@ -96,6 +99,8 @@ export function reportStudioLoadStage(stage: string, details = '', complete = fa
   perfLog(
     `studio-load stage=${cleanField(stage)} total=${Math.max(0, now() - metric.startedAt).toFixed(1)}ms${suffix}`
   );
-  if (complete) reportBootSurfaceReady('studio', 'studio', details);
-  if (complete) studioMetric = null;
+  if (complete) {
+    reportBootSurfaceReady('studio', 'studio', details);
+    studioMetric = null;
+  }
 }

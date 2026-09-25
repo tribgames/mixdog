@@ -1,7 +1,7 @@
+import { isStoredSessionId } from './store-summary-fields.mjs';
+
 const SESSION_VISIBILITY_ORDINARY = 'ordinary';
 const SESSION_VISIBILITY_AGENT_ONLY = 'agent-only';
-
-const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 function clean(value) {
   return String(value || '').trim();
@@ -11,7 +11,7 @@ function linkedParentSessionId(value) {
   if (!value || typeof value !== 'object') return '';
   for (const candidate of [value.ownerSessionId, value.parentSessionId]) {
     const id = clean(candidate);
-    if (SESSION_ID_PATTERN.test(id)) return id;
+    if (isStoredSessionId(id)) return id;
   }
   return '';
 }

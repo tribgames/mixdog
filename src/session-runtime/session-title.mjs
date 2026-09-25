@@ -85,6 +85,10 @@ function greetingTitle(source) {
   return '';
 }
 
+function errorText(error) {
+  return error instanceof Error ? error.stack || error.message : String(error);
+}
+
 function resolvedSystemLocale() {
   try {
     return Intl.DateTimeFormat().resolvedOptions().locale || '';
@@ -195,9 +199,7 @@ export function createSessionTitleController(deps = {}) {
       // Release the one-shot marker: a timed-out/failed generation may retry
       // on the next trigger (next completed turn for stage three).
       attempts?.delete(sessionId);
-      log(
-        `failed id=${sessionId} stage=${stage} error=${error instanceof Error ? error.stack || error.message : String(error)}`
-      );
+      log(`failed id=${sessionId} stage=${stage} error=${errorText(error)}`);
     });
   };
 
@@ -224,9 +226,7 @@ export function createSessionTitleController(deps = {}) {
       log(`generated id=${sessionId} stage=first title=${JSON.stringify(greeting)} deterministic=greeting`);
       void promote(sessionId, greeting, 'first').catch((error) => {
         firstAttempts.delete(sessionId);
-        log(
-          `failed id=${sessionId} stage=first error=${error instanceof Error ? error.stack || error.message : String(error)}`
-        );
+        log(`failed id=${sessionId} stage=first error=${errorText(error)}`);
       });
       return true;
     }

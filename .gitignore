@@ -113,6 +113,7 @@ native/mixdog-graph/target/
 native/mixdog-graph/target-verify/
 native/mixdog-graph-addon/target/
 native/mixdog-spawn/target/
+native/mixdog-computer/target/
 /.mixdog-probe/
 /native-tools/
 /.native-tools-install-*/

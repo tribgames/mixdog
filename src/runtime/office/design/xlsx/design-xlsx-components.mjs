@@ -30,14 +30,27 @@ function normalizedGates(value) {
     .filter((row) => row.length === 3 && row.some(Boolean));
 }
 
+// The height a wrapped band needs: Hangul and CJK run about one em a character, Latin about half; the lines are
+// the text's width over the canvas, each at 1.3 × the size, with the band's own inset.
+export function bandHeight(text, size, canvasPoints) {
+  // Bold display type runs wider than the regular em, and the merged band loses its cell insets: the estimate
+  // leans long, since a band a line too tall reads as air and one a line short cuts the title.
+  const ems = [...String(text)].reduce((total, char) => total + (/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u3040-\u30FF\u4E00-\u9FFF]/.test(char) ? 1.1 : 0.6), 0);
+  const lines = Math.max(1, Math.ceil((ems * size) / Math.max(1, (Number(canvasPoints) || 480) * 0.8)));
+  return Math.min(409, Math.round(lines * size * 1.3 + 8));
+}
+
+// widthPoints: the panel's printed width, from which the decision's merged row takes its height — a merged cell
+// never grows to its lines, and a two-sentence decision showed its first line and hid the rest in Excel.
 export function addXlsxDecisionPanel(
   output,
-  { sheet, row, startColumn = 1, columns, design, decision, gates, actions, label = '' }
+  { sheet, row, startColumn = 1, columns, design, decision, gates, actions, label = '', widthPoints = 0 }
 ) {
   const colors = design.tokens.colors;
   const type = design.tokens.typography;
   const firstColumn = Math.max(1, Number(startColumn) || 1);
-  const width = Math.max(6, Number(columns) || 6);
+  // Four columns hold the gate row's three spans; a panel under a four-column table keeps the table's width.
+  const width = Math.max(4, Number(columns) || 6);
   const finalColumn = firstColumn + width - 1;
   const lastColumn = columnLabel(finalColumn);
   let cursor = row;
@@ -73,6 +86,9 @@ export function addXlsxDecisionPanel(
       wrapText: true,
     },
   });
+  if (widthPoints > 0) {
+    output.push({ op: 'set_row_height', sheet, row: cursor, height: bandHeight(decision, 15, widthPoints) });
+  }
   cursor += 2;
   const gateRows = normalizedGates(gates);
   if (gateRows.length) {
@@ -82,7 +98,9 @@ export function addXlsxDecisionPanel(
       [Math.max(4, Math.floor((width * 2) / 3) + 1), width],
     ];
     const spans = relativeSpans.map(([start, end]) => [firstColumn + start - 1, firstColumn + end - 1]);
-    ['트랙', 'Release', 'Stop'].forEach((label, index) => {
+    // The gate columns are named in the copy's language: "트랙 / Release / Stop" put two English words the caller
+    // never wrote into a Korean sheet.
+    presetLabels([decision, gates, actions]).gate.forEach((label, index) => {
       mergedBlock(output, {
         sheet,
         startColumn: spans[index][0],
@@ -132,25 +150,26 @@ export function addXlsxDecisionPanel(
       });
       cursor += 1;
     });
-  } else {
-    for (const action of strings(actions).slice(0, 4)) {
-      mergedBlock(output, {
-        sheet,
-        startColumn: firstColumn,
-        endColumn: finalColumn,
-        row: cursor,
-        value: `• ${action}`,
-        properties: {
-          fontName: type.body,
-          fontSize: 10,
-          color: colors.ink,
-          fillColor: cursor % 2 === 0 ? colors.canvas : colors.surface,
-          verticalAlignment: 'center',
-          wrapText: true,
-        },
-      });
-      cursor += 1;
-    }
+  }
+  // The actions follow the gates rather than stand in for them: given both, the actions used to be dropped.
+  if (gateRows.length && strings(actions).length) cursor += 1;
+  for (const action of strings(actions).slice(0, 4)) {
+    mergedBlock(output, {
+      sheet,
+      startColumn: firstColumn,
+      endColumn: finalColumn,
+      row: cursor,
+      value: `• ${action}`,
+      properties: {
+        fontName: type.body,
+        fontSize: 10,
+        color: colors.ink,
+        fillColor: cursor % 2 === 0 ? colors.canvas : colors.surface,
+        verticalAlignment: 'center',
+        wrapText: true,
+      },
+    });
+    cursor += 1;
   }
   return {
     lastRow: cursor,

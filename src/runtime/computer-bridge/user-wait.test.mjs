@@ -38,8 +38,10 @@ test('an act can ask for an accessibility-only observation instead of a frame', 
   assert.equal(command.capture_after_mode, 'ax');
   assert.equal(command.observe, undefined);
   // The default stays the full observation, and only the two modes are offered.
-  assert.equal(toComputerHostCommand({ action: 'act', input: { actions: [{ type: 'key', keys: 'enter' }] } })
-    .capture_after_mode, undefined);
+  assert.equal(
+    toComputerHostCommand({ action: 'act', input: { actions: [{ type: 'key', keys: 'enter' }] } }).capture_after_mode,
+    undefined
+  );
   assert.match(
     validateComputerToolArgs({ ...args, input: { ...args.input, observe: 'vision' } }),
     /observe|enum|allowed/i

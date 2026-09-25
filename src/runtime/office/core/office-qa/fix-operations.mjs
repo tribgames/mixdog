@@ -23,7 +23,9 @@ function fixOperationFor(session, issue) {
     const column = match[2].toUpperCase();
     return { op: 'autofit_range', sheet: match[1], range: `${column}:${column}` };
   }
-  if (session.format === 'pptx' && ['text_overflow', 'text_outside_slide'].includes(issue.code)) {
+  // fit_text draws the box back inside the slide and fits its text there, for either backend's name of the fault.
+  const textFaults = ['text_overflow', 'text_outside_slide', 'shape_out_of_bounds'];
+  if (session.format === 'pptx' && textFaults.includes(issue.code)) {
     const match = /^\/slide\[(\d+)]\/shape\[(\d+)]$/.exec(String(issue.path || ''));
     return match ? { op: 'fit_text', slide: Number(match[1]), shape: Number(match[2]), minFontSize: 8 } : null;
   }
@@ -35,8 +37,11 @@ export function qaFixOperations(session, issueList) {
   const operations = [];
   const seen = new Set();
   for (const issue of issueList || []) {
-    const operation = fixOperationFor(session, issue);
-    if (!operation) continue;
+    const found = fixOperationFor(session, issue);
+    if (!found) continue;
+    // A repair that finds nothing to change is not a failed review: without it one no-op fit_text failed the batch
+    // and qa returned an error in place of its findings.
+    const operation = { ...found, allowNoChange: true };
     const key = JSON.stringify(operation);
     if (!seen.has(key)) {
       seen.add(key);

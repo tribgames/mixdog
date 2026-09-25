@@ -506,7 +506,8 @@ async function run(): Promise<void> {
     // Refused before dispatch and opened by a dispatched click read differently,
     // because neither may be replayed blindly.
     assert.match(ghost.text, /This action was not sent/);
-    if (/dialog is blocking the page/i.test(blocked.text)) assert.match(blocked.text, /The action ran; do not repeat it/);
+    if (/dialog is blocking the page/i.test(blocked.text))
+      assert.match(blocked.text, /The action ran; do not repeat it/);
     assert.ok(Date.now() - ghostStartedAt < 1_000, 'a blocked gesture returns without dispatching');
     alpha = await command({ action: 'handle_dialog', accept: false, tab: 'alpha' });
     assert.match(alpha.text, /Dialog dismissed/);
@@ -1478,7 +1479,12 @@ async function run(): Promise<void> {
     const afterCovered = await command({ action: 'read', tab: 'frames' });
     assert.doesNotMatch(afterCovered.text, /WRONG TARGET/);
     // A frameset reads as its frames, never as the <noframes> fallback it hides.
-    const frameset = await command({ action: 'navigate', url: `${origin}/frameset`, background: true, tab: 'frameset' });
+    const frameset = await command({
+      action: 'navigate',
+      url: `${origin}/frameset`,
+      background: true,
+      tab: 'frameset',
+    });
     const framesetRead = await command({ action: 'read', tab: 'frameset' });
     for (const report of [frameset.text, framesetRead.text]) {
       assert.doesNotMatch(report, /Frames are not rendering/);

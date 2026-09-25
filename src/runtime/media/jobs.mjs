@@ -128,70 +128,72 @@ export async function startMediaJob({ lane: laneId, kind, model, prompt, options
     controller,
   };
   JOBS.set(job.id, job);
-
-  (async () => {
-    try {
-      const result = await runAdapter({
-        lane: resolved.lane,
-        kind: resolved.kind,
-        model: resolved.model,
-        requestModel: modelEntry?.requestModel,
-        prompt: text,
-        options,
-        references: refs,
-        signal: controller.signal,
-        onProgress: (value) => {
-          const raw = Number(value);
-          if (!Number.isFinite(raw)) return;
-          // Lanes report either a 0-1 fraction or a percentage, and a poll can
-          // come back stale — normalize and never let the rail walk backwards.
-          const next = Math.round(Math.max(0, Math.min(100, raw > 1 ? raw : raw * 100)));
-          if (next > job.progress) job.progress = next;
-        },
-      });
-      if (!Buffer.isBuffer(result?.bytes) || !result.bytes.length || result.bytes.length > MAX_GENERATED_MEDIA_BYTES) {
-        throw mediaError('generated media exceeds the media size limit', 'MEDIA_RESULT_TOO_LARGE', 502);
-      }
-      const asset = saveMediaAsset({
-        kind: resolved.kind,
-        lane: resolved.lane.id,
-        model: resolved.model,
-        prompt: text,
-        options: job.options,
-        mime: result.mime,
-        bytes: result.bytes,
-        meta: {
-          ...(result.revisedPrompt ? { revisedPrompt: result.revisedPrompt } : {}),
-          ...(result.durationSeconds ? { durationSeconds: result.durationSeconds } : {}),
-        },
-      });
-      job.assetId = asset.id;
-      job.progress = 100;
-      job.status = 'done';
-    } catch (err) {
-      const canceled = controller.signal.aborted || err?.code === 'MEDIA_CANCELED' || err?.name === 'AbortError';
-      job.status = canceled ? 'canceled' : 'failed';
-      job.error = canceled ? 'canceled' : String(err?.message || err).slice(0, 500);
-      job.errorCode = err?.code || null;
-      // The job snapshot is the ONLY record of a failure, and it is swept
-      // once its TTL passes. Print the reason so a run that died upstream
-      // stays diagnosable after its tile is gone.
-      if (!canceled) {
-        try {
-          console.error(
-            `[media] job failed lane=${job.lane} model=${job.model} ` +
-              `kind=${job.kind} code=${job.errorCode || 'none'}: ${job.error}`
-          );
-        } catch {
-          /* logging must never mask the job failure */
-        }
-      }
-    } finally {
-      job.endedAt = Date.now();
-    }
-  })();
-
+  void runJob(job, resolved, { requestModel: modelEntry?.requestModel, options, references: refs });
   return snapshot(job);
+}
+
+/** Drive one started job to a terminal state; never rejects. */
+async function runJob(job, resolved, { requestModel, options, references }) {
+  const { controller } = job;
+  try {
+    const result = await runAdapter({
+      lane: resolved.lane,
+      kind: resolved.kind,
+      model: resolved.model,
+      requestModel,
+      prompt: job.prompt,
+      options,
+      references,
+      signal: controller.signal,
+      onProgress: (value) => {
+        const raw = Number(value);
+        if (!Number.isFinite(raw)) return;
+        // Lanes report either a 0-1 fraction or a percentage, and a poll can
+        // come back stale — normalize and never let the rail walk backwards.
+        const next = Math.round(Math.max(0, Math.min(100, raw > 1 ? raw : raw * 100)));
+        if (next > job.progress) job.progress = next;
+      },
+    });
+    if (!Buffer.isBuffer(result?.bytes) || !result.bytes.length || result.bytes.length > MAX_GENERATED_MEDIA_BYTES) {
+      throw mediaError('generated media exceeds the media size limit', 'MEDIA_RESULT_TOO_LARGE', 502);
+    }
+    const asset = saveMediaAsset({
+      kind: resolved.kind,
+      lane: resolved.lane.id,
+      model: resolved.model,
+      prompt: job.prompt,
+      options: job.options,
+      mime: result.mime,
+      bytes: result.bytes,
+      meta: {
+        ...(result.revisedPrompt ? { revisedPrompt: result.revisedPrompt } : {}),
+        ...(result.durationSeconds ? { durationSeconds: result.durationSeconds } : {}),
+      },
+    });
+    job.assetId = asset.id;
+    job.progress = 100;
+    job.status = 'done';
+  } catch (err) {
+    const canceled = controller.signal.aborted || err?.code === 'MEDIA_CANCELED' || err?.name === 'AbortError';
+    job.status = canceled ? 'canceled' : 'failed';
+    job.error = canceled ? 'canceled' : String(err?.message || err).slice(0, 500);
+    job.errorCode = err?.code || null;
+    // The job snapshot is the ONLY record of a failure, and it is swept
+    // once its TTL passes. Print the reason so a run that died upstream
+    // stays diagnosable after its tile is gone.
+    if (!canceled) {
+      try {
+        console.error(
+          `[media] job failed lane=${job.lane} model=${job.model} ` +
+            `kind=${job.kind} code=${job.errorCode || 'none'}: ${job.error}`
+        );
+      } catch {
+        /* logging must never mask the job failure */
+      }
+    }
+  } finally {
+    job.endedAt = Date.now();
+  }
 }
 
 export function getMediaJob(id) {

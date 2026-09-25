@@ -11,6 +11,7 @@ import { canUseAppOwnedTextInput } from './input-preflight';
 import type { ResolvedInputTarget } from './input-resolution';
 import { assertObservationInputAllowed } from './observation-policy';
 import { sequenceStepRequest } from './sequence-dispatch';
+import { UNKNOWN_WINDOW_INTEGRITY } from './window-reads';
 
 type DispatchHost = Pick<
   CommandRouterHost,
@@ -81,9 +82,7 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     command: ComputerCommand,
     targetWindowId: ResolvedInputTarget['targetWindowId']
   ) {
-    if (command.delivery !== 'foreground') {
-      return { known: false, higher: false, ownName: 'Unknown', targetName: 'Unknown' };
-    }
+    if (command.delivery !== 'foreground') return { ...UNKNOWN_WINDOW_INTEGRITY };
     const integrity = await readWindowIntegrity(targetWindowId, sessionIdFor(command));
     if (!integrity.known) {
       throw new Error(

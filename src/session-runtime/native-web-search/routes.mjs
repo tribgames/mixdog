@@ -3,7 +3,7 @@
  * configured web-search route, or the Main model when the route is the
  * follow-Main default.
  */
-import { WEB_SEARCH_DEFAULT_MODEL, WEB_SEARCH_DEFAULT_PROVIDER } from '../workflow.mjs';
+import { webSearchRouteOrDefault } from '../workflow.mjs';
 
 export function createWebSearchRouteCandidates({
   getRoute,
@@ -12,7 +12,6 @@ export function createWebSearchRouteCandidates({
   ensureFullConfig,
   awaitKeychainPrewarm,
   normalizeWebSearchProviderId,
-  normalizeWebSearchRouteConfig,
   isDefaultWebSearchRouteConfig,
   isWebSearchCapableProvider,
   webSearchCapableFor,
@@ -31,15 +30,8 @@ export function createWebSearchRouteCandidates({
     // sidebar has always presented it that way. Materialize it here instead of
     // treating a missing key as "not configured", which used to fail the search
     // before the Main Model was ever consulted.
-    const webSearchRoute =
-      normalizeWebSearchRouteConfig(cfg.webSearchRoute) ||
-      normalizeWebSearchRouteConfig(getWebSearchRoute()) ||
-      normalizeWebSearchRouteConfig({
-        provider: WEB_SEARCH_DEFAULT_PROVIDER,
-        model: WEB_SEARCH_DEFAULT_MODEL,
-      });
+    const webSearchRoute = webSearchRouteOrDefault(cfg.webSearchRoute, getWebSearchRoute());
     setWebSearchRoute(webSearchRoute);
-    if (!webSearchRoute) return [];
     if (isDefaultWebSearchRouteConfig(webSearchRoute)) {
       const mainModel = currentMainWebSearchModelMeta();
       if (!mainModel || !webSearchCapableFor(route.provider, mainModel)) return [];

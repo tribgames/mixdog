@@ -17,21 +17,29 @@ export function detectReadEncodingFromBuffer(buf) {
   return { encoding: 'utf8', bomLen: 0 };
 }
 
+export function isUtf16Encoding(enc) {
+  return enc.encoding === 'utf16le' || enc.encoding === 'utf16be';
+}
+
+/**
+ * The UTF-16 body after its BOM. Node has no 'utf16be' encoding, so a BE body
+ * swaps byte pairs to LE (swap16 needs an even length; a trailing odd byte is
+ * dropped) and decodes as utf16le.
+ */
+export function decodeUtf16Body(rawBuf, enc) {
+  const body = rawBuf.subarray(enc.bomLen);
+  if (enc.encoding === 'utf16le') return body.toString('utf16le');
+  const even = body.length & ~1;
+  return Buffer.from(body.subarray(0, even)).swap16().toString('utf16le');
+}
+
 /** Decode on-disk bytes the same way as a full read (for snapshot hash / stale checks). */
 export function decodeRawBufferForSnapshotCheck(rawBuf) {
   const enc = detectReadEncodingFromBuffer(rawBuf);
   // Strip the BOM for BOTH encodings (bomLen is 0 when absent, so non-BOM
   // utf8 is unchanged). The read path hashes BOM-stripped content; a utf8 BOM
   // left in here produced a hash mismatch and false "modified since read".
-  if (enc.encoding === 'utf16le') {
-    return rawBuf.subarray(enc.bomLen).toString('utf16le');
-  }
-  if (enc.encoding === 'utf16be') {
-    // No Node 'utf16be' encoding: swap pairs to LE (even length) then decode.
-    const body = rawBuf.subarray(enc.bomLen);
-    const even = body.length & ~1;
-    return Buffer.from(body.subarray(0, even)).swap16().toString('utf16le');
-  }
+  if (isUtf16Encoding(enc)) return decodeUtf16Body(rawBuf, enc);
   return rawBuf.subarray(enc.bomLen).toString('utf-8');
 }
 

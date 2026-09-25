@@ -101,10 +101,10 @@ export const modelContextWindow = (m) => {
   const id = String(m?.id || '').toLowerCase();
   const version = parsedModelVersion(id);
   if (provider.includes('anthropic') && /^claude-[a-z]+-/.test(id)) {
-    if ((version[0] || 0) >= 5) return Math.max(n, 1_000_000);
-    if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/.test(id)) return Math.max(n, 1_000_000);
+    if ((version[0] || 0) >= 5) return 1_000_000;
+    if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/.test(id)) return 1_000_000;
   }
-  return n;
+  return 0;
 };
 
 export const formatContextWindow = (tokens) => {
@@ -155,51 +155,55 @@ export const normalizeModelOptions = (models) => {
   return normalized;
 };
 
-export const providerDisplayName = (provider) => {
-  const key = String(provider || '').toLowerCase();
-  if (key === 'openai-oauth') return 'OpenAI OAuth';
-  if (key === 'anthropic-oauth') return 'Anthropic OAuth';
-  if (key === 'grok-oauth') return 'Grok OAuth';
-  if (key === 'cursor-oauth') return 'Cursor OAuth';
-  if (key === 'antigravity-oauth') return 'Antigravity OAuth';
-  if (key === 'openai' || key === 'openai-api') return 'OpenAI API';
-  if (key === 'anthropic' || key === 'anthropic-api') return 'Anthropic API';
-  if (key === 'gemini' || key === 'gemini-api') return 'Gemini API';
-  if (key === 'xai' || key === 'xai-api') return 'xAI API';
-  if (key === 'deepseek' || key === 'deepseek-api') return 'DeepSeek API';
-  if (key === 'opencode-go') return 'OpenCode Go API';
-  if (key === 'openrouter') return 'OpenRouter';
-  if (key === 'mixdog-local') return 'Local Provider';
-  if (key === 'default') return 'Default';
-  return provider || 'Provider';
+const PROVIDER_DISPLAY_NAMES = new Map([
+  ['openai-oauth', 'OpenAI OAuth'],
+  ['anthropic-oauth', 'Anthropic OAuth'],
+  ['grok-oauth', 'Grok OAuth'],
+  ['cursor-oauth', 'Cursor OAuth'],
+  ['antigravity-oauth', 'Antigravity OAuth'],
+  ['openai', 'OpenAI API'],
+  ['openai-api', 'OpenAI API'],
+  ['anthropic', 'Anthropic API'],
+  ['anthropic-api', 'Anthropic API'],
+  ['gemini', 'Gemini API'],
+  ['gemini-api', 'Gemini API'],
+  ['xai', 'xAI API'],
+  ['xai-api', 'xAI API'],
+  ['deepseek', 'DeepSeek API'],
+  ['deepseek-api', 'DeepSeek API'],
+  ['opencode-go', 'OpenCode Go API'],
+  ['openrouter', 'OpenRouter'],
+  ['mixdog-local', 'Local Provider'],
+  ['default', 'Default'],
+]);
+
+export const providerDisplayName = (provider) =>
+  PROVIDER_DISPLAY_NAMES.get(String(provider || '').toLowerCase()) ?? (provider || 'Provider');
+
+const PROVIDER_DISPLAY_RANKS = {
+  default: 0,
+  'openai-oauth': 10,
+  'anthropic-oauth': 20,
+  'grok-oauth': 30,
+  'antigravity-oauth': 31,
+  'cursor-oauth': 32,
+  'opencode-go': 35,
+  openai: 40,
+  'openai-api': 40,
+  anthropic: 50,
+  'anthropic-api': 50,
+  gemini: 60,
+  'gemini-api': 60,
+  xai: 70,
+  'xai-api': 70,
+  deepseek: 90,
+  'deepseek-api': 90,
+  'mixdog-local': 100,
+  // OpenRouter lists hundreds of models, so keep it behind every other provider.
+  openrouter: 950,
 };
 
-export const providerDisplayRank = (provider) => {
-  const key = String(provider || '').toLowerCase();
-  const ranks = {
-    default: 0,
-    'openai-oauth': 10,
-    'anthropic-oauth': 20,
-    'grok-oauth': 30,
-    'antigravity-oauth': 31,
-    'cursor-oauth': 32,
-    'opencode-go': 35,
-    openai: 40,
-    'openai-api': 40,
-    anthropic: 50,
-    'anthropic-api': 50,
-    gemini: 60,
-    'gemini-api': 60,
-    xai: 70,
-    'xai-api': 70,
-    deepseek: 90,
-    'deepseek-api': 90,
-    'mixdog-local': 100,
-    // OpenRouter lists hundreds of models, so keep it behind every other provider.
-    openrouter: 950,
-  };
-  return ranks[key] ?? 900;
-};
+export const providerDisplayRank = (provider) => PROVIDER_DISPLAY_RANKS[String(provider || '').toLowerCase()] ?? 900;
 
 const titleCaseOption = (value) =>
   String(value || '')
@@ -274,31 +278,20 @@ export const buildProviderModelItems = (models, provider, currentRoute = null) =
   }));
 };
 
+// Model · Effort · Fast, dropping the empty parts.
+const routeModelDetails = (route) =>
+  [routeModelDisplayName(route), route.effort ? effortDisplayLabel(route.effort) : '', route.fast ? 'Fast' : '']
+    .filter(Boolean)
+    .join(' · ');
+
 export const routeLabel = (route) => {
   if (!route?.provider || !route?.model) return '(unset)';
-  return [
-    providerDisplayName(route.provider),
-    routeModelDisplayName(route),
-    route.effort ? effortDisplayLabel(route.effort) : '',
-    route.fast ? 'Fast' : '',
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  return [providerDisplayName(route.provider), routeModelDetails(route)].filter(Boolean).join(' · ');
 };
 
-export const routeModelLabel = (route) => {
-  if (!route?.model) return '(unset)';
-  return [routeModelDisplayName(route), route.effort ? effortDisplayLabel(route.effort) : '', route.fast ? 'Fast' : '']
-    .filter(Boolean)
-    .join(' · ');
-};
+export const routeModelLabel = (route) => (route?.model ? routeModelDetails(route) : '(unset)');
 
-export const agentModelProfile = (route) => {
-  if (!route?.model) return '';
-  return [routeModelDisplayName(route), route.effort ? effortDisplayLabel(route.effort) : '', route.fast ? 'Fast' : '']
-    .filter(Boolean)
-    .join(' · ');
-};
+export const agentModelProfile = (route) => (route?.model ? routeModelDetails(route) : '');
 
 export const agentModelParts = (route) => [
   { text: route?.model ? routeModelDisplayName(route) : '', width: 17 },

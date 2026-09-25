@@ -9,6 +9,7 @@ import { READ_MAX_SIZE_BYTES, READ_STREAM_RANGE_MIN_BYTES } from './read-constan
 import { LINE_NO_SEP, renderReadLine } from './read-formatting.mjs';
 import { displayLineForRead, splitRawLinesForHeadTail } from './read-lines.mjs';
 import { openForRead, openTextPathForReadMeta, detectReadEncoding } from './read-open.mjs';
+import { decodeUtf16Body, isUtf16Encoding } from './snapshot-helpers.mjs';
 import { capShellOutput } from './shell-output.mjs';
 import { countTextStatsStreaming } from './text-stats.mjs';
 
@@ -21,21 +22,14 @@ function requireHelper(helpers, name) {
 // UTF-16 (LE/BE) files pass the binary NUL gate (BOM-exempt) but the
 // head/tail/count/summary streaming and small-file paths decode bytes as
 // UTF-8, emitting NUL-laden garbage. Detect the BOM up front and decode the
-// whole file in-memory, bounded by the same READ_MAX_SIZE_BYTES cap the
-// regular read path enforces. BE has no Node string encoding, so swap byte
-// pairs to LE (even length) then decode as utf16le — mirrors read-single-tool.
+// whole file in-memory with the regular read's decoder, bounded by the same
+// READ_MAX_SIZE_BYTES cap the regular read path enforces.
 // Returns null for non-UTF-16, { tooLarge:true } past the cap, or { content }.
 async function decodeUtf16Mode(meta) {
   const enc = await detectReadEncoding(meta.fullPath);
-  if (enc.encoding !== 'utf16le' && enc.encoding !== 'utf16be') return null;
+  if (!isUtf16Encoding(enc)) return null;
   if ((meta.st.size ?? 0) > READ_MAX_SIZE_BYTES) return { tooLarge: true };
-  const rawBuf = await readFile(meta.fullPath);
-  if (enc.encoding === 'utf16le') {
-    return { content: rawBuf.subarray(enc.bomLen).toString('utf16le') };
-  }
-  const body = rawBuf.subarray(enc.bomLen);
-  const even = body.length & ~1;
-  return { content: Buffer.from(body.subarray(0, even)).swap16().toString('utf16le') };
+  return { content: decodeUtf16Body(await readFile(meta.fullPath), enc) };
 }
 
 async function isBinaryMode(meta) {
@@ -44,6 +38,75 @@ async function isBinaryMode(meta) {
 
 function utf16TooLargeError(meta) {
   return `Error: UTF-16 file too large for this mode (${meta.st.size} bytes exceeds ${READ_MAX_SIZE_BYTES}-byte cap): ${normalizeOutputPath(meta.fullPath)}`;
+}
+
+function binaryFileError(fullPath) {
+  return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(fullPath)}`;
+}
+
+function modeError(err) {
+  return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+}
+
+function contentTextStats(content, bytes) {
+  return { lines: countDisplayLines(content), words: (content.match(/\S+/g) || []).length, bytes };
+}
+
+function formatTextStats(stats) {
+  return `lines\t${stats.lines}\twords\t${stats.words}\tbytes\t${stats.bytes}`;
+}
+
+// Renders `n` of the decoded content's `lines` from index `start` (head starts
+// at 0, tail at the last n) and records the delivered range when the output
+// was not capped.
+function renderContentWindow({ content, lines, start, n, fullPath, st, source }, readStateScope, recordReadSnapshot) {
+  const sliced = lines.slice(start, start + n);
+  const rendered = sliced.map((l, i) => `${start + i + 1}${LINE_NO_SEP}${displayLineForRead(l, start + i)}`).join('\n');
+  const out = capShellOutput(rendered);
+  if (out === rendered && sliced.length > 0) {
+    const isFullFileView = sliced.length >= lines.length;
+    recordReadSnapshot(fullPath, st, readStateScope, {
+      source,
+      fileLineCount: lines.length,
+      ranges: isFullFileView
+        ? [{ startLine: 1, endLine: Infinity }]
+        : [{ startLine: start + 1, endLine: start + sliced.length }],
+      ...(isFullFileView ? { contentHash: hashText(content) } : { rangeHash: hashText(sliced.join('\n')) }),
+    });
+  }
+  return out;
+}
+
+function renderHeadContent(content, { fullPath, st }, n, readStateScope, recordReadSnapshot) {
+  const lines = splitRawLinesForHeadTail(content);
+  return renderContentWindow(
+    { content, lines, start: 0, n, fullPath, st, source: 'read_head' },
+    readStateScope,
+    recordReadSnapshot
+  );
+}
+
+function renderTailContent(content, { fullPath, st }, n, readStateScope, recordReadSnapshot) {
+  const lines = splitRawLinesForHeadTail(content);
+  return renderContentWindow(
+    { content, lines, start: Math.max(0, lines.length - n), n, fullPath, st, source: 'read_tail' },
+    readStateScope,
+    recordReadSnapshot
+  );
+}
+
+// Past the in-memory cap the tail comes from the windowed reader, with line
+// numbers counted from the end rather than exactly.
+async function renderLargeTail(fullPath, st, n, readStateScope, renderTailWindowSync) {
+  try {
+    if ((await inspectBinaryFile(fullPath, st.size ?? 0)).isBinary) return binaryFileError(fullPath);
+    return await renderTailWindowSync(fullPath, st, n, readStateScope, {
+      exactLineNumbers: false,
+      source: 'read_tail_large',
+    });
+  } catch (err) {
+    return modeError(err);
+  }
 }
 
 export async function executeHeadTool(args, workDir, readStateScope, helpers = {}) {
@@ -59,20 +122,7 @@ export async function executeHeadTool(args, workDir, readStateScope, helpers = {
   const _u16 = await decodeUtf16Mode(meta);
   if (_u16) {
     if (_u16.tooLarge) return utf16TooLargeError(meta);
-    const lines = splitRawLinesForHeadTail(_u16.content);
-    const sliced = lines.slice(0, n);
-    const rendered = sliced.map((l, i) => `${i + 1}${LINE_NO_SEP}${displayLineForRead(l, i)}`).join('\n');
-    const out = capShellOutput(rendered);
-    if (out === rendered && sliced.length > 0) {
-      const isFullFileView = sliced.length >= lines.length;
-      recordReadSnapshot(meta.fullPath, meta.st, readStateScope, {
-        source: 'read_head',
-        fileLineCount: lines.length,
-        ranges: isFullFileView ? [{ startLine: 1, endLine: Infinity }] : [{ startLine: 1, endLine: sliced.length }],
-        ...(isFullFileView ? { contentHash: hashText(_u16.content) } : { rangeHash: hashText(sliced.join('\n')) }),
-      });
-    }
-    return out;
+    return renderHeadContent(_u16.content, meta, n, readStateScope, recordReadSnapshot);
   }
   if (meta.st.size > READ_STREAM_RANGE_MIN_BYTES) {
     // Binary detection runs before the streamer for medium/large
@@ -81,13 +131,11 @@ export async function executeHeadTool(args, workDir, readStateScope, helpers = {
     // below relies on openForRead's ETOOBIG branch + the existing
     // small-file UTF-8 read, which already surfaces binary bytes
     // via the same isBinaryFile check.
-    if (await isBinaryMode(meta)) {
-      return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(meta.fullPath)}`;
-    }
+    if (await isBinaryMode(meta)) return binaryFileError(meta.fullPath);
     try {
       return await streamHeadWindow(meta.fullPath, meta.st, n, readStateScope, 'read_head_stream');
     } catch (err) {
-      return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+      return modeError(err);
     }
   }
   let opened;
@@ -96,55 +144,17 @@ export async function executeHeadTool(args, workDir, readStateScope, helpers = {
   } catch (err) {
     if (err && err.code === 'ETOOBIG') {
       if (err.fullPath && (await inspectBinaryFile(err.fullPath, err.size ?? 0)).isBinary) {
-        return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(err.fullPath)}`;
+        return binaryFileError(err.fullPath);
       }
       try {
-        const stream = createReadStream(err.fullPath, { encoding: 'utf-8' });
-        const rl = createInterface({ input: stream, crlfDelay: Infinity });
-        const collected = [];
-        const rawLines = [];
-        for await (let line of rl) {
-          if (collected.length === 0 && line.charCodeAt(0) === 0xfeff) line = line.slice(1);
-          const lineNo = collected.length + 1;
-          rawLines.push(line);
-          collected.push(renderReadLine(lineNo, line));
-          if (collected.length >= n) {
-            rl.close();
-            stream.destroy();
-            break;
-          }
-        }
-        const rendered = collected.join('\n');
-        const out = capShellOutput(rendered);
-        if (out === rendered && rawLines.length > 0) {
-          recordReadSnapshot(err.fullPath, err.st, readStateScope, {
-            source: 'read_head_large',
-            ranges: [{ startLine: 1, endLine: rawLines.length }],
-            rangeHash: hashText(rawLines.join('\n')),
-          });
-        }
-        return out;
+        return await streamHeadWindow(err.fullPath, err.st, n, readStateScope, 'read_head_large');
       } catch (err2) {
-        return `Error: ${normalizeErrorMessage(err2 instanceof Error ? err2.message : String(err2))}`;
+        return modeError(err2);
       }
     }
     return `Error: ${err.message}`;
   }
-  const lines = splitRawLinesForHeadTail(opened.content);
-  const sliced = lines.slice(0, n);
-  const rendered = sliced.map((l, i) => `${i + 1}${LINE_NO_SEP}${displayLineForRead(l, i)}`).join('\n');
-  const out = capShellOutput(rendered);
-  if (out === rendered && sliced.length > 0) {
-    const isFullFileView = sliced.length >= lines.length;
-    const snapshotMeta = {
-      source: 'read_head',
-      fileLineCount: lines.length,
-      ranges: isFullFileView ? [{ startLine: 1, endLine: Infinity }] : [{ startLine: 1, endLine: sliced.length }],
-      ...(isFullFileView ? { contentHash: hashText(opened.content) } : { rangeHash: hashText(sliced.join('\n')) }),
-    };
-    recordReadSnapshot(opened.fullPath, opened.st, readStateScope, snapshotMeta);
-  }
-  return out;
+  return renderHeadContent(opened.content, opened, n, readStateScope, recordReadSnapshot);
 }
 
 export async function executeTailTool(args, workDir, readStateScope, helpers = {}) {
@@ -160,50 +170,20 @@ export async function executeTailTool(args, workDir, readStateScope, helpers = {
   const _u16 = await decodeUtf16Mode(meta);
   if (_u16) {
     if (_u16.tooLarge) return utf16TooLargeError(meta);
-    const lines = splitRawLinesForHeadTail(_u16.content);
-    const sliced = lines.slice(-n);
-    const startIdx = lines.length - sliced.length;
-    const rendered = sliced
-      .map((l, i) => `${startIdx + i + 1}${LINE_NO_SEP}${displayLineForRead(l, startIdx + i)}`)
-      .join('\n');
-    const out = capShellOutput(rendered);
-    if (out === rendered && sliced.length > 0) {
-      const isFullFileView = sliced.length >= lines.length;
-      recordReadSnapshot(meta.fullPath, meta.st, readStateScope, {
-        source: 'read_tail',
-        fileLineCount: lines.length,
-        ranges: isFullFileView
-          ? [{ startLine: 1, endLine: Infinity }]
-          : [{ startLine: startIdx + 1, endLine: lines.length }],
-        ...(isFullFileView ? { contentHash: hashText(_u16.content) } : { rangeHash: hashText(sliced.join('\n')) }),
-      });
-    }
-    return out;
+    return renderTailContent(_u16.content, meta, n, readStateScope, recordReadSnapshot);
   }
   if (meta.st.size > READ_MAX_SIZE_BYTES) {
-    try {
-      if (await isBinaryMode(meta)) {
-        return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(meta.fullPath)}`;
-      }
-      return await renderTailWindowSync(meta.fullPath, meta.st, n, readStateScope, {
-        exactLineNumbers: false,
-        source: 'read_tail_large',
-      });
-    } catch (err) {
-      return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
-    }
+    return renderLargeTail(meta.fullPath, meta.st, n, readStateScope, renderTailWindowSync);
   }
   if (meta.st.size > READ_STREAM_RANGE_MIN_BYTES) {
-    if (await isBinaryMode(meta)) {
-      return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(meta.fullPath)}`;
-    }
+    if (await isBinaryMode(meta)) return binaryFileError(meta.fullPath);
     try {
       return await renderTailWindowSync(meta.fullPath, meta.st, n, readStateScope, {
         exactLineNumbers: true,
         source: 'read_tail_window',
       });
     } catch (err) {
-      return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+      return modeError(err);
     }
   }
   let opened;
@@ -211,41 +191,11 @@ export async function executeTailTool(args, workDir, readStateScope, helpers = {
     opened = await openForRead(args.path, workDir, {});
   } catch (err) {
     if (err && err.code === 'ETOOBIG') {
-      try {
-        const { fullPath, st } = err;
-        if ((await inspectBinaryFile(fullPath, st.size ?? 0)).isBinary) {
-          return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(fullPath)}`;
-        }
-        return await renderTailWindowSync(fullPath, st, n, readStateScope, {
-          exactLineNumbers: false,
-          source: 'read_tail_large',
-        });
-      } catch (err2) {
-        return `Error: ${normalizeErrorMessage(err2 instanceof Error ? err2.message : String(err2))}`;
-      }
+      return renderLargeTail(err.fullPath, err.st, n, readStateScope, renderTailWindowSync);
     }
     return `Error: ${err.message}`;
   }
-  const lines = splitRawLinesForHeadTail(opened.content);
-  const sliced = lines.slice(-n);
-  const startIdx = lines.length - sliced.length;
-  const rendered = sliced
-    .map((l, i) => `${startIdx + i + 1}${LINE_NO_SEP}${displayLineForRead(l, startIdx + i)}`)
-    .join('\n');
-  const out = capShellOutput(rendered);
-  if (out === rendered && sliced.length > 0) {
-    const isFullFileView = sliced.length >= lines.length;
-    const snapshotMeta = {
-      source: 'read_tail',
-      fileLineCount: lines.length,
-      ranges: isFullFileView
-        ? [{ startLine: 1, endLine: Infinity }]
-        : [{ startLine: startIdx + 1, endLine: lines.length }],
-      ...(isFullFileView ? { contentHash: hashText(opened.content) } : { rangeHash: hashText(sliced.join('\n')) }),
-    };
-    recordReadSnapshot(opened.fullPath, opened.st, readStateScope, snapshotMeta);
-  }
-  return out;
+  return renderTailContent(opened.content, opened, n, readStateScope, recordReadSnapshot);
 }
 
 export async function executeWcTool(args, workDir, helpers = {}) {
@@ -259,30 +209,23 @@ export async function executeWcTool(args, workDir, helpers = {}) {
   const _u16 = await decodeUtf16Mode(meta);
   if (_u16) {
     if (_u16.tooLarge) return utf16TooLargeError(meta);
-    const lines = countDisplayLines(_u16.content);
-    const words = (_u16.content.match(/\S+/g) || []).length;
-    return `lines\t${lines}\twords\t${words}\tbytes\t${meta.st.size}`;
+    return formatTextStats(contentTextStats(_u16.content, meta.st.size));
   }
   if (meta.st.size > READ_MAX_SIZE_BYTES) {
-    if (await isBinaryMode(meta)) {
-      return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(meta.fullPath)}`;
-    }
+    if (await isBinaryMode(meta)) return binaryFileError(meta.fullPath);
     try {
       const lines = await countLogicalLinesBytesSync(meta.fullPath, meta.st.size, meta.st);
       return `lines\t${lines}\twords\t-\tbytes\t${meta.st.size}\t(words skipped: file > cap)`;
     } catch (err) {
-      return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+      return modeError(err);
     }
   }
   if (meta.st.size > READ_STREAM_RANGE_MIN_BYTES) {
-    if (isBinaryFile(meta.fullPath, meta.st.size ?? 0)) {
-      return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(meta.fullPath)}`;
-    }
+    if (isBinaryFile(meta.fullPath, meta.st.size ?? 0)) return binaryFileError(meta.fullPath);
     try {
-      const stats = await countTextStatsStreaming(meta.fullPath, meta.st.size);
-      return `lines\t${stats.lines}\twords\t${stats.words}\tbytes\t${stats.bytes}`;
+      return formatTextStats(await countTextStatsStreaming(meta.fullPath, meta.st.size));
     } catch (err) {
-      return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+      return modeError(err);
     }
   }
   let opened;
@@ -298,10 +241,7 @@ export async function executeWcTool(args, workDir, helpers = {}) {
     }
     return `Error: ${err.message}`;
   }
-  const { content, st } = opened;
-  const lines = countDisplayLines(content);
-  const words = (content.match(/\S+/g) || []).length;
-  return `lines\t${lines}\twords\t${words}\tbytes\t${st.size}`;
+  return formatTextStats(contentTextStats(opened.content, opened.st.size));
 }
 
 const SUMMARY_SYMBOL_RE = new RegExp(
@@ -358,6 +298,18 @@ function collectSummarySymbolsFromContent(content, limit) {
   return out;
 }
 
+function renderSummary(outputPath, stats, symbols, limit) {
+  const lines = [
+    `summary ${outputPath}`,
+    formatTextStats(stats),
+    `symbols\t${symbols.length}${symbols.length >= limit ? ` (capped at ${limit})` : ''}`,
+    '',
+  ];
+  if (symbols.length > 0) lines.push(...symbols);
+  else lines.push('(no obvious symbols/headings found)');
+  return capShellOutput(lines.join('\n'));
+}
+
 export async function executeSummaryTool(args, workDir, readStateScope, helpers = {}) {
   const countLogicalLinesBytesSync = requireHelper(helpers, 'countLogicalLinesBytesSync');
   const recordReadSnapshot = requireHelper(helpers, 'recordReadSnapshot');
@@ -373,34 +325,19 @@ export async function executeSummaryTool(args, workDir, readStateScope, helpers 
   } catch (err) {
     return `Error: ${normalizeErrorMessage(err.message, workDir)}`;
   }
-  if (await isBinaryMode(meta)) {
-    return `Error: file appears to be binary (contains null bytes): ${normalizeOutputPath(args.path || meta.fullPath)}`;
-  }
+  const outputPath = normalizeOutputPath(args.path || meta.fullPath);
+  if (await isBinaryMode(meta)) return binaryFileError(args.path || meta.fullPath);
 
   const _u16 = await decodeUtf16Mode(meta);
   if (_u16) {
     if (_u16.tooLarge) return utf16TooLargeError(meta);
-    const stats = {
-      lines: countDisplayLines(_u16.content),
-      words: (_u16.content.match(/\S+/g) || []).length,
-      bytes: meta.st.size,
-    };
+    const stats = contentTextStats(_u16.content, meta.st.size);
     recordReadSnapshot(meta.fullPath, meta.st, readStateScope, { source: 'read_summary', ranges: [] });
-    const symbols = collectSummarySymbolsFromContent(_u16.content, limit);
-    const outputPath = normalizeOutputPath(args.path || meta.fullPath);
-    const out = [
-      `summary ${outputPath}`,
-      `lines\t${stats.lines}\twords\t${stats.words}\tbytes\t${stats.bytes}`,
-      `symbols\t${symbols.length}${symbols.length >= limit ? ` (capped at ${limit})` : ''}`,
-    ];
-    if (symbols.length > 0) out.push('', ...symbols);
-    else out.push('', '(no obvious symbols/headings found)');
-    return capShellOutput(out.join('\n'));
+    return renderSummary(outputPath, stats, collectSummarySymbolsFromContent(_u16.content, limit), limit);
   }
 
-  let stats;
+  let stats = null;
   try {
-    stats = null;
     if (meta.st.size > READ_MAX_SIZE_BYTES) {
       stats = {
         lines: await countLogicalLinesBytesSync(meta.fullPath, meta.st.size, meta.st),
@@ -412,14 +349,10 @@ export async function executeSummaryTool(args, workDir, readStateScope, helpers 
     }
     if (!stats) {
       const opened = await openForRead(args.path, workDir, {});
-      stats = {
-        lines: countDisplayLines(opened.content),
-        words: (opened.content.match(/\S+/g) || []).length,
-        bytes: opened.st.size,
-      };
+      stats = contentTextStats(opened.content, opened.st.size);
     }
   } catch (err) {
-    return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+    return modeError(err);
   }
 
   recordReadSnapshot(meta.fullPath, meta.st, readStateScope, {
@@ -433,18 +366,7 @@ export async function executeSummaryTool(args, workDir, readStateScope, helpers 
   } catch {
     /* best-effort outline */
   }
-  const outputPath = normalizeOutputPath(args.path || meta.fullPath);
-  const lines = [
-    `summary ${outputPath}`,
-    `lines\t${stats.lines}\twords\t${stats.words}\tbytes\t${stats.bytes}`,
-    `symbols\t${symbols.length}${symbols.length >= limit ? ` (capped at ${limit})` : ''}`,
-  ];
-  if (symbols.length > 0) {
-    lines.push('', ...symbols);
-  } else {
-    lines.push('', '(no obvious symbols/headings found)');
-  }
-  return capShellOutput(lines.join('\n'));
+  return renderSummary(outputPath, stats, symbols, limit);
 }
 
 // Hex dump for byte-level/EOL inspection. Binary-safe (no isBinaryFile gate)
@@ -486,7 +408,7 @@ export async function executeHexTool(args, workDir, readStateScope, helpers = {}
     recordReadSnapshot(meta.fullPath, meta.st, readStateScope, { source: 'read_hex', ranges: [] });
     return capShellOutput(lines.join('\n'));
   } catch (err) {
-    return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+    return modeError(err);
   } finally {
     if (fh)
       try {

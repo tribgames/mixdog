@@ -116,7 +116,7 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(filePath, createSkillDocument({ name, description, whenToUse, body }), 'utf8');
     if (dependencies !== undefined) saveSkillToolDependencies(filePath, dependencies);
-    contextMod.invalidateSkillsCache?.(getCwd());
+    invalidateSkills();
     return { name, filePath };
   }
 
@@ -132,7 +132,7 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     if (input.dependenciesOnly === true) {
       if (dependencies === undefined) throw new Error('Skill tool dependencies are required.');
       saveSkillToolDependencies(resource.filePath, dependencies);
-      contextMod.invalidateSkillsCache?.(getCwd());
+      invalidateSkills();
       return { originalName, name: originalName, filePath: resource.filePath };
     }
     const name = validateSkillName(input.name);
@@ -166,7 +166,7 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
       body.trim() === parsed.body.trim()
     ) {
       if (dependencies !== undefined) saveSkillToolDependencies(resource.filePath, dependencies);
-      contextMod.invalidateSkillsCache?.(getCwd());
+      invalidateSkills();
       return { originalName, name, filePath: resource.filePath };
     }
     const updated = updateSkillDocument(source, { name, description, whenToUse, body });
@@ -187,7 +187,7 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     else if (filePath !== resource.filePath && resource.dependencySource === 'override') {
       saveSkillToolDependencies(filePath, resource.toolDependencies || []);
     }
-    contextMod.invalidateSkillsCache?.(getCwd());
+    invalidateSkills();
     return { originalName, name, filePath };
   }
 

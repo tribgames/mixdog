@@ -78,6 +78,17 @@ function _normalizePlatformCwd(p) {
   return resolve(native);
 }
 
+/** The normalized path when it names a live directory, else null. */
+function _existingDirectory(raw) {
+  const normalized = _normalizePlatformCwd(raw);
+  if (!normalized) return null;
+  try {
+    return statSync(normalized).isDirectory() ? normalized : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolve the session cwd from EXPLICIT signals only:
  *   1. AsyncLocalStorage — current inline-session scope.
@@ -97,15 +108,8 @@ export function explicitSessionCwd() {
   if (scoped) return scoped;
   const sessionRaw = process.env.MIXDOG_SESSION_CWD;
   if (typeof sessionRaw === 'string' && sessionRaw.length > 0) {
-    const normalized = _normalizePlatformCwd(sessionRaw);
-    if (normalized) {
-      try {
-        const st = statSync(normalized);
-        if (st.isDirectory()) return normalized;
-      } catch {
-        /* fall through to user-cwd.txt */
-      }
-    }
+    const sessionDir = _existingDirectory(sessionRaw);
+    if (sessionDir) return sessionDir;
   }
   try {
     const txt = readFileSync(_dataFile('user-cwd.txt'), 'utf8').trim();
@@ -120,16 +124,7 @@ export function explicitSessionCwd() {
  */
 function startRootCwd() {
   const dir = process.env.MIXDOG_PROJECT_DIR;
-  if (typeof dir === 'string' && dir.length > 0) {
-    const normalized = _normalizePlatformCwd(dir);
-    if (normalized) {
-      try {
-        if (statSync(normalized).isDirectory()) return normalized;
-      } catch {
-        /* not a live directory — fall through */
-      }
-    }
-  }
+  if (typeof dir === 'string' && dir.length > 0) return _existingDirectory(dir);
   return null;
 }
 
@@ -193,10 +188,7 @@ export function writeLastSessionCwd(cwd, keyPid) {
  */
 export function readLastSessionCwd(keyPid) {
   try {
-    const content = readFileSync(_lastSessionCwdFile(keyPid), 'utf8');
-    const normalized = _normalizePlatformCwd(content.trim());
-    if (normalized && statSync(normalized).isDirectory()) return normalized;
-    return null;
+    return _existingDirectory(readFileSync(_lastSessionCwdFile(keyPid), 'utf8').trim());
   } catch {
     return null;
   }

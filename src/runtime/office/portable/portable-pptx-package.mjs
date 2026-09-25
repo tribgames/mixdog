@@ -92,6 +92,21 @@ export async function slideLayoutParts(zip) {
   return layouts;
 }
 
+// The default layouts' English names name the same layout types in a deck of another language, as the Office
+// backend reads them: 'Title Only' found nothing in a deck Korean PowerPoint wrote, whose layout is "제목만".
+const DEFAULT_LAYOUT_TYPES = Object.freeze({
+  'title slide': 'title',
+  'title and content': 'obj',
+  'section header': 'secHead',
+  'two content': 'twoObj',
+  comparison: 'twoTxTwoObj',
+  'title only': 'titleOnly',
+  'content with caption': 'objTx',
+  'picture with caption': 'picTx',
+  'title and vertical text': 'vertTx',
+  'vertical title and text': 'vertTitleAndTx',
+});
+
 export function selectSlideLayout(layouts, requested) {
   if (!layouts.length) throw new Error('Presentation has no slide layout for a new slide');
   const value = String(requested ?? '').trim();
@@ -101,9 +116,11 @@ export function selectSlideLayout(layouts, requested) {
     if (!found) throw new Error(`Slide layout ${value} not found`);
     return found;
   }
+  const defaultType = DEFAULT_LAYOUT_TYPES[value.toLowerCase()];
   const matched =
     layouts.find((layout) => layout.name.toLowerCase() === value.toLowerCase()) ||
-    layouts.find((layout) => layout.type.toLowerCase() === value.toLowerCase());
+    layouts.find((layout) => layout.type.toLowerCase() === value.toLowerCase()) ||
+    (defaultType && layouts.find((layout) => layout.type === defaultType));
   if (!matched) {
     throw new Error(
       `Slide layout not found: ${value}. Available: ${layouts.map((layout) => layout.name || layout.type || '(unnamed)').join(', ')}`
@@ -128,8 +145,36 @@ export function slideIdEntries(presentation) {
   return list ? [...list[0].matchAll(/<p:sldId\b[^>]*?\/>/g)].map((match) => match[0]) : [];
 }
 
+// Lists a slide relationship in the presentation's slide order at `position`
+// (at most the end) under the next free slide id; answers with the index used.
+async function insertSlideId(zip, relationshipId, position) {
+  const presentation = await zipText(zip, 'ppt/presentation.xml');
+  const entries = slideIdEntries(presentation);
+  const ids = entries.map((entry) => Number(xmlAttribute(entry, 'id')) || 0);
+  const index = Math.min(position, entries.length);
+  entries.splice(index, 0, `<p:sldId id="${Math.max(255, ...ids) + 1}" r:id="${relationshipId}"/>`);
+  zip.file('ppt/presentation.xml', writeSlideIdList(presentation, entries));
+  return index;
+}
+
+// A new slide with no layout named takes the layout of the slide it follows, as PowerPoint's New Slide does: a blank
+// layout dropped the deck's page number, running mark, and paper from a page added between two content pages. After
+// a title page it takes the blank layout instead — a second cover is not what follows a cover.
+async function followingLayout(zip, layouts, index) {
+  const slides = await presentationSlides(zip);
+  const before = slides[Math.min(slides.length, Number(index) > 0 ? Number(index) - 1 : slides.length) - 1];
+  if (!before) return null;
+  const target = relationshipTargetByType(await zipText(zip, partRelationshipPath(before.path)), 'slideLayout');
+  if (!target) return null;
+  const path = posix.normalize(posix.join(posix.dirname(before.path), target));
+  const layout = layouts.find((entry) => entry.path === path);
+  return layout && layout.type !== 'title' ? layout : null;
+}
+
 export async function addPresentationSlide(zip, op) {
-  const layout = selectSlideLayout(await slideLayoutParts(zip), op.layout);
+  const layouts = await slideLayoutParts(zip);
+  const named = String(op.layout ?? '').trim();
+  const layout = (!named && (await followingLayout(zip, layouts, op.index))) || selectSlideLayout(layouts, op.layout);
   let ordinal = 1;
   while (zip.file(`ppt/slides/slide${ordinal}.xml`)) ordinal += 1;
   const part = `ppt/slides/slide${ordinal}.xml`;
@@ -151,13 +196,8 @@ export async function addPresentationSlide(zip, op) {
     `${OFFICE_RELATIONSHIP_BASE}/slide`,
     `slides/slide${ordinal}.xml`
   );
-  const presentationPath = 'ppt/presentation.xml';
-  const presentation = await zipText(zip, presentationPath);
-  const entries = slideIdEntries(presentation);
-  const ids = entries.map((entry) => Number(xmlAttribute(entry, 'id')) || 0);
-  const position = Number(op.index) > 0 ? Math.min(Number(op.index) - 1, entries.length) : entries.length;
-  entries.splice(position, 0, `<p:sldId id="${Math.max(255, ...ids) + 1}" r:id="${relationshipId}"/>`);
-  zip.file(presentationPath, writeSlideIdList(presentation, entries));
+  const requested = Number(op.index) > 0 ? Number(op.index) - 1 : Number.POSITIVE_INFINITY;
+  const position = await insertSlideId(zip, relationshipId, requested);
   return { part, position: position + 1, layout: layout.name || layout.type || layout.path };
 }
 
@@ -379,6 +419,37 @@ export async function readSlideNotes(zip, slide) {
   return blockText(body, 'a:t').trim();
 }
 
+// A duplicated slide keeps the speaker notes, as PowerPoint's Duplicate does: a notes page of its own, the source's
+// copied as it stands and pointed back at the copy. The source's page belongs to the source alone.
+export async function copySlideNotes(zip, sourcePath, targetPath) {
+  const linked = relationshipTargetByType(await zipText(zip, partRelationshipPath(sourcePath)), 'notesSlide');
+  if (!linked) return;
+  const sourceNotes = posix.normalize(posix.join(posix.dirname(sourcePath), linked));
+  const xml = await zipText(zip, sourceNotes);
+  if (!xml) return;
+  let ordinal = 1;
+  while (zip.file(`ppt/notesSlides/notesSlide${ordinal}.xml`)) ordinal += 1;
+  const notes = `ppt/notesSlides/notesSlide${ordinal}.xml`;
+  zip.file(notes, xml);
+  const relationships = await zipText(zip, partRelationshipPath(sourceNotes));
+  if (relationships) {
+    const target = posix.relative(posix.dirname(notes), targetPath);
+    zip.file(
+      partRelationshipPath(notes),
+      relationships.replace(/<Relationship\b[^>]*\/>/g, (entry) =>
+        /\bType="[^"]*\/slide"/.test(entry) ? entry.replace(/\bTarget="[^"]*"/, `Target="${target}"`) : entry
+      )
+    );
+  }
+  await ensureContentTypeOverride(zip, `/${notes}`, NOTES_SLIDE_CONTENT_TYPE);
+  await addPackageRelationship(
+    zip,
+    partRelationshipPath(targetPath),
+    `${OFFICE_RELATIONSHIP_BASE}/notesSlide`,
+    posix.relative(posix.dirname(targetPath), notes)
+  );
+}
+
 export async function setSlideNotes(zip, slides, number, text) {
   const slide = slides[Number(number) - 1];
   if (!slide) throw new Error(`PPTX slide ${number} not found`);
@@ -481,13 +552,7 @@ export async function importSlidesIntoPresentation(zip, sourcePath, slideNumbers
       `${OFFICE_RELATIONSHIP_BASE}/slide`,
       `slides/slide${ordinal}.xml`
     );
-    const presentation = await zipText(zip, 'ppt/presentation.xml');
-    const entries = slideIdEntries(presentation);
-    const ids = entries.map((item) => Number(xmlAttribute(item, 'id')) || 0);
-    const index = Math.min(position, entries.length);
-    entries.splice(index, 0, `<p:sldId id="${Math.max(255, ...ids) + 1}" r:id="${relationshipId}"/>`);
-    zip.file('ppt/presentation.xml', writeSlideIdList(presentation, entries));
-    position = index + 1;
+    position = (await insertSlideId(zip, relationshipId, position)) + 1;
     imported.push(number);
   }
   return { count: imported.length, slides: imported };

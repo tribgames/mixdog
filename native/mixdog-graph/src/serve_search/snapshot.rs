@@ -86,6 +86,41 @@ pub(super) fn read_snapshot_checkpoints<R: Read>(
     Ok(checkpoints)
 }
 
+/// Encode `checkpoints` in the framing `read_snapshot_checkpoints` decodes.
+pub(super) fn write_snapshot_checkpoints<W: Write>(
+    writer: &mut W,
+    checkpoints: &[crate::serve_search_usn::JournalCheckpoint],
+) -> io::Result<()> {
+    for checkpoint in checkpoints {
+        writer.write_all(&checkpoint.volume.to_le_bytes())?;
+        writer.write_all(&checkpoint.volume_serial.to_le_bytes())?;
+        writer.write_all(&checkpoint.journal_id.to_le_bytes())?;
+        writer.write_all(&checkpoint.next_usn.to_le_bytes())?;
+    }
+    Ok(())
+}
+
+/// Write a snapshot through a sibling temp file, then move it over `path`.
+/// `write` must flush what it wrote. Returns false — with the temp file
+/// removed and the previous snapshot possibly gone — when any step fails.
+pub(super) fn replace_snapshot_file(
+    path: &Path,
+    write: impl FnOnce(&mut BufWriter<File>) -> io::Result<()>,
+) -> bool {
+    let temp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let written = File::create(&temp)
+        .and_then(|file| write(&mut BufWriter::new(file)))
+        .is_ok();
+    if !written
+        || (path.exists() && fs::remove_file(path).is_err())
+        || fs::rename(&temp, path).is_err()
+    {
+        let _ = fs::remove_file(&temp);
+        return false;
+    }
+    true
+}
+
 /// Magic, version and the two counts the rest of the inventory snapshot is
 /// framed by. Counts past the cache bounds mean a file this build cannot
 /// trust, not a cache to load partially.
@@ -245,23 +280,15 @@ pub(super) fn persist_file_list_snapshot(ready_cache: &Mutex<HashMap<WalkKey, Re
     if fs::create_dir_all(parent).is_err() {
         return;
     }
-    let temp = path.with_extension(format!("tmp-{}", std::process::id()));
-    let written = (|| -> io::Result<()> {
-        let file = File::create(&temp)?;
-        let mut writer = BufWriter::new(file);
+    replace_snapshot_file(&path, |writer| {
         writer.write_all(INVENTORY_SNAPSHOT_MAGIC)?;
         writer.write_all(&INVENTORY_SNAPSHOT_VERSION.to_le_bytes())?;
         writer.write_all(&(checkpoints.len() as u32).to_le_bytes())?;
         writer.write_all(&0u32.to_le_bytes())?;
-        for checkpoint in &checkpoints {
-            writer.write_all(&checkpoint.volume.to_le_bytes())?;
-            writer.write_all(&checkpoint.volume_serial.to_le_bytes())?;
-            writer.write_all(&checkpoint.journal_id.to_le_bytes())?;
-            writer.write_all(&checkpoint.next_usn.to_le_bytes())?;
-        }
+        write_snapshot_checkpoints(writer, &checkpoints)?;
         let mut count = 0u32;
         for (key, files, root_identity) in &entries {
-            write_snapshot_string(&mut writer, &key.operand)?;
+            write_snapshot_string(writer, &key.operand)?;
             writer.write_all(&root_identity.volume.to_le_bytes())?;
             writer.write_all(&root_identity.file_id.to_le_bytes())?;
             let flags = u8::from(key.hidden)
@@ -279,13 +306,13 @@ pub(super) fn persist_file_list_snapshot(ready_cache: &Mutex<HashMap<WalkKey, Re
             writer.write_all(&(key.iglobs.len() as u32).to_le_bytes())?;
             writer.write_all(&(files.len() as u32).to_le_bytes())?;
             for prune in &key.prune {
-                write_snapshot_string(&mut writer, Path::new(prune))?;
+                write_snapshot_string(writer, Path::new(prune))?;
             }
             for glob in &key.iglobs {
-                write_snapshot_string(&mut writer, Path::new(glob))?;
+                write_snapshot_string(writer, Path::new(glob))?;
             }
             for file in files.iter() {
-                write_snapshot_string(&mut writer, file)?;
+                write_snapshot_string(writer, file)?;
             }
             count = count.saturating_add(1);
         }
@@ -293,14 +320,7 @@ pub(super) fn persist_file_list_snapshot(ready_cache: &Mutex<HashMap<WalkKey, Re
         writer.seek(SeekFrom::Start(16))?;
         writer.write_all(&count.to_le_bytes())?;
         writer.flush()
-    })()
-    .is_ok();
-    if !written
-        || (path.exists() && fs::remove_file(&path).is_err())
-        || fs::rename(&temp, &path).is_err()
-    {
-        let _ = fs::remove_file(temp);
-    }
+    });
 }
 
 pub(super) static INVENTORY_SNAPSHOT_DIRTY: AtomicBool = AtomicBool::new(false);

@@ -8,7 +8,8 @@ const { resolvePluginData } = require('./plugin-paths.cjs');
 
 const SERVICE = 'mixdog';
 // Shared bound for every synchronous keychain provider (DPAPI/PowerShell on
-// Windows, security(1) on macOS). A single env override keeps them consistent.
+// Windows, security(1) on macOS, secret-tool on Linux). A single env override
+// keeps them consistent.
 const KEYCHAIN_TIMEOUT_MS = Number(process.env.MIXDOG_KEYCHAIN_TIMEOUT_MS || 15000);
 const POWERSHELL_TIMEOUT_MS = KEYCHAIN_TIMEOUT_MS;
 
@@ -249,7 +250,7 @@ function writeOwnerOnlyAtomicSync(file, text) {
 
 // Bound security(1) calls so a stuck Keychain prompt (locked keychain, GUI
 // unlock dialog with no display) cannot block hook/server callers forever —
-// matching the Windows DPAPI and Linux keytar timeouts.
+// matching the Windows DPAPI and Linux secret-tool timeouts.
 function darwinRun(args) {
   const r = run('security', args, { timeout: KEYCHAIN_TIMEOUT_MS });
   if (r.error && r.error.code === 'ETIMEDOUT') {
@@ -275,42 +276,27 @@ function darwinDelete(account) {
 }
 
 // ---------------------------------------------------------------------------
-// linux/WSL — keytar (libsecret binding, optionalDependency)
+// linux/WSL — secret-tool (libsecret's command line for the Secret Service)
 // ---------------------------------------------------------------------------
-// keytar must be installed: npm install keytar (requires libsecret-dev on
-// Debian/Ubuntu, or libsecret on other distros). If not installed, every
-// call throws immediately — silent credential loss is not permitted.
+// Items carry the attributes service=<SERVICE> account=<account>, the pair
+// earlier keytar-based builds wrote, so credentials saved before stay
+// readable. Without secret-tool or a running Secret Service every call throws
+// with the fix: silent credential loss is not permitted.
 
-let _keytarMod = null;
-function loadKeytar() {
-  if (_keytarMod !== null) return _keytarMod;
-  try {
-    _keytarMod = require('keytar');
-  } catch {
-    throw new Error(
-      '[keychain] keytar is not installed — run: npm install keytar\n' +
-        '  Requires libsecret-dev (Debian/Ubuntu) or libsecret (other distros).\n' +
-        '  Cannot access credentials on this platform without it.' +
-        (isWSL()
-          ? '\n  Detected WSL: there is usually no Secret Service here; ' +
-            'set the relevant MIXDOG_*/PROVIDER_API_KEY env var instead.'
-          : '')
-    );
-  }
-  return _keytarMod;
+function secretToolHint() {
+  return (
+    'install libsecret-tools (it provides secret-tool) and run a Secret Service provider such as ' +
+    'gnome-keyring or KeePassXC, or set the relevant MIXDOG_*/PROVIDER_API_KEY environment variable instead' +
+    (isWSL() ? ' (WSL usually has no Secret Service; the environment variable is the reliable route)' : '')
+  );
 }
 
-// keytar is Promise-based; bridge to sync via spawnSync of a child Node process.
-// Avoids Atomics.wait on main thread (which hangs when SAB is not forwarded to worker).
-function keytarSync(method, ...args) {
-  loadKeytar(); // throws if not installed — before spawning child
-  // Pass service/account/value via stdin (not env) to avoid shell injection
-  // and to keep secret values out of /proc/<pid>/environ on Linux.
-  // Build a minimal child env instead of spreading process.env: the parent
-  // may hold *_API_KEY secrets in its own environment, and those would
-  // otherwise be visible via /proc/<pid>/environ for the lifetime of this
-  // child. Only pass what PATH resolution / locale / the libsecret D-Bus
-  // session bridge actually need.
+// The secret travels on stdin, never argv or env. The child gets a minimal
+// env instead of process.env: the parent may hold *_API_KEY secrets in its own
+// environment, which would otherwise be visible via /proc/<pid>/environ for the
+// lifetime of this child. Only PATH resolution, locale, and the libsecret
+// D-Bus session bridge are passed through.
+function secretTool(args, input) {
   const passthroughKeys = [
     'PATH',
     'HOME',
@@ -327,56 +313,47 @@ function keytarSync(method, ...args) {
     'XDG_CURRENT_DESKTOP',
     'XDG_DATA_DIRS',
   ];
-  const env = { _KEYTAR_METHOD: method };
+  const env = {};
   for (const key of passthroughKeys) {
     if (process.env[key] !== undefined) env[key] = process.env[key];
   }
-  const script = [
-    'const kt = require("keytar");',
-    'const method = process.env._KEYTAR_METHOD;',
-    'let input = "";',
-    'process.stdin.setEncoding("utf8");',
-    'process.stdin.on("data", (chunk) => { input += chunk; });',
-    'process.stdin.on("end", () => {',
-    '  const args = JSON.parse(input);',
-    '  kt[method](...args)',
-    '    .then(v => { process.stdout.write(JSON.stringify({ ok: true, value: v })); })',
-    '    .catch(e => { process.stdout.write(JSON.stringify({ ok: false, error: e.message })); });',
-    '});',
-  ].join(' ');
-  const r = spawnSync(process.execPath, ['-e', script], {
+  const r = spawnSync('secret-tool', args, {
     env,
-    input: JSON.stringify(args),
+    input: input ?? '',
     stdio: ['pipe', 'pipe', 'pipe'],
-    timeout: 5000,
+    timeout: KEYCHAIN_TIMEOUT_MS,
     encoding: 'utf8',
     windowsHide: true,
   });
-  if (r.error) throw new Error(`[keychain] keytar.${method} spawnSync failed: ${r.error.message}`);
-  if (r.status !== 0) {
-    const detail = (r.stderr || '').trim() || `exit ${r.status}`;
-    throw new Error(`[keychain] keytar.${method} child exited with error: ${detail}`);
+  if (r.error?.code === 'ENOENT') throw new Error(`[keychain] secret-tool is not installed — ${secretToolHint()}`);
+  if (r.error?.code === 'ETIMEDOUT') {
+    throw new Error(`[keychain] secret-tool timed out after ${KEYCHAIN_TIMEOUT_MS}ms (is the Secret Service locked?)`);
   }
-  let parsed;
-  try {
-    parsed = JSON.parse(r.stdout);
-  } catch {
-    throw new Error(`[keychain] keytar.${method} child returned unparseable output: ${String(r.stdout).slice(0, 200)}`);
-  }
-  if (!parsed.ok) throw new Error(`[keychain] keytar.${method} failed: ${parsed.error}`);
-  return parsed.value ?? null;
+  if (r.error) throw new Error(`[keychain] secret-tool failed to start: ${r.error.message}`);
+  return r;
+}
+
+// A missing item exits non-zero with nothing on stderr; anything on stderr is
+// the Secret Service itself failing (no D-Bus session, locked collection).
+function secretToolFailure(action, r) {
+  return new Error(`[keychain] secret-tool ${action} failed: ${(r.stderr || '').trim() || `exit ${r.status}`} — ${secretToolHint()}`);
 }
 
 function linuxGet(account) {
-  return keytarSync('getPassword', SERVICE, account);
+  const r = secretTool(['lookup', 'service', SERVICE, 'account', account]);
+  if (r.status === 0) return r.stdout;
+  if ((r.stderr || '').trim()) throw secretToolFailure('lookup', r);
+  return null;
 }
 
 function linuxSet(account, value) {
-  keytarSync('setPassword', SERVICE, account, value);
+  const r = secretTool(['store', `--label=${SERVICE} ${account}`, 'service', SERVICE, 'account', account], value);
+  if (r.status !== 0) throw secretToolFailure('store', r);
 }
 
 function linuxDelete(account) {
-  keytarSync('deletePassword', SERVICE, account);
+  const r = secretTool(['clear', 'service', SERVICE, 'account', account]);
+  if (r.status !== 0 && (r.stderr || '').trim()) throw secretToolFailure('clear', r);
 }
 
 // ---------------------------------------------------------------------------

@@ -91,6 +91,12 @@ export function sliceReadBodyByLines(body, origOffset, origLimit, readOffsetBase
   return kept.join('\n') + (kept.length ? '\n' : '') + newFooter;
 }
 
+// Entries group by their RESOLVED path when a resolver is given, so two path
+// strings naming the same file share one group.
+function readEntryGroupKey(entry, resolvePath) {
+  return typeof resolvePath === 'function' ? resolvePath(entry.path || '') : entry.path || '';
+}
+
 export function isFullModeReadEntry(entry) {
   return !entry?.mode || entry.mode === 'full';
 }
@@ -126,9 +132,9 @@ export function coalesceObjectReadEntries(rawEntries, resolvePath = null) {
       continue;
     }
     const win = readEntryLineWindow(entry);
-    // Group by RESOLVED path so two path strings that point at the same
-    // file share one coalesced disk window instead of each opening it.
-    const key = typeof resolvePath === 'function' ? resolvePath(entry.path || '') : entry.path || '';
+    // Same-file entries share one coalesced disk window instead of each
+    // opening it.
+    const key = readEntryGroupKey(entry, resolvePath);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push({ index: i, entry, offset: win.offset, end: win.end });
   }
@@ -230,7 +236,7 @@ export function mergeOverlappingReadEntries(rawEntries, resolvePath = null) {
   for (let i = 0; i < rawEntries.length; i++) {
     const entry = rawEntries[i];
     if (!isExplicitWindow(entry)) continue;
-    const key = typeof resolvePath === 'function' ? resolvePath(entry.path || '') : entry.path || '';
+    const key = readEntryGroupKey(entry, resolvePath);
     const offset = Math.max(0, Math.trunc(entry.offset));
     if (!byPath.has(key)) byPath.set(key, []);
     byPath.get(key).push({ index: i, offset, end: offset + Math.max(1, Math.trunc(entry.limit)) });

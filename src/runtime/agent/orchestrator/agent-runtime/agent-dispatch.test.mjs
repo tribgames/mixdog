@@ -381,6 +381,23 @@ test('successful dispatch publishes idle before done tombstoning and preserves b
   assert.equal(session.closeReason, 'ephemeral-done');
 });
 
+test('brief cap measures and truncates non-ASCII answers by UTF-8 bytes', async () => {
+  // 한 is 3 UTF-8 bytes: 5000 chars = 15000 bytes, over the 12 KiB cap but
+  // under it when counted in UTF-16 units.
+  const raw = '한'.repeat(5000);
+  const { dispatch } = lifecycleDispatch({
+    askSession: async () => ({ content: raw }),
+  });
+
+  const text = await dispatch({ prompt: 'hello' });
+
+  assert.match(text, /\[TRUNCATED — full answer was/);
+  const head = text.slice(0, text.indexOf('\n\n... [TRUNCATED'));
+  assert.equal(head, '한'.repeat(Math.floor((12 * 1024) / 3)));
+  assert.ok(Buffer.byteLength(head, 'utf8') <= 12 * 1024);
+  assert.equal(head.includes('\uFFFD'), false);
+});
+
 test('partial-salvage dispatch publishes idle before done tombstoning and preserves trimming', async () => {
   const partial = 'P'.repeat(12 * 1024 + 32);
   const { dispatch, events, session } = lifecycleDispatch({

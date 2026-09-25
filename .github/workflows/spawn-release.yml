@@ -71,6 +71,8 @@ jobs:
       matrix:
         include:
           - { runner: windows-2022, target: x86_64-pc-windows-msvc, pkey: win32-x64, ext: .exe, rustflags: "-C link-arg=/Brepro" }
+          # win32-arm64 cross-targets MSVC ARM64 from the x64 Windows runner.
+          - { runner: windows-2022, target: aarch64-pc-windows-msvc, pkey: win32-arm64, ext: .exe, rustflags: "-C link-arg=/Brepro" }
           - { runner: ubuntu-22.04, target: x86_64-unknown-linux-musl, pkey: linux-x64, ext: "", rustflags: "-C link-arg=-Wl,--build-id=sha1" }
           - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-musl, pkey: linux-arm64, ext: "", rustflags: "-C link-arg=-Wl,--build-id=sha1" }
           # darwin-x64 cross-targets from the Apple-silicon runner (parity with
@@ -169,7 +171,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected=(mixdog-spawn-darwin-arm64 mixdog-spawn-darwin-x64 mixdog-spawn-linux-arm64 mixdog-spawn-linux-x64 mixdog-spawn-win32-x64.exe)
+          expected=(mixdog-spawn-darwin-arm64 mixdog-spawn-darwin-x64 mixdog-spawn-linux-arm64 mixdog-spawn-linux-x64 mixdog-spawn-win32-arm64.exe mixdog-spawn-win32-x64.exe)
           reproducible=(mixdog-spawn-linux-x64)
           for asset in "${reproducible[@]}"; do cmp "_release/$asset" "_repro/$asset"; done
           for asset in mixdog-spawn-linux-arm64 mixdog-spawn-linux-x64; do
@@ -190,6 +192,7 @@ jobs:
             'darwin-x64': 'mixdog-spawn-darwin-x64',
             'linux-arm64': 'mixdog-spawn-linux-arm64',
             'linux-x64': 'mixdog-spawn-linux-x64',
+            'win32-arm64': 'mixdog-spawn-win32-arm64.exe',
             'win32-x64': 'mixdog-spawn-win32-x64.exe',
           };
           const assets = Object.fromEntries(Object.entries(files).map(([platform, file]) => [platform, {

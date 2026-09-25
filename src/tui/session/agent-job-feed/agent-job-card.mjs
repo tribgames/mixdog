@@ -1,5 +1,6 @@
 import { parseAgentJob, agentJobResultText, agentArgsWithResultMetadata } from '../agent-envelope.mjs';
 import { toolErrorDisplay } from '../tool-result-text.mjs';
+import { indexedItem } from '../tool-card-results/item-patch.mjs';
 
 export function createAgentJobCard({ getState, itemIndexById, patchItem }) {
   // Pure builder for the agent-job card patch. Split out so callers that are
@@ -9,8 +10,7 @@ export function createAgentJobCard({ getState, itemIndexById, patchItem }) {
   // jitter into one visible item update.
   function buildAgentJobCardPatch(itemId, text, isError = false) {
     const parsed = parseAgentJob(text);
-    const index = itemIndexById?.get(itemId);
-    const current = Number.isInteger(index) && getState().items[index]?.id === itemId ? getState().items[index] : null;
+    const current = indexedItem(getState().items, itemIndexById, itemId);
     const rawDisplayText = agentJobResultText(text, parsed) || String(text ?? '').trim();
     const displayText = isError ? toolErrorDisplay(rawDisplayText, 'agent') : rawDisplayText;
     return {

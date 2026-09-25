@@ -37,6 +37,7 @@ export function createSessionService({
   createSessionRuntime = null,
   sessionExists = null,
   readStoredSession = null,
+  forgetStoredSession = null,
   readStoredGoal = null,
   listStoredActiveGoalSessionIds = null,
   subscribeExternalSessionStates = null,
@@ -111,6 +112,7 @@ export function createSessionService({
     sessionBusy: retention.sessionBusy,
     currentSessionId: (entry) => projection.currentSessionId(entry),
     destroy: (entry, reason, options) => entries.destroy(entry, reason, options),
+    forgetStoredSession: (sessionId) => storedReader.forgetStoredSession(sessionId),
   });
   // Wire projection + frame publication (see session-service/projection.mjs).
   const projection = createSessionProjection({
@@ -128,6 +130,8 @@ export function createSessionService({
     adoptPendingViewers: viewers.adoptPendingViewers,
     updateEntryBusy: retention.updateEntryBusy,
     releaseProjection: retention.releaseProjection,
+    startEvictionSweep: retention.startEvictionSweep,
+    onSessionLive: (sessionId) => storedReader.forgetStoredSession(sessionId),
   });
   const unsubscribeExternalSessionStates =
     typeof subscribeExternalSessionStates === 'function'
@@ -153,6 +157,7 @@ export function createSessionService({
   const storedReader = createStoredSessionReader({
     readStoredSession,
     readStoredGoal,
+    forgetStoredSession,
     sessionOwner: projection.sessionOwner,
     log,
   });

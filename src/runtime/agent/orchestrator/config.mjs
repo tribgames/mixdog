@@ -19,6 +19,7 @@ import {
   removeRetiredAgentFields,
 } from './config-storage.mjs';
 import { oauthCredentialProbeState, isOAuthProviderAvailable } from './providers/oauth-credential-probes.mjs';
+import { normalizeDeveloperConfig } from '../../shared/developer-options.mjs';
 
 export const {
   PROFILE_LANGUAGES,
@@ -86,8 +87,9 @@ export function buildDefaultConfig(options = {}) {
   // stored in mixdog-config.json — enabled at runtime from the presence of
   // Mixdog-owned credentials.
   providers['grok-oauth'] = oauthEntry('grok-oauth');
-  // Dev-only providers (MIXDOG_DEV_PROVIDERS): omitted entirely from the
-  // default config while the flag is unset so they never surface in settings.
+  // Dev-only providers (Settings → Developer → Providers, or the
+  // MIXDOG_DEV_PROVIDERS env): omitted entirely from the default config while
+  // the option is off so they never surface in settings.
   // Experimental direct Cursor wire provider. It remains disabled unless a
   // Mixdog-owned login or CURSOR_ACCESS_TOKEN is present.
   if (isOAuthProviderAvailable('cursor-oauth')) providers['cursor-oauth'] = oauthEntry('cursor-oauth');
@@ -226,6 +228,7 @@ export function loadConfig(options = {}) {
         shell: raw.shell && typeof raw.shell === 'object' ? raw.shell : {},
         update: raw.update && typeof raw.update === 'object' ? { ...raw.update } : {},
         recap: recapConfig,
+        developer: normalizeDeveloperConfig(raw.developer),
         modules: canonicalizeModulesStorage(raw.modules) || {},
         ...(raw.builtins && typeof raw.builtins === 'object'
           ? { builtins: canonicalizeBuiltinsStorage(raw.builtins) }
@@ -267,6 +270,7 @@ export function loadConfig(options = {}) {
     shell: {},
     update: {},
     recap: { enabled: true },
+    developer: {},
     modules: {},
   };
 }
@@ -340,6 +344,7 @@ function buildAgentSaveBuilder(config) {
   const profile = canonicalRoutes.profile ?? normalizeProfileConfig(null);
   const { skills, extensionScopes, autoClear, compaction, shell, modules } = canonicalRoutes;
   const builtins = canonicalizeBuiltinsStorage(config.builtins);
+  const developer = normalizeDeveloperConfig(config.developer);
   // Build the replacement from `existingRaw` — the section read INSIDE the
   // file lock — not a snapshot taken before it, so unmanaged keys written by
   // a concurrent instance survive the save (lost-update guard).
@@ -368,6 +373,9 @@ function buildAgentSaveBuilder(config) {
       modules,
       builtins,
     };
+    // Developer options (developer-options.mjs); an empty set stays absent.
+    if (Object.keys(developer).length) next.developer = developer;
+    else if (Object.hasOwn(config, 'developer')) delete next.developer;
     if (canonicalRoutes.disabledAgents) {
       next.disabledAgents = canonicalRoutes.disabledAgents;
     } else {

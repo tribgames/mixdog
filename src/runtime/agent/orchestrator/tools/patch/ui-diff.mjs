@@ -3,8 +3,8 @@
 // pick up. Display only — never affects edit semantics.
 import { boundReviewPatch } from '../../../../shared/review-diff.mjs';
 import { recordTurnDiffChanges } from '../../../../shared/turn-snapshot.mjs';
-import { resolveV4AEntryPath } from './paths.mjs';
-import { patchHeaderPathForResolved, patchPathKey } from './read-redirects.mjs';
+import { pathKey, resolveV4AEntryPath } from './paths.mjs';
+import { patchHeaderPathForResolved } from './read-redirects.mjs';
 import { capturePatchRollbackState } from './rollback-state.mjs';
 
 const APPLY_PATCH_UI_DIFF_MAX_CHARS = 64 * 1024;
@@ -51,7 +51,7 @@ export function registerEditToolUiDiff({ callId, sessionId, basePath, fullPath, 
 }
 
 function snapshotByPath(snapshots) {
-  return new Map((snapshots || []).map((snapshot) => [patchPathKey(snapshot.fullPath), snapshot]));
+  return new Map((snapshots || []).map((snapshot) => [pathKey(snapshot.fullPath), snapshot]));
 }
 
 export function registerCommittedPatchUiDiff({
@@ -72,8 +72,8 @@ export function registerCommittedPatchUiDiff({
     for (const section of renameSections || []) {
       const sourcePath = resolveV4AEntryPath(basePath, section.path);
       const destinationPath = resolveV4AEntryPath(basePath, section.movePath);
-      const sourceKey = patchPathKey(sourcePath);
-      const destinationKey = patchPathKey(destinationPath);
+      const sourceKey = pathKey(sourcePath);
+      const destinationKey = pathKey(destinationPath);
       const before = beforeByPath.get(sourceKey);
       const after = afterByPath.get(destinationKey);
       changes.push({
@@ -88,7 +88,7 @@ export function registerCommittedPatchUiDiff({
       renamedPaths.add(destinationKey);
     }
     for (const fullPath of paths || []) {
-      const key = patchPathKey(fullPath);
+      const key = pathKey(fullPath);
       if (renamedPaths.has(key)) continue;
       const before = beforeByPath.get(key);
       const after = afterByPath.get(key);

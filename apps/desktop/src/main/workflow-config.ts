@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises';
-import { basename, resolve } from 'node:path';
 
 function stripJsonComments(source: string): string {
   let result = '';
@@ -76,8 +75,7 @@ export function parseJsonc(source: string): unknown {
 
 export async function readJsoncFile(path: string): Promise<Record<string, unknown> | null> {
   try {
-    const parsed = parseJsonc(await readFile(path, 'utf8'));
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+    return objectRecord(parseJsonc(await readFile(path, 'utf8')));
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
     throw error;
@@ -86,32 +84,4 @@ export async function readJsoncFile(path: string): Promise<Record<string, unknow
 
 export function objectRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
-
-interface WorkspaceVariableContext {
-  workspaceFolder: string;
-  file?: string;
-}
-
-function resolveWorkspaceString(value: string, context: WorkspaceVariableContext): string {
-  const file = context.file ? resolve(context.workspaceFolder, context.file) : '';
-  return value
-    .replace(/\$\{workspaceFolder\}/g, context.workspaceFolder)
-    .replace(/\$\{workspaceFolderBasename\}/g, basename(context.workspaceFolder))
-    .replace(/\$\{file\}/g, file)
-    .replace(/\$\{relativeFile\}/g, context.file || '')
-    .replace(/\$\{env:([^}]+)\}/g, (_match, name: string) => process.env[name] || '');
-}
-
-export function resolveWorkspaceValue(value: unknown, context: WorkspaceVariableContext, depth = 0): unknown {
-  if (depth > 20) throw new TypeError('Workspace variable input is too deeply nested.');
-  if (typeof value === 'string') return resolveWorkspaceString(value, context);
-  if (Array.isArray(value)) {
-    return value.map((entry) => resolveWorkspaceValue(entry, context, depth + 1));
-  }
-  const record = objectRecord(value);
-  if (!record) return value;
-  return Object.fromEntries(
-    Object.entries(record).map(([key, entry]) => [key, resolveWorkspaceValue(entry, context, depth + 1)])
-  );
 }

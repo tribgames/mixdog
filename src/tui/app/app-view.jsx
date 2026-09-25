@@ -7,7 +7,7 @@
 // module returns is unchanged.
 import { Box, Text } from 'ink';
 import { theme, surfaceBackground } from '../theme.mjs';
-import { centerLine, promptStatusColor } from './app-format.mjs';
+import { centerLine } from './app-format.mjs';
 import { localPackageVersion } from '../../runtime/shared/update-checker.mjs';
 import { Spinner } from '../components/Spinner.jsx';
 import { StatusLine } from '../components/StatusLine.jsx';
@@ -15,6 +15,7 @@ import { PromptInput } from '../components/PromptInput.jsx';
 import { QueuedCommands } from '../components/QueuedCommands.jsx';
 import { renderFloatingPanel } from './app-view/floating-panel.jsx';
 import { renderTranscriptViewport } from './app-view/transcript-viewport.jsx';
+import { hintCell } from './app-view/transcript-viewport/trailing-bands.jsx';
 export function renderAppView(ctx) {
   const {
     acceptSlashPalette,
@@ -117,6 +118,49 @@ export function renderAppView(ctx) {
     />
   );
 
+  // Prompt cluster rows above the prompt box: live reasoning on the left and
+  // short-lived copy/error/info status on the right (plus a spacer row), then
+  // the queued commands.
+  const promptSpinner = liveSpinner ? (
+    <Spinner
+      verb={liveSpinner.verb}
+      startedAt={liveSpinner.startedAt}
+      outputTokens={liveSpinner?.outputTokens ?? liveSpinner?.tokens ?? 0}
+      thinking={!!(state.thinking || liveSpinner?.thinking)}
+      thinkingActiveSince={liveSpinner?.thinkingSegmentStartedAt ?? 0}
+      thinkingMs={liveSpinner?.thinkingAccumulatedMs ?? 0}
+      effort={state.effort || ''}
+      hasActiveTools={!!activeTools?.web_search?.count}
+      paused={!!toolApproval}
+      interruptible={!!(state.busy && state.spinner?.active)}
+      mode={liveSpinner?.mode || 'responding'}
+      columns={promptSpinnerColumns}
+      marginTop={0}
+    />
+  ) : null;
+  const promptStatus = inputHint ? hintCell({ inputHint, inputHintTone, width: transientStatusWidth }) : null;
+  const promptMetaRows = promptMetaVisible ? (
+    <>
+      <Box
+        marginTop={0}
+        marginBottom={0}
+        height={1}
+        width="100%"
+        flexDirection="row"
+        backgroundColor={surfaceBackground()}
+      >
+        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+          {promptSpinner}
+        </Box>
+        {promptStatus}
+      </Box>
+      <Box height={1} width="100%" backgroundColor={surfaceBackground()} />
+    </>
+  ) : null;
+  const queuedRow = queuedVisible ? (
+    <QueuedCommands queued={state.queued} columns={frameColumns} compact={queuedCompact} />
+  ) : null;
+
   return (
     // Fullscreen layout: a full-height column (height = terminal rows) pins the
     // input cluster + statusline to the physical bottom (flexShrink={0}), while
@@ -161,9 +205,6 @@ export function renderAppView(ctx) {
       {/* Transcript viewport — app-view/transcript-viewport.jsx. */}
       {renderTranscriptViewport(ctx)}
 
-      {/* Live reasoning and transient status live just above the prompt: reasoning
-          on the left, short-lived copy/error/info messages on the right. */}
-
       {/* Bottom bar — pinned to the physical bottom, never moves. Floating
           panels use their actual rendered height and shrink before the prompt
           can move; overflow is clipped from the top while the panel remains
@@ -192,56 +233,8 @@ export function renderAppView(ctx) {
         ) : null}
         {!inputBoxHidden ? (
           <>
-            {promptMetaVisible ? (
-              <>
-                <Box
-                  marginTop={0}
-                  marginBottom={0}
-                  height={1}
-                  width="100%"
-                  flexDirection="row"
-                  backgroundColor={surfaceBackground()}
-                >
-                  <Box flexGrow={1} flexShrink={1} overflow="hidden">
-                    {liveSpinner ? (
-                      <Spinner
-                        verb={liveSpinner.verb}
-                        startedAt={liveSpinner.startedAt}
-                        outputTokens={liveSpinner?.outputTokens ?? liveSpinner?.tokens ?? 0}
-                        thinking={!!(state.thinking || liveSpinner?.thinking)}
-                        thinkingActiveSince={liveSpinner?.thinkingSegmentStartedAt ?? 0}
-                        thinkingMs={liveSpinner?.thinkingAccumulatedMs ?? 0}
-                        effort={state.effort || ''}
-                        hasActiveTools={!!activeTools?.web_search?.count}
-                        paused={!!toolApproval}
-                        interruptible={!!(state.busy && state.spinner?.active)}
-                        mode={liveSpinner?.mode || 'responding'}
-                        columns={promptSpinnerColumns}
-                        marginTop={0}
-                      />
-                    ) : null}
-                  </Box>
-                  {inputHint ? (
-                    <Box
-                      flexShrink={0}
-                      width={transientStatusWidth || 1}
-                      marginLeft={1}
-                      marginRight={1}
-                      justifyContent="flex-end"
-                      overflow="hidden"
-                    >
-                      <Text color={promptStatusColor(inputHintTone)} wrap="truncate">
-                        {inputHint}
-                      </Text>
-                    </Box>
-                  ) : null}
-                </Box>
-                <Box height={1} width="100%" backgroundColor={surfaceBackground()} />
-              </>
-            ) : null}
-            {queuedVisible ? (
-              <QueuedCommands queued={state.queued} columns={frameColumns} compact={queuedCompact} />
-            ) : null}
+            {promptMetaRows}
+            {queuedRow}
             <Box
               marginTop={0}
               width="100%"

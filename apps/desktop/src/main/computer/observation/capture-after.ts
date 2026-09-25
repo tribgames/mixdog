@@ -24,10 +24,10 @@ export function createCaptureAfter(
   ) => Promise<{
     payload: Record<string, unknown>;
     image?: { mimeType: string; data: string };
-  }>
+  }>,
+  /** Owned by the capture engine, which releases a session's entries with the session. */
+  imageDedup = createCaptureImageDedupStore()
 ) {
-  const imageDedup = createCaptureImageDedupStore();
-
   /** The window's read-only accessible roles and names, or null when unreadable. */
   async function layoutFingerprint(command: ComputerCommand, windowId: string): Promise<string | null> {
     try {
@@ -40,7 +40,9 @@ export function createCaptureAfter(
       });
       const elements = reply.ok ? reply.result?.elements : undefined;
       if (!Array.isArray(elements)) return null;
-      return JSON.stringify(elements.map((element: { role?: unknown; name?: unknown }) => [element.role, element.name]));
+      return JSON.stringify(
+        elements.map((element: { role?: unknown; name?: unknown }) => [element.role, element.name])
+      );
     } catch {
       return null;
     }
@@ -108,7 +110,7 @@ export function createCaptureAfter(
       );
       host.assertExecutionNotAborted();
       const repeatedImage = capture.image
-        ? imageDedup.isRepeat(`${host.sessionIdFor(command)}:${windowId}`, capture.image.data)
+        ? imageDedup.isRepeat(`${host.sessionIdFor(command)}\u0000${windowId}`, capture.image.data)
         : false;
       return {
         metadata: {

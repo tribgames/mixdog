@@ -11,7 +11,7 @@ import {
   providerTimeoutError,
   resolveTimeoutMs,
 } from '../stall-policy.mjs';
-import { knownToolNameSet, scanLeakedToolCalls } from './anthropic-leaked-toolcall.mjs';
+import { knownToolNameSet, scanLeakedToolCalls, toolCallFingerprint } from './anthropic-leaked-toolcall.mjs';
 import { traceHash, stableTraceStringify } from './trace-utils.mjs';
 import { parseGeminiTextPartMetadata } from './gemini-schema.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
@@ -262,12 +262,6 @@ export function createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolC
   let relayedText = '';
   const leakedCalls = [];
   const dispatchedFingerprints = new Set();
-
-  const toolCallFingerprint = (name, args) => {
-    let a = args;
-    if (a === null || typeof a !== 'object' || Array.isArray(a)) a = {};
-    return traceHash(stableTraceStringify({ name: name || '', args: a }));
-  };
 
   const dispatchLeakedCall = (recovered) => {
     let args = recovered?.arguments;

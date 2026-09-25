@@ -8,6 +8,11 @@ import { contextPercent, contextMeasurementLabel } from '../../ui/context-measur
 import { ContextInspector } from './ContextInspector.jsx';
 import { truncatePanelText as truncateText, padPanelCells as padCells } from './panel-cell-text.mjs';
 
+/** Text width inside the bordered, padded panel (never below 24 cells). */
+function panelInnerWidth(columns) {
+  return Math.max(24, Math.floor(columns || 80) - 4);
+}
+
 function finiteNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
@@ -63,7 +68,7 @@ function metricValue(parts) {
 }
 
 function DetailLine({ label, value, columns }) {
-  const innerWidth = Math.max(24, Math.floor(columns || 80) - 4);
+  const innerWidth = panelInnerWidth(columns);
   const labelWidth = 10;
   const valueWidth = Math.max(0, innerWidth - labelWidth - 2);
   return (
@@ -101,7 +106,7 @@ function CategoryItem({ label, tokens, total, width }) {
 }
 
 function CategoryGrid({ categories, columns, total }) {
-  const innerWidth = Math.max(24, Math.floor(columns || 80) - 4);
+  const innerWidth = panelInnerWidth(columns);
   const twoColumns = innerWidth >= 84;
   if (!twoColumns) {
     return (
@@ -131,7 +136,7 @@ function CategoryGrid({ categories, columns, total }) {
 }
 
 function ContextUsageView({ detail, columns, panelRows, onInspect, onRefresh }) {
-  const innerWidth = Math.max(24, Math.floor(columns || 80) - 4);
+  const innerWidth = panelInnerWidth(columns);
   const usage = detail?.usage || {};
   const compaction = detail?.compaction || {};
   const messages = detail?.messages || {};

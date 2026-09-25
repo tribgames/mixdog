@@ -170,15 +170,7 @@ function summarizeAuthoritativeTurnReview(filesInput: TurnReviewFile[], patch: s
       parts: parsedEntry?.parts || [],
     });
   }
-  let additions = 0;
-  let deletions = 0;
-  let hasLineStats = false;
-  for (const entry of files.values()) {
-    additions += entry.additions;
-    deletions += entry.deletions;
-    hasLineStats ||= entry.lineStats;
-  }
-  return { files, additions, deletions, hasLineStats };
+  return turnReviewSummaryOf(files);
 }
 
 function mergeTurnReviewSummaries(summaries: TurnReviewSummary[]): TurnReviewSummary {
@@ -222,6 +214,18 @@ function statusLabel(entry: TurnReviewFileEntry): string {
   if (entry.status === 'D') return t('Deleted');
   if (entry.status === 'T') return t('Metadata');
   return t('Changed');
+}
+
+/** The review state the shared cache holds for one turn scope. */
+function cachedTurnReviewState(scopeKey: string) {
+  return {
+    scopeKey,
+    reviews: agentReviewCache.get(scopeKey) || [],
+    leadPatch: leadReviewCache.get(scopeKey) ?? null,
+    files: leadReviewFilesCache.get(scopeKey) || [],
+    snapshotKind: leadReviewSnapshotKindCache.get(scopeKey) || '',
+    checkpointId: leadReviewCheckpointIdCache.get(scopeKey) || '',
+  };
 }
 
 function statusCode(entry: TurnReviewFileEntry): string {
@@ -547,6 +551,8 @@ function turnReviewFileRow({
   diffStyle: 'unified' | 'split';
   revertControl: ReactNode;
 }) {
+  const code = statusCode(entry);
+  const label = statusLabel(entry);
   return (
     <li key={rowKey} data-open={openFile === rowKey ? 'true' : 'false'} data-reverted={isReverted ? 'true' : 'false'}>
       <button
@@ -555,13 +561,8 @@ function turnReviewFileRow({
         aria-expanded={openFile === rowKey}
         onClick={() => setOpenFile((current) => (current === rowKey ? '' : rowKey))}
       >
-        <span
-          className="turn-review-status"
-          data-status={statusCode(entry)}
-          aria-label={statusLabel(entry)}
-          data-tooltip={statusLabel(entry)}
-        >
-          {statusCode(entry)}
+        <span className="turn-review-status" data-status={code} aria-label={label} data-tooltip={label}>
+          {code}
         </span>
         <code>{rel}</code>
         {entry.lineStats && (
@@ -583,7 +584,7 @@ function turnReviewFileRow({
           className="turn-review-open"
           aria-label={t('Open file {{file}}', { file: rel })}
           data-tooltip={t('Open file')}
-          disabled={!cwd || !onOpenFile || (statusCode(entry) === 'D' && !isReverted)}
+          disabled={!cwd || !onOpenFile || (code === 'D' && !isReverted)}
           onClick={() => {
             if (cwd) onOpenFile?.(cwd, rel);
           }}
@@ -664,32 +665,16 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     files: TurnReviewFile[];
     snapshotKind: string;
     checkpointId: string;
-  }>(() => ({
-    scopeKey: turnScopeKey,
-    reviews: agentReviewCache.get(turnScopeKey) || [],
-    leadPatch: leadReviewCache.get(turnScopeKey) ?? null,
-    files: leadReviewFilesCache.get(turnScopeKey) || [],
-    snapshotKind: leadReviewSnapshotKindCache.get(turnScopeKey) || '',
-    checkpointId: leadReviewCheckpointIdCache.get(turnScopeKey) || '',
-  }));
+  }>(() => cachedTurnReviewState(turnScopeKey));
   // Keying the read as well as the write prevents a one-frame stale bar before
   // effects run when the user switches sessions or opens New task.
-  const agentReviews =
-    agentReviewState.scopeKey === turnScopeKey ? agentReviewState.reviews : agentReviewCache.get(turnScopeKey) || [];
-  const authoritativeLeadPatch =
-    agentReviewState.scopeKey === turnScopeKey
-      ? agentReviewState.leadPatch
-      : (leadReviewCache.get(turnScopeKey) ?? null);
-  const authoritativeLeadFiles =
-    agentReviewState.scopeKey === turnScopeKey ? agentReviewState.files : leadReviewFilesCache.get(turnScopeKey) || [];
-  const authoritativeSnapshotKind =
-    agentReviewState.scopeKey === turnScopeKey
-      ? agentReviewState.snapshotKind
-      : leadReviewSnapshotKindCache.get(turnScopeKey) || '';
-  const authoritativeCheckpointId =
-    agentReviewState.scopeKey === turnScopeKey
-      ? agentReviewState.checkpointId
-      : leadReviewCheckpointIdCache.get(turnScopeKey) || '';
+  const reviewState =
+    agentReviewState.scopeKey === turnScopeKey ? agentReviewState : cachedTurnReviewState(turnScopeKey);
+  const agentReviews = reviewState.reviews;
+  const authoritativeLeadPatch = reviewState.leadPatch;
+  const authoritativeLeadFiles = reviewState.files;
+  const authoritativeSnapshotKind = reviewState.snapshotKind;
+  const authoritativeCheckpointId = reviewState.checkpointId;
   // A recorded ("scoped") review is the same Git diff as a live worktree
   // baseline, only limited to the session's own paths, so its file list is
   // trusted the same way. Otherwise a revert served from the record left the
@@ -925,7 +910,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         const label =
           review.tag && review.agent && review.tag !== review.agent
             ? `${review.tag} · ${review.agent}`
-            : review.tag || review.agent || 'Agent';
+            : review.tag || review.agent || '';
         return [
           {
             key: `${review.sessionId}:${index}`,
@@ -1009,7 +994,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({
             {sources.flatMap((source) => {
               const sourceHeader = (
                 <li key={`${source.key}:source`} className="turn-review-source">
-                  <strong>{t(source.label)}</strong>
+                  {/* Turn/Lead are catalog keys; agent tags are user data, never keys. */}
+                  <strong>
+                    {source.key === 'turn' || source.key === 'lead' ? t(source.label) : source.label || t('Agent')}
+                  </strong>
                   <span className="diff-stats" aria-hidden={!source.summary.hasLineStats}>
                     <i>{source.summary.additions > 0 ? `+${source.summary.additions}` : ''}</i>
                     <em>{source.summary.deletions > 0 ? `-${source.summary.deletions}` : ''}</em>

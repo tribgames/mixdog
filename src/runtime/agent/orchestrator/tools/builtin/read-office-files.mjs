@@ -71,11 +71,6 @@ function decodeXmlEntities(text) {
     .replace(/&amp;/g, '&');
 }
 
-// Sequential pass over one XML part: text runs (<w:t>/<a:t>) are captured in
-// document order; paragraph closes and explicit breaks become newlines, tabs
-// become tabs. A table keeps its shape — cells are separated by tabs and rows
-// by newlines — because one value per line loses which column it belongs to.
-// Everything else is markup and drops out.
 // A figure is content the page shows, but it carries no text runs: read as
 // plain text a picture or a chart vanished completely, so a figure-led report
 // looked like prose with a gap. The marker says what sits there, and repeats
@@ -136,6 +131,11 @@ function markHiddenSlideShapes(xml) {
   });
 }
 
+// Sequential pass over one XML part: text runs (<w:t>/<a:t>) are captured in
+// document order; paragraph closes and explicit breaks become newlines, tabs
+// become tabs. A table keeps its shape — cells are separated by tabs and rows
+// by newlines — because one value per line loses which column it belongs to.
+// Everything else is markup and drops out.
 function ooxmlPartText(xml, { textTag, paraTag, notes = null }) {
   const pattern = new RegExp(
     `<${textTag}(?:\\s[^>]*)?>([\\s\\S]*?)</${textTag}>` + // 1: text run
@@ -151,11 +151,10 @@ function ooxmlPartText(xml, { textTag, paraTag, notes = null }) {
     'g'
   );
   let out = '';
-  let match;
   // A figure already ends its own line, so the paragraph that holds it must
   // not add a second one and leave a blank line in the middle of the prose.
   let afterFigure = false;
-  while ((match = pattern.exec(xml)) !== null) {
+  for (const match of xml.matchAll(pattern)) {
     if (match[1] !== undefined) {
       out += decodeXmlEntities(match[1]);
       afterFigure = false;
@@ -380,16 +379,12 @@ function worksheetRows(xml, strings, formats = []) {
 // that part is the slide thumbnail and its page number.
 function slideNotesText(buf, entries, slidePart) {
   const relsName = slidePart.replace(/^ppt\/slides\//, 'ppt/slides/_rels/').concat('.rels');
-  const relsEntry = entries.get(relsName);
-  if (!relsEntry) return '';
-  const rels = zipEntryContent(buf, relsEntry).toString('utf8');
+  const rels = partText(buf, entries, relsName);
   const target = [...rels.matchAll(/<Relationship\b[^>]*\bTarget="([^"]+)"/g)]
     .map(([, value]) => String(value))
     .find((value) => /notesSlide\d+\.xml$/.test(value));
   if (!target) return '';
-  const notesEntry = entries.get(`ppt/${target.replace(/^\.\.\//, '')}`);
-  if (!notesEntry) return '';
-  const xml = zipEntryContent(buf, notesEntry).toString('utf8');
+  const xml = partText(buf, entries, `ppt/${target.replace(/^\.\.\//, '')}`);
   return [...xml.matchAll(/<p:sp>[\s\S]*?<\/p:sp>/g)]
     .filter((shape) => /<p:ph\b[^>]*\btype="body"/.test(shape[0]))
     .map((shape) => ooxmlPartText(shape[0], { textTag: 'a:t', paraTag: 'a:p' }))
@@ -518,6 +513,86 @@ function capOutput(text, maxOutputBytes) {
     .replace(/\uFFFD+$/, '')}\n... [office text truncated at ${maxOutputBytes} bytes]`;
 }
 
+function docxText(buf, entries, maxOutputBytes) {
+  const entry = entries.get('word/document.xml');
+  if (!entry) return 'Error: no word/document.xml part — not a DOCX document (or an encrypted one)';
+  const notes = [];
+  const body = markHiddenWordRuns(zipEntryContent(buf, entry).toString('utf8'));
+  const text = ooxmlPartText(body, { textTag: 'w:t', paraTag: 'w:p', notes });
+  const cited = documentNotes(buf, entries, notes);
+  const chrome = documentChromeText(buf, entries);
+  return capOutput(`${text || '(no text content in document)'}${cited}${chrome}`, maxOutputBytes);
+}
+
+function workbookText(buf, entries, maxOutputBytes) {
+  const workbookEntry = entries.get('xl/workbook.xml');
+  if (!workbookEntry) return 'Error: no xl/workbook.xml part — not an Excel workbook (or an encrypted one)';
+  const workbook = zipEntryContent(buf, workbookEntry).toString('utf8');
+  const relationships = new Map();
+  const rels = partText(buf, entries, 'xl/_rels/workbook.xml.rels');
+  for (const [, id, target] of rels.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"/g)) {
+    relationships.set(
+      id,
+      `xl/${String(target)
+        .replace(/^\/?xl\//, '')
+        .replace(/^\.\//, '')}`
+    );
+  }
+  const strings = sharedStringTable(partText(buf, entries, 'xl/sharedStrings.xml'));
+  const formats = cellNumberFormats(partText(buf, entries, 'xl/styles.xml'));
+  const sections = [];
+  for (const [, attributes] of workbook.matchAll(/<sheet\b([^>]*)\/>/g)) {
+    // A hidden sheet is content the workbook does not show; reading
+    // it as an ordinary sheet presents withheld data as the answer.
+    const state = (/\bstate="([^"]*)"/.exec(attributes)?.[1] || '').toLowerCase();
+    const label = { hidden: ' (hidden)', veryhidden: ' (very hidden)' }[state] ?? '';
+    const name = `${decodeXmlEntities(/\bname="([^"]*)"/.exec(attributes)?.[1] || '')}${label}`;
+    const relationshipId = /\br:id="([^"]+)"/.exec(attributes)?.[1] || '';
+    const part = relationships.get(relationshipId);
+    const entry = part ? entries.get(part) : null;
+    if (!entry) {
+      sections.push(`--- sheet ${name} ---\n(sheet part missing)`);
+      continue;
+    }
+    const { text, truncated, hiddenColumns } = worksheetRows(
+      zipEntryContent(buf, entry).toString('utf8'),
+      strings,
+      formats
+    );
+    const figures = sheetFigures(buf, entries, part);
+    sections.push(
+      `--- sheet ${name} ---\n${text || '(empty sheet)'}` +
+        `${truncated ? `\n... [sheet truncated at ${SHEET_MAX_ROWS} rows]` : ''}` +
+        `${hiddenColumns.length ? `\n[hidden columns: ${hiddenColumns.join(', ')}]` : ''}` +
+        `${figures.length ? `\n${figures.join('\n')}` : ''}`
+    );
+  }
+  if (!sections.length) return 'Error: workbook declares no sheets';
+  return capOutput(sections.join('\n\n'), maxOutputBytes);
+}
+
+// One section per slide, in slide-number order.
+function presentationText(buf, entries, maxOutputBytes) {
+  const slides = [...entries.keys()]
+    .map((name) => {
+      const m = /^ppt\/slides\/slide(\d+)\.xml$/.exec(name);
+      return m ? { name, n: Number(m[1]) } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.n - b.n);
+  if (slides.length === 0) return 'Error: no ppt/slides/*.xml parts — not a PPTX presentation (or an encrypted one)';
+  const sections = slides.map(({ name, n }) => {
+    const xml = zipEntryContent(buf, entries.get(name)).toString('utf8');
+    const text = ooxmlPartText(markHiddenSlideShapes(xml), { textTag: 'a:t', paraTag: 'a:p' });
+    const notes = slideNotesText(buf, entries, name);
+    // A hidden slide is not shown when the deck is presented; reading it
+    // as an ordinary page puts a withdrawn page in the summary.
+    const hidden = /<p:sld\b[^>]*\bshow="0"/.test(xml) ? ' (hidden)' : '';
+    return `--- slide ${n}${hidden} ---\n${text || '(no text)'}${notes ? `\n[notes] ${notes.replace(/\n/g, '\n        ')}` : ''}`;
+  });
+  return capOutput(sections.join('\n\n'), maxOutputBytes);
+}
+
 /**
  * Extract plain text from a .docx, .pptx, or .xlsx/.xlsm file. Always returns
  * a flat string (batch-safe); failures return an "Error: …" string mirroring
@@ -542,85 +617,9 @@ export async function extractOoxmlText(fullPath, { maxOutputBytes = 100 * 1024 }
       );
     }
     const entries = zipCentralDirectory(buf);
-    if (ext === '.docx') {
-      const entry = entries.get('word/document.xml');
-      if (!entry) return 'Error: no word/document.xml part — not a DOCX document (or an encrypted one)';
-      const notes = [];
-      const body = markHiddenWordRuns(zipEntryContent(buf, entry).toString('utf8'));
-      const text = ooxmlPartText(body, { textTag: 'w:t', paraTag: 'w:p', notes });
-      const cited = documentNotes(buf, entries, notes);
-      const chrome = documentChromeText(buf, entries);
-      return capOutput(`${text || '(no text content in document)'}${cited}${chrome}`, maxOutputBytes);
-    }
-    if (spreadsheet) {
-      const workbookEntry = entries.get('xl/workbook.xml');
-      if (!workbookEntry) return 'Error: no xl/workbook.xml part — not an Excel workbook (or an encrypted one)';
-      const workbook = zipEntryContent(buf, workbookEntry).toString('utf8');
-      const relationships = new Map();
-      const relsEntry = entries.get('xl/_rels/workbook.xml.rels');
-      if (relsEntry) {
-        const rels = zipEntryContent(buf, relsEntry).toString('utf8');
-        for (const [, id, target] of rels.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"/g)) {
-          relationships.set(
-            id,
-            `xl/${String(target)
-              .replace(/^\/?xl\//, '')
-              .replace(/^\.\//, '')}`
-          );
-        }
-      }
-      const stringsEntry = entries.get('xl/sharedStrings.xml');
-      const strings = sharedStringTable(stringsEntry ? zipEntryContent(buf, stringsEntry).toString('utf8') : '');
-      const formats = cellNumberFormats(partText(buf, entries, 'xl/styles.xml'));
-      const sections = [];
-      for (const [, attributes] of workbook.matchAll(/<sheet\b([^>]*)\/>/g)) {
-        // A hidden sheet is content the workbook does not show; reading
-        // it as an ordinary sheet presents withheld data as the answer.
-        const state = (/\bstate="([^"]*)"/.exec(attributes)?.[1] || '').toLowerCase();
-        const label = { hidden: ' (hidden)', veryhidden: ' (very hidden)' }[state] ?? '';
-        const name = `${decodeXmlEntities(/\bname="([^"]*)"/.exec(attributes)?.[1] || '')}${label}`;
-        const relationshipId = /\br:id="([^"]+)"/.exec(attributes)?.[1] || '';
-        const part = relationships.get(relationshipId);
-        const entry = part ? entries.get(part) : null;
-        if (!entry) {
-          sections.push(`--- sheet ${name} ---\n(sheet part missing)`);
-          continue;
-        }
-        const { text, truncated, hiddenColumns } = worksheetRows(
-          zipEntryContent(buf, entry).toString('utf8'),
-          strings,
-          formats
-        );
-        const figures = sheetFigures(buf, entries, part);
-        sections.push(
-          `--- sheet ${name} ---\n${text || '(empty sheet)'}` +
-            `${truncated ? `\n... [sheet truncated at ${SHEET_MAX_ROWS} rows]` : ''}` +
-            `${hiddenColumns.length ? `\n[hidden columns: ${hiddenColumns.join(', ')}]` : ''}` +
-            `${figures.length ? `\n${figures.join('\n')}` : ''}`
-        );
-      }
-      if (!sections.length) return 'Error: workbook declares no sheets';
-      return capOutput(sections.join('\n\n'), maxOutputBytes);
-    }
-    // .pptx: one section per slide, in slide-number order.
-    const slides = [...entries.keys()]
-      .map((name) => {
-        const m = /^ppt\/slides\/slide(\d+)\.xml$/.exec(name);
-        return m ? { name, n: Number(m[1]) } : null;
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.n - b.n);
-    if (slides.length === 0) return 'Error: no ppt/slides/*.xml parts — not a PPTX presentation (or an encrypted one)';
-    const sections = slides.map(({ name, n }) => {
-      const xml = zipEntryContent(buf, entries.get(name)).toString('utf8');
-      const text = ooxmlPartText(markHiddenSlideShapes(xml), { textTag: 'a:t', paraTag: 'a:p' });
-      const notes = slideNotesText(buf, entries, name);
-      // A hidden slide is not shown when the deck is presented; reading it
-      // as an ordinary page puts a withdrawn page in the summary.
-      const hidden = /<p:sld\b[^>]*\bshow="0"/.test(xml) ? ' (hidden)' : '';
-      return `--- slide ${n}${hidden} ---\n${text || '(no text)'}${notes ? `\n[notes] ${notes.replace(/\n/g, '\n        ')}` : ''}`;
-    });
-    return capOutput(sections.join('\n\n'), maxOutputBytes);
+    if (ext === '.docx') return docxText(buf, entries, maxOutputBytes);
+    if (spreadsheet) return workbookText(buf, entries, maxOutputBytes);
+    return presentationText(buf, entries, maxOutputBytes);
   } catch (err) {
     return `Error: office extraction failed — ${err instanceof Error ? err.message : String(err)}`;
   }

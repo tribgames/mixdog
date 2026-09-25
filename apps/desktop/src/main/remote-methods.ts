@@ -80,6 +80,8 @@ export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
   'cancelOAuthProviderLogin',
   'getMcpServerConfig',
   'saveMcpServer',
+  // Developer options stay desktop-local, like the Providers page they gate.
+  'setDeveloperOption',
   // Media files reach a phone through the media HTTP route, which needs no
   // filesystem paths on the client. Keep the resolver host-side.
   'resolveMediaFile',

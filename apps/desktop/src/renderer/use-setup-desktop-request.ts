@@ -106,9 +106,6 @@ export function useSetupDesktopRequest(
       };
       let receipt: { result?: unknown; error?: string };
       try {
-        if (claimed.value.args.name === 'computer' && !navigator.userAgent.includes('Windows')) {
-          throw new Error('Computer Use is Windows-only');
-        }
         const result = await executeSetupDesktopAction(
           claimed.value.args,
           api,

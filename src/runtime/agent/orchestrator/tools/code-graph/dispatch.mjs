@@ -372,7 +372,7 @@ function _codeGraphBudgetFooter(args, keptLines) {
   const rawMode = String(args?.mode || '').trim();
   const capKb = Math.round(CODE_GRAPH_OUTPUT_MAX_BYTES / 1024);
   const targets = collectGraphSymbolList(args);
-  const files = _collectGraphFileList(args, { cap: false });
+  const files = _collectGraphFileList(args);
   const batchTargets = targets.length ? targets : files;
   const label = targets.length ? 'symbols' : 'files';
   let currentIndex = 0;

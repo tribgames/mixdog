@@ -331,8 +331,24 @@ function validateRangeOperation(operation, op) {
           .map((part) => part.trim())
       : [operation.range];
   const area = parseXlsxRange(parts[0]);
-  for (const part of parts.slice(1)) parseXlsxRange(part);
+  const areas = [area, ...parts.slice(1).map((part) => parseXlsxRange(part))];
   if (op === 'set_range') validateRangeMatrix(operation, area);
+  if (op === 'add_chart') assertChartReadsItsData(operation, areas);
+}
+
+// A chart read by columns takes its categories down the first column and a series from every other column. Given
+// a row of periods (years across, one measure under them) it drew one category and a series per year — five bars
+// in five colours over a single label, with no legend to say which year is which. That shape is refused with the
+// reading it wanted named, before either backend draws it.
+function assertChartReadsItsData(operation, areas) {
+  if (String(operation.plotBy || '').toLowerCase() === 'rows') return;
+  const rows = Math.max(...areas.map((part) => part.rows));
+  const columns = areas.reduce((total, part) => total + part.columns, 0);
+  if (rows === 2 && columns - 1 >= 3) {
+    throw new Error(
+      `XLSX add_chart ${operation.range} reads as ${columns - 1} series of one value each over a single category; a row of periods across the top wants plotBy:'rows' (the first row the categories, each row under it a series)`
+    );
+  }
 }
 
 function validateSpan(op, start, count, { field, limit, unit }) {
@@ -375,6 +391,10 @@ function validateXlsxOperation(operation) {
     validateSpan(op, operation.row, operation.count ?? 1, { field: 'row', limit: XLSX_MAX_ROWS, unit: 'row' });
   }
   if (['insert_columns', 'delete_columns'].includes(op)) {
+    // A letter, as set_column_width and set_column_visibility take it, becomes the number both backends shift by.
+    if (typeof operation.column === 'string' && /^[A-Za-z]{1,3}$/.test(operation.column.trim())) {
+      operation.column = columnNumber(operation.column.trim().toUpperCase());
+    }
     validateSpan(op, operation.column, operation.count ?? 1, {
       field: 'column',
       limit: XLSX_MAX_COLUMNS,

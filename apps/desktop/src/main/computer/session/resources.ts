@@ -15,9 +15,7 @@ export function isFreshComputerObservation(
   now: number,
   maximumAgeMs = MAX_COMPUTER_OBSERVATION_AGE_MS
 ): boolean {
-  return (
-    Number.isFinite(observedAt) && Number.isFinite(now) && now >= observedAt && now - observedAt <= maximumAgeMs
-  );
+  return Number.isFinite(observedAt) && Number.isFinite(now) && now >= observedAt && now - observedAt <= maximumAgeMs;
 }
 
 export function resolveFreshComputerObservationScope<TScope extends { observedAt: number }>(

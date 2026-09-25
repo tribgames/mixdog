@@ -44,6 +44,7 @@ import {
   canReuseStoredRemoteClientRegistration,
   clearStoredRemotePairing,
   isInvalidRemotePairingClose,
+  isRemoteClientCredential,
   normalizeRemoteRelayOrigin,
   readRemoteDeviceId,
 } from './remote-pairing-recovery';
@@ -328,7 +329,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const currentToken = (): string => {
     try {
       const stored = localStorage.getItem(TOKEN_STORAGE_KEY) || '';
-      if (stored && /^[0-9a-f]{32,128}$/u.test(stored)) token = stored;
+      if (stored && isRemoteClientCredential(stored)) token = stored;
     } catch {
       /* keep the in-memory token */
     }
@@ -400,7 +401,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           /* session only */
         }
       }
-      if (typeof result.token === 'string' && /^[0-9a-f]{32,128}$/u.test(result.token)) {
+      if (typeof result.token === 'string' && isRemoteClientCredential(result.token)) {
         token = result.token;
         try {
           localStorage.setItem(TOKEN_STORAGE_KEY, token);
@@ -604,12 +605,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       /* container without a toast surface */
     }
   };
-  /** A refusal fails EXACTLY the call it names and never guesses one. An id is
-   *  only ever present when the desktop itself declined to send that call's
-   *  answer, inside the encrypted channel; a relay-controlled signal carries
-   *  none and is reported to the user without blaming a call that may be
-   *  perfectly healthy. Either way the ceiling it reports is learned, so the
-   *  next oversize frame is refused before it is sent. */
   /** The ceiling can drop while frames are already on their way: the relay
    *  lowers it, and a frame sent a moment earlier — or concurrently, before
    *  the desktop's update lands here — meets the NEW limit. That refusal can
@@ -634,6 +629,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       entry.reject(failure);
     }
   };
+  /** A refusal fails EXACTLY the call it names and never guesses one. An id is
+   *  only ever present when the desktop itself declined to send that call's
+   *  answer, inside the encrypted channel; a relay-controlled signal carries
+   *  none and is reported to the user without blaming a call that may be
+   *  perfectly healthy. Either way the ceiling it reports is learned, so the
+   *  next oversize frame is refused before it is sent. */
   const applyRelayPayloadRejection = (rejection: RelayPayloadRejection): void => {
     learnFrameLimit(rejection.limit);
     // The reported ceiling is now the one in force, so anything already sent
@@ -892,8 +893,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let resyncOnWake = backgroundSuspended;
   beginRemoteConnectionTimeline('boot');
   let reconnectTimer: number | null = null;
+  const backgroundSuspendApplies = (): boolean => isInstalledMobileWebAppSurface() && !!token && !!e2eePairing;
   const suspendRemoteConnection = (): void => {
-    if (!isInstalledMobileWebAppSurface() || !token || !e2eePairing) return;
+    if (!backgroundSuspendApplies()) return;
     setRemoteConnectionPhase('background');
     backgroundSuspended = true;
     resyncOnWake = true;
@@ -906,11 +908,32 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     setRemoteConnectionState('connecting');
     retireConnection?.(1000, 'background');
   };
+  // A quick app switch must not cost the relay leg: going hidden only arms
+  // this grace, and the suspend above runs only if the page is still hidden
+  // when it expires. A return within the grace takes the live-socket wake
+  // path (ping probe, half-dead recycle, resync) instead of a full redial.
+  const BACKGROUND_GRACE_MS = 30_000;
+  let backgroundGraceTimer: number | null = null;
+  const clearBackgroundGrace = (): void => {
+    if (backgroundGraceTimer === null) return;
+    window.clearTimeout(backgroundGraceTimer);
+    backgroundGraceTimer = null;
+  };
+  const beginBackgroundGrace = (): void => {
+    if (!backgroundSuspendApplies()) return;
+    resyncOnWake = true;
+    if (backgroundGraceTimer !== null) return;
+    backgroundGraceTimer = window.setTimeout(() => {
+      backgroundGraceTimer = null;
+      if (document.visibilityState === 'hidden') suspendRemoteConnection();
+    }, BACKGROUND_GRACE_MS);
+  };
   const wakeProbe = (event?: Event): void => {
     if (document.visibilityState === 'hidden') {
-      suspendRemoteConnection();
+      beginBackgroundGrace();
       return;
     }
+    clearBackgroundGrace();
     if (backgroundSuspended) beginRemoteConnectionTimeline('wake');
     backgroundSuspended = false;
     const shouldResync = resyncOnWake || event?.type === 'online';
@@ -966,7 +989,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   window.addEventListener('online', wakeProbe);
   window.addEventListener('focus', wakeProbe);
   window.addEventListener('pageshow', wakeProbe);
-  window.addEventListener('pagehide', suspendRemoteConnection);
+  window.addEventListener('pagehide', beginBackgroundGrace);
   // Tapping the disconnect overlay runs the same recovery a wake does, so a
   // waiting user never has to sit out the remaining backoff.
   window.addEventListener(REMOTE_WAKE_EVENT, wakeProbe);
@@ -1368,8 +1391,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     ws.send(directFrame);
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const invoke = async <T = any>(method: string, params: unknown[] = []): Promise<T> => {
+  const invoke = async <T = unknown>(method: string, params: unknown[] = []): Promise<T> => {
     const ws = await connect();
     return await new Promise<T>((resolve, reject) => {
       const id = nextId++;

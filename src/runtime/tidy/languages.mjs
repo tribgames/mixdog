@@ -47,23 +47,26 @@ export const AUX_LANGUAGE_EXTENSIONS = Object.freeze({
   html: ['html', 'htm'],
 });
 
-export const LANGUAGE_EXTENSIONS = Object.freeze({
+const LANGUAGE_EXTENSIONS = Object.freeze({
   ...CODE_LANGUAGE_EXTENSIONS,
   ...AUX_LANGUAGE_EXTENSIONS,
 });
-
-export const LANGUAGE_IDS = Object.freeze(Object.keys(LANGUAGE_EXTENSIONS));
 
 const EXTENSION_TO_LANGUAGE = new Map();
 for (const [language, extensions] of Object.entries(LANGUAGE_EXTENSIONS)) {
   for (const ext of extensions) EXTENSION_TO_LANGUAGE.set(ext, language);
 }
 
-/** Language id for a path, or '' when the extension is not in the registry. */
-export function languageForPath(filePath) {
-  const ext = extname(String(filePath || ''))
+/** Lower-case extension of a path without its dot; '' when it has none. */
+function extensionOf(filePath) {
+  return extname(String(filePath || ''))
     .replace(/^\./, '')
     .toLowerCase();
+}
+
+/** Language id for a path, or '' when the extension is not in the registry. */
+export function languageForPath(filePath) {
+  const ext = extensionOf(filePath);
   if (!ext) return '';
   return EXTENSION_TO_LANGUAGE.get(ext) || '';
 }
@@ -71,16 +74,15 @@ export function languageForPath(filePath) {
 /** Language id for a path: the graph capability table first, then the static registry. */
 function languageWith(filePath, extensions) {
   if (extensions instanceof Map) {
-    const ext = extname(String(filePath || ''))
-      .replace(/^\./, '')
-      .toLowerCase();
+    const ext = extensionOf(filePath);
     const fromGraph = ext ? extensions.get(ext) : '';
     if (fromGraph) return fromGraph;
   }
   return languageForPath(filePath);
 }
 
-function normalizeRel(value) {
+/** Forward-slash path without a leading `./`. */
+export function normalizeRel(value) {
   return String(value || '')
     .replaceAll('\\', '/')
     .replace(/^\.\//, '');
@@ -153,7 +155,7 @@ export function parseGraphLangs(stdout) {
 }
 
 /** git-tracked files under `cwd`, filtered to the requested scope paths. */
-export async function listScopedFiles({ cwd, paths = [], signal = null, timeoutMs = 20_000 } = {}) {
+async function listScopedFiles({ cwd, paths = [], signal = null, timeoutMs = 20_000 } = {}) {
   const result = await runProcess(
     'git',
     [

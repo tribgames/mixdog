@@ -139,6 +139,18 @@ export function writeSectionPropertiesAt(documentXml, section, mutate) {
   return `${documentXml.slice(0, model.body.start)}${inner}${documentXml.slice(model.body.end)}`;
 }
 
+// The running header, footer, and page number belong to the whole document: written to the last section only, a
+// report whose header was set after its landscape break showed it on the final page alone (Word links a section's
+// header to the one before it, so the COM path covers every page). Without a named section every section takes it.
+export function writeEverySectionProperties(documentXml, section, mutate) {
+  if (!(section == null || section === '')) return writeSectionPropertiesAt(documentXml, section, mutate);
+  const { model, spans } = documentSectionSpans(documentXml);
+  if (spans.length <= 1) return writeSectionPropertiesAt(documentXml, section, mutate);
+  let inner = model.body.inner;
+  for (const span of [...spans].reverse()) inner = `${inner.slice(0, span.start)}${mutate(span.xml)}${inner.slice(span.end)}`;
+  return `${documentXml.slice(0, model.body.start)}${inner}${documentXml.slice(model.body.end)}`;
+}
+
 function writeSectionProperties(documentXml, mutate) {
   const { model, match } = trailingSectionProperties(documentXml);
   const current = match ? match[0] : '<w:sectPr></w:sectPr>';
@@ -197,10 +209,33 @@ export async function ensurePart(zip, { part, xml, contentType, relationship }) 
   return xml;
 }
 
+// The note's own styles: a note set in Normal printed at the body size with the body's paragraph spacing, two notes
+// taking a sixth of the page foot. Word's defaults are a 10 pt note under a superscript mark; the note reads at 9 pt
+// here, tight, the way a printed source line does. A styles part that already names them is left as it is.
+async function ensureNoteStyles(zip, definition) {
+  const part = 'word/styles.xml';
+  const styles = await zipText(zip, part);
+  if (!styles) return;
+  const noteName = definition.textStyle === 'FootnoteText' ? 'footnote text' : 'endnote text';
+  const markName = definition.style === 'FootnoteReference' ? 'footnote reference' : 'endnote reference';
+  const additions = [
+    new RegExp(`w:styleId="${definition.textStyle}"`).test(styles)
+      ? ''
+      : `<w:style w:type="paragraph" w:styleId="${definition.textStyle}"><w:name w:val="${noteName}"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/>` +
+        '<w:pPr><w:spacing w:after="40" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style>',
+    new RegExp(`w:styleId="${definition.style}"`).test(styles)
+      ? ''
+      : `<w:style w:type="character" w:styleId="${definition.style}"><w:name w:val="${markName}"/><w:uiPriority w:val="99"/><w:unhideWhenUsed/>` +
+        '<w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style>',
+  ].join('');
+  if (additions) zip.file(part, styles.replace('</w:styles>', `${additions}</w:styles>`));
+}
+
 // Word reads the separator notes (ids -1 and 0) before any real note: without
 // them the note area has no rule above it and Word repairs the file on open.
 export async function ensureNotePart(zip, kind) {
   const definition = noteDefinition(kind);
+  await ensureNoteStyles(zip, definition);
   const separator = (id, element) =>
     `<${definition.tag} w:type="${element}" w:id="${id}">` +
     `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>` +
@@ -542,7 +577,9 @@ function numberingDefinition(abstractId, kind) {
   return `<w:abstractNum w:abstractNumId="${abstractId}"><w:multiLevelType w:val="hybridMultilevel"/>${levels}</w:abstractNum>`;
 }
 
-export async function ensureNumbering(zip, kind) {
+// restart: a new list instance of the kind, counting from 1 again. Word numbers every instance of one abstract
+// definition as one list unless the instance overrides its start, so the restart names it on each level.
+export async function ensureNumbering(zip, kind, { restart = false } = {}) {
   const part = 'word/numbering.xml';
   const xml = await ensurePart(zip, {
     part,
@@ -551,27 +588,65 @@ export async function ensureNumbering(zip, kind) {
     relationship: `${OFFICE_RELATIONSHIP_BASE}/numbering`,
   });
   const marker = kind === 'bullet' ? 'w:numFmt w:val="bullet"' : 'w:numFmt w:val="decimal"';
+  let existingAbstract = null;
   for (const match of xml.matchAll(/<w:abstractNum\b[^>]*\bw:abstractNumId="(\d+)"[^>]*>[\s\S]*?<\/w:abstractNum>/g)) {
     if (!match[0].includes(marker)) continue;
     const reuse = new RegExp(
       `<w:num\\b[^>]*\\bw:numId="(\\d+)"[^>]*>\\s*<w:abstractNumId w:val="${match[1]}"\\/>`
     ).exec(xml);
-    if (reuse) return { xml, numId: Number(reuse[1]), created: false };
+    if (reuse && !restart) return { xml, numId: Number(reuse[1]), created: false };
+    if (reuse) {
+      existingAbstract = Number(match[1]);
+      break;
+    }
   }
   const abstractIds = [...xml.matchAll(/\bw:abstractNumId="(\d+)"/g)].map((match) => Number(match[1]));
   const numIds = [...xml.matchAll(/<w:num\b[^>]*\bw:numId="(\d+)"/g)].map((match) => Number(match[1]));
-  const abstractId = Math.max(-1, ...abstractIds) + 1;
+  const abstractId = existingAbstract ?? Math.max(-1, ...abstractIds) + 1;
   const numId = Math.max(0, ...numIds) + 1;
-  const abstract = numberingDefinition(abstractId, kind);
-  const definition = `<w:num w:numId="${numId}"><w:abstractNumId w:val="${abstractId}"/></w:num>`;
-  const abstracts = [...xml.matchAll(/<w:abstractNum\b[^>]*>[\s\S]*?<\/w:abstractNum>/g)];
-  const position = abstracts.length
-    ? abstracts.at(-1).index + abstracts.at(-1)[0].length
-    : xml.indexOf('>', xml.indexOf('<w:numbering')) + 1;
-  const next = `${xml.slice(0, position)}${abstract}${xml.slice(position)}`.replace(
-    '</w:numbering>',
-    `${definition}</w:numbering>`
-  );
+  const overrides =
+    existingAbstract == null
+      ? ''
+      : [0, 1, 2]
+          .map((level) => `<w:lvlOverride w:ilvl="${level}"><w:startOverride w:val="1"/></w:lvlOverride>`)
+          .join('');
+  const definition = `<w:num w:numId="${numId}"><w:abstractNumId w:val="${abstractId}"/>${overrides}</w:num>`;
+  let next = xml;
+  if (existingAbstract == null) {
+    const abstracts = [...xml.matchAll(/<w:abstractNum\b[^>]*>[\s\S]*?<\/w:abstractNum>/g)];
+    const position = abstracts.length
+      ? abstracts.at(-1).index + abstracts.at(-1)[0].length
+      : xml.indexOf('>', xml.indexOf('<w:numbering')) + 1;
+    next = `${xml.slice(0, position)}${numberingDefinition(abstractId, kind)}${xml.slice(position)}`;
+  }
+  next = next.replace('</w:numbering>', `${definition}</w:numbering>`);
   zip.file(part, next);
   return { xml: next, numId, created: true };
+}
+
+// The numbered list an appended item belongs to. An item right after a list item (its own list's, or a bullet nested
+// under it) continues the latest numbered list; after anything else — a heading, a body paragraph, a table — it starts
+// a new list at 1: "3. 다음 분기 과제" read its two items as 4 and 5 of the list two sections above.
+export async function appendedNumbering(zip, documentXml) {
+  const trailing = documentXml.lastIndexOf('<w:sectPr');
+  const body = documentXml.slice(0, trailing >= 0 ? trailing : documentXml.lastIndexOf('</w:body>')).trimEnd();
+  const lastParagraph = Math.max(body.lastIndexOf('<w:p>'), body.lastIndexOf('<w:p '));
+  const followsList = !body.endsWith('</w:tbl>') && lastParagraph >= 0 && /<w:numPr\b/.test(body.slice(lastParagraph));
+  if (!followsList) return ensureNumbering(zip, 'number', { restart: true });
+  const numbering = await ensureNumbering(zip, 'number');
+  const numberedAbstracts = new Set(
+    [...numbering.xml.matchAll(/<w:abstractNum\b[^>]*\bw:abstractNumId="(\d+)"[^>]*>([\s\S]*?)<\/w:abstractNum>/g)]
+      .filter((match) => match[2].includes('w:numFmt w:val="decimal"'))
+      .map((match) => match[1])
+  );
+  const numberedIds = new Set(
+    [...numbering.xml.matchAll(/<w:num\b[^>]*\bw:numId="(\d+)"[^>]*>\s*<w:abstractNumId w:val="(\d+)"/g)]
+      .filter((match) => numberedAbstracts.has(match[2]))
+      .map((match) => match[1])
+  );
+  for (let at = body.lastIndexOf('<w:numId '); at >= 0; at = body.lastIndexOf('<w:numId ', at - 1)) {
+    const id = /^<w:numId w:val="(\d+)"/.exec(body.slice(at))?.[1];
+    if (numberedIds.has(id)) return { ...numbering, numId: Number(id), created: false };
+  }
+  return numbering;
 }

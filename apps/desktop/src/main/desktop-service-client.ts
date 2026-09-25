@@ -267,21 +267,7 @@ export class DesktopServiceClient implements DesktopService {
     if (transport !== this.transport || !value || typeof value !== 'object') return;
     const message = value as DesktopServiceOutbound;
     if (message.kind === 'ready') {
-      this.viewSyncSupported = message.viewSync === true;
-      if (this.startupTimer) clearTimeout(this.startupTimer);
-      this.startupTimer = null;
-      this.nextRestartAt = 0;
-      if (this.stableTimer) clearTimeout(this.stableTimer);
-      this.stableTimer = setTimeout(() => {
-        this.stableTimer = null;
-        this.consecutiveExitCount = 0;
-      }, this.options.restartStableMs ?? DEFAULT_RESTART_STABLE_MS);
-      this.stableTimer.unref?.();
-      const resolve = this.readyResolve;
-      this.readyResolve = null;
-      this.readyReject = null;
-      resolve?.();
-      this.announceServiceReady();
+      this.handleReady(message.viewSync === true);
       return;
     }
     if (message.kind === 'view-sync-complete') {
@@ -303,31 +289,7 @@ export class DesktopServiceClient implements DesktopService {
       return;
     }
     if (message.kind === 'state') {
-      const decoded = this.decoder.decode(message.wire);
-      if (!decoded.ok) {
-        transport.postMessage({ kind: 'state-resync' });
-        return;
-      }
-      const snapshot = decoded.snapshot as SessionSnapshot;
-      try {
-        if (this.recovering) {
-          if (!this.viewSyncSupported) {
-            this.recovering = false;
-            this.clearFailureNoticeTimer();
-          }
-          this.publish(this.recoveredSnapshot(snapshot));
-        } else {
-          this.publish(snapshot);
-        }
-      } finally {
-        // Acknowledge only after decode/publication. The transport keeps at most
-        // one frame in flight and collapses any intermediate publications.
-        try {
-          transport.postMessage({ kind: 'state-ack', sequence: message.sequence });
-        } catch {
-          // Service reconnect owns the failed transport.
-        }
-      }
+      this.handleStateFrame(transport, message);
       return;
     }
     if (message.kind === 'sessions') {
@@ -351,31 +313,7 @@ export class DesktopServiceClient implements DesktopService {
       return;
     }
     if (message.kind === 'session-state') {
-      const sessionId = String(message.sessionId || '');
-      if (!sessionId) return;
-      let decoder = this.sessionStateDecoders.get(sessionId);
-      if (decoder) this.sessionStateDecoders.delete(sessionId);
-      else decoder = createSnapshotDeltaDecoder();
-      this.sessionStateDecoders.set(sessionId, decoder);
-      const decoded = decoder.decode(message.wire);
-      reportTranscriptRead(sessionId, message.readTraceId, decoded.ok ? 'main-received' : 'main-resync');
-      if (!decoded.ok) {
-        decoder.reset();
-        try {
-          transport.postMessage({ kind: 'session-state-resync', sessionId });
-        } catch {}
-        return;
-      }
-      if (message.wire === null) this.sessionStateDecoders.delete(sessionId);
-      const update: DesktopSessionStateUpdate = {
-        sessionId,
-        snapshot: decoded.snapshot as SessionSnapshot,
-        ...(message.readTraceId ? { readTraceId: message.readTraceId } : {}),
-        frameSource: message.frameSource,
-        ...(message.laneEnd ? { laneEnd: message.laneEnd } : {}),
-        ...(typeof message.contentRevision === 'number' ? { contentRevision: message.contentRevision } : {}),
-      };
-      for (const listener of this.sessionStateListeners) listener(update);
+      this.handleSessionStateFrame(transport, message);
       return;
     }
     if (message.kind !== 'response') return;
@@ -385,6 +323,88 @@ export class DesktopServiceClient implements DesktopService {
     clearTimeout(pending.timer);
     if (message.ok) pending.resolve(message.value);
     else pending.reject(responseError(message.error));
+  }
+
+  private handleReady(viewSync: boolean): void {
+    this.viewSyncSupported = viewSync;
+    if (this.startupTimer) clearTimeout(this.startupTimer);
+    this.startupTimer = null;
+    this.nextRestartAt = 0;
+    if (this.stableTimer) clearTimeout(this.stableTimer);
+    this.stableTimer = setTimeout(() => {
+      this.stableTimer = null;
+      this.consecutiveExitCount = 0;
+    }, this.options.restartStableMs ?? DEFAULT_RESTART_STABLE_MS);
+    this.stableTimer.unref?.();
+    const resolve = this.readyResolve;
+    this.readyResolve = null;
+    this.readyReject = null;
+    resolve?.();
+    this.announceServiceReady();
+  }
+
+  private handleStateFrame(
+    transport: DesktopTransport,
+    message: Extract<DesktopServiceOutbound, { kind: 'state' }>
+  ): void {
+    const decoded = this.decoder.decode(message.wire);
+    if (!decoded.ok) {
+      transport.postMessage({ kind: 'state-resync' });
+      return;
+    }
+    const snapshot = decoded.snapshot as SessionSnapshot;
+    try {
+      if (this.recovering) {
+        if (!this.viewSyncSupported) {
+          this.recovering = false;
+          this.clearFailureNoticeTimer();
+        }
+        this.publish(this.recoveredSnapshot(snapshot));
+      } else {
+        this.publish(snapshot);
+      }
+    } finally {
+      // Acknowledge only after decode/publication. The transport keeps at most
+      // one frame in flight and collapses any intermediate publications.
+      try {
+        transport.postMessage({ kind: 'state-ack', sequence: message.sequence });
+      } catch {
+        // Service reconnect owns the failed transport.
+      }
+    }
+  }
+
+  private handleSessionStateFrame(
+    transport: DesktopTransport,
+    message: Extract<DesktopServiceOutbound, { kind: 'session-state' }>
+  ): void {
+    const sessionId = String(message.sessionId || '');
+    if (!sessionId) return;
+    let decoder = this.sessionStateDecoders.get(sessionId);
+    if (decoder) this.sessionStateDecoders.delete(sessionId);
+    else decoder = createSnapshotDeltaDecoder();
+    this.sessionStateDecoders.set(sessionId, decoder);
+    const decoded = decoder.decode(message.wire);
+    reportTranscriptRead(sessionId, message.readTraceId, decoded.ok ? 'main-received' : 'main-resync');
+    if (!decoded.ok) {
+      decoder.reset();
+      try {
+        transport.postMessage({ kind: 'session-state-resync', sessionId });
+      } catch {
+        // Service reconnect owns the failed transport.
+      }
+      return;
+    }
+    if (message.wire === null) this.sessionStateDecoders.delete(sessionId);
+    const update: DesktopSessionStateUpdate = {
+      sessionId,
+      snapshot: decoded.snapshot as SessionSnapshot,
+      ...(message.readTraceId ? { readTraceId: message.readTraceId } : {}),
+      frameSource: message.frameSource,
+      ...(message.laneEnd ? { laneEnd: message.laneEnd } : {}),
+      ...(typeof message.contentRevision === 'number' ? { contentRevision: message.contentRevision } : {}),
+    };
+    for (const listener of this.sessionStateListeners) listener(update);
   }
 
   private handleExit(transport: DesktopTransport, code: number, cause?: Error): void {
@@ -572,20 +592,19 @@ export class DesktopServiceClient implements DesktopService {
     });
   }
 
-  async startProject(projectPath: string): Promise<SessionSnapshot> {
-    const snapshot = await this.invoke<SessionSnapshot>('startProject', [projectPath]);
+  private async invokeAndPublish(method: DesktopServiceMethod, args: unknown[] = []): Promise<SessionSnapshot> {
+    const snapshot = await this.invoke<SessionSnapshot>(method, args);
     this.publish(snapshot);
     return snapshot;
   }
-  async startProjectTask(projectPath: string): Promise<SessionSnapshot> {
-    const snapshot = await this.invoke<SessionSnapshot>('startProjectTask', [projectPath]);
-    this.publish(snapshot);
-    return snapshot;
+  startProject(projectPath: string): Promise<SessionSnapshot> {
+    return this.invokeAndPublish('startProject', [projectPath]);
   }
-  async startTask(): Promise<SessionSnapshot> {
-    const snapshot = await this.invoke<SessionSnapshot>('startTask');
-    this.publish(snapshot);
-    return snapshot;
+  startProjectTask(projectPath: string): Promise<SessionSnapshot> {
+    return this.invokeAndPublish('startProjectTask', [projectPath]);
+  }
+  startTask(): Promise<SessionSnapshot> {
+    return this.invokeAndPublish('startTask');
   }
   listProjects(): Promise<DesktopProjectSummary[]> {
     return this.invokeRead('listProjects');

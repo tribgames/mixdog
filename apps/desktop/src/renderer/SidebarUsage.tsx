@@ -1,5 +1,5 @@
 import { Info, Pin, Plus } from 'lucide-react';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { PaneSurfaceGate } from './PaneSurfaceGate';
 import { InitialSurface } from './InitialSurface';
@@ -258,17 +258,6 @@ function resetOutcomeNotice(status: unknown, outcome: unknown): string {
   return t('No reset credit is available.');
 }
 
-function subscriptionStateText(loadingFirst: boolean, connected: boolean): string {
-  if (loadingFirst) return t('Loading…');
-  return connected ? t('Connected') : t('Not connected');
-}
-
-function emptyMeterText(checking: boolean, loadingFirst: boolean, connected: boolean): string {
-  if (checking) return t('Loading usage…');
-  if (loadingFirst) return t('Loading…');
-  return connected ? t('No current quota window') : t('Connect to load usage');
-}
-
 function clearCodexResetAttempt(offerRevision: string): void {
   try {
     const stored = record(JSON.parse(window.localStorage.getItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY) || 'null'));
@@ -322,7 +311,6 @@ export function SidebarUsage({
   const [resetConfirming, setResetConfirming] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
   const [resetNotice, setResetNotice] = useState('');
-  const section = useRef<HTMLElement>(null);
 
   // One cadence for the renderer: the rail holds it too, so a popup remount
   // never restarts the five-minute timer and never re-requests.
@@ -417,7 +405,7 @@ export function SidebarUsage({
   };
 
   return (
-    <section ref={section} className="sidebar-usage" aria-label={t('Providers')}>
+    <section className="sidebar-usage" aria-label={t('Providers')}>
       {/* Same title-row grammar as the rail panels (Sessions/Projects…):
           36px header, 28px action boxes, 16px glyphs. */}
       <header className="sidebar-usage-heading session-panel-header">
@@ -468,9 +456,9 @@ export function SidebarUsage({
               const row = subscriptionRow(dashboard, subscription);
               const windows = quotaWindows(row);
               const checking = row.status === 'checking';
-              const available = Object.keys(row).length > 0;
-              const connected = subscriptionConnected(row);
-              if (!connected) return null;
+              // Only connected providers are listed, so a row here always
+              // reads as connected and never as a first-load placeholder.
+              if (!subscriptionConnected(row)) return null;
               return (
                 <div
                   className="sidebar-usage-row"
@@ -486,9 +474,7 @@ export function SidebarUsage({
                     {subscription.provider.endsWith('-oauth') && (
                       <ProviderAccountPicker api={api} provider={subscription.provider} />
                     )}
-                    {windows.length === 0 && !checking && (
-                      <small>{subscriptionStateText(!available && awaitingFirstUsage, connected)}</small>
-                    )}
+                    {windows.length === 0 && !checking && <small>{t('Connected')}</small>}
                   </span>
                   <span className="sidebar-usage-meters">
                     {windows.map((window, index) => {
@@ -520,7 +506,7 @@ export function SidebarUsage({
                     })}
                     {windows.length === 0 && (
                       <span className="sidebar-usage-meter sidebar-usage-meter-empty">
-                        <small>{emptyMeterText(checking, !available && awaitingFirstUsage, connected)}</small>
+                        <small>{checking ? t('Loading usage…') : t('No current quota window')}</small>
                       </span>
                     )}
                   </span>

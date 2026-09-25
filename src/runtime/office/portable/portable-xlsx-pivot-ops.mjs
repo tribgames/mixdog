@@ -6,6 +6,8 @@ import { workbookSheets } from './portable-cells.mjs';
 import { summarizePivotFields, writePivotTable } from './portable-pivot.mjs';
 import { areaReference, parseAreaRange } from './portable-sheet-xml.mjs';
 import { sheetCellReader } from './portable-xlsx-cell-values.mjs';
+import { autofitWorksheetRange } from './portable-xlsx-range-layout.mjs';
+import { zipText } from './portable-opc.mjs';
 
 // The row, column and value field names an add_pivot_table op names, within
 // what the portable writer can lay out.
@@ -70,8 +72,9 @@ export async function addWorksheetPivotTable(zip, sheet, xml, op) {
     op.name ||
       `MixdogPivot${Object.keys(zip.files).filter((part) => /^xl\/pivotTables\/pivotTable\d+\.xml$/.test(part)).length + 1}`
   );
+  const axes = [...rowNames, ...columnNames].map(fieldIndex);
   const written = await writePivotTable(zip, {
-    fields: summarizePivotFields(headers, records),
+    fields: summarizePivotFields(headers, records, axes),
     records,
     sourceSheet: sheet.name,
     sourceRef: areaReference(area),
@@ -81,6 +84,18 @@ export async function addWorksheetPivotTable(zip, sheet, xml, op) {
     rowField: rowNames.length ? fieldIndex(rowNames[0]) : -1,
     columnField: columnNames.length ? fieldIndex(columnNames[0]) : -1,
     valueFields: valueNames.map(fieldIndex),
+  });
+  // Excel fits a pivot's columns to what they hold when it lays the pivot out ("Autofit column widths on update" is
+  // on by default); written at the sheet default, "Channel Partners" and 11,388,173 were cut to ### on the page.
+  const anchor = parseAreaRange(String(op.destination || 'A1'));
+  await autofitWorksheetRange(zip, destination, await zipText(zip, destination.path), {
+    op: 'autofit_range',
+    range: areaReference({
+      startRow: anchor.startRow,
+      startCol: anchor.startCol,
+      endRow: anchor.startRow + written.rows - 1,
+      endCol: anchor.startCol + written.columns - 1,
+    }),
   });
   return {
     op: op.op,

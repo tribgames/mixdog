@@ -4,14 +4,7 @@ import { clean } from '../session-text.mjs';
 import { hasOwn } from '../../runtime/shared/object.mjs';
 import { serializeFrontmatterDoc } from '../../runtime/shared/markdown-frontmatter.mjs';
 import { isHiddenAgent } from '../../runtime/agent/orchestrator/internal-agents.mjs';
-import {
-  AGENT_DELETED_MARKER,
-  FIXED_AGENT_SLOTS,
-  normalizeAgentId,
-  normalizeWorkflowId,
-  availableAgentId,
-  clearAgentDefinitionCache,
-} from '../workflow.mjs';
+import { AGENT_DELETED_MARKER, FIXED_AGENT_SLOTS, availableAgentId, clearAgentDefinitionCache } from '../workflow.mjs';
 import { canonicalizeAgentRouteStorage, isAgentDisabled } from '../../runtime/shared/agent-route-config.mjs';
 import { agentEditorId, effectiveAgentRoute, oneLine, resolveDataDir } from './shared.mjs';
 
@@ -83,8 +76,7 @@ export function createAgentEditorApi(deps) {
   }
 
   function resolveSaveTarget(payload, dataDir) {
-    const requestedId = clean(payload.id);
-    const id = normalizeAgentId(requestedId) || normalizeWorkflowId(requestedId);
+    const id = agentEditorId(clean(payload.id));
     if (hasOwn(payload, 'id') && !id) {
       throw new Error('agent id must contain letters/numbers (dashes and dots allowed)');
     }

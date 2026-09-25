@@ -7,6 +7,7 @@
  */
 import { spawn } from 'node:child_process';
 
+import { computerNativeBinary, computerNativeEnvironment } from '../backend/native-host';
 import { ABORT_CLEANUP_PROGRAM } from '../backend/program';
 import { waitForComputerWorkerExit } from '../backend/worker-capacity';
 import { assertSafeComputerSessionId } from '../input/guards';
@@ -32,22 +33,27 @@ export async function cleanupAbortedInput(
   if (host.cleanupInput) return host.cleanupInput(recovery, restoreDesktop);
   if (!sweep && !recovery?.targetWindowId) return true;
   return await new Promise<boolean>((resolve) => {
-    const child = spawn(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ABORT_CLEANUP_PROGRAM],
-      {
-        windowsHide: true,
-        stdio: 'ignore',
-        env: {
-          ...process.env,
-          MIXDOG_COMPUTER_INPUT_MARKER: host.inputMarker,
-          MIXDOG_ABORT_TARGET: restoreDesktop ? recovery?.targetWindowId || '' : '',
-          MIXDOG_ABORT_RESTORE: restoreDesktop ? recovery?.restoreWindowId || '' : '',
-          MIXDOG_ABORT_CURSOR_X: String(recovery?.cursorX ?? 0),
-          MIXDOG_ABORT_CURSOR_Y: String(recovery?.cursorY ?? 0),
-        },
-      }
-    );
+    const abortEnvironment = {
+      MIXDOG_ABORT_TARGET: restoreDesktop ? recovery?.targetWindowId || '' : '',
+      MIXDOG_ABORT_RESTORE: restoreDesktop ? recovery?.restoreWindowId || '' : '',
+      MIXDOG_ABORT_CURSOR_X: String(recovery?.cursorX ?? 0),
+      MIXDOG_ABORT_CURSOR_Y: String(recovery?.cursorY ?? 0),
+    };
+    const child =
+      process.platform === 'win32'
+        ? spawn(
+            'powershell.exe',
+            ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ABORT_CLEANUP_PROGRAM],
+            {
+              windowsHide: true,
+              stdio: 'ignore',
+              env: { ...process.env, MIXDOG_COMPUTER_INPUT_MARKER: host.inputMarker, ...abortEnvironment },
+            }
+          )
+        : spawn(computerNativeBinary(), ['--abort-cleanup'], {
+            stdio: 'ignore',
+            env: computerNativeEnvironment(host.inputMarker, abortEnvironment),
+          });
     let settled = false;
     const finish = (confirmed: boolean) => {
       if (settled) return;

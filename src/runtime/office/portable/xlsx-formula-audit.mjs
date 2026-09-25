@@ -31,10 +31,7 @@ import { auditSheetHygiene, auditSheetLayout, externalDefinedNames } from './xls
 // Cells that sit side by side in the same row are one input line to the reader.
 function contiguousRuns(entries) {
   const byRow = new Map();
-  for (const entry of entries) {
-    if (!byRow.has(entry.row)) byRow.set(entry.row, []);
-    byRow.get(entry.row).push(entry);
-  }
+  for (const entry of entries) pushTo(byRow, entry.row, entry);
   const runs = [];
   for (const row of [...byRow.keys()].sort((left, right) => left - right)) {
     let current = [];
@@ -168,8 +165,7 @@ function auditDoubleCounting(list, sheet, cells) {
   for (const entry of located) {
     const terms = additiveAreas(entry.cell.formula);
     if (!terms?.some(multiCell)) continue;
-    if (!subtotals.has(entry.at.column)) subtotals.set(entry.at.column, []);
-    subtotals.get(entry.at.column).push({ ...entry, terms });
+    pushTo(subtotals, entry.at.column, { ...entry, terms });
   }
   if (!subtotals.size) return;
   for (const { cell, at } of located) {
@@ -458,15 +454,15 @@ export function auditXlsxFormulas(sheets, { auditProfile = '', sheetNames = null
   return list.issues;
 }
 
-// Folds the shared audit into a backend's own issues result (Excel's issues
-// come from its host, which reports a subset of these codes); a finding the
-// host already made is not repeated, and a sheet-scoped request stays scoped.
 // The model-discipline verdicts the shared audit owns outright. Excel's host
 // makes cruder versions of these (every numeric cell on a data sheet with no
 // comment was "unsourced", one per cell), so its findings for them are replaced
 // by the shared audit's, and both backends report the same workbook the same way.
 const SHARED_MODEL_VERDICTS = new Set(['hardcode_missing_source', 'rogue_hardcode', 'formula_inconsistency']);
 
+// Folds the shared audit into a backend's own issues result (Excel's issues
+// come from its host, which reports a subset of these codes); a finding the
+// host already made is not repeated, and a sheet-scoped request stays scoped.
 export function mergeXlsxFormulaAudit(result, document, { auditProfile = '', sheet = '' } = {}) {
   const sheets = Array.isArray(document?.sheets) ? document.sheets : [];
   const scope = sheet ? `/sheet[${String(sheet).toLowerCase()}]` : '';
@@ -474,9 +470,7 @@ export function mergeXlsxFormulaAudit(result, document, { auditProfile = '', she
     auditProfile,
     sheetNames: sheets.map((entry) => entry?.name),
     definedNames: document?.definedNames,
-  }).filter(
-    (finding) => !scope || finding.path === '/' || String(finding.path).toLowerCase().startsWith(scope)
-  );
+  }).filter((finding) => !scope || finding.path === '/' || String(finding.path).toLowerCase().startsWith(scope));
   // Only a sheet whose cells came back was read: Excel's full snapshot carries
   // no cells for a sheet past 500 cells, and the host's own verdicts for such
   // a sheet stay — the shared audit saw nothing there to replace them with.

@@ -60,7 +60,9 @@ export interface DesktopService {
   replaySessionStates?(sessionIds: string[], deliver: (updates: DesktopSessionStateUpdate[]) => void): Promise<void>;
   /** Keep every currently visible pane attached to its external live owner. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
-  setVisibleSessionsForSource?(sourceId: string, sessionIds: string[]): Promise<boolean>;
+  /** `legacyTranscript`: the source cannot page transcript history (an old
+   *  phone build) and keeps receiving the 512-item page. */
+  setVisibleSessionsForSource?(sourceId: string, sessionIds: string[], legacyTranscript?: boolean): Promise<boolean>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
   submitNewTask(
     prompt: DesktopPromptContent,

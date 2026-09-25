@@ -185,20 +185,20 @@ monaco.editor.defineTheme('mixdog-light', {
   inherit: true,
   rules: [],
   colors: {
-    'editor.background': '#fafafa',
-    'editor.foreground': '#17181a',
-    'editorGutter.background': '#fafafa',
+    'editor.background': '#f8f8fb',
+    'editor.foreground': '#242529',
+    'editorGutter.background': '#f8f8fb',
     'editorLineNumber.foreground': '#8a8f95',
     'editorLineNumber.activeForeground': '#3f4348',
-    'editor.lineHighlightBackground': '#f7f7f7',
+    'editor.lineHighlightBackground': '#f4f4f7',
     'editor.selectionBackground': '#e2e2e2',
     'editor.inactiveSelectionBackground': '#e8e8e8',
-    'editorCursor.foreground': '#17181a',
+    'editorCursor.foreground': '#242529',
     'editorWhitespace.foreground': '#e2e2e2',
     'editorIndentGuide.background1': '#e8e8e8',
     'editorIndentGuide.activeBackground1': '#b0b0b0',
-    'minimap.background': '#fafafa',
-    'editorOverviewRuler.background': '#fafafa',
+    'minimap.background': '#f8f8fb',
+    'editorOverviewRuler.background': '#f8f8fb',
     'editorOverviewRuler.border': '#00000000',
     'scrollbar.shadow': '#00000000',
     'scrollbarSlider.background': '#5c606633',
@@ -208,11 +208,11 @@ monaco.editor.defineTheme('mixdog-light', {
     'editorWidget.border': '#17181a24',
     'editorSuggestWidget.background': '#ffffff',
     'editorSuggestWidget.border': '#17181a24',
-    'editorSuggestWidget.selectedBackground': '#f0f0f0',
+    'editorSuggestWidget.selectedBackground': '#ececef',
     'editorHoverWidget.background': '#ffffff',
     'editorHoverWidget.border': '#17181a24',
-    'menu.background': '#fafafa',
-    'menu.foreground': '#17181a',
+    'menu.background': '#f8f8fb',
+    'menu.foreground': '#242529',
     'menu.selectionBackground': '#005fb8',
     'menu.selectionForeground': '#ffffff',
     'menu.separatorBackground': '#17181a33',
@@ -274,14 +274,14 @@ function withAlpha(color: string, alpha: string): string {
 }
 
 function currentMonacoColors(light: boolean): Record<string, string> {
-  const sheet = resolveThemeColor('--mx-workspace-sheet', light ? '#fafafa' : '#1c1c1f');
-  const text = resolveThemeColor('--mx-text', light ? '#17181a' : '#e9e9e9');
-  const faint = resolveThemeColor('--mx-text-faint', light ? '#717171' : '#808080');
+  const sheet = resolveThemeColor('--mx-workspace-sheet', light ? '#f8f8fb' : '#1c1c1f');
+  const text = resolveThemeColor('--mx-text', light ? '#242529' : '#e9e9e9');
+  const faint = resolveThemeColor('--mx-text-faint', light ? '#6a6a6e' : '#808080');
   const icon = resolveThemeColor('--mx-icon', light ? '#3f4348' : '#d0d0d0');
   const base = resolveThemeColor('--mx-bg-base', light ? '#ffffff' : '#222225');
-  const layer1 = resolveThemeColor('--mx-bg-layer-1', light ? '#f7f7f7' : '#2a2a2d');
-  const layer2 = resolveThemeColor('--mx-bg-layer-2', light ? '#f0f0f0' : '#323236');
-  const layer3 = resolveThemeColor('--mx-bg-layer-3', light ? '#e8e8e8' : '#3d3d41');
+  const layer1 = resolveThemeColor('--mx-bg-layer-1', light ? '#f4f4f7' : '#2a2a2d');
+  const layer2 = resolveThemeColor('--mx-bg-layer-2', light ? '#ececef' : '#323236');
+  const layer3 = resolveThemeColor('--mx-bg-layer-3', light ? '#e3e3e6' : '#3d3d41');
   const contrast = resolveThemeColor('--mx-bg-contrast', light ? '#b0b0b0' : '#5c5c61');
   const focus = resolveThemeColor('--mx-focus', light ? '#005fb8' : '#0078d4');
   const scrollbarThumb = resolveThemeColor('--mx-scrollbar-thumb', withAlpha(faint, '33'));

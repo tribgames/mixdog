@@ -14,9 +14,6 @@ import { appendAgentTrace } from '../agent-trace.mjs';
 import { resolveProviderCacheKey, resolveProviderPromptCacheLane } from '../agent-runtime/cache-strategy.mjs';
 import { shouldFallbackTransport } from './retry-classifier.mjs';
 import { envFlag as _envFlag } from '../../../shared/env.mjs';
-// Same named export as before the shared helper move: importers of this module
-// keep reading `_envFlag` from here.
-export { _envFlag };
 import {
   traceHash,
   stableTraceStringify,

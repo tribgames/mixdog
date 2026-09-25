@@ -36,8 +36,6 @@ export const RUNNERS = Object.freeze({
   eslint,
 });
 
-export const RUNNER_IDS = Object.freeze(Object.keys(RUNNERS));
-
 export function runnerFor(id) {
   return RUNNERS[String(id || '')] || null;
 }

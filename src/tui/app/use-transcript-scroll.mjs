@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { SCROLL_COALESCE_MS, accumulateDirectionalScrollDelta, shiftSelectionRectY } from './transcript-window.mjs';
 import { bottomSnapRows, readingAnchorAt } from './transcript-scroll-anchor.mjs';
+import { linearSelection } from './mouse-input/geometry.mjs';
 import { useSelectionStitchBuffer } from './use-selection-stitch.mjs';
 import { useTranscriptFollow } from './use-transcript-follow.mjs';
 import { useSelectionPaint } from './use-selection-paint.mjs';
@@ -206,10 +207,7 @@ export function useTranscriptScroll({
           rect = buildSpanRect(anchorSpan, last.x, last.y, region, anchorScroll);
         } else {
           const currentAnchor = selectionPointAtCurrentScroll(anchor, anchorScroll);
-          rect =
-            currentAnchor && last
-              ? { mode: 'linear', x1: currentAnchor.x, y1: currentAnchor.y, x2: last.x, y2: last.y }
-              : null;
+          rect = currentAnchor && last ? linearSelection(currentAnchor, last) : null;
         }
       } else {
         rect = shiftSelectionRectY(dragRef.current.rect, appliedDelta);

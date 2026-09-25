@@ -14,23 +14,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildAntigravityRequest, isAntigravityClaude as isClaudeModel } from './antigravity-request.mjs';
-
-// Opt-in request capture, the Gemini counterpart of MIXDOG_OAI_WS_DUMP_DIR:
-// when MIXDOG_ANTIGRAVITY_DUMP_DIR names a directory every serialized
-// request body (contents, tools, config — never headers or tokens) is
-// written there, so the replayed history can be inspected as sent. Unset
-// means no-op.
-let _dumpSequence = 0;
-function dumpAntigravityRequest(body) {
-  const dir = String(process.env.MIXDOG_ANTIGRAVITY_DUMP_DIR || '').trim();
-  if (!dir) return;
-  try {
-    mkdirSync(dir, { recursive: true });
-    _dumpSequence += 1;
-    const name = `antigravity-${Date.now()}-${String(_dumpSequence).padStart(3, '0')}.json`;
-    writeFileSync(join(dir, name), JSON.stringify(body, null, 2));
-  } catch {}
-}
 import { createPassthroughSignal } from '../stall-policy.mjs';
 import { preconnect } from '../../../shared/llm/http-agent.mjs';
 import { createAntigravityStreamCollector } from './antigravity-stream.mjs';
@@ -54,6 +37,23 @@ import {
   normalizeAntigravityCatalog,
   resolveAntigravityWireModel,
 } from './antigravity-oauth-catalog.mjs';
+
+// Opt-in request capture, the Gemini counterpart of MIXDOG_OAI_WS_DUMP_DIR:
+// when MIXDOG_ANTIGRAVITY_DUMP_DIR names a directory every serialized
+// request body (contents, tools, config — never headers or tokens) is
+// written there, so the replayed history can be inspected as sent. Unset
+// means no-op.
+let _dumpSequence = 0;
+function dumpAntigravityRequest(body) {
+  const dir = String(process.env.MIXDOG_ANTIGRAVITY_DUMP_DIR || '').trim();
+  if (!dir) return;
+  try {
+    mkdirSync(dir, { recursive: true });
+    _dumpSequence += 1;
+    const name = `antigravity-${Date.now()}-${String(_dumpSequence).padStart(3, '0')}.json`;
+    writeFileSync(join(dir, name), JSON.stringify(body, null, 2));
+  } catch {}
+}
 
 const CLAUDE_THINKING_BETA = 'interleaved-thinking-2025-05-14';
 
@@ -204,15 +204,15 @@ export class AntigravityOAuthProvider {
     return finalizeAntigravityTurn({ response, collector, useModel, opts, onToolCall });
   }
 
-  async _fetchRawModels(signal = null) {
+  // Authenticated options for the v1internal catalog/quota calls.
+  async _internalRequestOptions(signal) {
     await this._ensureVersion();
     const auth = await this._ensureAuth({ fetchFn: this._fetch });
-    return fetchAvailableModels({
-      accessToken: auth.accessToken,
-      projectId: auth.projectId,
-      fetchFn: this._fetch,
-      signal,
-    });
+    return { accessToken: auth.accessToken, projectId: auth.projectId, fetchFn: this._fetch, signal };
+  }
+
+  async _fetchRawModels(signal = null) {
+    return fetchAvailableModels(await this._internalRequestOptions(signal));
   }
 
   // Live catalog with a disk cache; the curated list covers an offline or
@@ -240,14 +240,7 @@ export class AntigravityOAuthProvider {
   }
 
   async _fetchQuotaSummary(signal = null) {
-    await this._ensureVersion();
-    const auth = await this._ensureAuth({ fetchFn: this._fetch });
-    return fetchUserQuotaSummary({
-      accessToken: auth.accessToken,
-      projectId: auth.projectId,
-      fetchFn: this._fetch,
-      signal,
-    });
+    return fetchUserQuotaSummary(await this._internalRequestOptions(signal));
   }
 
   async getUsageSnapshot() {

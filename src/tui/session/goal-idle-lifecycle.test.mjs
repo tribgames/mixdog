@@ -142,6 +142,51 @@ test('a settled duration list gets one review turn before the deadline wait', as
   assert.equal(f.runtime.continuation(f.sessionId).reason, 'idle-review');
 });
 
+test('an automatic turn without a tool call waits instead of prompting the unfinished list again', async (t) => {
+  const f = fixture(t);
+  await f.call({
+    action: 'create',
+    objective: 'Keep improving for the approved duration',
+    time_limit_minutes: 60,
+    time_mode: 'duration',
+    tasks: [{ text: 'Investigation still open', status: 'in_progress' }],
+  });
+  const automaticTurn = async (detail) => {
+    f.pending.length = 0;
+    f.state.busy = true;
+    await f.controller.onGoalTurnStarted();
+    f.state.busy = false;
+    await f.controller.onGoalTurnSettled({ status: 'done', ...detail });
+    await tick();
+  };
+
+  // A turn that worked keeps the continuation going.
+  await automaticTurn({ automatic: true, toolCalls: 3 });
+  assert.equal(f.pending.length, 1);
+  assert.equal(f.pending[0].mode, 'goal-continuation');
+
+  // A status-only answer to the automatic prompt was followed by one more
+  // prompt every few seconds until the deadline; now the list waits.
+  await automaticTurn({ automatic: true, toolCalls: 0 });
+  assert.deepEqual(f.pending, []);
+  assert.equal(f.runtime.continuation(f.sessionId).reason, 'no-progress-wait');
+  f.controller.scheduleGoalContinuation();
+  await tick();
+  assert.deepEqual(f.pending, []);
+
+  // A changed list wakes it.
+  await f.call({ action: 'update_tasks', tasks: [{ text: 'User-approved follow-up', status: 'pending' }] });
+  await tick();
+  assert.equal(f.pending.length, 1);
+
+  // So does a user turn, even one that called no tool.
+  await automaticTurn({ automatic: true, toolCalls: 0 });
+  assert.equal(f.runtime.continuation(f.sessionId).reason, 'no-progress-wait');
+  await automaticTurn({ automatic: false, toolCalls: 0 });
+  assert.equal(f.pending.length, 1);
+  assert.equal(f.pending[0].mode, 'goal-continuation');
+});
+
 test('duration waiting cannot suppress unfinished work, objective review, or maximum-budget closeout', async (t) => {
   for (const scenario of ['unfinished', 'unrecorded', 'objective-review', 'max', 'block-audit']) {
     await t.test(scenario, async (t) => {

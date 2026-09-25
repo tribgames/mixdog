@@ -73,7 +73,11 @@ export function readChartPresentation(xml) {
     }),
     showValues: /<c:showVal val="1"\/>/.test(labels),
     dataLabelPosition: LABEL_POSITION_NAMES[code] || '',
-    dataLabelColor: /<c:txPr>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(labels)?.[1] || '',
+    // The series' own label colour, not a slice's: each slice label carries the ink its slice can hold.
+    dataLabelColor:
+      /<c:txPr>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(
+        labels.replace(/<c:dLbl>[\s\S]*?<\/c:dLbl>/g, '')
+      )?.[1] || '',
     valueNumberFormat: xmlDecode(/<c:numFmt formatCode="([^"]*)"/.exec(valueAxis)?.[1] || ''),
     zeroBaseline: /<c:min val="0"\/>/.test(valueAxis),
     showLegend: /<c:legend>/.test(source),

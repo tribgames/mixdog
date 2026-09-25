@@ -18,7 +18,7 @@ function rows(value) {
  * could clip the text being generated. `resumeFollow` re-arms the follow flag
  * when the reading position no longer exists.
  */
-export function pinScrollToBottom(refs, { stopSmoothScroll, currentOffset, setScrollOffset, resumeFollow = false }) {
+function pinScrollToBottom(refs, { stopSmoothScroll, currentOffset, setScrollOffset, resumeFollow = false }) {
   stopSmoothScroll();
   refs.scrollTargetRef.current = 0;
   refs.scrollPositionRef.current = 0;

@@ -2,14 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DURATION_UNIT_MS } from './lib/parse-since.mjs';
-
-function argValue(name, fallback = null) {
-  const idx = process.argv.indexOf(name);
-  if (idx >= 0 && idx + 1 < process.argv.length) return process.argv[idx + 1];
-  const prefix = `${name}=`;
-  const hit = process.argv.find((arg) => arg.startsWith(prefix));
-  return hit ? hit.slice(prefix.length) : fallback;
-}
+import { argValue } from './lib/cli-args.mjs';
 
 function parseNumber(value, fallback = null) {
   if (value == null || value === '') return fallback;

@@ -38,6 +38,8 @@ export interface ServerSession {
   closing: boolean;
 }
 
+export type WithTimeout = <T>(promise: Promise<T>, timeoutMs: number, message: string) => Promise<T>;
+
 export type CapabilityResolver = (
   base: DesktopLspCapabilities,
   registrations: Iterable<DynamicCapabilityRegistration>,

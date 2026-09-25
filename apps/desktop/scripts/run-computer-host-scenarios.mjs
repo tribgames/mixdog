@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 import { optionValue } from './cli-args.mjs';
+import { repeatRequiresPass } from './computer-host-repeat-policy.mjs';
 import { computerSourceEsbuildPlugin } from './computer-source-assets.mjs';
 import { bundleElectronEntry, electronProcessEnv, spawnElectron, waitForChildExit } from './electron-harness.mjs';
 
@@ -12,7 +13,7 @@ const initialDirectory = process.env.INIT_CWD || process.cwd();
 const reportPath = resolve(
   optionValue('output') || join(initialDirectory, 'artifacts', 'computer-use', `scenario-${label}.json`)
 );
-const requirePass = process.argv.includes('--require-pass');
+const requirePass = repeatRequiresPass();
 // Foreground delivery takes the real pointer, so this lane lets the rest of the
 // matrix run while someone is using the machine.
 const skipForeground = process.argv.includes('--skip-foreground');

@@ -18,6 +18,7 @@ import { inducePptxSampleRoles } from './design-template-induct.mjs';
 import {
   directPptxShapeBlocks,
   inferPptxSampleKind,
+  numberFromPath,
   officeTemplateCoverage,
   pptxSampleCapacity,
   pptxShapeMetadata,
@@ -35,8 +36,6 @@ function slideDensity(textChars, shapeCount) {
   if (textChars > 120 || shapeCount > 8) return 'balanced';
   return 'light';
 }
-
-const numberFromPath = (value) => Number(/(\d+)(?=\.xml$)/.exec(value)?.[1] || 0);
 
 const shapeSlots = (shapes) => shapes.flatMap((shape) => (shape.slot ? [shape.slot] : []));
 

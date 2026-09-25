@@ -9,7 +9,7 @@ import { createRemoteCallQueue } from './remote-call-queue';
 import type { createRemoteStateLane } from './remote-state-lane';
 import type { createSnapshotDeltaEncoder } from './state-delta';
 
-export const MAX_ACTIVE_REMOTE_CLIENTS = 32;
+const MAX_ACTIVE_REMOTE_CLIENTS = 32;
 const MAX_PENDING_REMOTE_FRAMES = 256;
 const MAX_PENDING_REMOTE_TOTAL_FRAMES = 512;
 const E2EE_HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -36,6 +36,10 @@ export interface RelayClientState {
   /** Compact transcript frames: unchanged patch sections are dropped and the
    *  envelope addresses a session by handle. */
   compactWire: boolean;
+  /** The browser pages transcript history from `transcriptHasOlder`, so its
+   *  sessions open on a bounded tail. A browser that predates this keeps the
+   *  512-item page it pages from by count. */
+  transcriptPaging: boolean;
   /** Push lanes this browser actually reads ('terminal', 'editor',
    *  'files'). Terminal output, diagnostics and folder events are produced
    *  by DESKTOP activity — a build, a save — and used to reach every paired
@@ -155,6 +159,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
         binaryFrames: false,
         listDelta: false,
         compactWire: false,
+        transcriptPaging: false,
         lanes: null,
         sessionHandles: new Map(),
         sessionsEncoder: createKeyedListDeltaEncoder<DesktopSessionSummary>((session, index) =>

@@ -19,7 +19,7 @@ use ast_grep_outline::options::{
 };
 
 use super::rules::{DeclaredKind, RULES};
-use crate::scan_lang::ScanLang;
+use crate::scan_lang::{cached_for_lang, ScanLang};
 use crate::tokens::{GrammarKinds, KindRole, MetaField};
 
 /// One matched item with the rule-declared kinds resolved alongside it.
@@ -97,9 +97,11 @@ impl FileMeta {
 }
 
 /// Item rules indexed by the node kinds they can match, in rule order: the
-/// walk looks one node kind up here instead of trying every rule.
-fn index_items_by_kind(
+/// walk looks one node kind up here instead of trying every rule. `role`
+/// (`item` or `call`) names the rule family in the diagnostics.
+pub(crate) fn index_by_kind(
     lang: ScanLang,
+    role: &str,
     items: &[ItemExtractor<ScanLang>],
     errors: &mut Vec<String>,
 ) -> Vec<Vec<usize>> {
@@ -110,7 +112,7 @@ fn index_items_by_kind(
         // error, not a silent no-op.
         let Some(kinds) = extractor.common.rule.matcher.potential_kinds() else {
             errors.push(format!(
-                "{lang}: item rule `{}` has no `kind:` to index on; it can never match",
+                "{lang}: {role} rule `{}` has no `kind:` to index on; it can never match",
                 extractor.common.rule.id
             ));
             continue;
@@ -225,7 +227,7 @@ impl LangExtractors {
             }
         }
 
-        let item_by_kind = index_items_by_kind(lang, &items, &mut errors);
+        let item_by_kind = index_by_kind(lang, "item", &items, &mut errors);
         let (member_scopes, scope_by_parent) =
             index_member_scopes(lang, &members, &member_parents, &mut errors);
         let item_scope = items
@@ -404,15 +406,9 @@ static COMPILED: LazyLock<RwLock<HashMap<ScanLang, Arc<LangExtractors>>>> =
 
 /// Compiled extractors for `lang`, compiled on first use and shared after.
 pub fn extractors_for(lang: ScanLang) -> Arc<LangExtractors> {
-    if let Some(found) = COMPILED.read().expect("outline cache").get(&lang) {
-        return Arc::clone(found);
-    }
-    let compiled = Arc::new(LangExtractors::compile(lang, &RULES.rules, &RULES.kinds));
-    COMPILED
-        .write()
-        .expect("outline cache")
-        .insert(lang, Arc::clone(&compiled));
-    compiled
+    cached_for_lang(&COMPILED, lang, "outline cache", || {
+        LangExtractors::compile(lang, &RULES.rules, &RULES.kinds)
+    })
 }
 
 #[cfg(test)]

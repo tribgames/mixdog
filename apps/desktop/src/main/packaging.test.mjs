@@ -435,7 +435,7 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(capture, /await Promise\.race\(\[\s*host\.dispose\(\),/);
   assert.match(options, /Object\.freeze/);
   assert.match(options, /DESKTOP_BACKGROUND_COLOR\s*=\s*'#151518'/);
-  assert.match(options, /DESKTOP_LIGHT_BACKGROUND_COLOR\s*=\s*'#f0f0f0'/);
+  assert.match(options, /DESKTOP_LIGHT_BACKGROUND_COLOR\s*=\s*'#efeff2'/);
   assert.match(options, /DESKTOP_TITLEBAR_HEIGHT\s*=\s*35/);
   assert.match(options, /color:\s*'#00000000'/);
   assert.match(options, /backgroundColor:\s*DESKTOP_BACKGROUND_COLOR/);

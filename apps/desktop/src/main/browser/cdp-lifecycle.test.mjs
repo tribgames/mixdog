@@ -142,6 +142,27 @@ test('intercept types use the Network request identity without conflating XHR or
   await f.cdp.detach(f.guest);
 });
 
+test("a mocked body is fulfilled under the server's own status line", async () => {
+  const rule = { id: 'i1', pattern: '*/api*', matcher: /api/, resourceTypes: [], abort: false, body: 'mock', hits: 0 };
+  const f = fixture(undefined, () => rule);
+  await f.cdp.guestDebugger(f.guest);
+  f.debug.emit('message', {}, 'Fetch.requestPaused', {
+    requestId: 'pause-404',
+    resourceType: 'Fetch',
+    request: { url: 'https://example.test/api' },
+    responseStatusCode: 404,
+    responseStatusText: 'Not Found',
+  });
+  await tick();
+  const fulfilled = f.calls.find((call) => call.method === 'Fetch.fulfillRequest');
+  // Chromium applies whatever status the fulfilment names, so the server's has
+  // to be handed back or a 404 would reach the page as a mocked 200.
+  assert.equal(fulfilled.params.responseCode, 404);
+  assert.equal(fulfilled.params.responsePhrase, 'Not Found');
+  assert.equal(Buffer.from(fulfilled.params.body, 'base64').toString('utf8'), 'mock');
+  await f.cdp.detach(f.guest);
+});
+
 test('a failing page script reports the position it threw at, not the message alone', async () => {
   const f = fixture(async (method) =>
     method === 'Runtime.evaluate'

@@ -41,6 +41,28 @@ await pres.writeFile({ fileName: OUTPUT });
 const LONG_TITLE =
   'Retention rose after onboarding and kept rising through the second quarter of the year while support tickets fell by a third and the activation funnel shortened from nine days to four for every cohort that started after the guided setup shipped in March';
 
+test('a formula the batch just wrote is pending recalculation, not a defect the audit asks to fix', async (t) => {
+  const cwd = await workspace(t);
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'model.xlsx'),
+        mode: 'portable',
+        operations: [
+          { op: 'set_range', range: 'A1:A2', values: [[2], [3]] },
+          { op: 'set_formula', cell: 'A3', formula: '=SUM(A1:A2)' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const { audit } = created.batch;
+  assert.equal(audit.status, 'pass', JSON.stringify(audit));
+  assert.ok(audit.counts.info >= 1, JSON.stringify(audit.counts));
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
 test('summarizeOfficeAudit ranks touched locations first, drops advisories from the targets, and caps the list', () => {
   const issueList = [
     { severity: 'warning', code: 'text_overflow', path: '/slide[3]/shape[2]', message: 'over' },

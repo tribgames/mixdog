@@ -4,10 +4,11 @@
  * runs in parallel, and observations overlap freely — a write still waits for
  * the reads already in flight, so it never lands mid-observation.
  */
-import type { BrowserCommand, BrowserCommandResult } from './command';
+import { type BrowserCommand, type BrowserCommandResult, normalizeBrowserAction } from './command';
 import { queueBarrier, trackQueueTail, waitForBarrier, type QueueLedger } from './command-queue-barrier';
-import { commandQueueKey, normalizedAction, type QueueKeyHost } from './command-queue-key';
+import { commandQueueKey, type QueueKeyHost } from './command-queue-key';
 import { createLocalInputQueue } from './command-queue-local-input';
+import { throwIfBrowserCancelled } from './settle';
 import { timeBrowserCommand } from './timing';
 import { BROWSER_INPUT_EXPIRED } from '../../shared/browser-input-policy';
 
@@ -57,7 +58,7 @@ export function createBrowserCommandQueue(host: BrowserCommandQueueHost) {
       const interrupted = local.takeoverError(key, enqueuedAt);
       if (interrupted) return Promise.reject(interrupted);
     }
-    const readOnly = !operation && READ_ONLY_ACTIONS.has(normalizedAction(command));
+    const readOnly = !operation && READ_ONLY_ACTIONS.has(normalizeBrowserAction(command));
     const reads = pendingReads.get(key);
     const barrier = queueBarrier(commandChains.get(key), reads, readOnly);
     const controller = new AbortController();
@@ -76,7 +77,7 @@ export function createBrowserCommandQueue(host: BrowserCommandQueueHost) {
     });
     let dispatched: Promise<unknown> | undefined;
     const run = ready.then(async () => {
-      if (signal.aborted) throw signal.reason || new Error('browser command cancelled');
+      throwIfBrowserCancelled(signal);
       const execute = <Result>(work: () => Promise<Result>) => {
         const pending = work();
         dispatched = pending;

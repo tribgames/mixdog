@@ -1,6 +1,5 @@
 import dns from 'node:dns';
 import net from 'node:net';
-import { Agent, fetch as undiciFetch } from 'undici';
 
 // Shared URL guard for the web-search runtime and bounded fetch consumers.
 export function normalizeUrl(url) {
@@ -12,7 +11,7 @@ export function normalizeUrl(url) {
 function assertPrivateIpv4(hostname) {
   const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (!ipv4Match) return;
-  const [, a, b] = ipv4Match.map(Number);
+  const [, a, b, c] = ipv4Match.map(Number);
   if (
     a === 127 ||
     a === 10 ||
@@ -22,6 +21,13 @@ function assertPrivateIpv4(hostname) {
     (a === 169 && b === 254) ||
     (a === 100 && b >= 64 && b <= 127) ||
     (a === 198 && b >= 18 && b <= 19) ||
+    // IANA special-purpose blocks that are not globally reachable: IETF
+    // protocol assignments, documentation (TEST-NET-1/2/3) and the retired
+    // 6to4 relay anycast prefix.
+    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
+    (a === 192 && b === 88 && c === 99) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113) ||
     (a >= 224 && a <= 239) ||
     a >= 240
   ) {
@@ -104,6 +110,44 @@ function _validateIpv6(ip, label = ip) {
   if (mappedIpv4) {
     assertPrivateIpv4(mappedIpv4);
   }
+  const h = _ipv6Hextets(lower);
+  // Site-local (fec0::/10), documentation (2001:db8::/32, 3fff::/20),
+  // discard-only (100::/64) and local-use NAT64 (64:ff9b:1::/48) never name a
+  // public host.
+  if (
+    (h[0] & 0xffc0) === 0xfec0 ||
+    (h[0] === 0x2001 && h[1] === 0x0db8) ||
+    (h[0] === 0x3fff && h[1] < 0x1000) ||
+    (h[0] === 0x0100 && !h[1] && !h[2] && !h[3]) ||
+    (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 1)
+  ) {
+    throw new Error(`Blocked request to private address: ${label}`);
+  }
+  // Addresses that carry an IPv4 destination: IPv4-compatible ::a.b.c.d,
+  // NAT64 64:ff9b::/96 and 6to4 2002:AABB:CCDD::/48 reach that IPv4, so it
+  // gets the IPv4 rules.
+  const quad = (hi, lo) => `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+  if (h.slice(0, 6).every((part) => part === 0)) assertPrivateIpv4(quad(h[6], h[7]));
+  if (h[0] === 0x64 && h[1] === 0xff9b && h.slice(2, 6).every((part) => part === 0)) {
+    assertPrivateIpv4(quad(h[6], h[7]));
+  }
+  if (h[0] === 0x2002) assertPrivateIpv4(quad(h[1], h[2]));
+}
+
+/** The eight 16-bit groups of a valid IPv6 literal (zone id dropped, a
+ *  trailing dotted IPv4 folded into the last two groups). */
+function _ipv6Hextets(ip) {
+  let text = ip.split('%')[0];
+  const dotted = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(text);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(1).map(Number);
+    text = `${text.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head, tail] = text.includes('::') ? text.split('::') : [text, null];
+  const front = head ? head.split(':') : [];
+  const back = tail ? tail.split(':') : [];
+  const fill = tail === null ? [] : Array(8 - front.length - back.length).fill('0');
+  return [...front, ...fill, ...back].map((part) => Number.parseInt(part, 16) || 0);
 }
 
 // Resolve hostname once, validate EVERY returned address (so a DNS round-robin
@@ -239,6 +283,9 @@ export async function pinnedFetch(url, options = {}) {
   // All returned addresses are validated. Let the connector try both IP
   // families instead of failing a usable site on an unreachable first address.
   const pinned = addresses[0];
+  // undici is ~100 modules; the hook bus imports this file at runtime boot,
+  // so load it on the first pinned request instead of on every launch.
+  const { Agent, fetch: undiciFetch } = await import('undici');
   const dispatcher = new Agent({
     connect: {
       autoSelectFamily: true,

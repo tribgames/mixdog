@@ -12,8 +12,13 @@ import {
   publicGoal,
 } from './goal-state.mjs';
 
+/** Directory holding one Goal record per session under `dataDir`. */
+export function goalsRoot(dataDir) {
+  return join(clean(dataDir) || process.cwd(), 'goals');
+}
+
 function goalFilePath(dataDir, sessionId) {
-  return join(clean(dataDir) || process.cwd(), 'goals', `${assertSessionId(sessionId)}.json`);
+  return join(goalsRoot(dataDir), `${assertSessionId(sessionId)}.json`);
 }
 
 export function deleteStoredGoalFile(dataDir, sessionId) {
@@ -55,7 +60,7 @@ export function listStoredActiveGoalSessionIds({
   now = () => Date.now(),
   completedGoalTtlMs = DEFAULT_COMPLETED_GOAL_TTL_MS,
 } = {}) {
-  const root = join(clean(dataDir) || process.cwd(), 'goals');
+  const root = goalsRoot(dataDir);
   let entries = [];
   try {
     entries = readdirSync(root, { withFileTypes: true });

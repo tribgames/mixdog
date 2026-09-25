@@ -43,6 +43,20 @@ function writeOsc52Clipboard(text) {
   }
 }
 
+const LINUX_CLIPBOARD_HINT =
+  'install wl-clipboard (Wayland) or xclip (X11), for example `sudo apt install wl-clipboard xclip`';
+
+/** A clipboard helper that is not installed, named with the package to add. */
+export function clipboardHelperError(cmd, error) {
+  if (error?.code !== 'ENOENT' || process.platform !== 'linux') return error;
+  return new Error(`${cmd} is not installed; ${LINUX_CLIPBOARD_HINT}`);
+}
+
+/** Neither Linux clipboard reader is installed. */
+export function noClipboardReaderError() {
+  return new Error(`no clipboard reader is installed; ${LINUX_CLIPBOARD_HINT}`);
+}
+
 function nativeClipboardCommand(text) {
   const value = String(text ?? '');
   if (process.platform === 'win32') {
@@ -77,12 +91,12 @@ export function copyToClipboard(text) {
       child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
     } catch (e) {
       if (wroteOsc52) resolve();
-      else reject(e);
+      else reject(clipboardHelperError(cmd, e));
       return;
     }
     child.on('error', (e) => {
       // Surface only if OSC 52 didn't cover us; otherwise the copy still landed.
-      if (!wroteOsc52) reject(e);
+      if (!wroteOsc52) reject(clipboardHelperError(cmd, e));
     });
     if (!wroteOsc52) {
       child.on('close', (code) => {

@@ -38,10 +38,12 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
 
   // A phone polls frames every 350–900ms while its Browser Use sheet is open.
   // The desktop parks an unshown guest OFF-window, where Chromium composes no
-  // frames, so every capture for it timed out (user: 폰에서 브라우저 유즈만
-  // 안 됨). While a phone is viewing, the display client keeps that guest
-  // inside the window under the UI; presence drops after the polling stops.
+  // frames and every capture for it would time out. While a phone is viewing,
+  // the display client keeps that guest inside the window under the UI;
+  // presence drops after the polling stops.
   const REMOTE_VIEWER_IDLE_MS = 4_000;
+  /** One encoding for the frame and its pre-gesture recheck, so their pixels compare. */
+  const REMOTE_FRAME_CAPTURE = { format: 'jpeg', quality: 58 } as const;
   const viewerTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   function noteViewer(sessionId: string): void {
@@ -71,10 +73,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     await cdp.waitForInitialDocument(guest);
     const documentId = browserDocumentId(state, guest);
     const revision = await host.revision?.(guest);
-    const capture = await captureScreenshot(guest, false, {
-      format: 'jpeg',
-      quality: 58,
-    });
+    const capture = await captureScreenshot(guest, false, REMOTE_FRAME_CAPTURE);
     const record = state.for(guest);
     if (revision !== (await host.revision?.(guest)) || documentId !== browserDocumentId(state, guest)) {
       throw new Error('Remote Browser Use page changed during capture; wait for a fresh frame.');
@@ -138,7 +137,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
         throw new Error('Remote Browser Use page changed; wait for the latest frame and retry.');
       }
       // DOM revisions do not cover canvas/video. Compare the actual pixels too.
-      const current = await captureScreenshot(guest, false, { format: 'jpeg', quality: 58 });
+      const current = await captureScreenshot(guest, false, REMOTE_FRAME_CAPTURE);
       if (current.data !== frame.image.data || state.peek(guest)?.remoteFrame !== frame) {
         state.invalidateInteraction(guest);
         throw new Error('Remote Browser Use image changed; wait for the latest frame and retry.');

@@ -1,6 +1,5 @@
 // Loop termination-reason classification.
-// Pure function over the final response + loop-end flags. No behavior change:
-// the classification ladder is verbatim from the tail of agentLoop.
+// Pure functions over the final response + loop-end flags.
 import { HIDDEN_AGENT_NAMES } from './hidden-agents.mjs';
 
 // Stop reasons that signal the turn was cut short mid-synthesis. This broad set
@@ -48,23 +47,21 @@ export function providerContinuationSignal(response) {
 // "completed". Determine "has content" exactly the way the no-tool-call
 // branch in agentLoop does (trimmed string content, or any reasoning content).
 export function classifyTerminationReason(response, { sessionAgent } = {}) {
-  const _finalHasContent =
+  const hasContent =
     (typeof response?.content === 'string' && response.content.trim().length > 0) ||
     (typeof response?.reasoningContent === 'string' && response.reasoningContent.trim().length > 0);
-  const _finalStopReason = response?.stopReason ?? response?.stop_reason ?? null;
-  const _finalIncompleteStop = _finalStopReason && INCOMPLETE_STOP_REASONS.has(_finalStopReason);
-  const _finalOutputLimitStop = isOutputLimitStopReason(_finalStopReason);
-  const _finalIsHidden = HIDDEN_AGENT_NAMES.has(sessionAgent);
-  if (_finalStopReason === 'refusal') {
+  const stopReason = response?.stopReason ?? response?.stop_reason ?? null;
+  if (stopReason === 'refusal') {
     return 'refusal';
   }
-  if (_finalOutputLimitStop || (!_finalHasContent && _finalIncompleteStop)) {
+  const incompleteStop = stopReason && INCOMPLETE_STOP_REASONS.has(stopReason);
+  if (isOutputLimitStopReason(stopReason) || (!hasContent && incompleteStop)) {
     // Exhausted token-cap recovery is abnormal even with preserved partial
     // text. pause_turn/OTHER retain their prior non-empty completion
     // semantics, while their empty forms remain abnormal.
     return 'truncated';
   }
-  if (!_finalHasContent && !_finalIsHidden) {
+  if (!hasContent && !HIDDEN_AGENT_NAMES.has(sessionAgent)) {
     // Empty terminal turn. Only public agents violate their contract by
     // finishing empty — hidden agents (cycle/…) legitimately emit
     // text-only/empty terminal turns per their own role contract, so leave

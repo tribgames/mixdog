@@ -8,6 +8,7 @@ import { record } from '../record-utils';
 import { AboutPanel } from './about-panel';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { ConnectionPanel } from './connection-panel';
+import { DeveloperPanel } from './developer-panel';
 import { GeneralPanel } from './general-panel';
 
 import { ActionButton, AutoSaveRow, Group, ListEmpty, ResourceRow, ToggleRow } from './capability-controls';
@@ -39,6 +40,7 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
   if (category === 'system') return <SystemPanel {...context} />;
   if (category === 'shortcuts') return <ShortcutsPanel />;
   if (category === 'connection') return <ConnectionPanel api={context.api} />;
+  if (category === 'developer') return <DeveloperPanel {...context} />;
   if (category === 'about') return <AboutPanel />;
   return <GeneralPanel {...context} />;
 }

@@ -2,7 +2,6 @@
 // resolution.
 
 import { getModelMetadataSync } from '../../providers/model-catalog.mjs';
-import { CONTEXT_SHARE_RATIO, COMPACT_TARGET_MIN_TOKENS } from '../compact.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
 
 // Known context windows for the current-generation models this plugin
@@ -100,34 +99,10 @@ export function preserveBufferConfigFields(cfg = {}) {
   }
   return out;
 }
-function compactTargetRatio() {
-  const raw =
-    process.env.MIXDOG_AGENT_COMPACT_TARGET_PERCENT ?? process.env.MIXDOG_COMPACT_TARGET_PERCENT ?? CONTEXT_SHARE_RATIO;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return CONTEXT_SHARE_RATIO;
-  return n > 1 ? n / 100 : n;
-}
-function compactTargetTokensForBoundary(boundaryTokens) {
-  const boundary = positiveInt(boundaryTokens);
-  if (!boundary) return null;
-  const explicit = positiveInt(
-    process.env.MIXDOG_AGENT_COMPACT_TARGET_TOKENS ?? process.env.MIXDOG_COMPACT_TARGET_TOKENS
-  );
-  if (explicit) return Math.max(1, Math.min(boundary, explicit));
-  const minTarget = Math.min(
-    boundary,
-    positiveInt(process.env.MIXDOG_COMPACT_TARGET_MIN_TOKENS) || COMPACT_TARGET_MIN_TOKENS
-  );
-  const byRatio = Math.max(1, Math.floor(boundary * compactTargetRatio()));
-  return Math.max(1, Math.min(boundary, Math.max(minTarget, byRatio)));
-}
-function defaultEffectiveContextWindowPercent(provider) {
-  // The session boundary is the model's full raw window. Headroom is applied
-  // by resolveSessionCompactPolicy instead: agent sessions compact at the
-  // buffered trigger, while main/user sessions compact on the boundary.
-  void provider;
-  return 100;
-}
+// The session boundary is the model's full raw window. Headroom is applied
+// by resolveSessionCompactPolicy instead: agent sessions compact at the
+// buffered trigger, while main/user sessions compact on the boundary.
+const DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 100;
 function providerRawContextWindow(info, catalogInfo) {
   if (!info || typeof info !== 'object') return null;
   const fromApiFields = positiveInt(info.context_window) || positiveInt(info.max_context_window);
@@ -174,10 +149,9 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
       info?.effective_context_window_percent ??
       catalogInfo?.effectiveContextWindowPercent ??
       catalogInfo?.effective_context_window_percent,
-    defaultEffectiveContextWindowPercent(provider)
+    DEFAULT_EFFECTIVE_CONTEXT_WINDOW_PERCENT
   );
-  const pct = boundedPercent(effectiveContextWindowPercent, 100);
-  const contextWindow = Math.max(1, Math.floor((rawContextWindow * pct) / 100));
+  const contextWindow = Math.max(1, Math.floor((rawContextWindow * effectiveContextWindowPercent) / 100));
   const compactBoundaryTokens = contextWindow;
   const rawCompactLimit = positiveInt(
     seed.autoCompactTokenLimit ??
@@ -197,27 +171,18 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
   // null so the trigger falls back to the default boundary trigger.
   const explicitCompactLimit = rawCompactLimit && rawCompactLimit < compactBoundaryTokens ? rawCompactLimit : null;
   // Do NOT derive the auto-compact limit from the full effective window.
-  // Setting it to contextWindow makes autoTriggerTokens == boundary and the
-  // compaction buffer collapse to 0 (loop.mjs:708-713 / compactTriggerForSession),
-  // so auto-compact only fires when the context is already at the limit —
-  // at which point Compact fails ("result exceeds budget" /
-  // "summary cannot fit") and the turn can no longer be resumed.
-  // Leave it null unless the provider/catalog/seed supplies an explicit
-  // limit; the downstream buffer logic (default 10%, capped 25%) then
-  // triggers compaction with headroom, matching the reference auto-compact threshold.
-  const autoCompactTokenLimit = explicitCompactLimit || null;
+  // Setting it to contextWindow makes the trigger equal the boundary and the
+  // compaction buffer collapse to 0, so auto-compact only fires when the
+  // context is already at the limit — at which point Compact fails
+  // ("result exceeds budget" / "summary cannot fit") and the turn can no
+  // longer be resumed. Leave it null unless the provider/catalog/seed
+  // supplies an explicit limit; the buffer policy in
+  // context-compaction-policy.mjs then decides the trigger.
   return {
     contextWindow,
     rawContextWindow,
     effectiveContextWindowPercent,
-    autoCompactTokenLimit: autoCompactTokenLimit || null,
+    autoCompactTokenLimit: explicitCompactLimit || null,
     compactBoundaryTokens,
   };
-}
-export function compactTargetBudget(boundaryTokens, reserveTokens, _sourceTokens = null, _ratio = null) {
-  const boundary = positiveInt(boundaryTokens);
-  if (!boundary) return null;
-  const reserve = Math.max(0, Number(reserveTokens) || 0);
-  const targetEffective = compactTargetTokensForBoundary(boundary) || boundary;
-  return Math.max(1, Math.min(boundary, targetEffective + reserve));
 }

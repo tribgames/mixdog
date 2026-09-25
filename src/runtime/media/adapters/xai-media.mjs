@@ -13,6 +13,15 @@ import { upstreamError } from '../upstream-error.mjs';
 const POLL_INTERVAL_MS = 4_000;
 const START_TIMEOUT_MS = 60_000;
 const TOTAL_TIMEOUT_MS = 900_000;
+const IMAGE_TIMEOUT_MS = 180_000;
+// Each poll needs its own ceiling: one hung request would otherwise keep the
+// loop from ever reaching its deadline check.
+const POLL_REQUEST_TIMEOUT_MS = 60_000;
+
+function boundedSignal(signal, deadline, capMs) {
+  const remaining = Math.max(1, deadline - Date.now());
+  return AbortSignal.any([signal, AbortSignal.timeout(Math.min(capMs, remaining))].filter(Boolean));
+}
 
 async function readError(res) {
   const text = await res.text().catch(() => '');
@@ -57,7 +66,7 @@ export async function generateImage({ lane, model, prompt, options = {}, referen
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
-    signal,
+    signal: AbortSignal.any([signal, AbortSignal.timeout(IMAGE_TIMEOUT_MS)].filter(Boolean)),
   });
   if (!res.ok) throw upstreamError('xAI image', res.status, await readError(res));
   const data = await res.json();
@@ -100,7 +109,10 @@ export async function generateVideo({ lane, model, prompt, options = {}, referen
     if (signal?.aborted) throw mediaError('canceled', 'MEDIA_CANCELED', 499);
     if (Date.now() > deadline) throw mediaError('xAI video poll budget exceeded', 'MEDIA_TIMEOUT', 504);
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-    const poll = await fetch(`${baseURL}/videos/${requestId}`, { headers, signal });
+    const poll = await fetch(`${baseURL}/videos/${requestId}`, {
+      headers,
+      signal: boundedSignal(signal, deadline, POLL_REQUEST_TIMEOUT_MS),
+    });
     if (!poll.ok && poll.status !== 202) throw upstreamError('xAI video poll', poll.status, await readError(poll));
     const data = await poll.json().catch(() => ({}));
     if (typeof data?.progress === 'number' && typeof onProgress === 'function') onProgress(data.progress);

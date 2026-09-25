@@ -23,7 +23,7 @@ import { postMessages } from './anthropic-oauth-request/gzip-post.mjs';
 import { removeAbortListener, wireRequestAbort } from './anthropic-oauth-request/abort-wiring.mjs';
 import { judgeInitialStatus } from './anthropic-oauth-request/initial-status.mjs';
 
-export { API_URL, ANTHROPIC_VERSION } from './anthropic-oauth-request/gzip-post.mjs';
+export { ANTHROPIC_VERSION } from './anthropic-oauth-request/gzip-post.mjs';
 export { anthropicQuotaError } from './anthropic-oauth-request/initial-status.mjs';
 
 /**

@@ -395,32 +395,28 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
       deltaCacheWrite: result.usage.cacheWriteTokens || 0,
     });
   }
-  const _lastTurn = result.lastTurnUsage || result.usage || {};
-  const measuredInput = Number(_lastTurn.mainInputTokens ?? _lastTurn.inputTokens) || 0;
+  const lastTurn = result.lastTurnUsage || result.usage || {};
+  const measuredInput = Number(lastTurn.mainInputTokens ?? lastTurn.inputTokens) || 0;
   const measuredCache = providerInputExcludesCache(session.provider)
-    ? (Number(_lastTurn.mainCachedTokens ?? _lastTurn.cachedTokens) || 0) +
-      (Number(_lastTurn.mainCacheWriteTokens ?? _lastTurn.cacheWriteTokens) || 0)
+    ? (Number(lastTurn.mainCachedTokens ?? lastTurn.cachedTokens) || 0) +
+      (Number(lastTurn.mainCacheWriteTokens ?? lastTurn.cacheWriteTokens) || 0)
     : 0;
   if (
-    _lastTurn.mainUsageAvailable !== false &&
+    lastTurn.mainUsageAvailable !== false &&
     measuredInput + measuredCache <= 0 &&
-    applyMeasuredContextOccupancy(
-      session,
-      _lastTurn.contextTokens,
-      _lastTurn.mainOutputTokens ?? _lastTurn.outputTokens
-    )
+    applyMeasuredContextOccupancy(session, lastTurn.contextTokens, lastTurn.mainOutputTokens ?? lastTurn.outputTokens)
   ) {
     return;
   }
-  if (_lastTurn.mainUsageAvailable === false || measuredInput + measuredCache <= 0) {
+  if (lastTurn.mainUsageAvailable === false || measuredInput + measuredCache <= 0) {
     clearLastContextTokens(session);
     return;
   }
   setLastContextTokens(session, {
-    input: _lastTurn.mainInputTokens ?? _lastTurn.inputTokens ?? 0,
-    output: _lastTurn.mainOutputTokens ?? _lastTurn.outputTokens ?? 0,
-    cachedRead: _lastTurn.mainCachedTokens ?? _lastTurn.cachedTokens ?? 0,
-    cacheWrite: _lastTurn.mainCacheWriteTokens ?? _lastTurn.cacheWriteTokens ?? 0,
+    input: lastTurn.mainInputTokens ?? lastTurn.inputTokens ?? 0,
+    output: lastTurn.mainOutputTokens ?? lastTurn.outputTokens ?? 0,
+    cachedRead: lastTurn.mainCachedTokens ?? lastTurn.cachedTokens ?? 0,
+    cacheWrite: lastTurn.mainCacheWriteTokens ?? lastTurn.cacheWriteTokens ?? 0,
   });
 }
 

@@ -112,4 +112,6 @@ pub use kinds::symbol_kind;
 pub use rules::{has_rules, language_rule_errors, rule_errors, DeclaredKind, LoadedRules};
 pub use symbols::{extract, identifier_hits, Extraction, SymbolInfo};
 
-pub(crate) use rules::{split_yaml_documents, tsx_variant};
+pub(crate) use extractors::index_by_kind;
+pub(crate) use rules::{marker_value, split_yaml_documents, tsx_variant};
+pub(crate) use signature::collapse_whitespace;

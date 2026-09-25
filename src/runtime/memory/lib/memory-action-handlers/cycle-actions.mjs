@@ -9,7 +9,7 @@ import { throwIfAborted } from '../memory-cycle2-shared.mjs';
 import { createBackfillAction } from './cycle-backfill-action.mjs';
 import { createRebuildAction } from './cycle-rebuild-action.mjs';
 
-// `_runCycle1Impl` reads `config?.min_batch ?? config?.cycle1?.min_batch ??
+// `resolveCycle1Plan` reads `config?.min_batch ?? config?.cycle1?.min_batch ??
 // default` — top-level wins, so overrides are pinned at top-level only.
 const CYCLE1_NUMERIC_OVERRIDES = [
   ['min_batch', (args) => args?.min_batch],

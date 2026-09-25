@@ -193,14 +193,20 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
 // user-facing context gauge.
 export function currentContextEstimateTokens(messageTokensEst, policy) {
   if (messageTokensEst === null) return 0;
-  const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
+  const requestReserve = policyRequestReserveTokens(policy);
+  return Math.max(0, Math.round((messageTokensEst + requestReserve) * policyTokenCalibration(policy)));
+}
+
+function policyTokenCalibration(policy) {
+  return Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
+}
+
+// The request/schema share of the policy reserve: the recorded value, else
+// total reserve minus operator headroom, never more than the total.
+function policyRequestReserveTokens(policy) {
   const configured = Math.max(0, Number(policy?.configuredReserveTokens) || 0);
   const totalReserve = Math.max(0, Number(policy?.reserveTokens) || 0);
-  const requestReserve = Math.min(
-    totalReserve,
-    Math.max(0, Number(policy?.requestReserveTokens ?? totalReserve - configured) || 0)
-  );
-  return Math.max(0, Math.round((messageTokensEst + requestReserve) * calibration));
+  return Math.min(totalReserve, Math.max(0, Number(policy?.requestReserveTokens ?? totalReserve - configured) || 0));
 }
 
 const CONTEXT_USAGE_SNAPSHOT_VERSION = 1;
@@ -463,7 +469,7 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, { includeC
   if (!aligned) return null;
   let { tokens } = aligned;
   const { count, baselineAt } = aligned;
-  const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
+  const calibration = policyTokenCalibration(policy);
   if (sessionRef.contextPressureBaselineToolSignature !== policy?.toolSchemaSignature) {
     const currentRequestReserve = Math.max(0, Math.round((Number(policy?.requestReserveTokens) || 0) * calibration));
     const storedRequestReserve = Number(sessionRef.contextPressureBaselineRequestReserveTokens);
@@ -566,12 +572,8 @@ export function compactTargetBudget(policy) {
   const reserve = Math.max(0, Number(policy?.reserveTokens) || 0);
   const gaugeTarget =
     positiveInt(policy?.compactTargetTokens) || resolveCompactTargetTokens(boundary, policy) || boundary;
-  const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
-  const configuredReserve = Math.max(0, Number(policy?.configuredReserveTokens) || 0);
-  const requestReserve = Math.min(
-    reserve,
-    Math.max(0, Number(policy?.requestReserveTokens ?? reserve - configuredReserve) || 0)
-  );
+  const calibration = policyTokenCalibration(policy);
+  const requestReserve = policyRequestReserveTokens(policy);
   const toRawTokens = (value) => Math.max(1, Math.floor(value / calibration));
   const rawBoundary = toRawTokens(boundary);
   const rawTarget = Math.max(1, Math.min(rawBoundary, toRawTokens(gaugeTarget)) - requestReserve);

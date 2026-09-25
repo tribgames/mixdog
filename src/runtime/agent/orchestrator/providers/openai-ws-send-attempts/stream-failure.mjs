@@ -16,6 +16,7 @@ import {
   tag,
 } from './policy.mjs';
 import { stampStreamFailure } from './stream-failure-stamps.mjs';
+import { chainSocketError } from '../openai-ws-terminal.mjs';
 
 /**
  * Reasoning-replay rejection safety net: a duplicate-rs_ rejection on a frame
@@ -44,26 +45,14 @@ function stripReasoningReplay(ctx, err, { attemptIndex, entry }) {
   return true;
 }
 
-/** Attach the retry attempt's error so post-mortem diagnostics can see WHY
- *  the retry also failed instead of silently dropping it. `cause` if free,
- *  else `suppressed`. */
-function attachRetryError(first, err) {
-  try {
-    if (!first.cause) first.cause = err;
-    else {
-      const list = Array.isArray(first.suppressed) ? first.suppressed : [];
-      list.push(err);
-      first.suppressed = list;
-    }
-  } catch {}
-}
-
 function surfaceExhausted(ctx, err, attemptIndex) {
   const { state } = ctx;
   const first = ctx.surfaceFirstAttempt(attemptIndex, midstreamRetryLimit(state.firstAttemptClassifier), (e) =>
     markProviderRecoveryExhausted(e, { owner: 'openai-oauth-ws-midstream', attempts: attemptIndex + 1 })
   );
-  attachRetryError(first, err);
+  // Keep the retry attempt's error for post-mortem diagnostics instead of
+  // silently dropping it: `cause` if free, else `suppressed`.
+  chainSocketError(first, err);
   return ctx.surface(first);
 }
 

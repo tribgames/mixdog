@@ -234,14 +234,22 @@ export function StudioRouteMenu({
 
   const mounted = open || closing;
 
-  // ABB: back closes the drilled pane first, then the sheet — same order the
-  // Escape handler below walks.
-  useMobileBack(open, () => closeAll());
-  useMobileBack(Boolean(pane), () => {
+  const closePane = useCallback(() => {
     setPane(null);
     setFlyoutBox(null);
     setDrill(false);
-  });
+  }, []);
+
+  const toggle = () =>
+    commitImmediateOverlay(() => {
+      if (open) closeAll();
+      else show();
+    });
+
+  // ABB: back closes the drilled pane first, then the sheet — same order the
+  // Escape handler below walks.
+  useMobileBack(open, () => closeAll());
+  useMobileBack(Boolean(pane), closePane);
 
   useEffect(() => {
     if (!mounted) return undefined;
@@ -256,13 +264,8 @@ export function StudioRouteMenu({
       if (event.key !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();
-      if (pane) {
-        setPane(null);
-        setFlyoutBox(null);
-        setDrill(false);
-      } else {
-        closeAll();
-      }
+      if (pane) closePane();
+      else closeAll();
     };
     const onViewport = () => layout();
     // A phone keyboard resizes and offsets the VISUAL viewport, which fires
@@ -283,7 +286,7 @@ export function StudioRouteMenu({
       visual?.removeEventListener('resize', onViewport);
       visual?.removeEventListener('scroll', onViewport);
     };
-  }, [closeAll, layout, mounted, pane]);
+  }, [closeAll, closePane, layout, mounted, pane]);
 
   useEffect(
     () => () => {
@@ -389,9 +392,7 @@ export function StudioRouteMenu({
         className="route-sheet-back"
         aria-label={t('Back')}
         onClick={() => {
-          setPane(null);
-          setFlyoutBox(null);
-          setDrill(false);
+          closePane();
           window.setTimeout(() => rowButtons.current[target]?.focus({ preventScroll: true }), 0);
         }}
       >
@@ -552,18 +553,12 @@ export function StudioRouteMenu({
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           clickGuard.markPointerActivation();
-          commitImmediateOverlay(() => {
-            if (open) closeAll();
-            else show();
-          });
+          toggle();
         }}
         onClick={(event) => {
           if (clickGuard.consumePointerClick()) return;
           if (event.detail !== 0) return;
-          commitImmediateOverlay(() => {
-            if (open) closeAll();
-            else show();
-          });
+          toggle();
         }}
         onPointerCancel={clickGuard.clearPointerActivation}
       >

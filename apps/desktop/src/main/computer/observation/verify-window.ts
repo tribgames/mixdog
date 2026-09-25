@@ -40,9 +40,12 @@ interface VerifyState {
 function elementTextSample(elements: Array<Record<string, unknown>>): string[] {
   const sample: string[] = [];
   for (const element of elements) {
-    const text = `${String(element.name || '')} ${String(element.value || '')}`.replace(/\s+/g, ' ').trim();
-    if (!text || sample.includes(text.slice(0, VERIFY_TEXT_SAMPLE_CHARS))) continue;
-    sample.push(text.slice(0, VERIFY_TEXT_SAMPLE_CHARS));
+    const text = `${String(element.name || '')} ${String(element.value || '')}`
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, VERIFY_TEXT_SAMPLE_CHARS);
+    if (!text || sample.includes(text)) continue;
+    sample.push(text);
     if (sample.length >= VERIFY_TEXT_SAMPLE_ENTRIES) break;
   }
   return sample;
@@ -179,6 +182,15 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
           observedElements: state.observedElements,
         })
       : null;
+  let undecidedFields = {};
+  if (targetClosed) {
+    undecidedFields = {
+      target_closed: true,
+      unknown_hint: 'the exact window closed before the wait was decided; list windows to find its replacement',
+    };
+  } else if (unknownReason) {
+    undecidedFields = { unknown_reason: unknownReason.reason, unknown_hint: unknownReason.hint };
+  }
   return {
     text: JSON.stringify({
       ok: decision === 'satisfied',
@@ -190,14 +202,7 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
       stable_samples: stableSamples,
       observed_elements: state.observedElements,
       ...(needsElementText ? { text_complete: state.textComplete } : {}),
-      ...(targetClosed
-        ? {
-            target_closed: true,
-            unknown_hint: 'the exact window closed before the wait was decided; list windows to find its replacement',
-          }
-        : unknownReason
-          ? { unknown_reason: unknownReason.reason, unknown_hint: unknownReason.hint }
-          : {}),
+      ...undecidedFields,
       ...(decision !== 'satisfied' && needsElementText && state.textSample.length
         ? { observed_text_sample: state.textSample }
         : {}),

@@ -97,6 +97,7 @@ function attachBrowserMedia(content, value) {
     if (
       !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(mimeType) ||
       filename.length > 255 ||
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: rejects control characters in a bridge-supplied file name
       /[\u0000-\u001f/\\]/.test(filename) ||
       data.length > MAX_FILE_BASE64_CHARS
     ) {

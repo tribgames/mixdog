@@ -4,6 +4,11 @@
 import { randomUUID } from 'node:crypto';
 import { SESSION_READ_ACTION_SET } from '../../session-protocol.mjs';
 import { SESSION_ID_PATTERN } from '../agent-tree.mjs';
+import {
+  loadLiveTranscriptHead,
+  requestedTranscriptWindow,
+  requestLiveTranscriptWindow,
+} from '../projection/transcript-window.mjs';
 
 export function createSessionViewCalls(ctx) {
   const { log, readStoredSession, externalViewEntries, runSessionAction, sessionResult, advanceForCaller } = ctx;
@@ -22,7 +27,18 @@ export function createSessionViewCalls(ctx) {
     bindExternalSessionView,
     destroy,
   } = ctx.entries;
-  const { storedSessionProjection, requestedMessageSlice } = ctx.storedReader;
+  const { storedSessionProjection, requestedMessageSlice, forgetStoredSession } = ctx.storedReader;
+
+  /** A read/subscribe names the transcript window its view wants (none: the
+   *  whole transcript). A window grown past what a resumed runtime holds is
+   *  completed from durable history, which a live session never keeps cached. */
+  async function applyTranscriptRequest(entry, params, sessionId) {
+    const request = requestedTranscriptWindow(params);
+    // A model-message read (messageStart) is not a view and leaves the window.
+    if (request || !Number.isInteger(params.messageStart)) requestLiveTranscriptWindow(entry, request);
+    if (await loadLiveTranscriptHead(entry, sessionId, readStoredSession)) forgetStoredSession(sessionId);
+    assertAvailable(entry);
+  }
 
   async function createReservedSession(params, viewer, reservedSessionId) {
     const entry = await createEntry({ ...params, sessionId: reservedSessionId }, viewer);
@@ -68,6 +84,7 @@ export function createSessionViewCalls(ctx) {
 
   async function liveSessionReadResult(entry, params, sessionId, baseRevision) {
     assertAvailable(entry);
+    await applyTranscriptRequest(entry, params, sessionId);
     const step = advanceForCaller(entry);
     retainUnwatched(entry, 'headless session read');
     const messages = await requestedMessageSlice(params, sessionId);
@@ -94,7 +111,7 @@ export function createSessionViewCalls(ctx) {
       return liveSessionReadResult(live, params, id, baseRevision);
     }
     if (typeof readStoredSession === 'function') {
-      const projection = await storedSessionProjection(id, openHints);
+      const projection = await storedSessionProjection(id, openHints, requestedTranscriptWindow(params));
       assertAvailable();
       const lateOwner = lateOwnerFor(id);
       if (lateOwner) {
@@ -120,30 +137,32 @@ export function createSessionViewCalls(ctx) {
 
   /** Publish BEFORE attaching: the views already there get the frame, the new
    *  one gets the same revision once in its reply. */
-  const subscribeLive = (entry, viewer, baseRevision) => {
+  const subscribeLive = async (entry, params, viewer, baseRevision) => {
+    await applyTranscriptRequest(entry, params, currentSessionId(entry) || String(params.sessionId || ''));
     const step = advanceForCaller(entry);
     addSubscriber(entry, viewer);
     return sessionResult(entry, step, baseRevision, { subscribed: true });
   };
 
-  async function subscribeSession({ sessionId, open: openHints = {}, baseRevision = null } = {}, viewer = null) {
+  async function subscribeSession(params = {}, viewer = null) {
+    const { sessionId, open: openHints = {}, baseRevision = null } = params;
     assertAvailable();
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const live = await liveEntryFor(id);
     assertAvailable(live);
-    if (live) return subscribeLive(live, viewer, baseRevision);
+    if (live) return subscribeLive(live, params, viewer, baseRevision);
     if (typeof readStoredSession === 'function') {
       // Register BEFORE the disk read: a concurrent materialization adopts
       // pending viewers only after its runtime is indexed, so this order
       // guarantees either adoption or the live re-check below.
       trackPendingViewer(id, viewer);
-      const projection = await storedSessionProjection(id, openHints);
+      const projection = await storedSessionProjection(id, openHints, requestedTranscriptWindow(params));
       assertAvailable();
       const lateOwner = lateOwnerFor(id);
       if (lateOwner) {
         dropPendingViewer(id, viewer);
-        return subscribeLive(lateOwner, viewer, baseRevision);
+        return subscribeLive(lateOwner, params, viewer, baseRevision);
       }
       if (!projection) {
         dropPendingViewer(id, viewer);
@@ -153,13 +172,13 @@ export function createSessionViewCalls(ctx) {
     }
     const entry = await entryForSession(id, openHints || {});
     assertAvailable(entry);
-    return subscribeLive(entry, viewer, baseRevision);
+    return subscribeLive(entry, params, viewer, baseRevision);
   }
 
   async function unsubscribeSession({ sessionId } = {}, viewer = null) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    dropPendingViewer(id, viewer);
+    const coldViewers = dropPendingViewer(id, viewer);
     const owner = sessionOwner(id);
     if (!owner) {
       const external = externalEntryForView(id);
@@ -168,12 +187,15 @@ export function createSessionViewCalls(ctx) {
         if (token) external.subscribers?.delete(token);
         if ((external.subscribers?.size || 0) === 0) externalViewEntries.delete(id);
       }
+      // The last cold view left: its disk projection is no longer needed.
+      if (!coldViewers) forgetStoredSession(id);
       return { sessionId: id, unsubscribed: true };
     }
     const entry = owner;
     const token = subscriberToken(viewer);
     if (token) entry.subscribers?.delete(token);
     if ((entry.subscribers?.size || 0) === 0) {
+      entry.transcriptView = null;
       if (entry.reservedOnly && !sessionBusy(entry)) {
         await destroy(entry, 'unclaimed session reservation', {
           keepBackgroundWork: true,

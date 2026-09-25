@@ -12,7 +12,7 @@ import { typedStatusFrom } from './retry-classifier.mjs';
  * terminal) instead of failing the turn as 'unknown'. Nothing is synthesized
  * from message text; a typed status on the payload still outranks the marker.
  */
-export function markInBandWireError(err) {
+function markInBandWireError(err) {
   const detail = err?.error;
   if (!err || !detail || typeof detail !== 'object' || err.providerWireError === true) return err;
   try {

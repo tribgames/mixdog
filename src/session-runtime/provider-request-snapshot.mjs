@@ -1,4 +1,5 @@
 // Provider request-tool resolution + JSON-safe snapshot machinery.
+import { types } from 'node:util';
 import { clean } from './session-text.mjs';
 import { isDeferredToolAvailable } from './deferred-tool-availability.mjs';
 import { finalizeProviderRequestTools } from './provider-request-tools.mjs';
@@ -16,20 +17,17 @@ function defineEnumerableDataProperty(target, key, value) {
   });
 }
 
+const UNBOXED = Object.freeze({ matched: false, value: null });
+
+// Internal-slot checks (cross-realm, proxy-opaque) select the one valueOf that
+// accepts the object, so plain schema records are classified without throwing.
 function boxedJsonPrimitive(value) {
-  try {
-    return { matched: true, value: Number.prototype.valueOf.call(value) };
-  } catch {}
-  try {
-    return { matched: true, value: String.prototype.valueOf.call(value) };
-  } catch {}
-  try {
-    return { matched: true, value: Boolean.prototype.valueOf.call(value) };
-  } catch {}
-  try {
-    return { matched: true, value: BigInt.prototype.valueOf.call(value) };
-  } catch {}
-  return { matched: false, value: null };
+  if (!types.isBoxedPrimitive(value)) return UNBOXED;
+  if (types.isNumberObject(value)) return { matched: true, value: Number.prototype.valueOf.call(value) };
+  if (types.isStringObject(value)) return { matched: true, value: String.prototype.valueOf.call(value) };
+  if (types.isBooleanObject(value)) return { matched: true, value: Boolean.prototype.valueOf.call(value) };
+  if (types.isBigIntObject(value)) return { matched: true, value: BigInt.prototype.valueOf.call(value) };
+  return UNBOXED;
 }
 
 function providerSnapshotLengthPrimitive(value) {
@@ -182,116 +180,220 @@ function normalizeRequestToolJson(
   return normalized;
 }
 
+const NO_ENTRIES = Object.freeze([]);
+
+function entriesOf(value) {
+  return Array.isArray(value) ? value : NO_ENTRIES;
+}
+
+function sameEntries(stored, current) {
+  if (stored === null || current === null) return stored === current;
+  if (stored.length !== current.length) return false;
+  for (let index = 0; index < current.length; index += 1) {
+    if (stored[index] !== current[index]) return false;
+  }
+  return true;
+}
+
+function sameNames(stored, current) {
+  if (stored.size !== current.size) return false;
+  for (const name of current) {
+    if (!stored.has(name)) return false;
+  }
+  return true;
+}
+
+function snapshotStage(session, names = new Set(), snapshots = []) {
+  return { state: { active: new WeakSet(), memo: new WeakMap() }, names, snapshots, session };
+}
+
+function appendToolSnapshot(stage, candidate, selectedName = null, deferred = false) {
+  const { state, names, snapshots, session } = stage;
+  const normalized = normalizeRequestToolJson(candidate, state, {
+    seededProperties: selectedName === null ? null : { name: selectedName },
+  });
+  if (
+    deferred &&
+    (!normalized ||
+      typeof normalized !== 'object' ||
+      Array.isArray(normalized) ||
+      typeof normalized.name !== 'string' ||
+      !clean(normalized.name) ||
+      normalized.name !== selectedName)
+  ) {
+    throw new TypeError(`provider tool snapshot: selected tool identity mismatch for ${JSON.stringify(selectedName)}`);
+  }
+  if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) return;
+  const name = clean(normalized.name);
+  if (!name || names.has(name) || !isDeferredToolAvailable(session, name)) return;
+  names.add(name);
+  if (!deferred) {
+    snapshots.push(normalized);
+    return;
+  }
+  const deferredSnapshot = {};
+  for (const key of Object.keys(normalized)) {
+    if (key === 'deferLoading' || key === 'defer_loading') continue;
+    defineEnumerableDataProperty(deferredSnapshot, key, normalized[key]);
+  }
+  defineEnumerableDataProperty(deferredSnapshot, 'deferLoading', true);
+  snapshots.push(Object.freeze(deferredSnapshot));
+}
+
+// Native definitions plus active candidates: the message-independent stage.
+function baseToolSnapshot(provider, activeTools, nativeTools, session, mcpNames) {
+  const stage = snapshotStage(session);
+  const activeCandidateRefs = new WeakSet();
+  // Anthropic native definitions are already provider-wire objects. Preserve
+  // their prior prepend order and duplicate behavior, but freeze the exact
+  // bytes into the same request snapshot used for accounting and retries.
+  for (const nativeTool of nativeTools) {
+    if (!nativeTool || typeof nativeTool !== 'object') continue;
+    const normalized = normalizeRequestToolJson(nativeTool, stage.state);
+    if (normalized && typeof normalized === 'object' && !Array.isArray(normalized)) {
+      stage.snapshots.push(normalized);
+    }
+  }
+  const nativePrefixCount = stage.snapshots.length;
+  // Active candidates are provider-visible by definition: normalize each once,
+  // then perform all validation/dedupe from the plain snapshot only.
+  for (const tool of activeTools) {
+    if (tool && typeof tool === 'object') activeCandidateRefs.add(tool);
+    appendToolSnapshot(stage, tool);
+  }
+  return {
+    provider,
+    session,
+    tools: activeTools.slice(),
+    nativeTools: nativeTools.slice(),
+    mcpNames: mcpNames && mcpNames.slice(),
+    names: stage.names,
+    activeCandidateRefs,
+    nativePrefixCount,
+    result: finalizeProviderRequestTools(stage.snapshots, nativePrefixCount),
+    discovery: { refs: [], found: [], counts: new Map() },
+    deferred: null,
+  };
+}
+
+function messageToolReferences(message, provider) {
+  const native = message?.nativeToolSearch;
+  const source = clean(native?.provider).toLowerCase();
+  if (
+    source &&
+    source !== provider &&
+    !(ANTHROPIC_NATIVE_PROVIDERS.has(source) && ANTHROPIC_NATIVE_PROVIDERS.has(provider))
+  )
+    return null;
+  const names = parseToolSelection(native?.toolReferences);
+  return names.length ? names : null;
+}
+
+function countNames(counts, names, direction) {
+  for (const name of names || NO_ENTRIES) {
+    const next = (counts.get(name) || 0) + direction;
+    if (next > 0) counts.set(name, next);
+    else counts.delete(name);
+  }
+}
+
+// Transcript-discovered tool names, folded in per message: an entry confirmed
+// by identity keeps the references parsed when it was appended.
+function syncDiscoveredReferences(discovery, provider, messages) {
+  const { refs, found, counts } = discovery;
+  const list = entriesOf(messages);
+  const previousCount = refs.length;
+  for (let index = 0; index < list.length; index += 1) {
+    const message = list[index];
+    if (index < previousCount && refs[index] === message) continue;
+    const names = messageToolReferences(message, provider);
+    if (index < previousCount) countNames(counts, found[index], -1);
+    refs[index] = message;
+    found[index] = names;
+    countNames(counts, names, 1);
+  }
+  for (let index = list.length; index < previousCount; index += 1) countNames(counts, found[index], -1);
+  refs.length = list.length;
+  found.length = list.length;
+  return counts;
+}
+
+// Claude-compatible deferred loading: the catalog stays metadata-only until
+// tool_search/load_tool selects a name. Only selected schemas join the next
+// request, marked defer_loading; active schemas continue to win by name.
+function deferredToolSnapshot(base, session, discovered) {
+  const catalog = entriesOf(session?.deferredToolCatalog);
+  const lateCatalog = entriesOf(session?.deferredLateToolCatalog);
+  const cached = base.deferred;
+  if (
+    cached &&
+    sameEntries(cached.catalog, catalog) &&
+    sameEntries(cached.lateCatalog, lateCatalog) &&
+    sameNames(cached.discovered, discovered)
+  )
+    return cached.result;
+  const stage = snapshotStage(session, new Set(base.names), base.result.slice());
+  const seenCatalogRefs = new WeakSet();
+  const catalogByName = new Map();
+  for (const tool of [...catalog, ...lateCatalog]) {
+    // `name` is read once per entry: a getter may answer differently on a later read.
+    const capturedName = tool?.name;
+    const name = typeof capturedName === 'string' ? clean(capturedName) : '';
+    if (name) catalogByName.set(name, { tool, capturedName });
+  }
+  for (const [selectionName, { tool, capturedName }] of catalogByName) {
+    if (tool && typeof tool === 'object') {
+      if (base.activeCandidateRefs.has(tool) || seenCatalogRefs.has(tool)) continue;
+      seenCatalogRefs.add(tool);
+    }
+    if (!discovered.has(selectionName) || stage.names.has(selectionName)) continue;
+    appendToolSnapshot(stage, tool, capturedName, true);
+  }
+  const result = finalizeProviderRequestTools(stage.snapshots, base.nativePrefixCount);
+  base.deferred = { catalog: catalog.slice(), lateCatalog: lateCatalog.slice(), discovered, result };
+  return result;
+}
+
+// Tool array → last snapshot built from it. Producers replace descriptors
+// (MCP reload, policy refresh, catalog rebuild) and grow/shrink the arrays in
+// place, so a stage is reused while every input list holds the same entries.
+const requestToolSnapshotMemo = new WeakMap();
+
 // Establish one immutable request-attempt snapshot. Nested schema records are
 // cloned before freezing, so a catalog refresh or in-place schema mutation
 // after this boundary cannot change either provider bytes or their signature.
 export function snapshotProviderRequestTools(options = {}) {
   const { provider, tools, nativeTools, messages, session } = options;
-  const activeTools = Array.isArray(tools) ? tools : [];
-  const state = { active: new WeakSet(), memo: new WeakMap() };
-  const snapshots = [];
-  const names = new Set();
-  const activeCandidateRefs = new WeakSet();
-  // Anthropic native definitions are already provider-wire objects. Preserve
-  // their prior prepend order and duplicate behavior, but freeze the exact
-  // bytes into the same request snapshot used for accounting and retries.
-  if (ANTHROPIC_NATIVE_PROVIDERS.has(clean(provider || session?.provider).toLowerCase())) {
-    for (const nativeTool of Array.isArray(nativeTools) ? nativeTools : []) {
-      if (!nativeTool || typeof nativeTool !== 'object') continue;
-      const normalized = normalizeRequestToolJson(nativeTool, state);
-      if (normalized && typeof normalized === 'object' && !Array.isArray(normalized)) {
-        snapshots.push(normalized);
-      }
-    }
-  }
-  const nativePrefixCount = snapshots.length;
-  const finish = () => finalizeProviderRequestTools(snapshots, nativePrefixCount);
-  const appendSnapshot = (candidate, selectedName = null, deferred = false) => {
-    const normalized = normalizeRequestToolJson(candidate, state, {
-      seededProperties: selectedName === null ? null : { name: selectedName },
-    });
-    if (
-      deferred &&
-      (!normalized ||
-        typeof normalized !== 'object' ||
-        Array.isArray(normalized) ||
-        typeof normalized.name !== 'string' ||
-        !clean(normalized.name) ||
-        normalized.name !== selectedName)
-    ) {
-      throw new TypeError(
-        `provider tool snapshot: selected tool identity mismatch for ${JSON.stringify(selectedName)}`
-      );
-    }
-    if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized)) return;
-    const name = clean(normalized.name);
-    if (!name || names.has(name) || !isDeferredToolAvailable(session, name)) return;
-    names.add(name);
-    if (!deferred) {
-      snapshots.push(normalized);
-      return;
-    }
-    const deferredSnapshot = {};
-    for (const key of Object.keys(normalized)) {
-      if (key === 'deferLoading' || key === 'defer_loading') continue;
-      defineEnumerableDataProperty(deferredSnapshot, key, normalized[key]);
-    }
-    defineEnumerableDataProperty(deferredSnapshot, 'deferLoading', true);
-    snapshots.push(Object.freeze(deferredSnapshot));
-  };
-
-  // Active candidates are provider-visible by definition: normalize each once,
-  // then perform all validation/dedupe from the plain snapshot only.
-  for (const tool of activeTools) {
-    if (tool && typeof tool === 'object') activeCandidateRefs.add(tool);
-    appendSnapshot(tool);
-  }
-
   const normalizedProvider = clean(provider || session?.provider).toLowerCase();
+  const anthropic = ANTHROPIC_NATIVE_PROVIDERS.has(normalizedProvider);
+  const activeTools = entriesOf(tools);
+  const nativeList = anthropic ? entriesOf(nativeTools) : NO_ENTRIES;
+  const mcpNames = Array.isArray(session?.deferredMcpToolNames) ? session.deferredMcpToolNames : null;
+  let base = Array.isArray(tools) ? requestToolSnapshotMemo.get(tools) : null;
   if (
-    !ANTHROPIC_NATIVE_PROVIDERS.has(normalizedProvider) ||
+    !base ||
+    base.provider !== normalizedProvider ||
+    base.session !== session ||
+    !sameEntries(base.tools, activeTools) ||
+    !sameEntries(base.nativeTools, nativeList) ||
+    !sameEntries(base.mcpNames, mcpNames)
+  ) {
+    base = baseToolSnapshot(normalizedProvider, activeTools, nativeList, session, mcpNames);
+    if (Array.isArray(tools)) requestToolSnapshotMemo.set(tools, base);
+  }
+  if (
+    !anthropic ||
     session?.deferredNativeTools !== true ||
     // Native definitions preserve their historical prepend behavior, but they
     // do not make an otherwise all-deferred catalog eligible for expansion.
-    names.size === 0
+    base.names.size === 0
   ) {
-    return finish();
+    return base.result;
   }
   const discovered = new Set(parseToolSelection(session?.deferredDiscoveredTools));
-  for (const message of Array.isArray(messages) ? messages : []) {
-    const native = message?.nativeToolSearch;
-    const source = clean(native?.provider).toLowerCase();
-    if (
-      source &&
-      source !== normalizedProvider &&
-      !(ANTHROPIC_NATIVE_PROVIDERS.has(source) && ANTHROPIC_NATIVE_PROVIDERS.has(normalizedProvider))
-    )
-      continue;
-    for (const name of parseToolSelection(native?.toolReferences)) discovered.add(name);
+  for (const name of syncDiscoveredReferences(base.discovery, normalizedProvider, messages).keys()) {
+    discovered.add(name);
   }
-  if (discovered.size === 0) return finish();
-  // Claude-compatible deferred loading: the catalog stays metadata-only until
-  // tool_search/load_tool selects a name. Only selected schemas join the next
-  // request, marked defer_loading; active schemas continue to win by name.
-  const seenCatalogRefs = new WeakSet();
-  const catalogByName = new Map();
-  for (const tool of [
-    ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
-    ...(Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : []),
-  ]) {
-    const name = clean(tool?.name);
-    if (name) catalogByName.set(name, tool);
-  }
-  const catalog = [...catalogByName.values()];
-  for (const tool of catalog) {
-    if (tool && typeof tool === 'object') {
-      if (activeCandidateRefs.has(tool) || seenCatalogRefs.has(tool)) continue;
-      seenCatalogRefs.add(tool);
-    }
-    const capturedName = tool?.name;
-    const selectionName = typeof capturedName === 'string' ? clean(capturedName) : '';
-    if (!selectionName || !discovered.has(selectionName) || names.has(selectionName)) continue;
-    appendSnapshot(tool, capturedName, true);
-  }
-  return finish();
+  if (discovered.size === 0) return base.result;
+  return deferredToolSnapshot(base, session, discovered);
 }

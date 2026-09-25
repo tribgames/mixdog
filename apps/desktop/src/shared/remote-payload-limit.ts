@@ -312,21 +312,11 @@ export const relayFallbackUplinkCeilings = ({
   textFrames?: boolean;
 }): RelayUplinkCeilings => {
   const binary = Math.max(0, Math.min(policy, capacity - RELAY_BINARY_HEADER_BYTES - RELAY_FALLBACK_CLIENT_ID_BYTES));
-  return {
-    capacity,
-    binary,
-    text: textFrames
-      ? binary
-      : Math.max(
-          0,
-          Math.min(
-            policy,
-            Math.floor(
-              (capacity - RELAY_JSON_ENVELOPE_BYTES - RELAY_FALLBACK_CLIENT_ID_BYTES) / RELAY_JSON_ESCAPE_WORST_CASE
-            )
-          )
-        ),
-  };
+  if (textFrames) return { capacity, binary, text: binary };
+  const escapedPayloadBytes = Math.floor(
+    (capacity - RELAY_JSON_ENVELOPE_BYTES - RELAY_FALLBACK_CLIENT_ID_BYTES) / RELAY_JSON_ESCAPE_WORST_CASE
+  );
+  return { capacity, binary, text: Math.max(0, Math.min(policy, escapedPayloadBytes)) };
 };
 
 /** The ceilings this leg enforces, and republishes to the next one: what the

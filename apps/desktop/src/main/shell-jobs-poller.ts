@@ -21,11 +21,9 @@ const EMPTY_STATUS: ShellJobsStatus = Object.freeze({
 interface ShellJobsPollerOptions {
   /** Live engine state, or null once the engine is gone (polling stops). */
   getEngineState(): Record<string, unknown> | null;
-  /** Resolved statusline module URL — imported lazily on the first poll. */
-  moduleUrl(): string;
   /** Daemon-hosted services inject their own source module so plain Node never
-   *  has to import an Electron ASAR path. */
-  loadModule?: () => Promise<StatuslineSegmentsModule>;
+   *  has to import an Electron ASAR path. Loaded lazily on the first poll. */
+  loadModule: () => Promise<StatuslineSegmentsModule>;
   /** Called only when the status actually changed, carrying the sessions whose
    *  OWN bucket moved so their panes can be republished individually. */
   onChange(changedSessionIds: readonly string[]): void;
@@ -49,16 +47,13 @@ function normalizedJobs(value: unknown): DesktopShellJobRow[] {
   });
 }
 
-function normalizedStatus(
-  value:
-    | {
-        count?: unknown;
-        elapsedLabel?: unknown;
-        jobs?: unknown;
-      }
-    | null
-    | undefined
-): ShellJobsStatus {
+interface RawShellJobsStatus {
+  count?: unknown;
+  elapsedLabel?: unknown;
+  jobs?: unknown;
+}
+
+function normalizedStatus(value: RawShellJobsStatus | null | undefined): ShellJobsStatus {
   return {
     count: Math.max(0, Number(value?.count) || 0),
     elapsedLabel: String(value?.elapsedLabel || ''),
@@ -72,13 +67,7 @@ function normalizedSessions(value: unknown): Map<string, ShellJobsStatus> {
   for (const [sessionId, bucket] of Object.entries(value as Record<string, unknown>)) {
     const id = String(sessionId || '').trim();
     if (!id) continue;
-    const status = normalizedStatus(
-      bucket as {
-        count?: unknown;
-        elapsedLabel?: unknown;
-        jobs?: unknown;
-      }
-    );
+    const status = normalizedStatus(bucket as RawShellJobsStatus);
     if (status.count > 0) sessions.set(id, status);
   }
   return sessions;
@@ -101,7 +90,7 @@ function movedSessionIds(
   return moved;
 }
 
-export function createShellJobsPoller({ getEngineState, moduleUrl, loadModule, onChange }: ShellJobsPollerOptions) {
+export function createShellJobsPoller({ getEngineState, loadModule, onChange }: ShellJobsPollerOptions) {
   let timer: NodeJS.Timeout | null = null;
   let delayMs = 0;
   let status: ShellJobsStatus = EMPTY_STATUS;
@@ -135,9 +124,7 @@ export function createShellJobsPoller({ getEngineState, moduleUrl, loadModule, o
       return;
     }
     try {
-      modulePromise ??= loadModule
-        ? loadModule()
-        : (import(/* @vite-ignore */ moduleUrl()) as Promise<StatuslineSegmentsModule>);
+      modulePromise ??= loadModule();
       const module = await modulePromise;
       const value = module.shellJobsStatus({ clientHostPid: ownerPid });
       const next = normalizedStatus(value);

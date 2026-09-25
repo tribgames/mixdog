@@ -8,6 +8,7 @@ import { readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { probePath, PROBE_PRESENT } from './store/fs-probe.mjs';
+import { isStoredSessionId } from './store-summary-fields.mjs';
 
 export function dataDir() {
   if (process.env.MIXDOG_DATA_DIR) return process.env.MIXDOG_DATA_DIR;
@@ -36,7 +37,7 @@ export function sessionHeartbeatMtimes() {
   for (const filename of entries) {
     if (!filename.endsWith('.hb')) continue;
     const id = filename.slice(0, -3);
-    if (!/^[A-Za-z0-9_-]+$/.test(id)) continue;
+    if (!isStoredSessionId(id)) continue;
     // Liveness is additive: a sidecar that is absent OR unreadable simply
     // contributes nothing, and can never remove a row.
     const probe = probePath(join(directory, filename));

@@ -181,28 +181,29 @@ export function imageMetadataText(dims, sourcePath) {
   return `[Image: ${parts.join(', ')}]`;
 }
 
-// Resize / downsample an image buffer with sharp.
-//
-// Pipeline (resize / downsample under a token budget):
-//   1. metadata() — read format + dimensions.
-//   2. resize fit:inside withoutEnlargement to <= 2000x2000 (only when over
-//      dimension caps OR over the 3.75MB raw target).
-//   3. est tokens (base64.len * 0.125); if over budget, recompress jpeg q<=50.
-//   4. still over budget -> 400x400 jpeg q20 hard fallback.
-//
-// Returns { data (base64), mimeType ("image/..."), dimensions } on success,
-// null only when sharp is unavailable, and throws InvalidImageDataError when
-// the decoder rejects the bytes.
+const IMAGE_PROFILE_LIMITS = {
+  openai: {
+    maxWidth: OPENAI_IMAGE_MAX_DIMENSION,
+    maxHeight: OPENAI_IMAGE_MAX_DIMENSION,
+    patchSize: OPENAI_IMAGE_PATCH_SIZE,
+    maxPatches: OPENAI_IMAGE_MAX_PATCHES,
+  },
+  anthropic: {
+    maxWidth: IMAGE_MAX_WIDTH,
+    maxHeight: IMAGE_MAX_HEIGHT,
+    patchSize: ANTHROPIC_IMAGE_PATCH_SIZE,
+    maxPatches: ANTHROPIC_IMAGE_MAX_PATCHES,
+  },
+};
+
 // Constrain dimensions while preserving aspect ratio. Both limits bind, and
 // either one can be the tighter: the per-edge ceiling governs an elongated
 // image, the patch budget a wide one.
 function targetDimensions(originalWidth, originalHeight, normalizedProfile) {
   let width = originalWidth;
   let height = originalHeight;
-  const maxWidth = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_DIMENSION : IMAGE_MAX_WIDTH;
-  const maxHeight = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_DIMENSION : IMAGE_MAX_HEIGHT;
-  const patchSize = normalizedProfile === 'openai' ? OPENAI_IMAGE_PATCH_SIZE : ANTHROPIC_IMAGE_PATCH_SIZE;
-  const maxPatches = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_PATCHES : ANTHROPIC_IMAGE_MAX_PATCHES;
+  const { maxWidth, maxHeight, patchSize, maxPatches } =
+    IMAGE_PROFILE_LIMITS[normalizedProfile === 'openai' ? 'openai' : 'anthropic'];
   const scale = Math.min(
     1,
     maxWidth / width,
@@ -330,6 +331,18 @@ async function renderRendition(sharp, buffer, meta, ext, profile) {
   return rendition;
 }
 
+// Resize / downsample an image buffer with sharp.
+//
+// Pipeline (resize / downsample under a token budget):
+//   1. metadata() plus one full decode — format, dimensions, integrity.
+//   2. resize fit:inside to the profile's edge and patch limits (only when
+//      over them OR over the 3.75MB raw target).
+//   3. est tokens (base64.len * 0.125); if over budget, recompress jpeg q<=50.
+//   4. still over budget -> 400x400 jpeg q20 hard fallback.
+//
+// Returns { data (base64), mimeType ("image/..."), dimensions } on success,
+// null only when sharp is unavailable, and throws InvalidImageDataError when
+// the decoder rejects the bytes.
 export async function resizeImageBuffer(
   buffer,
   ext,

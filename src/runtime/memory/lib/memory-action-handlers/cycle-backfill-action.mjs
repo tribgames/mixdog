@@ -16,19 +16,18 @@ export function createBackfillAction({
   ingestTranscriptFile,
   cwdFromTranscriptPath,
 }) {
-  // Whole-action backfill mutex. memory-cycle1's _cycle1InFlight only protects
-  // cycle1; ingest workers (memory-ops-policy.mjs) and cycle2 can still overlap
-  // if a second backfill kicks in (e.g. setup-server timeout + retry). Track the
-  // in-flight promise here and reject overlaps with 409.
+  // Whole-action backfill mutex (transport-agnostic). memory-cycle1's
+  // _runCycle1InFlight only protects cycle1; ingest workers
+  // (memory-ops-policy.mjs) and cycle2 can still overlap if a second backfill
+  // kicks in (timeout-retry, parallel callers, /api/tool vs /mcp vs
+  // /admin/backfill). Track the in-flight promise here and reject overlaps
+  // with 409.
   let backfillInFlight = null;
 
   return async function backfill(args, config, signal) {
     const db = getDb();
-    // Whole-action mutex (transport-agnostic). _cycle1InFlight only protects
-    // cycle1; ingest workers + cycle2 can still overlap if a second backfill
-    // kicks in (timeout-retry, parallel callers, /api/tool vs /mcp vs
-    // /admin/backfill). Sentinel is set synchronously before any await so a
-    // burst of concurrent calls cannot all pass the check.
+    // Sentinel is set synchronously before any await so a burst of concurrent
+    // calls cannot all pass the check.
     if (backfillInFlight) {
       return { text: 'backfill already in progress', isError: true };
     }

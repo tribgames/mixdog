@@ -177,15 +177,10 @@ async function combinedPatternBody(request, pattern, linesFor, { adaptive, rgCwd
     headLimit,
     offset,
     outputMode,
-    patterns: [pattern],
     beforeN: request.beforeN,
     afterN: request.afterN,
     contextN,
-    searchPath,
-    grepResolvedPath,
     workDir,
-    globPatterns: request.normalizedGlobPatterns,
-    fileType: request.fileType,
     filenameOmitted: false,
     prefix: '',
     disableContentGrouping: true,
@@ -234,14 +229,6 @@ async function renderCombinedSections(request, { byPattern, residual, combinedPa
   return sections.join('\n\n');
 }
 
-// Combined single-spawn fan-out: ONE rg run carrying every pattern
-// (-e p1 -e p2 …), then JS-side attribution of each matched line back
-// to its pattern(s) rebuilds the per-pattern sections. K patterns cost
-// 1 child spawn instead of K: under the win32 child-spawn gate the
-// per-spawn queue/AV overhead — not scan size — dominates fan-out
-// cost. Returns null when the pass declines (JS-alien regex, non-dir
-// scope, capped stream, ambiguous attribution) and the legacy
-// per-pattern fan-out must answer.
 // The one rg run carrying every pattern, windowed to what the per-pattern
 // sections can show; null when the spawn itself failed. Unfiltered
 // multi-pattern directory scans are the broad-scope shape that saturated the
@@ -269,6 +256,14 @@ async function streamCombinedLines(request, scope) {
   }
 }
 
+// Combined single-spawn fan-out: ONE rg run carrying every pattern
+// (-e p1 -e p2 …), then JS-side attribution of each matched line back
+// to its pattern(s) rebuilds the per-pattern sections. K patterns cost
+// 1 child spawn instead of K: under the win32 child-spawn gate the
+// per-spawn queue/AV overhead — not scan size — dominates fan-out
+// cost. Returns null when the pass declines (JS-alien regex, non-dir
+// scope, capped stream, ambiguous attribution) and the legacy
+// per-pattern fan-out must answer.
 async function runCombinedFanout(request) {
   const { patterns, options, workDir, searchPath, grepResolvedPath } = request;
   let jsRegexps;

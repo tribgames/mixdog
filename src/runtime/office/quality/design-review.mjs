@@ -1,7 +1,7 @@
 import { reviewOfficeStructure } from './assurance.mjs';
 import { reviewOfficeCompositionSequence } from '../design/composition-system.mjs';
 import { reviewPptxDeckDiversity } from './design-deck-diversity.mjs';
-import { resolveOfficeDesign } from '../design/design-tokens.mjs';
+import { hex, resolveOfficeDesign } from '../design/design-tokens.mjs';
 import {
   MAX_ACCENT_HUE_FAMILIES,
   MAX_FONT_FAMILIES_PER_SLIDE,
@@ -22,12 +22,9 @@ import { reviewNativeDocumentDesign } from './document-design-review.mjs';
 // so callers (render QA, tests) keep one entry point.
 export {
   inferPptxSlideRoles,
-  isPptxDiagramShape,
   isPptxDiagramSlide,
   isPptxPictureSlide,
   isPptxStatementSlide,
-  pptxDiagramCoverage,
-  pptxPictureShare,
 } from './pptx-slide-roles.mjs';
 
 function designIssue(code, path, message, severity = 'warning') {
@@ -35,10 +32,7 @@ function designIssue(code, path, message, severity = 'warning') {
 }
 
 function pptxSlideBackgroundColor(slide) {
-  const value = String(slide?.background?.color || '')
-    .replace(/^#/, '')
-    .toUpperCase();
-  return /^[0-9A-F]{6}$/.test(value) ? value : '';
+  return hex(slide?.background?.color, '');
 }
 
 function pptxExpectedSlideRole(slide, slides, deck, plansBySlide) {
@@ -121,6 +115,8 @@ function reviewPptxTheme(document, design, issues) {
 }
 
 function comColorHex(value) {
+  // Both snapshots report a text colour as RRGGBB; a fill from Microsoft Office is still a BGR long.
+  if (typeof value === 'string' && /^#?[0-9a-f]{6}$/i.test(value.trim())) return value.trim().replace(/^#/, '').toUpperCase();
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return '';
   const blue = Math.floor(number / 65_536) % 256;

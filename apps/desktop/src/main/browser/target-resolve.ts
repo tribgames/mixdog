@@ -203,16 +203,8 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
     const byRef = new Map(payload.elements.map((element) => [element.ref, element]));
     const invalid = (reason: string) =>
       new Error(`target.selector is not a valid CSS selector: ${redactBrowserText(reason)}`);
-    const mint = (
-      role: string,
-      name: string,
-      register: (ref: string) => void,
-      backendNodeId: number
-    ): BrowserSnapshotElement => {
-      // Top-document backend ids stay unique across every target in this
-      // observation; a selector-local counter can alias two batch fields.
-      const ref = `${payload.snapshotId}-t${backendNodeId}`;
-      register(ref);
+    /** A selector match the snapshot did not list joins its ref set. */
+    const registerCssRef = (ref: string, role: string, name: string): BrowserSnapshotElement => {
       record.refSet?.refs.set(ref, {
         ref,
         snapshotId: payload.snapshotId,
@@ -265,12 +257,15 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
           const index = attributes.findIndex((value, position) => position % 2 === 0 && value === wanted);
           return index >= 0 ? compact(attributes[index + 1]).slice(0, 120) : '';
         };
+        // Top-document backend ids stay unique across every target in this
+        // observation; a selector-local counter can alias two batch fields.
+        const ref = `${payload.snapshotId}-t${backendNodeId}`;
+        accessibility.refs.set(ref, { backendNodeId });
         out.push(
-          mint(
+          registerCssRef(
+            ref,
             attribute('role') || String(described.node.nodeName || 'element').toLowerCase(),
-            attribute('aria-label') || attribute('title') || attribute('id'),
-            (ref) => accessibility.refs.set(ref, { backendNodeId }),
-            backendNodeId
+            attribute('aria-label') || attribute('title') || attribute('id')
           )
         );
       }
@@ -314,17 +309,7 @@ export function createBrowserTargetResolver(host: BrowserTargetResolverHost) {
     if (found?.error) throw invalid(found.error.replace(/^invalid:/, ''));
     checkSelectorMatchCount(found.count);
     return (found?.matches || []).map((match) => {
-      const element = byRef.get(match.ref);
-      if (element) return element;
-      record.refSet?.refs.set(match.ref, {
-        ref: match.ref,
-        snapshotId: payload.snapshotId,
-        url: payload.url,
-        role: match.role,
-        name: match.name,
-        href: '',
-      });
-      return { ref: match.ref, role: match.role, name: match.name, tag: 'css' };
+      return byRef.get(match.ref) ?? registerCssRef(match.ref, match.role, match.name);
     });
   }
 

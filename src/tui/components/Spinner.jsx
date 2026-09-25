@@ -248,8 +248,7 @@ export function Spinner({
   const displayVerb =
     SPINNER_MODE_OVERRIDE_VERBS[mode] ||
     (mode === 'reconnecting' ? String(verb || '').trim() || 'Reconnecting' : spinnerVerbFor(startedAt, now));
-  const messageText = displayVerb;
-  const messageLen = messageText.length;
+  const messageLen = displayVerb.length;
 
   // Glimmer speed per mode.
   const glimmerSpeed = GLIMMER_SPEED_MS[mode] ?? 200;
@@ -263,7 +262,7 @@ export function Spinner({
   if (messageLen > 0) {
     if (!reducedMotion && TEXT_RGB && SHIMMER_RGB) {
       verbContent = renderShimmerText(
-        messageText,
+        displayVerb,
         shimmerHead,
         GLIMMER_TRAIL,
         TEXT_RGB,
@@ -273,7 +272,7 @@ export function Spinner({
         shimmerSpan
       );
     } else {
-      verbContent = <Text color={theme.spinnerText}>{messageText}</Text>;
+      verbContent = <Text color={theme.spinnerText}>{displayVerb}</Text>;
     }
   }
 
@@ -329,8 +328,8 @@ export function Spinner({
   const thinkingStatusText = meta.thinkingText;
   const thinkingStatusW = thinkingStatusText.length;
   // Turn elapsed time is the headline metric here, not a thinking sub-stat, so
-  // it shows from 1s onward (formatDuration returns '' below 1s). Tokens keep
-  // Short-turn gate: tokens only appear once the turn runs long.
+  // it shows from 1s onward (formatDuration returns '' below 1s). Tokens keep a
+  // short-turn gate: they only appear once the turn runs long.
   const wantsTokens = meta.showTokens;
 
   // Interrupt hint and thinking status win the width race (they render LAST in

@@ -206,6 +206,17 @@ export function aggregateBucketForCategory(category, { agentBatch = '' } = {}) {
   return key ? `category:${key}` : 'default';
 }
 
+// Fold one call's category entries into an aggregate's header counts
+// (`categories` Map + first-seen `categoryOrder`), shared by the live card
+// and the restored transcript card.
+export function mergeAggregateCategoryEntries(aggregate, categoryEntries) {
+  for (const entry of categoryEntries) {
+    if (!aggregate.categories.has(entry.key)) aggregate.categoryOrder.push(entry.key);
+    const prev = aggregate.categories.get(entry.key);
+    aggregate.categories.set(entry.key, { ...entry, count: Number(prev?.count || 0) + Number(entry.count || 1) });
+  }
+}
+
 function aggregateSummaries(aggregate) {
   return [...(aggregate?.calls?.values?.() || [])]
     .filter((r) => r.summary)

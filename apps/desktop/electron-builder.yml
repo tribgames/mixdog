@@ -46,7 +46,8 @@ extraResources:
   - from: .runtime/desktop-node-pty
     to: app.asar.unpacked/node_modules/@homebridge/node-pty-prebuilt-multiarch
   # Product-native executables stay canonical GitHub release assets. Desktop
-  # preparation downloads, verifies, and embeds only this platform's set.
+  # preparation downloads, verifies, and embeds only this platform's set,
+  # plus the macOS/Linux Computer Use backend it builds from source.
   - from: .runtime/native-tools
     to: native-tools
   # License obligations travel with the installed app: MIT requires its

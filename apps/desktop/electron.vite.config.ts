@@ -252,6 +252,11 @@ export default defineConfig({
       // Electron 40 ships Chromium 144, so the controlled desktop runtime can
       // use native module preloads without Vite's compatibility polyfill.
       target: 'chrome144',
+      // electron-vite defaults the renderer to minify:false, which shipped the
+      // first-screen JS/CSS with every comment and indent intact (~35% more
+      // brotli bytes for the phone web app, plus parse time everywhere).
+      // Applies to CSS too, since build.cssMinify follows this value.
+      minify: 'esbuild',
       modulePreload: { polyfill: false },
       rollupOptions: {
         input: resolve(__dirname, 'src/renderer/index.html'),

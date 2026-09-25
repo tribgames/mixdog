@@ -1,4 +1,15 @@
+import type { PaneDirection } from './pane-layout';
 import type { PaneDropZone } from './pane-workspace-state';
+
+/** Split axis a drop zone opens: a side edge splits a row, top/bottom a column. */
+export function paneDropDirection(zone: PaneDropZone): PaneDirection {
+  return zone === 'left' || zone === 'right' ? 'row' : 'column';
+}
+
+/** A left/top drop lands before its target; right/bottom after it. */
+export function paneDropPosition(zone: PaneDropZone): 'before' | 'after' {
+  return zone === 'left' || zone === 'top' ? 'before' : 'after';
+}
 
 type PaneDropRect = Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'>;
 export type PaneHierarchyCandidate = {

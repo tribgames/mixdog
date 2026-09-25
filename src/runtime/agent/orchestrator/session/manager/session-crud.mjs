@@ -9,7 +9,6 @@ import {
   listStoredSessionSummaries,
 } from '../store.mjs';
 import { estimateMessagesTokens, estimateTranscriptContextUsage } from '../context-utils.mjs';
-import { SUMMARY_PREFIX } from '../compact.mjs';
 import { runSessionCompaction, resolveSessionCompactionPolicy } from './compaction-runner.mjs';
 import {
   currentContextEstimateTokens,
@@ -17,7 +16,12 @@ import {
   recordContextUsageSnapshot,
   resolveGaugeContextTokens,
 } from '../loop/compact-policy.mjs';
-import { hasUserConversationMessage, promptContentText, resetSessionBp3Environment } from './prompt-utils.mjs';
+import {
+  hasUserConversationMessage,
+  isSummaryAnchorMessage as isCompactSummaryMessage,
+  promptContentText,
+  resetSessionBp3Environment,
+} from './prompt-utils.mjs';
 import { getProvider } from '../../providers/registry.mjs';
 import { isSessionCompactionBlocked, getSessionAbortSignal, _runtimeEntries } from './runtime-liveness.mjs';
 import { mintSessionId } from './session-id.mjs';
@@ -58,13 +62,16 @@ export function listSessions(opts = {}) {
   // (e.g. agent list includeClosed:true).
   return sessions.filter((s) => !hiddenIds.has(s.id) && (includeClosed || s.closed !== true));
 }
-export async function updateSessionGeneratedTitle(id, title, stage) {
-  const session = loadSession(id);
-  if (!session || session.closed === true) return false;
-  const normalized = String(title || '')
+function normalizeSessionTitle(title) {
+  return String(title || '')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 100);
+}
+export async function updateSessionGeneratedTitle(id, title, stage) {
+  const session = loadSession(id);
+  if (!session || session.closed === true) return false;
+  const normalized = normalizeSessionTitle(title);
   const normalizedStage = stage === 'third' || stage === 'first' ? stage : '';
   if (!normalized || !normalizedStage) return false;
   if (session.titleLocked === true) return false;
@@ -80,10 +87,7 @@ export async function updateSessionGeneratedTitle(id, title, stage) {
 export async function updateSessionManualTitle(id, title) {
   const session = loadSession(id);
   if (!session || session.closed === true) return false;
-  const normalized = String(title || '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 100);
+  const normalized = normalizeSessionTitle(title);
   if (!normalized) return false;
   if (session.title === normalized && session.titleLocked === true) return false;
   session.title = normalized;
@@ -93,9 +97,6 @@ export async function updateSessionManualTitle(id, title) {
   return true;
 }
 // --- Clear messages (keep system prompt + provider/model/cwd) ---
-const isCompactSummaryMessage = (m) =>
-  m?.role === 'user' && typeof m.content === 'string' && m.content.startsWith(SUMMARY_PREFIX);
-
 function bestEffortStderr(line) {
   try {
     process.stderr.write(line);
@@ -160,10 +161,8 @@ async function compactBeforeClear(session, sessionId, clearOptions) {
 }
 
 // Messages that survive a clear: the system layer, plus the compact summary
-// when it is carried forward. BP1/BP2/BP3 all ride `role:'system'` blocks now
-// (BP3 sessionMarker moved off the `<system-reminder>` user wrapper), so the
-// stable memory/meta layer is preserved unconditionally — no sentinel scan /
-// dummy-assistant pairing needed anymore.
+// when it is carried forward. BP1/BP2/BP3 all ride `role:'system'` blocks, so
+// the stable memory/meta layer is preserved unconditionally.
 function retainedMessagesAfterClear(messages, preserveCompactSummary) {
   return messages.filter((m) => m && (m.role === 'system' || (preserveCompactSummary && isCompactSummaryMessage(m))));
 }

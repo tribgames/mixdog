@@ -279,31 +279,25 @@ async function walkFiles(input, files = [], knownType = '') {
   return files;
 }
 
-async function filesForInput(input) {
-  let pending = inputFiles.get(input);
+function memoized(cache, key, start) {
+  let pending = cache.get(key);
   if (!pending) {
-    pending = walkFiles(input, []);
-    inputFiles.set(input, pending);
+    pending = start();
+    cache.set(key, pending);
   }
   return pending;
+}
+
+async function filesForInput(input) {
+  return memoized(inputFiles, input, () => walkFiles(input, []));
 }
 
 async function contentsForFile(path) {
-  let pending = fileContents.get(path);
-  if (!pending) {
-    pending = readFile(path);
-    fileContents.set(path, pending);
-  }
-  return pending;
+  return memoized(fileContents, path, () => readFile(path));
 }
 
 async function metadataForFile(path) {
-  let pending = fileMetadata.get(path);
-  if (!pending) {
-    pending = stat(path);
-    fileMetadata.set(path, pending);
-  }
-  return pending;
+  return memoized(fileMetadata, path, () => stat(path));
 }
 
 async function mapPool(items, limit, run) {
@@ -533,26 +527,21 @@ async function artifactFresh(path, newestInputMtimeMs) {
   }
 }
 
+// The build output that stands for each prebuilt target group.
+const builtTargetArtifacts = {
+  renderer: join(desktopDir, 'out', 'renderer', 'index.html'),
+  main: join(desktopDir, 'out', 'main', 'index.js'),
+  preload: join(desktopDir, 'out', 'preload', 'index.js'),
+  daemon: join(desktopDir, 'out', 'main', 'daemon.cjs'),
+};
+
 async function currentPrebuilt(groups) {
   const packageMtimeMs = groups.package.newestMtimeMs;
-  return {
-    renderer: await artifactFresh(
-      join(desktopDir, 'out', 'renderer', 'index.html'),
-      Math.max(groups.renderer.newestMtimeMs, packageMtimeMs)
-    ),
-    main: await artifactFresh(
-      join(desktopDir, 'out', 'main', 'index.js'),
-      Math.max(groups.main.newestMtimeMs, packageMtimeMs)
-    ),
-    preload: await artifactFresh(
-      join(desktopDir, 'out', 'preload', 'index.js'),
-      Math.max(groups.preload.newestMtimeMs, packageMtimeMs)
-    ),
-    daemon: await artifactFresh(
-      join(desktopDir, 'out', 'main', 'daemon.cjs'),
-      Math.max(groups.daemon.newestMtimeMs, packageMtimeMs)
-    ),
-  };
+  const prebuilt = {};
+  for (const [name, artifact] of Object.entries(builtTargetArtifacts)) {
+    prebuilt[name] = await artifactFresh(artifact, Math.max(groups[name].newestMtimeMs, packageMtimeMs));
+  }
+  return prebuilt;
 }
 
 async function installedHashes(installDir) {
@@ -599,17 +588,12 @@ async function outputMatchesInstalled(installDir) {
 async function bootstrapFreshness(installDir) {
   if (!(await outputMatchesInstalled(installDir))) return null;
   const installedExe = await stat(join(installDir, 'Mixdog.exe'));
-  const renderer = await stat(join(desktopDir, 'out', 'renderer', 'index.html'));
-  const main = await stat(join(desktopDir, 'out', 'main', 'index.js'));
-  const preload = await stat(join(desktopDir, 'out', 'preload', 'index.js'));
-  const daemon = await stat(join(desktopDir, 'out', 'main', 'daemon.cjs'));
-  return {
-    renderer: renderer.mtimeMs,
-    main: main.mtimeMs,
-    preload: preload.mtimeMs,
-    daemon: daemon.mtimeMs,
-    package: installedExe.mtimeMs,
-  };
+  const freshness = {};
+  for (const [name, artifact] of Object.entries(builtTargetArtifacts)) {
+    freshness[name] = (await stat(artifact)).mtimeMs;
+  }
+  freshness.package = installedExe.mtimeMs;
+  return freshness;
 }
 
 async function createPlan({ installDir, statePath, planPath, forceFull = false }) {
@@ -788,7 +772,7 @@ async function stageTree(source, destination) {
   }
 }
 
-async function stageShell({ installDir, artifactDir, plan: _plan }) {
+async function stageShell({ installDir, artifactDir }) {
   const startedAt = performance.now();
   const installedResources = join(installDir, 'resources');
   const installedArchive = join(installedResources, 'app.asar');
@@ -946,7 +930,6 @@ async function main() {
     await stageShell({
       installDir,
       artifactDir: resolve(args.artifact || join(desktopDir, '.cache', 'dev-fast-direct-artifact')),
-      plan,
     });
     return;
   }

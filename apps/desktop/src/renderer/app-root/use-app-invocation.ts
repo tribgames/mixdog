@@ -1,5 +1,7 @@
 import { useCallback, useMemo } from 'react';
 
+export const BRIDGE_UNAVAILABLE_ERROR = 'Desktop bridge is unavailable. Open this renderer inside Mixdog Desktop.';
+
 export function useAppInvocation({
   error,
   connected,
@@ -28,10 +30,7 @@ export function useAppInvocation({
     [invokeResult]
   );
   const errors = useMemo(
-    () =>
-      [error || (!connected ? 'Desktop bridge is unavailable. Open this renderer inside Mixdog Desktop.' : '')].filter(
-        Boolean
-      ),
+    () => [error || (!connected ? BRIDGE_UNAVAILABLE_ERROR : '')].filter(Boolean),
     [connected, error]
   );
   return { invokeResult, invoke, errors };

@@ -605,6 +605,27 @@ export function validateComputerToolArgs(rawArgs) {
 const LIST_KIND_ACTIONS = Object.freeze({ apps: 'list_apps', history: 'list_history' });
 const CLICK_BUTTON_ACTIONS = Object.freeze({ right: 'right_click', middle: 'middle_click' });
 
+/** One act.actions entry as the host sequence step it becomes. */
+function toHostSequenceStep(step, frameId) {
+  const translated = { ...step, action: step.type };
+  delete translated.type;
+  if (step.type === 'click') {
+    translated.action = CLICK_BUTTON_ACTIONS[step.button] || 'click';
+    delete translated.button;
+  }
+  if (step.type === 'move') translated.action = 'mouse_move';
+  // The tool surface names the replacement `value`; every host layer below
+  // reads the text field a type step fills, so the name changes here once.
+  if (step.type === 'set_value') {
+    translated.text = step.value;
+    delete translated.value;
+  }
+  if (frameId && ['x', 'y', 'to_x', 'to_y', 'waypoints'].some((field) => hasOwn(step, field))) {
+    translated.frame_id = frameId;
+  }
+  return translated;
+}
+
 export function toComputerHostCommand(rawArgs) {
   const args = normalizeComputerToolArgs(rawArgs);
   const inputValue = args.input || {};
@@ -624,25 +645,7 @@ export function toComputerHostCommand(rawArgs) {
     case 'act':
       command.action = 'sequence';
       command.delivery = inputValue.delivery ?? COMPUTER_DEFAULT_DELIVERY;
-      command.steps = inputValue.actions.map((step) => {
-        const translated = { ...step, action: step.type };
-        delete translated.type;
-        if (step.type === 'click') {
-          translated.action = CLICK_BUTTON_ACTIONS[step.button] || 'click';
-          delete translated.button;
-        }
-        if (step.type === 'move') translated.action = 'mouse_move';
-        // The tool surface names the replacement `value`; every host layer below
-        // reads the text field a type step fills, so the name changes here once.
-        if (step.type === 'set_value') {
-          translated.text = step.value;
-          delete translated.value;
-        }
-        if (inputValue.frame_id && ['x', 'y', 'to_x', 'to_y', 'waypoints'].some((field) => hasOwn(step, field))) {
-          translated.frame_id = inputValue.frame_id;
-        }
-        return translated;
-      });
+      command.steps = inputValue.actions.map((step) => toHostSequenceStep(step, inputValue.frame_id));
       // The observation after an act is the same capture the tool exposes, so
       // the caller picks its mode here instead of paying for pixels it will
       // not read.

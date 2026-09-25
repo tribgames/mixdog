@@ -81,6 +81,36 @@ test('desktop IPC still rejects unknown built-in lifecycle names', () => {
   );
 });
 
+test('developer settings travel the read lane and option writes require an id and boolean', () => {
+  assert.deepEqual(requiredDesktopCapabilityReadRequests([{ capability: 'getDeveloperSettings' }]), [
+    { capability: 'getDeveloperSettings', args: [] },
+  ]);
+  assert.throws(
+    () => requiredDesktopCapabilityRequest({ capability: 'getDeveloperSettings', args: ['x'] }),
+    /invalid number of arguments/
+  );
+  assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'setDeveloperOption', args: ['devProviders', true] }), {
+    capability: 'setDeveloperOption',
+    args: ['devProviders', true],
+  });
+  assert.throws(
+    () => requiredDesktopCapabilityRequest({ capability: 'setDeveloperOption', args: ['devProviders', 'on'] }),
+    /requires a boolean value/
+  );
+  assert.throws(
+    () => requiredDesktopCapabilityRequest({ capability: 'setDeveloperOption', args: ['  ', false] }),
+    /developer option id is invalid/
+  );
+  assert.throws(
+    () => requiredDesktopCapabilityRequest({ capability: 'setDeveloperOption', args: [7, false] }),
+    /developer option id must be a string/
+  );
+  assert.throws(
+    () => requiredDesktopCapabilityRequest({ capability: 'setDeveloperOption', args: ['devProviders'] }),
+    /invalid number of arguments/
+  );
+});
+
 test('orchestration modes cross the read/configure and new-task IPC boundaries', () => {
   assert.deepEqual(requiredDesktopCapabilityReadRequests([{ capability: 'getOrchestrationMode' }]), [
     { capability: 'getOrchestrationMode', args: [] },

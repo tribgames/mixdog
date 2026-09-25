@@ -1,7 +1,6 @@
 export function stripSessionEnvelope(value: unknown): string;
 export function stripInjectedDisplayText(value: unknown, options?: { dropUnterminated?: boolean }): string;
 export function isSyntheticSessionDisplayText(value: unknown): boolean;
-export function isGeneratedSessionTitleNoise(value: unknown): boolean;
 export function isMediaSessionTitlePlaceholder(value: unknown): boolean;
 export function hasMeaningfulSessionTitleText(value: unknown): boolean;
 export function compactedSessionTitle(value: unknown, fallback?: string): string;

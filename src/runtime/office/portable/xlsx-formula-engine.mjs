@@ -438,9 +438,6 @@ function normalize(value, parsedFromText = false) {
   return value;
 }
 
-// The library reads a serial as a plain number and renders a date as the day
-// before it in this time zone, so a date format code has no answer here worth
-// writing into a cell. A number format has one, and keeps working.
 // Excel matches "가*" against the cells of a range; the library compares the
 // criterion as written and quietly counts nothing. A count of nothing looks
 // like an answer, so these are refused instead.
@@ -464,6 +461,9 @@ const NEEDS_REFERENCE = new Set(['ROW', 'COLUMN', 'OFFSET', 'INDIRECT', 'ADDRESS
 // Every date the library builds stands at local midnight — except the one it
 // reads out of text, which stands at UTC midnight instead.
 const TEXT_PARSED_DATE = new Set(['DATEVALUE']);
+// The library reads a serial as a plain number and renders a date as the day
+// before it in this time zone, so a date format code has no answer here worth
+// writing into a cell. A number format has one, and keeps working.
 const DATE_FORMAT_TOKEN = /[ymdhs]/i;
 const unquotedFormat = (text) =>
   String(text)

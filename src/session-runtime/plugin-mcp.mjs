@@ -93,13 +93,15 @@ function writeProjectMcpDocument(path, raw) {
   }
 }
 
+// The stored key for `key`: an exact own key first, else one that trims to it.
+function mcpEntryKey(map, key) {
+  return Object.hasOwn(map, key) ? key : Object.keys(map).find((candidate) => String(candidate || '').trim() === key);
+}
+
 export function readProjectMcpServerConfig(cwd, name) {
   const { raw, usesWrapper } = readProjectMcpDocument(cwd);
   const map = usesWrapper ? raw.mcpServers : raw;
-  const key = String(name || '').trim();
-  const entryKey = Object.hasOwn(map, key)
-    ? key
-    : Object.keys(map).find((candidate) => String(candidate || '').trim() === key);
+  const entryKey = mcpEntryKey(map, String(name || '').trim());
   return entryKey && isPlainObject(map[entryKey]) ? { name: entryKey, config: { ...map[entryKey] } } : null;
 }
 
@@ -109,12 +111,7 @@ export function saveProjectMcpServer(cwd, { originalName = '', name, config }) {
   const target = String(name || '').trim();
   const original = String(originalName || '').trim();
   if (!target) throw new Error('MCP server name is required');
-  let entryKey = null;
-  if (original) {
-    entryKey = Object.hasOwn(map, original)
-      ? original
-      : Object.keys(map).find((candidate) => String(candidate || '').trim() === original);
-  }
+  const entryKey = original ? mcpEntryKey(map, original) : null;
   if (original && !entryKey) throw new Error(`MCP server not defined in ${path}: ${original}`);
   if (target !== entryKey && Object.hasOwn(map, target)) {
     throw new Error(`MCP server already exists in ${path}: ${target}`);
@@ -253,6 +250,12 @@ export function pluginRawMcpServers(root, script) {
   const keys = Object.keys(rawServers).filter((k) => isPlainObject(rawServers[k]));
   if (!keys.length) throw new Error(`plugin MCP manifest has no mcpServers: ${mcpJsonPath}`);
   return { rawServers, mcpRoot: root };
+}
+
+/** Every MCP entry a plugin owns: `<serverName>` and `<serverName>--<key>`. */
+export function pluginServerMatcher(serverName) {
+  const prefix = `${serverName}--`;
+  return (name) => name === serverName || name.startsWith(prefix);
 }
 
 export function pluginMcpServerName(plugin = {}) {

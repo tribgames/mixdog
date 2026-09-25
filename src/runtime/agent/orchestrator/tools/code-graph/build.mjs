@@ -42,6 +42,7 @@ import { _runGraphManifest, callsWireSignatureToken, awaitCallsWireProbe } from 
 import { assembleGraphNodes, linkGraphImports, resolveGraphFileInfos } from './build-file-infos.mjs';
 import { _lookupCandidateNodes } from './symbol-index.mjs';
 import { _findDirProjectRoot } from './project-root.mjs';
+import { raceAbort } from './dispatch/abort-race.mjs';
 
 // In-flight async builds keyed by canonical graphCwd. Same-cwd parallel
 // callers (prewarm + cache-miss + multiple find_symbol) share one Worker
@@ -239,18 +240,14 @@ function _codeGraphWorkerFailure(message) {
   return new Error(error || 'code-graph prewarm worker failed');
 }
 
-function _prewarmCodeGraph(cwd, build = buildCodeGraphAsync) {
+export function prewarmCodeGraph(cwd) {
   if (!cwd) return;
   // Reuse the buildCodeGraphAsync single-flight path. Fire-and-forget, and
   // best-effort: skip a fresh worker spawn when the child-spawn gate is busy
   // so this warm never queues ahead of real code_graph/find queries.
-  build(cwd, null, { bestEffort: true }).catch(() => {
+  buildCodeGraphAsync(cwd, null, { bestEffort: true }).catch(() => {
     /* best-effort */
   });
-}
-
-export function prewarmCodeGraph(cwd) {
-  _prewarmCodeGraph(cwd);
 }
 
 export function prewarmCodeGraphSymbols(cwd, symbols, { language = null } = {}) {
@@ -299,32 +296,7 @@ export async function buildCodeGraphAsync(
     return cached.graph;
   }
   const existing = _inflightAsyncBuilds.get(inflightKey);
-  if (existing) {
-    if (!signal) return existing;
-    let onAbort = null;
-    const abortP = new Promise((_, reject) => {
-      onAbort = () => reject(new Error('aborted'));
-      signal.addEventListener('abort', onAbort, { once: true });
-    });
-    const cleanup = () => {
-      if (onAbort) {
-        try {
-          signal.removeEventListener('abort', onAbort);
-        } catch {}
-        onAbort = null;
-      }
-    };
-    return Promise.race([existing, abortP]).then(
-      (v) => {
-        cleanup();
-        return v;
-      },
-      (e) => {
-        cleanup();
-        throw e;
-      }
-    );
-  }
+  if (existing) return raceAbort(existing, signal);
   // Non-competing prewarm: the signature-validation manifest also needs a
   // child-spawn slot, so warmers skip before either it or a Worker can queue.
   if (bestEffort && !childSpawnHasSpareCapacity('code-graph')) return null;
@@ -428,86 +400,79 @@ export function _spawnCodeGraphWorker(
       if (val instanceof Error) reject(val);
       else resolve(val);
     };
+    const settleError = (e) => settle(e instanceof Error ? e : new Error(String(e)));
+    const forwardToStderr = (chunk) => {
+      try {
+        process.stderr.write(chunk);
+      } catch {
+        /* best-effort */
+      }
+    };
     (preAcquiredRelease
       ? Promise.resolve(preAcquiredRelease)
       : acquireChildSpawnSlot(signal || null, 'code-graph')
-    ).then(
-      (release) => {
-        _releaseSlot = release;
-        if (settled) {
-          release();
-          _releaseSlot = null;
-          return;
-        }
-        if (signal?.aborted) {
-          settle(new Error('aborted'));
-          return;
-        }
-        const workerUrl = new URL('../code-graph-prewarm-worker.mjs', import.meta.url);
+    ).then((release) => {
+      _releaseSlot = release;
+      if (settled) {
+        release();
+        _releaseSlot = null;
+        return;
+      }
+      if (signal?.aborted) {
+        settle(new Error('aborted'));
+        return;
+      }
+      const workerUrl = new URL('../code-graph-prewarm-worker.mjs', import.meta.url);
+      try {
+        _worker = createWorker(workerUrl, {
+          workerData: { cwd, manifest, signature, buildOptions },
+          execArgv: [],
+        });
+        _worker.stdout?.on?.('data', forwardToStderr);
+        _worker.stderr?.on?.('data', forwardToStderr);
+      } catch (e) {
+        settleError(e);
+        return;
+      }
+      const w = _worker;
+      timeout = setTimeout(() => {
         try {
-          _worker = createWorker(workerUrl, {
-            workerData: { cwd, manifest, signature, buildOptions },
-            execArgv: [],
-          });
-          _worker.stdout?.on?.('data', (chunk) => {
-            try {
-              process.stderr.write(chunk);
-            } catch {
-              /* best-effort */
-            }
-          });
-          _worker.stderr?.on?.('data', (chunk) => {
-            try {
-              process.stderr.write(chunk);
-            } catch {
-              /* best-effort */
-            }
-          });
-        } catch (e) {
-          settle(e instanceof Error ? e : new Error(String(e)));
-          return;
-        }
-        const w = _worker;
-        timeout = setTimeout(() => {
+          _worker?.terminate();
+        } catch {}
+        settle(new Error(`code-graph worker timed out after ${CODE_GRAPH_WORKER_TIMEOUT_MS}ms for cwd=${graphCwd}`));
+      }, CODE_GRAPH_WORKER_TIMEOUT_MS);
+      timeout.unref?.();
+      if (signal) {
+        _onSignalAbort = () => {
           try {
             _worker?.terminate();
           } catch {}
-          settle(new Error(`code-graph worker timed out after ${CODE_GRAPH_WORKER_TIMEOUT_MS}ms for cwd=${graphCwd}`));
-        }, CODE_GRAPH_WORKER_TIMEOUT_MS);
-        timeout.unref?.();
-        if (signal) {
-          _onSignalAbort = () => {
-            try {
-              _worker?.terminate();
-            } catch {}
-            settle(new Error('aborted'));
-          };
-          signal.addEventListener('abort', _onSignalAbort, { once: true });
-        }
-        w.once('message', (msg) => {
-          try {
-            if (msg?.ok && msg.graph && typeof msg.signature === 'string') {
-              const genStillCurrent = getGeneration(graphCwd) === genAtStart;
-              if (genStillCurrent && cacheResult) {
-                setMemoryCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });
-                // The Worker strictly persisted this graph before posting
-                // success. Adopt it in the main process without scheduling a
-                // redundant flush that can race the next Worker on the same
-                // manifest lock.
-                setDiskCache(graphCwd, msg.graph, { persist: false });
-              }
-              settle(genStillCurrent ? msg.graph : codeGraphBuildInvalidatedError());
-            } else {
-              settle(_codeGraphWorkerFailure(msg));
+          settle(new Error('aborted'));
+        };
+        signal.addEventListener('abort', _onSignalAbort, { once: true });
+      }
+      w.once('message', (msg) => {
+        try {
+          if (msg?.ok && msg.graph && typeof msg.signature === 'string') {
+            const genStillCurrent = getGeneration(graphCwd) === genAtStart;
+            if (genStillCurrent && cacheResult) {
+              setMemoryCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });
+              // The Worker strictly persisted this graph before posting
+              // success. Adopt it in the main process without scheduling a
+              // redundant flush that can race the next Worker on the same
+              // manifest lock.
+              setDiskCache(graphCwd, msg.graph, { persist: false });
             }
-          } catch (e) {
-            settle(e instanceof Error ? e : new Error(String(e)));
+            settle(genStillCurrent ? msg.graph : codeGraphBuildInvalidatedError());
+          } else {
+            settle(_codeGraphWorkerFailure(msg));
           }
-        });
-        w.once('error', (e) => settle(e instanceof Error ? e : new Error(String(e))));
-      },
-      (e) => settle(e instanceof Error ? e : new Error(String(e)))
-    );
+        } catch (e) {
+          settleError(e);
+        }
+      });
+      w.once('error', settleError);
+    }, settleError);
   });
 }
 

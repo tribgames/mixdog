@@ -4,9 +4,8 @@
 // canonicalizes the transcript when the turn is interrupted.
 import { captureTurnCheckpointContextState, createTurnCheckpointRecorder } from './turn-checkpoint.mjs';
 
-// Coalescing window for streaming-delta flushes. It is no longer a throttle
-// on a full-snapshot rewrite: each flush now journals only the delta since
-// the previous one, so the window just bounds syscalls.
+// Coalescing window for streaming-delta flushes. Each flush journals only the
+// delta since the previous one, so the window just bounds syscalls.
 const TURN_CHECKPOINT_THROTTLE_MS = 150;
 
 /** What one turn mutates while it runs; every helper reads the live values. */
@@ -108,15 +107,9 @@ export function createCloseSnapshot({ turn, interruption, checkpoint, runtime })
     });
     session.messages = finalized.messages;
     delete session.activeTurnCheckpoint;
-    if (!finalized.responsePreserved) {
-      if (finalized.userTurnPreserved) {
-        // A non-user detach keeps the provisional prompt but makes
-        // the opaque provider continuation unsafe to reuse.
-        session.providerState = undefined;
-      }
-    } else {
-      session.providerState = undefined;
-    }
+    // A preserved response — or a non-user detach that keeps the provisional
+    // prompt — makes the opaque provider continuation unsafe to reuse.
+    if (finalized.responsePreserved || finalized.userTurnPreserved) session.providerState = undefined;
     session.updatedAt = Date.now();
     session.lastUsedAt = Date.now();
     runtime.session = session;

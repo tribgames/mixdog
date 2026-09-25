@@ -70,7 +70,7 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
  *  The right side belongs to the PANE (user: 오른쪽 사이드탭은 이제 PANE
  *  종속이라): session Diff and session-owned surfaces lead, while legacy
  *  Pull Requests remains available behind its feature flag. */
-export const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
+const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
   left: [
     ['sessions'],
     ['agents'],
@@ -365,6 +365,12 @@ type WorkbenchSideDragPayload = {
 
 let activeWorkbenchSideDrag: WorkbenchSideDragPayload | null = null;
 
+/** The drag carries a side group or view this layout can seat. */
+function carriesSideDrag(event: ReactDragEvent<HTMLElement>): boolean {
+  const types = Array.from(event.dataTransfer.types);
+  return types.includes(WORKBENCH_SIDE_GROUP_MIME) || types.includes(WORKBENCH_SIDE_VIEW_MIME);
+}
+
 function dragPayload(event: ReactDragEvent<HTMLElement>): WorkbenchSideDragPayload | null {
   const group = event.dataTransfer.getData(WORKBENCH_SIDE_GROUP_MIME);
   if (isViewId(group)) return { type: 'group', id: group };
@@ -408,7 +414,7 @@ export function workbenchSideBarDropPlacement(point: number, previous: 'before' 
   return previous ?? (point <= 0.5 ? 'before' : 'after');
 }
 
-export function workbenchSideBarDropTarget(
+function workbenchSideBarDropTarget(
   items: readonly {
     root: WorkbenchSideViewId;
     start: number;
@@ -498,11 +504,7 @@ export function WorkbenchSideIconBar({
   // Only the left rail rearranges (user: 왼쪽에서만 이동가능하게): the
   // pane-scoped right strip neither starts a drag nor accepts one.
   const movable = side === 'left';
-  const acceptsDrag = (event: ReactDragEvent<HTMLElement>): boolean => {
-    if (!movable) return false;
-    const types = Array.from(event.dataTransfer.types);
-    return types.includes(WORKBENCH_SIDE_GROUP_MIME) || types.includes(WORKBENCH_SIDE_VIEW_MIME);
-  };
+  const acceptsDrag = (event: ReactDragEvent<HTMLElement>): boolean => movable && carriesSideDrag(event);
   const targetAt = (
     clientX: number,
     clientY: number,
@@ -702,6 +704,19 @@ export function resizeSideSplitSizes(
   return next;
 }
 
+/** Storage key of one group's section split ratios. */
+function sideSplitKey(side: WorkbenchSide, group: readonly WorkbenchSideViewId[]): string {
+  return `mixdog.desktop.side-view-split.${side}.${group.join('+')}.v1`;
+}
+
+/** The current roots when `next` names the same roots in the same order. */
+function keepSameRoots(
+  current: readonly WorkbenchSideViewId[],
+  next: WorkbenchSideViewId[]
+): readonly WorkbenchSideViewId[] {
+  return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+}
+
 function readSideSplitSizes(key: string, count: number): number[] {
   try {
     return normalizeSideSplitSizes(JSON.parse(window.localStorage.getItem(key) || 'null'), count);
@@ -783,10 +798,7 @@ export function WorkbenchSidePanel({
   const movable = side === 'left';
   const [retainedRoots, setRetainedRoots] = useState<readonly WorkbenchSideViewId[]>([]);
   useEffect(() => {
-    setRetainedRoots((current) => {
-      const next = nextRetainedWorkbenchSideRoots(groups, current, activeRoot);
-      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
-    });
+    setRetainedRoots((current) => keepSameRoots(current, nextRetainedWorkbenchSideRoots(groups, current, activeRoot)));
   }, [activeRoot, groups]);
   // Idle pre-retain (user: 메뉴 이동할 때 깜빡 — 바로바로 나오게): shortly
   // after the panel settles, EVERY destination hidden-mounts, so the first
@@ -796,15 +808,17 @@ export function WorkbenchSidePanel({
   useEffect(() => {
     if (embedded) return undefined;
     const timer = window.setTimeout(() => {
-      setRetainedRoots((current) => {
-        const next = groups.map((group) => group[0]).filter((rootId): rootId is WorkbenchSideViewId => Boolean(rootId));
-        return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
-      });
+      setRetainedRoots((current) =>
+        keepSameRoots(
+          current,
+          groups.map((group) => group[0]).filter((rootId): rootId is WorkbenchSideViewId => Boolean(rootId))
+        )
+      );
     }, 400);
     return () => window.clearTimeout(timer);
   }, [embedded, groups]);
   const retainedGroups = groups.filter((group) => group[0] !== root && retainedRoots.includes(group[0]));
-  const splitKey = `mixdog.desktop.side-view-split.${side}.${selectedGroup.join('+')}.v1`;
+  const splitKey = sideSplitKey(side, selectedGroup);
   const [splitSizesByKey, setSplitSizesByKey] = useState<Record<string, number[]>>({});
   const splitSizes = splitSizesByKey[splitKey] ?? readSideSplitSizes(splitKey, selectedGroup.length);
   const widthKey = widthStorageKey ?? SIDE_PANEL_WIDTH_KEY[side];
@@ -949,9 +963,7 @@ export function WorkbenchSidePanel({
           inert={surfacesActive ? true : undefined}
           aria-hidden={surfacesActive ? true : undefined}
           onDragOver={(event) => {
-            if (!movable) return;
-            const types = Array.from(event.dataTransfer.types);
-            if (!types.includes(WORKBENCH_SIDE_GROUP_MIME) && !types.includes(WORKBENCH_SIDE_VIEW_MIME)) return;
+            if (!movable || !carriesSideDrag(event)) return;
             event.preventDefault();
             event.dataTransfer.dropEffect = 'move';
             const payload = dragPayload(event);
@@ -1055,7 +1067,7 @@ export function WorkbenchSidePanel({
         </div>
         {retainedGroups.map((group) => {
           const retainedRoot = group[0];
-          const retainedSplitKey = `mixdog.desktop.side-view-split.${side}.${group.join('+')}.v1`;
+          const retainedSplitKey = sideSplitKey(side, group);
           const retainedSizes = splitSizesByKey[retainedSplitKey] ?? readSideSplitSizes(retainedSplitKey, group.length);
           return (
             <div key={retainedRoot} className="workbench-side-panel-body" hidden inert aria-hidden="true">

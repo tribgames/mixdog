@@ -13,6 +13,7 @@ const HARD_WARNING_CODES = new Set([
   'shape_overlap',
   'short_table_split',
   'small_font',
+  'shape_out_of_bounds',
   'text_outside_slide',
   'text_overflow',
   'text_spacing_tight',

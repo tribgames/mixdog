@@ -1,7 +1,7 @@
 // Message selector ("jump back to a previous message"): rewind the
 // conversation to just before a user prompt and hand its text back for
 // editing. Idle-only — a live turn must be interrupted first.
-import { promptHistoryKey } from '../../../prompt-history-store.mjs';
+import { promptHistoryWithout } from '../../prompt-history.mjs';
 
 export function createRewindAction(bag) {
   const { runtime, getState, set, flushEmitImmediate, replaceItems, syncContextStats } = bag;
@@ -20,7 +20,6 @@ export function createRewindAction(bag) {
       try {
         const rewound = await runtime.rewindMessages?.({ text });
         if (!rewound) return null;
-        const restoreKey = promptHistoryKey(text);
         set({
           items: replaceItems(items.slice(0, index), {
             preserveSpill: true,
@@ -31,9 +30,7 @@ export function createRewindAction(bag) {
           lastTurn: null,
           // The prompt returns to the draft, so it must not ALSO sit in the
           // Up-arrow history — otherwise it shows up twice.
-          promptHistoryList: (getState().promptHistoryList || []).filter(
-            (entry) => promptHistoryKey(entry) !== restoreKey
-          ),
+          promptHistoryList: promptHistoryWithout(getState().promptHistoryList, text),
         });
         syncContextStats({ allowEstimated: true });
         set({ stats: { ...getState().stats } });

@@ -38,7 +38,7 @@ export function useSelectionLayoutShift({
     // rememberText:false — the shifted rect is viewport-clipped, so harvesting
     // here would replace the full selection text remembered at drag-release
     // with only the still-visible fragment (partial Ctrl+C after scrolling).
-    paintSelectionRect(clippedRect, { rememberText: false, immediate: true });
+    paintSelectionRect(clippedRect, { rememberText: false });
   }, [
     transcriptContentHeight,
     transcriptWindow.totalRows,
@@ -52,6 +52,6 @@ export function useSelectionLayoutShift({
     dragRef.current = { ...dragRef.current, rect: clippedRect };
     // Theme repaint: same cells, same text — no need to re-harvest (and a
     // clipped rect would clobber the remembered full text with a fragment).
-    paintSelectionRect(clippedRect, { rememberText: false, immediate: true });
+    paintSelectionRect(clippedRect, { rememberText: false });
   }, [themeEpoch, withSelectionClip, paintSelectionRect]);
 }

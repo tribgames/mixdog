@@ -20,8 +20,6 @@ const clientsOnly = (info: DesktopRemoteAccessInfo | null) => ({
   pairing: 'Pairing URLs and credentials remain in Settings → Connection.',
 });
 
-/** Uses the same Desktop API as the settings panels. Only the local Desktop
- * claimant runs it; the web shim must never apply host appearance to a phone. */
 // What every action handler works with: the request, the Desktop API and the
 // helpers that gate mutations behind the claimant check.
 type SetupActionContext = {
@@ -148,6 +146,8 @@ async function revokeLinkedDeviceAction({ args, api, mutate, saved }: SetupActio
   return saved({ ...clientsOnly(after), recovery: 'The device must pair again to regain access.' });
 }
 
+/** Uses the same Desktop API as the settings panels. Only the local Desktop
+ * claimant runs it; the web shim must never apply host appearance to a phone. */
 export async function executeSetupDesktopAction(
   args: Values,
   api: DesktopApi,

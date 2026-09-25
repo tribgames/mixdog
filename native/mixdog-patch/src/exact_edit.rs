@@ -171,11 +171,8 @@ pub(crate) fn norm_chars(s: &str, tier: EditTier) -> Vec<char> {
     build_norm_view(s, tier).chars
 }
 
-pub(crate) fn find_char_occurrences(
-    hay: &[char],
-    needle: &[char],
-    replace_all: bool,
-) -> Vec<usize> {
+/// Every non-overlapping occurrence of `needle` in `hay`, left to right.
+pub(crate) fn find_char_occurrences(hay: &[char], needle: &[char]) -> Vec<usize> {
     let mut out = Vec::new();
     if needle.is_empty() || needle.len() > hay.len() {
         return out;
@@ -184,9 +181,6 @@ pub(crate) fn find_char_occurrences(
     while i + needle.len() <= hay.len() {
         if hay[i..i + needle.len()] == *needle {
             out.push(i);
-            if !replace_all && out.len() > 1 {
-                return out;
-            }
             i += needle.len();
         } else {
             i += 1;
@@ -252,7 +246,7 @@ pub(crate) fn locate_invariant_safe_spans(
         }
         // Collect ALL occurrences, then keep only those aligned to original
         // character boundaries. Ambiguity is judged on aligned matches only.
-        let matches: Vec<usize> = find_char_occurrences(&view.chars, &needle, true)
+        let matches: Vec<usize> = find_char_occurrences(&view.chars, &needle)
             .into_iter()
             .filter(|&m| match_is_char_aligned(&view, m, needle.len()))
             .collect();
@@ -332,13 +326,8 @@ pub(crate) fn apply_invariant_safe_edit_to_path(
         .map_err(|_| "source file is not valid UTF-8".to_string())?;
 
     let t = Instant::now();
+    // Ok always carries at least one span: every miss is an Err.
     let (tier, mut spans) = locate_invariant_safe_spans(source, old, replace_all)?;
-    if spans.is_empty() {
-        return Err(format!(
-            "old_string not found{}",
-            nearest_line_hint(source, old)
-        ));
-    }
 
     // No size gate on fold-tier matches: every tier in
     // locate_invariant_safe_spans is invariant-safe (same text, different

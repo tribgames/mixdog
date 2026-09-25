@@ -55,3 +55,34 @@ test('a pivot table records the source range it read', async () => {
     /<worksheetSource ref="A1:C4" sheet="Sheet1"\/>/
   );
 });
+
+test('a line chart draws the line without a marker on every point, as Excel draws chartType line', async () => {
+  const zip = await workbook();
+  await applyXlsx(zip, [{ op: 'add_chart', chartType: 'line', range: 'A1:C4', cell: 'E2' }]);
+  const chart = await zipText(zip, Object.keys(zip.files).find((name) => /^xl\/charts\/chart\d+\.xml$/.test(name)));
+  assert.match(chart, /<c:lineChart>[\s\S]*<c:ser>[\s\S]*?<c:marker><c:symbol val="none"\/><\/c:marker>/);
+});
+
+test('a numeric field across the top lays out one column per value, and the pivot columns fit what they hold', async () => {
+  const zip = await JSZip.loadAsync(
+    await createPortableChartWorkbook([
+      ['Segment', 'Year', 'Profit'],
+      ['Channel Partners', 2014, 1026913.86],
+      ['Government', 2013, 2886645.28],
+      ['Channel Partners', 2013, 289889.28],
+      ['Government', 2014, 8501527.89],
+    ])
+  );
+  await applyXlsx(zip, [{ op: 'add_pivot_table', source: 'A1:C5', destination: 'E1', rows: 'Segment', columns: 'Year', values: 'Profit' }]);
+  const sheet = await zipText(zip, SHEET);
+  // Heading row, then the years as numbers in order, then the grand total.
+  assert.match(sheet, /<c r="F2"[^>]*><v>2013<\/v><\/c><c r="G2"[^>]*><v>2014<\/v><\/c>/);
+  assert.match(sheet, /<c r="H2"[^>]*t="inlineStr"><is><t>Grand Total<\/t>/);
+  assert.match(
+    await zipText(zip, 'xl/pivotCache/pivotCacheDefinition1.xml'),
+    /<cacheField name="Year" numFmtId="0"><sharedItems[^>]*count="2"><n v="2014"\/><n v="2013"\/><\/sharedItems>/
+  );
+  const widths = Object.fromEntries([...sheet.matchAll(/<col min="(\d+)" max="\d+" width="([\d.]+)"/g)].map((m) => [m[1], Number(m[2])]));
+  assert.ok(widths[5] >= 16, `the Segment column fits "Channel Partners" (${widths[5]})`);
+  assert.ok(widths[8] >= 10, `the Grand Total column fits its figures (${widths[8]})`);
+});

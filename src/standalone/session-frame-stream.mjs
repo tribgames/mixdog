@@ -29,7 +29,27 @@ function pendingEntry(frame, json, queuedAt) {
   return { frame, json, bytes: Buffer.byteLength(json) + 8, queuedAt };
 }
 
+function isResyncMarker(frame) {
+  return frame?.resyncRequired === true || frame?.message?.resyncRequired === true;
+}
+
 function resyncEntry(frame) {
+  if (frame?.type === 'desktop-event' && frame.message?.kind === 'session-state' && frame.message.sessionId) {
+    // The desktop decoder cannot apply a patch against base -2, so it resets
+    // and asks its service for a fresh full snapshot of this session.
+    const marker = {
+      type: 'desktop-event',
+      key: frame.key,
+      desktopId: frame.desktopId,
+      message: {
+        kind: 'session-state',
+        sessionId: frame.message.sessionId,
+        resyncRequired: true,
+        wire: { __itemsPatch: { base: -2, revision: -1 } },
+      },
+    };
+    return pendingEntry(marker, JSON.stringify(marker));
+  }
   if (frame?.type !== 'session-state' || !frame.sessionId) return null;
   const marker = {
     type: 'session-state',
@@ -124,8 +144,13 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     client.pending.set(key, entry);
     client.pendingBytes += entry.bytes || 0;
     traceFrame(client, entry.frame, 'stream-queued', entry);
-    while (client.pendingBytes > maxPendingBytes && client.pending.size > 0) {
-      const [oldestKey, oldest] = client.pending.entries().next().value;
+    // The cap bounds accumulated backlog: older entries collapse to resync
+    // markers or drop, oldest first. The newest frame is always admitted, so a
+    // snapshot larger than the cap still reaches a client with no backlog, and
+    // markers are kept so a receiver always learns what it missed.
+    for (const [oldestKey, oldest] of client.pending) {
+      if (client.pendingBytes <= maxPendingBytes) break;
+      if (oldestKey === key || isResyncMarker(oldest.frame)) continue;
       const marker = resyncEntry(oldest.frame);
       if (marker && marker.bytes < oldest.bytes) {
         traceFrame(client, oldest.frame, 'stream-resync-marker', oldest, true);
@@ -140,11 +165,15 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     }
   }
 
+  function queueFrame(client, key, frame, json) {
+    const merged = mergePendingFrame(client.pending.get(key), frame, json);
+    setPending(client, key, pendingEntry(merged.frame, merged.json, nowMs()));
+  }
+
   function writeFrame(client, frame, json) {
     const key = frame.key || `${frame.type}:${frame.sessionId || frame.desktopId || ''}`;
     if (!client.sse || client.paused) {
-      const merged = mergePendingFrame(client.pending.get(key), frame, json);
-      setPending(client, key, pendingEntry(merged.frame, merged.json, nowMs()));
+      queueFrame(client, key, frame, json);
       return;
     }
     try {
@@ -153,21 +182,26 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     } catch {
       traceFrame(client, frame, 'stream-write-failed', {}, true);
       retireStream(client.sse);
-      const merged = mergePendingFrame(client.pending.get(key), frame, json);
-      setPending(client, key, pendingEntry(merged.frame, merged.json, nowMs()));
+      queueFrame(client, key, frame, json);
     }
   }
 
   function broadcast(frame, targetTokens = null) {
-    const json = JSON.stringify(frame);
+    // Serialized once, and only when an SSE client is a target: frames meant
+    // for in-process subscribers alone never pay for JSON.stringify.
+    let json = null;
+    const deliver = (client) => {
+      json ??= JSON.stringify(frame);
+      writeFrame(client, frame, json);
+    };
     if (targetTokens) {
       for (const token of targetTokens) {
         const client = clients.get(String(token || ''));
-        if (client) writeFrame(client, frame, json);
+        if (client) deliver(client);
       }
       return;
     }
-    for (const client of clients.values()) writeFrame(client, frame, json);
+    for (const client of clients.values()) deliver(client);
   }
 
   function attachSse(token, res) {

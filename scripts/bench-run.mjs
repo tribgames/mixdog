@@ -23,22 +23,12 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { pricedSplitCost } from '../benchmarks/terminal-bench-2.1/analysis/model-rates.mjs';
+import { argValue, hasFlag } from './lib/cli-args.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const HEADLESS = pathToFileURL(resolve(__dir, '../src/headless-exec.mjs')).href;
 const WORKFLOW_MOD = pathToFileURL(resolve(__dir, '../src/session-runtime/workflow.mjs')).href;
 const TASK_BENCH = resolve(__dir, 'task-bench.mjs');
-
-function argValue(name, fallback = null) {
-  const idx = process.argv.indexOf(name);
-  if (idx >= 0 && idx + 1 < process.argv.length) return process.argv[idx + 1];
-  const pref = `${name}=`;
-  const hit = process.argv.find((a) => a.startsWith(pref));
-  return hit ? hit.slice(pref.length) : fallback;
-}
-function hasFlag(name) {
-  return process.argv.includes(name);
-}
 
 // Model aliases so a round switches model+provider with one flag
 // (--model opus|gpt|grok). Full provider/model pairs still work verbatim.

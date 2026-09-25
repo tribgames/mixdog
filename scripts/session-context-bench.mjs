@@ -7,6 +7,7 @@ import { initProviders, getProvider } from '../src/runtime/agent/orchestrator/pr
 import { loadSession } from '../src/runtime/agent/orchestrator/session/store.mjs';
 import { generateFreshHandoffSummary } from '../src/runtime/agent/orchestrator/session/compact.mjs';
 import { estimateMessagesTokens } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
+import { numArg as numberArg } from './lib/cli-args.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 let memoryModule = null;
@@ -22,6 +23,11 @@ function arg(name, fallback = null) {
 
 function flag(name) {
   return process.argv.includes(`--${name}`);
+}
+
+// A deliberate 0 is kept; only a missing or non-numeric value takes the default.
+function numArg(name, fallback) {
+  return numberArg(`--${name}`, fallback);
 }
 
 function isMainScript() {
@@ -299,7 +305,7 @@ async function main() {
   });
 
   const timings = {};
-  const budget = Number(arg('budget', 16000)) || 16000;
+  const budget = numArg('budget', 16000);
   const sessionLocal = await timed('session_local_handoff_ms', timings, () =>
     generateFreshHandoffSummary(impl, messages, model, budget, {
       force: true,
@@ -307,7 +313,7 @@ async function main() {
       filterOldHistoryForIngest: true,
       sessionId,
       providerName: provider,
-      timeoutMs: Number(arg('timeout-ms', 60000)) || 60000,
+      timeoutMs: numArg('timeout-ms', 60000),
     })
   );
   const sessionLocalText = String(sessionLocal.summary || '');
@@ -323,18 +329,18 @@ async function main() {
       sessionId,
       cwd: session.cwd || ROOT,
       messages,
-      limit: Number(arg('ingest-limit', 500)) || 500,
+      limit: numArg('ingest-limit', 500),
     })
   );
   const cycle1 = await timed('recall_cycle1_drain_ms', timings, () =>
     drainCycle1ForSession(memoryModule, sessionId, {
-      maxPasses: Number(arg('cycle1-passes', 4)) || 4,
-      windowSize: Number(arg('window-size', arg('batch-size', 50))) || 50,
-      rowsPerSession: Number(arg('rows-per-session', 0)) || 0,
-      concurrency: Number(arg('concurrency', 4)) || 4,
-      callerDeadlineMs: Number(arg('cycle1-deadline-ms', 120000)) || 120000,
+      maxPasses: numArg('cycle1-passes', 4),
+      windowSize: numArg('window-size', numArg('batch-size', 50)),
+      rowsPerSession: numArg('rows-per-session', 0),
+      concurrency: numArg('concurrency', 4),
+      callerDeadlineMs: numArg('cycle1-deadline-ms', 120000),
       callLlm: directCycle1Llm(impl, model),
-      limit: Number(arg('limit', 1000)) || 1000,
+      limit: numArg('limit', 1000),
     })
   );
   const recallQuery = String(arg('recall-query', recallQueryForSession(messages)) || '').trim();
@@ -343,7 +349,7 @@ async function main() {
       action: 'search',
       sessionId,
       query: recallQuery,
-      limit: Number(arg('recall-limit', 100)) || 100,
+      limit: numArg('recall-limit', 100),
       includeArchived: true,
       includeMembers: true,
     })

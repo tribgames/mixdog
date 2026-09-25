@@ -18,9 +18,16 @@ before(async () => {
     stdin: {
       contents: [
         "export { renderAppView } from './src/tui/app/app-view.jsx';",
-        ...['Picker', 'ContextPanel', 'UsagePanel', 'SlashCommandPalette', 'TextEntryPanel', 'PromptInput'].map(
-          (name) => `export { ${name} } from './src/tui/components/${name}.jsx';`
-        ),
+        ...[
+          'Picker',
+          'ContextPanel',
+          'UsagePanel',
+          'SlashCommandPalette',
+          'TextEntryPanel',
+          'PromptInput',
+          'Spinner',
+          'QueuedCommands',
+        ].map((name) => `export { ${name} } from './src/tui/components/${name}.jsx';`),
       ].join('\n'),
       resolveDir: process.cwd(),
     },
@@ -315,4 +322,59 @@ test('palette navigation retains wrapping, endpoints and numeric clamping', () =
   );
   empty.props.onCommandPaletteNavigate('end');
   assert.equal(index, 0);
+});
+
+test('tool approval resolves select, cancel and a/y/d/n keys into approve/deny decisions', () => {
+  const decisions = [];
+  const store = { resolveToolApproval: (id, decision) => decisions.push([id, decision]) };
+  const approval = elements(
+    components.renderAppView(context({ store, toolApproval: { id: 'call-1', name: 'read', args: {} } }))
+  ).find((node) => node.type === components.Picker);
+  approval.props.onSelect('approve');
+  approval.props.onSelect('deny');
+  approval.props.onCancel();
+  approval.props.onKey(' Y ');
+  approval.props.onKey('a');
+  approval.props.onKey('n');
+  approval.props.onKey('d');
+  approval.props.onKey('x');
+  const approved = { approved: true, reason: 'approved by user' };
+  const denied = { approved: false, reason: 'denied by user' };
+  assert.deepEqual(
+    decisions.map(([, decision]) => decision),
+    [approved, denied, denied, approved, approved, denied, denied]
+  );
+  assert.ok(decisions.every(([id]) => id === 'call-1'));
+});
+
+test('prompt cluster shows the spinner/status row and queued commands only when visible', () => {
+  const visible = {
+    inputBoxHidden: false,
+    promptMetaVisible: true,
+    liveSpinner: { verb: 'Thinking', startedAt: 1, tokens: 7 },
+    inputHint: 'copied',
+    inputHintTone: 'info',
+    queuedVisible: true,
+    queuedCompact: false,
+  };
+  const types = (ctx) => elements(components.renderAppView(context(ctx))).map((node) => node.type);
+  const shown = types(visible);
+  assert.ok(shown.includes(components.Spinner));
+  assert.ok(shown.includes(components.QueuedCommands));
+  assert.ok(shown.includes(components.PromptInput));
+  const spinner = elements(components.renderAppView(context(visible))).find((node) => node.type === components.Spinner);
+  assert.equal(spinner.props.outputTokens, 7);
+  assert.equal(spinner.props.mode, 'responding');
+  const statusText = elements(components.renderAppView(context(visible))).filter(
+    (node) => node.props?.children === 'copied'
+  );
+  assert.equal(statusText.length, 1);
+  const quiet = types({ ...visible, promptMetaVisible: false, queuedVisible: false });
+  assert.ok(!quiet.includes(components.Spinner));
+  assert.ok(!quiet.includes(components.QueuedCommands));
+  assert.ok(quiet.includes(components.PromptInput));
+  const hidden = types({ ...visible, inputBoxHidden: true });
+  assert.ok(!hidden.includes(components.Spinner));
+  assert.ok(!hidden.includes(components.QueuedCommands));
+  assert.ok(!hidden.includes(components.PromptInput));
 });

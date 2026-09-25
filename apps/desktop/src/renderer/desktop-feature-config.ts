@@ -18,7 +18,7 @@ type DesktopFeatureId =
   | 'sourceControl'
   | 'pullRequests';
 
-export const DESKTOP_FEATURES: Readonly<Record<DesktopFeatureId, boolean>> = {
+const DESKTOP_FEATURES: Readonly<Record<DesktopFeatureId, boolean>> = {
   sessions: true,
   projects: true,
   extensions: true,
@@ -57,7 +57,7 @@ export function desktopUtilityDockTabEnabled(tab: DesktopUtilityDockTab): boolea
   return desktopFeatureEnabled(UTILITY_DOCK_FEATURES[tab]);
 }
 
-export function firstEnabledDesktopUtilityDockTab(): DesktopUtilityDockTab | null {
+function firstEnabledDesktopUtilityDockTab(): DesktopUtilityDockTab | null {
   return UTILITY_DOCK_TABS.find(desktopUtilityDockTabEnabled) ?? null;
 }
 

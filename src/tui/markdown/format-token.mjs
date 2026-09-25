@@ -1,7 +1,6 @@
 /**
  * markdown/format-token.mjs — token → ANSI string renderer.
  *
- * Token → ANSI string renderer:
  *   - chalk is forced to truecolor (level 3) so colors render regardless of the
  *     ambient TTY detection (we control the surface).
  *   - The `permission`/code accent and blockquote bar come from our theme.mjs.
@@ -9,8 +8,8 @@
  *     (inline) gets the accent color.
  *   - `table` is NOT handled here — the React component (MarkdownTable.jsx)
  *     renders tables with proper ink Box layout (hybrid split).
- *   - Hyperlinks/issue-ref linkify are dropped (no OSC-8 dependency); link text
- *     is shown plainly with its URL.
+ *   - Links to safe schemes render as OSC 8 hyperlinks (see the `link` case);
+ *     issue-ref linkify is not done.
  */
 import { createRequire } from 'node:module';
 import { Chalk } from 'chalk';
@@ -19,6 +18,7 @@ import { theme, getThemeVersion } from '../theme.mjs';
 import { BLOCKQUOTE_BAR, HR_LINE } from '../figures.mjs';
 import { displayWidth } from '../display-width.mjs';
 import { hardWrapAnsiLines } from './ansi-line-wrap.mjs';
+import { touchLru } from './lru.mjs';
 
 // Force truecolor so chalk emits 24-bit SGR even when the ambient level is 0.
 // ink's <Text> passes these escapes through verbatim.
@@ -531,8 +531,7 @@ function highlightCodeText(text, hljsLang) {
   const cacheKey = `${hljsLang}|${getThemeVersion()}|${src}`;
   const cached = highlightCache.get(cacheKey);
   if (cached !== undefined) {
-    highlightCache.delete(cacheKey);
-    highlightCache.set(cacheKey, cached);
+    touchLru(highlightCache, cacheKey, cached, HIGHLIGHT_CACHE_MAX);
     return cached;
   }
   try {
@@ -541,11 +540,7 @@ function highlightCodeText(text, hljsLang) {
       theme: getCliHighlightTheme(),
       ignoreIllegals: true,
     });
-    if (highlightCache.size >= HIGHLIGHT_CACHE_MAX) {
-      const first = highlightCache.keys().next().value;
-      if (first !== undefined) highlightCache.delete(first);
-    }
-    highlightCache.set(cacheKey, out);
+    touchLru(highlightCache, cacheKey, out, HIGHLIGHT_CACHE_MAX);
     return out;
   } catch {
     return null;
@@ -736,8 +731,8 @@ function getListNumber(depth, orderedListNumber) {
 }
 
 /**
- * Render a single marked token to an ANSI string.
- * marked token switch (minus table / hyperlink deps).
+ * Render a single marked token to an ANSI string. Tables are rendered by
+ * table-layout.mjs instead.
  */
 export function formatToken(token, listBaseIndent = 0, orderedListNumber = null, parent = null, width = 0, depth = 0) {
   const { accent, hrLine, headingAccent } = colorizers();
@@ -851,7 +846,7 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
         )
         .join(token.loose && depth === 0 ? EOL : '');
     case 'list_item':
-      return formatListItem(token, listBaseIndent, orderedListNumber, parent, depth, width);
+      return formatListItem(token, listBaseIndent, orderedListNumber, depth, width);
     case 'paragraph':
       return (token.tokens ?? []).map((t) => formatToken(t, 0, null, null, width)).join('') + EOL;
     case 'space':
@@ -900,7 +895,7 @@ function prefixFirstAndRest(value, firstPrefix, restPrefix) {
   return [`${firstPrefix}${lines[0]}`, ...lines.slice(1).map((line) => `${restPrefix}${line}`)].join(EOL);
 }
 
-function formatListItem(token, listBaseIndent, orderedListNumber, _parent, depth = 0, width = 0) {
+function formatListItem(token, listBaseIndent, orderedListNumber, depth = 0, width = 0) {
   const { listBullet } = colorizers();
   const markerPlain = orderedListNumber === null ? '-' : `${getListNumber(depth, orderedListNumber)}.`;
   const marker = listBullet(markerPlain);
@@ -968,5 +963,3 @@ export function padAligned(content, displayWidth, targetWidth, align) {
   }
   return content + ' '.repeat(padding);
 }
-
-export { chalk };

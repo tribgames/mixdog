@@ -29,6 +29,8 @@ export function runWorkerIpc({
   // Cleans up in-progress webhook/scheduler state, removes runtime files, then exits.
   let _channelsStopInFlight = false;
   let _channelsForceExitTimer = null;
+  // Map of callId → AbortController for in-flight IPC calls.
+  const _inFlightChannelCalls = new Map();
   const _channelsShutdownHandler = async (sig) => {
     if (_channelsStopInFlight) {
       process.stderr.write(`[channels-worker] ${sig} — shutdown already in flight, ignoring\n`);
@@ -68,9 +70,6 @@ export function runWorkerIpc({
   process.on('SIGTERM', () => _channelsShutdownHandler('SIGTERM'));
   process.on('SIGINT', () => _channelsShutdownHandler('SIGINT'));
   process.once('disconnect', () => _channelsShutdownHandler('IPC:disconnect'));
-
-  // Map of callId → AbortController for in-flight IPC calls.
-  const _inFlightChannelCalls = new Map();
 
   process.on('message', async (msg) => {
     // Parent-initiated graceful shutdown — mirrors memory worker IPC pattern.

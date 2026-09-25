@@ -1,6 +1,5 @@
 // NAT paths silently drop idle sockets; protocol pings keep the leg warm and
 // detect a half-dead link so the reconnect loop restores it.
-import WebSocket from 'ws';
 import { HEARTBEAT_MS } from './limits.mjs';
 
 export function armLegHeartbeat(ws) {
@@ -9,7 +8,7 @@ export function armLegHeartbeat(ws) {
     alive = true;
   });
   const timer = setInterval(() => {
-    if (ws.readyState !== WebSocket.OPEN) return;
+    if (ws.readyState !== ws.OPEN) return;
     if (!alive) {
       try {
         ws.terminate();

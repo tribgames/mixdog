@@ -5,6 +5,7 @@ import {
   type DesktopReadCapability,
 } from '../shared/contract';
 import { readGlobalCapabilities } from './global-capability-reads';
+import { remoteSurface } from './shell-viewport';
 
 export type MediaKind = 'image' | 'video';
 export const MEDIA_KINDS: MediaKind[] = ['image', 'video'];
@@ -111,7 +112,7 @@ export interface MediaAssetRead {
  *  bridge / relay. Only a local host may afford shrinking a full-size asset
  *  in the renderer; over the wire that IS the cost being removed. */
 export function mediaTransportIsLocal(): boolean {
-  return !(window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer;
+  return !remoteSurface();
 }
 
 /**
@@ -346,21 +347,10 @@ export function justifiedRows(
   return rows;
 }
 
-/**
- * Grab a still from a video data URL.
- *
- * Keeping live <video> elements in the gallery kept a decoder alive per tile;
- * on Windows that stack blacked the window out whenever another layer
- * repainted (slider drags). A one-shot canvas grab leaves only images behind.
- */
 interface VideoPoster {
   url: string;
   /** Clip length in seconds, read off the decoded metadata. */
   duration: number;
-}
-
-export function posterFromVideo(dataUrl: string, maxEdge = 420): Promise<VideoPoster> {
-  return grabFirstFrame(dataUrl, maxEdge);
 }
 
 /**
@@ -412,7 +402,14 @@ export function thumbFromImage(dataUrl: string, maxEdge = 420, signal?: AbortSig
   });
 }
 
-function grabFirstFrame(sourceUrl: string, maxEdge: number): Promise<VideoPoster> {
+/**
+ * Grab a still from a video data URL.
+ *
+ * Keeping live <video> elements in the gallery kept a decoder alive per tile;
+ * on Windows that stack blacked the window out whenever another layer
+ * repainted (slider drags). A one-shot canvas grab leaves only images behind.
+ */
+export function posterFromVideo(sourceUrl: string, maxEdge = 420): Promise<VideoPoster> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     video.muted = true;

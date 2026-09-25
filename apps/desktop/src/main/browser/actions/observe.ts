@@ -5,6 +5,7 @@
 import { persistFrameImage } from '../../frame-files';
 import {
   boundedInteger,
+  browserCharLimit,
   EXTRACT_DEFAULT_CHARS,
   EXTRACT_DEFAULT_LIMIT,
   EXTRACT_MAX_LIMIT,
@@ -156,12 +157,7 @@ export const observationActions = defineBrowserActions({
   },
 
   async read({ guest, command, signal, services }) {
-    const maxChars = Math.min(
-      READ_MAX_CHARS,
-      Number.isFinite(command.maxChars) && (command.maxChars as number) > 0
-        ? Math.trunc(command.maxChars as number)
-        : READ_DEFAULT_CHARS
-    );
+    const maxChars = browserCharLimit(command.maxChars, READ_DEFAULT_CHARS, READ_MAX_CHARS);
     const offset = Math.max(0, Number.isFinite(command.offset) ? Math.trunc(command.offset as number) : 0);
     const query = String(command.query || '').trim();
     const page = await services.documents.readPage(guest, query, maxChars, offset, signal);

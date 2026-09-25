@@ -241,10 +241,7 @@ async function _flush() {
   _flushTimer = null;
   if (_buffer.length === 0) return;
   if (_flushInFlight) {
-    if (!_flushTimer) {
-      _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
-      _flushTimer.unref?.();
-    }
+    _scheduleFlush();
     return;
   }
   _flushInFlight = true;
@@ -252,10 +249,7 @@ async function _flush() {
     const url = _resolveServiceUrl();
     if (!url) {
       // Service not up yet — keep buffer, retry next timer tick
-      if (!_flushTimer) {
-        _flushTimer = setTimeout(_flush, _FLUSH_INTERVAL_MS);
-        _flushTimer.unref?.();
-      }
+      _scheduleFlush();
       return;
     }
     const batch = _buffer.splice(0, _FLUSH_BATCH_SIZE);

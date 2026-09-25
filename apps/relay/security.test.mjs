@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   existsSync,
@@ -86,8 +86,40 @@ function fakePhone({ buffered = 0 } = {}) {
   };
 }
 
+// Every temporary directory a test creates is removed once the file's tests
+// have finished, whichever way each test ended.
+const tempDirs = [];
+const tempDir = (prefix) => {
+  const dir = mkdtempSync(prefix);
+  tempDirs.push(dir);
+  return dir;
+};
+after(() => {
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
+});
+
+/** Parsed JSON of one received frame, or undefined when it is not JSON. */
+const jsonOf = (raw) => {
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return undefined;
+  }
+};
+
+/** Tear down every socket a test opened, whatever state it is in. */
+const terminateAll = (sockets) => {
+  for (const socket of sockets) {
+    try {
+      socket.terminate();
+    } catch {
+      /* already closed */
+    }
+  }
+};
+
 test('precompressed siblings are negotiated and never served directly', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-precompressed-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-precompressed-'));
   const assets = join(dir, 'assets');
   mkdirSync(assets);
   const target = join(assets, 'index-AbCdEf123.css');
@@ -141,7 +173,7 @@ function staticHead(target, acceptEncoding) {
 }
 
 test('encoding negotiation honours q=0 on staged AND live-gzip bodies', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-negotiation-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-negotiation-'));
   const assets = join(dir, 'assets');
   mkdirSync(assets);
   const staged = join(assets, 'index-Q0AbCdEf1.css');
@@ -184,7 +216,7 @@ test('encoding negotiation honours q=0 on staged AND live-gzip bodies', () => {
 });
 
 test('a symlinked precompressed sibling is never negotiated', (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-negotiation-symlink-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-negotiation-symlink-'));
   const outside = join(dir, 'outside');
   const assets = join(dir, 'assets');
   mkdirSync(outside);
@@ -212,7 +244,7 @@ test('a symlinked precompressed sibling is never negotiated', (t) => {
 });
 
 test('static responses apply browser security headers without changing HEAD behavior', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-static-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-static-'));
   const target = join(dir, 'index.html');
   writeFileSync(target, '<!doctype html><title>Mixdog</title>');
   let status = 0;
@@ -283,7 +315,7 @@ test('pairing and device cookies keep Max-Age HttpOnly SameSite forms', () => {
 });
 
 test('inlined renderer boot script receives only its exact CSP hash', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-inline-boot-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-inline-boot-'));
   const source = 'window.mixdogBoot = true;';
   const target = join(dir, 'index.html');
   writeFileSync(join(dir, 'boot.js'), source);
@@ -301,7 +333,7 @@ test('routing ids share one predicate across store, HTTP, and binary frames', (t
   assert.equal(isRoutingId('0000001'), false);
   assert.equal(isRoutingId(''), false);
   assert.equal(isRoutingId(null), false);
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-numeric-id-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-numeric-id-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const store = new DeviceStore(dir);
   assert.equal(store.authenticate(DEVICE_ID, '0123456789abcdef'), true);
@@ -364,7 +396,7 @@ test('binary relay envelopes preserve routing metadata without base64', () => {
 });
 
 test('static target resolution rejects symlink and junction escapes', () => {
-  const base = mkdtempSync(join(tmpdir(), 'mixdog-relay-static-path-'));
+  const base = tempDir(join(tmpdir(), 'mixdog-relay-static-path-'));
   const root = join(base, 'renderer');
   const outside = join(base, 'outside');
   mkdirSync(root);
@@ -408,7 +440,7 @@ test('device authentication accepts headers and rejects URL credentials', () => 
 });
 
 test('device store persists owner-only and refuses corrupt authentication state', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-store-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-store-'));
   const store = new DeviceStore(dir);
   assert.equal(store.authenticate(DEVICE_ID, '0123456789abcdef'), true);
   store.setClientToken(DEVICE_ID, 'fedcba9876543210');
@@ -423,7 +455,7 @@ test('device store persists owner-only and refuses corrupt authentication state'
 });
 
 test('a new registration is persisted before the credential authenticates', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-tofu-persist-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-tofu-persist-'));
   const store = new DeviceStore(dir);
   const path = join(dir, 'devices.json');
   const deviceId = randomUUID();
@@ -446,7 +478,7 @@ test('a new registration is persisted before the credential authenticates', () =
 });
 
 test('client activity updates coalesce into one debounced rewrite', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-touch-debounce-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-touch-debounce-'));
   const store = new DeviceStore(dir);
   const path = join(dir, 'devices.json');
   const deviceId = randomUUID();
@@ -499,7 +531,7 @@ test('frame admission bounds every leg without stalling its neighbours', () => {
 });
 
 test('trust-on-first-use refuses to bind a guessable device id', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-tofu-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-tofu-'));
   const store = new DeviceStore(dir);
   // A short, predictable id could be preclaimed before the real device dials,
   // locking its owner out of a route the attacker now holds the secret for.
@@ -513,7 +545,7 @@ test('trust-on-first-use refuses to bind a guessable device id', () => {
 });
 
 test('a revocation that cannot be persisted is reported as a failure', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-revoke-persist-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-revoke-persist-'));
   const store = new DeviceStore(dir);
   const deviceId = randomUUID();
   assert.equal(store.authenticate(deviceId, '0123456789abcdef'), true);
@@ -547,7 +579,7 @@ test('desktop media metadata cannot make the relay origin serve active content',
 });
 
 test('browser credentials are isolated per desktop and individually revocable', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-browser-store-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-browser-store-'));
   const store = new DeviceStore(dir);
   assert.equal(store.authenticate(DEVICE_ID, '0123456789abcdef'), true);
   store.setClientToken(DEVICE_ID, 'fedcba9876543210');
@@ -576,7 +608,7 @@ test('browser credentials are isolated per desktop and individually revocable', 
 });
 
 test('browser registration exchanges a pairing token for an individual credential', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-browser-http-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-browser-http-'));
   const renderer = join(dir, 'renderer');
   mkdirSync(renderer);
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
@@ -620,7 +652,7 @@ test('per-device browser capacity preserves normal clients and bounds floods', (
 });
 
 test('installability assets bypass the pairing gate; the app shell never does', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-public-assets-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-public-assets-'));
   const renderer = join(dir, 'renderer');
   mkdirSync(renderer);
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
@@ -641,7 +673,7 @@ test('installability assets bypass the pairing gate; the app shell never does', 
 });
 
 test('a malformed media path answers 400 and leaves the relay serving', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-bad-encoding-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-bad-encoding-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data') });
   try {
     const origin = `http://127.0.0.1:${relay.port}`;
@@ -657,7 +689,7 @@ test('a malformed media path answers 400 and leaves the relay serving', async ()
 });
 
 test('an unknown query token is never persisted as the pairing cookie', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-fixation-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-fixation-'));
   const renderer = join(dir, 'renderer');
   mkdirSync(renderer);
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
@@ -681,7 +713,7 @@ test('an unknown query token is never persisted as the pairing cookie', async ()
 });
 
 test('the device route opens the shell and aims its manifest back at that route', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-device-route-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-device-route-'));
   const renderer = join(dir, 'renderer');
   mkdirSync(renderer);
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
@@ -722,7 +754,7 @@ test('the device route opens the shell and aims its manifest back at that route'
 });
 
 test('a share POST that outran the service worker reopens the app instead of failing', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-share-target-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-share-target-'));
   const renderer = join(dir, 'renderer');
   mkdirSync(renderer);
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
@@ -746,7 +778,7 @@ test('a share POST that outran the service worker reopens the app instead of fai
 });
 
 test('an approval mints the credential; the relay only routes the request', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-claim-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-claim-'));
   const renderer = join(dir, 'renderer');
   mkdirSync(renderer);
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
@@ -765,12 +797,8 @@ test('an approval mints the credential; the relay only routes the request', asyn
     });
     const forwarded = new Promise((received) => {
       desktop.on('message', (raw) => {
-        let value;
-        try {
-          value = JSON.parse(String(raw));
-        } catch {
-          return;
-        }
+        const value = jsonOf(raw);
+        if (value === undefined) return;
         if (value.type === 'client-claim') received(value);
       });
     });
@@ -818,7 +846,7 @@ test('an approval mints the credential; the relay only routes the request', asyn
 });
 
 test('a reopened request resumes instead of prompting the desktop again', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-claim-resume-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-claim-resume-'));
   const renderer = join(dir, 'renderer');
   mkdirSync(renderer);
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
@@ -836,12 +864,8 @@ test('a reopened request resumes instead of prompting the desktop again', async 
     });
     let prompts = 0;
     desktop.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'client-claim') prompts += 1;
     });
     const claim = (publicKey) =>
@@ -871,7 +895,7 @@ test('a reopened request resumes instead of prompting the desktop again', async 
 });
 
 test('a claim for an unknown desktop is refused and never reaches a leg', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-claim-unknown-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-claim-unknown-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data') });
   const origin = `http://127.0.0.1:${relay.port}`;
   try {
@@ -902,7 +926,7 @@ test('a claim for an unknown desktop is refused and never reaches a leg', async 
 });
 
 test('phone /ws accepts only per-browser credentials; others close 4005', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-ws-4005-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-ws-4005-'));
   const renderer = join(dir, 'renderer');
   mkdirSync(renderer);
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
@@ -933,7 +957,7 @@ test('phone /ws accepts only per-browser credentials; others close 4005', async 
 });
 
 test('phone websocket survives a desktop leg redial and is re-announced', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-desktop-redial-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-desktop-redial-'));
   const renderer = join(dir, 'renderer');
   mkdirSync(renderer);
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
@@ -950,12 +974,8 @@ test('phone websocket survives a desktop leg redial and is re-announced', async 
     new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('client-open timed out')), 2_000);
       const onMessage = (raw) => {
-        let value;
-        try {
-          value = JSON.parse(String(raw));
-        } catch {
-          return;
-        }
+        const value = jsonOf(raw);
+        if (value === undefined) return;
         if (value.type !== 'client-open') return;
         clearTimeout(timeout);
         ws.off('message', onMessage);
@@ -994,13 +1014,7 @@ test('phone websocket survives a desktop leg redial and is re-announced', async 
     await delay(100);
     assert.equal(phoneClosed, false);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
@@ -1031,7 +1045,7 @@ test('an oversize frame is a payload error both phone kinds surface', async () =
   // The default ceiling matches the desktop leg's own budget, so gallery
   // originals still cross as single RPC frames while its media lane is off.
   assert.equal(MAX_FRAME_BYTES, 64 * 1024 * 1024);
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-oversize-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-oversize-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxFrameBytes: 1024 });
   const sockets = [];
   try {
@@ -1048,23 +1062,15 @@ test('an oversize frame is a payload error both phone kinds surface', async () =
     sockets.push(phone);
     let forwarded = 0;
     desktop.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'frame') forwarded += 1;
     });
     const received = [];
     const refusal = new Promise((resolve) => {
       phone.on('message', (raw) => {
-        let value;
-        try {
-          value = JSON.parse(String(raw));
-        } catch {
-          return;
-        }
+        const value = jsonOf(raw);
+        if (value === undefined) return;
         received.push(value);
         if (value.error === 'frame-too-large') resolve(value);
       });
@@ -1089,19 +1095,13 @@ test('an oversize frame is a payload error both phone kinds surface', async () =
     // Exactly one refusal for one bad frame.
     assert.equal(received.filter((value) => value.error === 'frame-too-large').length, 1);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('an oversize desktop frame is answered on that leg and names the client', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-oversize-desktop-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-oversize-desktop-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxFrameBytes: 4096 });
   const sockets = [];
   try {
@@ -1115,12 +1115,8 @@ test('an oversize desktop frame is answered on that leg and names the client', a
     const notices = [];
     let clientId = '';
     desktop.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'client-open') clientId = value.clientId;
       if (value.type === 'frame-too-large') notices.push(value);
     });
@@ -1155,19 +1151,13 @@ test('an oversize desktop frame is answered on that leg and names the client', a
     assert.equal(desktop.readyState, WebSocket.OPEN);
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a frame past the ceiling is refused while it is still arriving, once', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-oversize-early-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-oversize-early-'));
   const relay = await startRelay({
     port: 0,
     dataDir: join(dir, 'data'),
@@ -1188,12 +1178,8 @@ test('a frame past the ceiling is refused while it is still arriving, once', asy
     sockets.push(desktop);
     let forwarded = 0;
     desktop.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'frame') forwarded += 1;
     });
     const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
@@ -1202,12 +1188,8 @@ test('a frame past the ceiling is refused while it is still arriving, once', asy
     sockets.push(phone);
     const refusals = [];
     phone.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.error === 'frame-too-large') refusals.push(value);
     });
     let closeCode = null;
@@ -1238,19 +1220,13 @@ test('a frame past the ceiling is refused while it is still arriving, once', asy
     assert.equal(closeCode, 1009);
     assert.equal(refusals.length, 1);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a frame at exactly the ceiling is forwarded, never warned about', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-exact-limit-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-exact-limit-'));
   const limit = 64 * 1024;
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxFrameBytes: limit });
   const sockets = [];
@@ -1264,12 +1240,8 @@ test('a frame at exactly the ceiling is forwarded, never warned about', async ()
     sockets.push(desktop);
     const arrived = [];
     desktop.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'frame') arrived.push(value.data);
     });
     const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
@@ -1278,12 +1250,8 @@ test('a frame at exactly the ceiling is forwarded, never warned about', async ()
     sockets.push(phone);
     const refusals = [];
     phone.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -1310,19 +1278,13 @@ test('a frame at exactly the ceiling is forwarded, never warned about', async ()
     assert.equal(arrived.length, 1);
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a nested clientId in the payload never attributes a refusal', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-oversize-spoof-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-oversize-spoof-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxFrameBytes: 4096 });
   const sockets = [];
   try {
@@ -1336,12 +1298,8 @@ test('a nested clientId in the payload never attributes a refusal', async () => 
     const notices = [];
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
-        let value;
-        try {
-          value = JSON.parse(String(raw));
-        } catch {
-          return;
-        }
+        const value = jsonOf(raw);
+        if (value === undefined) return;
         if (value.type === 'client-open') resolve(value.clientId);
         if (value.type === 'frame-too-large') notices.push(value);
       });
@@ -1376,19 +1334,13 @@ test('a nested clientId in the payload never attributes a refusal', async () => 
     assert.equal(desktop.readyState, WebSocket.OPEN);
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a burst of control frames pins no ingress reservation', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-ingress-control-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-ingress-control-'));
   const relay = await startRelay({
     port: 0,
     dataDir: join(dir, 'data'),
@@ -1409,12 +1361,8 @@ test('a burst of control frames pins no ingress reservation', async () => {
     sockets.push(desktop);
     const arrived = [];
     desktop.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'frame') arrived.push(value.data);
     });
     const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
@@ -1440,19 +1388,13 @@ test('a burst of control frames pins no ingress reservation', async () => {
     assert.equal(stats.deferrals, 0);
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a message that cannot be enveloped for the desktop is refused, not delivered', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-uplink-envelope-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-uplink-envelope-'));
   const limit = 64 * 1024;
   const relay = await startRelay({
     port: 0,
@@ -1483,12 +1425,8 @@ test('a message that cannot be enveloped for the desktop is refused, not deliver
         forwarded += 1;
         return;
       }
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'frame') forwarded += 1;
     });
     const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
@@ -1497,12 +1435,8 @@ test('a message that cannot be enveloped for the desktop is refused, not deliver
     sockets.push(phone);
     const refusals = [];
     phone.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -1539,19 +1473,13 @@ test('a message that cannot be enveloped for the desktop is refused, not deliver
     assert.equal(desktopClose, null);
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('messages coalesced into one read are refused at most once each', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-coalesced-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-coalesced-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxFrameBytes: 4096 });
   const sockets = [];
   try {
@@ -1565,12 +1493,8 @@ test('messages coalesced into one read are refused at most once each', async () 
     const notices = [];
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
-        let value;
-        try {
-          value = JSON.parse(String(raw));
-        } catch {
-          return;
-        }
+        const value = jsonOf(raw);
+        if (value === undefined) return;
         if (value.type === 'client-open') resolve(value.clientId);
         if (value.type === 'frame-too-large') notices.push(value);
       });
@@ -1604,19 +1528,13 @@ test('messages coalesced into one read are refused at most once each', async () 
     assert.equal(notices[0].clientId, clientId);
     assert.equal(desktop.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a fragmented message past transport capacity is refused before the close', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-fragmented-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-fragmented-'));
   const relay = await startRelay({
     port: 0,
     dataDir: join(dir, 'data'),
@@ -1639,12 +1557,8 @@ test('a fragmented message past transport capacity is refused before the close',
     const notices = [];
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
-        let value;
-        try {
-          value = JSON.parse(String(raw));
-        } catch {
-          return;
-        }
+        const value = jsonOf(raw);
+        if (value === undefined) return;
         if (value.type === 'client-open') resolve(value.clientId);
         if (value.type === 'frame-too-large') notices.push(value);
       });
@@ -1686,19 +1600,13 @@ test('a fragmented message past transport capacity is refused before the close',
     assert.equal(closeCode, 1009);
     assert.equal(notices.length, 1);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a declared frame that never completes is not described as a message', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-declared-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-declared-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxFrameBytes: 4096 });
   const sockets = [];
   try {
@@ -1711,12 +1619,8 @@ test('a declared frame that never completes is not described as a message', asyn
     sockets.push(desktop);
     let forwarded = 0;
     desktop.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'frame') forwarded += 1;
     });
     const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
@@ -1725,12 +1629,8 @@ test('a declared frame that never completes is not described as a message', asyn
     sockets.push(phone);
     const refusals = [];
     phone.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -1756,13 +1656,7 @@ test('a declared frame that never completes is not described as a message', asyn
     assert.equal(forwarded, 0);
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
@@ -1784,7 +1678,7 @@ test('a desktop leg is held to the capacity it declares, not to configuration', 
   assert.equal(uplinkCapacityFor(undefined, MAX_UPLINK_CAPACITY_BYTES), UNDECLARED_CAPACITY_BYTES);
   assert.equal(uplinkCapacityFor(0, 128 * 1024), UNDECLARED_CAPACITY_BYTES);
 
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-capacity-skew-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-capacity-skew-'));
   const relay = await startRelay({
     port: 0,
     dataDir: join(dir, 'data'),
@@ -1819,12 +1713,8 @@ test('a desktop leg is held to the capacity it declares, not to configuration', 
     sockets.push(phone);
     const refusals = [];
     phone.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -1849,19 +1739,13 @@ test('a desktop leg is held to the capacity it declares, not to configuration', 
     assert.equal(refusals.length, 1);
     assert.equal(closeCode, null);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('the refused limit is a stable property of the path, and is honoured', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-stable-limit-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-stable-limit-'));
   const relay = await startRelay({
     port: 0,
     dataDir: join(dir, 'data'),
@@ -1879,12 +1763,8 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
     sockets.push(desktop);
     const arrived = [];
     desktop.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'frame') arrived.push(value.data);
     });
     await declareDesktopLanes(desktop, { maxPayloadBytes: 64 * 1024 });
@@ -1894,12 +1774,8 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
     sockets.push(phone);
     const refusals = [];
     phone.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -1938,13 +1814,7 @@ test('the refused limit is a stable property of the path, and is honoured', asyn
     assert.equal(phone.readyState, WebSocket.OPEN);
     assert.equal(desktop.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
@@ -1965,7 +1835,7 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
   });
   assert.equal(framedPath.text, MAX_FRAME_BYTES);
 
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-text-frames-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-text-frames-'));
   const capacity = 256 * 1024;
   const relay = await startRelay({
     port: 0,
@@ -1993,12 +1863,8 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
         });
         return;
       }
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'frame') received.push({ form: 'json', data: value.data });
     });
     await declareDesktopLanes(desktop, { maxPayloadBytes: capacity, textFrames: 1 });
@@ -2008,12 +1874,8 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
     sockets.push(phone);
     const refusals = [];
     phone.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.error === 'frame-too-large') refusals.push(value);
     });
 
@@ -2040,13 +1902,7 @@ test('a declared text-frame leg carries text in the envelope that cannot inflate
     assert.equal(phone.readyState, WebSocket.OPEN);
     assert.equal(desktop.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
@@ -2069,7 +1925,6 @@ test('capacity configuration is clamped on both inputs and normalises nonsense',
   assert.equal(uplinkCapacityFor(NaN, NaN), UNDECLARED_CAPACITY_BYTES);
   assert.equal(uplinkCapacityFor(Infinity, Infinity), UNDECLARED_CAPACITY_BYTES);
   assert.equal(uplinkCapacityFor(-1, 128 * 1024), UNDECLARED_CAPACITY_BYTES);
-  assert.equal(uplinkCapacityFor(0, 128 * 1024), UNDECLARED_CAPACITY_BYTES);
   assert.equal(uplinkCapacityFor('nonsense', 128 * 1024), UNDECLARED_CAPACITY_BYTES);
   assert.equal(uplinkCapacityFor(128 * 1024, -1), 128 * 1024);
   assert.equal(uplinkCapacityFor(65_536.9, 128 * 1024), 65_536);
@@ -2077,13 +1932,10 @@ test('capacity configuration is clamped on both inputs and normalises nonsense',
   // usable declaration: it normalises up to the protocol minimum instead of
   // publishing a ceiling of zero that an empty message would still overrun.
   assert.equal(uplinkCapacityFor(10, gigabyte), 1024);
-  // ...and configuration may still only LOWER what a leg said about itself.
-  assert.equal(uplinkCapacityFor(256 * 1024, 128 * 1024), 128 * 1024);
-  assert.equal(uplinkCapacityFor(64 * 1024, 128 * 1024), 64 * 1024);
 });
 
 test('a claim is trusted on the connection that made it, and on no other', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-overstated-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-overstated-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxFrameBytes: 1024 * 1024 });
   const sockets = [];
   try {
@@ -2116,12 +1968,8 @@ test('a claim is trusted on the connection that made it, and on no other', async
     });
     const refusals = [];
     phone.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.error === 'frame-too-large') refusals.push(value);
     });
     await delay(150);
@@ -2173,19 +2021,13 @@ test('a claim is trusted on the connection that made it, and on no other', async
     assert.deepEqual(refusals, []);
     assert.equal(third.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('the text envelope is acknowledged per connection, never inferred', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-text-ack-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-text-ack-'));
   // The desktop reviewer's repro: a receiver that takes 4400 bytes and a
   // 3050-byte text message, which only fits when the wrapper is the fixed one.
   const capacity = 4400;
@@ -2214,12 +2056,8 @@ test('the text envelope is acknowledged per connection, never inferred', async (
         });
         return;
       }
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'relay-capabilities') capabilities.push(value);
       if (value.type === 'frame') arrived.push({ form: 'json', data: value.data });
     });
@@ -2239,12 +2077,8 @@ test('the text envelope is acknowledged per connection, never inferred', async (
     sockets.push(phone);
     const refusals = [];
     phone.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.error === 'frame-too-large') refusals.push(value);
     });
     await delay(100);
@@ -2305,19 +2139,13 @@ test('the text envelope is acknowledged per connection, never inferred', async (
     assert.equal(modern.ws.readyState, WebSocket.OPEN);
     assert.equal(legacy.ws.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a close the relay cannot attribute accuses no client', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-blameless-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-blameless-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxFrameBytes: 1024 * 1024 });
   const sockets = [];
   const deviceId = randomUUID();
@@ -2330,12 +2158,8 @@ test('a close the relay cannot attribute accuses no client', async () => {
     sockets.push(phone);
     const refusals = [];
     phone.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.error === 'frame-too-large') refusals.push(value);
     });
     return { phone, refusals };
@@ -2384,96 +2208,13 @@ test('a close the relay cannot attribute accuses no client', async () => {
     assert.equal(victim.phone.readyState, WebSocket.OPEN);
     assert.equal(attacker.phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
-    await relay.close();
-  }
-});
-
-test('a 1009 on a leg that was only sent safe frames costs it nothing', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-unrelated-close-'));
-  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxFrameBytes: 1024 * 1024 });
-  const sockets = [];
-  try {
-    const deviceId = randomUUID();
-    relay.store.authenticate(deviceId, '0123456789abcdef');
-    const registered = relay.store.registerClient(deviceId, 'bbbbbbbb', {});
-    // An honest leg: it takes 128 KiB and says 128 KiB.
-    const openDesktop = async () => {
-      const ws = await openWebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
-        headers: { Authorization: basicAuth(deviceId) },
-        maxPayload: 128 * 1024,
-      });
-      sockets.push(ws);
-      const arrived = [];
-      ws.on('message', (raw, isBinary) => {
-        if (isBinary) arrived.push(decodeRelayBinaryFrame(raw).data.length);
-      });
-      ws.send(
-        JSON.stringify({
-          type: 'desktop-lanes',
-          media: false,
-          maxPayloadBytes: 128 * 1024,
-        })
-      );
-      await delay(150);
-      return { ws, arrived };
-    };
-    const first = await openDesktop();
-    const phone = await openWebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`, {
-      headers: { Origin: `http://127.0.0.1:${relay.port}` },
-    });
-    sockets.push(phone);
-    const refusals = [];
-    phone.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
-      if (value.error === 'frame-too-large') refusals.push(value);
-    });
-    await delay(100);
-
-    // Healthy traffic, all of it inside the conservative floor.
-    phone.send(Buffer.alloc(32 * 1024, 1));
-    for (let attempt = 0; attempt < 40 && first.arrived.length < 1; attempt += 1) await delay(25);
-    assert.deepEqual(first.arrived, [32 * 1024]);
-
-    // ...then this leg closes with 1009 for a reason of its own.
-    first.ws.close(1009, 'unrelated');
-    await delay(250);
-    const second = await openDesktop();
-    await delay(150);
-
-    // A close that cannot be about the relay's uplink teaches it nothing: a
-    // 100 KiB frame, far above the floor and well inside the honest
-    // declaration, still flows after the redial.
-    phone.send(Buffer.alloc(100 * 1024, 2));
-    for (let attempt = 0; attempt < 80 && second.arrived.length < 1; attempt += 1) await delay(25);
-    assert.deepEqual(second.arrived, [100 * 1024]);
-    assert.deepEqual(refusals, []);
-    assert.equal(phone.readyState, WebSocket.OPEN);
-  } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a critical fan-out defers what the box cannot carry and closes no healthy leg', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-fanout-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-fanout-'));
   // Real sockets against a box budget that cannot hold this broadcast for all
   // 32 legs at once — the shape that used to close 30 of them with 4009.
   const relay = await startRelay({
@@ -2538,13 +2279,7 @@ test('a critical fan-out defers what the box cannot carry and closes no healthy 
     // Nothing leaked out of the accounting once the served legs drained.
     assert.equal(relayInflightBytes(), baseline);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
@@ -2565,7 +2300,7 @@ test('ingress admission bounds arriving frames to the box, not to leg count', as
   // is what keeps the pool free of half-received frames waiting on each other.
   assert.equal(admitIngress({ pending: 64 * 1024 * 1024, holding: true, reserved: MAX_INGRESS_BYTES }), 'read');
 
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-ingress-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-ingress-'));
   const ceiling = 512 * 1024;
   const relay = await startRelay({
     port: 0,
@@ -2586,12 +2321,8 @@ test('ingress admission bounds arriving frames to the box, not to leg count', as
     const legCount = 8;
     const arrived = [];
     desktop.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'frame') arrived.push(value.data);
     });
     const origin = `http://127.0.0.1:${relay.port}`;
@@ -2628,13 +2359,7 @@ test('ingress admission bounds arriving frames to the box, not to leg count', as
     assert.equal(stats.waiting, 0);
     for (const phone of phones) assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
@@ -2673,7 +2398,7 @@ const maskedTextFrame = (payload, { opcode = 0x1, fin = true, declared = null } 
 };
 
 test('a leg parked for ingress admission waits instead of losing its frame', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-ingress-wait-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-ingress-wait-'));
   // One reservation IS the whole pool here, so a second supported frame cannot
   // be admitted until the first lands: the wait path, driven end to end.
   const reservation = 256 * 1024;
@@ -2694,12 +2419,8 @@ test('a leg parked for ingress admission waits instead of losing its frame', asy
     sockets.push(desktop);
     const arrived = [];
     desktop.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'frame') arrived.push(value.data);
     });
     const origin = `http://127.0.0.1:${relay.port}`;
@@ -2747,19 +2468,13 @@ test('a leg parked for ingress admission waits instead of losing its frame', asy
     assert.equal(stalled.readyState, WebSocket.OPEN);
     assert.equal(parked.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('webhook ingress caps bodies that are still arriving, not just landed ones', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-hook-cap-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-hook-cap-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxHookPending: 2 });
   const uploads = [];
   let agent = null;
@@ -2771,12 +2486,8 @@ test('webhook ingress caps bodies that are still arriving, not just landed ones'
     });
     let forwarded = 0;
     agent.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'http') forwarded += 1;
     });
     const path = `/hook/${deviceId}/webhook/test`;
@@ -2843,7 +2554,7 @@ test('webhook ingress caps bodies that are still arriving, not just landed ones'
 });
 
 test('pending claims give each desktop a bounded share of the pool', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-claim-share-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-claim-share-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data') });
   let desktop = null;
   try {
@@ -2882,7 +2593,7 @@ test('pending claims give each desktop a bounded share of the pool', async () =>
 });
 
 test('a wrong secret for a KNOWN device id is charged and then refused', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-auth-charge-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-auth-charge-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data') });
   try {
     const deviceId = randomUUID();
@@ -2914,7 +2625,7 @@ test('a wrong secret for a KNOWN device id is charged and then refused', async (
 });
 
 test('a leg revocation that cannot persist keeps both the pairing and the phone', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-revoke-leg-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-revoke-leg-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data') });
   const sockets = [];
   try {
@@ -2932,12 +2643,8 @@ test('a leg revocation that cannot persist keeps both the pairing and the phone'
     const answerOf = (type) =>
       new Promise((resolve) => {
         const onMessage = (raw) => {
-          let value;
-          try {
-            value = JSON.parse(String(raw));
-          } catch {
-            return;
-          }
+          const value = jsonOf(raw);
+          if (value === undefined) return;
           if (value.type !== type) return;
           desktop.off('message', onMessage);
           resolve(value);
@@ -2968,19 +2675,13 @@ test('a leg revocation that cannot persist keeps both the pairing and the phone'
     assert.equal(phone.readyState, WebSocket.OPEN);
     assert.equal(desktop.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a proxied media answer is neutralized at the relay origin', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-media-wiring-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-media-wiring-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data') });
   let desktop = null;
   try {
@@ -2991,12 +2692,8 @@ test('a proxied media answer is neutralized at the relay origin', async () => {
       headers: { Authorization: basicAuth(deviceId) },
     });
     desktop.on('message', (raw) => {
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type !== 'media-request') return;
       // A compromised or buggy desktop answering with an active type and its
       // own headers must not get either past this hop.
@@ -3067,19 +2764,15 @@ const openPhoneLeg = async (relay, deviceId, clientId, sockets) => {
   sockets.push(phone);
   const refusals = [];
   phone.on('message', (raw) => {
-    let value;
-    try {
-      value = JSON.parse(String(raw));
-    } catch {
-      return;
-    }
+    const value = jsonOf(raw);
+    if (value === undefined) return;
     if (value.error === 'frame-too-large') refusals.push(value);
   });
   return { phone, refusals };
 };
 
 test('a redialed leg carries nothing it has not declared on that connection', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-redial-capacity-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-redial-capacity-'));
   const relay = await startRelay({
     port: 0,
     dataDir: join(dir, 'data'),
@@ -3148,19 +2841,13 @@ test('a redialed leg carries nothing it has not declared on that connection', as
     assert.deepEqual(third.arrived, [64 * 1024]);
     assert.equal(refusals.length, 1);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('an unrelated 1009 leaves the next leg its full declared capacity', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-unrelated-1009-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-unrelated-1009-'));
   const relay = await startRelay({
     port: 0,
     dataDir: join(dir, 'data'),
@@ -3214,19 +2901,13 @@ test('an unrelated 1009 leaves the next leg its full declared capacity', async (
     assert.deepEqual(refusals, []);
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('one phone cannot shrink the path of the phone beside it', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-sibling-path-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-sibling-path-'));
   const relay = await startRelay({
     port: 0,
     dataDir: join(dir, 'data'),
@@ -3292,19 +2973,13 @@ test('one phone cannot shrink the path of the phone beside it', async () => {
     assert.equal(victim.phone.readyState, WebSocket.OPEN);
     assert.equal(attacker.phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a refusal names the client the router itself would have used', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-duplicate-key-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-duplicate-key-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxFrameBytes: 4096 });
   const sockets = [];
   try {
@@ -3318,12 +2993,8 @@ test('a refusal names the client the router itself would have used', async () =>
     const notices = [];
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
-        let value;
-        try {
-          value = JSON.parse(String(raw));
-        } catch {
-          return;
-        }
+        const value = jsonOf(raw);
+        if (value === undefined) return;
         if (value.type === 'client-open') resolve(value.clientId);
         if (value.type === 'frame-too-large') notices.push(value);
       });
@@ -3361,19 +3032,13 @@ test('a refusal names the client the router itself would have used', async () =>
     assert.equal(desktop.readyState, WebSocket.OPEN);
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('a nonsense configured capacity is normalised once, and published equals enforced', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-clamp-bypass-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-clamp-bypass-'));
   const relay = await startRelay({
     port: 0,
     dataDir: join(dir, 'data'),
@@ -3400,12 +3065,8 @@ test('a nonsense configured capacity is normalised once, and published equals en
         arrived.push(decodeRelayBinaryFrame(raw).data.length);
         return;
       }
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'relay-capabilities') capabilities.push(value);
     });
     await new Promise((resolve, reject) => {
@@ -3446,19 +3107,13 @@ test('a nonsense configured capacity is normalised once, and published equals en
     assert.equal(desktop.readyState, WebSocket.OPEN);
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('an enveloped uplink message measures the same fragmented or whole', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-wire-bytes-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-wire-bytes-'));
   const relay = await startRelay({
     port: 0,
     dataDir: join(dir, 'data'),
@@ -3479,12 +3134,8 @@ test('an enveloped uplink message measures the same fragmented or whole', async 
         wire.push({ form: 'binary', bytes: raw.length });
         return;
       }
-      let value;
-      try {
-        value = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
+      const value = jsonOf(raw);
+      if (value === undefined) return;
       if (value.type === 'frame') wire.push({ form: 'json', bytes: raw.length });
     });
     await declareDesktopLanes(desktop, { maxPayloadBytes: 128 * 1024 });
@@ -3520,19 +3171,13 @@ test('an enveloped uplink message measures the same fragmented or whole', async 
     assert.equal(desktop.readyState, WebSocket.OPEN);
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });
 
 test('no padding length lets a decoy id outrank the id that routes', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-decoy-padding-'));
+  const dir = tempDir(join(tmpdir(), 'mixdog-relay-decoy-padding-'));
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), maxFrameBytes: 4096 });
   const sockets = [];
   try {
@@ -3546,12 +3191,8 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
     const notices = [];
     const opened = new Promise((resolve) => {
       desktop.on('message', (raw) => {
-        let value;
-        try {
-          value = JSON.parse(String(raw));
-        } catch {
-          return;
-        }
+        const value = jsonOf(raw);
+        if (value === undefined) return;
         if (value.type === 'client-open') resolve(value.clientId);
         if (value.type === 'frame-too-large') notices.push(value);
       });
@@ -3642,13 +3283,7 @@ test('no padding length lets a decoy id outrank the id that routes', async () =>
     assert.equal(desktop.readyState, WebSocket.OPEN);
     assert.equal(phone.readyState, WebSocket.OPEN);
   } finally {
-    for (const socket of sockets) {
-      try {
-        socket.terminate();
-      } catch {
-        /* already closed */
-      }
-    }
+    terminateAll(sockets);
     await relay.close();
   }
 });

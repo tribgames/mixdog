@@ -12,19 +12,24 @@ pub(super) type RequestKey = (u64, u64);
 pub(super) const STDIO_CLIENT_ID: u64 = 0;
 
 pub(super) fn search_pool(threads: usize) -> ThreadPool {
-    ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .thread_name(|index| format!("mixdog-search-{index}"))
-        .build()
-        .expect("mixdog search worker pool")
+    named_pool(threads, "mixdog-search", "mixdog search worker pool")
 }
 
 pub(super) fn bulk_search_pool(threads: usize) -> ThreadPool {
+    named_pool(
+        threads,
+        "mixdog-search-bulk",
+        "mixdog bulk search worker pool",
+    )
+}
+
+/// A worker pool whose threads are named `<prefix>-<index>`.
+fn named_pool(threads: usize, prefix: &'static str, what: &str) -> ThreadPool {
     ThreadPoolBuilder::new()
         .num_threads(threads)
-        .thread_name(|index| format!("mixdog-search-bulk-{index}"))
+        .thread_name(move |index| format!("{prefix}-{index}"))
         .build()
-        .expect("mixdog bulk search worker pool")
+        .expect(what)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -350,58 +355,66 @@ pub(super) fn observe_scheduler_latency(
     }
 }
 
+/// Move queued searches of one class into `ready` while the class stays
+/// under its own limit and the whole scheduler under `total_ceiling`. The
+/// class's queue and in-flight counter travel as one pair, its limit and the
+/// total ceiling as another.
+fn admit_class(
+    class: SearchClass,
+    (queue, inflight): (&mut VecDeque<ScheduledSearch>, &mut usize),
+    (class_limit, total_ceiling): (usize, usize),
+    total_inflight: &mut usize,
+    ready: &mut Vec<(SearchClass, ScheduledSearch)>,
+) {
+    while *inflight < class_limit && *total_inflight < total_ceiling {
+        let Some(search) = queue.pop_front() else {
+            break;
+        };
+        *inflight += 1;
+        *total_inflight += 1;
+        ready.push((class, search));
+    }
+}
+
 pub(super) fn dispatch_searches(inner: Arc<SchedulerInner>) {
     loop {
         let ready = {
             let mut state = inner.lock_state();
             loop {
                 let mut ready = Vec::new();
-                let mut total_inflight = state.inflight();
+                let s = &mut *state;
+                let mut total_inflight = s.inflight();
                 let interactive_ceiling = interactive_dispatch_ceiling(
                     inner.total_limit,
                     inner.interactive_reserve,
-                    !state.interactive.is_empty(),
+                    !s.interactive.is_empty(),
                 );
-                while state.interactive_inflight < inner.interactive_limit
-                    && total_inflight < interactive_ceiling
-                {
-                    let Some(search) = state.interactive.pop_front() else {
-                        break;
-                    };
-                    state.interactive_inflight += 1;
-                    total_inflight += 1;
-                    ready.push((SearchClass::Interactive, search));
-                }
-                while state.fuzzy_inflight < inner.fuzzy_limit && total_inflight < inner.total_limit
-                {
-                    let Some(search) = state.fuzzy.pop_front() else {
-                        break;
-                    };
-                    state.fuzzy_inflight += 1;
-                    total_inflight += 1;
-                    ready.push((SearchClass::Fuzzy, search));
-                }
-                let current_bulk_limit = adaptive_bulk_limit(inner.bulk_limit, &state);
-                while state.bulk_inflight < current_bulk_limit && total_inflight < inner.total_limit
-                {
-                    let Some(search) = state.bulk.pop_front() else {
-                        break;
-                    };
-                    state.bulk_inflight += 1;
-                    total_inflight += 1;
-                    ready.push((SearchClass::Bulk, search));
-                }
+                admit_class(
+                    SearchClass::Interactive,
+                    (&mut s.interactive, &mut s.interactive_inflight),
+                    (inner.interactive_limit, interactive_ceiling),
+                    &mut total_inflight,
+                    &mut ready,
+                );
+                admit_class(
+                    SearchClass::Fuzzy,
+                    (&mut s.fuzzy, &mut s.fuzzy_inflight),
+                    (inner.fuzzy_limit, inner.total_limit),
+                    &mut total_inflight,
+                    &mut ready,
+                );
+                let current_bulk_limit = adaptive_bulk_limit(inner.bulk_limit, s);
+                admit_class(
+                    SearchClass::Bulk,
+                    (&mut s.bulk, &mut s.bulk_inflight),
+                    (current_bulk_limit, inner.total_limit),
+                    &mut total_inflight,
+                    &mut ready,
+                );
                 if !ready.is_empty() {
                     break ready;
                 }
-                if state.closed
-                    && state.interactive.is_empty()
-                    && state.fuzzy.is_empty()
-                    && state.bulk.is_empty()
-                    && state.interactive_inflight == 0
-                    && state.fuzzy_inflight == 0
-                    && state.bulk_inflight == 0
-                {
+                if state.closed && state.queue_depth() == 0 && state.inflight() == 0 {
                     return;
                 }
                 state = inner.changed.wait(state).unwrap_or_else(|e| e.into_inner());

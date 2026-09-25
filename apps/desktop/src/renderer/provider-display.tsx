@@ -124,7 +124,7 @@ function compareModelVersion(left: DesktopModelOption, right: DesktopModelOption
   return 0;
 }
 
-export function compareModelRecency(left: DesktopModelOption, right: DesktopModelOption): number {
+function compareModelRecency(left: DesktopModelOption, right: DesktopModelOption): number {
   if (isClaudeModel(left) && isClaudeModel(right)) {
     if (Boolean(left.latest) !== Boolean(right.latest)) return left.latest ? -1 : 1;
     const versionDelta = compareModelVersion(left, right);
@@ -335,11 +335,6 @@ export function ModelRouteLabel({
       )}
     </span>
   );
-}
-
-export function modelOptionLabel(model: { provider: string; model: string; display: string }) {
-  const display = modelDisplayName(model.model, model.provider, model.display) || t('Unnamed model');
-  return `${display} · ${providerDisplayName(model.provider)}`;
 }
 
 type ProviderIconKind = 'openai' | 'anthropic' | 'xai' | 'google' | 'cursor' | 'opencode' | 'synthetic';

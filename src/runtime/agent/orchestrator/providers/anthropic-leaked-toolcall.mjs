@@ -506,11 +506,3 @@ export function dedupeToolCallList(calls) {
   }
   return out.length === calls.length ? calls : out;
 }
-
-// Exposed for focused unit tests.
-export const _internals = {
-  firstSentinelIndex,
-  partialTailIndex,
-  matchCompleteBlockAt,
-  parseInvoke,
-};

@@ -18,6 +18,13 @@ function pendingAnsiIntroducer(sequence) {
   return '\x1b';
 }
 
+// First index at or after `start` that does not sit inside a UTF-8 sequence.
+function utf8Boundary(bytes, start, end) {
+  let index = start;
+  while (index < end && (bytes[index] & 0xc0) === 0x80) index++;
+  return index;
+}
+
 function visibleText(cursor, text) {
   const value = cursor.ansi + text;
   // Retain only the introducer of an unfinished CSI/OSC, not its potentially
@@ -59,8 +66,7 @@ export function readShellTaskOutput(task, result = {}, { output = 'new' } = {}) 
       const preview = String(result[`${stream}_preview`] || '');
       const delta = preview.startsWith(cursor.preview) ? preview.slice(cursor.preview.length) : preview;
       const bytes = Buffer.from(delta);
-      let start = Math.max(0, bytes.length - limit);
-      while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
+      const start = utf8Boundary(bytes, Math.max(0, bytes.length - limit), bytes.length);
       if (start) {
         sections.push(`[${stream}: ${start} preview bytes omitted; no original log path available]`);
         cursor.ansi = '';
@@ -87,8 +93,7 @@ export function readShellTaskOutput(task, result = {}, { output = 'new' } = {}) 
       }
       const buffer = Buffer.alloc(Math.min(limit, Math.max(0, size - start)));
       const count = buffer.length ? readSync(fd, buffer, 0, buffer.length, start) : 0;
-      let prefix = 0;
-      if (skipped) while (prefix < count && (buffer[prefix] & 0xc0) === 0x80) prefix++;
+      const prefix = skipped ? utf8Boundary(buffer, 0, count) : 0;
       if (skipped + prefix) {
         sections.push(`[${stream}: ${skipped + prefix} earlier bytes omitted; read ${path} for the original log]`);
       }

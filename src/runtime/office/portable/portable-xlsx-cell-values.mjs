@@ -1,5 +1,3 @@
-// What a cell of the sheet SHOWS, by column and row. A pivot source and a
-// chart's series both read the sheet this way, so the rule lives once.
 import { cellRecords, columnLabel, sharedStrings } from './portable-cells.mjs';
 
 // What a cell of the sheet shows, by column and row: a formula's last computed

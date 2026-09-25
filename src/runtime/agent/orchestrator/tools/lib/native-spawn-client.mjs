@@ -68,7 +68,7 @@ function _startRetentionSweep() {
 function _dropTaskEntry(jobId, { notifyServer = true } = {}) {
   _tasks.delete(jobId);
   _terminalAtMs.delete(jobId);
-  _startedAtOverrides.delete(jobId);
+  _taskOverrides.delete(jobId);
   if (notifyServer) _requestServerTaskRelease(jobId);
   if (_terminalAtMs.size === 0) _stopRetentionSweep();
 }
@@ -134,30 +134,51 @@ export function _assertNativeSpawnCapabilitiesForTest(caps = {}) {
 // then measured the idle wait as command runtime. The runner registers the
 // real feed moment here, and it wins over the server value for the task's
 // whole life so job records, completion elapsed and status readouts agree.
-const STARTED_AT_OVERRIDE_LIMIT = 512;
-const _startedAtOverrides = new Map();
+const TASK_OVERRIDE_LIMIT = 512;
+const _taskOverrides = new Map();
+
+// Insertion-ordered eviction: a long-lived host must not accumulate one
+// entry per command forever. Overrides outlive their task on purpose (a
+// post-completion status refresh would otherwise restore the raw value).
+function _setTaskOverride(key, patch) {
+  const current = _taskOverrides.get(key);
+  if (!current && _taskOverrides.size >= TASK_OVERRIDE_LIMIT) {
+    const oldest = _taskOverrides.keys().next();
+    if (!oldest.done) _taskOverrides.delete(oldest.value);
+  }
+  _taskOverrides.set(key, { ...current, ...patch });
+}
 
 export function setNativeTaskStartedAt(jobId, startedAtMs) {
   const key = String(jobId || '').trim();
   const ms = Math.floor(Number(startedAtMs));
   if (!key || !Number.isFinite(ms) || ms <= 0) return;
-  // Insertion-ordered eviction: a long-lived host must not accumulate one
-  // entry per command forever. Overrides outlive their task on purpose (a
-  // post-completion status refresh would otherwise restore the raw value).
-  if (_startedAtOverrides.size >= STARTED_AT_OVERRIDE_LIMIT) {
-    const oldest = _startedAtOverrides.keys().next();
-    if (!oldest.done) _startedAtOverrides.delete(oldest.value);
-  }
-  _startedAtOverrides.set(key, ms);
+  _setTaskOverride(key, { startedAtMs: ms });
   const known = _tasks.get(key);
   if (known) known.startedAt = new Date(ms).toISOString();
+}
+
+// A promoted foreground command keeps writing into the runner's spill files,
+// which the server's task record does not carry. Without them every later
+// read of the task fell back to the previews, whose output cursor is not the
+// one the promotion result advanced, and delivered that output a second time.
+export function setNativeTaskOutputPaths(jobId, { stdoutPath = null, stderrPath = null } = {}) {
+  const key = String(jobId || '').trim();
+  if (!key || (!stdoutPath && !stderrPath)) return;
+  const paths = {
+    stdoutPath: stdoutPath ? String(stdoutPath) : null,
+    stderrPath: stderrPath ? String(stderrPath) : null,
+  };
+  _setTaskOverride(key, paths);
+  const known = _tasks.get(key);
+  if (known) Object.assign(known, paths);
 }
 
 function normalizeTask(task) {
   if (!task || typeof task !== 'object' || !task.jobId) return null;
   const jobId = String(task.jobId);
-  const override = _startedAtOverrides.get(jobId);
-  const startedAtMs = override || Number(task.startedAtMs) || Date.now();
+  const override = _taskOverrides.get(jobId);
+  const startedAtMs = override?.startedAtMs || Number(task.startedAtMs) || Date.now();
   const finishedAtMs = Number(task.finishedAtMs) || 0;
   return {
     jobId,
@@ -181,6 +202,8 @@ function normalizeTask(task) {
     stderrBytes: Math.max(0, Number(task.stderrBytes) || 0),
     stdoutPreview: String(task.stdoutPreview || ''),
     stderrPreview: String(task.stderrPreview || ''),
+    stdoutPath: override?.stdoutPath || null,
+    stderrPath: override?.stderrPath || null,
     mergeStderr: false,
   };
 }
@@ -884,7 +907,7 @@ export function _resetNativeSpawnClientForTest() {
   _tasks.clear();
   _terminalAtMs.clear();
   _stopRetentionSweep();
-  _startedAtOverrides.clear();
+  _taskOverrides.clear();
   _taskEvents.removeAllListeners();
 }
 

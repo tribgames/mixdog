@@ -94,6 +94,12 @@
           "sha256": "f2ddeacd376c764fef49e7abf5621a36d632ed3e73a7d92a9e87fbb164b7b227",
           "url": "https://github.com/muttleyxd/clang-tools-static-binaries/releases/download/master-796e77c/clang-format-20_macosx-amd64"
         },
+        "linux-arm64": {
+          "archive": "zip",
+          "binPath": "clang_format/data/bin/clang-format",
+          "sha256": "34de32fe53452a07497793d5faf3fd03f7cf8b960b915417471ae81227461a39",
+          "url": "https://files.pythonhosted.org/packages/06/60/7c2ff3019599ad985d0a61f74ba8226d538c72485b0e3d25b1899601a9f5/clang_format-20.1.8-py2.py3-none-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl"
+        },
         "linux-x64": {
           "archive": "none",
           "binPath": "clang-format-20_linux-amd64",

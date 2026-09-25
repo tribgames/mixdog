@@ -106,10 +106,9 @@ function trimBufferedQueue(q) {
     const removedBytes = oldestBytes - retained.bytes;
     q.chunks[0] = retained.text;
     q.bytes -= removedBytes;
-    recordDroppedBytes(q, removedBytes);
     // A character-boundary trim can remove up to three extra bytes rather
     // than split a code point or exceed the hard byte cap.
-    if (q.bytes > BUFFERED_APPEND_MAX_BYTES) continue;
+    recordDroppedBytes(q, removedBytes);
   }
 }
 

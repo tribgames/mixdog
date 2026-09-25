@@ -839,22 +839,6 @@
   letter-spacing: 0;
   text-transform: none;
 }
-.detail-block-heading {
-  min-height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-/* Block headings and arg KEYS name what the row is — they carry the same
-   label duty as a section head, so they ride muted ink, one step under the
-   value they introduce instead of two (user: 중요한 라벨 이름이 잘 안 보인다). */
-.detail-block-heading > span {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-meta);
-}
 /* Structured Input grid: muted key column,
    mono value column — replaces the raw args JSON dump. */
 .tool-args {

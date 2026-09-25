@@ -8,6 +8,13 @@ export function positiveNumber(value, fallback = 0) {
   return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
+const SESSION_ID_RE = /^[A-Za-z0-9_-]+$/;
+
+/** The durable session-id grammar every catalog path accepts. */
+export function isStoredSessionId(value) {
+  return SESSION_ID_RE.test(value);
+}
+
 export function cleanValue(value) {
   return String(value || '').trim();
 }

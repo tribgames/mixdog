@@ -2,6 +2,9 @@ import { STATE_ROLES } from '../design-discipline.mjs';
 import { presetLabels } from '../design-tokens.mjs';
 import { officeNumberFormat } from '../content-model.mjs';
 
+// A figure with its sign, currency, grouping, and a short unit: 38 · −4.2% · ₩740,000 · 1.6배 · 12건 · 2.6억 원.
+const FIGURE_CELL = /^[(+\-−]?[₩$€£¥]?\s?\d[\d,.]*\s*(?:%|%p|(?:\s?[A-Za-z가-힣]{1,3}){0,2})\)?$/;
+
 function tableBorders(colors) {
   return {
     style: 'single',
@@ -14,16 +17,15 @@ function styleCell(output, table, row, col, properties) {
   output.push({ op: 'set_table_cell_style', table, row, col, properties });
 }
 
+// The widths a named preset variant draws at. A plain section table (null) takes the writer's widths from its own
+// text (naturalTableColumnWidths): a fixed 150/165/165 split wrapped a description beside a two-word label column.
 function tableWidths(columns, variant) {
   if (columns <= 1) return [480];
-  if (columns === 2) return variant === 'roadmap' ? [86, 394] : [150, 330];
-  if (columns === 3) {
-    if (variant === 'gates') return [126, 190, 164];
-    if (variant === 'metrics') return [146, 128, 206];
-    return [150, 165, 165];
-  }
-  if (columns === 5 && variant === 'scorecard') return [96, 96, 96, 96, 96];
-  return Array.from({ length: columns }, () => 480 / columns);
+  if (variant === 'roadmap' && columns === 2) return [86, 394];
+  if (variant === 'gates' && columns === 3) return [126, 190, 164];
+  if (variant === 'metrics' && columns === 3) return [146, 128, 206];
+  if (variant === 'scorecard') return Array.from({ length: columns }, () => 480 / columns);
+  return null;
 }
 
 function pushTable(output, state, values, design, variant) {
@@ -40,7 +42,10 @@ function pushTable(output, state, values, design, variant) {
       fontSize: Math.max(9, design.format.body - 0.5),
       color: design.tokens.colors.ink,
       spacingAfter: 0,
-      columnWidths: tableWidths(columns, variant),
+      ...(tableWidths(columns, variant) ? { columnWidths: tableWidths(columns, variant) } : {}),
+      // The cells hold one exact line and no paragraph spacing, so the row's floor is the air around the centred
+      // text: without it the header band and every row closed on the type's own height.
+      rowHeights: values.map(() => Math.round(Math.max(9, design.format.body - 0.5) * 1.3 + 7)),
       // A roadmap row is a step, not a header, and a 92pt band pushed a
       // three-step plan onto a page of its own - with the first step repeated at
       // the top as though it were the header row.
@@ -69,8 +74,17 @@ function pushTable(output, state, values, design, variant) {
 
 // emphasis: 'inverse' (the dark field) · 'accent' · a state tone ('positive' | 'warning' | 'critical' | 'informative'):
 // the label sits on the state's weak field in its text color, so a verdict reads the same as in a deck's badge.
-export function addDocxDecisionCallout(output, state, text, design, { label = '', emphasis = 'inverse' } = {}) {
-  const caption = label || presetLabels(text).recommendation;
+// label: null draws the field without a caption row — a section's callout names itself only when the author
+// gave it a label; an invented one ("다음 점검" over an approval request) told the reader the wrong thing.
+// eastAsia: the Korean face paired with the display face the callout's text is set in.
+export function addDocxDecisionCallout(
+  output,
+  state,
+  text,
+  design,
+  { label = '', emphasis = 'inverse', eastAsia = '' } = {}
+) {
+  const caption = label === null ? '' : label || presetLabels(text).recommendation;
   const colors = design.tokens.colors;
   const tone = STATE_ROLES.includes(emphasis) && colors[`${emphasis}Weak`] && colors[`${emphasis}Text`] ? emphasis : '';
   const accentEmphasis = emphasis === 'accent';
@@ -78,19 +92,22 @@ export function addDocxDecisionCallout(output, state, text, design, { label = ''
   const fallbackForeground = accentEmphasis ? colors.onAccent : colors.onInverse;
   const fillColor = tone ? colors[`${tone}Weak`] : fallbackFill;
   const foreground = tone ? colors[`${tone}Text`] : fallbackForeground;
-  const { table } = pushTable(output, state, [[caption], [String(text)]], design, 'callout');
-  styleCell(output, table, 1, 1, {
-    fillColor,
-    color: foreground,
-    fontName: design.tokens.typography.data,
-    fontSize: 9.5,
-    bold: true,
-    verticalAlignment: 'center',
-  });
-  styleCell(output, table, 2, 1, {
+  const { table } = pushTable(output, state, caption ? [[caption], [String(text)]] : [[String(text)]], design, 'callout');
+  if (caption) {
+    styleCell(output, table, 1, 1, {
+      fillColor,
+      color: foreground,
+      fontName: design.tokens.typography.data,
+      fontSize: 9.5,
+      bold: true,
+      verticalAlignment: 'center',
+    });
+  }
+  styleCell(output, table, caption ? 2 : 1, 1, {
     fillColor: colors.surface,
     color: colors.ink,
     fontName: design.tokens.typography.display,
+    ...(eastAsia ? { fontNameEastAsia: eastAsia } : {}),
     fontSize: design.format.body + 1.5,
     bold: true,
     verticalAlignment: 'center',
@@ -215,10 +232,16 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
   if (resolvedVariant === 'metrics' && values.length > 2) {
     const metricRows = values.slice(1, 6).filter((row) => Array.isArray(row) && row.length >= 3);
     if (metricRows.length >= 3) {
+      // The third column keeps its header on every figure under the value ("증차 후: 7분"): turned into a strip, the
+      // table dropped its header row, and "7분" under "18분" no longer said what it was.
+      const detailHeader = String(values[0]?.[2] ?? '').trim();
       const scorecard = [
         metricRows.map((row) => String(row[0] || '')),
         metricRows.map((row) => String(row[1] || '')),
-        metricRows.map((row) => String(row[2] || '')),
+        metricRows.map((row) => {
+          const detail = String(row[2] || '');
+          return detailHeader && detail ? `${detailHeader}: ${detail}` : detail;
+        }),
       ];
       const { table, columns } = pushTable(output, state, scorecard, design, 'scorecard');
       for (let column = 1; column <= columns; column += 1) {
@@ -253,6 +276,13 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
     }
   }
   const { table, columns } = pushTable(output, state, values, design, resolvedVariant);
+  // A column of figures is read down its right edge, its header over it (the docx skill's table anatomy); the
+  // preset left 38, 21, 0 flush left under "대기 (분)".
+  const figureColumn = Array.from({ length: columns }, (_, index) => {
+    const body = values.slice(1).map((row) => String(row?.[index] ?? '').trim()).filter(Boolean);
+    return index > 0 && body.length > 0 && body.every((cell) => FIGURE_CELL.test(cell));
+  });
+  const align = (column) => (figureColumn[column - 1] ? { horizontalAlignment: 'right' } : {});
   for (let column = 1; column <= columns; column += 1) {
     styleCell(output, table, 1, column, {
       fillColor: colors.inverse,
@@ -261,6 +291,7 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
       fontSize: Math.max(9, design.format.body - 0.5),
       bold: true,
       verticalAlignment: 'center',
+      ...align(column),
     });
   }
   for (let row = 2; row <= values.length; row += 1) {
@@ -281,6 +312,7 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
         color,
         bold: column === 1 || metricValue,
         verticalAlignment: 'center',
+        ...align(column),
       });
     }
   }

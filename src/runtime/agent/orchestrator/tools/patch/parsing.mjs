@@ -161,7 +161,7 @@ export function isV4AEndOfFileMarker(rawLine) {
   return text.startsWith(V4A_EOF_MARKER) && /^[\s*]*$/.test(text.slice(V4A_EOF_MARKER.length));
 }
 
-function v4aEnsureUpdateHunk(_current, pendingAnchors) {
+function v4aEnsureUpdateHunk(pendingAnchors) {
   return { anchors: pendingAnchors.slice(), lines: [] };
 }
 
@@ -310,12 +310,12 @@ export function parseV4APatch(patchStr) {
     }
     const tag = rawLine[0];
     if (tag !== ' ' && tag !== '-' && tag !== '+') {
-      if (!currentHunk) currentHunk = v4aEnsureUpdateHunk(current, pendingAnchors);
+      if (!currentHunk) currentHunk = v4aEnsureUpdateHunk(pendingAnchors);
       pendingAnchors = [];
       currentHunk.lines.push(` ${rawLine}`);
       continue;
     }
-    if (!currentHunk) currentHunk = v4aEnsureUpdateHunk(current, pendingAnchors);
+    if (!currentHunk) currentHunk = v4aEnsureUpdateHunk(pendingAnchors);
     currentHunk.lines.push(rawLine);
   }
   finishFile();
@@ -422,12 +422,12 @@ function parseUnifiedAsV4APatch(patchStr, { label, resolveAnchor }) {
     }
     const tag = rawLine[0];
     if (tag !== ' ' && tag !== '-' && tag !== '+') {
-      if (!currentHunk) currentHunk = v4aEnsureUpdateHunk(current, pendingAnchors);
+      if (!currentHunk) currentHunk = v4aEnsureUpdateHunk(pendingAnchors);
       pendingAnchors = [];
       currentHunk.lines.push(` ${rawLine}`);
       continue;
     }
-    if (!currentHunk) currentHunk = v4aEnsureUpdateHunk(current, pendingAnchors);
+    if (!currentHunk) currentHunk = v4aEnsureUpdateHunk(pendingAnchors);
     currentHunk.lines.push(rawLine);
   }
   finishFile();

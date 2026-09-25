@@ -1,5 +1,5 @@
 /**
- * How the runtime finds one bridge, and how one request is read and answered.
+ * How the runtime finds one bridge, and how one request is answered.
  * The discovery file is the only thing that makes the tool surface appear, so
  * it is written after the backend is warm and removed the moment it is not.
  * Shared by the Computer Use and Browser Use bridges: each publishes its own
@@ -10,7 +10,7 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, utimesSync,
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ServerResponse } from 'node:http';
 import {
   parseBridgeDiscovery,
   probeBridgeDiscovery,
@@ -19,7 +19,7 @@ import {
   type BridgeDiscoveryRecord,
 } from './discovery-ownership';
 
-const MAX_REQUEST_BYTES = 256 * 1024;
+type DiscoveryOwnership = 'owned' | 'occupied' | 'inconclusive' | 'lost' | 'superseded';
 
 /** Where every bridge publishes its discovery file. Mirrors the runtime
  *  clients' resolution: an isolated desktop profile sets
@@ -98,9 +98,7 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
     return sameBridgeDiscovery(readDiscoverySnapshot(path).record, record);
   }
 
-  async function maintainDiscovery(
-    record: BridgeDiscoveryRecord
-  ): Promise<'owned' | 'occupied' | 'inconclusive' | 'lost' | 'superseded'> {
+  async function maintainDiscovery(record: BridgeDiscoveryRecord): Promise<DiscoveryOwnership> {
     if (!sameBridgeDiscovery(activeDiscovery, record)) return 'superseded';
     const path = ensureDiscoveryPath();
     const first = readDiscoverySnapshot(path);
@@ -132,24 +130,6 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
     return publishDiscovery(record) ? 'owned' : 'inconclusive';
   }
 
-  async function readRequestBody(request: IncomingMessage): Promise<string> {
-    return await new Promise<string>((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      let bytes = 0;
-      request.on('data', (chunk: Buffer) => {
-        bytes += chunk.length;
-        if (bytes > MAX_REQUEST_BYTES) {
-          reject(new Error('request too large'));
-          request.destroy();
-          return;
-        }
-        chunks.push(chunk);
-      });
-      request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-      request.on('error', reject);
-    });
-  }
-
   function respond(response: ServerResponse, status: number, body: unknown): void {
     const payload = JSON.stringify(body);
     response.writeHead(status, {
@@ -159,9 +139,7 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
     response.end(payload);
   }
 
-  async function writeDiscovery(
-    record: BridgeDiscoveryRecord
-  ): Promise<'owned' | 'occupied' | 'inconclusive' | 'lost' | 'superseded'> {
+  async function writeDiscovery(record: BridgeDiscoveryRecord): Promise<DiscoveryOwnership> {
     activeDiscovery = record;
     return await maintainDiscovery(record);
   }
@@ -179,5 +157,5 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
     discoveryPath = null;
   }
 
-  return { readRequestBody, respond, writeDiscovery, heartbeatDiscovery: maintainDiscovery, removeDiscovery };
+  return { respond, writeDiscovery, heartbeatDiscovery: maintainDiscovery, removeDiscovery };
 }

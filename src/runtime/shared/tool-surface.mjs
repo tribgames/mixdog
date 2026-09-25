@@ -530,10 +530,6 @@ export function formatAggregateHeader(categories, { pending = false, order = nul
     .join(', ');
 }
 
-/**
- * Join a list of per-call result summaries into a single detail line,
- * deduplicating exact repeats while preserving order.
- */
 /** A truncated path when one is given, else the bare identifier, else ''. */
 function pathOrId(path, id, max) {
   if (path) return truncateToolText(path, max);
@@ -566,6 +562,10 @@ function accumulateUpdateMetric(metric, update) {
   metric.seen = metric.seen || update.seen;
 }
 
+/**
+ * Join a list of per-call result summaries into a single detail line,
+ * deduplicating exact repeats while preserving order.
+ */
 export function formatAggregateDetail(summaries) {
   if (!summaries || summaries.length === 0) return '';
   const metrics = new Map();
@@ -576,7 +576,6 @@ export function formatAggregateDetail(summaries) {
     if (!metrics.has(key)) {
       metrics.set(key, { ...initial });
       order.push({ type: 'metric', key });
-      return metrics.get(key);
     }
     return metrics.get(key);
   };

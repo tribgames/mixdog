@@ -55,7 +55,7 @@ export function useSelectionPaint({
   // Clip band + theming: use-selection-paint/selection-clip.mjs.
   const selectionClip = useCallback(
     () => selectionClipBand({ dragRef, frameRowsRef, transcriptViewportRef, statuslineBandRows }),
-    []
+    [statuslineBandRows]
   );
 
   const withSelectionClip = useCallback(

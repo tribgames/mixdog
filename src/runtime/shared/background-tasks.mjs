@@ -44,7 +44,6 @@ function normalizeStatus(status) {
   if (value === 'done' || value === 'success') return 'completed';
   if (value === 'error') return 'failed';
   if (value === 'cancelled' || value === 'canceled' || value === 'killed') return 'cancelled';
-  if (value === 'running') return 'running';
   return value || 'running';
 }
 
@@ -116,8 +115,6 @@ function taskMatchesScope(task, options = {}, { includeUnattributed = true } = {
   if ((scope.callerSessionId || scope.routingSessionId) && taskSessionId) {
     return taskSessionId === scope.callerSessionId || taskSessionId === scope.routingSessionId;
   }
-  if (scope.callerSessionId && taskSessionId === scope.callerSessionId) return true;
-  if (scope.routingSessionId && taskSessionId === scope.routingSessionId) return true;
   if (scope.clientHostPid && taskClientHostPid === scope.clientHostPid) return true;
   return false;
 }
@@ -253,9 +250,8 @@ export function listBackgroundTasks(options = {}) {
 export function cleanupBackgroundTasks(options = {}) {
   const wanted = clean(options.surface);
   const countForSurface = () =>
-    wanted
-      ? [...tasks.values()].filter((task) => task.surface === wanted && taskMatchesScope(task, options)).length
-      : [...tasks.values()].filter((task) => taskMatchesScope(task, options)).length;
+    [...tasks.values()].filter((task) => (!wanted || task.surface === wanted) && taskMatchesScope(task, options))
+      .length;
   const before = countForSurface();
   pruneTasks(options);
   const after = countForSurface();
@@ -502,11 +498,15 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
     task.error || envelope?.error ? `error: ${task.error || envelope.error}` : null,
   ];
   // stdout/stderr log paths differ only by suffix — collapse to one line.
-  const _so = typeof visibleMeta.stdout === 'string' ? visibleMeta.stdout : null;
-  const _se = typeof visibleMeta.stderr === 'string' ? visibleMeta.stderr : null;
+  const stdoutLog = typeof visibleMeta.stdout === 'string' ? visibleMeta.stdout : null;
+  const stderrLog = typeof visibleMeta.stderr === 'string' ? visibleMeta.stderr : null;
   const logsBase =
-    _so && _se && _so.endsWith('.stdout.log') && _se.endsWith('.stderr.log') && _so.slice(0, -11) === _se.slice(0, -11)
-      ? _so.slice(0, -11)
+    stdoutLog &&
+    stderrLog &&
+    stdoutLog.endsWith('.stdout.log') &&
+    stderrLog.endsWith('.stderr.log') &&
+    stdoutLog.slice(0, -11) === stderrLog.slice(0, -11)
+      ? stdoutLog.slice(0, -11)
       : null;
   for (const [key, value] of Object.entries(visibleMeta)) {
     if (key === 'task_id' || key === 'surface' || key === 'operation') continue;
@@ -517,7 +517,7 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
   if (includeResult) {
     if (body) {
       lines.push('', envelope ? envelope.result : body);
-    } else if (TERMINAL_STATUSES.has(task.status) && task.status === 'completed' && !task.error) {
+    } else if (task.status === 'completed' && !task.error) {
       // Terminal-completed task with no extractable body: surface a placeholder
       // instead of silently omitting the result so the owner isn't left with a
       // header-only card that looks truncated.

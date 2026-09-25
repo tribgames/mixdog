@@ -166,6 +166,24 @@ test('a proven launch successor is still captured, and capture failure is not hi
   assert.equal(payload.delivery_accepted, true);
 });
 
+test('a plain reply names the capturable owner its capture fell back to, like a semantic reply', async () => {
+  for (const result of [{ text: 'delivered' }, { action: 'key', delivery_accepted: true }]) {
+    const reply = await buildActionReply(
+      async () => ({
+        metadata: {
+          ok: true,
+          action: 'capture',
+          window_id: 'hwnd:0x2',
+          requested_window_id: 'hwnd:0x1',
+          capture_target_reason: 'capturable_owner',
+        },
+      }),
+      context({ command: { action: 'key', capture_after: true }, result })
+    );
+    assert.equal(JSON.parse(reply.text).capture_after.target_reason, 'capturable_owner');
+  }
+});
+
 for (const structured of [true, false]) {
   test(`failed requested observation cannot finish a ${structured ? 'structured' : 'text'} action reply`, async () => {
     const result = await buildActionReply(

@@ -34,7 +34,7 @@ import {
   beginOAuthLogin,
   loginOAuth,
 } from './anthropic-oauth-credentials.mjs';
-import { learnRequiredCliVersion, resolveCliVersion } from './anthropic-oauth-client-version.mjs';
+import { claudeCliUserAgent, learnRequiredCliVersion } from './anthropic-oauth-client-version.mjs';
 import { createPassthroughSignal } from '../stall-policy.mjs';
 import { AnthropicFallbackTriggeredError } from './retry-classifier.mjs';
 import { ANTHROPIC_MAX_MIDSTREAM_RETRIES, parseSSEStream, _classifyMidstreamError } from './anthropic-sse.mjs';
@@ -44,6 +44,7 @@ import { fastModeAvailable } from './anthropic-fast-mode.mjs';
 import { ANTHROPIC_VERSION, anthropicQuotaError, createAnthropicOAuthRequest } from './anthropic-oauth-request.mjs';
 import { createAnthropicOAuthRecovery } from './anthropic-oauth-recovery.mjs';
 import { createMidState, createMidstreamRecovery } from './anthropic-oauth-midstream.mjs';
+import { assertAnthropicStreamNotEmpty } from './anthropic-midstream-recovery.mjs';
 import { applyAnthropicEffortToBody, shouldIncludeEffortBeta } from './anthropic-effort.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import {
@@ -731,31 +732,29 @@ export class AnthropicOAuthProvider {
       process.stderr.write(
         `[anthropic-oauth] Done: ${result.content.length} chars, ${result.toolCalls?.length || 0} tool calls\n`
       );
-    // Empty-stream guard. Invariant: a valid Anthropic SSE response
-    // ALWAYS opens with message_start (which carries usage.input_tokens).
-    // A 200 whose body produced no message_start delivered nothing —
-    // no usage, no content, no tool calls — i.e. a dropped/empty stream
-    // (transient, often rate-limit-adjacent under concurrent load), NOT
-    // a valid terminal turn. Returning it surfaces upstream as a silent
-    // empty turn (0 tokens, no content) that masks the cause. Throw a
-    // marked error: retry is provably safe here (no message_start ⇒
-    // nothing was emitted ⇒ no duplicate-tool risk), and once retries
-    // are exhausted the error is surfaced instead of swallowed.
-    if (
-      !midState.sawMessageStart &&
-      !midState.userAbort &&
-      !midState.watchdogAbort &&
-      !result.content &&
-      !result.toolCalls?.length &&
-      !(result.usage && result.usage.inputTokens > 0)
-    ) {
-      const emptyErr = new Error(
-        'Anthropic OAuth SSE stream produced no message_start (empty/dropped stream — likely transient or rate-limited)'
-      );
-      emptyErr.code = 'EEMPTYSTREAM';
-      emptyErr.isEmptyStream = true;
-      throw emptyErr;
-    }
+    assertAnthropicStreamNotEmpty(midState, result, 'Anthropic OAuth');
+  }
+
+  // GET /v1/models for this OAuth account, then normalize + mark-latest +
+  // LiteLLM-enrich + persist (shared helper).
+  async _fetchModelCatalog() {
+    const creds = await this.ensureAuth();
+    const res = await fetch('https://api.anthropic.com/v1/models', {
+      signal: AbortSignal.timeout(10_000),
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        'anthropic-version': ANTHROPIC_VERSION,
+        'anthropic-beta': OAUTH_BETA_HEADERS,
+        'anthropic-dangerous-direct-browser-access': 'true',
+        'user-agent': claudeCliUserAgent(),
+        'x-app': 'cli',
+      },
+      dispatcher: getLlmDispatcher(),
+    });
+    if (!res.ok) throw new Error(`list_models ${res.status}`);
+    const data = await res.json();
+    return normalizeAndSaveCatalog(Array.isArray(data?.data) ? data.data : []);
   }
 
   async listModels() {
@@ -769,26 +768,7 @@ export class AnthropicOAuthProvider {
       return cached;
     }
     try {
-      const creds = await this.ensureAuth();
-      const res = await fetch('https://api.anthropic.com/v1/models', {
-        signal: AbortSignal.timeout(10_000),
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${creds.accessToken}`,
-          'anthropic-version': ANTHROPIC_VERSION,
-          'anthropic-beta': OAUTH_BETA_HEADERS,
-          'anthropic-dangerous-direct-browser-access': 'true',
-          'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
-          'x-app': 'cli',
-        },
-        dispatcher: getLlmDispatcher(),
-      });
-      if (!res.ok) throw new Error(`list_models ${res.status}`);
-      const data = await res.json();
-      const items = Array.isArray(data?.data) ? data.data : [];
-      // Normalize + mark-latest + LiteLLM-enrich + persist (shared helper).
-      const enriched = await normalizeAndSaveCatalog(items);
-      return enriched;
+      return await this._fetchModelCatalog();
     } catch (err) {
       if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
         process.stderr.write(`[anthropic-oauth] listModels fetch failed (${err.message})\n`);
@@ -837,24 +817,7 @@ export class AnthropicOAuthProvider {
     if (_modelRefreshInFlight) return _modelRefreshInFlight;
     _modelRefreshInFlight = (async () => {
       try {
-        const creds = await this.ensureAuth();
-        const res = await fetch('https://api.anthropic.com/v1/models', {
-          signal: AbortSignal.timeout(10_000),
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${creds.accessToken}`,
-            'anthropic-version': ANTHROPIC_VERSION,
-            'anthropic-beta': OAUTH_BETA_HEADERS,
-            'anthropic-dangerous-direct-browser-access': 'true',
-            'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
-            'x-app': 'cli',
-          },
-          dispatcher: getLlmDispatcher(),
-        });
-        if (!res.ok) throw new Error(`list_models ${res.status}`);
-        const data = await res.json();
-        const items = Array.isArray(data?.data) ? data.data : [];
-        const enriched = await normalizeAndSaveCatalog(items);
+        const enriched = await this._fetchModelCatalog();
         if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
           process.stderr.write(`[anthropic-oauth] catalog refreshed (${enriched.length} models)\n`);
         return enriched;

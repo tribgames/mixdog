@@ -136,6 +136,15 @@ function UtilityDockViewSection({ active, children }: { active: boolean; childre
   );
 }
 
+/** File name and parent folder of a project-relative result path. */
+function splitRelPath(relPath: string): { name: string; parent: string } {
+  const normalized = relPath.replace(/\\/g, '/');
+  const split = normalized.lastIndexOf('/');
+  return split >= 0
+    ? { name: normalized.slice(split + 1), parent: normalized.slice(0, split) }
+    : { name: normalized, parent: '' };
+}
+
 // ── Pane side-dock views (Agents / Search / Source Control / PRs) ─────────
 const SearchPane = memo(function SearchPane({
   projectPath,
@@ -267,10 +276,7 @@ const SearchPane = memo(function SearchPane({
         </p>
         {nameResults.flatMap(({ project, paths }) =>
           paths.map((relPath) => {
-            const normalized = relPath.replace(/\\/g, '/');
-            const split = normalized.lastIndexOf('/');
-            const name = split >= 0 ? normalized.slice(split + 1) : normalized;
-            const parent = split >= 0 ? normalized.slice(0, split) : '';
+            const { name, parent } = splitRelPath(relPath);
             return (
               <button
                 type="button"
@@ -300,10 +306,7 @@ const SearchPane = memo(function SearchPane({
         </p>
         {contentResults.flatMap(({ project, files, limitHit }) =>
           files.map((file) => {
-            const normalized = file.relPath.replace(/\\/g, '/');
-            const split = normalized.lastIndexOf('/');
-            const name = split >= 0 ? normalized.slice(split + 1) : normalized;
-            const parent = split >= 0 ? normalized.slice(0, split) : '';
+            const { name, parent } = splitRelPath(file.relPath);
             return (
               <details open className="workbench-search-file" key={`${project}:${file.relPath}`}>
                 <summary>
@@ -709,22 +712,9 @@ export const UtilityDock = memo(function UtilityDock({
     (key: string, ready: boolean) => setPaneReady('pull-requests', key, ready),
     [setPaneReady]
   );
-  const selectedSurfaceReady = contentReady;
   const selectedSurfaceDataReady = contentReady && (gitSurfaceSelected ? dockGitStatusReady : true);
-  // Visited/revealed state is DERIVED during render and committed in an
-  // effect: a render that React throws away (interrupted concurrent work,
-  // StrictMode double invoke) must not poison the set, while the selected tab
-  // still mounts and reveals in its FIRST paint.
-  const [committedRevealed, setCommittedRevealed] = useState<ReadonlySet<UtilityDockTab>>(() => new Set());
-  const revealedTabs = useMemo(() => {
-    if (!selectedSurfaceReady || presentedGroup.every((pane) => committedRevealed.has(pane))) return committedRevealed;
-    return new Set([...committedRevealed, ...presentedGroup]);
-  }, [committedRevealed, presentedGroup, selectedSurfaceReady]);
-  useEffect(() => {
-    if (revealedTabs !== committedRevealed) setCommittedRevealed(revealedTabs);
-  }, [committedRevealed, revealedTabs]);
-  const selectedSurfaceVisible =
-    contentReady && (selectedSurfaceReady || presentedGroup.every((pane) => revealedTabs.has(pane)));
+  // The selected layer reveals in its FIRST ready paint.
+  const selectedSurfaceVisible = contentReady;
   useEffect(() => {
     if (!open || !contentReady) return;
     beginBootSurface(metricSurface, presentedTab);

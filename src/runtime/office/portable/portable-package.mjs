@@ -100,7 +100,8 @@ function wordHeadingStyle(id, name, outline, size, spacingBefore) {
   );
 }
 
-function wordStyles() {
+// The styles part a new document starts from; an existing document borrows a definition from it that it lacks.
+export function wordStyles() {
   const border = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']
     .map((edge) => `<w:${edge} w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/>`)
     .join('');
@@ -165,6 +166,16 @@ function wordDocument() {
   );
 }
 
+// A package that names no compatibility mode opens in Word as a Word 2007 document ("Compatibility Mode" in the
+// title bar, the old layout engine; verified 2026-09-25): a new document declares the current mode, as Word's own do.
+function wordSettings() {
+  return document(
+    `<w:settings xmlns:w="${WORD_MAIN}">` +
+      '<w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>' +
+      '</w:settings>'
+  );
+}
+
 function docxPackage({ title, fileKind }) {
   return new Map([
     [
@@ -175,6 +186,10 @@ function docxPackage({ title, fileKind }) {
           {
             part: '/word/styles.xml',
             type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml',
+          },
+          {
+            part: '/word/settings.xml',
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml',
           },
           { part: '/docProps/core.xml', type: CORE_PROPERTY_TYPE },
         ],
@@ -191,9 +206,13 @@ function docxPackage({ title, fileKind }) {
     ['word/document.xml', wordDocument()],
     [
       'word/_rels/document.xml.rels',
-      relationships([{ id: 'rId1', type: `${OFFICE_RELATIONSHIPS}/styles`, target: 'styles.xml' }]),
+      relationships([
+        { id: 'rId1', type: `${OFFICE_RELATIONSHIPS}/styles`, target: 'styles.xml' },
+        { id: 'rId2', type: `${OFFICE_RELATIONSHIPS}/settings`, target: 'settings.xml' },
+      ]),
     ],
     ['word/styles.xml', wordStyles()],
+    ['word/settings.xml', wordSettings()],
   ]);
 }
 
@@ -492,7 +511,7 @@ export function portableCreateSupported(fileKind) {
 
 export async function createPortableOoxmlDocument(path, { fileKind, title = '', sheetName = 'Sheet1' } = {}) {
   const kind = String(fileKind || '').toLowerCase();
-  const family = FILE_KIND_FAMILIES[kind];
+  const family = Object.hasOwn(FILE_KIND_FAMILIES, kind) ? FILE_KIND_FAMILIES[kind] : '';
   if (!family) {
     throw new Error(
       `Portable Office creation supports ${Object.keys(FILE_KIND_FAMILIES).join(', ')}; .${kind || 'unknown'} requires Microsoft Office`

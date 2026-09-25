@@ -1,3 +1,5 @@
+import { diagnosticCategory } from './diagnostic-category';
+
 /** Numeric-only timing boundary shared by replies and persisted diagnostics. */
 export function computerTimings(value: unknown): Record<string, number> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -36,7 +38,7 @@ export function computerStepTimings(value: unknown): Array<Record<string, unknow
       {
         index: index + 1,
         status: row.status,
-        ...(typeof row.code === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(row.code) ? { code: row.code } : {}),
+        ...(diagnosticCategory(row.code) ? { code: row.code } : {}),
         ...(typeof row.delivery_accepted === 'boolean' || row.delivery_accepted === null
           ? { delivery_accepted: row.delivery_accepted }
           : {}),

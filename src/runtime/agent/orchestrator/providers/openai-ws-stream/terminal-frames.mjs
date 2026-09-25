@@ -10,8 +10,6 @@ import {
   responseIncompleteError,
 } from '../openai-ws-terminal.mjs';
 
-export { _endTurnFromEvent };
-
 // Terminal frames: response.completed / response.done / response.incomplete /
 // response.failed / error. Each settles the stream exactly once through
 // `finish`, after recording the outcome.

@@ -7,6 +7,7 @@ import { renderPdfPages } from '../pdf/pdf-render.mjs';
 import { resolveOfficeRenderOutput } from '../quality/quality-pipeline.mjs';
 import { defaultRenderOutput, exists, fullPath } from './office-sessions.mjs';
 import { completePageCoverage, pptxPageSignatures, reusablePptxPages } from './pptx-page-cache.mjs';
+import { numberDocxTableOfContents } from './docx-toc-pages.mjs';
 
 function request(session, args, cwd) {
   return {
@@ -68,6 +69,10 @@ async function exportDocument(session, output) {
     if (!result.ok) throw new Error(result.error || 'Microsoft Office render failed');
   } else {
     await renderPortableOoxml(session.target, output);
+    // The contents field learns its page numbers from this layout; a changed cache is drawn once more.
+    if (session.format === 'docx' && (await numberDocxTableOfContents(session.target, output))) {
+      await renderPortableOoxml(session.target, output);
+    }
   }
 }
 
@@ -183,6 +188,10 @@ export async function renderOfficePreview(
   };
   Object.assign(session.designState, {
     renderedVersion: version,
+    // The width the reviewed pages were drawn at: a later qa or finalize that cannot reuse the cached pages
+    // (a session that is not owned) draws them again at that width, so the same pixels keep the same token
+    // instead of a 1400 px redraw voiding a review taken at 1000.
+    renderedMaxWidth: requested.maxWidth,
     reviewToken: result.reviewToken,
     renderedPageCount: result.pageCount,
     renderedCoverage: structuredClone(result.visualCoverage),

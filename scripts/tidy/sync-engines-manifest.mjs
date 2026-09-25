@@ -8,9 +8,9 @@
  *
  * clang-format source: the npm `clang-format` 1.8.0 tarball only ships
  * win32 / linux_x64 / darwin_x64. muttleyxd/clang-tools-static-binaries
- * clang-format-20 adds darwin-arm64 but still has no linux-arm64. The
- * four available platforms use muttleyxd so every host runs the same
- * clang-format major; linux-arm64 is omitted.
+ * clang-format-20 adds darwin-arm64 but still has no linux-arm64, so the
+ * four platforms it covers use muttleyxd and linux-arm64 takes the same
+ * major from the PyPI `clang-format` manylinux aarch64 wheel.
  */
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
@@ -79,7 +79,7 @@ const ENGINES = Object.freeze([
     languages: ['c', 'cpp', 'objc', 'java', 'csharp'],
     homepage: 'https://clang.llvm.org/docs/ClangFormat.html',
     resolve: 'clang-format-major',
-    binNames: [],
+    binNames: ['clang-format'],
     assets: {},
   },
   {
@@ -245,11 +245,36 @@ function githubHeaders() {
   return headers;
 }
 
-function downloadHeaders() {
+/** The GitHub token travels only to GitHub; other asset hosts get none. */
+function downloadHeaders(url) {
   const headers = { 'User-Agent': 'mixdog-tidy-engines-sync' };
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token && new URL(url).hostname === 'github.com') headers.Authorization = `Bearer ${token}`;
   return headers;
+}
+
+/** The newest PyPI `clang-format` manylinux aarch64 wheel of one major. */
+async function clangFormatWheel(major) {
+  const response = await fetch('https://pypi.org/pypi/clang-format/json', {
+    headers: { 'User-Agent': 'mixdog-tidy-engines-sync' },
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) throw new Error(`PyPI ${response.status} for clang-format`);
+  const index = await response.json();
+  const versions = Object.keys(index.releases || {})
+    .filter((version) => /^\d+\.\d+\.\d+$/.test(version) && Number(version.split('.')[0]) === major)
+    .sort((left, right) => {
+      const a = left.split('.').map(Number);
+      const b = right.split('.').map(Number);
+      return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+    });
+  for (const version of versions.reverse()) {
+    const wheel = (index.releases[version] || []).find(
+      (file) => file.packagetype === 'bdist_wheel' && !file.yanked && /manylinux_\d+_\d+_aarch64/.test(file.filename)
+    );
+    if (wheel) return { name: wheel.filename, url: wheel.url, size: wheel.size || 0 };
+  }
+  return null;
 }
 
 async function githubJson(url) {
@@ -311,7 +336,7 @@ function clangFormatAssets(release) {
   for (const [platform, name] of Object.entries(map)) {
     assets[platform] = { match: (candidate) => candidate === name };
   }
-  return { version: `${major}.0.0`, assets, missing: ['linux-arm64'] };
+  return { version: `${major}.0.0`, assets };
 }
 
 function findAsset(release, spec, ctx) {
@@ -417,7 +442,7 @@ function pickBinPath(entries, binNames, fallback) {
 
 async function downloadAsset(url, dest) {
   const response = await fetch(url, {
-    headers: downloadHeaders(),
+    headers: downloadHeaders(url),
     redirect: 'follow',
     signal: AbortSignal.timeout(300_000),
   });
@@ -474,16 +499,24 @@ async function resolveEngine(engine, pinTag) {
   let version;
   let assetSpecs = engine.assets;
   const omitted = [];
+  const provided = new Map();
   if (engine.resolve === 'clang-format-major') {
     const picked = clangFormatAssets(release);
     version = picked.version;
     assetSpecs = picked.assets;
-    omitted.push(...picked.missing);
+    const wheel = await clangFormatWheel(Number.parseInt(version, 10));
+    if (wheel) {
+      provided.set('linux-arm64', { platform: 'linux-arm64', ...wheel, archive: 'zip', apiSize: wheel.size });
+    }
   } else {
     version = toSemver(engine.versionFromTag ? engine.versionFromTag(tag) : tag);
   }
   const resolved = [];
   for (const platform of PLATFORMS) {
+    if (provided.has(platform)) {
+      resolved.push(provided.get(platform));
+      continue;
+    }
     const spec = assetSpecs[platform];
     if (!spec) {
       omitted.push(platform);

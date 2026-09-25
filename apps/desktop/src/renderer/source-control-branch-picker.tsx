@@ -9,6 +9,7 @@ import type { DesktopGitBranch, DesktopGitStatus } from '../shared/contract';
 import { commitImmediateOverlay } from './immediate-overlay';
 import { touchPrimaryPointer } from './surface-input-focus';
 import { actionTitle, type ScmContextMenuItem } from './ScmContextMenu';
+import { operationInProgressReason } from './source-control-actions';
 
 interface BranchCapabilities {
   list: boolean;
@@ -90,7 +91,53 @@ export function SourceControlBranchPicker({
 }) {
   // ABB: the open branch panel owns hardware back.
   useMobileBack(open, onClose);
-  const operationReason = status.operation ? `Finish the in-progress ${status.operation.replace('-', ' ')} first` : '';
+  const operationReason = operationInProgressReason(status);
+  const branchMenuItems = (branch: DesktopGitBranch): ScmContextMenuItem[] => [
+    {
+      id: 'checkout',
+      label: 'Checkout',
+      disabled: Boolean(busy) || branch.current || Boolean(status.operation) || !capabilities.checkout,
+      title: actionTitle(
+        branch.current ? 'This branch is already checked out' : operationReason,
+        capabilities.checkout,
+        () => missingChannel('Checkout')
+      ),
+      onSelect: () => guarded(() => onCheckout(branch)),
+    },
+    {
+      id: 'rename',
+      label: 'Rename…',
+      disabled: Boolean(busy) || branch.remote || !capabilities.rename,
+      title: actionTitle(
+        branch.remote ? 'A remote branch cannot be renamed from here' : undefined,
+        capabilities.rename,
+        () => missingChannel('Renaming a branch')
+      ),
+      onSelect: () => guarded(() => onRename(branch)),
+    },
+    {
+      id: 'delete',
+      label: 'Delete…',
+      danger: true,
+      disabled: Boolean(busy) || branch.remote || branch.current || !capabilities.delete,
+      title: actionTitle(deleteBlockedReason(branch), capabilities.delete, () => missingChannel('Deleting a branch')),
+      onSelect: () => guarded(() => onDelete(branch)),
+    },
+    {
+      id: 'merge',
+      label: `Merge into ${status.branch}`,
+      separatorBefore: true,
+      disabled:
+        Boolean(busy) ||
+        branch.current ||
+        Boolean(status.operation) ||
+        !capabilities.merge ||
+        !status.branch ||
+        status.detached,
+      title: actionTitle(operationReason, capabilities.merge, () => missingChannel('Merging a branch')),
+      onSelect: () => guarded(() => onMerge(branch)),
+    },
+  ];
   return (
     <div className="dock-scm-toolbar-section dock-scm-toolbar-branch" ref={rootRef}>
       <button
@@ -166,57 +213,7 @@ export function SourceControlBranchPicker({
                           className="dock-scm-branch-row"
                           data-current={branch.current || undefined}
                           key={`${branch.remote}:${branch.name}`}
-                          {...rowContextMenu(`Actions for branch ${branch.name}`, () => [
-                            {
-                              id: 'checkout',
-                              label: 'Checkout',
-                              disabled:
-                                Boolean(busy) || branch.current || Boolean(status.operation) || !capabilities.checkout,
-                              title: actionTitle(
-                                branch.current ? 'This branch is already checked out' : operationReason,
-                                capabilities.checkout,
-                                () => missingChannel('Checkout')
-                              ),
-                              onSelect: () => guarded(() => onCheckout(branch)),
-                            },
-                            {
-                              id: 'rename',
-                              label: 'Rename…',
-                              disabled: Boolean(busy) || branch.remote || !capabilities.rename,
-                              title: actionTitle(
-                                branch.remote ? 'A remote branch cannot be renamed from here' : undefined,
-                                capabilities.rename,
-                                () => missingChannel('Renaming a branch')
-                              ),
-                              onSelect: () => guarded(() => onRename(branch)),
-                            },
-                            {
-                              id: 'delete',
-                              label: 'Delete…',
-                              danger: true,
-                              disabled: Boolean(busy) || branch.remote || branch.current || !capabilities.delete,
-                              title: actionTitle(deleteBlockedReason(branch), capabilities.delete, () =>
-                                missingChannel('Deleting a branch')
-                              ),
-                              onSelect: () => guarded(() => onDelete(branch)),
-                            },
-                            {
-                              id: 'merge',
-                              label: `Merge into ${status.branch}`,
-                              separatorBefore: true,
-                              disabled:
-                                Boolean(busy) ||
-                                branch.current ||
-                                Boolean(status.operation) ||
-                                !capabilities.merge ||
-                                !status.branch ||
-                                status.detached,
-                              title: actionTitle(operationReason, capabilities.merge, () =>
-                                missingChannel('Merging a branch')
-                              ),
-                              onSelect: () => guarded(() => onMerge(branch)),
-                            },
-                          ])}
+                          {...rowContextMenu(`Actions for branch ${branch.name}`, () => branchMenuItems(branch))}
                         >
                           <button
                             type="button"

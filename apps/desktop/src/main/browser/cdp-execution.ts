@@ -76,19 +76,20 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
       // running away. Termination cannot land while the dialog holds it, so V8
       // keeps the request and kills the script the moment the answer arrives —
       // the page never sees the value handle_dialog reported as delivered.
-      const terminate = EXECUTION_METHODS.has(method) && !host.awaitingDialog?.(guest)
-        ? Promise.resolve()
-            .then(() =>
-              host.bounded(
-                cdp.sendCommand('Runtime.terminateExecution', {}, sessionId),
-                CLEANUP_TIMEOUT_MS,
-                'browser execution termination'
+      const terminate =
+        EXECUTION_METHODS.has(method) && !host.awaitingDialog?.(guest)
+          ? Promise.resolve()
+              .then(() =>
+                host.bounded(
+                  cdp.sendCommand('Runtime.terminateExecution', {}, sessionId),
+                  CLEANUP_TIMEOUT_MS,
+                  'browser execution termination'
+                )
               )
-            )
-            .catch((error) => {
-              host.diagnostic(guest, `CDP execution cleanup: ${String(error)}`);
-            })
-        : Promise.resolve();
+              .catch((error) => {
+                host.diagnostic(guest, `CDP execution cleanup: ${String(error)}`);
+              })
+          : Promise.resolve();
       const barrier = Promise.allSettled([previous, dispatch, terminate]).then(() => undefined);
       settling.set(guest, barrier);
       // A cleanup timeout does not remove the fence. The actual old dispatch

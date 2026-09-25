@@ -95,12 +95,19 @@ pub(super) struct LiveWalk {
     pub(super) change_sequence: u64,
 }
 
+impl LiveWalk {
+    /// Nobody waits on the walk, nobody asked to keep it warm, and its
+    /// inventory lease has run out.
+    fn is_idle(&self, now_ms: u64) -> bool {
+        self.waiters.load(Ordering::Acquire) == 0
+            && !self.keep_warm.load(Ordering::Acquire)
+            && !self.inventory_lease.active(now_ms)
+    }
+}
+
 pub(super) fn abandon_expired_idle_walk(live: &LiveWalk, now_ms: u64) -> bool {
     let mut state = lock_recover(&live.state);
-    let idle = live.waiters.load(Ordering::Acquire) == 0
-        && !live.keep_warm.load(Ordering::Acquire)
-        && !live.inventory_lease.active(now_ms);
-    if !idle || !matches!(&*state, LiveState::Running) {
+    if !live.is_idle(now_ms) || !matches!(&*state, LiveState::Running) {
         return false;
     }
     live.cancelled.store(true, Ordering::Release);
@@ -181,6 +188,48 @@ impl InventoryChanges {
     }
 }
 
+/// Drop the ready inventories whose TTL expired, unless a watcher still
+/// covers their operand and keeps them current.
+fn drop_expired_unwatched(
+    ready: &mut HashMap<WalkKey, ReadyEntry>,
+    watched_roots: &[PathBuf],
+    now: Instant,
+) {
+    ready.retain(|ready_key, entry| {
+        entry.expires_at > now
+            || watched_roots
+                .iter()
+                .any(|root| FileListStore::paths_overlap(&ready_key.operand, root))
+    });
+}
+
+/// Evict least-recently-touched entries until one more entry of
+/// `incoming_bytes` fits both the `FILE_LIST_CACHE_MAX` count and
+/// `bytes_limit`.
+fn evict_least_recent<K: Clone + Eq + std::hash::Hash, V>(
+    cache: &mut HashMap<K, V>,
+    incoming_bytes: usize,
+    bytes_limit: usize,
+    touched_at: impl Fn(&V) -> Instant,
+    bytes: impl Fn(&V) -> usize,
+) {
+    while !cache.is_empty()
+        && (cache.len() >= FILE_LIST_CACHE_MAX
+            || cache.values().fold(incoming_bytes, |total, entry| {
+                total.saturating_add(bytes(entry))
+            }) > bytes_limit)
+    {
+        let Some(oldest) = cache
+            .iter()
+            .min_by_key(|(_, entry)| touched_at(entry))
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        cache.remove(&oldest);
+    }
+}
+
 pub(super) struct PendingInventoryRepair {
     pub(super) base: Arc<Vec<PathBuf>>,
     pub(super) directory_failures: Arc<Vec<DirectoryFailure>>,
@@ -204,9 +253,17 @@ impl Drop for LiveWaiterGuard<'_> {
 impl FileListStore {
     #[cfg(test)]
     pub(super) fn new() -> Self {
+        Self::with_ready(HashMap::new(), None)
+    }
+
+    /// A store holding `ready` inventories and nothing else yet.
+    fn with_ready(
+        ready: HashMap<WalkKey, ReadyEntry>,
+        persisted_checkpoints: Option<Vec<crate::serve_search_usn::JournalCheckpoint>>,
+    ) -> Self {
         Self {
-            ready: Arc::new(Mutex::new(HashMap::new())),
-            persisted_checkpoints: Mutex::new(None),
+            ready: Arc::new(Mutex::new(ready)),
+            persisted_checkpoints: Mutex::new(persisted_checkpoints),
             live: Mutex::new(HashMap::new()),
             fuzzy: Mutex::new(HashMap::new()),
             generations: Mutex::new(HashMap::new()),
@@ -253,20 +310,7 @@ impl FileListStore {
 
     pub(super) fn new_persistent() -> Self {
         let (ready, persisted_checkpoints) = load_file_list_snapshot();
-        Self {
-            ready: Arc::new(Mutex::new(ready)),
-            persisted_checkpoints: Mutex::new(persisted_checkpoints),
-            live: Mutex::new(HashMap::new()),
-            fuzzy: Mutex::new(HashMap::new()),
-            generations: Mutex::new(HashMap::new()),
-            pending_repairs: Mutex::new(HashMap::new()),
-            repair_worker_running: AtomicBool::new(false),
-            repair_changed: Condvar::new(),
-            watcher: Mutex::new(None),
-            watcher_healthy: AtomicBool::new(false),
-            watched_roots: Mutex::new(HashMap::new()),
-            changes: Mutex::new(InventoryChanges::default()),
-        }
+        Self::with_ready(ready, persisted_checkpoints)
     }
 
     pub(super) fn validate_persisted_ready(&self) {
@@ -311,6 +355,12 @@ impl FileListStore {
                 .iter()
                 .any(|path| Self::paths_overlap(path, &key.operand))
         });
+    }
+
+    /// The watched roots, copied out so `ready` can be locked without
+    /// holding `watched_roots`.
+    fn watched_root_list(&self) -> Vec<PathBuf> {
+        lock_recover(&self.watched_roots).keys().cloned().collect()
     }
 
     pub(super) fn generation(&self, operand: &Path) -> u64 {
@@ -361,18 +411,10 @@ impl FileListStore {
             }
         }
         let generation = self.generation(&key.operand);
-        let watched_roots = lock_recover(&self.watched_roots)
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
+        let watched_roots = self.watched_root_list();
         let mut ready = lock_recover(&self.ready);
         let now = Instant::now();
-        ready.retain(|ready_key, entry| {
-            entry.expires_at > now
-                || watched_roots
-                    .iter()
-                    .any(|root| Self::paths_overlap(&ready_key.operand, root))
-        });
+        drop_expired_unwatched(&mut ready, &watched_roots, now);
         if !ready.contains_key(key) {
             lock_recover(&self.fuzzy).retain(|fuzzy, _| &fuzzy.walk != key);
         }
@@ -409,35 +451,18 @@ impl FileListStore {
         if estimated_bytes > bytes_limit {
             return;
         }
-        let watched_roots = lock_recover(&self.watched_roots)
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
+        let watched_roots = self.watched_root_list();
         let mut ready = lock_recover(&self.ready);
         let now = Instant::now();
-        ready.retain(|ready_key, entry| {
-            entry.expires_at > now
-                || watched_roots
-                    .iter()
-                    .any(|root| Self::paths_overlap(&ready_key.operand, root))
-        });
+        drop_expired_unwatched(&mut ready, &watched_roots, now);
         ready.remove(&key);
-        while !ready.is_empty()
-            && (ready.len() >= FILE_LIST_CACHE_MAX
-                || ready.values().fold(estimated_bytes, |total, entry| {
-                    total.saturating_add(entry.estimated_bytes)
-                }) > bytes_limit)
-        {
-            if let Some(oldest) = ready
-                .iter()
-                .min_by_key(|(_, entry)| entry.touched_at)
-                .map(|(k, _)| k.clone())
-            {
-                ready.remove(&oldest);
-            } else {
-                break;
-            }
-        }
+        evict_least_recent(
+            &mut ready,
+            estimated_bytes,
+            bytes_limit,
+            |entry| entry.touched_at,
+            |entry| entry.estimated_bytes,
+        );
         ready.insert(
             key.clone(),
             ReadyEntry {
@@ -462,12 +487,8 @@ impl FileListStore {
         root: &Path,
         filter: &PathFilter,
     ) -> Arc<FuzzyCorpus> {
-        {
-            let mut fuzzy = lock_recover(&self.fuzzy);
-            if let Some(entry) = fuzzy.get_mut(key) {
-                entry.touched_at = Instant::now();
-                return Arc::clone(&entry.corpus);
-            }
+        if let Some(corpus) = self.take_fuzzy_corpus(key) {
+            return corpus;
         }
         let corpus = Arc::new(FuzzyCorpus {
             paths: files
@@ -506,22 +527,13 @@ impl FileListStore {
             entry.touched_at = Instant::now();
             return Arc::clone(&entry.corpus);
         }
-        while !fuzzy.is_empty()
-            && (fuzzy.len() >= FILE_LIST_CACHE_MAX
-                || fuzzy.values().fold(estimated_bytes, |total, entry| {
-                    total.saturating_add(entry.estimated_bytes)
-                }) > bytes_limit)
-        {
-            if let Some(oldest) = fuzzy
-                .iter()
-                .min_by_key(|(_, entry)| entry.touched_at)
-                .map(|(key, _)| key.clone())
-            {
-                fuzzy.remove(&oldest);
-            } else {
-                break;
-            }
-        }
+        evict_least_recent(
+            &mut fuzzy,
+            estimated_bytes,
+            bytes_limit,
+            |entry| entry.touched_at,
+            |entry| entry.estimated_bytes,
+        );
         fuzzy.insert(
             key.clone(),
             FuzzyEntry {
@@ -615,9 +627,7 @@ impl FileListStore {
             let same = live_map
                 .get(key)
                 .is_some_and(|current| Arc::ptr_eq(current, live));
-            let idle = live.waiters.load(Ordering::Acquire) == 0
-                && !live.keep_warm.load(Ordering::Acquire)
-                && !live.inventory_lease.active(serve_search_uptime_ms());
+            let idle = live.is_idle(serve_search_uptime_ms());
             if same && idle {
                 live_map.remove(key);
             }

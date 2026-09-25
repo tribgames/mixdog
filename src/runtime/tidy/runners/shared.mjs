@@ -43,6 +43,22 @@ export function toRel(cwd, filePath) {
   return rel.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
+/** toRel for engines that report Windows long paths (`\\?\C:\…`, `\\?\UNC\…`). */
+export function toRelLongPath(cwd, raw) {
+  let value = String(raw || '');
+  if (value.startsWith('\\\\?\\UNC\\')) value = `\\\\${value.slice(8)}`;
+  else if (value.startsWith('\\\\?\\')) value = value.slice(4);
+  return toRel(cwd, value);
+}
+
+/** Report severity for an engine level of error / warning / anything else. */
+export function levelSeverity(level) {
+  const value = String(level || '').toLowerCase();
+  if (value === 'error') return 'error';
+  if (value === 'warning') return 'warning';
+  return 'info';
+}
+
 export function diagnostic({
   file,
   line = 0,
@@ -158,7 +174,7 @@ export function parsePatternPaths(output, { pattern, cwd, strip = false }) {
 }
 
 /** One "would reformat" warning per file. */
-export function reformatDiagnostics(changedFiles, id, code = id) {
+function reformatDiagnostics(changedFiles, id, code = id) {
   return changedFiles.map((file) =>
     diagnostic({
       file,
@@ -197,7 +213,7 @@ export function createListFormatterRunner({ id, listArgs, writeArgs, code = id }
     async fix({ files, cwd, bin, args = [], timeoutMs, signal }) {
       const result = await runChunked({ bin, baseArgs: [...args, ...writeArgs], files, cwd, timeoutMs, signal });
       if (result.error) return spawnFailureResult(id, result);
-      return { diagnostics: [], changedFiles: [], stderrTail: tail(result.stderr) };
+      return emptyResult(tail(result.stderr));
     },
   };
 }

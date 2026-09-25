@@ -142,6 +142,9 @@ export interface DesktopGoalState extends Readonly<Record<string, unknown>> {
 
 export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   items?: DesktopTranscriptItem[];
+  /** `items` is a tail window and older history can be paged in; absent on a
+   *  whole-transcript (legacy) body. */
+  transcriptHasOlder?: boolean;
   streamingTail?: DesktopTranscriptItem | null;
   queued?: unknown[];
   busy?: boolean;
@@ -241,13 +244,8 @@ export type DesktopStateWire =
 
 /** IPC-only split-pane lane wire. Preload reconstructs this delta before the
  * renderer-facing DesktopSessionStateUpdate listener runs. */
-export type DesktopSessionStateWireUpdate = {
-  sessionId: string;
+export type DesktopSessionStateWireUpdate = Omit<DesktopSessionStateUpdate, 'snapshot'> & {
   wire: DesktopStateWire;
-  readTraceId?: string;
-  frameSource: DesktopSessionFrameSource;
-  contentRevision?: number;
-  laneEnd?: DesktopSessionLaneEnd;
 };
 
 export interface ToolApprovalDecision {

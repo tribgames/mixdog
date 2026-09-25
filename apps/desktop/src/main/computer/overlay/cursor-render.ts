@@ -33,7 +33,7 @@ export interface CursorRenderContext {
   userControlActive(): boolean;
 }
 
-export async function applyCursorEffect(
+async function applyCursorEffect(
   window: BrowserWindow,
   cursor: ComputerUseCursorPresentation,
   effect: string

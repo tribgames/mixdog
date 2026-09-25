@@ -17,20 +17,11 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { argValue, hasFlag } from './lib/cli-args.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const SESSION_BENCH = resolve(__dir, 'session-bench.mjs');
 
-function argValue(name, fallback = null) {
-  const idx = process.argv.indexOf(name);
-  if (idx >= 0 && idx + 1 < process.argv.length) return process.argv[idx + 1];
-  const pref = `${name}=`;
-  const hit = process.argv.find((a) => a.startsWith(pref));
-  return hit ? hit.slice(pref.length) : fallback;
-}
-function hasFlag(name) {
-  return process.argv.includes(name);
-}
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;

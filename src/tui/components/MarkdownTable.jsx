@@ -1,14 +1,9 @@
 /**
- * components/MarkdownTable.jsx — GFM table → ink Box layout.
- *
- * GFM table layout for ink:
- *   - <Ansi> → <Text> (ink 7 has no <Ansi>; <Text> passes ANSI escapes through).
- *   - useTerminalSize() → ink useStdout().stdout.columns.
- *   - stringWidth / wrapAnsi from npm packages.
- *   - formatCell uses our format-token.formatToken (no highlight arg).
+ * components/MarkdownTable.jsx — GFM table → ink <Text> lines.
  *
  * The width-fitting algorithm (ideal vs min widths, proportional shrink, hard
- * wrap, vertical fallback for narrow terminals) is preserved verbatim.
+ * wrap, vertical fallback for narrow terminals) lives in
+ * markdown/table-layout.mjs; <Text> passes its ANSI escapes through.
  */
 import { Text, useStdout } from 'ink';
 import { buildTableRender } from '../markdown/table-layout.mjs';
@@ -21,7 +16,7 @@ export function MarkdownTable({ token, forceWidth }) {
 
   // The entire layout (column fit, vertical fallback, bordered box, overflow
   // re-fallback) lives in the pure markdown/table-layout.mjs module so the
-  // renderer and the App.jsx row-height estimator share one source of truth and
+  // renderer and the row-height estimator (measure-rendered-rows.mjs) share one source of truth and
   // can never drift. The component just draws the lines it returns verbatim.
   const { lines } = buildTableRender(token, terminalWidth);
   return <Text>{lines.join('\n')}</Text>;

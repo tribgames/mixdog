@@ -329,14 +329,18 @@ export function createTimeoutSignal(parentSignal, timeoutMs, label) {
     if (parentListener && parentSignal) {
       try {
         parentSignal.removeEventListener('abort', parentListener);
-      } catch {}
+      } catch {
+        /* already detached */
+      }
       parentListener = null;
     }
   };
   const abort = (reason) => {
     try {
       ac.abort(reason);
-    } catch {}
+    } catch {
+      /* abort is best-effort */
+    }
   };
   if (parentSignal) {
     parentListener = () => abort(parentSignal.reason);
@@ -365,13 +369,17 @@ export function createPassthroughSignal(parentSignal) {
   let parentListener = () => {
     try {
       ac.abort(parentSignal.reason);
-    } catch {}
+    } catch {
+      /* abort is best-effort */
+    }
   };
   const cleanup = () => {
     if (parentListener && parentSignal) {
       try {
         parentSignal.removeEventListener('abort', parentListener);
-      } catch {}
+      } catch {
+        /* already detached */
+      }
       parentListener = null;
     }
   };

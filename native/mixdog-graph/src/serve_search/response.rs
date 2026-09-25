@@ -139,13 +139,20 @@ pub(super) fn response_queue() -> Arc<ResponseQueue> {
     if let Some(queue) = slot.as_ref() {
         return Arc::clone(queue);
     }
+    let queue = spawn_response_writer(std::io::stdout());
+    *slot = Some(Arc::clone(&queue));
+    queue
+}
+
+/// A new bounded response queue whose own writer thread drains it into
+/// `writer`.
+pub(super) fn spawn_response_writer<W: Write + Send + 'static>(writer: W) -> Arc<ResponseQueue> {
     let queue = Arc::new(ResponseQueue::new(response_queue_capacity()));
     let writer_queue = Arc::clone(&queue);
     std::thread::Builder::new()
         .name("mixdog-search-response-writer".to_string())
-        .spawn(move || writer_queue.run(std::io::stdout()))
+        .spawn(move || writer_queue.run(writer))
         .expect("mixdog response writer");
-    *slot = Some(Arc::clone(&queue));
     queue
 }
 

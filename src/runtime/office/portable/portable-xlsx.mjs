@@ -28,6 +28,7 @@ import {
   mergeWorksheetCells,
   protectWorksheet,
   replaceWorkbookText,
+  setRowHeightOrColumnWidth,
   setRowOrColumnVisibility,
   setWorksheetAutofilter,
   setWorksheetCell,
@@ -66,6 +67,8 @@ const SHEET_EDITS = {
   set_header_footer: setWorksheetHeaderFooter,
   set_row_visibility: setRowOrColumnVisibility,
   set_column_visibility: setRowOrColumnVisibility,
+  set_row_height: setRowHeightOrColumnWidth,
+  set_column_width: setRowHeightOrColumnWidth,
   define_name: (zip, _sheet, _xml, op) => defineWorkbookName(zip, op),
   delete_name: (zip, _sheet, _xml, op) => defineWorkbookName(zip, op),
   add_note: addWorksheetNote,
@@ -145,7 +148,7 @@ export async function applyXlsx(zip, operations) {
     }
     const xml = await zipText(zip, sheet.path);
     if (op.op === 'set_cell' || op.op === 'set_formula') {
-      const { result, recalculate } = setWorksheetCell(zip, sheet, xml, op, sheets);
+      const { result, recalculate } = await setWorksheetCell(zip, sheet, xml, op, sheets);
       if (recalculate) recalculationRequired = true;
       results.push(result);
       continue;

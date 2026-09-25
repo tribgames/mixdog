@@ -1,6 +1,70 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 import { createCanonicalSessionReader, CANONICAL_RECORD_UNREADABLE } from './canonical-reader.mjs';
+
+setFlagsFromString('--expose-gc');
+const gc = runInNewContext('gc');
+
+function sessionFile(t) {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-canonical-reader-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const target = join(dir, 'session.json');
+  // Every session writer replaces the file by rename.
+  const replace = (text) => {
+    writeFileSync(`${target}.tmp`, text);
+    renameSync(`${target}.tmp`, target);
+  };
+  return { target, replace };
+}
+
+test('lifecycle cache keeps parsed fields only, never the file text, and misses on a same-size replacement', (t) => {
+  const { target, replace } = sessionFile(t);
+  const big = 'x'.repeat(20 * 1024 * 1024);
+  replace(JSON.stringify({ id: 'mine', closed: false, generation: 1, messages: [{ content: big }] }));
+  let reads = 0;
+  const read = createCanonicalSessionReader({
+    readText: (path) => {
+      reads++;
+      return readFileSync(path, 'utf-8');
+    },
+    // Every stamp is past the racy window.
+    nowNs: () => BigInt(Date.now() + 60_000) * 1_000_000n,
+  });
+  gc();
+  const baseline = process.memoryUsage().heapUsed;
+  assert.deepEqual(read(target, true), { id: 'mine', closed: false, generation: 1 });
+  gc();
+  assert.ok(process.memoryUsage().heapUsed - baseline < 8 * 1024 * 1024, 'the 20 MB file text is not retained');
+  assert.deepEqual(read.stats(), { entries: 1, retainedChars: 0 });
+  assert.equal(read(target, true).generation, 1);
+  assert.equal(reads, 1, 'unchanged stamp reuses the parsed verdict');
+  assert.equal(read(target, true, { ownCommitsOnly: true }).generation, 1);
+  assert.equal(reads, 2, 'own-commit-only reads never use the observation cache');
+  replace(JSON.stringify({ id: 'them', closed: false, generation: 2, messages: [{ content: big }] }));
+  assert.deepEqual(read(target, true), { id: 'them', closed: false, generation: 2 });
+  assert.equal(reads, 3);
+});
+
+test('a freshly changed file is racy and is re-read until its stamp settles', (t) => {
+  const { target, replace } = sessionFile(t);
+  replace('{"id":"mine","closed":false,"generation":1}');
+  let reads = 0;
+  const read = createCanonicalSessionReader({
+    readText: (path) => {
+      reads++;
+      return readFileSync(path, 'utf-8');
+    },
+  });
+  read(target, true);
+  read(target, true);
+  assert.equal(reads, 2);
+  assert.equal(read.stats().entries, 0);
+});
 
 test('cached authority reads current content and rejects tampering rather than serving stale ownership', () => {
   let raw = '{"id":"mine","closed":false,"generation":1,"messages":[]}';

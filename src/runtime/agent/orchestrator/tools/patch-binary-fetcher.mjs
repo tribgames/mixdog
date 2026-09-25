@@ -18,7 +18,8 @@ import {
   fetchRemoteManifest,
   findCachedBinary,
   installVerifiedBinary,
-  platformKey,
+  platformKeyCandidates,
+  resolvePlatformKey,
   readBundledManifest,
   readJsonOrNull,
   singleFlight,
@@ -57,8 +58,15 @@ function compareManifestVersions(a, b) {
   return 0;
 }
 
-function validCachedUpgrade(manifest, pkey) {
-  return validReleaseAsset(manifest, pkey, RELEASE_ASSET);
+function validCachedUpgrade(manifest) {
+  return platformKeyCandidates().some((key) => validReleaseAsset(manifest, key, RELEASE_ASSET));
+}
+
+/** The manifest key whose asset this host installs. */
+function assetKey(manifest) {
+  return resolvePlatformKey(
+    (key) => Boolean(manifest?.assets?.[key]?.url) && validSha256(manifest.assets[key].sha256)
+  );
 }
 
 function selectLocalManifest(dataDir, options = {}) {
@@ -67,12 +75,12 @@ function selectLocalManifest(dataDir, options = {}) {
   if (bundled) {
     // The installed manifest is the minimum policy. A cache may advance it,
     // but only with a strict newer semver and a trusted, fully hashed asset.
-    if (compareManifestVersions(cachedManifest, bundled) === 1 && validCachedUpgrade(cachedManifest, platformKey())) {
+    if (compareManifestVersions(cachedManifest, bundled) === 1 && validCachedUpgrade(cachedManifest)) {
       return cachedManifest;
     }
     return bundled;
   }
-  return validCachedUpgrade(cachedManifest, platformKey()) ? cachedManifest : null;
+  return validCachedUpgrade(cachedManifest) ? cachedManifest : null;
 }
 
 async function loadManifest(dataDir, options = {}) {
@@ -86,7 +94,7 @@ const downloadPatchBinary = createBinaryDownloader({ name: 'patch', label: LABEL
 export function findCachedPatchBinary(dataDir, options = {}) {
   try {
     const manifest = selectLocalManifest(dataDir, options);
-    const asset = manifest?.assets?.[platformKey()];
+    const asset = manifest?.assets?.[assetKey(manifest)];
     if (!manifestVersion(manifest) || !validSha256(asset?.sha256)) return null;
     return findCachedBinary({
       dir: patchBinDir(dataDir),
@@ -100,11 +108,11 @@ export function findCachedPatchBinary(dataDir, options = {}) {
 
 export const ensurePatchBinary = singleFlight(async (dataDir, options = {}) => {
   const manifest = await loadManifest(dataDir, options);
-  const pkey = platformKey();
+  const pkey = assetKey(manifest);
   const asset = manifest.assets?.[pkey];
   if (!asset?.url || !validSha256(asset.sha256) || !manifestVersion(manifest)) {
-    // Unsupported platform/arch (e.g. win32-arm64): the manifest has no
-    // downloadable asset for this {os}-{arch}. apply_patch is native-only
+    // Unsupported platform/arch: the manifest has no downloadable asset this
+    // {os}-{arch} can run. apply_patch is native-only
     // (no JS apply fallback), so this is terminal — surface a single clear,
     // actionable message instead of a cryptic crash downstream.
     const supported = Object.keys(manifest.assets || {}).join(', ') || '(none)';

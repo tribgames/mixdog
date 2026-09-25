@@ -52,13 +52,14 @@ export function createCursorAnchor({ boxRef, boxRectRef, contentWidthRef, cursor
     const guardColumns = w > IME_LEFT_GUARD_COLUMNS ? IME_LEFT_GUARD_COLUMNS : 0;
     const contentWidth = Math.max(1, (w ? w - guardColumns : contentWidthRef.current) || 80);
     contentWidthRef.current = contentWidth;
+    // PromptInput renders a trailing space cell when the cursor is at
+    // end-of-input, so a caret flush on the last column there still has a
+    // following cell — pass hasTrailingContent=true so it rolls to row N+1
+    // exactly as ink wraps the trailing space.
+    const hasTrailingContent = d.cursor >= d.value.length ? true : undefined;
     const caret =
       w > 0
-        ? // PromptInput renders a trailing space cell when the cursor is at
-          // end-of-input, so a caret flush on the last column there still has a
-          // following cell — pass hasTrailingContent=true so it rolls to row N+1
-          // exactly as ink wraps the trailing space.
-          caretPosition(d.value, d.cursor, contentWidth, d.cursor >= d.value.length ? true : undefined)
+        ? caretPosition(d.value, d.cursor, contentWidth, hasTrailingContent)
         : { row: 0, col: displayWidth(d.value.slice(0, d.cursor)) };
     return w > 0 ? { ...caret, col: caret.col + guardColumns } : caret;
   };

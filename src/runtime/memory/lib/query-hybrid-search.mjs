@@ -10,7 +10,8 @@ import {
 } from './recall-format.mjs';
 import { searchRelevantHybrid } from './memory-recall-store.mjs';
 import { retrieveEntries } from './memory-retrievers.mjs';
-import { compareRecallNewestFirst } from './recall-order.mjs';
+import { compareRecallByScore, compareRecallNewestFirst } from './recall-order.mjs';
+import { throwIfAborted } from './memory-cycle2-shared.mjs';
 import { expandRecallEventContext } from './recall-event-context.mjs';
 import { insertTraceEvents } from './trace-store.mjs';
 import {
@@ -121,24 +122,9 @@ async function retrieveCandidates(db, plan, args, queryVector) {
 
 function orderCandidates(results, plan, vagueLatestRootMode) {
   let filtered = results;
-  if (plan.sort === 'date') {
-    // NaN guard — entries with null/undefined ts default to 0 so the
-    // comparator stays numeric and stable.
-    filtered.sort(compareRecallNewestFirst);
-  } else {
-    filtered.sort((a, b) => {
-      const sa = (v) => {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : 0;
-      };
-      return (
-        sa(b.retrievalScore ?? b.rrf ?? 0) - sa(a.retrievalScore ?? a.rrf ?? 0) ||
-        sa(b.score ?? 0) - sa(a.score ?? 0) ||
-        sa(b.ts ?? 0) - sa(a.ts ?? 0) ||
-        Number(a.id ?? 0) - Number(b.id ?? 0)
-      );
-    });
-  }
+  // Both comparators treat null/undefined/non-finite values as 0 so the
+  // sort stays numeric and stable.
+  filtered.sort(plan.sort === 'date' ? compareRecallNewestFirst : compareRecallByScore);
   if (plan.structuredTimeMode) {
     const rootRows = filtered.filter((row) => Number(row?.is_root) === 1);
     const roots =
@@ -210,7 +196,7 @@ function promoteLatestRawRows(filtered, plan) {
 }
 
 async function expandAndBound(db, filtered, plan, candidates, promoteLatestRaw) {
-  const { retrievalQuery, temporal, projectScope, category, excludeStatuses, latestIntent } = plan;
+  const { retrievalQuery, temporal, projectScope, excludeStatuses, latestIntent } = plan;
   const { retrievalLimit, historicalRootCandidates, lowHistoricalResultMode } = candidates;
   if (plan.sort !== 'date' && plan.includeRaw && (!plan.structuredTimeMode || promoteLatestRaw)) {
     const latestConceptRows = latestIntent ? filtered.filter((row) => row?._conceptExpanded === true) : [];
@@ -220,7 +206,6 @@ async function expandAndBound(db, filtered, plan, candidates, promoteLatestRaw) 
       tsFrom: temporal?.startMs,
       tsTo: temporal?.endMs,
       excludeStatuses,
-      category,
       projectScope,
       dedupeEvents: latestIntent,
     });
@@ -301,9 +286,9 @@ export async function searchByQuery({
 }) {
   const { query, retrievalQuery, temporal, projectScope, category, sort, latestIntent } = plan;
   const _t0 = Date.now();
-  if (signal?.aborted) throw signal.reason ?? new Error('aborted');
+  throwIfAborted(signal);
   const queryVector = await embedQuery(retrievalQuery, signal, { log, embeddingOnDemandCanStart, noteColdRecall });
-  if (signal?.aborted) throw signal.reason ?? new Error('aborted');
+  throwIfAborted(signal);
   const _t1 = Date.now();
   if (debugMemory()) {
     log(`[search-time] embed=${_t1 - _t0}ms query="${retrievalQuery.slice(0, 60)}"\n`);

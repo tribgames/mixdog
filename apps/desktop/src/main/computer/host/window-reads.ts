@@ -30,11 +30,19 @@ export interface WindowIntegrity {
   targetName: string;
 }
 
+/** No integrity was read: the worker choice falls back to the ordinary one. */
+export const UNKNOWN_WINDOW_INTEGRITY: Readonly<WindowIntegrity> = Object.freeze({
+  known: false,
+  higher: false,
+  ownName: 'Unknown',
+  targetName: 'Unknown',
+});
+
 export function createWindowReads(host: WindowReadsHost) {
   const { callPowerShell, sessionIdFor } = host;
 
   async function readWindowIntegrity(windowId: string | undefined, sessionId: string): Promise<WindowIntegrity> {
-    if (!windowId) return { known: false, higher: false, ownName: 'Unknown', targetName: 'Unknown' };
+    if (!windowId) return { ...UNKNOWN_WINDOW_INTEGRITY };
     const response = await callPowerShell({
       action: 'window_integrity',
       window_id: windowId,

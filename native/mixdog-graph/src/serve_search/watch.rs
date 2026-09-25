@@ -275,14 +275,10 @@ impl FileListStore {
         // searching. An exact-file operand is already cheap to scan; watching
         // its parent recursively can block indefinitely on virtual, network, or
         // otherwise non-watchable filesystems. Serve the search uncached instead.
-        if operand.is_file() {
+        if operand.is_file() || !operand.is_dir() {
             return false;
         }
-        let watch_operand = operand;
-        if !watch_operand.is_dir() {
-            return false;
-        }
-        let root = normalized_operand(watch_operand);
+        let root = normalized_operand(operand);
         if !self.watcher_healthy.load(Ordering::Acquire) {
             self.reset_failed_watcher();
         }
@@ -342,7 +338,7 @@ impl FileListStore {
         if watched {
             let mut trusted = write_recover(trusted_watch_roots());
             trusted.insert(root.clone());
-            trusted.insert(watch_operand.to_path_buf());
+            trusted.insert(operand.to_path_buf());
             drop(trusted);
             lock_recover(&self.watched_roots).insert(root.clone(), Instant::now());
         }

@@ -786,6 +786,7 @@ function writeScenarioReport(displayPlacement: string): void {
   const skipped = results.filter((result) => result.status === 'skip').length;
   const totalDuration = results.reduce((sum, result) => sum + result.duration_ms, 0);
   const totalCommands = results.reduce((sum, result) => sum + result.commands, 0);
+  const cleanupCommands = results.reduce((sum, result) => sum + result.cleanup_commands, 0);
   const report = {
     schema_version: 1,
     label: reportLabel,
@@ -804,8 +805,8 @@ function writeScenarioReport(displayPlacement: string): void {
       success_rate: results.length ? passed / results.length : 0,
       duration_ms: totalDuration,
       commands: totalCommands,
-      tool_calls: totalCommands - results.reduce((sum, result) => sum + result.cleanup_commands, 0),
-      cleanup_commands: results.reduce((sum, result) => sum + result.cleanup_commands, 0),
+      tool_calls: totalCommands - cleanupCommands,
+      cleanup_commands: cleanupCommands,
       observations: results.reduce((sum, result) => sum + result.observations, 0),
       mutations: results.reduce((sum, result) => sum + result.mutations, 0),
       accepted_mutations: results.reduce((sum, result) => sum + result.accepted_mutations, 0),
@@ -2588,7 +2589,11 @@ async function run(): Promise<void> {
           assert.notEqual(scrollPayload.delivery_accepted, true, JSON.stringify(scrollPayload));
           assert.equal(after.wheelDelta, before.wheelDelta, JSON.stringify({ before, after, result: scrollPayload }));
         } else {
-          assert.notEqual(after.wheelDelta, before.wheelDelta, JSON.stringify({ before, after, result: scrollPayload }));
+          assert.notEqual(
+            after.wheelDelta,
+            before.wheelDelta,
+            JSON.stringify({ before, after, result: scrollPayload })
+          );
         }
 
         // Foreground goes last: it takes the real pointer, so the background

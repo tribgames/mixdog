@@ -1,6 +1,6 @@
 // StyLua — `--check` prints a diff per unformatted file; the bare command
 // formats in place.
-import { parseReformatReport, runChunked, spawnFailureResult, tail } from './shared.mjs';
+import { emptyResult, parseReformatReport, runChunked, spawnFailureResult, tail } from './shared.mjs';
 
 const DIFF_HEADER = /^Diff in (.+?):?\s*$/;
 
@@ -20,7 +20,7 @@ export const runner = {
   async fix({ files, cwd, bin, args = [], timeoutMs, signal }) {
     const result = await runChunked({ bin, baseArgs: [...args], files, cwd, timeoutMs, signal });
     if (result.error) return spawnFailureResult('stylua', result);
-    return { diagnostics: [], changedFiles: [], stderrTail: tail(result.stderr) };
+    return emptyResult(tail(result.stderr));
   },
 };
 

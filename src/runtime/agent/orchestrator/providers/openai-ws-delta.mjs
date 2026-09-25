@@ -248,7 +248,7 @@ function _responseOutputMismatchDiagnostics(inputItem, responseItem, replayItemC
   };
 }
 
-export function _stripResponseItemsFromHead(items, responseItems) {
+function _stripResponseItemsFromHead(items, responseItems) {
   const tail = Array.isArray(items) ? items : [];
   const outputs = Array.isArray(responseItems) ? responseItems : [];
   let cursor = 0;
@@ -262,18 +262,9 @@ export function _stripResponseItemsFromHead(items, responseItems) {
     // stays syntactically valid, so any gap forces a full-frame fallback.
     // There is no per-item exception — reasoning included. Reasoning items
     // are kept in the logical history precisely so this proof holds, and
-    // they leave the wire here, as part of the anchored prefix.
-    if (cursor >= tail.length) {
-      return {
-        ok: false,
-        reason: `response_output_mismatch:${output?.type || 'unknown'}`,
-        tail,
-        stripped,
-        skipped: 0,
-        responseOutputMismatch: _responseOutputMismatchDiagnostics(undefined, output, tail.length, outputs.length),
-      };
-    }
-    if (_logicalResponseItemMatch(tail[cursor], output)) {
+    // they leave the wire here, as part of the anchored prefix. A prefix that
+    // ran out reports the missing item as `undefined`.
+    if (cursor < tail.length && _logicalResponseItemMatch(tail[cursor], output)) {
       cursor += 1;
       stripped += 1;
       continue;
@@ -434,6 +425,22 @@ export function _computeDelta({ entry, body, traceProvider }) {
       inputOverride: stripped.tail,
     }),
   };
+}
+
+/**
+ * Anchor the pooled entry on a completed response: the next request can send
+ * only the new input tail when it extends exactly this request + response.
+ */
+export function _anchorResponseChain(entry, { responseId, requestBody, responseItems, normalizeWarmupGenerate }) {
+  entry.lastResponseId = responseId;
+  entry.lastRequestSansInput = _stableStringify(_sansInput(requestBody, { normalizeWarmupGenerate }));
+  const inputArr = Array.isArray(requestBody.input) ? requestBody.input : [];
+  entry.lastRequestInput = _cloneJson(inputArr);
+  entry.lastResponseItems = _cloneJson(Array.isArray(responseItems) ? responseItems : []);
+  entry.lastInputLen = inputArr.length;
+  // Kept for diagnostics / xAI retry carry-forward. The canonical prefix
+  // guard is lastRequestInput above, not this hash.
+  entry.lastInputPrefixHash = createHash('sha256').update(JSON.stringify(inputArr)).digest('hex');
 }
 
 export function _estimateFrameTokens(frame) {

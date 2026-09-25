@@ -6,18 +6,12 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { executeOfficeTool } from '../../src/runtime/office/index.mjs';
 import { isAdvisoryOfficeIssue } from '../../src/runtime/office/quality/quality-pipeline.mjs';
+import { argValue, hasFlag, positionalArgs } from '../lib/cli-args.mjs';
 
 const value = (result) => JSON.parse(result.content[0].text);
-const argv = process.argv.slice(2);
-const flag = (name) => {
-  const at = argv.indexOf(name);
-  return at >= 0 ? argv[at + 1] : null;
-};
-const positional = argv.filter(
-  (arg, index) =>
-    !arg.startsWith('--') && !(index > 0 && argv[index - 1].startsWith('--') && !['--render'].includes(argv[index - 1]))
-);
-const [scriptPath, deckPath] = positional;
+// Flags that take no value; every other bare `--flag` consumes the next entry.
+const BOOLEAN_FLAGS = new Set(['--render']);
+const [scriptPath, deckPath] = positionalArgs(process.argv.slice(2), BOOLEAN_FLAGS);
 if (!scriptPath || !deckPath) {
   console.error(
     'usage: node scripts/office/author-deck.mjs <script.js> <deck.pptx> [--mode portable|auto] [--render] [--critique critique.json] [--out result.json]'
@@ -26,7 +20,7 @@ if (!scriptPath || !deckPath) {
 }
 const cwd = resolve('.');
 const script = await readFile(scriptPath, 'utf8');
-const mode = flag('--mode') || 'portable';
+const mode = argValue('--mode') || 'portable';
 const authored = value(
   await executeOfficeTool({ action: 'author', path: deckPath, script, mode, overwrite: true, render: false }, { cwd })
 );
@@ -52,7 +46,7 @@ const result = {
   authored: { kit: authored.kit, nativeGradients: authored.nativeGradients || 0, bytes: authored.bytes },
   issues,
 };
-if (argv.includes('--render') || flag('--critique')) {
+if (hasFlag('--render') || argValue('--critique')) {
   const rendered = value(await executeOfficeTool({ action: 'render', session }, { cwd }));
   result.render = {
     output: rendered.output,
@@ -67,7 +61,7 @@ if (argv.includes('--render') || flag('--critique')) {
   if (rendered.contactSheet?.path) console.log(`  contact sheet: ${rendered.contactSheet.path}`);
   if (rendered.receipt?.deck?.rhythm) console.log(`  rhythm: ${JSON.stringify(rendered.receipt.deck.rhythm)}`);
 }
-const critiquePath = flag('--critique');
+const critiquePath = argValue('--critique');
 if (critiquePath) {
   const critique = JSON.parse(await readFile(critiquePath, 'utf8'));
   const finalized = value(
@@ -86,7 +80,7 @@ if (critiquePath) {
 } else {
   await executeOfficeTool({ action: 'close', session, save: false }, { cwd }).catch(() => {});
 }
-const out = flag('--out');
+const out = argValue('--out');
 if (out) await writeFile(out, JSON.stringify(result, null, 2));
 let exitCode = 0;
 if (critiquePath && !result.finalize?.ok) exitCode = 3;

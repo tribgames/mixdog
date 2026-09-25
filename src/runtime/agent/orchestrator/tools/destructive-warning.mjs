@@ -10,16 +10,6 @@ import { SHELL_NAMES as _SHELL_NAMES, WRAPPER_NAMES as _WRAPPER_NAMES } from './
 import { extractPowerShellCommandInner } from './shell-command.mjs';
 
 export function stripQuotedAndHeredoc(s) {
-  return _stripQuotedSpans(s);
-}
-export function extractShellCInner(s) {
-  return _extractShellCInner(s);
-}
-export function extractHeredocBodies(s) {
-  return _extractHeredocBodies(s);
-}
-
-function _stripQuotedSpans(s) {
   return String(s || '')
     .replace(/<<-?\s*['"]?(\w+)['"]?[\s\S]*?\n\1\b/g, '<<HEREDOC>>')
     .replace(/'[^']*'/g, "''")
@@ -28,7 +18,7 @@ function _stripQuotedSpans(s) {
 }
 
 // Heredoc bodies (shell-exec contexts route the body through scanning).
-function _extractHeredocBodies(s) {
+export function extractHeredocBodies(s) {
   const out = [];
   const re = /<<-?\s*['"]?(\w+)['"]?([\s\S]*?)\n\1\b/g;
   let m;
@@ -174,9 +164,65 @@ function _peelWrappers(tokens) {
   return tokens.slice(i);
 }
 
+// Extended: leaf commands that embed an inner command/payload. The caller
+// re-scans each entry via isBlockedCommand, so we just surface the payload
+// as a synthetic command string.
+function _collectLeafEmbeddedPayloads(peeled, out) {
+  const leaf = peeled[0];
+  if (leaf === 'xargs' || leaf === 'parallel') {
+    let j = 1;
+    while (j < peeled.length && /^[-+]/.test(peeled[j])) {
+      if (/^--[A-Za-z0-9][\w-]*$/.test(peeled[j]) && j + 1 < peeled.length && !/^[-+]/.test(peeled[j + 1])) {
+        j += 2;
+        continue;
+      }
+      j++;
+    }
+    if (j < peeled.length) out.push(peeled.slice(j).map(_stripQuotes).join(' '));
+  } else if (leaf === 'find') {
+    for (let j = 1; j < peeled.length; j++) {
+      if (peeled[j] === '-exec' || peeled[j] === '-execdir') {
+        const cmd = [];
+        let k = j + 1;
+        while (k < peeled.length && peeled[k] !== ';' && peeled[k] !== '\\;' && peeled[k] !== '+') {
+          cmd.push(_stripQuotes(peeled[k]));
+          k++;
+        }
+        if (cmd.length) out.push(cmd.join(' '));
+        j = k;
+      }
+    }
+  } else if (leaf === 'awk') {
+    for (let j = 1; j < peeled.length; j++) {
+      const t = peeled[j];
+      if (t === '-f' || t === '-v' || t === '-F') {
+        j++;
+        continue;
+      }
+      if (t.startsWith('-')) continue;
+      const body = _stripQuotes(t);
+      const m = body.match(/system\s*\(\s*(['"])([\s\S]*?)\1\s*\)/);
+      if (m) out.push(m[2]);
+      break;
+    }
+  } else if (leaf === 'perl' || leaf === 'node' || leaf === 'python' || leaf === 'python3') {
+    const flag = leaf === 'python' || leaf === 'python3' ? '-c' : '-e';
+    for (let j = 1; j < peeled.length; j++) {
+      const t = peeled[j];
+      if (t === flag || (leaf === 'perl' && t === '-E')) {
+        const arg = peeled[j + 1];
+        if (arg) out.push(_stripQuotes(arg));
+        break;
+      }
+      if (t.startsWith('-')) continue;
+      break;
+    }
+  }
+}
+
 // Extract `-c <payload>` (and `--command <payload>`) for shell invocations.
 // Walks options including combined short flags like `-lc`, `-ic`, `-ec`.
-function _extractShellCInner(s) {
+export function extractShellCInner(s) {
   const out = [];
   const tokens = _tokenize(s);
   const segs = _splitSegments(tokens);
@@ -184,59 +230,7 @@ function _extractShellCInner(s) {
     const peeled = _peelWrappers(seg);
     if (!peeled.length) continue;
     if (!_SHELL_NAMES.has(peeled[0])) {
-      // Extended: leaf commands that embed an inner command/payload.
-      // The caller re-scans each entry via isBlockedCommand, so we just
-      // surface the payload as a synthetic command string.
-      const leaf = peeled[0];
-      if (leaf === 'xargs' || leaf === 'parallel') {
-        let j = 1;
-        while (j < peeled.length && /^[-+]/.test(peeled[j])) {
-          if (/^--[A-Za-z0-9][\w-]*$/.test(peeled[j]) && j + 1 < peeled.length && !/^[-+]/.test(peeled[j + 1])) {
-            j += 2;
-            continue;
-          }
-          j++;
-        }
-        if (j < peeled.length) out.push(peeled.slice(j).map(_stripQuotes).join(' '));
-      } else if (leaf === 'find') {
-        for (let j = 1; j < peeled.length; j++) {
-          if (peeled[j] === '-exec' || peeled[j] === '-execdir') {
-            const cmd = [];
-            let k = j + 1;
-            while (k < peeled.length && peeled[k] !== ';' && peeled[k] !== '\\;' && peeled[k] !== '+') {
-              cmd.push(_stripQuotes(peeled[k]));
-              k++;
-            }
-            if (cmd.length) out.push(cmd.join(' '));
-            j = k;
-          }
-        }
-      } else if (leaf === 'awk') {
-        for (let j = 1; j < peeled.length; j++) {
-          const t = peeled[j];
-          if (t === '-f' || t === '-v' || t === '-F') {
-            j++;
-            continue;
-          }
-          if (t.startsWith('-')) continue;
-          const body = _stripQuotes(t);
-          const m = body.match(/system\s*\(\s*(['"])([\s\S]*?)\1\s*\)/);
-          if (m) out.push(m[2]);
-          break;
-        }
-      } else if (leaf === 'perl' || leaf === 'node' || leaf === 'python' || leaf === 'python3') {
-        const flag = leaf === 'python' || leaf === 'python3' ? '-c' : '-e';
-        for (let j = 1; j < peeled.length; j++) {
-          const t = peeled[j];
-          if (t === flag || (leaf === 'perl' && t === '-E')) {
-            const arg = peeled[j + 1];
-            if (arg) out.push(_stripQuotes(arg));
-            break;
-          }
-          if (t.startsWith('-')) continue;
-          break;
-        }
-      }
+      _collectLeafEmbeddedPayloads(peeled, out);
       continue;
     }
     for (let i = 1; i < peeled.length; i++) {
@@ -297,19 +291,11 @@ function _classifyRemoveItem(args) {
     if (t === '--') break;
     const low = String(t).toLowerCase();
     if (low.startsWith('-')) {
-      if (/^-r(ec(urse)?)?$/.test(low) || /^-r(ec(urse)?)?:\$true$/i.test(low)) {
+      if (/^-r(ec(urse)?)?(:\$true)?$/.test(low) || low === '-recursive') {
         r = true;
         continue;
       }
-      if (/^-fo(rce)?$/.test(low) || /^-fo(rce)?:\$true$/i.test(low)) {
-        f = true;
-        continue;
-      }
-      if (low === '-recurse' || low === '-recursive') {
-        r = true;
-        continue;
-      }
-      if (low === '-force') {
+      if (/^-fo(rce)?(:\$true)?$/.test(low)) {
         f = true;
         continue;
       }
@@ -342,7 +328,7 @@ function _classifyGit(args) {
       t === '--paginate' ||
       t === '--bare' ||
       t === '--exec-path' ||
-      /^--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs$/.test(t)
+      /^--(?:literal|glob|noglob|icase)-pathspecs$/.test(t)
     ) {
       i++;
       continue;
@@ -484,7 +470,7 @@ export function getDestructiveCommandWarning(command) {
   const raw = String(command || '');
   // Per-statement DB scan (split on `;`, `&&`, `||`, `|`, `\n`) so a
   // destructive statement past a separator still surfaces.
-  const cleaned = _stripQuotedSpans(raw);
+  const cleaned = stripQuotedAndHeredoc(raw);
   for (const stmt of cleaned.split(/[;&|\n]+/)) {
     for (const [re, warning] of _DB_PATTERNS) if (re.test(stmt)) return warning;
   }
@@ -494,11 +480,11 @@ export function getDestructiveCommandWarning(command) {
     const peeled = _peelWrappers(seg);
     if (!peeled.length) continue;
     if (_SHELL_NAMES.has(peeled[0])) {
-      for (const inner of _extractShellCInner(seg.join(' '))) {
+      for (const inner of extractShellCInner(seg.join(' '))) {
         const w = getDestructiveCommandWarning(inner);
         if (w) return w;
       }
-      for (const body of _extractHeredocBodies(raw)) {
+      for (const body of extractHeredocBodies(raw)) {
         const w = getDestructiveCommandWarning(body);
         if (w) return w;
       }
@@ -507,7 +493,7 @@ export function getDestructiveCommandWarning(command) {
     const w = _classifySegment(seg);
     if (w) return w;
   }
-  for (const inner of _extractShellCInner(raw)) {
+  for (const inner of extractShellCInner(raw)) {
     const w = getDestructiveCommandWarning(inner);
     if (w) return w;
   }

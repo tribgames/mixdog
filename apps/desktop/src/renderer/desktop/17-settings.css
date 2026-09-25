@@ -135,39 +135,6 @@
   background: var(--mx-scrollbar-thumb);
   background-clip: padding-box;
 }
-.settings-section-heading {
-  min-height: 15px;
-  align-items: center;
-  gap: 16px;
-}
-/* Section/group heads carry the heading weight, not a half-step: the shell
-   rests at 400, so a title only reads as a title at the 600 strong tier.
-   (The old 500 middle step is gone from the ramp entirely.) */
-.settings-section-heading h2 {
-  color: var(--mx-text);
-  font-size: var(--mx-font-body);
-  font-weight: var(--mx-weight-semibold);
-  line-height: 1;
-}
-.settings-section-heading p {
-  display: none;
-}
-.settings-refresh {
-  height: 28px;
-  gap: 6px;
-  padding: 0 11px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-}
-.settings-refresh:hover {
-  color: var(--mx-text);
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
-}
 .settings-group {
   gap: 16px;
 }
@@ -310,8 +277,7 @@
 }
 .mixdog-settings__row-title,
 .settings-form-row b,
-.settings-resource b,
-.settings-domain-form > header b {
+.settings-resource b {
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-semibold);
@@ -327,8 +293,7 @@
 }
 .mixdog-settings__description,
 .settings-form-row small,
-.settings-resource p,
-.settings-domain-form > header small {
+.settings-resource p {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
@@ -392,19 +357,11 @@
 .settings-row-control .mixdog-settings__switch {
   justify-self: end;
 }
-.settings-select--effort.mx-select-root {
-  min-width: 108px;
-}
 .settings-form-controls .mx-select-root {
   min-width: 100px;
   flex: 1;
 }
-.settings-domain-grid .mx-select-root {
-  width: 100%;
-}
 .settings-form-controls input,
-.settings-domain-grid input:not([type="checkbox"]),
-.settings-domain-grid textarea,
 .core-memory-add input,
 .core-memory-edit input,
 .settings-oauth-code input,
@@ -423,20 +380,15 @@
   font-weight: var(--mx-weight-regular);
   line-height: 1;
 }
-.settings-domain-grid textarea,
 .settings-oauth-url textarea {
   min-height: 72px;
   padding-block: 8px;
   line-height: var(--mx-line-ui);
 }
-.settings-form-controls input:hover,
-.settings-domain-grid input:not([type="checkbox"]):hover,
-.settings-domain-grid textarea:hover {
+.settings-form-controls input:hover {
   background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
 }
 .settings-form-controls input:focus,
-.settings-domain-grid input:focus,
-.settings-domain-grid textarea:focus,
 .core-memory-add input:focus,
 .core-memory-edit input:focus {
   outline-color: var(--mx-focus);
@@ -444,7 +396,6 @@
 }
 .settings-form-controls button,
 .settings-action,
-.settings-domain-form button,
 .core-memory-add button,
 .core-memory-edit button,
 .core-memory-row button {
@@ -460,7 +411,6 @@
 }
 .settings-form-controls button:hover:not(:disabled),
 .settings-action:hover:not(:disabled),
-.settings-domain-form button:hover:not(:disabled),
 .core-memory-add button:hover:not(:disabled),
 .core-memory-edit button:hover:not(:disabled),
 .core-memory-row button:hover:not(:disabled) {
@@ -640,40 +590,12 @@
   letter-spacing: 0;
   white-space: nowrap;
 }
-.settings-meta {
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-regular);
-}
 .settings-resource-actions {
   gap: 8px;
 }
 .settings-resource-actions .settings-action {
   min-height: 28px;
   padding-inline: 11px;
-}
-.settings-domain-form {
-  gap: 16px;
-  padding: 20px 0;
-}
-.settings-domain-grid {
-  gap: 12px;
-}
-.settings-domain-grid > label {
-  gap: 6px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-regular);
-}
-.settings-domain-grid small {
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-.settings-check,
-.settings-domain-grid .settings-check {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
 }
 /* Scheduled-tasks page (sidebar → Schedules): full main-pane list. */
 .schedules-pane {

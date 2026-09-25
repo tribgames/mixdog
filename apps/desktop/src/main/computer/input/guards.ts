@@ -83,55 +83,62 @@ export function assertSafeComputerTargetTokens(command: ComputerCommand): void {
       throw new Error(`input_too_large: ${field} exceeds ${MAX_COMPUTER_TARGET_TOKEN_LENGTH} characters`);
     }
   }
-  if (command.path !== undefined && command.path !== null) {
-    if (!Array.isArray(command.path) || command.path.some((label) => typeof label !== 'string')) {
-      throw new Error('invalid_menu_path: path must contain only string labels');
-    }
-    if (command.path.length < 1 || command.path.length > MAX_COMPUTER_STRUCTURED_ITEMS) {
-      throw new Error(`invalid_menu_path: path must contain 1..${MAX_COMPUTER_STRUCTURED_ITEMS} labels`);
-    }
-    if (command.path.some((label) => schemaStringLength(label) > MAX_COMPUTER_MENU_LABEL_LENGTH)) {
-      throw new Error(`input_too_large: menu label exceeds ${MAX_COMPUTER_MENU_LABEL_LENGTH} characters`);
-    }
-    if (command.path.some((label) => !label.trim())) {
-      throw new Error('invalid_menu_path: menu labels must not be empty');
-    }
+  assertSafeMenuPath(command);
+  assertSafeVerifyExpectations(command);
+}
+
+function assertSafeMenuPath(command: ComputerCommand): void {
+  if (command.path === undefined || command.path === null) return;
+  if (!Array.isArray(command.path) || command.path.some((label) => typeof label !== 'string')) {
+    throw new Error('invalid_menu_path: path must contain only string labels');
   }
-  if (command.expect !== undefined && command.expect !== null) {
-    if (
-      !Array.isArray(command.expect) ||
-      command.expect.length < 1 ||
-      command.expect.length > MAX_COMPUTER_STRUCTURED_ITEMS
-    ) {
-      throw new Error(`invalid_verify: expect must contain 1..${MAX_COMPUTER_STRUCTURED_ITEMS} predicates`);
+  if (command.path.length < 1 || command.path.length > MAX_COMPUTER_STRUCTURED_ITEMS) {
+    throw new Error(`invalid_menu_path: path must contain 1..${MAX_COMPUTER_STRUCTURED_ITEMS} labels`);
+  }
+  if (command.path.some((label) => schemaStringLength(label) > MAX_COMPUTER_MENU_LABEL_LENGTH)) {
+    throw new Error(`input_too_large: menu label exceeds ${MAX_COMPUTER_MENU_LABEL_LENGTH} characters`);
+  }
+  if (command.path.some((label) => !label.trim())) {
+    throw new Error('invalid_menu_path: menu labels must not be empty');
+  }
+}
+
+const VERIFY_PREDICATE_TYPES = {
+  present: 'string',
+  absent: 'string',
+  title_contains: 'string',
+  window_exists: 'boolean',
+} as const;
+
+function assertSafeVerifyExpectations(command: ComputerCommand): void {
+  if (command.expect === undefined || command.expect === null) return;
+  if (
+    !Array.isArray(command.expect) ||
+    command.expect.length < 1 ||
+    command.expect.length > MAX_COMPUTER_STRUCTURED_ITEMS
+  ) {
+    throw new Error(`invalid_verify: expect must contain 1..${MAX_COMPUTER_STRUCTURED_ITEMS} predicates`);
+  }
+  for (const predicate of command.expect) {
+    if (!predicate || typeof predicate !== 'object' || Array.isArray(predicate)) {
+      throw new Error('invalid_verify: each expectation must be an object');
     }
-    for (const predicate of command.expect) {
-      if (!predicate || typeof predicate !== 'object' || Array.isArray(predicate)) {
-        throw new Error('invalid_verify: each expectation must be an object');
+    if (Object.keys(predicate).length !== 1) {
+      throw new Error('invalid_verify: each expectation requires exactly one condition');
+    }
+    for (const [field, value] of Object.entries(predicate)) {
+      const expectedType = VERIFY_PREDICATE_TYPES[field as keyof typeof VERIFY_PREDICATE_TYPES];
+      if (!expectedType) {
+        throw new Error(`invalid_verify: unknown predicate field ${field}`);
       }
-      if (Object.keys(predicate).length !== 1) {
-        throw new Error('invalid_verify: each expectation requires exactly one condition');
+      if (typeof value !== expectedType) {
+        throw new Error(`invalid_verify: ${field} must be a ${expectedType}`);
       }
-      const predicateTypes = {
-        present: 'string',
-        absent: 'string',
-        title_contains: 'string',
-        window_exists: 'boolean',
-      } as const;
-      for (const [field, value] of Object.entries(predicate)) {
-        const expectedType = predicateTypes[field as keyof typeof predicateTypes];
-        if (!expectedType) {
-          throw new Error(`invalid_verify: unknown predicate field ${field}`);
-        }
-        if (typeof value !== expectedType) {
-          throw new Error(`invalid_verify: ${field} must be a ${expectedType}`);
-        }
-        if (typeof value === 'string' && !value.trim()) {
-          throw new Error(`invalid_verify: ${field} must not be empty`);
-        }
-        if (typeof value === 'string' && schemaStringLength(value) > MAX_COMPUTER_TARGET_TOKEN_LENGTH) {
-          throw new Error(`input_too_large: verify text exceeds ${MAX_COMPUTER_TARGET_TOKEN_LENGTH} characters`);
-        }
+      if (typeof value === 'string' && !value.trim()) {
+        throw new Error(`invalid_verify: ${field} must not be empty`);
+      }
+      if (typeof value === 'string' && schemaStringLength(value) > MAX_COMPUTER_TARGET_TOKEN_LENGTH) {
+        throw new Error(`input_too_large: verify text exceeds ${MAX_COMPUTER_TARGET_TOKEN_LENGTH} characters`);
       }
     }
   }

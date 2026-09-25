@@ -101,7 +101,7 @@ export function carveViewport({
   // Keep the keyboard-selection edge step anchored to the base guard. This is
   // not a follow threshold: any positive wheel target is a reading position;
   // only the true bottom may auto-follow a live tail.
-  const transcriptBottomSlackRows = Math.max(0, baseGuardRows);
+  const transcriptBottomSlackRows = baseGuardRows;
   transcriptBottomSlackRowsRef.current = transcriptBottomSlackRows;
   transcriptViewportRef.current = {
     top: budgets.WELCOME_ROWS,
@@ -119,7 +119,6 @@ export function carveViewport({
     viewportHeight,
     guardCapacityRows,
     baseGuardRows,
-    scrollGuardRows: SCROLL_GUARD_ROWS,
     transcriptGuardRows,
     welcomePromptHintText,
     welcomePromptHintVisible,

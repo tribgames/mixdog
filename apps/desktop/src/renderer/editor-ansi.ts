@@ -186,7 +186,7 @@ export function isAnsiOutputPath(path: string): boolean {
   return /\.(?:ansi|log|out|stderr|stdout)$/i.test(String(path || ''));
 }
 
-export function parseEditorAnsi(text: string, light = false): EditorAnsiParseResult {
+function parseEditorAnsi(text: string, light = false): EditorAnsiParseResult {
   const source = String(text ?? '');
   const palette = light ? ANSI_LIGHT : ANSI_DARK;
   const controls: EditorAnsiRange[] = [];

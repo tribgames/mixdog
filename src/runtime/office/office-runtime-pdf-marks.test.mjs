@@ -533,6 +533,36 @@ test('a stamp on a rotated page is placed and turned the way the page is read', 
   }
 });
 
+test('add_text with x and align puts the centre or the right end of the run on x', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'anchored.pdf');
+  const pdf = await PDFDocument.create();
+  pdf.addPage([400, 600]);
+  await writeFile(path, await pdf.save());
+  const opened = value(await executeOfficeTool({ action: 'open', path, mode: 'portable' }, { cwd }));
+  value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [
+          { op: 'add_text', text: 'Centred on 200', align: 'center', x: 200, y: 300, size: 12 },
+          { op: 'add_text', text: 'Ends at 380', align: 'right', x: 380, y: 200, size: 12 },
+          { op: 'add_text', text: 'Starts at 40', x: 40, y: 100, size: 12 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const [page] = (await extractPdfTextLayout(await readFile(opened.output), { shapes: false })).pages;
+  const item = (text) => page.items.find((entry) => entry.text.includes(text));
+  const centred = item('Centred');
+  assert.ok(Math.abs(centred.x + centred.width / 2 - 200) < 3, JSON.stringify(centred));
+  const right = item('Ends at');
+  assert.ok(Math.abs(right.x + right.width - 380) < 3, JSON.stringify(right));
+  assert.ok(Math.abs(item('Starts at').x - 40) < 3);
+});
+
 test('PDF marks follow a phrase that wraps, one box per line', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'wrapped.pdf');

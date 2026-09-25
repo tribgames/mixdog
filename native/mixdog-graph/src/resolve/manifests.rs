@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::paths::{path_join_norm, rel_dir, rel_strip_prefix};
+use super::paths::{is_same_or_under, path_join_norm, rel_dir, rel_strip_prefix};
 
 // JSON-with-comments stripper for `tsconfig.json` / `jsconfig.json` /
 // `package.json`: replaces `//` line comments and `/* */` block comments with
@@ -406,7 +406,7 @@ fn parse_js_package(text: &str, dir: String) -> Option<(String, JsPackage)> {
 pub(crate) fn load_js_packages(root: &Path) -> Vec<(String, JsPackage)> {
     let mut out = Vec::new();
     visit_shallow_files(root, &["package.json"], |path, dir| {
-        if dir == "node_modules" || dir.starts_with("node_modules/") {
+        if is_same_or_under(&dir, "node_modules") {
             return;
         }
         if let Ok(text) = fs::read_to_string(&path) {

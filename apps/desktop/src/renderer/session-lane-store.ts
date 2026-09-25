@@ -452,7 +452,7 @@ export function createSessionLaneStore({
     if (!bucket) return;
     for (const listener of [...bucket]) listener();
   };
-  const applyUpdate = (update: DesktopSessionStateUpdate): void => {
+  const apply = (update: DesktopSessionStateUpdate): void => {
     const sessionId = String(update?.sessionId || '');
     if (!sessionId) return;
     const readFrameStartedAt = performance.now();
@@ -533,7 +533,6 @@ export function createSessionLaneStore({
       scheduleLayoutFrame(key, () => notify(sessionId));
     }
   };
-  const apply = (update: DesktopSessionStateUpdate): void => applyUpdate(update);
   return {
     get(sessionId) {
       const entry = snapshots.get(sessionId);

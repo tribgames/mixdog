@@ -10,15 +10,19 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { app, BrowserWindow } = require('electron');
 
-const outFile = (process.argv.find((arg) => arg.startsWith('--out=')) || '').split('=')[1] || '';
+// Everything after the FIRST '=' is the value: paths may contain '=' too.
+const optionValue = (name, fallback = '') => {
+  const prefix = `--${name}=`;
+  const arg = process.argv.find((value) => value.startsWith(prefix));
+  return arg === undefined ? fallback : arg.slice(prefix.length);
+};
+
+const outFile = optionValue('out');
 
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-gpu');
 
-const cases = (
-  process.argv.find((arg) => arg.startsWith('--cases=')) || '--cases=300x687,290x687,290x420,290x420:many,290x687:rows'
-)
-  .split('=')[1]
+const cases = optionValue('cases', '300x687,290x687,290x420,290x420:many,290x687:rows')
   .split(',')
   .map((value) => {
     const [size, mode] = value.trim().split(':');

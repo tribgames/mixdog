@@ -54,6 +54,44 @@ const HADA_ENDINGS = [
   '했음',
 ];
 
+// Particles stripped whenever at least two syllables remain.
+const UNCONDITIONAL_PARTICLES = [
+  '으로부터',
+  '에게서',
+  '한테서',
+  '께서는',
+  '에서는',
+  '에게는',
+  '한테는',
+  '께서',
+  '에서',
+  '에게',
+  '한테',
+  '부터',
+  '까지',
+];
+
+// Particles whose form depends on the stem's final consonant (batchim).
+const BATCHIM_PARTICLES = [
+  ['으로', (jong) => jong !== 0 && jong !== 8],
+  ['은', (jong) => jong !== 0],
+  ['는', (jong) => jong === 0],
+  ['이', (jong) => jong !== 0],
+  ['가', (jong) => jong === 0],
+  ['을', (jong) => jong !== 0],
+  ['를', (jong) => jong === 0],
+  ['과', (jong) => jong !== 0],
+  ['와', (jong) => jong === 0],
+];
+
+// Past-attributive endings and the syllable that restores the stem.
+const PAST_ATTRIBUTIVE_ENDINGS = [
+  ['되었던', ''],
+  ['됐던', ''],
+  ['왔던', '오'],
+  ['겼던', '기'],
+];
+
 function hangulFinalConsonantIndex(text) {
   const point = text.codePointAt(text.length - 1);
   if (!Number.isFinite(point) || point < 0xac00 || point > 0xd7a3) return null;
@@ -68,37 +106,12 @@ export function stripLightKoreanParticle(token) {
   if (mixed && MIXED_SCRIPT_KOREAN_PARTICLES.includes(mixed[2])) return mixed[1];
   if (!/^[\p{Script=Hangul}]+$/u.test(value)) return value;
 
-  for (const suffix of [
-    '으로부터',
-    '에게서',
-    '한테서',
-    '께서는',
-    '에서는',
-    '에게는',
-    '한테는',
-    '께서',
-    '에서',
-    '에게',
-    '한테',
-    '부터',
-    '까지',
-  ]) {
+  for (const suffix of UNCONDITIONAL_PARTICLES) {
     const stem = value.slice(0, -suffix.length);
     if (stem.length >= 2 && value.endsWith(suffix)) return stem;
   }
 
-  const pairs = [
-    ['으로', (jong) => jong !== 0 && jong !== 8],
-    ['은', (jong) => jong !== 0],
-    ['는', (jong) => jong === 0],
-    ['이', (jong) => jong !== 0],
-    ['가', (jong) => jong === 0],
-    ['을', (jong) => jong !== 0],
-    ['를', (jong) => jong === 0],
-    ['과', (jong) => jong !== 0],
-    ['와', (jong) => jong === 0],
-  ];
-  for (const [suffix, accepts] of pairs) {
+  for (const [suffix, accepts] of BATCHIM_PARTICLES) {
     if (!value.endsWith(suffix)) continue;
     const stem = value.slice(0, -suffix.length);
     if (stem.length < 2) continue;
@@ -122,20 +135,9 @@ export function normalizeLightKoreanToken(token) {
     if (stem.length >= 2) return stem;
   }
 
-  if (value.endsWith('되었던')) {
-    const stem = value.slice(0, -'되었던'.length);
-    if (stem.length >= 2) return stem;
-  }
-  if (value.endsWith('됐던')) {
-    const stem = value.slice(0, -'됐던'.length);
-    if (stem.length >= 2) return stem;
-  }
-  if (value.endsWith('왔던')) {
-    const stem = `${value.slice(0, -'왔던'.length)}오`;
-    if (stem.length >= 2) return stem;
-  }
-  if (value.endsWith('겼던')) {
-    const stem = `${value.slice(0, -'겼던'.length)}기`;
+  for (const [ending, restored] of PAST_ATTRIBUTIVE_ENDINGS) {
+    if (!value.endsWith(ending)) continue;
+    const stem = `${value.slice(0, -ending.length)}${restored}`;
     if (stem.length >= 2) return stem;
   }
   return value;

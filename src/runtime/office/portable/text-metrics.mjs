@@ -2,6 +2,12 @@ import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import { warmupInstalledOfficeFonts } from './font-provisioner.mjs';
 import { bySlide, rectangleGap, reviewDeclaredRelations } from './pptx-relations.mjs';
 
+// PowerPoint's single line spacing is 1.2 em for every face — probe 2026-09-04
+// read BoundHeight / lines / size = 1.200 for Noto Sans KR, Noto Serif KR,
+// Malgun Gothic, Noto Sans, Arial, and Calibri at 18 and 36 pt. The canvas's
+// font bounding box (1.33 for Malgun, 1.44 for Noto Serif KR) is the face's own
+// metric, not the pitch PowerPoint lays out, so it is not used. A percentage
+// line spacing multiplies the 1.2.
 const LINE_HEIGHT_RATIO = 1.2;
 const CJK = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/;
 // Families that carry their own Hangul / CJK glyphs. Any other face (Arial, Calibri, Noto Sans) hands
@@ -125,7 +131,7 @@ function fontAvailable(name) {
   // Weight-suffixed families (Malgun Gothic Semilight, Segoe UI Semibold)
   // often enumerate only under their base family; measure with that base
   // instead of reporting the whole font missing.
-  const base = family.replace(/\s+(?:semilight|light|semibold|medium|black|thin|extrabold)$/u, '');
+  const base = family.replace(WEIGHT_SUFFIX, '');
   return base !== family && (installedFonts.has(base) || Boolean(installedEquivalent(base)));
 }
 
@@ -270,16 +276,6 @@ export function wrapParagraph(text, width, font = {}) {
   return lines.length ? lines : [''];
 }
 
-// PowerPoint's single line spacing is 1.2 em for every face — probe 2026-09-04
-// read BoundHeight / lines / size = 1.200 for Noto Sans KR, Noto Serif KR,
-// Malgun Gothic, Noto Sans, Arial, and Calibri at 18 and 36 pt. The canvas's
-// font bounding box (1.33 for Malgun, 1.44 for Noto Serif KR) is the face's own
-// metric, not the pitch PowerPoint lays out, so it is not used. A percentage
-// line spacing multiplies the 1.2.
-function naturalLineRatio() {
-  return LINE_HEIGHT_RATIO;
-}
-
 // lineSpacing: the PowerPoint multiple (1.0 = single); a paragraph's own
 // `lineSpacing` (read from lnSpc) overrides it. `lineHeightRatio` is the legacy
 // pitch-per-em override for callers that already resolved spacing themselves.
@@ -299,6 +295,23 @@ export function measureTextBlock(paragraphs = [], { width = 0, lineSpacing = 1, 
       italic: paragraph.italic,
     };
     const size = Math.max(1, Number(paragraph.fontSize) || 18);
+    const multipleEarly =
+      Number(paragraph.lineSpacing) > 0 ? Number(paragraph.lineSpacing) : Math.max(0.5, Number(lineSpacing) || 1);
+    // Runs of different sizes ("+4.3" at 47 pt, "%p" at 19 pt) are measured each at its own size: read at the first
+    // run's size, a figure with its small unit was reported as breaking mid-word and overflowing its box. When the
+    // whole paragraph fits one line that way, it is one line.
+    const runs = Array.isArray(paragraph.runs) && new Set(paragraph.runs.map((run) => run.fontSize)).size > 1 ? paragraph.runs : null;
+    if (runs) {
+      const total = runs.reduce((sum, run) => sum + measureTextWidth(run.text, { ...font, fontSize: run.fontSize }), 0);
+      if (!(width > 0) || total <= width) {
+        widest = Math.max(widest, total);
+        longestRun = Math.max(longestRun, total);
+        lines += 1;
+        height += size * (lineHeightRatio > 0 ? lineHeightRatio : LINE_HEIGHT_RATIO * multipleEarly);
+        height += Math.max(0, Number(paragraph.spaceBefore) || 0) + Math.max(0, Number(paragraph.spaceAfter) || 0);
+        continue;
+      }
+    }
     const wrapped = width > 0 ? wrapParagraph(paragraph.text, width, font) : [String(paragraph.text ?? '')];
     for (const line of wrapped) widest = Math.max(widest, measureTextWidth(line, font));
     for (const part of segments(paragraph.text)) {
@@ -307,7 +320,7 @@ export function measureTextBlock(paragraphs = [], { width = 0, lineSpacing = 1, 
     lines += wrapped.length;
     const multiple =
       Number(paragraph.lineSpacing) > 0 ? Number(paragraph.lineSpacing) : Math.max(0.5, Number(lineSpacing) || 1);
-    const pitch = lineHeightRatio > 0 ? lineHeightRatio : naturalLineRatio() * multiple;
+    const pitch = lineHeightRatio > 0 ? lineHeightRatio : LINE_HEIGHT_RATIO * multiple;
     height += wrapped.length * size * pitch;
     height += Math.max(0, Number(paragraph.spaceBefore) || 0);
     height += Math.max(0, Number(paragraph.spaceAfter) || 0);
@@ -450,13 +463,18 @@ export function reviewCjkTracking(boxes = []) {
   return issues;
 }
 
+// The largest type size a block of paragraphs sets, 0 when none states one.
+function largestFontSize(paragraphs) {
+  return Math.max(0, ...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0));
+}
+
 // Two readings of the same fault: a box narrower than its longest word
 // breaks mid-word, and a box only a little wider still leaves a ragged
 // column of one or two words a line. Both are answered by widening the
 // measure, so they share one code and report once.
 function narrowBoxIssue(box, paragraphs, measured, usableWidth, path) {
   if (box.wrap === false) return null;
-  const bodySize = Math.max(0, ...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0));
+  const bodySize = largestFontSize(paragraphs);
   const longestRun = Number(measured.longestRun) || measured.width;
   if (longestRun > usableWidth * 1.02) {
     return {
@@ -574,7 +592,7 @@ function statementSlides(boxes = []) {
     if (!text) continue;
     const entry = perSlide.get(box.slide) || { count: 0, sizes: [], chars: 0 };
     entry.count += 1;
-    entry.sizes.push(Math.max(0, ...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0)));
+    entry.sizes.push(largestFontSize(paragraphs));
     entry.chars += text.length;
     perSlide.set(box.slide, entry);
   }
@@ -685,21 +703,13 @@ export function reviewStatLabelProximity(boxes = [], { maximumGap = 36 } = {}) {
         .map((paragraph) => String(paragraph.text ?? ''))
         .join(' ')
         .trim();
-      const size = Math.max(...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0), 0);
+      const size = largestFontSize(paragraphs);
       if (size < 28 || !text || text.length > 16 || !/\d/.test(text)) continue;
       const letters = (text.match(/\p{L}/gu) || []).length;
       if (letters > text.replace(/\s/g, '').length * 0.5) continue;
       const nearest = shapes
         .filter((candidate) => candidate !== box)
-        .filter(
-          (candidate) =>
-            Math.max(
-              ...(Array.isArray(candidate.paragraphs) ? candidate.paragraphs : []).map(
-                (paragraph) => Number(paragraph.fontSize) || 0
-              ),
-              0
-            ) <= 20
-        )
+        .filter((candidate) => largestFontSize(Array.isArray(candidate.paragraphs) ? candidate.paragraphs : []) <= 20)
         .filter((candidate) => candidate.paragraphs?.some((paragraph) => String(paragraph.text || '').trim()))
         .sort((first, second) => rectangleGap(box, first) - rectangleGap(box, second))[0];
       if (!nearest) continue;

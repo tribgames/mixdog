@@ -9,7 +9,9 @@ use std::collections::HashSet;
 
 use mixdog_graph::tokens;
 
-use super::paths::{dirname_str, file_stem_rel, normalize_import_spec, path_join_norm, rel_dir};
+use super::paths::{
+    dirname_str, file_stem_rel, is_same_or_under, normalize_import_spec, path_join_norm, rel_dir,
+};
 
 // Strip a trailing js-like extension (.js/.jsx/.mjs/.cjs), mirroring the
 // JS `base.replace(/\.(js|jsx|mjs|cjs)$/, '')`.
@@ -419,10 +421,8 @@ pub(crate) fn rust_crate_src_for(rel: &str, crate_srcs: &[String]) -> String {
     let mut best_len = 0usize;
     for src in crate_srcs {
         let crate_root = dirname_str(src);
-        let matches = dir == src
-            || dir.starts_with(&format!("{src}/"))
-            || (!crate_root.is_empty()
-                && (dir == crate_root || dir.starts_with(&format!("{crate_root}/"))));
+        let matches = is_same_or_under(dir, src)
+            || (!crate_root.is_empty() && is_same_or_under(dir, &crate_root));
         if matches && src.len() >= best_len {
             best_len = src.len();
             best = src.clone();

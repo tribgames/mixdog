@@ -76,7 +76,6 @@ export function resolveSessionToolSurface(opts, { profile, toolPreset, modelName
     schemaAllowedTools,
     disallowedTools: sessionDeny,
     ownerIsAgent,
-    resolvedAgent,
   });
   const schemaOmittedTools = hasCallerAllow ? schemaOmittedToolNames(toolsForRouting, tools) : [];
   return {
@@ -129,7 +128,6 @@ export function _prepareResumeTools(session, preset) {
         ...(delegationDisabled(session, ownerIsAgent) ? ['agent'] : []),
       ],
       ownerIsAgent,
-      resolvedAgent: session.agent || null,
     }),
   };
 }

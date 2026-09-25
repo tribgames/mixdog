@@ -9,6 +9,21 @@ import { providerInitCacheKey } from './provider-init-key.mjs';
 
 const KEYCHAIN_PREWARM_WAIT_MS = 5000;
 
+// Empty cache fields. Invalidation assigns them onto the caller-held objects,
+// so every holder of those references sees the reset.
+const emptyModelCaches = () => ({
+  providerModelsCache: { models: null, at: 0 },
+  providerModelsPromise: null,
+  webSearchProviderModelsCache: { models: null, at: 0 },
+});
+const emptyUsageCaches = () => ({
+  usageDashboardCache: { dashboard: null, at: 0 },
+  usageDashboardPromise: null,
+  providerSetupCache: { setup: null, at: 0 },
+  providerSetupQuickCache: { setup: null, at: 0 },
+  providerSetupPromise: null,
+});
+
 export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderModelCache }) {
   const keychainPrewarmPromise = keychain.prewarmSecrets();
   rt.keychainPrewarmWaitDone = false;
@@ -32,31 +47,14 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
   }
 
   const modelMetaByRoute = new Map();
-  const providerModelCaches = {
-    providerModelsCache: { models: null, at: 0 },
-    providerModelsPromise: null,
-    providerModelsLoadSeq: 0,
-    webSearchProviderModelsCache: { models: null, at: 0 },
-  };
-  const providerUsageCaches = {
-    usageDashboardCache: { dashboard: null, at: 0 },
-    usageDashboardPromise: null,
-    providerSetupCache: { setup: null, at: 0 },
-    providerSetupQuickCache: { setup: null, at: 0 },
-    providerSetupPromise: null,
-  };
+  const providerModelCaches = { ...emptyModelCaches(), providerModelsLoadSeq: 0 };
+  const providerUsageCaches = emptyUsageCaches();
   const providerInitPromises = new Map();
 
   function invalidateProviderCaches(options = {}) {
-    providerModelCaches.providerModelsCache = { models: null, at: 0 };
-    providerModelCaches.providerModelsPromise = null;
+    Object.assign(providerModelCaches, emptyModelCaches());
     providerModelCaches.providerModelsLoadSeq += 1;
-    providerModelCaches.webSearchProviderModelsCache = { models: null, at: 0 };
-    providerUsageCaches.usageDashboardCache = { dashboard: null, at: 0 };
-    providerUsageCaches.usageDashboardPromise = null;
-    providerUsageCaches.providerSetupCache = { setup: null, at: 0 };
-    providerUsageCaches.providerSetupQuickCache = { setup: null, at: 0 };
-    providerUsageCaches.providerSetupPromise = null;
+    Object.assign(providerUsageCaches, emptyUsageCaches());
     if (options.preserveProviderInit !== true) providerInitPromises.clear();
     modelMetaByRoute.clear();
   }
@@ -120,6 +118,5 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
     modelMetaByRoute,
     providerModelCaches,
     providerUsageCaches,
-    providerInitPromises,
   };
 }

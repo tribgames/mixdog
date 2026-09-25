@@ -4,6 +4,7 @@ import { PaneConversation } from '../../src/renderer/app-snapshot-views';
 import { defaultSessionLaneStore } from '../../src/renderer/session-lane-store';
 import { preloadMarkdownBody } from '../../src/renderer/markdown-body-loader';
 import type { Snapshot, TranscriptItem } from '../../src/renderer/desktop-types';
+import type { SessionSnapshot } from '../../src/shared/contract';
 import { parseStreamingMarkdownAst } from '../../src/renderer/markdown-worker-client';
 import { rememberAgentReviews } from '../../src/renderer/turn-review-cache';
 import { turnReviewScope } from '../../src/renderer/renderer-logic.mjs';
@@ -159,7 +160,8 @@ export async function runTranscriptMotionProbe(root: Root) {
   const publish = (snapshot: Snapshot) =>
     defaultSessionLaneStore.apply({
       sessionId: String(snapshot.sessionId),
-      snapshot,
+      snapshot: snapshot as SessionSnapshot,
+      frameSource: 'live',
     });
   const render = () =>
     root.render(
@@ -186,6 +188,7 @@ export async function runTranscriptMotionProbe(root: Root) {
           activeProjectLabel="demo"
           onSelectProject={noop}
           onOpenCommandSurface={noop}
+          onOpenSettings={noop}
           reviewActive={reviewActive}
         />
       </div>

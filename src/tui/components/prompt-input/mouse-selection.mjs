@@ -17,6 +17,11 @@ import { draftStateEqual } from './edit-helpers.mjs';
 // paint cadence.
 const MOUSE_EXTEND_COALESCE_MS = 24;
 
+/** A mouse-mapped edit offset clamped into [0, value.length]. */
+function clampMouseOffset(value, offset) {
+  return Math.max(0, Math.min(value.length, Math.floor(Number(offset) || 0)));
+}
+
 export function createPromptMouseSelection({ coalesceRef, draftRef, contentWidthRef, commitDraft }) {
   const cancelMouseExtendCoalesce = () => {
     const state = coalesceRef.current;
@@ -69,8 +74,7 @@ export function createPromptMouseSelection({ coalesceRef, draftRef, contentWidth
     offsetAtCell: (row, col) => offsetAtCell(draftRef.current.value, row, col, contentWidthRef.current),
     anchorAt: (offset) => {
       cancelMouseExtendCoalesce();
-      const value = draftRef.current.value;
-      const off = Math.max(0, Math.min(value.length, Math.floor(Number(offset) || 0)));
+      const off = clampMouseOffset(draftRef.current.value, offset);
       commitDraft({ ...draftRef.current, cursor: off, selectionAnchor: off });
       coalesceRef.current.t = Date.now();
     },
@@ -80,7 +84,7 @@ export function createPromptMouseSelection({ coalesceRef, draftRef, contentWidth
         return;
       }
       const d = draftRef.current;
-      const off = Math.max(0, Math.min(d.value.length, Math.floor(Number(offset) || 0)));
+      const off = clampMouseOffset(d.value, offset);
       const anchor = Number.isFinite(d.selectionAnchor) ? d.selectionAnchor : d.cursor;
       queueMouseExtendCommit({ ...d, cursor: off, selectionAnchor: anchor }, immediate);
     },
@@ -92,7 +96,7 @@ export function createPromptMouseSelection({ coalesceRef, draftRef, contentWidth
     selectWordAt: (offset) => {
       cancelMouseExtendCoalesce();
       const value = draftRef.current.value;
-      const off = Math.max(0, Math.min(value.length, Math.floor(Number(offset) || 0)));
+      const off = clampMouseOffset(value, offset);
       const { start, end } = wordRangeAt(value, off);
       commitDraft({ ...draftRef.current, cursor: end, selectionAnchor: start });
       coalesceRef.current.t = Date.now();
@@ -100,7 +104,7 @@ export function createPromptMouseSelection({ coalesceRef, draftRef, contentWidth
     selectLineAt: (offset) => {
       cancelMouseExtendCoalesce();
       const value = draftRef.current.value;
-      const off = Math.max(0, Math.min(value.length, Math.floor(Number(offset) || 0)));
+      const off = clampMouseOffset(value, offset);
       const start = lineStart(value, off);
       const end = lineEnd(value, off);
       commitDraft({ ...draftRef.current, cursor: end, selectionAnchor: start });

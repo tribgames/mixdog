@@ -10,13 +10,20 @@ const RESULT_CACHE_INFLIGHT = new Map(); // key → { promise, controller, subsc
 const RESULT_CACHE_COMPUTE = new AsyncLocalStorage();
 const RESULT_CACHE_TTL_MS = 30_000;
 const RESULT_CACHE_MAX_ENTRIES = 200;
-const RESULT_CACHE_MAX_BYTES = (() => {
-  const rawBytes = Number(process.env.MIXDOG_RESULT_CACHE_MAX_BYTES);
+// A byte budget from the bytes env var, else the megabytes one, else the
+// default.
+function envByteBudget(bytesVar, mbVar, fallbackBytes) {
+  const rawBytes = Number(process.env[bytesVar]);
   if (Number.isFinite(rawBytes) && rawBytes > 0) return Math.trunc(rawBytes);
-  const rawMb = Number(process.env.MIXDOG_RESULT_CACHE_MAX_MB);
+  const rawMb = Number(process.env[mbVar]);
   if (Number.isFinite(rawMb) && rawMb > 0) return Math.trunc(rawMb * 1024 * 1024);
-  return 32 * 1024 * 1024;
-})();
+  return fallbackBytes;
+}
+const RESULT_CACHE_MAX_BYTES = envByteBudget(
+  'MIXDOG_RESULT_CACHE_MAX_BYTES',
+  'MIXDOG_RESULT_CACHE_MAX_MB',
+  32 * 1024 * 1024
+);
 let RESULT_CACHE_BYTES = 0;
 function estimateResultBytes(value) {
   if (value == null) return 0;
@@ -49,13 +56,11 @@ const PATH_MUTATION_GENERATIONS = new Map(); // canonical path/root → monotoni
 const PATH_MUTATION_GENERATION_MAX_ENTRIES = 4096;
 let PATH_MUTATION_GLOBAL_GENERATION = 0;
 const READ_ONLY_STAT_INFLIGHT = new Map(); // kind + canonical path → { generation, promise }
-const RAW_CONTENT_CACHE_MAX_BYTES = (() => {
-  const rawBytes = Number(process.env.MIXDOG_RAW_CONTENT_CACHE_MAX_BYTES);
-  if (Number.isFinite(rawBytes) && rawBytes > 0) return Math.trunc(rawBytes);
-  const rawMb = Number(process.env.MIXDOG_RAW_CONTENT_CACHE_MAX_MB);
-  if (Number.isFinite(rawMb) && rawMb > 0) return Math.trunc(rawMb * 1024 * 1024);
-  return 64 * 1024 * 1024;
-})();
+const RAW_CONTENT_CACHE_MAX_BYTES = envByteBudget(
+  'MIXDOG_RAW_CONTENT_CACHE_MAX_BYTES',
+  'MIXDOG_RAW_CONTENT_CACHE_MAX_MB',
+  64 * 1024 * 1024
+);
 let RAW_CONTENT_CACHE_BYTES = 0;
 
 function normalizeCacheMetaPaths(values) {
@@ -416,7 +421,7 @@ async function visitBoundedStats(paths, workDir, concurrency, deadlineMs, statIm
   await Promise.all(Array.from({ length: workerCount }, worker));
 }
 
-async function visitPathStats(paths, workDir, concurrency, opts, visitor) {
+export async function visitPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}, visitor = () => {}) {
   const now = Date.now();
   // Injectable stat impl for testing hung-FS behaviour deterministically.
   const statImpl = typeof opts._statImpl === 'function' ? opts._statImpl : fsPromises.stat;
@@ -428,14 +433,10 @@ async function visitPathStats(paths, workDir, concurrency, opts, visitor) {
   await visitBoundedStats(paths, workDir, concurrency, statDeadlineMs(opts), cachingStat, visitor);
 }
 
-export async function visitPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}, visitor = () => {}) {
-  await visitPathStats(paths, workDir, concurrency, opts, visitor);
-}
-
 export async function statPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}) {
   const items = Array.isArray(paths) ? paths : [];
   const out = new Array(items.length);
-  await visitPathStats(items, workDir, concurrency, opts, (entry, index) => {
+  await visitPathsForMtime(items, workDir, concurrency, opts, (entry, index) => {
     out[index] = entry;
   });
   return out;

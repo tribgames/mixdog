@@ -222,7 +222,7 @@ export function McpEditorDialog({
   const [envHeaders, setEnvHeaders] = useState(() => mcpPairValues(config.env_http_headers));
   const [formError, setFormError] = useState('');
   const autoDetect = initialTransport === 'autoDetect';
-  const connection = editing && server ? mcpStatus(server) : null;
+  const connection = server ? mcpStatus(server) : null;
   return (
     <ExtensionDetailDialog
       width="editor"

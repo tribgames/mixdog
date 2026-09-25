@@ -7,6 +7,7 @@ import type {
   SessionSnapshot,
 } from '../shared/contract';
 import { isSessionId } from './desktop-state';
+import { sessionIdOf } from './session-host-transport';
 import { reconcileSessionProjection } from './state-delta';
 import { estimateRetainedChars } from '../shared/retained-value-weight';
 
@@ -34,12 +35,6 @@ interface SessionHostPublicationOwner {
   onShellPublished(): void;
 }
 
-function sessionIdOf(value: unknown): string {
-  const id = String(value || '');
-  if (!isSessionId(id)) throw new TypeError('session id is invalid.');
-  return id;
-}
-
 function statePatch(snapshot: SessionSnapshot, patch: Record<string, unknown>): SessionSnapshot {
   const base = snapshot && typeof snapshot === 'object' ? snapshot : {};
   const set =
@@ -65,13 +60,11 @@ function emitIsolated<T>(listeners: Set<(value: T) => void>, value: T): void {
     try {
       listener(value);
     } catch {
-      /* a presentation listener owns its failure */
+      /* a presentation listener owns its failure; it cannot affect service execution */
     }
   }
 }
 
-/** Listener sets, projection map, and live-frame application. SessionHost
- *  remains the service facade; this object owns publication side effects. */
 function emptySessionSnapshot(id: string): SessionSnapshot {
   return { sessionId: id, items: [], queued: [] } as SessionSnapshot;
 }
@@ -100,6 +93,8 @@ function projectionStampFor(
   return undefined;
 }
 
+/** Listener sets, projection map, and live-frame application. SessionHost
+ *  remains the service facade; this object owns publication side effects. */
 export class SessionHostPublication {
   readonly projections = new Map<string, SessionProjection>();
   private readonly projectionWeights = new WeakMap<SessionProjection, number>();
@@ -237,18 +232,12 @@ export class SessionHostPublication {
     readTraceId?: string
   ): void {
     const visibleSnapshot = this.snapshotWithRemoteSession(this.owner.snapshotWithShellJobs(sessionId, snapshot));
-    for (const listener of [...this.sessionStateListeners]) {
-      try {
-        listener({
-          sessionId,
-          snapshot: visibleSnapshot,
-          frameSource,
-          ...(readTraceId ? { readTraceId } : {}),
-        });
-      } catch {
-        // A visual client cannot affect service execution.
-      }
-    }
+    emitIsolated<DesktopSessionStateUpdate>(this.sessionStateListeners, {
+      sessionId,
+      snapshot: visibleSnapshot,
+      frameSource,
+      ...(readTraceId ? { readTraceId } : {}),
+    });
   }
 
   publishSessions(sessions: DesktopSessionSummary[]): void {
@@ -369,11 +358,12 @@ export class SessionHostPublication {
       // empty New Task (user: 진행중인 TASK창이 갑자기 NEWTASK처럼 아예
       // 비어버린다). Name the reason so only a real teardown clears a pane.
       const laneEnd: DesktopSessionLaneEnd = String(frame.reason || '') === 'idle and unwatched' ? 'unloaded' : 'gone';
-      for (const listener of [...this.sessionStateListeners]) {
-        try {
-          listener({ sessionId, snapshot: null, frameSource: 'live', laneEnd });
-        } catch {}
-      }
+      emitIsolated<DesktopSessionStateUpdate>(this.sessionStateListeners, {
+        sessionId,
+        snapshot: null,
+        frameSource: 'live',
+        laneEnd,
+      });
       return;
     }
     if (frame.type !== 'session-state') return;
@@ -394,13 +384,14 @@ export class SessionHostPublication {
     this.owner.setControlSessionId('');
     this.projections.clear();
     for (const sessionId of this.owner.visibleSessionIds()) {
-      for (const listener of [...this.sessionStateListeners]) {
-        // Recovery re-attaches to the daemon and resyncs. Until it lands, a
-        // pane keeps showing what it already has instead of blanking.
-        try {
-          listener({ sessionId, snapshot: null, frameSource: 'live', laneEnd: 'disconnected' });
-        } catch {}
-      }
+      // Recovery re-attaches to the daemon and resyncs. Until it lands, a
+      // pane keeps showing what it already has instead of blanking.
+      emitIsolated<DesktopSessionStateUpdate>(this.sessionStateListeners, {
+        sessionId,
+        snapshot: null,
+        frameSource: 'live',
+        laneEnd: 'disconnected',
+      });
     }
   }
 

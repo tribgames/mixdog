@@ -2,6 +2,15 @@
 // projection checked so in-place provider replay/tool-call edits stay visible.
 const absent = Object.freeze({ value: undefined, snapshot: '\0[]' });
 const empty = Object.freeze({ value: null, snapshot: '\0[]' });
+const FINGERPRINT_FIELDS = Object.freeze([
+  'content',
+  'toolCalls',
+  'thinkingBlocks',
+  'assistantBlocks',
+  'reasoningItems',
+  'providerMetadata',
+  'providerReplay',
+]);
 
 export function createContextFingerprinter({ nativeBlocksEstimateText, contentImageDescriptors }) {
   function valueFingerprint(value, previous) {
@@ -70,5 +79,27 @@ export function createContextFingerprinter({ nativeBlocksEstimateText, contentIm
         a.toolCallId === b.toolCallId)
     );
   }
-  return { contextMessageFingerprint, sameContextMessageFingerprint };
+  // Reference-only check against a message's last full fingerprint: true when
+  // every estimator-visible field still holds the value that was measured.
+  // It does not look inside object values; callers reserve it for settled
+  // transcript entries, whose nested payloads are replaced, never mutated.
+  function contextMessageFieldsUnchanged(message, fingerprint) {
+    if (
+      !fingerprint ||
+      !message ||
+      typeof message !== 'object' ||
+      message.role !== fingerprint.role ||
+      (message.toolCallId || null) !== fingerprint.toolCallId
+    ) {
+      return false;
+    }
+    // Indexed loop: this runs per settled message on every sync, and a
+    // callback allocated a closure each time.
+    for (let i = 0; i < FINGERPRINT_FIELDS.length; i += 1) {
+      const field = FINGERPRINT_FIELDS[i];
+      if (message[field] !== fingerprint[field].value) return false;
+    }
+    return true;
+  }
+  return { contextMessageFingerprint, sameContextMessageFingerprint, contextMessageFieldsUnchanged };
 }

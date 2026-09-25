@@ -4,8 +4,9 @@
 // answers from the config file instead and leaves the first real engine boot to
 // the navigation that actually needs it.
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+
+import { mixdogDataDirectory } from './computer/shared/common';
 
 interface DesktopOnboardingStatus {
   completed: boolean;
@@ -16,8 +17,7 @@ interface DesktopOnboardingStatus {
 
 /** Same resolution the runtime uses for its shared config file. */
 export function mixdogConfigPath(): string {
-  const dataDir = process.env.MIXDOG_DATA_DIR || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
-  return join(dataDir, 'mixdog-config.json');
+  return join(mixdogDataDirectory(), 'mixdog-config.json');
 }
 
 /** Null when the file is missing or unreadable: the caller then falls back to

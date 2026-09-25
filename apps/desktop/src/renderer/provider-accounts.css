@@ -302,7 +302,7 @@
   cursor: default;
 }
 
-/* Rail picker: the > beside a provider name opens ONLY the account list. */
+/* Rail picker: the "…" beside a provider name opens ONLY the account list. */
 /* The "…" trigger is the header's 28px action box (icon-muted, 16px glyph),
    not a smaller chevron; a lighter control next to a 28px "+" read as a
    different family. The row pads 10px where the header pads 4px, so the box

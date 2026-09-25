@@ -6,6 +6,14 @@ function payload(value) {
   }
 }
 
+/** The exact window the original command named, for the read-only recapture; null when none. */
+function pendingCaptureTarget(command) {
+  if (command.window_id) return { window_id: command.window_id };
+  if (command.app) return { app: command.app };
+  if (command.window) return { window: command.window };
+  return null;
+}
+
 export function isPendingComputerWork(value) {
   const result = payload(value);
   return result.status === 'paused' && result.code === 'computer_user_intervention_pending';
@@ -48,10 +56,7 @@ export async function continuePendingComputerWork(initial, command, send, signal
           progress.completed_steps === progress.total_steps &&
           progress.pending_work?.uncertain_step === undefined,
       };
-      let target = null;
-      if (command.window_id) target = { window_id: command.window_id };
-      else if (command.app) target = { app: command.app };
-      else if (command.window) target = { window: command.window };
+      const target = pendingCaptureTarget(command);
       if (!target) {
         return {
           text: JSON.stringify({

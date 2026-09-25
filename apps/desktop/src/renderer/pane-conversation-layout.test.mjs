@@ -34,6 +34,9 @@ test('a split-pane conversation portal fills its slot so the composer stays at t
   assert.equal(workspaceRule.style.width, '100%');
   assert.equal(workspaceRule.style.height, '100%');
   assert.equal(workspaceRule.style.flex, '1 1 0%');
+  // The cascade, not just the dedicated rule's text: a later shared
+  // `.workspace` rule must not put the flex basis back on `auto`.
+  assert.equal(dom.window.getComputedStyle(workspace).flex, '1 1 0%');
 });
 
 test('transcript content rows retain their shared width and turn spacing', async () => {

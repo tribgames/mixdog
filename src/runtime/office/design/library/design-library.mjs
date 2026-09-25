@@ -265,6 +265,39 @@ async function exactPack(paths, config, binding) {
   return await loadCachedPack(paths, config, binding.packId, binding.packVersion);
 }
 
+// A bound document keeps its exact pack and template version; when either is
+// gone it falls back to the starter tokens with a warning.
+async function resolvePinnedLibrary({ paths, config, binding, format, recentCompositions }) {
+  let pack = null;
+  let warning = '';
+  try {
+    pack = await exactPack(paths, config, binding);
+  } catch (error) {
+    warning = `Pinned Office design pack is unavailable: ${error.message}`;
+  }
+  const index = await readTemplateIndex(paths);
+  const allTemplates = [...(pack?.templates || []), ...(index.templates || [])];
+  const template =
+    allTemplates.find(
+      (entry) => entry.id === binding.templateId && entry.version === binding.templateVersion && entry.format === format
+    ) || null;
+  if (binding.templateId && !template) {
+    warning ||= 'Pinned Office template version changed or is unavailable; the existing document remains unchanged.';
+  }
+  return {
+    source: pack ? binding.source : 'starter-fallback',
+    binding: clone(binding),
+    pack,
+    template,
+    layouts: layoutCandidates(pack, template, format),
+    coverage: template?.coverage || null,
+    recentCompositions,
+    templateIndexRevision: index.revision || '',
+    warning,
+    pinned: true,
+  };
+}
+
 export async function resolveOfficeDesignLibrary({
   dataDir,
   documentPath,
@@ -291,37 +324,13 @@ export async function resolveOfficeDesignLibrary({
     if (!currentBinding && sourcePath) currentBinding = await readOfficeDesignBinding(dataDir, sourcePath);
   }
   if (currentBinding) {
-    let pack = null;
-    let warning = '';
-    try {
-      pack = await exactPack(paths, config, currentBinding);
-    } catch (error) {
-      warning = `Pinned Office design pack is unavailable: ${error.message}`;
-    }
-    const index = await readTemplateIndex(paths);
-    const allTemplates = [...(pack?.templates || []), ...(index.templates || [])];
-    const template =
-      allTemplates.find(
-        (entry) =>
-          entry.id === currentBinding.templateId &&
-          entry.version === currentBinding.templateVersion &&
-          entry.format === normalizedFormat
-      ) || null;
-    if (currentBinding.templateId && !template) {
-      warning ||= 'Pinned Office template version changed or is unavailable; the existing document remains unchanged.';
-    }
-    return {
-      source: pack ? currentBinding.source : 'starter-fallback',
-      binding: clone(currentBinding),
-      pack,
-      template,
-      layouts: layoutCandidates(pack, template, normalizedFormat),
-      coverage: template?.coverage || null,
+    return await resolvePinnedLibrary({
+      paths,
+      config,
+      binding: currentBinding,
+      format: normalizedFormat,
       recentCompositions,
-      templateIndexRevision: index.revision || '',
-      warning,
-      pinned: true,
-    };
+    });
   }
   const synced = await syncOfficeDesignLibrary({
     dataDir,

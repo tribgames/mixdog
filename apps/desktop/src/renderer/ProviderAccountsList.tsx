@@ -245,7 +245,6 @@ export function ProviderAccountsList({
     clearGesture();
     if (moved) reorder(from, to);
   };
-  const cancelDrag = () => clearGesture();
   const dragging = drag !== null;
   useEffect(() => {
     if (!dragging) return;
@@ -317,6 +316,7 @@ export function ProviderAccountsList({
       <ol className="provider-accounts-list" ref={listRef}>
         {pool?.accounts.map((account, index) => {
           const selected = pool.selectedId === account.id;
+          const selectable = !selected && account.authenticated && !account.reauthRequired;
           const lifted = drag?.moved && drag.from === index;
           return (
             <li
@@ -335,7 +335,7 @@ export function ProviderAccountsList({
                   onPointerDown={(event) => beginDrag(event, index, account.id)}
                   onPointerMove={moveDrag}
                   onPointerUp={endDrag}
-                  onPointerCancel={cancelDrag}
+                  onPointerCancel={clearGesture}
                   onKeyDown={(event) => {
                     if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
                     event.preventDefault();
@@ -361,7 +361,7 @@ export function ProviderAccountsList({
                 {!listOnly && (
                   <>
                     <div className="provider-account-identity">
-                      {!selected && account.authenticated && !account.reauthRequired && editing !== account.id && (
+                      {selectable && editing !== account.id && (
                         <button
                           type="button"
                           className="provider-account-select"
@@ -430,7 +430,7 @@ export function ProviderAccountsList({
                       </div>
                     </div>
                     <div className="settings-resource-actions">
-                      {!selected && account.authenticated && !account.reauthRequired && (
+                      {selectable && (
                         <button
                           type="button"
                           className="settings-action"

@@ -1,5 +1,5 @@
-// Completion-first loop guards: escalation ladder (level-2 steering),
-// cross-turn identical read-only call dedup, and hard-cap refusal stubs.
+// Completion-first loop guards: cross-turn identical read-only call dedup
+// (signature + stub) and the edit-progress classification.
 // Pure string/signature helpers; the loop body only wires state + messages.
 // No provider/manager coupling.
 
@@ -48,7 +48,7 @@ export function isEditProgressTool(name, isEager) {
   return !NON_PROGRESS_TOOLS.has(bare);
 }
 
-// Step 2 — cross-turn dedup stub. `stuck` appends the escalation tail at the
+// Cross-turn dedup stub. `stuck` appends the escalation tail at the
 // 5th+ dedup stub in the session.
 export function crossTurnDedupStub(name, firstIteration, stuck) {
   let s = `[cross-turn-dedup] \`${name}\` already ran in iteration ${firstIteration}; result unchanged, already in context.`;

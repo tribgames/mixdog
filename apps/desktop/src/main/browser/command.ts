@@ -256,13 +256,16 @@ export function snapshotTextLimit(command: BrowserCommand): number {
   if (normalizeBrowserAction(command) === 'evaluate') {
     return SNAPSHOT_TEXT_CHARS;
   }
-  return Math.min(
-    READ_MAX_CHARS,
-    Math.max(1, Number.isFinite(command.maxChars) ? Math.trunc(command.maxChars as number) : SNAPSHOT_TEXT_CHARS)
-  );
+  return boundedInteger(command.maxChars, SNAPSHOT_TEXT_CHARS, 1, READ_MAX_CHARS);
 }
 
 /** Clamp a caller-supplied integer into [min, max], falling back when absent. */
 export function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, Number.isFinite(value) ? Math.trunc(value as number) : fallback));
+}
+
+/** A caller-supplied character budget capped at `max`; anything but a positive
+ *  number takes the fallback instead of shrinking the reply to nothing. */
+export function browserCharLimit(value: unknown, fallback: number, max: number): number {
+  return Math.min(max, Number.isFinite(value) && (value as number) > 0 ? Math.trunc(value as number) : fallback);
 }

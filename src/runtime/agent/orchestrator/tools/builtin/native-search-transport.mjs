@@ -30,6 +30,16 @@ function createChildTransport(binaryPath, cwd) {
     ...hiddenSpawnOpts,
   });
   const { handlers, emit } = createEmitter();
+  // ref()/unref() apply to the child and each of its stdio handles.
+  const setReferenced = (method) => {
+    for (const handle of [child, child.stdin, child.stdout, child.stderr]) {
+      try {
+        handle?.[method]?.();
+      } catch {
+        /* detached handle */
+      }
+    }
+  };
   child.stderr?.on?.('data', (chunk) => emit('stderr', chunk));
   const lines = createInterface({ input: child.stdout });
   lines.on('line', (line) => emit('line', line));
@@ -58,22 +68,10 @@ function createChildTransport(binaryPath, cwd) {
       }
     },
     ref() {
-      for (const handle of [child, child.stdin, child.stdout, child.stderr]) {
-        try {
-          handle?.ref?.();
-        } catch {
-          /* detached handle */
-        }
-      }
+      setReferenced('ref');
     },
     unref() {
-      for (const handle of [child, child.stdin, child.stdout, child.stderr]) {
-        try {
-          handle?.unref?.();
-        } catch {
-          /* detached handle */
-        }
-      }
+      setReferenced('unref');
     },
     on(name, handler) {
       handlers[name] = handler;

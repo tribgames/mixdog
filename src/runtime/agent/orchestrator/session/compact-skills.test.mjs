@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { buildSkillToolEnvelope } from '../context/collect.mjs';
 import { latestSkillBodies } from '../context/skill-state.mjs';
@@ -90,6 +93,83 @@ test('restoration is bounded, favors recent bodies, and never presents partial i
   );
   assert.equal(reload.newMessages.length, 1);
   assert.equal(reload.newMessages[0].content, oversized.content);
+});
+
+function nativeSkillLoader(name, tool) {
+  const call = { id: `toolu_skill_${name}`, name: 'Skill', arguments: { name } };
+  const result = {
+    role: 'tool',
+    toolCallId: call.id,
+    content: `Loaded skill: ${name}`,
+    nativeToolSearch: { provider: 'anthropic-oauth', toolReferences: [tool], openaiTools: [] },
+  };
+  return { call, result };
+}
+
+const referencing = (messages, tool) =>
+  messages.filter((message) => message.nativeToolSearch?.toolReferences?.includes(tool));
+
+test('a restored skill body keeps the native loader pair that exposes its linked tools', (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-compact-skill-loader-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  t.after(() => {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  const body = skill('guide', '# Guide');
+  const loader = nativeSkillLoader('guide', 'tidy');
+  // Later tool work fills the tool-history budget, so the loader group itself
+  // falls outside the retained execution tail.
+  const work = [];
+  for (let index = 0; index < 4; index += 1) {
+    const id = `toolu_read_${index}`;
+    work.push(
+      { role: 'assistant', content: '', toolCalls: [{ id, name: 'read', arguments: { file_path: `f${index}` } }] },
+      { role: 'tool', toolCallId: id, content: 'line '.repeat(250) }
+    );
+  }
+  const result = freshContextCompactMessages(
+    [
+      { role: 'system', content: 'S' },
+      { role: 'user', content: 'Start' },
+      { role: 'assistant', content: '', toolCalls: [loader.call] },
+      loader.result,
+      body,
+      ...work,
+    ],
+    10_000,
+    {
+      force: true,
+      handoffText: 'The request is still in progress.',
+      activeTurn: true,
+      contextWindow: 20_000,
+      sessionId: 'compact-skill-loader',
+    }
+  ).messages;
+  const loaders = referencing(result, 'tidy');
+  assert.equal(loaders.length, 1);
+  const index = result.indexOf(loaders[0]);
+  assert.deepEqual(result[index - 1].toolCalls, [loader.call]);
+  assert.equal(result[index + 1], body);
+});
+
+test('a loader pair already kept in the retained tail is not restored twice', () => {
+  const body = skill('guide', '# Guide');
+  const loader = nativeSkillLoader('guide', 'tidy');
+  const result = compact([
+    { role: 'system', content: 'S' },
+    { role: 'user', content: 'Start' },
+    { role: 'assistant', content: '', toolCalls: [loader.call] },
+    loader.result,
+    body,
+    { role: 'assistant', content: 'Working on it.' },
+    { role: 'user', content: 'Continue' },
+  ]).messages;
+  assert.equal(referencing(result, 'tidy').length, 1);
+  assert.equal(result.filter((message) => message.toolCalls?.some((call) => call.id === loader.call.id)).length, 1);
+  assert.equal(latestSkillBodies(result).length, 1);
 });
 
 test('skills are isolated by transcript, not by a process-wide loaded flag', () => {

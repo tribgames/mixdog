@@ -10,7 +10,7 @@ export function createProjectCreateFlow(
   // Open the manual path-entry flow. The user types a directory path; on submit
   // we register it (and offer to create it if missing). Used as a
   // fallback when no native folder dialog is available.
-  const beginNewProjectManual = () => {
+  const beginNewProjectManual = (reason = '') => {
     const own = surface.claim();
     own.context(null);
     own.close();
@@ -19,7 +19,7 @@ export function createProjectCreateFlow(
     setSettingsPrompt({
       kind: 'project-new',
       label: 'New project · Path',
-      hint: 'Type a directory path. The folder name becomes the project name.',
+      hint: `${reason ? `${reason} ` : ''}Type a directory path. The folder name becomes the project name.`,
     });
   };
 
@@ -57,7 +57,7 @@ export function createProjectCreateFlow(
         if (!own.owns()) return;
         if (!result || result.available === false) {
           // No native dialog on this system → manual typing.
-          beginNewProjectManual();
+          beginNewProjectManual(result?.reason);
           return;
         }
         if (!result.path) {

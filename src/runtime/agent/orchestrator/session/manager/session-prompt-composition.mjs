@@ -35,9 +35,10 @@ function buildShellEnvironmentContext(opts, ownerIsAgent, toolsForRouting) {
       : '- Relative paths and shell commands resolve in the active Project shown by Session Cwd.';
   }
   const startupScope = sessionCwdLine ? { cwd: sessionCwdLine } : {};
+  const shellName = process.platform === 'win32' ? 'PowerShell' : 'Bash';
   return [
     cwdContextLine,
-    `- Shell: ${process.platform === 'win32' ? 'PowerShell' : 'Bash'}. Use ${process.platform === 'win32' ? 'PowerShell' : 'Bash'} syntax unless the user specifies otherwise.`,
+    `- Shell: ${shellName}. Use ${shellName} syntax unless the user specifies otherwise.`,
     // Which common tools the shell can run, measured where commands run
     // (login shell on POSIX, this process's PATH on Windows); see
     // runtime-capabilities.mjs. Recorded runs spent a round per session

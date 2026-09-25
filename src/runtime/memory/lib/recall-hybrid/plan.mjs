@@ -3,21 +3,14 @@
  * paging, pre-filter knobs, and the shared SQL filter/scope clause builders
  * every stage of the hybrid search binds against.
  */
-import { VALID_CATEGORY } from '../memory-categories.mjs';
-import { buildRecallScopeFilter, projectScopePredicate } from '../memory-recall-scope-filter.mjs';
+import { buildRecallScopeFilter, projectScopePredicate, validCategories } from '../memory-recall-scope-filter.mjs';
 
 export const ENTRY_ROW_COLUMNS = `id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
               concept_id, supersedes_id, element, category, summary, project_id, status, score, last_seen_at`;
 
 export function recallPlan(clean, options = {}) {
   const limit = Math.max(1, Math.floor(Number(options?.limit ?? 8)));
-  const categories = (Array.isArray(options.category) ? options.category : [options.category])
-    .map((c) =>
-      String(c ?? '')
-        .trim()
-        .toLowerCase()
-    )
-    .filter((c) => VALID_CATEGORY.has(c));
+  const categories = validCategories(options.category);
   return {
     clean,
     limit,

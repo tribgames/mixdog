@@ -17,7 +17,7 @@ import { buildCodexStartupPrewarmBody } from './openai-responses-payload.mjs';
 import { discardStartupPrewarmReservation, startupPromptWarmupEnabled } from './openai-startup-prewarm.mjs';
 import { _envFlag, _shouldUseOpenAIHttpFallback } from './openai-oauth-http-sse.mjs';
 
-export function openAiOAuthHandshakeErrorPolicy({ status }) {
+function openAiOAuthHandshakeErrorPolicy({ status }) {
   if (Number(status) === 404) {
     return { retry: false, httpFallback: true };
   }

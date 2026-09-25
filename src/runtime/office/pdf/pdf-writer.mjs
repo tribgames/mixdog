@@ -2,8 +2,10 @@ import { writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { PDFDocument } from 'pdf-lib';
 import { SAVE_OPTIONS, color, embedImage, pageSize, wrapText } from './pdf-draw.mjs';
-import { embedDocumentFont } from './pdf-fonts.mjs';
+import { embedBoldFont, embedDocumentFont } from './pdf-fonts.mjs';
 import { addFormField, fieldText, lintPdfFormFields } from './pdf-forms.mjs';
+import { figureColumnAlignments } from '../shared/column-alignments.mjs';
+import { naturalColumnWidths } from '../shared/column-widths.mjs';
 
 const HEADING_SIZES = Object.freeze({ 1: 20, 2: 15, 3: 12.5 });
 
@@ -34,6 +36,8 @@ const BLOCK_FIELDS = Object.freeze({
       'zebraFill',
       'borderColor',
       'repeatHeader',
+      'grid',
+      'totalRow',
     ],
   }),
   image: Object.freeze({ required: ['path'], optional: [...FLOW_FIELDS, 'height', 'y'] }),
@@ -180,8 +184,8 @@ function blockText(block) {
  * `y` still free on it, and `newPage()` which opens the next page with the
  * document background and resets the cursor under the top margin.
  */
-function createFlow(document, { size, margin, font, background }) {
-  const flow = { document, margin, font, page: null, y: 0, resolvedFields: [] };
+function createFlow(document, { size, margin, font, bold, background }) {
+  const flow = { document, margin, font, bold: bold || font, page: null, y: 0, resolvedFields: [] };
   flow.newPage = () => {
     const entry = document.addPage(size);
     if (background) {
@@ -245,14 +249,21 @@ function drawListBlock(flow, block) {
   const { font, margin } = flow;
   const items = (Array.isArray(block.items) ? block.items : []).map((value) => String(value ?? ''));
   const fontSize = Number(block.size || 11);
-  const lineHeight = Number(block.lineHeight || fontSize * 1.35);
-  const indent = Number(block.indent ?? fontSize * 1.4);
+  // The same 1.5× lead as body copy: at 1.35 Hangul items set tighter than the paragraph above them.
+  const lineHeight = Number(block.lineHeight || fontSize * 1.5);
+  const ordered = block.ordered === true;
+  const markers = items.map((_, itemIndex) => (ordered ? `${itemIndex + 1}.` : String(block.marker ?? '•')));
+  const markerWidth = (marker) => font.widthOfTextAtSize(marker, fontSize);
+  const widestMarker = Math.max(0, ...markers.map(markerWidth));
+  // The text starts past the widest marker with half an em to spare, and the numbers end together on their periods:
+  // at a fixed 1.4 em, "10." ran into its item's first word ("10.10단계").
+  const indent = Number(block.indent ?? Math.max(fontSize * 1.4, widestMarker + fontSize * 0.5));
   const left = Number(block.x ?? margin);
   const textWidth = Number(block.width || flow.page.getWidth() - margin - left) - indent;
-  const ordered = block.ordered === true;
   const tint = color(block.color);
   items.forEach((item, itemIndex) => {
-    const marker = ordered ? `${itemIndex + 1}.` : String(block.marker ?? '•');
+    const marker = markers[itemIndex];
+    const markerX = ordered ? left + widestMarker - markerWidth(marker) : left;
     const lines = wrapText(item, font, fontSize, Math.max(8, textWidth));
     // One item is one unit: broken line by line, an item that met the foot
     // of a page left its marker and first line there with the rest overleaf,
@@ -261,7 +272,7 @@ function drawListBlock(flow, block) {
     lines.forEach((line, lineIndex) => {
       if (flow.y - lineHeight < margin) flow.newPage();
       flow.y -= lineHeight;
-      if (lineIndex === 0) flow.page.drawText(marker, { x: left, y: flow.y, size: fontSize, font, color: tint });
+      if (lineIndex === 0) flow.page.drawText(marker, { x: markerX, y: flow.y, size: fontSize, font, color: tint });
       flow.page.drawText(line, { x: left + indent, y: flow.y, size: fontSize, font, color: tint });
     });
   });
@@ -276,53 +287,43 @@ function tableRows(block) {
   ].map((row) => (Array.isArray(row) ? row : [row]).map((value) => String(value ?? '')));
 }
 
-// Figures are compared down the column, so they are set against the right
-// edge and the header sits over them; every column of figures used to start
-// at the left edge, which is where a reader looks for words.
-const NUMERIC_CELL = /^[(\-+]?[\d,.\s]+(?:%|[A-Za-z가-힣원$€£¥]{0,3})\)?$/;
-// A first column of 1호, 2호 is a row label with a digit in it, not a
-// figure to compare down the column: it stays left unless every entry
-// is a bare number.
-const BARE_NUMBER_CELL = /^[(\-+]?[\d,.\s]+%?\)?$/;
-
-function tableAlignments(rows, columns, block) {
-  const numeric = (text) => /\d/.test(text) && NUMERIC_CELL.test(text.trim());
-  const bareNumber = (text) => /\d/.test(text) && BARE_NUMBER_CELL.test(text.trim());
-  return Array.from({ length: columns }, (_, column) => {
-    const declared = Array.isArray(block.columnAlignments) ? block.columnAlignments[column] : '';
-    if (declared) return String(declared).toLowerCase();
-    const body = rows
-      .slice(1)
-      .map((row) => String(row[column] ?? '').trim())
-      .filter(Boolean);
-    if (!body.length) return 'left';
-    if (column === 0) return body.every(bareNumber) ? 'right' : 'left';
-    return body.filter(numeric).length / body.length >= 0.6 ? 'right' : 'left';
-  });
-}
-
 // Cells wrap inside their column and the row grows to the tallest cell,
 // so a long value never spills into its neighbour.
 function tableLayout(flow, block, rows) {
-  const { font, margin } = flow;
+  const { font, bold, margin } = flow;
+  // headers:false is a table with no header row (a totals block under the line items); otherwise the first
+  // row — the headers, or rows[0] when none are given — is the header.
+  const header = block.headers !== false;
+  const total = block.totalRow === true && rows.length > (header ? 1 : 0);
+  const faceOf = (rowIndex) => ((header && rowIndex === 0) || (total && rowIndex === rows.length - 1) ? bold : font);
   const columns = Math.max(1, ...rows.map((row) => row.length));
   const width = Number(block.width || flow.page.getWidth() - margin * 2);
-  const weights =
-    Array.isArray(block.columnWidths) && block.columnWidths.length === columns
-      ? block.columnWidths.map((value) => Math.max(0, Number(value) || 0))
-      : Array(columns).fill(1);
-  const totalWeight = weights.reduce((sum, value) => sum + value, 0) || columns;
-  const cellWidths = weights.map((weight) => width * (weight / totalWeight));
   const fontSize = Number(block.fontSize || 9);
   const lineHeight = fontSize * 1.3;
   const padding = 4;
+  // Words after figures start a padding further in: the figures end on their column's right edge, and "30분" and
+  // "점검 필요" beside it read as one cell (the Excel composer indents that column for the same reason).
+  const alignments = figureColumnAlignments(rows, columns, block.columnAlignments, header);
+  const leads = alignments.map((alignment, column) =>
+    column > 0 && alignments[column - 1] === 'right' && alignment !== 'right' ? padding : 0
+  );
+  // Undeclared widths follow the text, the Word writer's rule (naturalColumnWidths).
+  const measure = (text, rowIndex, column) =>
+    faceOf(rowIndex).widthOfTextAtSize(text, fontSize) + padding * 2 + leads[column];
+  const weights =
+    Array.isArray(block.columnWidths) && block.columnWidths.length === columns
+      ? block.columnWidths.map((value) => Math.max(0, Number(value) || 0))
+      : naturalColumnWidths(rows, measure, width) || Array(columns).fill(1);
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0) || columns;
+  const cellWidths = weights.map((weight) => width * (weight / totalWeight));
   const minRowHeight = Number(block.rowHeight || 24);
-  const laidOut = rows.map((row) => {
+  const laidOut = rows.map((row, rowIndex) => {
+    const face = faceOf(rowIndex);
     const cells = Array.from({ length: columns }, (_, column) =>
-      wrapText(row[column] ?? '', font, fontSize, Math.max(4, cellWidths[column] - padding * 2))
+      wrapText(row[column] ?? '', face, fontSize, Math.max(4, cellWidths[column] - padding * 2 - leads[column]))
     );
     const height = Math.max(minRowHeight, Math.max(...cells.map((lines) => lines.length)) * lineHeight + padding * 2);
-    return { cells, height };
+    return { cells, height, face };
   });
   return {
     width,
@@ -330,9 +331,15 @@ function tableLayout(flow, block, rows) {
     fontSize,
     lineHeight,
     padding,
+    header,
+    total,
+    // The table anatomy the Word writer draws (docx skill §4): a bold header on a rule, hairlines between the
+    // rows, no vertical rules; grid:true keeps the full cell grid for a form-like table.
+    grid: block.grid === true,
     x0: Number(block.x ?? margin),
     laidOut,
-    alignments: tableAlignments(rows, columns, block),
+    alignments,
+    leads,
     // A header row a reader cannot tell from the data is not a header. Without
     // an explicit choice the row carries a neutral band and a rule under it.
     headerFill: block.headerFill === undefined ? 'EEF0F2' : block.headerFill,
@@ -341,46 +348,53 @@ function tableLayout(flow, block, rows) {
 }
 
 function drawTableRow(flow, block, layout, rowIndex) {
-  const { font } = flow;
   const { cellWidths, fontSize, lineHeight, padding } = layout;
-  const { cells, height } = layout.laidOut[rowIndex];
+  const { cells, height, face } = layout.laidOut[rowIndex];
+  const isHeader = layout.header && rowIndex === 0;
+  const isTotal = layout.total && rowIndex === layout.laidOut.length - 1;
   const top = flow.y;
+  const rule = (y, thickness) =>
+    flow.page.drawLine({
+      start: { x: layout.x0, y },
+      end: { x: layout.x0 + layout.width, y },
+      thickness,
+      color: layout.borderColor,
+    });
   let x = layout.x0;
   cells.forEach((lines, column) => {
     let fill = '';
-    if (rowIndex === 0) fill = layout.headerFill;
+    if (isHeader) fill = layout.headerFill;
     else if (rowIndex % 2 === 0) fill = block.zebraFill;
-    flow.page.drawRectangle({
-      x,
-      y: top - height,
-      width: cellWidths[column],
-      height,
-      ...(fill ? { color: color(fill) } : {}),
-      borderWidth: 0.5,
-      borderColor: layout.borderColor,
-    });
+    if (layout.grid || fill) {
+      flow.page.drawRectangle({
+        x,
+        y: top - height,
+        width: cellWidths[column],
+        height,
+        ...(fill ? { color: color(fill) } : {}),
+        ...(layout.grid ? { borderWidth: 0.5, borderColor: layout.borderColor } : {}),
+      });
+    }
     const textTop = top - Math.max(padding, (height - lines.length * lineHeight) / 2);
     const right = layout.alignments[column] === 'right';
     lines.forEach((line, lineIndex) => {
-      const inset = right ? cellWidths[column] - padding - font.widthOfTextAtSize(line, fontSize) : padding;
+      const inset = right
+        ? cellWidths[column] - padding - face.widthOfTextAtSize(line, fontSize)
+        : padding + layout.leads[column];
       flow.page.drawText(line, {
         x: x + Math.max(padding * 0.5, inset),
         y: textTop - lineIndex * lineHeight - fontSize * 0.78 - (lineHeight - fontSize) / 2,
         size: fontSize,
-        font,
-        color: color(rowIndex === 0 ? block.headerColor || block.color : block.color),
+        font: face,
+        color: color(isHeader ? block.headerColor || block.color : block.color),
       });
     });
     x += cellWidths[column];
   });
-  if (rowIndex === 0) {
-    flow.page.drawLine({
-      start: { x: layout.x0, y: top - height },
-      end: { x, y: top - height },
-      thickness: 1.1,
-      color: layout.borderColor,
-    });
-  }
+  // The total closes the column it sums: a stronger rule over it, in its bold face.
+  if (isTotal) rule(top, 1.1);
+  if (isHeader) rule(top - height, 1.1);
+  else if (!layout.grid) rule(top - height, 0.5);
   flow.y = top - height;
 }
 
@@ -406,7 +420,7 @@ function drawTableBlock(flow, block, following) {
     const needed = layout.laidOut[rowIndex].height + (rowIndex === last ? trailing : 0);
     if (flow.y - needed < flow.margin) {
       flow.newPage();
-      if (rowIndex > 0 && block.repeatHeader !== false) drawTableRow(flow, block, layout, 0);
+      if (rowIndex > 0 && layout.header && block.repeatHeader !== false) drawTableRow(flow, block, layout, 0);
     }
     drawTableRow(flow, block, layout, rowIndex);
   }
@@ -426,8 +440,9 @@ function linesHeight(font, text, size, width, lh = size * 1.35) {
 }
 
 // Lines of one role at one x: the shared way a cover's title, a quote, and a caption put words down.
-function drawLines(flow, box, text, size, { lh = size * 1.35, x = box.left, width = box.width, tint } = {}) {
-  const { font, margin } = flow;
+function drawLines(flow, box, text, size, { lh = size * 1.35, x = box.left, width = box.width, tint, face } = {}) {
+  const { margin } = flow;
+  const font = face || flow.font;
   for (const line of wrapText(String(text ?? ''), font, size, Math.max(8, width))) {
     if (flow.y - lh < margin) flow.newPage();
     flow.page.drawText(line, { x, y: flow.y - size, size, font, color: color(tint) });
@@ -459,7 +474,7 @@ function drawCoverBlock(flow, block, box) {
     drawLines(flow, box, block.eyebrow, 9.5, { lh: 14, tint: accent });
     flow.y -= 4;
   }
-  drawLines(flow, box, block.title, size, { lh: size * 1.2, tint: block.color });
+  drawLines(flow, box, block.title, size, { lh: size * 1.2, tint: block.color, face: flow.bold });
   if (block.subtitle) {
     flow.y -= 6;
     const subtitleSize = Number(block.subtitleSize || 13);
@@ -501,6 +516,7 @@ function drawCalloutBlock(flow, block, box) {
       x: box.left + pad,
       width: inner,
       tint: block.labelColor || INK.accent,
+      face: flow.bold,
     });
     flow.y -= 4;
   }
@@ -514,7 +530,11 @@ function drawQuoteBlock(flow, block, box) {
   const lh = Number(block.lineHeight || size * 1.45);
   const inset = 16;
   const inner = box.width - inset;
-  const attribution = block.attribution ? `— ${block.attribution}` : '';
+  // The dash is drawn here, so one the author already typed is not doubled.
+  const speaker = String(block.attribution ?? '')
+    .replace(/^[\s—–-]+/, '')
+    .trim();
+  const attribution = speaker ? `— ${speaker}` : '';
   // The attribution is part of the quote, so the break is decided on both:
   // measured on the words alone, a quote that ended a page left its
   // attribution stranded at the top of the next one, under nothing.
@@ -561,7 +581,7 @@ function drawStatsBlock(flow, block, box) {
   const top = flow.y;
   items.forEach((item, index) => {
     const x = box.left + index * (colW + gap);
-    flow.page.drawText(item.value, { x, y: top - size, size, font, color: color(block.accent || INK.accent) });
+    flow.page.drawText(item.value, { x, y: top - size, size, font: flow.bold, color: color(block.accent || INK.accent) });
     let ly = top - size * 1.15 - 4;
     for (const line of wrapText(item.label, font, labelSize, colW)) {
       flow.page.drawText(line, { x, y: ly - labelSize, size: labelSize, font, color: color(INK.muted) });
@@ -581,7 +601,7 @@ function drawProseBlock(flow, block, box, type) {
   const lineHeight = Number(block.lineHeight || fontSize * (heading ? 1.2 : 1.5));
   // A heading never ends a page: it moves with the first lines of what it opens.
   if (heading && flow.y - lineHeight * 3 < flow.margin) flow.newPage();
-  drawLines(flow, box, block.text, fontSize, { lh: lineHeight, tint: block.color });
+  drawLines(flow, box, block.text, fontSize, { lh: lineHeight, tint: block.color, face: heading ? flow.bold : flow.font });
   flow.y -= Number(block.after ?? (heading ? 8 : 6));
 }
 
@@ -642,33 +662,75 @@ function flowedFieldSpecs(blocks) {
 
 /** The room a field block needs, so the heading that introduces a form is not
  *  left at the foot of a page while its boxes move to the next one. */
+// A checkbox or a radio is a square with its label beside it, the way a form is read and ticked; stretched to the
+// column like a text box it drew a 350 pt bar with the tick floating in its middle.
+const MARK_SIZE = 14;
+// A radio group with its options is a question: its label above, each option a mark with its own words beside it
+// in one row. Drawn like a single mark, every option sat on the same spot under the question alone — one circle,
+// no choices, and the lint reported the group's buttons overlapping each other.
+const isChoiceGroup = (item) =>
+  String(item?.type || '') === 'radio' && Array.isArray(item.options) && item.options.length > 0 && !(Number(item.width) > 0);
+const isMarkField = (item) =>
+  ['checkbox', 'radio'].includes(String(item?.type || '')) && !(Number(item.width) > 0) && !isChoiceGroup(item);
+
+// The row's geometry, shared by the reservation and the placement: the caption band above typed boxes and above a
+// question's options, and a row of marks only as tall as a mark and its label.
+function fieldRowGeometry(block, items) {
+  const labelSize = Number(block.labelSize) > 0 ? Number(block.labelSize) : 9;
+  const marksOnly = items.every((item) => isMarkField(item) || isChoiceGroup(item));
+  const height = marksOnly ? Math.max(MARK_SIZE + 4, labelSize * 1.8) : Number(block.height) > 0 ? Number(block.height) : FIELD_HEIGHT;
+  const caption = items.some((item) => !isMarkField(item) && String(item.label ?? '').trim()) ? labelSize * 1.7 : 0;
+  return { labelSize, height, caption };
+}
+
+// A question's options in a row from x: each mark, its words beside it, then a gap before the next.
+function choiceOptions(flow, item, x, y, labelSize) {
+  let at = x;
+  return item.options.map((option) => {
+    const value = String(option?.value ?? option);
+    const label = String(option?.label ?? option?.value ?? option);
+    const placed = { value, label, x: at, y };
+    at += MARK_SIZE + 6 + flow.font.widthOfTextAtSize(label, labelSize + 1) + 18;
+    return placed;
+  });
+}
+
 function fieldBlockHeight(block) {
   const type = blockType(block);
   if (type !== 'field' && type !== 'fieldRow') return 0;
   const items = fieldSpecs(block, type);
   if (!items.length) return 0;
-  const labelSize = Number(block.labelSize) > 0 ? Number(block.labelSize) : 9;
-  const height = Number(block.height) > 0 ? Number(block.height) : FIELD_HEIGHT;
-  return (items.some((item) => String(item.label ?? '').trim()) ? labelSize * 1.7 : 0) + height;
+  const { height, caption } = fieldRowGeometry(block, items);
+  return caption + height;
 }
 
-function placeFieldBlock(flow, block, box, type) {
+function placeFieldBlock(flow, block, box, type, following) {
   const items = fieldSpecs(block, type);
   if (!items.length) return;
-  const labelSize = Number(block.labelSize) > 0 ? Number(block.labelSize) : 9;
-  const height = Number(block.height) > 0 ? Number(block.height) : FIELD_HEIGHT;
-  const caption = items.some((item) => String(item.label ?? '').trim()) ? labelSize * 1.7 : 0;
-  keepTogether(flow, caption + height);
+  const { labelSize, height, caption } = fieldRowGeometry(block, items);
+  // A caption under the form's last row travels with it, as it does under a table: on its own it opened a page of
+  // nothing but one grey line.
+  keepTogether(flow, caption + height + Number(block.after ?? 14) + captionHeight(following, flow.font, box.width));
   const gutter = Number(block.gutter ?? FIELD_GUTTER);
   const share = (box.width - gutter * (items.length - 1)) / items.length;
   const top = flow.y - caption;
   const page = flow.document.getPages().indexOf(flow.page) + 1;
   items.forEach((item, index) => {
+    const x = box.left + (share + gutter) * index;
+    if (isMarkField(item)) {
+      flow.resolvedFields.push({ labelSize, ...item, page, x, y: top - height + (height - MARK_SIZE) / 2, width: MARK_SIZE, height: MARK_SIZE, labelBeside: true });
+      return;
+    }
+    if (isChoiceGroup(item)) {
+      const y = top - height + (height - MARK_SIZE) / 2;
+      flow.resolvedFields.push({ labelSize, ...item, page, x, y, width: MARK_SIZE, height: MARK_SIZE, options: choiceOptions(flow, item, x, y, labelSize) });
+      return;
+    }
     flow.resolvedFields.push({
       labelSize,
       ...item,
       page,
-      x: box.left + (share + gutter) * index,
+      x,
       y: top - height,
       width: Number(item.width) > 0 ? Number(item.width) : share,
       height: Number(item.height) > 0 ? Number(item.height) : height,
@@ -698,7 +760,7 @@ async function flowBlocks(flow, blocks, baseDir) {
       const headingHeight = linesHeight(flow.font, block.text, size, textBox(flow, block).width, lineHeight);
       keepTogether(flow, headingHeight + Number(block.after ?? 8) + companion);
     }
-    if (type === 'field' || type === 'fieldRow') placeFieldBlock(flow, block, textBox(flow, block), type);
+    if (type === 'field' || type === 'fieldRow') placeFieldBlock(flow, block, textBox(flow, block), type, blocks[index + 1]);
     else if (type === 'image') await drawImageBlock(flow, block, baseDir);
     else if (type === 'list') drawListBlock(flow, block);
     else if (type === 'table') drawTableBlock(flow, block, blocks[index + 1]);
@@ -772,14 +834,32 @@ async function drawFormFields(document, fields, font) {
     if (label && page) {
       const labelSize = Number(field.labelSize) > 0 ? Number(field.labelSize) : 9;
       page.drawText(label, {
-        x: Number(field.x),
-        y: Number(field.y) + Number(field.height) + labelSize * 0.45,
-        size: labelSize,
+        // A mark's label reads beside its square, on the square's middle; a typed box's sits above it.
+        x: field.labelBeside ? Number(field.x) + Number(field.width) + 6 : Number(field.x),
+        y: field.labelBeside
+          ? Number(field.y) + (Number(field.height) - labelSize * 0.72) / 2
+          : Number(field.y) + Number(field.height) + labelSize * 0.45,
+        size: field.labelBeside ? labelSize + 1 : labelSize,
         font,
-        color: color('444444'),
+        color: color(field.labelBeside ? '1F2937' : '444444'),
       });
     }
-    await addFormField(document, field, font);
+    // A question's options each carry their own words beside their mark.
+    if (page) {
+      const labelSize = Number(field.labelSize) > 0 ? Number(field.labelSize) : 9;
+      for (const option of Array.isArray(field.options) ? field.options : []) {
+        if (!option || typeof option !== 'object' || !String(option.label ?? '').trim() || !Number.isFinite(Number(option.x))) continue;
+        page.drawText(String(option.label), {
+          x: Number(option.x) + Number(field.width) + 6,
+          y: Number(option.y) + (Number(field.height) - labelSize * 0.72) / 2,
+          size: labelSize + 1,
+          font,
+          color: color('1F2937'),
+        });
+      }
+    }
+    const { labelBeside, ...control } = field;
+    await addFormField(document, control, font);
   }
   if (fields?.length) document.getForm().updateFieldAppearances(font);
 }
@@ -805,7 +885,8 @@ export async function createPdf(path, { blocks = [], fields = [], properties = {
     fontPath: properties.fontPath,
     text: coverage,
   });
-  const flow = createFlow(document, { size: pageSize(properties), margin, font, background: properties.background });
+  const bold = await embedBoldFont(document, { font, fontPath, text: coverage });
+  const flow = createFlow(document, { size: pageSize(properties), margin, font, bold, background: properties.background });
   await flowBlocks(flow, Array.isArray(blocks) ? blocks : [], dirname(path));
   const pageCount = document.getPageCount();
   const numbering = pageNumbering(properties, pageCount);

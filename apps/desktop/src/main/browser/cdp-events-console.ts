@@ -78,8 +78,8 @@ export function onLoadingFailed(
   // Chromium cancels a request when the address turns into a download,
   // when the page abandons a fetch, and when a navigation replaces it.
   // None of those is a fault of the page, so a cancelled request stays in
-  // the network ledger but never joins the failures a reply volunteers —
-  // a saved file used to be announced as a failed request.
+  // the network ledger but never joins the failures a reply volunteers — a
+  // saved file is not a failed request.
   if (request && !request.canceled && !isBrowserComponentUrl(request.url)) {
     pushBounded(
       diagnostics.networkFailures,

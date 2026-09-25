@@ -117,20 +117,20 @@ export function buildSessionStartBlock(session, cwd) {
 
 const BP3_PART_SEPARATOR = '\n\n---\n\n';
 
-function bp3SystemMessage(session) {
+function systemMessageWithTier(session, cacheTier) {
   return (
     (Array.isArray(session?.messages) ? session.messages : []).find(
-      (message) => message?.role === 'system' && message.cacheTier === 'tier3'
+      (message) => message?.role === 'system' && message.cacheTier === cacheTier
     ) || null
   );
 }
 
+function bp3SystemMessage(session) {
+  return systemMessageWithTier(session, 'tier3');
+}
+
 function bpEnvSystemMessage(session) {
-  return (
-    (Array.isArray(session?.messages) ? session.messages : []).find(
-      (message) => message?.role === 'system' && message.cacheTier === 'env'
-    ) || null
-  );
+  return systemMessageWithTier(session, 'env');
 }
 
 function joinBp3Parts(parts) {
@@ -228,7 +228,7 @@ export function isProtectedContextUserMessage(message) {
 // are synthetic anchors, not a real human turn — they must not count as
 // "user conversation" or the post-clear/post-compact session-start block
 // would be wrongly suppressed on the next real user turn.
-function isSummaryAnchorMessage(message) {
+export function isSummaryAnchorMessage(message) {
   return message?.role === 'user' && typeof message.content === 'string' && message.content.startsWith(SUMMARY_PREFIX);
 }
 

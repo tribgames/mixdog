@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react';
 
 import { claimNotificationClick, clearNotificationClick } from './push-notification-bridge';
 
-export const PUSH_OPEN_SESSION_MESSAGE = 'mixdog:open-session';
+const PUSH_OPEN_SESSION_MESSAGE = 'mixdog:open-session';
 
 export function usePushNotificationNavigation({
   ready,

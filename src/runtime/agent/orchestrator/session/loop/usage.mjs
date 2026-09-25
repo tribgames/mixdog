@@ -6,7 +6,7 @@ import { reasoningUsage, combineReasoningUsage } from '../../../../shared/llm/re
 // Provider-measured whole-context occupancy (Cursor checkpoint usedTokens).
 // It is not billable prompt usage and carries no cache split, so it only
 // feeds the context gauge when the provider reports no prompt count.
-export function measuredContextTokens(usage) {
+function measuredContextTokens(usage) {
   const value = Number(usage?.contextTokens);
   return Number.isFinite(value) && value > 0 ? Math.round(value) : null;
 }

@@ -1,6 +1,6 @@
 // One keyed catalog per language, shared by explicit and legacy UI text.
 import { readFileSync } from 'node:fs';
-import { catalogProblems } from './i18n/source-keys.mjs';
+import { catalogProblems, hasLatinText } from './i18n/source-keys.mjs';
 import { generatedCatalogs } from './i18n/native-catalogs.mjs';
 import { catalogState, rendererUrl, readJson, supportedLanguages, requiredCatalogKeys } from './i18n/catalog-state.mjs';
 
@@ -25,11 +25,7 @@ for (const [name, catalog] of catalogs) {
 }
 const neutral = new Set(readJson(new URL('ui-untranslated-allowlist.json', rendererUrl)));
 for (const key of keys) {
-  if (
-    !neutral.has(key) &&
-    /[A-Za-z]/.test(key.replace(/\{\{[^}]+\}\}/g, '')) &&
-    [...catalogs.values()].every((catalog) => catalog[key] === key)
-  ) {
+  if (!neutral.has(key) && hasLatinText(key) && [...catalogs.values()].every((catalog) => catalog[key] === key)) {
     console.error(`check-i18n: English-only UI phrase: ${key}`);
     failed = true;
   }

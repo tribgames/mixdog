@@ -54,6 +54,35 @@ export function createAnthropicMidState(attemptIndex) {
  * @param {AbortSignal|null} deps.totalSignal
  * @param {{ recoverNonStreaming: Function, issueNonStreamingFallback: Function, requireTransportRecoveryBudget: Function }} deps.recovery
  */
+/**
+ * Empty-stream guard. Invariant: a valid Anthropic SSE response ALWAYS opens
+ * with message_start (which carries usage.input_tokens). A 200 whose body
+ * produced no message_start delivered nothing — no usage, no content, no tool
+ * calls — i.e. a dropped/empty stream (transient, often rate-limit-adjacent
+ * under concurrent load), NOT a valid terminal turn. Returning it surfaces
+ * upstream as a silent empty turn (0 tokens, no content) that masks the
+ * cause. Throw a marked error: retry is provably safe here (no message_start
+ * ⇒ nothing was emitted ⇒ no duplicate-tool risk), and once retries are
+ * exhausted the error is surfaced instead of swallowed.
+ */
+export function assertAnthropicStreamNotEmpty(midState, result, label) {
+  if (
+    !midState.sawMessageStart &&
+    !midState.userAbort &&
+    !midState.watchdogAbort &&
+    !result.content &&
+    !result.toolCalls?.length &&
+    !(result.usage && result.usage.inputTokens > 0)
+  ) {
+    const emptyErr = new Error(
+      `${label} SSE stream produced no message_start (empty/dropped stream — likely transient or rate-limited)`
+    );
+    emptyErr.code = 'EEMPTYSTREAM';
+    emptyErr.isEmptyStream = true;
+    throw emptyErr;
+  }
+}
+
 export function createAnthropicMidstreamRecovery({
   label,
   outcomeProvider,
@@ -119,6 +148,7 @@ export function createAnthropicMidstreamRecovery({
     // aliases. Coarse midState flags are NOT written here: they
     // would downgrade the parser's authoritative verdict that an
     // incomplete, never dispatched tool input stays replay-safe.
+    // Every retry branch below relies on this early exit.
     if (outcome?.replayUnsafe === true) {
       try {
         controller?.abort?.(err);
@@ -144,7 +174,7 @@ export function createAnthropicMidstreamRecovery({
         message: `empty stream (no message_start) — retry ${attemptLabel}`,
       });
     }
-    if (classifyError(err) === 'transient' && !midState.sawMessageStart && outcome?.replayUnsafe !== true && canRetry) {
+    if (classifyError(err) === 'transient' && !midState.sawMessageStart && canRetry) {
       return retryStreaming({
         err,
         classifier: err?.providerErrorType || 'sse_transient',
@@ -167,7 +197,6 @@ export function createAnthropicMidstreamRecovery({
     if (
       (err?.truncatedStream === true || err?.code === 'TRUNCATED_STREAM') &&
       classifyError(err) === 'transient' &&
-      outcome?.replayUnsafe !== true &&
       canRetry
     ) {
       return retryStreaming({
@@ -190,7 +219,6 @@ export function createAnthropicMidstreamRecovery({
     // trivially safe here — nothing was relayed or dispatched.
     if (
       classifier === 'stream_stalled' &&
-      outcome?.replayUnsafe !== true &&
       !midState.emittedText &&
       !midState.emittedToolCall &&
       !midState.partialToolCall &&

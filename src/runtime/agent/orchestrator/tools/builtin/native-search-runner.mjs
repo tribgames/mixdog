@@ -31,10 +31,6 @@ async function serve(argsList, execOptions, opts) {
   }
 }
 
-export async function rgSupportsPcre2() {
-  return true;
-}
-
 export async function runRg(argsList, execOptions = {}) {
   const result = await serve(argsList, execOptions, { offset: 0, limit: 0 });
   if (!result.complete && !result.partial) throw unavailable(argsList);

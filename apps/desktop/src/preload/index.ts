@@ -38,6 +38,20 @@ function bootContextValue(): DesktopBootContext | undefined {
 }
 const bootContext = bootContextValue();
 
+/** Wire-only keys of a DesktopStateWire; never part of a SessionSnapshot's fields. */
+const STATE_WIRE_CONTROL_KEYS = new Set([
+  'items',
+  'streamingTail',
+  '__itemsRevision',
+  '__itemsPatch',
+  '__streamingTailPatch',
+  '__statePatch',
+]);
+
+function streamingTailFrom(value: unknown): DesktopTranscriptItem | null {
+  return value && typeof value === 'object' ? (value as DesktopTranscriptItem) : null;
+}
+
 const api: DesktopApi = {
   ...(bootContext ? { bootContext } : {}),
   chooseProject: () => ipcRenderer.invoke(DESKTOP_IPC.chooseProject),
@@ -212,18 +226,19 @@ const api: DesktopApi = {
     const stateFieldsFrom = (record: Record<string, unknown>): Record<string, unknown> => {
       const fields: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(record)) {
-        if (
-          key !== 'items' &&
-          key !== 'streamingTail' &&
-          key !== '__itemsRevision' &&
-          key !== '__itemsPatch' &&
-          key !== '__streamingTailPatch' &&
-          key !== '__statePatch'
-        ) {
-          fields[key] = value;
-        }
+        if (!STATE_WIRE_CONTROL_KEYS.has(key)) fields[key] = value;
       }
       return fields;
+    };
+    // Lost sync (preload reload, missed event): drop the patch and ask the
+    // host to restart from a full snapshot.
+    const requestResync = (): void => {
+      revision = null;
+      try {
+        ipcRenderer.send(DESKTOP_IPC.stateResync);
+      } catch {
+        /* next full send recovers */
+      }
     };
     const receive = (_event: Electron.IpcRendererEvent, wire: DesktopStateWire): void => {
       if (!wire || typeof wire !== 'object') {
@@ -247,10 +262,7 @@ const api: DesktopApi = {
           items = [];
           revision = null;
         }
-        streamingTail =
-          snapshot.streamingTail && typeof snapshot.streamingTail === 'object'
-            ? (snapshot.streamingTail as DesktopTranscriptItem)
-            : null;
+        streamingTail = streamingTailFrom(snapshot.streamingTail);
         stateFields = stateFieldsFrom(snapshot);
         listener(snapshot as SessionSnapshot);
         return;
@@ -261,14 +273,7 @@ const api: DesktopApi = {
         patch.base !== revision ||
         (statePatch && (statePatch.base !== revision || statePatch.revision !== patch.revision))
       ) {
-        // Lost sync (preload reload, missed event): drop the patch and ask the
-        // host to restart from a full snapshot.
-        revision = null;
-        try {
-          ipcRenderer.send(DESKTOP_IPC.stateResync);
-        } catch {
-          /* next full send recovers */
-        }
+        requestResync();
         return;
       }
       if (statePatch) {
@@ -290,12 +295,7 @@ const api: DesktopApi = {
           tailPatch.prefix < 0 ||
           tailPatch.prefix > priorText.length
         ) {
-          revision = null;
-          try {
-            ipcRenderer.send(DESKTOP_IPC.stateResync);
-          } catch {
-            /* next full send recovers */
-          }
+          requestResync();
           return;
         }
         nextStreamingTail = {
@@ -303,10 +303,7 @@ const api: DesktopApi = {
           text: priorText.slice(0, tailPatch.prefix) + tailPatch.append,
         };
       } else if (Object.hasOwn(record, 'streamingTail')) {
-        nextStreamingTail =
-          record.streamingTail && typeof record.streamingTail === 'object'
-            ? (record.streamingTail as DesktopTranscriptItem)
-            : null;
+        nextStreamingTail = streamingTailFrom(record.streamingTail);
       }
       // A streaming-tail-only publication carries an empty settled-items
       // patch. Preserve the array identity so renderer memos do not rescan the
@@ -478,7 +475,9 @@ const api: DesktopApi = {
         decoder.reset();
         try {
           ipcRenderer.send(DESKTOP_IPC.sessionStateResync, sessionId);
-        } catch {}
+        } catch {
+          /* the next full snapshot recovers */
+        }
         return;
       }
       if (update.wire === null) decoders.delete(sessionId);

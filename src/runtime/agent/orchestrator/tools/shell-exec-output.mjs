@@ -356,13 +356,7 @@ export class TaskOutput {
 
   writeStdout(s) {
     if (!s) return;
-    const inspected = inspectShellTextChunk(s, 'stdout');
-    if (inspected.binary && !this.binaryOutput) {
-      this.binaryOutput = { channel: 'stdout', bytes: inspected.bytes };
-      s = `[binary output on stdout sanitized; non-printable bytes removed]\n${inspected.text}`;
-    } else {
-      s = inspected.text;
-    }
+    s = this._sanitizeChunk(s, 'stdout');
     if (this.spilled) {
       try {
         writeSync(this.stdoutFd, s);
@@ -379,13 +373,7 @@ export class TaskOutput {
 
   writeStderr(s) {
     if (!s) return;
-    const inspected = inspectShellTextChunk(s, 'stderr');
-    if (inspected.binary && !this.binaryOutput) {
-      this.binaryOutput = { channel: 'stderr', bytes: inspected.bytes };
-      s = `[binary output on stderr sanitized; non-printable bytes removed]\n${inspected.text}`;
-    } else {
-      s = inspected.text;
-    }
+    s = this._sanitizeChunk(s, 'stderr');
     if (this.spilled) {
       try {
         writeSync(this.stderrFd, s);
@@ -444,10 +432,11 @@ export class TaskOutput {
     }
   }
 
-  // Direct capture has NO JS write path, so the per-chunk ANSI/binary scrub
-  // writeStdout applies never runs. Doing it at read time keeps what the
-  // caller sees identical across both capture modes.
-  _sanitizeDirect(text, channel) {
+  // The per-chunk binary/control-character scrub. writeStdout/writeStderr
+  // apply it as chunks arrive; direct capture has NO JS write path, so the
+  // getters apply it at read time, keeping what the caller sees identical
+  // across both capture modes.
+  _sanitizeChunk(text, channel) {
     if (!text) return text;
     const inspected = inspectShellTextChunk(text, channel);
     if (inspected.binary && !this.binaryOutput) {
@@ -469,7 +458,7 @@ export class TaskOutput {
       }
       try {
         const text = _readHeadTail(this.stdoutPath, this.stdoutFileSize);
-        return this.direct ? this._sanitizeDirect(text, 'stdout') : text;
+        return this.direct ? this._sanitizeChunk(text, 'stdout') : text;
       } catch (err) {
         throw new Error(`[shell-command] spilled stdout read failed (${this.stdoutPath}): ${err.message}`);
       }
@@ -489,7 +478,7 @@ export class TaskOutput {
       }
       try {
         const text = _readHeadTail(this.stderrPath, this.stderrFileSize);
-        return this.direct ? this._sanitizeDirect(text, 'stderr') : text;
+        return this.direct ? this._sanitizeChunk(text, 'stderr') : text;
       } catch {
         return '';
       }

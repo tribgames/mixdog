@@ -20,7 +20,9 @@ export function localContextSettings(entry, dataDir = resolvePluginData()) {
   try {
     configured = validateLocalContext(entry, JSON.parse(readFileSync(settingsPath(entry.id, dataDir), 'utf8')).tokens);
   } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
+    // Absent, corrupt (SyntaxError) or out-of-range (TypeError) settings all
+    // fall back to the model default; an I/O failure still surfaces.
+    if (error.code !== 'ENOENT' && !(error instanceof SyntaxError) && !(error instanceof TypeError)) throw error;
   }
   return {
     configuredContextWindow: configured,

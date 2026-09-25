@@ -1,7 +1,7 @@
 // Shared rehype-stage helpers used by BOTH markdown pipelines (the lazy
 // react-markdown chunk and the worker AST processor) so their DOM output
-// stays identical. Keep this module dependency-free: it is pulled into the
-// renderer bundle and the markdown worker alike.
+// stays identical. Keep this module free of DOM and React dependencies: it is
+// pulled into the renderer bundle and the markdown worker alike.
 import { isOsDocumentExtension } from '../shared/local-files';
 import { isLocalMarkdownLink } from './markdown-url';
 
@@ -16,7 +16,8 @@ interface HastLikeNode {
 const adjacentStrongPunctuation =
   /(\*\*(?!\s)([^*\n]*?[^\s\p{L}\p{N}*])\*\*|__(?!\s)([^_\n]*?[^\s\p{L}\p{N}_])__)(?=[\p{L}\p{N}])/gu;
 
-function escapedAt(value: string, index: number): boolean {
+/** Whether an odd run of backslashes escapes the character at `index`. */
+export function escapedAt(value: string, index: number): boolean {
   let slashes = 0;
   for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
     slashes += 1;

@@ -72,7 +72,7 @@ export function mergeRecallEventRows(rankedRows, tailRows, { dedupeEvents = fals
 export async function expandRecallEventContext(
   db,
   rankedRows,
-  { query, limit, tsFrom, tsTo, excludeStatuses, category: _category, projectScope, dedupeEvents = false } = {}
+  { query, limit, tsFrom, tsTo, excludeStatuses, projectScope, dedupeEvents = false } = {}
 ) {
   const anchors = [];
   const anchorLimit = Math.max(1, Math.floor(Number(limit) || 10));

@@ -29,7 +29,7 @@ const ALIGNMENTS = ['left', 'center', 'right'];
 // page's own rotation so the stamp reads with the page instead of lying
 // sideways along an edge. A watermark centres its rotated run on the page
 // unless placed explicitly; add_text with align centres or right-aligns the
-// run between the page margins when x is omitted.
+// run between the page margins when x is omitted, or on x when it is given.
 function stampText(page, text, stamp) {
   const { font, size, angle, align, watermark } = stamp;
   const textWidth = font.widthOfTextAtSize(text, size);
@@ -42,14 +42,22 @@ function stampText(page, text, stamp) {
   let defaultX = 36;
   if (align === 'center') defaultX = (displayWidth - spanX) / 2;
   else if (align === 'right') defaultX = displayWidth - 36 - spanX;
-  const defaultY = watermark ? (displayHeight - spanY) / 2 : 36;
-  const { x, y } = displayPointToUser(
-    spin,
-    page.getWidth(),
-    page.getHeight(),
-    stamp.x ?? defaultX,
-    stamp.y ?? defaultY
-  );
+  let displayX = stamp.x ?? defaultX;
+  let displayY = stamp.y ?? (watermark ? (displayHeight - spanY) / 2 : 36);
+  if (stamp.x != null) {
+    // With x, align puts the run's centre or right end there: the start at x ignored the align asked for, and a
+    // footer centred at the page's middle ran off to the right by half its width.
+    const share = { left: 0, center: 0.5, right: 1 }[align];
+    displayX -= share * spanX;
+    if (stamp.y != null) displayY -= share * spanY;
+  } else if (watermark && stamp.y == null) {
+    // The glyphs' middle on the page's centre, not their baseline: a 45° mark sat a third of its size up and to
+    // the left. Latin capitals and Hangul stand about 0.7 em.
+    const lift = 0.35 * size;
+    displayX += lift * Math.sin((angle * Math.PI) / 180);
+    displayY -= lift * Math.cos((angle * Math.PI) / 180);
+  }
+  const { x, y } = displayPointToUser(spin, page.getWidth(), page.getHeight(), displayX, displayY);
   page.drawText(text, {
     x,
     y,

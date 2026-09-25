@@ -15,7 +15,7 @@ import {
   extractGrepChunkResultLines,
   mergeGrepChunkLines,
 } from './search-grep-chunks.mjs';
-import { formatGrepOutput } from './grep-output.mjs';
+import { formatGrepOutput, grepNoMatchesBody } from './grep-output.mjs';
 
 export async function runGrepChunkMerge({
   args,
@@ -26,9 +26,6 @@ export async function runGrepChunkMerge({
   readStateScope,
   options,
   patternCapNote,
-  searchPath,
-  grepResolvedPath,
-  normalizedGlobPatterns,
   outputMode,
   headLimit,
   headLimitCoerced,
@@ -36,7 +33,6 @@ export async function runGrepChunkMerge({
   beforeN,
   afterN,
   contextN,
-  fileType,
   executeGrepTool,
 }) {
   const patternChunks = chunkPatternList(patterns, patternChunkCap);
@@ -93,9 +89,7 @@ export async function runGrepChunkMerge({
     markScopedCacheIncomplete(options.scopedCacheOutcome);
   }
   if (!windowed.length) {
-    const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
-    const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
-    return `${patternCapNote}${chunkPrefix}(no matches) pattern=${patternStr} path=${searchPath}${globStr}`;
+    return `${patternCapNote}${chunkPrefix}${grepNoMatchesBody({ totalKnown: !truncatedAggregate })}`;
   }
   return formatGrepOutput({
     windowed,
@@ -107,15 +101,10 @@ export async function runGrepChunkMerge({
     headLimit,
     offset,
     outputMode,
-    patterns,
     beforeN,
     afterN,
     contextN,
-    searchPath,
-    grepResolvedPath,
     workDir,
-    globPatterns: normalizedGlobPatterns,
-    fileType,
     filenameOmitted: false,
     prefix: patternCapNote + chunkPrefix,
   });

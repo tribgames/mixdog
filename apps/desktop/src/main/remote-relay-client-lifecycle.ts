@@ -12,6 +12,7 @@ import {
   type RelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
 import { createRemoteStateLane } from './remote-state-lane';
+import type { RemoteClientClaim } from './remote-relay';
 import type { RelayClientCallOutcome } from './remote-relay-client-calls';
 import type { RelayClientRegistry, RelayClientState } from './remote-relay-clients';
 
@@ -37,14 +38,7 @@ export interface RelayClientLifecycleDeps {
     frameBytes: number
   ): Promise<RelayClientCallOutcome>;
   resyncClient(clientId: string, state: RelayClientState): void;
-  onClientClaim?: (claim: {
-    claimId: string;
-    clientId: string;
-    name: string;
-    platform: string;
-    browser: string;
-    expiresAt: number;
-  }) => Promise<boolean>;
+  onClientClaim?: (claim: RemoteClientClaim) => Promise<boolean>;
 }
 
 const HANDSHAKE_REQUIRED = 'relay encryption handshake required';
@@ -63,6 +57,7 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
       listDelta: 1 as const,
       ...(relayE2EECompressionSupported() ? { deflate: 1 as const } : {}),
       compactWire: 1 as const,
+      transcriptPaging: 1 as const,
     };
     if (!deps.clients.open(clientId, challenge)) return;
     deps.sendEnvelope({
@@ -123,6 +118,7 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
       client.binaryFrames = hello.binaryFrames === 1;
       client.listDelta = hello.listDelta === 1;
       client.compactWire = hello.compactWire === 1;
+      client.transcriptPaging = hello.transcriptPaging === 1;
       client.viewSync = hello.viewSync === 1 && deps.viewSyncSupported();
       client.stateLane = createRemoteStateLane(client.compactWire, (payload, droppable) =>
         deps.clients.attached(clientId, client)

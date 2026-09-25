@@ -448,23 +448,8 @@ function uniqueV4AHunkPosition(sourceLines, hunk) {
     if (p === ' ' || p === '-') seq.push(ln.slice(1));
   }
   if (seq.length === 0) return null;
-  let pos = -1;
-  let count = 0;
-  for (let i = 0; i + seq.length <= sourceLines.length; i++) {
-    let match = true;
-    for (let j = 0; j < seq.length; j++) {
-      if (sourceLines[i + j] !== seq[j]) {
-        match = false;
-        break;
-      }
-    }
-    if (match) {
-      if (pos < 0) pos = i;
-      count++;
-      if (count >= 2) break;
-    }
-  }
-  return count === 1 ? pos : null;
+  const start = uniqueExactSequenceStart(sourceLines, seq);
+  return start < 0 ? null : start;
 }
 
 function orderV4AHunksByFilePosition(sourceLines, hunks, fuzzy) {
@@ -527,7 +512,7 @@ export function validateV4ARenameSection(section, basePath, seenDestKeys) {
   // Case-only rename (foo.js -> Foo.js) on a case-insensitive fs resolves to
   // the same key but is a legitimate rename. Reject "same path" only when the
   // raw paths are byte-identical; a case-only difference falls through.
-  if (pathKey(srcFull) === pathKey(destFull) && srcFull === destFull) {
+  if (srcFull === destFull) {
     return `apply_patch: V4A rename source and destination are the same path (${normalizeOutputPath(section.path)})`;
   }
   const caseOnlyRename = pathKey(srcFull) === pathKey(destFull) && srcFull !== destFull;

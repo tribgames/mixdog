@@ -254,11 +254,12 @@ function parseGrepResult(text, args) {
     byFile.get(match[1]).push({ lineNumber: Number(match[2]), content: match[3] });
   }
   const matches = [...byFile].map(([file, fileMatches]) => ({ file, matches: fileMatches }));
+  const matchedLines = matches.reduce((sum, entry) => sum + entry.matches.length, 0);
   return {
     content: {
       matches,
-      totalLines: matches.reduce((sum, entry) => sum + entry.matches.length, 0),
-      totalMatchedLines: matches.reduce((sum, entry) => sum + entry.matches.length, 0),
+      totalLines: matchedLines,
+      totalMatchedLines: matchedLines,
     },
   };
 }

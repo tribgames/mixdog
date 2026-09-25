@@ -3,6 +3,7 @@ import { killShellDescendants, waitForShellDescendants } from '../../lib/shell-d
 import { consumeFilterTeeCapture } from '../shell-analysis.mjs';
 import { compactShellOutputLosslessly, renderShellOutputBody } from '../shell-lossless-compact.mjs';
 import { removeTransportFileNow } from './transport-artifacts.mjs';
+import { shellTaskIdentity } from './backgrounded-result.mjs';
 import { _isBenignSearchExitOne } from './benign-exit.mjs';
 import {
   SURVIVING_DESCENDANTS_UNREACHABLE_WARNING,
@@ -26,14 +27,8 @@ function trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs 
       startedAtMs: startedAtMs || Date.now(),
       surface: 'shell',
       operation: 'shell',
-      label: String(command).replace(/\s+/g, ' ').slice(0, 120),
+      ...shellTaskIdentity(command, options),
       input: { command, cwd },
-      context: {
-        notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
-        callerSessionId: options?.callerSessionId || options?.sessionId || null,
-        routingSessionId: options?.routingSessionId || options?.sessionId || null,
-        clientHostPid: options?.clientHostPid,
-      },
       meta: { task_id: handle.taskId, stdout: null, stderr: null, cwd, timeoutMs: 0 },
       resultType: 'shell_task_result',
       run: async () => {

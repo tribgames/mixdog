@@ -16,12 +16,7 @@ export function _isReadTool(name) {
 }
 export function _isMutationTool(name, args = null) {
   const n = String(_stripMcpPrefix(name) || '').toLowerCase();
-  return (
-    n === 'apply_patch' ||
-    n === 'edit' ||
-    (n === 'git' && gitCommandMutates(args)) ||
-    (n === 'github' && githubRequestMutates(args))
-  );
+  return n === 'apply_patch' || n === 'edit' || _isGitMutationTool(name, args);
 }
 export function _isGitMutationTool(name, args = null) {
   const n = String(_stripMcpPrefix(name) || '').toLowerCase();

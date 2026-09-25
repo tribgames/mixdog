@@ -6,16 +6,7 @@
  * applyBody; a body that cannot be applied at the current revision reports
  * false so the caller resyncs.
  */
-
-function applyStatePatch(state, patch) {
-  const next = { ...state, ...(patch.set || {}) };
-  if (patch.itemsAppend) {
-    const base = Array.isArray(state.items) ? state.items : [];
-    next.items = base.slice(0, patch.itemsAppend.from).concat(patch.itemsAppend.values || []);
-  }
-  for (const key of patch.remove || []) delete next[key];
-  return next;
-}
+import { applySessionStatePatch } from '../session-state-patch.mjs';
 
 export function createProjection({ binding, log }) {
   let state = {};
@@ -66,7 +57,7 @@ export function createProjection({ binding, log }) {
     if (body.patch) {
       if (Number(body.revision) === revision && Number(body.baseRevision) === revision - 1) return true;
       if (Number(body.baseRevision) !== revision) return false;
-      state = applyStatePatch(state, body.patch);
+      state = applySessionStatePatch(state, body.patch);
       revision = Number(body.revision) || revision;
       emit();
       return true;

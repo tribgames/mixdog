@@ -189,6 +189,11 @@ function writeCache(win: Window, value: UsageRecord): void {
   }
 }
 
+/** The host can read the usage dashboard through one of its capability paths. */
+function canReadUsage(api: UsageApi | undefined): api is UsageApi {
+  return typeof api?.invokeCapability === 'function' || typeof api?.readCapabilities === 'function';
+}
+
 function trackTimeout(win: Window, task: () => void, delayMs: number): number {
   let handle = 0;
   handle = win.setTimeout(() => {
@@ -527,7 +532,7 @@ export function refreshUsageDashboard(
   const win = ensureHost();
   if (pending) return pending;
   if (!win) return Promise.resolve();
-  if (typeof api?.invokeCapability !== 'function' && typeof api?.readCapabilities !== 'function') {
+  if (!canReadUsage(api)) {
     // This host cannot serve usage at all. Settle the first paint instead of
     // leaving the surface on an indefinite Loading.
     finishUsageChecks(win);
@@ -609,13 +614,9 @@ export function holdUsageDashboardCadence(api: UsageApi | undefined): () => void
   cadenceHolders += 1;
   // A same-window API swap (host bridge replaced) becomes the cadence API, so
   // neither the cadence nor the retry can keep a retired bridge alive.
-  if (typeof api?.invokeCapability === 'function' || typeof api?.readCapabilities === 'function') cadenceApi = api;
+  if (canReadUsage(api)) cadenceApi = api;
   if (win && cadenceApi) bindAccountChanges(win, cadenceApi);
-  if (
-    win &&
-    releaseCadence === null &&
-    (typeof cadenceApi?.invokeCapability === 'function' || typeof cadenceApi?.readCapabilities === 'function')
-  ) {
+  if (win && releaseCadence === null && canReadUsage(cadenceApi)) {
     releaseCadence = startVisibleRefreshCadence({
       win,
       intervalMs: USAGE_DASHBOARD_REFRESH_INTERVAL_MS,

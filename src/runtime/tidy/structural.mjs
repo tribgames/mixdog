@@ -191,11 +191,6 @@ export function normalizeStructuralMatch(row, { zeroBased = true } = {}) {
   };
 }
 
-/**
- * Parse the graph binary's JSONL stream. The final `{"summary":...}` line is the
- * run summary; everything else is a match. Exit 2 is a usage or rule-parse
- * error and is reported as such (the rule pack, not the file set, is at fault).
- */
 function stderrError(exitCode, kind, stderr, fallback) {
   return {
     exitCode,
@@ -233,6 +228,11 @@ function parseScanLines(stdout) {
   return { matches, summary, malformed };
 }
 
+/**
+ * Parse the graph binary's JSONL stream. The final `{"summary":...}` line is the
+ * run summary; everything else is a match. Exit 2 is a usage or rule-parse
+ * error and is reported as such (the rule pack, not the file set, is at fault).
+ */
 export function parseStructuralJsonl(stdout, { exitCode = 0, stderr = '' } = {}) {
   if (exitCode === 2) {
     return {

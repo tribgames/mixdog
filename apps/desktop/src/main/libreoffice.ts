@@ -4,6 +4,7 @@
 // card brings it in as part of its Install step. Desktop-only surface executed
 // by the singleton daemon.
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -59,11 +60,19 @@ function sofficeCandidates(): string[] {
     return [
       'soffice',
       '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+      join(homedir(), 'Applications', 'LibreOffice.app', 'Contents', 'MacOS', 'soffice'),
       '/opt/homebrew/bin/soffice',
       '/usr/local/bin/soffice',
     ];
   }
-  return ['soffice', 'libreoffice', '/usr/bin/soffice'];
+  return [
+    'soffice',
+    'libreoffice',
+    '/usr/lib/libreoffice/program/soffice',
+    '/snap/bin/libreoffice',
+    '/var/lib/flatpak/exports/bin/org.libreoffice.LibreOffice',
+    join(homedir(), '.local', 'share', 'flatpak', 'exports', 'bin', 'org.libreoffice.LibreOffice'),
+  ];
 }
 
 async function resolveSoffice(refresh = false): Promise<{ path: string; version: string } | null> {
@@ -133,7 +142,8 @@ export async function installLibreOffice({
     }
   } else {
     throw new Error(
-      'Automatic LibreOffice installation is not supported on this platform. Install LibreOffice from https://www.libreoffice.org.'
+      'Automatic LibreOffice installation is not supported on Linux. Install it with your package manager ' +
+        '(for example `sudo apt install libreoffice` or `sudo dnf install libreoffice`) or from https://www.libreoffice.org.'
     );
   }
   const status = await libreOfficeStatus(true);

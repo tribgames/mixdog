@@ -112,7 +112,8 @@ function summarizeUpdateResult(text, args) {
   // A dry_run patch validates without writing, so the collapsed detail must not
   // claim a real mutation ("Updated/Created/Deleted foo.js"). Map every action
   // to "Checked" wording, matching the dry-run header (Checking/Checked).
-  const isDryRun = parseToolArgs(args)?.dry_run === true;
+  const parsedArgs = parseToolArgs(args);
+  const isDryRun = parsedArgs.dry_run === true;
   const changed = [];
   for (const line of String(text ?? '').split('\n')) {
     const ok = /^\s*OK\s+(modify|add|delete|create)\s+(.+?)\s*$/i.exec(line);
@@ -149,7 +150,6 @@ function summarizeUpdateResult(text, args) {
     return compactParts([`${isDryRun ? 'Checked' : 'Updated'} ${changed.length} Files`, formatLineDelta(totals)]);
   }
 
-  const parsedArgs = parseToolArgs(args);
   const target = parsedArgs.path ?? parsedArgs.file ?? parsedArgs.file_path ?? '';
   if (target) return `${isDryRun ? 'Checked' : 'Updated'} ${displayToolPath(target)}`;
   return null;
@@ -180,6 +180,9 @@ function stripInlineMarkdown(value) {
 const ENVELOPE_FIELD_LINE_RE =
   /^(?:agent task|background task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused|result|message|output|protocol|version):\s*/i;
 
+// Bracketed control fields such as `[status: completed]` or `[exit: 0]`.
+const BRACKETED_FIELD_LINE_RE = /^\[[a-z-]+:\s*[^\]]*\]$/i;
+
 function firstAgentResultLine(text) {
   const notification = parseTaskNotification(text);
   if (notification) return firstAgentResultLine(notification.result);
@@ -196,7 +199,7 @@ function firstAgentResultLine(text) {
     )
       continue;
     if (ENVELOPE_FIELD_LINE_RE.test(trimmed)) continue;
-    if (/^\[[a-z-]+:\s*[^\]]*\]$/i.test(trimmed)) continue;
+    if (BRACKETED_FIELD_LINE_RE.test(trimmed)) continue;
     return truncateSingleLine(trimmed, AGENT_SURFACE_BRIEF_MAX);
   }
   return '';
@@ -243,7 +246,7 @@ function summarizeGenericResult(text) {
     trimmed
       .split('\n')
       .map((item) => item.trim())
-      .find((item) => item && !ENVELOPE_FIELD_LINE_RE.test(item) && !/^\[[a-z-]+:\s*[^\]]*\]$/i.test(item)) ||
+      .find((item) => item && !ENVELOPE_FIELD_LINE_RE.test(item) && !BRACKETED_FIELD_LINE_RE.test(item)) ||
     '';
   if (!line || line === '{' || line === '[') return null;
   if (/^(ok|done|success|saved|sent|updated|reloaded|connected|enabled|disabled|active|inactive)$/i.test(line)) {

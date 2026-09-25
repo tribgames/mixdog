@@ -50,13 +50,17 @@ export interface MixdogSessionStoreModule {
   }): Array<Record<string, unknown>>;
   storedAgentWorkerIndexPath?(): string;
   listStoredAgentWorkers?(): DesktopAgentPoolRow[];
-  readStoredSessionTranscript?(
-    sessionId: string,
-    options?: { transcriptItemLimit?: number }
-  ): Promise<Record<string, unknown> | null>;
 }
 
+/** Items a runtime restores on resume, and the page an old (non-paging)
+ *  remote client keeps receiving. */
 export const DESKTOP_TRANSCRIPT_ITEM_LIMIT = 512;
+/** First-open transcript tail for paging views: the virtual list paints about
+ *  28 rows at first (a ~1080px pane at the 60px row estimate plus 10 overscan
+ *  rows), so 32 items cover it; the byte budget may cut that to no fewer than
+ *  16 items (enforced by the daemon) when single rows are huge. */
+export const DESKTOP_TRANSCRIPT_TAIL_ITEMS = 32;
+export const DESKTOP_TRANSCRIPT_TAIL_BYTES = 1_000_000;
 // shellJobsStatus itself is cache-only and refreshes its disk-backed cache
 // asynchronously. Polling at the cache's 1s cadence keeps disk work out of the
 // engine's 50ms publication path.

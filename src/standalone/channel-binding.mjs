@@ -43,19 +43,15 @@ export function readRemoteIntent(path) {
     // report the original I/O failure rather than silently deleting user state.
     throw error;
   }
+  let intent = null;
   try {
-    const intent = normalizeRemoteIntent(JSON.parse(raw));
-    if (!intent) {
-      try {
-        rmSync(path, { force: true });
-      } catch {}
-      return null;
-    }
-    return intent;
-  } catch {
+    intent = normalizeRemoteIntent(JSON.parse(raw));
+  } catch {}
+  // Malformed or mismatched content is not a binding: drop the file.
+  if (!intent) {
     try {
       rmSync(path, { force: true });
     } catch {}
-    return null;
   }
+  return intent;
 }

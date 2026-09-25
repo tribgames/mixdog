@@ -88,8 +88,7 @@ async function callMicrosoftOfficeOnce(payload, { timeoutMs = DEFAULT_TIMEOUT_MS
     });
     child.on('error', (error) => finish({ ok: false, error: error?.message || String(error) }));
     child.on('close', (code) => {
-      if (settled) return;
-      if (draining) return;
+      if (settled || draining) return;
       const lines = stdout
         .split(/\r?\n/)
         .map((line) => line.trim())
@@ -195,28 +194,30 @@ async function requestSessionClient(client, payload, timeoutMs = DEFAULT_TIMEOUT
       signal?.removeEventListener?.('abort', onAbort);
       resolve(value);
     };
-    const onAbort = async () => {
-      client.pending.delete(requestId);
-      clearTimeout(timer);
-      const cleanup = await drainSessionClient(client, 'Microsoft Office operation was cancelled');
+    // Drain the host (reason) before answering, so the failure carries the cleanup outcome.
+    const failAfterCleanup = async (reason, message, extra = {}) => {
+      const cleanup = await drainSessionClient(client, reason);
       settle({
         ok: false,
         backend: 'microsoft-office-com',
-        cancelled: true,
-        error: officeCleanupError('Microsoft Office operation was cancelled', cleanup),
+        ...extra,
+        error: officeCleanupError(message, cleanup),
         cleanup,
       });
+    };
+    const onAbort = async () => {
+      client.pending.delete(requestId);
+      clearTimeout(timer);
+      const cancelled = 'Microsoft Office operation was cancelled';
+      await failAfterCleanup(cancelled, cancelled, { cancelled: true });
     };
     const timer = setTimeout(async () => {
       client.pending.delete(requestId);
       signal?.removeEventListener?.('abort', onAbort);
-      const cleanup = await drainSessionClient(client, `Microsoft Office session timed out after ${timeoutMs}ms`);
-      settle({
-        ok: false,
-        backend: 'microsoft-office-com',
-        error: officeCleanupError(`Microsoft Office operation timed out after ${timeoutMs}ms`, cleanup),
-        cleanup,
-      });
+      await failAfterCleanup(
+        `Microsoft Office session timed out after ${timeoutMs}ms`,
+        `Microsoft Office operation timed out after ${timeoutMs}ms`
+      );
     }, timeoutMs);
     if (signal?.aborted) return onAbort();
     signal?.addEventListener?.('abort', onAbort, { once: true });
@@ -226,14 +227,8 @@ async function requestSessionClient(client, payload, timeoutMs = DEFAULT_TIMEOUT
     } catch (error) {
       clearTimeout(timer);
       client.pending.delete(requestId);
-      void drainSessionClient(client, error?.message || String(error)).then((cleanup) => {
-        settle({
-          ok: false,
-          backend: 'microsoft-office-com',
-          error: officeCleanupError(error?.message || String(error), cleanup),
-          cleanup,
-        });
-      });
+      const message = error?.message || String(error);
+      void failAfterCleanup(message, message);
     }
   });
 }
@@ -293,13 +288,17 @@ export async function closeMicrosoftOfficeSession(
     try {
       client.child.stdin.end();
     } catch {}
+    let closeTimer;
     const graceful =
       client.closed || client.child.exitCode !== null
         ? true
         : await Promise.race([
             new Promise((resolve) => client.child.once('close', () => resolve(true))),
-            new Promise((resolve) => setTimeout(() => resolve(false), closeTimeoutMs)),
+            new Promise((resolve) => {
+              closeTimer = setTimeout(() => resolve(false), closeTimeoutMs);
+            }),
           ]);
+    clearTimeout(closeTimer);
     client.closed = true;
     try {
       client.readline.close();

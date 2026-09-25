@@ -1,3 +1,5 @@
+import { subscribeProjectFileChanges } from './project-file-changes';
+
 export type GitRefreshReason = 'activity' | 'safety';
 
 interface GitRefreshScheduler {
@@ -122,5 +124,29 @@ export function createGitRefreshScheduler(
       clearActivity();
       clearSafety();
     },
+  };
+}
+
+/** Drives a scheduler from Git evidence: project file changes and explicit
+ *  `mixdog:git-changed` events signal it, window focus refreshes at once, and
+ *  a hidden document pauses it. The returned teardown disposes the scheduler. */
+export function watchGitRefreshEvidence(projectPath: string, scheduler: GitRefreshScheduler): () => void {
+  const signal = () => scheduler.signal();
+  const refreshNow = () => scheduler.refreshNow();
+  const visibilityChanged = () => {
+    if (document.visibilityState === 'hidden') scheduler.pause();
+    else scheduler.resume();
+  };
+  const unsubscribeProject = subscribeProjectFileChanges(projectPath, signal);
+  window.addEventListener('focus', refreshNow);
+  window.addEventListener('mixdog:git-changed', signal);
+  document.addEventListener('visibilitychange', visibilityChanged);
+  if (document.visibilityState !== 'hidden') scheduler.resume();
+  return () => {
+    scheduler.dispose();
+    unsubscribeProject();
+    window.removeEventListener('focus', refreshNow);
+    window.removeEventListener('mixdog:git-changed', signal);
+    document.removeEventListener('visibilitychange', visibilityChanged);
   };
 }

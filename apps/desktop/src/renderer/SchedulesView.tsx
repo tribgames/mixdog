@@ -110,6 +110,20 @@ function frequencyFromCron(cron: string): {
   return fallback;
 }
 
+// The cron expression for a repeating frequency, read from the editor's
+// minute/clock fields — the inverse of frequencyFromCron above.
+function scheduleCron(frequency: FrequencyKind, field: (name: string) => string, weekday: string): string {
+  if (frequency === 'hourly') {
+    const minute = Math.min(59, Math.max(0, Number(field('schedule-minute') || '0') || 0));
+    return `${minute} * * * *`;
+  }
+  const [hour = '9', minute = '0'] = field('schedule-clock').split(':');
+  const base = `${Number(minute)} ${Number(hour)}`;
+  if (frequency === 'weekdays') return `${base} * * 1-5`;
+  if (frequency === 'weekly') return `${base} * * ${weekday}`;
+  return `${base} * * *`;
+}
+
 // Human schedule line for list rows (e.g. "Weekdays at 08:00").
 function describeSchedule(schedule: RecordValue): string {
   if (schedule.whenAt) {
@@ -282,17 +296,6 @@ function ScheduleEditor({
               setFormError(t('Choose a model for this schedule.'));
               return;
             }
-            const buildCron = () => {
-              if (frequency === 'hourly') {
-                const minute = Math.min(59, Math.max(0, Number(text('schedule-minute') || '0') || 0));
-                return `${minute} * * * *`;
-              }
-              const [hour = '9', minute = '0'] = text('schedule-clock').split(':');
-              const base = `${Number(minute)} ${Number(hour)}`;
-              if (frequency === 'weekdays') return `${base} * * 1-5`;
-              if (frequency === 'weekly') return `${base} * * ${weekday}`;
-              return `${base} * * *`;
-            };
             setFormError('');
             const effortSuffix = selected && effortValue ? `@${effortValue}` : '';
             const fastSuffix = fastAvailable && fast ? '+fast' : '';
@@ -302,7 +305,9 @@ function ScheduleEditor({
             onSave({
               name: editing ? draft.name : text('schedule-name'),
               description: draft.description,
-              ...(frequency === 'once' ? { at: text('schedule-at') } : { time: buildCron() }),
+              ...(frequency === 'once'
+                ? { at: text('schedule-at') }
+                : { time: scheduleCron(frequency, text, weekday) }),
               delivery: 'app',
               model: `${model}${effortSuffix}${fastSuffix}${parameterSuffix}`,
               ...(cwd ? { cwd } : {}),

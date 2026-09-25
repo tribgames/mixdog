@@ -200,16 +200,21 @@ export async function walkDir(
     }
     return readdirImpl(dir, { withFileTypes: true });
   };
-  const _walk = async (dir, depth) => {
+  // Abort signal or entry cap reached: marks the walk truncated.
+  const _shouldStop = () => {
     if (signal?.aborted) {
       truncated = true;
       aborted = true;
-      return false;
+      return true;
     }
     if (entriesVisited >= cap) {
       truncated = true;
-      return false;
+      return true;
     }
+    return false;
+  };
+  const _walk = async (dir, depth) => {
+    if (_shouldStop()) return false;
     if (depth > maxDepth) return true;
     let entries;
     try {
@@ -240,15 +245,7 @@ export async function walkDir(
     }
     const total = entries.length;
     for (let i = 0; i < total; i++) {
-      if (signal?.aborted) {
-        truncated = true;
-        aborted = true;
-        return false;
-      }
-      if (entriesVisited >= cap) {
-        truncated = true;
-        return false;
-      }
+      if (_shouldStop()) return false;
       entriesVisited += 1;
       const ent = entries[i];
       const entPath = join(dir, ent.name);

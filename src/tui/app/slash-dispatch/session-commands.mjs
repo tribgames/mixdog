@@ -48,10 +48,7 @@ export const sessionCommands = {
         })
         .catch((e) => store.pushNotice(`new session failed: ${e?.message || e}`, 'error'));
     } else {
-      void store
-        .clear()
-        .then(() => {})
-        .catch((e) => store.pushNotice(`clear failed: ${e?.message || e}`, 'error'));
+      void store.clear().catch((e) => store.pushNotice(`clear failed: ${e?.message || e}`, 'error'));
     }
     return true;
   },

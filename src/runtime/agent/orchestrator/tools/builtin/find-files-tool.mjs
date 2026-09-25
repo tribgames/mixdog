@@ -23,7 +23,7 @@ import {
   recordLocalSearchCacheHit,
   recordNativeSearchTiming,
 } from './local-search-telemetry.mjs';
-import { listGuardPath, normalizeListHeadLimit } from './lib/list-helpers.mjs';
+import { guardedWalkRoot, normalizeListHeadLimit, pageContinuationLine } from './lib/list-helpers.mjs';
 import { reportToolProgress } from './lib/tool-progress.mjs';
 import { displayRelPath, statWalkRoot, toolErrorText } from './list-tool-shared.mjs';
 
@@ -62,32 +62,13 @@ function _findOutputBudgetBytes(options = {}) {
   );
 }
 
-// Fuzzy filename search has one canonical implementation: the Rust search
-// server's resident inventory. A server failure is surfaced instead of
-// launching a second filesystem walk with different semantics.
-//
-// A pruned tree cannot report what it never enumerated. Dependency and cache
-// directories are skipped by default, so a file that exists only inside one
-// came back as "(no fuzzy match for X)", which reads as proven absence and
-// ends the search. A clean miss earns one noise-including pass; the default
-// answer still lists no dependency path, but names the flag that would.
-// Partial or timed-out passes say "no fuzzy match YET" and already tell the
-// caller to narrow, so they never pay for the second walk.
-export async function executeFuzzyFindTool(args, workDir, options = {}) {
-  // A complete miss answers the requested scope. Do not start a second,
-  // broader walk merely to offer an optional dependency-tree hint.
-  return runFuzzyFindPass(args, workDir, options);
-}
-
 function fuzzyFindRequest(args, workDir) {
   const query = String(args.query ?? '').trim();
   if (!query) return { error: 'Error: find requires query.' };
   const inputPath = normalizeInputPath(args.path) || '.';
-  const guard = listGuardPath(inputPath);
-  if (guard) return { error: guard };
-  const fullPath = resolveAgainstCwd(inputPath, workDir);
-  const guardFull = listGuardPath(fullPath);
-  if (guardFull) return { error: guardFull };
+  const target = guardedWalkRoot(inputPath, workDir);
+  if (target.error) return target;
+  const { fullPath } = target;
   return {
     query,
     fullPath,
@@ -206,7 +187,12 @@ function incompleteFuzzyError(served, query) {
   ].join('\n');
 }
 
-async function runFuzzyFindPass(args, workDir, options = {}) {
+// Fuzzy filename search has one canonical implementation: the Rust search
+// server's resident inventory. A server failure is surfaced instead of
+// launching a second filesystem walk with different semantics. A complete
+// miss answers the requested scope: no second, broader walk is started
+// merely to offer an optional dependency-tree hint.
+export async function executeFuzzyFindTool(args, workDir, options = {}) {
   const request = fuzzyFindRequest(args, workDir);
   if (request.error) return request.error;
   const { query, fullPath, headLimit } = request;
@@ -271,11 +257,9 @@ function findFilesRequest(args, workDir) {
     namePattern = relativePattern.replace(/^\/+/, '');
   }
   if (namePattern) namePattern = normalizeInputPath(namePattern).replace(/^\/+/, '');
-  const guard = listGuardPath(inputPath);
-  if (guard) return { error: guard };
-  const fullPath = resolveAgainstCwd(inputPath, workDir);
-  const guardFull = listGuardPath(fullPath);
-  if (guardFull) return { error: guardFull };
+  const target = guardedWalkRoot(inputPath, workDir);
+  if (target.error) return target;
+  const { fullPath } = target;
   const after = parseModifiedTime(args.modified_after);
   const before = parseModifiedTime(args.modified_before);
   // An unparseable date must FAIL, not silently disable the filter — a
@@ -480,11 +464,7 @@ function renderFindResult(
   const sliced = headLimit > 0 ? windowed.slice(0, headLimit) : windowed;
   const paged = windowed.length > sliced.length;
   const lines = sliced.map((match) => findResultLine(match, fullPath));
-  if (paged) {
-    lines.push(
-      `... [entries ${offset + 1}-${offset + sliced.length} of ${matches.length}; pass offset:${offset + sliced.length} to continue]`
-    );
-  }
+  if (paged) lines.push(pageContinuationLine(offset, sliced.length, matches.length));
   if (truncatedByCap) {
     lines.push(
       `... walk truncated at ${FIND_ABSOLUTE_CAP} matches; narrow the scope (path/name/modified_after) for accurate global sort`

@@ -12,8 +12,8 @@ export const CODE_GRAPH_BINARY_TIMEOUT_MS = Math.max(
   1000,
   Number(process.env.MIXDOG_CODE_GRAPH_BINARY_TIMEOUT_MS) || 20000
 );
-// Legacy single-file cache. Kept as a constant for the one-shot migration
-// path; new writes go into the per-cwd directory layout below.
+// Legacy single-file cache. Never migrated: disk-cache removes the stray file
+// on load; every write goes into the per-cwd directory layout below.
 export const CODE_GRAPH_DISK_FILE = 'code-graph-cache.json';
 // Per-cwd cache: <data>/code-graph-cache/manifest.json + <hash>.json per
 // indexed root. Avoids the unbounded single-file blob (observed >50 MB on

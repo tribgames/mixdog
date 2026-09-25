@@ -6,7 +6,8 @@ import type { DesktopLspCapabilities } from '../shared/contract';
 // @ts-expect-error The shared runtime helper is plain ESM and has no declaration file.
 import { shutdownStdioChild } from '../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 import { type LanguageServerState, sessionKey } from './language-server-state';
-import type { LanguageServerSpec, ServerSession } from './language-server-types';
+import type { LanguageServerSpec, ServerSession, WithTimeout } from './language-server-types';
+import { objectRecord } from './workflow-config';
 
 const LANGUAGE_SERVER_IDLE_MS = 30_000;
 
@@ -177,9 +178,6 @@ const LANGUAGE_SERVER_CLIENT_CAPABILITIES = {
   },
 } as const;
 
-type WithTimeout = <T>(promise: Promise<T>, timeoutMs: number, message: string) => Promise<T>;
-type ObjectRecord = (value: unknown) => Record<string, unknown> | null;
-
 interface LanguageServerProcessDependencies {
   resolveExecutable: (spec: LanguageServerSpec, root: string) => Promise<string | null>;
   spawnServer: (command: string, args: string[], cwd: string) => ChildProcessWithoutNullStreams;
@@ -189,7 +187,6 @@ interface LanguageServerProcessDependencies {
   ) => Readonly<Record<string, unknown>> | undefined;
   normalizeLanguageServerCapabilities: (value: unknown) => DesktopLspCapabilities;
   relativeDocumentPath: (root: string, uri: string) => string | null;
-  objectRecord: ObjectRecord;
 }
 
 export class LanguageServerProcessManager {
@@ -347,7 +344,7 @@ export class LanguageServerProcessManager {
   ): void {
     const { projectPath, root, spec, workspaceFolders } = context;
     connection.onRequest('workspace/configuration', (payload: unknown) => {
-      const items = this.dependencies.objectRecord(payload)?.items;
+      const items = objectRecord(payload)?.items;
       return Array.isArray(items) ? items.map(() => null) : [];
     });
     connection.onRequest('workspace/workspaceFolders', () => workspaceFolders);
@@ -355,17 +352,17 @@ export class LanguageServerProcessManager {
     connection.onRequest('client/registerCapability', (payload: unknown) => {
       const session = context.session();
       if (!session) return null;
-      const rows = this.dependencies.objectRecord(payload)?.registrations;
+      const rows = objectRecord(payload)?.registrations;
       if (!Array.isArray(rows)) return null;
       let changed = false;
       for (const raw of rows.slice(0, 256)) {
-        const registration = this.dependencies.objectRecord(raw);
+        const registration = objectRecord(raw);
         const id = typeof registration?.id === 'string' ? registration.id : '';
         const method = typeof registration?.method === 'string' ? registration.method : '';
         if (!id || id.length > 256 || !DYNAMIC_CAPABILITY_METHODS.has(method)) continue;
         session.registrations.set(id, {
           method,
-          registerOptions: this.dependencies.objectRecord(registration?.registerOptions) ?? {},
+          registerOptions: objectRecord(registration?.registerOptions) ?? {},
         });
         changed = true;
       }
@@ -375,12 +372,12 @@ export class LanguageServerProcessManager {
     connection.onRequest('client/unregisterCapability', (payload: unknown) => {
       const session = context.session();
       if (!session) return null;
-      const record = this.dependencies.objectRecord(payload);
+      const record = objectRecord(payload);
       const rows = record?.unregisterations ?? record?.unregistrations;
       if (!Array.isArray(rows)) return null;
       let changed = false;
       for (const raw of rows.slice(0, 256)) {
-        const registration = this.dependencies.objectRecord(raw);
+        const registration = objectRecord(raw);
         const id = typeof registration?.id === 'string' ? registration.id : '';
         if (id && session.registrations.delete(id)) changed = true;
       }

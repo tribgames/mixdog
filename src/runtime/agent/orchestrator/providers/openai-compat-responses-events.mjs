@@ -5,21 +5,12 @@ import { typedStatusFrom } from './retry-classifier.mjs';
 import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from './custom-tool-wire.mjs';
 import { emitCompatToolCallOnce } from './openai-compat-stream-common.mjs';
 import { truncatedCompatStreamError, parseCompletedToolCallArgumentsJson } from './lib/openai-tool-args.mjs';
+import { incompleteReasonFromEvent, isMaxOutputIncompleteReason } from './lib/responses-terminal-fields.mjs';
 
 function signal(ctx, kind) {
   try {
     ctx.onStreamDelta?.(kind);
   } catch {}
-}
-
-function incompleteReasonFromResponsesEvent(event) {
-  const reasonObj =
-    event?.response?.incomplete_details || event?.incomplete_details || event?.response?.status_details || null;
-  return String(reasonObj?.reason || event?.response?.status || 'incomplete');
-}
-
-function isMaxOutputIncompleteReason(reason) {
-  return /^(?:max_output_tokens|max_tokens|length|output_token_limit)$/i.test(String(reason || '').trim());
 }
 
 // Copy the TYPED failure evidence a Responses `response.failed` / `error`
@@ -293,7 +284,7 @@ function onDone(event, state, ctx) {
     throw typedResponsesFailure(`xAI Responses stream response.done failed: ${msg}`, event);
   }
   if (event.response.status === 'incomplete') {
-    const reason = incompleteReasonFromResponsesEvent(event);
+    const reason = incompleteReasonFromEvent(event);
     if (isMaxOutputIncompleteReason(reason)) return settleMaxOutputIncomplete(event, state, ctx, reason);
     throw new Error(`xAI Responses stream response.done incomplete: ${reason}`);
   }
@@ -308,7 +299,7 @@ function onFailed(event) {
 }
 
 function onIncomplete(event, state, ctx) {
-  const reason = incompleteReasonFromResponsesEvent(event);
+  const reason = incompleteReasonFromEvent(event);
   if (isMaxOutputIncompleteReason(reason)) return settleMaxOutputIncomplete(event, state, ctx, reason);
   throw new Error(`xAI Responses stream response.incomplete: ${reason}`);
 }

@@ -412,7 +412,9 @@ export function transitionConfirmsSemanticAction(
   if (result.verified === true || !transition) return false;
   if (action === 'launch') return launchTransitionConfirmsTarget(transition, launchTarget);
   if (action !== 'invoke' || !targetWindowId) return false;
-  const semanticPath = ['uia_invoke', 'uia_selection', 'msaa_default_action'].includes(String(result.path || ''));
+  const semanticPath = ['uia_invoke', 'uia_selection', 'msaa_default_action', 'a11y_invoke', 'a11y_selection'].includes(
+    String(result.path || '')
+  );
   if (!semanticPath) return false;
   return (
     transition.closed_windows.some((window) => window.id === targetWindowId) ||

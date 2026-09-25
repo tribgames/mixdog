@@ -229,10 +229,13 @@ function namedToolActivityUnit(
     const skill = skills.join(', ');
     if (skill) return { unitKey: `Skill|${skill}`, label: `${t('Skill')} ${skill}` };
   }
-  if (category === 'Media') {
-    return { unitKey: 'Media', label: localizedToolActivityCategory(category) };
-  }
-  if (category === 'Browser' || category === 'Computer' || category === 'Office' || category === 'Tidy') {
+  if (
+    category === 'Media' ||
+    category === 'Browser' ||
+    category === 'Computer' ||
+    category === 'Office' ||
+    category === 'Tidy'
+  ) {
     return { unitKey: category, label: localizedToolActivityCategory(category) };
   }
   if (category === 'Other') {
@@ -324,7 +327,6 @@ interface ToolActivityCategoryGroup {
 
 export function desktopToolActivityCategoryGroups(items: readonly TranscriptItem[]) {
   const groups = new Map<string, ToolActivityCategoryGroup>();
-  const usedUnitKeys = new Set<string>();
   let previous: ToolActivityCategoryGroup | null = null;
   let previousUnitKey = '';
   for (const item of flattenedToolActivityItems(items)) {
@@ -335,7 +337,7 @@ export function desktopToolActivityCategoryGroups(items: readonly TranscriptItem
       previous.items.push(item);
       continue;
     }
-    const unitKey = usedUnitKeys.has(unit.unitKey) ? `${unit.unitKey}:${groups.size}` : unit.unitKey;
+    const unitKey = groups.has(unit.unitKey) ? `${unit.unitKey}:${groups.size}` : unit.unitKey;
     const group: ToolActivityCategoryGroup = {
       unitKey,
       category: unit.category,
@@ -344,7 +346,6 @@ export function desktopToolActivityCategoryGroups(items: readonly TranscriptItem
       items: [item],
     };
     groups.set(unitKey, group);
-    usedUnitKeys.add(unitKey);
     previous = group;
     previousUnitKey = unit.unitKey;
   }

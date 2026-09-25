@@ -534,7 +534,7 @@ function balanceInsertedPaneLayout(root: PaneNode, direction: PaneDirection): Pa
   return distributePaneRatiosAlong(root, direction);
 }
 
-export function paneNodeAtPath(root: PaneNode, path: string): PaneNode | null {
+function paneNodeAtPath(root: PaneNode, path: string): PaneNode | null {
   let node = root;
   if (!path) return node;
   for (const segment of path.split('.')) {
@@ -903,7 +903,7 @@ export function neighborPaneLeafId(root: PaneNode, leafId: string): string | nul
   return remaining[Math.min(index, remaining.length - 1)].id;
 }
 
-export function parseWorkspaceSelection(value: unknown): WorkspaceSelection | null {
+function parseWorkspaceSelection(value: unknown): WorkspaceSelection | null {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!record) return null;
   const text = (key: string): string => {
@@ -1044,6 +1044,5 @@ export function parsePaneLayout(value: unknown): PaneNode | null {
     }
     return null;
   };
-  const parsed = value == null ? null : parse(value, 0);
-  return parsed;
+  return value == null ? null : parse(value, 0);
 }

@@ -300,8 +300,7 @@ export function computeComputerWindowTransition(
     const appeared = allOpened.filter((window) => !window.ownerId);
     if (appeared.length === 1) successor = { window: appeared[0], reason: 'launched_single_window' };
   } else if (targetWindowId && opened.length === 0) {
-    const owner =
-      targetWindowId && !afterById.has(targetWindowId) ? restoredOwner(beforeById, afterById, targetWindowId) : null;
+    const owner = afterById.has(targetWindowId) ? null : restoredOwner(beforeById, afterById, targetWindowId);
     if (owner) successor = { window: owner, reason: 'owner_window_restored' };
   } else if (targetWindowId) {
     successor = openedSuccessor(opened, beforeById, afterById, targetWindowId);

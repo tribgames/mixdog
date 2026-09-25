@@ -7,11 +7,7 @@ export function createMutationBatch(write) {
 
   function flush() {
     if (timer) {
-      try {
-        clearImmediate(timer);
-      } catch {
-        /* already fired */
-      }
+      clearImmediate(timer);
       timer = null;
     }
     if (pending.length === 0) return;

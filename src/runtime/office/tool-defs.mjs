@@ -1,5 +1,7 @@
 import { TOOL_SYNC_EXECUTION_CONTRACT } from '../shared/tool-execution-contract.mjs';
-import { OFFICE_ACTIONS } from './capabilities.mjs';
+// The catalog module, not capabilities.mjs: the latter pulls the whole design
+// engine into runtime boot just to list the tool's action names.
+import { OFFICE_ACTIONS } from './capabilities-catalog.mjs';
 import { MAX_PDF_ANALYSIS_PAGES } from './pdf/pdf-limits.mjs';
 
 /** Format-specific workflows and design guides live in the built-in skills

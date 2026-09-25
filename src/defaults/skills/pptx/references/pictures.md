@@ -87,7 +87,15 @@ async function tiles(slide, x, y, w, items, { h = 3.4, frame = 'plain', gap = GU
     ? Math.max(0, ...items.map((it, i) => (it.label || it.caption ? GAP.within : 0) + (it.label ? roleH(it.label, cols[i].w, 'strong') + GAP.within : 0) + (it.caption ? roleH(it.caption, cols[i].w, captionRole, 1.35) : 0)))
     : 0;
   const over = y + h + stack - Z.body.bottom;
-  if (over > 0.07) throw new Error(`tiles: the frames at h ${h.toFixed(2)} and the captions under them (${stack.toFixed(2)} in) end ${over.toFixed(2)} in past the foot — h ${(Z.body.bottom - y - stack).toFixed(2)} fits from this top, or shorten a caption`);
+  if (over > 0.07) {
+    // A phone row that fell back to captions under the frames has a second answer: the tallest screen that still
+    // leaves 1.8 in beside it, where the captions stand next to the device and the row ends at the frame's foot.
+    // Naming only the under-caption height sent the author to a shorter row whose captions then moved beside the
+    // screens anyway, over an empty band the size of the stack.
+    const besideH = frame === 'phone' ? Math.floor(Math.min(Z.body.bottom - y, ((Math.min(...cols.map((c) => c.w)) - 0.2 - GAP.within - 1.8) * 19.5) / 9 + 0.2) * 100 - 1) / 100 : 0;
+    const alternative = besideH >= 1.5 ? `, or h ${besideH.toFixed(2)}, where the captions stand beside the screens` : '';
+    throw new Error(`tiles: the frames at h ${h.toFixed(2)} and the captions under them (${stack.toFixed(2)} in) end ${over.toFixed(2)} in past the foot — h ${(Z.body.bottom - y - stack).toFixed(2)} fits from this top${alternative}, or shorten a caption`);
+  }
   let bottom = y;
   for (let i = 0; i < items.length; i += 1) {
     const it = items[i], c = cols[i];

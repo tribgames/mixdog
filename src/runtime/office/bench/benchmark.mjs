@@ -351,7 +351,7 @@ async function benchmarkDocument(
   timer.unref?.();
   let session = '';
   try {
-    const context = { cwd: dirnameOf(path), signal: controller.signal };
+    const context = { cwd: dirname(path), signal: controller.signal };
     const opened = await timed(async () =>
       resultValue(
         await executeOfficeTool(
@@ -431,14 +431,10 @@ async function benchmarkDocument(
   } finally {
     clearTimeout(timer);
     if (session) {
-      await executeOfficeTool({ action: 'close', session }, { cwd: dirnameOf(path) }).catch(() => {});
+      await executeOfficeTool({ action: 'close', session }, { cwd: dirname(path) }).catch(() => {});
     }
   }
   return report;
-}
-
-function dirnameOf(path) {
-  return dirname(path);
 }
 
 function summarize(results) {

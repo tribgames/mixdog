@@ -6,7 +6,6 @@
  * the process-exit drain fence. openai-oauth-ws.mjs imports acquire/release/
  * _sendFrame and re-exports the drain hooks for legacy import paths.
  */
-import WebSocket from 'ws';
 import { createHash, randomBytes } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { attachHandshakeFailureHandlers, captureHandshakeUpgrade } from './openai-ws-handshake.mjs';
@@ -539,7 +538,9 @@ const WS_URL_BY_AUTH = { xai: XAI_WS_URL, 'openai-direct': OPENAI_WS_URL };
 /** The auth kind an error label names; anything but xAI/direct is the OAuth (Codex) path. */
 const _wsAuthKind = (auth) => (auth?.type === 'xai' || auth?.type === 'openai-direct' ? auth.type : 'openai-oauth');
 
-function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codexHeaders }) {
+async function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codexHeaders }) {
+  // `ws` loads on the first socket, not at runtime boot via provider-admin.
+  const { default: WebSocket } = await import('ws');
   const headers = _buildHandshakeHeaders({ auth, sessionToken, cacheKey, codexHeaders });
   const baseUrl = WS_URL_BY_AUTH[auth.type] ?? CODEX_WS_URL;
   const _wsOpenStart = Date.now();

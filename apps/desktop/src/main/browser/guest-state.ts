@@ -1,9 +1,9 @@
 /**
  * Everything the host remembers about one guest page, in one place. Refs,
  * visual grounding, dialogs, console and network ledgers, crash state and the
- * remote-frame cache used to live in a dozen separate WeakMaps; a single
- * record per WebContents keeps their lifetimes aligned and makes "forget what
- * this page looked like" a one-line operation.
+ * remote-frame cache share a single record per WebContents, which keeps their
+ * lifetimes aligned and makes "forget what this page looked like" a one-line
+ * operation.
  */
 import type { WebContents } from 'electron';
 

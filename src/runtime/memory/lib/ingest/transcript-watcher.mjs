@@ -142,17 +142,9 @@ function createPolledSweep({ root, ingestOne, scheduleIngest, polledFiles, prune
 }
 
 function disposeWatchResources({ pendingByFile, intervals, watchers, polledFiles, clearConsumed }) {
-  for (const t of pendingByFile.values()) {
-    try {
-      clearTimeout(t);
-    } catch {}
-  }
+  for (const t of pendingByFile.values()) clearTimeout(t);
   pendingByFile.clear();
-  for (const i of intervals) {
-    try {
-      clearInterval(i);
-    } catch {}
-  }
+  for (const i of intervals) clearInterval(i);
   intervals.length = 0;
   for (const w of watchers) {
     try {

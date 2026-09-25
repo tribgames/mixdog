@@ -200,43 +200,42 @@ async function recordEditUiDiff(options, workDir, fullPath, before, after, encod
   }
 }
 
+// The 0-based line the failure excerpt centres on, or -1: the engine's
+// "nearest match" hint, else the exact old_string, else its longest tokens,
+// else the fuzzy line scorer.
+function locateEditExcerptCenter(source, lines, oldStr, errorText) {
+  const nearest = /nearest match on line (\d+)/i.exec(String(errorText || ''));
+  if (nearest) return Math.max(0, Number(nearest[1]) - 1);
+  if (oldStr) {
+    const at = source.indexOf(oldStr);
+    if (at >= 0) return source.slice(0, at).split('\n').length - 1;
+  }
+  // Longest tokens from ANY line of old_string, not just the first one:
+  // an edit whose opening line is `}` or blank still carries a
+  // distinctive token further down.
+  const tokens = String(oldStr || '')
+    .split(/\s+/)
+    .filter((token) => token.length >= 4)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 5);
+  for (const token of tokens) {
+    const hit = lines.findIndex((line) => line.includes(token));
+    if (hit >= 0) return hit;
+  }
+  // Fuzzy scorer shared with apply_patch: whitespace, rename and
+  // reflow drift still land on the right region.
+  const wanted = String(oldStr || '')
+    .split('\n')
+    .find((line) => line.trim());
+  const best = nearestPatchLineMatch(lines, wanted, 0);
+  return best ? best.index : -1;
+}
+
 function formatEditFailureExcerpt(content, oldStr, errorText) {
   const source = String(content ?? '').replace(/\r\n/g, '\n');
   const lines = source.split('\n');
   if (lines.length === 0) return '';
-  let center = -1;
-  const nearest = /nearest match on line (\d+)/i.exec(String(errorText || ''));
-  if (nearest) center = Math.max(0, Number(nearest[1]) - 1);
-  if (center < 0 && oldStr) {
-    const at = source.indexOf(oldStr);
-    if (at >= 0) center = source.slice(0, at).split('\n').length - 1;
-  }
-  if (center < 0) {
-    // Longest tokens from ANY line of old_string, not just the first one:
-    // an edit whose opening line is `}` or blank still carries a
-    // distinctive token further down.
-    const tokens = String(oldStr || '')
-      .split(/\s+/)
-      .filter((token) => token.length >= 4)
-      .sort((a, b) => b.length - a.length)
-      .slice(0, 5);
-    for (const token of tokens) {
-      const hit = lines.findIndex((line) => line.includes(token));
-      if (hit >= 0) {
-        center = hit;
-        break;
-      }
-    }
-  }
-  if (center < 0) {
-    // Fuzzy scorer shared with apply_patch: whitespace, rename and
-    // reflow drift still land on the right region.
-    const wanted = String(oldStr || '')
-      .split('\n')
-      .find((line) => line.trim());
-    const best = nearestPatchLineMatch(lines, wanted, 0);
-    if (best) center = best.index;
-  }
+  const center = locateEditExcerptCenter(source, lines, oldStr, errorText);
   if (center < 0) {
     // A bare "old_string not found" with no excerpt was the one edit
     // failure that reliably produced retry storms. State what IS known so
@@ -622,7 +621,7 @@ async function applyEditOccupation(edit, oldStr, editPlan) {
     after: next,
     staleMessage: STALE_DURING_EDIT,
   });
-  return stale ?? `Updated ${fullPath} (1 replacement)`;
+  return stale ?? updatedMessage(fullPath, 1);
 }
 
 /**
@@ -653,7 +652,11 @@ async function applyEditInProcess(edit, oldStr, editPlan, replaceAll) {
     after: next,
     staleMessage: STALE_DURING_EDIT,
   });
-  return stale ?? `Updated ${fullPath} (${applied} replacement${applied === 1 ? '' : 's'})`;
+  return stale ?? updatedMessage(fullPath, applied);
+}
+
+function updatedMessage(fullPath, replacements) {
+  return `Updated ${fullPath} (${replacements} replacement${replacements === 1 ? '' : 's'})`;
 }
 
 /** The verified native engine performs the splice; we prove what it edited. */
@@ -688,7 +691,7 @@ async function applyEditNative(edit, oldStr, newStr, editPlan, replaceAll) {
   recordEditSnapshot(fullPath, options, result.contentHash, editedExactlyWhatWeRead ? statBefore : null);
   const after = readEditTextForDisplay(fullPath, fileEnc);
   if (typeof after === 'string') await recordEditUiDiff(options, workDir, fullPath, content, after, fileEnc);
-  return `Updated ${fullPath} (${result.replacements} replacement${result.replacements === 1 ? '' : 's'})`;
+  return updatedMessage(fullPath, result.replacements);
 }
 
 /**
@@ -777,7 +780,7 @@ async function adaptWrite(args, workDir, options) {
   } catch {
     /* best-effort: parent may already exist */
   }
-  await atomicWrite(fullPath, contents, { sessionId: options?.readStateScope || options?.sessionId });
+  await atomicWrite(fullPath, contents, { sessionId: editScope(options) });
   invalidateAfterWrite(fullPath);
   return `${existed ? 'Updated' : 'Created'} ${fullPath} (${Buffer.byteLength(contents, 'utf8')} bytes)`;
 }

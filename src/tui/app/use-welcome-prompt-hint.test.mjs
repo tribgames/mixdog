@@ -83,6 +83,25 @@ test('a toast error overrides the starter tip with the conditional error hint', 
   assert.equal(control.api.conditionalWelcomePromptHint, CONDITIONAL_WELCOME_PROMPT_HINTS.error);
 });
 
+test('a default web-search route on a model without native search reads the model list once', async (context) => {
+  let modelListCalls = 0;
+  const { control, settle } = mount(context, {
+    store: {
+      ...READY_STORE,
+      listProviderModels: () => {
+        modelListCalls += 1;
+        return [{ provider: 'p1', id: 'm1', supportsWebSearch: false }];
+      },
+      getWebSearchRoute: () => ({ provider: 'default', model: 'default' }),
+    },
+    state: { provider: 'p1', model: 'm1', workflow: { id: 'team' } },
+    toastErrorSignature: '',
+  });
+  await settle();
+  assert.equal(control.api.conditionalWelcomePromptHint, CONDITIONAL_WELCOME_PROMPT_HINTS.webSearchDefaultUnsupported);
+  assert.equal(modelListCalls, 1);
+});
+
 test('a store with no usable provider wins over every other conditional hint', async (context) => {
   const { control, settle } = mount(context, {
     store: { ...READY_STORE, getProviderSetup: () => ({ api: [], oauth: [] }) },

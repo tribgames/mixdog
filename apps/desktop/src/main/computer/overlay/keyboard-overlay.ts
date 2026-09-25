@@ -7,7 +7,7 @@ import { BrowserWindow, screen } from 'electron';
 
 import { computerUseCoordinator, type ComputerUseSnapshot } from '../session/coordinator';
 import { recordCursorDiagnostic } from './cursor-diagnostics';
-import { hardenOverlayWindow, overlayWindowOptions } from './cursor-surface';
+import { dipPoint, hardenOverlayWindow, overlayWindowOptions } from './cursor-surface';
 import { registerComputerUseInternalWindow } from './internal-windows';
 import { KEYBOARD_HEIGHT, KEYBOARD_WIDTH, keyboardHtml, keyboardScript } from './keyboard-art';
 import { SESSION_COLORS, sessionColor } from './model';
@@ -27,12 +27,7 @@ interface BoardSurface {
 /** Bottom centre of the display the typing is happening on. The board cannot
  *  know where the text lands, so it keeps to an edge instead of guessing. */
 function boardBounds(point: { x: number; y: number }): Electron.Rectangle {
-  let dip = point;
-  try {
-    dip = screen.screenToDipPoint({ x: Math.round(point.x), y: Math.round(point.y) });
-  } catch {
-    dip = { x: Math.round(point.x), y: Math.round(point.y) };
-  }
+  const dip = dipPoint(point);
   const area = screen.getDisplayNearestPoint(dip).workArea;
   return {
     x: Math.round(area.x + area.width / 2 - KEYBOARD_WIDTH / 2),

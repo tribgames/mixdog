@@ -48,7 +48,8 @@ function reviewDocxHeadingType(content, headings, issues) {
 }
 
 function headingLevel(paragraph) {
-  const style = String(paragraph?.style || '');
+  // A localized Word names its heading styles by id ("2"); the portable reader carries the name beside it.
+  const style = String(paragraph?.styleName || paragraph?.style || '');
   if (!/(?:title|heading|제목|표제)/i.test(style)) return null;
   if (/(?:title|제목|표제)/i.test(style) && !/(?:heading|제목\s*\d)/i.test(style)) return 0;
   const level = Number(/([1-9])/.exec(style)?.[1]);
@@ -141,6 +142,17 @@ function paragraphTextIssues(content, issues) {
     if (String(paragraph.text || '').length > 900) {
       issues.push(
         issue('dense_paragraph', paragraph.path || '/body', 'Paragraph is too dense for fast document scanning.')
+      );
+    }
+    // Prose set at heading size, read as the Office backend reads it (past 180 characters at 18 pt): the portable
+    // review had no such check, so the same mis-styled paragraph passed there.
+    if (String(paragraph.text || '').length > 180 && paragraphSize(paragraph) >= 18) {
+      issues.push(
+        issue(
+          'oversized_heading_text',
+          paragraph.path || '/body',
+          'A long paragraph uses heading-sized text and is likely mis-styled.'
+        )
       );
     }
   }

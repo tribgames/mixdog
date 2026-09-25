@@ -61,15 +61,7 @@ export function createStreamingMarkdownCache(): StreamingMarkdownCache {
 }
 
 function resetCache(cache: StreamingMarkdownCache): void {
-  cache.stableText = '';
-  cache.stableChunks = [];
-  cache.stableChunkKeys = [];
-  cache.sourceText = '';
-  cache.scanOffset = 0;
-  cache.fenceMarker = '';
-  cache.fenceLength = 0;
-  cache.boundaries = [];
-  cache.scannedCharacters = 0;
+  Object.assign(cache, createStreamingMarkdownCache());
 }
 
 function markdownChunkKey(offset: number): string {

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
 import { createSessionRuntimeHost } from '../src/standalone/session-runtime-host.mjs';
+import { median as sharedMedian, sortedFinite } from './lib/trace-stats.mjs';
 
 const DEFAULT_DELAY_MS = Math.max(1, Number(process.env.RUNTIME_HOST_BENCH_DELAY_MS) || 250);
 const IO_DELAYS_MS = String(process.env.RUNTIME_HOST_BENCH_DELAYS || '10,250,1000')
@@ -224,9 +225,7 @@ function createHost() {
 }
 
 function median(values) {
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+  return sharedMedian(sortedFinite(values));
 }
 
 function rounded(value, digits = 3) {

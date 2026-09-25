@@ -111,6 +111,144 @@ function issue(index, code, message, path = '/') {
   };
 }
 
+// Each check reads one assertion against the workbook, records its issues, and
+// answers whether the assertion held.
+function checkCellValue({ assertion, assertionIndex, sheet, target, issues }) {
+  // A formula written without Excel carries no cached result until the
+  // workbook is recalculated. Compared anyway it reads as a wrong model —
+  // and against a zero expectation it used to read as a right one.
+  if (uncalculated(target)) {
+    issues.push(
+      issue(
+        assertionIndex,
+        'assertion_value_uncalculated',
+        `${sheet}!${assertion.cell} holds ${JSON.stringify(formulaText(target))} with no calculated result, so it cannot be compared with ${JSON.stringify(assertion.equals)}: ${UNCALCULATED_ROUTE}.`,
+        target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`
+      )
+    );
+    return false;
+  }
+  const passed = Boolean(target) && sameValue(target.value, assertion.equals, assertion.tolerance);
+  if (!passed) {
+    issues.push(
+      issue(
+        assertionIndex,
+        'assertion_value_mismatch',
+        `Expected ${sheet}!${assertion.cell} to equal ${JSON.stringify(assertion.equals)}; actual value is ${JSON.stringify(target?.value ?? null)}.`,
+        target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`
+      )
+    );
+  }
+  return passed;
+}
+
+function checkCellFormula({ assertion, assertionIndex, sheet, target, issues }) {
+  const actual = String(target?.formula || '');
+  const comparableActual = actual.replace(/^=/, '');
+  const comparableExpected = String(assertion.equals ?? '').replace(/^=/, '');
+  const passed =
+    Boolean(target) &&
+    (assertion.equals !== undefined
+      ? comparableActual === comparableExpected
+      : new RegExp(String(assertion.matches || '')).test(actual));
+  if (!passed)
+    issues.push(
+      issue(
+        assertionIndex,
+        'assertion_formula_mismatch',
+        `Formula assertion failed for ${sheet}!${assertion.cell}; actual formula is ${JSON.stringify(actual)}.`,
+        target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`
+      )
+    );
+  return passed;
+}
+
+function checkTieOut({ assertion, assertionIndex, sheet, get, issues }) {
+  const left = get(assertion.left, sheet);
+  const right = get(assertion.right, sheet);
+  // Two sides that have not been calculated are both empty, and an empty
+  // pair used to tie out: the strictest check in the model answered "agreed"
+  // without a single number behind it.
+  const pending = [
+    [assertion.left, left],
+    [assertion.right, right],
+  ].filter(([, cell]) => uncalculated(cell));
+  if (pending.length) {
+    issues.push(
+      issue(
+        assertionIndex,
+        'assertion_value_uncalculated',
+        `Tie-out cannot be read yet: ${pending.map(([reference, cell]) => `${JSON.stringify(reference)} holds ${JSON.stringify(formulaText(cell))} with no calculated result`).join(' and ')}; ${UNCALCULATED_ROUTE}.`,
+        pending[0][1]?.path || left?.path || right?.path || '/'
+      )
+    );
+    return false;
+  }
+  const passed = Boolean(left && right) && sameValue(left.value, right.value, assertion.tolerance);
+  if (!passed)
+    issues.push(
+      issue(
+        assertionIndex,
+        'assertion_tie_out_failed',
+        `Tie-out failed: ${JSON.stringify(assertion.left)}=${JSON.stringify(left?.value ?? null)} and ${JSON.stringify(assertion.right)}=${JSON.stringify(right?.value ?? null)}.`,
+        left?.path || right?.path || '/'
+      )
+    );
+  return passed;
+}
+
+function checkNoErrors({ document, assertion, assertionIndex, issues }) {
+  const failures = cellsForAssertion(document, assertion).filter((cell) => ERROR_VALUE.test(String(cell.value || '')));
+  for (const cell of failures.slice(0, 100))
+    issues.push(
+      issue(
+        assertionIndex,
+        'assertion_formula_error',
+        `Formula error ${cell.value} violates no-errors assertion.`,
+        cell.path
+      )
+    );
+  return failures.length === 0;
+}
+
+function checkFormulaConsistency({ document, assertion, assertionIndex, sheet, issues }) {
+  const formulas = cellsForAssertion(document, assertion).filter((cell) => cell.formula);
+  const patterns = new Map();
+  for (const cell of formulas) {
+    const pattern = relativeFormulaSignature(cell.formula, cell.ref);
+    patterns.set(pattern, (patterns.get(pattern) || 0) + 1);
+  }
+  const expected = [...patterns.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || '';
+  const inconsistent = formulas.filter((cell) => relativeFormulaSignature(cell.formula, cell.ref) !== expected);
+  if (!formulas.length)
+    issues.push(
+      issue(
+        assertionIndex,
+        'assertion_formula_missing',
+        'Formula-consistency assertion found no formulas.',
+        `/sheet[${assertion.sheet || sheet}]`
+      )
+    );
+  for (const cell of inconsistent.slice(0, 100))
+    issues.push(
+      issue(
+        assertionIndex,
+        'assertion_formula_inconsistent',
+        'Formula differs from the dominant pattern in the asserted region.',
+        cell.path
+      )
+    );
+  return formulas.length > 0 && inconsistent.length === 0;
+}
+
+const ASSERTION_CHECKS = new Map([
+  ['cell-value', checkCellValue],
+  ['cell-formula', checkCellFormula],
+  ['tie-out', checkTieOut],
+  ['no-errors', checkNoErrors],
+  ['formula-consistency', checkFormulaConsistency],
+]);
+
 export function evaluateXlsxAssertions(document, assertions = []) {
   const index = cellIndex(document);
   const issues = [];
@@ -125,128 +263,11 @@ export function evaluateXlsxAssertions(document, assertions = []) {
     const kind = String(assertion?.kind || '').toLowerCase();
     const sheet = String(assertion?.sheet || document?.sheets?.[0]?.name || '');
     const target = assertion?.cell ? get({ sheet, cell: assertion.cell }) : null;
-    let passed = true;
-    if (kind === 'cell-value') {
-      // A formula written without Excel carries no cached result until the
-      // workbook is recalculated. Compared anyway it reads as a wrong model —
-      // and against a zero expectation it used to read as a right one.
-      if (uncalculated(target)) {
-        passed = false;
-        issues.push(
-          issue(
-            assertionIndex,
-            'assertion_value_uncalculated',
-            `${sheet}!${assertion.cell} holds ${JSON.stringify(formulaText(target))} with no calculated result, so it cannot be compared with ${JSON.stringify(assertion.equals)}: ${UNCALCULATED_ROUTE}.`,
-            target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`
-          )
-        );
-      } else {
-        passed = Boolean(target) && sameValue(target.value, assertion.equals, assertion.tolerance);
-        if (!passed) {
-          issues.push(
-            issue(
-              assertionIndex,
-              'assertion_value_mismatch',
-              `Expected ${sheet}!${assertion.cell} to equal ${JSON.stringify(assertion.equals)}; actual value is ${JSON.stringify(target?.value ?? null)}.`,
-              target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`
-            )
-          );
-        }
-      }
-    } else if (kind === 'cell-formula') {
-      const actual = String(target?.formula || '');
-      const comparableActual = actual.replace(/^=/, '');
-      const comparableExpected = String(assertion.equals ?? '').replace(/^=/, '');
-      passed =
-        Boolean(target) &&
-        (assertion.equals !== undefined
-          ? comparableActual === comparableExpected
-          : new RegExp(String(assertion.matches || '')).test(actual));
-      if (!passed)
-        issues.push(
-          issue(
-            assertionIndex,
-            'assertion_formula_mismatch',
-            `Formula assertion failed for ${sheet}!${assertion.cell}; actual formula is ${JSON.stringify(actual)}.`,
-            target?.path || `/sheet[${sheet}]/cell[${assertion.cell}]`
-          )
-        );
-    } else if (kind === 'tie-out') {
-      const left = get(assertion.left, sheet);
-      const right = get(assertion.right, sheet);
-      // Two sides that have not been calculated are both empty, and an empty
-      // pair used to tie out: the strictest check in the model answered "agreed"
-      // without a single number behind it.
-      const pending = [
-        [assertion.left, left],
-        [assertion.right, right],
-      ].filter(([, cell]) => uncalculated(cell));
-      if (pending.length) {
-        passed = false;
-        issues.push(
-          issue(
-            assertionIndex,
-            'assertion_value_uncalculated',
-            `Tie-out cannot be read yet: ${pending.map(([reference, cell]) => `${JSON.stringify(reference)} holds ${JSON.stringify(formulaText(cell))} with no calculated result`).join(' and ')}; ${UNCALCULATED_ROUTE}.`,
-            pending[0][1]?.path || left?.path || right?.path || '/'
-          )
-        );
-      } else {
-        passed = Boolean(left && right) && sameValue(left.value, right.value, assertion.tolerance);
-        if (!passed)
-          issues.push(
-            issue(
-              assertionIndex,
-              'assertion_tie_out_failed',
-              `Tie-out failed: ${JSON.stringify(assertion.left)}=${JSON.stringify(left?.value ?? null)} and ${JSON.stringify(assertion.right)}=${JSON.stringify(right?.value ?? null)}.`,
-              left?.path || right?.path || '/'
-            )
-          );
-      }
-    } else if (kind === 'no-errors') {
-      const failures = cellsForAssertion(document, assertion).filter((cell) =>
-        ERROR_VALUE.test(String(cell.value || ''))
-      );
-      passed = failures.length === 0;
-      for (const cell of failures.slice(0, 100))
-        issues.push(
-          issue(
-            assertionIndex,
-            'assertion_formula_error',
-            `Formula error ${cell.value} violates no-errors assertion.`,
-            cell.path
-          )
-        );
-    } else if (kind === 'formula-consistency') {
-      const formulas = cellsForAssertion(document, assertion).filter((cell) => cell.formula);
-      const patterns = new Map();
-      for (const cell of formulas) {
-        const pattern = relativeFormulaSignature(cell.formula, cell.ref);
-        patterns.set(pattern, (patterns.get(pattern) || 0) + 1);
-      }
-      const expected = [...patterns.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || '';
-      const inconsistent = formulas.filter((cell) => relativeFormulaSignature(cell.formula, cell.ref) !== expected);
-      passed = formulas.length > 0 && inconsistent.length === 0;
-      if (!formulas.length)
-        issues.push(
-          issue(
-            assertionIndex,
-            'assertion_formula_missing',
-            'Formula-consistency assertion found no formulas.',
-            `/sheet[${assertion.sheet || sheet}]`
-          )
-        );
-      for (const cell of inconsistent.slice(0, 100))
-        issues.push(
-          issue(
-            assertionIndex,
-            'assertion_formula_inconsistent',
-            'Formula differs from the dominant pattern in the asserted region.',
-            cell.path
-          )
-        );
+    const check = ASSERTION_CHECKS.get(kind);
+    let passed = false;
+    if (check) {
+      passed = check({ document, assertion, assertionIndex, sheet, target, get, issues });
     } else {
-      passed = false;
       issues.push(
         issue(assertionIndex, 'assertion_kind_unknown', `Unknown XLSX assertion kind: ${kind || '(missing)'}`)
       );

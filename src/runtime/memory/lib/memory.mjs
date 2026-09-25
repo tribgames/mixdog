@@ -175,12 +175,12 @@ async function _migrateRecallIndexesIfStale(db) {
   }
 }
 
-export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity = null) {
-  // One-time cleanup: attachment-only placeholder rows ('(attachment)' user
-  // content, e.g. Discord provider discord.mjs:724) predate the
-  // shouldExcludeIngestMessage() ingest-time filter (session-ingest.mjs).
-  // Delete any already-persisted rows so they stop polluting recall/cycle1.
-  // Idempotent (no-op once cleaned); best-effort so a failure never blocks boot.
+// One-time cleanup: attachment-only placeholder rows ('(attachment)' user
+// content, e.g. Discord provider discord.mjs:724) predate the
+// shouldExcludeIngestMessage() ingest-time filter (session-ingest.mjs).
+// Delete any already-persisted rows so they stop polluting recall/cycle1.
+// Idempotent (no-op once cleaned); best-effort so a failure never blocks boot.
+async function removeAttachmentPlaceholderRows(db) {
   try {
     const cleaned = await db.query(`DELETE FROM entries WHERE content = '(attachment)' AND role = 'user'`);
     const n = Number(cleaned?.rowCount ?? 0);
@@ -190,19 +190,22 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
   } catch (err) {
     __mixdogMemoryLog(`[memory] attachment-placeholder cleanup failed: ${err?.message || err}\n`);
   }
-  // One-time cleanup: runtime tool-completion notification rows ("Async ...
-  // finished." followed by an unquoted or `> `-quoted Result body, and
-  // "[mixdog-runtime] ..." nudges) that were persisted by the transcript
-  // watcher before it gained the shouldExcludeIngestMessage exclusion
-  // (transcript-ingest.mjs). Gated by a meta flag so this DELETE runs at
-  // most once ever, not on every boot (mirrors boot.schema_bootstrap_complete).
-  // SQL prefilter narrows candidates to role='user' rows only; the DELETE
-  // itself only fires for rows the SAME JS predicates ingest applies confirm
-  // as internal-runtime text — a row that merely starts with "background
-  // task" prose is never deleted unless isInternalRuntimeNotificationText
-  // (or the instruction-head match) itself confirms it. Best-effort so a
-  // failure never blocks boot.
-  const NOTIFICATION_CLEANUP_META_KEY = 'cleanup.notification_rows_v1';
+}
+
+// One-time cleanup: runtime tool-completion notification rows ("Async ...
+// finished." followed by an unquoted or `> `-quoted Result body, and
+// "[mixdog-runtime] ..." nudges) that were persisted by the transcript
+// watcher before it gained the shouldExcludeIngestMessage exclusion
+// (transcript-ingest.mjs). Gated by a meta flag so this DELETE runs at
+// most once ever, not on every boot (mirrors boot.schema_bootstrap_complete).
+// SQL prefilter narrows candidates to role='user' rows only; the DELETE
+// itself only fires for rows the SAME JS predicates ingest applies confirm
+// as internal-runtime text — a row that merely starts with "background
+// task" prose is never deleted unless isInternalRuntimeNotificationText
+// (or the instruction-head match) itself confirms it. Best-effort so a
+// failure never blocks boot.
+const NOTIFICATION_CLEANUP_META_KEY = 'cleanup.notification_rows_v1';
+async function removeRuntimeNotificationRowsOnce(db) {
   try {
     const already = await db.query(`SELECT 1 FROM meta WHERE key = $1`, [NOTIFICATION_CLEANUP_META_KEY]);
     if (!already?.rows?.length) {
@@ -239,6 +242,11 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
   } catch (err) {
     __mixdogMemoryLog(`[memory] notification-row cleanup failed: ${err?.message || err}\n`);
   }
+}
+
+export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity = null) {
+  await removeAttachmentPlaceholderRows(db);
+  await removeRuntimeNotificationRowsOnce(db);
   // User-curated entries retain their own embeddings for explicit retrieval.
   if (Number.isInteger(dims) && dims > 0) {
     await db.exec(`ALTER TABLE core_entries ADD COLUMN IF NOT EXISTS embedding halfvec(${dims})`);

@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeJsonAtomicSync } from './atomic-file.mjs';
+import { readJsonSafe } from './json-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 const PACKAGE_NAME = 'mixdog';
@@ -67,13 +68,8 @@ function cacheFilePath(dataDir) {
 }
 
 function readCache(dataDir) {
-  try {
-    const raw = JSON.parse(readFileSync(cacheFilePath(dataDir), 'utf8'));
-    if (!raw || typeof raw !== 'object') return null;
-    return raw;
-  } catch {
-    return null;
-  }
+  const raw = readJsonSafe(cacheFilePath(dataDir));
+  return raw && typeof raw === 'object' ? raw : null;
 }
 
 function writeCache(dataDir, payload) {

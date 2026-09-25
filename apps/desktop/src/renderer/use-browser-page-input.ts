@@ -147,7 +147,7 @@ export function useBrowserPageInput(
       }
       if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) return;
       if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(event.key)) return;
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') return;
+      if (command && key === 'v') return;
       event.preventDefault();
       const modifiers = [
         event.ctrlKey && 'Control',

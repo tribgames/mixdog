@@ -43,5 +43,5 @@
 @import "./desktop/date-range-picker.css";
 @import "./desktop/error-notice.css";
 /* Layer 31 (Extensions rail) is imported by ExtensionsView.tsx for the same
-   reason as layer 29: the pane is a lazy chunk whose stylesheet Vite resolves
+   reason as layer 21: the pane is a lazy chunk whose stylesheet Vite resolves
    before it renders, and it still lands after every layer listed here. */

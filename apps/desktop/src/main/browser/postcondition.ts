@@ -1,3 +1,5 @@
+import { boundedInteger } from './command';
+
 export interface BrowserPostconditionInput {
   text?: string;
   textGone?: string;
@@ -43,9 +45,11 @@ export function normalizeBrowserPostcondition(raw: unknown): BrowserPostconditio
   if (input.timeoutMs !== undefined && !Number.isFinite(input.timeoutMs)) {
     throw new TypeError('expect.timeoutMs must be a finite number');
   }
-  const timeoutMs = Math.min(
-    MAX_POSTCONDITION_TIMEOUT_MS,
-    Math.max(500, input.timeoutMs === undefined ? DEFAULT_POSTCONDITION_TIMEOUT_MS : Math.trunc(input.timeoutMs))
+  const timeoutMs = boundedInteger(
+    input.timeoutMs,
+    DEFAULT_POSTCONDITION_TIMEOUT_MS,
+    500,
+    MAX_POSTCONDITION_TIMEOUT_MS
   );
   return { text, textGone, url, timeoutMs };
 }
@@ -53,7 +57,7 @@ export function normalizeBrowserPostcondition(raw: unknown): BrowserPostconditio
 export function normalizeBrowserSettleMs(raw: unknown): number {
   if (raw === undefined || raw === null) return 0;
   if (!Number.isFinite(raw)) throw new TypeError('settleMs must be a finite number');
-  return Math.min(MAX_EXPLICIT_SETTLE_MS, Math.max(0, Math.trunc(raw as number)));
+  return boundedInteger(raw, 0, 0, MAX_EXPLICIT_SETTLE_MS);
 }
 
 /** Page text keeps the document's own spacing: an indent, a run of spaces, or

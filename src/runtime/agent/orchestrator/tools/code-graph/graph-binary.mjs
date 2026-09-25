@@ -177,10 +177,6 @@ export function _ensureCallsWireProbe(absRoot) {
 // that received its manifest from another thread never ran one itself, yet its
 // signature and node-reuse guard depend on the capability.
 export async function awaitCallsWireProbe(absRoot) {
-  return _awaitCallsWireProbe(absRoot);
-}
-
-async function _awaitCallsWireProbe(absRoot) {
   return _boundedProbeWait(_ensureCallsWireProbe(absRoot));
 }
 
@@ -302,13 +298,19 @@ export function _setCallsWireV2ForTest(value) {
   _callsWireProbe = value === null ? null : Promise.resolve(_callsWireV2);
 }
 
-export async function _runGraphWalk(absRoot) {
+// A record-producing run: its records may prove the calls wire, and the
+// probe started beside it is awaited (bounded) before the records are mapped.
+async function _runRecordProducingJsonl(absRoot, extraArgs, stdinLines = null, signal = null) {
   const key = _currentGraphBinaryKey();
   const probe = _ensureCallsWireProbe(absRoot);
-  const records = await _runGraphBinaryJsonl(absRoot, []);
+  const records = await _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines, signal);
   _noteCallsWireFromRecords(records, key);
   await _boundedProbeWait(probe);
   return records;
+}
+
+export async function _runGraphWalk(absRoot) {
+  return _runRecordProducingJsonl(absRoot, []);
 }
 // --files (design A: full-graph resolution) full-parses only `rels` (argv) but
 // resolves imports across the WHOLE tree. The reused nodes' metas are streamed
@@ -331,12 +333,7 @@ export async function _runGraphFiles(absRoot, rels, reusedMetas, signal = null) 
       topLevelTypes: Array.isArray(m.topLevelTypes) ? m.topLevelTypes : [],
     })
   );
-  const key = _currentGraphBinaryKey();
-  const probe = _ensureCallsWireProbe(absRoot);
-  const records = await _runGraphBinaryJsonl(absRoot, ['--files', ...rels], lines, signal);
-  _noteCallsWireFromRecords(records, key);
-  await _boundedProbeWait(probe);
-  return records;
+  return _runRecordProducingJsonl(absRoot, ['--files', ...rels], lines, signal);
 }
 
 // Map a Rust FileRecord (rel/lang/fp/tokens/rawImports/resolvedImports/

@@ -3,9 +3,21 @@
  * to `ctx.out`; only `/exit` and `/quit` return 'exit'.
  */
 import { dim, green, red, yellow, colorEnabled } from '../ui/ansi.mjs';
-import { printHelp } from '../help.mjs';
 import { createSessionStats } from '../ui/session-stats.mjs';
 import { statuslineFor } from './turn-output.mjs';
+
+// `/help` lists exactly the commands handleSlash implements below; the TUI's
+// slash-command list (src/help.mjs) is not available in the plain REPL.
+const REPL_HELP_LINES = [
+  'Slash commands (plain REPL):',
+  '  /help                   show this list',
+  '  /clear                  start a fresh chat',
+  '  /compact                compact older conversation context',
+  '  /model [name]           show or switch the model for subsequent turns',
+  '  /outputstyle [name]     show or switch the output style (aliases: /output-style, /style)',
+  '  /mode [full|readonly]   show or switch the tool mode',
+  '  /quit                   quit the REPL (alias: /exit)',
+];
 
 async function clearConversation(ctx) {
   const { out } = ctx;
@@ -99,7 +111,7 @@ export async function handleSlash(line, ctx) {
 
   switch (cmd) {
     case 'help':
-      printHelp();
+      out.write(`${REPL_HELP_LINES.join('\n')}\n`);
       return;
     case 'clear':
       await clearConversation(ctx);

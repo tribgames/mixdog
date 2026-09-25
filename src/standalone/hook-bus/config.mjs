@@ -8,6 +8,11 @@ export function hookRulesPath(dataDir) {
   return dataDir ? join(dataDir, 'hooks.json') : null;
 }
 
+// Comparison key for a resolved path: Windows paths are case-insensitive.
+function pathKey(absolutePath) {
+  return process.platform === 'win32' ? absolutePath.toLowerCase() : absolutePath;
+}
+
 // User-level trust list: only projects the user has explicitly approved may run
 // shell/http hooks from their own `.mixdog/hooks.json`. Everything else loads
 // (so context/prompt hooks still work) but executable handlers are neutered.
@@ -24,8 +29,7 @@ function readTrustedProjects(dataDir) {
         for (const item of list) {
           const raw = String(item || '').trim();
           if (!raw) continue;
-          const abs = resolve(raw);
-          out.add(process.platform === 'win32' ? abs.toLowerCase() : abs);
+          out.add(pathKey(resolve(raw)));
         }
       }
     } catch {
@@ -37,9 +41,7 @@ function readTrustedProjects(dataDir) {
 
 function isProjectTrusted(dataDir, projectDir) {
   if (!projectDir) return false;
-  const abs = resolve(projectDir);
-  const key = process.platform === 'win32' ? abs.toLowerCase() : abs;
-  return readTrustedProjects(dataDir).has(key);
+  return readTrustedProjects(dataDir).has(pathKey(resolve(projectDir)));
 }
 
 export function normalizeRules(raw) {
@@ -56,7 +58,7 @@ function uniqueHookEntries(entries) {
   for (const entry of entries) {
     if (!entry?.path) continue;
     const resolved = resolve(entry.path);
-    const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    const key = pathKey(resolved);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({ ...entry, path: resolved });
@@ -110,12 +112,8 @@ export function hookConfigEntries(dataDir, cwd) {
   const projectDir = cwd ? resolve(cwd) : process.cwd();
   const projectTrusted = isProjectTrusted(dataDir, projectDir);
   return uniqueHookEntries([
-    projectDir
-      ? { path: join(projectDir, '.mixdog', 'hooks.json'), sourceType: 'project', untrusted: !projectTrusted }
-      : null,
-    projectDir
-      ? { path: join(projectDir, '.mixdog', 'hooks', 'hooks.json'), sourceType: 'project', untrusted: !projectTrusted }
-      : null,
+    { path: join(projectDir, '.mixdog', 'hooks.json'), sourceType: 'project', untrusted: !projectTrusted },
+    { path: join(projectDir, '.mixdog', 'hooks', 'hooks.json'), sourceType: 'project', untrusted: !projectTrusted },
     dataDir ? { path: join(dataDir, 'hooks.json'), sourceType: 'data' } : null,
     dataDir ? { path: join(dataDir, 'hooks', 'hooks.json'), sourceType: 'data' } : null,
     ...pluginHookConfigEntries(dataDir),
@@ -251,17 +249,24 @@ export function buildEventPayload(eventName, input = {}) {
   return payload;
 }
 
+// The payload field a group's `matcher` is tested against, per event; any
+// other matchable event matches on the tool name.
+const MATCH_FIELD_BY_EVENT = new Map([
+  ['SessionStart', 'source'],
+  ['Setup', 'trigger'],
+  ['SessionEnd', 'reason'],
+  ['SubagentStart', 'agent_type'],
+  ['SubagentStop', 'agent_type'],
+  ['PreCompact', 'trigger'],
+  ['PostCompact', 'trigger'],
+  ['ConfigChange', 'source'],
+  ['InstructionsLoaded', 'load_reason'],
+  ['UserPromptExpansion', 'command_name'],
+  ['StopFailure', 'error_type'],
+]);
+
 export function matchFieldFor(eventName, payload) {
   if (NO_MATCHER_EVENTS.has(eventName)) return null;
-  if (eventName === 'SessionStart') return payload.source ?? '';
-  if (eventName === 'Setup') return payload.trigger ?? '';
-  if (eventName === 'SessionEnd') return payload.reason ?? '';
   if (eventName === 'Notification') return payload.notification_type ?? payload.type ?? '';
-  if (eventName === 'SubagentStart' || eventName === 'SubagentStop') return payload.agent_type ?? '';
-  if (eventName === 'PreCompact' || eventName === 'PostCompact') return payload.trigger ?? '';
-  if (eventName === 'ConfigChange') return payload.source ?? '';
-  if (eventName === 'InstructionsLoaded') return payload.load_reason ?? '';
-  if (eventName === 'UserPromptExpansion') return payload.command_name ?? '';
-  if (eventName === 'StopFailure') return payload.error_type ?? '';
-  return payload.tool_name ?? '';
+  return payload[MATCH_FIELD_BY_EVENT.get(eventName) ?? 'tool_name'] ?? '';
 }

@@ -16,10 +16,6 @@ export function grepMissingPatternMessage() {
   return 'Error: grep requires pattern.';
 }
 
-export function globMissingPatternMessage() {
-  return 'Error: glob requires pattern.';
-}
-
 // A bare no-match body covers the entire requested scope. Fan-outs name
 // only the subset that missed; diagnostics must never be folded into it.
 export function grepNoMatchesBody({ totalKnown }) {
@@ -143,10 +139,12 @@ function renderGrepContextBlocks(blocks, filenameOmitted, fallbackPath) {
     }
     merged.push(current);
   }
-  return merged.map((block) => {
-    if (!block.path) return block.raw;
-    return `# ${block.path}:${block.matchLine} [lines ${block.startLine}-${block.endLine}]\n${block.contents.join('\n')}`;
-  });
+  return merged.map((block) => (block.path ? renderGrepSourceBlock(block) : block.raw));
+}
+
+// A patch-ready source block: `# path:matchLine [lines start-end]` + its lines.
+export function renderGrepSourceBlock(block) {
+  return `# ${block.path}:${block.matchLine} [lines ${block.startLine}-${block.endLine}]\n${block.contents.join('\n')}`;
 }
 
 function parseGrepContextBlocks(lines, filenameOmitted, fallbackPath) {
@@ -293,18 +291,12 @@ export function formatGrepOutput({
   headLimit,
   offset,
   outputMode,
-  patterns: _patterns,
   beforeN,
   afterN,
   contextN,
-  searchPath: _searchPath,
-  grepResolvedPath: _grepResolvedPath,
   workDir,
-  globPatterns: _globPatterns,
-  fileType: _fileType,
   filenameOmitted = false,
   prefix = '',
-  broadAdvisory: _broadAdvisory = true,
   disableContentGrouping = false,
   includeMatchCount = false,
 }) {

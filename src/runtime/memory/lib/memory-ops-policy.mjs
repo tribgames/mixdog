@@ -26,13 +26,11 @@ function normalizeBackfillScope(value) {
   return 'all';
 }
 
+const BACKFILL_WINDOW_DAYS = { '1d': 1, '3d': 3, '7d': 7, '30d': 30 };
+
 function resolveBackfillSinceMs(windowValue, now = Date.now()) {
-  const normalized = normalizeBackfillWindow(windowValue);
-  if (normalized === '1d') return now - 1 * 24 * 60 * 60 * 1000;
-  if (normalized === '3d') return now - 3 * 24 * 60 * 60 * 1000;
-  if (normalized === '7d') return now - 7 * 24 * 60 * 60 * 1000;
-  if (normalized === '30d') return now - 30 * 24 * 60 * 60 * 1000;
-  return null;
+  const days = BACKFILL_WINDOW_DAYS[normalizeBackfillWindow(windowValue)];
+  return days ? now - days * 24 * 60 * 60 * 1000 : null;
 }
 
 async function countUnclassified(db) {

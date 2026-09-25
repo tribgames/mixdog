@@ -28,7 +28,14 @@ import {
   transferExplorerEntries,
   trashExplorerEntries,
 } from './explorer-mutations';
-import { explorerAbsolutePath, explorerParentRel, explorerRevealStep, type ExplorerRow } from './explorer-tree-model';
+import {
+  explorerAbsolutePath,
+  explorerGitClass,
+  explorerGitDecorations,
+  explorerParentRel,
+  explorerRevealStep,
+  type ExplorerRow,
+} from './explorer-tree-model';
 import { COMPOSER_PROJECT_PATHS_MIME } from './composer-support';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
@@ -332,31 +339,7 @@ export const FilesRootPane = memo(function FilesRootPane({
   const api = window.mixdogDesktop;
   // Files and Source Control consume the same project-scoped Git snapshot so
   // their decorations cannot drift after an SCM action.
-  const { gitFiles, gitDirs } = useMemo(() => {
-    const files = new Map<string, string>();
-    const parents = new Set<string>();
-    const status = gitStatus;
-    if (!status?.repository) {
-      return { gitFiles: files, gitDirs: parents };
-    }
-    for (const file of status.files || []) {
-      const rel = String(file.path || '').replace(/\\/g, '/');
-      if (!rel) continue;
-      const badge = file.untracked ? 'U' : String(file.index || '').trim() || String(file.worktree || '').trim() || 'M';
-      files.set(rel, badge);
-      let parent = rel;
-      while (parent.includes('/')) {
-        parent = parent.slice(0, parent.lastIndexOf('/'));
-        parents.add(parent);
-      }
-    }
-    return { gitFiles: files, gitDirs: parents };
-  }, [gitStatus]);
-  const gitClassOf = (badge?: string) => {
-    if (!badge) return '';
-    if (badge === 'U' || badge === 'A' || badge === '?') return ' git-added';
-    return badge === 'D' ? ' git-deleted' : ' git-modified';
-  };
+  const { gitFiles, gitDirs } = useMemo(() => explorerGitDecorations(gitStatus), [gitStatus]);
   // Selection, focus, and clipboard state for the multi-select list.
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [focusedRel, setFocusedRel] = useState('');
@@ -656,7 +639,20 @@ export const FilesRootPane = memo(function FilesRootPane({
     setFocusedRel(failed[0] || '');
     if (firstError !== undefined) setMutationError(explorerErrorText(firstError));
   };
-  const dragTargetDir = (row: ExplorerRow) => (row.dir ? row.rel : row.parentRel);
+  /** Right-click on the root header or empty tree space: New File / New
+   *  Folder / Paste into the project root. */
+  const openBackgroundMenu = (event: React.MouseEvent) => {
+    event.preventDefault();
+    setMenu({
+      x: event.clientX,
+      y: event.clientY,
+      rel: '',
+      parent: '',
+      name: '',
+      isDir: true,
+      background: true,
+    });
+  };
   const onTreeKeyDown = (event: React.KeyboardEvent) =>
     explorerTreeKeyDown(event, {
       absOf,
@@ -743,7 +739,7 @@ export const FilesRootPane = memo(function FilesRootPane({
     const isSelected = selected.has(row.rel);
     const isCut = Boolean(clipboard?.cut && clipboard.rels.includes(row.rel));
     let className = 'dock-file-row';
-    if (!row.dir) className += ` is-file${gitClassOf(badge)}`;
+    if (!row.dir) className += ` is-file${explorerGitClass(badge)}`;
     if (row.dir && gitDirs.has(row.rel)) className += ' git-dir-changed';
     if (isSelected) className += ' explorer-selected';
     if (focusedRel === row.rel) className += ' explorer-focused';
@@ -806,7 +802,7 @@ export const FilesRootPane = memo(function FilesRootPane({
           event.preventDefault();
           event.stopPropagation();
           event.dataTransfer.dropEffect = event.ctrlKey || event.altKey ? 'copy' : 'move';
-          const target = dragTargetDir(row);
+          const target = rowDirRel(row);
           if (dropTarget !== target) {
             clearHoverExpand();
             setDropTarget(target);
@@ -818,7 +814,7 @@ export const FilesRootPane = memo(function FilesRootPane({
         onDrop={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          void performDrop(dragTargetDir(row), event.ctrlKey || event.altKey);
+          void performDrop(rowDirRel(row), event.ctrlKey || event.altKey);
         }}
         onDragEnd={() => {
           dragRels.current = [];
@@ -907,18 +903,7 @@ export const FilesRootPane = memo(function FilesRootPane({
               className="workbench-explorer-root"
               aria-expanded={rootExpanded}
               onClick={() => toggle('')}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                setMenu({
-                  x: event.clientX,
-                  y: event.clientY,
-                  rel: '',
-                  parent: '',
-                  name: '',
-                  isDir: true,
-                  background: true,
-                });
-              }}
+              onContextMenu={openBackgroundMenu}
             >
               {/* Same rotating twistie as the rows (monaco tree chevron). */}
               <span className={`explorer-twistie${rootExpanded ? '' : ' collapsed'}`} aria-hidden="true">
@@ -943,16 +928,7 @@ export const FilesRootPane = memo(function FilesRootPane({
             // empty space). Rows preventDefault first, so they are excluded here.
             if (event.defaultPrevented) return;
             if ((event.target as HTMLElement).closest?.('.explorer-edit-box')) return;
-            event.preventDefault();
-            setMenu({
-              x: event.clientX,
-              y: event.clientY,
-              rel: '',
-              parent: '',
-              name: '',
-              isDir: true,
-              background: true,
-            });
+            openBackgroundMenu(event);
           }}
           onDragOver={(event) => {
             if (dragRels.current.length === 0) return;

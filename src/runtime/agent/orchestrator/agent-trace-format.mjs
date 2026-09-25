@@ -3,6 +3,7 @@ import { stableHashStringify } from './stable-hash-stringify.mjs';
 import { countJsonNextCalls } from './tools/next-call-utils.mjs';
 import { parseGrepContextHeader, splitGrepLinePrefix } from './tools/builtin/grep-formatting.mjs';
 import { isReadOnlyNavigationMiss } from './session/result-classification.mjs';
+import { nonNegativeInt } from '../../shared/numbers.mjs';
 import {
   appendAgentTrace,
   normalizeSessionId,
@@ -27,7 +28,9 @@ const RECOVERED_ERROR_MESSAGE_MAX_CHARS = 300;
 function compactRecoveredErrorMessage(value) {
   if (value == null) return null;
   const message = String(value);
-  return message.length > RECOVERED_ERROR_MESSAGE_MAX_CHARS ? `${message.slice(0, 299)}…` : message;
+  return message.length > RECOVERED_ERROR_MESSAGE_MAX_CHARS
+    ? `${message.slice(0, RECOVERED_ERROR_MESSAGE_MAX_CHARS - 1)}…`
+    : message;
 }
 
 function traceAgentLoop({
@@ -706,17 +709,17 @@ export function buildShellOutputTelemetryPayload({
 }) {
   const commandOutputBytes = Number(telemetry?.commandOutputBytes);
   if (!Number.isFinite(commandOutputBytes) || commandOutputBytes < 0) return null;
-  const visibleBytes = Math.max(0, Math.trunc(Number(modelVisibleBytes) || 0));
+  const visibleBytes = nonNegativeInt(modelVisibleBytes);
   const byteDelta = Math.trunc(commandOutputBytes) - visibleBytes;
   return {
     tool_call_id: toolCallId || null,
     result_kind: resultKind || null,
     command_output_bytes: Math.trunc(commandOutputBytes),
-    captured_preview_bytes: Math.max(0, Math.trunc(Number(telemetry?.capturedPreviewBytes) || 0)),
-    shell_result_bytes: Math.max(0, Math.trunc(Number(telemetry?.shellResultBytes) || 0)),
-    tool_result_bytes: Math.max(0, Math.trunc(Number(telemetry?.toolResultBytes) || 0)),
-    pre_offload_bytes: Math.max(0, Math.trunc(Number(preOffloadBytes) || 0)),
-    post_offload_bytes: Math.max(0, Math.trunc(Number(postOffloadBytes) || 0)),
+    captured_preview_bytes: nonNegativeInt(telemetry?.capturedPreviewBytes),
+    shell_result_bytes: nonNegativeInt(telemetry?.shellResultBytes),
+    tool_result_bytes: nonNegativeInt(telemetry?.toolResultBytes),
+    pre_offload_bytes: nonNegativeInt(preOffloadBytes),
+    post_offload_bytes: nonNegativeInt(postOffloadBytes),
     model_visible_bytes: visibleBytes,
     byte_delta: byteDelta,
     reduction_pct: commandOutputBytes > 0 ? Math.round((1 - visibleBytes / commandOutputBytes) * 100) : null,
@@ -775,7 +778,7 @@ export function buildToolOutputTelemetryPayload({
   const before = Number(preOffloadBytes);
   const after = Number(postOffloadBytes);
   if (!Number.isFinite(before) || before < 0 || !Number.isFinite(after) || after < 0) return null;
-  const visible = Math.max(0, Math.trunc(Number(modelVisibleBytes) || 0));
+  const visible = nonNegativeInt(modelVisibleBytes);
   const saved = Math.max(0, Math.trunc(before) - visible);
   return {
     tool_call_id: toolCallId || null,

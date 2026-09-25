@@ -12,7 +12,7 @@ import {
   type BrowserSnapshotPayload as SnapshotPayload,
 } from './accessibility';
 import type { BrowserCdpPort } from './cdp';
-import type { BrowserCommand } from './command';
+import { boundedInteger, type BrowserCommand } from './command';
 import type { GuestSlot } from './guest-state';
 import { redactBrowserText } from './redaction';
 import { createBrowserRefSet, type BrowserRefSet } from './ref-recovery';
@@ -67,13 +67,6 @@ function pageInfoExpression(snapshotTextChars: number): string {
     })()`;
 }
 
-function snapshotMaxElements(command: BrowserCommand, fallback: number): number {
-  return Math.min(
-    500,
-    Math.max(1, Number.isFinite(command.maxElements) ? Math.trunc(command.maxElements as number) : fallback)
-  );
-}
-
 function appendWarning(payload: SnapshotPayload, warning: string): void {
   payload.warnings = [...(payload.warnings || []), warning];
 }
@@ -119,7 +112,7 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
       snapshotId,
       query: command.query,
       viewportOnly: command.viewportOnly,
-      maxElements: snapshotMaxElements(command, SNAPSHOT_MAX_ELEMENTS),
+      maxElements: boundedInteger(command.maxElements, SNAPSHOT_MAX_ELEMENTS, 1, 500),
       textChars: snapshotTextChars,
     });
     if (targets.omittedTargets) {

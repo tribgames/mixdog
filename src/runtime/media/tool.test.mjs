@@ -294,3 +294,24 @@ test('wait:false returns a job id; status writes the file when done; cancel stop
     await rm(graph.assetPath, { force: true });
   }
 });
+
+test('cancel reports an unknown job and views the job itself, not the cancel receipt', async () => {
+  // The real job store: cancelMediaJob answers `{ id, canceled }` for any id.
+  const job = { id: 'job-7', status: 'running', kind: 'video', lane: 'lane-a', model: 'a-video', startedAt: 1 };
+  const deps = {
+    jobs: {
+      getMediaJob: (id) => (id === job.id ? { ...job } : null),
+      cancelMediaJob: (id) => ({ id, canceled: id === job.id }),
+    },
+  };
+  const unknown = parse(await executeMediaTool({ action: 'cancel', job: 'nope' }, { deps }));
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.error, /job "nope" is not known/);
+  const canceled = parse(await executeMediaTool({ action: 'cancel', job: 'job-7' }, { deps }));
+  assert.equal(canceled.ok, true);
+  assert.equal(canceled.canceled, true);
+  assert.deepEqual(
+    [canceled.job, canceled.status, canceled.kind, canceled.lane],
+    ['job-7', 'running', 'video', 'lane-a']
+  );
+});

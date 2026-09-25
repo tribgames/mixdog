@@ -1856,29 +1856,14 @@ test('bridge clients authenticate and preserve text plus image results', async (
             ? '{"action":"user-content","nested":true}'
             : JSON.stringify({ ok: true, action: body.action });
       }
-      const payload = JSON.stringify({
-        ok: true,
-        value: {
-          text,
-          image: { mimeType: 'image/jpeg', data: 'aGVsbG8=' },
-          ...(request.headers.authorization === 'Bearer browser-token'
-            ? {
-                file:
-                  body.tab === 'binary-download'
-                    ? {
-                        mimeType: 'application/zip',
-                        data: 'UEsDBBQAAAAI',
-                        name: 'bundle.zip',
-                      }
-                    : {
-                        mimeType: 'text/plain',
-                        data: 'ZmlsZQ==',
-                        name: 'download.txt',
-                      },
-              }
-            : {}),
-        },
-      });
+      const value = { text, image: { mimeType: 'image/jpeg', data: 'aGVsbG8=' } };
+      if (request.headers.authorization === 'Bearer browser-token') {
+        value.file =
+          body.tab === 'binary-download'
+            ? { mimeType: 'application/zip', data: 'UEsDBBQAAAAI', name: 'bundle.zip' }
+            : { mimeType: 'text/plain', data: 'ZmlsZQ==', name: 'download.txt' };
+      }
+      const payload = JSON.stringify({ ok: true, value });
       response.writeHead(200, {
         'content-type': 'application/json',
         'content-length': Buffer.byteLength(payload),

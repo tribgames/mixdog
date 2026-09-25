@@ -23,13 +23,11 @@ import { executeReadTool } from './builtin/read-tool.mjs';
 import { executeGlobTool, executeGrepTool } from './builtin/search-tool.mjs';
 import { configureReadRangeIndexTelemetry, flushReadRangeIndexesSync } from './builtin/read-range-index.mjs';
 import { extractIpynbText, extractPdfText } from './builtin/read-special-files.mjs';
-import { computeUnifiedDiff } from './builtin/diff-utils.mjs';
 import { tryExecuteExternalToolAdapter, isExternalAdapterTool } from './builtin/external-tool-adapters.mjs';
 import { formatToolStartProgress } from './progress-message.mjs';
 import { BUILTIN_TOOLS } from './builtin/builtin-tools.mjs';
 import { validateBuiltinArgs } from './builtin/arg-guard.mjs';
 import {
-  appendReadContextAdvisory,
   parseLineLimitArg,
   parseOffsetArg,
   renderReadLine,
@@ -184,7 +182,6 @@ const _readModeHelpers = {
 };
 
 const _readToolHelpers = {
-  appendReadContextAdvisory,
   classifyResultKind,
   coalesceObjectReadEntries,
   coerceShapeFlex,
@@ -476,25 +473,9 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
         return formatUnknownBuiltinToolMessage(name, args);
     }
   })();
-  const _withNotices = _appendClampNotices(args, _toolResult);
-  const _explicitCap = Number(options?.toolOutputMaxBytes) > 0 ? Math.trunc(Number(options.toolOutputMaxBytes)) : null;
-  const _locatorCap = _explicitCap ? Math.min(_explicitCap, LOCATOR_OUTPUT_MAX_BYTES) : LOCATOR_OUTPUT_MAX_BYTES;
-  const _grepCap = _explicitCap ? Math.min(_explicitCap, GREP_OUTPUT_MAX_BYTES) : GREP_OUTPUT_MAX_BYTES;
-  let _budgetedResult = _withNotices;
-  if (toolName === 'grep') {
-    _budgetedResult = capLineOrientedToolOutput(
-      _withNotices,
-      _grepCap,
-      (kept) => `[grep output capped at ${_grepCap} bytes; ${kept.length} line(s) shown, remainder omitted]`
-    );
-  } else if (_LOCATOR_BUDGET_TOOLS.has(toolName)) {
-    _budgetedResult = capLineOrientedToolOutput(_withNotices, _locatorCap, (kept) =>
-      _locatorBudgetFooter(toolName, args, kept, _locatorCap)
-    );
-  }
   // Any provider-facing reduction happens later, after the complete result
   // has been durably persisted by tool-result-offload.
-  const _finalResult = _budgetedResult;
+  const _finalResult = _budgetBuiltinOutput(toolName, args, _appendClampNotices(args, _toolResult), options);
   if (
     toolName === 'shell' &&
     options?.resultTelemetry &&
@@ -507,6 +488,25 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
     options.resultTelemetry.toolResultBytes = Buffer.byteLength(_finalResult, 'utf8');
   }
   return _finalResult;
+}
+
+function _budgetBuiltinOutput(toolName, args, result, options) {
+  const explicitCap = Number(options?.toolOutputMaxBytes) > 0 ? Math.trunc(Number(options.toolOutputMaxBytes)) : null;
+  if (toolName === 'grep') {
+    const grepCap = explicitCap ? Math.min(explicitCap, GREP_OUTPUT_MAX_BYTES) : GREP_OUTPUT_MAX_BYTES;
+    return capLineOrientedToolOutput(
+      result,
+      grepCap,
+      (kept) => `[grep output capped at ${grepCap} bytes; ${kept.length} line(s) shown, remainder omitted]`
+    );
+  }
+  if (_LOCATOR_BUDGET_TOOLS.has(toolName)) {
+    const locatorCap = explicitCap ? Math.min(explicitCap, LOCATOR_OUTPUT_MAX_BYTES) : LOCATOR_OUTPUT_MAX_BYTES;
+    return capLineOrientedToolOutput(result, locatorCap, (kept) =>
+      _locatorBudgetFooter(toolName, args, kept, locatorCap)
+    );
+  }
+  return result;
 }
 
 // Surface arg-guard clamp notices (args._clampNotices, see pushClampNotice in
@@ -540,12 +540,10 @@ export function isBuiltinTool(name) {
 // unknown-tool redirect message at the dispatch layer.
 export { isExternalAdapterTool };
 
-// Test-only exports for smart truncation helpers (see
-// scripts/test-smart-truncation.mjs). Runtime callers inside this module
-// use the local bindings unchanged; these named exports just make the
+// Test-only exports for smart truncation helpers. Runtime callers inside this
+// module use the local bindings unchanged; these named exports just make the
 // same functions + constants reachable from the test harness.
 export {
-  computeUnifiedDiff,
   smartMiddleTruncate,
   smartReadTruncate,
   SMART_READ_MAX_BYTES,

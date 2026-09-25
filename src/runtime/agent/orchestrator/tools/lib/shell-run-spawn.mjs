@@ -125,9 +125,6 @@ async function gatedSpawn({
               stderrPath: taskOutput.stderrPath,
             }
           : {}),
-        // POSIX: detached gives the child its own process group so treeKill can
-        // signal the whole group. Windows detached has different console
-        // semantics, so it stays off there.
       },
     });
   } finally {

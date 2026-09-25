@@ -17,7 +17,7 @@
 // native error.
 import { readFile } from 'node:fs/promises';
 
-import { formatGrepContextOutput, formatGrepOutput } from './grep-output.mjs';
+import { formatGrepContextOutput, formatGrepOutput, grepNoMatchesBody } from './grep-output.mjs';
 
 /** Reading is the whole point of the rescue, so the file must stay small
  *  enough that reading it is cheaper than the failed search. */
@@ -60,9 +60,7 @@ export async function runGrepSingleFileRescue({
   headLimit,
   offset,
   workDir,
-  grepResolvedPath,
   patternCapNote = '',
-  globPatterns = [],
 }) {
   if (multilineMode || fileType) return null;
   const list = (Array.isArray(patterns) ? patterns : [patterns]).filter(Boolean);
@@ -95,14 +93,10 @@ export async function runGrepSingleFileRescue({
     outputMode,
     headLimit,
     offset,
-    searchPath,
-    grepResolvedPath,
     workDir,
-    globPatterns,
     beforeN,
     afterN,
     contextN,
-    patterns: list,
   };
 
   if (outputMode === 'files_with_matches') {
@@ -146,15 +140,7 @@ export async function runGrepSingleFileRescue({
       searchPath,
       totalKnown: !truncated,
     });
-    return withRescueNotice(
-      patternCapNote +
-        (body.text ||
-          noMatchBody({
-            patterns: list,
-            searchPath,
-            globPatterns,
-          }))
-    );
+    return withRescueNotice(patternCapNote + (body.text || grepNoMatchesBody({ totalKnown: !truncated })));
   }
   return renderPlain({
     ...plainBase,
@@ -220,12 +206,6 @@ function renderRescueLines({
   return { lines, truncated };
 }
 
-function noMatchBody({ patterns, searchPath, globPatterns }) {
-  const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
-  const globStr = globPatterns.length > 0 ? ` glob=${JSON.stringify(globPatterns)}` : '';
-  return `(no matches) pattern=${patternStr} path=${searchPath}${globStr}; path exists (file)`;
-}
-
 function withRescueNotice(body) {
   return `${body}\n[notice] native search could not serve this file scope; the file was scanned directly.`;
 }
@@ -236,15 +216,11 @@ function renderPlain({
   outputMode,
   headLimit,
   offset,
-  searchPath,
-  grepResolvedPath,
   workDir,
-  globPatterns,
   filenameOmitted,
   beforeN,
   afterN,
   contextN,
-  patterns,
   totalKnown = true,
 }) {
   const body =
@@ -255,16 +231,12 @@ function renderPlain({
       headLimit,
       offset,
       outputMode,
-      patterns,
       beforeN,
       afterN,
       contextN,
-      searchPath,
-      grepResolvedPath,
       workDir,
-      globPatterns,
       filenameOmitted,
       includeMatchCount: false,
-    }) || noMatchBody({ patterns, searchPath, globPatterns });
+    }) || grepNoMatchesBody({ totalKnown });
   return withRescueNotice(patternCapNote + body);
 }

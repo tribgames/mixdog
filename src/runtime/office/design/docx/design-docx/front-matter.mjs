@@ -61,6 +61,7 @@ export function writeDocxFrontMatter(w, operation) {
       addDocxDecisionCallout(w.output, w.state, strings(operation.summary).join(' '), w.design, {
         label: String(operation.summaryLabel),
         emphasis: w.decisionBrief ? 'inverse' : 'accent',
+        eastAsia: w.type.eastAsiaFor(w.type.display),
       });
     } else {
       append(strings(operation.summary).join(' '), 'Normal', {

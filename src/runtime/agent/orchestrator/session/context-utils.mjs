@@ -285,8 +285,137 @@ export function messageAttachmentBreakdown(m) {
   ];
   return { tokens: items.reduce((sum, item) => sum + item.tokens, 0), items };
 }
+// The one per-message meter: replay-aware text tokens plus the image AND
+// document allowances. The gauge summary and the compaction pressure estimate
+// must price a message identically.
+function meteredMessageTokens(m, precomputedText = null) {
+  return messageTextTokens(m, precomputedText) + messageImageAllowance(m) + messageFileAllowance(m) + 4;
+}
+// Compaction, pressure and budget checks re-price the same live message
+// objects many times per turn. Memoize the meter per message object, validated
+// against a structural snapshot of every field the meter reads: a flat,
+// pre-order record of the plain object/array skeleton and its primitive leaves
+// (strings are shared, never copied). Validation walks the live fields against
+// it without allocating, so an in-place edit anywhere below a message — a
+// streamed block, restored tool arguments, a reordered key — misses the memo
+// and re-meters. Values outside plain data (Date, Map, class instances, deep
+// or cyclic graphs) are never snapshotted and always re-meter.
+const METERED_MESSAGE_FIELDS = Object.freeze([
+  'role',
+  'toolCallId',
+  'content',
+  'toolCalls',
+  'thinkingBlocks',
+  'assistantBlocks',
+  'reasoningItems',
+  'providerMetadata',
+  'providerReplay',
+]);
+const METER_SNAPSHOT_MAX_DEPTH = 64;
+const SNAPSHOT_OBJECT = Object.freeze({});
+const SNAPSHOT_ARRAY = Object.freeze({});
+const meteredMessageMemo = new WeakMap();
+
+function plainObjectPrototype(value) {
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function snapshotMeteredValue(value, out, depth) {
+  if (value === null || typeof value !== 'object') {
+    out.push(value);
+    return true;
+  }
+  if (depth >= METER_SNAPSHOT_MAX_DEPTH) return false;
+  if (Array.isArray(value)) {
+    if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+    const length = value.length;
+    out.push(SNAPSHOT_ARRAY, length);
+    for (let index = 0; index < length; index += 1) {
+      if (!snapshotMeteredValue(value[index], out, depth + 1)) return false;
+    }
+    return true;
+  }
+  if (!plainObjectPrototype(value)) return false;
+  out.push(SNAPSHOT_OBJECT, 0);
+  const countIndex = out.length - 1;
+  let count = 0;
+  for (const key in value) {
+    if (!Object.hasOwn(value, key)) continue;
+    out.push(key);
+    if (!snapshotMeteredValue(value[key], out, depth + 1)) return false;
+    count += 1;
+  }
+  out[countIndex] = count;
+  return true;
+}
+
+// Returns the snapshot index after `value`, or -1 when `value` differs.
+function matchMeteredValue(value, snapshot, index) {
+  const recorded = snapshot[index];
+  if (recorded === SNAPSHOT_ARRAY) {
+    const length = snapshot[index + 1];
+    if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length !== length) return -1;
+    let next = index + 2;
+    for (let item = 0; item < length && next >= 0; item += 1) next = matchMeteredValue(value[item], snapshot, next);
+    return next;
+  }
+  if (recorded === SNAPSHOT_OBJECT) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value) || !plainObjectPrototype(value)) return -1;
+    const count = snapshot[index + 1];
+    let next = index + 2;
+    let seen = 0;
+    for (const key in value) {
+      if (!Object.hasOwn(value, key)) continue;
+      if (seen === count || snapshot[next] !== key) return -1;
+      next = matchMeteredValue(value[key], snapshot, next + 1);
+      if (next < 0) return -1;
+      seen += 1;
+    }
+    return seen === count ? next : -1;
+  }
+  if (value !== null && typeof value === 'object') return -1;
+  return Object.is(value, recorded) ? index + 1 : -1;
+}
+
+function snapshotMeteredMessage(m) {
+  const out = [];
+  for (let field = 0; field < METERED_MESSAGE_FIELDS.length; field += 1) {
+    if (!snapshotMeteredValue(m[METERED_MESSAGE_FIELDS[field]], out, 0)) return null;
+  }
+  return out;
+}
+
+function meteredMessageUnchanged(m, snapshot) {
+  let index = 0;
+  for (let field = 0; field < METERED_MESSAGE_FIELDS.length && index >= 0; field += 1) {
+    index = matchMeteredValue(m[METERED_MESSAGE_FIELDS[field]], snapshot, index);
+  }
+  return index >= 0;
+}
+
+// The message's current memo entry, or null when it cannot be snapshotted. An
+// entry stays the same object exactly while the metered fields are unchanged,
+// so its identity also validates anything else derived from those fields.
+function meteredMessageEntry(m) {
+  if (!m || typeof m !== 'object') return null;
+  const cached = meteredMessageMemo.get(m);
+  if (cached && meteredMessageUnchanged(m, cached.snapshot)) return cached;
+  const snapshot = snapshotMeteredMessage(m);
+  if (!snapshot) {
+    meteredMessageMemo.delete(m);
+    return null;
+  }
+  const entry = { snapshot, tokens: undefined };
+  meteredMessageMemo.set(m, entry);
+  return entry;
+}
+
 export function estimateMessageTokens(m) {
-  return messageTextTokens(m) + messageImageAllowance(m) + messageFileAllowance(m) + 4;
+  const entry = meteredMessageEntry(m);
+  if (!entry) return meteredMessageTokens(m);
+  entry.tokens ??= meteredMessageTokens(m);
+  return entry.tokens;
 }
 
 function isReasoningBlock(block) {
@@ -330,21 +459,27 @@ export function estimateMessagesTokens(messages) {
 }
 
 // Context status is polled while the agent loop mutates and replaces message
-// arrays. Keep the accumulated summary on that array, but cheaply validate
-// every entry before reusing its contribution. The fingerprint deliberately
-// avoids serializing content/blocks on the warm path; it compares the
-// references of every estimator-visible string instead.
+// arrays. Keep the accumulated summary per transcript: a replacement array
+// whose first message is the same object continues from the latest summary of
+// that transcript instead of re-metering it. The tail (previous and current)
+// is fully re-fingerprinted on every sync, because streaming and failed-call
+// argument restoration edit it in place; every earlier entry is confirmed by
+// its own identity plus the identity of each estimator-visible field.
 // Producer invariant: compaction copies message/call objects, transcript repair
-// replaces array entries, stored-tool-args replaces `arguments`, and MCP reload
-// replaces tool descriptors; settled nested non-string payloads are not mutated
-// in place without replacing their containing reference.
+// replaces array entries, stored-tool-args replaces `arguments` only on the
+// in-flight assistant turn, and MCP reload replaces tool descriptors; settled
+// nested non-string payloads are not mutated in place without replacing their
+// containing reference.
 const contextMessageMemo = new WeakMap();
 const contextTranscriptMemo = new WeakMap();
+const contextTranscriptLineage = new WeakMap();
+let contextTranscriptRevision = 0;
 
-const { contextMessageFingerprint, sameContextMessageFingerprint } = createContextFingerprinter({
-  nativeBlocksEstimateText,
-  contentImageDescriptors,
-});
+const { contextMessageFingerprint, sameContextMessageFingerprint, contextMessageFieldsUnchanged } =
+  createContextFingerprinter({
+    nativeBlocksEstimateText,
+    contentImageDescriptors,
+  });
 
 // A system reminder's tokens split by section bucket; `otherTokens` is
 // whatever the sections do not account for.
@@ -383,11 +518,7 @@ function contextMessageContribution(message) {
   if (cached && sameContextMessageFingerprint(cached.fingerprint, fingerprint)) return cached.contribution;
   const role = ['system', 'user', 'assistant', 'tool'].includes(fingerprint.role) ? fingerprint.role : 'other';
   const text = messageEstimateText(message);
-  // Same meter as estimateMessageTokens: replay-aware text tokens plus the
-  // image AND document allowances — the gauge summary and the compaction
-  // pressure estimate must price a message identically (a PDF counted by
-  // one but not the other made the gauge diverge from the decision).
-  const tokens = messageTextTokens(message, text) + messageImageAllowance(message) + messageFileAllowance(message) + 4;
+  const tokens = meteredMessageTokens(message, text);
   const contribution = {
     role,
     tokens,
@@ -488,8 +619,8 @@ function contextSummaryResult(state, count) {
   return {
     count,
     estimatedTokens: state.estimatedTokens,
-    roles: Object.fromEntries(Object.entries(state.rows).map(([role, row]) => [role, { ...row }])),
-    semantic: Object.fromEntries(Object.entries(state.semantic).map(([name, row]) => [name, { ...row }])),
+    roles: copySummaryRows(state.rows),
+    semantic: copySummaryRows(state.semantic),
     toolCallCount: state.toolCallCount,
     toolCallTokens: state.toolCallTokens,
     toolResultCount: state.toolResultCount,
@@ -533,44 +664,108 @@ export function reminderSectionBucket(section) {
   return 'other';
 }
 
-export function summarizeContextMessages(messages) {
-  if (!Array.isArray(messages)) return contextSummaryResult(emptyContextSummaryState(), 0);
-  let cached = contextTranscriptMemo.get(messages);
-  if (!cached || messages.length < cached.count) {
-    cached = { count: 0, contributions: [], state: emptyContextSummaryState(), revision: 0, result: null };
-    contextTranscriptMemo.set(messages, cached);
+function copySummaryRows(rows) {
+  return Object.fromEntries(Object.entries(rows).map(([name, row]) => [name, { ...row }]));
+}
+
+// A replacement array starts from its transcript's latest summary; the sync
+// below then re-meters only the entries that differ from it.
+function forkContextTranscript(parent) {
+  return {
+    refs: parent.refs.slice(),
+    contributions: parent.contributions.slice(),
+    state: { ...parent.state, rows: copySummaryRows(parent.state.rows), semantic: copySummaryRows(parent.state.semantic) },
+    revision: parent.revision,
+    result: parent.result,
+    signatures: new Map([...parent.signatures].map(([kind, entries]) => [kind, new Map(entries)])),
+  };
+}
+
+function contextTranscriptFor(messages) {
+  let transcript = contextTranscriptMemo.get(messages);
+  if (!transcript) {
+    const head = messages[0];
+    const parent = head && typeof head === 'object' ? contextTranscriptLineage.get(head) : null;
+    transcript = parent
+      ? forkContextTranscript(parent)
+      : {
+          refs: [],
+          contributions: [],
+          state: emptyContextSummaryState(),
+          revision: 0,
+          result: null,
+          signatures: new Map(),
+        };
+    contextTranscriptMemo.set(messages, transcript);
   }
-  let changed = cached.result === null;
-  for (let index = 0; index < messages.length; index += 1) {
-    const previous = cached.contributions[index];
-    const contribution = contextMessageContribution(messages[index]);
+  return transcript;
+}
+
+// Entry `index` below the previous and current tails keeps its contribution
+// while it is the same message whose measured fields are the same references.
+function settledContextEntry(transcript, messages, index) {
+  const message = messages[index];
+  if (transcript.refs[index] !== message || !message || typeof message !== 'object') return false;
+  const cached = contextMessageMemo.get(message);
+  return (
+    !!cached &&
+    cached.contribution === transcript.contributions[index] &&
+    contextMessageFieldsUnchanged(message, cached.fingerprint)
+  );
+}
+
+function syncContextTranscript(messages) {
+  const transcript = contextTranscriptFor(messages);
+  const { refs, contributions, state } = transcript;
+  const previousCount = refs.length;
+  const count = messages.length;
+  const settledCount = Math.max(0, Math.min(previousCount, count) - 1);
+  let changed = transcript.result === null;
+  for (let index = 0; index < count; index += 1) {
+    if (index < settledCount && settledContextEntry(transcript, messages, index)) continue;
+    const message = messages[index];
+    const contribution = contextMessageContribution(message);
+    refs[index] = message;
+    const previous = index < previousCount ? contributions[index] : undefined;
     if (previous === contribution) continue;
-    if (previous) applyContextMessageContribution(cached.state, previous, -1);
-    cached.contributions[index] = contribution;
-    applyContextMessageContribution(cached.state, contribution, 1);
-    cached.revision += 1;
+    if (previous) applyContextMessageContribution(state, previous, -1);
+    contributions[index] = contribution;
+    applyContextMessageContribution(state, contribution, 1);
     changed = true;
   }
-  cached.contributions.length = messages.length;
-  cached.count = messages.length;
-  if (!changed && cached.result) return cached.result;
-  cached.result = contextSummaryResult(cached.state, messages.length);
-  return cached.result;
+  for (let index = count; index < previousCount; index += 1) {
+    applyContextMessageContribution(state, contributions[index], -1);
+    changed = true;
+  }
+  refs.length = count;
+  contributions.length = count;
+  if (changed) {
+    contextTranscriptRevision += 1;
+    transcript.revision = contextTranscriptRevision;
+    transcript.result = contextSummaryResult(state, count);
+  }
+  const head = messages[0];
+  if (head && typeof head === 'object') contextTranscriptLineage.set(head, transcript);
+  return transcript;
+}
+
+export function summarizeContextMessages(messages) {
+  if (!Array.isArray(messages)) return contextSummaryResult(emptyContextSummaryState(), 0);
+  return syncContextTranscript(messages).result;
 }
 
 // A stable warm-cache generation for consumers that cache a derived view of
-// the whole transcript. summarizeContextMessages() must run first so mutations
-// to any entry, not merely the tail, advance the generation.
+// the whole transcript. Revisions are unique across transcripts and advance
+// whenever any entry's contribution changes.
 export function contextMessagesRevision(messages) {
   if (!Array.isArray(messages)) return 0;
-  summarizeContextMessages(messages);
-  return contextTranscriptMemo.get(messages)?.revision || 0;
+  return syncContextTranscript(messages).revision;
 }
 
 export function summarizeContextMessagesAtRevision(messages, revision) {
   if (Array.isArray(messages)) {
     const cached = contextTranscriptMemo.get(messages);
-    if (cached && cached.count === messages.length && cached.revision === revision && cached.result)
+    if (cached && cached.refs.length === messages.length && cached.revision === revision && cached.result)
       return cached.result;
   }
   return summarizeContextMessages(messages);
@@ -578,45 +773,142 @@ export function summarizeContextMessagesAtRevision(messages, revision) {
 
 // Hash only estimator/provider-visible projections. In particular, images
 // contribute their visual count but never their raw data-url/base64 bytes.
-const contextMessagesSignatureMemo = new WeakMap();
 const CONTEXT_SIGNATURE_COUNTS_MAX = 4;
 
-function sameContributions(previous, current) {
-  if (previous.length !== current.length) return false;
-  for (let index = 0; index < current.length; index += 1) {
+function samePrefixContributions(previous, current, end) {
+  if (previous.length !== end) return false;
+  for (let index = 0; index < end; index += 1) {
     if (previous[index] !== current[index]) return false;
   }
   return true;
 }
 
+// Incremental prefix hashing. A signature is sha256 over
+// JSON(identity(message)) + '\0' for each message in order, so the hash state
+// after k messages is reusable by any transcript that starts with the same k
+// messages. Each `kind` keeps one chain per head message: the messages it has
+// absorbed (object + metered-memo entry, which together prove the identity
+// projection is unchanged — identities read only METERED_MESSAGE_FIELDS), a
+// hash state every SIGNATURE_CHECKPOINT_INTERVAL messages, and the state after
+// the last one. A new turn therefore serializes only the messages it appended
+// or edited, never the settled transcript before them; the digest is exactly
+// the one a from-scratch hash produces.
+const SIGNATURE_CHECKPOINT_INTERVAL = 64;
+const signatureChains = new WeakMap();
+
+function signatureChainFor(list, kind) {
+  const head = list[0];
+  if (!head || typeof head !== 'object') return null;
+  let chains = signatureChains.get(head);
+  if (!chains) {
+    chains = new Map();
+    signatureChains.set(head, chains);
+  }
+  let chain = chains.get(kind);
+  if (!chain) {
+    const origin = createHash('sha256');
+    chain = { refs: [], entries: [], checkpoints: [origin], tail: origin };
+    chains.set(kind, chain);
+  }
+  return chain;
+}
+
+function hashMessageIdentity(hash, identity) {
+  hash.update(JSON.stringify(identity));
+  hash.update('\0');
+}
+
+function transcriptPrefixDigest(list, end, kind, messageIdentity) {
+  const chain = signatureChainFor(list, kind);
+  if (!chain) {
+    const hash = createHash('sha256');
+    for (let index = 0; index < end; index += 1) hashMessageIdentity(hash, messageIdentity(list[index]));
+    return hash.digest('hex');
+  }
+  const limit = Math.min(chain.refs.length, end);
+  let valid = 0;
+  while (
+    valid < limit &&
+    list[valid] === chain.refs[valid] &&
+    meteredMessageEntry(list[valid]) === chain.entries[valid]
+  ) {
+    valid += 1;
+  }
+  if (valid < limit) {
+    // Rewind to the last checkpoint inside the still-valid prefix.
+    const keep = Math.floor(valid / SIGNATURE_CHECKPOINT_INTERVAL);
+    chain.checkpoints.length = keep + 1;
+    chain.refs.length = keep * SIGNATURE_CHECKPOINT_INTERVAL;
+    chain.entries.length = chain.refs.length;
+    chain.tail = chain.checkpoints[keep];
+  }
+  const chained = chain.refs.length;
+  let start = chained;
+  let hash;
+  if (end >= chained) {
+    hash = chain.tail.copy();
+  } else {
+    const checkpoint = Math.floor(end / SIGNATURE_CHECKPOINT_INTERVAL);
+    start = checkpoint * SIGNATURE_CHECKPOINT_INTERVAL;
+    hash = chain.checkpoints[checkpoint].copy();
+  }
+  // Absorb appended messages into the chain; commit only after every identity
+  // serialized, so a throwing identity leaves the chain consistent.
+  let extending = start === chained;
+  const refs = [];
+  const entries = [];
+  const checkpoints = [];
+  let tail = null;
+  for (let index = start; index < end; index += 1) {
+    const message = list[index];
+    if (extending) {
+      const entry = meteredMessageEntry(message);
+      if (entry) {
+        refs.push(message);
+        entries.push(entry);
+      } else {
+        extending = false;
+        tail = hash.copy();
+      }
+    }
+    hashMessageIdentity(hash, messageIdentity(message));
+    if (extending && (index + 1) % SIGNATURE_CHECKPOINT_INTERVAL === 0) checkpoints.push(hash.copy());
+  }
+  if (refs.length) {
+    for (let index = 0; index < refs.length; index += 1) {
+      chain.refs.push(refs[index]);
+      chain.entries.push(entries[index]);
+    }
+    for (const checkpoint of checkpoints) chain.checkpoints.push(checkpoint);
+    chain.tail = tail || hash.copy();
+  }
+  return hash.digest('hex');
+}
+
 // The memoized signature over the first `count` messages. An unchanged
-// prefix (the same contribution objects) is answered from `memo` instead of
-// re-hashing a whole transcript on every pressure check; otherwise
-// `messageIdentity` feeds each message into a fresh sha256 whose digest is
-// remembered per prefix length, most recent CONTEXT_SIGNATURE_COUNTS_MAX kept.
-function memoizedTranscriptSignature(messages, count, memo, messageIdentity) {
+// prefix (the same contribution objects) is answered from the transcript's
+// `kind` signatures, carried across array replacement, instead of re-hashing
+// a whole transcript on every pressure check; otherwise the digest comes from
+// the incremental `kind` chain and is remembered per prefix length, most
+// recent CONTEXT_SIGNATURE_COUNTS_MAX kept.
+function memoizedTranscriptSignature(messages, count, kind, messageIdentity) {
   const list = Array.isArray(messages) ? messages : [];
   const end = Math.max(0, Math.min(list.length, Number.isInteger(count) ? count : list.length));
-  let contributions = null;
   let signatures = null;
+  let transcript = null;
   if (Array.isArray(messages)) {
-    summarizeContextMessages(messages);
-    contributions = contextTranscriptMemo.get(messages)?.contributions.slice(0, end) || [];
-    signatures = memo.get(messages);
+    transcript = syncContextTranscript(messages);
+    signatures = transcript.signatures.get(kind);
     const previous = signatures?.get(end);
-    if (previous && sameContributions(previous.contributions, contributions)) {
+    if (previous && samePrefixContributions(previous.contributions, transcript.contributions, end)) {
       signatures.delete(end);
       signatures.set(end, previous);
       return previous.signature;
     }
   }
-  const hash = createHash('sha256');
-  for (let index = 0; index < end; index += 1) {
-    hash.update(JSON.stringify(messageIdentity(list[index])));
-    hash.update('\0');
-  }
-  const signature = hash.digest('hex');
-  if (Array.isArray(messages)) {
+  const signature = transcriptPrefixDigest(list, end, kind, messageIdentity);
+  if (transcript) {
+    const contributions = transcript.contributions.slice(0, end);
     signatures ||= new Map();
     if (signatures.has(end)) signatures.delete(end);
     signatures.set(end, { contributions, signature });
@@ -625,13 +917,13 @@ function memoizedTranscriptSignature(messages, count, memo, messageIdentity) {
       if (oldest === undefined) break;
       signatures.delete(oldest);
     }
-    memo.set(messages, signatures);
+    transcript.signatures.set(kind, signatures);
   }
   return signature;
 }
 
 export function contextMessagesSignature(messages, count = messages?.length) {
-  return memoizedTranscriptSignature(messages, count, contextMessagesSignatureMemo, (message) => [
+  return memoizedTranscriptSignature(messages, count, 'exact', (message) => [
     message?.role || '',
     message?.toolCallId || '',
     messageEstimateText(message),
@@ -662,10 +954,8 @@ function messageShapeText(message) {
   return { text: text.replace(/\s+/g, ' ').trim(), placeholders };
 }
 
-const contextMessagesShapeSignatureMemo = new WeakMap();
-
 export function contextMessagesShapeSignature(messages, count = messages?.length) {
-  return memoizedTranscriptSignature(messages, count, contextMessagesShapeSignatureMemo, (message) => {
+  return memoizedTranscriptSignature(messages, count, 'shape', (message) => {
     const shape = messageShapeText(message);
     return [
       message?.role || '',

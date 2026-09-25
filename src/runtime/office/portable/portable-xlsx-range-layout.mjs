@@ -171,8 +171,9 @@ export async function sortWorksheetRange(zip, sheet, xml, op) {
 }
 
 // The widest printed text of each column in the area, skipping the cells a
-// horizontal merge spans.
-function measuredColumnWidths(records, area, spans) {
+// horizontal merge spans. A width counts characters of the workbook's default
+// size (`baseSize`), so a cell set larger takes proportionally more of it.
+function measuredColumnWidths(records, area, spans, baseSize) {
   const measured = new Map();
   for (const record of records) {
     const parsed = parseCellRef(record.ref);
@@ -193,7 +194,11 @@ function measuredColumnWidths(records, area, spans) {
     const value = record.formula ? record.cachedValue : record.value;
     const text = String(value ?? '');
     const numeric = record.dataType !== 'text' && text.trim() !== '' && Number.isFinite(Number(text));
-    const needed = numeric ? formattedNumberWidth(Number(text), record.style?.numberFormat || '') : displayWidth(text);
+    // An indent level holds about one character of the column before the text starts.
+    const scale = (Number(record.style?.fontSize) || baseSize) / baseSize;
+    const needed =
+      (numeric ? formattedNumberWidth(Number(text), record.style?.numberFormat || '') : displayWidth(text)) * scale +
+      (Number(record.style?.indent) || 0);
     measured.set(column, Math.max(measured.get(column) || 0, needed));
   }
   return measured;
@@ -213,7 +218,7 @@ export async function autofitWorksheetRange(zip, sheet, xml, op) {
   const cellStyles = resolveCellStyles(await zipText(zip, 'xl/styles.xml'));
   const records = cellRecords(xml, await sharedStrings(zip), { styles: cellStyles });
   const spans = mergedRanges(xml).map((entry) => parseAreaRange(entry));
-  const measured = measuredColumnWidths(records, area, spans);
+  const measured = measuredColumnWidths(records, area, spans, Number(cellStyles[0]?.fontSize) || 11);
   // Fit-to-page never enlarges a sheet, so a layout whose columns hold only
   // their text prints as a small block in the corner of the page. minWidth is
   // the floor a composed sheet asks for: the columns still grow to their

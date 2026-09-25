@@ -9,6 +9,7 @@ import { executeCodeGraphTool } from '../src/runtime/agent/orchestrator/tools/co
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 import { runWithLocalSearchTelemetry } from '../src/runtime/agent/orchestrator/tools/builtin/local-search-telemetry.mjs';
 import { shutdownNativeSearchServer } from '../src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs';
+import { percentile, sortedFinite } from './lib/trace-stats.mjs';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const warmRuns = Math.max(1, Math.min(20, Number(process.argv[2]) || 5));
@@ -152,12 +153,6 @@ const cases = [
   ],
 ];
 
-function percentile(values, p) {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))];
-}
-
 function telemetryTotal(telemetry, suffix) {
   return Object.entries(telemetry)
     .filter(([key, value]) => key.endsWith(suffix) && Number.isFinite(Number(value)))
@@ -188,22 +183,17 @@ try {
     }
     const cold = samples[0];
     const warm = samples.slice(1);
-    const queue = warm.map((sample) => telemetryTotal(sample.telemetry, '_queue_ms')).filter((value) => value > 0);
-    const handler = warm.map((sample) => telemetryTotal(sample.telemetry, '_handler_ms')).filter((value) => value > 0);
+    const warmMs = sortedFinite(warm.map((sample) => sample.elapsedMs));
+    const queue = sortedFinite(
+      warm.map((sample) => telemetryTotal(sample.telemetry, '_queue_ms')).filter((value) => value > 0)
+    );
+    const handler = sortedFinite(
+      warm.map((sample) => telemetryTotal(sample.telemetry, '_handler_ms')).filter((value) => value > 0)
+    );
     console.log(
       `${name.padEnd(10)} cold=${ms(cold.elapsedMs)}` +
-        ` warm_p50=${ms(
-          percentile(
-            warm.map((sample) => sample.elapsedMs),
-            50
-          )
-        )}` +
-        ` warm_p95=${ms(
-          percentile(
-            warm.map((sample) => sample.elapsedMs),
-            95
-          )
-        )}` +
+        ` warm_p50=${ms(percentile(warmMs, 50))}` +
+        ` warm_p95=${ms(percentile(warmMs, 95))}` +
         ` backend_queue_p95=${queue.length ? ms(percentile(queue, 95)) : '-'}` +
         ` backend_handler_p95=${handler.length ? ms(percentile(handler, 95)) : '-'}`
     );

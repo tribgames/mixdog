@@ -25,73 +25,74 @@ export interface RelayCatalogs {
   publishAgentPool(agents: DesktopAgentPoolRow[]): void;
 }
 
+/** One roster lane: its retained catalog, the host read that refills it, the
+ *  per-client encoder, and the event it travels as. */
+interface RosterLane<T> {
+  catalog: ReturnType<typeof createRemoteCatalog<T>>;
+  read(): Promise<T[]>;
+  encoder(state: RelayClientState): { reset(): void; encode(rows: T[]): unknown };
+  event: 'sessions' | 'agentPool';
+  label: string;
+}
+
 export function createRelayCatalogs(deps: RelayCatalogDeps): RelayCatalogs {
-  const sessions = createRemoteCatalog<DesktopSessionSummary>();
-  const agents = createRemoteCatalog<DesktopAgentPoolRow>();
+  const sessions: RosterLane<DesktopSessionSummary> = {
+    catalog: createRemoteCatalog<DesktopSessionSummary>(),
+    read: () => deps.host.listSessions(),
+    encoder: (state) => state.sessionsEncoder,
+    event: 'sessions',
+    label: 'session',
+  };
+  const agents: RosterLane<DesktopAgentPoolRow> = {
+    catalog: createRemoteCatalog<DesktopAgentPoolRow>(),
+    read: () => deps.host.listAgentPool(),
+    encoder: (state) => state.agentPoolEncoder,
+    event: 'agentPool',
+    label: 'agent',
+  };
+  const sendRoster = <T>(lane: RosterLane<T>, clientId: string, state: RelayClientState): void => {
+    void lane.catalog
+      .read(lane.read)
+      .then(() => {
+        const rows = lane.catalog.get();
+        if (!deps.live(clientId, state) || rows === null) return;
+        const encoder = lane.encoder(state);
+        encoder.reset();
+        const wire = encoder.encode(rows);
+        return deps.sendEncryptedFrame(
+          clientId,
+          {
+            event: lane.event,
+            payload: state.listDelta ? wire : rows,
+          },
+          false
+        );
+      })
+      .catch((error) => console.error(`[mixdog-remote] ${lane.label} catalog recovery failed`, error));
+  };
+  const publishRoster = <T>(lane: RosterLane<T>, rows: T[]): void => {
+    lane.catalog.publish(rows);
+    if (deps.clients.size === 0) return;
+    for (const [clientId, state] of deps.clients) {
+      if (!state.channel || state.syncing) continue;
+      const wire = lane.encoder(state).encode(rows);
+      if (isNoListDelta(wire)) continue;
+      const payload = state.listDelta ? wire : rows;
+      // Roster frames carry delta patches: dropping one under congestion
+      // breaks the chain for every later push, so they are never droppable.
+      void deps.sendEncryptedFrame(clientId, { event: lane.event, payload }, false);
+    }
+  };
   return {
     sendClientLists: (clientId, state) => {
       // Host subscriptions announce CHANGES, not an initial roster. Do not
       // replace a phone's real rows with a fabricated empty list on first join.
       // Each lane recovers independently; an agent read fault must not hide the
       // session catalog.
-      void sessions
-        .read(() => deps.host.listSessions())
-        .then(() => {
-          const rows = sessions.get();
-          if (!deps.live(clientId, state) || rows === null) return;
-          state.sessionsEncoder.reset();
-          const wire = state.sessionsEncoder.encode(rows);
-          return deps.sendEncryptedFrame(
-            clientId,
-            {
-              event: 'sessions',
-              payload: state.listDelta ? wire : rows,
-            },
-            false
-          );
-        })
-        .catch((error) => console.error('[mixdog-remote] session catalog recovery failed', error));
-      void agents
-        .read(() => deps.host.listAgentPool())
-        .then(() => {
-          const rows = agents.get();
-          if (!deps.live(clientId, state) || rows === null) return;
-          state.agentPoolEncoder.reset();
-          const wire = state.agentPoolEncoder.encode(rows);
-          return deps.sendEncryptedFrame(
-            clientId,
-            {
-              event: 'agentPool',
-              payload: state.listDelta ? wire : rows,
-            },
-            false
-          );
-        })
-        .catch((error) => console.error('[mixdog-remote] agent catalog recovery failed', error));
+      sendRoster(sessions, clientId, state);
+      sendRoster(agents, clientId, state);
     },
-    publishSessions: (rows) => {
-      sessions.publish(rows);
-      if (deps.clients.size === 0) return;
-      for (const [clientId, state] of deps.clients) {
-        if (!state.channel || state.syncing) continue;
-        const wire = state.sessionsEncoder.encode(rows);
-        if (isNoListDelta(wire)) continue;
-        const payload = state.listDelta ? wire : rows;
-        // Roster frames carry delta patches: dropping one under congestion
-        // breaks the chain for every later push, so they are never droppable.
-        void deps.sendEncryptedFrame(clientId, { event: 'sessions', payload }, false);
-      }
-    },
-    publishAgentPool: (rows) => {
-      agents.publish(rows);
-      if (deps.clients.size === 0) return;
-      for (const [clientId, state] of deps.clients) {
-        if (!state.channel || state.syncing) continue;
-        const wire = state.agentPoolEncoder.encode(rows);
-        if (isNoListDelta(wire)) continue;
-        const payload = state.listDelta ? wire : rows;
-        void deps.sendEncryptedFrame(clientId, { event: 'agentPool', payload }, false);
-      }
-    },
+    publishSessions: (rows) => publishRoster(sessions, rows),
+    publishAgentPool: (rows) => publishRoster(agents, rows),
   };
 }

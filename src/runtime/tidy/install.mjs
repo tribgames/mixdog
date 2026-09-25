@@ -8,7 +8,7 @@ import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from '
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { MAX_NATIVE_BINARY_DOWNLOAD_BYTES, streamResponseToFile } from '../shared/bounded-download.mjs';
-import { platformKey, sha256File } from '../shared/native-asset.mjs';
+import { platformEntryKey, platformKey, sha256File } from '../shared/native-asset.mjs';
 import { readJsonSafe } from '../shared/json-file.mjs';
 import { ENGINE_CATALOG } from './engines.mjs';
 import { extractArchive } from './extract.mjs';
@@ -37,7 +37,7 @@ export function managedEngineDir(pluginData, id, version) {
   return join(managedToolsDir(pluginData), String(id), String(version));
 }
 
-export function manifestAsset(manifest, id, pkey = platformAssetKey()) {
+export function manifestAsset(manifest, id, pkey = platformEntryKey(manifest?.engines?.[id]?.assets)) {
   const entry = manifest?.engines?.[id];
   const asset = entry?.assets?.[pkey] || entry?.assets?.any;
   if (!entry || !asset || typeof asset.url !== 'string' || !asset.url) return null;

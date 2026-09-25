@@ -9,23 +9,39 @@ import { navigationKey } from './text-format';
 
 export type SessionSideSurface = typeof PANE_DOCK_BROWSER_SURFACE | typeof PANE_DOCK_TERMINAL_SURFACE;
 
-export function withSessionSideSurface(
-  current: ReadonlyMap<string, SessionSideSurface>,
+/** Immutable per-session map update: `null` removes the session's entry, and
+ *  an unchanged value (per `same`) hands back the current map identity. */
+function withSessionEntry<T>(
+  current: ReadonlyMap<string, T>,
   sessionId: string,
-  surface: SessionSideSurface | null
-): ReadonlyMap<string, SessionSideSurface> {
+  value: T | null,
+  same: (existing: T, next: T) => boolean = Object.is
+): ReadonlyMap<string, T> {
   const cleanSessionId = sessionId.trim();
   if (!cleanSessionId) return current;
-  if (surface === null) {
+  if (value === null) {
     if (!current.has(cleanSessionId)) return current;
     const next = new Map(current);
     next.delete(cleanSessionId);
     return next;
   }
-  if (current.get(cleanSessionId) === surface) return current;
+  const existing = current.get(cleanSessionId);
+  if (existing !== undefined && same(existing, value)) return current;
   const next = new Map(current);
-  next.set(cleanSessionId, surface);
+  next.set(cleanSessionId, value);
   return next;
+}
+
+export function withSessionSideSurface(
+  current: ReadonlyMap<string, SessionSideSurface>,
+  sessionId: string,
+  surface: SessionSideSurface | null
+): ReadonlyMap<string, SessionSideSurface> {
+  return withSessionEntry(current, sessionId, surface);
+}
+
+function sameNavigationTarget(left: PaneSideDockDiff, right: PaneSideDockDiff): boolean {
+  return navigationKey(left) === navigationKey(right);
 }
 
 /** The Session Diff rows' open file, per session: it never enters the pane's
@@ -37,19 +53,7 @@ export function withSessionDiff(
   sessionId: string,
   diff: PaneSideDockDiff | null
 ): ReadonlyMap<string, PaneSideDockDiff> {
-  const cleanSessionId = sessionId.trim();
-  if (!cleanSessionId) return current;
-  if (diff === null) {
-    if (!current.has(cleanSessionId)) return current;
-    const next = new Map(current);
-    next.delete(cleanSessionId);
-    return next;
-  }
-  const existing = current.get(cleanSessionId);
-  if (existing && navigationKey(existing) === navigationKey(diff)) return current;
-  const next = new Map(current);
-  next.set(cleanSessionId, diff);
-  return next;
+  return withSessionEntry(current, sessionId, diff, sameNavigationTarget);
 }
 
 /** Session-owned classic panel views: today only the Session Diff list. The
@@ -64,18 +68,7 @@ export function withSessionPanelView(
   sessionId: string,
   view: SessionSidePanelView | null
 ): ReadonlyMap<string, SessionSidePanelView> {
-  const cleanSessionId = sessionId.trim();
-  if (!cleanSessionId) return current;
-  if (view === null) {
-    if (!current.has(cleanSessionId)) return current;
-    const next = new Map(current);
-    next.delete(cleanSessionId);
-    return next;
-  }
-  if (current.get(cleanSessionId) === view) return current;
-  const next = new Map(current);
-  next.set(cleanSessionId, view);
-  return next;
+  return withSessionEntry(current, sessionId, view);
 }
 
 /**

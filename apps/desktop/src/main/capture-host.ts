@@ -24,7 +24,7 @@ import type { DesktopService } from './desktop-service-contract';
 // tool-toggle pass, 'keys' = keyboard paging pass, 'switch' = rapid session
 // switching, warm paint handoff, and side-panel geometry pass, 'width' = the
 // window-width rewrap pass.
-function jitterProbeEnabled(): boolean {
+export function jitterProbeEnabled(): boolean {
   const mode = String(process.env.MIXDOG_JITTER_PROBE || '');
   return (
     mode === '1' || mode === 'entry' || mode === 'keys' || mode === 'switch' || mode === 'width' || mode === 'select'
@@ -171,8 +171,6 @@ export class CaptureService implements DesktopService {
   private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
   private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
   private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
-
-  constructor(_options: unknown = {}) {}
 
   private publish(snapshot: SessionSnapshot): void {
     this.snapshot = snapshot;

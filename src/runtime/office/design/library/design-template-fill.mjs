@@ -1,5 +1,26 @@
 import { snapshotPortableOoxml } from '../../portable/portable-ooxml.mjs';
+import { readJson } from './design-library-core.mjs';
 import { annotatePptxSnapshotRoles } from './design-template-induct.mjs';
+
+// A template that ships a sidecar (<deck>.pptx.mixdog.json) has already said what each page does and which box
+// fills which slot. Those declared roles win over the geometry reading: the bundled executive pages set their
+// metrics on a stepped diagonal, which no row reading recognises, so a request for a metrics page landed on a
+// chart page with no metric slot and was refused. A page the sidecar does not describe keeps its induced roles.
+async function overlayTemplateSidecar(document, path) {
+  const samples = (await readJson(`${path}.mixdog.json`, null))?.samples;
+  if (!Array.isArray(samples)) return document;
+  for (const sample of samples) {
+    const page = document.slides?.[Number(sample?.slide) - 1];
+    if (!page || !sample.roles || typeof sample.roles !== 'object') continue;
+    if (sample.kind) page.role = String(sample.kind);
+    for (const shape of page.shapes || []) {
+      const declared = sample.roles[String(shape.index)];
+      if (declared) shape.slot = String(declared);
+      else delete shape.slot;
+    }
+  }
+  return document;
+}
 
 // Reusing a deck means putting a message on the page whose structure already
 // carries it. The page is chosen by the job it does, and its boxes are filled by
@@ -54,10 +75,25 @@ export function selectTemplatePage(document, request) {
     throw new Error(`The template carries no ${role} page; its pages are: ${carried || 'unread'}`);
   }
   const items = Array.isArray(request?.items) ? request.items.length : 0;
-  const sized = matches.map((page) => ({ page, size: pageGroup(pageSlots(page))?.size || 0 }));
+  // Items that carry a second line (a step's detail, a column's body, a metric's label) need a page with a box for
+  // it: between two four-step process pages the one without detail lines answered first, and the fill was refused
+  // for text the other page had room for.
+  const follows = (Array.isArray(request?.items) ? request.items : []).some((item) =>
+    String(item?.body ?? item?.label ?? item?.detail ?? '').trim()
+  );
+  const holdsFollow = (slots) => {
+    const group = pageGroup(slots);
+    return Boolean(group) && [...slots.keys()].some((role) => role.startsWith(`${group.family}-${group.follow}-`));
+  };
+  const sized = matches
+    .map((page) => {
+      const slots = pageSlots(page);
+      return { page, size: pageGroup(slots)?.size || 0, follow: holdsFollow(slots) };
+    })
+    .sort((left, right) => (follows ? Number(right.follow) - Number(left.follow) : 0));
   // The page that takes the items with the least room left over; when none holds
   // them the widest one answers and the fill reports how far it falls short.
-  const fits = sized.filter((entry) => entry.size >= items);
+  const fits = sized.filter((entry) => entry.size >= items && (!follows || entry.follow || !sized.some((other) => other.follow && other.size >= items)));
   const chosen = fits.length
     ? fits.sort((left, right) => left.size - right.size)[0]
     : sized.sort((left, right) => right.size - left.size)[0];
@@ -124,10 +160,40 @@ export function templatePageFill(page, content) {
   // cannot take the content says so, the way it does for too many items.
   const placed = placeGroupItems(slots, group, items);
   if (placed.unplaced.length) throw unplacedTextError(page, group, placed.unplaced);
+  // The page's other words are the template's, not the deck's: an eyebrow or a subtitle takes the text given for
+  // it, and one given none — like a group's detail line no item carries — is emptied rather than left reading
+  // "PERFORMANCE" or "Create · edit · review · save" on a page about something else. Decorative type
+  // (visual-text) and the carriers (chart, table, image) stay.
+  const claimed = new Set([...sets, ...placed.sets].map((entry) => entry.shape));
+  const extra = [];
+  // The line under a title is a subtitle on a cover and the lead prose on a summary page; which name the author
+  // uses for it depends on the page, so either one lands in whichever of the two boxes the page has.
+  const lead = { subtitle: 'body', body: 'subtitle' };
+  for (const field of ['eyebrow', 'subtitle', 'body', 'source']) {
+    const partner = lead[field];
+    const shape =
+      slots.get(field) ?? (partner && !String(content?.[partner] || '') ? slots.get(partner) : undefined);
+    const text = String(content?.[field] || '');
+    if (text && !shape) {
+      throw new Error(
+        `Slide ${page.index} of the template has no ${field} box, so its ${field} text has nowhere to go: leave it out, or use a page that carries one`
+      );
+    }
+    if (shape && text) {
+      extra.push({ shape, text });
+      claimed.add(shape);
+    }
+  }
+  const unclaimed = [...slots.entries()]
+    .filter(
+      ([role, shape]) =>
+        !claimed.has(shape) && (/^(eyebrow|subtitle|body(-\d+)?|meta|source)$/.test(role) || GROUP_ROLE.test(role))
+    )
+    .map(([, shape]) => shape);
   return {
-    sets: [...sets, ...placed.sets],
+    sets: [...sets, ...extra, ...placed.sets],
     // Deleting a shape renumbers the ones after it, so they go highest first.
-    deletes: [...new Set(placed.deletes)].sort((left, right) => right - left),
+    deletes: [...new Set([...placed.deletes, ...unclaimed])].sort((left, right) => right - left),
     group,
   };
 }
@@ -146,7 +212,10 @@ export async function expandTemplatePageOperations(format, operations) {
         'use_template_page needs after: the slide the new page follows, 0 to put it at the front of the deck'
       );
     }
-    const document = annotatePptxSnapshotRoles(await snapshotPortableOoxml(operation.path, 'pptx'));
+    const document = await overlayTemplateSidecar(
+      annotatePptxSnapshotRoles(await snapshotPortableOoxml(operation.path, 'pptx')),
+      operation.path
+    );
     const page = selectTemplatePage(document, operation);
     const { sets, deletes } = templatePageFill(page, operation);
     const slide = after + 1;

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { mergeSessionHistorySnapshot, SessionHost } from './session-host.ts';
+import { SessionHost } from './session-host.ts';
 import { SessionTransport } from './session-transport.ts';
 
 const options = {
@@ -839,33 +839,92 @@ test('an agent tab loads its transcript through the normal session read path', a
   }
 });
 
-test('history replay prepends stored rows while retaining the live tail and work state', () => {
-  const liveTail = [
-    { id: 'user-1', kind: 'user', text: 'worker brief' },
-    { id: 'assistant-1', kind: 'assistant', text: 'worker handoff' },
-  ];
-  const merged = mergeSessionHistorySnapshot(
-    'agent_child',
-    {
-      sessionId: 'agent_child',
-      items: liveTail,
-      queued: [{ id: 'queued' }],
-      busy: true,
+test('views open on a byte-budgeted tail, page older history through the daemon, and old phones keep 512 items', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-transcript-window-'));
+  const calls = [];
+  let host = null;
+  let revision = 0;
+  const unsupported = async () => {
+    throw new Error('unexpected session client call');
+  };
+  // The daemon's answer to a window: the last `transcriptItemLimit` of 1000.
+  const body = ({ sessionId, transcriptItemLimit }) => {
+    const limit = transcriptItemLimit ?? 1000;
+    const items = Array.from({ length: Math.min(limit, 1000) }, (_, index) => ({
+      id: `i${1000 - Math.min(limit, 1000) + index}`,
+      kind: 'assistant',
+      text: 'row',
+    }));
+    return { sessionId, revision: ++revision, full: { sessionId, items, queued: [], transcriptHasOlder: limit < 1000 } };
+  };
+  const window = ({ transcriptItemLimit, transcriptByteBudget }) => [transcriptItemLimit, transcriptByteBudget ?? null];
+  const client = {
+    list: unsupported,
+    create: unsupported,
+    async read(params) {
+      calls.push(['read', ...window(params)]);
+      return body(params);
     },
-    {
-      sessionId: 'agent_child',
-      items: [{ id: 'older', kind: 'assistant', text: 'older context' }, ...liveTail.map((item) => ({ ...item }))],
-      queued: [],
-    }
-  );
-  assert.deepEqual(
-    merged.items.map((item) => item.id),
-    ['older', 'user-1', 'assistant-1']
-  );
-  assert.equal(merged.items[1], liveTail[0]);
-  assert.equal(merged.items[2], liveTail[1]);
-  assert.equal(merged.busy, true);
-  assert.deepEqual(merged.queued, [{ id: 'queued' }]);
+    async subscribe(params) {
+      calls.push(['subscribe', ...window(params)]);
+      return { ...body(params), subscribed: true };
+    },
+    async unsubscribe() {
+      return {};
+    },
+    submit: unsupported,
+    abort: unsupported,
+    approve: unsupported,
+    configure: unsupported,
+    async close() {},
+  };
+  try {
+    host = await SessionHost.create(
+      { userDataPath, packaged: false, resourcesPath: userDataPath, appPath: userDataPath },
+      {
+        async attachSessionClient() {
+          return client;
+        },
+        loadProjects: unsupported,
+        loadSessionStore: unsupported,
+        loadStatuslineSegments: unsupported,
+        executeCodeGraphTool: unsupported,
+      }
+    );
+    const updates = [];
+    host.subscribeSessionStates((update) => updates.push(update));
+    const latest = () => updates.at(-1)?.snapshot;
+
+    await host.setVisibleSessions(['s1']);
+    assert.deepEqual(calls, [['subscribe', 32, 1_000_000]], 'the desktop opens on the tail');
+    assert.equal(latest().items.length, 32);
+    assert.equal(latest().transcriptHasOlder, true);
+
+    // Scrolling to the top: one page more, read through the daemon.
+    assert.equal(await host.prefetchSession('s1', 96), true);
+    assert.deepEqual(calls.at(-1), ['read', 96, null]);
+    assert.deepEqual(latest().items.slice(0, 2).map((item) => item.id), ['i904', 'i905']);
+    // An ordinary re-read (cold open, retry) keeps the grown window.
+    assert.equal(await host.prefetchSession('s1'), true);
+    assert.deepEqual(calls.at(-1), ['read', 96, null]);
+
+    // An old phone (no paging flag) raises the shared window to its page.
+    await host.setVisibleSessionsForSource('remote:old-phone', ['s1'], true);
+    assert.deepEqual(calls.at(-1), ['read', 512, null]);
+    assert.equal(latest().items.length, 512);
+    // ...and its count-based paging still grows it.
+    assert.equal(await host.prefetchSession('s1', 1024), true);
+    assert.deepEqual(calls.at(-1), ['read', 1024, null]);
+
+    // A session nobody shows any more starts from the tail again.
+    await host.setVisibleSessionsForSource('remote:old-phone', [], true);
+    await host.setVisibleSessions([]);
+    await host.setVisibleSessions(['s1']);
+    assert.deepEqual(calls.at(-1), ['subscribe', 32, 1_000_000]);
+  } finally {
+    await host?.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
 });
 
 test('new-task route trusts its authoritative result over a stale projected snapshot', async () => {

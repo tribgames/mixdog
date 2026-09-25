@@ -51,6 +51,7 @@ export const SETTINGS_ITEMS = [
   // 'system-shell' stays TUI-only: the desktop hides the override (user
   // decision — automatic platform selection is the only sensible desktop
   // default; the shared config key remains editable from the TUI).
+  { value: 'developer', label: 'Developer', description: 'Developer-only options.', kind: 'open' },
   { value: 'update', label: 'Update', description: 'Check version and update mixdog.', kind: 'open' },
 ] as const satisfies ReadonlyArray<SettingsItem>;
 
@@ -67,6 +68,7 @@ export type SettingsCategory =
   | 'plugins'
   | 'skills'
   | 'system'
+  | 'developer'
   | 'shortcuts'
   | 'about';
 
@@ -128,6 +130,13 @@ export const SETTINGS_CATEGORIES = [
     group: 'Support',
     items: ['update'],
   },
+  // Runtime-driven developer toggles, grouped into headed sub-categories.
+  {
+    value: 'developer',
+    label: 'Developer',
+    group: 'Support',
+    items: ['developer'],
+  },
   // Desktop-only surface (no TUI settings-item counterpart): a read-only
   // keybind reference for the workspace shortcuts.
   {
@@ -152,7 +161,7 @@ export const SETTINGS_CATEGORIES = [
   },
 ] as const satisfies ReadonlyArray<SettingsCategoryItem>;
 
-const REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>(['providers']);
+const REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>(['providers', 'developer']);
 const MOVED_EXTENSION_CATEGORIES = new Set<SettingsCategory>(['git', 'skills', 'mcp', 'plugins']);
 const LOCAL_SETTINGS_CATEGORIES = SETTINGS_CATEGORIES.filter(
   (category) => !MOVED_EXTENSION_CATEGORIES.has(category.value)

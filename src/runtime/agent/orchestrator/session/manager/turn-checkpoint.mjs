@@ -6,7 +6,6 @@ import {
   createTurnJournalEncoder,
   emptyInterruptionSnapshot,
   findTurnStart,
-  matchingUserMessage,
   openJournalForTurn,
   readTurnCheckpointHeader,
   removeTurnJournal,
@@ -24,34 +23,34 @@ export { captureTurnCheckpointContextState, restoreTurnCheckpointContextState };
 /** Resolve once every queued journal append for a session has been written. */
 export const settleTurnCheckpointWrites = settleTurnJournalWrites;
 
-/** Read-only projection for a turn still owned by another process. Unlike
- * recoverTurnCheckpoint this never mutates the session, clears the checkpoint,
- * or marks a live turn as interrupted. */
-export function projectTurnCheckpointMessages(session, checkpoint) {
-  const source = Array.isArray(session?.messages) ? session.messages : [];
-  if (!session?.id || checkpoint?.sessionId !== session.id || !Array.isArray(checkpoint?.turnMessages)) return source;
+/** Whether `checkpoint` describes this session's current turn: same
+ *  generation, and either the session's active-turn marker names it or (with
+ *  no marker) it is newer than the session record. */
+function checkpointAppliesTo(session, checkpoint) {
   const sessionGeneration = Number(session.generation) || 0;
   const checkpointGeneration = Number(checkpoint.generation) || 0;
   const markerToken =
     typeof session.activeTurnCheckpoint?.turnToken === 'string' ? session.activeTurnCheckpoint.turnToken : null;
   const markerMatches = markerToken === checkpoint.turnToken;
   const checkpointIsNewer = Number(checkpoint.updatedAt) > Number(session.updatedAt || 0);
-  if (
+  return !(
     checkpointGeneration !== sessionGeneration ||
     (markerToken && !markerMatches) ||
     (!markerToken && !checkpointIsNewer)
-  )
-    return source;
+  );
+}
+
+/** Read-only projection for a turn still owned by another process. Unlike
+ * recoverTurnCheckpoint this never mutates the session, clears the checkpoint,
+ * or marks a live turn as interrupted. */
+export function projectTurnCheckpointMessages(session, checkpoint) {
+  const source = Array.isArray(session?.messages) ? session.messages : [];
+  if (!session?.id || checkpoint?.sessionId !== session.id || !Array.isArray(checkpoint?.turnMessages)) return source;
+  if (!checkpointAppliesTo(session, checkpoint)) return source;
   if (checkpoint.fullTranscript === true) {
     return checkpoint.turnMessages.slice();
   }
-  let start = -1;
-  for (let index = source.length - 1; index >= 0; index -= 1) {
-    if (matchingUserMessage(source[index], checkpoint.currentUserContent)) {
-      start = index;
-      break;
-    }
-  }
+  const start = findTurnStart(source, checkpoint.currentUserContent);
   return [...(start >= 0 ? source.slice(0, start) : source), ...checkpoint.turnMessages];
 }
 
@@ -175,18 +174,11 @@ export function recoverTurnCheckpoint(session) {
     return { changed: true, recovered: false, turnToken: null };
   }
 
-  const sessionGeneration = Number(session.generation) || 0;
-  const checkpointGeneration = Number(checkpoint.generation) || 0;
-  const markerToken = typeof marker?.turnToken === 'string' ? marker.turnToken : null;
-  const markerMatches = markerToken === checkpoint.turnToken;
-  const checkpointIsNewer = Number(checkpoint.updatedAt) > Number(session.updatedAt || 0);
-  if (
-    checkpointGeneration !== sessionGeneration ||
-    (markerToken && !markerMatches) ||
-    (!markerToken && !checkpointIsNewer)
-  ) {
+  if (!checkpointAppliesTo(session, checkpoint)) {
     clearTurnCheckpoint(session.id, checkpoint.turnToken);
-    if (markerToken === checkpoint.turnToken) delete session.activeTurnCheckpoint;
+    if (typeof marker?.turnToken === 'string' && marker.turnToken === checkpoint.turnToken) {
+      delete session.activeTurnCheckpoint;
+    }
     return { changed: false, recovered: false, turnToken: null };
   }
 

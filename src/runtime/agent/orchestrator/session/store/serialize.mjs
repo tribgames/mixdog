@@ -43,11 +43,7 @@ export function _sessionForDisk(session) {
       Object.hasOwn(session, 'toolApprovalHook') ||
       Object.hasOwn(session, '_providerPrefixGuardState'));
   const messages = Array.isArray(session?.messages) ? session.messages : null;
-  if (!messages || messages.length === 0) {
-    if (!hasTransient) return session;
-    return _withMidTurnContextAnchor(_withoutTransientFields(session), session);
-  }
-  const out = _messagesForDisk(messages);
+  const out = messages?.length ? _messagesForDisk(messages) : messages;
   if (out === messages) {
     if (!hasTransient) return session;
     return _withMidTurnContextAnchor(_withoutTransientFields(session), session);

@@ -39,6 +39,23 @@ jobs:
       - name: Install desktop dependencies
         run: npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund
 
+      # smoke and boot-smoke import the gitignored TUI bundle.
+      - name: Build TUI
+        run: npm run build:tui
+
+      # Same runner provisioning as the release gate's Office-bearing jobs.
+      - name: Install fonts and LibreOffice for the Office suites
+        uses: ./.github/actions/office-runtime
+
+      - name: Provision the Office Noto core fonts
+        run: |
+          node --input-type=module <<'NODE'
+          import { prepareOfficeFonts } from './src/runtime/office/portable/font-provisioner.mjs';
+          const results = await prepareOfficeFonts({ coreOnly: true });
+          console.log(JSON.stringify(results, null, 2));
+          if (!Object.values(results).every((font) => font.installed)) process.exit(1);
+          NODE
+
       - name: Run every locally-registered suite
         id: sweep
         continue-on-error: true

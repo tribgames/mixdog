@@ -48,7 +48,7 @@ export function validateExplorerName(input: {
 }): ExplorerNameProblem | null {
   const { originalName = '', siblings = [], allowSegments = false, windows = runtimeIsWindows } = input;
   const name = wellFormedExplorerName(input.name);
-  if (!name || name.length === 0 || /^\s+$/.test(name)) {
+  if (!name || /^\s+$/.test(name)) {
     return { content: 'A file or folder name must be provided.', severity: 'error' };
   }
   if (name[0] === '/' || name[0] === '\\') {

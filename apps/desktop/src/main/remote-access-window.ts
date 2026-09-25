@@ -32,6 +32,19 @@ export async function buildRemoteAccessInfo(descriptor: RemoteAccessDescriptor):
   };
 }
 
+/** The pairing card for a daemon descriptor, or null when there is none. The
+ *  relay leg is up by the time a descriptor exists, so a failure here is the QR
+ *  renderer itself: it is logged, or the Settings card would blame the network. */
+export async function remoteAccessInfoFromDescriptor(descriptor: unknown): Promise<DesktopRemoteAccessInfo | null> {
+  if (!descriptor || typeof descriptor !== 'object') return null;
+  try {
+    return await buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
+  } catch (error) {
+    console.error('[mixdog-remote-access] pairing QR build failed:', error);
+    return null;
+  }
+}
+
 export async function showRemoteAccessWindow(
   info: DesktopRemoteAccessInfo,
   parent?: BrowserWindow | null

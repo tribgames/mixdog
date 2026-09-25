@@ -31,6 +31,25 @@ function pendingMessagesPath() {
   return join(resolvePluginData(), PENDING_MESSAGES_FILE);
 }
 
+// Best-effort diagnostic line; stderr can be closed during teardown.
+function writeSteeringDiagnostic(line) {
+  try {
+    process.stderr.write(`[tui] ${line}\n`);
+  } catch {}
+}
+
+// Per-row timestamps age precisely; legacy rows without one age from the
+// session key's last touch time.
+function isStaleSteeringRow(row, touchedAt, now) {
+  const at = Number(row?.at) || touchedAt;
+  return at > 0 && now - at > STALE_STEERING_RESTORE_TTL_MS;
+}
+
+function deleteSessionBucket(next, key) {
+  delete next.sessions[key];
+  if (next.sessionTouchedAt) delete next.sessionTouchedAt[key];
+}
+
 function tuiSteeringSessionKey(leadSessionId) {
   if (typeof leadSessionId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(leadSessionId)) return null;
   return `tui_${leadSessionId}`;
@@ -171,9 +190,7 @@ export function appendTuiSteeringPersist(leadSessionId, entry) {
       );
       return true;
     } catch (err) {
-      try {
-        process.stderr.write(`[tui] steering-queue append failed sessionId=${leadSessionId}: ${err?.message || err}\n`);
-      } catch {}
+      writeSteeringDiagnostic(`steering-queue append failed sessionId=${leadSessionId}: ${err?.message || err}`);
       return false;
     }
   });
@@ -196,8 +213,7 @@ export function dropTuiSteeringPersist(leadSessionId, entries) {
             removePersistRow(q, entry);
           }
           if (q.length === 0) {
-            delete next.sessions[key];
-            if (next.sessionTouchedAt) delete next.sessionTouchedAt[key];
+            deleteSessionBucket(next, key);
           } else {
             next.sessions[key] = q;
           }
@@ -207,9 +223,7 @@ export function dropTuiSteeringPersist(leadSessionId, entries) {
         { compact: true, lock: true, mode: PENDING_MESSAGES_MODE, fsync: false }
       );
     } catch (err) {
-      try {
-        process.stderr.write(`[tui] steering-queue drop failed sessionId=${leadSessionId}: ${err?.message || err}\n`);
-      } catch {}
+      writeSteeringDiagnostic(`steering-queue drop failed sessionId=${leadSessionId}: ${err?.message || err}`);
     }
   });
 }
@@ -233,6 +247,27 @@ function drainedRowToRestore(row) {
   return null;
 }
 
+// Orphan cleanup: TUI-owned buckets of OTHER lead sessions whose every row
+// already aged past the restore TTL can never be restored (restore is keyed
+// by the live session id), so they only grow the file forever (observed
+// live: queued rows from sessions closed days ago). Foreign (runtime/manager
+// spool) buckets are NEVER reaped here: their rows are owned by another
+// process, age on a different TTL, and may be parked handoff rows that are
+// the last copy of accepted user input. Returns the pruned row count.
+function pruneStaleOrphanBuckets(next, liveKey, now) {
+  let pruned = 0;
+  for (const otherKey of Object.keys(next.sessions)) {
+    if (otherKey === liveKey || !otherKey.startsWith('tui_')) continue;
+    const rows = Array.isArray(next.sessions[otherKey]) ? next.sessions[otherKey] : [];
+    const otherTouched = Number(next.sessionTouchedAt?.[otherKey]) || 0;
+    if (rows.length === 0 || rows.every((row) => isStaleSteeringRow(row, otherTouched, now))) {
+      deleteSessionBucket(next, otherKey);
+      pruned += rows.length;
+    }
+  }
+  return pruned;
+}
+
 // Consistency-required (restores queued messages after boot/command). Async
 // lock wait, serialized on _persistChain so it never reorders against a
 // pending append/drop and never blocks the render loop. Returns a promise of
@@ -250,61 +285,31 @@ export function drainTuiSteeringPersist(leadSessionId) {
         (raw) => {
           const next = normalizePendingStore(raw);
           const q = Array.isArray(next.sessions[key]) ? next.sessions[key] : [];
-          // Per-row timestamps age precisely; legacy rows without one age from
-          // the session key's last touch time.
           const now = Date.now();
           const touchedAt = Number(next.sessionTouchedAt?.[key]) || 0;
           const fresh = q.filter((row) => {
-            const at = Number(row?.at) || touchedAt;
-            const stale = at > 0 && now - at > STALE_STEERING_RESTORE_TTL_MS;
+            const stale = isStaleSteeringRow(row, touchedAt, now);
             if (stale) droppedStale += 1;
             return !stale;
           });
           drained = fresh.map(drainedRowToRestore).filter(Boolean);
-          // Orphan cleanup: TUI-owned buckets of OTHER lead sessions whose every
-          // row already aged past the restore TTL can never be restored (restore
-          // is keyed by the live session id), so they only grow the file forever
-          // (observed live: queued rows from sessions closed days ago). Prune
-          // them under the same lock/write. Foreign (runtime/manager spool)
-          // buckets are NEVER reaped here: their rows are owned by another
-          // process, age on a different TTL, and may be parked handoff rows that
-          // are the last copy of accepted user input.
-          for (const otherKey of Object.keys(next.sessions)) {
-            if (otherKey === key || !otherKey.startsWith('tui_')) continue;
-            const rows = Array.isArray(next.sessions[otherKey]) ? next.sessions[otherKey] : [];
-            const otherTouched = Number(next.sessionTouchedAt?.[otherKey]) || 0;
-            const allStale = rows.every((row) => {
-              const at = Number(row?.at) || otherTouched;
-              return at > 0 && now - at > STALE_STEERING_RESTORE_TTL_MS;
-            });
-            if (rows.length === 0 || allStale) {
-              delete next.sessions[otherKey];
-              if (next.sessionTouchedAt) delete next.sessionTouchedAt[otherKey];
-              prunedOrphans += rows.length;
-            }
-          }
+          // Pruned under the same lock/write as the drain.
+          prunedOrphans = pruneStaleOrphanBuckets(next, key, now);
           if (drained.length === 0 && droppedStale === 0 && prunedOrphans === 0) return undefined;
-          delete next.sessions[key];
-          if (next.sessionTouchedAt) delete next.sessionTouchedAt[key];
+          deleteSessionBucket(next, key);
           next.updatedAt = Date.now();
           return next;
         },
         { compact: true, lock: true, mode: PENDING_MESSAGES_MODE, fsync: false }
       );
     } catch (err) {
-      try {
-        process.stderr.write(`[tui] steering-queue drain failed sessionId=${leadSessionId}: ${err?.message || err}\n`);
-      } catch {}
+      writeSteeringDiagnostic(`steering-queue drain failed sessionId=${leadSessionId}: ${err?.message || err}`);
     }
     if (droppedStale > 0) {
-      try {
-        process.stderr.write(`[tui] dropped ${droppedStale} stale steering row(s) sessionId=${leadSessionId}\n`);
-      } catch {}
+      writeSteeringDiagnostic(`dropped ${droppedStale} stale steering row(s) sessionId=${leadSessionId}`);
     }
     if (prunedOrphans > 0) {
-      try {
-        process.stderr.write(`[tui] pruned ${prunedOrphans} orphaned steering row(s) from stale sessions\n`);
-      } catch {}
+      writeSteeringDiagnostic(`pruned ${prunedOrphans} orphaned steering row(s) from stale sessions`);
     }
     return drained;
   });

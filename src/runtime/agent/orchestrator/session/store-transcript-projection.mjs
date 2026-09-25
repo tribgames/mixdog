@@ -25,14 +25,12 @@ export async function projectStoredTranscript(sessionId, doc, options) {
     Boolean(cleanValue(session.ownerSessionId || session.parentSessionId));
   if (!options.checkpointAbsent) {
     const { projectTurnCheckpointMessages, readTurnCheckpoint } = await import('./manager/turn-checkpoint.mjs');
-    if (liveDetachedAgent) {
+    const projectCheckpoint = () => {
       const checkpoint = readTurnCheckpoint(sessionId);
-      if (checkpoint) {
-        session = {
-          ...session,
-          messages: projectTurnCheckpointMessages(session, checkpoint),
-        };
-      }
+      if (checkpoint) session = { ...session, messages: projectTurnCheckpointMessages(session, checkpoint) };
+    };
+    if (liveDetachedAgent) {
+      projectCheckpoint();
     } else {
       const { recoverSessionAfterProcessRestart } = await import('./manager.mjs');
       session = recoverSessionAfterProcessRestart(sessionId) || session;
@@ -40,15 +38,7 @@ export async function projectStoredTranscript(sessionId, doc, options) {
       // Project its durable working checkpoint read-only so the cold pane
       // never repaints the stale pre-compaction session.messages while it
       // waits for the owner's live-share frame.
-      if (session?.activeTurnCheckpoint) {
-        const checkpoint = readTurnCheckpoint(sessionId);
-        if (checkpoint) {
-          session = {
-            ...session,
-            messages: projectTurnCheckpointMessages(session, checkpoint),
-          };
-        }
-      }
+      if (session?.activeTurnCheckpoint) projectCheckpoint();
     }
   }
   const { restoreTranscriptItems, sessionContextSnapshotProjection } = await import(
@@ -90,14 +80,18 @@ export async function projectStoredTranscript(sessionId, doc, options) {
     rawAutoCompactTokenLimit && (!displayContextWindow || rawAutoCompactTokenLimit < displayContextWindow)
       ? rawAutoCompactTokenLimit
       : 0;
+  // Restoring one item past a finite limit proves whether older history exists
+  // without projecting it; restore ids are message-positional, so the kept
+  // tail is identical either way.
+  const itemLimit = Number.isFinite(options.itemLimit) ? options.itemLimit : Number.POSITIVE_INFINITY;
+  const restored = restoreTranscriptItems(messages, { sessionId, itemLimit: itemLimit + 1 });
+  const transcriptHasOlder = restored.length > itemLimit;
   return {
     sessionId,
     projectionStamp: nextProjectionStamp(),
     ...(options.includeMessages ? { messages } : {}),
-    items: restoreTranscriptItems(messages, {
-      sessionId,
-      itemLimit: options.itemLimit,
-    }),
+    items: transcriptHasOlder ? restored.slice(-itemLimit) : restored,
+    transcriptHasOlder,
     provider: session.provider || '',
     model: session.model || '',
     effort: session.effort || '',

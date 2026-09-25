@@ -17,7 +17,7 @@ const WIRE_API_BY_NPM = Object.freeze({
 });
 
 /** Wire API for a Go model: 'responses' | 'messages' | 'chat'. */
-export function openCodeGoWireApi(model) {
+function openCodeGoWireApi(model) {
   const id = String(model || '').toLowerCase();
   const npm = getModelsDevRowSync(String(model || ''), 'opencode-go')?.npm;
   if (npm && WIRE_API_BY_NPM[npm]) return WIRE_API_BY_NPM[npm];

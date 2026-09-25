@@ -226,10 +226,7 @@ async function oauthProviderRow(item, { providers, preview, snapshotOptions, row
       if (known) {
         applyKnownRemaining(row, known, { estimated: false });
         row.sourceLabel = 'API';
-        if (windows.length) {
-          row.windows = windows;
-          row.detail = 'subscription quota';
-        }
+        if (windows.length) row.detail = 'subscription quota';
       } else if (windows.length) {
         row.status = 'partial';
         row.source = clean(snapshot?.source) || 'provider-api';

@@ -4,7 +4,7 @@ import { record } from '../record-utils';
 import type { RecordValue } from './capability-data';
 import { ExtensionAction, ExtensionItemList, ExtensionItemRow, ExtensionSection } from './extension-detail';
 import { SlotProgress } from './built-in-install-progress';
-import { installationPercent } from './local-provider-status';
+import { installationActive, installationPercent } from './local-provider-status';
 import type { useLocalProviderActions } from './local-provider-actions';
 
 export type LocalProviderActions = ReturnType<typeof useLocalProviderActions>;
@@ -41,7 +41,7 @@ export function LocalProviderOperations({ status, actions }: { status: RecordVal
                 phase === 'runtime'
                   ? t('Runtime')
                   : String(models.find((model) => model.id === modelId)?.name || modelId);
-              const running = operation.state === 'running' || operation.state === 'cancelling';
+              const running = installationActive(operation);
               let description = t('Paused · downloaded files are kept');
               if (operation.state === 'failed') description = t('Failed');
               else if (operation.state === 'cancelling') description = t('Stopping download…');

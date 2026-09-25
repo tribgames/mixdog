@@ -11,6 +11,7 @@ import {
   resetOpenFenceScan,
 } from './stream-fence.mjs';
 import { displayWidth } from '../display-width.mjs';
+import { touchLru } from './lru.mjs';
 import { healStreamingMarkdownTail } from '../../ui/streaming-markdown-heal.mjs';
 
 const stablePrefixByStreamKey = new Map();
@@ -55,13 +56,7 @@ function isWhitespaceOnlyText(text) {
 
 function touchLruKey(cache, key, value) {
   if (!key) return;
-  if (cache.has(key)) cache.delete(key);
-  cache.set(key, value);
-  while (cache.size > STABLE_PREFIX_LRU_MAX) {
-    const oldest = cache.keys().next().value;
-    if (oldest === undefined) break;
-    cache.delete(oldest);
-  }
+  touchLru(cache, key, value, STABLE_PREFIX_LRU_MAX);
 }
 
 function touchStablePrefixKey(key, value) {
@@ -120,6 +115,12 @@ function cacheResolvedPartsKey(key, text, parts) {
 }
 
 export const balanceStreamingMarkdown = healStreamingMarkdownTail;
+
+/** The settled chunks of resolved parts; render and row measurement share this split. */
+export function streamingStableChunks(parts) {
+  if (parts.stableChunks?.length) return parts.stableChunks;
+  return parts.stablePrefix ? [parts.stablePrefix] : [];
+}
 
 export function resetStreamingMarkdownStablePrefix(streamKey) {
   if (streamKey == null || streamKey === '') return;

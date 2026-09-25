@@ -52,7 +52,11 @@ function deckShapeIssues(slides) {
   // the reference body pages carry 330-900). The cover, the closing, and the beats are statements by their job.
   receipts.forEach((receipt, index) => {
     if (index === 0 || index === receipts.length - 1 || receipt.grammar === 'beat') return;
-    const carriers = (receipt.charts || 0) + (receipt.tables || 0) + (receipt.pictures || 0) + (receipt.groups || 0);
+    // A structure the kit draws (lanes, a hub, a loop, the agenda) is the page's carrier as much as a chart is: the
+    // receipt reads its signature as evidence, and a three-lane plan with 73 characters of labels is not a hollow.
+    const structures = receipt.specs?.structure?.count || 0;
+    const carriers =
+      (receipt.charts || 0) + (receipt.tables || 0) + (receipt.pictures || 0) + (receipt.groups || 0) + structures;
     if (carriers > 0 || typeof receipt.chars !== 'number' || receipt.chars >= 80) return;
     issues.push({
       ...issue(

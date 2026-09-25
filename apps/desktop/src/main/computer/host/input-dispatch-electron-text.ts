@@ -1,8 +1,8 @@
 /** Text for an app-owned Electron renderer is inserted through its own
  *  WebContents instead of synthesized keystrokes, once the editable target is
  *  confirmed; nothing is typed when that confirmation fails. */
-import { screen } from 'electron';
 import type { electronWindowForNativeId } from '../observation/window-handles';
+import { dipToNative } from '../shared/native-coordinates';
 import { computerUseCoordinator } from '../session/coordinator';
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 import type { CommandRouterHost } from './command-router';
@@ -78,9 +78,14 @@ export async function dispatchElectronText(input: ElectronTextDispatch): Promise
   const { targetWindowId, physicalX, physicalY, allowedWindowIds } = target;
   const text = String(command.text ?? '');
   const typingPoint = physicalX !== undefined && physicalY !== undefined ? { x: physicalX, y: physicalY } : undefined;
-  if (typingPoint) {
+  /** Every step that can reach the renderer is re-authorized right before it runs. */
+  const authorizeStep = async (): Promise<DispatchAuthority> => {
     const authority = await authorizeDispatch();
     assertObservationInputAllowed(command, host.isObserveOnly());
+    return authority;
+  };
+  if (typingPoint) {
+    const authority = await authorizeStep();
     const focused = await host.callPowerShell({
       ...authority,
       action: 'click',
@@ -95,17 +100,13 @@ export async function dispatchElectronText(input: ElectronTextDispatch): Promise
       return preparatoryClickFailure(focused, targetWindowId);
     }
   }
-  const ready = await waitForElectronTypingTarget(renderer, typingPoint, async () => {
-    await authorizeDispatch();
-    assertObservationInputAllowed(command, host.isObserveOnly());
-  });
+  const ready = await waitForElectronTypingTarget(renderer, typingPoint, authorizeStep);
   if (!ready) return typingTargetUnconfirmed(typingPoint, targetWindowId);
-  await authorizeDispatch();
-  assertObservationInputAllowed(command, host.isObserveOnly());
+  await authorizeStep();
   const bounds = renderer.getContentBounds();
   const feedbackPoint =
     typingPoint ??
-    screen.dipToScreenPoint({
+    dipToNative({
       x: Math.round(bounds.x + bounds.width / 2),
       y: Math.round(bounds.y + bounds.height / 2),
     });

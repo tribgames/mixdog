@@ -24,7 +24,9 @@ const TEXTUAL_MIME_TYPES = new Set([
 export function base64ByteLength(data) {
   const text = String(data || '');
   if (!text) return 0;
-  const padding = text.endsWith('==') ? 2 : text.endsWith('=') ? 1 : 0;
+  let padding = 0;
+  if (text.endsWith('==')) padding = 2;
+  else if (text.endsWith('=')) padding = 1;
   return Math.max(0, Math.floor((text.length * 3) / 4) - padding);
 }
 

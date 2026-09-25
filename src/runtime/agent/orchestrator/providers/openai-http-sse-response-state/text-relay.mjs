@@ -13,8 +13,8 @@
  * fires for tools the model was actually offered. Additive: the native
  * function_call path is untouched.
  */
-import { randomBytes } from 'node:crypto';
 import { createLeakGuard } from '../anthropic-leaked-toolcall.mjs';
+import { synthLeakedOpenAICall } from '../openai-compat-stream-common.mjs';
 
 function pushOutputTextAnnotations(part, citations, citationKeys) {
   const annotations = Array.isArray(part?.annotations) ? part.annotations : [];
@@ -47,13 +47,7 @@ export function createTextRelay({ state, body, onTextDelta, meaningful, emitTool
   );
   const leakGuard = createLeakGuard({ knownToolNames: leakKnownTools, harmony: true });
   const dispatchLeakedCall = (recovered) => {
-    let args = recovered?.arguments;
-    if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
-    const call = {
-      id: `call_leaked_${randomBytes(8).toString('hex')}`,
-      name: recovered.name,
-      arguments: args,
-    };
+    const call = synthLeakedOpenAICall(recovered);
     state.toolCalls.push(call);
     emitToolCall(call);
     meaningful('tool');

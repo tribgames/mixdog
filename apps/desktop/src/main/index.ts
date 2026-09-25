@@ -15,6 +15,7 @@ import {
   screen,
   session,
   shell,
+  systemPreferences,
 } from 'electron';
 
 import type { DesktopService } from './desktop-service-contract';
@@ -25,6 +26,7 @@ import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createIdleReclaim, purgeRendererMemory, type IdleReclaim } from './idle-reclaim';
+import { watchCrashHandler } from './crash-handler-watch';
 import { createDesktopDiagnostics, type DesktopDiagnostics } from './desktop-diagnostics';
 import { scheduleDeferredDesktopServices as scheduleAfterServiceQuiet } from './deferred-desktop-services';
 import { installViewportGuard } from './viewport-guard';
@@ -46,7 +48,6 @@ import { nativeT, refreshNativeUiLanguage } from './native-i18n';
 import { DesktopSettingsStore } from './settings-store';
 import { desktopUpdater, startAutoUpdater } from './updater';
 import { gcSupersededNativeToolCaches } from './native-runtime-cache-gc.mjs';
-import type { RemoteAccessDescriptor } from './remote-access-window';
 import {
   DESKTOP_WINDOW_OPTIONS,
   configureTitleBarThemePersistence,
@@ -138,6 +139,30 @@ if (process.platform === 'win32') {
     console.warn('Mixdog desktop crash handler failed to start:', error);
   }
 }
+// The Crashpad handler is a separate process and a second crashReporter.start()
+// is a silent no-op, so a handler that dies cannot be restarted in-process.
+// Children (the ELECTRON_RUN_AS_NODE daemon included) register with it through
+// the inherited CHROME_CRASHPAD_PIPE_NAME; after a loss a respawned daemon would
+// fail that registration and be killed 0xFFFF7003 without a dump on its first
+// fatal error. The watcher records the loss and drops the dead pipe so later
+// children fall back to Windows' own handler.
+let stopCrashHandlerWatch: (() => void) | null = null;
+function startCrashHandlerWatch(): void {
+  if (crashReporterStatus !== 'local' || stopCrashHandlerWatch) return;
+  stopCrashHandlerWatch = watchCrashHandler({
+    mainPid: process.pid,
+    onEvent: (event) => {
+      if (event.state === 'lost') {
+        crashReporterStatus = 'lost';
+        console.error('Mixdog desktop crash handler is gone:', event);
+      }
+      diagnostics?.write(`crash-handler-${event.state}`, {
+        ...event,
+        ...(event.state === 'lost' ? { systemMemory: currentSystemMemory() } : {}),
+      });
+    },
+  });
+}
 
 if (app.isPackaged) {
   const nativeToolsDir = join(process.resourcesPath, 'native-tools');
@@ -171,6 +196,15 @@ if (app.isPackaged) {
       console.warn(`Could not remove superseded ${kind} runtime cache:`, error);
     }
   });
+}
+
+// The native Computer Use backend for macOS and Linux: bundled with packaged
+// builds, built from native/mixdog-computer during development.
+if (process.platform !== 'win32' && !process.env.MIXDOG_COMPUTER_BIN) {
+  const computerBackend = app.isPackaged
+    ? join(process.resourcesPath, 'native-tools', 'mixdog-computer')
+    : join(app.getAppPath(), '..', '..', 'native', 'mixdog-computer', 'target', 'release', 'mixdog-computer');
+  if (existsSync(computerBackend)) process.env.MIXDOG_COMPUTER_BIN = computerBackend;
 }
 
 const gpuFallbackEnvironment: GpuFallbackEnvironment = {
@@ -438,7 +472,6 @@ const serviceTerminalManager = {
   dispose(id: string): void {
     void serviceClient.invokeDesktopOperation('termDispose', [id]).catch(() => {});
   },
-  disposeAll(): void {},
   subscribe(listener: (event: { id: string; data: string }) => void): () => void {
     return serviceClient.subscribeDesktopEvents(({ name, value }) => {
       if (name !== 'terminal-data' || !value || typeof value !== 'object') return;
@@ -462,9 +495,12 @@ const applyDesktopSettings = (settings: DesktopSettings): void => {
 };
 // Computer use is opt-in and high risk, so the bridge (and thus the agent
 // `computer` tool) exists only while the setting is on. Toggling it starts or
-// tears down the host live; Windows-only for now.
+// tears down the host live.
 function applyComputerControlSetting(enabled: boolean): void {
-  computerControlEnabled = enabled && process.platform === 'win32';
+  computerControlEnabled = enabled;
+  // macOS withholds input and the accessibility tree until the user grants
+  // Accessibility; asking here shows the system's own prompt once.
+  if (enabled && process.platform === 'darwin') systemPreferences.isTrustedAccessibilityClient(true);
   computerHost?.setBridgeEnabled(computerControlEnabled);
 }
 // Observation only: the bridge keeps serving reads while every input action is
@@ -646,30 +682,20 @@ function startDeferredDesktopServices(): Promise<void> {
 
 async function remoteAccessInfo(): Promise<DesktopRemoteAccessInfo | null> {
   const descriptor = await host.invokeDesktopOperation('remoteAccessInfo', []);
-  if (!descriptor || typeof descriptor !== 'object') return null;
-  try {
-    const { buildRemoteAccessInfo } = await import('./remote-access-window');
-    return await buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
-  } catch (error) {
-    // The relay leg is up at this point; a failure here is the QR renderer
-    // itself. Without a log the Settings card blames the network instead.
-    console.error('[mixdog-remote-access] pairing QR build failed:', error);
-    return null;
-  }
+  const { remoteAccessInfoFromDescriptor } = await import('./remote-access-window');
+  return remoteAccessInfoFromDescriptor(descriptor);
 }
 
 async function rotateRemoteAccess(): Promise<DesktopRemoteAccessInfo | null> {
   const descriptor = await host.invokeDesktopOperation('remoteAccessRotate', []);
-  if (!descriptor || typeof descriptor !== 'object') return null;
-  const { buildRemoteAccessInfo } = await import('./remote-access-window');
-  return buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
+  const { remoteAccessInfoFromDescriptor } = await import('./remote-access-window');
+  return remoteAccessInfoFromDescriptor(descriptor);
 }
 
 async function revokeRemoteAccessClient(clientId: string): Promise<DesktopRemoteAccessInfo | null> {
   const descriptor = await host.invokeDesktopOperation('remoteAccessRevokeClient', [clientId]);
-  if (!descriptor || typeof descriptor !== 'object') return null;
-  const { buildRemoteAccessInfo } = await import('./remote-access-window');
-  return buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
+  const { remoteAccessInfoFromDescriptor } = await import('./remote-access-window');
+  return remoteAccessInfoFromDescriptor(descriptor);
 }
 
 function scheduleDeferredDesktopServices(window: BrowserWindow): void {
@@ -722,9 +748,8 @@ function disposeDesktopResources(): Promise<void> {
   awakeService.dispose();
   computerUseOverlay?.dispose();
   computerUseOverlay = null;
-  if (!disposalPromise) diagnostics?.write('desktop-stop');
-  serviceTerminalManager.disposeAll();
   if (!disposalPromise) {
+    diagnostics?.write('desktop-stop');
     const browserAndComputerCleanup = (async () => {
       await browserHost?.dispose();
       await computerHost?.dispose();
@@ -1145,7 +1170,7 @@ async function createWindow(): Promise<void> {
   const statePath = join(app.getPath('userData'), 'window-state.json');
   const [savedState, initialZoom] = await Promise.all([
     readWindowState(statePath, screen.getAllDisplays()),
-    settingsStore ? settingsStore.readZoom() : Promise.resolve(1),
+    settingsStore.readZoom(),
   ]);
   diagnostics?.write('window-state-ready', {
     totalMs: Date.now() - startupStartedAt,
@@ -1155,14 +1180,14 @@ async function createWindow(): Promise<void> {
   if (savedState?.maximized) window.maximize();
   windowState = persistWindowState(window, statePath);
   mainWindow = window;
-  if (process.platform === 'win32' && !computerHost) {
+  if (!computerHost) {
     computerHost = createComputerHost({
       bridgeEnabled: false,
       observeOnly: computerObserveOnly,
       onDiagnostic: (event, data) => diagnostics?.write(event, data),
     });
   }
-  if (process.platform === 'win32' && computerHost && !computerUseOverlay) {
+  if (computerHost && !computerUseOverlay) {
     const overlayComputerHost = computerHost;
     computerUseOverlay = createComputerUseOverlay(
       {
@@ -1404,6 +1429,7 @@ if (!app.requestSingleInstanceLock()) {
         ...(crashReporterErrorName ? { crashReporterErrorName } : {}),
         ...(gpuFallbackMarker ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow } : {}),
       });
+      startCrashHandlerWatch();
       startDiagnosticsEventLoopMonitor();
       // Keep-awake + taskbar attention feed on the same session state lane.
       unsubscribeAwake = host.subscribe((snapshot) => {
@@ -1506,6 +1532,9 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.on('before-quit', (event) => {
+  // The handler outlives a quitting main process; its normal exit is not a loss.
+  stopCrashHandlerWatch?.();
+  stopCrashHandlerWatch = null;
   if (quitAfterDispose) return;
   event.preventDefault();
   removeIpc?.();

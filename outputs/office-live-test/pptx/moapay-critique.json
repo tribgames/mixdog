@@ -1,0 +1,229 @@
+[
+  {
+    "cohesion": 5,
+    "evidence": 3,
+    "fixes": [],
+    "hierarchy": 5,
+    "verdict": "pass",
+    "balance": 4,
+    "role": "anchor",
+    "legibility": 5,
+    "checks": [
+      {
+        "pass": true,
+        "item": "제목이 한 앱 금융이라는 주제를 말한다"
+      },
+      {
+        "pass": true,
+        "item": "킥커와 날짜 줄이 흰색으로 4.5:1 이상 읽힌다"
+      },
+      {
+        "pass": true,
+        "item": "오브가 제목과 겹치지 않고 우측 1/3에 선다"
+      }
+    ],
+    "slide": 1,
+    "note": "블루 전면 필드에 포스터 제목과 우측 오브, 커버가 브랜드 인상을 한 번에 세운다."
+  },
+  {
+    "cohesion": 5,
+    "evidence": 4,
+    "fixes": [],
+    "note": "대비 구절 첫 분기 흑자가 한 줄로 유지되고 네 개 스탯이 한 베이스라인에 선다.",
+    "verdict": "pass",
+    "balance": 4,
+    "hierarchy": 5,
+    "legibility": 5,
+    "checks": [
+      {
+        "pass": true,
+        "item": "강조 구절이 줄바꿈으로 끊기지 않는다"
+      },
+      {
+        "pass": true,
+        "item": "네 수치가 같은 크기와 색이다"
+      },
+      {
+        "pass": true,
+        "item": "출처 줄이 예시 수치임을 밝힌다"
+      }
+    ],
+    "slide": 2
+  },
+  {
+    "cohesion": 5,
+    "evidence": 5,
+    "fixes": [],
+    "note": "회색 막대 다섯 개와 액센트 막대 하나가 2026 상반기를 가리키고 레일이 성장률을 읽는다.",
+    "verdict": "pass",
+    "balance": 4,
+    "hierarchy": 4,
+    "legibility": 4,
+    "checks": [
+      {
+        "pass": true,
+        "item": "액센트가 제목이 말하는 최신 기간에 있다"
+      },
+      {
+        "pass": true,
+        "item": "레일 수치 3.5배와 12.7%가 차트 값과 맞는다"
+      },
+      {
+        "pass": true,
+        "item": "단위가 출처 줄에 있다"
+      }
+    ],
+    "slide": 3
+  },
+  {
+    "cohesion": 5,
+    "evidence": 5,
+    "fixes": [],
+    "note": "두 차트가 한 베이스라인에 서고 손실 막대에도 음수 라벨이 붙어 흑자 전환이 보인다.",
+    "verdict": "pass",
+    "balance": 5,
+    "hierarchy": 4,
+    "legibility": 4,
+    "checks": [
+      {
+        "pass": true,
+        "item": "음수 막대에 값 라벨이 보인다"
+      },
+      {
+        "pass": true,
+        "item": "두 차트의 최신 분기가 모두 액센트다"
+      },
+      {
+        "pass": true,
+        "item": "범주 라벨이 막대와 겹치지 않는다"
+      }
+    ],
+    "slide": 4
+  },
+  {
+    "cohesion": 4,
+    "evidence": 4,
+    "fixes": [],
+    "note": "송금 허브 둘레의 위성 라벨이 한 크기로 줄어 신용관리가 단어 중간에서 끊기지 않는다.",
+    "verdict": "pass",
+    "balance": 4,
+    "hierarchy": 4,
+    "legibility": 4,
+    "checks": [
+      {
+        "pass": true,
+        "item": "위성 라벨이 단어 중간에서 줄바꿈되지 않는다"
+      },
+      {
+        "pass": true,
+        "item": "결제 위성만 액센트로 들린다"
+      },
+      {
+        "pass": true,
+        "item": "레일 세 읽기가 스테이지 위쪽에 맞춰 시작한다"
+      }
+    ],
+    "slide": 5
+  },
+  {
+    "cohesion": 5,
+    "evidence": 5,
+    "fixes": [],
+    "note": "여덟 행 비교 표가 본문 칼럼을 채우고 판정 열이 상태 색과 단어를 함께 쓴다.",
+    "verdict": "pass",
+    "balance": 4,
+    "hierarchy": 4,
+    "legibility": 5,
+    "checks": [
+      {
+        "pass": true,
+        "item": "판정 열 단어와 색이 일치한다"
+      },
+      {
+        "pass": true,
+        "item": "숫자 열이 오른쪽 정렬이다"
+      },
+      {
+        "pass": true,
+        "item": "표가 출처 줄을 침범하지 않는다"
+      }
+    ],
+    "slide": 6
+  },
+  {
+    "cohesion": 5,
+    "evidence": 4,
+    "fixes": [],
+    "note": "LTV/CAC 카드만 액센트이고 나머지 세 카드는 틴트 위에 있어 제목의 4.2배가 먼저 읽힌다.",
+    "verdict": "pass",
+    "balance": 4,
+    "hierarchy": 4,
+    "legibility": 5,
+    "checks": [
+      {
+        "pass": true,
+        "item": "액센트 카드가 제목의 4.2배다"
+      },
+      {
+        "pass": true,
+        "item": "카드 네 장의 수치 크기가 같다"
+      },
+      {
+        "pass": true,
+        "item": "아래 읽기가 원인을 말한다"
+      }
+    ],
+    "slide": 7
+  },
+  {
+    "cohesion": 5,
+    "evidence": 4,
+    "fixes": [],
+    "note": "분기 표기가 노드 안에 들어가고 해외 송금만 액센트, 아래 세 칼럼이 축별 과제를 읽는다.",
+    "verdict": "pass",
+    "balance": 4,
+    "hierarchy": 4,
+    "legibility": 5,
+    "checks": [
+      {
+        "pass": true,
+        "item": "노드의 분기 텍스트가 원 밖으로 넘치지 않는다"
+      },
+      {
+        "pass": true,
+        "item": "라벨이 위아래로 번갈아 겹치지 않는다"
+      },
+      {
+        "pass": true,
+        "item": "세 칼럼이 결제 대출 해외를 다룬다"
+      }
+    ],
+    "slide": 8
+  },
+  {
+    "cohesion": 5,
+    "evidence": 3,
+    "fixes": [],
+    "hierarchy": 5,
+    "verdict": "pass",
+    "balance": 4,
+    "role": "anchor",
+    "legibility": 5,
+    "checks": [
+      {
+        "pass": true,
+        "item": "요청 문장이 가장 큰 글자다"
+      },
+      {
+        "pass": true,
+        "item": "연락처가 흰색으로 읽힌다"
+      },
+      {
+        "pass": true,
+        "item": "커버 필드를 반복한다"
+      }
+    ],
+    "slide": 9,
+    "note": "커버의 블루 필드와 오브를 절반 크기로 되받아 요청 문장이 가장 크게 읽힌다."
+  }
+]

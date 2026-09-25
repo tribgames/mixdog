@@ -104,6 +104,7 @@ async function runSubmitCase(root: Root, chrome: 'diff-goal' | 'goal' | 'diff', 
           activeProjectLabel="demo"
           onSelectProject={noop}
           onOpenCommandSurface={noop}
+          onOpenSettings={noop}
           reviewActive
           goalIsland={<SessionGoalIsland snapshot={snapshot} />}
         />

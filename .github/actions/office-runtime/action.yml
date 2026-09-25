@@ -1,0 +1,33 @@
+name: Office runtime
+description: >-
+  Fonts and the LibreOffice release the Office suites render and recalculate
+  with on an Ubuntu runner.
+runs:
+  using: composite
+  steps:
+    # Office audits measure text in the deck's own faces and Ubuntu ships none
+    # of the Microsoft families; the metric-compatible Liberation faces stand in
+    # for Arial, Times New Roman, and Courier New
+    # (src/runtime/office/portable/text-metrics.mjs). The PDF suites write
+    # Hangul through NanumGothic.ttf, which heads the Linux list in
+    # pdf-fonts.mjs (a .ttc collection such as Noto CJK cannot be embedded).
+    #
+    # Ubuntu's LibreOffice 7.3 draws the provisioned variable Noto faces at
+    # their default (Thin) instance, and the rendered review then reads the
+    # type as low contrast; the LibreOffice PPA's current release draws the
+    # named instances the way the desktop build does. The PPA signing key
+    # (CDDE43BA4DE3F09D7CE7016673AEE920AD55F5A0) ships beside this action:
+    # add-apt-repository spent ~25s resolving it through the Launchpad API on
+    # every run, then refreshed the package lists a second time.
+    - name: Install fonts and LibreOffice
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo gpg --dearmor --yes -o /usr/share/keyrings/libreoffice-ppa.gpg "$GITHUB_ACTION_PATH/libreoffice-ppa.asc"
+        echo "deb [signed-by=/usr/share/keyrings/libreoffice-ppa.gpg] https://ppa.launchpadcontent.net/libreoffice/ppa/ubuntu $(lsb_release -cs) main" \
+          | sudo tee /etc/apt/sources.list.d/libreoffice-ppa.list > /dev/null
+        # man-db re-indexes every installed manual page afterwards (~11s);
+        # nothing on a CI runner reads them.
+        sudo rm -f /var/lib/man-db/auto-update
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends fonts-liberation fonts-nanum libreoffice-writer libreoffice-impress libreoffice-calc

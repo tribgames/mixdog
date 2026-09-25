@@ -72,6 +72,30 @@ function toolActivityDisclosureKey(items: readonly TranscriptItem[], scope: stri
   return id ? `${scope}:tool-activity:${id}` : '';
 }
 
+/** Open state remembered per disclosure key across virtualized remounts; a
+ *  flip re-measures the owning transcript row before paint. */
+function useRememberedDisclosure(
+  disclosureKey: string,
+  measureRef: RefObject<HTMLElement | null>
+): [open: boolean, toggle: () => void] {
+  const [open, setOpen] = useState(() => (disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false));
+  useLayoutEffect(() => {
+    setOpen(disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false);
+  }, [disclosureKey]);
+  const measuredOpen = useRef(open);
+  useLayoutEffect(() => {
+    if (measuredOpen.current === open) return;
+    measuredOpen.current = open;
+    requestTranscriptRowMeasure(measureRef.current);
+  }, [measureRef, open]);
+  const toggle = () => {
+    const next = !open;
+    rememberToolDisclosure(disclosureKey, next);
+    setOpen(next);
+  };
+  return [open, toggle];
+}
+
 export function ToolActivityGroup({
   items,
   disclosureScope = '',
@@ -80,17 +104,8 @@ export function ToolActivityGroup({
   disclosureScope?: string;
 }) {
   const disclosureKey = toolActivityDisclosureKey(items, disclosureScope);
-  const [open, setOpen] = useState(() => (disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false));
-  useLayoutEffect(() => {
-    setOpen(disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false);
-  }, [disclosureKey]);
   const groupRef = useRef<HTMLElement>(null);
-  const measuredOpen = useRef(open);
-  useLayoutEffect(() => {
-    if (measuredOpen.current === open) return;
-    measuredOpen.current = open;
-    requestTranscriptRowMeasure(groupRef.current);
-  }, [open]);
+  const [open, toggleOpen] = useRememberedDisclosure(disclosureKey, groupRef);
   const contentId = useId();
   const pending = items.some((item) => !toolItemDone(item));
   const categoryGroups = useMemo(() => desktopToolActivityCategoryGroups(items), [items]);
@@ -105,15 +120,10 @@ export function ToolActivityGroup({
   return (
     <article ref={groupRef} className="tool-activity" data-surface="desktop" data-open={open ? 'true' : 'false'}>
       <button
+        type="button"
         className="tool-header tool-activity-header"
         onPointerDown={(event) => event.stopPropagation()}
-        onClick={() =>
-          setOpen((value) => {
-            const next = !value;
-            rememberToolDisclosure(disclosureKey, next);
-            return next;
-          })
-        }
+        onClick={toggleOpen}
         aria-expanded={open}
         aria-controls={contentId}
       >
@@ -556,17 +566,8 @@ function ToolActivityItem({
 
 export function ToolCard({ item, disclosureScope = '' }: { item: TranscriptItem; disclosureScope?: string }) {
   const disclosureKey = toolDisclosureKey(item, disclosureScope);
-  const [open, setOpen] = useState(() => (disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false));
-  useLayoutEffect(() => {
-    setOpen(disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false);
-  }, [disclosureKey]);
   const cardRef = useRef<HTMLElement>(null);
-  const measuredOpen = useRef(open);
-  useLayoutEffect(() => {
-    if (measuredOpen.current === open) return;
-    measuredOpen.current = open;
-    requestTranscriptRowMeasure(cardRef.current);
-  }, [open]);
+  const [open, toggleOpen] = useRememberedDisclosure(disclosureKey, cardRef);
   const contentId = useId();
   const done = toolItemDone(item);
   const startedAt = Number(item.startedAt || 0);
@@ -635,16 +636,11 @@ export function ToolCard({ item, disclosureScope = '' }: { item: TranscriptItem;
       data-open={open ? 'true' : 'false'}
     >
       <button
+        type="button"
         className="tool-header"
         disabled={!hasDetails}
         onPointerDown={(event) => event.stopPropagation()}
-        onClick={() =>
-          setOpen((value) => {
-            const next = !value;
-            rememberToolDisclosure(disclosureKey, next);
-            return next;
-          })
-        }
+        onClick={toggleOpen}
         aria-expanded={hasDetails ? open : undefined}
         aria-controls={hasDetails ? contentId : undefined}
       >

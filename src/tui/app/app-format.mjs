@@ -10,6 +10,7 @@ import { formatToolSurface } from '../../runtime/shared/tool-surface.mjs';
 import { clean } from '../../runtime/shared/clean.mjs';
 import { projectNameFromPath } from '../session/labels.mjs';
 import { promptHistoryKey } from '../prompt-history-store.mjs';
+import { providerRowUsable } from './provider-usable.mjs';
 
 // WEB_SEARCH_DEFAULT marker — mirrors web-search defaults
 // WEB_SEARCH_DEFAULT_PROVIDER/MODEL. A web-search route of
@@ -183,17 +184,7 @@ export function providerSetupHasUsableProvider(setup = {}) {
     ...(Array.isArray(setup.oauth) ? setup.oauth : []),
     ...(Array.isArray(setup.local) ? setup.local : []),
   ];
-  return rows.some(
-    (row) =>
-      row?.reauthRequired !== true &&
-      (row?.usable === true ||
-        (row?.usable == null &&
-          (row?.authenticated === true ||
-            row?.enabled === true ||
-            row?.stored === true ||
-            row?.env === true ||
-            row?.detected === true)))
-  );
+  return rows.some(providerRowUsable);
 }
 
 // Async: listWorkflows is a remote call on a daemon-backed store, so the old

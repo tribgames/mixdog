@@ -20,6 +20,7 @@ import { rewriteParsedReadRedirects, rewriteV4AReadRedirects } from '../read-red
 import { setPatchReplayPreSnapshots } from '../replay-capture.mjs';
 import { capturePatchRollbackState, restorePatchRollbackState } from '../rollback-state.mjs';
 import { coalesceCompatibleV4ASections } from '../section-coalesce.mjs';
+import { rejectedHunkTail } from '../sequence/report.mjs';
 import { registerCommittedPatchUiDiff } from '../ui-diff.mjs';
 import {
   applyV4ARenameSections,
@@ -67,81 +68,82 @@ export async function prepareCodexBatch({
       throw new Error(`apply_patch: bare @@ parse failed — ${err?.message || String(err)}`);
     }
   }
-  let normalizedPatchStr = prepareInput(inputPatchStr);
   const v4aRenameOnly = v4aRenamePlan?.renameSections?.length > 0 && v4aRenamePlan.remainingSections.length === 0;
-
-  let parsed = [];
-  if (!v4aRenameOnly)
-    try {
-      parsed = parsePatch(normalizedPatchStr);
-    } catch (err) {
-      if (!canFallbackCountedUnified(patchStr, requestedFormat, err)) {
-        throw new Error(
-          `apply_patch: parse failed — ${err?.message || String(err)}; prefer V4A envelope for multi-hunk edits (no @@ line counts)`
-        );
-      }
-      try {
-        const sections = rewriteV4AReadRedirects(parseUnifiedCountedAsV4APatch(patchStr), basePath, readStateScope);
-        inputPatchStr = await convertV4ASectionsToUnifiedPatch(sections, basePath, v4aConvertOpts);
-        normalizedPatchStr = prepareInput(inputPatchStr);
-        parsed = parsePatch(normalizedPatchStr);
-        mutationPlan = {
-          sourceTool: 'apply_patch',
-          engine: 'v4a-patch',
-          reason: 'unified-count-fallback',
-        };
-      } catch (fallbackErr) {
-        throw new Error(
-          `apply_patch: parse failed — ${err?.message || String(err)}; V4A fallback failed — ${fallbackErr?.message || String(fallbackErr)}`
-        );
-      }
-    }
-  if (!v4aRenameOnly) {
-    parsed = rewriteParsedReadRedirects(parsed, basePath, readStateScope);
+  if (v4aRenameOnly) {
+    return {
+      waveDispatch: [],
+      v4aRenamePlan,
+      v4aRenameOnly,
+      mutationPlan,
+      lockPaths: renameLockPaths(v4aRenamePlan, basePath),
+    };
   }
-  if (!v4aRenameOnly && (!Array.isArray(parsed) || parsed.length === 0)) {
+
+  let parsed;
+  try {
+    parsed = parsePatch(prepareInput(inputPatchStr));
+  } catch (err) {
+    if (!canFallbackCountedUnified(patchStr, requestedFormat, err)) {
+      throw new Error(
+        `apply_patch: parse failed — ${err?.message || String(err)}; prefer V4A envelope for multi-hunk edits (no @@ line counts)`
+      );
+    }
+    try {
+      const sections = rewriteV4AReadRedirects(parseUnifiedCountedAsV4APatch(patchStr), basePath, readStateScope);
+      inputPatchStr = await convertV4ASectionsToUnifiedPatch(sections, basePath, v4aConvertOpts);
+      parsed = parsePatch(prepareInput(inputPatchStr));
+      mutationPlan = {
+        sourceTool: 'apply_patch',
+        engine: 'v4a-patch',
+        reason: 'unified-count-fallback',
+      };
+    } catch (fallbackErr) {
+      throw new Error(
+        `apply_patch: parse failed — ${err?.message || String(err)}; V4A fallback failed — ${fallbackErr?.message || String(fallbackErr)}`
+      );
+    }
+  }
+  parsed = rewriteParsedReadRedirects(parsed, basePath, readStateScope);
+  if (!Array.isArray(parsed) || parsed.length === 0) {
     return { error: 'Error: patch contained no file sections' };
   }
   // Validate Codex's one-operation-per-target rule and build one batch.
-  let parsedWaves = v4aRenameOnly ? [] : [parsed];
-  if (!v4aRenameOnly) {
-    try {
-      parsedWaves = splitParsedModifyWaves(parsed, basePath);
-    } catch (err) {
-      return { error: `Error: ${err?.message || String(err)}` };
-    }
+  let parsedWaves;
+  try {
+    parsedWaves = splitParsedModifyWaves(parsed, basePath);
+  } catch (err) {
+    return { error: `Error: ${err?.message || String(err)}` };
   }
 
-  if (!v4aRenameOnly) {
-    try {
-      await ensureNativePatchBinaryAvailable();
-    } catch (err) {
-      return { error: `Error: ${err?.message || String(err)}` };
-    }
+  try {
+    await ensureNativePatchBinaryAvailable();
+  } catch (err) {
+    return { error: `Error: ${err?.message || String(err)}` };
   }
   // Pre-validate each wave independently: a wave only ever holds unique
   // targets, so the native batch's per-file semantics stay intact.
   const waveDispatch = [];
-  if (!v4aRenameOnly) {
-    try {
-      for (const wparsed of parsedWaves) {
-        const { entries, headerRewrites } = await preValidateNativeBatch(wparsed, basePath);
-        waveDispatch.push({ parsed: wparsed, entries, headerRewrites });
-      }
-    } catch (err) {
-      return { error: `Error: ${err?.message || String(err)}` };
+  try {
+    for (const wparsed of parsedWaves) {
+      const { entries, headerRewrites } = await preValidateNativeBatch(wparsed, basePath);
+      waveDispatch.push({ parsed: wparsed, entries, headerRewrites });
     }
+  } catch (err) {
+    return { error: `Error: ${err?.message || String(err)}` };
   }
 
   const lockPaths = [
     ...new Set(waveDispatch.flatMap((wd) => wd.entries.map((entry) => entry.fullPath))),
-    ...(v4aRenamePlan?.renameSections || []).flatMap((section) => {
-      const src = resolveV4AEntryPath(basePath, section.path);
-      const dest = resolveV4AEntryPath(basePath, section.movePath);
-      return [src, dest];
-    }),
+    ...renameLockPaths(v4aRenamePlan, basePath),
   ];
   return { waveDispatch, v4aRenamePlan, v4aRenameOnly, mutationPlan, lockPaths };
+}
+
+function renameLockPaths(v4aRenamePlan, basePath) {
+  return (v4aRenamePlan?.renameSections || []).flatMap((section) => [
+    resolveV4AEntryPath(basePath, section.path),
+    resolveV4AEntryPath(basePath, section.movePath),
+  ]);
 }
 
 // Apply the validated batch in one shot: renames first, then the single wave
@@ -161,22 +163,10 @@ export async function runCodexBatch({ batch, basePath, v4aConvertOpts, rejectedV
   const executor = res.executor;
   if (res.error) return wrapPatchMutationOutput(res.error, mutationPlan, { executor });
   let combined = res.text;
-  const renameLines = formatV4ARenameSuccessLines(v4aRenameResults);
-  if (renameLines.length > 0 && !isPatchErrorText(combined)) {
-    combined = `${renameLines.join('\n')}\n${combined}`;
-  }
-  if (!isPatchErrorText(combined) && rejectedV4AHunks.length > 0) {
-    const tail = [
-      '',
-      `hunk-level rejected (rejectPartial=false, V4A): ${rejectedV4AHunks.length}`,
-      ...rejectedV4AHunks.map(
-        (r) =>
-          `  REJECT ${r.file || '(unknown)'} — ${String(r.reason || '')
-            .split(';')[0]
-            .trim()}`
-      ),
-    ];
-    return wrapPatchMutationOutput(`${combined}\n${tail.join('\n')}`, mutationPlan, { executor });
+  if (!isPatchErrorText(combined)) {
+    const renameLines = formatV4ARenameSuccessLines(v4aRenameResults);
+    if (renameLines.length > 0) combined = `${renameLines.join('\n')}\n${combined}`;
+    combined += rejectedHunkTail(rejectedV4AHunks);
   }
   return wrapPatchMutationOutput(combined, mutationPlan, { executor });
 }

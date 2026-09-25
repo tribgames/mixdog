@@ -213,12 +213,13 @@ export async function mergeCaptureOcr(
       // other than static text cannot be answered from pixels at all.
       const queryText = String(command.query || '').toLocaleLowerCase();
       const requestedRole = String(command.role || '').toLocaleLowerCase();
-      const ocrWords =
-        requestedRole && requestedRole !== 'text'
-          ? []
-          : queryText
-            ? recognizedWords.filter((word) => String(word.text || '').toLocaleLowerCase().includes(queryText))
-            : recognizedWords;
+      const matchesRequest = (text: unknown) =>
+        (!requestedRole || requestedRole === 'text') &&
+        (!queryText ||
+          String(text || '')
+            .toLocaleLowerCase()
+            .includes(queryText));
+      const ocrWords = recognizedWords.filter((word) => matchesRequest(word.text));
       if (marksOcr) {
         ocrElements = appendOcrElements({
           mode,
@@ -239,11 +240,7 @@ export async function mergeCaptureOcr(
         // them too instead of handing back the whole window as prose.
         lines: Array.isArray(ocr.result?.lines)
           ? ocr.result.lines
-              .filter(
-                (line) =>
-                  (!requestedRole || requestedRole === 'text') &&
-                  (!queryText || String(line.text || '').toLocaleLowerCase().includes(queryText))
-              )
+              .filter((line) => matchesRequest(line.text))
               .map((line) => ({ ...line, ...frameBounds(line) }))
           : [],
         // A marked word is already an element carrying its ref, name, bounds and

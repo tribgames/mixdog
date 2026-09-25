@@ -14,6 +14,14 @@ function coerceStringRecord(value) {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+// Explicit URL transport types; an untyped URL is ws for ws(s):// and http otherwise.
+const URL_TRANSPORT_TYPES = new Map([
+  ['sse', 'sse'],
+  ['ws', 'ws'],
+  ['http', 'http'],
+  ['streamable-http', 'http'],
+]);
+
 function coerceStringArray(value) {
   return Array.isArray(value) ? value.map((entry) => clean(entry)).filter(Boolean) : [];
 }
@@ -38,21 +46,10 @@ export function createMcpServerInput({ mcpClient, getCurrentCwd }) {
     const url = clean(input.url);
     const type = clean(input.type).toLowerCase();
     if (url) {
-      const secureUrl = (kind) =>
+      const kind = URL_TRANSPORT_TYPES.get(type) || (/^wss?:\/\//i.test(url) ? 'ws' : 'http');
+      const secureUrl =
         typeof mcpClient.normalizeMcpTransportUrl === 'function' ? mcpClient.normalizeMcpTransportUrl(url, kind) : url;
-      if (type === 'sse') {
-        return { name, config: withOptionalHeaders({ type: 'sse', url: secureUrl('sse') }) };
-      }
-      if (type === 'ws') {
-        return { name, config: withOptionalHeaders({ type: 'ws', url: secureUrl('ws') }) };
-      }
-      if (type === 'http' || type === 'streamable-http') {
-        return { name, config: withOptionalHeaders({ type: 'http', url: secureUrl('http') }) };
-      }
-      if (/^wss?:\/\//i.test(url)) {
-        return { name, config: withOptionalHeaders({ type: 'ws', url: secureUrl('ws') }) };
-      }
-      return { name, config: withOptionalHeaders({ type: 'http', url: secureUrl('http') }) };
+      return { name, config: withOptionalHeaders({ type: kind, url: secureUrl }) };
     }
     const command = clean(input.command);
     if (!command) throw new Error('MCP server command or URL is required');

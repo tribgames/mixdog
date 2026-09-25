@@ -85,15 +85,16 @@ one listing line per skill:
 - <name>: <when_to_use> [tools: <linked tool names>]
 ```
 
-The runtime cuts the trigger at 100 characters on a word boundary; text past
-the cut never routes the skill. The tool suffix comes from effective dependencies, not
+The runtime cuts the trigger at 100 characters on a word boundary, and when
+many skills share the listing budget it shrinks every trigger evenly toward
+60; text past the cut never routes the skill. The tool suffix comes from effective dependencies, not
 handwritten trigger text; `mcp:<server>` denotes a server's tools. Keep these
 three responsibilities separate:
 
 | Field | Job | Budget | Write | Avoid |
 |---|---|---|---|---|
 | `description` | UI-only summary | ≤ 100 chars | One plain capability sentence | Operating rules or selection conditions found nowhere else |
-| `when_to_use` | Model selection | ≤ 100 chars | English descriptions of user intents across languages, implicit situations, then `not for …` naming the neighbouring owner | Procedures, tool arguments, translated keyword lists |
+| `when_to_use` | When to load the skill | ≤ 100 chars, core in the first 60 | English descriptions of user intents across languages, implicit situations, then `not …` naming the neighbouring owner | How to use it — procedures, rules, constraints, commands, tool arguments; translated keyword lists |
 | Body | Loaded operating instructions | As needed | Capability, prerequisites, procedure, constraints, recovery, and verification | Depending on UI copy to supply an instruction |
 
 Put the strongest trigger first in `when_to_use`. A boundary is worth writing
@@ -103,7 +104,7 @@ Example:
 
 ```yaml
 description: Deploy Mixdog to the installed app, VPS, or a live release.
-when_to_use: 'Deploy, redeploy, or update the installed app with update:dev:fast; not for builds or tests that ship nothing.'
+when_to_use: 'Deploy, redeploy, or update the installed app, VPS, or a live release; not builds or tests alone.'
 ```
 
 ## Body
@@ -189,13 +190,14 @@ Apply to every skill when asked to audit, review, or tidy the skill set.
 | Check | Failure looks like | Fix |
 |---|---|---|
 | Field separation | UI `description` over 100 chars, `when_to_use` over 100, or operating details present only in metadata | Keep the UI summary short, selection conditions in the trigger, and all execution details in the body |
-| Trigger presence | `when_to_use` empty while a neighbour competes | Add the phrases users actually write and the `not for …` boundary |
+| Trigger presence | `when_to_use` empty while a neighbour competes | Add the phrases users actually write and the `not …` boundary |
+| Trigger content | `when_to_use` says how rather than when: rules, constraints, commands, tool names or arguments | Move them to the body; keep the request situations and the `not …` boundary |
 | Body order | Sections out of the order above, a `When to use` section in the body, steps without a completion result | Reorder; delete body triggers (they never route); add the observable result |
 | Resources | A referenced file missing, a chain of references, a script without an input check | Fix the path, flatten the chain, add validation |
 | Duplication | The same rule in the body, a reference, and a script help text | Keep it in the owner; delete the copies |
 | Staleness | Paths, tools, or flags that no longer exist | Replace or remove; never leave an instruction that cannot succeed |
 
-Run `scripts/validate-skill.mjs` on each directory; it reports the listing-line
-and resource checks mechanically, and the rest is a read of the body against
+Run `scripts/validate-skill.mjs` on each directory; it reports the listing-line,
+code-fence, and resource checks mechanically, and the rest is a read of the body against
 this reference.
 

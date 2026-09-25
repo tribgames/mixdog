@@ -23,14 +23,19 @@ export function appendProjectScopeClause(clauses, params, projectScope, { column
   params.push(...extra);
 }
 
-function buildCategoryFilterClause(offset, categories, { tableAlias = '' } = {}) {
-  const cats = (Array.isArray(categories) ? categories : [categories])
+/** The known categories in `value` (one category or a list), lower-cased. */
+export function validCategories(value) {
+  return (Array.isArray(value) ? value : [value])
     .map((c) =>
       String(c ?? '')
         .trim()
         .toLowerCase()
     )
     .filter((c) => VALID_CATEGORY.has(c));
+}
+
+function buildCategoryFilterClause(offset, categories, { tableAlias = '' } = {}) {
+  const cats = validCategories(categories);
   if (cats.length === 0) return { clause: '', params: [] };
   const outerRef = tableAlias || 'entries';
   const p = `${outerRef}.`;
@@ -88,13 +93,7 @@ export function buildRecallScopeFilter(offset, options = {}, tableAlias = '') {
     )`);
     params.push(...excludeStatuses);
   }
-  const categories = (Array.isArray(options.category) ? options.category : [options.category])
-    .map((c) =>
-      String(c ?? '')
-        .trim()
-        .toLowerCase()
-    )
-    .filter((c) => VALID_CATEGORY.has(c));
+  const categories = validCategories(options.category);
   if (categories.length > 0) {
     const { clause: catClause, params: catParams } = buildCategoryFilterClause(next, categories, { tableAlias });
     if (catClause) {

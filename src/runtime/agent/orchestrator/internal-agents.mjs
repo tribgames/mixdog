@@ -63,7 +63,9 @@ function _hiddenAgentsDependencyMtime() {
       if (!systemFile) continue;
       mtime = Math.max(mtime, _mtimeSafe(join(_MIXDOG_ROOT, systemFile)));
     }
-  } catch {}
+  } catch {
+    /* Best-effort: only systemFile mtimes are lost; the agents.json mtime still gates reloads. */
+  }
   return mtime;
 }
 
@@ -112,19 +114,15 @@ function _loadHiddenAgents() {
  * collect.mjs) consume fresh metadata in the same process.
  */
 function _getHiddenAgents() {
-  try {
-    const mtime = _hiddenAgentsDependencyMtime();
-    if (_hiddenAgentsCache && mtime <= _hiddenAgentsCache.mtime) {
-      return _hiddenAgentsCache.map;
-    }
-    const map = _loadHiddenAgents();
-    _hiddenAgentsCache = { mtime, map };
-    return map;
-  } catch (err) {
-    // Fail loudly — re-throw with a clear message. A cache hit is never used
-    // when statSync fails because the caller expects current data.
-    throw new Error(`[internal-agents] failed to load defaults/agents.json: ${err.message}`);
+  // The mtime probe never throws; a load failure surfaces with the message
+  // _loadHiddenAgents already gave it, and the stale cache is not reused.
+  const mtime = _hiddenAgentsDependencyMtime();
+  if (_hiddenAgentsCache && mtime <= _hiddenAgentsCache.mtime) {
+    return _hiddenAgentsCache.map;
   }
+  const map = _loadHiddenAgents();
+  _hiddenAgentsCache = { mtime, map };
+  return map;
 }
 
 // Eager validate at module init so startup failures are immediate.

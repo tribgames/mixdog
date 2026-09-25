@@ -1,14 +1,9 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
-import { DOMMatrix, ImageData, Path2D, createCanvas, loadImage } from '@napi-rs/canvas';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { pdfjsStandardFontDataUrl, resolvedPdfJs } from '../../attachments/pdfjs-runtime.mjs';
-
-function installPdfJsCanvasGlobals() {
-  globalThis.DOMMatrix ??= DOMMatrix;
-  globalThis.ImageData ??= ImageData;
-  globalThis.Path2D ??= Path2D;
-}
+import { installPdfGlobals } from './pdf-document.mjs';
 
 const PAGE_NUMBER_PATTERN = /^\s*(?:(?:page\s*)?\d+\s*(?:of|\/)\s*\d+|페이지\s*\d+|\d+\s*페이지)\s*$/i;
 
@@ -82,7 +77,7 @@ function pdfLoadingTask(getDocument, VerbosityLevel, data) {
 }
 
 async function renderPdfPageDirect(path, pageNumber, targetWidth, minimumScale = 0.25) {
-  installPdfJsCanvasGlobals();
+  installPdfGlobals();
   const { getDocument, Util, VerbosityLevel } = await resolvedPdfJs();
   const loadingTask = pdfLoadingTask(getDocument, VerbosityLevel, new Uint8Array(await readFile(path)));
   try {
@@ -151,9 +146,70 @@ async function runPdfRenderWorker(data, signal = null) {
   });
 }
 
+// Many pages are reviewed as contact sheets: one labelled grid image per group
+// of pages, written next to the PDF.
+async function writeContactSheet(group, width, imagePath, renderPage) {
+  const columns = group.length <= 2 ? 1 : Math.max(2, Math.ceil(Math.sqrt(group.length * 0.75)));
+  const rows = Math.ceil(group.length / columns);
+  const gap = 12;
+  const labelHeight = 24;
+  const cellWidth = Math.max(64, Math.floor((width - (columns + 1) * gap) / columns));
+  const thumbnails = [];
+  for (const pageNumber of group) {
+    const rendered = await renderPage(pageNumber, cellWidth, 0.05);
+    thumbnails.push({
+      page: pageNumber,
+      image: await loadImage(rendered.data),
+      data: rendered.data,
+    });
+  }
+  const cellHeight = Math.max(...thumbnails.map(({ image }) => image.height));
+  const sheet = createCanvas(width, gap + rows * (labelHeight + cellHeight + gap));
+  const context = sheet.getContext('2d');
+  context.fillStyle = 'rgb(238,240,244)';
+  context.fillRect(0, 0, sheet.width, sheet.height);
+  context.font = '16px sans-serif';
+  context.textBaseline = 'middle';
+  for (let index = 0; index < thumbnails.length; index += 1) {
+    const { page: pageNumber, image } = thumbnails[index];
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = gap + column * (cellWidth + gap);
+    const y = gap + row * (labelHeight + cellHeight + gap);
+    context.fillStyle = 'rgb(45,50,60)';
+    context.fillText(`Page ${pageNumber}`, x, y + labelHeight / 2);
+    context.fillStyle = 'rgb(255,255,255)';
+    context.fillRect(x, y + labelHeight, cellWidth, cellHeight);
+    context.drawImage(image, x, y + labelHeight);
+    context.strokeStyle = 'rgb(180,185,195)';
+    context.strokeRect(x, y + labelHeight, image.width, image.height);
+  }
+  const data = sheet.toBuffer('image/png');
+  await writeFile(imagePath, data);
+  return {
+    page: group[0],
+    pages: group,
+    path: imagePath,
+    width: sheet.width,
+    height: sheet.height,
+    mimeType: 'image/png',
+    data: data.toString('base64'),
+    // The pages the sheet was composed from: the render review reads these,
+    // never the sheet (its grey field, labels, and borders are not the deck).
+    // Stripped from the model-facing result by the render action.
+    pageImages: thumbnails.map(({ page: pageNumber, image, data: pageData }) => ({
+      page: pageNumber,
+      width: image.width,
+      height: image.height,
+      mimeType: 'image/png',
+      data: pageData.toString('base64'),
+    })),
+  };
+}
+
 async function renderPdfPagesDirect(path, { pages = null, maxWidth = 1400, signal = null } = {}) {
   if (signal?.aborted) throw new Error('PDF rendering was cancelled');
-  installPdfJsCanvasGlobals();
+  installPdfGlobals();
   const { getDocument, VerbosityLevel } = await resolvedPdfJs();
   const pdfData = await readFile(path);
   const openDocument = async () => {
@@ -209,65 +265,8 @@ async function renderPdfPagesDirect(path, { pages = null, maxWidth = 1400, signa
       const pagesPerSheet = Math.ceil(selected.length / 12);
       for (let offset = 0; offset < selected.length; offset += pagesPerSheet) {
         const group = selected.slice(offset, offset + pagesPerSheet);
-        const columns = group.length <= 2 ? 1 : Math.max(2, Math.ceil(Math.sqrt(group.length * 0.75)));
-        const rows = Math.ceil(group.length / columns);
-        const gap = 12;
-        const labelHeight = 24;
-        const cellWidth = Math.max(64, Math.floor((width - (columns + 1) * gap) / columns));
-        const thumbnails = [];
-        for (const pageNumber of group) {
-          const rendered = await renderPage(pageNumber, cellWidth, 0.05);
-          thumbnails.push({
-            page: pageNumber,
-            image: await loadImage(rendered.data),
-            data: rendered.data,
-          });
-        }
-        const cellHeight = Math.max(...thumbnails.map(({ image }) => image.height));
-        const sheet = createCanvas(width, gap + rows * (labelHeight + cellHeight + gap));
-        const context = sheet.getContext('2d');
-        context.fillStyle = 'rgb(238,240,244)';
-        context.fillRect(0, 0, sheet.width, sheet.height);
-        context.font = '16px sans-serif';
-        context.textBaseline = 'middle';
-        for (let index = 0; index < thumbnails.length; index += 1) {
-          const { page: pageNumber, image } = thumbnails[index];
-          const column = index % columns;
-          const row = Math.floor(index / columns);
-          const x = gap + column * (cellWidth + gap);
-          const y = gap + row * (labelHeight + cellHeight + gap);
-          context.fillStyle = 'rgb(45,50,60)';
-          context.fillText(`Page ${pageNumber}`, x, y + labelHeight / 2);
-          context.fillStyle = 'rgb(255,255,255)';
-          context.fillRect(x, y + labelHeight, cellWidth, cellHeight);
-          context.drawImage(image, x, y + labelHeight);
-          context.strokeStyle = 'rgb(180,185,195)';
-          context.strokeRect(x, y + labelHeight, image.width, image.height);
-        }
-        const data = sheet.toBuffer('image/png');
-        const first = group[0];
-        const last = group.at(-1);
-        const imagePath = join(dirname(path), `${stem}-pages-${first}-${last}.png`);
-        await writeFile(imagePath, data);
-        output.push({
-          page: first,
-          pages: group,
-          path: imagePath,
-          width: sheet.width,
-          height: sheet.height,
-          mimeType: 'image/png',
-          data: data.toString('base64'),
-          // The pages the sheet was composed from: the render review reads these,
-          // never the sheet (its grey field, labels, and borders are not the deck).
-          // Stripped from the model-facing result by the render action.
-          pageImages: thumbnails.map(({ page: pageNumber, image, data: pageData }) => ({
-            page: pageNumber,
-            width: image.width,
-            height: image.height,
-            mimeType: 'image/png',
-            data: pageData.toString('base64'),
-          })),
-        });
+        const imagePath = join(dirname(path), `${stem}-pages-${group[0]}-${group.at(-1)}.png`);
+        output.push(await writeContactSheet(group, width, imagePath, renderPage));
       }
     }
     const reviewedPages = output.flatMap((image) => image.pages || [image.page]);

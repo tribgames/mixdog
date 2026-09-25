@@ -220,14 +220,3 @@ function describeAgentDiagnostic({ taskStatus, sessionStatus, stage, snapshot, s
 
   return stage;
 }
-
-export function appendAgentProgressKv(line, fields = {}) {
-  const parts = [line];
-  if (fields.worker_stage) parts.push(`stage=${fields.worker_stage}`);
-  if (fields.last_progress) parts.push(`last_progress=${fields.last_progress}`);
-  if (Number.isFinite(fields.silent_for)) parts.push(`silent_for=${fields.silent_for}s`);
-  if (fields.watchdog) parts.push(`watchdog=${fields.watchdog}`);
-  if (Number.isFinite(fields.queued_followups)) parts.push(`queued_followups=${fields.queued_followups}`);
-  if (fields.diagnostic) parts.push(`hint=${fields.diagnostic}`);
-  return parts.join(' ');
-}

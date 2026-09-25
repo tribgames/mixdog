@@ -830,16 +830,6 @@ html[data-mixdog-mobile-tabs] .browser-zoom-range {
   color: var(--mx-text) !important;
 }
 
-.browser-import-error {
-  padding: 9px 10px;
-  border: 1px solid color-mix(in srgb, var(--mx-danger) 45%, var(--mx-border-muted));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--mx-danger) 8%, transparent);
-  color: var(--mx-danger);
-  font-size: var(--mx-font-meta);
-  white-space: pre-wrap;
-}
-
 .browser-import-dialog footer {
   position: sticky;
   bottom: -14px;

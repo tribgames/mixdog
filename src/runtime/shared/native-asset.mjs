@@ -22,8 +22,28 @@ import { downloadToFileWithRetry, MAX_NATIVE_BINARY_DOWNLOAD_BYTES } from './bou
 const RELEASE_DOWNLOAD_BASE = 'https://github.com/tribgames/mixdog/releases/download';
 
 export function platformKey() {
-  const os = process.platform === 'win32' ? 'win32' : process.platform;
-  return `${os}-${process.arch}`;
+  return `${process.platform}-${process.arch}`;
+}
+
+/**
+ * The platform keys whose assets run on this host, best first. Windows on
+ * ARM runs x64 programs under its built-in emulation, so a win32-arm64 host
+ * takes the win32-x64 asset wherever no native arm64 build is published.
+ */
+export function platformKeyCandidates(platform = process.platform, arch = process.arch) {
+  const native = `${platform}-${arch}`;
+  return platform === 'win32' && arch === 'arm64' ? [native, 'win32-x64'] : [native];
+}
+
+/** The first candidate key `usable` accepts; the native key when none does. */
+export function resolvePlatformKey(usable) {
+  const candidates = platformKeyCandidates();
+  return candidates.find((key) => usable(key)) ?? candidates[0];
+}
+
+/** The key of the entry a platform-keyed map holds for this host. */
+export function platformEntryKey(entries) {
+  return resolvePlatformKey((key) => Boolean(entries?.[key]));
 }
 
 export function binSuffix() {

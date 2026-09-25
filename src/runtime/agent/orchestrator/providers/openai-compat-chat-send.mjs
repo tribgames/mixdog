@@ -1,13 +1,7 @@
-import {
-  canFallbackNonStreaming,
-  markProviderRecoveryExhausted,
-  retryDelayLabel,
-  withRetry,
-} from './retry-classifier.mjs';
+import { canFallbackNonStreaming, markProviderRecoveryExhausted, withRetry } from './retry-classifier.mjs';
 import { consumeCompatChatCompletionStream } from './openai-compat-stream.mjs';
 import { getModelMetadataSync } from './model-catalog.mjs';
 import { appendAgentTrace } from '../agent-trace.mjs';
-import { providerRetryStatusText } from '../../../shared/err-text.mjs';
 import {
   PROVIDER_FIRST_BYTE_TIMEOUT_MS,
   PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
@@ -23,7 +17,7 @@ import {
 } from './openai-compat-wire.mjs';
 import { applyCompatProviderChatOptions } from './openai-compat-options.mjs';
 import { normalizeCompatChatResponse } from './openai-compat-response-normalization.mjs';
-import { applyCompatToolChoice } from './compat-request-policy.mjs';
+import { applyCompatToolChoice, compatStreamRetryReporter } from './compat-request-policy.mjs';
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { xaiCacheRouting } from './openai-compat-xai.mjs';
 
@@ -115,27 +109,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
         },
         {
           signal: totalSignal.signal,
-          onRetry: ({ attempt, maxAttempts, lastErr, delayMs, delayReason }) => {
-            const delayLabel = retryDelayLabel(delayMs, delayReason);
-            process.stderr.write(
-              `[${provider.name}] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`
-            );
-            try {
-              opts.onStageChange?.('reconnecting', {
-                attempt: attempt + 1,
-                max: maxAttempts,
-                waitMs: delayMs,
-                classifier: lastErr?.retryClassifier || lastErr?.code || null,
-                message: providerRetryStatusText(lastErr, {
-                  attempt: attempt + 1,
-                  maxAttempts,
-                  delayMs,
-                }),
-              });
-            } catch {
-              /* display-only */
-            }
-          },
+          onRetry: compatStreamRetryReporter(provider.name, opts),
         }
       );
     } catch (streamErr) {

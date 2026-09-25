@@ -32,6 +32,11 @@ function clampLabelWidth(value, columns) {
   return Math.max(1, Math.min(Number(value) || DEFAULT_LABEL_WIDTH, maxWidth));
 }
 
+/** A requested row index clamped into the item list (0 for an empty list). */
+function clampItemIndex(index, itemCount) {
+  return Math.max(0, Math.min(Number(index) || 0, Math.max(0, itemCount - 1)));
+}
+
 function clampMetaWidth(value, columns, labelWidth) {
   const available = Math.max(0, columns - labelWidth - 16);
   const requested = Number(value) || 24;
@@ -91,9 +96,7 @@ export function Picker({
   themeEpoch = 0,
 }) {
   const visibleLimit = Math.max(1, Math.floor(Number(visibleCount) || MAX_VISIBLE));
-  const [selectedIndex, setSelectedIndex] = useState(() =>
-    Math.max(0, Math.min(Number(initialIndex) || 0, Math.max(0, items.length - 1)))
-  );
+  const [selectedIndex, setSelectedIndex] = useState(() => clampItemIndex(initialIndex, items.length));
   const confirmButtons = Array.isArray(confirmBar?.buttons) ? confirmBar.buttons.filter(Boolean) : [];
   const hasConfirm = confirmButtons.length > 0;
   // -1 = list focus; 0..n-1 = confirm-bar button focus.
@@ -124,7 +127,7 @@ export function Picker({
         // (or the row was removed). Start from the owner's initialIndex/top
         // instead of carrying a stale row number across picker transitions.
         selectionMemo.value = null;
-        return Math.max(0, Math.min(Number(initialIndex) || 0, Math.max(0, items.length - 1)));
+        return clampItemIndex(initialIndex, items.length);
       }
       return Math.min(Math.max(0, i), Math.max(0, items.length - 1));
     });
@@ -140,7 +143,7 @@ export function Picker({
     }
     if (selectionMemo.initialIndex === initialIndex) return;
     selectionMemo.initialIndex = initialIndex;
-    setSelectedIndex(Math.max(0, Math.min(Number(initialIndex) || 0, Math.max(0, items.length - 1))));
+    setSelectedIndex(clampItemIndex(initialIndex, items.length));
   }, [initialIndex, items.length, selectionMemo]);
 
   // Live-preview hook: notify the owner whenever the highlighted row changes
@@ -320,13 +323,19 @@ export function Picker({
     )
   );
 
+  // Standard panel rhythm: title row, blank, description/hint row, blank,
+  // content. Description newlines are collapsed and width-truncated to a single
+  // line so a multi-line description (e.g. ToolApproval) cannot push the title
+  // off the top. The slot is always reserved so panel chrome is a constant 6
+  // rows (title + blank + desc + blank + 2 border), matching PICKER_CHROME_ROWS.
+  const panelDescription = truncateText(
+    String(description || '')
+      .replace(/\s+/g, ' ')
+      .trim(),
+    Math.max(0, columns - 4)
+  );
+
   if (items.length === 0) {
-    const emptyLine = truncateText(
-      String(description || '')
-        .replace(/\s+/g, ' ')
-        .trim(),
-      Math.max(0, columns - 4)
-    );
     const loadingRows = loading
       ? Array.from({ length: visibleLimit }, (_, index) => (
           <Text key={`loading-${index}`} color={theme.inactive}>
@@ -351,7 +360,7 @@ export function Picker({
           {/* Standard rhythm: title, blank, description/hint (blank if none),
               blank, then the (empty) content row. */}
           <Text> </Text>
-          <Text color={theme.text}>{emptyLine || ' '}</Text>
+          <Text color={theme.text}>{panelDescription || ' '}</Text>
           <Text> </Text>
           {loading ? loadingRows : <Text color={theme.inactive}>(empty)</Text>}
           {hasConfirm ? (
@@ -391,17 +400,6 @@ export function Picker({
   const descriptionWidth = Math.max(
     0,
     columns - indexOffset - markerWidth - labelWidth - (hasMeta ? metaWidth + 14 : 12)
-  );
-  // Standard panel rhythm: title row, blank, description/hint row, blank,
-  // content. Description newlines are collapsed and width-truncated to a single
-  // line so a multi-line description (e.g. ToolApproval) cannot push the title
-  // off the top. The slot is always reserved so panel chrome is a constant 6
-  // rows (title + blank + desc + blank + 2 border), matching PICKER_CHROME_ROWS.
-  const panelDescription = truncateText(
-    String(description || '')
-      .replace(/\s+/g, ' ')
-      .trim(),
-    Math.max(0, columns - 4)
   );
 
   return (
@@ -452,7 +450,7 @@ export function Picker({
             />
           );
         })}
-        {footerLines.length > 0 ? (
+        {footerLines.length > 0 && (
           <>
             <Box flexGrow={1} />
             {footerLines.map((line, index) => {
@@ -474,7 +472,7 @@ export function Picker({
               );
             })}
           </>
-        ) : null}
+        )}
         {hasConfirm && footerLines.length === 0 ? (
           <>
             <Box flexGrow={1} />

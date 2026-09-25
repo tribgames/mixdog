@@ -32,6 +32,18 @@ function ProgressStateIcon({ state }: { state: string }) {
   return <LoaderCircle size={16} className="is-spinning" />;
 }
 
+function checkedItems(items: Record<DesktopBrowserImportItem, boolean>): DesktopBrowserImportItem[] {
+  return (Object.keys(items) as DesktopBrowserImportItem[]).filter((item) => items[item]);
+}
+
+/** Passwords and cookies the source can actually export need administrator approval. */
+function includesSensitiveItem(
+  items: readonly DesktopBrowserImportItem[],
+  source: DesktopBrowserImportSource | undefined
+): boolean {
+  return items.some((item) => (item === 'passwords' || item === 'cookies') && source?.supports[item] === true);
+}
+
 function supportedItems(source: DesktopBrowserImportSource | undefined): Record<DesktopBrowserImportItem, boolean> {
   return {
     passwords: source?.supports.passwords === true,
@@ -114,22 +126,17 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
   }, [desktopApi]);
 
   const selectedSource = sources.find((source) => source.id === sourceId);
-  const selectedItems = (Object.keys(items) as DesktopBrowserImportItem[]).filter((item) => items[item]);
-  const sensitiveSelected = selectedItems.some(
-    (item) => (item === 'passwords' || item === 'cookies') && selectedSource?.supports[item] === true
-  );
+  const selectedItems = checkedItems(items);
+  const sensitiveSelected = includesSensitiveItem(selectedItems, selectedSource);
 
   const startImport = useCallback(() => {
     if (!desktopApi?.browserProfileImportStart || busyRef.current) return;
-    const requestedItems = (Object.keys(items) as DesktopBrowserImportItem[]).filter((item) => items[item]);
+    const requestedItems = checkedItems(items);
     if (!requestedItems.length) {
       setError(t('Select at least one item to import.'));
       return;
     }
-    const requiresApproval = requestedItems.some(
-      (item) => (item === 'passwords' || item === 'cookies') && selectedSource?.supports[item] === true
-    );
-    if (requiresApproval && !administratorApproved) {
+    if (includesSensitiveItem(requestedItems, selectedSource) && !administratorApproved) {
       setError(t('Acknowledge administrator approval to import passwords and cookies.'));
       return;
     }

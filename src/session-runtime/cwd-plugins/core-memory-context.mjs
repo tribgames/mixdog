@@ -31,10 +31,7 @@ export function createCoreMemoryContext({ getCurrentCwd, getConfig, bootProfile,
     }
     // Explicit opt-out (MIXDOG_BOOT_CORE_MEMORY=0/false/no/off) skips this
     // file-backed prompt block. Recall and memory tools remain available.
-    const bootFlag = String(process.env.MIXDOG_BOOT_CORE_MEMORY ?? '')
-      .trim()
-      .toLowerCase();
-    if (bootFlag === '0' || bootFlag === 'false' || bootFlag === 'no' || bootFlag === 'off') {
+    if (featureEnvOverride('MIXDOG_BOOT_CORE_MEMORY') === false) {
       bootProfile('core-memory:skipped');
       return '';
     }

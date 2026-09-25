@@ -8,7 +8,7 @@ const rendererExpression = `(async () => {
   const timing = {};
   const api = window.mixdogDesktop;
   if (!api) throw new Error('preload bridge missing');
-  const methods = ['startProject', 'getSnapshot', 'submit', 'resolveToolApproval', 'dispose'];
+  const methods = ['startProject', 'getSnapshot', 'submitNewTask', 'resolveToolApprovalForSession'];
   if (!methods.every((name) => typeof api[name] === 'function')) {
     throw new Error('preload bridge incomplete');
   }
@@ -16,7 +16,11 @@ const rendererExpression = `(async () => {
   const started = await api.startProject(${JSON.stringify(projectPath)});
   timing.projectMs = performance.now() - startedAt;
   startedAt = performance.now();
-  const submitted = await api.submit('/help');
+  const submitted = await api.submitNewTask(
+    '/help',
+    { id: 'packaging-smoke-' + Date.now(), displayText: '/help' },
+    { projectPath: ${JSON.stringify(projectPath)} },
+  );
   timing.chatMs = performance.now() - startedAt;
   await new Promise((done) => setTimeout(done, 250));
   const snapshot = await api.getSnapshot();
@@ -40,16 +44,16 @@ const rendererExpression = `(async () => {
     captionReservedRight >= window.innerWidth - 1
   );
   startedAt = performance.now();
-  const approvalRoutingResult = await api.resolveToolApproval(
+  const approvalRoutingResult = await api.resolveToolApprovalForSession(
+    submitted.sessionId,
     '__packaging_smoke__',
     { approved: false, reason: 'acceptance-smoke' },
   );
   timing.approvalRoutingMs = performance.now() - startedAt;
-  await api.dispose();
   return {
     bridge: true,
     projectStarted: started !== null,
-    chatSubmitted: submitted,
+    chatSubmitted: submitted.accepted === true,
     snapshotAvailable: snapshot !== null,
     approvalRoutingResult,
     chrome: {

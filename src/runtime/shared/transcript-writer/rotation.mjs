@@ -27,18 +27,21 @@ export function createRotationTracker({ transcriptPath, logOnce }) {
   // threshold, or a full check hasn't happened yet.
   const state = { sizeChecked: false, lastKnownSize: 0, bytesSinceCheck: 0 };
 
+  /** The on-disk size is now known to be exactly `size` bytes. */
+  function noteSize(size) {
+    state.sizeChecked = true;
+    state.lastKnownSize = size;
+    state.bytesSinceCheck = 0;
+  }
+
   function statAndMaybeRotate() {
     try {
       if (!existsSync(transcriptPath)) {
-        state.sizeChecked = true;
-        state.lastKnownSize = 0;
-        state.bytesSinceCheck = 0;
+        noteSize(0);
         return;
       }
       const { size } = statSync(transcriptPath);
-      state.sizeChecked = true;
-      state.lastKnownSize = size;
-      state.bytesSinceCheck = 0;
+      noteSize(size);
       if (size < TRANSCRIPT_ROTATE_BYTES) return;
       // An async appendFile may be in flight for this path; renaming out
       // from under it races the write on Windows. Skip this round and
@@ -79,12 +82,6 @@ export function createRotationTracker({ transcriptPath, logOnce }) {
     state.bytesSinceCheck += bytes;
   }
 
-  /** The file was rewritten whole and is now exactly `size` bytes. */
-  function noteRewritten(size) {
-    state.sizeChecked = true;
-    state.lastKnownSize = size;
-    state.bytesSinceCheck = 0;
-  }
-
-  return { rotateIfNeeded, noteAppended, noteRewritten };
+  // noteRewritten: the file was rewritten whole and is now exactly `size` bytes.
+  return { rotateIfNeeded, noteAppended, noteRewritten: noteSize };
 }

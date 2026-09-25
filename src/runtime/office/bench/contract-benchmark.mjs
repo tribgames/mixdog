@@ -21,7 +21,8 @@ const CASES = [
     format: 'pptx',
     backend: 'microsoft-office-com',
     operation: 'add_textbox',
-    required: ['op', 'slide', 'text'],
+    // text or paragraphs, one of them (oneOf).
+    required: ['op', 'slide'],
   },
   {
     format: 'pdf',

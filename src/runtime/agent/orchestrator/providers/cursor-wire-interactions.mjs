@@ -8,43 +8,27 @@ function response(name, value) {
   };
 }
 
+const rejected = () => ({ rejected: { reason: REJECT_REASON } });
+
+// [query field, action name, response field, rejection payload], in match priority order.
+const REJECTED_QUERIES = [
+  ['webSearchRequestQuery', 'web_search', 'webSearchRequestResponse', rejected],
+  ['exaSearchRequestQuery', 'exa_search', 'exaSearchRequestResponse', rejected],
+  ['exaFetchRequestQuery', 'exa_fetch', 'exaFetchRequestResponse', rejected],
+  ['switchModeRequestQuery', 'switch_mode', 'switchModeRequestResponse', rejected],
+  ['askQuestionInteractionQuery', 'ask_question', 'askQuestionInteractionResponse', () => ({ result: rejected() })],
+  [
+    'createPlanRequestQuery',
+    'create_plan',
+    'createPlanRequestResponse',
+    () => ({ result: { error: { error: REJECT_REASON } } }),
+  ],
+];
+
 export function buildCursorInteractionResponse(query = {}) {
   const id = Number(query.id) || 0;
-  if (query.webSearchRequestQuery) {
-    return response('web_search', {
-      id,
-      webSearchRequestResponse: { rejected: { reason: REJECT_REASON } },
-    });
-  }
-  if (query.exaSearchRequestQuery) {
-    return response('exa_search', {
-      id,
-      exaSearchRequestResponse: { rejected: { reason: REJECT_REASON } },
-    });
-  }
-  if (query.exaFetchRequestQuery) {
-    return response('exa_fetch', {
-      id,
-      exaFetchRequestResponse: { rejected: { reason: REJECT_REASON } },
-    });
-  }
-  if (query.switchModeRequestQuery) {
-    return response('switch_mode', {
-      id,
-      switchModeRequestResponse: { rejected: { reason: REJECT_REASON } },
-    });
-  }
-  if (query.askQuestionInteractionQuery) {
-    return response('ask_question', {
-      id,
-      askQuestionInteractionResponse: { result: { rejected: { reason: REJECT_REASON } } },
-    });
-  }
-  if (query.createPlanRequestQuery) {
-    return response('create_plan', {
-      id,
-      createPlanRequestResponse: { result: { error: { error: REJECT_REASON } } },
-    });
+  for (const [queryField, name, responseField, payload] of REJECTED_QUERIES) {
+    if (query[queryField]) return response(name, { id, [responseField]: payload() });
   }
   if (query.setupVmEnvironmentArgs) {
     return {
@@ -54,10 +38,7 @@ export function buildCursorInteractionResponse(query = {}) {
     };
   }
   if (query.$unknown?.some((field) => field.no === 9)) {
-    return response('web_fetch', {
-      id,
-      webFetchRequestResponse: { rejected: { reason: REJECT_REASON } },
-    });
+    return response('web_fetch', { id, webFetchRequestResponse: rejected() });
   }
   const field = query.$unknown?.[0]?.no;
   return {

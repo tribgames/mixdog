@@ -37,6 +37,20 @@ function memoryScope(path: string | null) {
   return path === null ? { project_id: 'common' } : { cwd: path };
 }
 
+/** One memory write: a result that reports a failure rejects, and a success
+ *  rereads the open editor's catalog. */
+function writeMemory(
+  onMemoryControl: MemoryControl,
+  input: Record<string, unknown>,
+  refresh: () => Promise<void>
+): Promise<void> {
+  return onMemoryControl(input).then((value) => {
+    const failure = memoryResultError(value);
+    if (failure) throw new Error(failure);
+    return refresh();
+  });
+}
+
 /** Scope picker shared by the add row and every saved row: Common plus one
  *  option per project. */
 function memoryScopeSelect({
@@ -288,18 +302,11 @@ function memoryAddRow({
               const target = addMemoryScope === '' ? null : addMemoryScope;
               setMemoryBusy(true);
               setEditError('');
-              void onMemoryControl({
-                action: 'core',
-                op: 'add',
-                summary,
-                verbatim: true,
-                ...memoryScope(target),
-              })
-                .then((value) => {
-                  const failure = memoryResultError(value);
-                  if (failure) throw new Error(failure);
-                  return refreshMemories(editTarget.path);
-                })
+              void writeMemory(
+                onMemoryControl,
+                { action: 'core', op: 'add', summary, verbatim: true, ...memoryScope(target) },
+                () => refreshMemories(editTarget.path)
+              )
                 .then(() => {
                   setAddingMemory(false);
                   setAddMemoryDraft('');
@@ -361,6 +368,7 @@ function memoryEditRow({
   setEditError(value: string): void;
   setMemoryBusy(value: boolean): void;
 }) {
+  const draft = memoryDrafts[entry.id] ?? entry.summary;
   return (
     <div className="core-memory-edit" key={entry.id}>
       <div className="projects-memory-row-head">
@@ -374,7 +382,7 @@ function memoryEditRow({
       </div>
       <textarea
         aria-label={t('Memory text')}
-        value={memoryDrafts[entry.id] ?? entry.summary}
+        value={draft}
         rows={3}
         disabled={memoryBusy || memoriesLoading}
         onChange={(event) => {
@@ -389,32 +397,28 @@ function memoryEditRow({
         <button
           type="button"
           disabled={
-            memoryBusy ||
-            !(memoryDrafts[entry.id] ?? entry.summary).trim() ||
-            ((memoryDrafts[entry.id] ?? entry.summary).trim() === entry.summary &&
-              moveTarget === (editTarget?.path ?? ''))
+            memoryBusy || !draft.trim() || (draft.trim() === entry.summary && moveTarget === (editTarget?.path ?? ''))
           }
           onClick={() => {
             if (!editTarget) return;
             setMemoryBusy(true);
             setEditError('');
-            const summary = (memoryDrafts[entry.id] ?? entry.summary).trim();
-            void onMemoryControl({
-              action: 'core',
-              op: 'edit',
-              id: entry.id,
-              index_revision: entry.indexRevision,
-              element: entry.singleSentence ? summary : entry.element,
-              summary,
-              verbatim: true,
-              ...memoryScope(editTarget.path),
-              ...(moveTarget === '' ? { target_project_id: 'common' } : { target_cwd: moveTarget }),
-            })
-              .then((value) => {
-                const failure = memoryResultError(value);
-                if (failure) throw new Error(failure);
-                return refreshMemories(editTarget.path);
-              })
+            const summary = draft.trim();
+            void writeMemory(
+              onMemoryControl,
+              {
+                action: 'core',
+                op: 'edit',
+                id: entry.id,
+                index_revision: entry.indexRevision,
+                element: entry.singleSentence ? summary : entry.element,
+                summary,
+                verbatim: true,
+                ...memoryScope(editTarget.path),
+                ...(moveTarget === '' ? { target_project_id: 'common' } : { target_cwd: moveTarget }),
+              },
+              () => refreshMemories(editTarget.path)
+            )
               .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
               .finally(() => setMemoryBusy(false));
           }}
@@ -433,18 +437,17 @@ function memoryEditRow({
             if (!editTarget) return;
             setMemoryBusy(true);
             setEditError('');
-            void onMemoryControl({
-              action: 'core',
-              op: 'delete',
-              id: entry.id,
-              index_revision: entry.indexRevision,
-              ...memoryScope(editTarget.path),
-            })
-              .then((value) => {
-                const failure = memoryResultError(value);
-                if (failure) throw new Error(failure);
-                return refreshMemories(editTarget.path);
-              })
+            void writeMemory(
+              onMemoryControl,
+              {
+                action: 'core',
+                op: 'delete',
+                id: entry.id,
+                index_revision: entry.indexRevision,
+                ...memoryScope(editTarget.path),
+              },
+              () => refreshMemories(editTarget.path)
+            )
               .then(() => setConfirmDeleteMemory(null))
               .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
               .finally(() => setMemoryBusy(false));
@@ -491,7 +494,7 @@ export function ProjectListSection({
   const [addError, setAddError] = useState('');
   const [addBusy, setAddBusy] = useState(false);
   // Common and project memory share one editor and one injection store.
-  const [editTarget, setEditTarget] = useState<{ path: string | null; title: string } | null>(null);
+  const [editTarget, setEditTarget] = useState<ProjectEditTarget | null>(null);
   const [editName, setEditName] = useState('');
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState('');
@@ -607,10 +610,7 @@ export function ProjectListSection({
   // destination closes the dialogs (and disarms a pending removal) while the
   // list itself keeps its state.
   useSidebarPanelDismiss(active, () => {
-    setAddOpen(false);
-    setAddPath('');
-    setAddName('');
-    setAddError('');
+    closeAdd();
     resetEdit();
   });
   // No search field (user: 프로젝트 목록은 짧다 — 서치창 제거).
@@ -625,7 +625,7 @@ export function ProjectListSection({
   return (
     <>
       {/* The panel header names this view and hosts its action (user: 타이틀
-          이 2번 나옴) — the list starts right at the search field. */}
+          이 2번 나옴). */}
       {/* Plain + like every other rail panel action (user: 프로젝트도 + 통일). */}
       <SidebarPanelAction
         active={active}

@@ -262,7 +262,7 @@ function createSessionStatePublisher(emit: (message: DesktopServiceOutbound) => 
   };
 }
 
-/** Service service adapter hosted inside the singleton machine daemon.
+/** Desktop service adapter hosted inside the singleton machine daemon.
  *
  * DesktopServiceClient remains a pure, tested projection/cache layer. The
  * adapter itself never follows a desktop view's lifetime; this object's

@@ -11,7 +11,7 @@
 //   3. Static per-model table / family heuristic fallback when the catalog
 //      has no entry for this model, also capped at the safety cap.
 
-export const MAX_TOKENS_FLOOR = 8192;
+const MAX_TOKENS_FLOOR = 8192;
 const DEFAULT_SAFETY_CAP = 65536;
 const ENV_VAR = 'MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS';
 

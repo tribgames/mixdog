@@ -38,7 +38,9 @@ export function maxMtimeRecursive(paths, depth = 3) {
           try {
             const m = statSync(child).mtimeMs;
             if (m > max) max = m;
-          } catch {}
+          } catch {
+            /* unreadable entry: skipped like a missing path */
+          }
         }
       }
     } else {

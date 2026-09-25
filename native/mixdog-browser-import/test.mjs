@@ -19,6 +19,9 @@ try {
   );
   await cp(join(source, 'src'), join(staging, 'src'), { recursive: true });
   await writeFile(join(staging, 'Cargo.toml'), manifest);
+  // Seed the upstream lockfile like build.ps1: a fresh resolve pulls crates
+  // that no longer compile together (cc 1.2.51).
+  await cp(join(nativeRoot, 'Cargo.lock'), join(staging, 'Cargo.lock'));
   const child = spawn('cargo', ['test', '--manifest-path', join(staging, 'Cargo.toml')], {
     stdio: 'inherit',
     windowsHide: true,

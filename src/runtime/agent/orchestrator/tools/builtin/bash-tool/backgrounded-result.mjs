@@ -9,6 +9,20 @@ import { _backgroundResultLines, _prependDestructiveWarning } from './result-for
 const DEFAULT_BACKGROUND_MESSAGE =
   'auto-backgrounded; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.';
 
+// The label and owner context every task registered for a shell command
+// carries, whether promoted or tracking survivors.
+export function shellTaskIdentity(command, options) {
+  return {
+    label: String(command).replace(/\s+/g, ' ').slice(0, 120),
+    context: {
+      notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
+      callerSessionId: options?.callerSessionId || options?.sessionId || null,
+      routingSessionId: options?.routingSessionId || options?.sessionId || null,
+      clientHostPid: options?.clientHostPid,
+    },
+  };
+}
+
 function registerPromotedTask({ result, command, cwd, options, startedAtMs }) {
   try {
     return registerBackgroundTask({
@@ -16,14 +30,8 @@ function registerPromotedTask({ result, command, cwd, options, startedAtMs }) {
       startedAtMs,
       surface: 'shell',
       operation: 'shell',
-      label: String(command).replace(/\s+/g, ' ').slice(0, 120),
+      ...shellTaskIdentity(command, options),
       input: { command, cwd },
-      context: {
-        notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
-        callerSessionId: options?.callerSessionId || options?.sessionId || null,
-        routingSessionId: options?.routingSessionId || options?.sessionId || null,
-        clientHostPid: options?.clientHostPid,
-      },
       meta: {
         task_id: result.jobId,
         stdout: result.stdoutPath ? normalizeOutputPath(result.stdoutPath) : null,

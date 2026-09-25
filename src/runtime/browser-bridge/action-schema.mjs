@@ -269,7 +269,7 @@ function sequenceStepError(step, index) {
   if (!allowed) return `${at} action must be one of ${SEQUENCE_STEP_ACTIONS.join(', ')}`;
   const unsupported = Object.keys(step).filter((name) => name !== 'action' && !allowed.includes(name));
   if (unsupported.length) return `${at} does not accept field(s): ${unsupported.join(', ')}`;
-  const present = (name) => Object.hasOwn(step, name) && step[name] !== undefined && step[name] !== null;
+  const present = (name) => hasInputValue(step, name);
   const requirements = SEQUENCE_STEP_REQUIRED[stepAction];
   if (requirements.length && !requirements.some((names) => names.every(present))) {
     return `${at} requires ${requirements.map((names) => names.join('+')).join(' or ')}`;
@@ -385,15 +385,15 @@ function resolveBrowserInput(action, args) {
   return { input };
 }
 
+const STRING_FIELD_LIMITS = Object.entries(BROWSER_INPUT_FIELDS.properties)
+  .filter(([, field]) => field.type === 'string' && field.maxLength !== undefined)
+  .map(([name, field]) => [name, field.maxLength]);
+
 // String and string-array fields stay within the schema's size limits.
 function boundedFieldsError(action, input) {
-  const stringLimits = Object.fromEntries(
-    Object.entries(BROWSER_INPUT_FIELDS.properties)
-      .filter(([, field]) => field.type === 'string' && field.maxLength !== undefined)
-      .map(([name, field]) => [name, name === 'script' && action === 'init_script' ? 20_000 : field.maxLength])
-  );
-  for (const [name, limit] of Object.entries(stringLimits)) {
+  for (const [name, maxLength] of STRING_FIELD_LIMITS) {
     if (!Object.hasOwn(input, name)) continue;
+    const limit = name === 'script' && action === 'init_script' ? 20_000 : maxLength;
     if (typeof input[name] !== 'string' || schemaStringLength(input[name]) > limit) {
       return `browser action "${action}" input.${name} must be a string of at most ${limit} characters`;
     }

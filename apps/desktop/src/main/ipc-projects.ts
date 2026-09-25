@@ -1,6 +1,6 @@
 // Project list and lifecycle, instructions files, workspace search, and the
 // shell hand-offs (open folder, media asset, external link) the renderer asks for.
-import type { IpcMainInvokeEvent, Shell } from 'electron';
+import type { Shell } from 'electron';
 import { isAbsolute as pathIsAbsolute } from 'node:path';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
@@ -15,8 +15,8 @@ import {
   requiredString,
   requiredWorkspaceSearchOptions,
 } from './ipc-validation';
+import type { IpcHandle as Handle } from './ipc';
 
-type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
 type ServiceOperation = (...args: unknown[]) => Promise<unknown>;
 
 interface ProjectIpcOptions {

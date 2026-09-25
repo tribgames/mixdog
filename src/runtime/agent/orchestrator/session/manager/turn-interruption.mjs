@@ -1,4 +1,5 @@
 import { sanitizeToolPairs } from '../context-utils.mjs';
+import { collectAssistantToolCallIds as assistantToolCallIds } from '../context-tool-pairs.mjs';
 import { isInternalRuntimeNotificationText, promptContentText } from './prompt-utils.mjs';
 import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
 import { journalDelta } from './turn-interruption-journal.mjs';
@@ -20,25 +21,6 @@ const INTERRUPTED_TOOL_RESULT = 'Cancelled';
 // rewinding erases the user's message from the persisted transcript (the
 // exact loss seen when the desktop app quits mid-turn).
 const USER_CANCEL_ABORT_REASONS = new Set(['cli-abort', 'user-cancel', 'turn-abort']);
-
-function assistantToolCallIds(message) {
-  if (message?.role !== 'assistant') return [];
-  const ids = [];
-  const seen = new Set();
-  const add = (id) => {
-    if (!id || seen.has(id)) return;
-    seen.add(id);
-    ids.push(id);
-  };
-  for (const call of Array.isArray(message.toolCalls) ? message.toolCalls : []) add(call?.id);
-  for (const blocks of [message.assistantBlocks, message.content]) {
-    if (!Array.isArray(blocks)) continue;
-    for (const block of blocks) {
-      if (block?.type === 'tool_use') add(block.id);
-    }
-  }
-  return ids;
-}
 
 function provisionalUserTurnIndex(messages, currentUserContent) {
   const currentText = promptContentText(currentUserContent);
@@ -107,6 +89,34 @@ function finalizeInterruptedTurn({
     };
   }
 
+  appendObservedTurnOutput(messages, {
+    partialAssistantContent,
+    partialReasoningContent,
+    observedToolCalls,
+    observedToolResults,
+  });
+  const pairedMessages = sanitizeToolPairs(messages);
+  // The synthetic marker is omitted when a queued user submission
+  // interrupted the active request; that queued message is the boundary.
+  if (abortReason !== 'interrupt' && abortReason !== 'provider-error') {
+    let content = SESSION_INTERRUPT_MESSAGE;
+    if (abortReason === 'process-crash') content = PROCESS_RESTART_INTERRUPT_MESSAGE;
+    else if (userCancelled) content = phase === 'tools' ? INTERRUPT_MESSAGE_FOR_TOOL_USE : INTERRUPT_MESSAGE;
+    pairedMessages.push({
+      role: 'user',
+      content,
+    });
+  }
+  return { messages: pairedMessages, responsePreserved: true, userTurnPreserved: true };
+}
+
+/** Appends what the interrupted response produced but the transcript does not
+ *  hold yet — buffered text/reasoning, unrepresented tool calls and early tool
+ *  results — then closes every still-unanswered call as cancelled. */
+function appendObservedTurnOutput(
+  messages,
+  { partialAssistantContent, partialReasoningContent, observedToolCalls, observedToolResults }
+) {
   const representedToolCallIds = new Set();
   for (const message of messages) {
     for (const id of assistantToolCallIds(message)) representedToolCallIds.add(id);
@@ -155,20 +165,6 @@ function finalizeInterruptedTurn({
     });
     representedToolResultIds.add(callId);
   }
-
-  const pairedMessages = sanitizeToolPairs(messages);
-  // The synthetic marker is omitted when a queued user submission
-  // interrupted the active request; that queued message is the boundary.
-  if (abortReason !== 'interrupt' && abortReason !== 'provider-error') {
-    let content = SESSION_INTERRUPT_MESSAGE;
-    if (abortReason === 'process-crash') content = PROCESS_RESTART_INTERRUPT_MESSAGE;
-    else if (userCancelled) content = phase === 'tools' ? INTERRUPT_MESSAGE_FOR_TOOL_USE : INTERRUPT_MESSAGE;
-    pairedMessages.push({
-      role: 'user',
-      content,
-    });
-  }
-  return { messages: pairedMessages, responsePreserved: true, userTurnPreserved: true };
 }
 
 export function createTurnInterruptionTracker() {

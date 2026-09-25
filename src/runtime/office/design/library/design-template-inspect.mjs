@@ -45,9 +45,11 @@ function pptxPartPath(target) {
   return normalized.join('/');
 }
 
+/** The part number an OOXML part path ends with (`slide12.xml` → 12), or 0. */
+export const numberFromPath = (value) => Number(/(\d+)(?=\.xml$)/.exec(value)?.[1] || 0);
+
 export async function pptxSlideEntries(zip) {
   const names = Object.keys(zip.files);
-  const numberFromPath = (value) => Number(/(\d+)(?=\.xml$)/.exec(value)?.[1] || 0);
   const fallback = names
     .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
     .sort((left, right) => numberFromPath(left) - numberFromPath(right));

@@ -67,3 +67,46 @@ test('a legacy webhook without a stored parser lists and opens as the same parse
   assert.match(listed, /^github /);
   assert.equal(edited, 'GitHub');
 });
+
+test('without a cryptographic random source, regenerating a signing secret reports an error instead of a weak secret', async (t) => {
+  const api = {
+    async invokeCapability() {
+      return { value: undefined };
+    },
+  };
+  resetSidebarReferenceCache();
+  adoptSidebarReferenceHost(api);
+  updateSidebarReference('channelSetup', {
+    webhook: { publicUrl: 'https://hooks.mixdog.test' },
+    webhooks: [{ name: 'legacy', enabled: true, secretSet: true }],
+  });
+  updateSidebarReference('projects', []);
+  updateSidebarReference('workflows', []);
+  updateSidebarReference('providerSetup', {});
+  updateSidebarReference('quickProviderModels', []);
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    resetSidebarReferenceCache();
+  });
+  t.mock.method(globalThis.crypto, 'getRandomValues', () => {
+    throw new Error('entropy source unavailable');
+  });
+
+  await act(async () => root.render(React.createElement(WebhooksPane, { api, active: true })));
+  await act(async () => host.querySelector('.schedules-row').click());
+  const regenerate = [...document.querySelectorAll('button')].find(
+    (button) => button.textContent === 'Regenerate secret'
+  );
+  assert.ok(regenerate);
+  await act(async () => regenerate.click());
+
+  const secrets = [...document.querySelectorAll('.webhook-connection-value code')].filter((code) =>
+    /^[0-9a-f]{48}$/.test(code.textContent)
+  );
+  assert.deepEqual(secrets, []);
+  assert.ok(document.querySelector('.schedules-dialog .error-notice'));
+});

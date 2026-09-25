@@ -6,7 +6,7 @@ import { splitGrepLineNumberOnlyPrefix, splitGrepLinePrefix } from '../grep-form
 import { relativePathPrefix } from '../search-path-diagnostics.mjs';
 import { GREP_OUTPUT_MAX_BYTES } from '../tool-output-limit.mjs';
 import { relativeGrepLine } from './search-input-helpers.mjs';
-import { grepPagingNotice } from './grep-output.mjs';
+import { grepPagingNotice, renderGrepSourceBlock } from './grep-output.mjs';
 
 const GREP_CONTEXT_CHAR_BUDGET_DEFAULT = GREP_OUTPUT_MAX_BYTES;
 
@@ -145,11 +145,6 @@ function splitTopLevelAlternatives(pattern) {
   return parts;
 }
 
-// Patterns commonly arrive shell-wrapped — `(?i)(a|b|c)` — where no
-// top-level `|` exists, which used to disable branch ranking entirely and
-// leave raw blocks in file order (file-top noise first). Strip leading
-// inline flag groups and one fully-enclosing group so the alternation
-// becomes rankable; remember an inline `i` for branch compilation.
 // Whether the leading `(` of `source` closes at its very last character —
 // i.e. one group wraps the whole pattern — honouring escapes and character
 // classes. False when the first group closes early or never balances.
@@ -184,6 +179,11 @@ function groupEnclosesWhole(source) {
   return depth === 0;
 }
 
+// Patterns commonly arrive shell-wrapped — `(?i)(a|b|c)` — where no
+// top-level `|` exists, which used to disable branch ranking entirely and
+// leave raw blocks in file order (file-top noise first). Strip leading
+// inline flag groups and one fully-enclosing group so the alternation
+// becomes rankable; remember an inline `i` for branch compilation.
 function unwrapPatternShell(pattern) {
   let source = String(pattern || '');
   let ignoreCase = false;
@@ -401,14 +401,13 @@ function mergeBlocks(blocks) {
   return merged.sort((left, right) => left.priority - right.priority || left.order - right.order);
 }
 
-function renderAtRadius(selected, sources, span, _budget, notice) {
+function renderSourceBlocks(blocks) {
+  return blocks.map(renderGrepSourceBlock).join('\n');
+}
+
+function renderAtRadius(selected, sources, span, notice) {
   const blocks = mergeBlocks(selected.map((anchor) => sourceBlock(anchor, sources.get(anchor.absolutePath), span)));
-  const body = blocks
-    .map(
-      (block) =>
-        `# ${block.path}:${block.matchLine} [lines ${block.startLine}-${block.endLine}]\n${block.contents.join('\n')}`
-    )
-    .join('\n');
+  const body = renderSourceBlocks(blocks);
   const sourceComplete = blocks.every((block) => block.sourceComplete);
   const text = `${body}${notice}`;
   return { text, sourceComplete, blockCount: blocks.length };
@@ -459,12 +458,7 @@ function renderFocusedContext(selected, sources, span, budget, notice) {
       (block) => anchor.path === block.path && anchor.lineNo >= block.startLine && anchor.lineNo <= block.endLine
     );
   const compact = ordered.filter((anchor) => !covered(anchor));
-  const raw = rawBlocks
-    .map(
-      (block) =>
-        `# ${block.path}:${block.matchLine} [lines ${block.startLine}-${block.endLine}]\n${block.contents.join('\n')}`
-    )
-    .join('\n');
+  const raw = renderSourceBlocks(rawBlocks);
   const anchors = compact.length
     ? `\n# Additional matches\n${compact.map((anchor) => `${anchor.path}:${anchor.lineNo}:${compactAnchorContent(anchor.content)} [${anchorRangeHint(anchor, span)}]`).join('\n')}`
     : '';
@@ -552,7 +546,7 @@ function fitContextToBudget({ window, sources, span, budget, notice: initialNoti
   let shown = window.shown;
   let omitted = window.omitted;
   let notice = initialNotice;
-  let rendered = renderAtRadius(selected, sources, span, budget, notice);
+  let rendered = renderAtRadius(selected, sources, span, notice);
   const sparseRaw = rendered.blockCount <= 2 && rendered.text.length <= budget;
   if (sparseRaw) return { ...rendered, total, shown, omitted };
   let focused = focusedSpan(span);

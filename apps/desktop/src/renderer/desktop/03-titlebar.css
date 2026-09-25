@@ -41,16 +41,6 @@ html[data-mixdog-remote] .titlebar-caption-space {
 }
 /* The ◀ ▶ pane-cycle pair was removed from the bar (user: 좌우 이동 버튼
    의미 없는 듯 — 지우자); Alt+Left/Right keeps the same focus cycle. */
-/* Chat-pane corner cluster (context, connector, review): overlays the
-   surface's top-right, matching the retired header's control position. */
-.workspace-corner-controls {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  z-index: 8;
-  display: flex;
-  align-items: center;
-}
 .titlebar-leading {
   position: relative;
   z-index: 30;
@@ -93,8 +83,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
   z-index: 1;
 }
 .icon-button,
-.toolbar-sidebar,
-.titlebar-new {
+.toolbar-sidebar {
   width: 28px;
   height: 28px;
   padding: 6px;
@@ -108,8 +97,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
 }
 .icon-button:hover,
 .icon-button:focus-visible,
-.toolbar-sidebar:hover,
-.titlebar-new:hover {
+.toolbar-sidebar:hover {
   color: var(--mx-text);
   background: var(--mx-hover);
 }
@@ -172,24 +160,6 @@ html[data-mixdog-remote] .titlebar-caption-space {
 .session-dock-toggle svg.lucide {
   width: var(--mx-icon-lg);
   height: var(--mx-icon-lg);
-}
-/* Optical compensation: the wifi arcs render softer than the neighbors'
-   straight lines, so this glyph alone keeps a quarter pixel more stroke. */
-.remote-toggle svg.lucide {
-  stroke-width: 1.25px;
-}
-@keyframes remote-toggle-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.remote-toggle-spinner {
-  animation: remote-toggle-spin 800ms linear infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .remote-toggle-spinner {
-    animation: none;
-  }
 }
 /* Brand mark in the old sidebar-toggle slot: a quiet,
    non-interactive glyph that stays part of the drag band. */

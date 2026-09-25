@@ -81,6 +81,13 @@ function compareModels(a, b) {
   );
 }
 
+const GOOGLE_IMAGE_LABELS = Object.freeze({
+  'gemini-2.5-flash-image': 'Nano Banana · Gemini 2.5 Flash Image',
+  'gemini-3.1-flash-image': 'Nano Banana 2 · Gemini 3.1 Flash Image',
+  'gemini-3.1-flash-lite-image': 'Nano Banana 2 Lite · Gemini 3.1 Flash Lite Image',
+  'gemini-3-pro-image': 'Nano Banana Pro · Gemini 3 Pro Image',
+});
+
 /** Keep official tiers and generations intact; never infer a quality ranking. */
 function mediaModelLabel(lane, row, id) {
   let label = String(row.displayName || row.display || row.label || row.name || id).replace(/^models\//, '');
@@ -91,13 +98,7 @@ function mediaModelLabel(lane, row, id) {
       .replace(/-quality$/, ' Quality')
       .replace(/-(\d)/, ' $1');
   } else if (googleLane(lane)) {
-    const names = {
-      'gemini-2.5-flash-image': 'Nano Banana · Gemini 2.5 Flash Image',
-      'gemini-3.1-flash-image': 'Nano Banana 2 · Gemini 3.1 Flash Image',
-      'gemini-3.1-flash-lite-image': 'Nano Banana 2 Lite · Gemini 3.1 Flash Lite Image',
-      'gemini-3-pro-image': 'Nano Banana Pro · Gemini 3 Pro Image',
-    };
-    label = names[id.replace(/-preview(?:-.*)?$/, '')] || label;
+    label = GOOGLE_IMAGE_LABELS[id.replace(/-preview(?:-.*)?$/, '')] || label;
   }
   if (/-preview(?:-|$)/.test(id) && !/preview/i.test(label)) label += ' (Preview)';
   if (/-experimental(?:-|$)/.test(id) && !/experimental/i.test(label)) label += ' (Experimental)';

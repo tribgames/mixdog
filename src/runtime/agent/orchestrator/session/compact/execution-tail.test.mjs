@@ -303,7 +303,21 @@ test('large arguments and opaque provider replay cannot bypass the tool-history 
   assert.ok(executionTokens(messages.slice(1, 3)) > 1_000);
 });
 
-test('an oversized latest execution group refuses compaction instead of losing its failure outcome', (t) => {
+function archivedMessages(result) {
+  const recovery = result.messages.find((m) => m.meta?.source === EXECUTION_RECOVERY_SOURCE);
+  const path = recovery.content.match(/available at (.+?) \(sha256:/)[1];
+  return JSON.parse(readFileSync(path, 'utf8')).messages;
+}
+
+function assertPaired(messages) {
+  const ids = messages.flatMap((m) => (m.toolCalls || []).map((c) => c.id));
+  assert.deepEqual(
+    messages.filter((m) => m.role === 'tool').map((m) => m.toolCallId),
+    ids
+  );
+}
+
+test('an oversized latest execution group sheds replay and arguments but keeps its failure outcome', (t) => {
   sandbox(t);
   for (const field of ['arguments', 'providerReplay']) {
     const latest = pair('latest', 'Error: permission denied');
@@ -314,11 +328,20 @@ test('an oversized latest execution group refuses compaction instead of losing i
     }
     const messages = [{ role: 'user', content: 'work' }, ...pair('old', 'Updated old.js'), ...latest];
     const before = structuredClone(messages);
-    assert.throws(
-      () => buildExecutionTail(messages, { contextWindow: 20_000, sessionId: `oversized-${field}` }),
-      /latest execution group cannot fit.*original context preserved/
-    );
+    const result = buildExecutionTail(messages, { contextWindow: 20_000, sessionId: `oversized-${field}` });
     assert.deepEqual(messages, before);
+    assert.ok(result.toolTokens <= result.toolBudget);
+    assert.equal(result.messages.find((m) => m.toolCallId === 'latest').content, 'Error: permission denied');
+    const call = result.messages.find((m) => m.toolCalls?.some((c) => c.id === 'latest'));
+    assert.equal(call.providerReplay, undefined);
+    assert.equal(call.toolCalls[0].name, 'edit');
+    if (field === 'arguments') {
+      assert.match(call.toolCalls[0].arguments.archived, /Tool call arguments archived.*toolCallId=latest/);
+    } else {
+      assert.deepEqual(call.toolCalls[0].arguments, latest[0].toolCalls[0].arguments);
+    }
+    assert.deepEqual(archivedMessages(result), before);
+    assertPaired(result.messages);
   }
 });
 
@@ -333,12 +356,151 @@ test('adding an archive reference cannot silently displace the only retained exe
     ...latest,
   ];
   const before = structuredClone(messages);
+  const result = buildExecutionTail(messages, {
+    contextWindow: executionTokens(latest) * 10,
+    sessionId: 'archive-reference-displacement',
+  });
+  assert.deepEqual(messages, before);
+  assert.ok(result.toolTokens <= result.toolBudget);
+  assert.equal(result.retainedGroups, 1);
+  assert.equal(
+    result.messages.find((m) => m.toolCallId === 'latest').content,
+    'Verification skipped; the preceding edit failed.'
+  );
+  assert.equal(
+    result.messages.some((m) => m.toolCallId === 'old'),
+    false
+  );
+  assertPaired(result.messages);
+});
+
+// Shape of a real worker session: one assistant turn fanned out 48 parallel
+// reads; its encrypted reasoning plus the duplicate function_call replay alone
+// nearly filled the 5% budget, so stubbing result bodies was not enough and
+// every pre_send compaction refused.
+test('a wide parallel latest group with provider replay compacts and stays paired on the wire', async (t) => {
+  sandbox(t);
+  const { convertMessagesToResponsesInput } = await import('../../providers/openai-responses-input.mjs');
+  const hex = (i, length) => `${i.toString(16).padStart(4, '0')}${'a3f9c2e17b5d08'.repeat(8)}`.slice(0, length);
+  const calls = Array.from({ length: 48 }, (_, i) => ({
+    id: `call_${hex(i, 24)}`,
+    name: 'read',
+    arguments: {
+      file_path: [
+        { file_path: `apps/desktop/src/renderer/remote-payload-${i}.test.mjs`, offset: 1, limit: 80 },
+        { file_path: `apps/relay/security-${i}.mjs`, offset: 276, limit: 21 },
+      ],
+    },
+  }));
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const encrypted = Array.from({ length: 4_700 }, (_, i) => alphabet[(i * 37 + 11) % 64]).join('');
+  const assistant = {
+    role: 'assistant',
+    content: '',
+    toolCalls: calls,
+    providerReplay: {
+      version: 1,
+      provider: 'openai-responses',
+      items: [
+        { type: 'reasoning', id: `rs_${hex(1, 48)}`, encrypted_content: encrypted, summary: [] },
+        ...calls.map((call, i) => ({
+          type: 'function_call',
+          id: `fc_${hex(i, 50)}`,
+          status: 'completed',
+          call_id: call.id,
+          name: call.name,
+          arguments: JSON.stringify(call.arguments),
+        })),
+      ],
+    },
+  };
+  const results = calls.map((call, i) => ({
+    role: 'tool',
+    toolCallId: call.id,
+    content: `${i}→ source line of file ${i}\n`.repeat(120),
+  }));
+  const messages = [{ role: 'user', content: 'review the relay' }, ...pair('old', 'Updated old.js'), assistant, ...results];
+  const before = structuredClone(messages);
+  const contextWindow = 436_000;
+  // The call turn alone exceeds the budget; archiving results cannot help.
+  assert.ok(executionTokens([assistant]) > toolHistoryBudget(contextWindow));
+  const result = buildExecutionTail(messages, { contextWindow, sessionId: 'wide-parallel' });
+  assert.deepEqual(messages, before);
+  assert.ok(result.toolTokens <= result.toolBudget);
+  const retained = result.messages.find((m) => m.toolCalls?.length === 48);
+  assert.equal(retained.providerReplay, undefined);
+  assert.deepEqual(retained.toolCalls, calls);
+  const latestResults = result.messages.filter((m) => m.role === 'tool' && m.toolCallId.startsWith('call_'));
+  assert.equal(latestResults.length, 48);
+  assert.ok(latestResults.every((m) => /Tool result body archived/.test(m.content)));
+  assert.deepEqual(archivedMessages(result), before);
+  assertPaired(result.messages);
+  const wire = convertMessagesToResponsesInput(result.messages);
+  const callIds = wire.filter((item) => item.type === 'function_call').map((item) => item.call_id);
+  assert.deepEqual(
+    wire.filter((item) => item.type === 'function_call_output').map((item) => item.call_id),
+    callIds
+  );
+  assert.deepEqual(
+    callIds.filter((callId) => callId.startsWith('call_')),
+    calls.map((call) => call.id)
+  );
+  assert.equal(
+    wire.some((item) => item.type === 'reasoning'),
+    false
+  );
+});
+
+// Shape of real legacy OpenAI worker sessions: one small call whose turn
+// retained ~23 KB of untagged encrypted reasoningItems (no providerReplay),
+// alone larger than the 13,600-token budget of a 272k window.
+test('legacy encrypted reasoningItems on the latest group are shed instead of refusing compaction', async (t) => {
+  sandbox(t);
+  const { convertMessagesToResponsesInput } = await import('../../providers/openai-responses-input.mjs');
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const reasoningItems = Array.from({ length: 18 }, (_, item) => ({
+    id: `rs_${item.toString(16).padStart(50, '0')}`,
+    encrypted_content: `gAAAAAB${Array.from({ length: 1_265 }, (_, i) => alphabet[(i * 37 + item * 11) % 64]).join('')}`,
+    summary: [],
+  }));
+  const assistant = {
+    role: 'assistant',
+    content: '',
+    toolCalls: [{ id: 'call_task_read', name: 'task', arguments: { task_id: 'job_1', action: 'read' } }],
+    reasoningItems,
+  };
+  const result = { role: 'tool', toolCallId: 'call_task_read', content: 'Job still running; 0 new lines.' };
+  const messages = [{ role: 'user', content: 'run the suite' }, ...pair('old', 'Updated old.js'), assistant, result];
+  const before = structuredClone(messages);
+  const contextWindow = 272_000;
+  assert.ok(executionTokens([assistant]) > toolHistoryBudget(contextWindow));
+  const tail = buildExecutionTail(messages, { contextWindow, sessionId: 'legacy-reasoning-items' });
+  assert.deepEqual(messages, before);
+  assert.ok(tail.toolTokens <= tail.toolBudget);
+  const retained = tail.messages.find((m) => m.toolCalls?.[0]?.id === 'call_task_read');
+  assert.equal(retained.reasoningItems, undefined);
+  assert.deepEqual(retained.toolCalls, assistant.toolCalls);
+  assert.equal(tail.messages.find((m) => m.toolCallId === 'call_task_read').content, result.content);
+  assert.deepEqual(archivedMessages(tail), before);
+  assertPaired(tail.messages);
+  const wire = convertMessagesToResponsesInput(tail.messages, { replayEncryptedReasoning: true });
+  assert.deepEqual(
+    wire.filter((item) => item.type === 'function_call_output').map((item) => item.call_id),
+    wire.filter((item) => item.type === 'function_call').map((item) => item.call_id)
+  );
+});
+
+test('a latest group that cannot fit even fully shrunk still refuses with the input unchanged', (t) => {
+  sandbox(t);
+  const calls = Array.from({ length: 40 }, (_, i) => pair(`c${i}`, 'ok')).map(([call]) => call.toolCalls[0]);
+  const messages = [
+    { role: 'user', content: 'work' },
+    { role: 'assistant', content: '', toolCalls: calls },
+    ...calls.map((call) => ({ role: 'tool', toolCallId: call.id, content: 'ok' })),
+  ];
+  const before = structuredClone(messages);
   assert.throws(
-    () =>
-      buildExecutionTail(messages, {
-        contextWindow: executionTokens(latest) * 10,
-        sessionId: 'archive-reference-displacement',
-      }),
+    () => buildExecutionTail(messages, { contextWindow: 20_000, sessionId: 'unfittable' }),
     /latest execution group cannot fit.*original context preserved/
   );
   assert.deepEqual(messages, before);

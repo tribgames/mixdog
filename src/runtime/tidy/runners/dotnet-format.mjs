@@ -9,17 +9,19 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runProcess } from '../process.mjs';
-import { FILES_PER_SPAWN, chunkFiles, diagnostic, spawnFailureResult, tail, toRel, uniquePaths } from './shared.mjs';
+import {
+  FILES_PER_SPAWN,
+  chunkFiles,
+  diagnostic,
+  emptyResult,
+  spawnFailureResult,
+  tail,
+  toRelLongPath as formatRel,
+  uniquePaths,
+} from './shared.mjs';
 
-export const DOTNET_FORMAT_ID = 'dotnet-format';
+const DOTNET_FORMAT_ID = 'dotnet-format';
 export const DOTNET_FORMAT_INSTALL_HINT = 'install the .NET SDK (dotnet format)';
-
-function formatRel(cwd, raw) {
-  let value = String(raw || '');
-  if (value.startsWith('\\\\?\\UNC\\')) value = `\\\\${value.slice(8)}`;
-  else if (value.startsWith('\\\\?\\')) value = value.slice(4);
-  return toRel(cwd, value);
-}
 
 function rowsOf(payload) {
   if (Array.isArray(payload)) return payload;
@@ -180,7 +182,7 @@ async function invoke({
   filesPerSpawn = FILES_PER_SPAWN,
 }) {
   const spawns = planDotnetFormatSpawns(files, cwd, filesPerSpawn);
-  if (spawns.length === 0) return { diagnostics: [], changedFiles: [], stderrTail: '' };
+  if (spawns.length === 0) return emptyResult();
 
   const reportRoot = mkdtempSync(join(tmpdir(), 'mixdog-dotnet-format-'));
   try {

@@ -95,7 +95,7 @@ export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Prom
       const entry = rows[0];
       return entry ? {
         index: entry.row.getAttribute('data-index') || '',
-        text: (entry.row.textContent || '').replace(/s+/g, '').slice(0, 120),
+        text: (entry.row.textContent || '').replace(/\\s+/g, '').slice(0, 120),
         offset: entry.box.top - box.top,
       } : null;
     };

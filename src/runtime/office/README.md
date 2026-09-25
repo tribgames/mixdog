@@ -17,7 +17,7 @@ Microsoft Office installed.
 | `design/` | Design tokens, content model, composition, creative direction for the Word and Excel composers (`compose_document`, `compose_sheet`); `design-discipline.mjs` owns the safe typeface list, palette repair (tinted dark fields, WCAG contrast, paired accent tints), and the brief rules; `docx/`, `xlsx/` format compilers; `library/` template library with the bundled `templates/`. Decks are never composed here — a slide is authored by the model as a script (`authoring/`), and `compose_slide` is refused with that route. |
 | `quality/` | Reviews and gates: `assurance-*.mjs` (trust, structure, rendered pages, checklist), aesthetics, design review, scoring, visual diff. |
 | `bench/` | Benchmarks behind `npm run bench:office*`; `bench-support.mjs` holds the shared tool-call helpers. |
-| `shared/` | Tiny helpers used across folders: `values.mjs` (`plainObject`, `clone`, `stableValue`, `sha256`, `clamp`, `compact`, `imageBuffer`), `page-sizes.mjs` (the paper sizes PDF create and Word `set_page` share), and `asar-path.mjs`. |
+| `shared/` | Tiny helpers used across folders: `values.mjs` (`plainObject`, `clone`, `stableValue`, `sha256`, `clamp`, `compact`, `imageBuffer`), `page-sizes.mjs` (the paper sizes PDF create and Word `set_page` share), `column-widths.mjs` (the widths a Word or PDF table given none takes from its text), and `asar-path.mjs`. |
 
 ## Dependency direction
 

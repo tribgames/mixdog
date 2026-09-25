@@ -45,6 +45,14 @@ function focusedPaneProjectPathFor(selection: AppToolProjectProps['focusedPaneSe
   return '';
 }
 
+function rememberLastToolProject(path: string): void {
+  try {
+    window.localStorage.setItem(LAST_PROJECT_KEY, path);
+  } catch {
+    /* persistence is a convenience only */
+  }
+}
+
 export function useAppToolProject({
   navigationSelection,
   focusedPaneSelection,
@@ -79,21 +87,13 @@ export function useAppToolProject({
     if (!activeToolProjectPath) return;
     setToolProjectOverride('');
     setLastToolProjectPath((current) => (current === activeToolProjectPath ? current : activeToolProjectPath));
-    try {
-      window.localStorage.setItem(LAST_PROJECT_KEY, activeToolProjectPath);
-    } catch {
-      /* persistence is a convenience only */
-    }
+    rememberLastToolProject(activeToolProjectPath);
   }, [activeToolProjectPath]);
   const selectToolProject = useCallback((path: string) => {
     if (!path) return;
     setToolProjectOverride(path);
     setLastToolProjectPath(path);
-    try {
-      window.localStorage.setItem(LAST_PROJECT_KEY, path);
-    } catch {
-      /* persistence is a convenience only */
-    }
+    rememberLastToolProject(path);
   }, []);
   const toolProjectPath = toolProjectOverride || activeToolProjectPath || lastToolProjectPath;
 

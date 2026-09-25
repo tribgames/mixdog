@@ -4,9 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import SharedEditorSurface from './SharedEditorSurface';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
-import { createGitRefreshScheduler } from './git-refresh-scheduler';
+import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { monaco, resolveThemeColor } from './monaco-setup';
-import { subscribeProjectFileChanges } from './project-file-changes';
 import { EditorBreadcrumbs } from './editor-breadcrumbs';
 import { useEditorCallHierarchy } from './editor-call-hierarchy';
 import {
@@ -160,29 +159,17 @@ function startEditorQuickDiff({
       decorations.current?.clear();
     }
   };
-  const scheduler = createGitRefreshScheduler(refresh, {
-    safetyIntervalMs: 30_000,
-    activityDebounceMs: 125,
-    activityMinGapMs: 1_000,
-  });
-  const signal = () => scheduler.signal();
-  const refreshNow = () => scheduler.refreshNow();
-  const visibilityChanged = () => {
-    if (document.visibilityState === 'hidden') scheduler.pause();
-    else scheduler.resume();
-  };
-  const unsubscribeProject = subscribeProjectFileChanges(projectPath, signal);
-  window.addEventListener('focus', refreshNow);
-  window.addEventListener('mixdog:git-changed', signal);
-  document.addEventListener('visibilitychange', visibilityChanged);
-  if (document.visibilityState !== 'hidden') scheduler.resume();
+  const stopWatching = watchGitRefreshEvidence(
+    projectPath,
+    createGitRefreshScheduler(refresh, {
+      safetyIntervalMs: 30_000,
+      activityDebounceMs: 125,
+      activityMinGapMs: 1_000,
+    })
+  );
   return () => {
     live = false;
-    scheduler.dispose();
-    unsubscribeProject();
-    window.removeEventListener('focus', refreshNow);
-    window.removeEventListener('mixdog:git-changed', signal);
-    document.removeEventListener('visibilitychange', visibilityChanged);
+    stopWatching();
   };
 }
 
@@ -591,10 +578,6 @@ export default function EditorPane({
     if (mediaForeground) return;
     mediaRef.current?.pause();
   }, [mediaForeground]);
-  // Unified-diff → gutter stripe ranges against the CURRENT file lines:
-  // '+' runs paired with '-' in the same group read as modified, bare '+'
-  // as added; a pure deletion marks the line the removal collapsed onto.
-  // Reveal requests from cross-file jumps land after the tab activates.
   // Hidden→visible tab switches leave Monaco with a stale layout: the first
   // scrollbar press then only re-measures instead of grabbing the slider.
   // A focused file surface also takes the keyboard explicitly after mount or

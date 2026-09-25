@@ -22,14 +22,13 @@ import type {
 import { reportTranscriptRead, transcriptReadTraceId } from '../shared/transcript-read-diagnostics';
 import { normalizeSessionTitle, promptTitle } from '../shared/session-title.mjs';
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
-import { isSessionId } from './desktop-state';
-import type { MixdogSessionStoreModule } from './desktop-support';
-import { copyCapabilityValue, normalizedProviderModels, DESKTOP_TRANSCRIPT_ITEM_LIMIT } from './desktop-support';
+import { copyCapabilityValue, normalizedProviderModels } from './desktop-support';
 import type { DesktopSessionMetadata } from './desktop-session-metadata';
 import type { NewTaskRequest, NewTaskRequests } from './new-task-requests';
 import { searchProjectDirectory } from './project-file-search';
 import type { SessionHostPublication } from './session-host-publication';
-import type { SessionClient, SessionCallOptions } from './session-host-transport';
+import { sessionIdOf, type SessionClient, type SessionCallOptions } from './session-host-transport';
+import type { SessionTranscriptWindows } from './session-transcript-windows';
 import type { SessionViewRegistry } from './session-view-registry';
 
 export type SessionWorkspaceResolution = {
@@ -47,6 +46,7 @@ export interface SessionHostLifecycleOwner {
   readonly newTaskRequests: NewTaskRequests;
   readonly pendingCatalogSessionIds: Set<string>;
   readonly sessionMetadata: DesktopSessionMetadata;
+  readonly transcriptWindows: SessionTranscriptWindows;
   isDisposed(): boolean;
   callOptions(callId?: string, timeoutMs?: number): SessionCallOptions;
   taskWorkspace(): Promise<string>;
@@ -94,54 +94,6 @@ export interface SessionHostLifecycleOwner {
   sessionCatalog(): DesktopSessionSummary[];
   publishSessionCatalog(sessions: DesktopSessionSummary[]): void;
   publishCatalogs(): Promise<void>;
-  loadSessionStore(): Promise<MixdogSessionStoreModule>;
-}
-
-function sessionIdOf(value: unknown): string {
-  const id = String(value || '');
-  if (!isSessionId(id)) throw new TypeError('session id is invalid.');
-  return id;
-}
-
-function sameTranscriptItem(left: unknown, right: unknown): boolean {
-  if (left === right) return true;
-  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
-  const a = left as Record<string, unknown>;
-  const b = right as Record<string, unknown>;
-  if (a.id != null && b.id != null) return String(a.id) === String(b.id);
-  return String(a.kind || '') === String(b.kind || '') && String(a.text ?? '') === String(b.text ?? '');
-}
-
-/** Add a larger durable history head without replacing live work fields or
- * the identity-stable tail currently owned by the runtime. */
-export function mergeSessionHistorySnapshot(
-  sessionId: string,
-  live: SessionSnapshot,
-  stored: Record<string, unknown>
-): SessionSnapshot {
-  const historyItems = Array.isArray(stored.items) ? stored.items : [];
-  if (!live || !Array.isArray(live.items) || live.items.length === 0) {
-    return { ...stored, sessionId, queued: Array.isArray(stored.queued) ? stored.queued : [] };
-  }
-  const liveItems = live.items;
-  let overlap = -1;
-  for (let index = 0; index < historyItems.length; index += 1) {
-    if (sameTranscriptItem(historyItems[index], liveItems[0])) {
-      overlap = index;
-      break;
-    }
-  }
-  if (overlap < 0) return live;
-  const shared = Math.min(historyItems.length - overlap, liveItems.length);
-  for (let index = 1; index < shared; index += 1) {
-    if (!sameTranscriptItem(historyItems[overlap + index], liveItems[index])) return live;
-  }
-  return {
-    ...stored,
-    ...live,
-    sessionId,
-    items: [...historyItems.slice(0, overlap), ...liveItems],
-  };
 }
 
 export class SessionHostLifecycle {
@@ -190,9 +142,15 @@ export class SessionHostLifecycle {
     const id = sessionIdOf(sessionId);
     const changed = await this.owner.sessionMetadata.markRead(id, messageCount, consumedUnread);
     if (!changed) return false;
+    await this.republishSessionCatalog();
+    return true;
+  }
+
+  /** Re-project the resident rows when the catalog is loaded; otherwise read
+   *  both catalogs. */
+  private async republishSessionCatalog(): Promise<void> {
     if (this.owner.sessionCatalogLoaded()) this.owner.publishSessionCatalog(this.owner.sessionCatalog());
     else await this.owner.publishCatalogs();
-    return true;
   }
 
   async renameSession(sessionId: string, title: string): Promise<void> {
@@ -213,8 +171,7 @@ export class SessionHostLifecycle {
     // Archive metadata does not alter daemon sessions or the process-global
     // agent pool. Re-project the resident rows instead of paying for both
     // catalogs and a full session-store identity/stat scan before replying.
-    if (this.owner.sessionCatalogLoaded()) this.owner.publishSessionCatalog(this.owner.sessionCatalog());
-    else await this.owner.publishCatalogs();
+    await this.republishSessionCatalog();
   }
 
   async deleteSession(sessionId: string): Promise<SessionSnapshot> {
@@ -236,39 +193,20 @@ export class SessionHostLifecycle {
     return null;
   }
 
-  async prefetchSession(
-    sessionId: string,
-    transcriptItemLimit = DESKTOP_TRANSCRIPT_ITEM_LIMIT,
-    readTraceId?: string
-  ): Promise<boolean> {
+  /** Read a session's transcript window; a `transcriptItemLimit` beyond the
+   *  current window grows it with older history, served by the daemon for
+   *  live and stored sessions alike (one baseline, so live patches keep
+   *  applying). Without a limit the current window is re-read. */
+  async prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean> {
     const id = sessionIdOf(sessionId);
     const traceId = transcriptReadTraceId(readTraceId);
     const startedAt = performance.now();
     reportTranscriptRead(id, traceId, 'host-start');
-    const limit = Math.max(
-      1,
-      Math.min(8_192, Math.floor(Number(transcriptItemLimit) || DESKTOP_TRANSCRIPT_ITEM_LIMIT))
-    );
+    if (typeof transcriptItemLimit === 'number') {
+      this.owner.transcriptWindows.grow(id, Math.max(1, Math.min(8_192, Math.floor(Number(transcriptItemLimit)))));
+    }
     try {
-      let snapshot: SessionSnapshot;
-      if (limit <= DESKTOP_TRANSCRIPT_ITEM_LIMIT) {
-        snapshot = await this.owner.readSession(id, false, false, traceId);
-      } else {
-        reportTranscriptRead(id, traceId, 'host-read-start');
-        const store = await this.owner.loadSessionStore();
-        const stored = await store.readStoredSessionTranscript?.(id, {
-          transcriptItemLimit: limit,
-        });
-        reportTranscriptRead(id, traceId, 'host-read-result', {
-          durationMs: performance.now() - startedAt,
-        });
-        if (!stored || typeof stored !== 'object') {
-          reportTranscriptRead(id, traceId, 'host-failed');
-          return false;
-        }
-        const live = this.owner.publication.projections.get(id)?.snapshot ?? null;
-        snapshot = mergeSessionHistorySnapshot(id, live, stored);
-      }
+      const snapshot = await this.owner.readSession(id, false, false, traceId);
       reportTranscriptRead(id, traceId, 'host-projected', {
         elapsedMs: performance.now() - startedAt,
         itemCount: Array.isArray(snapshot?.items) ? snapshot.items.length : 0,
@@ -332,10 +270,17 @@ export class SessionHostLifecycle {
     return this.setVisibleSessionsForSource('desktop', sessionIds);
   }
 
-  async setVisibleSessionsForSource(sourceId: string, sessionIds: string[]): Promise<boolean> {
+  /** `legacyTranscript`: this source cannot page from `transcriptHasOlder`
+   *  (an old phone build) and keeps the 512-item page it was built for. */
+  async setVisibleSessionsForSource(
+    sourceId: string,
+    sessionIds: string[],
+    legacyTranscript = false
+  ): Promise<boolean> {
     const source = String(sourceId || '').trim();
     if (!source) throw new TypeError('sourceId is required.');
     const requested = [...new Set(sessionIds.map(sessionIdOf))];
+    this.owner.transcriptWindows.setLegacySource(source, legacyTranscript && requested.length > 0);
     try {
       const accepted = await this.owner.sessionViews.set(
         source,
@@ -346,6 +291,7 @@ export class SessionHostLifecycle {
       this.owner.ensureColdViewRefresh();
       return accepted;
     } finally {
+      this.owner.transcriptWindows.prune(this.owner.visibleSessionIds);
       this.owner.publication.pruneProjections();
     }
   }
@@ -353,8 +299,11 @@ export class SessionHostLifecycle {
   private async attachVisibleSession(sessionId: string, alreadyVisible: boolean): Promise<boolean> {
     if (alreadyVisible) {
       const projection = this.owner.publication.projections.get(sessionId);
-      if (projection) this.owner.publishSession(sessionId, projection.snapshot, 'replay');
-      else await this.owner.readSession(sessionId);
+      // A newly joined legacy source widens the window: re-read, never replay
+      // a tail that source cannot page from.
+      if (projection && !this.owner.transcriptWindows.stale(sessionId)) {
+        this.owner.publishSession(sessionId, projection.snapshot, 'replay');
+      } else await this.owner.readSession(sessionId);
       return true;
     }
     const prior = this.owner.publication.projections.get(sessionId);
@@ -363,6 +312,7 @@ export class SessionHostLifecycle {
         {
           sessionId,
           open: this.owner.openHints(sessionId),
+          ...this.owner.transcriptWindows.send(sessionId),
           baseRevision: prior?.revision ?? null,
         },
         this.owner.callOptions(undefined, TRANSCRIPT_READ_TIMEOUT_MS)
@@ -402,6 +352,39 @@ export class SessionHostLifecycle {
     });
   }
 
+  /** Apply the draft's workflow, orchestration mode and route to a freshly
+   *  reserved session, before its first submission. */
+  private async configureDraft(sessionId: string, draft: DesktopNewTaskDraft): Promise<void> {
+    if (draft.workflowId) {
+      await this.owner.invokeSession(sessionId, 'setWorkflow', [draft.workflowId]);
+    }
+    if (draft.orchestrationMode !== undefined) {
+      await this.owner.invokeSession(sessionId, 'setOrchestrationMode', [draft.orchestrationMode]);
+    }
+    if (!draft.route) return;
+    const routeResult = await this.owner.invokeSession(sessionId, 'setRoute', [
+      {
+        provider: draft.route.provider,
+        model: draft.route.model,
+        ...(draft.route.effort ? { effort: draft.route.effort } : {}),
+        ...(typeof draft.route.fast === 'boolean' ? { fast: draft.route.fast } : {}),
+        ...(draft.route.modelParameters ? { modelParameters: draft.route.modelParameters } : {}),
+        ...(typeof draft.route.contextPercent === 'number' ? { contextPercent: draft.route.contextPercent } : {}),
+        applyToCurrentSession: true,
+      },
+    ]);
+    const resolvedRoute =
+      routeResult.value && typeof routeResult.value === 'object'
+        ? (routeResult.value as Record<string, unknown>)
+        : null;
+    // Validate against setRoute's authoritative result. Its projected
+    // snapshot is delivered independently and may still describe the
+    // pre-route state during the first task after startup.
+    if (draft.route.fast === true && resolvedRoute?.fast !== true) {
+      throw new Error(`fast mode is not available for ${draft.route.provider}/${draft.route.model}`);
+    }
+  }
+
   private async createNewTask(
     prompt: DesktopPromptContent,
     options: DesktopSubmitOptions,
@@ -418,36 +401,10 @@ export class SessionHostLifecycle {
     this.owner.pendingCatalogSessionIds.add(sessionId);
     this.owner.applySessionResult(sessionId, created);
     try {
-      if (request.phase === 'reserved' && draft.workflowId) {
-        await this.owner.invokeSession(sessionId, 'setWorkflow', [draft.workflowId]);
+      if (request.phase === 'reserved') {
+        await this.configureDraft(sessionId, draft);
+        await request.commit('configured');
       }
-      if (request.phase === 'reserved' && draft.orchestrationMode !== undefined) {
-        await this.owner.invokeSession(sessionId, 'setOrchestrationMode', [draft.orchestrationMode]);
-      }
-      if (request.phase === 'reserved' && draft.route) {
-        const routeResult = await this.owner.invokeSession(sessionId, 'setRoute', [
-          {
-            provider: draft.route.provider,
-            model: draft.route.model,
-            ...(draft.route.effort ? { effort: draft.route.effort } : {}),
-            ...(typeof draft.route.fast === 'boolean' ? { fast: draft.route.fast } : {}),
-            ...(draft.route.modelParameters ? { modelParameters: draft.route.modelParameters } : {}),
-            ...(typeof draft.route.contextPercent === 'number' ? { contextPercent: draft.route.contextPercent } : {}),
-            applyToCurrentSession: true,
-          },
-        ]);
-        const resolvedRoute =
-          routeResult.value && typeof routeResult.value === 'object'
-            ? (routeResult.value as Record<string, unknown>)
-            : null;
-        // Validate against setRoute's authoritative result. Its projected
-        // snapshot is delivered independently and may still describe the
-        // pre-route state during the first task after startup.
-        if (draft.route.fast === true && resolvedRoute?.fast !== true) {
-          throw new Error(`fast mode is not available for ${draft.route.provider}/${draft.route.model}`);
-        }
-      }
-      if (request.phase === 'reserved') await request.commit('configured');
       const goalCommand = String(options.goalCommand || '').trim();
       if (goalCommand) {
         const goalResult = await this.owner.invokeSession(sessionId, 'goalControl', [

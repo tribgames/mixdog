@@ -11,6 +11,11 @@ export function localProviderInstallation(status: RecordValue, phase: string, mo
   );
 }
 
+/** A running or cancelling job still owns its model and blocks new operations. */
+export function installationActive(installation: RecordValue): boolean {
+  return ['running', 'cancelling'].includes(String(installation.state));
+}
+
 export function installationPercent(installation: RecordValue): number | null {
   const value = installation.percent;
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : null;

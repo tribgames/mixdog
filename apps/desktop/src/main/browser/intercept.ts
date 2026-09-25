@@ -61,16 +61,23 @@ function describeRule(rule: BrowserInterceptRule): string {
 /**
  * Params for replacing a response payload.
  *
- * Only the body carries: fulfilling through Electron's guest debugger keeps the
- * real response's status line and headers, and a supplied status is dropped
- * rather than applied. The protocol still requires responseCode, so it is sent
- * and then ignored by Chromium — which is why a rule promises a replaced
- * payload and never a synthetic status.
+ * Fetch.fulfillRequest answers with exactly the status line it is given, even
+ * for a request paused at the response stage, so the server's own status code
+ * and phrase are handed back with the rule's body: a rule promises a replaced
+ * payload, never a synthetic status. A request paused before any response
+ * exists has no server status and answers 200.
  */
-export function interceptFulfillParams(rule: BrowserInterceptRule, requestId: string): Record<string, unknown> {
+export function interceptFulfillParams(
+  rule: BrowserInterceptRule,
+  requestId: string,
+  paused: { responseStatusCode?: unknown; responseStatusText?: unknown } = {}
+): Record<string, unknown> {
+  const status = Number(paused.responseStatusCode);
+  const phrase = typeof paused.responseStatusText === 'string' ? paused.responseStatusText : '';
   return {
     requestId,
-    responseCode: 200,
+    responseCode: Number.isInteger(status) && status > 0 ? status : 200,
+    ...(phrase ? { responsePhrase: phrase } : {}),
     body: Buffer.from(rule.body, 'utf8').toString('base64'),
   };
 }
@@ -100,8 +107,8 @@ export function createBrowserIntercept() {
     return [...rulesFor(guest).values()].map((rule) => ({
       urlPattern: rule.pattern,
       // A refusal must land before the request leaves, while a mock is applied
-      // once Chromium already holds a response to replace — replacing one is
-      // what carries the mocked status line through to the page.
+      // once Chromium already holds a response to replace — that response is
+      // where the server's status line comes from, and it is kept.
       requestStage: rule.abort ? ('Request' as const) : ('Response' as const),
     }));
   }

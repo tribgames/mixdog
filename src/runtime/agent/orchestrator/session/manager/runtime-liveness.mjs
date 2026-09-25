@@ -295,15 +295,24 @@ export function markSessionToolOutputTail(id, tail) {
 // Parent AbortSignal listeners are dropped on askSession unwind (finally /
 // terminal return) and on error/cancel/close — not in markSessionDone, which
 // also runs between queued follow-up turns within one ask.
+// The settle every terminal marker shares: stage, error, cleared turn clocks
+// and one completion stamp.
+function _settleTerminalEntry(entry, stage, lastError) {
+  entry.stage = stage;
+  entry.lastError = lastError;
+  entry.askStartedAt = null;
+  entry.toolStartedAt = null;
+  const settledAt = Date.now();
+  entry.doneAt = settledAt;
+  entry.lastProgressAt = settledAt;
+  entry.updatedAt = settledAt;
+}
 export function markSessionDone(id, { empty = false } = {}) {
   if (!id) return;
   _stopToolActivityHeartbeat(id);
   const entry = _touchRuntime(id);
   finishBrowserWork(id, entry);
-  entry.stage = 'done';
-  entry.lastError = null;
-  entry.askStartedAt = null;
-  entry.toolStartedAt = null;
+  _settleTerminalEntry(entry, 'done', null);
   // Non-empty completion: drop any stale empty-final flag so a subsequent
   // ask on the same reusable runtime entry starts clean. Empty-final
   // completions preserve the flag (set by markSessionEmptyFinal just prior).
@@ -311,10 +320,6 @@ export function markSessionDone(id, { empty = false } = {}) {
     entry.emptyFinal = false;
     entry.emptyFinalAt = null;
   }
-  const doneTs = Date.now();
-  entry.doneAt = doneTs;
-  entry.lastProgressAt = doneTs;
-  entry.updatedAt = doneTs;
   // Terminal stage — drop the heartbeat so the status badge releases
   // immediately. A subsequent ask on the same session re-publishes via
   // markSessionStreamDelta on the first chunk.
@@ -337,18 +342,11 @@ export function markSessionError(id, msg) {
   const entry = _touchRuntime(id);
   // A run that ended badly leaves no one to continue its browser work.
   finishBrowserWork(id, entry, true);
-  entry.stage = 'error';
-  entry.lastError = msg ? String(msg).slice(0, 200) : null;
-  entry.askStartedAt = null;
-  entry.toolStartedAt = null;
+  _settleTerminalEntry(entry, 'error', msg ? String(msg).slice(0, 200) : null);
   // Error path is a non-empty completion (we have an error message, not a
   // silent empty final). Clear the flag so the next ask starts clean.
   entry.emptyFinal = false;
   entry.emptyFinalAt = null;
-  const errTs = Date.now();
-  entry.doneAt = errTs;
-  entry.lastProgressAt = errTs;
-  entry.updatedAt = errTs;
   const heartbeatDeleted = deleteHeartbeat(id);
   _unlinkParentAbortListener(entry);
   return heartbeatDeleted;
@@ -358,16 +356,9 @@ export function markSessionCancelled(id) {
   _stopToolActivityHeartbeat(id);
   const entry = _touchRuntime(id);
   finishBrowserWork(id, entry, true);
-  entry.stage = 'done';
-  entry.lastError = null;
-  entry.askStartedAt = null;
-  entry.toolStartedAt = null;
+  _settleTerminalEntry(entry, 'done', null);
   entry.emptyFinal = false;
   entry.emptyFinalAt = null;
-  const doneTs = Date.now();
-  entry.doneAt = doneTs;
-  entry.lastProgressAt = doneTs;
-  entry.updatedAt = doneTs;
   const heartbeatDeleted = deleteHeartbeat(id);
   _unlinkParentAbortListener(entry);
   return heartbeatDeleted;
@@ -376,14 +367,16 @@ export function getSessionRuntime(id) {
   return id ? _runtimeState.get(id) || null : null;
 }
 
-const _COMPACTION_BLOCKED_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'cancelling']);
+// Stages that still own live provider/tool work: compaction, idle cleanup and
+// runtime unload all stay away from an entry in one of them.
+export const IN_FLIGHT_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'cancelling']);
 
 export function isSessionCompactionBlocked(sessionId) {
   if (!sessionId) return false;
   const entry = _runtimeState.get(sessionId);
   if (!entry || entry.closed === true) return false;
   if (entry.controller && !entry.controller.signal?.aborted) return true;
-  return _COMPACTION_BLOCKED_STAGES.has(entry.stage);
+  return IN_FLIGHT_STAGES.has(entry.stage);
 }
 
 export function getSessionProgressSnapshot(sessionId) {

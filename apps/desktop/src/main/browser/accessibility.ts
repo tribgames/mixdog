@@ -353,10 +353,8 @@ export function buildAccessibilitySnapshot(options: {
       elements,
       totalElements: candidates.length,
       scanned,
-      scanCapped:
-        options.targets.some((target) => target.nodes.length > 0) &&
-        options.targets.reduce((total, target) => total + target.nodes.length, 0) > scanned,
-      crossOriginFrames: Math.max(0, options.targets.filter((target) => target.sessionId).length),
+      scanCapped: options.targets.reduce((total, target) => total + target.nodes.length, 0) > scanned,
+      crossOriginFrames: options.targets.filter((target) => target.sessionId).length,
       headings,
       text,
       query,

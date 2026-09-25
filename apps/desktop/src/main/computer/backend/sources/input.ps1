@@ -97,6 +97,11 @@ function New-ActionResult($action, $path, $effect, $verified, $message, $code, $
     }
 }
 
+function Get-VerifiedEffect($verified) {
+    if ($verified) { return 'confirmed' }
+    return 'unverifiable'
+}
+
 function Background-Unavailable($action, $message, $windowId, $code = 'background_unavailable', [bool]$mayHaveExecuted = $false) {
     $result = New-ActionResult $action 'none' 'suspected_noop' $false $message $code 'background' $windowId
     if ($mayHaveExecuted) {
@@ -321,7 +326,7 @@ function Do-Invoke($ref, [bool]$allowNativeClick = $false) {
         $pat.Toggle()
         $after = [string]$pat.Current.ToggleState
         $verified = $before -ne $after
-        return New-ActionResult 'invoke' 'uia_toggle' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "activated $ref through UIA toggle from $before to $after" $null 'background' ([MixWin32]::WindowId((New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle))))
+        return New-ActionResult 'invoke' 'uia_toggle' (Get-VerifiedEffect $verified) $verified "activated $ref through UIA toggle from $before to $after" $null 'background' (Get-TopWindowId $el)
     }
     $pat = $null
     if ($el.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pat)) {
@@ -332,19 +337,19 @@ function Do-Invoke($ref, [bool]$allowNativeClick = $false) {
             if ($expected -eq 'Expanded') { $pat.Expand() } else { $pat.Collapse() }
             $after = [string]$pat.Current.ExpandCollapseState
             $verified = $after -eq $expected
-            return New-ActionResult 'invoke' 'uia_expand_collapse' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "activated $ref through UIA expand/collapse from $before to $after" $null 'background' $record.WindowId
+            return New-ActionResult 'invoke' 'uia_expand_collapse' (Get-VerifiedEffect $verified) $verified "activated $ref through UIA expand/collapse from $before to $after" $null 'background' $record.WindowId
         }
     }
     $pat = $null
     if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pat)) {
         Assert-ExecutionAuthorization $script:CurrentRequest
         $pat.Invoke()
-        return New-ActionResult 'invoke' 'uia_invoke' 'unverifiable' $false "invoked $ref through UIA" $null 'background' ([MixWin32]::WindowId((New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle))))
+        return New-ActionResult 'invoke' 'uia_invoke' 'unverifiable' $false "invoked $ref through UIA" $null 'background' (Get-TopWindowId $el)
     }
     if ($el.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pat)) {
         Assert-ExecutionAuthorization $script:CurrentRequest
         $pat.Select()
-        return New-ActionResult 'invoke' 'uia_selection' 'unverifiable' $false "selected $ref through UIA" $null 'background' ([MixWin32]::WindowId((New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle))))
+        return New-ActionResult 'invoke' 'uia_selection' 'unverifiable' $false "selected $ref through UIA" $null 'background' (Get-TopWindowId $el)
     }
     $top = New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle)
     if ($allowNativeClick) { return $null }
@@ -425,7 +430,7 @@ function Do-SetValue($ref, $text) {
             Assert-ExecutionAuthorization $script:CurrentRequest
             $actual = [string]$record.Msaa.SetValue([string]$text)
             $verified = $actual -eq [string]$text
-            $effect = if ($verified) { 'confirmed' } else { 'unverifiable' }
+            $effect = Get-VerifiedEffect $verified
             return New-ActionResult 'set_value' 'msaa_value' $effect $verified "set $ref value through MSAA; readback=$verified" $null 'background' $record.WindowId
         }
         catch {
@@ -452,8 +457,8 @@ function Do-SetValue($ref, $text) {
             Start-Sleep -Milliseconds 25
         }
         $verified = $actual -eq [string]$text
-        $effect = if ($verified) { 'confirmed' } else { 'unverifiable' }
-        return New-ActionResult 'set_value' 'uia_value' $effect $verified "set $ref value through UIA; readback=$verified" $null 'background' ([MixWin32]::WindowId((New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle))))
+        $effect = Get-VerifiedEffect $verified
+        return New-ActionResult 'set_value' 'uia_value' $effect $verified "set $ref value through UIA; readback=$verified" $null 'background' (Get-TopWindowId $el)
     }
     $topHandle = New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle)
     return Background-Unavailable 'set_value' "element $ref exposes no ValuePattern; no keystroke fallback was attempted" ([MixWin32]::WindowId($topHandle))
@@ -484,7 +489,7 @@ function Do-Toggle($ref) {
             catch {}
         }
         $verified = $before -ne $after
-        return New-ActionResult 'toggle' 'uia_toggle' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "toggled $ref from $before to $after" $null 'background' ([MixWin32]::WindowId((New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle))))
+        return New-ActionResult 'toggle' 'uia_toggle' (Get-VerifiedEffect $verified) $verified "toggled $ref from $before to $after" $null 'background' (Get-TopWindowId $el)
     }
     $result = Do-Invoke $ref
     $result.action = 'toggle'
@@ -501,6 +506,10 @@ function Get-TopWindow($el) {
         $cur = $parent
     }
     return $cur
+}
+
+function Get-TopWindowId($el) {
+    return [MixWin32]::WindowId((New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle)))
 }
 
 function Assert-InputTarget($targetHandle, $action) {
@@ -1089,6 +1098,7 @@ function Do-Scroll($req) {
         $x = [int]$req.x; $y = [int]$req.y
         if ($req.delivery -ne 'foreground') {
             try {
+                Assert-ExecutionAuthorization $req $info.Handle
                 $messageTarget = [MixWin32]::BackgroundWheel(
                     $info.Handle, $x, $y, $wheelClicks, $req.modifiers, $horizontal)
                 return New-ActionResult 'scroll' 'win32_message' 'unverifiable' $false "scrolled $direction at frame point through native window messages; refresh state before treating it as complete" $null 'background' $info.Id
@@ -1125,13 +1135,14 @@ function Do-Scroll($req) {
                 }
                 $after = if ($horizontal) { $pat.Current.HorizontalScrollPercent } else { $pat.Current.VerticalScrollPercent }
                 $verified = $before -ne $after
-                return New-ActionResult 'scroll' 'uia_scroll' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "scrolled $($req.ref) $direction $n increments through UIA" $null 'background' ([MixWin32]::WindowId((New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle))))
+                return New-ActionResult 'scroll' 'uia_scroll' (Get-VerifiedEffect $verified) $verified "scrolled $($req.ref) $direction $n increments through UIA" $null 'background' (Get-TopWindowId $el)
             }
         }
         if ($req.delivery -ne 'foreground') {
             $p = Get-ElPoint $req.ref $false
             $before = Get-ObservableTargetState $refRecord 'scroll'
             try {
+                Assert-ExecutionAuthorization $req $p[2]
                 $messageTarget = [MixWin32]::BackgroundWheel($p[2], $p[0], $p[1], $wheelClicks, $req.modifiers, $horizontal)
                 return Complete-NativeAction 'scroll' $messageTarget ([MixWin32]::WindowId($p[2])) $before $refRecord "scroll delivered to $messageTarget as a native window message"
             }
@@ -1154,6 +1165,7 @@ function Do-Scroll($req) {
         $x = [int]($info.X + $info.Width / 2)
         $y = [int]($info.Y + $info.Height / 2)
         try {
+            Assert-ExecutionAuthorization $req $info.Handle
             $messageTarget = [MixWin32]::BackgroundWheel($info.Handle, $x, $y, $wheelClicks, $req.modifiers, $horizontal)
             return New-ActionResult 'scroll' 'win32_message' 'unverifiable' $false "scroll delivered to $messageTarget as a native window message; refresh state before treating it as complete" $null 'background' $info.Id
         }
@@ -1584,7 +1596,7 @@ function Do-InvokeMenu($req) {
                         $pat.Toggle()
                         $after = [string]$pat.Current.ToggleState
                         $verified = $before -ne $after
-                        return New-ActionResult 'invoke_menu' 'uia_menu_toggle' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified ('toggled menu path: ' + ($walked -join ' > ') + " from $before to $after") $null 'background' $info.Id
+                        return New-ActionResult 'invoke_menu' 'uia_menu_toggle' (Get-VerifiedEffect $verified) $verified ('toggled menu path: ' + ($walked -join ' > ') + " from $before to $after") $null 'background' $info.Id
                     }
                     throw "menu_item_not_invokable: '$segment' exposes no menu action"
                 }

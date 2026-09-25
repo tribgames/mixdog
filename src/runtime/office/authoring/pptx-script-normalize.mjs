@@ -331,8 +331,18 @@ export async function normalizeAuthoredPptx(path) {
   let vectorIcons = 0;
   for (const part of parts) {
     const xml = await zipText(zip, part);
-    let result = CHART_PARTS.test(part) ? normalizeChartSeries(xml) : normalizeParagraphProperties(xml);
-    if (!CHART_PARTS.test(part)) {
+    const chart = CHART_PARTS.test(part);
+    let result = chart ? normalizeChartSeries(xml) : normalizeParagraphProperties(xml);
+    if (chart) {
+      const merged = mergeAccentSeries(result.xml);
+      if (merged.changed) {
+        result = { ...result, xml: merged.xml, changed: true };
+        mergedCharts += 1;
+        await mergeEmbeddedWorkbook(zip, part, merged.values);
+      }
+      const fonts = normalizeChartFonts(result.xml);
+      if (fonts.changed) result = { ...result, xml: fonts.xml, changed: true };
+    } else {
       const native = nativeGradients(result.xml);
       if (native.changed) {
         result = { ...result, xml: native.xml, changed: true };
@@ -343,16 +353,6 @@ export async function normalizeAuthoredPptx(path) {
         result = { ...result, xml: icons.xml, changed: true };
         vectorIcons += icons.attached;
       }
-    }
-    if (CHART_PARTS.test(part)) {
-      const merged = mergeAccentSeries(result.xml);
-      if (merged.changed) {
-        result = { ...result, xml: merged.xml, changed: true };
-        mergedCharts += 1;
-        await mergeEmbeddedWorkbook(zip, part, merged.values);
-      }
-      const fonts = normalizeChartFonts(result.xml);
-      if (fonts.changed) result = { ...result, xml: fonts.xml, changed: true };
     }
     if (!result.removed && !result.changed) continue;
     zip.file(part, result.xml);

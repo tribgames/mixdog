@@ -17,7 +17,9 @@ export function pageSizePoints(value, label) {
   } else {
     const named = String(value).toLowerCase();
     if (!PAGE_SIZES[named]) {
-      throw new Error(`Unknown ${label}: ${value}; use ${Object.keys(PAGE_SIZES).join(', ')} or [width, height] in points`);
+      throw new Error(
+        `Unknown ${label}: ${value}; use ${Object.keys(PAGE_SIZES).join(', ')} or [width, height] in points`
+      );
     }
     size = [...PAGE_SIZES[named]];
   }

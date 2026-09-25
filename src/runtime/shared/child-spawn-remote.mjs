@@ -52,6 +52,10 @@ function _leaseTimeoutError(reason) {
   return error;
 }
 
+function _abortError(signal) {
+  return signal.reason ?? Object.assign(new Error('child-spawn-gate: aborted while queued'), { code: 'ABORT_ERR' });
+}
+
 function _ensureListener() {
   if (_listening) return;
   _listening = true;
@@ -107,11 +111,7 @@ export function remoteSpawnLeasesEnabled(env = process.env) {
  */
 export function acquireRemoteSpawnLease({ lane, ownerKey, signal, waitTimeoutMs }) {
   _ensureListener();
-  if (signal?.aborted) {
-    return Promise.reject(
-      signal.reason ?? Object.assign(new Error('child-spawn-gate: aborted while queued'), { code: 'ABORT_ERR' })
-    );
-  }
+  if (signal?.aborted) return Promise.reject(_abortError(signal));
   const leaseId = `lease-${process.pid}-${++_sequence}`;
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -162,9 +162,7 @@ export function acquireRemoteSpawnLease({ lane, ownerKey, signal, waitTimeoutMs 
         // Cancels a queued lease (the pool aborts its waiter) or returns a
         // racing grant; either way the pool-side record settles exactly once.
         sendRelease();
-        fail(
-          signal.reason ?? Object.assign(new Error('child-spawn-gate: aborted while queued'), { code: 'ABORT_ERR' })
-        );
+        fail(_abortError(signal));
       };
       signal.addEventListener('abort', onAbort, { once: true });
     }

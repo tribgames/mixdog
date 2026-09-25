@@ -477,7 +477,10 @@ async function recoverFromSendError(sendErr, state) {
   ) {
     const stripped = retryWithImageStrip(sendErr, recoveryMessages, state);
     if (stripped) return stripped;
-  } else if (!isContextOverflowError(sendErr) || !(sessionRef && typeof sessionRef.contextWindow === 'number')) {
+  }
+  // Nothing strippable (or no strip attempted): only a real context overflow
+  // may continue into the reactive compaction retry.
+  if (!isContextOverflowError(sendErr) || !(sessionRef && typeof sessionRef.contextWindow === 'number')) {
     throw sendErr;
   }
   return recoverContextOverflow(sendErr, outcome, state);

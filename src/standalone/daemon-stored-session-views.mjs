@@ -19,6 +19,10 @@ export function createStoredSessionViews({ desktopRuntime, dataDir }) {
       if (typeof store.readStoredSessionTranscript !== 'function') return null;
       return (await store.readStoredSessionTranscript(sessionId, options)) ?? null;
     },
+    forgetStoredSession: async (sessionId) => {
+      const store = await desktopRuntime.loadSessionStore();
+      store.forgetStoredSessionTranscript?.(sessionId);
+    },
     readStoredGoal: async (sessionId) =>
       readStoredGoalSnapshot({
         dataDir,

@@ -77,11 +77,14 @@ export function TextShimmer({ text, active = true }: { text: string; active?: bo
 export function CopyControl({
   value,
   label,
+  labelOptions,
   className,
   tooltipSide = 'top',
 }: {
   value: string;
+  /** Catalog key; interpolated with `labelOptions`. */
   label: string;
+  labelOptions?: Record<string, unknown>;
   className: string;
   tooltipSide?: 'top' | 'bottom' | 'left' | 'right';
 }) {
@@ -126,9 +129,9 @@ export function CopyControl({
       onClick={() => void copy()}
       disabled={!value || status === 'pending'}
       aria-busy={status === 'pending' || undefined}
-      aria-label={feedback || t(label)}
+      aria-label={feedback || t(label, labelOptions)}
       data-copied={copied || undefined}
-      data-tooltip={feedback || t(label)}
+      data-tooltip={feedback || t(label, labelOptions)}
       data-tooltip-side={tooltipSide}
     >
       {copied ? <MxIcon name="check" size={14} /> : <MxIcon name="copy" size={14} />}

@@ -142,8 +142,8 @@ function Resolve-WindowInfo($title, $windowId) {
     }
     if ($partial.Count -eq 1) { return $partial[0] }
     if ($partial.Count -gt 1) {
-        $matches = @($partial | ForEach-Object { "$($_.Id) $($_.Title)" }) -join ' | '
-        throw "window title is ambiguous: $title (matches: $matches); use window_id"
+        $candidates = @($partial | ForEach-Object { "$($_.Id) $($_.Title)" }) -join ' | '
+        throw "window title is ambiguous: $title (matches: $candidates); use window_id"
     }
     throw "window not found: $title"
 }

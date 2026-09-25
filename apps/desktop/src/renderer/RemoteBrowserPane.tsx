@@ -196,6 +196,9 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     [frame]
   );
 
+  const currentFrameId = frame?.frameId || '';
+  const externalUrl = frame?.url && frame.url !== 'about:blank' ? frame.url : '';
+
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     const point = imagePoint(event.clientX, event.clientY);
     if (!point) return;
@@ -226,13 +229,13 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     if (!end) return;
     const distance = Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY);
     if (distance < 9) {
-      void control({ type: 'tap', frameId: frame?.frameId || '', x: end.x, y: end.y });
+      void control({ type: 'tap', frameId: currentFrameId, x: end.x, y: end.y });
       return;
     }
     if (zoomLevel > 1) return;
     void control({
       type: 'swipe',
-      frameId: frame?.frameId || '',
+      frameId: currentFrameId,
       from: { x: start.x, y: start.y },
       to: end,
     });
@@ -245,7 +248,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
   };
 
   const sendPageText = (text: string) => {
-    if (text) void control({ type: 'text', frameId: frame?.frameId || '', text });
+    if (text) void control({ type: 'text', frameId: currentFrameId, text });
   };
 
   return (
@@ -295,7 +298,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
             }}
             onBlur={() => {
               addressFocused.current = false;
-              if (frame?.url && frame.url !== 'about:blank') setAddress(frame.url);
+              if (externalUrl) setAddress(externalUrl);
             }}
           />
         </form>
@@ -312,11 +315,9 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
         <button
           type="button"
           className="browser-pane-nav-button"
-          disabled={!frame?.url || frame.url === 'about:blank'}
+          disabled={!externalUrl}
           onClick={() => {
-            if (frame?.url && frame.url !== 'about:blank') {
-              void api?.openExternal(frame.url);
-            }
+            if (externalUrl) void api?.openExternal(externalUrl);
           }}
           aria-label={t('Open in system browser')}
           data-tooltip={t('Open in system browser')}
@@ -356,7 +357,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
               )
                 return;
               event.preventDefault();
-              void control({ type: 'key', frameId: frame?.frameId || '', key: event.key });
+              void control({ type: 'key', frameId: currentFrameId, key: event.key });
             }}
           />
           <button type="button" onClick={() => setKeyboardOpen(false)} aria-label={t('Close')}>
@@ -378,7 +379,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
           event.preventDefault();
           void control({
             type: 'scroll',
-            frameId: frame?.frameId || '',
+            frameId: currentFrameId,
             ...point,
             deltaX: event.deltaX,
             deltaY: event.deltaY,

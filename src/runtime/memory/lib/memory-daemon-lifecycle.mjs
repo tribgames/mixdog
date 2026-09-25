@@ -20,9 +20,7 @@ export function createMemoryDaemonLifecycle({
   function touchDaemonIdleTimer(reason = 'activity') {
     if (!daemonMode || idleTtlMs <= 0) return;
     if (_idleShutdownTimer) {
-      try {
-        clearTimeout(_idleShutdownTimer);
-      } catch {}
+      clearTimeout(_idleShutdownTimer);
       _idleShutdownTimer = null;
     }
     _idleShutdownTimer = setTimeout(() => {
@@ -54,9 +52,7 @@ export function createMemoryDaemonLifecycle({
 
   function cancelClientGrace() {
     if (_clientGraceTimer) {
-      try {
-        clearTimeout(_clientGraceTimer);
-      } catch {}
+      clearTimeout(_clientGraceTimer);
       _clientGraceTimer = null;
     }
   }
@@ -108,16 +104,12 @@ export function createMemoryDaemonLifecycle({
 
   function reset() {
     if (_idleShutdownTimer) {
-      try {
-        clearTimeout(_idleShutdownTimer);
-      } catch {}
+      clearTimeout(_idleShutdownTimer);
       _idleShutdownTimer = null;
     }
     cancelClientGrace();
     if (_clientSweepTimer) {
-      try {
-        clearInterval(_clientSweepTimer);
-      } catch {}
+      clearInterval(_clientSweepTimer);
       _clientSweepTimer = null;
     }
     _connectedClients.clear();

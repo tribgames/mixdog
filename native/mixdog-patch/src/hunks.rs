@@ -193,29 +193,20 @@ pub(crate) fn hunk_ops_to_bytes<'a>(
                 // 2) identity anywhere (a line moved backwards across context),
                 // 3) the next unclaimed delete OF THIS RUN.
                 let body = op.body.as_slice();
-                let mut index: Option<usize> = None;
-                for (position, (candidate, _, used, _)) in pool.iter().enumerate() {
-                    if !*used && *candidate == body && position as isize > last_claimed {
-                        index = Some(position);
-                        break;
-                    }
-                }
-                if index.is_none() {
-                    for (position, (candidate, _, used, _)) in pool.iter().enumerate() {
-                        if !*used && *candidate == body {
-                            index = Some(position);
-                            break;
-                        }
-                    }
-                }
-                if index.is_none() {
-                    for (position, (_, _, used, run)) in pool.iter().enumerate() {
-                        if !*used && *run == current_run {
-                            index = Some(position);
-                            break;
-                        }
-                    }
-                }
+                let index = pool
+                    .iter()
+                    .enumerate()
+                    .position(|(position, (candidate, _, used, _))| {
+                        !*used && *candidate == body && position as isize > last_claimed
+                    })
+                    .or_else(|| {
+                        pool.iter()
+                            .position(|(candidate, _, used, _)| !*used && *candidate == body)
+                    })
+                    .or_else(|| {
+                        pool.iter()
+                            .position(|(_, _, used, run)| !*used && *run == current_run)
+                    });
                 let mut inherited: Option<&'a str> = None;
                 if let Some(position) = index {
                     pool[position].2 = true;
@@ -444,6 +435,48 @@ pub(crate) fn apply_fuzzy_hunk(
     best.map(|(_, _, _, start, end, bytes)| (start, end, bytes))
 }
 
+/// Change band, computed from BOTH Add and Delete positions (not deletes
+/// only). Context lines before the first change or after the last change are
+/// the hunk's OUTER context and may drift under the fuzz factor (classic
+/// `patch` fuzz). Any context line BETWEEN two changes is interior context:
+/// it must match (modulo trailing whitespace), otherwise the hunk is binding
+/// to a different block and we must reject rather than silently patch the
+/// wrong location.
+///
+/// Adds live in parts.ops (the in-order op sequence), not in parts.old, and
+/// an Add sits BETWEEN two old lines rather than at an old index. To compare
+/// it against old-context positions we use a doubled+shifted coordinate over
+/// the old-index space: an old Context/Delete at old offset `o` maps to
+/// 2*(o + 1), while an Add inserted at old cursor `k` (after k old lines were
+/// consumed) maps to 2*k + 1, landing strictly between its neighboring old
+/// lines. Tracking the min/max change position over Adds AND Deletes yields a
+/// band that correctly flags interior context between two adds, or between an
+/// add and a delete, which a delete-only band would miss.
+fn change_band(parts: &HunkParts) -> (Option<usize>, Option<usize>) {
+    let mut first_change_pos: Option<usize> = None;
+    let mut last_change_pos: Option<usize> = None;
+    let mut old_cursor = 0usize;
+    for op in &parts.ops {
+        match op.tag {
+            HunkTag::Context => {
+                old_cursor += 1;
+            }
+            HunkTag::Delete => {
+                let pos = (old_cursor + 1) * 2;
+                first_change_pos = Some(first_change_pos.map_or(pos, |v| v.min(pos)));
+                last_change_pos = Some(last_change_pos.map_or(pos, |v| v.max(pos)));
+                old_cursor += 1;
+            }
+            HunkTag::Add => {
+                let pos = old_cursor * 2 + 1;
+                first_change_pos = Some(first_change_pos.map_or(pos, |v| v.min(pos)));
+                last_change_pos = Some(last_change_pos.map_or(pos, |v| v.max(pos)));
+            }
+        }
+    }
+    (first_change_pos, last_change_pos)
+}
+
 pub(crate) fn evaluate_fuzzy_candidate(
     source: &[u8],
     lines: &[SourceLine],
@@ -451,46 +484,7 @@ pub(crate) fn evaluate_fuzzy_candidate(
     parts: &HunkParts,
     fuzz_factor: usize,
 ) -> Option<(usize, usize, Vec<u8>)> {
-    // Change band, computed from BOTH Add and Delete positions (not deletes
-    // only). Context lines before the first change or after the last change are
-    // the hunk's OUTER context and may drift under the fuzz factor (classic
-    // `patch` fuzz). Any context line BETWEEN two changes is interior context:
-    // it must match (modulo trailing whitespace), otherwise the hunk is binding
-    // to a different block and we must reject rather than silently patch the
-    // wrong location.
-    //
-    // Adds live in parts.ops (the in-order op sequence), not in parts.old, and
-    // an Add sits BETWEEN two old lines rather than at an old index. To compare
-    // it against old-context positions we use a doubled+shifted coordinate over
-    // the old-index space: an old Context/Delete at old offset `o` maps to
-    // 2*(o + 1), while an Add inserted at old cursor `k` (after k old lines were
-    // consumed) maps to 2*k + 1, landing strictly between its neighboring old
-    // lines. Tracking the min/max change position over Adds AND Deletes yields a
-    // band that correctly flags interior context between two adds, or between an
-    // add and a delete, which a delete-only band would miss.
-    let mut first_change_pos: Option<usize> = None;
-    let mut last_change_pos: Option<usize> = None;
-    {
-        let mut old_cursor = 0usize;
-        for op in &parts.ops {
-            match op.tag {
-                HunkTag::Context => {
-                    old_cursor += 1;
-                }
-                HunkTag::Delete => {
-                    let pos = (old_cursor + 1) * 2;
-                    first_change_pos = Some(first_change_pos.map_or(pos, |v| v.min(pos)));
-                    last_change_pos = Some(last_change_pos.map_or(pos, |v| v.max(pos)));
-                    old_cursor += 1;
-                }
-                HunkTag::Add => {
-                    let pos = old_cursor * 2 + 1;
-                    first_change_pos = Some(first_change_pos.map_or(pos, |v| v.min(pos)));
-                    last_change_pos = Some(last_change_pos.map_or(pos, |v| v.max(pos)));
-                }
-            }
-        }
-    }
+    let (first_change_pos, last_change_pos) = change_band(parts);
 
     let mut fuzz = 0usize;
     // Count of lines in this candidate that matched ONLY via the Unicode
@@ -583,8 +577,20 @@ pub(crate) fn evaluate_fuzzy_candidate(
         }
     }
 
-    // idx is bound to 0..=lines.len()-parts.old.len() above, and parts.old is
-    // non-empty, so lines[idx] is always in range.
+    let new_bytes = render_fuzzy_candidate(source, lines, idx, parts)?;
+    Some((fuzz, norm_count, new_bytes))
+}
+
+/// The hunk's new side at candidate `idx`: context copied verbatim from the
+/// source, adds terminated like the deleted lines they replace.
+fn render_fuzzy_candidate(
+    source: &[u8],
+    lines: &[SourceLine],
+    idx: usize,
+    parts: &HunkParts,
+) -> Option<Vec<u8>> {
+    // apply_fuzzy_hunk bounds idx to 0..=lines.len()-parts.old.len() and
+    // parts.old is non-empty, so lines[idx] is always in range.
     let anchor = &lines[idx];
     let fallback_eol = source_line_eol(source, anchor)
         .unwrap_or_else(|| insertion_line_ending_at(source, anchor.start));
@@ -625,7 +631,7 @@ pub(crate) fn evaluate_fuzzy_candidate(
             }
         }
     }
-    Some((fuzz, norm_count, new_bytes))
+    Some(new_bytes)
 }
 
 pub(crate) fn source_line_matches(source: &[u8], line: &SourceLine, expected: &HunkLine) -> bool {
@@ -805,8 +811,11 @@ pub(crate) fn line_start_at(source: &[u8], target_line: usize, scan: &mut Scan) 
     if target_line < scan.line {
         return None;
     }
+    // Classify the file's terminator once, not once per line: the check
+    // scans the whole source, which made this walk quadratic.
+    let cr_only = source_uses_cr_only(source);
     while scan.line < target_line {
-        match memchr_eol(source, scan.pos) {
+        match next_eol(source, scan.pos, cr_only) {
             Some(nl) => {
                 scan.pos = nl + 1;
                 scan.line += 1;
@@ -829,8 +838,11 @@ pub(crate) fn source_uses_cr_only(source: &[u8]) -> bool {
     source.contains(&b'\r') && !source.contains(&b'\n')
 }
 
-pub(crate) fn memchr_eol(source: &[u8], start: usize) -> Option<usize> {
-    if source_uses_cr_only(source) {
+/// Next line terminator at or after `start`: `\r` in a CR-only file, `\n`
+/// otherwise. `cr_only` is `source_uses_cr_only(source)`, computed once by
+/// the caller because it scans the whole source.
+fn next_eol(source: &[u8], start: usize, cr_only: bool) -> Option<usize> {
+    if cr_only {
         memchr(b'\r', source.get(start..)?).map(|idx| start + idx)
     } else {
         memchr_lf(source, start)
@@ -841,9 +853,10 @@ pub(crate) fn count_source_lines(source: &[u8]) -> usize {
     if source.is_empty() {
         return 0;
     }
+    let cr_only = source_uses_cr_only(source);
     let mut n = 0usize;
     let mut pos = 0usize;
-    while let Some(nl) = memchr_eol(source, pos) {
+    while let Some(nl) = next_eol(source, pos, cr_only) {
         n += 1;
         pos = nl + 1;
     }

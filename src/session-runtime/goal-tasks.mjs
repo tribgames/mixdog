@@ -1,6 +1,11 @@
 import { GOAL_TASK_SETTLED, GOAL_TASK_STATUSES, MAX_GOAL_TASKS, MAX_GOAL_TASK_TEXT_LENGTH } from './goal-tool-defs.mjs';
 import { clean } from '../runtime/shared/clean.mjs';
 
+// Fields a task entry or patch may carry. 'kind' is a retired field: stored
+// records and frozen provider schemas still send it, so it is accepted and
+// dropped on normalize rather than rejected.
+const TASK_ENTRY_FIELDS = ['id', 'text', 'status', 'kind'];
+
 // Dropped rows remain in the record but are no longer requested work.
 export function goalTaskProgress(tasks) {
   return {
@@ -19,9 +24,7 @@ export function optionalGoalTaskChanges({ tasks, updates } = {}) {
     Array.isArray(entry) ||
     clean(entry.id) ||
     clean(entry.text) ||
-    // 'kind' is a retired field: stored records and frozen provider schemas
-    // still send it, so it stays accepted here and is dropped on normalize.
-    Object.keys(entry).some((key) => !['id', 'text', 'status', 'kind'].includes(key));
+    Object.keys(entry).some((key) => !TASK_ENTRY_FIELDS.includes(key));
   return {
     tasks: Array.isArray(tasks) ? tasks.filter(populated) : tasks,
     updates: Array.isArray(updates) ? updates.filter(populated) : updates,
@@ -103,8 +106,7 @@ export function patchGoalTasks(previous, { updates, tasks } = {}) {
     if (!id || !byId.has(id)) throw new Error(`unknown Goal task id: ${id || '(missing)'}`);
     if (seen.has(id)) throw new Error(`duplicate Goal task update: ${id}`);
     seen.add(id);
-    // A patch carrying the retired 'kind' is accepted and ignored, not rejected.
-    if (Object.keys(patch).some((key) => !['id', 'text', 'status', 'kind'].includes(key)))
+    if (Object.keys(patch).some((key) => !TASK_ENTRY_FIELDS.includes(key)))
       throw new Error(`unknown Goal task update field for ${id}`);
     byId.set(id, { ...byId.get(id), ...patch, id });
   }

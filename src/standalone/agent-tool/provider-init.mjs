@@ -86,13 +86,8 @@ function beginGeneration(s, sigKey) {
     resolveReady = r;
   });
   s.ready = { gen, promise: readyPromise, resolve: resolveReady };
-  if (prevReady && prevReady.gen < gen) {
-    try {
-      prevReady.resolve(readyPromise);
-    } catch {
-      /* already settled */
-    }
-  }
+  // A promise resolver never throws; resolving an already-settled deferred is a no-op.
+  if (prevReady && prevReady.gen < gen) prevReady.resolve(readyPromise);
   return { gen, readyPromise, resolveReady };
 }
 

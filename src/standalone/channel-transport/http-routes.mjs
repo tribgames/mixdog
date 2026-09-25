@@ -4,6 +4,7 @@
  * server token except /health (liveness probe is unauthed).
  */
 import { readBody, sendJson, sendError } from '../../runtime/memory/lib/http-wire.mjs';
+import { replayIdOf } from './client-registry/registration-replays.mjs';
 
 const CHANNEL_HTTP_BODY_MAX_BYTES = 64 * 1024 * 1024;
 
@@ -52,7 +53,7 @@ export function createChannelRoutes({
       registrationId: body.registrationId,
       restoreSessionId: body.restoreSessionId,
     });
-    const replayId = body.passive === true && body.registrationId ? String(body.registrationId).slice(0, 200) : null;
+    const replayId = body.passive === true ? replayIdOf(body.registrationId) : null;
     res.once('finish', () => registry.markRegistrationResponseFinished(replayId, clientToken));
     sendJson(res, { token: clientToken, pid: process.pid });
   }

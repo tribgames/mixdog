@@ -102,32 +102,43 @@ export function getUserFontDirectory() {
   return join(homedir(), '.local', 'share', 'fonts');
 }
 
+function systemFontDirectory() {
+  const currentPlatform = platform();
+  if (currentPlatform === 'win32') return join(process.env.WINDIR || 'C:\\Windows', 'Fonts');
+  if (currentPlatform === 'darwin') return '/Library/Fonts';
+  return '/usr/share/fonts';
+}
+
 export function isFontInstalled(fontDef) {
-  const userDir = getUserFontDirectory();
-  const userPath = join(userDir, fontDef.fileName);
+  const userPath = join(getUserFontDirectory(), fontDef.fileName);
   if (existsSync(userPath)) return { installed: true, path: userPath };
-
-  if (platform() === 'win32') {
-    const sysPath = join(process.env.WINDIR || 'C:\\Windows', 'Fonts', fontDef.fileName);
-    if (existsSync(sysPath)) return { installed: true, path: sysPath };
-  } else if (platform() === 'darwin') {
-    const sysPath = join('/Library/Fonts', fontDef.fileName);
-    if (existsSync(sysPath)) return { installed: true, path: sysPath };
-  } else {
-    const sysPath = join('/usr/share/fonts', fontDef.fileName);
-    if (existsSync(sysPath)) return { installed: true, path: sysPath };
-  }
-
+  const sysPath = join(systemFontDirectory(), fontDef.fileName);
+  if (existsSync(sysPath)) return { installed: true, path: sysPath };
   return { installed: false, path: userPath };
+}
+
+// The registry name and the font path reach PowerShell as environment
+// variables, never as script text: an apostrophe in the path (C:\Users\O'Brien)
+// would end a quoted string and run the rest, and a single-quoted string keeps
+// backslashes literally, so doubling them wrote a path that is not the file's.
+export function fontRegistrationCommand(fontDef, targetPath) {
+  return {
+    command: 'powershell.exe',
+    args: [
+      '-NoProfile',
+      '-Command',
+      "New-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts' -Name $env:MIXDOG_FONT_NAME -Value $env:MIXDOG_FONT_PATH -PropertyType String -Force",
+    ],
+    env: { ...process.env, MIXDOG_FONT_NAME: fontDef.registryName, MIXDOG_FONT_PATH: targetPath },
+  };
 }
 
 async function registerFontWithOs(fontDef, targetPath) {
   const currentPlatform = platform();
   if (currentPlatform === 'win32') {
     try {
-      const escapedPath = targetPath.replace(/\\/g, '\\\\');
-      const ps = `New-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts' -Name '${fontDef.registryName}' -Value '${escapedPath}' -PropertyType String -Force`;
-      await execFileAsync('powershell.exe', ['-NoProfile', '-Command', ps], { timeout: 15000 });
+      const { command, args, env } = fontRegistrationCommand(fontDef, targetPath);
+      await execFileAsync(command, args, { env, timeout: 15000 });
     } catch {
       // non-fatal
     }

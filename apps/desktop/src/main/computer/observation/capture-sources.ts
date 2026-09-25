@@ -54,15 +54,14 @@ export function createCaptureSources(
         const code = computerErrorCode(error) || 'capture_source_unavailable';
         const cleanup = error instanceof CaptureSourceError ? error.cleanup : undefined;
         const hidden = HIDDEN_WINDOW_ADVICE[code];
-        unavailable =
-          error instanceof CaptureSourceError && error.issue
-            ? error.issue
-            : hidden
-              ? pixelUnavailable('window_hidden', `${entry.backend}: ${code}; ${hidden}`)
-              : pixelUnavailable(
-                  'capture_source_unavailable',
-                  `exact ${sourceType} capture unavailable; ${entry.backend}: ${code}`
-                );
+        if (error instanceof CaptureSourceError && error.issue) unavailable = error.issue;
+        else if (hidden) unavailable = pixelUnavailable('window_hidden', `${entry.backend}: ${code}; ${hidden}`);
+        else {
+          unavailable = pixelUnavailable(
+            'capture_source_unavailable',
+            `exact ${sourceType} capture unavailable; ${entry.backend}: ${code}`
+          );
+        }
         if (!RECOVERABLE_CAPTURE_CODES.has(code) || (cleanup && cleanup.status !== 'confirmed')) {
           return { unavailable, terminal: true };
         }

@@ -28,7 +28,12 @@ import { BUILT_IN_FEATURES, type BuiltInFeatureDefinition, type BuiltInFeatureId
 import { SlotProgress } from './built-in-install-progress';
 import { LocalProviderModels } from './local-provider-models';
 import { BuiltInFeatureInfo, featureRequirement } from './built-in-feature-info';
-import { installationPercent, localProviderInstallation, useLocalProviderStatus } from './local-provider-status';
+import {
+  installationActive,
+  installationPercent,
+  localProviderInstallation,
+  useLocalProviderStatus,
+} from './local-provider-status';
 import { useLocalProviderActions } from './local-provider-actions';
 import type { LocalProviderActions } from './local-provider-operations';
 import { GitPanel } from './git-panel';
@@ -419,7 +424,7 @@ export function BuiltInFeaturesPanel({
   };
   const localInstalling =
     Array.isArray(localProvider.installations) &&
-    localProvider.installations.some((entry) => ['running', 'cancelling'].includes(String(record(entry).state)));
+    localProvider.installations.some((entry) => installationActive(record(entry)));
   const busy = Boolean(pending) || (action !== null && action.status !== 'failed') || localInstalling;
   const stateOf = (feature: BuiltInFeatureDefinition): FeatureState => {
     const available =

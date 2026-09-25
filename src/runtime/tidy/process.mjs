@@ -7,14 +7,14 @@ import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { delimiter, extname, isAbsolute, join } from 'node:path';
 
-export const DEFAULT_PROCESS_TIMEOUT_MS = 90_000;
+const DEFAULT_PROCESS_TIMEOUT_MS = 90_000;
 export const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
 const KILL_GRACE_MS = 3000;
 
 const WINDOWS_SCRIPT_EXTENSIONS = new Set(['.cmd', '.bat']);
 
 /** True for the Windows batch wrappers npm writes into node_modules/.bin. */
-export function isWindowsScript(binPath) {
+function isWindowsScript(binPath) {
   return process.platform === 'win32' && WINDOWS_SCRIPT_EXTENSIONS.has(extname(String(binPath || '')).toLowerCase());
 }
 

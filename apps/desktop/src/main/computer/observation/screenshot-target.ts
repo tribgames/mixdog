@@ -11,6 +11,7 @@ import {
   MAX_SCREENSHOT_MAX_WIDTH,
   MIN_SCREENSHOT_MAX_WIDTH,
 } from '../shared/common';
+import { nativeDisplayGeometry } from '../shared/native-coordinates';
 import type { ComputerCommand } from '../shared/types';
 import { screenshotInteger } from './analysis';
 import type { CaptureEngineHost } from './capture';
@@ -122,7 +123,6 @@ export function displayScreenshotTarget(command: ComputerCommand): ScreenshotTar
   );
   const index = screenshotInteger(command.screen, primaryIndex, 0, Math.max(0, displays.length - 1), 'screen');
   const display = displays[index] ?? screen.getPrimaryDisplay();
-  const nativeOrigin = display.nativeOrigin ?? { x: display.bounds.x, y: display.bounds.y };
   return {
     sourceType: 'screen',
     sourceTitle: displays.length > 1 ? `screen ${index + 1}/${displays.length}` : 'primary screen',
@@ -130,12 +130,7 @@ export function displayScreenshotTarget(command: ComputerCommand): ScreenshotTar
     sourceHeight: display.size.height,
     displayId: String(display.id),
     windowId: '',
-    geometry: {
-      x: nativeOrigin.x,
-      y: nativeOrigin.y,
-      width: Math.round(display.size.width * display.scaleFactor),
-      height: Math.round(display.size.height * display.scaleFactor),
-    },
+    geometry: nativeDisplayGeometry(display),
     targetWindow: zeroRect(),
     ownerWindowId: '',
     client: zeroRect(),

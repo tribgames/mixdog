@@ -17,7 +17,7 @@ const preferredEffort = (values = []) => {
 export const effortItemsFor = (model) =>
   Array.isArray(model?.effortOptions) && model.effortOptions.length > 0 ? model.effortOptions : [];
 
-export const modelEffortValues = (model) =>
+const modelEffortValues = (model) =>
   effortItemsFor(model)
     .map((effort) => effort.value)
     .filter(Boolean);
@@ -69,8 +69,7 @@ export function createEffortSelection({ providerModels, state, currentRoute, isC
   const cycleEffort = (model, direction = 1) => {
     const values = modelEffortValues(model);
     if (values.length === 0) return false;
-    const selectedEffort = getSelectedEffort(model);
-    const currentValue = values.includes(selectedEffort) ? selectedEffort : modelDefaultEffort(model);
+    const currentValue = coerceEffort(model);
     const current = values.includes(currentValue) ? values.indexOf(currentValue) : 0;
     setSelectedEffort(model, values[(current + direction + values.length) % values.length] || null);
     return true;

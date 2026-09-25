@@ -7,6 +7,7 @@ import { ExtensionAction, ExtensionItemRow } from './extension-detail';
 import { SettingsConfirmDialog } from './capability-controls';
 import type { LocalProviderActions } from './local-provider-operations';
 import { LocalProviderContext } from './local-provider-context';
+import { installationActive } from './local-provider-status';
 
 /** One installed model as a plain list item: name, size facts, state,
  *  context controls and deletion. Repair and verification stay chat-driven via the
@@ -28,9 +29,7 @@ export function LocalProviderModelRow({
   const inUse = status.activeModel === id && (status.running === true || status.starting === true);
   const jobActive =
     Array.isArray(status.installations) &&
-    status.installations
-      .map(record)
-      .some((job) => job.modelId === id && ['running', 'cancelling'].includes(String(job.state)));
+    status.installations.map(record).some((job) => job.modelId === id && installationActive(job));
   const broken = model.installed !== true || record(model.verification).valid === false;
   let label = t('Installed');
   if (model.installed !== true) label = t('Needs repair');

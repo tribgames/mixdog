@@ -81,100 +81,6 @@ export function makeAgentDispatch(opts = {}) {
   }
   const agent = opts.agent;
 
-  // Prepare → run → settle one ephemeral session under the admission lease.
-  async function dispatchAdmitted(callArgs, { prepare, ask, updateStatus, close, readSession }) {
-    const {
-      prompt,
-      preset: presetArg,
-      sourceName: sourceNameArg,
-      parentSignal: callParentSignal,
-      idleTimeoutMs: callIdleTimeoutMs,
-      cwd: callCwd,
-    } = callArgs;
-    const config = opts.config || loadConfig({ secrets: false });
-    const { preset, presetName, runtimeSpec } = resolveDispatchPreset({
-      presetArg,
-      optsPreset: opts.preset,
-      agent,
-      config,
-    });
-    const { session, cwd } = prepareDispatchSession({
-      agent,
-      opts,
-      callCwd,
-      sourceNameArg,
-      preset,
-      presetName,
-      runtimeSpec,
-      prepare,
-    });
-    await updateStatus(session.id, 'running');
-    const watchdog = startDispatchWatchdog({
-      agent,
-      sessionId: session.id,
-      policy: resolveAgentWatchdogPolicy(agent, {
-        idleTimeoutMs: Number.isFinite(callIdleTimeoutMs) ? callIdleTimeoutMs : opts.idleTimeoutMs,
-        firstResponseTimeoutMs: opts.firstResponseTimeoutMs,
-      }),
-    });
-    // Parent→child abort cascade: when opts.parentSignal (factory) or
-    // callParentSignal (per-call) fires, abort the sub-session's own
-    // controller so the provider call tears down promptly. Do not link
-    // factory parent, per-call cancellation, and the watchdog one at a time:
-    // each link replaces the previous listener in runtime-liveness. One
-    // composite survives askSession's controller swap and makes every source
-    // reach the provider call.
-    const abortLink = composeAgentDispatchAbortSignal([opts.parentSignal, callParentSignal, watchdog.signal]);
-    if (abortLink.signal) {
-      try {
-        linkParentSignalToSession(session.id, abortLink.signal);
-      } catch {
-        /* ignore */
-      }
-    }
-    let terminalStatus = 'idle';
-    let closeReason = 'ephemeral-done';
-    process.stderr.write(
-      `[agent-dispatch] agent=${agent} preset=${presetName} model=${preset.model} provider=${preset.provider} session=${session.id}\n`
-    );
-    try {
-      return await runDispatchTurn({
-        agent,
-        session,
-        prompt,
-        cwd,
-        opts,
-        callArgs,
-        ask,
-        readSession,
-        abortSignal: abortLink.signal,
-      });
-    } catch (err) {
-      terminalStatus = 'error';
-      closeReason = 'ephemeral-error';
-      throw err;
-    } finally {
-      abortLink.dispose();
-      watchdog.stop();
-      // Always flip out of 'running' before returning so the sweep never
-      // leaves a stateless Pool C session stuck in 'running' when the
-      // try/catch falls through in unexpected ways.
-      try {
-        await updateStatus(session.id, terminalStatus);
-      } catch {
-        /* ignore */
-      }
-      // closeSession plants a tombstone, after which status writes are
-      // rejected. Publish the terminal projection before closing so
-      // live Agent panes cannot retain their preceding busy:true state.
-      try {
-        close(session.id, closeReason);
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
   return async function agentDispatch(callArgs = {}) {
     const { prompt, parentSignal: callParentSignal, sessionId: callSessionId } = callArgs;
     if (typeof prompt !== 'string' || !prompt) {
@@ -203,10 +109,104 @@ export function makeAgentDispatch(opts = {}) {
     try {
       const runAdmitted = (task) =>
         typeof admission.runWithLease === 'function' ? admission.runWithLease(lease, task) : task();
-      return await runAdmitted(() => dispatchAdmitted(callArgs, deps));
+      return await runAdmitted(() => dispatchAdmitted(agent, opts, callArgs, deps));
     } finally {
       await lease.release();
       admissionAbortLink.dispose();
     }
   };
+}
+
+// Prepare → run → settle one ephemeral session under the admission lease.
+async function dispatchAdmitted(agent, opts, callArgs, { prepare, ask, updateStatus, close, readSession }) {
+  const {
+    prompt,
+    preset: presetArg,
+    sourceName: sourceNameArg,
+    parentSignal: callParentSignal,
+    idleTimeoutMs: callIdleTimeoutMs,
+    cwd: callCwd,
+  } = callArgs;
+  const config = opts.config || loadConfig({ secrets: false });
+  const { preset, presetName, runtimeSpec } = resolveDispatchPreset({
+    presetArg,
+    optsPreset: opts.preset,
+    agent,
+    config,
+  });
+  const { session, cwd } = prepareDispatchSession({
+    agent,
+    opts,
+    callCwd,
+    sourceNameArg,
+    preset,
+    presetName,
+    runtimeSpec,
+    prepare,
+  });
+  await updateStatus(session.id, 'running');
+  const watchdog = startDispatchWatchdog({
+    agent,
+    sessionId: session.id,
+    policy: resolveAgentWatchdogPolicy(agent, {
+      idleTimeoutMs: Number.isFinite(callIdleTimeoutMs) ? callIdleTimeoutMs : opts.idleTimeoutMs,
+      firstResponseTimeoutMs: opts.firstResponseTimeoutMs,
+    }),
+  });
+  // Parent→child abort cascade: when opts.parentSignal (factory) or
+  // callParentSignal (per-call) fires, abort the sub-session's own
+  // controller so the provider call tears down promptly. Do not link
+  // factory parent, per-call cancellation, and the watchdog one at a time:
+  // each link replaces the previous listener in runtime-liveness. One
+  // composite survives askSession's controller swap and makes every source
+  // reach the provider call.
+  const abortLink = composeAgentDispatchAbortSignal([opts.parentSignal, callParentSignal, watchdog.signal]);
+  if (abortLink.signal) {
+    try {
+      linkParentSignalToSession(session.id, abortLink.signal);
+    } catch {
+      /* ignore */
+    }
+  }
+  let terminalStatus = 'idle';
+  let closeReason = 'ephemeral-done';
+  process.stderr.write(
+    `[agent-dispatch] agent=${agent} preset=${presetName} model=${preset.model} provider=${preset.provider} session=${session.id}\n`
+  );
+  try {
+    return await runDispatchTurn({
+      agent,
+      session,
+      prompt,
+      cwd,
+      opts,
+      callArgs,
+      ask,
+      readSession,
+      abortSignal: abortLink.signal,
+    });
+  } catch (err) {
+    terminalStatus = 'error';
+    closeReason = 'ephemeral-error';
+    throw err;
+  } finally {
+    abortLink.dispose();
+    watchdog.stop();
+    // Always flip out of 'running' before returning so the sweep never
+    // leaves a stateless Pool C session stuck in 'running' when the
+    // try/catch falls through in unexpected ways.
+    try {
+      await updateStatus(session.id, terminalStatus);
+    } catch {
+      /* ignore */
+    }
+    // closeSession plants a tombstone, after which status writes are
+    // rejected. Publish the terminal projection before closing so
+    // live Agent panes cannot retain their preceding busy:true state.
+    try {
+      close(session.id, closeReason);
+    } catch {
+      /* ignore */
+    }
+  }
 }

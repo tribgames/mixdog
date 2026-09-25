@@ -86,9 +86,8 @@ export function installAutoDomI18n(root: HTMLElement = document.body): () => voi
   localize(root);
   const observer = new MutationObserver((records) => {
     for (const record of records) {
-      if (record.type === 'characterData') localize(record.target);
-      else if (record.type === 'attributes') localize(record.target);
-      else for (const node of record.addedNodes) localize(node);
+      if (record.type === 'childList') for (const node of record.addedNodes) localize(node);
+      else localize(record.target);
     }
   });
   observer.observe(root, {

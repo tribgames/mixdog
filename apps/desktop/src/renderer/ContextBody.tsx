@@ -64,7 +64,7 @@ export function ContextBody({
   const used = usage.used;
   const windowTokens = usage.limit;
   const usedPercent = contextPercent(used, windowTokens) || 0;
-  const rawCategories = [
+  const categories = [
     {
       key: 'system',
       label: t('System prompt'),
@@ -88,8 +88,7 @@ export function ContextBody({
     { key: 'messages', label: t('Messages'), tokens: tokenBuckets(semantic, ['chat', 'assistant', 'toolResults']) },
     { key: 'reasoning', label: t('Reasoning tokens'), tokens: tokenBuckets(semantic, ['reasoning']) },
   ];
-  const categories = rawCategories;
-  const measuredCategories = (inspection?.categories ?? rawCategories).filter((category) => category.tokens > 0);
+  const measuredCategories = (inspection?.categories ?? categories).filter((category) => category.tokens > 0);
   const measuredCategoryTotal = measuredCategories.reduce((sum, category) => sum + category.tokens, 0);
   const measuredBarDescription =
     used != null && measuredCategoryTotal > 0

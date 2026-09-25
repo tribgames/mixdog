@@ -63,7 +63,7 @@ function ResourceRows() {
               <b>{name}</b>
               <small>{description}</small>
             </span>
-            <RowOverflowMenu label={`${name} 작업`} items={items} width={220} />
+            <RowOverflowMenu label={`${name} 작업`} items={items} />
           </div>
         ))}
       </div>
@@ -111,6 +111,7 @@ function Scene({ view, mobile }: { view: string; mobile: boolean }) {
         panelTitle="프로젝트"
         selection={{ kind: 'new' }}
         onNewTask={noop}
+        onNewStudio={noop}
         onResumeSession={noop}
         onRenameSession={asyncNoop}
         onArchiveSession={asyncNoop}

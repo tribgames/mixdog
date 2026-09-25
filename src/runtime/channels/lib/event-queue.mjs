@@ -176,16 +176,10 @@ class EventQueue {
   }
   processBatch() {
     if (!ownerTickAllowed(this, 'batch tick')) return;
-    const files = this.readQueueFiles();
-    const lowFiles = files.filter((f) => {
-      const item = this.readItem(f);
-      return item?.priority === 'low';
-    });
-    if (lowFiles.length === 0) return;
-    const groups = /* @__PURE__ */ new Map();
-    for (const file of lowFiles) {
+    const groups = new Map();
+    for (const file of this.readQueueFiles()) {
       const item = this.readItem(file);
-      if (!item) continue;
+      if (item?.priority !== 'low') continue;
       const group = groups.get(item.name) ?? { items: [], files: [] };
       group.items.push(item);
       group.files.push(file);

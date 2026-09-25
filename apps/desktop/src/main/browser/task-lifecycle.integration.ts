@@ -40,9 +40,9 @@ export async function runBrowserTaskLifecycleScenarios(options: {
   // A finished turn is not a finished conversation: the page the turn opened
   // survives cleanup, still hidden and still named. Cleanup adds no tab of its
   // own and promotes nothing to the visible slot.
-  const [cleanupHeading, ...cleanupTabs] = (
-    await command({ action: 'list_tabs', session_id: taskSession })
-  ).text.split('\n');
+  const [cleanupHeading, ...cleanupTabs] = (await command({ action: 'list_tabs', session_id: taskSession })).text.split(
+    '\n'
+  );
   assert.equal(cleanupHeading, 'Tabs:');
   assert.equal(cleanupTabs.length, 1, 'cleanup keeps the hidden page and lists no other tab');
   assert.equal(

@@ -1,11 +1,9 @@
-import type { IpcMainInvokeEvent } from 'electron';
 import { DESKTOP_IPC, type DesktopBrowserViewportConfig } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
 import type { BrowserHost } from './browser/host';
 import type { BrowserDataScope } from './browser/browsing-data';
+import type { IpcHandle as Handle } from './ipc';
 import { normalizeBrowserPageControl } from '../shared/browser-page-control';
-
-type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
 
 interface BrowserIpcOptions {
   handle: Handle;

@@ -66,7 +66,6 @@ export function wireSessionLifecycle(boot) {
     modelPrefetchEnabled: tunables.modelPrefetchEnabled,
     modelCatalogWarmupEnabled: tunables.modelCatalogWarmupEnabled,
     prewarmTimers: boot.prewarmTimers,
-    channelsEnabled: boot.channelsEnabled,
     getCodeGraphModule: boot.getCodeGraphModule,
     channels: boot.channels,
     codeGraphPrewarmDelayMs: tunables.codeGraphPrewarmDelayMs,

@@ -3,6 +3,7 @@ import {
   Blocks,
   Brain,
   Cable,
+  Code,
   GitBranch,
   Heart,
   Keyboard,
@@ -64,6 +65,7 @@ const CATEGORY_ICONS = {
   plugins: Blocks,
   skills: Sparkles,
   system: Wrench,
+  developer: Code,
   shortcuts: Keyboard,
   about: Heart,
 } satisfies Record<SettingsCategory, typeof Settings>;

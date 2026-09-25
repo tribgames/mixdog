@@ -50,7 +50,7 @@ const type = (input, value) =>
     input.dispatchEvent(new window.Event('change', { bubbles: true }));
   });
 
-function fixture(t, { listings, failing = new Set(), api = {} }) {
+function fixture(t, { listings, failing = new Set(), api = {}, strict = false }) {
   const calls = [];
   const opened = [];
   const readiness = [];
@@ -76,23 +76,21 @@ function fixture(t, { listings, failing = new Set(), api = {} }) {
     opened,
     readiness,
     header,
-    render: (props = {}) =>
-      act(async () =>
-        root.render(
-          React.createElement(FilesRootPane, {
-            projectPath: 'C:/demo',
-            gitStatus: null,
-            changed: new Set(),
-            activeFileKey: '',
-            active: true,
-            readinessKey: 'files',
-            onReadyChange: (key, ready) => readiness.push([key, ready]),
-            onOpenFile: (_project, rel, mode) => opened.push([rel, mode]),
-            headerSlot: header,
-            ...props,
-          })
-        )
-      ),
+    render: (props = {}) => {
+      const pane = React.createElement(FilesRootPane, {
+        projectPath: 'C:/demo',
+        gitStatus: null,
+        changed: new Set(),
+        activeFileKey: '',
+        active: true,
+        readinessKey: 'files',
+        onReadyChange: (key, ready) => readiness.push([key, ready]),
+        onOpenFile: (_project, rel, mode) => opened.push([rel, mode]),
+        headerSlot: header,
+        ...props,
+      });
+      return act(async () => root.render(strict ? React.createElement(React.StrictMode, null, pane) : pane));
+    },
   };
 }
 
@@ -156,6 +154,39 @@ test('a refresh re-lists the root and every expanded folder once and keeps rows 
   // had remain, and nothing is reported as a tree error.
   assert.equal(document.querySelector('.error-notice'), null);
   assert.equal(view.header.querySelector('[aria-label="Refresh files"]').disabled, false);
+});
+
+// React may run a state updater more than once (StrictMode does so on every
+// update), so the watcher refresh must not issue its listings from inside one.
+test('a watched project change re-lists each expanded folder once, even when React replays the update', async (t) => {
+  let notify = () => {};
+  const view = fixture(t, {
+    strict: true,
+    listings: {
+      '': [{ name: 'src', dir: true }],
+      src: [{ name: 'main.ts', dir: false }],
+    },
+    api: {
+      folderWatch: async () => undefined,
+      folderUnwatch: async () => undefined,
+      subscribeFolderChanges: (listener) => {
+        notify = listener;
+        return () => {
+          notify = () => {};
+        };
+      },
+    },
+  });
+  await view.render();
+  // StrictMode's mount replay drops the first root listing; a readiness change
+  // lists the root again outside that replay.
+  await view.render({ readinessKey: 'files-watch' });
+  await click(rowFor('src'));
+  assert.deepEqual(rowNames(), ['src', 'main.ts']);
+  view.calls.length = 0;
+
+  await act(async () => notify('C:/demo'));
+  assert.deepEqual(view.calls, ['', 'src']);
 });
 
 test('a failed delete keeps exactly the failed entry selected and surfaces the message', async (t) => {
@@ -233,6 +264,26 @@ test('the multi-select delete menu item resolves through the translation catalog
 
   const remove = document.querySelector('.dock-file-menu button.danger span');
   assert.equal(remove.textContent, 'Discard 2 items');
+});
+
+test('a right-click on empty tree space or on the root header opens the project-root menu', async (t) => {
+  const view = fixture(t, { listings: { '': [{ name: 'a.txt', dir: false }] } });
+  await view.render({ showRootHeader: true });
+  const contextMenu = (element) =>
+    act(async () => element.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+  const menuLabels = () =>
+    [...document.querySelectorAll('.dock-file-menu [role="menuitem"] span:not([class])')].map(
+      (label) => label.textContent
+    );
+  const rootMenu = ['New file…', 'New folder…', 'Paste', 'Reveal in Explorer', 'Copy path'];
+
+  await contextMenu(document.querySelector('.dock-files-tree'));
+  assert.deepEqual(menuLabels(), rootMenu);
+  await act(async () => window.dispatchEvent(new window.Event('pointerdown')));
+  assert.deepEqual(menuLabels(), []);
+
+  await contextMenu(document.querySelector('.workbench-explorer-root'));
+  assert.deepEqual(menuLabels(), rootMenu);
 });
 
 test('a nested new name creates the entry, expands each folder it introduced and opens the file', async (t) => {

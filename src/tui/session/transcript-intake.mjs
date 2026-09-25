@@ -27,7 +27,7 @@ export function createTranscriptIntake({ getState, flags, pushItem, patchItem, t
     const label = synthetic.label || 'notification';
     const args = synthetic.args || {
       type: label,
-      task_id: synthetic.taskId || parsed?.taskId || undefined,
+      task_id: synthetic.taskId || undefined,
       description: synthetic.summary || 'agent notification',
     };
     const isError = synthetic.isError ?? /^(failed|error|timeout|killed|cancelled)$/i.test(label);

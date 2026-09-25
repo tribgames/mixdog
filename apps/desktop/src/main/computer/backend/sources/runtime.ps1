@@ -550,11 +550,11 @@ function Do-ClipboardWrite($text) {
     if ($null -eq $text -or ([string]$text).Length -eq 0) {
         [System.Windows.Forms.Clipboard]::Clear()
         $verified = -not [System.Windows.Forms.Clipboard]::ContainsText()
-        return New-ActionResult 'clipboard_write' 'clipboard' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified 'cleared clipboard' $null 'background' $null
+        return New-ActionResult 'clipboard_write' 'clipboard' (Get-VerifiedEffect $verified) $verified 'cleared clipboard' $null 'background' $null
     }
     [System.Windows.Forms.Clipboard]::SetText([string]$text)
     $verified = [System.Windows.Forms.Clipboard]::GetText() -eq [string]$text
-    return New-ActionResult 'clipboard_write' 'clipboard' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified ('clipboard set: ' + ([string]$text).Length + ' chars') $null 'background' $null
+    return New-ActionResult 'clipboard_write' 'clipboard' (Get-VerifiedEffect $verified) $verified ('clipboard set: ' + ([string]$text).Length + ' chars') $null 'background' $null
 }
 
 # Move/resize a top-level window; omitted fields keep the current bounds. Also
@@ -578,7 +578,7 @@ function Do-MoveWindow($req) {
     $after = [MixWin32]::Info($info.Handle)
     $verified = $after.X -eq $x -and $after.Y -eq $y -and $after.Width -eq $w -and $after.Height -eq $hh
     $message = 'moved {0} to {1},{2} size {3}x{4}' -f $info.Id, $x, $y, $w, $hh
-    return New-ActionResult 'move_window' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified $message $null 'background' $info.Id
+    return New-ActionResult 'move_window' 'win32' (Get-VerifiedEffect $verified) $verified $message $null 'background' $info.Id
 }
 
 function Do-WindowState($req) {
@@ -604,7 +604,7 @@ function Do-WindowState($req) {
             -not [MixWin32]::IsMaximized($info.Handle)
         }
     }
-    return New-ActionResult 'window_state' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "$state window $($info.Id)" $null 'background' $info.Id
+    return New-ActionResult 'window_state' 'win32' (Get-VerifiedEffect $verified) $verified "$state window $($info.Id)" $null 'background' $info.Id
 }
 
 function Do-CloseWindow($req) {
@@ -621,7 +621,7 @@ function Do-CloseWindow($req) {
     else {
         "close requested for $($info.Id); the app may be showing a save or confirmation dialog"
     }
-    return New-ActionResult 'close_window' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified $message $null 'background' $info.Id
+    return New-ActionResult 'close_window' 'win32' (Get-VerifiedEffect $verified) $verified $message $null 'background' $info.Id
 }
 
 # Killing a process is the one window action with nothing to undo: unsaved work
@@ -647,7 +647,7 @@ function Do-TerminateProcess($req) {
         return New-ActionResult 'terminate_process' 'win32' 'suspected_noop' $false "could not terminate pid $($processId): $($_.Exception.Message)" 'terminate_failed' 'background' $info.Id
     }
     $verified = -not [MixWin32]::IsWindowHandle($info.Handle)
-    return New-ActionResult 'terminate_process' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "terminated pid $processId behind $($info.Id)" $null 'background' $info.Id
+    return New-ActionResult 'terminate_process' 'win32' (Get-VerifiedEffect $verified) $verified "terminated pid $processId behind $($info.Id)" $null 'background' $info.Id
 }
 
 function Get-InstalledApps {
@@ -976,8 +976,8 @@ while ($true) {
         if ($req.pointer_feedback -eq $true) {
             [MixWin32]::PointerProgress = [Action[int, int, bool, string]] {
                 param($x, $y, $held, $phase)
-                $event = @{ id = $id; x = $x; y = $y; held = $held; phase = $phase } | ConvertTo-Json -Compress
-                [Console]::Out.WriteLine('@@MIXDOG_POINTER@@' + $event)
+                $progress = @{ id = $id; x = $x; y = $y; held = $held; phase = $phase } | ConvertTo-Json -Compress
+                [Console]::Out.WriteLine('@@MIXDOG_POINTER@@' + $progress)
             }
         }
         try { $res = Handle $req } finally {

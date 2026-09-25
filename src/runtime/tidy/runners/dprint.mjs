@@ -1,6 +1,6 @@
 // dprint — `check` prints a per-file diff block, `fmt` writes. dprint only
 // touches what its own dprint.json selects, so resolution requires that config.
-import { parseReformatReport, runChunked, spawnFailureResult, tail } from './shared.mjs';
+import { emptyResult, parseReformatReport, runChunked, spawnFailureResult, tail } from './shared.mjs';
 
 const FILE_HEADER = /^(?:from\s+(.+?):|---\s*(.+?)\s*---)$/;
 
@@ -20,7 +20,7 @@ export const runner = {
   async fix({ files, cwd, bin, args = [], timeoutMs, signal }) {
     const result = await runChunked({ bin, baseArgs: [...args, 'fmt'], files, cwd, timeoutMs, signal });
     if (result.error) return spawnFailureResult('dprint', result);
-    return { diagnostics: [], changedFiles: [], stderrTail: tail(result.stderr) };
+    return emptyResult(tail(result.stderr));
   },
 };
 

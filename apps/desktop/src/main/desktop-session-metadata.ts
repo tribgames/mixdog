@@ -14,7 +14,6 @@ export class DesktopSessionMetadata {
   private nameMap: Record<string, string> | null = null;
   private archivedMap: Record<string, number> | null = null;
   private readMap: Record<string, SessionReadCursor> | null = null;
-  private rewrittenGeneratedTitleIds = new Set<string>();
   private loadRequest: Promise<void> | null = null;
   private readonly writer: DebouncedWriter<Parameters<typeof writeSessionMetadata>[1]>;
   private writeError: unknown;
@@ -56,13 +55,6 @@ export class DesktopSessionMetadata {
     return this.readMap || {};
   }
 
-  /** The canonical display title: manual name, shared core title, then the
-   *  desktop's pre-generation fallback. */
-  displayTitle(sessionId: string, sharedTitle = ''): string {
-    if (!sessionId) return '';
-    return this.nameMap?.[sessionId] || generatedSessionTitle(sharedTitle, '') || this.titleMap?.[sessionId] || '';
-  }
-
   async load(): Promise<void> {
     if (this.titleMap && this.nameMap && this.archivedMap && this.readMap) return;
     if (this.loadRequest) return await this.loadRequest;
@@ -72,7 +64,6 @@ export class DesktopSessionMetadata {
       this.nameMap = maps.names;
       this.archivedMap = maps.archived;
       this.readMap = maps.reads;
-      this.rewrittenGeneratedTitleIds = new Set(maps.rewrittenTitleIds);
       // A stored title the current generator would render differently is
       // rewritten in memory; persist it so the next read is stable.
       if (maps.rewritten) await this.queueWrite();
@@ -143,7 +134,6 @@ export class DesktopSessionMetadata {
     delete this.nameMap?.[sessionId];
     if (this.archivedMap) delete this.archivedMap[sessionId];
     if (this.readMap) delete this.readMap[sessionId];
-    this.rewrittenGeneratedTitleIds.delete(sessionId);
     if (had) await this.queueWrite();
     else await this.flush();
   }
@@ -156,44 +146,6 @@ export class DesktopSessionMetadata {
     const existing = this.titleMap[sessionId] || '';
     if (existing && (!isMediaSessionTitlePlaceholder(existing) || isMediaSessionTitlePlaceholder(normalized)))
       return false;
-    this.titleMap[sessionId] = normalized;
-    void this.queueWrite().catch(() => {
-      /* writer retains and reports the pending save */
-    });
-    return true;
-  }
-
-  /** LLM titling: replace the heuristic generated title with a model-written
-   *  one. A user-assigned name still wins; media placeholders never demote a
-   *  real title. */
-  promoteGeneratedTitle(sessionId: string, title: string): boolean {
-    if (!this.titleMap || !isSessionId(sessionId) || this.nameMap?.[sessionId]) return false;
-    const normalized = generatedSessionTitle(title, '');
-    if (!normalized || isMediaSessionTitlePlaceholder(normalized)) return false;
-    if (this.titleMap[sessionId] === normalized) return false;
-    this.titleMap[sessionId] = normalized;
-    this.rewrittenGeneratedTitleIds.delete(sessionId);
-    void this.queueWrite().catch(() => {
-      /* writer retains and reports the pending save */
-    });
-    return true;
-  }
-
-  /** A generator upgrade identified this id as polluted. Replace only that
-   *  generated value from the full durable preview; manual names and all
-   *  already-stable generated titles remain immutable. */
-  repairRewrittenGeneratedTitle(sessionId: string, title: string): boolean {
-    if (
-      !this.titleMap ||
-      !isSessionId(sessionId) ||
-      this.nameMap?.[sessionId] ||
-      !this.rewrittenGeneratedTitleIds.has(sessionId)
-    )
-      return false;
-    const normalized = generatedSessionTitle(title, '');
-    if (!normalized) return false;
-    this.rewrittenGeneratedTitleIds.delete(sessionId);
-    if (this.titleMap[sessionId] === normalized) return false;
     this.titleMap[sessionId] = normalized;
     void this.queueWrite().catch(() => {
       /* writer retains and reports the pending save */

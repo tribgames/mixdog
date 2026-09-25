@@ -81,16 +81,16 @@ export class SessionRuntimeProxy {
     this.revision = revision;
     this.failure = null;
     this.recovering = false;
-    for (const listener of [...this.listeners]) {
-      try {
-        listener();
-      } catch {}
-    }
+    this.#notifyListeners();
   }
 
   fail(error) {
     this.failure = error instanceof Error ? error : new Error(String(error));
     this.recovering = false;
+    this.#notifyListeners();
+  }
+
+  #notifyListeners() {
     for (const listener of [...this.listeners]) {
       try {
         listener();

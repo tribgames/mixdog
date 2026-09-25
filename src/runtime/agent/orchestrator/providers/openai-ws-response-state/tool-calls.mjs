@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto';
 import { makeInvalidToolArgsMarker } from '../openai-compat-stream.mjs';
+import { synthLeakedOpenAICall } from '../openai-compat-stream-common.mjs';
 import { createToolCallDedupe, dedupeToolCallList } from '../anthropic-leaked-toolcall.mjs';
 import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from '../custom-tool-wire.mjs';
 import { createActiveToolItemTracker } from '../tool-stream-state.mjs';
@@ -94,9 +94,7 @@ export function createWsToolCalls({ onToolCall, midState, replayItems }) {
   /** A tool call recovered from leaked text. True when it was dispatched
    *  (not a duplicate of a native call). */
   function dispatchLeakedCall(recovered) {
-    let args = recovered?.arguments;
-    if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
-    const call = { id: `call_leaked_${randomBytes(8).toString('hex')}`, name: recovered.name, arguments: args };
+    const call = synthLeakedOpenAICall(recovered);
     if (!toolDedupe.shouldDispatch(call.name, call.arguments, call.id)) return false;
     toolCalls.push(call);
     fire(call);

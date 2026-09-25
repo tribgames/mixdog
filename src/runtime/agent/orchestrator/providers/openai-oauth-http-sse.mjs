@@ -19,8 +19,6 @@ import { activateCodexTurnState } from './openai-turn-state.mjs';
 import { openHttpSseResponse } from './openai-http-sse-request.mjs';
 import { createHttpSseWatchdogs } from './openai-http-sse-watchdogs.mjs';
 import { createHttpSseResponseState } from './openai-http-sse-response-state.mjs';
-export { envPositiveInt as _envPositiveInt } from '../../../shared/env.mjs';
-export { _endTurnFromEvent } from './openai-http-sse-response-state.mjs';
 export { _envFlag };
 
 function _sseEventsFromBuffer(buffer) {

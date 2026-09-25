@@ -128,6 +128,10 @@ function operationSuggestions(operation, operations) {
     .map(({ candidate }) => candidate);
 }
 
+function didYouMean(candidates) {
+  return candidates.length ? ` Did you mean: ${candidates.join(', ')}?` : '';
+}
+
 function describeHint(format, backend, operation) {
   return `Call office with ${JSON.stringify({
     action: 'describe',
@@ -143,7 +147,7 @@ function operationDescription(format, backend, catalog, requested) {
   if (!knownOperations.includes(operation)) {
     const suggestions = operationSuggestions(operation, knownOperations);
     throw new Error(
-      `Unknown ${format.toUpperCase()} operation "${operation}".${suggestions.length ? ` Did you mean: ${suggestions.join(', ')}?` : ''} Call describe with format:"${format}" to list operations.`
+      `Unknown ${format.toUpperCase()} operation "${operation}".${didYouMean(suggestions)} Call describe with format:"${format}" to list operations.`
     );
   }
   const available = operationsForBackend(format, backend);
@@ -194,7 +198,7 @@ function resolveContractOperation(batch, operation, index) {
     // Describing a name the catalog does not hold only repeats this error:
     // the caller is sent to the list that does answer the question.
     return {
-      fault: `Unknown ${format.toUpperCase()} operation "${name}" at operation ${index + 1}.${suggestions.length ? ` Did you mean: ${suggestions.join(', ')}?` : ''} Call office with ${JSON.stringify({ action: 'describe', format, ...(backend ? { backend } : {}) })} to list operations.`,
+      fault: `Unknown ${format.toUpperCase()} operation "${name}" at operation ${index + 1}.${didYouMean(suggestions)} Call office with ${JSON.stringify({ action: 'describe', format, ...(backend ? { backend } : {}) })} to list operations.`,
     };
   }
   if (!available.includes(name)) {
@@ -218,10 +222,9 @@ function applyFieldAliases(format, name, operation) {
 // Every other worksheet operation takes `range`, so a caller naming one cell
 // that way is not making a mistake worth a round trip — while a real range
 // handed to a single-cell operation is one, and says which operation writes it.
-function singleCellRangeFault(batch, name, operation, index, signatureValue) {
+function singleCellRangeFault(batch, name, operation, index, allowed) {
   const { format, backend } = batch;
-  const fields = [...signatureValue.required, ...signatureValue.optional, ...signatureValue.oneOf.flat()];
-  if (format !== 'xlsx' || !fields.includes('cell') || fields.includes('range')) return null;
+  if (format !== 'xlsx' || !allowed.has('cell') || allowed.has('range')) return null;
   if (operation.range === undefined || operation.cell !== undefined) return null;
   if (SINGLE_CELL_REFERENCE.test(String(operation.range).trim())) {
     operation.cell = operation.range;
@@ -324,7 +327,7 @@ function unknownFieldsFault(batch, name, operation, index, { allowed, propertyKe
     ? ` ${misplaced.join(', ')} ${keyWord}: pass properties:{ ${misplaced.map((field) => `${field}: …`).join(', ')} }.`
     : '';
   let suggestion = ` ${name} takes: ${accepted}.`;
-  if (corrections.length) suggestion = ` Did you mean: ${corrections.join(', ')}?`;
+  if (corrections.length) suggestion = didYouMean(corrections);
   else if (misplaced.length) suggestion = '';
   return `${format.toUpperCase()} operation "${name}" at operation ${index + 1} has unknown field(s): ${remaining.join(', ')}.${misplacedNote}${suggestion} ${describeHint(format, backend, name)}`;
 }
@@ -348,9 +351,7 @@ function unknownPropertiesFault(batch, name, operation, index, allowedProperties
   const unknownProperties = Object.keys(properties).filter((field) => !allowedProperties.has(field));
   if (!unknownProperties.length) return null;
   const corrections = fieldCorrections(unknownProperties, allowedProperties);
-  return `${format.toUpperCase()} operation "${name}" at operation ${index + 1} has unknown properties: ${unknownProperties.join(', ')}.${
-    corrections.length ? ` Did you mean: ${corrections.join(', ')}?` : ''
-  } ${name} properties: ${[...allowedProperties].join(', ')}. ${describeHint(format, backend, name)}`;
+  return `${format.toUpperCase()} operation "${name}" at operation ${index + 1} has unknown properties: ${unknownProperties.join(', ')}.${didYouMean(corrections)} ${name} properties: ${[...allowedProperties].join(', ')}. ${describeHint(format, backend, name)}`;
 }
 
 // A Word table has two alignments that read alike: `alignment` places the
@@ -422,10 +423,10 @@ function operationContractFaults(batch, operation, index) {
   const { format, backend, catalog } = batch;
   applyFieldAliases(format, name, operation);
   const signatureValue = operationSignature(format, name);
-  const cellFault = singleCellRangeFault(batch, name, operation, index, signatureValue);
-  if (cellFault) return [cellFault];
   const stableTargets = format === 'pptx' && backend === 'mixdog-ooxml';
   const allowed = allowedOperationFields(signatureValue, stableTargets);
+  const cellFault = singleCellRangeFault(batch, name, operation, index, allowed);
+  if (cellFault) return [cellFault];
   hoistComposeSheetTable(format, name, operation);
   hoistGeometryProperties(signatureValue, operation, allowed);
   const propertyKeys = propertyKeySet(catalog, signatureValue);

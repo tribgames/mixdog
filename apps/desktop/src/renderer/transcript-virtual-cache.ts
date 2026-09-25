@@ -19,7 +19,7 @@ export const TRANSCRIPT_VIRTUAL_OVERSCAN = 10;
 // empty space above the composer (user: 하단 여백이 많다). 24px keeps the
 // last message's breathing room without a dead band.
 export const TRANSCRIPT_BOTTOM_SPACER = 24;
-export const TRANSCRIPT_VIRTUAL_CACHE_LIMIT = 16;
+const TRANSCRIPT_VIRTUAL_CACHE_LIMIT = 16;
 
 interface TranscriptVirtualSnapshot {
   measurements?: VirtualItem[];

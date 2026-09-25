@@ -4,14 +4,7 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { parseSince } from './lib/parse-since.mjs';
 import { classifyToolFailure } from '../src/runtime/agent/orchestrator/agent-trace-format.mjs';
-
-function argValue(name, fallback = null) {
-  const idx = process.argv.indexOf(name);
-  if (idx >= 0 && idx + 1 < process.argv.length) return process.argv[idx + 1];
-  const pref = `${name}=`;
-  const hit = process.argv.find((arg) => arg.startsWith(pref));
-  return hit ? hit.slice(pref.length) : fallback;
-}
+import { argValue } from './lib/cli-args.mjs';
 
 const limit = Math.max(1, Number.parseInt(argValue('--limit', '40'), 10) || 40);
 const dataDir = argValue('--data-dir', null);

@@ -5,21 +5,24 @@
 // (MIXDOG_ANTHROPIC_REQ_GZIP=0) plus a process-wide latch flipped on the first
 // 400 seen on a compressed request; small bodies skip compression since below
 // ~8KB the CPU + header cost outweighs the upload saving.
-import { gzipSync } from 'node:zlib';
+import { promisify } from 'node:util';
+import { gzip } from 'node:zlib';
 import { getLlmDispatcher } from '../../../../shared/llm/http-agent.mjs';
-import { resolveCliVersion } from '../anthropic-oauth-client-version.mjs';
+import { claudeCliUserAgent } from '../anthropic-oauth-client-version.mjs';
 
-export const API_URL = 'https://api.anthropic.com/v1/messages';
+const API_URL = 'https://api.anthropic.com/v1/messages';
 export const ANTHROPIC_VERSION = '2023-06-01';
 
 const ANTHROPIC_REQ_GZIP_MIN_BYTES = 8 * 1024;
 let gzipLatchedOff = false;
 const gzipDisabled = () => gzipLatchedOff || process.env.MIXDOG_ANTHROPIC_REQ_GZIP === '0';
+// Compress on the libuv threadpool so large turn bodies never block the main thread.
+const gzipAsync = promisify(gzip);
 
 export async function postMessages({ accessToken, requestBody, betaHeaders, signal }) {
   const rawBody = Buffer.from(JSON.stringify(requestBody));
   const useGzip = !gzipDisabled() && rawBody.length >= ANTHROPIC_REQ_GZIP_MIN_BYTES;
-  const sendAttempt = (gz) =>
+  const sendAttempt = async (gz) =>
     fetch(API_URL, {
       method: 'POST',
       headers: {
@@ -27,12 +30,12 @@ export async function postMessages({ accessToken, requestBody, betaHeaders, sign
         'anthropic-version': ANTHROPIC_VERSION,
         'anthropic-beta': betaHeaders,
         'anthropic-dangerous-direct-browser-access': 'true',
-        'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
+        'user-agent': claudeCliUserAgent(),
         'x-app': 'cli',
         'Content-Type': 'application/json',
         ...(gz ? { 'Content-Encoding': 'gzip' } : {}),
       },
-      body: gz ? gzipSync(rawBody) : rawBody,
+      body: gz ? await gzipAsync(rawBody) : rawBody,
       signal,
       dispatcher: getLlmDispatcher(),
     });

@@ -37,6 +37,12 @@ function _probeFault(path, phase) {
   if (injected instanceof Error) throw injected;
 }
 
+// The absent/unreadable verdict for a failed stat or read.
+function _failureVerdict(err) {
+  const code = err?.code || 'EUNKNOWN';
+  return { state: ABSENT_CODES.has(code) ? PROBE_ABSENT : PROBE_UNREADABLE, code };
+}
+
 /**
  * `{ state, mtimeMs, size, code }` — state is exactly one of
  * present / absent / unreadable.
@@ -55,9 +61,8 @@ export function probePath(path) {
       code: null,
     };
   } catch (err) {
-    const code = err?.code || 'EUNKNOWN';
-    if (ABSENT_CODES.has(code)) return { state: PROBE_ABSENT, mtimeMs: 0, size: 0, code };
-    return { state: PROBE_UNREADABLE, mtimeMs: 0, size: 0, code };
+    const { state, code } = _failureVerdict(err);
+    return { state, mtimeMs: 0, size: 0, code };
   }
 }
 
@@ -73,8 +78,7 @@ export function readTextFile(path) {
     _probeFault(path, 'read');
     return { state: PROBE_PRESENT, text: readFileSync(path, 'utf8'), code: null };
   } catch (err) {
-    const code = err?.code || 'EUNKNOWN';
-    if (ABSENT_CODES.has(code)) return { state: PROBE_ABSENT, text: '', code };
-    return { state: PROBE_UNREADABLE, text: '', code };
+    const { state, code } = _failureVerdict(err);
+    return { state, text: '', code };
   }
 }

@@ -131,7 +131,6 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
           <path d="M12 8.5h7.75M15.03 13.75l-3.88 6.71M8.97 13.75l-3.87-6.71" />
         </>
       );
-    // Windows four-pane flag (the computer-use host is the Windows desktop).
     // A laptop with the pointer on screen: the capability drives a desktop.
     case 'computer':
       return (
@@ -202,7 +201,7 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
       );
     case 'recall':
       return <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 8.5M4.5 4.5v4h4M12 8.5V12l2.5 1.75" />;
-    // The settings cog every OS uses: a ring with six square teeth and a hub.
+    // The settings cog every OS uses: the toothed GEAR ring and a hub.
     case 'setup':
       return (
         <>

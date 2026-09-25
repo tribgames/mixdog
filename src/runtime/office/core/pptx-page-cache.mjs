@@ -4,8 +4,7 @@ import { access } from 'node:fs/promises';
 import { loadPackage, partRelationshipPath, zipText } from '../portable/portable-opc.mjs';
 import { presentationSlides } from '../portable/portable-pptx-package.mjs';
 import { xmlAttribute, xmlDecode } from '../portable/portable-xml.mjs';
-
-const digest = (data) => createHash('sha256').update(data).digest('hex');
+import { sha256 as digest } from '../shared/values.mjs';
 
 // All non-slide resources form a conservative global dependency. A chart,
 // theme, font, layout or image edit invalidates every page rather than risk a

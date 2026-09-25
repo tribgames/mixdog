@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { localContextSettings, saveLocalContext } from './context-settings.mjs';
@@ -25,6 +25,23 @@ test('model context persists independently, validates boundaries, and resets to 
     assert.equal(localContextSettings({ ...entry, id: 'another-model' }, dataDir).configuredContextWindow, null);
     saveLocalContext(entry, null, dataDir);
     assert.equal(localContextSettings(entry, dataDir).contextWindow, entry.contextWindow);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('a corrupt or out-of-range context file falls back to the model default', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-context-corrupt-'));
+  const entry = LOCAL_PROVIDER_MANIFEST.models[0];
+  try {
+    saveLocalContext(entry, 512, dataDir);
+    const file = join(dataDir, 'local-provider', 'context', readdirSync(join(dataDir, 'local-provider', 'context'))[0]);
+    for (const contents of ['{not json', 'null', JSON.stringify({ tokens: entry.maxContextWindow + 1 })]) {
+      writeFileSync(file, contents);
+      const settings = localContextSettings(entry, dataDir);
+      assert.equal(settings.configuredContextWindow, null, contents);
+      assert.equal(settings.contextWindow, entry.contextWindow, contents);
+    }
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

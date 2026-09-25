@@ -44,6 +44,9 @@ function slideAt(slide) {
 }
 
 function officeColorRgb(value) {
+  // No colour is no colour: a slide that follows its master reports background.color as "", and Number("") is 0 —
+  // black — so a navy title on a white content page was measured against black at 1.52:1.
+  if (value === null || value === undefined || (typeof value === 'string' && !value.trim())) return null;
   if (typeof value === 'string') {
     const hex = value.trim().replace(/^#/u, '');
     if (/^[0-9a-f]{6}$/iu.test(hex)) {
@@ -163,6 +166,15 @@ const PPTX_AXIS_KINDS = Object.freeze(['left edge', 'centre', 'right edge', 'top
 // dimension reports its centre only; the drawn dimension keeps both ends.
 function pptxShapeAxes(shape) {
   const flat = { x: shape.width === 0, y: shape.height === 0 };
+  const span = shape.pageSpan || {};
+  const VERTICAL = new Set(['top edge', 'bottom edge', 'middle']);
+  const HORIZONTAL = new Set(['left edge', 'right edge', 'centre']);
+  return pptxPlacedAxes(shape, flat).filter(
+    ([kind]) => !(span.spansHeight && VERTICAL.has(kind)) && !(span.spansWidth && HORIZONTAL.has(kind))
+  );
+}
+
+function pptxPlacedAxes(shape, flat) {
   return [
     ...(flat.x
       ? []
@@ -684,12 +696,22 @@ function reviewPptxTextOcclusion(slide, textShapes, issues) {
 // A glyph- or marker-size picture (the icon in a node, the mark before a list line) registers to the unit it
 // marks, not to the page: a hub's satellites stand on a circle, so their icons' edges land wherever the angle
 // puts them, and reading those as axes flagged every radial structure.
-function reviewPptxAlignment(slide, issues) {
+// A plane that runs the page's full height (the plane chrome's dark column) or full width (a head band) was not
+// placed on that dimension: its middle is the page's middle, and a stage centred a few points lower read as drift
+// against it. It keeps the edges it does place — the plane's right edge is the column the body hangs from.
+function pageSpanningAxes(shape, canvas) {
+  const spansHeight = canvas.height > 0 && shape.top <= 0.5 && shape.top + shape.height >= canvas.height - 0.5;
+  const spansWidth = canvas.width > 0 && shape.left <= 0.5 && shape.left + shape.width >= canvas.width - 0.5;
+  return { spansHeight, spansWidth };
+}
+
+function reviewPptxAlignment(slide, issues, canvas = { width: 0, height: 0 }) {
   const placedShapes = (slide.shapes || [])
     .filter(
       (shape) => !isMotifShape(shape) && !isPptxInlineIcon(shape) && !String(shape.text || '').trim() && hasFrame(shape)
     )
-    .map(numericFrame);
+    .map(numericFrame)
+    .map((shape) => ({ ...shape, pageSpan: pageSpanningAxes(shape, canvas) }));
   const slideAxes = pptxEstablishedAxes(placedShapes);
   let drifts = 0;
   for (const shape of placedShapes) {
@@ -756,7 +778,7 @@ export function reviewPptxStructure(document, auditProfile = '') {
     reviewPptxTextPairs(slide, textShapes, issues);
     reviewPptxEvidenceCover(slide, textShapes, issues);
     reviewPptxTextOcclusion(slide, textShapes, issues);
-    reviewPptxAlignment(slide, issues);
+    reviewPptxAlignment(slide, issues, canvas);
     if (auditProfile === 'model-backed-deck') reviewPptxNumberSources(slide, textShapes, issues);
   }
   return issues;

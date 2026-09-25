@@ -7,16 +7,11 @@
 // already non-conforming in HEAD had to be reverted by hand. Scope still comes
 // from `paths` and nothing here derives one from a diff: the split is a report
 // the caller reads before writing, so they can pass a precise file list.
+import { normalizeRel } from './languages.mjs';
 import { runProcess, which } from './process.mjs';
 
 const GIT_STATUS_TIMEOUT_MS = 20_000;
 export const NO_GIT_REASON = 'git is not installed';
-
-function normalizeRel(value) {
-  return String(value || '')
-    .replaceAll('\\', '/')
-    .replace(/^\.\//, '');
-}
 
 // Porcelain paths are repository-root relative; a cwd below the root rebases
 // them and drops whatever sits outside, since no scoped file can match it.

@@ -55,7 +55,7 @@ export function SlashCommandPalette({ commands, selectedIndex = 0, title = 'Comm
   // (Windows fullscreen repaint made that oscillation a hard flicker).
   const noMatches = total === 0;
   const blankRows = Math.max(0, MAX_VISIBLE - visible.length - (noMatches ? 1 : 0));
-  const labelWidth = Math.max(12, Math.min(COMMAND_LABEL_WIDTH, Math.max(12, Math.floor(columns * 0.45))));
+  const labelWidth = Math.min(COMMAND_LABEL_WIDTH, Math.max(12, Math.floor(columns * 0.45)));
   const descriptionWidth = Math.max(0, columns - labelWidth - 12);
   // Standard panel rhythm: title row, blank, description/hint row, blank, content.
   const description = truncateText(SLASH_DESCRIPTION, Math.max(0, columns - 4));

@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -90,7 +91,7 @@ async function workspaceFiles(root: string, options: DesktopWorkspaceTextSearchO
     } catch {
       /* no .gitignore here — inherit ancestor rules */
     }
-    let entries;
+    let entries: Dirent[];
     try {
       entries = await readdir(join(root, relDir), { withFileTypes: true });
     } catch {
@@ -131,16 +132,17 @@ function isWholeWord(content: string, start: number, end: number): boolean {
 function lineMatches(
   line: string,
   lineNumber: number,
-  options: DesktopWorkspaceTextSearchOptions,
+  regex: RegExp,
+  wholeWord: boolean | undefined,
   remaining: number
 ): DesktopWorkspaceTextMatch[] {
-  const regex = searchRegex(options);
+  regex.lastIndex = 0;
   const matches: DesktopWorkspaceTextMatch[] = [];
   let match: RegExpExecArray | null;
   while (matches.length < remaining && (match = regex.exec(line))) {
     const start = match.index;
     const end = start + match[0].length;
-    if (!options.wholeWord || isWholeWord(line, start, end)) {
+    if (!wholeWord || isWholeWord(line, start, end)) {
       matches.push({
         line: lineNumber,
         column: start + 1,
@@ -181,10 +183,11 @@ export async function searchWorkspaceTextIn(
     for (let offset = 0; offset < batch.length && matchCount < maximum; offset += 1) {
       const content = contents[offset];
       if (content === null) continue;
+      const regex = searchRegex(options);
       const matches: DesktopWorkspaceTextMatch[] = [];
       const lines = content.split(/\r?\n/);
       for (let index = 0; index < lines.length && matchCount < maximum; index += 1) {
-        const found = lineMatches(lines[index], index + 1, options, maximum - matchCount);
+        const found = lineMatches(lines[index], index + 1, regex, options.wholeWord, maximum - matchCount);
         matches.push(...found);
         matchCount += found.length;
       }

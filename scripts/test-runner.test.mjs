@@ -58,9 +58,10 @@ test('the electron lane rides the default lane and is dropped only by an explici
   assert.deepEqual(selectTestFiles(files, parseArgs([])), ['src/a.test.mjs', 'src/overlay.electron.test.mjs']);
   assert.deepEqual(selectTestFiles(files, parseArgs(['--exclude-lane', 'electron'])), ['src/a.test.mjs']);
   assert.deepEqual(selectTestFiles(files, parseArgs(['--lane=electron'])), ['src/overlay.electron.test.mjs']);
-  assert.deepEqual(selectTestFiles(files, parseArgs(['--lane=all', '--exclude-lane=electron', '--exclude-lane=slow'])), [
-    'src/a.test.mjs',
-  ]);
+  assert.deepEqual(
+    selectTestFiles(files, parseArgs(['--lane=all', '--exclude-lane=electron', '--exclude-lane=slow'])),
+    ['src/a.test.mjs']
+  );
   assert.throws(() => parseArgs(['--exclude-lane=nightly']), {
     message: 'unknown excluded lane "nightly" (fast|slow|live|electron)',
   });
@@ -106,10 +107,7 @@ test('re-run, exclusion and help flags stay opt-in and reject unusable values', 
   assert.deepEqual(parseArgs([]), { lane: 'fast', list: false, nodeArgs: [], filters: [] });
   assert.equal(parseArgs(['--rerun-failed', '3']).rerunFailed, 3);
   assert.equal(parseArgs(['--rerun-failed=0']).rerunFailed, 0);
-  assert.deepEqual(parseArgs(['--exclude-lane=electron', '--exclude-lane', 'slow']).excludeLanes, [
-    'electron',
-    'slow',
-  ]);
+  assert.deepEqual(parseArgs(['--exclude-lane=electron', '--exclude-lane', 'slow']).excludeLanes, ['electron', 'slow']);
   assert.equal(parseArgs(['--help']).help, true);
   assert.equal(parseArgs(['-h']).help, true);
   assert.deepEqual(parseArgs(['--rerun-failed', '2', 'src/a']).filters, ['src/a']);

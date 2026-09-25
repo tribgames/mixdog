@@ -55,35 +55,21 @@ pub(crate) fn parse_patch(input: &str) -> Result<Vec<Entry>, String> {
                 if line.is_empty() {
                     return Err("malformed empty hunk line".to_string());
                 }
-                let tag = line.as_bytes()[0];
-                if tag != b' ' && tag != b'-' && tag != b'+' {
-                    return Err(format!("malformed hunk line: {line}"));
+                // Which declared sides the line consumes: context both, a
+                // delete the old side, an add the new side.
+                let (takes_old, takes_new) = match line.as_bytes()[0] {
+                    b' ' => (true, true),
+                    b'-' => (true, false),
+                    b'+' => (false, true),
+                    _ => return Err(format!("malformed hunk line: {line}")),
+                };
+                if (takes_old && old_remaining == 0) || (takes_new && new_remaining == 0) {
+                    return Err(
+                        "malformed patch: hunk body exceeds declared line counts".to_string()
+                    );
                 }
-                match tag {
-                    b' ' => {
-                        if old_remaining == 0 || new_remaining == 0 {
-                            return Err("malformed patch: hunk body exceeds declared line counts"
-                                .to_string());
-                        }
-                        old_remaining -= 1;
-                        new_remaining -= 1;
-                    }
-                    b'-' => {
-                        if old_remaining == 0 {
-                            return Err("malformed patch: hunk body exceeds declared line counts"
-                                .to_string());
-                        }
-                        old_remaining -= 1;
-                    }
-                    b'+' => {
-                        if new_remaining == 0 {
-                            return Err("malformed patch: hunk body exceeds declared line counts"
-                                .to_string());
-                        }
-                        new_remaining -= 1;
-                    }
-                    _ => {}
-                }
+                old_remaining -= usize::from(takes_old);
+                new_remaining -= usize::from(takes_new);
                 hunk_lines.push(line.to_string());
                 i += 1;
             }

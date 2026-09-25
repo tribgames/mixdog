@@ -10,14 +10,12 @@
 import { createFairCallScheduler } from '../fair-call-scheduler.mjs';
 import { callSignature, callIdConflict, clientCallOwner } from '../rpc-call-identity.mjs';
 import { isPidAlive } from '../../runtime/shared/pid-liveness.mjs';
+import { positiveInt } from '../../runtime/shared/numbers.mjs';
 import { ACTIVATE_TOOL, REBIND_TOOL, BINDING_TOOLS, remoteSessionIdFromBinding } from '../channel-binding.mjs';
 
 const CALL_CACHE_TTL_MS = 60_000;
 
-function configuredLaneLimit(name) {
-  const parsed = Math.floor(Number(process.env[name]));
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : Infinity;
-}
+const configuredLaneLimit = (name) => positiveInt(process.env[name], Infinity);
 
 export function createCallDispatch({
   state,

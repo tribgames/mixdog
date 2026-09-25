@@ -33,6 +33,10 @@ function literalPathspec(path: string): string {
   return `:(literal)${path}`;
 }
 
+function errorDetail(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
 interface RepositoryIdentity {
   gitDir: string;
   toplevel: string;
@@ -266,7 +270,7 @@ export function cacheHookRunnerSupport(probe: () => Promise<unknown>, cache: Hoo
   cache.value ??= probe().then(
     () => true,
     (reason: unknown) => {
-      const detail = (reason instanceof Error ? reason.message : String(reason)).trim();
+      const detail = errorDetail(reason).trim();
       if (missingHookRunner(detail)) return false;
       // A broken probe is not an answer: forget it so the next call asks again.
       cache.value = null;
@@ -322,7 +326,7 @@ async function runCommitHook(
   } catch (reason) {
     // git ignores post-commit's exit status; every other hook is a veto.
     if (advisory) return;
-    const detail = (reason instanceof Error ? reason.message : String(reason)).trim();
+    const detail = errorDetail(reason).trim();
     throw new Error(`The ${name} hook refused this commit${detail ? `:\n${detail}` : '.'}`);
   }
 }
@@ -515,7 +519,7 @@ function indexLockPresentError(lockPath: string): Error {
  * that may well be held.
  */
 function indexLockUnknownError(lockPath: string, reason: unknown): Error {
-  const detail = reason instanceof Error ? reason.message : String(reason);
+  const detail = errorDetail(reason);
   return new Error(
     [
       `Git's index lock "${lockPath}" could not be checked, so another Git process using this `,
@@ -733,7 +737,7 @@ function parseMaybeBool(value: string): boolean | null {
  * An explicit filemode that does not keep the owner's read AND write is git's
  * own fatal config error, refused here the same way.
  */
-export function sharedRepositoryPerm(shared: string | null): number {
+function sharedRepositoryPerm(shared: string | null): number {
   if (shared === null) return SHARED_GROUP;
   if (shared === 'umask') return PERM_UMASK;
   if (shared === 'group') return SHARED_GROUP;
@@ -939,8 +943,7 @@ export async function applyPublishMode(handle: ModedLockFile, mode: number): Pro
   } catch (reason) {
     const code = (reason as NodeJS.ErrnoException)?.code ?? '';
     if (!chmodErrorIsIgnorable(code)) {
-      const detail = reason instanceof Error ? reason.message : String(reason);
-      throw new Error(`the index lock could not be given mode ${wanted}: ${detail}`);
+      throw new Error(`the index lock could not be given mode ${wanted}: ${errorDetail(reason)}`);
     }
     // No permission bits on this filesystem: nothing to publish incorrectly.
     return;
@@ -1018,7 +1021,6 @@ async function refreshCommittedPaths(
     handle = await open(lockPath, 'wx');
   } catch (reason) {
     const code = (reason as NodeJS.ErrnoException)?.code;
-    const failure = reason instanceof Error ? reason.message : String(reason);
     throw refreshFailure(
       commit,
       changed,
@@ -1026,7 +1028,7 @@ async function refreshCommittedPaths(
         ? // Somebody else's lock: it is left exactly where it is.
           `another Git process took "${lockPath}" while this commit was being made` +
             '; wait for it to finish, or delete that file if no Git process is running'
-        : `${lockPath} could not be created: ${failure}`
+        : `${lockPath} could not be created: ${errorDetail(reason)}`
     );
   }
   let published = false;
@@ -1042,8 +1044,11 @@ async function refreshCommittedPaths(
     try {
       publish = await indexPublishMode(repository.toplevel, indexPath);
     } catch (reason) {
-      const detail = reason instanceof Error ? reason.message : String(reason);
-      throw refreshFailure(commit, changed, `the permissions the index must be published with are unknown: ${detail}`);
+      throw refreshFailure(
+        commit,
+        changed,
+        `the permissions the index must be published with are unknown: ${errorDetail(reason)}`
+      );
     }
     if (publish !== null) {
       // The rename makes this mode the index's, so a mode that did not take is
@@ -1051,8 +1056,7 @@ async function refreshCommittedPaths(
       try {
         await applyPublishMode(handle, publish.mode);
       } catch (reason) {
-        const detail = reason instanceof Error ? reason.message : String(reason);
-        throw refreshFailure(commit, changed, detail);
+        throw refreshFailure(commit, changed, errorDetail(reason));
       }
     }
     // The lock is HELD from here on, so nothing can reach the index between

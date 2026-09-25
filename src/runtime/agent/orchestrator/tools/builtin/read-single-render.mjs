@@ -7,23 +7,18 @@
 import * as fsPromises from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
 import { READ_PREFIX_HASH_BYTES } from './read-single-fast-paths.mjs';
+import { decodeUtf16Body, isUtf16Encoding } from './snapshot-helpers.mjs';
 
 /**
  * Encoding-aware decode (fresh read AND raw-content cache hit both flow
  * through here). For a BOM-flagged UTF-16LE file, strip the 2-byte FF FE BOM
  * and decode as utf16le so it reverses the write tool's preservation; utf-8
  * stays byte-identical (the leading U+FEFF of a utf8-BOM file is stripped
- * later at the line[0] check for display). UTF-16BE has no Node string
- * encoding: swap byte pairs to LE (swap16 needs an even length) then decode
- * as utf16le, so a BE file reverses the same way a LE file does.
+ * later at the line[0] check for display). A UTF-16BE file reverses the same
+ * way a LE file does (decodeUtf16Body).
  */
 export function decodeReadBuffer(rawBuf, enc) {
-  if (enc.encoding === 'utf16le') return rawBuf.subarray(enc.bomLen).toString('utf16le');
-  if (enc.encoding === 'utf16be') {
-    const body = rawBuf.subarray(enc.bomLen);
-    const even = body.length & ~1;
-    return Buffer.from(body.subarray(0, even)).swap16().toString('utf16le');
-  }
+  if (isUtf16Encoding(enc)) return decodeUtf16Body(rawBuf, enc);
   return rawBuf.toString('utf-8');
 }
 
@@ -79,7 +74,7 @@ function rangeFooter(ctx, render, rendered) {
  */
 function renderReadWindow(content, ctx, helpers) {
   const { filePath, st, offset, limit, hasRangeArgs, wantFull, readMaxOutputBytes } = ctx;
-  const { renderReadLine, smartReadTruncate, appendReadContextAdvisory, normalizeOutputPath } = helpers;
+  const { renderReadLine, smartReadTruncate, normalizeOutputPath } = helpers;
   const lines = content.split(/\r?\n/);
   if (lines.length > 0 && lines[0].charCodeAt(0) === 0xfeff) lines[0] = lines[0].slice(1);
   // wc-l compatible line count: a trailing newline ends a line, it does not
@@ -122,9 +117,6 @@ function renderReadWindow(content, ctx, helpers) {
     const { replace, footer } = rangeFooter(ctx, render, rendered);
     if (replace !== undefined) out = replace;
     else if (footer !== undefined) out += `${out ? '\n' : ''}${footer}`;
-  }
-  if (!hasRangeArgs && !wantFull && !smartTruncated && content.length > 0) {
-    out = appendReadContextAdvisory(out, { filePath, lineCount, bytes: st.size });
   }
   // An empty file gets a system-reminder instead of a bare `1│` line so the
   // agent doesn't assume content was elided. W1 M: the filename can contain

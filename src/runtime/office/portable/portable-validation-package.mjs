@@ -262,8 +262,9 @@ async function presentationFaults(zip, entries) {
   // pptxgenjs points the notes master at the slide master's theme. PowerPoint
   // opens that deck only while <p:notesMasterIdLst> directly follows <p:sldIdLst>.
   const presentation = String((await zipText(zip, 'ppt/presentation.xml')) || '').replace(/<!--[\s\S]*?-->/g, '');
-  const notesShareTolerated =
-    /<p:sldIdLst\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/p:sldIdLst\s*>)\s*<p:notesMasterIdLst\b/.test(presentation);
+  const notesShareTolerated = /<p:sldIdLst\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/p:sldIdLst\s*>)\s*<p:notesMasterIdLst\b/.test(
+    presentation
+  );
   const themeOwners = new Map();
   const masters = entries
     .filter((name) => PRESENTATION_MASTER.test(name))

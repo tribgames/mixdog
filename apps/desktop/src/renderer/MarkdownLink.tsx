@@ -9,7 +9,9 @@ import { prefetchEditorPane, scheduleEditorPanePrefetch } from './lazy-widgets';
 import { resolveLocalLink, type ResolvedLocalLink } from './local-link-resolver';
 import { localFileOpener, localLinkKind, parseLocalFileLocation } from '../shared/local-files';
 
-function childrenText(node: ReactNode): string {
+/** Plain text of rendered children: highlighted code and link captions are
+ *  hast-derived spans, so a String() cast would not yield their source. */
+export function childrenText(node: ReactNode): string {
   if (node == null || typeof node === 'boolean') return '';
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(childrenText).join('');
@@ -54,7 +56,7 @@ export interface LocalLinkTarget {
  *  text files go to Mixdog's editor at their line, documents launch the OS
  *  app, folders open in the file manager. Each file uses its owning Project,
  *  which may differ from the conversation's current Project. */
-export function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
+function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const projectPath = useContext(MarkdownProjectContext);
   const openFile = useContext(MarkdownOpenFileContext);
   const [resolved, setResolved] = useState<{ key: string; title: string; target: ResolvedLocalLink | null }>({
@@ -183,14 +185,9 @@ export function useLocalLinkTarget(target: string, verify = false): LocalLinkTar
 
 /** The explorer's file glyph, so a file reads the same in chat as in the
  *  tree. Folders carry no glyph there either. */
-export function LocalLinkIcon({ target }: { target: LocalLinkTarget }) {
+function LocalLinkIcon({ target }: { target: LocalLinkTarget }) {
   if (target.kind === 'folder') return null;
-  const name =
-    target.path
-      .replace(/[\\/]+$/, '')
-      .split(/[\\/]/)
-      .at(-1) || target.path;
-  return <SetiFileIcon name={name} />;
+  return <SetiFileIcon name={target.name} />;
 }
 
 /** Tool-card subject that names a file: same rule and look as a chat link,

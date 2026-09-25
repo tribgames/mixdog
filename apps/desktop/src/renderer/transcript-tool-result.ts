@@ -99,11 +99,14 @@ export function toolActivityStructuredRows(
       .filter((entry): entry is Record<string, unknown> => Boolean(entry));
     return {
       kind: 'questions',
-      rows: questions.map((question, index) => ({
-        text: toolActivityFirstText(question, 'question', 'header', 'text') || `Question ${index + 1}`,
-        status: toolActivityAnswer(result, question, index, questions.length) ? 'completed' : 'pending',
-        answer: toolActivityAnswer(result, question, index, questions.length),
-      })),
+      rows: questions.map((question, index) => {
+        const answer = toolActivityAnswer(result, question, index, questions.length);
+        return {
+          text: toolActivityFirstText(question, 'question', 'header', 'text') || `Question ${index + 1}`,
+          status: answer ? 'completed' : 'pending',
+          answer,
+        };
+      }),
     };
   }
   let source: unknown[] = [];

@@ -15,6 +15,8 @@ interface RelayViewSyncState {
   syncing?: boolean;
   visibleSessionIds: Set<string>;
   compactWire: boolean;
+  /** False for a browser that cannot page transcript history (see RelayClientState). */
+  transcriptPaging?: boolean;
   listDelta: boolean;
   sessionStateEncoders: Map<string, SnapshotDeltaEncoder>;
   sessionsEncoder: KeyedListDeltaEncoder<DesktopSessionSummary>;
@@ -46,7 +48,7 @@ export async function registerAndSynchronizeRelayViews(
   state.visibleSessionIds = new Set(ids);
   try {
     await (host.setVisibleSessionsForSource
-      ? host.setVisibleSessionsForSource(`remote:${clientId}`, ids)
+      ? host.setVisibleSessionsForSource(`remote:${clientId}`, ids, state.transcriptPaging !== true)
       : host.setVisibleSessions?.(ids));
     await synchronizeRelayViews(host, state, current, send, readViewBaselineOffer(params[1]));
   } finally {

@@ -21,21 +21,16 @@ export function _getSourceTextForNode(graph, node, fallbackText = null) {
     });
     return fallbackText;
   }
-  let text = '';
-  let readOk = false;
+  let text;
   try {
     text = readFileSync(node.abs, 'utf8');
-    readOk = true;
   } catch {
-    text = '';
-    readOk = false;
+    return '';
   }
-  if (readOk) {
-    graph?._sourceTextCache?.set(node.rel, {
-      fingerprint: node.fingerprint || '',
-      text,
-    });
-  }
+  graph?._sourceTextCache?.set(node.rel, {
+    fingerprint: node.fingerprint || '',
+    text,
+  });
   return text;
 }
 

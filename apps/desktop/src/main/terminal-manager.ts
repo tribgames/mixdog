@@ -5,6 +5,7 @@
 import type { IPty } from '@homebridge/node-pty-prebuilt-multiarch';
 import { childEnvironment } from './child-environment';
 import type { TerminalSpawnProfile } from './terminal-contract';
+import type { TerminalDataEvent } from './terminal-data-buffer';
 
 const REPLAY_BUFFER_LIMIT = 200_000;
 
@@ -73,11 +74,6 @@ interface ManagedTerminal {
   buffer: TerminalReplayBuffer;
   disposed: boolean;
   outputPaused: boolean;
-}
-
-export interface TerminalDataEvent {
-  id: string;
-  data: string;
 }
 
 export class TerminalManager {

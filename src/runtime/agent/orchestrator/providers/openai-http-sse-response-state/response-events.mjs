@@ -6,8 +6,6 @@
 import { createOutputItemEvents } from './response-events/output-items.mjs';
 import { createTerminalFrameEvents } from './response-events/terminal-frames.mjs';
 
-export { endTurnFromEvent as _endTurnFromEvent } from '../lib/responses-terminal-fields.mjs';
-
 export function createResponseEvents({ state, items, text, outcome, meaningful, onServerEvent }) {
   const output = createOutputItemEvents({ state, items, meaningful });
   const terminal = createTerminalFrameEvents({ state, items, text, outcome, meaningful });

@@ -31,7 +31,6 @@ const {
   setSecret: _setSecret,
   deleteSecret: _deleteSecret,
   hasSecret: _hasSecret,
-  invalidateSecretCache: _invalidateSecretCache,
 } = _require('../../lib/keychain-cjs.cjs');
 
 const DATA_DIR = resolvePluginData();
@@ -523,7 +522,7 @@ export function saveSecret(account, value) {
     _setSecret(account, value);
   } catch (err) {
     // On WSL/headless Linux (and any host missing a usable keychain provider,
-    // e.g. keytar/libsecret not installed or no running Secret Service) the OS
+    // e.g. secret-tool/libsecret not installed or no running Secret Service) the OS
     // write throws a cryptic provider error. Surface an actionable message that
     // points at the env-var read path the getters already honor, instead of
     // silently writing the plaintext secret to mixdog-config.json.

@@ -46,6 +46,23 @@ export * from './transcript-tool-core';
 export * from './transcript-tool-format';
 export * from './transcript-tool-result';
 
+/** Tools whose successful output is never worth showing. */
+const QUIET_SUCCESS_TOOLS = new Set(['load_tool', 'skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill']);
+/** Tools whose routine success text ("ok", "done", …) is suppressed. */
+const ROUTINE_RESULT_TOOLS = new Set([
+  'agent',
+  'bridge',
+  'task',
+  'browser',
+  'browser_devtools',
+  'computer',
+  'office',
+  'media',
+  'tidy',
+  'cwd',
+  'setup',
+]);
+
 interface DesktopToolActivityItemPresentation {
   category: string;
   title: string;
@@ -149,7 +166,7 @@ export function desktopToolActivityItemPresentation(
         !TOOL_ACTIVITY_INTERNAL_ARGS.has(key) &&
         !TOOL_ACTIVITY_BULK_ARGS.has(key) &&
         value !== false &&
-        !(typeof value === 'number' && value === 0)
+        value !== 0
     )
     .map(([key, value]) => ({
       key,
@@ -159,10 +176,11 @@ export function desktopToolActivityItemPresentation(
   // The argument fallback is the raw apply_patch envelope (`*** Begin Patch`),
   // which parseUnifiedDiff reads as one nameless "after" file with bogus
   // hunks; normalize it into a unified diff so the card names each file.
-  const argumentPatch = typeof args.patch === 'string' ? normalizeApplyPatch(args.patch).trim() : '';
   let diffPatch = '';
   if (typeof item.uiDiff === 'string' && item.uiDiff.trim()) diffPatch = item.uiDiff.trim();
-  else if (normalizedName === 'apply_patch') diffPatch = argumentPatch;
+  else if (normalizedName === 'apply_patch' && typeof args.patch === 'string') {
+    diffPatch = normalizeApplyPatch(args.patch).trim();
+  }
   const previewText = originalName === 'write' && typeof args.content === 'string' ? args.content : '';
   const beforeText =
     !diffPatch && normalizedName === 'edit' ? toolActivityFirstText(args, 'old_string', 'oldString', 'old_str') : '';
@@ -179,23 +197,8 @@ export function desktopToolActivityItemPresentation(
   const metaText = backgroundTask ? backgroundTask.meta : '';
   if (backgroundTask) outputText = backgroundTask.body;
   const mutation = normalizedName === 'edit' || normalizedName === 'apply_patch';
-  const routineSurface =
-    mutation ||
-    normalizedName === 'load_tool' ||
-    /^(?:skill|skill_execute|skill_view|skills_list|use_skill)$/.test(normalizedName) ||
-    normalizedName === 'agent' ||
-    normalizedName === 'bridge' ||
-    normalizedName === 'task' ||
-    normalizedName === 'browser' ||
-    normalizedName === 'browser_devtools' ||
-    normalizedName === 'computer' ||
-    normalizedName === 'office' ||
-    normalizedName === 'media' ||
-    normalizedName === 'tidy' ||
-    normalizedName === 'cwd' ||
-    normalizedName === 'setup';
-  const quietSuccessSurface =
-    normalizedName === 'load_tool' || /^(?:skill|skill_execute|skill_view|skills_list|use_skill)$/.test(normalizedName);
+  const quietSuccessSurface = QUIET_SUCCESS_TOOLS.has(normalizedName);
+  const routineSurface = mutation || quietSuccessSurface || ROUTINE_RESULT_TOOLS.has(normalizedName);
   if (
     structured.kind ||
     (tone === 'neutral' && routineSurface && TOOL_ACTIVITY_ROUTINE_RESULT.test(outputText.trim()))

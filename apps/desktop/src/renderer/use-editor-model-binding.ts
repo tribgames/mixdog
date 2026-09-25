@@ -92,6 +92,7 @@ export function useEditorModelBinding({
       const syncLanguageState = () => {
         const languageSnapshot = getEditorLanguageSnapshot();
         const comparableRelPath = relPath.replace(/\\/g, '/').toLocaleLowerCase();
+        const comparableProjectPath = projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase();
         const status =
           languageSnapshot.statuses.find(
             (candidate) =>
@@ -109,9 +110,8 @@ export function useEditorModelBinding({
         const problems = languageSnapshot.problems.filter(
           (problem) =>
             problem.origin === 'lsp' &&
-            problem.projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase() ===
-              projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase() &&
-            problem.relPath.replace(/\\/g, '/').toLocaleLowerCase() === relPath.replace(/\\/g, '/').toLocaleLowerCase()
+            problem.projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase() === comparableProjectPath &&
+            problem.relPath.replace(/\\/g, '/').toLocaleLowerCase() === comparableRelPath
         );
         const signature = JSON.stringify(
           problems.map((problem) => [

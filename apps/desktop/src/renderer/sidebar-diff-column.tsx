@@ -143,7 +143,9 @@ export function SidebarDiffColumn({
           resizeStart.current = null;
           try {
             event.currentTarget.releasePointerCapture(event.pointerId);
-          } catch {}
+          } catch {
+            /* capture already released */
+          }
           const next = dragPending.current ?? width;
           dragPending.current = null;
           try {

@@ -7,7 +7,7 @@ import '../../src/renderer/settings/settings.css';
 import '../../src/renderer/desktop/31-extensions.css';
 
 const root = createRoot(document.getElementById('root')!);
-(window as any).mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
+(window as any).mixdogDesktop = { async setTitleBarDim() {}, rendererDiagnostic() {} };
 const localProvider = {
   installed: true,
   enabled: true,
@@ -40,6 +40,8 @@ const localProvider = {
 };
 const api = { readCapabilities: async () => [{ ok: true, value: { localProvider } }] };
 const run = async () => ({ localProvider });
+const noop = () => {};
+const asyncNoop = async () => {};
 async function settle() {
   await document.fonts.ready;
   await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
@@ -63,6 +65,13 @@ async function settle() {
             snapshot={{} as any}
             pending=""
             run={run as any}
+            route={asyncNoop}
+            setFast={asyncNoop}
+            confirm={noop}
+            notice={noop}
+            updaterState={{ status: 'disabled' }}
+            checkDesktopUpdate={asyncNoop}
+            installDesktopUpdate={asyncNoop}
           />
         </div>
       )

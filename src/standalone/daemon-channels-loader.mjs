@@ -7,9 +7,7 @@
 // (runtime-paths writer, injected so the daemon entry keeps owning when that
 // module is evaluated). Output: { ensure, start, handleCall }.
 
-// Accepted owner controls refresh active-instance context. The transport
-// admits rebind only for the current manual owner.
-const POINTER_TOOLS = new Set(['activate_channel_bridge', 'rebind_current_transcript']);
+import { BINDING_TOOLS } from './channel-binding.mjs';
 
 export function createChannelsRuntimeLoader({ log, onLoaded = () => {}, setOwnerContext }) {
   // The channels runtime is imported AFTER the daemon env is set so worker-main
@@ -48,7 +46,9 @@ export function createChannelsRuntimeLoader({ log, onLoaded = () => {}, setOwner
 
   async function handleCall(name, args, ctx) {
     const module = await ensure();
-    if (ctx && POINTER_TOOLS.has(name)) {
+    // Accepted owner controls refresh active-instance context. The transport
+    // admits rebind only for the current manual owner.
+    if (ctx && BINDING_TOOLS.has(name)) {
       try {
         setOwnerContext({ leadPid: ctx.leadPid, cwd: ctx.cwd });
       } catch {}

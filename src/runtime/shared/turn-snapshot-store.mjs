@@ -15,6 +15,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { cleanString as clean } from './clean.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 const DATA_DIR = resolvePluginData();
@@ -36,10 +37,6 @@ let recordRoot = join(DATA_DIR, 'turn-snapshots');
 // and a read never observes a partially written record (writes land by rename).
 const writeChains = new Map();
 let sweepDone = false;
-
-function clean(value) {
-  return typeof value === 'string' ? value.trim() : '';
-}
 
 function rootKey(value) {
   const root = clean(value).replace(/[\\/]+$/, '');
@@ -82,6 +79,17 @@ function sessionScopes(record) {
     for (const turn of Array.isArray(record?.turns) ? record.turns : []) add(turn);
   }
   return scopes;
+}
+
+/** Plain-JSON form of a scope built by sessionScopes(). */
+function serializeScope(entry) {
+  return {
+    root: entry.root,
+    baselineTree: entry.baselineTree,
+    toolFiles: [...entry.toolFiles],
+    baselineFiles: [...entry.baselineFiles.values()],
+    updatedAt: entry.updatedAt,
+  };
 }
 
 function recordPath(sessionId) {
@@ -203,13 +211,7 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
         sessionScopes: scopes
           .sort((left, right) => left.updatedAt - right.updatedAt)
           .slice(-MAX_SESSION_SCOPES)
-          .map((entry) => ({
-            root: entry.root,
-            baselineTree: entry.baselineTree,
-            toolFiles: [...entry.toolFiles],
-            baselineFiles: [...entry.baselineFiles.values()],
-            updatedAt: entry.updatedAt,
-          })),
+          .map(serializeScope),
       };
       const temporary = `${path}.${process.pid}.tmp`;
       await writeFile(temporary, JSON.stringify(payload), 'utf8');
@@ -248,13 +250,7 @@ export async function loadSessionSnapshotRecords(sessionId) {
   if (!id) return [];
   const record = await readRecordFile(recordPath(id));
   if (!record) return [];
-  return sessionScopes(record).map((entry) => ({
-    root: entry.root,
-    baselineTree: entry.baselineTree,
-    toolFiles: [...entry.toolFiles],
-    baselineFiles: [...entry.baselineFiles.values()],
-    updatedAt: entry.updatedAt,
-  }));
+  return sessionScopes(record).map(serializeScope);
 }
 
 export function _setTurnSnapshotStoreRootForTest(directory) {

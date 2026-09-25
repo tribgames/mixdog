@@ -1,4 +1,5 @@
-import { Worker } from 'node:worker_threads';
+import { hash } from 'node:crypto';
+import { MessageChannel, Worker } from 'node:worker_threads';
 import { guardedSaveOptions as _guardedSaveOptions } from './write-guards.mjs';
 import { _ensureLifecycleFields, _messagesForDisk, _sessionForDisk } from './serialize.mjs';
 import {
@@ -24,6 +25,7 @@ import {
   _onSessionSaveFaultChange,
   _sessionStoreTestMode,
 } from './save-fault.mjs';
+import { connectOwnCommitPeer } from './canonical-reader.mjs';
 
 // ── Worker-thread async save ──────────────────────────────────────────────────
 // Single long-lived Worker serializes all saveSessionAsync calls.
@@ -54,84 +56,151 @@ export const _deferredSessionSaves = new Map();
 // repair), a broken chain (failure/restart), or the periodic full resync
 // falls back to a full snapshot. Lock-free and per-id: sessions stay fully
 // parallel and the single worker's per-id FIFO preserves chain order.
-const _deltaBaseline = new Map(); // id → { refs: message[], deltasSinceFull }
-const DELTA_BASELINE_MAX = 8;
+//
+// Unbounded by count (a count cap pushed every save past N concurrent
+// sessions onto the full path): an entry lives until an invalidation, a hard
+// delete or the session's runtime teardown (forgetSessionSaveBaseline).
+//
+// No deep copy of the transcript is kept here: the worker already holds the
+// sent messages. Each sent message is identified by its live reference plus a
+// fingerprint of the projection that was sent, taken once when it was first
+// sent (and again on every periodic resync). Failure evidence is rebuilt from
+// the references only while every fingerprint still matches — an in-place
+// edit since the send makes the parent's evidence unprovable, and none is
+// recorded (the worker's own reply carries the exact attempt when it can).
+const _deltaBaseline = new Map(); // id → { refs: message[], prints: (string|null)[] | null, deltasSinceFull }
 const DELTA_FULL_RESYNC_EVERY = 25;
-
-function _touchDeltaBaseline(id, entry) {
-  _deltaBaseline.delete(id);
-  _deltaBaseline.set(id, entry);
-  while (_deltaBaseline.size > DELTA_BASELINE_MAX) {
-    const oldest = _deltaBaseline.keys().next().value;
-    if (oldest === undefined) break;
-    _deltaBaseline.delete(oldest);
-  }
-}
 
 function _invalidateDeltaBaseline(id) {
   _deltaBaseline.delete(id);
 }
 
-function _immutableProjection(messages) {
-  if (!Array.isArray(messages)) return null;
-  // DEEP copy: the projected baseline must survive in-place nested edits of
-  // messages that were already sent (a reference-identity delta never ships
-  // those, so they may not appear in failure evidence either).
+/**
+ * Release everything the save path retains for a session that went away: the
+ * parent baseline AND the worker's reconstructed base (both would otherwise
+ * live until the process exits). The worker message rides the same FIFO as
+ * the writes, so a write already posted for `id` still lands first; the next
+ * save for `id`, if any, simply goes out as a full snapshot.
+ */
+export function forgetSessionSaveBaseline(id) {
+  if (!id) return false;
+  const had = _deltaBaseline.delete(id);
+  if (_saveWorker) {
+    try {
+      _saveWorker.postMessage({ __forgetBase: String(id) });
+    } catch {
+      /* worker gone: its bases went with it */
+    }
+  }
+  return had;
+}
+
+/** Read-only inspector: does the parent still hold a delta baseline for `id`? */
+export function _hasSessionSaveBaseline(id) {
+  return _deltaBaseline.has(id);
+}
+
+function _cloneOrNull(value) {
   try {
-    return structuredClone(messages);
+    return structuredClone(value);
   } catch {
     return null;
   }
 }
 
+/** Fingerprint of one projected (disk-shape) message, or null when it has none. */
+function _messagePrint(message) {
+  try {
+    return hash('sha1', JSON.stringify(message) ?? 'undefined', 'base64');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fingerprints for `diskMessages` (the disk projection of `live`). A message
+ * whose live reference is unchanged since `prev` keeps the fingerprint taken
+ * when it was first sent; only changed/new messages are fingerprinted.
+ */
+function _printMessages(live, diskMessages, prev) {
+  const reuse = new Map();
+  if (prev?.prints) {
+    for (let index = 0; index < prev.refs.length; index += 1) reuse.set(prev.refs[index], prev.prints[index]);
+  }
+  return diskMessages.map((message, index) =>
+    reuse.has(live[index]) ? reuse.get(live[index]) : _messagePrint(message)
+  );
+}
+
+/**
+ * What one attempt sent, without copying the transcript: a detached copy of
+ * the (small) header, the live message references and their fingerprints.
+ */
+function _attemptRecord(header, refs, prints) {
+  if (!prints) return null;
+  const detached = _cloneOrNull({ ...header, messages: [] });
+  return detached ? { header: detached, refs, prints } : null;
+}
+
+/**
+ * Failure evidence for one attempt, rebuilt from its references only while
+ * every message still projects to exactly what was sent; otherwise none.
+ * (_recordSaveFailure detaches whatever it keeps.)
+ */
+function _attemptEvidence(attempt) {
+  if (!attempt) return null;
+  const messages = _messagesForDisk(attempt.refs);
+  for (let index = 0; index < messages.length; index += 1) {
+    const print = attempt.prints[index];
+    if (print === null || _messagePrint(messages[index]) !== print) return null;
+  }
+  return { ...attempt.header, messages };
+}
+
+function _isPureAppend(refs, live) {
+  if (live.length < refs.length) return false;
+  for (let index = 0; index < refs.length; index += 1) {
+    if (live[index] !== refs[index]) return false;
+  }
+  return true;
+}
+
 function _buildWirePayload(id, session, forceFull = false) {
   const live = Array.isArray(session.messages) ? session.messages : [];
   const base = forceFull ? null : _deltaBaseline.get(id);
-  if (base && base.deltasSinceFull < DELTA_FULL_RESYNC_EVERY && live.length >= base.refs.length) {
-    let pureAppend = true;
-    for (let index = 0; index < base.refs.length; index += 1) {
-      if (live[index] !== base.refs[index]) {
-        pureAppend = false;
-        break;
-      }
-    }
-    if (pureAppend) {
-      // Header: full disk projection with an empty message list (strips
-      // transient aliases); tail: per-message projection of the appended
-      // suffix only. Both use the same idempotent per-message projection
-      // as a full send, so worker-side reconstruction is byte-identical.
-      const header = _sessionForDisk({ ...session, messages: [] });
-      const tailMessages = _messagesForDisk(live.slice(base.refs.length));
-      // The EXACT payload the worker will reconstruct and write:
-      // immutable projected baseline + this delta. Failure evidence must
-      // be this, never a fresh projection of the mutable live session
-      // (an in-place nested edit of an already-sent message is NOT part
-      // of a reference-identity delta and must be absent here too).
-      const projectedBase =
-        Array.isArray(base.projected) && base.projected.length === base.refs.length ? base.projected : null;
-      const clonedTail = _immutableProjection(tailMessages);
-      const projected = projectedBase && clonedTail ? [...projectedBase, ...clonedTail] : null;
-      _touchDeltaBaseline(id, {
-        refs: live.slice(),
-        deltasSinceFull: base.deltasSinceFull + 1,
-        projected,
-      });
-      return {
-        delta: { baseCount: base.refs.length, header, tailMessages },
-        attempt: projected ? { ...header, messages: projected } : null,
-      };
-    }
+  const resyncDue = !base || base.deltasSinceFull >= DELTA_FULL_RESYNC_EVERY;
+  if (!resyncDue && _isPureAppend(base.refs, live)) {
+    // Header: full disk projection with an empty message list (strips
+    // transient aliases); tail: per-message projection of the appended
+    // suffix only. Both use the same idempotent per-message projection
+    // as a full send, so worker-side reconstruction is byte-identical.
+    const header = _sessionForDisk({ ...session, messages: [] });
+    const tailMessages = _messagesForDisk(live.slice(base.refs.length));
+    // The EXACT payload the worker will reconstruct and write is the sent
+    // baseline + this delta. Its evidence is fingerprint-checked against
+    // what was sent, never a fresh projection of the mutable live session
+    // (an in-place nested edit of an already-sent message is NOT part of a
+    // reference-identity delta). Only the tail is fingerprinted.
+    const prints = base.prints ? base.prints.concat(tailMessages.map(_messagePrint)) : null;
+    const refs = live.slice();
+    _deltaBaseline.set(id, { refs, deltasSinceFull: base.deltasSinceFull + 1, prints });
+    return {
+      delta: { baseCount: base.refs.length, header, tailMessages },
+      attempt: _attemptRecord(header, refs, prints),
+    };
   }
   const full = _sessionForDisk(session);
-  _touchDeltaBaseline(id, {
-    refs: live.slice(),
-    deltasSinceFull: 0,
-    // DEEP COPY: _sessionForDisk may return the live array (and the live
-    // message objects) itself; later appends or in-place nested edits must
-    // not reach this baseline.
-    projected: _immutableProjection(full.messages) ?? [],
-  });
-  return { session: full, attempt: full };
+  const diskMessages = Array.isArray(full.messages) ? full.messages : [];
+  // A prefix change (compaction, edit, repair) keeps the fingerprints of
+  // every unchanged message. The periodic resync, a forced full retry and a
+  // missing baseline re-fingerprint everything, so in-place nested edits of
+  // settled messages become provable evidence again at least every
+  // DELTA_FULL_RESYNC_EVERY saves.
+  const refs = live.slice();
+  const prints = _printMessages(live, diskMessages, resyncDue ? null : base);
+  _deltaBaseline.set(id, { refs, deltasSinceFull: 0, prints });
+  // (saveSessionAsync normalizes `messages` to an array before any post.)
+  return { session: full, attempt: _attemptRecord(full, refs, prints) };
 }
 
 // ── Fault-state mirroring (parent → worker) ─────────────────────────────────
@@ -304,8 +373,12 @@ function _retryFullAfterDeltaMiss(p, isCurrentIncarnation) {
  * originating call plus any that coalesced onto it before it was posted). A
  * supersede never lands here as a rejection — only a real worker failure does.
  */
-function _settleLandedWrite(p, { ok, saved, outcome, error, errorCode, injectedSaveFault }, isCurrentIncarnation) {
-  const { id, attemptSnapshot, summaryVersion, summaryRow, waiters, epoch, incarnation } = p;
+function _settleLandedWrite(
+  p,
+  { ok, saved, outcome, error, errorCode, injectedSaveFault, attempted },
+  isCurrentIncarnation
+) {
+  const { id, attempt, summaryVersion, summaryRow, waiters, epoch, incarnation } = p;
   if (!ok) {
     _failWorkerWrite(
       id,
@@ -314,7 +387,9 @@ function _settleLandedWrite(p, { ok, saved, outcome, error, errorCode, injectedS
       _workerSaveError(error, errorCode, injectedSaveFault),
       epoch,
       incarnation,
-      attemptSnapshot,
+      // The worker's own copy of what it attempted is exact; the parent's
+      // rebuild is the fallback.
+      attempted ?? _attemptEvidence(attempt),
       isCurrentIncarnation
     );
     return;
@@ -391,6 +466,48 @@ function _promoteQueuedWrite(id) {
   }
 }
 
+// ── Idle release ────────────────────────────────────────────────────────────
+// An idle save worker still holds its isolate heap (tens of MB of garbage
+// from the transcripts it parsed) and every delta base. Once no write has been
+// in flight for SAVE_WORKER_IDLE_MS the thread is terminated; the next save
+// spawns a fresh one (new own-commit channel) and every id goes out full once.
+// Only a worker with nothing posted and nothing queued is released, so no
+// write can be lost or reordered.
+const SAVE_WORKER_IDLE_MS = 30_000;
+let _saveWorkerIdleMs = SAVE_WORKER_IDLE_MS;
+let _idleReleaseTimer = null;
+
+function _scheduleIdleRelease(worker) {
+  if (_idleReleaseTimer) clearTimeout(_idleReleaseTimer);
+  _idleReleaseTimer = setTimeout(() => {
+    _idleReleaseTimer = null;
+    _releaseIdleWorker(worker);
+  }, _saveWorkerIdleMs);
+  _idleReleaseTimer.unref?.();
+}
+
+function _releaseIdleWorker(worker) {
+  if (worker !== _saveWorker || _saveWorkerPending.size > 0 || _saveAsyncQueued.size > 0) return;
+  _saveWorker = null;
+  _faultSyncedKey = null;
+  // Its delta bases go with it: the parent baselines would only miss.
+  _deltaBaseline.clear();
+  // Adopts the worker's last commit stamps, then closes the channel.
+  connectOwnCommitPeer(null);
+  worker.terminate().catch(() => {});
+}
+
+/** TEST-ONLY, gated: the live worker instance (or null), and the idle delay. */
+export function _saveWorkerForTest() {
+  return _sessionStoreTestMode() ? _saveWorker : null;
+}
+
+export function _setSaveWorkerIdleMsForTest(ms) {
+  if (!_sessionStoreTestMode()) return false;
+  _saveWorkerIdleMs = Number.isFinite(ms) && ms >= 0 ? ms : SAVE_WORKER_IDLE_MS;
+  return true;
+}
+
 /** One settled write reply from the live worker instance. */
 function _onWorkerReply(worker, reply) {
   const { reqId } = reply;
@@ -425,6 +542,9 @@ function _onWorkerReply(worker, reply) {
     _promoteQueuedWrite(id);
   } finally {
     _releaseSessionIncarnation(incarnation);
+    if (_saveWorkerPending.size === 0 && _saveAsyncQueued.size === 0 && worker === _saveWorker) {
+      _scheduleIdleRelease(worker);
+    }
   }
 }
 
@@ -440,7 +560,7 @@ function _retireWorkerBookkeeping(err) {
   _faultSyncedKey = null;
   _deltaBaseline.clear();
   for (const [, p] of _saveWorkerPending) {
-    _failWorkerWrite(p.id, p.summaryVersion, p.waiters, err, p.epoch, p.incarnation, p.attemptSnapshot);
+    _failWorkerWrite(p.id, p.summaryVersion, p.waiters, err, p.epoch, p.incarnation, _attemptEvidence(p.attempt));
     _releaseSessionIncarnation(p.incarnation);
   }
   _saveWorkerPending.clear();
@@ -462,9 +582,15 @@ function _getOrSpawnWorker() {
   // died (its error/exit events can arrive after a replacement is live, and
   // 'exit' always follows 'error') must never settle, reject or ref-count
   // the pending writes of the worker that replaced it.
+  // Own-commit stamps flow both ways on this channel, synchronously absorbed
+  // by each realm's next ownership check (canonical-reader.mjs).
+  const { port1, port2 } = new MessageChannel();
   const worker = new Worker(new URL('../save-session-worker.mjs', import.meta.url), {
     execArgv: [],
+    workerData: { ownCommitPort: port2 },
+    transferList: [port2],
   });
+  connectOwnCommitPeer(port1);
   _saveWorker = worker;
   // Push current fault state before any write can be posted: the worker's
   // own realm has no other source for it.
@@ -537,22 +663,16 @@ function _postAsyncWrite(
   // moment. The pending entry then holds immutable payload data even though
   // `session` remains the live object the exit drain needs.
   const summaryRow = _sessionSummary(session);
-  // IMMUTABLE failure evidence for exactly this attempt: the message list is
-  // copied now, so a later mutation of the live session cannot change what a
-  // failed settlement records.
-  // DEEP, immutable copy of the EXACT projected payload posted to the
-  // worker (disk-ineligible data already stripped). Mutating any nested
-  // message/tool/media field afterwards cannot change this evidence.
-  let attemptSnapshot = null;
-  try {
-    attemptSnapshot = wire.attempt ? structuredClone(wire.attempt) : null;
-  } catch {
-    attemptSnapshot = null; // unclonable payload records no evidence at all
-  }
+  // What this attempt posted (detached header + message references and
+  // their sent fingerprints): failure evidence is rebuilt from it only while
+  // it still provably matches the posted payload, so a later mutation of any
+  // nested message/tool/media field in the live session can never be
+  // recorded as what a failed settlement attempted.
+  const attempt = wire.attempt;
   _saveWorkerPending.set(reqId, {
     id,
     session,
-    attemptSnapshot,
+    attempt,
     opts,
     summaryVersion,
     summaryRow,
@@ -581,7 +701,9 @@ function _postAsyncWrite(
     // attempt with the error so the caller records immutable evidence
     // instead of the mutable live session. When projection/clone itself
     // failed there is no attempted payload, so no evidence is recorded.
-    if (attemptSnapshot && err && typeof err === 'object' && err.attemptSnapshot === undefined) {
+    // Only a payload that could have been cloned was attempted at all.
+    const attemptSnapshot = err && typeof err === 'object' ? _cloneOrNull(_attemptEvidence(attempt)) : null;
+    if (attemptSnapshot && err.attemptSnapshot === undefined) {
       try {
         err.attemptSnapshot = attemptSnapshot;
       } catch {
@@ -858,7 +980,8 @@ export function purgeSessionSaveBookkeeping(id) {
       }
     }
   }
-  _invalidateDeltaBaseline(id);
+  // Also frees the worker-side base: a deleted id never saves again.
+  forgetSessionSaveBaseline(id);
   return purged;
 }
 

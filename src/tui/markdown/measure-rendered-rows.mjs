@@ -5,7 +5,8 @@ import stripAnsi from 'strip-ansi';
 import { displayWidth } from '../display-width.mjs';
 import { assistantBodyWidth, measureMarkdownTableRows } from './table-layout.mjs';
 import { renderTokenAnsiSegments } from './render-ansi.mjs';
-import { resolveStreamingMarkdownParts } from './streaming-markdown.mjs';
+import { resolveStreamingMarkdownParts, streamingStableChunks } from './streaming-markdown.mjs';
+import { touchLru } from './lru.mjs';
 
 // One latest measurement per live stream. The small LRU bound mirrors the
 // streaming-markdown split caches: completed/abandoned stream ids cannot make
@@ -15,18 +16,7 @@ const STREAMING_ROWS_LRU_MAX = 32;
 
 function cacheStreamingRows(key, entry) {
   if (!key) return;
-  if (streamingRowsByKey.has(key)) streamingRowsByKey.delete(key);
-  streamingRowsByKey.set(key, entry);
-  while (streamingRowsByKey.size > STREAMING_ROWS_LRU_MAX) {
-    const oldest = streamingRowsByKey.keys().next().value;
-    if (oldest === undefined) break;
-    streamingRowsByKey.delete(oldest);
-  }
-}
-
-function stableChunksOf(parts) {
-  if (parts.stableChunks?.length) return parts.stableChunks;
-  return parts.stablePrefix ? [parts.stablePrefix] : [];
+  touchLru(streamingRowsByKey, key, entry, STREAMING_ROWS_LRU_MAX);
 }
 
 // Count how many terminal rows ONE logical line (no '\n') occupies once ink
@@ -161,7 +151,7 @@ export function measureStreamingMarkdownRenderedRows(text, columns, streamKey) {
   let rows = 0;
   let childCount = 0;
   let stableRows = 0;
-  const stableChunks = stableChunksOf(parts);
+  const stableChunks = streamingStableChunks(parts);
   const reusableChunks =
     cached &&
     cached.mode === 'markdown' &&

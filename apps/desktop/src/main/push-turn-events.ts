@@ -18,7 +18,6 @@ interface TurnCompletionTracker {
   /** Still idle? Delivery waits out a quiet period and re-asks, so a turn that
    *  resumed immediately never produces a notification. */
   isIdle(sessionId: string): boolean;
-  forget(sessionId: string): void;
 }
 
 /** One notification per session per minute at most. A roster can report the
@@ -84,10 +83,6 @@ export function createTurnCompletionTracker(): TurnCompletionTracker {
     },
     isIdle(sessionId) {
       return working.get(sessionId) === false;
-    },
-    forget(sessionId) {
-      working.delete(sessionId);
-      lastNotifiedAt.delete(sessionId);
     },
   };
 }

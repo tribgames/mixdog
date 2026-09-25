@@ -15,6 +15,7 @@ import {
   sessionMessageText,
 } from '../../../../session-runtime/session-text.mjs';
 import { sessionVisibility } from './store-summary-visibility.mjs';
+import { isStoredSessionId, positiveNumber as _positiveNumber } from './store-summary-fields.mjs';
 
 export const SESSION_SUMMARY_INDEX_VERSION = 2;
 
@@ -96,11 +97,6 @@ function _sessionMessageProjection(session) {
   return { count, preview };
 }
 
-function _positiveNumber(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
 function _desktopSessionSummary(value, cwd = null) {
   if (!value || typeof value !== 'object') return null;
   if (value.classification === 'task') {
@@ -171,7 +167,7 @@ export function _sessionSummary(session) {
 }
 
 function _normalizeSummaryRow(row) {
-  if (!row?.id || typeof row.id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(row.id)) return null;
+  if (!row?.id || typeof row.id !== 'string' || !isStoredSessionId(row.id)) return null;
   return {
     id: row.id,
     updatedAt: _positiveNumber(row.updatedAt, 0),
@@ -258,9 +254,31 @@ const _pendingRemovals = new Set(); // ids to drop (upsert/removal are mutually 
 let _summaryRetryTimer = null;
 let _summaryFlushScheduled = false;
 let _summaryFlushInflight = 0;
+const _summarySettleWaiters = new Set();
 
 export function _hasUnsettledSummaryOps() {
   return _pendingUpserts.size > 0 || _pendingRemovals.size > 0 || _summaryFlushScheduled || _summaryFlushInflight > 0;
+}
+
+function _notifySummarySettled() {
+  if (_hasUnsettledSummaryOps()) return;
+  for (const resolve of _summarySettleWaiters) resolve();
+  _summarySettleWaiters.clear();
+}
+
+/**
+ * Resolves once every queued summary-index mutation has landed and no flush
+ * is scheduled or in flight — from then on this process no longer touches
+ * the index, its lock or its temp files. Callers are told a save/sweep is
+ * done before its deferred index flush runs, so an owner that removes or
+ * switches the data dir awaits this first. A flush refused by a held lock
+ * (an overlapping flush of this process, or another process) stays queued
+ * and settles when its retry lands.
+ */
+export function settleSummaryIndexWrites() {
+  if (!_hasUnsettledSummaryOps()) return Promise.resolve();
+  _summaryRetryTimer?.ref?.();
+  return new Promise((resolve) => _summarySettleWaiters.add(resolve));
 }
 
 function _scheduleSummaryRetry() {
@@ -268,8 +286,10 @@ function _scheduleSummaryRetry() {
   _summaryRetryTimer = setTimeout(() => {
     _summaryRetryTimer = null;
     _flushPendingSummaryOps();
+    _notifySummarySettled();
   }, SUMMARY_RETRY_DELAY_MS);
-  _summaryRetryTimer.unref?.();
+  // Only an awaited settlement keeps the process alive for the retry.
+  if (_summarySettleWaiters.size === 0) _summaryRetryTimer.unref?.();
 }
 
 // Defer the flush off the caller's stack: the 1MB+ parse/stringify inside
@@ -281,6 +301,7 @@ function _scheduleSummaryFlush() {
   setImmediate(() => {
     _summaryFlushScheduled = false;
     _flushPendingSummaryOps();
+    _notifySummarySettled();
   });
 }
 
@@ -345,6 +366,7 @@ export function _flushPendingSummaryOps({ sync = false } = {}) {
     } catch {
       requeue();
     }
+    _notifySummarySettled();
     return;
   }
   _summaryFlushInflight++;
@@ -354,6 +376,7 @@ export function _flushPendingSummaryOps({ sync = false } = {}) {
     })
     .finally(() => {
       _summaryFlushInflight--;
+      _notifySummarySettled();
     });
 }
 

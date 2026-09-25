@@ -418,7 +418,7 @@ function Snapshot-Window($req) {
         throw "accessibility candidate limit exceeded: $($els.Count) > 5000; narrow the role/query or use the interactive view"
     }
     $modernChromium = ([string]$info.ClassName) -like 'Chrome_WidgetWin*'
-    $matches = New-Object System.Collections.ArrayList
+    $found = New-Object System.Collections.ArrayList
     $seen = @{}
     $uiaByIdentity = @{}
     $uiaFormatStarted = $snapshotClock.Elapsed.TotalMilliseconds
@@ -455,7 +455,7 @@ function Snapshot-Window($req) {
             Enabled     = [bool]$el.Cached.IsEnabled
             DedupeKey   = $dedupeKey
         }
-        [void]$matches.Add($record)
+        [void]$found.Add($record)
         $seen[$dedupeKey] = $record
         $identityKey = ([string]$observation.Name).ToLower() + '|' + $ct.ToLower()
         if (-not $uiaByIdentity.ContainsKey($identityKey)) { $uiaByIdentity[$identityKey] = New-Object System.Collections.ArrayList }
@@ -473,9 +473,9 @@ function Snapshot-Window($req) {
     }
     # Chromium draws its own controls, so its large tree is never searched for
     # native ones.
-    if ($bounded -and ($modernChromium -or ($matches.Count -gt 0 -and -not (Test-UnproxiedNativeControls $win)))) {
+    if ($bounded -and ($modernChromium -or ($found.Count -gt 0 -and -not (Test-UnproxiedNativeControls $win)))) {
         $msaaNodes = @()
-        $msaaWarning = if ($matches.Count -gt 0) {
+        $msaaWarning = if ($found.Count -gt 0) {
             'MSAA enrichment skipped: UIA supplied the bounded capture'
         }
         else {
@@ -552,22 +552,22 @@ function Snapshot-Window($req) {
             Enabled     = [bool]$node.Enabled
             DedupeKey   = $dedupeKey
         }
-        [void]$matches.Add($record)
+        [void]$found.Add($record)
         if ($null -eq $existing) { $seen[$dedupeKey] = $record }
     }
-    if ($null -ne $continuationTotal -and $matches.Count -ne $continuationTotal) {
+    if ($null -ne $continuationTotal -and $found.Count -ne $continuationTotal) {
         throw 'continuation is stale because the observed tree changed; capture the first page again'
     }
     $lines = New-Object System.Collections.ArrayList
     $elementsOut = New-Object System.Collections.ArrayList
     [void]$lines.Add("Window: $($info.Title) [$($info.Id)]")
     $view = if ($includeNoninteractive) { 'all' } else { 'interactive' }
-    [void]$lines.Add("Elements: total=$($matches.Count) candidates=$candidateCount view=$view offset=$offset max=$max generation=$generation")
+    [void]$lines.Add("Elements: total=$($found.Count) candidates=$candidateCount view=$view offset=$offset max=$max generation=$generation")
     if ($msaaWarning) { [void]$lines.Add("Warning: $msaaWarning") }
-    $page = Get-ElementPage $matches.Count $offset $max $generation $continuationFingerprint
+    $page = Get-ElementPage $found.Count $offset $max $generation $continuationFingerprint
     $end = $page.End
     for ($i = $offset; $i -lt $end; $i++) {
-        $record = $matches[$i]
+        $record = $found[$i]
         $observation = $record.Observation
         $ct = $record.ControlType
         $ref = 's{0}:e{1}' -f $generation, ($i - $offset)
@@ -638,14 +638,14 @@ function Snapshot-Window($req) {
         $detailText = if ($details.Count) { ' ' + ($details -join ' ') } else { '' }
         [void]$lines.Add(('[{0}] {1} "{2}"{3}{4} @{5},{6}' -f $ref, $ct, $nm, $en, $detailText, $cx, $cy))
     }
-    if ($matches.Count -eq 0) { [void]$lines.Add('(no matching elements found)') }
+    if ($found.Count -eq 0) { [void]$lines.Add('(no matching elements found)') }
     if ($null -ne $page.Continuation) { [void]$lines.Add("Continuation: $($page.Continuation)") }
     $state.Continuation = $page.Continuation
     return @{
         text           = ($lines -join [Environment]::NewLine)
         window_id      = $info.Id
         generation     = $generation
-        total_elements = $matches.Count
+        total_elements = $found.Count
         continuation   = $page.Continuation
         elements       = @($elementsOut)
         timings_ms     = @{

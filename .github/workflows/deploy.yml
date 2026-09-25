@@ -67,6 +67,34 @@ jobs:
           test "$(git rev-parse HEAD)" = "$(git rev-parse "origin/${DEFAULT_BRANCH}")"
           node --test scripts/release-gate-test.mjs
 
+      # A release ships only a commit the gate did not reject. The gate starts
+      # on the same push this dispatch usually follows, so wait for its verdict
+      # instead of racing it. A push that touched no gated path starts no gate
+      # run; the release then validates that commit itself (run_critical).
+      - name: Require a green Release Gate for the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          run_id=""
+          for attempt in $(seq 1 12); do
+            run_id=$(gh run list --workflow release-gate.yml --commit "$sha" --event push --limit 1 \
+              --json databaseId --jq '.[0].databaseId // empty')
+            if [[ -n "$run_id" ]]; then break; fi
+            sleep 5
+          done
+          if [[ -z "$run_id" ]]; then
+            echo "No Release Gate run for ${sha}; the release validates this commit itself."
+            exit 0
+          fi
+          echo "Waiting for Release Gate run ${run_id} on ${sha}"
+          if ! gh run watch "$run_id" --exit-status --interval 15 > /dev/null; then
+            echo "::error::Release Gate run ${run_id} did not pass for ${sha}; fix or re-run it before releasing."
+            exit 1
+          fi
+
       - name: Resolve app version and changed native components
         id: plan
         env:

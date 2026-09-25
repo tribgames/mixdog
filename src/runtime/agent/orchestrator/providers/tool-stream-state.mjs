@@ -25,23 +25,24 @@ export function createActiveToolItemTracker() {
     add(item?.call_id);
     return keys;
   };
-  const mark = (item, fallback = '') => {
+  // The item's own keys plus every alias already recorded for any of them.
+  const aliasedKeys = (item, fallback) => {
     const keys = new Set(activeToolKeys(item, fallback));
     for (const key of [...keys]) {
       const aliases = activeToolAliases.get(key);
       if (aliases) for (const alias of aliases) keys.add(alias);
     }
+    return keys;
+  };
+  const mark = (item, fallback = '') => {
+    const keys = aliasedKeys(item, fallback);
     for (const key of keys) {
       activeToolItems.add(key);
       activeToolAliases.set(key, new Set(keys));
     }
   };
   const clear = (item, fallback = '') => {
-    const keys = new Set(activeToolKeys(item, fallback));
-    for (const key of [...keys]) {
-      const aliases = activeToolAliases.get(key);
-      if (aliases) for (const alias of aliases) keys.add(alias);
-    }
+    const keys = aliasedKeys(item, fallback);
     for (const key of keys) {
       activeToolItems.delete(key);
       activeToolAliases.delete(key);

@@ -1,6 +1,7 @@
 import { localIdleTtlSeconds } from '../runtime/local-provider/request-queue.mjs';
 import { createLocalModelApi } from './local-model-api.mjs';
 import { setLocalProviderContext } from '../runtime/local-provider/server.mjs';
+import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
 
 export function createLocalProviderSettings({
   getConfig,
@@ -56,7 +57,10 @@ export function createLocalProviderSettings({
         const config = getConfig();
         saveConfigAndAdopt({
           ...config,
-          providers: { ...config.providers, 'mixdog-local': { ...config.providers?.['mixdog-local'], idleTtlSeconds } },
+          providers: {
+            ...config.providers,
+            [LOCAL_PROVIDER_ID]: { ...config.providers?.[LOCAL_PROVIDER_ID], idleTtlSeconds },
+          },
         });
         configureLocalProviderIdleTtl?.(idleTtlSeconds);
         return this.getToolModuleSettings();

@@ -17,6 +17,10 @@ const IMAGE_MIME = {
 // large-but-resizable images are no longer hard-refused. ~3.75MB raw ≈ ~5MB b64.
 const MAX_IMAGE_BYTES = 3_750_000;
 
+function imageReadError(text) {
+  return { content: [{ type: 'text', text }], isError: true };
+}
+
 // Returns the image MIME type for a path, or null if not a recognised image.
 export function imageMimeForPath(p) {
   return IMAGE_MIME[extname(String(p || '')).toLowerCase()] || null;
@@ -25,7 +29,7 @@ export function imageMimeForPath(p) {
 // Build an MCP image-content result for an image file, or null if the path is
 // not a recognised image (caller falls through to the normal text read).
 //
-// sharp present: read buffer -> resize fit:inside ≤2000x2000 -> token-budget
+// sharp present: read buffer -> resize fit:inside to the provider limits -> token-budget
 // recompress -> emit a metadata text block ("[Image: WxH, displayed at ...]")
 // followed by the image block.
 //
@@ -49,12 +53,7 @@ export async function readImageAsContent(fullPath, displayPath, preflightStat = 
   } catch {
     return null;
   }
-  if (buf.length === 0) {
-    return {
-      content: [{ type: 'text', text: `Error: image "${displayPath}" is empty (0 bytes).` }],
-      isError: true,
-    };
-  }
+  if (buf.length === 0) return imageReadError(`Error: image "${displayPath}" is empty (0 bytes).`);
 
   // sharp path: resize / downsample / token-budget. Returns null when sharp is
   // absent or processing failed, in which case we drop to the legacy cap path.
@@ -64,15 +63,7 @@ export async function readImageAsContent(fullPath, displayPath, preflightStat = 
     resized = await resizeImageBuffer(buf, ext);
   } catch (error) {
     if (error?.code !== 'INVALID_IMAGE_DATA') throw error;
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: image "${displayPath}" is invalid or corrupt and was not attached.`,
-        },
-      ],
-      isError: true,
-    };
+    return imageReadError(`Error: image "${displayPath}" is invalid or corrupt and was not attached.`);
   }
   if (resized) {
     const metaText = imageMetadataText(resized.dimensions, displayPath);
@@ -84,28 +75,16 @@ export async function readImageAsContent(fullPath, displayPath, preflightStat = 
 
   // --- Legacy fallback (sharp unavailable) ---
   if (st.size > MAX_IMAGE_BYTES) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: image "${displayPath}" is ${st.size} bytes, over the ${MAX_IMAGE_BYTES}-byte inline-view cap (image resizing unavailable: install the optional "sharp" dependency to auto-downsample). Convert/resize before reading.`,
-        },
-      ],
-      isError: true,
-    };
+    return imageReadError(
+      `Error: image "${displayPath}" is ${st.size} bytes, over the ${MAX_IMAGE_BYTES}-byte inline-view cap (image resizing unavailable: install the optional "sharp" dependency to auto-downsample). Convert/resize before reading.`
+    );
   }
   // Guard the base64 length against the hard API ceiling even under the cap.
   const data = buf.toString('base64');
   if (data.length > API_IMAGE_MAX_BASE64_SIZE) {
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `Error: image "${displayPath}" base64 size ${data.length} exceeds the ${API_IMAGE_MAX_BASE64_SIZE}-byte API limit (image resizing unavailable). Resize before reading.`,
-        },
-      ],
-      isError: true,
-    };
+    return imageReadError(
+      `Error: image "${displayPath}" base64 size ${data.length} exceeds the ${API_IMAGE_MAX_BASE64_SIZE}-byte API limit (image resizing unavailable). Resize before reading.`
+    );
   }
   return { content: [{ type: 'image', data, mimeType }] };
 }

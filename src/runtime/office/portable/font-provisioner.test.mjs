@@ -1,13 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import { platform } from 'node:os';
 import { isAbsolute } from 'node:path';
+import { promisify } from 'node:util';
 import {
   NOTO_FONT_DEFINITIONS,
+  fontRegistrationCommand,
   getUserFontDirectory,
   isFontInstalled,
   prepareOfficeFonts,
 } from './font-provisioner.mjs';
+
+// A Windows profile path can carry an apostrophe (C:\Users\O'Brien); the
+// registry value must be that path exactly, and nothing in it may run.
+const QUOTED_PATH = "C:\\Users\\O'Brien\\AppData\\Local\\Microsoft\\Windows\\Fonts\\Probe'; Remove-Item x; '.ttf";
+const PROBE_FONT = { registryName: "Probe O'Font (TrueType)" };
+
+test('font registration passes the name and path as data, never as script text', () => {
+  const { command, args, env } = fontRegistrationCommand(PROBE_FONT, QUOTED_PATH);
+  assert.equal(command, 'powershell.exe');
+  const script = args.at(-1);
+  assert.ok(!script.includes("O'Brien") && !script.includes('Probe O'), script);
+  assert.equal(env.MIXDOG_FONT_PATH, QUOTED_PATH);
+  assert.equal(env.MIXDOG_FONT_NAME, PROBE_FONT.registryName);
+});
+
+test('font registration hands PowerShell the path unchanged', { skip: platform() !== 'win32' }, async () => {
+  const { command, args, env } = fontRegistrationCommand(PROBE_FONT, QUOTED_PATH);
+  // The registry write is replaced by a function that reports what it received.
+  const stub =
+    'function New-ItemProperty { param($Path, $Name, $Value, $PropertyType, [switch]$Force) ' +
+    '[Console]::Out.Write("$Name|$Value") }; ';
+  const { stdout } = await promisify(execFile)(command, [...args.slice(0, -1), stub + args.at(-1)], {
+    env,
+    timeout: 30_000,
+  });
+  assert.equal(stdout, `${PROBE_FONT.registryName}|${QUOTED_PATH}`);
+});
 
 test('Noto font catalog is well-formed and unique', () => {
   const ids = new Set();

@@ -33,6 +33,10 @@ function dataDir() {
   return process.env.MIXDOG_DATA_DIR || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
 }
 
+function jobsDir() {
+  return join(dataDir(), 'shell-jobs');
+}
+
 export function pidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -105,6 +109,13 @@ async function sweepOrphanRecords(dir) {
   const cutoff = Date.now() - ORPHAN_GRACE_MS;
   const terminalCutoff = Date.now() - COMPLETED_SHELL_JOB_TTL_MS;
   const done = new Set(names.filter((name) => name.endsWith('.done')).map((name) => name.slice(0, -5)));
+  // The detail JSON plus every `<jobId>.*` marker beside it.
+  const removeJobFiles = (name, jobId) =>
+    removePaths(
+      names
+        .filter((sibling) => sibling === name || sibling.startsWith(`${jobId}.`))
+        .map((sibling) => join(dir, sibling))
+    );
   for (const name of names) {
     if (!name.endsWith('.json')) continue;
     const jobId = name.slice(0, -5);
@@ -116,22 +127,14 @@ async function sweepOrphanRecords(dir) {
     }
     if (done.has(jobId)) {
       if (mtimeMs >= terminalCutoff) continue;
-      await removePaths(
-        names
-          .filter((sibling) => sibling === name || sibling.startsWith(`${jobId}.`))
-          .map((sibling) => join(dir, sibling))
-      );
+      await removeJobFiles(name, jobId);
       continue;
     }
     if (pidAlive(ownerByJob.get(jobId) || 0)) continue;
     // A brand-new record whose owner marker has not landed yet is not an
     // orphan; only settled-and-abandoned records are swept.
     if (mtimeMs >= cutoff) continue;
-    await removePaths(
-      names
-        .filter((sibling) => sibling === name || sibling.startsWith(`${jobId}.`))
-        .map((sibling) => join(dir, sibling))
-    );
+    await removeJobFiles(name, jobId);
   }
 }
 
@@ -143,7 +146,7 @@ export function publishShellJobRecord(
   const jobId = String(task?.jobId || '').trim();
   if (!jobId) return;
   const ownerPid = Number(clientHostPid ?? task?.clientHostPid) || process.pid;
-  const dir = join(dataDir(), 'shell-jobs');
+  const dir = jobsDir();
   const jsonPath = join(dir, `${jobId}.json`);
   const ownerPath = join(dir, `${jobId}.owner-${ownerPid}`);
   retired.delete(jobId);
@@ -197,7 +200,7 @@ export function publishShellJobRecord(
 export function completeShellJobRecord(jobId, detail) {
   const key = validJobId(jobId);
   if (!key) return Promise.resolve(false);
-  const dir = join(dataDir(), 'shell-jobs');
+  const dir = jobsDir();
   const jsonPath = join(dir, `${key}.json`);
   const donePath = join(dir, `${key}.done`);
   const list = paths.get(key) || [jsonPath];
@@ -234,7 +237,7 @@ export function completeShellJobRecord(jobId, detail) {
 export async function readShellJobRecord(jobId) {
   const key = validJobId(jobId);
   if (!key) return null;
-  const dir = join(dataDir(), 'shell-jobs');
+  const dir = jobsDir();
   const jsonPath = join(dir, `${key}.json`);
   try {
     const record = JSON.parse(await readFile(jsonPath, 'utf8'));
@@ -249,7 +252,7 @@ export async function readShellJobRecord(jobId) {
 }
 
 export async function listShellJobRecords() {
-  const dir = join(dataDir(), 'shell-jobs');
+  const dir = jobsDir();
   let names;
   try {
     names = await readdir(dir);

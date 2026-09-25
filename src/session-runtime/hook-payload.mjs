@@ -5,11 +5,12 @@
 import { join } from 'node:path';
 import { clean } from './session-text.mjs';
 import { STANDALONE_DATA_DIR } from './runtime-paths.mjs';
+import { SESSION_ID_PATTERN } from './lifecycle/shared.mjs';
 
 export function createHookPayload({ rt, cfgMod }) {
   function hookTranscriptPath(sessionId) {
     const id = clean(sessionId);
-    if (!id || !/^[A-Za-z0-9_-]+$/.test(id)) return null;
+    if (!id || !SESSION_ID_PATTERN.test(id)) return null;
     const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
     return join(dataDir, 'sessions', `${id}.json`);
   }

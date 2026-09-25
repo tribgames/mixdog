@@ -50,8 +50,7 @@ export function normaliseReadLineWindowArgs(inputArgs, workDir) {
         return args;
       }
       args.path = spec.path;
-      if (spec.endLine) pathLineRange = { startLine: spec.lineNo, endLine: spec.endLine };
-      else pathLineRange = { startLine: spec.lineNo, endLine: spec.lineNo };
+      pathLineRange = { startLine: spec.lineNo, endLine: spec.endLine || spec.lineNo };
     }
   }
   const isFullMode = !args.mode || args.mode === 'full';

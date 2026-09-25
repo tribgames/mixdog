@@ -37,16 +37,25 @@ interface PaneDockContext {
   ) => React.ReactNode;
 }
 
+function sessionDockEntry(
+  leafId: string,
+  sessionId: string,
+  paneSideDocks: PaneDockContext['paneSideDocks'],
+  sessionSurfaces: PaneDockContext['sessionSurfaces']
+) {
+  return sessionSideDockEntryForSession(
+    paneSideDocks.entryFor(leafId),
+    sessionId,
+    sessionSurfaces.sessionSideSurfaces.get(sessionId) ?? null,
+    sessionSurfaces.sessionDiffs.get(sessionId) ?? null,
+    sessionSurfaces.sessionPanelViews.get(sessionId) ?? null
+  );
+}
+
 export function renderPaneSideDockView(leaf: PaneLeaf, focused: boolean, context: PaneDockContext): React.ReactNode {
   const active = paneActiveSelection(leaf);
   const sessionId = active?.kind === 'session' ? active.id : '';
-  const entry = sessionSideDockEntryForSession(
-    context.paneSideDocks.entryFor(leaf.id),
-    sessionId,
-    context.sessionSurfaces.sessionSideSurfaces.get(sessionId) ?? null,
-    context.sessionSurfaces.sessionDiffs.get(sessionId) ?? null,
-    context.sessionSurfaces.sessionPanelViews.get(sessionId) ?? null
-  );
+  const entry = sessionDockEntry(leaf.id, sessionId, context.paneSideDocks, context.sessionSurfaces);
   const prewarm = focused && context.dockBodyWarm;
 
   return (
@@ -137,13 +146,7 @@ export function renderPaneDockStripTrailing(
   const groups = workbenchSideLayout.layout.right;
   if (groups.length === 0) return null;
   const sessionId = active.kind === 'session' ? active.id : '';
-  const entry = sessionSideDockEntryForSession(
-    paneSideDocks.entryFor(leaf.id),
-    sessionId,
-    sessionSurfaces.sessionSideSurfaces.get(sessionId) ?? null,
-    sessionSurfaces.sessionDiffs.get(sessionId) ?? null,
-    sessionSurfaces.sessionPanelViews.get(sessionId) ?? null
-  );
+  const entry = sessionDockEntry(leaf.id, sessionId, paneSideDocks, sessionSurfaces);
   return (
     <PaneDockToggles
       groups={groups}

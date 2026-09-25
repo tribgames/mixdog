@@ -589,6 +589,7 @@ class CursorProviderBase {
   }
 
   _chatBody(messages, { cursorSelection, sessionScope, openAiTools, toolChoice }) {
+    const cursorToolChoice = toCursorToolChoice(toolChoice);
     return {
       model: cursorSelection.modelId,
       mixdog_model_parameters: cursorSelection.parameters,
@@ -601,7 +602,7 @@ class CursorProviderBase {
       stream: true,
       stream_options: { include_usage: true },
       ...(openAiTools ? { tools: openAiTools } : {}),
-      ...(toCursorToolChoice(toolChoice) !== undefined ? { tool_choice: toCursorToolChoice(toolChoice) } : {}),
+      ...(cursorToolChoice !== undefined ? { tool_choice: cursorToolChoice } : {}),
     };
   }
 

@@ -26,8 +26,8 @@ import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-reference-cache';
 import { copyTextToClipboard } from './text-format';
 import { CompactSwitch } from './settings/capability-controls';
+import type { RecordValue } from './desktop-types';
 
-type RecordValue = Record<string, unknown>;
 type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
 
 const PARSER_OPTIONS = [
@@ -112,13 +112,14 @@ function endpointUrl(publicBase: string, name: string): string {
 // Client-side secret mint for NEW webhooks: showing the value (with copy)
 // inside the editor beats the old one-shot post-save reveal. Same shape as
 // the store's randomBytes(24) hex.
+// Only a cryptographic source may mint a signing secret: without one the
+// caller surfaces the failure instead of issuing a guessable secret.
 function generateSigningSecret(): string {
   const bytes = new Uint8Array(24);
-  try {
-    crypto.getRandomValues(bytes);
-  } catch {
-    for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+  if (typeof globalThis.crypto?.getRandomValues !== 'function') {
+    throw new Error('Secure random generation is unavailable, so a signing secret cannot be created.');
   }
+  globalThis.crypto.getRandomValues(bytes);
   return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
 }
 
@@ -149,8 +150,8 @@ function ConnectionRow({
           className="icon-button webhook-connection-copy"
           disabled={!value}
           onClick={onCopy}
-          aria-label={t('Copy {{name}}', { name: t(label) })}
-          data-tooltip={t('Copy {{name}}', { name: t(label) })}
+          aria-label={t('Copy {{name}}', { name: label })}
+          data-tooltip={t('Copy {{name}}', { name: label })}
         >
           {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
         </button>
@@ -215,6 +216,7 @@ function WebhookEditor({
     copiedFieldTimer.current = setTimeout(() => setCopiedField(''), 1600);
   };
   const previewUrl = urlName.trim() ? endpointUrl(publicBase, urlName.trim()) : '';
+  const shownUrl = editing ? endpointUrl(publicBase, draft.name) : previewUrl;
   const initialModel = parseModelRef(draft.model);
   const [model, setModel] = useState(initialModel.route);
   const [effort, setEffort] = useState(initialModel.effort);
@@ -410,14 +412,14 @@ function WebhookEditor({
             <ConnectionRow
               label={t('Endpoint URL')}
               note={t('Call this URL to trigger the webhook.')}
-              value={editing ? endpointUrl(publicBase, draft.name) : previewUrl}
+              value={shownUrl}
               placeholder={
                 publicBase
                   ? t('Type a name to preview the endpoint URL')
                   : t('URL appears once the runtime connects to the relay')
               }
               copied={copiedField === 'url'}
-              onCopy={() => copyField('url', editing ? endpointUrl(publicBase, draft.name) : previewUrl)}
+              onCopy={() => copyField('url', shownUrl)}
             />
             {editing && !rotated && (
               <div className="schedules-field webhook-connection-row">
@@ -428,7 +430,13 @@ function WebhookEditor({
                     type="button"
                     className="settings-action"
                     disabled={busy}
-                    onClick={() => setRotated(generateSigningSecret())}
+                    onClick={() => {
+                      try {
+                        setRotated(generateSigningSecret());
+                      } catch (reason) {
+                        setFormError(reason instanceof Error ? reason.message : String(reason));
+                      }
+                    }}
                   >
                     {t('Regenerate secret')}
                   </button>
@@ -595,7 +603,13 @@ export function WebhooksPane({
             setError('');
             // Pre-mint the signing secret so the popup shows URL + secret with
             // copy buttons BEFORE the first save (user decision).
-            setEditor({ name: '', draft: webhookDraft(undefined), secret: generateSigningSecret() });
+            try {
+              setEditor({ name: '', draft: webhookDraft(undefined), secret: generateSigningSecret() });
+            } catch (reason) {
+              showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', {
+                scope: 'webhook:secret',
+              });
+            }
           }}
         />
         <div className="schedules-search">

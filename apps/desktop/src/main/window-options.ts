@@ -7,7 +7,7 @@ import { DESKTOP_WINDOW_DEFAULT_WIDTH, DESKTOP_WINDOW_MIN_WIDTH } from '../share
 /* Dark window band — must track --mx-window-band in desktop.css :root. */
 export const DESKTOP_BACKGROUND_COLOR = '#151518';
 /* Light window band (neutral set) — must track --mx-window-band on light. */
-export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#f0f0f0';
+export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#efeff2';
 export const DESKTOP_TITLEBAR_HEIGHT = 35;
 
 type DesktopTitleBarWindow = Pick<BrowserWindow, 'setBackgroundColor' | 'setTitleBarOverlay'>;

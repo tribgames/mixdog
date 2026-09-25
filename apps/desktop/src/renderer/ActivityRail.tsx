@@ -1,8 +1,7 @@
 // The 48px global activity rail is a stable landmark
 // on every surface (chat and code alike). It contains only destinations that
 // swap the adjacent panel; creation actions live in the Sessions panel header.
-// Usage and Settings live at the rail foot; the updater badge moved to the
-// window bar beside the sidebar toggle (user: 다운로드 아이콘 위치).
+// Usage and Settings live at the rail foot.
 import type React from 'react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 

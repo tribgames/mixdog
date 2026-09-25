@@ -12,6 +12,9 @@ import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 
+const ENABLED_MENU_ITEM_SELECTOR =
+  "[role='menuitem']:not(:disabled), [role='menuitemradio']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)";
+
 export interface ScmContextMenuItem {
   /** Stable semantic action identity; labels and enabled state may update in place. */
   id: string;
@@ -89,14 +92,7 @@ export function ScmContextMenu({ state, onClose }: { state: ScmContextMenuState 
     if (!open) return undefined;
     // Keyboard users land ON the menu; closing hands focus back to the row.
     const previous = document.activeElement as HTMLElement | null;
-    queueMicrotask(() =>
-      panel.current
-        ?.querySelector<HTMLButtonElement>(
-          "[role='menuitem']:not(:disabled)," +
-            " [role='menuitemradio']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)"
-        )
-        ?.focus()
-    );
+    queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(ENABLED_MENU_ITEM_SELECTOR)?.focus());
     const dismiss = (event: Event) => {
       if (panel.current?.contains(event.target as Node)) return;
       onClose();
@@ -128,11 +124,7 @@ export function ScmContextMenu({ state, onClose }: { state: ScmContextMenuState 
   if (!state) return null;
 
   const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    const entries = [
-      ...(panel.current?.querySelectorAll<HTMLButtonElement>(
-        "[role='menuitem']:not(:disabled), [role='menuitemradio']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)"
-      ) || []),
-    ];
+    const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(ENABLED_MENU_ITEM_SELECTOR) || [])];
     if (!entries.length) return;
     const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
     let next = -1;

@@ -37,16 +37,22 @@ export function getDedupedDestructiveWarnings(command) {
   return warnings;
 }
 
+// The command's destructive warnings as ⚠️ lines, or '' when it has none.
+function destructiveWarningBlock(command) {
+  return getDedupedDestructiveWarnings(command)
+    .map((w) => `⚠️ ${w}`)
+    .join('\n');
+}
+
 export function _prependDestructiveWarning(command, text) {
-  const warnings = getDedupedDestructiveWarnings(command);
-  if (!warnings.length) return text;
-  return `${warnings.map((w) => `⚠️ ${w}`).join('\n')}\n${text}`;
+  const warningBlock = destructiveWarningBlock(command);
+  if (!warningBlock) return text;
+  return `${warningBlock}\n${text}`;
 }
 
 export function _placeDestructiveWarningsAfterStatus(command, text) {
-  const warnings = getDedupedDestructiveWarnings(command);
-  if (!warnings.length) return text;
-  const warningBlock = warnings.map((w) => `⚠️ ${w}`).join('\n');
+  const warningBlock = destructiveWarningBlock(command);
+  if (!warningBlock) return text;
   const firstBreak = text.indexOf('\n');
   if (firstBreak < 0) return `${text}\n${warningBlock}`;
   return `${text.slice(0, firstBreak)}\n${warningBlock}${text.slice(firstBreak)}`;

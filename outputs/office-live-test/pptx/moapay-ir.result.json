@@ -1,0 +1,1137 @@
+{
+  "deck": "outputs/office-live-test/pptx/moapay-ir.pptx",
+  "session": "office_d3b043792fd44f22",
+  "authored": {
+    "kit": "runtime",
+    "nativeGradients": 0,
+    "bytes": 310999
+  },
+  "issues": [
+    {
+      "severity": "info",
+      "code": "facts_illustrative",
+      "path": "/",
+      "message": "The brief declares facts: sample, so every figure on the deck is illustrative; the delivery says so.",
+      "source": "design-review"
+    }
+  ],
+  "render": {
+    "output": "C:\\Project\\mixdog\\outputs\\office-live-test\\pptx\\moapay-ir.mixdog-preview.pdf",
+    "pageCount": 9,
+    "reviewToken": "office_d3b043792fd44f22:0:b4035e80dfa8aedcf11a2e48529119573a58fa14f60d69720330637d89baa27d",
+    "images": [
+      "C:\\Project\\mixdog\\outputs\\office-live-test\\pptx\\moapay-ir.mixdog-preview-page-1.png",
+      "C:\\Project\\mixdog\\outputs\\office-live-test\\pptx\\moapay-ir.mixdog-preview-page-2.png",
+      "C:\\Project\\mixdog\\outputs\\office-live-test\\pptx\\moapay-ir.mixdog-preview-page-3.png",
+      "C:\\Project\\mixdog\\outputs\\office-live-test\\pptx\\moapay-ir.mixdog-preview-page-4.png",
+      "C:\\Project\\mixdog\\outputs\\office-live-test\\pptx\\moapay-ir.mixdog-preview-page-5.png",
+      "C:\\Project\\mixdog\\outputs\\office-live-test\\pptx\\moapay-ir.mixdog-preview-page-6.png",
+      "C:\\Project\\mixdog\\outputs\\office-live-test\\pptx\\moapay-ir.mixdog-preview-page-7.png",
+      "C:\\Project\\mixdog\\outputs\\office-live-test\\pptx\\moapay-ir.mixdog-preview-page-8.png",
+      "C:\\Project\\mixdog\\outputs\\office-live-test\\pptx\\moapay-ir.mixdog-preview-page-9.png"
+    ],
+    "contactSheet": "C:\\Project\\mixdog\\outputs\\office-live-test\\pptx\\moapay-ir.mixdog-preview.mixdog-contact.png"
+  },
+  "receipt": {
+    "slides": [
+      {
+        "slide": 1,
+        "background": "dark",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 3,
+        "drawn": 2,
+        "fields": 1,
+        "lines": 0,
+        "presets": [],
+        "largestText": 54,
+        "chars": 56,
+        "coverage": 1,
+        "grammar": "beat",
+        "observe": {
+          "air": 0,
+          "quadrantAir": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "contentAir": [
+            0.52,
+            0.88,
+            0.78,
+            0.94
+          ],
+          "fieldFill": [],
+          "largestShare": 1,
+          "visualShare": 1,
+          "presence": 0,
+          "textColumns": {
+            "columns": 1,
+            "stray": 0,
+            "rightEdges": 1,
+            "rightStray": 0,
+            "labels": 0
+          },
+          "fills": [
+            {
+              "color": "1C6FE3",
+              "share": 1
+            }
+          ],
+          "largestTextTop": 2.2,
+          "bodyTop": 4.6,
+          "bodyFill": 0.19,
+          "centroid": [
+            0.65,
+            0.48
+          ],
+          "centroidOffset": 2.9,
+          "gaps": [
+            0.1,
+            0.45
+          ],
+          "typeSet": [
+            10,
+            18,
+            54
+          ],
+          "textColors": [
+            "FFFFFF"
+          ],
+          "renderAir": 0.56,
+          "renderBalance": {
+            "centered": 0.91,
+            "leftRight": 0.93,
+            "topBottom": 0.51,
+            "score": 0.78
+          },
+          "renderColour": 93.8,
+          "renderLargest": 0.09
+        }
+      },
+      {
+        "slide": 2,
+        "background": "light",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 14,
+        "drawn": 1,
+        "fields": 0,
+        "lines": 1,
+        "presets": [],
+        "largestText": 42,
+        "chars": 164,
+        "coverage": 0.38,
+        "grammar": "evidence",
+        "specs": {
+          "stat": {
+            "count": 4,
+            "variants": [
+              "band"
+            ],
+            "anatomies": [
+              "16/41|Arial"
+            ]
+          }
+        },
+        "observe": {
+          "air": 0.56,
+          "quadrantAir": [
+            0.35,
+            0.82,
+            0.51,
+            0.57
+          ],
+          "contentAir": [
+            0.35,
+            0.82,
+            0.51,
+            0.59
+          ],
+          "fieldFill": [],
+          "largestShare": 0.12,
+          "visualShare": 0,
+          "presence": 0,
+          "textColumns": {
+            "columns": 6,
+            "stray": 2,
+            "rightEdges": 6,
+            "rightStray": 1,
+            "labels": 0
+          },
+          "fills": [],
+          "largestTextTop": 1.17,
+          "bodyTop": 3.22,
+          "bodyFill": 1,
+          "centroid": [
+            0.42,
+            0.51
+          ],
+          "centroidOffset": 1.7,
+          "gaps": [
+            0.05,
+            0.1,
+            0.45,
+            0.65,
+            0.7
+          ],
+          "typeSet": [
+            10,
+            11,
+            15,
+            16,
+            41,
+            42
+          ],
+          "textColors": [
+            "1E5EB8",
+            "171F2B",
+            "3C4A5D",
+            "5A6472"
+          ],
+          "renderAir": 0.58,
+          "renderBalance": {
+            "centered": 0.68,
+            "leftRight": 0.28,
+            "topBottom": 0.66,
+            "score": 0.54
+          },
+          "renderColour": 16.7,
+          "renderLargest": 0
+        }
+      },
+      {
+        "slide": 3,
+        "background": "light",
+        "charts": 1,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 8,
+        "drawn": 1,
+        "fields": 0,
+        "lines": 1,
+        "presets": [],
+        "largestText": 27,
+        "chars": 158,
+        "coverage": 0.53,
+        "grammar": "evidence",
+        "observe": {
+          "air": 0.43,
+          "quadrantAir": [
+            0.3,
+            0.5,
+            0.29,
+            0.64
+          ],
+          "contentAir": [
+            0.3,
+            0.5,
+            0.29,
+            0.66
+          ],
+          "fieldFill": [],
+          "largestShare": 0.32,
+          "visualShare": 0.32,
+          "presence": 0.32,
+          "textColumns": {
+            "columns": 3,
+            "stray": 1,
+            "rightEdges": 3,
+            "rightStray": 2,
+            "labels": 0
+          },
+          "fills": [],
+          "largestTextTop": 0.87,
+          "bodyTop": 1.9,
+          "bodyFill": 1,
+          "centroid": [
+            0.43,
+            0.48
+          ],
+          "centroidOffset": 1.4,
+          "gaps": [
+            0.1,
+            0.45
+          ],
+          "typeSet": [
+            10,
+            11,
+            15,
+            27
+          ],
+          "textColors": [
+            "171F2B",
+            "1E5EB8",
+            "3C4A5D",
+            "5A6472"
+          ],
+          "renderAir": 0.4,
+          "renderBalance": {
+            "centered": 0.9,
+            "leftRight": 0.88,
+            "topBottom": 0.89,
+            "score": 0.89
+          },
+          "renderColour": 29.7,
+          "renderLargest": 0.03
+        }
+      },
+      {
+        "slide": 4,
+        "background": "light",
+        "charts": 2,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 7,
+        "drawn": 0,
+        "fields": 0,
+        "lines": 0,
+        "presets": [],
+        "largestText": 27,
+        "chars": 103,
+        "coverage": 0.63,
+        "grammar": "evidence",
+        "observe": {
+          "air": 0.32,
+          "quadrantAir": [
+            0.3,
+            0.38,
+            0.31,
+            0.3
+          ],
+          "contentAir": [
+            0.3,
+            0.38,
+            0.31,
+            0.32
+          ],
+          "fieldFill": [],
+          "largestShare": 0.21,
+          "visualShare": 0.43,
+          "presence": 0.21,
+          "textColumns": {
+            "columns": 3,
+            "stray": 2,
+            "rightEdges": 4,
+            "rightStray": 3,
+            "labels": 0
+          },
+          "fills": [],
+          "largestTextTop": 0.87,
+          "bodyTop": 1.57,
+          "bodyFill": 1,
+          "centroid": [
+            0.49,
+            0.5
+          ],
+          "centroidOffset": 0.1,
+          "gaps": [
+            0.1,
+            0.25,
+            0.45
+          ],
+          "typeSet": [
+            10,
+            11,
+            15,
+            27
+          ],
+          "textColors": [
+            "171F2B",
+            "3C4A5D",
+            "1E5EB8",
+            "5A6472"
+          ],
+          "renderAir": 0.36,
+          "renderBalance": {
+            "centered": 0.86,
+            "leftRight": 0.53,
+            "topBottom": 0.87,
+            "score": 0.76
+          },
+          "renderColour": 26.6,
+          "renderLargest": 0.02
+        }
+      },
+      {
+        "slide": 5,
+        "background": "light",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 16,
+        "drawn": 15,
+        "fields": 1,
+        "lines": 2,
+        "presets": [
+          "ellipse"
+        ],
+        "largestText": 27,
+        "chars": 185,
+        "coverage": 0.69,
+        "grammar": "evidence",
+        "specs": {
+          "structure": {
+            "count": 6,
+            "variants": [
+              "hub"
+            ],
+            "anatomies": [
+              "12|Noto Sans KR",
+              "15|Noto Sans KR"
+            ]
+          }
+        },
+        "observe": {
+          "air": 0.4,
+          "quadrantAir": [
+            0.3,
+            0.54,
+            0.29,
+            0.46
+          ],
+          "contentAir": [
+            0.63,
+            0.61,
+            0.72,
+            0.57
+          ],
+          "fieldFill": [
+            0.26
+          ],
+          "largestShare": 0.31,
+          "visualShare": 0.31,
+          "presence": 0.38,
+          "textColumns": {
+            "columns": 9,
+            "stray": 7,
+            "rightEdges": 9,
+            "rightStray": 8,
+            "labels": 0
+          },
+          "fills": [
+            {
+              "color": "E7EAEE",
+              "share": 0.31
+            },
+            {
+              "color": "F7F8FA",
+              "share": 0.04
+            },
+            {
+              "color": "171F2B",
+              "share": 0.03
+            }
+          ],
+          "largestTextTop": 0.87,
+          "bodyTop": 2.15,
+          "bodyFill": 1,
+          "centroid": [
+            0.42,
+            0.51
+          ],
+          "centroidOffset": 1.6,
+          "gaps": [
+            0.1,
+            0.45,
+            0.6,
+            0.65,
+            0.7,
+            0.95
+          ],
+          "typeSet": [
+            10,
+            11,
+            12,
+            15,
+            27
+          ],
+          "textColors": [
+            "171F2B",
+            "1E5EB8",
+            "FFFFFF",
+            "F7F8FA",
+            "3C4A5D",
+            "5A6472"
+          ],
+          "renderAir": 0.6,
+          "renderBalance": {
+            "centered": 0.8,
+            "leftRight": 0.38,
+            "topBottom": 0.99,
+            "score": 0.72
+          },
+          "renderColour": 17.3,
+          "renderLargest": 0.28
+        }
+      },
+      {
+        "slide": 6,
+        "background": "light",
+        "charts": 0,
+        "tables": 1,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 4,
+        "drawn": 0,
+        "fields": 0,
+        "lines": 0,
+        "presets": [],
+        "largestText": 27,
+        "chars": 50,
+        "coverage": 0.62,
+        "grammar": "evidence",
+        "specs": {
+          "table": {
+            "count": 1,
+            "variants": [
+              "toned"
+            ],
+            "anatomies": [
+              "15|Noto Sans KR"
+            ]
+          }
+        },
+        "observe": {
+          "air": 0.35,
+          "quadrantAir": [
+            0.3,
+            0.39,
+            0.35,
+            0.35
+          ],
+          "contentAir": [
+            0.3,
+            0.39,
+            0.35,
+            0.37
+          ],
+          "fieldFill": [],
+          "largestShare": 0.5,
+          "visualShare": 0.51,
+          "presence": 0.5,
+          "textColumns": {
+            "columns": 2,
+            "stray": 1,
+            "rightEdges": 3,
+            "rightStray": 2,
+            "labels": 0
+          },
+          "fills": [],
+          "largestTextTop": 0.87,
+          "bodyTop": 1.9,
+          "bodyFill": 1,
+          "centroid": [
+            0.49,
+            0.49
+          ],
+          "centroidOffset": 0.1,
+          "gaps": [
+            0.1,
+            0.45,
+            0.7
+          ],
+          "typeSet": [
+            10,
+            11,
+            15,
+            27
+          ],
+          "textColors": [
+            "171F2B",
+            "1E5EB8",
+            "E5E8EB",
+            "E7EAEE",
+            "F7F8FA",
+            "3C4A5D",
+            "3D7157",
+            "E1F4EB",
+            "715F3D",
+            "F4EEE1",
+            "71413D",
+            "F4E3E1",
+            "5A6472"
+          ],
+          "renderAir": 0.45,
+          "renderBalance": {
+            "centered": 0.78,
+            "leftRight": 0.56,
+            "topBottom": 0.8,
+            "score": 0.71
+          },
+          "renderColour": 7.5,
+          "renderLargest": 0.15
+        }
+      },
+      {
+        "slide": 7,
+        "background": "light",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 18,
+        "drawn": 8,
+        "fields": 4,
+        "lines": 0,
+        "presets": [],
+        "largestText": 41,
+        "chars": 255,
+        "coverage": 0.71,
+        "grammar": "evidence",
+        "specs": {
+          "stat": {
+            "count": 4,
+            "variants": [
+              "band"
+            ],
+            "anatomies": [
+              "16/41|Arial"
+            ]
+          }
+        },
+        "observe": {
+          "air": 0.38,
+          "quadrantAir": [
+            0.27,
+            0.35,
+            0.46,
+            0.45
+          ],
+          "contentAir": [
+            0.48,
+            0.56,
+            0.56,
+            0.57
+          ],
+          "fieldFill": [
+            0.52,
+            0.52,
+            0.52
+          ],
+          "largestShare": 0.09,
+          "visualShare": 0.32,
+          "presence": 0,
+          "textColumns": {
+            "columns": 6,
+            "stray": 1,
+            "rightEdges": 7,
+            "rightStray": 2,
+            "labels": 0
+          },
+          "fills": [
+            {
+              "color": "E7EAEE",
+              "share": 0.23
+            },
+            {
+              "color": "1C6FE3",
+              "share": 0.08
+            }
+          ],
+          "largestTextTop": 2.86,
+          "bodyTop": 3.64,
+          "bodyFill": 0.99,
+          "centroid": [
+            0.49,
+            0.47
+          ],
+          "centroidOffset": 0.2,
+          "gaps": [
+            0.05,
+            0.1,
+            0.7,
+            0.9
+          ],
+          "typeSet": [
+            10,
+            11,
+            15,
+            16,
+            27,
+            41
+          ],
+          "textColors": [
+            "171F2B",
+            "3C4A5D",
+            "1E5EB8",
+            "FFFFFF",
+            "5A6472"
+          ],
+          "renderAir": 0.41,
+          "renderBalance": {
+            "centered": 0.7,
+            "leftRight": 0.36,
+            "topBottom": 0.76,
+            "score": 0.61
+          },
+          "renderColour": 51.8,
+          "renderLargest": 0.08
+        }
+      },
+      {
+        "slide": 8,
+        "background": "light",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 20,
+        "drawn": 8,
+        "fields": 1,
+        "lines": 2,
+        "presets": [
+          "ellipse"
+        ],
+        "largestText": 27,
+        "chars": 193,
+        "coverage": 0.64,
+        "grammar": "evidence",
+        "specs": {
+          "structure": {
+            "count": 5,
+            "variants": [
+              "timeline"
+            ],
+            "anatomies": [
+              "15|Noto Sans KR"
+            ]
+          }
+        },
+        "observe": {
+          "air": 0.39,
+          "quadrantAir": [
+            0.3,
+            0.39,
+            0.45,
+            0.44
+          ],
+          "contentAir": [
+            0.65,
+            0.73,
+            0.57,
+            0.59
+          ],
+          "fieldFill": [
+            0.23
+          ],
+          "largestShare": 0.3,
+          "visualShare": 0.31,
+          "presence": 0.24,
+          "textColumns": {
+            "columns": 10,
+            "stray": 7,
+            "rightEdges": 10,
+            "rightStray": 6,
+            "labels": 4
+          },
+          "fills": [
+            {
+              "color": "E7EAEE",
+              "share": 0.3
+            },
+            {
+              "color": "F7F8FA",
+              "share": 0.02
+            }
+          ],
+          "largestTextTop": 0.87,
+          "bodyTop": 2.32,
+          "bodyFill": 1,
+          "centroid": [
+            0.49,
+            0.48
+          ],
+          "centroidOffset": 0.2,
+          "gaps": [
+            0.1,
+            0.45,
+            0.85,
+            1.45
+          ],
+          "typeSet": [
+            10,
+            11,
+            15,
+            18,
+            27
+          ],
+          "textColors": [
+            "171F2B",
+            "1E5EB8",
+            "FFFFFF",
+            "3C4A5D",
+            "5A6472"
+          ],
+          "renderAir": 0.42,
+          "renderBalance": {
+            "centered": 0.81,
+            "leftRight": 0.72,
+            "topBottom": 0.6,
+            "score": 0.71
+          },
+          "renderColour": 12.1,
+          "renderLargest": 0.28
+        }
+      },
+      {
+        "slide": 9,
+        "background": "dark",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 3,
+        "drawn": 2,
+        "fields": 1,
+        "lines": 0,
+        "presets": [],
+        "largestText": 42,
+        "chars": 57,
+        "coverage": 1,
+        "grammar": "beat",
+        "observe": {
+          "air": 0,
+          "quadrantAir": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "contentAir": [
+            0.58,
+            0.88,
+            0.83,
+            0.95
+          ],
+          "fieldFill": [],
+          "largestShare": 1,
+          "visualShare": 1,
+          "presence": 0,
+          "textColumns": {
+            "columns": 1,
+            "stray": 0,
+            "rightEdges": 1,
+            "rightStray": 0,
+            "labels": 0
+          },
+          "fills": [
+            {
+              "color": "1C6FE3",
+              "share": 1
+            }
+          ],
+          "largestTextTop": 2.4,
+          "bodyTop": 4.38,
+          "bodyFill": 0.17,
+          "centroid": [
+            0.58,
+            0.47
+          ],
+          "centroidOffset": 1.5,
+          "gaps": [
+            0.1,
+            0.45
+          ],
+          "typeSet": [
+            10,
+            18,
+            42
+          ],
+          "textColors": [
+            "FFFFFF"
+          ],
+          "renderAir": 0.7,
+          "renderBalance": {
+            "centered": 0.86,
+            "leftRight": 0.66,
+            "topBottom": 0.45,
+            "score": 0.66
+          },
+          "renderColour": 84.4,
+          "renderLargest": 0.03
+        }
+      }
+    ],
+    "deck": {
+      "slides": 9,
+      "charts": 3,
+      "tables": 1,
+      "pictures": 0,
+      "presets": 2,
+      "fields": 8,
+      "lines": 6,
+      "groups": 0,
+      "backgrounds": [
+        "dark",
+        "light"
+      ],
+      "textOnly": 0,
+      "specs": {
+        "stat": {
+          "count": 8,
+          "slides": 2,
+          "variants": [
+            "band"
+          ],
+          "anatomies": [
+            "16/41|Arial"
+          ]
+        },
+        "structure": {
+          "count": 11,
+          "slides": 2,
+          "variants": [
+            "hub",
+            "timeline"
+          ],
+          "anatomies": [
+            "12|Noto Sans KR",
+            "15|Noto Sans KR"
+          ]
+        },
+        "table": {
+          "count": 1,
+          "slides": 1,
+          "variants": [
+            "toned"
+          ],
+          "anatomies": [
+            "15|Noto Sans KR"
+          ]
+        }
+      },
+      "shape": {
+        "beat": 0.22,
+        "evidence": 0.78,
+        "text": 0
+      },
+      "rhythm": {
+        "air": [
+          0,
+          0.56,
+          0.43,
+          0.32,
+          0.4,
+          0.35,
+          0.38,
+          0.39,
+          0
+        ],
+        "largestTextTops": [
+          2.2,
+          1.17,
+          0.87,
+          0.87,
+          0.87,
+          0.87,
+          2.86,
+          0.87,
+          2.4
+        ],
+        "centroidX": [
+          0.65,
+          0.42,
+          0.43,
+          0.49,
+          0.42,
+          0.49,
+          0.49,
+          0.49,
+          0.58
+        ],
+        "bodyTops": [
+          4.6,
+          3.22,
+          1.9,
+          1.57,
+          2.15,
+          1.9,
+          3.64,
+          2.32,
+          4.38
+        ],
+        "bodyFills": [
+          0.19,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0.99,
+          1,
+          0.17
+        ],
+        "fieldFills": [
+          null,
+          null,
+          null,
+          null,
+          0.26,
+          null,
+          0.52,
+          0.23,
+          null
+        ],
+        "presence": [
+          0,
+          0,
+          0.32,
+          0.21,
+          0.38,
+          0.5,
+          0,
+          0.24,
+          0
+        ],
+        "chars": [
+          56,
+          164,
+          158,
+          103,
+          185,
+          50,
+          255,
+          193,
+          57
+        ],
+        "grammar": [
+          "beat",
+          "evidence",
+          "evidence",
+          "evidence",
+          "evidence",
+          "evidence",
+          "evidence",
+          "evidence",
+          "beat"
+        ],
+        "planned": [
+          "anchor",
+          "dense",
+          "dense",
+          "dense",
+          "breathing",
+          "dense",
+          "dense",
+          "dense",
+          "anchor"
+        ],
+        "gapSet": [
+          0.05,
+          0.1,
+          0.25,
+          0.45,
+          0.6,
+          0.65,
+          0.7,
+          0.85,
+          0.9,
+          0.95,
+          1.45
+        ],
+        "typeSet": [
+          10,
+          11,
+          12,
+          15,
+          16,
+          18,
+          27,
+          41,
+          42,
+          54
+        ],
+        "textColors": [
+          "FFFFFF",
+          "1E5EB8",
+          "171F2B",
+          "3C4A5D",
+          "5A6472",
+          "F7F8FA",
+          "E5E8EB",
+          "E7EAEE",
+          "3D7157",
+          "E1F4EB",
+          "715F3D",
+          "F4EEE1",
+          "71413D",
+          "F4E3E1"
+        ],
+        "rightStray": [
+          0,
+          1,
+          2,
+          3,
+          8,
+          2,
+          2,
+          6,
+          0
+        ],
+        "renderAir": [
+          0.56,
+          0.58,
+          0.4,
+          0.36,
+          0.6,
+          0.45,
+          0.41,
+          0.42,
+          0.7
+        ],
+        "topBottom": [
+          0.51,
+          0.66,
+          0.89,
+          0.87,
+          0.99,
+          0.8,
+          0.76,
+          0.6,
+          0.45
+        ],
+        "renderLargest": [
+          0.09,
+          0,
+          0.03,
+          0.02,
+          0.28,
+          0.15,
+          0.08,
+          0.28,
+          0.03
+        ],
+        "colour": [
+          93.8,
+          16.7,
+          29.7,
+          26.6,
+          17.3,
+          7.5,
+          51.8,
+          12.1,
+          84.4
+        ]
+      },
+      "pacing": {
+        "colourSpread": 30.1,
+        "median": 26.6,
+        "longestQuiet": 2,
+        "quietAnchors": []
+      }
+    },
+    "absent": [
+      "pictures"
+    ],
+    "note": "Observations, not design targets. absent lists unused families, not required objects. Inspect any inferred missing carrier against the intended message; a faithful alternative may already carry it. air = canvas share without shape footprints; quadrantAir = [top-left, top-right, bottom-left, bottom-right]; contentAir = those quadrants using content only; fieldFill = content coverage inside fields occupying at least 6% of the canvas, lowest first. largestShare = largest object share; visualShare = non-text footprint; presence = the largest carrier's share (chart, table, picture, group, or contour; 0 = type alone); fills = surface colors by area; textColumns = alignment groups and unmatched edges (labels = small text bound to a contour or connector, read as part of its device and left out of the columns and the gaps). largestTextTop and bodyTop are positions in inches, not mandatory shared baselines; bodyFill = the vertical span of content below the largest type relative to the lower safe margin. centroid = area-weighted [x, y] in canvas fractions; centroidOffset normalizes distance from center by 0.05 horizontally and 0.15 vertically. renderAir = pixels without local variation; renderBalance reports centered, leftRight, topBottom and their mean score (higher means more centered or even, not necessarily better design). gaps = vertical gaps in 0.05-inch steps; typeSet and textColors = observed sizes and colors; deck.rhythm sequences these observations. chars = characters of authored text per slide (the reference decks carry 330-900 on a body page; a page under 120 with no carrier is a claim or a hollow); grammar = beat | evidence | text per slide and deck.shape their shares. renderLargest = the share of the page the biggest connected object covers after a render (the reference decks: 0.21-0.71, median 0.4). After a render, deck.rhythm.colour is each page's colourfulness and deck.pacing reads the sequence: colourSpread (the frontier decks run 16-36, one template 5-8), longestQuiet (consecutive pages under the deck median with no beat), quietAnchors (plan lines that promised an anchor on a page that rendered quiet). specs = the kit's spec carriers (badge, callout, chevrons, stat, table) read from their signatures: count, slides, variants, and the distinct anatomies (type sizes|face) they show — one anatomy per carrier is the spec kept, two is a per-call override to explain. Relevance, legibility, grouping, and visual emphasis must be judged from the rendered pages, not from balanced ratios or short token sets."
+  }
+}

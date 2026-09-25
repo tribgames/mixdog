@@ -33,15 +33,7 @@ import { pastedTextLineCount, shouldFoldPastedText } from '../../../../src/tui/p
 
 // Project-context pill, attachment budget, prompt history and the queued
 // follow-up list live in composer-support.tsx.
-import {
-  COMPOSER_PLACEHOLDERS,
-  PROJECT_CONTEXT_LOCAL,
-  ProjectContextSelector,
-  QueueList,
-  promptHistoryStorageKey,
-  queuedFollowupPreview,
-  readPromptHistory,
-} from './composer-support';
+import { COMPOSER_PLACEHOLDERS, QueueList } from './composer-support';
 import {
   composerDraftAfterScopeChange,
   composerScopeOpensFreshDraft,
@@ -75,13 +67,6 @@ import { ComposerAddMenu } from './ComposerAddMenu';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
-export {
-  PROJECT_CONTEXT_LOCAL,
-  ProjectContextSelector,
-  promptHistoryStorageKey,
-  queuedFollowupPreview,
-  readPromptHistory,
-};
 
 const ATTACHMENT_ACCEPT =
   'image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql';
@@ -906,15 +891,4 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   );
 });
 
-// The terminal picker's normalizeModelOptions is the authority for WHICH
-// models surface (family grouping/limits, recency ordering). The desktop
-// modal only owns presentation. Shapes differ: desktop uses `model`, the
-// TUI uses `id`.
-
-export {
-  ModelSelector,
-  WorkflowSelect,
-  OrchestrationModeSelect,
-  providerSetupEntries,
-  providerSetupState,
-} from './model-controls';
+export { ModelSelector, WorkflowSelect, OrchestrationModeSelect } from './model-controls';

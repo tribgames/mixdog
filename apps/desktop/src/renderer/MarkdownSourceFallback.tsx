@@ -1,4 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
+import { escapedAt } from './markdown-plugins';
 
 type MarkdownSourcePart = { kind: 'text'; text: string } | { kind: 'code'; text: string; language: string };
 
@@ -126,14 +127,6 @@ function sourceTextNodes(text: string, key: string): ReactNode[] {
     .flatMap((paragraph, index) => sourceBlockNodes(paragraph, `${key}-paragraph-${index}`));
 }
 
-function isEscaped(text: string, index: number): boolean {
-  let slashes = 0;
-  for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) {
-    slashes += 1;
-  }
-  return slashes % 2 === 1;
-}
-
 // Longest marker first: "**" must win over "*" at the same offset.
 const INLINE_MARKERS = ['**', '__', '~~', '*', '_'] as const;
 type InlineMarker = (typeof INLINE_MARKERS)[number];
@@ -161,14 +154,14 @@ function inlineCodeEnd(text: string, index: number): number {
 
 function emphasisMarkerEnd(text: string, marker: InlineMarker, from: number): number {
   for (let index = from; index < text.length; index += 1) {
-    if (text[index] === '`' && !isEscaped(text, index)) {
+    if (text[index] === '`' && !escapedAt(text, index)) {
       const codeEnd = inlineCodeEnd(text, index);
       if (codeEnd >= 0) {
         index = codeEnd - 1;
         continue;
       }
     }
-    if (!text.startsWith(marker, index) || isEscaped(text, index)) continue;
+    if (!text.startsWith(marker, index) || escapedAt(text, index)) continue;
     if (!text[index - 1] || /\s/.test(text[index - 1])) continue;
     if (marker[0] === '_' && /[\p{L}\p{N}_]/u.test(text[index + marker.length] || '')) continue;
     return index;
@@ -184,7 +177,7 @@ function sourceInlineNodes(text: string, key: string): ReactNode[] {
     if (end > plainStart) nodes.push(text.slice(plainStart, end));
   };
   while (index < text.length) {
-    if (text[index] === '`' && !isEscaped(text, index)) {
+    if (text[index] === '`' && !escapedAt(text, index)) {
       const end = inlineCodeEnd(text, index);
       if (end >= 0) {
         pushPlain(index);
@@ -201,7 +194,7 @@ function sourceInlineNodes(text: string, key: string): ReactNode[] {
     const after = marker ? text[index + marker.length] || '' : '';
     const canOpen =
       marker &&
-      !isEscaped(text, index) &&
+      !escapedAt(text, index) &&
       Boolean(after) &&
       !/\s/.test(after) &&
       (marker[0] !== '_' || !/[\p{L}\p{N}_]/u.test(before));

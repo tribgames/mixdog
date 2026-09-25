@@ -31,6 +31,7 @@ import {
   aggregateRawResult,
   aggregateResultPatch,
   assignUiDiffFromMessage,
+  mergeAggregateCategoryEntries,
   stringUiDiffPatch,
   toolCallOutcome,
 } from './tool-result-status.mjs';
@@ -156,15 +157,10 @@ function attachRestoredToolResult(message, pendingByCallId) {
 // per-call result summaries as the collapsed detail, raw bodies preserved
 // for expansion, tool failures and command failures surfaced separately.
 function buildRestoredAggregateItem(members) {
-  const categories = new Map();
-  const categoryOrder = [];
+  const header = { categories: new Map(), categoryOrder: [] };
   const calls = [];
   for (const { item, category } of members) {
-    for (const entry of aggregateToolCategoryEntries(item.name, item.args, category)) {
-      if (!categories.has(entry.key)) categoryOrder.push(entry.key);
-      const prev = categories.get(entry.key);
-      categories.set(entry.key, { ...entry, count: Number(prev?.count || 0) + Number(entry.count || 1) });
-    }
+    mergeAggregateCategoryEntries(header, aggregateToolCategoryEntries(item.name, item.args, category));
     const resultText = String(item.result ?? '');
     // Mirror live outcome semantics, including explicit no-match/no-change
     // markers and offloaded shell previews.
@@ -206,11 +202,11 @@ function buildRestoredAggregateItem(members) {
     id: first.id,
     name: '__aggregate__',
     args: {
-      categoryOrder,
+      categoryOrder: header.categoryOrder,
       ...(loadingTargets.length > 0 ? { loadingTargets } : {}),
     },
     aggregate: true,
-    categories: Object.fromEntries(categories),
+    categories: Object.fromEntries(header.categories),
     doneCategories: aggregateDoneCategories(calls),
     completedCount: calls.length,
     ...outcomePatch,
@@ -281,6 +277,30 @@ function restoredMessageItemUpperBound(message) {
   return Number(hasContent) + Number(hasCompletion) + calls.length + boundaries;
 }
 
+// One restored tool card for a parsed notification/completion envelope.
+// `errorLabel` classifies the label only when the parser left isError unset.
+function restoredNotificationToolItem(parsed, text, message, nextId, errorLabel) {
+  const label = parsed.label || 'notification';
+  const at = Number(message?.meta?.transcript?.at);
+  return {
+    kind: 'tool',
+    id: nextId(),
+    name: parsed.name || 'agent',
+    args: parsed.args || {
+      type: label,
+      task_id: parsed.taskId || undefined,
+      description: parsed.summary || 'agent notification',
+    },
+    result: parsed.result,
+    rawResult: parsed.rawResult ?? text,
+    isError: parsed.isError ?? errorLabel.test(label),
+    expanded: false,
+    count: 1,
+    completedCount: 1,
+    ...(Number.isFinite(at) ? { at, startedAt: at, completedAt: at } : {}),
+  };
+}
+
 function restoredUserTranscriptItems(message, nextId) {
   // Injected model-context payloads are model-visible but never user-authored:
   // skill bodies (meta:'skill'), hook/system reminders, and tag-wrapped context
@@ -302,28 +322,8 @@ function restoredUserTranscriptItems(message, nextId) {
     ? completionCardFromExecution(message?.meta?.execution, text)
     : parseModelVisibleCompletionWrapper(text);
   if (completion) {
-    const completionLabel = completion.label || 'notification';
-    const completionAt = Number(message?.meta?.transcript?.at);
     return [
-      {
-        kind: 'tool',
-        id: nextId(),
-        name: completion.name || 'agent',
-        args: completion.args || {
-          type: completionLabel,
-          task_id: completion.taskId || undefined,
-          description: completion.summary || 'agent notification',
-        },
-        result: completion.result,
-        rawResult: completion.rawResult ?? text,
-        isError: completion.isError ?? /^(failed|error|timeout|killed|cancelled)$/i.test(completionLabel),
-        expanded: false,
-        count: 1,
-        completedCount: 1,
-        ...(Number.isFinite(completionAt)
-          ? { at: completionAt, startedAt: completionAt, completedAt: completionAt }
-          : {}),
-      },
+      restoredNotificationToolItem(completion, text, message, nextId, /^(failed|error|timeout|killed|cancelled)$/i),
     ];
   }
   if (isInternalTranscriptDisplayText(text)) return [];
@@ -338,27 +338,7 @@ function restoredUserTranscriptItems(message, nextId) {
   if (!synthetic) {
     return [{ kind: 'user', id: nextId(), text, ...restoredTranscriptMetadata(message) }];
   }
-  const label = synthetic.label || 'notification';
-  const syntheticAt = Number(message?.meta?.transcript?.at);
-  return [
-    {
-      kind: 'tool',
-      id: nextId(),
-      name: synthetic.name || 'agent',
-      args: synthetic.args || {
-        type: label,
-        task_id: synthetic.taskId || undefined,
-        description: synthetic.summary || 'agent notification',
-      },
-      result: synthetic.result,
-      rawResult: synthetic.rawResult ?? text,
-      isError: synthetic.isError ?? /^(failed|error|killed|cancelled)$/i.test(label),
-      expanded: false,
-      count: 1,
-      completedCount: 1,
-      ...(Number.isFinite(syntheticAt) ? { at: syntheticAt, startedAt: syntheticAt, completedAt: syntheticAt } : {}),
-    },
-  ];
+  return [restoredNotificationToolItem(synthetic, text, message, nextId, /^(failed|error|killed|cancelled)$/i)];
 }
 
 function restoreTranscriptRange(messages, start, sessionId) {

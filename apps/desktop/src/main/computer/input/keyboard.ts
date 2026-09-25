@@ -1,3 +1,7 @@
+// '#' is the system key: Windows on Windows, Super on Linux, Command on macOS,
+// where it is also the app-shortcut modifier CmdOrCtrl names.
+const MAC = process.platform === 'darwin';
+
 const KEY_ALIASES = new Map<string, string>([
   ['backspace', 'BACKSPACE'],
   ['bs', 'BACKSPACE'],
@@ -47,7 +51,13 @@ const KEY_ALIASES = new Map<string, string>([
   ['prtsc', 'PRTSC'],
   ['prtscr', 'PRTSC'],
   ['pause', 'PAUSE'],
-]);
+  ...(MAC
+    ? [
+        ['cmd', 'LWIN'],
+        ['command', 'LWIN'],
+      ]
+    : []),
+] as [string, string][]);
 
 /** Actions whose `keys` field carries a sequence that must be normalized. */
 export const KEY_SEQUENCE_ACTIONS = new Set(['key', 'key_down', 'key_up']);
@@ -55,20 +65,28 @@ export const KEY_SEQUENCE_ACTIONS = new Set(['key', 'key_down', 'key_up']);
 const MODIFIER_GRAMMAR = new Map<string, string>([
   ['ctrl', '^'],
   ['control', '^'],
-  ['cmdorctrl', '^'],
-  ['commandorcontrol', '^'],
+  ['cmdorctrl', MAC ? '#' : '^'],
+  ['commandorcontrol', MAC ? '#' : '^'],
   ['alt', '%'],
   ['option', '%'],
   ['shift', '+'],
-  // The Windows key; the worker grammar spells it '#'.
   ['win', '#'],
   ['windows', '#'],
   ['window', '#'],
   ['super', '#'],
   ['meta', '#'],
-]);
+  ...(MAC
+    ? [
+        ['cmd', '#'],
+        ['command', '#'],
+      ]
+    : []),
+] as [string, string][]);
 
 const LEGACY_NAMED_KEYS = new Set([...KEY_ALIASES.values(), 'NUMLOCK', 'CAPSLOCK', 'SCROLLLOCK']);
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching C0/C1 control characters is how they are refused.
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
 
 function canonicalToken(value: string): string {
   return value
@@ -90,7 +108,7 @@ function normalizedKeyToken(value: string): string {
   }
   if (/^[a-z0-9]$/.test(canonical)) return canonical.toUpperCase();
   const codePoints = [...trimmed];
-  if (codePoints.length === 1 && !/[\u0000-\u001f\u007f-\u009f]/.test(trimmed)) {
+  if (codePoints.length === 1 && !CONTROL_CHARACTER.test(trimmed)) {
     return trimmed;
   }
   throw new Error(`invalid_key_chord: unsupported key token '${value.trim()}'`);
@@ -106,10 +124,12 @@ function canonicalChord(value: string): string | undefined {
     if (!match) break;
     const grammar = MODIFIER_GRAMMAR.get(canonicalToken(match[1]));
     if (!grammar) {
-      // cmd/command is ambiguous on Windows: a macOS shortcut means ctrl, the
-      // key itself means win.
+      // cmd/command is ambiguous off macOS: a macOS shortcut means ctrl, the
+      // key itself means the system key.
       throw new Error(
-        `invalid_key_chord: unsupported modifier '${match[1]}'; on Windows use ctrl for app shortcuts or win for the Windows key`
+        process.platform === 'win32'
+          ? `invalid_key_chord: unsupported modifier '${match[1]}'; on Windows use ctrl for app shortcuts or win for the Windows key`
+          : `invalid_key_chord: unsupported modifier '${match[1]}'; on Linux use ctrl for app shortcuts or super for the system key`
       );
     }
     if (!modifiers.includes(grammar)) modifiers.push(grammar);
@@ -153,12 +173,12 @@ function validLegacySequence(value: string): boolean {
 
 /**
  * Public Computer Use accepts conventional chords such as ctrl+alt+escape.
- * The Windows worker consumes SendKeys grammar, so translate only recognized
+ * Every worker consumes SendKeys grammar, so translate only recognized
  * chords and preserve the legacy grammar used by existing internal callers.
  */
 export function normalizeComputerKeySequence(value: string): string {
   const source = String(value || '');
-  if (/[\u0000-\u001f\u007f-\u009f]/.test(source)) {
+  if (CONTROL_CHARACTER.test(source)) {
     throw new Error('invalid_key_chord: key sequence contains control characters');
   }
   const raw = source.trim();

@@ -436,34 +436,6 @@
 .extensions-note .extensions-action {
   vertical-align: middle;
 }
-.extensions-preview {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-  padding: 12px;
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
-}
-.extensions-preview > b {
-  color: var(--mx-text);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-semibold);
-}
-.extensions-preview > p {
-  margin: 0;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-.extensions-preview > code {
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-  color: var(--mx-text);
-  font-family: var(--mx-font-mono);
-  font-size: var(--mx-font-code);
-  line-height: 1.5;
-}
 
 /* ── Fields ───────────────────────────────────────────────────────────── */
 /* Fields ride the dialog form grammar (schedules-field: 15px title, 13px
@@ -477,16 +449,6 @@
   font-family: inherit;
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
-}
-.extensions-field-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-}
-.extensions-field-actions > span {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
 }
 /* "Applies to": one dropdown — Shared, or a single project. */
 .extensions-scope-select {

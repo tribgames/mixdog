@@ -8,7 +8,7 @@ import { officeSnapshotContractViolations } from './core/snapshot-contract.mjs';
 import { parts, value, workspace } from './office-test-support.mjs';
 import { sessions } from './core/office-core.mjs';
 import { recalculateForReview } from './core/office-recalculation.mjs';
-import { cellRecords } from './portable/portable-cells.mjs';
+import { cellRecords, sheetFormulaTotals } from './portable/portable-cells.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
@@ -218,6 +218,31 @@ test('column widths follow the text a number format prints', async (t) => {
     )
   );
   assert.deepEqual(await narrow(created.session), []);
+});
+
+// General never prints ###: Excel rounds the decimals to the column and turns only a long integer part scientific.
+// Measured from the stored digits, 0.5700000000000001 read as an eighteen-character cut on Excel's 0.57.
+test('a General number is cut only when its integer part outruns the column', async (t) => {
+  const cwd = await workspace(t);
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'general.xlsx'),
+        format: 'xlsx',
+        mode: 'portable',
+        operations: [{ op: 'set_range', range: 'A1:B2', values: [['비율', '건수'], [0.5 + 0.07, 123456789012]] }],
+      },
+      { cwd }
+    )
+  );
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || [];
+  const narrow = issues.filter((entry) => entry.code === 'column_too_narrow');
+  assert.deepEqual(
+    narrow.map((entry) => entry.path),
+    ['/sheet[Sheet1]/cell[B2]']
+  );
+  assert.match(narrow[0].message, /scientific notation/);
 });
 
 // A workbook opened through Excel reported 1240 and one opened portably
@@ -601,6 +626,16 @@ test('an empty-string formula result counts as a cached value', () => {
       ['G7', 'missing', null],
     ]
   );
+  // Microsoft Excel writes the same empty result as a self-closing <v/>, and the sheet totals read it the same way.
+  const excel = '<sheetData><row r="6"><c r="D6" t="str"><f>IF(C6="","",C6*0.1)</f><v/></c><c r="E6"><f>D6*2</f></c></row></sheetData>';
+  assert.deepEqual(
+    cellRecords(excel, []).map((cell) => [cell.ref, cell.cacheState]),
+    [
+      ['D6', 'present'],
+      ['E6', 'missing'],
+    ]
+  );
+  assert.deepEqual(sheetFormulaTotals(excel), { formulaCount: 2, formulaCacheMissing: 1 });
 });
 
 // A header styled with its column's percent format holds a shared-string

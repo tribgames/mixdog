@@ -1,6 +1,6 @@
 // clang-format — `--dry-run -Werror` reports violations on stderr with
 // positions; `-i` formats in place.
-import { diagnostic, runChunked, spawnFailureResult, tail, toRel, uniquePaths } from './shared.mjs';
+import { diagnostic, emptyResult, runChunked, spawnFailureResult, tail, toRel, uniquePaths } from './shared.mjs';
 
 const VIOLATION = /^(.*?):(\d+):(\d+):\s*(warning|error):\s*(.*)$/;
 
@@ -46,7 +46,7 @@ export const runner = {
   async fix({ files, cwd, bin, args = [], timeoutMs, signal }) {
     const result = await runChunked({ bin, baseArgs: [...args, '-i'], files, cwd, timeoutMs, signal });
     if (result.error) return spawnFailureResult('clang-format', result);
-    return { diagnostics: [], changedFiles: [], stderrTail: tail(result.stderr) };
+    return emptyResult(tail(result.stderr));
   },
 };
 

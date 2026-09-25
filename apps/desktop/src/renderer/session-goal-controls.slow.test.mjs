@@ -336,6 +336,12 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
   });
   assert.equal(reachable.covering, '', 'the stop confirmation must receive the press itself');
   assert.equal(reachable.inside, true, 'the stop confirmation must stay inside the drawer it opened in');
+  // Cancel and confirm sit at the row's right end, as every other confirmation row does.
+  const trailingGap = await page.$eval(confirm, (button) => {
+    const row = button.closest('.session-goal-actions').getBoundingClientRect();
+    return Math.round(row.right - button.getBoundingClientRect().right);
+  });
+  assert.equal(trailingGap, 0, 'the stop confirmation buttons are right-aligned');
   await page.click(confirm);
   const calls = await page.evaluate(() => window.__calls);
   assert.deepEqual(

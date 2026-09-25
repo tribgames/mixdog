@@ -57,7 +57,7 @@ export function ErrorNotice({
   if (!reasons.length) return null;
   const latest = describeError(reasons.at(-1));
   const total = count ?? reasons.length;
-  const summary = errorSummary(reasons.at(-1));
+  const summary = localizeErrorCopy(latest.summary);
   const details = reasons
     .slice(-50)
     .map((reason) => describeError(reason).details)

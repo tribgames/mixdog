@@ -1,7 +1,6 @@
 import {
   LOCAL_PROVIDER_BUILTIN_ID,
   LOCAL_PROVIDER_ID,
-  LOCAL_PROVIDER_MANIFEST,
   detectLocalProviderHardware,
   installedLocalProviderModels,
   localProviderCatalogStatus,
@@ -32,7 +31,6 @@ export function localProviderStatus(options = {}) {
 export {
   LOCAL_PROVIDER_BUILTIN_ID,
   LOCAL_PROVIDER_ID,
-  LOCAL_PROVIDER_MANIFEST as localProviderManifestForTest,
   detectLocalProviderHardware,
   downloadVerifiedLocalAsset,
   ensureLocalProviderServer,

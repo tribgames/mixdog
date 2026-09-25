@@ -42,6 +42,7 @@ export function createSettingsNavigation({ openers, openSettingsPicker, setSetti
     plugins: () => openers.openPluginsPicker(),
     skills: () => openers.openSkillsPicker(),
     memory: () => openers.openMemoryCorePicker(returning),
+    developer: () => openers.openDeveloperPicker(returning),
     update: () => openers.openUpdatePicker(returning),
   };
 

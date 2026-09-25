@@ -269,17 +269,7 @@ pub(super) fn scan_inventory_anchors(
             .iter()
             .any(|anchor| FileListStore::paths_overlap(entry.path(), anchor))
     });
-    if key.no_ignore {
-        walk.ignore(false)
-            .git_ignore(false)
-            .git_global(false)
-            .git_exclude(false);
-    } else if key.no_require_git {
-        walk.require_git(false);
-    }
-    if let Some(max_depth) = key.max_depth {
-        walk.max_depth(Some(max_depth));
-    }
+    apply_ignore_rules(&mut walk, key.no_ignore, key.no_require_git, key.max_depth);
     if let Some(overrides) = prune_overrides(&key.operand, &key.prune, &key.iglobs) {
         walk.overrides(overrides);
     }
@@ -388,23 +378,39 @@ fn publish_complete_inventory(live: &LiveWalk, files: &[PathBuf]) {
     live.files_cond.notify_all();
 }
 
+/// The ignore-file and depth settings both inventory walkers share, so a
+/// repair walk enumerates exactly what the full walk would.
+fn apply_ignore_rules(
+    walk: &mut WalkBuilder,
+    no_ignore: bool,
+    no_require_git: bool,
+    max_depth: Option<usize>,
+) {
+    if no_ignore {
+        walk.ignore(false)
+            .git_ignore(false)
+            .git_global(false)
+            .git_exclude(false);
+    } else if no_require_git {
+        walk.require_git(false);
+    }
+    if let Some(max_depth) = max_depth {
+        walk.max_depth(Some(max_depth));
+    }
+}
+
 /// One request's walk options as a configured walker: ignore rules, worker
 /// count, depth bound and the directories this operand prunes.
 fn configure_inventory_walk(operand: &Path, parsed: &ParsedArgs) -> WalkBuilder {
     let mut walk = WalkBuilder::new(operand);
     walk.hidden(!parsed.hidden)
         .threads(inventory_walk_threads(operand));
-    if parsed.no_ignore {
-        walk.ignore(false)
-            .git_ignore(false)
-            .git_global(false)
-            .git_exclude(false);
-    } else if parsed.no_require_git {
-        walk.require_git(false);
-    }
-    if let Some(max_depth) = parsed.max_depth {
-        walk.max_depth(Some(max_depth));
-    }
+    apply_ignore_rules(
+        &mut walk,
+        parsed.no_ignore,
+        parsed.no_require_git,
+        parsed.max_depth,
+    );
     // Prune excluded directories while walking. Without this the
     // inventory descends into .git/node_modules on every request and
     // only discards them later, at scan time.

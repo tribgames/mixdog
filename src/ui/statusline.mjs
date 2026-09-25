@@ -158,10 +158,6 @@ function l2SpinnerFrame(now = Date.now()) {
   return WORKER_SPINNER_FRAMES[index] || WORKER_SPINNER_FRAMES[0];
 }
 
-function activeContextNumerator(_provider, stats) {
-  return measuredContextUsage({ stats }).used;
-}
-
 export function resolveContextUsedPct({
   provider: _provider = '',
   model: _model = '',
@@ -338,7 +334,7 @@ function statuslineContext({
   autoCompactTokenLimit,
   clientHostPid,
 }) {
-  const contextTokens = activeContextNumerator(provider, stats);
+  const contextTokens = measuredContextUsage({ stats }).used;
   const routeContextWindow = num(displayContextWindow) > 0 ? num(displayContextWindow) : num(contextWindow);
   const gatewayStatus = loadGatewayQuotaStatus({
     provider,

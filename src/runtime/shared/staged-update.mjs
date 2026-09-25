@@ -360,10 +360,9 @@ function bestStagedVersion(currentVersion) {
  * success; on failure of the second rename the backup is rolled back into
  * place. Returns true only when the new version is live. Never throws.
  */
-function swapStagedIntoGlobal({ globalPkgRoot, pkgDir, expectedVersion, _rename } = {}) {
+function swapStagedIntoGlobal({ globalPkgRoot, pkgDir, expectedVersion } = {}) {
   if (!globalPkgRoot || !pkgDir) return false;
-  // `_rename` is a test seam; production always uses renameWithRetrySync.
-  const rename = typeof _rename === 'function' ? _rename : renameWithRetrySync;
+  const rename = renameWithRetrySync;
   // Safety: only ever swap a `.../node_modules/<name>` layout — never a dev
   // checkout or an unexpected root.
   const norm = String(globalPkgRoot).replace(/\\/g, '/');
@@ -537,8 +536,7 @@ export function performPendingSwap() {
 
 // Hard gate for the loser-timeout path: return only when `root` holds a
 // present + size-stable package; otherwise print a one-line notice and
-// process.exit(1). Exported so the swap-safety proof can exercise the exact
-// production decision.
+// process.exit(1).
 function ensureGlobalStableOrExit(root, timeoutMs = 3000) {
   if (ensureGlobalStable(root, timeoutMs) && globalPopulated(root)) return true;
   process.stderr.write('mixdog: update in progress — retry in a moment.\n');

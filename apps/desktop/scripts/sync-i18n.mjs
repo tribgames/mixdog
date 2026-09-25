@@ -3,7 +3,7 @@
 import { writeFileSync } from 'node:fs';
 import { catalogState, localesUrl, rendererUrl, readJson, requiredCatalogKeys } from './i18n/catalog-state.mjs';
 import { generatedCatalogs } from './i18n/native-catalogs.mjs';
-import { reusableTranslation } from './i18n/source-keys.mjs';
+import { hasLatinText, reusableTranslation } from './i18n/source-keys.mjs';
 
 const state = catalogState();
 const { catalogs, keys } = state;
@@ -21,9 +21,7 @@ for (const [language, catalog] of catalogs) {
       catalog[key] = catalog[key.slice(0, -6)];
       continue;
     }
-    catalog[key] =
-      reusableTranslation(key, catalog) ??
-      (neutral.has(key) || !/[A-Za-z]/.test(key.replace(/\{\{[^}]+\}\}/g, '')) ? key : '');
+    catalog[key] = reusableTranslation(key, catalog) ?? (neutral.has(key) || !hasLatinText(key) ? key : '');
     if (!catalog[key]) missing += 1;
   }
   const sorted = Object.fromEntries(Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b, 'en')));

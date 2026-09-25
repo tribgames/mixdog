@@ -84,10 +84,7 @@ export {
   beginOAuthLogin,
   loginOAuth,
 } from './openai-oauth-tokens.mjs';
-export {
-  codexModelSupportsServiceTier,
-  findCachedCodexModel as _findCachedCodexModel,
-} from './openai-oauth-catalog.mjs';
+export { codexModelSupportsServiceTier } from './openai-oauth-catalog.mjs';
 
 export class OpenAIOAuthProvider {
   // OpenAI input_tokens already INCLUDES cached_tokens (cached is a subset),
@@ -190,15 +187,15 @@ export class OpenAIOAuthProvider {
     // a no-op fast-path on cached tokens, but a refresh round-trip can
     // take 300ms+; the body build (message serialisation) overlaps cleanly.
     const useModel = model || (await ensureLatestCodexModel(() => this._refreshModelCache()));
-    // Escape hatch for callers (e.g. the web-search backend) that ship a
-    // fully-formed request body with a server-side tool shape buildRequestBody
-    // can't express. Routing through send() still gives them the 401/403
-    // force-refresh retry + HTTP/SSE fallback instead of a hard fail.
     const promptCacheLane = resolveProviderPromptCacheLane('openai-oauth', opts, this.config);
     const bodyOpts = {
       ...sendOpts,
       promptCacheLane,
     };
+    // Escape hatch for callers (e.g. the web-search backend) that ship a
+    // fully-formed request body with a server-side tool shape buildRequestBody
+    // can't express. Routing through send() still gives them the 401/403
+    // force-refresh retry + HTTP/SSE fallback instead of a hard fail.
     const _bodyP = opts._prebuiltBody
       ? Promise.resolve(opts._prebuiltBody)
       : Promise.resolve().then(() => buildRequestBody(messages, useModel, tools, bodyOpts));

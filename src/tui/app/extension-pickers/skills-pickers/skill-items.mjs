@@ -4,7 +4,7 @@
 // render the same empty row when the project ships no skills.
 import { withScope } from '../scope-note.mjs';
 
-export const skillDescription = (skill) => `${skill.source || 'skill'} · ${skill.description || skill.filePath || ''}`;
+const skillDescription = (skill) => `${skill.source || 'skill'} · ${skill.description || skill.filePath || ''}`;
 
 const emptyItem = (label) => ({
   value: 'empty',

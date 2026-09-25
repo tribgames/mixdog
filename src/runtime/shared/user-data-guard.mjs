@@ -64,10 +64,6 @@ function isStructurallyCompleteMixdogConfigBackup(parsed) {
   return true;
 }
 
-/**
- * Newest backup first: return the first structurally complete mixdog-config.json
- * (skips degenerate single-section snapshots from a prior failed RMW).
- */
 /** Backup directory names, newest first; empty when the root is unreadable. */
 function backupDirsNewestFirst() {
   try {
@@ -81,6 +77,10 @@ function backupDirsNewestFirst() {
   }
 }
 
+/**
+ * Newest backup first: return the first structurally complete mixdog-config.json
+ * (skips degenerate single-section snapshots from a prior failed RMW).
+ */
 export function loadLatestMixdogConfigFromBackup(_dataDir) {
   const root = getBackupRoot();
   for (const name of backupDirsNewestFirst()) {

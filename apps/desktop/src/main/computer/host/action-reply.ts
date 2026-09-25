@@ -49,21 +49,22 @@ export async function buildActionReply(
   captureAfterAction: CaptureAfterAction,
   context: ActionReplyContext
 ): Promise<ComputerCommandResult> {
-  const { command, result, isMutation, targetWindowId, windowTransition, settleDelayMs, actionTimings } = context;
+  const { command, result, isMutation, targetWindowId, windowTransition } = context;
   if (result.action) return semanticActionReply(captureAfterAction, context);
   const text = String(result.text || 'OK');
   if (command.capture_after) {
-    const originalWindowId = String(targetWindowId || '');
-    const captureWindowId = windowTransition?.next_target?.id || originalWindowId;
-    const postCaptureStartedAt = performance.now();
-    const capture = await captureAfterAction(command, captureWindowId, 0, settleDelayMs);
-    actionTimings.post_capture_ms = elapsedMs(postCaptureStartedAt);
+    const { capture, previousWindow } = await capturePostAction(
+      captureAfterAction,
+      context,
+      String(targetWindowId || '')
+    );
     const payload: Record<string, unknown> = {
       ...unverifiedPayload(context, text),
       capture_after: {
         ...capture.metadata,
-        target_reason: windowTransition?.next_target_reason || 'original_target',
-        ...(originalWindowId && captureWindowId !== originalWindowId ? { previous_window_id: originalWindowId } : {}),
+        target_reason:
+          capture.metadata.capture_target_reason || windowTransition?.next_target_reason || 'original_target',
+        ...previousWindow,
       },
     };
     applyObservationOutcome(payload, capture.metadata);
@@ -74,6 +75,23 @@ export async function buildActionReply(
   }
   if (isMutation) return { text: JSON.stringify(unverifiedPayload(context, text)) };
   return { text };
+}
+
+/** The post-action observation of the transition's successor, else the original
+ *  window; `previousWindow` names the original when the capture moved away. */
+async function capturePostAction(
+  captureAfterAction: CaptureAfterAction,
+  context: ActionReplyContext,
+  originalWindowId: string
+) {
+  const { command, windowTransition, settleDelayMs, actionTimings } = context;
+  const captureWindowId = windowTransition?.next_target?.id || originalWindowId;
+  const postCaptureStartedAt = performance.now();
+  const capture = await captureAfterAction(command, captureWindowId, 0, settleDelayMs);
+  actionTimings.post_capture_ms = elapsedMs(postCaptureStartedAt);
+  const previousWindow =
+    originalWindowId && captureWindowId !== originalWindowId ? { previous_window_id: originalWindowId } : {};
+  return { capture, previousWindow };
 }
 
 // A reply the host could not verify: the caller re-observes before acting on it.
@@ -135,7 +153,6 @@ async function captureAfterSemanticAction(
   code: string | undefined
 ): Promise<{ mimeType: string; data: string } | undefined> {
   const { command, action, result, windowTransition, logicalTargetWindowId, semanticTargetIdentity } = context;
-  const { settleDelayMs, actionTimings } = context;
   const originalWindowId = String(logicalTargetWindowId || result.window_id || '');
   const targetClosed =
     action === 'close_window' &&
@@ -171,14 +188,11 @@ async function captureAfterSemanticAction(
     };
     return undefined;
   }
-  const captureWindowId = windowTransition?.next_target?.id || originalWindowId;
-  const postCaptureStartedAt = performance.now();
-  const capture = await captureAfterAction(command, captureWindowId, 0, settleDelayMs);
-  actionTimings.post_capture_ms = elapsedMs(postCaptureStartedAt);
+  const { capture, previousWindow } = await capturePostAction(captureAfterAction, context, originalWindowId);
   payload.capture_after = {
     ...capture.metadata,
     target_reason: capture.metadata.capture_target_reason || windowTransition?.next_target_reason || 'original_target',
-    ...(originalWindowId && captureWindowId !== originalWindowId ? { previous_window_id: originalWindowId } : {}),
+    ...previousWindow,
   };
   applyObservationOutcome(payload, capture.metadata);
   if (capture.image && captureAfterImageIsRedundant(command, capture.metadata, semanticTargetIdentity)) {

@@ -520,8 +520,7 @@ function Test-FastDirectNoOp {
 }
 
 function Complete-FastDirectNoOp {
-    # `exit` inside a function ends the script, which is what both inline
-    # copies of this block did before they were consolidated here.
+    # `exit` inside a function ends the whole script, not just this function.
     Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
     Write-FastDirectReceipt -Status 'completed' -Detail 'no changes'
     exit 0

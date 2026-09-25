@@ -169,18 +169,20 @@ test('a recent ctime or incomplete identity cannot use the stat-only fast path',
   }
 });
 
-test('the cache stays within its entry and text budgets', async () => {
-  const cache = createStoredTranscriptCache({ maxEntries: 2, maxTextChars: 10 });
+test('the cache stays within its entry and projected-byte budgets', async () => {
+  // {"items":[]} is 12 serialized bytes; the source text size is irrelevant.
+  const cache = createStoredTranscriptCache({ maxEntries: 2, maxBytes: 30 });
   const produce = () => ({ items: [] });
   const base = { fingerprint: '', fileStat: stat(1, 4), now: 5, produce };
-  await cache.read({ ...base, key: '1', loadText: text('aaaa') });
+  await cache.read({ ...base, key: '1', loadText: text('a'.repeat(1_000)) });
   await cache.read({ ...base, key: '2', loadText: text('bbbb') });
   await cache.read({ ...base, key: '3', loadText: text('cccc') });
   assert.equal(cache.stats().entries, 2);
-  assert.ok(cache.stats().retainedChars <= 10);
-  const oversized = await cache.read({ ...base, key: '4', loadText: text('x'.repeat(11)) });
-  assert.equal(oversized.hit, false);
-  assert.equal((await cache.read({ ...base, key: '4', loadText: text('x'.repeat(11)) })).hit, false);
+  assert.equal(cache.stats().retainedBytes, 24);
+  const oversized = () =>
+    cache.read({ ...base, key: '4', loadText: text('small'), produce: () => ({ items: ['x'.repeat(40)] }) });
+  assert.equal((await oversized()).hit, false);
+  assert.equal((await oversized()).hit, false, 'a projection larger than the whole budget is never retained');
 });
 
 test('unchanged session rotations do not churn at the former eight-session boundary', async () => {
@@ -214,8 +216,9 @@ test('unchanged session rotations do not churn at the former eight-session bound
   assert.equal(loaded, 32);
 });
 
-test('the content budget still evicts entries without a session-count limit', async () => {
-  const cache = createStoredTranscriptCache({ maxTextChars: 10 });
+test('the projected-byte budget evicts least recently used entries without a session-count limit', async () => {
+  // {"items":["a"]} is 15 serialized bytes: two fit in 30, three do not.
+  const cache = createStoredTranscriptCache({ maxBytes: 30 });
   const read = (key) =>
     cache.read({
       key,
@@ -225,10 +228,64 @@ test('the content budget still evicts entries without a session-count limit', as
     });
   await read('a');
   await read('b');
+  assert.equal((await read('a')).hit, true, 'a read refreshes recency');
   await read('c');
-  assert.equal(cache.stats().retainedChars, 8);
-  assert.equal((await read('b')).hit, true);
-  assert.equal((await read('a')).hit, false);
+  assert.equal(cache.stats().retainedBytes, 30);
+  assert.equal((await read('a')).hit, true);
+  assert.equal((await read('b')).hit, false, 'the least recently used entry was evicted');
+});
+
+test('a round-robin refresh larger than the budget keeps serving the entries it can hold', async () => {
+  // {"items":["k"]} is 15 serialized bytes: two of three fit in 30.
+  const cache = createStoredTranscriptCache({ maxBytes: 30 });
+  let loads = 0;
+  const read = (key, now) =>
+    cache.read({
+      key,
+      fingerprint: '',
+      fileStat: stat(1, 4),
+      now,
+      loadText: () => {
+        loads += 1;
+        return `body ${key}`;
+      },
+      produce: () => ({ items: [key] }),
+    });
+  // A 1 s refresh clock over three unchanged, settled files.
+  let now = 10_000;
+  const perCycle = [];
+  for (let cycle = 0; cycle < 5; cycle += 1) {
+    const before = loads;
+    for (const key of ['a', 'b', 'c']) await read(key, now);
+    perCycle.push(loads - before);
+    now += 1_000;
+  }
+  assert.deepEqual(perCycle.slice(2), [1, 1, 1], 'two of three are served without reading (plain LRU read all three)');
+  assert.ok(cache.stats().retainedBytes <= 30);
+  // Once the held entries go idle, the waiting one is admitted.
+  now += 10_000;
+  assert.equal((await read('a', now)).read, true);
+  const before = loads;
+  assert.equal((await read('a', now + 1_000)).read, false);
+  assert.equal(loads, before);
+});
+
+test('a growing history window replaces its smaller predecessor in the same group', async () => {
+  const cache = createStoredTranscriptCache();
+  const read = (key, group) =>
+    cache.read({ key, group, fingerprint: '', loadText: text('body'), produce: () => ({ items: [key] }) });
+  await read('s|32|items', 's|items');
+  await read('s|96|items', 's|items');
+  await read('s|160|items', 's|items');
+  await read('s|512|messages', 's|messages');
+  await read('t|32|items', 't|items');
+  assert.equal(cache.stats().entries, 3);
+  assert.equal((await read('s|160|items', 's|items')).hit, true);
+  assert.equal((await read('s|512|messages', 's|messages')).hit, true);
+  assert.equal((await read('s|32|items', 's|items')).hit, false);
+  cache.forget('s|');
+  assert.equal(cache.stats().entries, 1);
+  assert.equal(cache.stats().retainedBytes, Buffer.byteLength(JSON.stringify({ items: ['t|32|items'] })));
 });
 
 test('a stored transcript read is served from cache until the record changes', async () => {
@@ -270,6 +327,42 @@ test('a stored transcript read is served from cache until the record changes', a
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+test('stored paging windows report older history, replace each other and are forgotten per session', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-transcript-window-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  const { readStoredSessionTranscript, clearStoredTranscriptCache, forgetStoredSessionTranscript, storedTranscriptCacheStats } =
+    await import('./store-summary-reader.mjs');
+  t.after(() => {
+    clearStoredTranscriptCache();
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  clearStoredTranscriptCache();
+  mkdirSync(join(dataDir, 'sessions'));
+  const id = `sess_window_${process.pid}`;
+  const messages = Array.from({ length: 50 }, (_, index) => ({ role: 'user', content: `prompt ${index}` }));
+  writeFileSync(join(dataDir, 'sessions', `${id}.json`), JSON.stringify({ id, closed: true, generation: 1, messages }));
+
+  const tail = await readStoredSessionTranscript(id, { transcriptItemLimit: 10 });
+  assert.deepEqual(
+    tail.items.map((item) => item.text),
+    Array.from({ length: 10 }, (_, index) => `prompt ${40 + index}`)
+  );
+  assert.equal(tail.transcriptHasOlder, true);
+  const page = await readStoredSessionTranscript(id, { transcriptItemLimit: 30 });
+  assert.equal(page.items.length, 30);
+  assert.deepEqual(page.items.slice(-10), tail.items, 'restore ids and rows are stable across windows');
+  const whole = await readStoredSessionTranscript(id, { transcriptItemLimit: 64 });
+  assert.equal(whole.items.length, 50);
+  assert.equal(whole.transcriptHasOlder, false);
+  assert.equal(storedTranscriptCacheStats().entries, 1, 'growing windows of one session do not accumulate');
+  assert.equal(storedTranscriptCacheStats().retainedBytes, Buffer.byteLength(JSON.stringify(whole)));
+  forgetStoredSessionTranscript(id);
+  assert.deepEqual(storedTranscriptCacheStats(), { entries: 0, retainedBytes: 0, inFlight: 0 });
 });
 
 test('projection stamps are unique within a process', () => {

@@ -5,8 +5,7 @@
  * they bypass the save queue entirely — that is why they live apart from the
  * write pipeline — and both fence late saves through the generation counter.
  */
-import { writeFileSync } from 'node:fs';
-import * as fsp from 'node:fs/promises';
+import { appendFileSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
@@ -55,6 +54,87 @@ function _mergeCancelStatus(existing, requested) {
   return next || prev || 'cancelled';
 }
 
+// Agent cancel/close must survive the worker-index drop: the pool summary
+// reads cancelStatus even when the row is already gone. `requested` is the
+// close path's OWN answer about the kill (see closeSession): an unconfirmed
+// stop must reach disk instead of the default confirmed `cancelled`, and a
+// later re-stamp must never downgrade it.
+function _cancelStatusFields(base, reason, requested, closeTime) {
+  if (!_CANCEL_CLOSE_REASON.test(String(reason || '').trim()) && !_cleanCancelStatus(requested)) return {};
+  return {
+    cancelStatus: _mergeCancelStatus(base.cancelStatus, requested),
+    cancelledAt: base.cancelledAt || closeTime,
+  };
+}
+
+/**
+ * Durable authority for a lifecycle barrier, read under the commit lock
+ * BEFORE any disruption. The barrier rewrites the canonical file, so the bytes
+ * it is derived from must be provably ours: a duplicate/ambiguous/foreign/
+ * identity-less record is NEVER re-serialized through a lenient parse or
+ * replaced from live memory. The barrier is refused and the cause surfaced,
+ * exactly like a failed commit (closeSession must not report a close that
+ * never fenced anything). Returns LIFECYCLE_AMBIGUOUS on refusal, else the
+ * record (null when absent).
+ */
+function _readLifecycleAuthority(id, reason, action) {
+  const authority = _readCanonicalRecord(sessionPath(id));
+  if (authority === LIFECYCLE_AMBIGUOUS || (authority && authority.id !== id)) {
+    const err = new Error(`[session-store] ${id}: refusing to ${action} — canonical record is unreadable or foreign`);
+    err.code = 'ELIFECYCLEUNREADABLE';
+    _recordLifecycleCommitFailure(id, err, reason);
+    return LIFECYCLE_AMBIGUOUS;
+  }
+  return authority;
+}
+
+/** Commit a barrier record, bypassing the save queue + guard. False when it did not land. */
+function _writeLifecycleRecord(id, record, existing, reason) {
+  const target = sessionPath(id);
+  const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
+  try {
+    writeFileSync(tmp, JSON.stringify(_sessionForDisk(record)), 'utf-8');
+    _commitSessionWrite(tmp, target, id);
+    _untrackSaveTmp(tmp);
+    return true;
+  } catch (err) {
+    // The durable lifecycle barrier did NOT land: no tombstone, no
+    // generation bump, nothing fencing a late save. Same contract as a
+    // failed session save — reclaim the scratch file, pin the live
+    // snapshot (non-evictable, not shadowed by the stale disk copy) and
+    // publish the cause so closeSession refuses to report success.
+    _discardSaveTmp(tmp);
+    _recordSaveFailure(id, err, null, existing);
+    _recordLifecycleCommitFailure(id, err, reason);
+    return false;
+  }
+}
+
+// Structured close metric. Single emission point because every close path
+// funnels through markSessionClosed. lifeMs = updatedAt-createdAt straddles
+// the tombstone (updatedAt was just set to Date.now()), so it reflects the
+// session's full lifetime including the close turn.
+function _logSessionCloseMetric(id, existing, closedAt, reason) {
+  try {
+    const dataDir = getPluginData();
+    if (!dataDir) return;
+    const ts = new Date().toISOString();
+    const lifeMs = typeof existing.createdAt === 'number' && existing.createdAt > 0 ? closedAt - existing.createdAt : 0;
+    const agent = existing.agent || '-';
+    const owner = existing.owner || '-';
+    const toolEventsPath = join(dataDir, 'tool-events.log');
+    rotateBoundedLog(toolEventsPath, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES);
+    // Appended before the close returns: an untracked async append kept
+    // writing into the data dir after its caller was told the close was done.
+    appendFileSync(
+      toolEventsPath,
+      `[${ts}] [session-close] owner=${owner} agent=${agent} reason=${reason} lifeMs=${lifeMs} id=${id}\n`
+    );
+  } catch {
+    /* logger never breaks the close path */
+  }
+}
+
 /**
  * Atomically mark a session closed on disk with a bumped generation.
  * Returns the new generation, or null if the session file doesn't exist.
@@ -77,20 +157,8 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
     // best-effort race: the tombstone resurrection guard is the authoritative
     // post-race arbiter. Re-stat here, but never invoke caller code under lock.
     if (_heartbeatLivenessVeto(id, options)) return null;
-    // ── Durable authority, read under the commit lock, BEFORE any disruption ──
-    // The tombstone rewrites the canonical file, so the bytes it is derived
-    // from must be provably ours. A duplicate/ambiguous/foreign/identity-less
-    // record is NEVER re-serialized through a lenient parse or replaced from
-    // live memory: refuse the barrier and surface the cause, exactly like a
-    // failed commit (closeSession must not report a close that never fenced
-    // anything).
-    const authority = _readCanonicalRecord(sessionPath(id));
-    if (authority === LIFECYCLE_AMBIGUOUS || (authority && authority.id !== id)) {
-      const err = new Error(`[session-store] ${id}: refusing to close — canonical record is unreadable or foreign`);
-      err.code = 'ELIFECYCLEUNREADABLE';
-      _recordLifecycleCommitFailure(id, err, reason);
-      return null;
-    }
+    const authority = _readLifecycleAuthority(id, reason, 'close');
+    if (authority === LIFECYCLE_AMBIGUOUS) return null;
     // Only a committed close may disrupt pending persistence.
     _clearDebounce(id);
     _cancelSessionWrites(id);
@@ -129,37 +197,9 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
       status: 'closed',
       generation: newGen,
       updatedAt: closeTime,
-      // Agent cancel/close must survive the worker-index drop: the pool
-      // summary reads cancelStatus even when the row is already gone.
-      // `options.cancelStatus` is the close path's OWN answer about the kill
-      // (see closeSession): an unconfirmed stop must reach disk instead of the
-      // default confirmed `cancelled`, and a later re-stamp must never
-      // downgrade it.
-      ...(_CANCEL_CLOSE_REASON.test(String(reason || '').trim()) || _cleanCancelStatus(options.cancelStatus)
-        ? {
-            cancelStatus: _mergeCancelStatus(base.cancelStatus, options.cancelStatus),
-            cancelledAt: base.cancelledAt || closeTime,
-          }
-        : {}),
+      ..._cancelStatusFields(base, reason, options.cancelStatus, closeTime),
     };
-    // Bypass the queue + guard — this IS the tombstone write.
-    const target = sessionPath(id);
-    const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
-    try {
-      writeFileSync(tmp, JSON.stringify(_sessionForDisk(tombstone)), 'utf-8');
-      _commitSessionWrite(tmp, target, id);
-      _untrackSaveTmp(tmp);
-    } catch (err) {
-      // The durable lifecycle barrier did NOT land: no tombstone, no
-      // generation bump, nothing fencing a late save. Same contract as a
-      // failed session save — reclaim the scratch file, pin the live
-      // snapshot (non-evictable, not shadowed by the stale disk copy) and
-      // publish the cause so closeSession refuses to report success.
-      _discardSaveTmp(tmp);
-      _recordSaveFailure(id, err, null, existing);
-      _recordLifecycleCommitFailure(id, err, reason);
-      return null;
-    }
+    if (!_writeLifecycleRecord(id, tombstone, existing, reason)) return null;
     _savePending.delete(id);
     clearSessionSaveError(id);
     _clearLiveSession(id);
@@ -167,35 +207,10 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
     _deleteHeartbeatUnlessNewer(id, options);
     _queueSessionSummaryUpsert(tombstone);
     _droppedSaveIds.delete(id);
-    // Structured close metric. Single emission point because every close
-    // path funnels through markSessionClosed. lifeMs = updatedAt-createdAt
-    // straddles the tombstone (updatedAt was just set to Date.now()), so
-    // it reflects the session's full lifetime including the close turn.
-    try {
-      const _dataDir = getPluginData();
-      // Emit the close metric only on the FIRST close — a re-close of an
-      // already-tombstoned session is a no-op idempotent write and must not
-      // spam the close log or double-count lifetimes.
-      if (_dataDir && !alreadyClosed) {
-        const _ts = new Date().toISOString();
-        const _lifeMs =
-          typeof existing.createdAt === 'number' && existing.createdAt > 0
-            ? tombstone.updatedAt - existing.createdAt
-            : 0;
-        const _agent = existing.agent || '-';
-        const _owner = existing.owner || '-';
-        const _toolEventsPath = join(_dataDir, 'tool-events.log');
-        rotateBoundedLog(_toolEventsPath, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES);
-        void fsp
-          .appendFile(
-            _toolEventsPath,
-            `[${_ts}] [session-close] owner=${_owner} agent=${_agent} reason=${reason} lifeMs=${_lifeMs} id=${id}\n`
-          )
-          .catch(() => {});
-      }
-    } catch {
-      /* logger never breaks the close path */
-    }
+    // Emit the close metric only on the FIRST close — a re-close of an
+    // already-tombstoned session is a no-op idempotent write and must not
+    // spam the close log or double-count lifetimes.
+    if (!alreadyClosed) _logSessionCloseMetric(id, existing, tombstone.updatedAt, reason);
     return newGen;
   } finally {
     _releaseWriteCommit(commitControl);
@@ -229,16 +244,8 @@ export function bumpSessionGeneration(id, reason = 'detach') {
   const commitControl = _acquireWriteCommit(detachGuard);
   if (commitControl === false) return null;
   try {
-    // Same durable authority as the tombstone barrier: the detach write
-    // replaces the canonical file, so unreadable/ambiguous/foreign bytes
-    // are refused (and surfaced) instead of rewritten from memory.
-    const authority = _readCanonicalRecord(sessionPath(id));
-    if (authority === LIFECYCLE_AMBIGUOUS || (authority && authority.id !== id)) {
-      const err = new Error(`[session-store] ${id}: refusing to detach — canonical record is unreadable or foreign`);
-      err.code = 'ELIFECYCLEUNREADABLE';
-      _recordLifecycleCommitFailure(id, err, reason);
-      return null;
-    }
+    // Same durable authority as the tombstone barrier.
+    if (_readLifecycleAuthority(id, reason, 'detach') === LIFECYCLE_AMBIGUOUS) return null;
     // Only a VALIDATED barrier may disrupt pending persistence: on an
     // ambiguous/foreign refusal above the debounced save stays scheduled
     // and usable.
@@ -249,19 +256,7 @@ export function bumpSessionGeneration(id, reason = 'detach') {
     if (!existing) return null;
     const newGen = (typeof existing.generation === 'number' ? existing.generation : 0) + 1;
     const detached = { ...existing, generation: newGen, updatedAt: Date.now(), detachedReason: reason };
-    const target = sessionPath(id);
-    const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
-    try {
-      writeFileSync(tmp, JSON.stringify(_sessionForDisk(detached)), 'utf-8');
-      _commitSessionWrite(tmp, target, id);
-      _untrackSaveTmp(tmp);
-    } catch (err) {
-      // Detach barrier failed — identical contract to the tombstone path.
-      _discardSaveTmp(tmp);
-      _recordSaveFailure(id, err, null, existing);
-      _recordLifecycleCommitFailure(id, err, reason);
-      return null;
-    }
+    if (!_writeLifecycleRecord(id, detached, existing, reason)) return null;
     _savePending.delete(id);
     clearSessionSaveError(id);
     _clearLiveSession(id);

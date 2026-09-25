@@ -52,7 +52,7 @@ export function createTurnStream(deps) {
   };
 }
 
-export function ensureAssistant(stream, initialText = '') {
+function ensureAssistant(stream, initialText = '') {
   if (!stream.currentAssistantId) {
     stream.currentAssistantId = stream.nextId();
     const meta = stream.transcriptMeta;

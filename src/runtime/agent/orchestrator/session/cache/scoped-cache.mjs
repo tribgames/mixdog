@@ -3,7 +3,6 @@
 // Write-class tools invalidate only entries whose registered root contains the
 // touched path; unknown paths still fall back to a full session clear.
 import { join, resolve as _pathResolve, isAbsolute as _pathIsAbs, normalize as _pathNorm } from 'node:path';
-import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { _normalizeCacheKey } from './util.mjs';
 import { GREP_AUTO_CONTEXT_AFTER, GREP_AUTO_CONTEXT_BEFORE } from '../../tools/builtin/path-utils.mjs';
 import { registerCacheInvalidationListener } from '../../tools/builtin/cache-layers.mjs';
@@ -23,12 +22,6 @@ const _scopedBySession = new Map();
 
 // sessionId -> Map<absPath, Set<cacheKey>>  — reverse index for O(1) path-targeted invalidation
 const _scopedReverseIdx = new Map();
-
-// sessionId -> { sets, hits, misses, clears }
-const _scopedCounters = new Map();
-
-const _snapshotDataDir = null;
-let _snapshotTimer = null;
 
 function _canonicalArgs(args) {
   if (args === null || args === undefined) return '';
@@ -264,40 +257,25 @@ function _dropScopedEntry(sessionId, key) {
   }
 }
 
-function _bumpCounter(sessionId, field) {
-  let c = _scopedCounters.get(sessionId);
-  if (!c) {
-    c = { sets: 0, hits: 0, misses: 0, clears: 0 };
-    _scopedCounters.set(sessionId, c);
-  }
-  c[field] = (c[field] ?? 0) + 1;
-  _scheduleCacheStatsFlush();
-}
-
 /**
  * Look up a cached result for a deterministic multi-file-scope tool. Returns
  * null on miss. On hit returns the full entry
  * { content, firstToolUseId, ts }.
  */
-export function tryScopedToolCached({ sessionId, toolName, args, cwd, countStats = true, touch = true } = {}) {
+export function tryScopedToolCached({ sessionId, toolName, args, cwd, touch = true } = {}) {
   if (!sessionId || !toolName) return null;
   const map = _scopedBySession.get(sessionId);
-  if (!map) {
-    if (countStats) _bumpCounter(sessionId, 'misses');
-    return null;
-  }
+  if (!map) return null;
   const key = _scopedKey(toolName, args, cwd);
   const entry = map.get(key);
   if (!entry || Date.now() - entry.ts >= SCOPED_CACHE_TTL_MS) {
     if (entry) _dropScopedEntry(sessionId, key);
-    if (countStats) _bumpCounter(sessionId, 'misses');
     return null;
   }
   if (touch) {
     map.delete(key);
     map.set(key, entry);
   }
-  if (countStats) _bumpCounter(sessionId, 'hits');
   return { content: entry.content, firstToolUseId: entry.firstToolUseId || null, ts: entry.ts };
 }
 
@@ -354,7 +332,6 @@ export function setScopedToolCached({
     s.add(key);
   };
   for (const dep of depRoots) _registerAbs(dep);
-  _bumpCounter(sessionId, 'sets');
 }
 
 /**
@@ -366,7 +343,6 @@ export function clearScopedToolsForSession(sessionId) {
   mutationGeneration += 1;
   _scopedBySession.delete(sessionId);
   _scopedReverseIdx.delete(sessionId);
-  _bumpCounter(sessionId, 'clears');
 }
 
 /**
@@ -386,7 +362,6 @@ export function clearScopedToolsForSessionPaths(sessionId, touchedPaths, cwd) {
     // Fallback: can't resolve — full wipe.
     _scopedBySession.delete(sessionId);
     _scopedReverseIdx.delete(sessionId);
-    _bumpCounter(sessionId, 'clears');
     return;
   }
   const ridx = _scopedReverseIdx.get(sessionId);
@@ -399,7 +374,6 @@ export function clearScopedToolsForSessionPaths(sessionId, touchedPaths, cwd) {
       if (keySet.size === 0) ridx.delete(absKey);
     }
   }
-  if (evictedKeys.size > 0) _bumpCounter(sessionId, 'clears');
 }
 
 // The normalized absolute cache keys of the touched paths; unresolvable
@@ -453,70 +427,3 @@ registerCacheInvalidationListener((paths) => {
     else clearScopedToolsForSession(sessionId);
   }
 });
-
-/** Drop scoped counters for a session on close. */
-export function clearScopedCounters(sessionId) {
-  if (!sessionId) return;
-  _scopedCounters.delete(sessionId);
-}
-
-/**
- * Aggregate all live session counters into totals + per-session breakdown.
- * Pure computation — no I/O. Exported for tests.
- */
-function aggregateCacheStats() {
-  const totals = { sets: 0, hits: 0, misses: 0, clears: 0 };
-  const perSession = [];
-  for (const [sessionId, c] of _scopedCounters) {
-    totals.sets += c.sets ?? 0;
-    totals.hits += c.hits ?? 0;
-    totals.misses += c.misses ?? 0;
-    totals.clears += c.clears ?? 0;
-    perSession.push({
-      sessionId,
-      sets: c.sets ?? 0,
-      hits: c.hits ?? 0,
-      misses: c.misses ?? 0,
-      clears: c.clears ?? 0,
-    });
-  }
-  return { totals, perSession };
-}
-
-function _flushCacheStats() {
-  _snapshotTimer = null;
-  if (!_snapshotDataDir) return;
-  const path = join(_snapshotDataDir, 'cache-stats.json');
-  const { totals, perSession } = aggregateCacheStats();
-  try {
-    writeJsonAtomicSync(
-      path,
-      { writtenAt: Date.now(), totals, perSession },
-      {
-        compact: true,
-        lock: true,
-        fsync: false,
-        fsyncDir: false,
-      }
-    );
-  } catch {
-    // best-effort; never throw into caller
-  }
-}
-
-function _scheduleCacheStatsFlush() {
-  if (_snapshotTimer !== null) return;
-  // .unref() so the timer doesn't prevent Node exit in tests
-  const t = setTimeout(_flushCacheStats, 1000);
-  if (typeof t.unref === 'function') t.unref();
-  _snapshotTimer = t;
-}
-
-/** Sync-flush pending cache-stats snapshot on exit. */
-function drainCacheStats() {
-  if (_snapshotTimer === null) return;
-  clearTimeout(_snapshotTimer);
-  _snapshotTimer = null;
-  _flushCacheStats();
-}
-process.on('exit', drainCacheStats);

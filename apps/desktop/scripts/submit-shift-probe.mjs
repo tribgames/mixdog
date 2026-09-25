@@ -11,7 +11,7 @@
 // which an already-visible row moved relative to its final position — the
 // visible up/down bounce on submit — and which element changed in that frame.
 import { spawn } from 'node:child_process';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -394,7 +394,6 @@ Object.assign(env, {
   MIXDOG_BOOT_SCENARIO: 'submit-shift-probe',
 });
 if (fakeModelPort) {
-  const { writeFile } = await import('node:fs/promises');
   // deepseek preset: baseURL is user-overridable and reasoning_content deltas
   // reach the thinking band. The key comes from the environment only.
   await writeFile(
@@ -491,7 +490,6 @@ try {
     report('session-submit-single', single);
     console.log('final', JSON.stringify(await evaluateStable(client, STATE)));
   }
-  const { writeFile } = await import('node:fs/promises');
   const rawPath = join(desktopDir, 'artifacts', 'submit-shift-probe.json');
   await writeFile(rawPath, JSON.stringify(captures));
   console.log('raw frames:', rawPath);

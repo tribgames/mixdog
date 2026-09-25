@@ -33,8 +33,7 @@ function _getMcpTools(mcpScopeId = null, cwd = null) {
     description: typeof t.description === 'string' ? t.description : '',
     inputSchema: t.inputSchema || { type: 'object', properties: {} },
     // Keep annotations so the permission filter / role invariants can
-    // tell read-only from write-capable internal tools, and so
-    // agentHidden can be read during deny filtering.
+    // tell read-only from write-capable internal tools.
     annotations: t.annotations || {},
   }));
   return [...mcp, ...internal].sort((a, b) => compareCodePoints(a?.name || '', b?.name || ''));
@@ -65,7 +64,7 @@ const READONLY_TOOL_NAMES = new Set(['code_graph', 'find', 'glob', 'list', 'grep
 
 export function finalizeSessionToolList(
   tools,
-  { schemaAllowedTools = null, disallowedTools = null, ownerIsAgent = false, resolvedAgent: _resolvedAgent = null } = {}
+  { schemaAllowedTools = null, disallowedTools = null, ownerIsAgent = false } = {}
 ) {
   let out = Array.isArray(tools) ? tools : [];
   const hasCallerAllow = Array.isArray(schemaAllowedTools);
@@ -134,10 +133,6 @@ function _dedupByName(tools) {
   }
   return [...seen.values()];
 }
-
-// Agent visibility is declared per-tool via annotations.agentHidden.
-// Tools with agentHidden:true are stripped from agent sessions at schema
-// build time (see deny filtering below). No code-level name list needed.
 
 function _computeBaseTools(toolSpec, mcp, skillTools) {
   if (Array.isArray(toolSpec)) {

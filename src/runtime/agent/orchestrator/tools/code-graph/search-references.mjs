@@ -167,6 +167,36 @@ export function _formatImpact(node, graph, cwd, targetSymbol = '') {
   return lines.join('\n');
 }
 
+function _formatNoSymbolMatches(graph, symbol, cwd, { language, fileRel, outsideLine }) {
+  const nodeCount = graph?.nodes?.size ?? 0;
+  const scopeNote = fileRel ? ` file=${fileRel}` : '';
+  const lines = [`(no symbol matches in cwd=${cwd}${scopeNote})`];
+  lines.push(`graph: nodes=${nodeCount}${language ? `, language=${language}` : ''}`);
+  if (graph?.truncated) {
+    lines.push(
+      `WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — symbol may exist in an un-indexed file. Re-run with a narrower cwd.`
+    );
+  }
+  const lowerSym = symbol.toLowerCase();
+  const ciHits = [];
+  if (graph?._symbolTokenIndex && nodeCount > 0) {
+    for (const key of graph._symbolTokenIndex.keys()) {
+      const idx = key.indexOf('|');
+      if (idx < 0) continue;
+      const symPart = key.slice(idx + 1);
+      if (symPart !== symbol && symPart.toLowerCase() === lowerSym) {
+        if (!ciHits.includes(symPart)) ciHits.push(symPart);
+        if (ciHits.length >= 3) break;
+      }
+    }
+  }
+  if (ciHits.length) {
+    lines.push(`hint: indexed under different casing: ${ciHits.join(', ')}`);
+  }
+  if (outsideLine) lines.push(outsideLine);
+  return lines.join('\n');
+}
+
 export function _findSymbolAcrossGraph(
   graph,
   symbol,
@@ -179,35 +209,7 @@ export function _findSymbolAcrossGraph(
     ? `declared outside the requested files: ${_formatOutsideDeclaration(outsideDeclaration)}`
     : '';
 
-  if (!hits.length) {
-    const nodeCount = graph?.nodes?.size ?? 0;
-    const scopeNote = fileRel ? ` file=${fileRel}` : '';
-    const lines = [`(no symbol matches in cwd=${cwd}${scopeNote})`];
-    lines.push(`graph: nodes=${nodeCount}${language ? `, language=${language}` : ''}`);
-    if (graph?.truncated) {
-      lines.push(
-        `WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — symbol may exist in an un-indexed file. Re-run with a narrower cwd.`
-      );
-    }
-    const lowerSym = symbol.toLowerCase();
-    const ciHits = [];
-    if (graph?._symbolTokenIndex && nodeCount > 0) {
-      for (const key of graph._symbolTokenIndex.keys()) {
-        const idx = key.indexOf('|');
-        if (idx < 0) continue;
-        const symPart = key.slice(idx + 1);
-        if (symPart !== symbol && symPart.toLowerCase() === lowerSym) {
-          if (!ciHits.includes(symPart)) ciHits.push(symPart);
-          if (ciHits.length >= 3) break;
-        }
-      }
-    }
-    if (ciHits.length) {
-      lines.push(`hint: indexed under different casing: ${ciHits.join(', ')}`);
-    }
-    if (outsideLine) lines.push(outsideLine);
-    return lines.join('\n');
-  }
+  if (!hits.length) return _formatNoSymbolMatches(graph, symbol, cwd, { language, fileRel, outsideLine });
 
   const topHits = hits.slice(0, Math.max(1, limit));
   const primary = topHits[0];

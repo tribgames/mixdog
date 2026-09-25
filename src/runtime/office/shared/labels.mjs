@@ -9,6 +9,7 @@ const LABELS = Object.freeze({
     recommendation: 'RECOMMENDATION',
     checkpoint: 'NEXT CHECKPOINT',
     source: 'Source',
+    gate: Object.freeze(['Track', 'Release', 'Stop']),
   }),
   hangul: Object.freeze({
     eyebrow: '의사결정 대시보드',
@@ -16,6 +17,7 @@ const LABELS = Object.freeze({
     recommendation: '권고',
     checkpoint: '다음 점검',
     source: '출처',
+    gate: Object.freeze(['항목', '진행', '보류']),
   }),
 });
 

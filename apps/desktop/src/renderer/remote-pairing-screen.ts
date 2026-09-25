@@ -12,7 +12,7 @@ import {
 import { earlyUiT } from './early-ui-i18n';
 import { isInstalledMobileWebAppSurface, isMobileRemoteSurface } from './mobile-surface';
 import { browserProfile } from './remote-browser-identity';
-import { REMOTE_PAIRING_STORAGE_KEYS } from './remote-pairing-recovery';
+import { REMOTE_PAIRING_STORAGE_KEYS, isRemoteClientCredential } from './remote-pairing-recovery';
 
 const CLAIM_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.claim;
 
@@ -158,7 +158,7 @@ const requestApproval = async (
       const material = await openSealedRelayE2EEPairingMaterial(payload.sealed, keyPair);
       const credential = String(payload.token || '');
       // A box that does not open is a refused approval, never a half pairing.
-      if (!material || !/^[0-9a-f]{32,128}$/u.test(credential) || !deps.acceptApproval(credential, material)) {
+      if (!material || !isRemoteClientCredential(credential) || !deps.acceptApproval(credential, material)) {
         clearPendingClaim();
         onStatus(earlyUiT('That approval could not be verified.'), true);
         return;

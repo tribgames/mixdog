@@ -38,7 +38,7 @@ import { runRg, runRgWindowedLines } from './native-search-runner.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
 import { cacheGet, cacheSet, runResultCacheInFlight, statPathsForMtime, visitPathsForMtime } from './cache-layers.mjs';
 import { recordLocalSearchCacheHit } from './local-search-telemetry.mjs';
-import { uniqueStrings, coerceNonNegInt, globMtimeTiePath } from './lib/search-input-helpers.mjs';
+import { uniqueStrings, coerceNonNegInt, globMtimeTiePath, resolveHeadLimit } from './lib/search-input-helpers.mjs';
 import { reportToolProgress } from './lib/tool-progress.mjs';
 import { statReachable } from './fs-reachability.mjs';
 
@@ -232,10 +232,7 @@ function globWindow(args) {
   if (Number.isNaN(offsetCoerced)) {
     return { error: `Error: invalid offset ${JSON.stringify(args.offset)}; expected a non-negative integer` };
   }
-  let headLimit = headLimitCoerced;
-  if (headLimitCoerced === null) headLimit = _globDefaultHeadLimit();
-  else if (headLimitCoerced === 0) headLimit = Infinity;
-  return { headLimit, offset: offsetCoerced || 0 };
+  return { headLimit: resolveHeadLimit(headLimitCoerced, _globDefaultHeadLimit()), offset: offsetCoerced || 0 };
 }
 
 // The rg argument list for one pattern group. Explicit literal basenames
@@ -288,8 +285,6 @@ function absolutePaths(lines, rgCwd) {
   return lines.map((line) => (isAbsolute(line) ? line : resolveAgainstCwd(line, rgCwd)));
 }
 
-// One pattern group's enumeration: a windowed native pass when the page is
-// bounded (newest-first or walk order), else the full rg listing.
 function missingGlobRoot(scan, root, rgCwd, err) {
   const hint = buildNotFoundHint(scan.workDir, rgCwd, 'Search', err?.code);
   return {
@@ -333,6 +328,8 @@ function globGroupFailure(root, err) {
   };
 }
 
+// One pattern group's enumeration: a windowed native pass when the page is
+// bounded (newest-first or walk order), else the full rg listing.
 async function runGlobGroup(scan, root, rels) {
   const { sharedSignal } = scan;
   const rgCwd = scan.resolvedForSearchRoot(root);

@@ -25,7 +25,8 @@ const PLACEHOLDER_RULES = Object.freeze([
   {
     code: 'placeholder_text',
     label: 'tool citation token',
-    pattern: /【[^】\n]{0,80}†[^】\n]{0,80}】|turn\d+(?:search|view|news|image|file|fetch|product)\d+|[\uE200-\uE206]|<\/?cite\b[^>]*>/u,
+    pattern:
+      /【[^】\n]{0,80}†[^】\n]{0,80}】|turn\d+(?:search|view|news|image|file|fetch|product)\d+|[\uE200-\uE206]|<\/?cite\b[^>]*>/u,
   },
   { code: 'unfilled_token', label: 'unresolved template token', pattern: new RegExp(TEMPLATE_TOKEN_SOURCE, 'u') },
 ]);

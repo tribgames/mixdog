@@ -74,6 +74,18 @@ function PluginInstallDialog({
   );
 }
 
+function disabledSkillNames(data: PanelContext['data']): Set<string> {
+  const disabled = record(data.disabledSkills).disabled;
+  return new Set((Array.isArray(disabled) ? disabled : []).map(String));
+}
+
+function saveSkillEnabled(run: PanelContext['run'], disabled: ReadonlySet<string>, name: string, enabled: boolean) {
+  const next = new Set(disabled);
+  if (enabled) next.delete(name);
+  else next.add(name);
+  void run('setDisabledSkills', [[...next]]);
+}
+
 type SkillExtensionCreateKind = 'skill' | 'mcp';
 
 function SkillExtensionCreateDialog({
@@ -223,21 +235,10 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
   const skills = rows(status, 'skills').filter(
     (skill) => record(skill.owner).kind !== 'builtin' && record(skill.owner).kind !== 'plugin'
   );
-  const disabled = new Set(
-    (Array.isArray(record(data.disabledSkills).disabled)
-      ? (record(data.disabledSkills).disabled as unknown[])
-      : []
-    ).map(String)
-  );
+  const disabled = disabledSkillNames(data);
   const busy = Boolean(pending);
   const [detail, setDetail] = useState<{ name: string; content: string | null } | null>(null);
-  const setEnabled = (name: string, enabled: boolean) => {
-    const next = new Set(disabled);
-    if (enabled) next.delete(name);
-    else next.add(name);
-    void run('setDisabledSkills', [[...next]]);
-  };
-  const toggle = (name: string) => setEnabled(name, disabled.has(name));
+  const toggle = (name: string) => saveSkillEnabled(run, disabled, name, disabled.has(name));
   const open = detail ? skills.find((skill) => String(skill.name) === detail.name) : undefined;
   const openOff = detail ? disabled.has(detail.name) : false;
   const openDetail = (name: string) => {
@@ -334,12 +335,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
   const busy = Boolean(pending);
   const [openId, setOpenId] = useState('');
   const open = openId ? plugins.find((plugin) => String(plugin.id || plugin.name) === openId) : undefined;
-  const disabledSkills = new Set(
-    (Array.isArray(record(data.disabledSkills).disabled)
-      ? (record(data.disabledSkills).disabled as unknown[])
-      : []
-    ).map(String)
-  );
+  const disabledSkills = disabledSkillNames(data);
   const ownedSkillRows = (id: string) =>
     rows(record(data.skills), 'skills').filter(
       (skill) => record(skill.owner).kind === 'plugin' && String(record(skill.owner).id || '') === id
@@ -474,12 +470,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
                                 label={`${name} · ${t('Enabled')}`}
                                 checked={!off}
                                 disabled={busy}
-                                onChange={(next) => {
-                                  const nextSet = new Set(disabledSkills);
-                                  if (next) nextSet.delete(name);
-                                  else nextSet.add(name);
-                                  void run('setDisabledSkills', [[...nextSet]]);
-                                }}
+                                onChange={(next) => saveSkillEnabled(run, disabledSkills, name, next)}
                               />
                             </>
                           }

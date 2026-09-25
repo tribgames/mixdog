@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { renameWithRetrySync, writeFileAtomicSync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 import { downloadToFileWithRetry } from '../../shared/bounded-download.mjs';
-import { platformKey, verifySha256File } from '../../shared/native-asset.mjs';
+import { platformKey, platformKeyCandidates, verifySha256File } from '../../shared/native-asset.mjs';
 
 // Bundled fallback manifest shipped alongside Mixdog. fileURLToPath required
 // for cross-platform path resolution (URL.pathname returns /C:/... on Windows).
@@ -40,19 +40,6 @@ const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('../data/runtime-manifest.js
 // GitHub raw URL fallback — used only when no cached or bundled manifest exists.
 const MANIFEST_URL =
   'https://raw.githubusercontent.com/tribgames/mixdog/main/src/runtime/memory/data/runtime-manifest.json';
-
-// ---------------------------------------------------------------------------
-// Platform key
-// ---------------------------------------------------------------------------
-
-function platformKeyCandidates() {
-  const primary = platformKey();
-  const candidates = [primary];
-  if (process.platform === 'win32' && process.arch === 'arm64') {
-    candidates.push('win32-x64');
-  }
-  return candidates;
-}
 
 // Fail-closed asset validation. A selected manifest asset is usable only if it
 // is not explicitly marked unsupported AND carries a real downloadable payload:

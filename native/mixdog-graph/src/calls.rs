@@ -56,13 +56,15 @@ use std::sync::{Arc, LazyLock, RwLock};
 use ast_grep_config::GlobalRules;
 use ast_grep_core::replacer::{Content, Replacer};
 use ast_grep_core::tree_sitter::StrDoc;
-use ast_grep_core::{Matcher, Node};
+use ast_grep_core::Node;
 use ast_grep_outline::extractor::{parse_outline_rules, ItemExtractor, SerializableOutlineRule};
 use ast_grep_outline::options::OutlineEntryDetail;
 use serde::Serialize;
 
-use crate::outline::{split_yaml_documents, tsx_variant};
-use crate::scan_lang::{graph_lang_scan_langs, ScanLang};
+use crate::outline::{
+    collapse_whitespace, index_by_kind, marker_value, split_yaml_documents, tsx_variant,
+};
+use crate::scan_lang::{cached_for_lang, graph_lang_scan_langs, ScanLang};
 use crate::spans::{ContainmentSweep, SymbolSpan};
 
 /// `rules/calls/*.yml`, concatenated by build.rs (may be empty).
@@ -167,19 +169,7 @@ impl<'a> From<&'a CallInfo> for CallDebug<'a> {
 /// newlines of a multi-line receiver expression) collapse to one space, and
 /// anything longer than `RECV_MAX_CHARS` is cut to 63 characters plus `…`.
 fn normalize_recv(text: &str) -> String {
-    let mut collapsed = String::with_capacity(text.len());
-    let mut space = false;
-    for ch in text.trim().chars() {
-        if ch.is_whitespace() {
-            space = true;
-            continue;
-        }
-        if space && !collapsed.is_empty() {
-            collapsed.push(' ');
-        }
-        space = false;
-        collapsed.push(ch);
-    }
+    let collapsed = collapse_whitespace(text);
     if collapsed.chars().count() <= RECV_MAX_CHARS {
         return collapsed;
     }
@@ -219,13 +209,7 @@ struct LoadedCallRules {
 
 /// `# mixdog-call-kind: call|method|new`, the per-document kind marker.
 fn call_kind_of(doc: &str) -> Result<&'static str, String> {
-    let mut found: Option<&str> = None;
-    for line in doc.lines() {
-        if let Some(rest) = line.trim().strip_prefix("# mixdog-call-kind:") {
-            found = Some(rest.trim());
-        }
-    }
-    let Some(token) = found else {
+    let Some(token) = marker_value(doc, "# mixdog-call-kind:") else {
         return Err("no `# mixdog-call-kind: call|method|new` marker".to_string());
     };
     KINDS
@@ -239,13 +223,7 @@ fn call_kind_of(doc: &str) -> Result<&'static str, String> {
 /// text is leaked once per rule document at load time, which happens once per
 /// process.
 fn call_recv_of(doc: &str) -> Option<&'static str> {
-    let mut found: Option<&str> = None;
-    for line in doc.lines() {
-        if let Some(rest) = line.trim().strip_prefix("# mixdog-call-recv:") {
-            found = Some(rest.trim());
-        }
-    }
-    let token = found?;
+    let token = marker_value(doc, "# mixdog-call-recv:")?;
     if token.is_empty() {
         return None;
     }
@@ -401,24 +379,7 @@ impl CallExtractors {
             }
         }
 
-        let mut by_kind: Vec<Vec<usize>> = Vec::new();
-        for (index, extractor) in items.iter().enumerate() {
-            // The walk indexes rules by node kind; a rule without one can
-            // never be reached and is an authoring error, not a silent no-op.
-            let Some(node_kinds) = extractor.common.rule.matcher.potential_kinds() else {
-                errors.push(format!(
-                    "{lang}: call rule `{}` has no `kind:` to index on; it can never match",
-                    extractor.common.rule.id
-                ));
-                continue;
-            };
-            for node_kind in &node_kinds {
-                while by_kind.len() <= node_kind {
-                    by_kind.push(Vec::new());
-                }
-                by_kind[node_kind].push(index);
-            }
-        }
+        let by_kind = index_by_kind(lang, "call", &items, &mut errors);
 
         Self {
             items,
@@ -477,15 +438,9 @@ static COMPILED: LazyLock<RwLock<HashMap<ScanLang, Arc<CallExtractors>>>> =
 
 /// Compiled call extractors for `lang`, compiled on first use and shared after.
 pub fn extractors_for(lang: ScanLang) -> Arc<CallExtractors> {
-    if let Some(found) = COMPILED.read().expect("call cache").get(&lang) {
-        return Arc::clone(found);
-    }
-    let compiled = Arc::new(CallExtractors::compile(lang, &RULES.rules));
-    COMPILED
-        .write()
-        .expect("call cache")
-        .insert(lang, Arc::clone(&compiled));
-    compiled
+    cached_for_lang(&COMPILED, lang, "call cache", || {
+        CallExtractors::compile(lang, &RULES.rules)
+    })
 }
 
 /// Resolve `inSymbol` and emit the contract order.

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { cursorTokenExpiry } from './cursor-auth.mjs';
+import { developerOptionEnabled } from '../../../shared/developer-options.mjs';
 
 const ANTHROPIC_DEFAULT_CREDENTIALS_PATH = join(resolvePluginData(), 'anthropic-oauth-credentials.json');
 
@@ -226,21 +227,16 @@ const OAUTH_PROBE_STATES = new Map([
 ]);
 
 // Dev-only OAuth providers. Hidden and treated as "no credentials" unless the
-// MIXDOG_DEV_PROVIDERS flag (1 / true / yes / on) is set in the environment.
-// Default OFF for shipped installs; a developer machine opts in via the env.
+// Developer → Providers "Dev providers" option is on: the MIXDOG_DEV_PROVIDERS
+// env flag (1 / true / yes / on) or the stored `developer.devProviders`
+// setting. Default OFF for shipped installs. Read per call, so a settings
+// toggle takes effect without a restart.
 const DEV_ONLY_OAUTH_PROVIDERS = Object.freeze(new Set(['cursor-oauth', 'antigravity-oauth']));
 
-function devProvidersFlagEnabled() {
-  const raw = String(process.env.MIXDOG_DEV_PROVIDERS || '')
-    .trim()
-    .toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
-}
-
-/** False only for a dev-only OAuth provider while MIXDOG_DEV_PROVIDERS is unset. */
+/** False only for a dev-only OAuth provider while the Dev providers option is off. */
 export function isOAuthProviderAvailable(name) {
   if (!DEV_ONLY_OAUTH_PROVIDERS.has(String(name || ''))) return true;
-  return devProvidersFlagEnabled();
+  return developerOptionEnabled('devProviders');
 }
 
 /**
@@ -249,7 +245,7 @@ export function isOAuthProviderAvailable(name) {
  * Callers that must tell a deliberate logout ('absent') from a momentary FS
  * failure ('unreadable') use this; `has*OAuthCredentials()` remains the plain
  * "can we use it right now" boolean and is exactly `state === 'present'`.
- * A dev-only provider behind an unset MIXDOG_DEV_PROVIDERS always reads
+ * A dev-only provider while the Dev providers option is off always reads
  * 'absent', so the registry never enables or self-heals it.
  */
 export function oauthCredentialProbeState(name) {

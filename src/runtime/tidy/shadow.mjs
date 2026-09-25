@@ -13,7 +13,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { engineEntry } from './engines.mjs';
 import { mapLimit, runProcess, which } from './process.mjs';
-import { binNames, parseVersionText } from './resolve.mjs';
+import { firstExisting, parseVersionText } from './resolve.mjs';
 
 const VERSION_PROBE_TIMEOUT_MS = 5000;
 // The npx cache holds one directory per package npm ever ran through `npx`;
@@ -27,14 +27,6 @@ function samePath(left, right) {
   const b = String(right || '').replaceAll('\\', '/');
   if (!a || !b) return false;
   return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
-}
-
-function firstExisting(dir, bin) {
-  for (const name of binNames(bin)) {
-    const full = join(dir, name);
-    if (existsSync(full)) return full;
-  }
-  return null;
 }
 
 /** npm's `_npx` cache: where `npx <name>` finds a package it already fetched. */
@@ -85,7 +77,7 @@ function usesPath(engine, candidate) {
 }
 
 /** `<bin> --version`, reported as '' when the binary answers with nothing. */
-export async function probeBinaryVersion(binPath, signal = null) {
+async function probeBinaryVersion(binPath, signal = null) {
   const result = await runProcess(binPath, ['--version'], { timeoutMs: VERSION_PROBE_TIMEOUT_MS, signal });
   return parseVersionText(`${result.stdout}\n${result.stderr}`);
 }

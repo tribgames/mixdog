@@ -391,6 +391,12 @@
 .problems-filter-toggle[data-severity="error"] svg {
   color: var(--mx-danger);
 }
+.problems-filter-toggle[data-severity="warning"] svg {
+  color: var(--mx-warning);
+}
+.problems-filter-toggle[data-severity="info"] svg {
+  color: var(--mx-focus);
+}
 /* The "…" trigger sits on the same 24px control grammar as its siblings. */
 .problems-panel-actions .row-overflow-trigger {
   width: 24px;
@@ -411,12 +417,6 @@
 .problems-panel-actions .row-overflow-trigger svg {
   width: 16px;
   height: 16px;
-}
-.problems-filter-toggle[data-severity="warning"] svg {
-  color: var(--mx-warning);
-}
-.problems-filter-toggle[data-severity="info"] svg {
-  color: var(--mx-focus);
 }
 .bottom-panel-body {
   flex: 1 1 auto;
@@ -1029,6 +1029,7 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
   min-height: 0;
   overflow-x: hidden;
 }
+/* Empty-state card for a parked non-session pane (draft / project / file). */
 .pane-placeholder {
   flex: 1 1 auto;
   border: none;
@@ -1040,6 +1041,8 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
   background: transparent;
   color: inherit;
   font: inherit;
+  font-size: var(--mx-font-body);
+  opacity: var(--mx-op-disabled);
   cursor: pointer;
 }
 .pane-placeholder-title {
@@ -1072,8 +1075,8 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
   min-width: 0;
   min-height: 0;
 }
-.pane-cell > .workspace,
-.pane-conversation-slot > .conversation-persistent-surface > .workspace {
+/* The conversation portal's .workspace keeps its own `1 1 0%` rule above. */
+.pane-cell > .workspace {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
@@ -1153,12 +1156,6 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
   flex: 1 1 auto;
 }
 /* Workspace scrollbars follow the shell-wide square grammar (desktop.css). */
-
-/* Empty-state card for a parked non-session pane (draft / project / file). */
-.pane-placeholder {
-  font-size: var(--mx-font-body);
-  opacity: var(--mx-op-disabled);
-}
 
 /* Narrow-shell single-pane mode (user decision): below the phone breakpoint
    a split tree would crush every pane under its floor, so the workspace

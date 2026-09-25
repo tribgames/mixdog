@@ -45,7 +45,7 @@ import { spawnSync } from 'node:child_process';
 import { createGunzip } from 'node:zlib';
 import { renameWithRetrySync, writeFileAtomicSync } from '../../shared/atomic-file.mjs';
 import { streamResponseToFile } from '../../shared/bounded-download.mjs';
-import { platformKey, sha256File, verifySha256File } from '../../shared/native-asset.mjs';
+import { platformEntryKey, sha256File, verifySha256File } from '../../shared/native-asset.mjs';
 import { windowsProgramRoots, windowsSystemRoot } from '../../agent/orchestrator/tools/builtin/windows-roots.mjs';
 // The standard multilingual model is the only managed model. Legacy
 // voice.model values are accepted by callers but converge here.
@@ -240,8 +240,20 @@ async function _withInstallLock(rootDir, lockName, fn, { pollMs = 250 } = {}) {
   try {
     return await fn();
   } finally {
+    process.off('exit', release);
     release();
   }
+}
+
+function readBundledManifest() {
+  return JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'));
+}
+
+/** Published `active-version` name under `rootDir`; '' when none is published. */
+function readActiveName(rootDir) {
+  const activeFile = join(rootDir, 'active-version');
+  if (!existsSync(activeFile)) return '';
+  return readFileSync(activeFile, 'utf8').trim();
 }
 
 async function loadManifest(dataDir) {
@@ -249,7 +261,7 @@ async function loadManifest(dataDir) {
   // A stale cached manifest.json from an older install must never shadow it
   // (caused sha256 mismatches on already-installed machines after upgrades).
   if (existsSync(BUNDLED_MANIFEST_PATH)) {
-    return JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'));
+    return readBundledManifest();
   }
   const cachedPath = join(dataDir, 'voice-runtime', 'manifest.json');
   if (existsSync(cachedPath)) {
@@ -428,10 +440,8 @@ function gcStaleVersions(rootDir, activeName, prefix) {
 }
 
 function gcPublishedRuntimeSiblings(rootDir, prefix) {
-  const activeFile = join(rootDir, 'active-version');
-  if (!existsSync(activeFile)) return;
   try {
-    const activeName = readFileSync(activeFile, 'utf8').trim();
+    const activeName = readActiveName(rootDir);
     if (!activeName.startsWith(prefix) || !existsSync(join(rootDir, activeName))) return;
     gcStaleVersions(rootDir, activeName, prefix);
   } catch {}
@@ -507,7 +517,7 @@ function extractZip(zipPath, destDir) {
 
 export async function ensureWhisperRuntime(dataDir, onProgress = null) {
   const manifest = await loadManifest(dataDir);
-  const key = platformKey();
+  const key = platformEntryKey(manifest.platforms);
   const platformEntry = manifest.platforms?.[key];
   if (!platformEntry) {
     throw new VoiceRuntimeUnsupportedError(key);
@@ -599,13 +609,11 @@ export async function ensureWhisperRuntime(dataDir, onProgress = null) {
 // so the transcribe hot path must keep using it (offline, mid-install), while
 // the install path treats this as "re-fetch".
 function isManagedWhisperStale(dataDir) {
-  const activeFile = join(dataDir, 'voice-runtime', 'active-version');
-  if (!existsSync(activeFile)) return false;
-  const activeName = readFileSync(activeFile, 'utf8').trim();
+  const activeName = readActiveName(join(dataDir, 'voice-runtime'));
   if (!activeName) return false;
   if (!existsSync(BUNDLED_MANIFEST_PATH)) return false;
   try {
-    const manifest = JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'));
+    const manifest = readBundledManifest();
     if (!manifest?.version) return false;
     return !activeName.startsWith(`whisper-${manifest.version}-`);
   } catch {
@@ -618,9 +626,7 @@ function isManagedWhisperStale(dataDir) {
 // is fully installed, null otherwise. Used by the transcribe hot path and the
 // /cli-check endpoint to test installation state without triggering a fetch.
 function resolveManagedWhisperCmd(dataDir) {
-  const activeFile = join(dataDir, 'voice-runtime', 'active-version');
-  if (!existsSync(activeFile)) return null;
-  const activeName = readFileSync(activeFile, 'utf8').trim();
+  const activeName = readActiveName(join(dataDir, 'voice-runtime'));
   if (!activeName) return null;
   const activeDir = join(dataDir, 'voice-runtime', activeName);
   // Consult the bundled manifest for the platform/variant executable path
@@ -630,8 +636,8 @@ function resolveManagedWhisperCmd(dataDir) {
   // when the manifest is unreadable.
   if (existsSync(BUNDLED_MANIFEST_PATH)) {
     try {
-      const manifest = JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'));
-      const key = platformKey();
+      const manifest = readBundledManifest();
+      const key = platformEntryKey(manifest.platforms);
       const variants = manifest.platforms?.[key]?.variants;
       if (Array.isArray(variants)) {
         const prefix = `whisper-${manifest.version}-`;
@@ -653,8 +659,7 @@ function resolveManagedWhisperCmd(dataDir) {
 
 function resolveManagedWhisperModelById(dataDir, modelId = 'standard') {
   if (!existsSync(BUNDLED_MANIFEST_PATH)) return null;
-  const manifest = JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'));
-  const entry = manifestModelEntry(manifest, modelId);
+  const entry = manifestModelEntry(readBundledManifest(), modelId);
   if (!entry?.filename) return null;
   const modelDir = join(dataDir, 'voice', 'models');
   const p = join(modelDir, entry.filename);
@@ -699,7 +704,7 @@ export async function ensureFfmpegRuntime(dataDir, onProgress = null) {
   if (!manifest.ffmpeg) {
     throw new Error('[voice-runtime] manifest is missing the `ffmpeg` section — cannot resolve ffmpeg runtime');
   }
-  const key = platformKey();
+  const key = platformEntryKey(manifest.ffmpeg.platforms);
   const platformEntry = manifest.ffmpeg.platforms?.[key];
   if (!platformEntry) {
     throw new VoiceRuntimeUnsupportedError(key);
@@ -769,9 +774,7 @@ export async function ensureFfmpegRuntime(dataDir, onProgress = null) {
 }
 
 function resolveManagedFfmpegPath(dataDir) {
-  const activeFile = join(dataDir, 'ffmpeg-runtime', 'active-version');
-  if (!existsSync(activeFile)) return null;
-  const activeName = readFileSync(activeFile, 'utf8').trim();
+  const activeName = readActiveName(join(dataDir, 'ffmpeg-runtime'));
   if (!activeName) return null;
   const activeDir = join(dataDir, 'ffmpeg-runtime', activeName);
   // Consult the bundled manifest for the platform's declared executable
@@ -779,8 +782,8 @@ function resolveManagedFfmpegPath(dataDir) {
   // guesses only when the manifest is unreadable.
   if (existsSync(BUNDLED_MANIFEST_PATH)) {
     try {
-      const manifest = JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'));
-      const key = platformKey();
+      const manifest = readBundledManifest();
+      const key = platformEntryKey(manifest.ffmpeg?.platforms);
       const platformEntry = manifest.ffmpeg?.platforms?.[key];
       if (platformEntry?.executable) {
         const p = join(activeDir, platformEntry.executable);
@@ -800,7 +803,7 @@ function resolveManagedFfmpegPath(dataDir) {
 export function voiceRuntimeInfo(runtime) {
   let model = null;
   try {
-    model = manifestModelEntry(JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8')), runtime.modelId);
+    model = manifestModelEntry(readBundledManifest(), runtime.modelId);
   } catch {
     /* installed metadata remains useful without the bundled manifest */
   }

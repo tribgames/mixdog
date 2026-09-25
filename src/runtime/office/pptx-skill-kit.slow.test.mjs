@@ -588,10 +588,12 @@ test('kit grouped table declares a frame as tall as its flattened rows', async (
   const bottom = kit.table(slide, 0.6, 2, 12, ['상황군', '상황', '첫 조치'], [], { groups, dense: true });
   assert.equal(tables.length, 1);
   const { rows, options } = tables[0];
+  const total = (heights) => heights.reduce((sum, height) => sum + height, 0);
   assert.equal(rows.length, 5, 'a header row plus the four grouped body rows');
+  assert.equal(options.rowH.length, rows.length, 'one height per row');
   assert.ok(
-    Math.abs(options.h - options.rowH * rows.length) < 1e-9,
-    `the frame height is the rows' (${options.h} vs ${options.rowH * rows.length})`
+    Math.abs(options.h - total(options.rowH)) < 1e-9,
+    `the frame height is the rows' (${options.h} vs ${total(options.rowH)})`
   );
   assert.ok(Math.abs(bottom - (2 + options.h)) < 1e-9, 'the returned bottom edge is the frame bottom');
   const plain = [];
@@ -607,7 +609,56 @@ test('kit grouped table declares a frame as tall as its flattened rows', async (
     ],
     {}
   );
-  assert.ok(Math.abs(plain[0].h - plain[0].rowH * 3) < 1e-9, 'a plain table declares its frame the same way');
+  assert.ok(Math.abs(plain[0].h - total(plain[0].rowH)) < 1e-9, 'a plain table declares its frame the same way');
+});
+
+// Equal columns broke "서울 중앙 허브" over three lines beside four columns of short figures, and the grown rows ran the
+// table into its source line: the widths follow the text, a cell wraps by the eojeol, and a row grows to its cell.
+test('kit table widths follow the text, and a row grows to its wrapped cell', async () => {
+  const unit = (size) => (size / 72) * 0.6;
+  const MEASURE = (text, { size = 18, width, lineHeight = 1 } = {}) => {
+    const lines = String(text).split('\n');
+    const count = lines.reduce(
+      (sum, line) => sum + (width ? Math.max(1, Math.ceil((line.length * unit(size)) / width - 1e-9)) : 1),
+      0
+    );
+    return {
+      lines: count,
+      height: count * (size / 72) * 1.2 * lineHeight,
+      width: Math.max(...lines.map((line) => line.length * unit(size))),
+    };
+  };
+  const kit = new Function('require', 'MEASURE', 'ICON', `${kitPrelude().source}\nreturn { table, deck };`)(
+    createRequire(import.meta.url),
+    MEASURE,
+    { names: [], svg: () => '' }
+  );
+  kit.deck({ hue: 25, mode: 'text', script: 'ko' });
+  const tables = [];
+  const slide = { addTable: (rows, options) => tables.push({ rows, options }), addShape: () => {}, addText: () => {} };
+  const header = ['허브', '처리량 (건)', '지연율', '평균 처리 시간', '상태'];
+  const label = '서울 중앙 허브 (수도권 1권역, 공항 연계 야간 분류 전담)';
+  kit.table(
+    slide,
+    0.6,
+    2,
+    6.5,
+    header,
+    [
+      [label, '184,200', '2.1%', '38분', '정상'],
+      ['대전 통합 허브', '98,400', '1.8%', '35분', '정상'],
+    ],
+    { verdict: 4 }
+  );
+  const { rows, options } = tables[0];
+  const text = (cell) => (Array.isArray(cell.text) ? cell.text.map((run) => run.text).join('\n') : cell.text);
+  assert.deepEqual(rows[0].map(text), header, 'every header keeps one line');
+  assert.match(text(rows[1][0]), /\n/, 'the long label wraps');
+  assert.equal(text(rows[1][0]).replace(/\n/g, ' '), label, 'the label breaks only between words');
+  assert.ok(Math.abs(options.colW.reduce((sum, width) => sum + width, 0) - 6.5) < 1e-9, 'the columns fill the table');
+  assert.ok(options.colW[0] > options.colW[2], 'the label column is wider than a column of short figures');
+  assert.ok(options.rowH[1] > options.rowH[2], 'the wrapped row is taller than a one-line row');
+  assert.ok(Math.abs(options.h - options.rowH.reduce((sum, height) => sum + height, 0)) < 1e-9);
 });
 
 // The editorial text page measured from 26 rendered mock pages: a headline at cover size on two lines over 60% of
@@ -679,17 +730,20 @@ test('kit display, dateline, and tableRows follow the measured text page', async
     headline.text.some((run) => run.options?.softBreakBefore),
     'the two-line wrap is kept as a soft break'
   );
-  // A phrase the eojeol wrap split across the break stays one emphasis: two accent runs, the second opening the line.
+  // A phrase the eojeol wrap would split at the break travels whole: one accent run, no break inside it.
   texts.length = 0;
   kit.display(slide, '1단계 석 달 만에 대기 시간이 38% 줄었다', { emph: '대기 시간이' });
   const split = of('석 달'),
     splitRuns = split.text.filter((run) => run.options?.color && run.options.color !== split.options.color);
   assert.deepEqual(
     splitRuns.map((run) => run.text.trim()),
-    ['대기', '시간이'],
-    'the phrase is carried across the break'
+    ['대기 시간이'],
+    'the phrase is never split across the break'
   );
-  assert.equal(splitRuns[1].options.softBreakBefore, true, 'its second half opens the next line');
+  assert.ok(
+    split.text.some((run) => run.options?.softBreakBefore),
+    'the headline still wraps to two lines, at a break outside the phrase'
+  );
   // head() and title() take the same phrase; the run's colour is the kicker's on that chrome.
   kit.head(slide, '결론', '재구매율은 첫 주 경험이 정한다', { emph: '첫 주 경험' });
   const content = of('재구매율은');
@@ -733,8 +787,12 @@ test('kit display, dateline, and tableRows follow the measured text page', async
       drawn[0].h <= h + 1e-9,
       `${n} rows fit the height at the ${dense ? 'dense' : 'default'} pitch (${drawn[0].h} in)`
     );
-    assert.ok(drawn[0].h + drawn[0].rowH > h, 'one more row would cross it');
-    assert.equal(drawn[0].rowH, kit.tablePitch(dense).rowH, 'table() and tableRows() share one pitch');
+    assert.ok(drawn[0].h + kit.tablePitch(dense).rowH > h, 'one more row would cross it');
+    assert.deepEqual(
+      drawn[0].rowH,
+      Array(n + 1).fill(kit.tablePitch(dense).rowH),
+      'table() and tableRows() share one pitch'
+    );
   }
   // R105 foot guard: two rows more than avail(top) holds (one may land inside the 0.07 in tolerance) is refused before
   // the table is drawn, the fitting count named.
@@ -1553,6 +1611,31 @@ test('kit wraps Hangul by the eojeol and shrinks type along the scale', async ()
     'Latin passes through untouched'
   );
   assert.equal(wrapKo('미학 .', 0.3, 18, T.sans), '미학 .', 'a closing mark never opens a line');
+  assert.deepEqual(
+    wrapKo('송금 세 번 탭이 한 번으로', 9, 72, T.sans).split('\n'),
+    ['송금 세 번 탭이', '한 번으로'],
+    'a last word alone under a line of three or more takes the word before it along'
+  );
+  assert.deepEqual(
+    wrapKo('가나다라 마바사아 자', 9, 72, T.sans).split('\n'),
+    ['가나다라 마바사아', '자'],
+    'a line of two words keeps both rather than leave one alone above the runt'
+  );
+  assert.deepEqual(
+    wrapKo('자동 분류와 주간 리포트는 한 분기 안에 연다.', 13.8, 72, T.sans).split('\n'),
+    ['자동 분류와 주간 리포트는', '한 분기 안에 연다.'],
+    'a numeral never ends a line: it moves down with its noun'
+  );
+  assert.deepEqual(
+    wrapKo('모바일은 3.5조 원 모자랐다', 7.35, 72, T.sans).split('\n'),
+    ['모바일은', '3.5조 원', '모자랐다'],
+    'a counter never starts a line: its figure moves down with it'
+  );
+  assert.deepEqual(
+    wrapKo('최근 보낸 사람을 맨 위에 둔다.', 10, 72, T.sans).split('\n'),
+    ['최근 보낸 사람을', '맨 위에 둔다.'],
+    'a determiner (맨) never ends a line: it moves down with its noun'
+  );
   assert.equal(runsOf('한 줄'), '한 줄', 'a single line stays a string');
   assert.deepEqual(
     runsOf('a\nb'),
@@ -1565,6 +1648,16 @@ test('kit wraps Hangul by the eojeol and shrinks type along the scale', async ()
     { text: '편집 가능한 쪽은 미학이 낮다', options: { bold: true, color: 'AF3A1D', fontFace: T.sans } },
     { text: '. 두 축을 동시에 잡은 시스템은 하나도 없다.', options: { breakLine: true } },
   ];
+  assert.deepEqual(
+    wrapRuns([{ text: '모바일은 3.5조 원 모자랐다' }], 7.35, 72, T.light).map((piece) => piece.text),
+    ['모바일은', '3.5조 원', '모자랐다'],
+    'inside a run a counter still moves down with its figure'
+  );
+  assert.deepEqual(
+    wrapRuns([{ text: '가나 다라 마바 사아 자차카' }], 9.5, 72, T.light).map((piece) => piece.text),
+    ['가나 다라 마바', '사아 자차카'],
+    'a last word alone in a paragraph of runs takes the word before it along'
+  );
   const pieces = wrapRuns(runs, 3.6, 27, T.light);
   assert.ok(
     pieces.some((piece) => piece.options.softBreakBefore),

@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { normalizeOutputPath } from '../builtin.mjs';
 import { splitTextLinesForPatch } from './matcher.mjs';
-import { resolveV4AEntryPath } from './paths.mjs';
+import { pathKey, resolveV4AEntryPath } from './paths.mjs';
 
 // A whole-file rewrite is naturally written as "delete the old file, add the
 // new one", and that pair has exactly ONE possible outcome: the file ends up
@@ -52,7 +52,7 @@ export function coalesceCompatibleV4ASections(sections, basePath) {
       continue;
     }
     const fullPath = resolveV4AEntryPath(basePath, section.path);
-    const key = process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
+    const key = pathKey(fullPath);
     const priorIndex = indexByPath.get(key);
     if (priorIndex == null) {
       indexByPath.set(key, out.length);

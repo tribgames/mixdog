@@ -10,7 +10,7 @@ import type {
   DesktopLspRequestMethod,
   DesktopWorkspaceTextWrite,
 } from '../shared/contract';
-import { codeGraphDocumentSymbols, codeGraphOutlineItems, type EditorCodeGraphMode } from './editor-code-graph';
+import { codeGraphOutlineItems, type EditorCodeGraphMode } from './editor-code-graph';
 import { lspSymbolKind, lspUriInProject, monacoRange, normalizedFilePath, recordOf } from './editor-lsp-conversion';
 import { applyLspTextEdits, type EditorOutlineItem } from './editor-language-store';
 import { ensureGraphEditorOpener, registerCodeGraphProviders } from './editor-code-graph-providers';
@@ -188,7 +188,7 @@ export function lspDocumentSymbols(
   return { symbols, outline };
 }
 
-export { codeGraphDocumentSymbols, codeGraphOutlineItems };
+export { codeGraphOutlineItems };
 
 type WorkspaceEditGroup = {
   edits: Array<Record<string, unknown>>;
@@ -319,7 +319,7 @@ export async function applyLspWorkspaceEdit(
   return true;
 }
 
-export function findOpenProjectModel(
+function findOpenProjectModel(
   context: EditorGraphContext,
   relPath: string
 ): import('monaco-editor').editor.ITextModel | undefined {

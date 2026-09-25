@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-import { nativeToolPlatformAssets } from './native-tool-download.mjs';
+import {
+  nativeToolAssetName,
+  nativeToolPlatformAssets,
+  OPTIONAL_NATIVE_TOOL_PLATFORM_KEYS,
+} from './native-tool-download.mjs';
 
 export const PATCH_PLATFORMS = nativeToolPlatformAssets('patch');
 export const GRAPH_PLATFORMS = nativeToolPlatformAssets('graph');
@@ -33,6 +37,19 @@ function assertExactKeys(value, expected, label) {
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     throw new Error(`${label} keys must be exactly: ${wanted.join(', ')}`);
   }
+}
+
+/** The asset file each platform of a tool manifest names: every required
+ *  platform, plus the optional ones the manifest carries. */
+function toolPlatformFiles(kind, required, assets, label) {
+  const optional = OPTIONAL_NATIVE_TOOL_PLATFORM_KEYS.filter((key) => Object.hasOwn(assets, key));
+  assertExactKeys(assets, [...Object.keys(required), ...optional], label);
+  const files = { ...required };
+  for (const key of optional) {
+    const [platform, arch] = key.split('-');
+    files[key] = nativeToolAssetName(kind, { platform, arch });
+  }
+  return files;
 }
 
 function assertToolManifestEnvelope(manifest, label) {
@@ -77,7 +94,7 @@ function assertAssetSha256(value, platform, kind) {
 export function validatePatchManifest(manifest, cargoToml) {
   assertToolManifestEnvelope(manifest, 'Patch');
   assertPlainObject(manifest.assets, 'Patch manifest assets');
-  assertExactKeys(manifest.assets, Object.keys(PATCH_PLATFORMS), 'Patch manifest assets');
+  const files = toolPlatformFiles('patch', PATCH_PLATFORMS, manifest.assets, 'Patch manifest assets');
 
   let inPackage = false;
   let cargoVersion;
@@ -100,7 +117,7 @@ export function validatePatchManifest(manifest, cargoToml) {
     throw new Error(`Patch Cargo version ${cargoVersion} does not match manifest version ${manifest.version}`);
   }
 
-  for (const [platform, filename] of Object.entries(PATCH_PLATFORMS)) {
+  for (const [platform, filename] of Object.entries(files)) {
     const asset = manifest.assets[platform];
     assertPlainObject(asset, `Patch asset ${platform}`);
     assertExactKeys(asset, ['url', 'sha256'], `Patch asset ${platform}`);
@@ -168,9 +185,9 @@ export function validateGraphManifest(manifest, packageJson) {
     throw new Error(`package.json version is not strict MAJOR.MINOR.PATCH: ${packageJson.version}`);
   }
   assertPlainObject(manifest.assets, 'Graph manifest assets');
-  assertExactKeys(manifest.assets, Object.keys(GRAPH_PLATFORMS), 'Graph manifest assets');
+  const files = toolPlatformFiles('graph', GRAPH_PLATFORMS, manifest.assets, 'Graph manifest assets');
 
-  for (const [platform, filename] of Object.entries(GRAPH_PLATFORMS)) {
+  for (const [platform, filename] of Object.entries(files)) {
     const asset = manifest.assets[platform];
     assertPlainObject(asset, `Graph asset ${platform}`);
     assertExactKeys(asset, ['url', 'sha256'], `Graph asset ${platform}`);
@@ -190,8 +207,8 @@ export function validateSpawnManifest(manifest, cargoToml) {
     );
   }
   assertPlainObject(manifest.assets, 'Spawn manifest assets');
-  assertExactKeys(manifest.assets, Object.keys(SPAWN_PLATFORMS), 'Spawn manifest assets');
-  for (const [platform, filename] of Object.entries(SPAWN_PLATFORMS)) {
+  const files = toolPlatformFiles('spawn', SPAWN_PLATFORMS, manifest.assets, 'Spawn manifest assets');
+  for (const [platform, filename] of Object.entries(files)) {
     const asset = manifest.assets[platform];
     assertPlainObject(asset, `Spawn asset ${platform}`);
     assertExactKeys(asset, ['url', 'sha256'], `Spawn asset ${platform}`);

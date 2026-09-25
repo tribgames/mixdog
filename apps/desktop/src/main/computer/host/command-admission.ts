@@ -47,9 +47,6 @@ export type CommandAdmission = { reply: ComputerCommandResult } | { admitted: Ad
 
 function assertCommandPreconditions(command: ComputerCommand, action: string, isObserveOnly: () => boolean): void {
   if (!action) throw new Error('computer command requires action');
-  if (process.platform !== 'win32') {
-    throw new Error('computer use is currently supported on Windows only');
-  }
   assertSafeComputerSessionId(command);
   // Checked before every early return, so a bounded sequence cannot slip past
   // it. The app's own Browser Use setup flow keeps its internal session.

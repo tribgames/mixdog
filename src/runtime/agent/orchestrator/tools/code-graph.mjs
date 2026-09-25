@@ -1,15 +1,14 @@
-// Facade for the code-graph tool. The implementation was split into cohesive
-// modules under ./code-graph/ (constants, lang-predicates, text-mask,
-// graph-model, source-access, symbol-index, span, project-root, graph-binary,
-// disk-cache, memory-cache, build, search, dispatch). This file re-exports the
-// exact same public surface so every importer works unchanged.
+// Facade for the code-graph tool over the modules under ./code-graph/
+// (constants, lang-predicates, text-mask, graph-model, source-access,
+// symbol-index, span, project-root, graph-binary, disk-cache, memory-cache,
+// build, search, dispatch).
 //
-// Public surface (unchanged names/signatures):
+// Public surface:
 //   markCodeGraphDirtyPaths, CODE_GRAPH_TOOL_DEFS,
 //   _pruneCodeGraphMemoryCache, _pruneCodeGraphManifestForBudget,
 //   drainCodeGraphCache, prewarmCodeGraph, prewarmCodeGraphSymbols,
 //   prewarmCodeGraphIfProject, buildCodeGraphAsync, _lookupCandidateNodes,
-//   _buildCodeGraph (worker-only),
+//   _buildCodeGraph and _postCodeGraphWorkerSuccess (worker-only),
 //   executeCodeGraphTool, isCodeGraphTool.
 //
 // NOTE: code-graph-prewarm-worker.mjs imports { _buildCodeGraph } from THIS

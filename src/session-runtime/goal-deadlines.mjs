@@ -110,6 +110,15 @@ export function createGoalDeadlines({ now, readRecord, withMutation, commit, onS
       .finally(() => warningPending.delete(id));
   };
 
+  // Timer and microtask callbacks report failures instead of throwing into the event loop.
+  const reportingErrors = (fn) => {
+    try {
+      fn();
+    } catch (error) {
+      onStorageError(error);
+    }
+  };
+
   function armDeadline(sessionId) {
     if (closed) return;
     clearDeadline(sessionId);
@@ -118,46 +127,26 @@ export function createGoalDeadlines({ now, readRecord, withMutation, commit, onS
     const at = now();
     const remainingMs = Math.max(0, goal.timeLimitMs - activeElapsedMs(goal, at));
     if (remainingMs <= 0) {
-      queueMicrotask(() => {
-        try {
-          limitIfExpired(sessionId);
-        } catch (error) {
-          onStorageError(error);
-        }
-      });
+      queueMicrotask(() => reportingErrors(() => limitIfExpired(sessionId)));
       return;
     }
     const warnings = warningState(goal, at);
     if (warnings?.crossedMs) {
       const thresholdMs = warnings.crossedMs;
-      queueMicrotask(() => {
-        try {
-          deliverDeadlineWarning(sessionId, thresholdMs);
-        } catch (error) {
-          onStorageError(error);
-        }
-      });
+      queueMicrotask(() => reportingErrors(() => deliverDeadlineWarning(sessionId, thresholdMs)));
     } else if (warnings?.nextDelayMs > 0) {
       // Preserve the timer rounding margin used by the runtime.
       const delay = Math.min(remainingMs, warnings.nextDelayMs + 250);
       const warningTimer = setTimeout(() => {
         warningTimers.delete(sessionId);
-        try {
-          deliverDeadlineWarning(sessionId);
-        } catch (error) {
-          onStorageError(error);
-        }
+        reportingErrors(() => deliverDeadlineWarning(sessionId));
       }, delay);
       warningTimer.unref?.();
       warningTimers.set(sessionId, warningTimer);
     }
     const timer = setTimeout(() => {
       deadlineTimers.delete(sessionId);
-      try {
-        limitIfExpired(sessionId);
-      } catch (error) {
-        onStorageError(error);
-      }
+      reportingErrors(() => limitIfExpired(sessionId));
     }, remainingMs);
     timer.unref?.();
     deadlineTimers.set(sessionId, timer);

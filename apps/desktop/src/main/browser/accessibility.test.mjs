@@ -53,7 +53,15 @@ test('file inputs carry accept and multiple, keywords match with OR, and an empt
 test('icon-font glyphs are dropped from accessible names', () => {
   const { payload } = buildAccessibilitySnapshot({
     snapshotId: 'p3-s1',
-    pageInfo: { url: 'https://example.test/', title: 'Login', scrollY: 0, scrollHeight: 600, viewportHeight: 600, viewportWidth: 800, text: '' },
+    pageInfo: {
+      url: 'https://example.test/',
+      title: 'Login',
+      scrollY: 0,
+      scrollHeight: 600,
+      viewportHeight: 600,
+      viewportWidth: 800,
+      text: '',
+    },
     targets: [
       {
         nodes: [{ nodeId: 'login', role: { value: 'button' }, name: { value: '\uF090 Login' }, backendDOMNodeId: 7 }],

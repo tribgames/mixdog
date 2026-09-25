@@ -8,8 +8,8 @@ import { abnormalEmptyFinishError, renderResult } from './render.mjs';
 import {
   reconcileJobFinally,
   reconcileJobStreamStalled,
-  reconcileJobTerminalResult,
   reconcileJobWatchdogPartial,
+  terminalResultHook,
 } from './job-task-reconcile.mjs';
 import { createTurnReviewCollector } from './turn-review.mjs';
 
@@ -55,13 +55,13 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
       onToolResult: (message) => turnReview.onToolResult(message),
     };
     if (!job) return hooks;
-    hooks.onTerminalResult = (terminalResult) => {
-      turnReview.complete();
-      const value = completionValue(terminalResult);
-      job._terminalResultValue = value;
-      spawnFlow.notifyOwnerAgentCompletionEarly(job, value, notifyContext || {});
-      reconcileJobTerminalResult(job, value);
-    };
+    hooks.onTerminalResult = terminalResultHook({
+      job,
+      turnReview,
+      completionValue,
+      notifyEarly: spawnFlow.notifyOwnerAgentCompletionEarly,
+      notifyContext,
+    });
     return hooks;
   }
 

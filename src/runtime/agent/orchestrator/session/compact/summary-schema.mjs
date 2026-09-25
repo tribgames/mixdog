@@ -180,6 +180,23 @@ function unrecognizedSummarySectionText(present) {
   return chunks.join('\n\n').trim();
 }
 
+// Every body line of the parsed sections whose heading matches `anchor`;
+// null when no such section exists.
+function sectionBodyFor(sections, anchor) {
+  let found = null;
+  for (const [heading, body] of sections) {
+    if (!headingMatchesAnchor(heading, anchor)) continue;
+    if (!found) found = [];
+    found.push(...(body || []));
+  }
+  return found;
+}
+
+// The `- (none)` placeholder body, with Progress sub-headings scaffolded.
+function placeholderBody(section) {
+  return section.sub ? section.sub.flatMap((sub) => [sub, '- (none)']) : ['- (none)'];
+}
+
 // Deterministic schema repair for a non-empty but malformed/partial Compact
 // summary. Preserve every section the provider DID supply (matched by anchor),
 // and scaffold the missing required sections so downstream consumers always
@@ -206,32 +223,16 @@ export function repairCompactSummary(summary, { head = [], tail = [] } = {}) {
     const cleaned = (Array.isArray(lines) ? lines : []).map((l) => String(l).trim()).filter(Boolean);
     return cleaned.length ? cleaned : null;
   };
-  const findPresent = (anchor) => {
-    let found = null;
-    for (const [heading, body] of present) {
-      if (headingMatchesAnchor(heading, anchor)) {
-        if (!found) found = [];
-        found.push(...(body || []));
-      }
-    }
-    return found;
-  };
   const goal = deriveCurrentRequest(tail) || deriveCurrentRequest(head);
   const files = deriveRelevantFilesBullets(head);
   const out = [];
   for (const section of SUMMARY_SECTION_LAYOUT) {
     if (out.length) out.push('');
     out.push(section.heading);
-    const body = bulletize(findPresent(section.anchor));
+    const body = bulletize(sectionBodyFor(present, section.anchor));
     if (section.sub) {
       // Progress: keep provider sub-bodies when present, else scaffold.
-      if (body) {
-        out.push(...body);
-      } else {
-        for (const sub of section.sub) {
-          out.push(sub, '- (none)');
-        }
-      }
+      out.push(...(body || placeholderBody(section)));
       continue;
     }
     if (section.anchor === '## Critical Context') {
@@ -272,12 +273,7 @@ export function minimalSchemaSummary() {
   const out = [];
   for (const section of SUMMARY_SECTION_LAYOUT) {
     if (out.length) out.push('');
-    out.push(section.heading);
-    if (section.sub) {
-      for (const sub of section.sub) out.push(sub, '- (none)');
-    } else {
-      out.push('- (none)');
-    }
+    out.push(section.heading, ...placeholderBody(section));
   }
   return out.join('\n');
 }
@@ -292,26 +288,12 @@ export function truncateSummaryBySections(summary, perSectionChars) {
   for (const section of SUMMARY_SECTION_LAYOUT) {
     if (out.length) out.push('');
     out.push(section.heading);
-    let body = null;
-    for (const [heading, lines] of sections) {
-      if (headingMatchesAnchor(heading, section.anchor)) {
-        if (!body) body = [];
-        body.push(...(lines || []));
-      }
-    }
-    const bodyText = (Array.isArray(body) ? body : [])
+    const bodyText = (sectionBodyFor(sections, section.anchor) || [])
       .map((l) => String(l).trim())
       .filter(Boolean)
       .join('\n');
-    if (!bodyText) {
-      if (section.sub) for (const sub of section.sub) out.push(sub, '- (none)');
-      else out.push('- (none)');
-      continue;
-    }
-    const trimmed = perSectionChars > 0 ? truncateMiddle(bodyText, perSectionChars) : '';
-    if (trimmed) out.push(trimmed);
-    else if (section.sub) for (const sub of section.sub) out.push(sub, '- (none)');
-    else out.push('- (none)');
+    const trimmed = bodyText && perSectionChars > 0 ? truncateMiddle(bodyText, perSectionChars) : '';
+    out.push(...(trimmed ? [trimmed] : placeholderBody(section)));
   }
   return out.join('\n');
 }

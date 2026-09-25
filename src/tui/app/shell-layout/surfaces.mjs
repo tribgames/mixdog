@@ -27,8 +27,7 @@ export function deriveSurfaces({
     hasTextEntryPrompt
   );
   const expandedOptionPanel = !!(toolApproval || picker || contextPanel || usagePanel || hasTextEntryPrompt);
-  const panelTransitionForBoot = panelTransitionRef.current;
-  if (panelTransitionForBoot.signature.includes('picker:project') && !picker) {
+  if (panelTransitionRef.current.signature.includes('picker:project') && !picker) {
     projectBootInputLatchRef.current = true;
   }
   const bootSettling = !tuiReady && state.items.length === 0 && !hasFloatingPanel && !projectBootInputLatchRef.current;
@@ -47,7 +46,6 @@ export function deriveSurfaces({
     hasTextEntryPrompt,
     hasFloatingPanel,
     expandedOptionPanel,
-    panelTransitionForBoot,
     bootSettling,
     projectSelectionActive,
     inputBoxHidden,
@@ -69,16 +67,6 @@ export function deriveLiveHints({ state, promptHint, promptHintTone }) {
   const inputHint = promptHint || toastHint || progressHint?.text || '';
   const inputHintTone = promptHint ? promptHintTone : latestToast?.tone || progressHint?.tone || 'info';
   const latestTranscriptItem = state.items[state.items.length - 1] || null;
-  // Bottom meta band ownership is LIVE-SPINNER ONLY. A finished turn's done row
-  // (turndone/statusdone) is a normal transcript item and flows into scrollback
-  // like anything else, so the area directly above the prompt is CLEAR when the
-  // user is idle. Earlier this row was pinned in the meta band until the next
-  // transcript item was appended (to dodge an autowrap overprint/bleed), which
-  // left the completed status row stuck above the prompt while the user typed or
-  // sat idle. That bleed is now fixed at the source by the tool-output width
-  // clamp, so the pin is no longer needed. Kept as a named null const so the
-  // downstream meta-band/hint logic collapses cleanly to the spinner-only path.
-  const latestDoneItem = null;
   return {
     liveSpinner,
     liveSpinnerIsCommand,
@@ -88,6 +76,5 @@ export function deriveLiveHints({ state, promptHint, promptHintTone }) {
     inputHint,
     inputHintTone,
     latestTranscriptItem,
-    latestDoneItem,
   };
 }

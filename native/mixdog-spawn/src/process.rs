@@ -269,4 +269,89 @@ impl Manager {
             jobs: Mutex::new(HashMap::new()),
         }
     }
+
+    /// The running process spawned by request `id`. A poisoned registry is
+    /// recovered: a panic elsewhere must not make live processes unreachable.
+    pub(crate) fn live_process(&self, id: u64) -> Option<Arc<ManagedProcess>> {
+        self.live
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&id)
+            .cloned()
+    }
+
+    /// The tracked task `job_id`, recovering a poisoned registry the same way.
+    pub(crate) fn job(&self, job_id: &str) -> Option<Arc<ManagedProcess>> {
+        self.jobs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(job_id)
+            .cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn managed() -> Arc<ManagedProcess> {
+        #[cfg(windows)]
+        let control = ProcessControl::create().expect("job object");
+        // Never terminated here, so the pid is never signalled.
+        #[cfg(unix)]
+        let control = ProcessControl { pid: 0 };
+        Arc::new(ManagedProcess {
+            request_id: 7,
+            pid: 0,
+            control,
+            state: Mutex::new(TaskState {
+                job_id: Some("job_7".to_string()),
+                status: "running".to_string(),
+                command: String::new(),
+                cwd: String::new(),
+                shell_type: None,
+                owner_session_id: None,
+                client_host_pid: None,
+                exit_code: None,
+                signal: None,
+                timed_out: false,
+                killed: false,
+                error: None,
+                started_at_ms: 0,
+                finished_at_ms: None,
+                stdout_bytes: 0,
+                stderr_bytes: 0,
+                stdout_tail: Vec::new(),
+                stderr_tail: Vec::new(),
+                merge_stderr: false,
+                output_limit: 0,
+            }),
+            done: AtomicBool::new(false),
+            retained: AtomicBool::new(false),
+            stdin: Mutex::new(None),
+        })
+    }
+
+    #[test]
+    fn lookups_recover_a_poisoned_registry() {
+        let manager = Arc::new(Manager::new());
+        manager.live.lock().unwrap().insert(7, managed());
+        manager
+            .jobs
+            .lock()
+            .unwrap()
+            .insert("job_7".to_string(), managed());
+        let poisoner = Arc::clone(&manager);
+        let _ = thread::spawn(move || {
+            let _live = poisoner.live.lock().unwrap();
+            let _jobs = poisoner.jobs.lock().unwrap();
+            panic!("poison both registries");
+        })
+        .join();
+        assert!(manager.live.is_poisoned() && manager.jobs.is_poisoned());
+        assert_eq!(manager.live_process(7).map(|m| m.request_id), Some(7));
+        assert!(manager.job("job_7").is_some());
+        assert!(manager.live_process(8).is_none());
+        assert!(manager.job("job_8").is_none());
+    }
 }

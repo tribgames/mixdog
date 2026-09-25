@@ -105,7 +105,7 @@ import { createBrowserRemoteControl } from './remote-control';
 import { createBrowserReply } from './reply';
 import { createBrowserScreenshotService } from './screenshot';
 import { BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID, browserSessionId } from './session-registry';
-import { createBrowserSettle, pause } from './settle';
+import { createBrowserSettle, pause, throwIfBrowserCancelled } from './settle';
 import { createBrowserSessionStore } from './browser-session-store';
 import { createBrowserSnapshotCapture } from './snapshot-capture';
 import { createBrowserTabs } from './tabs';
@@ -496,10 +496,9 @@ export function createBrowserHost(
     cdp,
     invalidateInteractionState: (guest) => state.invalidateInteraction(guest),
     snapshotResult: reply.snapshotResult,
-    // An agent `emulate` viewport used to resize the page only; the pane kept
-    // drawing a responsive guest, so the emulated page sat top-left in a
-    // larger box (user: 브라우저 왜 가운데 정렬 안 되냐). The pane now hears
-    // every metrics change and frames the guest at that size.
+    // The pane hears every emulated metrics change and frames the guest at
+    // that size; resizing only the page would leave it drawn top-left inside
+    // a larger responsive box.
     onViewportChanged: (guest, viewport) => {
       const sessionId = browserSessions.sessionIdForGuest(guest);
       // Only the selected page may reframe the pane, including a selected popup.
@@ -688,7 +687,7 @@ export function createBrowserHost(
       lifecycle.requestBrowserSurface(ownerSessionId, true);
     }
     await lifecycle.recoverCrashedGuest(guest, signal);
-    if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+    throwIfBrowserCancelled(signal);
     // Explicit navigation and dialog handling can release a blocked execution.
     // Other commands, including non-CDP storage mutations, wait for cleanup.
     if (!['navigate', 'handle_dialog', 'status'].includes(action)) {

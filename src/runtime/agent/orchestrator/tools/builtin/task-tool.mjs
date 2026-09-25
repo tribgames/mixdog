@@ -9,11 +9,6 @@ import {
   shellJobTaskStatus,
   waitForShellJob,
 } from './shell-jobs.mjs';
-
-// Ceiling for confirming that a cancelled task's process really exited. The
-// wait returns the moment the native task settles, so this only bounds a
-// process that ignores the kill.
-const TASK_CANCEL_CONFIRM_MS = 5_000;
 import { TASK_WAIT_TIMEOUT_DEFAULT_MS, TASK_WAIT_TIMEOUT_MAX_MS, TASK_WAIT_TIMEOUT_MIN_MS } from './builtin-tools.mjs';
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
 import { beginInterruptibleTaskWait } from '../../session/task-wait-control.mjs';
@@ -29,6 +24,11 @@ import {
 import { recordDeliveredCompletion } from '../../session/manager/delivered-completions.mjs';
 import { listShellJobRecords, readShellJobRecord } from './lib/shell-job-records.mjs';
 import { readShellTaskOutput } from './lib/shell-task-output.mjs';
+
+// Ceiling for confirming that a cancelled task's process really exited. The
+// wait returns the moment the native task settles, so this only bounds a
+// process that ignores the kill.
+const TASK_CANCEL_CONFIRM_MS = 5_000;
 
 function recoveredTaskMatches(record, options = {}) {
   const context =
@@ -88,22 +88,120 @@ function resolveTaskWaitTimeoutMs(value) {
   return Math.min(TASK_WAIT_TIMEOUT_MAX_MS, Math.max(TASK_WAIT_TIMEOUT_MIN_MS, Math.floor(raw)));
 }
 
+async function listTasks(options) {
+  const rendered = renderBackgroundTaskList({ context: options });
+  const liveIds = new Set([...rendered.matchAll(/^-\s+(\S+)/gm)].map((match) => match[1]));
+  const recovered = (await listShellJobRecords()).filter(
+    (record) => recoveredTaskMatches(record, options) && !liveIds.has(record.jobId)
+  );
+  if (recovered.length === 0) return rendered;
+  const rows = recovered.map(
+    (record) =>
+      `- ${record.jobId} shell ${record.terminal ? record.status : 'state-unavailable'} recovered=true command=${JSON.stringify(record.command || '')}`
+  );
+  return `${rendered}\n[recovered shell tasks]\n${rows.join('\n')}`;
+}
+
+// Blocks until the shell task settles, the timeout elapses, or the turn/user
+// interrupts; returns whether new user input cut the wait short.
+async function waitForShellTask(task, taskId, args, options) {
+  // The turn's abort signal must cut the wait short; a cancelled turn
+  // cannot sit out the remaining ceiling.
+  let turnSignal = null;
+  try {
+    turnSignal = (await getAbortSignalForSession(options?.sessionId)) || null;
+  } catch {
+    turnSignal = null;
+  }
+  const waitControl = beginInterruptibleTaskWait(options?.sessionId, turnSignal);
+  const waitSignal = waitControl.signal;
+  const waitTimeoutMs = resolveTaskWaitTimeoutMs(args.timeout_ms);
+  let interruptedByUser = false;
+  try {
+    // A shell task whose descendants outlived the shell process has no
+    // native job to subscribe to — the process it belonged to is gone.
+    // Its registry promise (resolved by the descendant observer) is the
+    // completion event in that case.
+    if (!peekShellJob(taskId) && task.status === 'running' && task.promise) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, waitTimeoutMs);
+        timer.unref?.();
+        const done = () => {
+          clearTimeout(timer);
+          if (waitSignal) {
+            try {
+              waitSignal.removeEventListener('abort', done);
+            } catch {}
+          }
+          resolve();
+        };
+        task.promise.then(done, done);
+        if (waitSignal) {
+          if (waitSignal.aborted) done();
+          else waitSignal.addEventListener('abort', done, { once: true });
+        }
+      });
+    } else {
+      await waitForShellJob(taskId, {
+        timeoutMs: waitTimeoutMs,
+        signal: waitSignal,
+      });
+    }
+  } finally {
+    interruptedByUser = waitControl.interruptedByUser;
+    waitControl.dispose();
+  }
+  return interruptedByUser;
+}
+
+async function cancelShellTask(task, taskId, options) {
+  // A tracked task with no native job is still cancellable: the
+  // registry's own cancel hook owns it (descendants that outlived
+  // their shell). Remember that it WAS live so the outcome is
+  // reported as a cancellation rather than "task not found".
+  const wasRunning = task.status === 'running';
+  const job = killShellJob(taskId);
+  if (job) {
+    // Confirm the process actually terminated before reporting a
+    // terminal status. Removing the watcher on the strength of a
+    // delivered signal left a live, unmonitored process behind a
+    // false 'cancelled'.
+    const confirmed = await waitForShellJob(taskId, { timeoutMs: TASK_CANCEL_CONFIRM_MS });
+    if (confirmed && confirmed.status === 'running') {
+      // Watcher and notify context stay armed: the eventual exit
+      // must still reach the owner.
+      return [
+        'status: cancel-unconfirmed',
+        `task_id: ${taskId}`,
+        'the cancellation was delivered but the process has not exited yet. It stays tracked and its completion is still delivered; re-run task cancel or task read to check again.',
+      ].join('\n');
+    }
+    if (!confirmed) {
+      // No terminal event and no observable task: absence of
+      // state is not proof of termination. Stop tracking it so it
+      // cannot hang as 'running' forever, but never claim it died.
+      cancelBackgroundShellJobWatch(taskId);
+      clearShellJobNotifyCtx(taskId);
+      cancelBackgroundTask(taskId, 'cancelled by task control; termination unconfirmed');
+      return [
+        'status: cancel-unconfirmed',
+        `task_id: ${taskId}`,
+        'the cancellation was delivered but this task is no longer observable, so its termination could not be confirmed. Verify the process directly if it must be gone.',
+      ].join('\n');
+    }
+  }
+  cancelBackgroundShellJobWatch(taskId);
+  clearShellJobNotifyCtx(taskId);
+  cancelBackgroundTask(taskId, 'cancelled by task control');
+  return job || wasRunning
+    ? renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task)
+    : buildJobNotFoundMessage(taskId);
+}
+
 export async function executeTaskTool(args, options = {}) {
   const action = typeof args.action === 'string' ? args.action.toLowerCase() : '';
   if (!action) return 'Error: task action is required';
-  if (action === 'list') {
-    const rendered = renderBackgroundTaskList({ context: options });
-    const liveIds = new Set([...rendered.matchAll(/^-\s+(\S+)/gm)].map((match) => match[1]));
-    const recovered = (await listShellJobRecords()).filter(
-      (record) => recoveredTaskMatches(record, options) && !liveIds.has(record.jobId)
-    );
-    if (recovered.length === 0) return rendered;
-    const rows = recovered.map(
-      (record) =>
-        `- ${record.jobId} shell ${record.terminal ? record.status : 'state-unavailable'} recovered=true command=${JSON.stringify(record.command || '')}`
-    );
-    return `${rendered}\n[recovered shell tasks]\n${rows.join('\n')}`;
-  }
+  if (action === 'list') return await listTasks(options);
 
   const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
   if (!taskId) return 'Error: task_id is required';
@@ -158,51 +256,7 @@ export async function executeTaskTool(args, options = {}) {
     let waitInterruptedByUser = false;
     if (action === 'wait') {
       if (!isShellTask) return `Error: task wait is only available for shell tasks: ${taskId}`;
-      // The turn's abort signal must cut the wait short; a cancelled turn
-      // cannot sit out the remaining ceiling.
-      let turnSignal = null;
-      try {
-        turnSignal = (await getAbortSignalForSession(options?.sessionId)) || null;
-      } catch {
-        turnSignal = null;
-      }
-      const waitControl = beginInterruptibleTaskWait(options?.sessionId, turnSignal);
-      const waitSignal = waitControl.signal;
-      const waitTimeoutMs = resolveTaskWaitTimeoutMs(args.timeout_ms);
-      try {
-        // A shell task whose descendants outlived the shell process has no
-        // native job to subscribe to — the process it belonged to is gone.
-        // Its registry promise (resolved by the descendant observer) is the
-        // completion event in that case.
-        if (!peekShellJob(taskId) && task.status === 'running' && task.promise) {
-          await new Promise((resolve) => {
-            const timer = setTimeout(resolve, waitTimeoutMs);
-            timer.unref?.();
-            const done = () => {
-              clearTimeout(timer);
-              if (waitSignal) {
-                try {
-                  waitSignal.removeEventListener('abort', done);
-                } catch {}
-              }
-              resolve();
-            };
-            task.promise.then(done, done);
-            if (waitSignal) {
-              if (waitSignal.aborted) done();
-              else waitSignal.addEventListener('abort', done, { once: true });
-            }
-          });
-        } else {
-          await waitForShellJob(taskId, {
-            timeoutMs: waitTimeoutMs,
-            signal: waitSignal,
-          });
-        }
-      } finally {
-        waitInterruptedByUser = waitControl.interruptedByUser;
-        waitControl.dispose();
-      }
+      waitInterruptedByUser = await waitForShellTask(task, taskId, args, options);
     }
     if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
     const latest = getBackgroundTask(taskId, { context: options }) || task;
@@ -229,53 +283,8 @@ export async function executeTaskTool(args, options = {}) {
     return rendered;
   }
 
-  if (action === 'cancel') {
-    if (isShellTask) {
-      // A tracked task with no native job is still cancellable: the
-      // registry's own cancel hook owns it (descendants that outlived
-      // their shell). Remember that it WAS live so the outcome is
-      // reported as a cancellation rather than "task not found".
-      const wasRunning = task.status === 'running';
-      const job = killShellJob(taskId);
-      if (job) {
-        // Confirm the process actually terminated before reporting a
-        // terminal status. Removing the watcher on the strength of a
-        // delivered signal left a live, unmonitored process behind a
-        // false 'cancelled'.
-        const confirmed = await waitForShellJob(taskId, { timeoutMs: TASK_CANCEL_CONFIRM_MS });
-        if (confirmed && confirmed.status === 'running') {
-          // Watcher and notify context stay armed: the eventual exit
-          // must still reach the owner.
-          return [
-            'status: cancel-unconfirmed',
-            `task_id: ${taskId}`,
-            'the cancellation was delivered but the process has not exited yet. It stays tracked and its completion is still delivered; re-run task cancel or task read to check again.',
-          ].join('\n');
-        }
-        if (!confirmed) {
-          // No terminal event and no observable task: absence of
-          // state is not proof of termination. Stop tracking it so it
-          // cannot hang as 'running' forever, but never claim it died.
-          cancelBackgroundShellJobWatch(taskId);
-          clearShellJobNotifyCtx(taskId);
-          cancelBackgroundTask(taskId, 'cancelled by task control; termination unconfirmed');
-          return [
-            'status: cancel-unconfirmed',
-            `task_id: ${taskId}`,
-            'the cancellation was delivered but this task is no longer observable, so its termination could not be confirmed. Verify the process directly if it must be gone.',
-          ].join('\n');
-        }
-      }
-      cancelBackgroundShellJobWatch(taskId);
-      clearShellJobNotifyCtx(taskId);
-      cancelBackgroundTask(taskId, 'cancelled by task control');
-      return job || wasRunning
-        ? renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task)
-        : buildJobNotFoundMessage(taskId);
-    }
-    cancelBackgroundTask(taskId, 'cancelled by task control');
-    return renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task);
-  }
-
-  return `Error: task action must be one of list|read|wait|cancel (got ${JSON.stringify(args.action)})`;
+  // action is 'cancel': the read|wait|cancel guard above admits nothing else.
+  if (isShellTask) return await cancelShellTask(task, taskId, options);
+  cancelBackgroundTask(taskId, 'cancelled by task control');
+  return renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task);
 }

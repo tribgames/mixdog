@@ -106,6 +106,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     nextTag,
     refreshTagsFromSessions,
     bindTag,
+    unbindTag: tagMaps.unbind,
     forgetTag,
     forgetTerminalSession: reaper.forgetTerminalSession,
     tombstoneTerminalSession: reaper.tombstoneTerminalSession,

@@ -116,7 +116,7 @@ function ensureFrameDirectory(scope: 'computer' | 'browser'): string {
   return directory;
 }
 
-function persistFrame(
+export function persistFrameImage(
   scope: 'computer' | 'browser',
   sessionId: string,
   frameId: string,
@@ -127,13 +127,4 @@ function persistFrame(
   } catch {
     return undefined;
   }
-}
-
-export function persistFrameImage(
-  scope: 'computer' | 'browser',
-  sessionId: string,
-  frameId: string,
-  image: { mimeType: string; data: string }
-): PersistedFrame | undefined {
-  return persistFrame(scope, sessionId, frameId, image);
 }

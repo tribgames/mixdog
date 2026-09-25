@@ -105,21 +105,8 @@ async function resolveBrowserImportInputIdentity() {
   return { files };
 }
 
-async function prepareBrowserImportNativeSource() {
-  if (embeddingTarget.platform !== 'win32') {
-    if (configuredBrowserImportNativeSourceDir) {
-      throw new Error('Chrome password importer inputs are supported only for Windows targets.');
-    }
-    return '';
-  }
-  if (configuredBrowserImportNativeSourceDir) {
-    return resolve(configuredBrowserImportNativeSourceDir);
-  }
-  if (process.platform !== 'win32') {
-    throw new Error('Building the Windows Chrome password importer requires a Windows host.');
-  }
-  const outputDirectory = join(desktopDir, '.cache', 'browser-import', embeddingTarget.key);
-  const sourceRoot = join(rootDir, 'native', 'mixdog-browser-import');
+/** One digest over every source file of a native crate, build output excluded. */
+async function sourceTreeHash(sourceRoot) {
   const sourceFiles = [];
   async function collectSourceFiles(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -138,10 +125,80 @@ async function prepareBrowserImportNativeSource() {
     sourceHash.update(await readFile(path));
     sourceHash.update('\0');
   }
+  return sourceHash.digest('hex');
+}
+
+const computerNativeFileName = 'mixdog-computer';
+const computerRustTargets = Object.freeze({
+  'darwin-arm64': 'aarch64-apple-darwin',
+  'darwin-x64': 'x86_64-apple-darwin',
+  'linux-arm64': 'aarch64-unknown-linux-gnu',
+  'linux-x64': 'x86_64-unknown-linux-gnu',
+});
+let computerNativeBinary = '';
+let computerInputIdentity = null;
+
+/**
+ * The macOS/Linux Computer Use backend, built from source for the target and
+ * cached by its source digest. Windows drives the desktop through PowerShell
+ * and needs no backend binary.
+ */
+async function prepareComputerNative() {
+  if (embeddingTarget.platform === 'win32') return { binary: '', identity: null };
+  const sourceRoot = join(rootDir, 'native', 'mixdog-computer');
+  const identity = { schemaVersion: 1, target: embeddingTarget.key, sourceHash: await sourceTreeHash(sourceRoot) };
+  const configured = String(process.env.MIXDOG_COMPUTER_NATIVE_BIN ?? '').trim();
+  if (configured) return { binary: resolve(configured), identity };
+  const triple = computerRustTargets[embeddingTarget.key];
+  if (!triple) throw new Error(`No Computer Use backend target exists for ${embeddingTarget.key}.`);
+  if (process.platform !== embeddingTarget.platform) {
+    throw new Error(`Building the ${embeddingTarget.platform} Computer Use backend requires a ${embeddingTarget.platform} host.`);
+  }
+  const outputDirectory = join(desktopDir, '.cache', 'computer-native', embeddingTarget.key);
+  const output = join(outputDirectory, computerNativeFileName);
+  const cacheMarker = join(outputDirectory, '.mixdog-computer-cache.json');
+  try {
+    const cached = JSON.parse(await readFile(cacheMarker, 'utf8'));
+    if (cached.sourceHash === identity.sourceHash && cached.target === identity.target) {
+      await access(output);
+      return { binary: output, identity };
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+  }
+  const { stdout } = await execFileAsync('rustc', ['-vV'], { cwd: rootDir });
+  const hostTriple = /^host:\s*(\S+)/m.exec(stdout)?.[1];
+  if (hostTriple !== triple) await execFileAsync('rustup', ['target', 'add', triple], { cwd: rootDir });
+  await execFileAsync(
+    'cargo',
+    ['build', '--locked', '--release', '--target', triple, '--manifest-path', join(sourceRoot, 'Cargo.toml')],
+    { cwd: rootDir, maxBuffer: 64 * 1024 * 1024 }
+  );
+  await mkdir(outputDirectory, { recursive: true });
+  await cp(join(sourceRoot, 'target', triple, 'release', computerNativeFileName), output);
+  await writeFile(cacheMarker, `${JSON.stringify(identity, null, 2)}\n`);
+  return { binary: output, identity };
+}
+
+async function prepareBrowserImportNativeSource() {
+  if (embeddingTarget.platform !== 'win32') {
+    if (configuredBrowserImportNativeSourceDir) {
+      throw new Error('Chrome password importer inputs are supported only for Windows targets.');
+    }
+    return '';
+  }
+  if (configuredBrowserImportNativeSourceDir) {
+    return resolve(configuredBrowserImportNativeSourceDir);
+  }
+  if (process.platform !== 'win32') {
+    throw new Error('Building the Windows Chrome password importer requires a Windows host.');
+  }
+  const outputDirectory = join(desktopDir, '.cache', 'browser-import', embeddingTarget.key);
+  const sourceRoot = join(rootDir, 'native', 'mixdog-browser-import');
   const cacheIdentity = {
     schemaVersion: 1,
     target: embeddingTarget.key,
-    sourceHash: sourceHash.digest('hex'),
+    sourceHash: await sourceTreeHash(sourceRoot),
   };
   const cacheMarker = join(outputDirectory, '.mixdog-browser-import-cache.json');
   try {
@@ -273,6 +330,7 @@ async function runtimeInputFingerprint(manifest) {
       desktopPruneSha256: sha256(desktopPruneSource),
       desktopLockfileSha256: sha256(desktopLockfile),
       browserImport: browserImportInputIdentity,
+      computer: computerInputIdentity,
       packageFiles,
     })
   );
@@ -304,6 +362,7 @@ async function canReusePreparedRuntime(fingerprint) {
       ...(browserImportInputIdentity
         ? browserImportNativeFileNames.map((name) => access(join(desktopNativeToolsDir, name)))
         : []),
+      ...(computerNativeBinary ? [access(join(desktopNativeToolsDir, computerNativeFileName))] : []),
     ]);
     return true;
   } catch (error) {
@@ -338,6 +397,12 @@ async function prepareDesktopNativeTools() {
     if (embeddingTarget.platform !== 'win32' && kind !== 'token') {
       await chmod(destination, 0o755);
     }
+  }
+  if (computerNativeBinary) {
+    const destination = join(desktopNativeToolsDir, computerNativeFileName);
+    await cp(computerNativeBinary, destination);
+    await assertTargetArchitecture(destination, 'Computer Use backend');
+    await chmod(destination, 0o755);
   }
   if (browserImportInputIdentity) {
     const sourceDirectory = resolve(browserImportNativeSourceDir);
@@ -776,6 +841,9 @@ const releaseRuntimeLock = await timed('preparation-lock', () => acquireRuntimeL
 try {
   browserImportNativeSourceDir = await timed('browser-import-native', () => prepareBrowserImportNativeSource());
   browserImportInputIdentity = await timed('browser-import-identity', () => resolveBrowserImportInputIdentity());
+  ({ binary: computerNativeBinary, identity: computerInputIdentity } = await timed('computer-native', () =>
+    prepareComputerNative()
+  ));
   const manifest = await timed('package-manifest', () => resolveRuntimePackageManifest());
   const fingerprint = await timed('input-fingerprint', () => runtimeInputFingerprint(manifest));
   if (!fastFullMode && (await timed('prepared-runtime-check', () => canReusePreparedRuntime(fingerprint)))) {

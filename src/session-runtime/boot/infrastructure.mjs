@@ -7,7 +7,7 @@ import { createStandaloneHookBus } from '../../standalone/hook-bus.mjs';
 import { updateCurrentCwdOverride, writeLastSessionCwd } from '../../runtime/shared/user-cwd.mjs';
 import { listRegisteredPlugins, pluginAdminStatus } from '../../standalone/plugin-admin.mjs';
 import { clean } from '../session-text.mjs';
-import { countSkillFiles, mcpScriptForPlugin, pluginManifest, pluginMcpServerName } from '../plugin-mcp.mjs';
+import { countSkillFiles, pluginManifest, pluginMcpServerName } from '../plugin-mcp.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { createMcpGlue } from '../mcp-glue.mjs';
 import { createSelfUpdateController } from '../self-update.mjs';
@@ -208,7 +208,7 @@ function wireSkills(boot) {
 // config via getter/setter injection and passes the later-defined callbacks
 // (prewarm/tool-surface) through `boot`.
 function wireCwdPlugins(boot) {
-  const { rt, cfgMod, hooks, hookCommonPayload, getMemoryModule, connectConfiguredMcp, tunables } = boot;
+  const { rt, cfgMod, hooks, hookCommonPayload, tunables } = boot;
   const { resolveCwdPath, applyResolvedCwd, pluginsStatus, loadCoreMemoryContext } = createCwdPlugins({
     getCurrentCwd: () => rt.currentCwd,
     setCurrentCwd: (next) => {
@@ -220,22 +220,17 @@ function wireCwdPlugins(boot) {
     setDesktopSession: (next) => {
       rt.desktopSession = next;
     },
-    getRoute: () => rt.route,
     isCodeGraphPrewarmLazy: () => tunables.codeGraphPrewarmLazy,
     isCodeGraphFirstTurnPrewarmDone: () => rt.codeGraphFirstTurnPrewarmDone,
     getCodeGraphPrewarmDelayMs: () => tunables.codeGraphPrewarmDelayMs,
-    connectConfiguredMcp,
-    invalidatePreSessionToolSurface: (...a) => boot.invalidatePreSessionToolSurface(...a),
     scheduleCodeGraphPrewarm: (...a) => boot.scheduleCodeGraphPrewarm(...a),
     hooks,
     hookCommonPayload: (...a) => hookCommonPayload(...a),
     bootProfile,
-    getMemoryModule: (...a) => getMemoryModule(...a),
     listRegisteredPlugins,
     pluginAdminStatus,
     pluginManifest,
     pluginMcpServerName,
-    mcpScriptForPlugin,
     countSkillFiles,
     writeLastSessionCwd,
     updateCurrentCwdOverride,

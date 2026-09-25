@@ -21,32 +21,14 @@ import { createSession } from '../session/manager.mjs';
 import { traceAgentPreset } from '../agent-trace.mjs';
 import { resolveAgentSessionPermission } from '../internal-agents.mjs';
 import { loadConfig } from '../config.mjs';
+import { RETIRED_COMPACTION_FIELDS } from '../config-storage.mjs';
 
 function normalizeAgentCompactionConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const next = { ...raw };
   if (!next.summaryModel && raw.semanticModel) next.summaryModel = raw.semanticModel;
   if (!next.memoryTimeoutMs && raw.recallMemoryTimeoutMs) next.memoryTimeoutMs = raw.recallMemoryTimeoutMs;
-  for (const key of [
-    'type',
-    'compactType',
-    'compact_type',
-    'semantic',
-    'semanticModel',
-    'prune',
-    'tailTurns',
-    'recallMemoryTimeoutMs',
-    'recallIngestLimit',
-    'recallChunkLimit',
-    'recallLimit',
-    'recallCycle1BatchSize',
-    'recallRowsPerSession',
-    'recallWindowSize',
-    'recallConcurrency',
-    'recallCycle1DeadlineMs',
-  ]) {
-    delete next[key];
-  }
+  for (const key of RETIRED_COMPACTION_FIELDS) delete next[key];
   return {
     ...next,
     auto: raw.auto !== false && raw.enabled !== false,

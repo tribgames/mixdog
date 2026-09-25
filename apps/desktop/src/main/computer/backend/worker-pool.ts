@@ -11,6 +11,7 @@ import { join } from 'node:path';
 
 import { powershellHostProgram, RESPONSE_MARKER } from './program';
 import { elevatedProgramInvocation } from './elevated-program';
+import { computerNativeBinary, computerNativeEnvironment } from './native-host';
 import { createSessionJobs } from './session-jobs';
 import { recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
 import { assertComputerWorkerCapacity, MAX_COMPUTER_WORKERS } from './worker-capacity';
@@ -111,8 +112,7 @@ function reportPointerProgress(
     const event = JSON.parse(payload);
     const entry = requestOf(event.id);
     if (
-      entry &&
-      entry.pointerFeedback &&
+      entry?.pointerFeedback &&
       Number.isFinite(event.x) &&
       Number.isFinite(event.y) &&
       typeof event.held === 'boolean'
@@ -299,6 +299,8 @@ export interface WorkerPoolHost {
     phase: string,
     windowId?: string
   ): void;
+  /** Launch-time facts the native backend needs from the app (macOS/Linux). */
+  nativeEnvironment?(): Record<string, string>;
   /** Injectable process transport for isolated lifecycle tests. */
   spawnProcess?: typeof spawn;
 }
@@ -370,15 +372,20 @@ export function createWorkerPool(host: WorkerPoolHost) {
     return hostWorkers.size;
   }
 
-  function spawnHostWorker(): ChildProcessWithoutNullStreams {
-    elevatedJobs.assertClear();
-    assertComputerWorkerCapacity(liveWorkerCount() + elevatedSlots, maxWorkers);
+  /** Windows runs the PowerShell host program; macOS and Linux run the
+   *  native backend, which speaks the same line protocol. */
+  function spawnHostProcess(): ChildProcessWithoutNullStreams {
+    if (process.platform !== 'win32') {
+      return spawnProcess(computerNativeBinary(), [], {
+        env: computerNativeEnvironment(inputMarker, host.nativeEnvironment?.()),
+      });
+    }
     // The program runs from a temp .ps1 via -File, NOT piped through -Command -:
     // with -Command - PowerShell consumes stdin as the command text, colliding
     // with the per-command JSON we also write to stdin. -File leaves stdin
     // dedicated to runtime commands.
     const scriptPath = ensureHostScript();
-    const child = spawnProcess(
+    return spawnProcess(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
       {
@@ -391,6 +398,12 @@ export function createWorkerPool(host: WorkerPoolHost) {
         },
       }
     );
+  }
+
+  function spawnHostWorker(): ChildProcessWithoutNullStreams {
+    elevatedJobs.assertClear();
+    assertComputerWorkerCapacity(liveWorkerCount() + elevatedSlots, maxWorkers);
+    const child = spawnHostProcess();
     hostWorkers.add(child);
     const receive = createComputerLineDecoder((line) => {
       if (line.startsWith('@@MIXDOG_POINTER@@')) {
@@ -567,7 +580,8 @@ export function createWorkerPool(host: WorkerPoolHost) {
   }
 
   async function callPowerShellElevated(request: Record<string, unknown>): Promise<PowerShellResponse> {
-    ensurePowerShell(String(request.session_id || 'default'));
+    const sessionId = String(request.session_id || 'default');
+    ensurePowerShell(sessionId);
     if (!hostScriptPath) throw new Error('privileged_worker_unavailable: computer host script is missing');
     const directory = dataDirectory();
     mkdirSync(directory, { recursive: true });
@@ -587,7 +601,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
     const launcher = elevatedLauncherCommand();
     let stopped = false;
     const cancel = () => writeFileSync(cancelPath, nonce, { mode: 0o600 });
-    const job = elevatedJobs.begin(String(request.session_id || 'default'), cancel);
+    const job = elevatedJobs.begin(sessionId, cancel);
     elevatedSlots += 3;
     try {
       const launcherResult = await runElevatedLauncher({
@@ -597,7 +611,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
           ...process.env,
           MIXDOG_ELEVATED_TOKEN: nonce,
           MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
-          MIXDOG_ELEVATED_HOST_SCRIPT: hostScriptPath!,
+          MIXDOG_ELEVATED_HOST_SCRIPT: hostScriptPath,
           MIXDOG_ELEVATED_HOST_SHA256: sha256(hostBytes),
           MIXDOG_ELEVATED_REQUEST: requestPath,
           MIXDOG_ELEVATED_REQUEST_SHA256: sha256(requestBytes),

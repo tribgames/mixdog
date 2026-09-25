@@ -49,6 +49,29 @@ export {
   MEASURED_TOOL_USAGE,
 } from './tool-catalog-data.mjs';
 
+// Provider modes whose whole catalog is the active surface (no deferred pool).
+const FIXED_SURFACE_MODES = new Set(['full', 'manifest', 'canonical']);
+
+function isMcpToolName(name) {
+  return typeof name === 'string' && name.startsWith('mcp__');
+}
+
+function toolParameters(tool) {
+  if (tool?.inputSchema && typeof tool.inputSchema === 'object') return tool.inputSchema;
+  return { type: 'object', properties: {} };
+}
+
+// The rendered BP2 manifest text, or '' when no system message carries one.
+function renderedDeferredManifest(session) {
+  const system = session.messages?.find(
+    (message) =>
+      message?.role === 'system' &&
+      typeof message.content === 'string' &&
+      message.content.includes('<available-deferred-tools>')
+  );
+  return system?.content ?? '';
+}
+
 export function filterDisallowedTools(tools, disallowed = []) {
   // Old session catalogs must not resurrect the separate staging schema.
   const deny = new Set(['git_stage', ...(Array.isArray(disallowed) ? disallowed : [])].map(clean).filter(Boolean));
@@ -118,8 +141,7 @@ function openAILoadableToolSpec(tool, provider = '') {
     name: clean(tool?.name),
     description: clean(tool?.description),
     defer_loading: true,
-    parameters:
-      tool?.inputSchema && typeof tool.inputSchema === 'object' ? tool.inputSchema : { type: 'object', properties: {} },
+    parameters: toolParameters(tool),
   };
 }
 
@@ -157,14 +179,7 @@ function activeToolSchemas(catalog, session, names) {
       const name = clean(tool?.name);
       if (!name || !wanted.has(name) || seen.has(name)) continue;
       seen.add(name);
-      specs.push({
-        name,
-        description: clean(tool?.description),
-        parameters:
-          tool?.inputSchema && typeof tool.inputSchema === 'object'
-            ? tool.inputSchema
-            : { type: 'object', properties: {} },
-      });
+      specs.push({ name, description: clean(tool?.description), parameters: toolParameters(tool) });
     }
   }
   return specs;
@@ -226,13 +241,7 @@ function setDeferredToolState(session, names) {
 }
 
 function deferredPoolToolNames(session) {
-  if (
-    !session ||
-    session.deferredProviderMode === 'full' ||
-    session.deferredProviderMode === 'manifest' ||
-    session.deferredProviderMode === 'canonical'
-  )
-    return [];
+  if (!session || FIXED_SURFACE_MODES.has(session.deferredProviderMode)) return [];
   const catalog = Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : [];
   const active = new Set([
     ...(session.tools || []).map((tool) => clean(tool?.name)).filter(Boolean),
@@ -303,7 +312,7 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   const defaultNames = defaultDeferredToolNames(catalog, mode);
   const storedNames = providerMode === 'native' ? [] : storedDeferredToolNames(session);
-  const fixedSurface = ['full', 'manifest', 'canonical'].includes(providerMode);
+  const fixedSurface = FIXED_SURFACE_MODES.has(providerMode);
   let selectedNames = fixedSurface
     ? sortedNamesByMeasuredUsage(catalog.map((tool) => clean(tool?.name)).filter(Boolean))
     : [];
@@ -373,15 +382,8 @@ export function rebuildDeferredToolSurfaceForProvider(session, provider) {
     if (session.deferredProviderMode === 'native') {
       session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
       applyInitialDeferredToolManifestToBp2(session, deferredPoolToolNames(session), { rebuild: true });
-      const rendered = session.messages?.find(
-        (message) =>
-          message?.role === 'system' &&
-          typeof message.content === 'string' &&
-          message.content.includes('<available-deferred-tools>')
-      )?.content;
-      session.deferredAnnouncedTools = deferredPoolToolNames(session).filter(
-        (name) => typeof rendered === 'string' && rendered.includes(name)
-      );
+      const rendered = renderedDeferredManifest(session);
+      session.deferredAnnouncedTools = deferredPoolToolNames(session).filter((name) => rendered.includes(name));
     } else if (previousMode === 'native') {
       for (const system of session.messages?.filter((message) => message?.role === 'system') || []) {
         if (typeof system.content === 'string') system.content = stripDeferredToolManifestBlock(system.content);
@@ -408,7 +410,6 @@ export function rebuildDeferredToolSurfaceForProvider(session, provider) {
 export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   if (!session || !Array.isArray(session.messages)) return false;
   if (session.deferredProviderMode === 'full') return false;
-  const isMcp = (name) => typeof name === 'string' && name.startsWith('mcp__');
   const live = filterDisallowedTools(Array.isArray(liveMcpTools) ? liveMcpTools : [], session.disallowedTools);
   const byName = new Map();
   for (const tool of Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : []) {
@@ -418,7 +419,7 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   let added = false;
   for (const tool of live) {
     const name = clean(tool?.name);
-    if (!name || !isMcp(name) || byName.has(name)) continue;
+    if (!name || !isMcpToolName(name) || byName.has(name)) continue;
     byName.set(name, activeToolForSurface(tool));
     added = true;
   }
@@ -444,12 +445,7 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   // Pre-mark ONLY the names that ACTUALLY landed in the rebuilt BP2 manifest as
   // announced; anything the manifest could not advertise stays un-announced so
   // the turn-boundary late reminder can still surface it.
-  const rendered = (() => {
-    const sys = session.messages.find(
-      (m) => m?.role === 'system' && typeof m.content === 'string' && m.content.includes('<available-deferred-tools>')
-    );
-    return typeof sys?.content === 'string' ? sys.content : '';
-  })();
+  const rendered = renderedDeferredManifest(session);
   session.deferredAnnouncedTools = deferredPoolToolNames(session).filter((name) => rendered.includes(name));
   session.updatedAt = Date.now();
   return true;
@@ -472,7 +468,6 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
  */
 export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
   if (!session || !Array.isArray(session.tools)) return null;
-  const isMcp = (name) => typeof name === 'string' && name.startsWith('mcp__');
   const live = filterDisallowedTools(Array.isArray(liveMcpTools) ? liveMcpTools : [], session.disallowedTools);
   const hadSnapshot = Array.isArray(session.deferredMcpToolNames);
   const previousNames = new Set(
@@ -480,18 +475,18 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
       ? session.deferredMcpToolNames
       : [...(session.deferredToolCatalog || []), ...(session.deferredLateToolCatalog || [])]
           .map((tool) => clean(tool?.name))
-          .filter(isMcp)
+          .filter(isMcpToolName)
   );
-  session.deferredMcpToolNames = [...new Set(live.map((tool) => clean(tool?.name)).filter(isMcp))];
-  if (['full', 'manifest', 'canonical'].includes(session.deferredProviderMode)) {
+  session.deferredMcpToolNames = [...new Set(live.map((tool) => clean(tool?.name)).filter(isMcpToolName))];
+  if (FIXED_SURFACE_MODES.has(session.deferredProviderMode)) {
     const byName = new Map();
     for (const tool of Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : []) {
       const name = clean(tool?.name);
-      if (name && !isMcp(name)) byName.set(name, tool);
+      if (name && !isMcpToolName(name)) byName.set(name, tool);
     }
     for (const tool of live) {
       const name = clean(tool?.name);
-      if (name && isMcp(name)) byName.set(name, activeToolForSurface(tool));
+      if (name && isMcpToolName(name)) byName.set(name, activeToolForSurface(tool));
     }
     const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
     const next = catalog.filter((tool) => session.deferredSurfaceMode !== 'readonly' || isReadonlySelectable(tool));
@@ -513,7 +508,7 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
   const liveMcpByName = new Map();
   for (const tool of live) {
     const name = clean(tool?.name);
-    if (!name || !isMcp(name) || liveMcpByName.has(name)) continue;
+    if (!name || !isMcpToolName(name) || liveMcpByName.has(name)) continue;
     liveMcpByName.set(name, activeToolForSurface(tool));
   }
 
@@ -538,13 +533,11 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
   // schema/handler track the live connection. Swap ONLY when the serialized
   // surface actually changed, so a steady reconnect never perturbs the tools
   // request param or its cache hash.
-  if (Array.isArray(session.tools)) {
-    for (let i = 0; i < session.tools.length; i += 1) {
-      const name = clean(session.tools[i]?.name);
-      if (!name || !isMcp(name) || !liveMcpByName.has(name)) continue;
-      const freshTool = liveMcpByName.get(name);
-      if (JSON.stringify(freshTool) !== JSON.stringify(session.tools[i])) session.tools[i] = freshTool;
-    }
+  for (let i = 0; i < session.tools.length; i += 1) {
+    const name = clean(session.tools[i]?.name);
+    if (!name || !isMcpToolName(name) || !liveMcpByName.has(name)) continue;
+    const freshTool = liveMcpByName.get(name);
+    if (JSON.stringify(freshTool) !== JSON.stringify(session.tools[i])) session.tools[i] = freshTool;
   }
 
   const nextNames = new Set(session.deferredMcpToolNames);
@@ -552,7 +545,7 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools) {
   const added = [];
   for (const tool of liveMcpByName.values()) {
     const name = clean(tool?.name);
-    if (!name || !isMcp(name)) continue;
+    if (!name || !isMcpToolName(name)) continue;
     if (previousNames.has(name) || (!hadSnapshot && (active.has(name) || startupNames.has(name)))) continue;
     added.push({ name, description: lateAnnouncementDescription(tool?.description) });
   }

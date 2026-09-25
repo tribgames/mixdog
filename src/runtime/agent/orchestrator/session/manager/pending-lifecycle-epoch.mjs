@@ -40,13 +40,26 @@ export function currentPendingLifecycleToken(sessionId) {
   return pendingLifecycleToken(pendingSessionLifecycle(sessionId));
 }
 
+// Refusal verdict of the lifecycle a token was minted from (tombstoned or
+// unreadable) — exactly pendingLifecycleInvalidated(sessionId) for that same
+// read, so a caller holding a fresh token needs no second durable read.
+export function lifecycleTokenClosed(token) {
+  const { source } = parseLifecycleToken(token);
+  return source === 'closed' || source === 'unreadable';
+}
+
 // Pure epoch comparison against an already-read lifecycle (no IO), so a caller
 // that judges many entries reads the durable record once.
+// Parses a `source:generation` epoch token.
+function parseLifecycleToken(token) {
+  const text = String(token);
+  const separator = text.indexOf(':');
+  return { source: text.slice(0, separator), generation: Number(text.slice(separator + 1)) || 0 };
+}
+
 export function lifecycleTokenStale(now, sinceToken) {
   if (sinceToken === null || sinceToken === undefined) return false;
-  const separator = String(sinceToken).indexOf(':');
-  const sinceSource = String(sinceToken).slice(0, separator);
-  const sinceGeneration = Number(String(sinceToken).slice(separator + 1)) || 0;
+  const { source: sinceSource, generation: sinceGeneration } = parseLifecycleToken(sinceToken);
   // Only close/detach moves the durable generation, so a differing one means
   // the session was closed/detached/reopened since: refuse.
   if (now.generation !== sinceGeneration) return true;
@@ -75,9 +88,7 @@ export function pendingLifecycleInvalidated(sessionId, sinceToken = null) {
 export function pendingLifecycleEpochMoved(sessionId, sinceToken = null) {
   if (sinceToken === null || sinceToken === undefined) return false;
   const now = pendingSessionLifecycle(sessionId);
-  const separator = String(sinceToken).indexOf(':');
-  const sinceGeneration = Number(String(sinceToken).slice(separator + 1)) || 0;
-  if (now.generation !== sinceGeneration) return true;
+  if (now.generation !== parseLifecycleToken(sinceToken).generation) return true;
   // An unreadable/foreign record is never authority for a deletion.
   if (now.source === 'unreadable') return true;
   return false;

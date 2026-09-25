@@ -45,24 +45,11 @@ export async function unicodeFontPath(explicit = '') {
 
 /** The characters of `text` the font has no glyph for, in first-seen order. */
 function uncoveredCharacters(font, text, limit = 6) {
-  const face = font?.embedder?.font;
   const missing = [];
   const seen = new Set();
   for (const char of String(text || '')) {
-    const codePoint = char.codePointAt(0);
-    if (codePoint <= 32 || seen.has(char)) continue;
-    const covered =
-      typeof face?.hasGlyphForCodePoint === 'function'
-        ? face.hasGlyphForCodePoint(codePoint)
-        : (() => {
-            try {
-              font.encodeText(char);
-              return true;
-            } catch {
-              return false;
-            }
-          })();
-    if (covered) continue;
+    if (char.codePointAt(0) <= 32 || seen.has(char)) continue;
+    if (hasGlyph(font, char) || standIn(font, char) !== null) continue;
     seen.add(char);
     missing.push(char);
     if (missing.length >= limit) break;
@@ -77,23 +64,102 @@ function describeUncovered(characters = []) {
     .join(', ');
 }
 
-/** True when every character of text has a glyph in the font (standard fonts throw on encode; embedded faces map misses to .notdef, so ask the face). */
-export function fontCovers(font, text) {
-  if (!text) return true;
+// Typographic characters a face often lacks, each with the glyphs that set it
+// the way a typesetter would: the writing guide asks for the minus sign on a
+// negative figure (−6p), and Malgun Gothic and the standard PDF fonts have
+// none, so a Korean report carrying one refused to write at all.
+const TYPOGRAPHIC_STAND_INS = Object.freeze({
+  '\u2212': ['\u2013', '-'],
+  '\u2010': ['-'],
+  '\u2011': ['-'],
+  '\u2007': [' '],
+  '\u2009': [' '],
+  '\u200A': [' '],
+  '\u202F': [' '],
+});
+
+function hasGlyph(font, char) {
   const face = font?.embedder?.font;
-  if (typeof face?.hasGlyphForCodePoint === 'function') {
-    for (const char of String(text)) {
-      const codePoint = char.codePointAt(0);
-      if (codePoint > 32 && !face.hasGlyphForCodePoint(codePoint)) return false;
-    }
-    return true;
-  }
+  if (typeof face?.hasGlyphForCodePoint === 'function') return face.hasGlyphForCodePoint(char.codePointAt(0));
   try {
-    font.encodeText(String(text));
+    font.encodeText(char);
     return true;
   } catch {
     return false;
   }
+}
+
+function standIn(font, char) {
+  return (TYPOGRAPHIC_STAND_INS[char] || []).find((candidate) => hasGlyph(font, candidate)) ?? null;
+}
+
+/**
+ * The font with its typographic stand-ins applied wherever it encodes or measures text, so every page, stamp,
+ * and field drawn with it sets a minus sign it lacks as an en dash instead of a missing glyph. A face that
+ * carries every one of those characters is returned unchanged.
+ */
+function withStandIns(font) {
+  const substitutes = new Map();
+  for (const char of Object.keys(TYPOGRAPHIC_STAND_INS)) {
+    if (hasGlyph(font, char)) continue;
+    const replacement = standIn(font, char);
+    if (replacement !== null) substitutes.set(char, replacement);
+  }
+  if (!substitutes.size) return font;
+  const pattern = new RegExp(`[${[...substitutes.keys()].join('')}]`, 'gu');
+  const set = (text) => String(text ?? '').replace(pattern, (char) => substitutes.get(char));
+  return Object.create(font, {
+    encodeText: { value: (text) => font.encodeText(set(text)) },
+    widthOfTextAtSize: { value: (text, size) => font.widthOfTextAtSize(set(text), size) },
+  });
+}
+
+/** True when every character of text has a glyph in the font, or a typographic stand-in it has (standard fonts throw on encode; embedded faces map misses to .notdef, so ask the face). */
+export function fontCovers(font, text) {
+  if (!text) return true;
+  const seen = new Set();
+  for (const char of String(text)) {
+    if (char.codePointAt(0) <= 32 || seen.has(char)) continue;
+    seen.add(char);
+    if (!hasGlyph(font, char) && standIn(font, char) === null) return false;
+  }
+  return true;
+}
+
+// The bold face that ships beside a regular one: malgun.ttf / malgunbd.ttf, segoeui.ttf / segoeuib.ttf,
+// NanumGothic.ttf / NanumGothicBold.ttf, DejaVuSans.ttf / DejaVuSans-Bold.ttf, a -Regular file and its -Bold.
+function boldCompanions(path) {
+  const file = String(path || '');
+  if (!/\.(ttf|otf)$/i.test(file)) return [];
+  return [
+    ...new Set(
+      [
+        file.replace(/-Regular(\.\w+)$/i, '-Bold$1'),
+        file.replace(/Regular(\.\w+)$/i, 'Bold$1'),
+        file.replace(/(\.\w+)$/, 'bd$1'),
+        file.replace(/(\.\w+)$/, 'b$1'),
+        file.replace(/(\.\w+)$/, '-Bold$1'),
+        file.replace(/(\.\w+)$/, 'Bold$1'),
+      ].filter((candidate) => candidate !== file)
+    ),
+  ];
+}
+
+/**
+ * The bold face for headings, table headers, labels, and figures: Helvetica-Bold beside Helvetica, else the
+ * installed bold companion of the embedded face when it covers the same text. Without one the regular face
+ * stands in, so a document without a bold file still writes — only without the weight.
+ */
+export async function embedBoldFont(document, { font, fontPath = '', text = '' } = {}) {
+  if (!fontPath) return withStandIns(await document.embedFont(StandardFonts.HelveticaBold));
+  for (const candidate of boldCompanions(fontPath)) {
+    try {
+      await access(candidate);
+      const bold = await document.embedFont(await readFile(candidate), { subset: true });
+      if (fontCovers(bold, text)) return withStandIns(bold);
+    } catch {}
+  }
+  return font;
 }
 
 /**
@@ -108,7 +174,7 @@ export async function embedDocumentFont(
 ) {
   if (!fontPath) {
     const builtin = await document.embedFont(standard);
-    if (fontCovers(builtin, text)) return { font: builtin, fontPath: '', embedded: false };
+    if (fontCovers(builtin, text)) return { font: withStandIns(builtin), fontPath: '', embedded: false };
   }
   const candidates = await unicodeFontCandidates(fontPath);
   if (fontPath && !candidates.length) throw new Error(`PDF font file was not found: ${fontPath}`);
@@ -125,7 +191,7 @@ export async function embedDocumentFont(
       if (fontPath) throw new Error(`PDF font ${candidate} could not be embedded: ${error?.message || error}`);
       continue;
     }
-    if (fontCovers(font, text)) return { font, fontPath: candidate, embedded: true };
+    if (fontCovers(font, text)) return { font: withStandIns(font), fontPath: candidate, embedded: true };
     if (fontPath) {
       const missing = describeUncovered(uncoveredCharacters(font, text));
       throw new Error(`Font ${candidate} has no glyph for ${missing || 'part of the text'}; ${PDF_FONT_HINT}`);

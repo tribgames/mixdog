@@ -13,7 +13,7 @@ import {
   isTranscriptSkillToolName,
 } from '../../runtime/shared/tool-execution-contract.mjs';
 import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool-call-fields.mjs';
-import { aggregateBucketForCategory } from './tool-result-status.mjs';
+import { aggregateBucketForCategory, mergeAggregateCategoryEntries } from './tool-result-status.mjs';
 import { createDeferredCardRegistry } from './turn-deferred-cards.mjs';
 import { createAggregateCardTracker } from './turn-aggregate-cards.mjs';
 
@@ -201,14 +201,6 @@ function trackCard(cards, callId, card) {
   cards.toolCards.push(card);
 }
 
-function mergeCategoryEntries(aggregateCard, categoryEntries) {
-  for (const entry of categoryEntries) {
-    if (!aggregateCard.categories.has(entry.key)) aggregateCard.categoryOrder.push(entry.key);
-    const prev = aggregateCard.categories.get(entry.key);
-    aggregateCard.categories.set(entry.key, { ...entry, count: Number(prev?.count || 0) + Number(entry.count || 1) });
-  }
-}
-
 // One provider tool call becomes a standalone card (Agent) or joins the
 // batch's aggregate card for its category.
 function openToolCard(cards, call, index, batch) {
@@ -245,7 +237,7 @@ function openToolCard(cards, call, index, batch) {
   }
   const aggregateCard = cards.aggregates.ensureAggregateCard(bucket);
   if (shellAfterEdit) aggregateCard.verifyShell = true;
-  mergeCategoryEntries(aggregateCard, categoryEntries);
+  mergeAggregateCategoryEntries(aggregateCard, categoryEntries);
   aggregateCard.calls.set(callKey, aggregateCallEntry(callKey, name, args, category));
   batch.touchedAggregates.add(aggregateCard);
   trackCard(cards, callId, { itemId: aggregateCard.itemId, callId: callKey, done: false, aggregate: aggregateCard });

@@ -1,5 +1,6 @@
 /** Recovery owns only the read-only preflight, never the gesture or its
  * verification. A stale result after input must not replay the operation. */
+import { throwIfBrowserCancelled } from '../settle';
 import type { BrowserActionContext } from './types';
 
 export async function mutateRef<T>(
@@ -16,7 +17,7 @@ export async function mutateRef<T>(
     (candidate) => services.refActions.prepareRef(guest, candidate, signal, editable),
     signal
   );
-  if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+  throwIfBrowserCancelled(signal);
   try {
     return await operation(ref);
   } catch (error) {

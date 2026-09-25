@@ -39,11 +39,8 @@ export function createSessionIngestRuntime({
     const sessionId = String(args.sessionId || args.session_id || `session-${Date.now()}`).trim();
     const prev = chains.get(sessionId) ?? Promise.resolve();
     const run = prev.catch(() => {}).then(() => ingestOne(sessionId, args));
-    chains.set(
-      sessionId,
-      run.catch(() => {})
-    );
-    const tail = chains.get(sessionId);
+    const tail = run.catch(() => {});
+    chains.set(sessionId, tail);
     try {
       return await run;
     } finally {

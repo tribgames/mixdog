@@ -440,7 +440,6 @@ function DesktopBrowserPane({
     () => readBrowserViewportPreset(window.localStorage, sessionId).id
   );
   const desktopApi = window.mixdogDesktop;
-  const ownerSessionId = sessionId;
   const viewportPreset = resolveBrowserViewportPreset(viewportPresetId);
   useEffect(() => {
     if (!active || !expanded || !onToggleExpanded || importOpen) return undefined;
@@ -462,7 +461,7 @@ function DesktopBrowserPane({
   useEffect(
     () =>
       window.mixdogDesktop?.onBrowserGuestViewportChanged?.((change) => {
-        if (change.sessionId !== ownerSessionId) return;
+        if (change.sessionId !== sessionId) return;
         let currentId: number;
         try {
           currentId = webviewRef.current!.getWebContentsId();
@@ -470,7 +469,7 @@ function DesktopBrowserPane({
           return;
         }
         const pageId = change.webContentsId ?? currentId;
-        const preset = resolveBrowserViewportPreset(readBrowserViewportPreset(window.localStorage, ownerSessionId).id);
+        const preset = resolveBrowserViewportPreset(readBrowserViewportPreset(window.localStorage, sessionId).id);
         const ownPreset =
           change.viewport !== null &&
           change.viewport.width === preset.width &&
@@ -479,7 +478,7 @@ function DesktopBrowserPane({
         agentViewports.current.set(pageId, viewport);
         if (pageId === currentId) setAgentViewport(viewport);
       }),
-    [ownerSessionId]
+    [sessionId]
   );
   const frameWidth = agentViewport?.width ?? viewportPreset.width;
   const frameHeight = agentViewport?.height ?? viewportPreset.height;
@@ -490,9 +489,9 @@ function DesktopBrowserPane({
   const [zoomLevel, setZoomLevel] = useState(() => readBrowserZoom(window.localStorage, sessionId));
   const changeZoomLevel = useCallback(
     (level: number) => {
-      setZoomLevel(writeBrowserZoom(window.localStorage, ownerSessionId, level));
+      setZoomLevel(writeBrowserZoom(window.localStorage, sessionId, level));
     },
-    [ownerSessionId]
+    [sessionId]
   );
   useEffect(() => {
     const view = webviewRef.current;
@@ -505,13 +504,13 @@ function DesktopBrowserPane({
       } else if (['zoom-in', 'zoom-out', 'zoom-reset'].includes(action)) {
         const zoomFactor = action === 'zoom-in' ? 1.1 : 1 / 1.1;
         setZoomLevel((previous) =>
-          writeBrowserZoom(window.localStorage, ownerSessionId, action === 'zoom-reset' ? 1 : previous * zoomFactor)
+          writeBrowserZoom(window.localStorage, sessionId, action === 'zoom-reset' ? 1 : previous * zoomFactor)
         );
       }
     };
     view.addEventListener('browser-shortcut', shortcut);
     return () => view.removeEventListener('browser-shortcut', shortcut);
-  }, [ownerSessionId]);
+  }, [sessionId]);
   // A device frame taller or wider than the pane scales down to fit, staying
   // centered on both axes (user: 상하좌우 가운데 정렬 — PC·모바일 공통). The
   // guest keeps its real metrics; only the composited frame shrinks.
@@ -551,7 +550,7 @@ function DesktopBrowserPane({
         const webContentsId = view.getWebContentsId();
         if (!Number.isSafeInteger(webContentsId) || webContentsId <= 0) return;
         reportedId = webContentsId;
-        void setGuestActive(ownerSessionId, webContentsId, active).catch(() => {});
+        void setGuestActive(sessionId, webContentsId, active).catch(() => {});
       } catch {
         /* guest not attached yet; did-attach/dom-ready retries */
       }
@@ -566,9 +565,9 @@ function DesktopBrowserPane({
       stopSettledForegroundRepaint();
       view.removeEventListener('did-attach', report);
       view.removeEventListener('dom-ready', report);
-      if (reportedId) void setGuestActive(ownerSessionId, reportedId, false).catch(() => {});
+      if (reportedId) void setGuestActive(sessionId, reportedId, false).catch(() => {});
     };
-  }, [active, desktopApi, ownerSessionId]);
+  }, [active, desktopApi, sessionId]);
 
   const refreshCredentialSuggestions = useCallback(() => {
     if (!desktopApi?.browserCredentialSuggestions) {
@@ -576,7 +575,7 @@ function DesktopBrowserPane({
       return;
     }
     void desktopApi
-      .browserCredentialSuggestions(ownerSessionId)
+      .browserCredentialSuggestions(sessionId)
       .then((suggestions) => {
         setCredentialSuggestions(suggestions);
         if (!suggestions.length) setCredentialMenuOpen(false);
@@ -585,7 +584,7 @@ function DesktopBrowserPane({
         setCredentialSuggestions([]);
         setCredentialMenuOpen(false);
       });
-  }, [desktopApi, ownerSessionId]);
+  }, [desktopApi, sessionId]);
 
   useEffect(() => {
     const view = webviewRef.current;
@@ -619,7 +618,7 @@ function DesktopBrowserPane({
     async (preset: BrowserViewportPreset, reload: boolean): Promise<boolean> => {
       const view = webviewRef.current;
       if (!view) return false;
-      const configKey = `${ownerSessionId}\u0000${preset.id}`;
+      const configKey = `${sessionId}\u0000${preset.id}`;
       let webContentsId = 0;
       try {
         webContentsId = view.getWebContentsId();
@@ -643,7 +642,7 @@ function DesktopBrowserPane({
       }
       const request = ++viewportConfigurationRequest.current;
       try {
-        await configure(ownerSessionId, webContentsId, browserViewportEmulation(preset));
+        await configure(sessionId, webContentsId, browserViewportEmulation(preset));
       } catch (error) {
         console.error('Browser viewport emulation failed.', error);
         return false;
@@ -659,7 +658,7 @@ function DesktopBrowserPane({
       }
       return true;
     },
-    [desktopApi, ownerSessionId]
+    [desktopApi, sessionId]
   );
 
   // Normal browsing preserves the user's zoom as the pane resizes. Fit is an
@@ -722,8 +721,6 @@ function DesktopBrowserPane({
     };
   }, [address, addressHasFocus, desktopApi]);
 
-  const displayedUrl = currentUrl;
-
   const fillStoredCredential = useCallback(
     (credentialId: string) => {
       if (!desktopApi?.browserCredentialFill || credentialBusy) return;
@@ -731,14 +728,14 @@ function DesktopBrowserPane({
       setCredentialMenuOpen(false);
       setCredentialStatus('idle');
       void desktopApi
-        .browserCredentialFill(ownerSessionId, credentialId)
+        .browserCredentialFill(sessionId, credentialId)
         .then((result) => {
           setCredentialStatus(result.passwordFilled ? 'success' : 'error');
         })
         .catch(() => setCredentialStatus('error'))
         .finally(() => setCredentialBusy(false));
     },
-    [credentialBusy, desktopApi, ownerSessionId]
+    [credentialBusy, desktopApi, sessionId]
   );
 
   const frameTransform = frameScale < 1 ? `scale(${frameScale})` : undefined;
@@ -827,7 +824,7 @@ function DesktopBrowserPane({
               const preset = resolveBrowserViewportPreset(value);
               void configureViewportPreset(preset, true).then((configured) => {
                 if (!configured) return;
-                writeBrowserViewportPreset(window.localStorage, ownerSessionId, preset.id);
+                writeBrowserViewportPreset(window.localStorage, sessionId, preset.id);
                 setViewportPresetId(preset.id);
               });
             }}
@@ -845,9 +842,9 @@ function DesktopBrowserPane({
         <button
           type="button"
           className="browser-pane-nav-button"
-          disabled={!displayedUrl}
+          disabled={!currentUrl}
           onClick={() => {
-            if (displayedUrl) void window.mixdogDesktop?.openExternal(displayedUrl);
+            if (currentUrl) void window.mixdogDesktop?.openExternal(currentUrl);
           }}
           aria-label={t('Open in system browser')}
           data-tooltip={t('Open in system browser')}
@@ -888,7 +885,7 @@ function DesktopBrowserPane({
               webviewRef.current = element;
             }}
             className={`browser-pane-webview${importOpen ? ' is-import-open' : ''}${historySuggestions.length ? ' is-history-open' : ''}${credentialMenuOpen ? ' is-credential-open' : ''}${pageFailure ? ' is-failed' : ''}`}
-            sessionId={ownerSessionId}
+            sessionId={sessionId}
             active={active && !importOpen && !pageFailure}
           />
           {/* about:blank paints Chromium's default white; until a real page is

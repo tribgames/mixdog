@@ -405,7 +405,7 @@ function buildLeadLanguageContent({ DATA_DIR }) {
 function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   const parts = [];
 
-  const tool = buildSharedToolContent({ PLUGIN_ROOT, DATA_DIR });
+  const tool = buildSharedToolContent({ PLUGIN_ROOT });
   if (tool) parts.push(tool);
 
   const meta = buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR });

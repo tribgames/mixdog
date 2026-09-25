@@ -473,7 +473,7 @@ function closeTurn(ctx, stopLiveTail) {
 }
 
 async function settleTurn(ctx) {
-  const { turn, stream, flags, bag, options, runtime, isCurrentTurn } = ctx;
+  const { turn, stream, cards, flags, bag, options, runtime, isCurrentTurn } = ctx;
   // A stale unwind must not wipe a newer turn's live tool-summary line.
   if (flags.leadTurnEpoch === turn.epoch) ctx.clearActiveToolSummary();
   // Turn completion is latency-sensitive and must publish busy=false plus all
@@ -497,6 +497,10 @@ async function settleTurn(ctx) {
       status: finalStatus,
       error: turn.failureDiagnostic || turn.failureDetail || null,
       usageLimited: turn.usageLimited,
+      // An automatic Goal turn that called no tool, hidden calls such as task
+      // waits included, is the runtime's no-progress signal.
+      automatic: options.promptSource === 'goal-continuation',
+      toolCalls: cards.toolCards.length + cards.suppressedTranscriptCallIds.size,
       preserveGoalState: preserveGoalStateAfterTurn({
         cancelled: turn.cancelled,
         stale: !isCurrentTurn(),

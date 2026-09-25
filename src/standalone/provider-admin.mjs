@@ -12,21 +12,26 @@ import {
   forgetAnthropicOAuthCredentials,
   hasAnthropicOAuthCredentials,
   loginOAuth as loginAnthropicOAuth,
-} from '../runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
+} from '../runtime/agent/orchestrator/providers/anthropic-oauth-credentials.mjs';
+// Credential/login helpers come from their defining modules, not the provider
+// facades: the facades pull every provider's transport stack (~180 modules)
+// into runtime boot, while the registry already loads providers on demand.
 import {
   beginOAuthLogin as beginOpenAIOAuthLogin,
   describeOpenAIOAuthCredentials,
   forgetOpenAIOAuthCredentials,
   hasOpenAIOAuthCredentials,
   loginOAuth as loginOpenAIOAuth,
-} from '../runtime/agent/orchestrator/providers/openai-oauth.mjs';
+} from '../runtime/agent/orchestrator/providers/openai-oauth-tokens.mjs';
 import {
   describeGrokOAuthCredentials,
   forgetGrokOAuthCredentials,
   hasGrokOAuthCredentials,
+} from '../runtime/agent/orchestrator/providers/grok-oauth-tokens.mjs';
+import {
   beginOAuthLogin as beginGrokOAuthLogin,
   loginOAuth as loginGrokOAuth,
-} from '../runtime/agent/orchestrator/providers/grok-oauth.mjs';
+} from '../runtime/agent/orchestrator/providers/grok-oauth-login.mjs';
 import {
   beginCursorOAuthLogin,
   describeCursorOAuthCredentials,
@@ -35,12 +40,14 @@ import {
   loginCursorOAuth,
 } from '../runtime/agent/orchestrator/providers/cursor-auth.mjs';
 import {
-  beginOAuthLogin as beginAntigravityOAuthLogin,
   describeAntigravityOAuthCredentials,
   forgetAntigravityOAuthCredentials,
   hasAntigravityOAuthCredentials,
+} from '../runtime/agent/orchestrator/providers/antigravity-oauth-tokens.mjs';
+import {
+  beginOAuthLogin as beginAntigravityOAuthLogin,
   loginOAuth as loginAntigravityOAuth,
-} from '../runtime/agent/orchestrator/providers/antigravity-oauth.mjs';
+} from '../runtime/agent/orchestrator/providers/antigravity-oauth-login.mjs';
 import { localProviderStatus } from '../runtime/local-provider/managed-runtime.mjs';
 import { isOAuthProviderAvailable } from '../runtime/agent/orchestrator/providers/oauth-credential-probes.mjs';
 import {
@@ -131,9 +138,7 @@ const OAUTH_PROVIDERS = Object.freeze(
       begin: beginAntigravityOAuthLogin,
       login: loginAntigravityOAuth,
     }),
-    // Dev-only entries (cursor-oauth, antigravity-oauth) are dropped unless
-    // MIXDOG_DEV_PROVIDERS is set, so they are unknown to settings/login by default.
-  ].filter((p) => isOAuthProviderAvailable(p.id))
+  ]
 );
 
 const BUILTIN_PROVIDER_IDS = new Set(['mixdog-local']);
@@ -141,15 +146,21 @@ const BUILTIN_PROVIDER_IDS = new Set(['mixdog-local']);
 const API_PROVIDER_IDS = new Set(API_PROVIDERS.map((p) => p.id));
 const OAUTH_BY_ID = new Map(OAUTH_PROVIDERS.map((p) => [p.id, p]));
 
-const ALL_PROVIDER_IDS = new Set([
-  ...API_PROVIDERS.map((p) => p.id),
-  ...OAUTH_PROVIDERS.map((p) => p.id),
-  ...BUILTIN_PROVIDER_IDS,
-]);
+// Dev-only entries (cursor-oauth, antigravity-oauth) are unknown to
+// settings/login while the Developer → Providers option is off. Filtered per
+// call, so toggling the option takes effect without a restart.
+function availableOAuthProviders() {
+  return OAUTH_PROVIDERS.filter((p) => isOAuthProviderAvailable(p.id));
+}
+
+function availableOAuthProvider(id) {
+  const oauth = OAUTH_BY_ID.get(id);
+  return oauth && isOAuthProviderAvailable(id) ? oauth : null;
+}
 
 export function isKnownProvider(provider) {
   const id = String(provider || '').trim();
-  return id !== '' && ALL_PROVIDER_IDS.has(id);
+  return id !== '' && (API_PROVIDER_IDS.has(id) || BUILTIN_PROVIDER_IDS.has(id) || !!availableOAuthProvider(id));
 }
 
 function updateConfigProvider(cfgMod, providerId, patch) {
@@ -271,7 +282,7 @@ export async function providerSetup(config = {}, options = {}) {
   const checkSecrets = options?.checkSecrets !== false;
   return {
     api: API_PROVIDERS.map((p) => apiProviderSetup(p, providers, checkSecrets)),
-    oauth: OAUTH_PROVIDERS.map((p) => oauthProviderSetup(p, providers, checkSecrets)),
+    oauth: availableOAuthProviders().map((p) => oauthProviderSetup(p, providers, checkSecrets)),
     local: [builtInLocalProviderSetup(config, options)],
   };
 }
@@ -313,7 +324,7 @@ function oauthProviderStatusRow(p, config) {
 export function providerStatus(config = {}) {
   return [
     ...API_PROVIDERS.map((p) => apiProviderStatusRow(p, config)),
-    ...OAUTH_PROVIDERS.map((p) => oauthProviderStatusRow(p, config)),
+    ...availableOAuthProviders().map((p) => oauthProviderStatusRow(p, config)),
   ];
 }
 
@@ -338,7 +349,7 @@ export async function authenticateProvider(provider, secret) {
   const id = String(provider || '').trim();
   if (!id) throw new Error('provider id is required');
 
-  const oauth = OAUTH_BY_ID.get(id);
+  const oauth = availableOAuthProvider(id);
   if (oauth) {
     const result = await oauth.login();
     if (!result) throw new Error(`${id} login did not complete`);
@@ -356,7 +367,7 @@ export async function authenticateProvider(provider, secret) {
 
 export async function loginOAuthProvider(cfgMod, provider) {
   const id = String(provider || '').trim();
-  const oauth = OAUTH_BY_ID.get(id);
+  const oauth = availableOAuthProvider(id);
   if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
   const result = await oauth.login();
   if (!result) throw new Error(`${id} login did not complete`);
@@ -416,7 +427,7 @@ function settleOAuthLogin({ cfgMod, id, accountId, includeDefault, label, inAcco
 
 export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
   const id = String(provider || '').trim();
-  const oauth = OAUTH_BY_ID.get(id);
+  const oauth = availableOAuthProvider(id);
   if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
   if (typeof oauth.begin !== 'function') throw new Error(`${id} does not support interactive code login`);
   assertOAuthLoginOptions(options);
@@ -458,7 +469,7 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
 }
 
 export function listProviderAccounts(provider) {
-  const oauth = OAUTH_BY_ID.get(provider);
+  const oauth = availableOAuthProvider(provider);
   if (!oauth) throw new TypeError('Unknown OAuth provider.');
   const pool = readProviderAccountPool(provider);
   const accounts = pool.accounts.length ? pool.accounts : defaultAccountRows(provider, oauth);
@@ -543,7 +554,7 @@ export function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
 export function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAccountId) {
   const cfgMod = maybeProvider === undefined ? null : cfgModOrProvider;
   const id = String(maybeProvider === undefined ? cfgModOrProvider : maybeProvider || '').trim();
-  const oauth = OAUTH_BY_ID.get(id);
+  const oauth = availableOAuthProvider(id);
   if (oauth) {
     if (typeof oauth.forget !== 'function') throw new Error(`forget is not supported for OAuth provider ${id}`);
     const accountId = requestedAccountId ?? currentProviderAccountId(id);

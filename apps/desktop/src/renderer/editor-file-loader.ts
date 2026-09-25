@@ -1,5 +1,6 @@
 import type { DesktopApi, DesktopEditorBackup, DesktopTextFileEncoding } from '../shared/contract';
 import { filePreviewTypeForPath } from '../shared/file-preview';
+import type { EditorRecovery } from './editor-pane-model';
 import { beginEditorLoad, editorLoadKey, ensureEditorLoad, reportEditorLoadStage } from './renderer-load-metrics';
 
 export interface EditorFileLoad {
@@ -18,12 +19,7 @@ interface EditorFileHydration {
 interface EditorBackupResolution {
   content: string;
   savedContent: string;
-  recovery:
-    | (DesktopEditorBackup & {
-        diskChanged: boolean;
-        restored: boolean;
-      })
-    | null;
+  recovery: EditorRecovery | null;
   discardBackup: boolean;
 }
 

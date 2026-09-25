@@ -25,7 +25,7 @@ import {
   storedAgentWorkerIndexPath,
   storedLeadWorkerIndexPath,
 } from './store-summary-locations.mjs';
-import { cleanValue, positiveNumber } from './store-summary-fields.mjs';
+import { cleanValue, isStoredSessionId, positiveNumber } from './store-summary-fields.mjs';
 
 const DEAD_AGENT_STATUS =
   /^(?:done|complete|completed|success|closed|error|fail|failed|cancelled|canceled|killed|timeout)$/i;
@@ -162,13 +162,11 @@ function preferUnconfirmedCancel(a, b) {
 }
 
 function storedAgentWorkerIndex() {
-  let parsed = null;
   try {
-    parsed = JSON.parse(readFileSync(storedAgentWorkerIndexPath(), 'utf8'));
+    return JSON.parse(readFileSync(storedAgentWorkerIndexPath(), 'utf8'));
   } catch {
     return null;
   }
-  return parsed;
 }
 
 function storedAgentWorkerIndexRows() {
@@ -190,7 +188,7 @@ export function listStoredAgentWorkerLinks() {
       const sessionId = cleanValue(row.sessionId);
       const parentSessionId = cleanValue(row.parentSessionId);
       const ownerSessionId = cleanValue(row.ownerSessionId || row.parentSessionId);
-      if (!/^[A-Za-z0-9_-]+$/.test(sessionId) || (!parentSessionId && !ownerSessionId)) {
+      if (!isStoredSessionId(sessionId) || (!parentSessionId && !ownerSessionId)) {
         return null;
       }
       return {
@@ -274,7 +272,6 @@ function leadConversationHeader(header) {
 }
 
 const withinPoolWindow = (at, now) => at > 0 && now - at <= AGENT_POOL_HEARTBEAT_FRESH_MS;
-const POOL_SESSION_ID = /^[A-Za-z0-9_-]+$/;
 
 /** Live-work proof for an already projected row: a fresh heartbeat sidecar, or
  *  a working status whose own stamp is still inside the pool window. */
@@ -295,7 +292,7 @@ function projectChildWorkerRow(row, { now, heartbeatMtimes }) {
   if (cleanValue(row.agent).toLowerCase() === 'lead') return null;
   const sessionId = cleanValue(row.sessionId);
   const tag = cleanValue(row.tag);
-  if (!sessionId || !tag || !POOL_SESSION_ID.test(sessionId)) return null;
+  if (!sessionId || !tag || !isStoredSessionId(sessionId)) return null;
   // A new row may precede its first session save (null header).
   const session = readWorkerSessionHeader(sessionId);
   const declaredStatus = cleanValue(row.status) || 'running';
@@ -417,24 +414,20 @@ function storedLeadWorkerRows() {
   return workerRows(parsed);
 }
 
-/** A Lead-index row whose durable session turned out to be an agent's. */
+/** A Lead-index row whose durable session turned out to be an agent's.
+ *  Legacy Lead rows may predate a durable session record (no header). */
 function leadRowOwnedByAgent(sessionId) {
-  try {
-    const session = JSON.parse(readFileSync(join(dataDir(), 'sessions', `${sessionId}.json`), 'utf8'));
-    const owner = cleanValue(session?.owner).toLowerCase();
-    const agent = cleanValue(session?.agent).toLowerCase();
-    return owner === 'agent' || Boolean(agent && agent !== 'lead');
-  } catch {
-    /* legacy Lead rows may predate a durable session record */
-    return false;
-  }
+  const header = readWorkerSessionHeader(sessionId);
+  const owner = cleanValue(header?.owner).toLowerCase();
+  const agent = cleanValue(header?.agent).toLowerCase();
+  return owner === 'agent' || Boolean(agent && agent !== 'lead');
 }
 
 /** A Lead worker-index row projected into the pool, or null. */
 function projectLeadWorkerRow(row, { now, heartbeatMtimes }) {
   if (!row || typeof row !== 'object') return null;
   const sessionId = cleanValue(row.sessionId);
-  if (!sessionId || !POOL_SESSION_ID.test(sessionId)) return null;
+  if (!sessionId || !isStoredSessionId(sessionId)) return null;
   if (leadRowOwnedByAgent(sessionId)) return null;
   const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
   const heartbeatFresh = withinPoolWindow(heartbeatAt, now);
@@ -443,6 +436,7 @@ function projectLeadWorkerRow(row, { now, heartbeatMtimes }) {
   const working = WORKING_AGENT_STATUS.test(declaredStatus) && (heartbeatFresh || recentlyUpdated);
   const reapAt = Date.parse(cleanValue(row.reapAt)) || 0;
   if (!heartbeatFresh && reapAt > 0 && now >= reapAt) return null;
+  const shownStatus = !working && WORKING_AGENT_STATUS.test(declaredStatus) ? 'unknown' : declaredStatus;
   return {
     tag: `lead:${sessionId}`,
     sessionId,
@@ -453,8 +447,8 @@ function projectLeadWorkerRow(row, { now, heartbeatMtimes }) {
     model: cleanValue(row.model) || null,
     effort: cleanValue(row.effort) || null,
     fast: row.fast === true,
-    status: !working && WORKING_AGENT_STATUS.test(declaredStatus) ? 'unknown' : declaredStatus,
-    stage: !working && WORKING_AGENT_STATUS.test(declaredStatus) ? 'unknown' : declaredStatus,
+    status: shownStatus,
+    stage: shownStatus,
     startedAt: row.startedAt || row.createdAt || null,
     turnStartedAt: working ? row.turnStartedAt || null : null,
     createdAt: row.createdAt || null,

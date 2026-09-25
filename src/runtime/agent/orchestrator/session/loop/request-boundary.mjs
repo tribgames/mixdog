@@ -1,8 +1,7 @@
 // Provider request boundary for one agent-loop iteration: normalize the
 // transcript, freeze exactly one tool snapshot for the whole request (pressure,
 // send, recovery, telemetry), and run the pre-send compact pass until the
-// transcript stops changing. Behavior identical to
-// the inline do/while it replaced.
+// transcript stops changing.
 import { repairTranscriptBeforeProviderSend } from './transcript-repair.mjs';
 import { messagesArrayChanged } from './tool-helpers.mjs';
 import { runPreSendCompactPass } from '../pre-send-compact.mjs';
@@ -15,6 +14,28 @@ import {
   providerNativeToolPrefixCount,
   runWithProviderRequestToolsScope,
 } from '../../../../../session-runtime/provider-request-tools.mjs';
+
+const isDynamicTool = (tool) =>
+  tool.deferLoading === true || tool.defer_loading === true || String(tool.name || '').startsWith('mcp__');
+const dynamicTools = (list) => list.slice(providerNativeToolPrefixCount(list)).filter(isDynamicTool);
+
+// Preserve the eager prefix of the frozen surface, but adopt additions, schema
+// updates and removals of deferred/MCP definitions between model requests.
+function adoptDynamicToolChanges(fixedSurface, candidateSendTools) {
+  if (!fixedSurface) return candidateSendTools;
+  const candidates = dynamicTools(candidateSendTools);
+  if (JSON.stringify(candidates) === JSON.stringify(dynamicTools(fixedSurface))) return fixedSurface;
+  const replacements = new Map(candidates.map((tool) => [tool.name, tool]));
+  const nativePrefixCount = providerNativeToolPrefixCount(fixedSurface);
+  const merged = fixedSurface.flatMap((tool, index) => {
+    if (index < nativePrefixCount || !isDynamicTool(tool)) return [tool];
+    const replacement = replacements.get(tool.name);
+    replacements.delete(tool.name);
+    return replacement ? [replacement] : [];
+  });
+  merged.push(...replacements.values());
+  return finalizeProviderRequestTools(merged, nativePrefixCount);
+}
 
 export async function prepareProviderRequest(state) {
   const {
@@ -55,28 +76,7 @@ export async function prepareProviderRequest(state) {
       messages,
       session: sessionRef,
     });
-    // Preserve the eager prefix, but adopt additions, schema updates and
-    // removals of deferred/MCP definitions between model requests.
-    const isDynamicTool = (tool) =>
-      tool.deferLoading === true || tool.defer_loading === true || String(tool.name || '').startsWith('mcp__');
-    const dynamicTools = (list) => list.slice(providerNativeToolPrefixCount(list)).filter(isDynamicTool);
-    const dynamicToolsChanged =
-      fixedProviderToolSurface &&
-      JSON.stringify(dynamicTools(candidateSendTools)) !== JSON.stringify(dynamicTools(fixedProviderToolSurface));
-    if (!fixedProviderToolSurface) {
-      fixedProviderToolSurface = candidateSendTools;
-    } else if (dynamicToolsChanged) {
-      const replacements = new Map(dynamicTools(candidateSendTools).map((tool) => [tool.name, tool]));
-      const nativePrefixCount = providerNativeToolPrefixCount(fixedProviderToolSurface);
-      const merged = fixedProviderToolSurface.flatMap((tool, index) => {
-        if (index < nativePrefixCount || !isDynamicTool(tool)) return [tool];
-        const replacement = replacements.get(tool.name);
-        replacements.delete(tool.name);
-        return replacement ? [replacement] : [];
-      });
-      merged.push(...replacements.values());
-      fixedProviderToolSurface = finalizeProviderRequestTools(merged, nativePrefixCount);
-    }
+    fixedProviderToolSurface = adoptDynamicToolChanges(fixedProviderToolSurface, candidateSendTools);
     sendTools = fixedProviderToolSurface;
     requestToolScope = {
       session: sessionRef,

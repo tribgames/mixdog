@@ -1,6 +1,6 @@
-const _envColdWaitMs = Number(process.env.MIXDOG_RECALL_COLD_EMBED_WAIT_MS);
-const RECALL_COLD_EMBED_WAIT_MS =
-  Number.isFinite(_envColdWaitMs) && _envColdWaitMs >= 0 ? Math.floor(_envColdWaitMs) : 3_000;
+import { envNonNegativeInt } from '../../shared/env.mjs';
+
+const RECALL_COLD_EMBED_WAIT_MS = envNonNegativeInt('MIXDOG_RECALL_COLD_EMBED_WAIT_MS', 3_000);
 
 function abortReason(signal) {
   return signal?.reason ?? new Error('aborted');

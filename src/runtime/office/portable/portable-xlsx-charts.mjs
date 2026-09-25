@@ -3,9 +3,8 @@
 // the chart part cites, and the graphic frame the drawing anchors.
 import { posix } from 'node:path';
 import { chartXml } from './portable-chart.mjs';
-import { fitDrawingSheetOnePageWide } from './portable-sheet-page.mjs';
-import { toEmu } from './portable-slide-shapes.mjs';
-import { columnLabel } from './portable-cells.mjs';
+import { fitDrawingSheetOnePageWide, worksheetGeometry } from './portable-sheet-page.mjs';
+import { columnLabel, columnNumber, parseCellRef } from './portable-cells.mjs';
 import {
   CHART_CONTENT_TYPE,
   addPackageRelationship,
@@ -13,10 +12,10 @@ import {
   partRelationshipPath,
   zipText,
 } from './portable-opc.mjs';
-import { OFFICE_RELATIONSHIP_BASE } from './portable-xml.mjs';
+import { OFFICE_RELATIONSHIP_BASE, xmlDecode } from './portable-xml.mjs';
 import { ensureWorksheetDrawing } from './portable-sheet-parts.mjs';
 import { parseAreaRange, quoteSheetName } from './portable-sheet-xml.mjs';
-import { cellAnchorPoints, countDrawingAnchors } from './portable-xlsx-drawings.mjs';
+import { countDrawingAnchors, frameAnchorXml } from './portable-xlsx-drawings.mjs';
 import { sheetCellReader } from './portable-xlsx-cell-values.mjs';
 
 // The block a chart reads. One bounded area, or several joined by commas the
@@ -126,21 +125,45 @@ function nextChartPart(zip) {
   return `xl/charts/chart${chartOrdinal}.xml`;
 }
 
-function chartFrameAnchor(op, framePlacement, anchorCount, chartRelationshipId) {
-  return (
-    '<xdr:absoluteAnchor>' +
-    `<xdr:pos x="${toEmu(op.left ?? framePlacement.left)}" y="${toEmu(op.top ?? framePlacement.top)}"/>` +
-    `<xdr:ext cx="${Math.max(1, toEmu(op.width ?? 480))}" cy="${Math.max(1, toEmu(op.height ?? 280))}"/>` +
+// A frame placed at cell and ended at toColumn takes the width of the columns it spans, as the sheet has them now.
+function spannedWidth(xml, op) {
+  if (!op.toColumn) return null;
+  if (!op.cell) throw new Error('XLSX add_chart toColumn ends a frame placed at cell; give cell as well');
+  const first = columnNumber(parseCellRef(op.cell).col);
+  const last = columnNumber(String(op.toColumn).trim().toUpperCase());
+  if (!(last >= first)) throw new Error(`XLSX add_chart toColumn ${op.toColumn} lies left of ${op.cell}`);
+  const { columnPoints } = worksheetGeometry(xml);
+  let width = 0;
+  for (let column = first; column <= last; column += 1) width += columnPoints(column);
+  return width;
+}
+
+function chartFrameAnchor(op, anchorCount, chartRelationshipId) {
+  // Without a cell or a point position the frame keeps its old default spot beside A1.
+  const placed = op.cell || op.left !== undefined || op.top !== undefined;
+  return frameAnchorXml(
+    {
+      cell: op.cell,
+      left: placed ? op.left : 300,
+      top: placed ? op.top : 20,
+      width: op.width ?? 480,
+      height: op.height ?? 280,
+    },
     '<xdr:graphicFrame macro="">' +
-    `<xdr:nvGraphicFramePr><xdr:cNvPr id="${anchorCount + 2}" name="Chart ${anchorCount + 1}"/>` +
-    '<xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>' +
-    '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>' +
-    '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">' +
-    '<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"' +
-    ` xmlns:r="${OFFICE_RELATIONSHIP_BASE}" r:id="${chartRelationshipId}"/>` +
-    '</a:graphicData></a:graphic></xdr:graphicFrame>' +
-    '<xdr:clientData/></xdr:absoluteAnchor>'
+      `<xdr:nvGraphicFramePr><xdr:cNvPr id="${anchorCount + 2}" name="Chart ${anchorCount + 1}"/>` +
+      '<xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>' +
+      '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>' +
+      '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">' +
+      '<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"' +
+      ` xmlns:r="${OFFICE_RELATIONSHIP_BASE}" r:id="${chartRelationshipId}"/>` +
+      '</a:graphicData></a:graphic></xdr:graphicFrame>'
   );
+}
+
+// The workbook's own face: the first font, the one the Normal style and every unstyled cell use.
+async function workbookFontName(zip) {
+  const first = /<font\b[^>]*>[\s\S]*?<\/font>/.exec((await zipText(zip, 'xl/styles.xml')) || '')?.[0] || '';
+  return xmlDecode(/<name\s+val="([^"]*)"/.exec(first)?.[1] || '');
 }
 
 /** A chart part, its drawing anchor, and the series read out of the sheet. */
@@ -162,6 +185,7 @@ export async function addWorksheetChart(zip, sheet, xml, op) {
       valueNumberFormat: op.valueNumberFormat,
       showLegend: op.showLegend,
       zeroBaseline: op.zeroBaseline,
+      font: await workbookFontName(zip),
     })
   );
   await ensureContentTypeOverride(zip, `/${chartPart}`, CHART_CONTENT_TYPE);
@@ -178,8 +202,8 @@ export async function addWorksheetChart(zip, sheet, xml, op) {
   );
   const drawingXml = await zipText(zip, drawingPart);
   const anchorCount = countDrawingAnchors(drawingXml);
-  const framePlacement = op.cell ? cellAnchorPoints(xml, op.cell) : { left: 300, top: 20 };
-  const anchor = chartFrameAnchor(op, framePlacement, anchorCount, chartRelationshipId);
+  const width = spannedWidth(xml, op) ?? op.width;
+  const anchor = chartFrameAnchor({ ...op, width }, anchorCount, chartRelationshipId);
   zip.file(drawingPart, drawingXml.replace('</xdr:wsDr>', `${anchor}</xdr:wsDr>`));
   return {
     op: op.op,

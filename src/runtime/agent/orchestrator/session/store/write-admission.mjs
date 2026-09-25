@@ -40,7 +40,9 @@ export function _shouldDrop(id, opts) {
   const target = sessionPath(id);
   let record;
   try {
-    record = _readCanonicalRecord(target, true);
+    // Own-commit stamp or strict read — never the settled-stamp cache: this
+    // is the final drop verdict (see the note below).
+    record = _readCanonicalRecord(target, true, { ownCommitsOnly: true });
   } catch {
     // The guard could not establish WHAT is on disk. Refusing the write is
     // the only safe verdict: the alternative renames over a record whose
@@ -74,23 +76,28 @@ export function _shouldDrop(id, opts) {
 
 // ── Lifecycle read for the ownership guard ───────────────────────────────────
 // _shouldDrop consults this up to three times per save (upfront, post-temp
-// write, in-commit) and every consult re-reads the file, deliberately: this is
-// the input to a DROP decision, and the only cheap identity a memo could key
-// on (mtimeMs + size) does NOT move for a same-size rewrite inside one clock
-// tick — a generation bump such as 1 → 2 — so a cached lifecycle could hide
-// the very ownership move this guard exists to detect.
+// write, in-commit). mtimeMs + size alone would NOT move for a same-size
+// rewrite inside one clock tick — a generation bump such as 1 → 2 — so no
+// memo keys on them. The only reuse is this realm's OWN last rename, stamped
+// { dev, ino, size, mtimeNs, ctimeNs } right after the commit and verified to
+// be our inode: every writer replaces the file by rename (new inode, new
+// ctime), so any foreign replacement misses the stamp and is re-read and
+// strictly parsed exactly as before.
 //
 // Three distinct outcomes, never collapsed: `null` = no file (write freely),
 // LIFECYCLE_AMBIGUOUS = a file exists but its bytes cannot be trusted (refuse
 // the write), otherwise the strict record itself ({ doc, id, closed,
 // generation }) — the single disk authority shared by the save guard and the
 // lifecycle barriers.
-// canonical-reader.mjs may reuse primitive authority after exact byte equality,
-// never by stat. Full lifecycle barriers still parse a private document.
+// Full lifecycle barriers still parse a private document.
 
 // Pre-admission authority for the async/worker path (registered here because
 // save-worker.mjs cannot import this module back). A refusal keeps the caller
 // from publishing ANY owned state — no live snapshot, no optimistic summary.
+// It runs per saveSessionAsync call, so beyond own commits it also reuses a
+// verdict strictly read at a settled stamp: coalesced calls against an
+// unchanged file cost one stat each, and the final verdict is still taken
+// under the lock by _shouldDrop.
 export function _sessionWriteAuthorityRefusal(id) {
   if (!id) return null;
   let authority;

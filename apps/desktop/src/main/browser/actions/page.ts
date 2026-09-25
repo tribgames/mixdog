@@ -3,7 +3,13 @@
  * interception, init scripts, device emulation, cookies, storage, and
  * performance tracing.
  */
-import { boundedInteger, EVALUATE_DEFAULT_CHARS, MAX_EVALUATE_SCRIPT_CHARS, READ_MAX_CHARS } from '../command';
+import {
+  boundedInteger,
+  browserCharLimit,
+  EVALUATE_DEFAULT_CHARS,
+  MAX_EVALUATE_SCRIPT_CHARS,
+  READ_MAX_CHARS,
+} from '../command';
 import { defineBrowserActions } from './types';
 
 export const pageActions = defineBrowserActions({
@@ -15,12 +21,7 @@ export const pageActions = defineBrowserActions({
       throw new Error(`evaluate script is limited to ${MAX_EVALUATE_SCRIPT_CHARS} characters`);
     }
     const timeoutMs = boundedInteger(command.timeoutMs, 5_000, 500, 30_000);
-    const maxChars = Math.min(
-      READ_MAX_CHARS,
-      Number.isFinite(command.maxChars) && (command.maxChars as number) > 0
-        ? Math.trunc(command.maxChars as number)
-        : EVALUATE_DEFAULT_CHARS
-    );
+    const maxChars = browserCharLimit(command.maxChars, EVALUATE_DEFAULT_CHARS, READ_MAX_CHARS);
     let value: unknown;
     try {
       if (command.ref) {

@@ -53,7 +53,7 @@ export const scheduleRenderFrameAck = () => {
   setImmediate(() => notifyRenderFrame(seq));
 };
 
-const notifyRenderFrame = (seq = ++renderAckSeq) => {
+const notifyRenderFrame = (seq) => {
   lastRenderFrameAt = performance.now();
   if (pendingRenderAcks.length === 0) return;
   const acks = pendingRenderAcks;

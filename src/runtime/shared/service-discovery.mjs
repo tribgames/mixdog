@@ -10,9 +10,9 @@
 // Each advert is stamped with the owner pid and updatedAt. Readers prefer the
 // discovery file (validating the owner pid is still alive) and callers may fall
 // back to the legacy active-instance fields for cross-version compat.
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeJsonAtomicSync } from './atomic-file.mjs';
+import { readJsonSafe } from './json-file.mjs';
 import { isPidAlive } from './pid-liveness.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from './runtime-root.mjs';
 
@@ -72,12 +72,8 @@ export function markServiceUnreachable(service, port) {
 // Raw read of a service advert (no validation). Returns the parsed object or
 // null when absent/unreadable/partial (mid-rename).
 export function readServiceAdvert(service) {
-  try {
-    const raw = JSON.parse(readFileSync(discoveryPath(service), 'utf8'));
-    return raw && typeof raw === 'object' ? raw : null;
-  } catch {
-    return null;
-  }
+  const raw = readJsonSafe(discoveryPath(service));
+  return raw && typeof raw === 'object' ? raw : null;
 }
 
 // Validated read: returns the advert only when it carries a live port whose

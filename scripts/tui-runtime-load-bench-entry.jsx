@@ -11,6 +11,7 @@ import { Item } from '../src/tui/components/TranscriptItem.jsx';
 import { useTranscriptWindow } from '../src/tui/app/use-transcript-window.mjs';
 import { createTranscriptWriter } from '../src/runtime/shared/transcript-writer.mjs';
 import { drainPathSync, getBufferedAppenderStats, hasInFlightWrite } from '../src/runtime/shared/buffered-appender.mjs';
+import { percentile, sortedFinite } from './lib/trace-stats.mjs';
 
 /**
  * Headless TUI/runtime load-regression bench.
@@ -66,12 +67,6 @@ function optionalPositiveNumber(name, envName) {
     throw new Error(`${name}/${envName} must be a positive number`);
   }
   return { value, source: cli != null ? name : envName };
-}
-
-function percentile(sorted, fraction) {
-  if (sorted.length === 0) return 0;
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1));
-  return sorted[index];
 }
 
 function round(value, digits = 3) {
@@ -244,6 +239,7 @@ function TranscriptHarness({ settledItems, streamingTail, structureRevision, col
           const measureRef = transcriptMeasureRef(item);
           const itemNode = (
             <Item
+              key={item.id}
               item={item}
               prevKind={index > 0 ? all[index - 1].kind : null}
               columns={columns}
@@ -435,10 +431,7 @@ try {
     await flushFrame(instance);
     calibrationTimes.push(performance.now() - begin);
   }
-  const rawCalibrationP95 = percentile(
-    [...calibrationTimes].sort((a, b) => a - b),
-    0.95
-  );
+  const rawCalibrationP95 = percentile(sortedFinite(calibrationTimes), 95);
   const effectiveThresholdMs =
     thresholdOverride?.value ??
     (pinnedBaselineP95 != null ? pinnedBaselineP95 * config.baselineRegressionMargin : config.thresholdFloorMs);
@@ -496,9 +489,9 @@ try {
   const bufferedBytes = appender.stats.reduce((sum, entry) => sum + entry.bufferedBytes, 0);
   sampleRss();
 
-  const sorted = [...frameTimes].sort((a, b) => a - b);
-  const rawP50 = percentile(sorted, 0.5);
-  const rawP95 = percentile(sorted, 0.95);
+  const sorted = sortedFinite(frameTimes);
+  const rawP50 = percentile(sorted, 50);
+  const rawP95 = percentile(sorted, 95);
   const rawMax = sorted.at(-1) || 0;
   const stats = {
     p50_ms: round(rawP50),

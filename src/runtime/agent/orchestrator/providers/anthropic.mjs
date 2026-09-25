@@ -10,7 +10,11 @@ import { buildAnthropicApiRequest } from './anthropic-api-request.mjs';
 import { armFirstByteWatchdog, createAnthropicApiTransport } from './anthropic-api-transport.mjs';
 import { createAnthropicApiRecovery } from './anthropic-api-recovery.mjs';
 import { buildAnthropicTurnResult } from './anthropic-turn-result.mjs';
-import { createAnthropicMidState, createAnthropicMidstreamRecovery } from './anthropic-midstream-recovery.mjs';
+import {
+  assertAnthropicStreamNotEmpty,
+  createAnthropicMidState,
+  createAnthropicMidstreamRecovery,
+} from './anthropic-midstream-recovery.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
@@ -38,9 +42,15 @@ export class AnthropicProvider {
     this.config = config || {};
     this.name = this.config.name || 'anthropic';
     this.apiKey = this.config.apiKey || (this.name === 'anthropic' ? process.env.ANTHROPIC_API_KEY : null);
+    this.client = this._createClient(this.apiKey);
+  }
+  // Tool-search is a request capability, not an account capability. Keep it
+  // off the client defaults and add it only on turns that actually serialize
+  // defer_loading tools.
+  _createClient(apiKey) {
     const betaHeaders = this.config.disableBetaHeaders ? null : buildAnthropicBetaHeaders();
-    this.client = new (loadAnthropic())({
-      apiKey: this.apiKey,
+    return new (loadAnthropic())({
+      apiKey,
       ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
       defaultHeaders: {
         ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}),
@@ -58,19 +68,7 @@ export class AnthropicProvider {
       if (newKey) {
         this.config = { ...(this.config || {}), apiKey: newKey };
         this.apiKey = newKey;
-        // Tool-search is a request capability, not an account
-        // capability. Keep it off the client defaults and add it only
-        // on turns that actually serialize defer_loading tools.
-        const betaHeaders = this.config.disableBetaHeaders ? null : buildAnthropicBetaHeaders();
-        this.client = new (loadAnthropic())({
-          apiKey: newKey,
-          ...(this.config.baseURL ? { baseURL: this.config.baseURL } : {}),
-          defaultHeaders: {
-            ...(betaHeaders ? { 'anthropic-beta': betaHeaders } : {}),
-            ...(this.config.extraHeaders || {}),
-          },
-          maxRetries: 0,
-        });
+        this.client = this._createClient(newKey);
       }
     } catch {
       /* best effort */
@@ -238,22 +236,7 @@ export class AnthropicProvider {
           } catch {}
 
           firstByte.cleanup();
-
-          if (
-            !midState.sawMessageStart &&
-            !midState.userAbort &&
-            !midState.watchdogAbort &&
-            !parseResult.content &&
-            !parseResult.toolCalls?.length &&
-            !(parseResult.usage && parseResult.usage.inputTokens > 0)
-          ) {
-            const emptyErr = new Error(
-              'Anthropic SSE stream produced no message_start (empty/dropped stream — likely transient or rate-limited)'
-            );
-            emptyErr.code = 'EEMPTYSTREAM';
-            emptyErr.isEmptyStream = true;
-            throw emptyErr;
-          }
+          assertAnthropicStreamNotEmpty(midState, parseResult, 'Anthropic');
 
           return buildTurnResult(parseResult);
         } catch (err) {

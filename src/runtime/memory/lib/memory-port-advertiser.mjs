@@ -29,9 +29,7 @@ export function createMemoryPortAdvertiser({
       _currentAdvertisedPort = boundPort;
       _advertiseGeneration++;
       if (_advertiseRetryTimer) {
-        try {
-          clearTimeout(_advertiseRetryTimer);
-        } catch {}
+        clearTimeout(_advertiseRetryTimer);
         _advertiseRetryTimer = null;
       }
     }
@@ -96,15 +94,11 @@ export function createMemoryPortAdvertiser({
 
   function reset() {
     if (_periodicAdvertiseTimer) {
-      try {
-        clearInterval(_periodicAdvertiseTimer);
-      } catch {}
+      clearInterval(_periodicAdvertiseTimer);
       _periodicAdvertiseTimer = null;
     }
     if (_advertiseRetryTimer) {
-      try {
-        clearTimeout(_advertiseRetryTimer);
-      } catch {}
+      clearTimeout(_advertiseRetryTimer);
       _advertiseRetryTimer = null;
     }
     _advertiseGeneration++;

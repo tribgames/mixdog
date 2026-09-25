@@ -176,21 +176,25 @@ function parseXf(xml) {
     xfId: Number(attribute(attrs, 'xfId')) || 0,
     horizontal: attribute(alignment, 'horizontal'),
     vertical: attribute(alignment, 'vertical'),
-    wrapText: attribute(alignment, 'wrapText') === '1',
+    indent: Number(attribute(alignment, 'indent')) || 0,
+    // An xsd:boolean is 1/0 or true/false: LibreOffice writes the words (a recalculated workbook comes back with
+    // locked="false" and wrapText="true"), and reading only the digits relocked every entry cell of a form.
+    wrapText: ['1', 'true'].includes(attribute(alignment, 'wrapText')),
     // Every cell is locked until told otherwise; the flag only takes effect
     // once the sheet itself is protected.
-    locked: attribute(protection, 'locked') !== '0',
+    locked: !['0', 'false'].includes(attribute(protection, 'locked')),
   };
 }
 
 function buildXf(xf) {
-  const aligned = Boolean(xf.horizontal || xf.vertical || xf.wrapText);
+  const aligned = Boolean(xf.horizontal || xf.vertical || xf.wrapText || xf.indent);
   let alignment = '';
   if (aligned) {
     const horizontal = xf.horizontal ? ` horizontal="${xf.horizontal}"` : '';
     const vertical = xf.vertical ? ` vertical="${xf.vertical}"` : '';
     const wrap = xf.wrapText ? ' wrapText="1"' : '';
-    alignment = `<alignment${horizontal}${vertical}${wrap}/>`;
+    const indent = xf.indent ? ` indent="${xf.indent}"` : '';
+    alignment = `<alignment${horizontal}${vertical}${wrap}${indent}/>`;
   }
   // An unlocked cell is how a protected sheet keeps its entry fields typable.
   const protection = xf.locked === false ? '<protection locked="0"/>' : '';
@@ -260,6 +264,12 @@ function parseStyleSheet(xml) {
   return sections;
 }
 
+/** True when the cell style at index already sets a number format of its own (anything but General). */
+export function styleHasNumberFormat(stylesXml, index) {
+  const sections = parseStyleSheet(stylesXml);
+  return parseXf(sections.cellXfs[Number(index) || 0] || sections.cellXfs[0] || '').numFmtId !== 0;
+}
+
 export function applyCellStyle(stylesXml, baseIndex, properties = {}) {
   const sections = parseStyleSheet(stylesXml);
   const base = parseXf(sections.cellXfs[Number(baseIndex) || 0] || sections.cellXfs[0]);
@@ -300,6 +310,12 @@ export function applyCellStyle(stylesXml, baseIndex, properties = {}) {
   }
   if (Object.hasOwn(properties, 'wrapText')) next.wrapText = properties.wrapText === true;
   if (Object.hasOwn(properties, 'locked')) next.locked = properties.locked !== false;
+  // Indent levels (Excel's 0-15, each about one character) from the edge the text is set on; an indented cell
+  // with no alignment of its own is set left, as Excel sets it.
+  if (Object.hasOwn(properties, 'indent')) {
+    next.indent = Math.max(0, Math.min(15, Math.round(Number(properties.indent) || 0)));
+    if (next.indent && (!next.horizontal || next.horizontal === 'general')) next.horizontal = 'left';
+  }
 
   const index = register(sections.cellXfs, buildXf(next));
   return { xml: serialize(stylesXml, sections), index };
@@ -397,6 +413,11 @@ export function resolveCellStyles(stylesXml) {
       ...(font.color ? { color: font.color.slice(-6) } : {}),
       ...(fill ? { fillColor: fill.slice(-6) } : {}),
       ...(xf.horizontal ? { horizontalAlignment: xf.horizontal } : {}),
+      ...(xf.vertical ? { verticalAlignment: xf.vertical } : {}),
+      // A wrapped cell grows down, never across: the fit audit skips it by this flag, and without it every wrapped
+      // description in an issue log was reported as a label cut at its column edge.
+      ...(xf.wrapText ? { wrapText: true } : {}),
+      ...(xf.indent ? { indent: xf.indent } : {}),
       ...(xf.locked === false ? { locked: false } : {}),
     };
   });

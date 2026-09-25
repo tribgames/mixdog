@@ -116,8 +116,10 @@ public static class MixInputObservation
             if (MixNativeInput.ObserveForeignOwnership && ((value.flags & 1) == 0 || value.extra != Marker))
             {
                 long kind = message.ToInt64();
-                int key = kind == 0x201 || kind == 0x202 ? 1 : kind == 0x204 || kind == 0x205 ? 2
-                  : kind == 0x207 || kind == 0x208 ? 4 : 0;
+                int key = 0;
+                if (kind == 0x201 || kind == 0x202) key = 1;
+                else if (kind == 0x204 || kind == 0x205) key = 2;
+                else if (kind == 0x207 || kind == 0x208) key = 4;
                 if (key != 0) MixNativeInput.RecordForeignKey(key, kind == 0x201 || kind == 0x204 || kind == 0x207);
             }
         }

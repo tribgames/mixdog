@@ -5,21 +5,17 @@
 import { theme } from '../../theme.mjs';
 import { providerStatusLabel, providerDetailText, providerKindLabel } from '../app-format.mjs';
 import { providerDisplayRank } from '../model-options.mjs';
+import { providerRowUsable } from '../provider-usable.mjs';
 
 export const keyConsoleUrl = (provider) => {
   const url = String(provider?.url || '').trim();
   return /^https:\/\//.test(url) ? url : '';
 };
 
-export const providerIsActive = (provider) =>
-  provider?.reauthRequired !== true &&
-  (provider?.usable === true ||
-    (provider?.usable == null && (provider?.enabled || provider?.authenticated || provider?.detected)));
-
 /** Footer rows for one provider: the active glyph plus kind · status · detail. */
 export const providerStatusFooter = (provider) => {
   if (!provider) return '';
-  const active = providerIsActive(provider);
+  const active = providerRowUsable(provider);
   return [
     {
       glyph: active ? '●' : '○',

@@ -1,11 +1,11 @@
 /**
  * Moving between documents: open, navigate (or reload), and back.
  */
-import { type BrowserCommandResult, NAVIGATE_SETTLE_TIMEOUT_MS } from '../command';
+import { NAVIGATE_SETTLE_TIMEOUT_MS } from '../command';
 import { pushBounded } from '../guest-state';
 import { redactBrowserText } from '../redaction';
 import { pause } from '../settle';
-import { type BrowserActionContext, defineBrowserActions } from './types';
+import { defineBrowserActions } from './types';
 
 export const navigationActions = defineBrowserActions({
   async open({ targetIsBackground }) {
@@ -22,7 +22,7 @@ export const navigationActions = defineBrowserActions({
       return actionSnapshot();
     }
     if (!command.url) throw new Error('navigate requires url or reload=true');
-    const url = await urls.validatedAgentUrl(command.url || '');
+    const url = await urls.validatedAgentUrl(command.url);
     await cdp.guestDebugger(guest);
     state.invalidateInteraction(guest);
     const stopNavigation = () => {
@@ -78,19 +78,15 @@ export const navigationActions = defineBrowserActions({
     return actionSnapshot();
   },
 
-  async back(context) {
-    return goBack(context);
+  /** Only the backward step is a gesture: a forward move is a `navigate` to the
+   *  URL the earlier snapshot already showed. */
+  async back({ guest, actionSnapshot, services }) {
+    const history = guest.navigationHistory;
+    if (!history.canGoBack()) {
+      return { text: 'Cannot go back: no earlier history entry.' };
+    }
+    services.state.invalidateInteraction(guest);
+    history.goBack();
+    return actionSnapshot();
   },
 });
-
-/** Only the backward step is a gesture: a forward move is a `navigate` to the
- *  URL the earlier snapshot already showed. */
-async function goBack({ guest, actionSnapshot, services }: BrowserActionContext): Promise<BrowserCommandResult> {
-  const history = guest.navigationHistory;
-  if (!history.canGoBack()) {
-    return { text: 'Cannot go back: no earlier history entry.' };
-  }
-  services.state.invalidateInteraction(guest);
-  history.goBack();
-  return actionSnapshot();
-}

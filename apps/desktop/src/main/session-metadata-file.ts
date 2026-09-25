@@ -20,10 +20,6 @@ interface SessionMetadataMaps {
   /** A stored title that no longer matches the current generator was rewritten
    *  in memory; the caller persists it. */
   rewritten: boolean;
-  /** Generated-title ids rewritten during load. The host can reconcile these
-   *  against the full durable session preview instead of keeping a title that
-   *  was originally derived from a truncated resumed transcript. */
-  rewrittenTitleIds: string[];
 }
 
 export interface SessionReadCursor {
@@ -55,17 +51,13 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
     }
   }
   let rewritten = false;
-  const rewrittenTitleIds = new Set<string>();
   const normalizedMap = (source: unknown, generated = false): Record<string, string> => {
     const result = emptyMap<string>();
     if (!source || typeof source !== 'object' || Array.isArray(source)) return result;
     for (const [id, value] of Object.entries(source)) {
       if (!isSessionId(id) || typeof value !== 'string') continue;
       const title = generated ? generatedSessionTitle(value, '') : normalizeSessionTitle(value, '');
-      if (generated && title !== value.trim()) {
-        rewritten = true;
-        rewrittenTitleIds.add(id);
-      }
+      if (generated && title !== value.trim()) rewritten = true;
       if (title) result[id] = title;
     }
     return result;
@@ -99,7 +91,6 @@ export async function readSessionMetadata(root: string): Promise<SessionMetadata
     archived,
     reads,
     rewritten: !legacy && rewritten,
-    rewrittenTitleIds: legacy ? [] : [...rewrittenTitleIds],
   };
 }
 

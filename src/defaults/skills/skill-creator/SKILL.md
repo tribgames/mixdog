@@ -88,16 +88,11 @@ by compatibility, maintenance, executable-content, and license evidence.
 
 ### 4. Draft the smallest complete skill
 
-Separate UI metadata, model selection, and loaded instructions:
-
-- `description`: UI-only summary, at most 100 characters. It is not sent in
-  the model's skill listing and must never be the sole home of an instruction.
-- `when_to_use`: English descriptions of user intents and implicit situations,
-  then `not for …` naming the neighbouring owner. Strongest trigger first;
-  at most 100 characters, understandable with the skill name alone.
-- Write instructions and listing text in English, describing user intent
-  across languages rather than listing translated keywords. Preserve exact
-  literals and language-specific examples when needed.
+Read the "Listing line" section of `references/design.md` before writing
+frontmatter; it owns the `description` and `when_to_use` budgets and wording.
+Write instructions and listing text in English, describing user intent
+across languages rather than listing translated keywords. Preserve exact
+literals and language-specific examples when needed.
 
 Write the body in the section order from `references/design.md`: intro,
 boundary or mode selection, prerequisites, procedure with an observable result
@@ -122,7 +117,7 @@ node "${MIXDOG_SKILL_DIR}/scripts/validate-skill.mjs" "<skill-directory>"
 ```
 
 Then run checks required by the target repository. The validator catches
-portable structure and path problems and warns when the listing line exceeds
+portable structure, code-fence, and path problems and warns when the listing line exceeds
 its budget; the runtime parser remains authoritative for loading behavior.
 
 Completion criterion: validation passes, warnings are reviewed at their
@@ -166,10 +161,12 @@ When asked to audit, review, or tidy skills rather than fix one defect:
 1. List every skill directory in scope: machine-global
    (`<mixdog-data>/skills`), enabled plugin skills, and built-ins
    (`src/defaults/skills` in the Mixdog repository).
-2. Run `scripts/validate-skill.mjs` on each directory and collect the
-   warnings; they cover the listing line and resource paths mechanically.
-3. Read each body against the audit checklist in `references/design.md` for
-   section order, completion results, duplication, and stale instructions.
+2. Run `scripts/validate-skill.mjs` on each directory and collect the errors
+   and warnings; they cover the listing line, code fences, and resource paths
+   mechanically.
+3. Read each trigger and body against the audit checklist in
+   `references/design.md`: trigger content, section order, completion
+   results, duplication, and stale instructions.
 4. Report findings as one table (skill, check, current value, proposed fix)
    before editing. Edit only after the user approves the scope.
 5. Re-run the validator on every edited directory.
@@ -181,9 +178,9 @@ findings with reasons, without promoting warnings to failures.
 
 - Discovery precedence is machine-global, enabled plugin, then built-in.
 - The directory name must equal frontmatter `name`.
-- The model sees `name: when_to_use [tools: linked tool names]`; the trigger is cut at 100 characters
-  on a word boundary. UI descriptions are not injected. A missing trigger
-  leaves a name-only entry; the body loads once through `Skill`.
+- The model sees one listing line per skill (`references/design.md`
+  "Listing line" owns its form and budget); UI descriptions are not
+  injected, and the body loads once through `Skill`.
 - `${MIXDOG_SKILL_DIR}` resolves to the active skill directory.
 - `metadata.requires` names a mandatory Mixdog built-in feature. Add it only
   when the skill cannot function without that feature.
@@ -197,7 +194,7 @@ findings with reasons, without promoting warnings to failures.
 ## Final review
 
 - Is this genuinely a reusable skill rather than another deliverable?
-- Does the trigger fit 100 characters with the strongest trigger intact?
+- Does the trigger say only when to load the skill, strongest situation first?
 - Does every major step end in evidence, not “be careful”?
 - Are platform assumptions, external programs, network access, and secrets
   visible?

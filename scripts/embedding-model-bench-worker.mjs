@@ -7,7 +7,6 @@ import {
   aggregateScoredRows,
   documentMatchesFilter,
   MODEL_SPECS,
-  percentile,
   prepareBm25Documents,
   rankBm25,
   rankDense,
@@ -15,6 +14,7 @@ import {
   scoreRanking,
   selectDeterministicCorpus,
 } from './lib/embedding-model-bench-core.mjs';
+import { percentile, sortedFinite } from './lib/trace-stats.mjs';
 
 function argValue(name) {
   const index = process.argv.indexOf(`--${name}`);
@@ -321,8 +321,8 @@ function buildWorkerResult({
       peakRssBytes: memory.peakRssBytes,
       activeRssDeltaBytes: memory.rssAfterCorpusBytes - memory.baselineRssBytes,
       loadMs: timings.loadMs,
-      hotQueryP50Ms: percentile(timings.hotSamplesMs, 0.5),
-      hotQueryP95Ms: percentile(timings.hotSamplesMs, 0.95),
+      hotQueryP50Ms: percentile(sortedFinite(timings.hotSamplesMs), 50),
+      hotQueryP95Ms: percentile(sortedFinite(timings.hotSamplesMs), 95),
       corpusMs: timings.corpusMs,
       documentsPerSecond: documentCount / Math.max(0.001, timings.corpusMs / 1000),
       cacheBytesBefore: cache.bytesBefore,

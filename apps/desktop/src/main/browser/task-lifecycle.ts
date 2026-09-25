@@ -76,8 +76,9 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
           host.close(page);
           closed++;
         }
-        // Keep failed closes owned so a later cleanup can retry. Destruction
-        // callbacks may also have retained or reassigned the page meanwhile.
+        // A close that throws never reaches this release, so the page stays
+        // owned and a later cleanup retries it. Destruction callbacks may also
+        // have retained or reassigned the page meanwhile.
         if (owned.get(page) === owner) owned.delete(page);
       }
     }

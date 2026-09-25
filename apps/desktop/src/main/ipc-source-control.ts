@@ -1,4 +1,4 @@
-import type { App, IpcMainInvokeEvent, Shell } from 'electron';
+import type { App, Shell } from 'electron';
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
@@ -25,10 +25,10 @@ import {
   requiredGitPaths,
   requiredString,
 } from './ipc-validation';
+import type { IpcHandle as Handle } from './ipc';
 import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
 
 type ServiceOperation = (...args: unknown[]) => Promise<unknown>;
-type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
 
 interface SourceControlIpcOptions {
   app: Partial<Pick<App, 'getPath'>>;

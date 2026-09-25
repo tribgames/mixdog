@@ -5,6 +5,7 @@
  * column of a row, and the synchronous "is a grid selection live" predicate.
  */
 import { useCallback, useRef } from 'react';
+import { linearSelection } from './mouse-input/geometry.mjs';
 import {
   compareCellOrder,
   selectionRectIsDegenerate,
@@ -60,10 +61,9 @@ export function useSelectionGeometry({
       // The anchor span always stays whole; the rect reaches from it toward the
       // target when the target sits clear of it on either side, and collapses
       // back to the anchor when the two overlap.
-      const linear = (from, to) => ({ mode: 'linear', x1: from.x, y1: from.y, x2: to.x, y2: to.y });
-      if (compareCellOrder(targetEnd, anchorStart) < 0) return linear(anchorEnd, targetStart);
-      if (compareCellOrder(targetStart, anchorEnd) > 0) return linear(anchorStart, targetEnd);
-      return linear(anchorStart, anchorEnd);
+      if (compareCellOrder(targetEnd, anchorStart) < 0) return linearSelection(anchorEnd, targetStart);
+      if (compareCellOrder(targetStart, anchorEnd) > 0) return linearSelection(anchorStart, targetEnd);
+      return linearSelection(anchorStart, anchorEnd);
     },
     [store, frameColumns, selectionPointAtCurrentScroll]
   );

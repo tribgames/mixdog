@@ -10,7 +10,7 @@ import { _unicodeBoundaryPattern, _lookupCandidateNodes, _symbolLine } from './s
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
 import { _symbolPathForSymbol } from './text-columns.mjs';
 import { _keywordSymbolSortKey, _tokenizeKeyword, _keywordMatchesSymbolName } from './keyword-match.mjs';
-import { _astCalleeCallSites, _astCallDisplayCol, _astImportedRels } from './ast-calls.mjs';
+import { _astCalleeCallSites, _astCallDisplayCol, _astImportedRels, _astRelInScope } from './ast-calls.mjs';
 
 export {
   _formatRelated,
@@ -209,10 +209,7 @@ export function _cheapReferenceSearch(
   // apply, keeping the result byte-for-byte unchanged.
   let candidateNodes = Array.isArray(nodes) ? nodes : _lookupCandidateNodes(graph, symbol, language);
   if (fileRel) candidateNodes = candidateNodes.filter((node) => node.rel === fileRel);
-  if (scopeRelPrefix)
-    candidateNodes = candidateNodes.filter(
-      (node) => node.rel === scopeRelPrefix.slice(0, -1) || node.rel.startsWith(scopeRelPrefix)
-    );
+  if (scopeRelPrefix) candidateNodes = candidateNodes.filter((node) => _astRelInScope(node.rel, null, scopeRelPrefix));
   // The caller's `limit` bounds the FORMATTED rows, and the formatters
   // (_formatReferenceDetails / _formatCallerReferences) drop declarations,
   // imports and non-call lines AFTER this scan. Truncating the raw scan to the
@@ -326,20 +323,38 @@ export function _isTypeFaceOf(implRel, typeRel) {
   return _dirOf(implRel) === _dirOf(typeRel) && _moduleStem(implRel) === _moduleStem(typeRel);
 }
 
+function _relDepth(rel) {
+  return String(rel || '').split('/').length;
+}
+
+function _isCanonicalSrcRel(rel) {
+  return /^src\//.test(rel || '');
+}
+
+function _compareSymbolHits(a, b) {
+  return (
+    Number(b.declarationLike) - Number(a.declarationLike) ||
+    Number(_isTypeDeclarationRel(a.rel)) - Number(_isTypeDeclarationRel(b.rel)) ||
+    Number(_isCanonicalSrcRel(b.rel)) - Number(_isCanonicalSrcRel(a.rel)) ||
+    _relDepth(a.rel) - _relDepth(b.rel) ||
+    b.matchCount - a.matchCount ||
+    a.rel.localeCompare(b.rel) ||
+    a.line - b.line
+  );
+}
+
+// Trimmed, non-empty source lines starting at 0-based `index` (the hit line
+// plus two lines of context).
+function _hitContextLines(sourceLines, index) {
+  return sourceLines
+    .slice(index, index + 3)
+    .map((line) => String(line || '').trim())
+    .filter(Boolean);
+}
+
 function _sortSymbolHits(hits) {
   if (!hits?.length) return hits;
-  const depthOf = (rel) => String(rel || '').split('/').length;
-  const isCanonicalSrc = (rel) => /^src\//.test(rel || '');
-  hits.sort(
-    (a, b) =>
-      Number(b.declarationLike) - Number(a.declarationLike) ||
-      Number(_isTypeDeclarationRel(a.rel)) - Number(_isTypeDeclarationRel(b.rel)) ||
-      Number(isCanonicalSrc(b.rel)) - Number(isCanonicalSrc(a.rel)) ||
-      depthOf(a.rel) - depthOf(b.rel) ||
-      b.matchCount - a.matchCount ||
-      a.rel.localeCompare(b.rel) ||
-      a.line - b.line
-  );
+  hits.sort(_compareSymbolHits);
   const declCount = hits.reduce((n, h) => n + (h.declarationLike ? 1 : 0), 0);
   if (declCount > 1 && hits[0]) hits[0].ambiguousDeclaration = declCount;
   return hits;
@@ -372,10 +387,7 @@ export function _findSymbolHits(graph, symbol, { language = null } = {}) {
           matchCount: 1,
           namePath: nativePath,
           content: String(sourceLines[line - 1] || '').trim(),
-          context: sourceLines
-            .slice(line - 1, line + 2)
-            .map((item) => String(item || '').trim())
-            .filter(Boolean),
+          context: _hitContextLines(sourceLines, line - 1),
           ..._symbolFacts(nativeSymbol),
         });
       }
@@ -440,19 +452,13 @@ function _findSymbolHitsOnNodes(graph, cleanSymbol, candidateNodes, { language =
           firstLine = i + 1;
           firstCol = match.index + 1;
           firstContent = String(sourceLines[i] || '').trim();
-          contextLines = sourceLines
-            .slice(i, i + 3)
-            .map((line) => String(line || '').trim())
-            .filter(Boolean);
+          contextLines = _hitContextLines(sourceLines, i);
         }
         if (declLine == null && nativeDeclSymbols.has(i + 1)) {
           declLine = i + 1;
           declCol = match.index + 1;
           declContent = String(sourceLines[i] || '').trim();
-          declContext = sourceLines
-            .slice(i, i + 3)
-            .map((l) => String(l || '').trim())
-            .filter(Boolean);
+          declContext = _hitContextLines(sourceLines, i);
           declSymbol = nativeDeclSymbols.get(i + 1);
         }
       }
@@ -487,18 +493,7 @@ function _pickCalleeDeclHit(hits, preferRel) {
   if (!hits?.length) return null;
   const sameFileDecl = preferRel ? hits.find((h) => h.rel === preferRel && h.declarationLike) : null;
   if (sameFileDecl) return sameFileDecl;
-  const depthOf = (rel) => String(rel || '').split('/').length;
-  const isCanonicalSrc = (rel) => /^src\//.test(rel || '');
-  const sorted = [...hits].sort(
-    (a, b) =>
-      Number(b.declarationLike) - Number(a.declarationLike) ||
-      Number(_isTypeDeclarationRel(a.rel)) - Number(_isTypeDeclarationRel(b.rel)) ||
-      Number(isCanonicalSrc(b.rel)) - Number(isCanonicalSrc(a.rel)) ||
-      depthOf(a.rel) - depthOf(b.rel) ||
-      b.matchCount - a.matchCount ||
-      a.rel.localeCompare(b.rel) ||
-      a.line - b.line
-  );
+  const sorted = [...hits].sort(_compareSymbolHits);
   return sorted.find((h) => h.declarationLike) || sorted[0];
 }
 
@@ -546,12 +541,7 @@ function _nativeSymbolHit(node, sym) {
 // A file/directory anchor is a SCOPE for every symbol mode, symbol_search
 // included — it used to scan the whole graph and ignore the anchor entirely.
 function _nodeInGraphScope(node, fileRel, scopeRelPrefix) {
-  if (fileRel) return node?.rel === fileRel;
-  if (scopeRelPrefix) {
-    const rel = String(node?.rel || '');
-    return rel === scopeRelPrefix.slice(0, -1) || rel.startsWith(scopeRelPrefix);
-  }
-  return true;
+  return _astRelInScope(node?.rel, fileRel, scopeRelPrefix);
 }
 
 function _collectNativeKeywordSymbolEntries(
@@ -571,10 +561,11 @@ function _collectNativeKeywordSymbolEntries(
     for (const sym of symbols) {
       const name = String(sym?.name || '').trim();
       if (!_keywordMatchesSymbolName(name, lowerKey, keyTokens)) continue;
-      const hit = _nativeSymbolHit(node, sym);
-      if (!hit) continue;
+      // A matched name whose record has no declaration position still counts
+      // as a match; with no hit it stays unresolved.
       if (!byName.has(name)) byName.set(name, []);
-      byName.get(name).push(hit);
+      const hit = _nativeSymbolHit(node, sym);
+      if (hit) byName.get(name).push(hit);
     }
   }
   const entries = [];
@@ -586,18 +577,22 @@ function _collectNativeKeywordSymbolEntries(
       resolved: sorted.length > 0,
     });
   }
-  entries.sort((a, b) => {
-    const ka = _keywordSymbolSortKey(a.name, keyword);
-    const kb = _keywordSymbolSortKey(b.name, keyword);
-    if (ka && !kb) return -1;
-    if (!ka && kb) return 1;
-    if (!ka && !kb) return a.name.localeCompare(b.name);
-    for (let i = 0; i < 3; i += 1) {
-      if (ka[i] !== kb[i]) return ka[i] - kb[i];
-    }
-    return a.name.localeCompare(b.name);
-  });
+  entries.sort((a, b) => _compareKeywordEntries(a, b, keyword));
   return entries;
+}
+
+// Keyword relevance: names containing the keyword first — shorter, at-start,
+// earlier match — then alphabetical.
+function _compareKeywordEntries(a, b, keyword) {
+  const ka = _keywordSymbolSortKey(a.name, keyword);
+  const kb = _keywordSymbolSortKey(b.name, keyword);
+  if (ka && !kb) return -1;
+  if (!ka && kb) return 1;
+  if (!ka && !kb) return a.name.localeCompare(b.name);
+  for (let i = 0; i < 3; i += 1) {
+    if (ka[i] !== kb[i]) return ka[i] - kb[i];
+  }
+  return a.name.localeCompare(b.name);
 }
 
 // ── declarations outside a requested scope ─────────────────────────────────
@@ -718,7 +713,7 @@ export function _declarationOutsideScope(
         rel: target.rel,
         line: _symbolLine(declared),
         lang: known.lang || '',
-        facts: _formatSymbolFacts({ ..._symbolFacts(declared) }),
+        facts: _formatSymbolFacts(_symbolFacts(declared)),
       };
     }
     // A barrel that re-exports without declaring resolves through the graph
@@ -828,19 +823,7 @@ export function _searchSymbolsByKeyword(
       `(no symbol keyword matches in cwd=${cwd}${scopeLabel ? ` scope=${scopeLabel}` : ''})\ngraph: nodes=${nodeCount}${language ? `, language=${language}` : ''}`
     );
   }
-  entries.sort((a, b) => {
-    const rank = Number(b.resolved) - Number(a.resolved);
-    if (rank !== 0) return rank;
-    const ka = _keywordSymbolSortKey(a.name, keyword);
-    const kb = _keywordSymbolSortKey(b.name, keyword);
-    if (ka && !kb) return -1;
-    if (!ka && kb) return 1;
-    if (!ka && !kb) return a.name.localeCompare(b.name);
-    for (let i = 0; i < 3; i += 1) {
-      if (ka[i] !== kb[i]) return ka[i] - kb[i];
-    }
-    return a.name.localeCompare(b.name);
-  });
+  entries.sort((a, b) => Number(b.resolved) - Number(a.resolved) || _compareKeywordEntries(a, b, keyword));
   const resolvedEntries = entries.filter((e) => e.resolved);
   const unresolvedNames = entries.filter((e) => !e.resolved).map((e) => e.name);
   const shownResolved = resolvedEntries.slice(0, cap);

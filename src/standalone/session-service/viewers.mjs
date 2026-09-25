@@ -33,6 +33,7 @@ export function createViewerRegistry({
   sessionBusy,
   currentSessionId,
   destroy,
+  forgetStoredSession,
 }) {
   function subscriberToken(ctx) {
     return ctx?.clientToken ? String(ctx.clientToken) : '';
@@ -62,12 +63,14 @@ export function createViewerRegistry({
     tokens.add(token);
   }
 
+  /** Returns whether any cold viewer of this session remains. */
   function dropPendingViewer(sessionId, ctx) {
     const token = subscriberToken(ctx);
     const tokens = pendingViewers.get(sessionId);
-    if (!token || !tokens) return;
+    if (!token || !tokens) return Boolean(tokens);
     tokens.delete(token);
     if (tokens.size === 0) pendingViewers.delete(sessionId);
+    return tokens.size > 0;
   }
 
   function adoptPendingViewers(entry, sessionId) {
@@ -84,11 +87,16 @@ export function createViewerRegistry({
     const token = String(clientToken || '');
     if (!token) return { ok: true };
     for (const [pendingId, tokens] of [...pendingViewers]) {
-      if (tokens.delete(token) && tokens.size === 0) pendingViewers.delete(pendingId);
+      if (tokens.delete(token) && tokens.size === 0) {
+        pendingViewers.delete(pendingId);
+        // The last cold view left: its disk projection is no longer needed.
+        forgetStoredSession(pendingId);
+      }
     }
     for (const entry of sessions) {
       if (!entry.subscribers?.delete(token)) continue;
       if (entry.subscribers.size > 0) continue;
+      entry.transcriptView = null;
       if (entry.reservedOnly && !sessionBusy(entry)) {
         void destroy(entry, 'unclaimed session reservation', {
           keepBackgroundWork: true,

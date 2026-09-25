@@ -406,18 +406,24 @@ function rejectLeg(rawSocket, status) {
   rejectUpgrade(rawSocket, status, status === 429 ? 'Too Many Requests' : 'Unauthorized');
 }
 
-function upgradeDesktopLeg(relay, request, url, rawSocket, head) {
-  const { store, registerLimiter, unauthorizedLimiter, wss } = relay;
+/** The device id a desktop or hook leg authenticated as, or null once the
+ *  upgrade has been rejected. */
+function authenticatedLegDevice(relay, request, url, rawSocket) {
+  const { store, registerLimiter, unauthorizedLimiter } = relay;
   const { deviceId, secret } = readDeviceCredentials(request, url);
   const denied = authenticateLeg(store, registerLimiter, unauthorizedLimiter, request, deviceId, secret);
-  if (denied) {
-    rejectLeg(rawSocket, denied);
-    return;
-  }
-  wss.handleUpgrade(request, rawSocket, head, (socket) =>
+  if (!denied) return deviceId;
+  rejectLeg(rawSocket, denied);
+  return null;
+}
+
+function upgradeDesktopLeg(relay, request, url, rawSocket, head) {
+  const deviceId = authenticatedLegDevice(relay, request, url, rawSocket);
+  if (deviceId === null) return;
+  relay.wss.handleUpgrade(request, rawSocket, head, (socket) =>
     runDesktopLeg(
       {
-        store,
+        store: relay.store,
         sendJson,
         attachDesktop: (id, desktopSocket) => attachDesktop(relay, id, desktopSocket),
         liveDesktops: relay.liveDesktops,
@@ -498,14 +504,9 @@ function closeUnpairedPhone(relay, request, rawSocket, head) {
 // Channel-worker webhook tunnel: same trust-on-first-use device model as the
 // desktop leg (worker mints its own id/secret pair).
 function upgradeHookLeg(relay, request, url, rawSocket, head) {
-  const { store, registerLimiter, unauthorizedLimiter, wss } = relay;
-  const { deviceId, secret } = readDeviceCredentials(request, url);
-  const denied = authenticateLeg(store, registerLimiter, unauthorizedLimiter, request, deviceId, secret);
-  if (denied) {
-    rejectLeg(rawSocket, denied);
-    return;
-  }
-  wss.handleUpgrade(request, rawSocket, head, (socket) =>
+  const deviceId = authenticatedLegDevice(relay, request, url, rawSocket);
+  if (deviceId === null) return;
+  relay.wss.handleUpgrade(request, rawSocket, head, (socket) =>
     runHookLeg(relay.liveHooks, deviceId, socket, { ingress: relay.legIngress, rawSocket })
   );
 }

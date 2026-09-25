@@ -6,6 +6,7 @@ import { blockText, containerInner, paragraphTexts, topLevelElements, xmlDecode 
 import { presentationSlides, slideLayoutParts } from './portable-pptx-package.mjs';
 import { shapeIdentity } from './pptx-relations.mjs';
 import { chartPartSnapshot, nextPageOffset, relatedPartById } from './portable-snapshot-shared.mjs';
+import { tableDrawnHeight } from './pptx-table-fit.mjs';
 
 const SLIDE_BACKGROUND = /<p:bg\b[^>]*>[\s\S]*?<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/;
 
@@ -44,13 +45,25 @@ async function pptxSlideNotes(zip, slidePath) {
   return blockText(xml, 'a:t');
 }
 
-function fontFacts(fontSizes, bold, fonts) {
+// The colour of the text itself — the first run that names one — as Microsoft Office reports it under font.color.
+// Without it an agent adding a page to a deck could match the face and the size of the title it copied, never its
+// colour: the new kicker came out black under a deck of blue kickers.
+function runColor(shapeXml) {
+  for (const run of shapeXml.matchAll(/<a:rPr\b[^>]*>([\s\S]*?)<\/a:rPr>/gi)) {
+    const color = /^\s*<a:solidFill>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/i.exec(run[1])?.[1];
+    if (color) return color.toUpperCase();
+  }
+  return '';
+}
+
+function fontFacts(fontSizes, bold, fonts, color = '') {
   if (!fontSizes.length) return {};
   return {
     font: {
       size: Math.max(...fontSizes),
       ...(bold ? { bold: true } : {}),
       ...(fonts.length ? { name: fonts[0] } : {}),
+      ...(color ? { color } : {}),
     },
     sizes: [...new Set(fontSizes)].sort((a, b) => a - b),
   };
@@ -159,6 +172,12 @@ function pptxShapeSnapshot(shape, shapeIndex, slideIndex, chartParts) {
   // audit asks for it, so the snapshot shows whether it is there.
   const altText = xmlDecode(/<p:cNvPr\b[^>]*\bdescr="([^"]*)"/i.exec(shape.xml)?.[1] || '');
   const fill = shapeFill(shape.xml);
+  // A table stands as tall as its rows draw, as PowerPoint reports it: rows grow to their text past the frame the
+  // file declares, and a source line under a table that ran long read as clear of it.
+  const frame = shapeFrame(shape.xml);
+  if (tableRows && frame.height != null) {
+    frame.height = Math.max(frame.height, tableDrawnHeight(shape.xml) / EMU_PER_POINT);
+  }
   return {
     path: shapePath,
     index: shapeIndex + 1,
@@ -184,10 +203,10 @@ function pptxShapeSnapshot(shape, shapeIndex, slideIndex, chartParts) {
       ? { chart: { path: `${shapePath}/chart`, ...(chartParts.get(shapeIndex) || {}) } }
       : {}),
     ...(tableRows ? { table: { rows: tableRows, columns: tableColumns } } : {}),
-    ...fontFacts(fontSizes, bold, fonts),
+    ...fontFacts(fontSizes, bold, fonts, runColor(shape.xml)),
     ...(fonts.length ? { fonts } : {}),
     ...(colors.length ? { colors } : {}),
-    ...shapeFrame(shape.xml),
+    ...frame,
   };
 }
 

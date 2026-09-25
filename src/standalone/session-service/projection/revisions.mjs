@@ -4,6 +4,7 @@
 // announced the revision it holds.
 import { diffSessionState } from '../../session-state-patch.mjs';
 import { projectSessionState } from '../../session-state-projection.mjs';
+import { windowTranscriptSnapshot } from './transcript-window.mjs';
 
 function snapshotOf(entry) {
   const raw = entry.runtime.getState?.() ?? null;
@@ -69,7 +70,9 @@ export function createRevisionSteps({ revisionEpoch, index, updateEntryBusy }) {
 
   /** Advance the session runtime's published revision one step. */
   function advance(entry) {
-    const snapshot = snapshotOf(entry);
+    // Deltas are computed against the WINDOWED snapshot, so a tail-only
+    // baseline keeps receiving ordinary suffix patches.
+    const snapshot = windowTranscriptSnapshot(entry, snapshotOf(entry));
     const projectedSessionId = String(snapshot?.sessionId || '');
     const addressedSessionId = String(entry.addressedSessionId || '');
     if (addressedSessionId && projectedSessionId && projectedSessionId !== addressedSessionId) {

@@ -99,11 +99,21 @@ export function ContextUsageIndicator({
   // the session's own route, while the carry lands on the selected one. The
   // runtime measures the heir's route; the refusal is named here in the user's
   // own terms before any session is created.
-  const inherit = async () => {
-    if (!sessionId || !onInherit || !inheritRoute || actionBusy || actionInFlight.current) return;
+  const runContextAction = async (action: () => Promise<void>) => {
     actionInFlight.current = true;
     setActionPending(true);
     try {
+      await action();
+    } catch (reason) {
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
+    } finally {
+      actionInFlight.current = false;
+      setActionPending(false);
+    }
+  };
+  const inherit = async () => {
+    if (!sessionId || !onInherit || !inheritRoute || actionBusy || actionInFlight.current) return;
+    await runContextAction(async () => {
       const fit = await inheritancePreflight(sessionId, inheritRoute);
       if (fit?.known && !fit.fits) {
         if (!fit.willCompact) {
@@ -116,26 +126,15 @@ export function ContextUsageIndicator({
       }
       await onInherit(sessionId, inheritRoute);
       popover.close();
-    } catch (reason) {
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
-    } finally {
-      actionInFlight.current = false;
-      setActionPending(false);
-    }
+    });
   };
   const compact = async () => {
     if (!sessionId || actionBusy || actionInFlight.current) return;
-    actionInFlight.current = true;
-    setActionPending(true);
-    try {
+    await runContextAction(async () => {
       await window.mixdogDesktop.invokeCapability({ capability: 'compact', sessionId });
-    } catch (reason) {
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
-    } finally {
-      actionInFlight.current = false;
-      setActionPending(false);
-    }
+    });
   };
+  const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
   return (
     <div
       className="session-context-indicator"
@@ -174,16 +173,12 @@ export function ContextUsageIndicator({
             <span>{t('Usage')}</span>
             <b title={contextUsageTitle(context)}>{contextUsageText(context)}</b>
           </div>
-          {(() => {
-            const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
-            if (cost <= 0) return null;
-            return (
-              <div>
-                <span>{t('Cost')}</span>
-                <b>{uiCurrency(cost, cost >= 1 ? 2 : 3)}</b>
-              </div>
-            );
-          })()}
+          {cost > 0 && (
+            <div>
+              <span>{t('Cost')}</span>
+              <b>{uiCurrency(cost, cost >= 1 ? 2 : 3)}</b>
+            </div>
+          )}
           {onViewDetails && (
             <button
               type="button"

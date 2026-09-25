@@ -146,7 +146,7 @@ export const CATALOG = {
         'columns',
         'columnSpacing',
       ],
-      headerFooter: ['section', 'kind', 'header', 'text'],
+      headerFooter: ['section', 'kind', 'header', 'text', 'name', 'nameEastAsia', 'size', 'color', 'bold', 'alignment'],
       table: [
         'style',
         'textStyle',
@@ -163,6 +163,7 @@ export const CATALOG = {
         'columnAlignments',
         'repeatHeader',
         'headerBold',
+        'keepWithNext',
       ],
       tableCell: [
         'fillColor',
@@ -256,6 +257,8 @@ export const CATALOG = {
         'set_sheet_visibility',
         'set_row_visibility',
         'set_column_visibility',
+        'set_row_height',
+        'set_column_width',
         'set_header_footer',
         'define_name',
         'delete_name',
@@ -287,6 +290,7 @@ export const CATALOG = {
         'horizontalAlignment',
         'verticalAlignment',
         'wrapText',
+        'indent',
         'locked',
         'borders',
       ],
@@ -314,6 +318,7 @@ export const CATALOG = {
       audit: ['conditionalFormats', 'formulaLineage', 'checksSheet', 'hardcodeSource', 'rogueHardcode'],
       pageSetup: [
         'printArea',
+        'printTitleRows',
         'fitToContent',
         'orientation',
         'fitToPagesWide',
@@ -467,6 +472,7 @@ export const CATALOG = {
         'bodyFillColor',
         'headerRowHeight',
         'bodyRowHeight',
+        'columnWidths',
       ],
       template: ['tokens', 'strict'],
       authoring: [

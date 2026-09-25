@@ -138,7 +138,16 @@ test('open converts a legacy binary file beside it and never overwrites the resu
       seed: 'seed.xlsx',
       legacy: 'ledger.xls',
       converted: 'ledger.xlsx',
-      operations: [{ op: 'set_range', range: 'A1:B2', values: [['지역', '매출'], ['서울', 120]] }],
+      operations: [
+        {
+          op: 'set_range',
+          range: 'A1:B2',
+          values: [
+            ['지역', '매출'],
+            ['서울', 120],
+          ],
+        },
+      ],
       expected: '서울',
     },
   ];

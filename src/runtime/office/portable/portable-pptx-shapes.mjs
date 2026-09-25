@@ -4,9 +4,9 @@ import { contrastRatio, shrinkFontSizeToFit } from './text-metrics.mjs';
 import {
   EMU_PER_POINT,
   SLIDE_SHAPE_TAGS,
-  fromEmu,
   pictureXml,
   resolveGeometry,
+  restyleShapeText,
   shapeXml,
   supportedShapeTypes,
   tableXml,
@@ -30,12 +30,10 @@ import {
   rebuildTextNodes,
   textNodes,
   topLevelElements,
-  xmlAttribute,
   xmlEncode,
 } from './portable-xml.mjs';
 import { addSlideImage, slidePath } from './portable-pptx-package.mjs';
 import {
-  DEFAULT_TEXT_INSETS,
   appendSlideShape,
   nextShapeId,
   presentationSlideSize,
@@ -43,6 +41,7 @@ import {
   setTableValues,
   shapeFrame,
   shapeParagraphs,
+  textInsets,
   updateShapeGeometry,
   writeShapeTree,
 } from './portable-pptx-core.mjs';
@@ -72,7 +71,7 @@ export async function handleSetHyperlink(context, op) {
     .replace(/<p:cNvPr\b([^>]*?)(\/>|>)/, (_match, attrs, close) =>
       close === '/>' ? `<p:cNvPr${attrs}>${link}</p:cNvPr>` : `<p:cNvPr${attrs}>${link}`
     );
-  writeSlideTree(context, slide, `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`);
+  writeShape(context, slide, shape, updated);
   return { op: op.op, changed: true, slide: Number(op.slide), shape: Number(op.shape), address };
 }
 
@@ -162,6 +161,11 @@ function writeSlideTree(context, { path, current, tree }, inner) {
   context.zip.file(path, `${current.slice(0, tree.start)}${inner}${current.slice(tree.end)}`);
 }
 
+// The slide with one top-level shape replaced by `xml` ('' removes it).
+function writeShape(context, slide, shape, xml) {
+  writeSlideTree(context, slide, `${slide.tree.inner.slice(0, shape.start)}${xml}${slide.tree.inner.slice(shape.end)}`);
+}
+
 // The tree's inner XML with the selected shapes rewritten: `replacementFor`
 // answers with a shape's new XML, '' to drop it, or null to keep it as is.
 function rewriteShapeTree(tree, shapes, replacementFor) {
@@ -243,7 +247,7 @@ export async function handleSetText(context, op) {
   nodes[0].text = String(op.text ?? '');
   for (let index = 1; index < nodes.length; index += 1) nodes[index].text = '';
   const nextShape = rebuildTextNodes(single, 'a:t', nodes);
-  writeSlideTree(context, slide, `${tree.inner.slice(0, shape.start)}${nextShape}${tree.inner.slice(shape.end)}`);
+  writeShape(context, slide, shape, nextShape);
   return { op: op.op, changed: true };
 }
 
@@ -296,10 +300,12 @@ export async function handleAddTextboxOrAddShape(context, op) {
         color: op.color ?? properties.color ?? inkOnFill(op.fillColor ?? properties.fillColor),
         bold: properties.bold,
         italic: properties.italic,
-        align: properties.align,
+        // alignment and verticalAlignment are the names the contract lists and the Office backend reads; a shape
+        // asked for "right / bottom" was drawn left and centred here.
+        align: properties.alignment ?? properties.align,
         paragraphSpacing: properties.paragraphSpacing,
       },
-      anchor: properties.anchor || (textBox ? '' : 'center'),
+      anchor: properties.verticalAlignment || properties.anchor || (textBox ? '' : 'center'),
       margins: properties,
       autofit: properties.autofit || 'none',
     }),
@@ -313,7 +319,7 @@ export async function handleDeleteShape(context, op) {
   const slide = await slideShapeTree(context, op);
   const { tree } = slide;
   const shape = slideShape(tree, op);
-  writeSlideTree(context, slide, `${tree.inner.slice(0, shape.start)}${tree.inner.slice(shape.end)}`);
+  writeShape(context, slide, shape, '');
   return { op: op.op, changed: true };
 }
 
@@ -395,49 +401,58 @@ async function measurableShape(context, op) {
 
 // The text area inside the shape's own insets, in points.
 function textAreaSize(shapeXml, extent) {
-  const bodyProperties = /<a:bodyPr\b([^>]*?)\/?>/.exec(shapeXml)?.[1] || '';
-  const inset = (name, fallback) => fromEmu(Number(xmlAttribute(bodyProperties, name)), fallback);
+  const inset = textInsets(/<a:bodyPr\b([^>]*?)\/?>/.exec(shapeXml)?.[1] || '');
   return {
-    width: Math.max(
-      1,
-      Number(extent[1]) / EMU_PER_POINT -
-        inset('lIns', DEFAULT_TEXT_INSETS.left) -
-        inset('rIns', DEFAULT_TEXT_INSETS.right)
-    ),
-    height: Math.max(
-      1,
-      Number(extent[2]) / EMU_PER_POINT -
-        inset('tIns', DEFAULT_TEXT_INSETS.top) -
-        inset('bIns', DEFAULT_TEXT_INSETS.bottom)
-    ),
+    width: Math.max(1, Number(extent[1]) / EMU_PER_POINT - inset.insetLeft - inset.insetRight),
+    height: Math.max(1, Number(extent[2]) / EMU_PER_POINT - inset.insetTop - inset.insetBottom),
   };
 }
 
+// A box running past the slide's right or bottom edge ends at the edge, its corner kept, as PowerPoint's fit_text
+// draws it: the text is fitted inside the page, and a box only placed past the edge was left there unchanged.
+async function frameInsideSlide(context, shapeXml, extent) {
+  const offset = /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(shapeXml);
+  if (!offset) return { xml: shapeXml, extent, clamped: false };
+  const slide = await presentationSlideSize(context.zip);
+  const room = (edge, start) => Math.round(edge * EMU_PER_POINT) - Number(start);
+  const width = Math.min(Number(extent[1]), Math.max(1, room(slide.width, offset[1])));
+  const height = Math.min(Number(extent[2]), Math.max(1, room(slide.height, offset[2])));
+  if (width === Number(extent[1]) && height === Number(extent[2])) return { xml: shapeXml, extent, clamped: false };
+  const xml = shapeXml.replace(/(<a:ext\b[^>]*\bcx=")\d+("[^>]*\bcy=")\d+(")/, `$1${width}$2${height}$3`);
+  return { xml, extent: [extent[0], String(width), String(height)], clamped: true };
+}
+
 export async function handleFitText(context, op) {
-  const { path, current, tree, shape, paragraphs, extent } = await measurableShape(context, op);
+  const measured = await measurableShape(context, op);
+  const { path, current, tree, shape, paragraphs } = measured;
+  const framed = await frameInsideSlide(context, shape.xml, measured.extent);
   const minimumFontSize = Math.max(1, Number(op.minFontSize) || 8);
-  const fitted = shrinkFontSizeToFit(paragraphs, { ...textAreaSize(shape.xml, extent), minimumFontSize });
-  if (!fitted.scale) {
-    throw new Error(`PPTX shape ${op.shape} on slide ${op.slide} cannot fit its text above ${minimumFontSize}pt`);
-  }
-  const changed = fitted.scale < 1;
+  const fitted = shrinkFontSizeToFit(paragraphs, { ...textAreaSize(framed.xml, framed.extent), minimumFontSize });
+  // Nothing on the ladder fits: the text goes down to the floor and the audit keeps reporting what is left, as
+  // PowerPoint's fit_text stops at the floor. Thrown, one such box failed qa's whole repair batch.
+  const largest = Math.max(...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 18), 1);
+  const scale = fitted.scale || Math.min(1, minimumFontSize / largest);
+  const sizes = fitted.scale
+    ? fitted.sizes
+    : paragraphs.map((paragraph) => Math.max(minimumFontSize, Math.round((Number(paragraph.fontSize) || 18) * scale * 2) / 2));
+  const changed = framed.clamped || scale < 1;
   if (changed) {
-    const updated = shape.xml.replace(
+    const updated = framed.xml.replace(
       /\bsz="(\d+)"/g,
-      (_, size) => `sz="${Math.max(minimumFontSize * 100, Math.round(Number(size) * fitted.scale))}"`
+      (_, size) => `sz="${Math.max(minimumFontSize * 100, Math.round(Number(size) * scale))}"`
     );
-    const nextInner = `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`;
-    writeSlideTree(context, { path, current, tree }, nextInner);
+    writeShape(context, { path, current, tree }, shape, updated);
   }
   return {
     op: op.op,
     changed,
     slide: Number(op.slide),
     shape: Number(op.shape),
-    scale: Number(fitted.scale.toFixed(2)),
+    scale: Number(scale.toFixed(2)),
     // The size the copy now reads at: shrinking is the last repair, so the
     // author sees what it cost and can rewrite the line instead.
-    fontSize: Math.max(...fitted.sizes.map((size) => Number(size) || 0), 0) || undefined,
+    fontSize: Math.max(...sizes.map((size) => Number(size) || 0), 0) || undefined,
+    ...(fitted.scale ? {} : { fits: false, note: `The text does not fit above ${minimumFontSize} pt; shorten it or enlarge the box.` }),
   };
 }
 
@@ -497,11 +512,19 @@ export async function handleSetTableDataOrReplaceImage(context, op) {
     const values = Array.isArray(op.values) ? op.values.filter((row) => Array.isArray(row)) : [];
     if (!values.length) throw new Error('set_table_data requires values as an array of rows');
     const filled = setTableValues(shape.xml, values);
-    updated = filled.xml;
-    detail = { rows: filled.rows, cells: filled.cells, capacity: filled.capacity };
-    if (values.length > filled.capacity) {
-      detail.droppedRows = values.length - filled.capacity;
-    }
+    // The frame grows with the rows and columns the data added, so the table's box is the table.
+    updated = filled.xml.replace(
+      /(<p:xfrm>[\s\S]*?<a:ext\b[^>]*\bcx=")(\d+)("[^>]*\bcy=")(\d+)"/,
+      (_match, head, cx, middle, cy) =>
+        `${head}${Number(cx) + filled.addedWidth}${middle}${Number(cy) + filled.addedHeight}"`
+    );
+    detail = {
+      rows: filled.rows,
+      cells: filled.cells,
+      capacity: filled.capacity,
+      ...(filled.addedRows ? { addedRows: filled.addedRows } : {}),
+      ...(filled.addedColumns ? { addedColumns: filled.addedColumns } : {}),
+    };
   } else {
     ({ updated, detail } = await replacedPicture(zip, path, shape, op));
   }
@@ -520,11 +543,7 @@ function ungroupShape(context, op, slide) {
   const children = containerBody(group.xml, 'p:grpSp')
     .replace(/<p:nvGrpSpPr>[\s\S]*?<\/p:nvGrpSpPr>/, '')
     .replace(/<p:grpSpPr>[\s\S]*?<\/p:grpSpPr>/, '');
-  writeSlideTree(
-    context,
-    slide,
-    `${slide.tree.inner.slice(0, group.start)}${children}${slide.tree.inner.slice(group.end)}`
-  );
+  writeShape(context, slide, group, children);
   return { op: op.op, changed: true, slide: Number(op.slide), shape: Number(op.shape) };
 }
 
@@ -654,7 +673,7 @@ export async function handleCropImage(context, op) {
   const updated = shape.xml
     .replace(/<a:srcRect\b[^>]*\/>/, '')
     .replace(/(<a:blip\b[^>]*?(?:\/>|>[\s\S]*?<\/a:blip>))/, `$1${rect}`);
-  writeSlideTree(context, slide, `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`);
+  writeShape(context, slide, shape, updated);
   return { op: op.op, changed: true, slide: Number(op.slide), shape: Number(op.shape) };
 }
 
@@ -781,7 +800,7 @@ export async function handleSetShape(context, op) {
   const slide = await slideShapeTree(context, op);
   const { tree } = slide;
   const shape = slideShape(tree, op);
-  const updated = updateShapeGeometry(shape.xml, op.properties || {});
-  writeSlideTree(context, slide, `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`);
+  const updated = restyleShapeText(updateShapeGeometry(shape.xml, op.properties || {}), op.properties || {});
+  writeShape(context, slide, shape, updated);
   return { op: op.op, changed: updated !== shape.xml };
 }

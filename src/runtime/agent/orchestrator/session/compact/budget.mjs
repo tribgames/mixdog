@@ -1,5 +1,4 @@
-// Budget math, tool-output pruning, cycle1 draining, and preserved-fact
-// extraction.
+// Budget math and tool-output pruning.
 
 import {
   sanitizeToolPairs,
@@ -51,7 +50,7 @@ function protectedTailStart(messages, tailTurns = PRUNE_TAIL_TURNS) {
   return 0;
 }
 
-function pruneToolOutputText(text, maxChars, _toolCallId) {
+function pruneToolOutputText(text, maxChars) {
   const value = String(text ?? '');
   if (value.length <= maxChars) return value;
   return compactOffloadedToolResultText(value);
@@ -60,7 +59,7 @@ function pruneToolOutputText(text, maxChars, _toolCallId) {
 // The pruned copy of one oversized tool message, or null when its body is
 // already as short as this prune can make it.
 function prunedToolMessage(m, maxChars) {
-  const content = pruneToolOutputText(m.content, maxChars, m.toolCallId);
+  const content = pruneToolOutputText(m.content, maxChars);
   if (content === m.content) return null;
   return {
     ...m,

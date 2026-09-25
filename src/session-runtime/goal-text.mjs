@@ -123,6 +123,7 @@ export function continuationPrompt(goal, { idleReview = false, includeRules = tr
     '- Classify the previous turn as concrete progress, a verified wait, or no progress. Progress completes work, changes authoritative state, or produces evidence that determines a different next action.',
     '- Wait only on a currently live process, job, or tool handle. An observation timeout is not termination: continue observing the same handle rather than restarting its work.',
     '- After no progress, re-evaluate the available safe actions and execute one. Do not substitute a status report or a narrower objective for the requested work.',
+    '- An automatic Goal turn that ends without a tool call stops automatic turns until the task list changes, the user acts, or the time boundary arrives; end a turn that way only when no safe action remains.',
     goalTimeModeRule(goal),
     // Delivered once per settled task list: the runtime waits out the rest of
     // the duration on the deadline timer if this turn records nothing new.
@@ -160,6 +161,7 @@ export function goalDeadlineWarning(goal) {
     goal.timeMode === 'max'
       ? 'This is an upper bound, not a minimum duration. Complete a fully verified objective without waiting for the remaining budget.'
       : 'The requested full-period commitment still applies. Do not end the turn merely because this warning arrived or manufacture unfinished tasks solely to represent remaining clock time.',
+    'When no approved work can finish and be verified before the boundary, end the turn with one brief status instead of repeating it each turn: an automatic Goal turn that ends without a tool call makes the runtime wait for the boundary.',
     'The runtime will first mark the Goal duration_reached at the boundary, then request closeout. Until then, turn reports are progress, not Goal completion. Preserve unfinished work honestly; never complete or block to beat the clock.',
     '',
     `Objective: ${escapeGoalPromptText(goal.objective)}`,

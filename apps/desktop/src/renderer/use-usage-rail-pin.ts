@@ -51,20 +51,23 @@ export function useUsageRailPin(
     };
   }, [enabled]);
 
+  // The latest pin value outside render, so the persistence side effects run
+  // once per toggle instead of inside a (possibly re-invoked) state updater.
+  const pinnedRef = useRef(usagePinned);
+  pinnedRef.current = usagePinned;
   const toggleUsagePin = () => {
     revision.current += 1;
+    const next = !pinnedRef.current;
+    pinnedRef.current = next;
     setSettingsReady(true);
-    setUsagePinned((pinned) => {
-      const next = !pinned;
-      try {
-        window.localStorage.setItem(USAGE_RAIL_PIN_KEY, next ? '1' : '0');
-      } catch {
-        /* the toggle still applies for this session */
-      }
-      void window.mixdogDesktop?.updateSetting?.('usagePinned', next)?.catch(() => {
-        /* local state still applies */
-      });
-      return next;
+    setUsagePinned(next);
+    try {
+      window.localStorage.setItem(USAGE_RAIL_PIN_KEY, next ? '1' : '0');
+    } catch {
+      /* the toggle still applies for this session */
+    }
+    void window.mixdogDesktop?.updateSetting?.('usagePinned', next)?.catch(() => {
+      /* local state still applies */
     });
   };
   const wanted = usagePinned ? usagePinEntries(snapshot.dashboard) : [];

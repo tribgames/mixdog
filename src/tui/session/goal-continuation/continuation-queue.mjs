@@ -56,9 +56,9 @@ export function createContinuationQueue({ runtime, flags, getState, getPending, 
       if (halted()) return;
       const state = getState();
       if (state.busy || state.commandBusy || state.sessionRemoteAttached) return;
-      const pending = getPending();
-      if (pending.some((entry) => !isGoalQueuedEntry(entry))) return;
-      if (pending.some(isGoalQueuedEntry)) return;
+      // Queued user work runs first, and a queued Goal entry already carries
+      // the next continuation.
+      if (getPending().length > 0) return;
       const decision = continuationDecision();
       if (!decision.run || !clean(decision.prompt)) return;
       enqueue(decision.prompt, {

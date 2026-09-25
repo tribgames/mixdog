@@ -16,7 +16,7 @@ import { cwdFromTranscriptPath, transcriptRowFromLine } from './transcript-rows.
  *  reuse the SAME transcript:${uuid}#${index} refs as the pre-truncate content
  *  and be silently dropped by ON CONFLICT DO NOTHING. Existing rows (gen 0, no
  *  suffix) are unaffected. */
-export async function readTranscriptTail(transcriptPath, prev) {
+async function readTranscriptTail(transcriptPath, prev) {
   let stat;
   try {
     stat = await fs.promises.stat(transcriptPath);
@@ -45,7 +45,7 @@ export async function readTranscriptTail(transcriptPath, prev) {
 /** Complete lines of `text` with the byte width each one consumes. A final
  *  segment without a trailing newline is a partial line still being written;
  *  it is not yielded, so it is re-read once the writer flushes. */
-export function* completeLines(text) {
+function* completeLines(text) {
   let cursor = 0;
   while (cursor < text.length) {
     const nl = text.indexOf('\n', cursor);
@@ -56,7 +56,7 @@ export function* completeLines(text) {
   }
 }
 
-export function transcriptSourceRef(sessionUuid, index, generation) {
+function transcriptSourceRef(sessionUuid, index, generation) {
   return generation > 0 ? `transcript:${sessionUuid}#${index}@g${generation}` : `transcript:${sessionUuid}#${index}`;
 }
 

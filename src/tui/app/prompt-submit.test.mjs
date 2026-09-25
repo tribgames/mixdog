@@ -207,3 +207,66 @@ test('clear-by-empty prompt kinds bypass the blank-submit gate', () => {
   assert.equal(canSubmitTextEntry('', false), false);
   assert.equal(canSubmitTextEntry(' value ', false), true);
 });
+
+// OAuth-code submit: the in-flight guard (oauthSubmitRef) must drop on every
+// exit, or every later code submit is refused as "already being submitted".
+function oauthCodeHarness(providerPrompt) {
+  const notices = [];
+  const providerPromptSet = [];
+  const events = [];
+  const oauthSubmitRef = { current: false };
+  const { onSubmit } = createPromptSubmit({
+    store: { pushNotice: (message, tone) => notices.push([message, tone]) },
+    state: { commandBusy: false },
+    providerPrompt,
+    settingsPrompt: null,
+    setProviderPrompt: (next) => providerPromptSet.push(typeof next === 'function' ? next(providerPrompt) : next),
+    setSettingsPrompt: () => {},
+    oauthSubmitRef,
+    clearModelCaches: () => events.push('clear-caches'),
+    openProviderSetupPicker: () => events.push('providers'),
+  });
+  return { onSubmit, notices, providerPromptSet, events, oauthSubmitRef };
+}
+
+test('an accepted OAuth code clears the in-flight guard and returns to the caller', async () => {
+  const h = oauthCodeHarness({
+    kind: 'oauth-code',
+    providerName: 'Grok',
+    login: { completeCode: async (code) => h.events.push(`code:${code}`) },
+    successReturn: () => h.events.push('success-return'),
+  });
+  assert.equal(h.onSubmit('abc#state'), true);
+  assert.equal(h.oauthSubmitRef.current, true);
+  await flush();
+  assert.equal(h.oauthSubmitRef.current, false);
+  assert.deepEqual(h.events, ['code:abc#state', 'clear-caches', 'success-return']);
+  assert.ok(h.notices.some(([message]) => message === 'Grok login complete'));
+});
+
+test('an OAuth code prompt whose login is gone still releases the in-flight guard', async () => {
+  const failures = [];
+  const h = oauthCodeHarness({ kind: 'oauth-code', providerName: 'Grok', failureReturn: (e) => failures.push(e) });
+  assert.equal(h.onSubmit('abc#state'), true);
+  await flush();
+  assert.equal(h.oauthSubmitRef.current, false);
+  assert.equal(failures.length, 1);
+  assert.ok(h.notices.some(([message, tone]) => /^oauth code failed/.test(message) && tone === 'error'));
+  assert.equal(h.providerPromptSet.at(-1), null);
+});
+
+test('an OAuth code completion that throws synchronously releases the in-flight guard', async () => {
+  const h = oauthCodeHarness({
+    kind: 'oauth-code',
+    providerName: 'Grok',
+    login: {
+      completeCode: () => {
+        throw new Error('bad state');
+      },
+    },
+  });
+  assert.equal(h.onSubmit('abc#state'), true);
+  await flush();
+  assert.equal(h.oauthSubmitRef.current, false);
+  assert.ok(h.notices.some(([message]) => message === 'oauth code failed: bad state'));
+});

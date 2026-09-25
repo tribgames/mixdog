@@ -3,18 +3,19 @@
 //
 // rustfmt 1.8 and older: `Diff in <path> at line N:`
 // rustfmt 1.9+:          `Diff in <path>:N:`  (Windows may prefix `\\?\`)
-import { diagnostic, runChunked, spawnFailureResult, tail, toRel, uniquePaths } from './shared.mjs';
+import {
+  diagnostic,
+  emptyResult,
+  runChunked,
+  spawnFailureResult,
+  tail,
+  toRelLongPath as rustfmtRel,
+  uniquePaths,
+} from './shared.mjs';
 
 const DIFF_AT_LINE = /^Diff in (.+?) at line (\d+):/;
 const DIFF_COLON_LINE = /^Diff in (.+):(\d+):$/;
 const EDITION = ['--edition', '2021'];
-
-function rustfmtRel(cwd, raw) {
-  let value = String(raw || '');
-  if (value.startsWith('\\\\?\\UNC\\')) value = `\\\\${value.slice(8)}`;
-  else if (value.startsWith('\\\\?\\')) value = value.slice(4);
-  return toRel(cwd, value);
-}
 
 function parseDiffHeader(line) {
   // Unified-diff context lines start with a space; trim() would turn
@@ -65,7 +66,7 @@ export const runner = {
   async fix({ files, cwd, bin, args = [], timeoutMs, signal }) {
     const result = await runChunked({ bin, baseArgs: [...args, ...EDITION], files, cwd, timeoutMs, signal });
     if (result.error) return spawnFailureResult('rustfmt', result);
-    return { diagnostics: [], changedFiles: [], stderrTail: tail(result.stderr) };
+    return emptyResult(tail(result.stderr));
   },
 };
 
