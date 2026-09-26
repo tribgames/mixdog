@@ -43,10 +43,14 @@ export function shellReloadDelay({
   idleThreshold = SHELL_RELOAD_IDLE_MS,
 }: ShellReloadState): number | null {
   if (!pending) return null;
-  // Both hold state the reload would discard, and both end on an event that
-  // re-runs this decision, so neither needs a timer of its own.
-  if (busy || editing) return null;
+  // Unsent text is state the reload would discard; its end re-runs this
+  // decision, so it needs no timer of its own.
+  if (editing) return null;
+  // Off screen there is nothing to interrupt: a turn runs on the desktop and
+  // the reloaded app resumes its view. Waiting for every turn to end kept a
+  // phone on the previous build for as long as any agent was working.
   if (hidden) return 0;
+  if (busy) return null;
   if (idleFor >= idleThreshold) return 0;
   return idleThreshold - idleFor;
 }

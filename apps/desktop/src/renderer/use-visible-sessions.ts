@@ -3,9 +3,17 @@ import { useEffect, useLayoutEffect } from 'react';
 /** Register the current pane without waiting for an older pane's transcript.
  * Desktop transport versions fence out-of-order requests; the remote shim
  * owns its legacy encrypted-transport serialization. */
+let shownSessionIds: readonly string[] = [];
+
+/** The sessions this window currently shows (last registration). */
+export function currentVisibleSessionIds(): readonly string[] {
+  return shownSessionIds;
+}
+
 export function useVisibleSessions(sessionIds: string[]): void {
   const key = sessionIds.join('\0');
   useLayoutEffect(() => {
+    shownSessionIds = sessionIds;
     const register = window.mixdogDesktop?.setVisibleSessions;
     if (!register) return;
     let cancelled = false;

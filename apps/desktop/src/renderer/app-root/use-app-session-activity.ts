@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { sessionSummaryTitle } from '../../shared/session-title.mjs';
 import type { useAppSessionActions } from '../use-app-session-actions';
+import { isMobileRemoteSurface } from '../mobile-surface';
 import { useShellUpdateReload } from '../use-shell-update-reload';
+import { currentVisibleSessionIds } from '../use-visible-sessions';
 
 type SessionActivityOptions = Pick<
   Parameters<typeof useAppSessionActions>[0],
@@ -31,7 +33,12 @@ export function useAppSessionActivity({
     };
   }, []);
 
-  useShellUpdateReload({ busy: sessions.some((session) => session.working === true) });
+  // A phone holds no turn of its own: only the conversation it shows can be
+  // interrupted by adopting a deploy, not every agent working on the desktop.
+  const shown = isMobileRemoteSurface() ? new Set(currentVisibleSessionIds()) : null;
+  useShellUpdateReload({
+    busy: sessions.some((session) => session.working === true && (!shown || shown.has(String(session.id)))),
+  });
   const runningAutomationNames = useMemo(() => {
     const schedule = new Set<string>();
     const webhook = new Set<string>();

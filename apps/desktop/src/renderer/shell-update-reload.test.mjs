@@ -27,11 +27,12 @@ test('an app that is off screen adopts it without waiting for a pause', () => {
   assert.equal(shellReloadDelay({ ...idle, hidden: true, idleFor: 0 }), 0);
 });
 
-test('a running turn and unsent text both hold the reload back', () => {
+test('a running turn holds a visible reload back; unsent text holds it back everywhere', () => {
   assert.equal(shellReloadDelay({ ...idle, busy: true }), null);
   assert.equal(shellReloadDelay({ ...idle, editing: true }), null);
-  // Not even an app that is off screen may discard those.
-  assert.equal(shellReloadDelay({ ...idle, hidden: true, busy: true }), null);
+  // Off screen a desktop-side turn is not interrupted, so the deploy applies.
+  assert.equal(shellReloadDelay({ ...idle, hidden: true, busy: true }), 0);
+  // Unsent text is never discarded, not even off screen.
   assert.equal(shellReloadDelay({ ...idle, hidden: true, editing: true }), null);
 });
 
