@@ -350,6 +350,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         const result = await invoke('synchronizeViews', [sessionIds, retained.offer, resume]);
         restoredVisibleSessionIds = [];
         if (epoch === deltaEpoch) viewResumeToken = readViewResumeGrant(result);
+        // A resumed sync may resend no transcript: the phone already shows
+        // it, so the wait ends at the receipt instead of going unreported.
+        if (resumeToken) {
+          const timeline = takeRemoteConnectionTimeline('resumed');
+          if (timeline) fire('reportConnectionTimeline', [timeline]);
+        }
         return result;
       } finally {
         retained.finish();

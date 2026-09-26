@@ -329,6 +329,7 @@ export function SettingsView({
               <CapabilitySettings
                 api={api}
                 category={category}
+                active={open}
                 onCompose={onCompose}
                 onOpenCategory={(next) => setCategory(resolveCategory(next))}
               />

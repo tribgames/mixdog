@@ -304,6 +304,15 @@ test('a connection timeline reports each wait once, in order, with fixed tokens 
   clearRemoteConnectionState();
 });
 
+test('a resumed sync that resends no transcript still ends and reports its wait', () => {
+  clearRemoteConnectionState();
+  beginRemoteConnectionTimeline('wake');
+  setRemoteConnectionPhase('sync');
+  assert.match(takeRemoteConnectionTimeline('resumed'), /^cause=wake phase=sync@\d+ resumed@\d+$/u);
+  assert.equal(takeRemoteConnectionTimeline(), '', 'a transcript frame after it reports nothing more');
+  clearRemoteConnectionState();
+});
+
 test('diagnostics retain the failing phase across retries and never record arbitrary error data', () => {
   clearRemoteConnectionState();
   const data = document.documentElement.dataset;

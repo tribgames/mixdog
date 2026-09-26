@@ -47,6 +47,9 @@ export interface CapabilitySettingsProps {
   api: CapabilityApi;
   category: CapabilityCategory;
   refreshNonce?: number;
+  /** False while the host keeps the panel mounted but hidden (prewarm):
+   *  it adopts the shared sweep and re-reads only once shown. */
+  active?: boolean;
   onCompose?: (text: string) => void;
   onOpenCategory?: (category: SettingsCategory) => void;
   /** Extensions rail: the panel HEADER owns the create action, so the add

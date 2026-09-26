@@ -79,12 +79,14 @@ function markRemoteConnectionTimeline(label: string): void {
   timeline.marks.push(`${label}@${Math.round(performance.now() - timeline.startedAt)}`);
 }
 
-/** The pending wait's marks ending in `transcript@ms`, or '' when none. */
-export function takeRemoteConnectionTimeline(): string {
+/** The pending wait's marks ending in `transcript@ms` (a transcript frame
+ * ended it) or `resumed@ms` (a resumed sync left nothing to resend), or ''
+ * when none. */
+export function takeRemoteConnectionTimeline(end: 'transcript' | 'resumed' = 'transcript'): string {
   if (!timeline) return '';
   const { cause, startedAt, marks } = timeline;
   timeline = null;
-  return [`cause=${cause}`, ...marks, `transcript@${Math.round(performance.now() - startedAt)}`].join(' ');
+  return [`cause=${cause}`, ...marks, `${end}@${Math.round(performance.now() - startedAt)}`].join(' ');
 }
 
 export function setRemoteConnectionPhase(phase: RemoteConnectionPhase): void {

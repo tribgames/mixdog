@@ -29,6 +29,7 @@ export function CapabilitySettings({
   api,
   category,
   refreshNonce = 0,
+  active = true,
   onCompose,
   onOpenCategory,
   createOpen = false,
@@ -85,13 +86,15 @@ export function CapabilitySettings({
     const cached = getCachedCapabilitySettings(api);
     // Reads now cost ~30ms in one sweep, so every open re-reads unless it just
     // happened: a settings panel showing a minute-old snapshot (or a value that
-    // was still warming up when it was cached) is the worse trade.
+    // was still warming up when it was cached) is the worse trade. A hidden,
+    // prewarmed dialog only adopts the shared sweep: re-reading it there
+    // repeated the boot sweep seconds later, over the tunnel on a phone.
     const stale = Boolean(cached && Date.now() - cached.loadedAt >= 2_000);
-    void load(revision > 0 || refreshNonce > 0 || stale);
+    void load(active && (revision > 0 || refreshNonce > 0 || stale));
     return () => {
       loadSequence.current += 1;
     };
-  }, [api, load, refreshNonce, revision]);
+  }, [active, api, load, refreshNonce, revision]);
   useEffect(() => {
     let live = true;
     void api
