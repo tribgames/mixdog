@@ -7,6 +7,29 @@
 import { createHash } from 'node:crypto';
 import { createApiHelpers } from './shared.mjs';
 
+/** Per-file line counts of a unified diff, shaped like a Git snapshot's
+ *  files (the turn review bar renders either the same way). */
+export function filesFromPatch(patch) {
+  const files = [];
+  let current = null;
+  for (const line of String(patch || '').split('\n')) {
+    const header = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+    if (header) {
+      current = { path: header[2], oldPath: header[1] === header[2] ? null : header[1], status: 'M', additions: 0, deletions: 0, binary: false };
+      files.push(current);
+      continue;
+    }
+    if (!current) continue;
+    if (line.startsWith('new file mode')) current.status = 'A';
+    else if (line.startsWith('deleted file mode')) current.status = 'D';
+    else if (line.startsWith('rename from')) current.status = 'R';
+    else if (line.startsWith('Binary files')) current.binary = true;
+    else if (line.startsWith('+') && !line.startsWith('+++')) current.additions += 1;
+    else if (line.startsWith('-') && !line.startsWith('---')) current.deletions += 1;
+  }
+  return files;
+}
+
 export function createSessionIntegrationsApi(bag, { oauthFlows }) {
   const { runtime, getState, set, pushNotice, routeState, resetStatsAndSyncContext } = bag;
   const { withCommandLock, refreshRouteStats } = createApiHelpers({
@@ -53,6 +76,11 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       // left out until the bar is opened; other kinds count from the patch.
       if (summary === true && (review.snapshotKind === 'worktree' || review.snapshotKind === 'scoped') && review.patch) {
         review = { ...review, patch: '', patchOmitted: true };
+      } else if (summary === true && review.snapshotKind === 'tool' && review.patch && !review.files?.length) {
+        // A contended worktree (several sessions on one repo) reviews this
+        // session's own tool edits and counts lines from the patch; the counts
+        // travel as files instead.
+        review = { ...review, files: filesFromPatch(review.patch), patch: '', patchOmitted: true };
       }
       // The review bar re-reads every few seconds during a turn; an unchanged
       // review answers with its tag instead of re-sending every patch. The tag

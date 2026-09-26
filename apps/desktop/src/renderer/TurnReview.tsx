@@ -946,12 +946,20 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     // completes and moves the boundary.
     const afterRevert =
       revertedBoundary !== '' && revertedBoundary === turnBoundaryKey && authoritativeLeadPatch !== null;
+    // A collapsed phone bar got the tracker's counts as files, without the
+    // patch text; they stand in wherever that patch would have been read.
+    const trackerCountsOnly =
+      authoritativeSnapshotKind === 'tool' && !authoritativeLeadPatch && authoritativeLeadFiles.length > 0;
+    if (trackerCountsOnly && (afterRevert || latestUiDiff === null)) {
+      return summarizeAuthoritativeTurnReview(authoritativeLeadFiles, '');
+    }
     return summarizeTurnReviewPatch(
       afterRevert ? authoritativeLeadPatch : (latestUiDiff ?? authoritativeLeadPatch ?? patches.join('\n'))
     );
   }, [
     authoritativeLeadFiles,
     authoritativeLeadPatch,
+    authoritativeSnapshotKind,
     authoritativeWorktreeSnapshot,
     items,
     reviewScope.startIndex,

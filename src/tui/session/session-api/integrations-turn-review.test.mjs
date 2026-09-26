@@ -41,9 +41,27 @@ test('an unchanged turn review answers with its tag instead of the whole patch',
     etag: summary.etag,
   });
   assert.equal(Object.hasOwn(seen.at(-1), 'summary'), false, 'the summary flag never reaches the runtime');
-  // A review counted from its patch (no Git snapshot) keeps the patch.
-  review.current = { ...review.current, snapshotKind: 'tool' };
-  assert.equal((await session.getTurnReviewDiff({ summary: true })).patch, review.current.patch);
+  // A review counted from its patch (a contended worktree) sends the counts
+  // as files instead of the patch.
+  review.current = {
+    ...review.current,
+    snapshotKind: 'tool',
+    files: [],
+    patch:
+      'diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1,2 +1,3 @@\n-old\n+new\n+more\n keep\n' +
+      'diff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1 @@\n+hi\n',
+  };
+  const toolSummary = await session.getTurnReviewDiff({ summary: true });
+  assert.equal(toolSummary.patch, '');
+  assert.deepEqual(
+    toolSummary.files.map(({ path, status, additions, deletions }) => [path, status, additions, deletions]),
+    [
+      ['src/a.js', 'M', 2, 1],
+      ['b.txt', 'A', 1, 0],
+    ]
+  );
+  // Without `summary` the patch still travels whole.
+  assert.equal((await session.getTurnReviewDiff({})).patch, review.current.patch);
 
   review.current = { ...review.current, patch: 'diff --git a/y b/y\n' };
   const changed = await session.getTurnReviewDiff({ refresh: false, known: first.etag });
