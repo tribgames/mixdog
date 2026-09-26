@@ -7,6 +7,9 @@
 import { createHash } from 'node:crypto';
 import { createApiHelpers } from './shared.mjs';
 
+// Field digests per issued review tag (bounded), for the miss diagnostic.
+const reviewFieldTags = new Map();
+
 export function createSessionIntegrationsApi(bag, { oauthFlows }) {
   const { runtime, getState, set, pushNotice, routeState, resetStatsAndSyncContext } = bag;
   const { withCommandLock, refreshRouteStats } = createApiHelpers({
@@ -51,7 +54,23 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       // The review bar re-reads every few seconds during a turn; an unchanged
       // review answers with its tag instead of re-sending every patch.
       const etag = createHash('sha256').update(JSON.stringify(review)).digest('hex').slice(0, 32);
-      return known === etag ? { unchanged: true, etag } : { ...review, etag };
+      if (known === etag) return { unchanged: true, etag };
+      // Which fields moved since the tag the caller holds: tells a review that
+      // really changed (a worktree edit) from one rebuilt differently.
+      const fields = Object.fromEntries(
+        Object.entries(review || {}).map(([key, value]) => [
+          key,
+          createHash('sha256').update(JSON.stringify(value) ?? '').digest('hex').slice(0, 12),
+        ])
+      );
+      const previous = known ? reviewFieldTags.get(known) : null;
+      if (previous) {
+        const moved = Object.keys({ ...previous, ...fields }).filter((key) => previous[key] !== fields[key]);
+        console.error(`[turn-review-tag] miss moved=${moved.join(',') || '(none)'}`);
+      }
+      reviewFieldTags.set(etag, fields);
+      if (reviewFieldTags.size > 32) reviewFieldTags.delete(reviewFieldTags.keys().next().value);
+      return { ...review, etag };
     },
     getSessionReviewDiff: async () => {
       return (await runtime.getSessionReviewDiff?.()) ?? { supported: false, files: [], patch: '' };
