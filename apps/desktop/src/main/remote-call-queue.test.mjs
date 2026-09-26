@@ -55,6 +55,23 @@ test('a slow model catalog read does not hold a snapshot read behind it', async 
   queue.close();
 });
 
+test('a slow turn review diff never fences the stat, read-mark or submit issued after it', async () => {
+  const queue = createRemoteCallQueue();
+  const review = deferred();
+  const seen = [];
+  const diff = queue.run('invokeCapability:getTurnReviewDiff', async () => {
+    await review.promise;
+    seen.push('review');
+  });
+  await queue.run('statProjectFile', async () => seen.push('stat'));
+  await queue.run('markSessionRead', async () => seen.push('read-mark'));
+  assert.deepEqual(seen, ['stat', 'read-mark']);
+  review.resolve();
+  await diff;
+  assert.deepEqual(seen, ['stat', 'read-mark', 'review']);
+  queue.close();
+});
+
 test('disconnect rejects queued terminal input without replaying it', async () => {
   const queue = createRemoteCallQueue();
   const gate = deferred();

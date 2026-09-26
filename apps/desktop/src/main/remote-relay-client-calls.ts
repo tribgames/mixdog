@@ -170,7 +170,14 @@ export function createRelayClientCallDispatch(
     // Decryption stays ordered; independent reads execute concurrently.
     // Count the frame until execution finishes, not merely until decode.
     const callQueuedAt = Date.now();
-    const execution = client.callQueue.run(String(call?.method ?? ''), async () => {
+    // The turn review diff re-reads the worktree (seconds while a turn runs)
+    // and is read-only: it rides the slow-read lane instead of fencing
+    // stat/read/submit calls behind it.
+    const queueKey =
+      remoteCallStatName(String(call?.method ?? ''), call?.params) === 'invokeCapability:getTurnReviewDiff'
+        ? 'invokeCapability:getTurnReviewDiff'
+        : String(call?.method ?? '');
+    const execution = client.callQueue.run(queueKey, async () => {
       if (!deps.attached(clientId, client)) return;
       const callStartedAt = Date.now();
       const queueMs = callStartedAt - callQueuedAt;

@@ -31,7 +31,13 @@ const PARALLEL_READS = new Set([
 // stat/read/capability/submit calls are never queued behind them. They still
 // observe every mutation queued before them; later mutations need not wait
 // for them, because a search or preview has nothing a write could overtake.
-const SLOW_READS = new Set(['searchProjectFiles', 'searchWorkspaceText', 'previewDocumentPages']);
+const SLOW_READS = new Set([
+  'searchProjectFiles',
+  'searchWorkspaceText',
+  'previewDocumentPages',
+  // Keyed by capability at the dispatch site: a worktree diff read.
+  'invokeCapability:getTurnReviewDiff',
+]);
 
 const TERMINAL_METHODS = new Set(['termEnsure', 'termProfiles', 'termWrite', 'termResize', 'termDispose']);
 
