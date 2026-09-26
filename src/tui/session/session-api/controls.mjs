@@ -6,6 +6,7 @@ import { projectNameFromPath } from '../labels.mjs';
 import { recomputePromptHistory } from '../prompt-history.mjs';
 import { appendPromptHistory, buildMergedPromptHistory, loadPromptHistory } from '../../prompt-history-store.mjs';
 import { abortGoalTurn } from '../goal-turn-state.mjs';
+import { goalStateSnapshot } from '../../../session-runtime/goal-state.mjs';
 import { createApiHelpers } from './shared.mjs';
 
 export function createSessionControlsApi(bag) {
@@ -68,7 +69,7 @@ export function createSessionControlsApi(bag) {
         bag.cancelQueuedGoalContinuations?.();
         if (getState().busy) abortGoalTurn(runtime, flags, false);
       }
-      set({ goal: runtime.goalStatus?.() || result?.goal || null });
+      set({ goal: goalStateSnapshot(runtime.goalStatus?.() || result?.goal || null) });
       return result;
     },
     toolsStatus: (query = '') => {

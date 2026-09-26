@@ -17,6 +17,7 @@ import { isMobileRemoteSurface } from './MobileTabOverview';
 import { connectionQuality } from './network-conditions';
 import { paneActiveSessionIds } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
+import { remoteSurface } from './shell-viewport';
 import { DEFAULT_SIDEBAR_VIEW_ORDER } from './sidebar-view-layout';
 import { loadStudioViewModule } from './studio-loader';
 import { asRecord, navigationKey } from './text-format';
@@ -157,7 +158,12 @@ export function useAppThemePreference() {
 
 export function useAppOnboarding(setSettingsOpen: Dispatch<SetStateAction<boolean>>) {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
-  const [onboardingReady, setOnboardingReady] = useState(false);
+  // A paired remote surface never holds its boot cover for this read: it is a
+  // capability read that queues on the desktop behind the boot's usage and
+  // provider probes, so the conversation stayed covered for seconds after its
+  // view sync. Pairing implies a set-up desktop; an incomplete onboarding still
+  // opens the wizard when the answer lands.
+  const [onboardingReady, setOnboardingReady] = useState(remoteSurface);
   useEffect(() => {
     const openOnboarding = () => {
       setSettingsOpen(false);

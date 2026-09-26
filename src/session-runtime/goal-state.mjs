@@ -222,6 +222,38 @@ export function publicGoal(goal, now = Date.now()) {
   };
 }
 
+/** The Goal as a published state lane. `publicGoal` answers "how long right
+ *  now", so every read restates timeUsedMs/remainingMs/snapshotAt with a new
+ *  clock reading — and the 2s route pulse republished the whole Goal to every
+ *  desktop and phone while nothing about it had changed. A running clock is
+ *  fully described by its open segment: the time committed before it and the
+ *  moment it started. Anchoring the snapshot at `lastStartedAt` keeps the wire
+ *  shape receivers already read (elapsed = timeUsedMs + (clock - snapshotAt),
+ *  deadlineAt fixed) while every read of an unchanged Goal is equal. A stopped
+ *  clock has no anchor to carry, so its read time is dropped. Returns the
+ *  input itself when nothing needs anchoring. */
+export function goalStateSnapshot(goal) {
+  if (!goal || typeof goal !== 'object') return goal || null;
+  const startedAt = Number(goal.lastStartedAt) || 0;
+  const snapshotAt = Number(goal.snapshotAt) || 0;
+  if (goal.status !== 'active' || startedAt <= 0) {
+    if (!Object.hasOwn(goal, 'snapshotAt')) return goal;
+    const { snapshotAt: _readAt, ...stopped } = goal;
+    return stopped;
+  }
+  if (snapshotAt <= 0 || snapshotAt === startedAt) return goal;
+  const committed = Math.max(0, (Number(goal.timeUsedMs) || 0) - Math.max(0, snapshotAt - startedAt));
+  const limitMs = Number(goal.timeLimitMs) || 0;
+  const remainingMs = limitMs > 0 ? Math.max(0, limitMs - committed) : null;
+  return {
+    ...goal,
+    timeUsedMs: committed,
+    remainingMs,
+    deadlineAt: remainingMs === null ? null : startedAt + remainingMs,
+    snapshotAt: startedAt,
+  };
+}
+
 export function normalizedCompletedGoalTtlMs(value) {
   const ttlMs = Number(value);
   return Number.isFinite(ttlMs) && ttlMs >= 0 ? ttlMs : DEFAULT_COMPLETED_GOAL_TTL_MS;

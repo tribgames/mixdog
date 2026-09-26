@@ -37,6 +37,26 @@ export function terminalJobFrozenFields(status, now = Date.now()) {
   };
 }
 
+/** A worker/job row as the published session state carries it. That state
+ *  (statusline, desktop, phone, live-share viewers) re-reads agent status on a
+ *  2s pulse, and these fields are the agent card's diagnostics, derived from
+ *  the read time or the last stream delta: they changed on every read while
+ *  nothing a surface shows did, so each pulse re-sent both row lists. Surfaces
+ *  derive elapsed time from startedAt/turnStartedAt; the agent card still reads
+ *  the diagnostics through renderJob/list directly. */
+export function liveAgentStatusRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  const {
+    silent_for: _silentFor,
+    staleSeconds: _staleSeconds,
+    lastStreamDeltaAt: _lastStreamDeltaAt,
+    last_progress: _lastProgress,
+    diagnostic: _diagnostic,
+    ...stable
+  } = row;
+  return stable;
+}
+
 export function createSessionProgress({ mgr }) {
   function sessionProgressExtras(sessionId, role, now = Date.now(), taskStatus = null) {
     if (!sessionId) return {};

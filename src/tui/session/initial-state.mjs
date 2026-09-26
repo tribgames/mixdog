@@ -3,6 +3,7 @@
  */
 import { buildMergedPromptHistory, loadPromptHistory } from '../prompt-history-store.mjs';
 import { createSessionStats } from './session-stats.mjs';
+import { goalStateSnapshot } from '../../session-runtime/goal-state.mjs';
 
 export function createInitialSessionState({ runtime, runtimeCwd, baseRouteState }) {
   return {
@@ -42,7 +43,7 @@ export function createInitialSessionState({ runtime, runtimeCwd, baseRouteState 
     agentWorkers: [],
     agentJobs: [],
     agentScope: null,
-    goal: runtime.goalStatus?.() || null,
+    goal: goalStateSnapshot(runtime.goalStatus?.() || null),
     toolMode: runtime.toolMode,
     cwd: runtimeCwd,
     themeEpoch: 0,

@@ -5,6 +5,7 @@ import { AGENT_TOOL } from './agent-tool/tool-def.mjs';
 import { agentScope, envTimeoutMs, callerSessionForContext, terminalPidForContext } from './agent-tool/helpers.mjs';
 import { createTagRegistry } from './agent-tool/tag-registry.mjs';
 import { createJobViews } from './agent-tool/job-views.mjs';
+import { liveAgentStatusRow } from './agent-tool/job-views/session-progress.mjs';
 import { createSpawnFlow } from './agent-tool/spawn-flow.mjs';
 import { createSendFlow } from './agent-tool/send-flow.mjs';
 import { createCloseFlow } from './agent-tool/close-flow.mjs';
@@ -118,8 +119,8 @@ export function createStandaloneAgent({
     if (ownerSession) scope = { sessionId: ownerSession };
     else if (pid) scope = { clientHostPid: pid };
     return {
-      workers: views.list({ scanSessions: false, context: scopedContext }),
-      jobs: views.listJobs(scopedContext),
+      workers: views.list({ scanSessions: false, context: scopedContext }).map(liveAgentStatusRow),
+      jobs: views.listJobs(scopedContext).map(liveAgentStatusRow),
       scope,
     };
   }

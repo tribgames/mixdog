@@ -97,7 +97,13 @@ export function createProviderModels({
   async function collectProviderModels({ force = false, quick = false } = {}) {
     meta.syncCatalogRevision();
     if (!force && Array.isArray(caches.providerModelsCache.models)) {
-      return rows.providerModelsFromCacheRows(caches.providerModelsCache.models);
+      const models = rows.providerModelsFromCacheRows(caches.providerModelsCache.models);
+      // A quick read answered from the loaded catalog already IS the full
+      // catalog. Saying so lets a caller skip the full read it would otherwise
+      // follow up with (a phone paid the whole catalog twice at boot). Only
+      // this answer carries the mark: a full read is complete by definition,
+      // and an unmarked quick answer keeps meaning "follow up".
+      return quick ? models.map((row) => ({ ...row, catalogComplete: true })) : models;
     }
     if (!force && quick) {
       // A user-facing quick read seeds the authoritative secrets-aware load.

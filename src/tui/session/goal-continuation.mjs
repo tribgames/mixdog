@@ -16,17 +16,21 @@ export function createGoalContinuation({ runtime, flags, getState, set, getPendi
   const onGoalChanged = (event = {}) => {
     const currentSessionId = clean(getState().sessionId || runtime.id);
     if (clean(event.sessionId) && clean(event.sessionId) !== currentSessionId) return;
-    const goal = visibility.visibleGoal(event.goal || runtime.goalStatus?.() || null);
+    const raw = event.goal || runtime.goalStatus?.() || null;
+    const goal = visibility.visibleGoal(raw);
+    // Deadline notices tell the model the time used NOW; the lane's goal is
+    // anchored at its clock start, so they read the unmasked live record.
+    const timed = goal ? raw : null;
     const reached =
       goal?.status === 'duration_reached' && clean(goal.id) === observedGoalId && observedGoalStatus === 'active';
     observedGoalId = clean(goal?.id);
     observedGoalStatus = clean(goal?.status);
     queue.cancelQueuedGoalContinuations({ keepCloseoutFor: goal });
     set({ goal });
-    deadline.deliverGoalDeadlineWarning(goal);
+    deadline.deliverGoalDeadlineWarning(timed);
     // The durable stop state is already published. Preserve the running turn
     // so it can close out; a closeout is not another Goal work continuation.
-    if (reached) deadline.deliverGoalCloseout(goal);
+    if (reached) deadline.deliverGoalCloseout(timed);
     if (goal?.status === 'active') queue.scheduleGoalContinuation();
   };
 

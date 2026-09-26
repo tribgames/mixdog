@@ -226,6 +226,7 @@ test('installed phone boot promotes only its locale and preserves asset priority
         <link rel="modulepreload" fetchpriority="high" href="./bootstrap.js">
         <link rel="modulepreload" data-mixdog-locale="ko" href="./ko.js">
         <link rel="modulepreload" data-mixdog-locale="ja" href="./ja.js">
+        <link rel="preload" href="./seti.woff" as="font" type="font/woff" crossorigin data-mixdog-surface="desktop">
       </template>
     </head><body><div id="root"></div></body></html>`,
     { runScripts: 'outside-only', url: 'https://mixdog.test/d/device/' }
@@ -261,6 +262,55 @@ test('installed phone boot promotes only its locale and preserves asset priority
     dom.window.mixdogRevealApp?.();
     dom.window.close();
   }
+});
+
+test('only the Electron desktop promotes desktop-surface hints', () => {
+  const markup = `<!doctype html><html><head>
+      <meta name="viewport" content="width=device-width">
+      <template id="mixdog-first-screen">
+        <link rel="modulepreload" fetchpriority="high" href="./bootstrap.js">
+        <link rel="preload" href="./assets/seti-12345678.woff" as="font" type="font/woff" crossorigin data-mixdog-surface="desktop">
+      </template>
+    </head><body><div id="root"></div></body></html>`;
+  const headLinks = (userAgent) => {
+    const dom = new JSDOM(markup, { runScripts: 'outside-only', url: 'file:///app/out/renderer/index.html' });
+    Object.defineProperty(dom.window.navigator, 'userAgent', { configurable: true, value: userAgent });
+    dom.window.matchMedia = (query) => ({
+      matches: query === '(display-mode: standalone)',
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    });
+    try {
+      dom.window.eval(bootSource);
+      return [...dom.window.document.head.children]
+        .filter((node) => node.tagName === 'LINK')
+        .map((link) => ({
+          rel: link.rel,
+          as: link.getAttribute('as'),
+          type: link.getAttribute('type'),
+          crossorigin: link.hasAttribute('crossorigin'),
+          href: link.href,
+        }));
+    } finally {
+      dom.window.mixdogRevealApp?.();
+      dom.window.close();
+    }
+  };
+  assert.deepEqual(headLinks('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/144 Electron/41.0.0'), [
+    {
+      rel: 'preload',
+      as: 'font',
+      type: 'font/woff',
+      crossorigin: true,
+      href: 'file:///app/out/renderer/assets/seti-12345678.woff',
+    },
+  ]);
+  // The installed phone app takes its module hints but never the desktop font.
+  assert.deepEqual(
+    headLinks('Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 Chrome/131 Mobile').map((link) => link.rel),
+    ['modulepreload']
+  );
 });
 
 test('phone finishing rules keep reading, touch and safe-area geometry aligned', () => {

@@ -316,7 +316,9 @@ test('real host, relay and browser shim recover through reconnects and backgroun
       return replay(...args);
     };
     f.host.abortSession = async () => true;
-    const recovery = api.setVisibleSessions(['lead']);
+    // An unchanged pane registration is already synchronized; a network
+    // recovery is what forces a full view sync.
+    w.dispatchEvent(new w.Event('online'));
     await entered.promise;
     try {
       assert.equal(await api.abortSession('lead'), true);
@@ -324,18 +326,16 @@ test('real host, relay and browser shim recover through reconnects and backgroun
     } finally {
       gate.resolve();
     }
-    await recovery;
+    await until(() => w.document.documentElement.dataset.mixdogRemoteConnection === 'connected');
     f.host.replaySessionStates = async () => {
       throw new Error('private transcript and credential must not appear in connection diagnostics');
     };
-    const failedRecovery = api.setVisibleSessions(['lead']);
-    void failedRecovery.catch(() => undefined);
+    w.dispatchEvent(new w.Event('online'));
     await until(() => w.document.documentElement.dataset.mixdogRemoteError?.includes('sync-failed'));
     assert.equal(w.document.documentElement.dataset.mixdogRemotePhase, 'sync');
     assert.equal(w.document.documentElement.dataset.mixdogRemoteError, 'sync / sync-failed / Error');
     f.host.replaySessionStates = replay;
-    await failedRecovery;
-    assert.equal(w.document.documentElement.dataset.mixdogRemotePhase, 'connected');
+    await until(() => w.document.documentElement.dataset.mixdogRemotePhase === 'connected');
     assert.equal(w.document.documentElement.dataset.mixdogRemoteError, undefined);
   } finally {
     stopPane?.();
@@ -345,6 +345,130 @@ test('real host, relay and browser shim recover through reconnects and backgroun
       Object.defineProperty(dom.window.document, 'visibilityState', { value: 'hidden', configurable: true });
       dom.window.dispatchEvent(new dom.window.Event('pagehide'));
       // Suspend now, so closing sockets never redial into a closed window.
+      for (const expire of graceTimers.values()) expire();
+      graceTimers.clear();
+    }
+    for (const socket of sockets) socket.terminate();
+    dom?.window.close();
+    globalThis.window = priorWindow;
+    await handle?.close();
+    await relay?.close();
+    await f.close();
+  }
+});
+
+test('a cold launch receives its restored transcript in the first view sync', async () => {
+  const f = await viewSyncHost();
+  let relay, handle, dom, stop, stopPane;
+  const sockets = [];
+  const graceTimers = new Map();
+  const priorWindow = globalThis.window;
+  const store = createSessionLaneStore({ decorator: { decorate: (value) => value, clear() {} } });
+  try {
+    f.put('lead', 'restored answer');
+    const syncs = [];
+    const replay = f.host.replaySessionStates.bind(f.host);
+    f.host.replaySessionStates = (sessionIds, ...rest) => {
+      syncs.push([...sessionIds]);
+      return replay(sessionIds, ...rest);
+    };
+    relay = await startRelay({ port: 0, dataDir: `${f.directory}/relay` });
+    const origin = `http://127.0.0.1:${relay.port}`;
+    handle = await startRemoteRelay({
+      relayUrl: `ws://127.0.0.1:${relay.port}`,
+      userDataPath: f.directory,
+      host: f.host,
+    });
+    const deviceId = new URL(handle.clientUrl).pathname.split('/')[2];
+    await until(() => relay.store.isKnown(deviceId));
+    const registered = relay.store.registerClient(deviceId, '11111111-2222-3333-4444-666666666666', {});
+    dom = new JSDOM('<!doctype html><body><p id="transcript"></p></body>', {
+      url: `${origin}/d/${deviceId}/`,
+      runScripts: 'outside-only',
+      pretendToBeVisual: true,
+    });
+    const w = dom.window;
+    globalThis.window = w;
+    Object.defineProperty(w.navigator, 'userAgent', { value: 'Android Mobile' });
+    w.matchMedia = () => ({ matches: true });
+    Object.defineProperty(w, 'crypto', { value: webcrypto });
+    Object.assign(w, {
+      TextEncoder,
+      TextDecoder,
+      ArrayBuffer,
+      Uint8Array,
+      ReadableStream,
+      CompressionStream,
+      DecompressionStream,
+      fetch: (url, options) => fetch(new URL(url, origin), options),
+    });
+    w.WebSocket = class extends WebSocket {
+      constructor(url) {
+        super(url, { headers: { Origin: origin } });
+        sockets.push(this);
+      }
+    };
+    const realSetTimeout = w.setTimeout.bind(w);
+    const realClearTimeout = w.clearTimeout.bind(w);
+    w.setTimeout = (fn, ms, ...args) => {
+      if (ms !== 30_000) return realSetTimeout(fn, ms, ...args);
+      const id = realSetTimeout(() => {}, 2 ** 31 - 1);
+      graceTimers.set(id, fn);
+      return id;
+    };
+    w.clearTimeout = (id) => {
+      graceTimers.delete(id);
+      realClearTimeout(id);
+    };
+    for (const [key, value] of Object.entries({
+      'mixdog.remote-token': registered.token,
+      'mixdog.remote-paired': '1',
+      'mixdog.remote-browser-id': registered.clientId,
+      'mixdog.remote-e2ee-public-key': handle.pairing.serverPublicKey,
+      'mixdog.remote-e2ee-secret': handle.pairing.pairingSecret,
+      // The previous visit's panes.
+      'mixdog.remote-visible-sessions': JSON.stringify(['lead']),
+    }))
+      w.localStorage.setItem(key, value);
+    const bundle = await build({
+      entryPoints: [fileURLToPath(new URL('./remote-shim.ts', import.meta.url))],
+      bundle: true,
+      write: false,
+      platform: 'browser',
+      format: 'iife',
+      target: 'es2022',
+    });
+    w.eval(bundle.outputFiles[0].text);
+    const api = w.mixdogDesktop;
+    stop = store.start(api.subscribeSessionState);
+    const text = w.document.getElementById('transcript');
+    stopPane = store.subscribe('lead', () => {
+      text.textContent = store.get('lead')?.items?.at(-1)?.text ?? '';
+    });
+    // A phone's first React commit registers its fresh New-task pane while
+    // the relay is still connecting; it must not unname the restored session.
+    assert.equal(await api.setVisibleSessions([]), true);
+    await until(
+      () =>
+        text.textContent === 'restored answer' &&
+        w.document.documentElement.dataset.mixdogRemoteConnection === 'connected'
+    );
+    assert.deepEqual(syncs, [['lead']], 'the first view sync names the restored session');
+    // The pane then opens the restored session: already synchronized.
+    assert.equal(await api.setVisibleSessions(['lead']), true);
+    await api.getSnapshot();
+    assert.deepEqual(syncs, [['lead']], 'an already synchronized registration issues no second sync');
+    assert.equal(sockets.length, 1);
+    // A genuinely different set still synchronizes.
+    assert.equal(await api.setVisibleSessions([]), true);
+    assert.deepEqual(syncs, [['lead'], []]);
+  } finally {
+    stopPane?.();
+    stop?.();
+    store.clear();
+    if (dom) {
+      Object.defineProperty(dom.window.document, 'visibilityState', { value: 'hidden', configurable: true });
+      dom.window.dispatchEvent(new dom.window.Event('pagehide'));
       for (const expire of graceTimers.values()) expire();
       graceTimers.clear();
     }

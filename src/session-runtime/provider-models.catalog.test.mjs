@@ -164,3 +164,23 @@ test('a quick read answers with quick rows and seeds the secrets-aware load the 
   assert.equal(caches.providerModelsPromise, null);
   assert.equal(api.warmProviderModelCache(), null, 'a warm cache is not reloaded');
 });
+
+test('only a quick read answered from the loaded catalog says it is complete', async () => {
+  const { api } = fixture();
+  const cold = await api.collectProviderModels({ quick: true });
+  assert.equal(
+    cold.some((row) => 'catalogComplete' in row),
+    false,
+    'provisional quick rows ask for the full follow-up'
+  );
+  const full = await api.collectProviderModels();
+  assert.equal(
+    full.some((row) => 'catalogComplete' in row),
+    false
+  );
+  const warm = await api.collectProviderModels({ quick: true });
+  assert.deepEqual(
+    warm.map((row) => [row.id, row.catalogComplete]),
+    full.map((row) => [row.id, true])
+  );
+});

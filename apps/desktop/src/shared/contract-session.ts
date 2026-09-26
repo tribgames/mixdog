@@ -293,6 +293,9 @@ export interface DesktopModelOption {
   defaultModelParameters?: Record<string, string>;
   savedModelParameters?: Record<string, string>;
   savedContextPercent?: number;
+  /** Set only on a quick answer the daemon served from its loaded catalog:
+   *  that answer is already the full catalog, so no full read has to follow. */
+  catalogComplete?: true;
 }
 
 export interface DesktopModelCatalogOptions {

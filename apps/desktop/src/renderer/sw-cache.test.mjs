@@ -57,7 +57,8 @@ test('a cached shell document answers without waiting for the network', async ()
       return response;
     },
   });
-  const result = await shellFirst({ url: 'https://relay/d/abc/', mode: 'navigate' });
+  // Shell assets resolve against the document, which shares the worker's origin.
+  const result = await shellFirst({ url: `${WORKER_ORIGIN}/d/abc/`, mode: 'navigate' });
 
   // The paint gets the copy already on the device; the round trip runs behind it.
   assert.equal(await result.response.text(), shellMarkup('cached shell'));
@@ -144,7 +145,7 @@ test('a deploy found behind the paint is offered to the running app', async () =
     windows: [{ postMessage: (message) => posted.push(message) }],
     fetchAsset: shellNetwork('new shell'),
   });
-  const result = await shellFirst({ url: 'https://relay/d/abc/', mode: 'navigate' });
+  const result = await shellFirst({ url: `${WORKER_ORIGIN}/d/abc/`, mode: 'navigate' });
 
   // The paint is unchanged: the previous document still answers immediately.
   assert.equal(await result.response.text(), shellMarkup('old shell'));
@@ -271,6 +272,75 @@ test("a missing lazy chunk refreshes only its owner's shell and reports a recove
   await done;
   assert.equal(messages[0]?.version, 'new');
   assert.equal(await (await (await caches.open('mixdog-shell-v1')).match(url)).text(), shellMarkup('new'));
+});
+
+function dispatchFetch(worker, url) {
+  let answer;
+  let done = Promise.resolve();
+  worker.listeners.get('fetch')({
+    clientId: 'page',
+    request: new Request(url),
+    respondWith: (promise) => {
+      answer = promise;
+    },
+    waitUntil: (promise) => {
+      done = promise;
+    },
+  });
+  return { answer, done };
+}
+
+test('hashed assets under a device route are cached once and reused from any route', async () => {
+  const caches = memoryCacheStorage();
+  const requested = [];
+  const worker = loadWorker({
+    caches,
+    fetchAsset: async (request) => {
+      requested.push(new URL(request.url).pathname);
+      const response = new Response('chunk');
+      Object.defineProperty(response, 'type', { value: 'basic' });
+      return response;
+    },
+  });
+  const first = dispatchFetch(worker, `${WORKER_ORIGIN}/d/device/assets/bootstrap-12345678.js`);
+  assert.equal(await (await first.answer).text(), 'chunk');
+  await first.done;
+  assert.deepEqual(
+    (await caches.peek('mixdog-assets-v2').keys()).map((key) => key.url),
+    [`${WORKER_ORIGIN}/assets/bootstrap-12345678.js`]
+  );
+  for (const path of ['/d/device/assets/bootstrap-12345678.js', '/d/other/assets/bootstrap-12345678.js', '/assets/bootstrap-12345678.js']) {
+    const again = dispatchFetch(worker, `${WORKER_ORIGIN}${path}`);
+    assert.equal(await (await again.answer).text(), 'chunk');
+    await again.done;
+  }
+  assert.deepEqual(requested, ['/d/device/assets/bootstrap-12345678.js']);
+});
+
+test('device-route live traffic and unhashed files never enter the asset cache', async () => {
+  const caches = memoryCacheStorage();
+  const worker = loadWorker({ caches });
+  for (const path of ['/d/device/manifest.webmanifest', '/d/device/assets/boot.js', '/media/device/file-12345678.png']) {
+    const result = dispatchFetch(worker, `${WORKER_ORIGIN}${path}`);
+    await result.answer;
+    await result.done;
+  }
+  assert.equal(caches.peek('mixdog-assets-v2'), undefined);
+});
+
+test('a device-route shell whose assets were cached through that route answers from cache', async () => {
+  const caches = memoryCacheStorage();
+  const url = `${WORKER_ORIGIN}/d/device/`;
+  await (await caches.open('mixdog-shell-v1')).put(url, new Response(shellMarkup('cached')));
+  const worker = loadWorker({ caches, fetchAsset: shellNetwork('new') });
+  // The installed page requests its relative assets under its own route.
+  const asset = dispatchFetch(worker, `${url}assets/bootstrap-12345678.js`);
+  await asset.answer;
+  await asset.done;
+  const result = await worker.shellFirst({ url, mode: 'navigate' });
+  assert.equal(await result.response.text(), shellMarkup('cached'));
+  assert.equal(typeof result.maintenance?.then, 'function');
+  await result.maintenance;
 });
 
 test('share and notification query variants reuse one document per device', async () => {

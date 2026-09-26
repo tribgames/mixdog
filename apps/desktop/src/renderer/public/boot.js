@@ -111,6 +111,20 @@ try {
   /* default dark */
 }
 
+// Desktop-only hints (the Seti file-icon font) are kept out of the parsed head
+// so a phone never fetches them ahead of its relay transport; Electron
+// promotes them here, at the point in the parse where the markup used to.
+if (/Electron/i.test(navigator.userAgent)) {
+  var mixdogDesktopHintHost = document.getElementById('mixdog-first-screen');
+  var mixdogDesktopHints =
+    mixdogDesktopHintHost && mixdogDesktopHintHost.content
+      ? mixdogDesktopHintHost.content.querySelectorAll('link[data-mixdog-surface="desktop"]')
+      : [];
+  for (var mixdogDesktopIndex = 0; mixdogDesktopIndex < mixdogDesktopHints.length; mixdogDesktopIndex += 1) {
+    document.head.appendChild(document.importNode(mixdogDesktopHints[mixdogDesktopIndex], true));
+  }
+}
+
 // The installed web app has no equivalent of the desktop's hidden window:
 // rendererReady is a no-op over the relay, so the browser painted every step of
 // the launch in sequence — unstyled document, first React frame in fallback
@@ -139,6 +153,7 @@ if (mixdogInstalledApp) {
     var mixdogHint = mixdogHints[mixdogHintIndex];
     var mixdogHintLocale = mixdogHint.getAttribute('data-mixdog-locale');
     if (mixdogHintLocale && mixdogHintLocale !== mixdogUiLanguage) continue;
+    if (mixdogHint.hasAttribute('data-mixdog-surface')) continue;
     var mixdogLink = document.createElement('link');
     mixdogLink.rel = mixdogHint.getAttribute('rel');
     if (mixdogHint.hasAttribute('crossorigin')) mixdogLink.crossOrigin = 'anonymous';

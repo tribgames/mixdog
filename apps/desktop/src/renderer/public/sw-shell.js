@@ -69,15 +69,19 @@ async function announceShellUpdate(version = '') {
   }
 }
 
-async function shellAssetsReady(body) {
+/** `documentUrl` is the shell's own URL: its asset list is relative, so a
+ *  device-route document names /d/<deviceId>/assets/..., exactly what the page
+ *  requests and the asset cache keys. */
+async function shellAssetsReady(body, documentUrl) {
   const assets = shellMeta(body, 'mixdog-shell-assets').split(',').filter(Boolean);
   // A pre-protocol document has no proof its bootstrap is still available.
   if (!shellMeta(body, 'mixdog-shell-version') || assets.length === 0) return false;
   const cache = await caches.open(ASSET_CACHE);
   for (const asset of assets) {
-    const url = new URL(asset, `${self.location.origin}/`);
-    if (url.origin !== self.location.origin || !HASHED_ASSET.test(url.pathname)) return false;
-    if (!(await cache.match(url.toString(), { ignoreVary: true }))) return false;
+    const url = new URL(asset, documentUrl);
+    const key = url.origin === self.location.origin ? hashedAssetKey(url) : null;
+    if (!key) return false;
+    if (!(await cache.match(key, { ignoreVary: true }))) return false;
   }
   return true;
 }
@@ -108,7 +112,7 @@ async function shellFirst(request) {
     (response) => ({ response }),
     (error) => ({ error })
   );
-  if (hit && (await shellAssetsReady(cachedBody).catch(() => false))) {
+  if (hit && (await shellAssetsReady(cachedBody, key).catch(() => false))) {
     return { response: hit, maintenance: settled };
   }
   const result = await settled;

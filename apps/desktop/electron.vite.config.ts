@@ -1,14 +1,14 @@
 // electron-vite configuration for the desktop app.
 // Third-party derivation notices: NOTICE.md at the repository root.
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 
 // SWC transform (user: 빌드 과정이 느리다): no custom babel plugins exist, so
 // the babel-based @vitejs/plugin-react only cost time — SWC cuts the 3600-
 // module renderer transform roughly in half.
 import react from '@vitejs/plugin-react-swc';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
-import type { OutputChunk } from 'rollup';
+import type { OutputAsset, OutputChunk } from 'rollup';
 import type { Plugin } from 'vite';
 import { stampRendererShell } from './scripts/renderer-shell';
 import { computerSourceVitePlugin } from './scripts/computer-source-assets.mjs';
@@ -74,19 +74,25 @@ const inlineBootScript: Plugin = {
 // Every static dependency of the entry and of these roots is read from the
 // bundle graph, so a renamed or re-split chunk can never drop out of the
 // hints. Keep this order intentional: production serves HTTP/1.1 and a phone
-// opens six connections, so the entry's own graph and then bootstrap claim
-// the cold-start lane first.
+// opens six connections that serve equal-priority hints first come, first
+// served. The relay transport goes first: its whole graph is ~20 KB brotli
+// against ~450 KB for the rest of the fan-out, and the WebSocket handshake,
+// E2EE and desktop round trips it starts then overlap the shell download
+// instead of queueing behind bootstrap (phone trace: connecting@1109 ms).
+const FIRST_SCREEN_TRANSPORT_CHUNK = 'remote-shim';
 const FIRST_SCREEN_ROOT_CHUNKS = [
-  'bootstrap',
-  'remote-shim',
-  'i18n',
+  FIRST_SCREEN_TRANSPORT_CHUNK,
   'mobile-surface',
+  'i18n',
+  'bootstrap',
   // A restored Markdown conversation must be complete when the shell reveals.
   // It follows every shell-critical chunk so bootstrap and React keep the
   // first connection slots.
   'MarkdownBody',
 ] as const;
-// The heaviest shell-critical modules outrank the rest of the fan-out.
+// The heaviest shell-critical modules outrank the rest of the fan-out, as
+// does the entry + transport graph that has to evaluate before the relay
+// socket can open.
 const FIRST_SCREEN_HIGH_PRIORITY_CHUNKS = new Set(['bootstrap', 'react-vendor', 'ui-vendor']);
 const FIRST_SCREEN_LOCALE_CHUNKS = {
   de: 'de',
@@ -114,6 +120,15 @@ const firstScreenHints: Plugin = {
       // hints would name files that do not exist yet.
       if (!context.bundle) return html.replace(placeholder, '');
       const bundle = context.bundle;
+      // Desktop-only hints (the Seti file-icon font) must leave the parsed
+      // head: the preload scanner would otherwise fetch them on the phone too,
+      // ahead of the relay transport. They ride the template, and boot.js
+      // applies them only inside Electron.
+      const desktopHints: string[] = [];
+      html = html.replace(/[ \t]*<link\b[^>]*\bdata-mixdog-surface="desktop"[^>]*>\r?\n?/g, (tag) => {
+        desktopHints.push(tag.trim().replace(/\s*\/>$/, '>'));
+        return '';
+      });
       const chunks = Object.values(bundle).filter((output): output is OutputChunk => output.type === 'chunk');
       const chunkByName = new Map(chunks.map((chunk) => [chunk.name, chunk]));
       const entry = chunks.find((chunk) => chunk.isEntry);
@@ -133,15 +148,32 @@ const firstScreenHints: Plugin = {
         }
       };
       if (entry) visit(entry);
+      const transport = chunkByName.get(FIRST_SCREEN_TRANSPORT_CHUNK);
+      if (transport) visit(transport);
+      // Everything walked so far is what must evaluate before the socket opens.
+      const transportPath = new Set(modules);
       roots.forEach(visit);
+      // A first-screen chunk that constructs a Worker (the Markdown parser)
+      // otherwise fetches its script only after the transcript arrives and
+      // renders — a third serial round for the largest asset the restored
+      // conversation waits on. Prefetch is lowest priority, so it never takes
+      // a slot from the modules above; the Worker then reads it from cache.
+      const workerScripts = Object.values(bundle).filter(
+        (output): output is OutputAsset => output.type === 'asset'
+          && output.fileName.endsWith('.js')
+          && modules.some((chunk) => chunk.code.includes(basename(output.fileName))),
+      );
       const styleHints = [...styles].map(
         (fileName) => `<link rel="stylesheet" fetchpriority="high" href="./${fileName}">`,
       );
       const moduleHints = modules.map(
         (chunk) => `<link rel="modulepreload" crossorigin`
-          + `${FIRST_SCREEN_HIGH_PRIORITY_CHUNKS.has(chunk.name) ? ' fetchpriority="high"' : ''}`
+          + `${FIRST_SCREEN_HIGH_PRIORITY_CHUNKS.has(chunk.name) || transportPath.has(chunk)
+            ? ' fetchpriority="high"'
+            : ''}`
           + ` href="./${chunk.fileName}">`,
       );
+      const workerHints = workerScripts.map((asset) => `<link rel="prefetch" href="./${asset.fileName}">`);
       // The language is known synchronously in boot.js. Keep every catalog
       // inert in the template, then move only the resolved locale into <head>
       // so Korean does not pay a serial request after i18n evaluates.
@@ -157,15 +189,18 @@ const firstScreenHints: Plugin = {
       if (!entry
         || roots.length !== FIRST_SCREEN_ROOT_CHUNKS.length
         || styles.size === 0
+        || workerScripts.length === 0
+        || desktopHints.length === 0
         || localeHints.length !== Object.keys(FIRST_SCREEN_LOCALE_CHUNKS).length) {
         console.warn(
           `[mixdog] first-screen hints matched ${entry ? 1 : 0}/1 entry,`
-          + ` ${roots.length}/${FIRST_SCREEN_ROOT_CHUNKS.length} root chunks, ${styles.size} styles`
+          + ` ${roots.length}/${FIRST_SCREEN_ROOT_CHUNKS.length} root chunks, ${styles.size} styles,`
+          + ` ${workerScripts.length} worker scripts, ${desktopHints.length} desktop hints`
           + ` and ${localeHints.length}/${Object.keys(FIRST_SCREEN_LOCALE_CHUNKS).length} locales;`
           + ' the web app boots the missing ones serially.',
         );
       }
-      const hints = [...styleHints, ...moduleHints, ...localeHints].join('');
+      const hints = [...styleHints, ...moduleHints, ...localeHints, ...workerHints, ...desktopHints].join('');
       return stampRendererShell(html.replace(
         placeholder,
         hints ? `<template id="mixdog-first-screen">${hints}</template>` : '',

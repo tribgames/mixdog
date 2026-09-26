@@ -8,6 +8,7 @@ import type {
   SessionSnapshot,
 } from '../../shared/contract';
 import { providerDisplayName } from '../provider-display';
+import { fetchProviderModels } from '../model-catalog-cache';
 import { uiFormatLocale } from '../i18n';
 import { uiTimeUnit } from '../ui-format';
 import { record } from '../record-utils';
@@ -281,12 +282,9 @@ async function readAllCapabilitySettings(
     loadReads(),
     (async () => {
       try {
-        publish(
-          'models',
-          (await api.listProviderModels?.({
-            quick: false,
-          })) || []
-        );
+        // One catalog fetch shared with the route picker and sidebar; an
+        // explicit settings refresh still goes to the daemon.
+        publish('models', await fetchProviderModels(api, { quick: false, force }));
       } catch (reason) {
         publish('models', previous?.data.models || []);
         loadError = reason instanceof Error ? reason.message : String(reason);

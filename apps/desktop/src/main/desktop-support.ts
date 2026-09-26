@@ -141,6 +141,9 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
         ...(Number.isFinite(savedContextPercent) && savedContextPercent >= 10 && savedContextPercent <= 100
           ? { savedContextPercent }
           : {}),
+        // Marks a quick answer that already holds the full catalog (see
+        // fetchProviderModels); absent everywhere else.
+        ...(row.catalogComplete === true ? { catalogComplete: true as const } : {}),
         ...(typeof row.defaultEffort === 'string' && row.defaultEffort ? { defaultEffort: row.defaultEffort } : {}),
         ...(row.defaultFast === true ? { defaultFast: true } : {}),
         modelParameterOptions,

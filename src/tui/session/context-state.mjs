@@ -6,6 +6,7 @@
  * updateState; callers still follow with set(...) to schedule publication.
  */
 import { contextMeasurementStats } from '../../ui/context-measurement.mjs';
+import { goalStateSnapshot } from '../../session-runtime/goal-state.mjs';
 
 export function createContextState({ runtime, getState, updateState, getPendingSessionReset, getVisibleGoal }) {
   const autoClearState = () =>
@@ -66,7 +67,8 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     // completed Goal while its user-input archive is being written, so the
     // retired capsule popped back for one frame and vanished again (user:
     // 안 보이던 골이 생성되었다 바로 사라짐).
-    goal: typeof getVisibleGoal === 'function' ? getVisibleGoal() : runtime.goalStatus?.() || null,
+    // Clock-anchored, so an unchanged running Goal reads equal on every pulse.
+    goal: goalStateSnapshot(typeof getVisibleGoal === 'function' ? getVisibleGoal() : runtime.goalStatus?.() || null),
   });
 
   const routeState = () => {

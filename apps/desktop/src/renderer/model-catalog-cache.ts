@@ -155,6 +155,80 @@ function normalizeModelCatalog(models: unknown): DesktopModelOption[] {
 }
 
 // ---------------------------------------------------------------------------
+// One catalog fetch for every caller
+// ---------------------------------------------------------------------------
+// The route picker, the sidebar panels and settings each read the catalog on
+// their own, and at boot a phone paid the whole ~140 KB list once per caller
+// within a few seconds. Every caller goes through here instead: identical
+// requests join the one in flight, a completed full catalog answers quick and
+// full reads for a short window, and an explicit refresh always goes out and
+// then becomes the answer everyone shares.
+
+export const PROVIDER_MODELS_FRESH_MS = 30_000;
+
+type ProviderModelsApi = Partial<Pick<DesktopApi, 'listProviderModels'>>;
+
+interface ProviderModelsFetchState {
+  scope: string;
+  generation: number;
+  quick?: Promise<DesktopModelOption[]>;
+  full?: Promise<DesktopModelOption[]>;
+  complete?: { models: DesktopModelOption[]; at: number };
+}
+
+const PROVIDER_MODEL_FETCHES = new WeakMap<object, ProviderModelsFetchState>();
+let providerModelsGeneration = 0;
+
+function providerModelsFetchState(api: object): ProviderModelsFetchState {
+  const scope = catalogStorageScope();
+  const current = PROVIDER_MODEL_FETCHES.get(api);
+  if (current && current.scope === scope && current.generation === providerModelsGeneration) return current;
+  // Another device route or a provider change: nothing held answers for it.
+  const created: ProviderModelsFetchState = { scope, generation: providerModelsGeneration };
+  PROVIDER_MODEL_FETCHES.set(api, created);
+  return created;
+}
+
+/** A quick answer is the full catalog only when the daemon says so on every
+ *  row; an older daemon never does, and its caller keeps the full follow-up. */
+function completeQuickAnswer(models: readonly unknown[]): boolean {
+  return (
+    models.length > 0 &&
+    models.every((row) => Boolean(row) && (row as { catalogComplete?: unknown }).catalogComplete === true)
+  );
+}
+
+export function fetchProviderModels(
+  api: ProviderModelsApi,
+  { quick = false, force = false }: { quick?: boolean; force?: boolean } = {}
+): Promise<DesktopModelOption[]> {
+  if (typeof api.listProviderModels !== 'function') return Promise.resolve([]);
+  const state = providerModelsFetchState(api);
+  if (!force) {
+    const complete = state.complete;
+    if (complete && Date.now() - complete.at < PROVIDER_MODELS_FRESH_MS) return Promise.resolve(complete.models);
+    const joined = quick ? state.quick : state.full;
+    if (joined) return joined;
+  }
+  // Issued now, so the slot below is visible to the very next caller.
+  const issued = new Promise<unknown>((resolve) => resolve(api.listProviderModels!({ quick })));
+  const request = issued.then((value) => {
+    const models: DesktopModelOption[] = Array.isArray(value) ? value : [];
+    if (PROVIDER_MODEL_FETCHES.get(api) === state && (!quick || completeQuickAnswer(models))) {
+      state.complete = { models, at: Date.now() };
+    }
+    return models;
+  });
+  const slot = quick ? 'quick' : 'full';
+  state[slot] = request;
+  const release = () => {
+    if (state[slot] === request) state[slot] = undefined;
+  };
+  void request.then(release, release);
+  return request;
+}
+
+// ---------------------------------------------------------------------------
 // Shared live request
 // ---------------------------------------------------------------------------
 // Every mounted route control reads the SAME catalog fetch: panes, sessions
@@ -194,6 +268,7 @@ export function subscribeModelCatalogInvalidation(listener: () => void): () => v
 /** Drops the shared request and wakes mounted pickers after provider changes. */
 export function invalidateSharedModelCatalogRequest(): void {
   catalogGeneration += 1;
+  providerModelsGeneration += 1;
   sharedModelCatalogRequest = null;
   for (const listener of [...invalidationListeners]) {
     queueMicrotask(() => {
@@ -215,12 +290,12 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
   }
   const generation = ++catalogGeneration;
   const isCurrent = () => generation === catalogGeneration && scope === catalogStorageScope();
-  const quick = Promise.resolve()
-    .then(() => api.listProviderModels?.({ quick: true }) ?? [])
-    .then(normalizeModelCatalog);
+  const quick = fetchProviderModels(api, { quick: true }).then(normalizeModelCatalog);
   const quickSettled = quick.catch(() => []);
+  // A quick answer that was already the full catalog leaves this read to the
+  // shared result instead of the wire.
   const full = quickSettled
-    .then(() => api.listProviderModels?.({ quick: false }) ?? [])
+    .then(() => fetchProviderModels(api, { quick: false }))
     .then((models) => {
       if (!isCurrent()) return normalizeModelCatalog(models);
       return writeCachedModelCatalog(Array.isArray(models) ? models : [], scope).models;

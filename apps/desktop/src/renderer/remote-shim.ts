@@ -247,6 +247,21 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       return [];
     }
   })();
+  // A view-synchronizing peer names the restored set in its FIRST sync,
+  // whatever the panes registered meanwhile. A phone never restores its panes,
+  // so its first React commit registers a fresh New-task pane — before the
+  // socket is even open — and that registration used to replace this set: the
+  // first sync named nothing and the transcript waited for a second one.
+  let restoredVisibleSessionIds: string[] = [...lastVisibleSessionIds];
+  const viewSyncSessionIds = (): string[] =>
+    restoredVisibleSessionIds.length > 0
+      ? [...new Set([...lastVisibleSessionIds, ...restoredVisibleSessionIds])]
+      : lastVisibleSessionIds;
+  const sessionSetKey = (sessionIds: readonly string[]): string => [...new Set(sessionIds)].sort().join('\0');
+  // The set the latest synchronizeViews request named, in flight or complete.
+  // Every connection opens with a new request, so a registration of this same
+  // set is already being served and never needs another full sync.
+  let requestedViewSyncKey: string | null = null;
   // Push lanes this browser actually reads. Terminal output, diagnostics and
   // folder events are produced by DESKTOP activity — a build, a save — and
   // used to reach every paired phone regardless of what it had open, so a
@@ -296,9 +311,13 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const viewSync = createRemoteViewSync({
     synchronize: async () => {
       setRemoteConnectionPhase('sync');
+      const sessionIds = viewSyncSessionIds();
+      requestedViewSyncKey = sessionSetKey(sessionIds);
       const retained = viewBaselines.begin();
       try {
-        return await invoke('synchronizeViews', [lastVisibleSessionIds, retained.offer]);
+        const result = await invoke('synchronizeViews', [sessionIds, retained.offer]);
+        restoredVisibleSessionIds = [];
+        return result;
       } finally {
         retained.finish();
       }
@@ -1565,7 +1584,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           legacyVisibleSessionsQueue = run;
           return run;
         }
-        await viewSync.request();
+        // Already named by the latest sync: wait for it instead of
+        // downloading every catalog and transcript baseline again.
+        if (sessionSetKey(viewSyncSessionIds()) === requestedViewSyncKey) await viewSync.ready();
+        else await viewSync.request();
         return true;
       });
     },

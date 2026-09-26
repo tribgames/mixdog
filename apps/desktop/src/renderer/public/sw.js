@@ -15,7 +15,18 @@ let cacheTrimMaintenance = null;
 
 // Hashed assets are immutable. The document cache separately checks whether
 // its bootstrap is retained; live host traffic never enters the asset cache.
-const HASHED_ASSET = /^\/assets\/.+-[A-Za-z0-9_-]{8,}\.[^./]+$/;
+// The installed app lives under its device route, so its relative asset URLs
+// arrive as /d/<deviceId>/assets/...; only matching the bare /assets/ scope
+// left every chunk of an installed app uncached and its shell never reusable.
+const HASHED_ASSET = /^(?:\/d\/[^/]+)?(\/assets\/.+-[A-Za-z0-9_-]{8,}\.[^./]+)$/;
+
+/** One cache entry per immutable file, whichever route requested it: the relay
+ *  serves identical bytes under the bare scope and every device route. Null for
+ *  anything that is not a hashed build asset. */
+function hashedAssetKey(url) {
+  const match = HASHED_ASSET.exec(url.pathname);
+  return match ? `${url.origin}${match[1]}` : null;
+}
 
 // Web Share Target. The share sheet POSTs the shared payload into this scope,
 // and on a phone that is the ONLY way a screenshot reaches the app: mobile
@@ -120,9 +131,10 @@ function storableCopy(response) {
 
 async function cacheFirst(request) {
   const cache = await caches.open(ASSET_CACHE);
+  const key = hashedAssetKey(new URL(request.url)) || request.url;
   // ignoreVary: the relay varies on Accept-Encoding, which the page cannot
   // observe or reproduce; the decoded body it stores is the same either way.
-  const hit = await cache.match(request, { ignoreVary: true });
+  const hit = await cache.match(key, { ignoreVary: true });
   if (hit) return { response: hit, maintenance: null };
   const response = await fetch(request);
   let maintenance = null;
@@ -133,7 +145,7 @@ async function cacheFirst(request) {
     // Return the original response immediately. The extending fetch event owns
     // the streamed clone until cache.put and one coalesced trim complete.
     maintenance = cache
-      .put(request, storableCopy(response))
+      .put(key, storableCopy(response))
       .then(() => scheduleAssetCacheTrim(cache))
       .catch(() => undefined);
   }
@@ -315,7 +327,7 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
-  if (!HASHED_ASSET.test(url.pathname)) {
+  if (!hashedAssetKey(url)) {
     event.respondWith(fetch(request));
     return;
   }

@@ -54,10 +54,18 @@ interface RawShellJobsStatus {
 }
 
 function normalizedStatus(value: RawShellJobsStatus | null | undefined): ShellJobsStatus {
+  const count = Math.max(0, Number(value?.count) || 0);
+  const jobs = normalizedJobs(value?.jobs);
   return {
-    count: Math.max(0, Number(value?.count) || 0),
-    elapsedLabel: String(value?.elapsedLabel || ''),
-    jobs: normalizedJobs(value?.jobs),
+    count,
+    // The runtime's label is "time since the oldest job started" formatted at
+    // read time, so every poll of an unchanged job set read as a change and
+    // republished shellJobs/hostShellJobs to every desktop and phone lane.
+    // Surfaces derive each listed job's elapsed time from its own startedAt;
+    // the label is only ever shown for jobs the list does not carry, so it
+    // travels only then.
+    elapsedLabel: count > jobs.length ? String(value?.elapsedLabel || '') : '',
+    jobs,
   };
 }
 

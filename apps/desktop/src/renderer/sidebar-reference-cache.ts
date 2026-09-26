@@ -10,7 +10,7 @@
 // no disk. A reload starts cold on purpose.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { invalidateSharedModelCatalogRequest } from './model-catalog-cache';
+import { fetchProviderModels, invalidateSharedModelCatalogRequest } from './model-catalog-cache';
 import { invalidateWorkflowOptions } from './workflow-options-cache';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
@@ -132,15 +132,15 @@ async function capability<T>(
   return result?.value;
 }
 
-type Loader<K extends SidebarReferenceKey> = (api: SidebarReferenceApi) => Promise<SidebarReferenceValues[K]>;
+type Loader<K extends SidebarReferenceKey> = (
+  api: SidebarReferenceApi,
+  force: boolean
+) => Promise<SidebarReferenceValues[K]>;
 
 const LOADERS: { [K in SidebarReferenceKey]: Loader<K> } = {
   channelSetup: async (api) => record(await capability(api, 'getChannelSetup')),
-  quickProviderModels: async (api) => {
-    if (!api.listProviderModels) return [];
-    const models = await api.listProviderModels({ quick: false });
-    return Array.isArray(models) ? models : [];
-  },
+  // The route picker and settings read the same catalog: one shared fetch.
+  quickProviderModels: (api, force) => fetchProviderModels(api, { quick: false, force }),
   projects: async (api) => {
     if (!api.listProjects) return [];
     const projects = await api.listProjects();
@@ -343,7 +343,7 @@ function needsRefresh(key: SidebarReferenceKey, force: boolean): boolean {
 }
 
 /** One in-flight request per key: overlapping panels share the same fetch. */
-function ensureSidebarReference(api: SidebarReferenceApi, key: SidebarReferenceKey): Promise<void> {
+function ensureSidebarReference(api: SidebarReferenceApi, key: SidebarReferenceKey, force: boolean): Promise<void> {
   const pending = inflight.get(key);
   if (pending) return pending;
   const generation = generations.get(key) ?? 0;
@@ -351,7 +351,7 @@ function ensureSidebarReference(api: SidebarReferenceApi, key: SidebarReferenceK
   const request = (async () => {
     try {
       const loader = LOADERS[key] as Loader<SidebarReferenceKey>;
-      const value = await loader(api);
+      const value = await loader(api, force);
       if ((generations.get(key) ?? 0) !== generation) return;
       entries.set(key, { value, updatedAt: clock(), invalid: false });
       failures.delete(key);
@@ -391,7 +391,7 @@ export async function loadSidebarReferences(
   if (!api?.invokeCapability) return { error: '' };
   const force = options.force === true;
   const wanted = keys.filter((key) => needsRefresh(key, force));
-  if (wanted.length) await Promise.all(wanted.map((key) => ensureSidebarReference(api, key)));
+  if (wanted.length) await Promise.all(wanted.map((key) => ensureSidebarReference(api, key, force)));
   for (const key of keys) {
     const failure = failures.get(key);
     if (failure) return { error: failure.error };
