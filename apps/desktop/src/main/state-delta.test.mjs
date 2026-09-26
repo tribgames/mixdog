@@ -164,7 +164,31 @@ for (const compact of [false, true]) {
     assert.deepEqual(growingDecoder.decode(received(encoded, compact)).snapshot, grown);
   });
 
-  test(`rewind, abort, truncation and reorder send the whole prompt history (compact=${compact})`, async () => {
+  test(`other sessions' prompts landing mid-list still travel as a small runs patch (compact=${compact})`, async () => {
+    const encoder = createSnapshotDeltaEncoder({ compact, historyPatch: true });
+    const decoder = createSnapshotDeltaDecoder();
+    decoder.decode(received(encoder.encode(historySnapshot(fullHistory)), compact));
+    // This session's newest prompt goes first; two prompts an agent in the
+    // same Project submitted meanwhile land below this session's own.
+    const next = historySnapshot(
+      ['ㅊㅋ', ...fullHistory.slice(0, 10), 'agent brief one', 'agent brief two', ...fullHistory.slice(10)].slice(
+        0,
+        HISTORY_CAP
+      )
+    );
+    const encoded = encoder.encode(next);
+    const patch = statePatchOf(encoded);
+    assert.ok(patch.lists.promptHistoryList.r, 'a runs patch');
+    assert.equal(Object.hasOwn(patch.changed ?? {}, 'promptHistoryList'), false, 'the field is not re-sent');
+    const bytes = JSON.stringify(encoded).length;
+    assert.ok(bytes * 10 < JSON.stringify(next.promptHistoryList).length, `runs frame ${bytes} bytes`);
+    const decoded = decoder.decode(received(encoded, compact));
+    assert.equal(decoded.ok, true);
+    assert.deepEqual(decoded.snapshot, next);
+    assert.ok(await resumeDigestsMatch(encoder, decoder));
+  });
+
+  test(`rewind, abort, truncation and reorder decode exactly, patched or whole (compact=${compact})`, async () => {
     const encoder = createSnapshotDeltaEncoder({ compact, historyPatch: true });
     const decoder = createSnapshotDeltaDecoder();
     decoder.decode(received(encoder.encode(historySnapshot(fullHistory)), compact));
@@ -189,8 +213,10 @@ for (const compact of [false, true]) {
       const patch = statePatchOf(encoded);
       if (expectedPatch) {
         assert.deepEqual(patch.lists.promptHistoryList, expectedPatch(history), `${label}: exact head patch`);
+      } else if (patch.lists) {
+        assert.ok(patch.lists.promptHistoryList.r, `${label}: only a runs patch replaces the field`);
+        assert.equal(Object.hasOwn(patch.changed ?? {}, 'promptHistoryList'), false, label);
       } else {
-        assert.equal(patch.lists, undefined, `${label}: no head patch`);
         assert.deepEqual(patch.changed.promptHistoryList, history, `${label}: the whole field travels`);
       }
       const decoded = decoder.decode(received(encoded, compact));
@@ -279,6 +305,13 @@ test('a head patch that does not fit the held history is refused, never mis-appl
     { promptHistoryList: { h: ['x'], k: 2, x: 0 } },
     { promptHistoryList: ['x'] },
     { busy: { h: ['x'], k: 1 } },
+    // Runs past the held list, empty, fractional, or empty new entries.
+    { promptHistoryList: { r: [[1, 5]] } },
+    { promptHistoryList: { r: [] } },
+    { promptHistoryList: { r: [[0, 0.5]] } },
+    { promptHistoryList: { r: [[-1, 1]] } },
+    { promptHistoryList: { r: [{ v: [] }] } },
+    { promptHistoryList: { r: [[0, 1, 2]] } },
   ]) {
     const encoder = createSnapshotDeltaEncoder({ compact: true, historyPatch: true });
     const decoder = createSnapshotDeltaDecoder();

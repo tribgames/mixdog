@@ -122,8 +122,9 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
       client.transcriptPaging = hello.transcriptPaging === 1;
       client.transcriptPrepend = hello.transcriptPrepend === 1;
       // Announced by the browser itself (like viewSync): its decoder applies
-      // head patches to the prompt history.
-      client.promptHistoryPatch = (hello as typeof hello & { promptHistoryPatch?: unknown }).promptHistoryPatch === 1;
+      // head and runs patches to the prompt history. A build announcing only
+      // 1 decodes head patches but not runs, so it keeps the whole field.
+      client.promptHistoryPatch = (hello as typeof hello & { promptHistoryPatch?: unknown }).promptHistoryPatch === 2;
       client.viewSync = hello.viewSync === 1 && deps.viewSyncSupported();
       // Which wire features this phone build announced: the only way to tell
       // a stale cached build from a feature that fails on the live path.

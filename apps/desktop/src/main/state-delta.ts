@@ -147,6 +147,68 @@ function applyHeadListPatch(held: unknown, patch: unknown): unknown[] | null {
   return h.concat(kept.slice(0, k as number));
 }
 
+/** One piece of a runs patch: `[start, length]` of the held list, or new
+ *  entries `{ v }`. The merged prompt history interleaves other sessions'
+ *  prompts of the same Project below this session's, so a submit while agents
+ *  work changes the list mid-way, not only at its head. */
+type ListRun = [number, number] | { v: unknown[] };
+
+/** `after` as held runs and new entries, or null when that is no smaller
+ *  than `after` itself. Entries are compared by value; a deduped history
+ *  holds each at most once. */
+function runsListPatch(before: unknown, after: unknown): { r: ListRun[] } | null {
+  if (!Array.isArray(before) || !Array.isArray(after) || before.length === 0 || after.length === 0) return null;
+  const heldAt = new Map<string, number>();
+  before.forEach((entry, index) => {
+    const key = JSON.stringify(entry);
+    if (!heldAt.has(key)) heldAt.set(key, index);
+  });
+  const runs: ListRun[] = [];
+  let reused = false;
+  for (const entry of after) {
+    const index = heldAt.get(JSON.stringify(entry));
+    const last = runs.at(-1);
+    if (index === undefined) {
+      if (last && !Array.isArray(last)) last.v.push(entry);
+      else runs.push({ v: [entry] });
+      continue;
+    }
+    reused = true;
+    if (Array.isArray(last) && last[0] + last[1] === index) last[1] += 1;
+    else runs.push([index, 1]);
+  }
+  if (!reused) return null;
+  const patch = { r: runs };
+  return JSON.stringify(patch).length < JSON.stringify(after).length ? patch : null;
+}
+
+function applyRunsListPatch(held: unknown, patch: unknown): unknown[] | null {
+  const runs = (patch as { r?: unknown } | null)?.r;
+  if (!Array.isArray(held) || !Array.isArray(runs) || runs.length === 0) return null;
+  const list: unknown[] = [];
+  for (const run of runs) {
+    if (Array.isArray(run)) {
+      const [start, length] = run as unknown[];
+      if (
+        run.length !== 2 ||
+        !Number.isSafeInteger(start) ||
+        !Number.isSafeInteger(length) ||
+        (start as number) < 0 ||
+        (length as number) < 1 ||
+        (start as number) + (length as number) > held.length
+      ) {
+        return null;
+      }
+      list.push(...held.slice(start as number, (start as number) + (length as number)));
+    } else {
+      const values = (run as { v?: unknown } | null)?.v;
+      if (!Array.isArray(values) || values.length === 0) return null;
+      list.push(...values);
+    }
+  }
+  return list;
+}
+
 interface StreamingTailPatch {
   prefix?: unknown;
   append?: unknown;
@@ -395,11 +457,13 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
 
         const nextFields = snapshotFieldsFrom(record);
         const { changed, removed } = diffStateFields(sentStateFields || {}, nextFields);
-        const lists: Record<string, HeadListPatch> = {};
+        const lists: Record<string, HeadListPatch | { r: ListRun[] }> = {};
         if (historyPatchAllowed) {
           for (const field of HEAD_PATCH_FIELDS) {
             if (!Object.hasOwn(changed, field)) continue;
-            const patch = headListPatch(sentStateFields?.[field], changed[field]);
+            const patch =
+              headListPatch(sentStateFields?.[field], changed[field]) ??
+              runsListPatch(sentStateFields?.[field], changed[field]);
             if (!patch) continue;
             lists[field] = patch;
             delete changed[field];
@@ -658,7 +722,10 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         }
         if (statePatch.changed) Object.assign(nextStateFields, statePatch.changed);
         for (const [field, listPatch] of Object.entries((statePatch.lists as Record<string, unknown> | undefined) ?? {})) {
-          const list = applyHeadListPatch(stateFields[field], listPatch);
+          const list =
+            listPatch && typeof listPatch === 'object' && Object.hasOwn(listPatch, 'r')
+              ? applyRunsListPatch(stateFields[field], listPatch)
+              : applyHeadListPatch(stateFields[field], listPatch);
           if (!list) return { ok: false };
           nextStateFields[field] = list;
         }

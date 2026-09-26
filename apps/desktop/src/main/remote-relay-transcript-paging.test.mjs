@@ -58,7 +58,7 @@ test('a paging phone opens tail windows and receives older pages and submits as 
             assert.equal(hello.transcriptPaging, 1);
             assert.equal(hello.transcriptPrepend, 1);
             // Announced by the browser itself, as remote-shim does.
-            hello.promptHistoryPatch = 1;
+            hello.promptHistoryPatch = 2;
           }
           peer.channel = handshake.channel;
           socket.send(JSON.stringify({ type: 'frame', clientId: peer.id, data: JSON.stringify(hello) }));
