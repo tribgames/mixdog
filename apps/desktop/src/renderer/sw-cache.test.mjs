@@ -226,6 +226,29 @@ test('a late-starting page recovers a missed release notification by querying it
   assert.equal(messages.length, 0);
 });
 
+test('a page kept open learns of a deploy when it returns to the foreground', async () => {
+  const caches = memoryCacheStorage();
+  const url = `${WORKER_ORIGIN}/d/device/`;
+  await (await caches.open('mixdog-shell-v1')).put(url, new Response(shellMarkup('old')));
+  const messages = [];
+  const client = { id: 'window-1', url, postMessage: (message) => messages.push(message) };
+  const worker = loadWorker({ caches, windows: [client], fetchAsset: shellNetwork('new') });
+  let done;
+  worker.listeners.get('message')({
+    data: { type: 'mixdog:shell-refresh' },
+    source: client,
+    waitUntil: (promise) => {
+      done = promise;
+    },
+  });
+  await done;
+  assert.equal(messages[0]?.type, worker.SHELL_UPDATE_MESSAGE);
+  assert.equal(messages[0]?.version, 'new');
+  // The fresh document is retained, so the reload it prompts paints it.
+  const stored = await (await caches.open('mixdog-shell-v1')).match(url);
+  assert.equal(await stored.text(), shellMarkup('new'));
+});
+
 test('shell cache quota failure still returns the first successful network response', async () => {
   let requests = 0;
   const worker = loadWorker({

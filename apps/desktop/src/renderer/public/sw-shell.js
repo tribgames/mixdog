@@ -3,6 +3,9 @@
 const SHELL_CACHE = 'mixdog-shell-v1';
 const SHELL_UPDATE_MESSAGE = 'mixdog:shell-updated';
 const SHELL_CHECK_MESSAGE = 'mixdog:shell-check';
+// A page returning to the foreground asks for a fresh document: an installed
+// app kept open is never navigated, so a deploy never reached it otherwise.
+const SHELL_REFRESH_MESSAGE = 'mixdog:shell-refresh';
 const MAX_SHELL_ENTRIES = 16;
 const MAX_SHELL_BYTES = 4 * 1024 * 1024;
 const MAX_SHELL_ENTRY_BYTES = 512 * 1024;
@@ -125,6 +128,10 @@ async function shellFirst(request) {
 /** The page may start listening after the refresh finished. Compare its
  *  release with the retained document instead of relying on a one-shot event. */
 self.addEventListener('message', (event) => {
+  if (event.data?.type === SHELL_REFRESH_MESSAGE && event.source?.id) {
+    event.waitUntil(recoverMissingAsset(event.source.id).catch(() => undefined));
+    return;
+  }
   if (event.data?.type !== SHELL_CHECK_MESSAGE || !event.source?.url) return;
   event.waitUntil(
     (async () => {

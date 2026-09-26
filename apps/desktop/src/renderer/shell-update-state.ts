@@ -3,6 +3,10 @@
 // before this module was evaluated.
 export const SHELL_UPDATE_MESSAGE = 'mixdog:shell-updated';
 const SHELL_CHECK_MESSAGE = 'mixdog:shell-check';
+const SHELL_REFRESH_MESSAGE = 'mixdog:shell-refresh';
+/** At most one release probe per foreground return in this window. */
+export const SHELL_REFRESH_INTERVAL_MS = 60_000;
+let lastRefreshAt = -Infinity;
 let pending = false;
 let bootFailed = false;
 let installed = false;
@@ -45,6 +49,26 @@ export function installShellUpdateState(): void {
   });
   navigator.serviceWorker.addEventListener('controllerchange', checkShellUpdate);
   checkShellUpdate();
+  // An installed app kept open is never navigated, so the worker never
+  // re-fetched its document and a deploy never reached it. Returning to the
+  // foreground refreshes the worker script and asks for the current release.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    const now = Date.now();
+    if (now - lastRefreshAt < SHELL_REFRESH_INTERVAL_MS) return;
+    lastRefreshAt = now;
+    void refreshShellRelease();
+  });
+}
+
+async function refreshShellRelease(): Promise<void> {
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    await registration?.update();
+  } catch {
+    /* offline: the controller below may still answer */
+  }
+  navigator.serviceWorker.controller?.postMessage({ type: SHELL_REFRESH_MESSAGE });
 }
 
 export function subscribeShellUpdate(listener: () => void): () => void {
