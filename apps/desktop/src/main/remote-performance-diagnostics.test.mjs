@@ -78,3 +78,18 @@ test('capability calls are summarized per capability name', () => {
   assert.match(lines[0], /readCapabilities:getTheme\+getProfile=1x\/1ms/);
   assert.match(lines[0], / unknown=1x/);
 });
+
+test('a visit shorter than the window is still summarized when the last phone leaves', () => {
+  let now = 0;
+  const lines = [];
+  const stats = createRemoteCallStats({ now: () => now, write: (line) => lines.push(line) });
+  stats.clear();
+  assert.equal(lines.length, 0, 'nothing recorded, nothing written');
+  stats.record('statProjectFile', 2, { requestBytes: 100, responseBytes: 200 });
+  now = 20_000;
+  stats.clear();
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /^\[mixdog-remote-calls\] 20s calls=1 \| statProjectFile=1x/);
+  stats.clear();
+  assert.equal(lines.length, 1, 'a window is reported once');
+});

@@ -41,6 +41,17 @@ export function createRemoteCallStats({
   let since: number | null = null;
   const byteCount = (value: unknown): number =>
     typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+  const report = (windowMs: number): void => {
+    const busiest = [...stats.entries()]
+      .sort((left, right) => right[1].rx + right[1].tx - (left[1].rx + left[1].tx) || right[1].calls - left[1].calls)
+      .slice(0, 8)
+      .map(
+        ([entryName, entry]) =>
+          `${entryName}=${entry.calls}x/${Math.round(entry.ms)}ms` + `/rx-box=${entry.rx}B/tx-routed=${entry.tx}B`
+      );
+    const calls = [...stats.values()].reduce((total, entry) => total + entry.calls, 0);
+    write(`[mixdog-remote-calls] ${Math.round(windowMs / 1000)}s calls=${calls}` + ` | ${busiest.join(' ')}`);
+  };
   return {
     record(method, elapsedMs, bytes = {}): void {
       const current = now();
@@ -56,19 +67,14 @@ export function createRemoteCallStats({
       stats.set(name, row);
       const windowMs = current - since;
       if (windowMs < reportWindowMs) return;
-      const busiest = [...stats.entries()]
-        .sort((left, right) => right[1].rx + right[1].tx - (left[1].rx + left[1].tx) || right[1].calls - left[1].calls)
-        .slice(0, 8)
-        .map(
-          ([entryName, entry]) =>
-            `${entryName}=${entry.calls}x/${Math.round(entry.ms)}ms` + `/rx-box=${entry.rx}B/tx-routed=${entry.tx}B`
-        );
-      const calls = [...stats.values()].reduce((total, entry) => total + entry.calls, 0);
-      write(`[mixdog-remote-calls] ${Math.round(windowMs / 1000)}s calls=${calls}` + ` | ${busiest.join(' ')}`);
+      report(windowMs);
       stats.clear();
       since = null;
     },
+    /** The last phone left: report the partial window instead of losing it
+     *  (a phone typically stays under a minute per visit). */
     clear(): void {
+      if (since !== null && stats.size > 0) report(now() - since);
       stats.clear();
       since = null;
     },

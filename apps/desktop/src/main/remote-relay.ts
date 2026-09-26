@@ -236,7 +236,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     frameBudgetBytes: MAX_WS_PAYLOAD_BYTES,
     onClientCountChanged: () => options.onClientCountChanged?.(),
     onEmpty: () => {
-      relayByteMeter.clear();
+      // The last phone left: log the partial window rather than dropping it.
+      const meterReport = relayByteMeter.clear();
+      if (meterReport) reportRemoteByteWindow(meterReport);
       remoteCallStats.clear();
     },
   });

@@ -90,7 +90,9 @@ export interface RemoteByteReport {
 interface RemoteByteMeter {
   /** Returns a report only on the call that closes a window. */
   record(payload: unknown, bytes: number): RemoteByteReport | null;
-  clear(): void;
+  /** Drops the window, answering what it held so a partial visit (a phone
+   *  typically stays under a minute) is still reported. */
+  clear(): RemoteByteReport | null;
 }
 
 /** What a compact frame actually carried. Two frames both named `compact:T`
@@ -101,7 +103,7 @@ function compactFrameShape(wire: unknown): string {
   if (!wire || typeof wire !== 'object') return '';
   const record = wire as Record<string, unknown>;
   const parts: string[] = [];
-  for (const key of ['ip', 'ta', 'tt', 'sd', 'streamingTail']) {
+  for (const key of ['ip', 'ta', 'tt', 'sd', 'sl', 'streamingTail']) {
     if (Object.hasOwn(record, key)) parts.push(key);
   }
   const changed = record.sc;
@@ -168,6 +170,18 @@ export function createRemoteByteMeter({
     bytes = 0;
     windowStartedAt = null;
   };
+  const take = (elapsed: number): RemoteByteReport => {
+    const report: RemoteByteReport = {
+      windowMs: elapsed,
+      frames,
+      bytes,
+      lanes: [...lanes]
+        .map(([name, total]) => ({ lane: name, bytes: total.bytes, frames: total.frames }))
+        .sort((left, right) => right.bytes - left.bytes),
+    };
+    reset();
+    return report;
+  };
   return {
     record(payload, size): RemoteByteReport | null {
       if (!enabled || !Number.isFinite(size) || size <= 0) return null;
@@ -184,19 +198,14 @@ export function createRemoteByteMeter({
       // nothing rather than emitting empty windows forever.
       const elapsed = current - windowStartedAt;
       if (elapsed < windowMs) return null;
-      const report: RemoteByteReport = {
-        windowMs: elapsed,
-        frames,
-        bytes,
-        lanes: [...lanes]
-          .map(([name, total]) => ({ lane: name, bytes: total.bytes, frames: total.frames }))
-          .sort((left, right) => right.bytes - left.bytes),
-      };
-      reset();
-      return report;
+      return take(elapsed);
     },
-    clear(): void {
-      reset();
+    clear(): RemoteByteReport | null {
+      if (windowStartedAt === null || frames === 0) {
+        reset();
+        return null;
+      }
+      return take(now() - windowStartedAt);
     },
   };
 }
