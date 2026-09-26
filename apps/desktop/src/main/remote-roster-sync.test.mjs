@@ -4,10 +4,19 @@ import { registerAndSynchronizeRelayViews } from './remote-view-sync.ts';
 import { createRelayClientRegistry } from './remote-relay-clients.ts';
 import { createRelayCatalogs } from './remote-relay-catalog.ts';
 import { createKeyedListDeltaDecoder, createKeyedListDeltaEncoder } from '../shared/list-delta.ts';
-import { createRemoteRosterCache, readRosterClaim } from '../shared/remote-roster-cache.ts';
+import { createRemoteRosterCache, readRosterClaim, readRosterStamp } from '../shared/remote-roster-cache.ts';
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const wait = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Persisting hashes and clones the whole roster off the frame path; under a
+ *  loaded test run a fixed pause is not enough, so wait for the outcome. */
+async function until(condition, label) {
+  for (let attempt = 0; attempt < 250; attempt += 1) {
+    if (condition()) return;
+    await wait();
+  }
+  assert.fail(label);
+}
 const ROWS = 1_800;
 
 /** A roster shaped like the real one: ~1,800 rows, ~450 bytes each. */
@@ -115,16 +124,22 @@ function phone(storage, scope = 'relay\ndevice\npublic-key\nsecret', legacy = fa
         onMismatch: () => mismatches.push(true),
       });
   const view = { sessions: null };
+  let stamped = null;
   return {
     view,
     decoder,
     mismatches,
+    /** The roster version of the last stamped sessions frame applied. */
+    get stamped() {
+      return stamped;
+    },
     claim: () => cache?.claim(),
     apply(frame) {
       if (frame.event !== 'sessions') return;
       const decoded = decoder.decode(frame.payload);
       assert.equal(decoded.ok, true, 'a sessions frame applies to exactly the rows it was encoded against');
       view.sessions = decoded.items;
+      stamped = readRosterStamp(frame.payload)?.[1] ?? stamped;
       cache?.observe(frame.payload);
     },
   };
@@ -141,8 +156,7 @@ async function persisted(d, storage) {
   const first = phone(storage);
   const full = await d.connect(first).sync(await first.claim());
   assert.deepEqual(first.view.sessions, plain(d.host.sessions));
-  await wait();
-  assert.ok(storage.record, 'the decoded roster is persisted');
+  await until(() => first.stamped !== null && storage.record?.version === first.stamped, 'the decoded roster is persisted');
   return full;
 }
 
@@ -170,7 +184,7 @@ test('a cold open with an unchanged persisted roster sends one tiny frame, and l
   d.host.sessions = [{ ...d.host.sessions[0], id: 'brand-new' }, ...d.host.sessions];
   d.catalogs.publishSessions(d.host.sessions);
   assert.deepEqual(reopened.view.sessions, plain(d.host.sessions));
-  await wait();
+  await until(() => storage.record?.version === reopened.stamped, 'the live pushes are persisted');
 
   // Those stamped pushes moved the persisted copy forward: the next cold open
   // is tiny again.
@@ -221,7 +235,7 @@ test('a few changed, added and deleted rows send just those and rebuild the iden
 
   // Unchanged rows that swap places cannot be rebuilt from a head: the whole
   // order travels, still without the rows.
-  await wait();
+  await until(() => storage.record?.version === reopened.stamped, 'the catch-up is persisted');
   const swapped = [...d.host.sessions];
   [swapped[100], swapped[101]] = [swapped[101], swapped[100]];
   d.host.sessions = swapped;
@@ -274,7 +288,7 @@ test('no persisted copy, another desktop, an id-set mismatch or tampered rows fa
   storage.record = { ...storage.record, held };
   const tampered = phone(storage);
   await d.connect(tampered).sync(await tampered.claim());
-  await wait();
+  await until(() => tampered.mismatches.length > 0, 'the rebuilt digest is checked');
   assert.equal(tampered.mismatches.length, 1);
   assert.equal(storage.record, undefined, 'the unproven copy is dropped');
   assert.deepEqual(await tampered.claim(), { v: 1 }, 'the resync asks for a baseline');

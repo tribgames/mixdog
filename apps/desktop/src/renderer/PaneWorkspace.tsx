@@ -214,12 +214,17 @@ export function PaneWorkspace({
   // A phone shows ONE tab at a time and pays for every mirrored session over
   // the relay, so restored background tabs stay unregistered until opened
   // (user: vps라 비용때문에). Wide surfaces keep every pane tab observable.
-  const paneSessionIds = isMobileRemoteSurface()
+  const mobileSurface = isMobileRemoteSurface();
+  const paneSessionIds = mobileSurface
     ? mobileVisibleSessionIds(workspace.leaves, workspace.focusedLeafId)
     : paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId);
   // The Agents surface observes working background sessions even when none of
   // them owns an editor tab, so include those ids with every pane session.
-  const visibleSessionIds = [...new Set([...paneSessionIds, ...observedSessionIds])];
+  // Not on a phone: its Agents rows read the agent pool and roster, while
+  // every observed lane mirrored a whole working transcript over the relay.
+  const visibleSessionIds = mobileSurface
+    ? paneSessionIds
+    : [...new Set([...paneSessionIds, ...observedSessionIds])];
   useVisibleSessions(visibleSessionIds);
   // Selection is ONE document-wide range, so a drag that starts in one pane
   // and travels over another painted every row in between (user: 왜 드래그가
