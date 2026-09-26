@@ -9,13 +9,20 @@ import {
 } from './ipc-validation.ts';
 
 test('the turn review bar reaches its diff with only a boolean refresh option', () => {
-  for (const args of [[], [{}], [{ refresh: true }], [{ refresh: false, known: 'a'.repeat(32) }]]) {
+  for (const args of [
+    [],
+    [{}],
+    [{ refresh: true }],
+    [{ refresh: false, known: 'a'.repeat(32) }],
+    [{ refresh: true, summary: true }],
+  ]) {
     assert.doesNotThrow(() => requiredDesktopCapabilityRequest({ capability: 'getTurnReviewDiff', args }));
   }
   for (const args of [
     [{ refresh: 'yes' }],
     [{ cwd: 'C:/' }],
     [{ known: 'not-a-tag' }],
+    [{ summary: 'yes' }],
     [null],
     [[]],
     [{ refresh: true }, {}],

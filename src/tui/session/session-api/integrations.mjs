@@ -42,14 +42,21 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       return await requireRuntimeMethod('consumeCodexRateLimitResetCredit', 'Codex reset is unavailable')(options);
     },
     getTurnReviewDiff: async (options = {}) => {
-      const { known, ...reviewOptions } = options || {};
-      const review = (await runtime.getTurnReviewDiff?.(reviewOptions)) ?? {
+      const { known, summary, ...reviewOptions } = options || {};
+      let review = (await runtime.getTurnReviewDiff?.(reviewOptions)) ?? {
         supported: false,
         files: [],
         patch: '',
       };
+      // A collapsed bar shows files and line counts only. A Git-backed review
+      // carries those per file, so its patch text (tens of KB mid-turn) is
+      // left out until the bar is opened; other kinds count from the patch.
+      if (summary === true && (review.snapshotKind === 'worktree' || review.snapshotKind === 'scoped') && review.patch) {
+        review = { ...review, patch: '', patchOmitted: true };
+      }
       // The review bar re-reads every few seconds during a turn; an unchanged
-      // review answers with its tag instead of re-sending every patch.
+      // review answers with its tag instead of re-sending every patch. The tag
+      // covers what is sent, so a summary and a full review never share one.
       const etag = createHash('sha256').update(JSON.stringify(review)).digest('hex').slice(0, 32);
       return known === etag ? { unchanged: true, etag } : { ...review, etag };
     },

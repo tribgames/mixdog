@@ -644,6 +644,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [openFile, setOpenFile] = useState('');
+  // Whether the bar shows file bodies right now. A collapsed bar on a phone
+  // asks for files and line counts only; opening it re-reads in full.
+  const detailShown = useRef(false);
+  detailShown.current = expanded || openFile !== '';
   const [confirmFile, setConfirmFile] = useState('');
   const [reverted, setReverted] = useState<string[]>([]);
   // A refused revert used to vanish into an empty catch, so a legitimate
@@ -800,9 +804,12 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         // mixed another turn's diff into the bar and could hit a stale view.
         const tagKey = `${sessionId}\0${requestedScope}`;
         const known = REVIEW_TAGS.get(tagKey) ?? '';
+        // Over the relay the patch text is most of each re-read; the collapsed
+        // bar never draws it. The desktop's local IPC keeps full reads.
+        const summary = isMobileRemoteSurface() && !detailShown.current;
         const result = await api.invokeCapability({
           capability: TURN_REVIEW_CAPABILITY,
-          args: [{ refresh: refreshWorktree, ...(known ? { known } : {}) }],
+          args: [{ refresh: refreshWorktree, ...(known ? { known } : {}), ...(summary ? { summary } : {}) }],
           sessionId,
         });
         const value = (result?.value ?? null) as TurnReviewCapabilityValue;
