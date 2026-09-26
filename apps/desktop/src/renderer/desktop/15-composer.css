@@ -229,6 +229,22 @@
 .composer-mic.is-transcribing {
   color: var(--mx-text-muted);
 }
+/* Preparing: the mic is opening but nothing is captured yet. A dimmed,
+   pulsing glyph with no fill, so it never reads as the live recording disc. */
+.composer-mic.is-preparing > svg,
+.composer-dictation-preparing {
+  color: var(--mx-text-muted);
+  animation: composer-mic-preparing 1100ms ease-in-out infinite;
+}
+@keyframes composer-mic-preparing {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
 .composer-mic-spinner {
   animation: composer-mic-spin 900ms linear infinite;
 }
@@ -423,6 +439,11 @@
   }
   .composer-mic-spinner {
     animation: none;
+  }
+  .composer-mic.is-preparing > svg,
+  .composer-dictation-preparing {
+    animation: none;
+    opacity: 0.55;
   }
 }
 .route-controls {

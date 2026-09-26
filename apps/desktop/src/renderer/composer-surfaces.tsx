@@ -302,7 +302,27 @@ export function DictationOverlay({
   return (
     <div className="composer-dictation-overlay" data-state={state}>
       <div className="composer-dictation-status" data-state={state}>
-        {state === 'recording' ? (
+        {state === 'preparing' && (
+          <>
+            {/* No meter and no timer yet: nothing is being captured, so the
+                user waits for the bars before speaking. */}
+            <Mic className="composer-dictation-preparing" size={16} aria-hidden="true" />
+            <span className="composer-dictation-elapsed" role="status">
+              {t('Starting microphone…')}
+            </span>
+            <button
+              type="button"
+              className="composer-dictation-cancel"
+              aria-label={t('Discard recording')}
+              data-tooltip={t('Discard · Esc')}
+              data-tooltip-side="top"
+              onClick={onCancel}
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
+          </>
+        )}
+        {state === 'recording' && (
           <>
             <DictationMeter levelRef={levelRef} />
             {/* No live region on the timer: a polite announcement twice a second
@@ -320,7 +340,8 @@ export function DictationOverlay({
               <X size={14} aria-hidden="true" />
             </button>
           </>
-        ) : (
+        )}
+        {state === 'transcribing' && (
           <>
             <DictationProgress />
             <span className="composer-dictation-elapsed" role="status">
@@ -346,6 +367,7 @@ export function DictationButton({
 }) {
   let tooltip = t('Dictate');
   if (state === 'recording') tooltip = t('Stop and transcribe · Enter');
+  else if (state === 'preparing') tooltip = t('Starting microphone…');
   else if (state === 'transcribing') tooltip = t('Transcribing…');
   let glyph = <Mic size={16} />;
   if (state === 'transcribing') glyph = <ProgressSpinner className="composer-mic-spinner" size={16} />;
@@ -355,8 +377,8 @@ export function DictationButton({
       type="button"
       className={`composer-tool composer-mic ${state !== 'idle' ? `is-${state}` : ''}`.trim()}
       disabled={disabled}
-      aria-label={state === 'recording' ? t('Stop dictation') : t('Dictate with voice')}
-      aria-pressed={state === 'recording'}
+      aria-label={state === 'recording' || state === 'preparing' ? t('Stop dictation') : t('Dictate with voice')}
+      aria-pressed={state === 'recording' || state === 'preparing'}
       data-tooltip={tooltip}
       data-tooltip-side="top"
       onClick={onToggle}

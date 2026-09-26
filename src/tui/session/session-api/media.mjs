@@ -17,11 +17,30 @@ function voiceToggleResult(result) {
   return result && typeof result === 'object' ? result : { ok: false };
 }
 
+// The managed voice pipeline bound to the live voice config and data dir —
+// the same binding for transcription and warm-up.
+async function loadVoiceTranscription() {
+  const [{ createVoiceTranscription }, { resolvePluginData }, { readSection }] = await Promise.all([
+    import('../../../runtime/channels/lib/voice-transcription.mjs'),
+    import('../../../runtime/shared/plugin-paths.mjs'),
+    import('../../../runtime/shared/config.mjs'),
+  ]);
+  return createVoiceTranscription({
+    getConfig: () => ({ voice: readSection('voice') || {} }),
+    dataDir: resolvePluginData(),
+  });
+}
+
 export function createSessionMediaApi(bag) {
   const { runtime, getState, set, pushNotice, setProgressHint, routeState } = bag;
 
   return {
     getVoiceStatus: () => getVoiceStatus(),
+    // Desktop dictation warm-up: start (or keep) the managed whisper-server
+    // for the current voice contract so the recording that follows skips the
+    // cold model load. Returns { ready: true } or { ready: false, reason };
+    // never throws for a missing voice runtime.
+    prepareTranscription: async () => (await loadVoiceTranscription()).prepareTranscription(),
     // Desktop push-to-talk dictation: accept a recorded audio payload
     // (base64), stage it as a temp file, and run it through the SAME managed
     // whisper.cpp pipeline the channels use (ffmpeg convert -> whisper server,
@@ -31,24 +50,17 @@ export function createSessionMediaApi(bag) {
       const base64 = String(data || '');
       if (!base64) throw new Error('transcribeAudio: audio payload is required');
       if (base64.length > 40_000_000) throw new Error('transcribeAudio: recording too large');
-      const [{ createVoiceTranscription }, { resolvePluginData }, { readSection }, os, path, fsp, crypto] =
-        await Promise.all([
-          import('../../../runtime/channels/lib/voice-transcription.mjs'),
-          import('../../../runtime/shared/plugin-paths.mjs'),
-          import('../../../runtime/shared/config.mjs'),
-          import('node:os'),
-          import('node:path'),
-          import('node:fs/promises'),
-          import('node:crypto'),
-        ]);
+      const [{ transcribeVoice }, os, path, fsp, crypto] = await Promise.all([
+        loadVoiceTranscription(),
+        import('node:os'),
+        import('node:path'),
+        import('node:fs/promises'),
+        import('node:crypto'),
+      ]);
       const extension = AUDIO_EXTENSIONS.find(([pattern]) => pattern.test(mimeType))?.[1] ?? 'webm';
       const audioPath = path.join(os.tmpdir(), `mixdog-dictation-${process.pid}-${Date.now()}.${extension}`);
       await fsp.writeFile(audioPath, Buffer.from(base64, 'base64'));
       try {
-        const { transcribeVoice } = createVoiceTranscription({
-          getConfig: () => ({ voice: readSection('voice') || {} }),
-          dataDir: resolvePluginData(),
-        });
         const text = await transcribeVoice(audioPath, {
           attachmentId: `dictation-${crypto.randomUUID()}`,
         });

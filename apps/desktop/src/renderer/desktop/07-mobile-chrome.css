@@ -230,7 +230,7 @@ html[data-mixdog-mobile-tabs] .studio-generate {
 /* During dictation the send action stays disabled, but dimming the whole
    button made its equal 36dp disc look smaller beside the recording disc.
    Disabled color still mutes the glyph; the plate keeps its full frame. */
-html[data-mixdog-mobile-tabs] .composer:has(.composer-mic:is(.is-recording, .is-transcribing)) .send-button:disabled {
+html[data-mixdog-mobile-tabs] .composer:has(.composer-mic:is(.is-preparing, .is-recording, .is-transcribing)) .send-button:disabled {
   opacity: 1;
 }
 /* Both stop squares take the desktop 12/28 measure — the same 3:4 against the

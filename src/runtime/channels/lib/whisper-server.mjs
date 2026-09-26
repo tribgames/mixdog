@@ -34,6 +34,7 @@
 // port is never killed — we select another port instead.
 
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -255,29 +256,6 @@ function appendLog(buf) {
   mgr.logTail = (mgr.logTail + buf.toString()).slice(-4000);
 }
 
-// Advisory: lower the child to Windows IDLE priority exactly once. Failure is
-// non-fatal (matches os.setPriority best-effort usage elsewhere) and never blocks
-// readiness — priority is not part of the transcription contract.
-async function applyLowPriorityOnce(child) {
-  if (!IS_WIN || !child?.pid) return;
-  try {
-    const mod = await import('node-windows-process-info');
-    const api = mod.default ?? mod;
-    const setPriority = api.setPriority ?? api.setProcessPriority;
-    if (typeof setPriority === 'function') {
-      // IDLE_PRIORITY_CLASS === 0x40 (64); pass both the symbolic and numeric
-      // forms to tolerate the package's accepted argument shape.
-      try {
-        setPriority(child.pid, 'idle');
-      } catch {
-        setPriority(child.pid, 0x40);
-      }
-    }
-  } catch {
-    /* package/API absent → priority stays default; non-fatal */
-  }
-}
-
 function detachChildHandlers() {
   if (!mgr.child) return;
   try {
@@ -420,10 +398,17 @@ async function startServer(contract) {
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  // Advisory: above-normal priority keeps a warm transcription at ~0.2 s when
+  // every core is busy (NORMAL measured 2-5 s). Best-effort, never blocks
+  // readiness — priority is not part of the transcription contract.
+  try {
+    os.setPriority(child.pid, os.constants.priority.PRIORITY_ABOVE_NORMAL);
+  } catch {
+    /* unsupported/denied → default priority; non-fatal */
+  }
   mgr.child = child;
   wireChildExit();
   writePidMeta();
-  await applyLowPriorityOnce(child); // advisory, once
 
   // ── Wait for READY: TCP bind + (when flushed) listening-line port assertion. ──
   const deadline = Date.now() + READY_TIMEOUT_MS;
@@ -443,7 +428,7 @@ async function startServer(contract) {
     }
     if (
       (await probePort(host, port)) &&
-      whisperListenerOwned(host, port, child.pid) &&
+      (await whisperListenerOwned(host, port, child.pid)) &&
       mgr.child === child &&
       child.exitCode === null &&
       mgr.state === STATE.STARTING
@@ -516,13 +501,18 @@ export async function transcribe(wavPath, { language } = {}) {
   }
   const host = mgr.host;
   const port = mgr.port;
+  const child = mgr.child;
   const ctrl = new AbortController();
   clearIdleTimer();
   mgr.inflight.add(ctrl);
   try {
-    const data = await fs.promises.readFile(wavPath);
-    // Re-check after file I/O: a replacement listener must never receive audio.
-    if (!mgr.child || mgr.state !== STATE.READY || !whisperListenerOwned(host, port, mgr.child.pid)) {
+    const [data, owned] = await Promise.all([
+      fs.promises.readFile(wavPath),
+      whisperListenerOwned(host, port, child.pid),
+    ]);
+    // Re-check after the awaits: a replacement listener (or child) must never
+    // receive audio. Nothing awaits between this check and the request.
+    if (!owned || mgr.child !== child || mgr.state !== STATE.READY || mgr.port !== port) {
       throw new Error('whisper-server listener ownership could not be verified');
     }
     const form = new FormData();

@@ -12,8 +12,10 @@ test('occupied preferred port falls back without touching its listener, and owne
     assert.notEqual(selected, occupied);
     assert.ok(selected > 0 && selected < 65536);
     assert.equal(foreign.listening, true);
-    assert.equal(whisperListenerOwned('127.0.0.1', occupied, process.pid), true);
-    assert.equal(whisperListenerOwned('127.0.0.1', occupied, process.pid + 1), false);
+    const owned = whisperListenerOwned('127.0.0.1', occupied, process.pid);
+    assert.ok(owned instanceof Promise, 'ownership query is asynchronous');
+    assert.equal(await owned, true);
+    assert.equal(await whisperListenerOwned('127.0.0.1', occupied, process.pid + 1), false);
     assert.equal(await selectWhisperPort('127.0.0.1', selected), selected);
   } finally {
     await new Promise((resolve) => foreign.close(resolve));

@@ -3,6 +3,7 @@
 // answered here, and every other call queued into the host's remote methods.
 import { DESKTOP_CAPABILITIES } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
+import { VOICE_CALLS } from './remote-call-queue';
 import { filterSessionIds } from './desktop-state';
 import type { createRemoteMethods } from './remote-methods';
 import { executeRemoteFrame } from './remote-methods';
@@ -181,12 +182,11 @@ export function createRelayClientCallDispatch(
     const callQueuedAt = Date.now();
     // The turn review diff re-reads the worktree (seconds while a turn runs)
     // and is read-only: it rides the slow-read lane instead of fencing
-    // stat/read/submit calls behind it.
-    const queueKey = remoteCallStatName(String(call?.method ?? ''), call?.params).startsWith(
-      'invokeCapability:getTurnReviewDiff'
-    )
-      ? 'invokeCapability:getTurnReviewDiff'
-      : String(call?.method ?? '');
+    // stat/read/submit calls behind it. Dictation rides its own voice lane.
+    const statName = remoteCallStatName(String(call?.method ?? ''), call?.params);
+    let queueKey = String(call?.method ?? '');
+    if (statName.startsWith('invokeCapability:getTurnReviewDiff')) queueKey = 'invokeCapability:getTurnReviewDiff';
+    else if (VOICE_CALLS.has(statName)) queueKey = statName;
     const execution = client.callQueue.run(queueKey, async () => {
       if (!deps.attached(clientId, client)) return;
       const callStartedAt = Date.now();

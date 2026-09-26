@@ -183,6 +183,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'claimSetupRequest',
   'completeSetupRequest',
   'transcribeAudio',
+  'prepareTranscription',
   'updatePlugin',
 ]);
 

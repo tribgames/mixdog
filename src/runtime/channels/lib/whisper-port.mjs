@@ -1,6 +1,6 @@
 import net from 'node:net';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 
 // whisper.cpp cannot bind port 0 itself. Ask the OS for an available port,
 // release the reservation immediately before spawn, then verify the listener's
@@ -21,15 +21,32 @@ export function selectWhisperPort(host, preferred) {
   });
 }
 
-export function whisperListenerOwned(host, port, pid) {
+// Resolves the query's stdout, or null on any failure (spawn error, non-zero
+// exit, timeout). Asynchronous so the daemon event loop never parks on the
+// ownership query (netstat costs ~54 ms idle and seconds under CPU load).
+function runOwnershipQuery(command, args) {
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        command,
+        args,
+        { encoding: 'utf8', windowsHide: true, timeout: 5_000, maxBuffer: 16 * 1024 * 1024 },
+        (error, stdout) => resolve(error ? null : String(stdout))
+      );
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+export async function whisperListenerOwned(host, port, pid) {
   if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(port)) return false;
-  const options = { encoding: 'utf8', windowsHide: true, timeout: 5_000 };
   try {
     if (process.platform === 'win32') {
       const root = process.env.SystemRoot || 'C:\\Windows';
-      const result = spawnSync(path.join(root, 'System32', 'netstat.exe'), ['-ano', '-p', 'tcp'], options);
-      if (result.status !== 0) return false;
-      return result.stdout.split(/\r?\n/).some((line) => {
+      const stdout = await runOwnershipQuery(path.join(root, 'System32', 'netstat.exe'), ['-ano', '-p', 'tcp']);
+      if (stdout === null) return false;
+      return stdout.split(/\r?\n/).some((line) => {
         const fields = line.trim().split(/\s+/);
         return (
           fields[0] === 'TCP' &&
@@ -40,19 +57,23 @@ export function whisperListenerOwned(host, port, pid) {
       });
     }
     if (process.platform === 'linux') {
-      const result = spawnSync('ss', ['-H', '-ltnp', `sport = :${port}`], options);
-      if (result.status !== 0) return false;
-      return result.stdout.split(/\r?\n/).some((line) => {
+      const stdout = await runOwnershipQuery('ss', ['-H', '-ltnp', `sport = :${port}`]);
+      if (stdout === null) return false;
+      return stdout.split(/\r?\n/).some((line) => {
         const fields = line.trim().split(/\s+/);
         return fields[3] === `${host}:${port}` && new RegExp(`\\bpid=${pid},`).test(line);
       });
     }
-    const result = spawnSync(
-      'lsof',
-      ['-nP', '-a', '-p', String(pid), `-iTCP@${host}:${port}`, '-sTCP:LISTEN', '-Fp'],
-      options
-    );
-    return result.status === 0 && result.stdout.split(/\r?\n/).includes(`p${pid}`);
+    const stdout = await runOwnershipQuery('lsof', [
+      '-nP',
+      '-a',
+      '-p',
+      String(pid),
+      `-iTCP@${host}:${port}`,
+      '-sTCP:LISTEN',
+      '-Fp',
+    ]);
+    return stdout !== null && stdout.split(/\r?\n/).includes(`p${pid}`);
   } catch {
     // No ownership evidence means no readiness and no audio upload.
     return false;

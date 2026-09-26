@@ -102,6 +102,7 @@ export const DESKTOP_CAPABILITIES = [
   'getTheme',
   'setTheme',
   'transcribeAudio',
+  'prepareTranscription',
   'resizeImage',
   'setAgentRoute',
   'getWorkflowPack',

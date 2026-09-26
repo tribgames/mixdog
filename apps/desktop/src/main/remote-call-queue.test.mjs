@@ -72,6 +72,76 @@ test('a slow turn review diff never fences the stat, read-mark or submit issued 
   queue.close();
 });
 
+test('a transcription neither waits for in-flight reads nor fences later calls', async () => {
+  const queue = createRemoteCallQueue();
+  const read = deferred();
+  const speech = deferred();
+  const seen = [];
+  const catalog = queue.run('listProviderModels', async () => {
+    await read.promise;
+    seen.push('catalog');
+  });
+  const transcribe = queue.run('invokeCapability:transcribeAudio', async () => {
+    seen.push('transcribe-start');
+    await speech.promise;
+    seen.push('transcribe-end');
+  });
+  const warm = queue.run('invokeCapability:prepareTranscription', async () => {
+    seen.push('prepare');
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(seen, ['transcribe-start', 'prepare']);
+  await queue.run('getSnapshot', async () => seen.push('snapshot'));
+  read.resolve();
+  await Promise.all([catalog, warm]);
+  await queue.run('markSessionRead', async () => seen.push('read-mark'));
+  assert.deepEqual(seen, ['transcribe-start', 'prepare', 'snapshot', 'catalog', 'read-mark']);
+  speech.resolve();
+  await transcribe;
+  assert.equal(seen.at(-1), 'transcribe-end');
+  queue.close();
+});
+
+test('dictation calls observe mutations queued before them', async () => {
+  const queue = createRemoteCallQueue();
+  const gate = deferred();
+  const seen = [];
+  const write = queue.run('writeProjectFile', async () => {
+    await gate.promise;
+    seen.push('write');
+  });
+  const calls = ['invokeCapability:prepareTranscription', 'invokeCapability:transcribeAudio'].map((method) =>
+    queue.run(method, async () => {
+      seen.push(method);
+    })
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(seen, []);
+  gate.resolve();
+  await Promise.all([write, ...calls]);
+  assert.deepEqual(seen, ['write', 'invokeCapability:prepareTranscription', 'invokeCapability:transcribeAudio']);
+  queue.close();
+});
+
+test('disconnect rejects queued dictation calls', async () => {
+  const queue = createRemoteCallQueue(4, 2, 1);
+  const gate = deferred();
+  let ran = 0;
+  const running = queue.run('invokeCapability:transcribeAudio', async () => {
+    ran += 1;
+    await gate.promise;
+  });
+  const queued = queue.run('invokeCapability:transcribeAudio', async () => {
+    ran += 1;
+  });
+  const rejected = assert.rejects(queued, /disconnected/);
+  await new Promise((resolve) => setImmediate(resolve));
+  queue.close();
+  gate.resolve();
+  await Promise.all([running, rejected]);
+  assert.equal(ran, 1);
+});
+
 test('disconnect rejects queued terminal input without replaying it', async () => {
   const queue = createRemoteCallQueue();
   const gate = deferred();

@@ -8,7 +8,14 @@ import {
   useState,
 } from 'react';
 
-export type DictationState = 'idle' | 'recording' | 'transcribing';
+// `preparing` runs from the tap until audio is actually captured: a phone
+// takes a noticeable moment to open the mic, and words spoken before capture
+// starts are never recorded, so the UI must not claim "recording" early.
+export type DictationState = 'idle' | 'preparing' | 'recording' | 'transcribing';
+
+// Mobile browsers hand out a mic track that stays `muted` until audio flows.
+// Bounded, so a track that never reports `unmute` still records.
+const UNMUTE_WAIT_MS = 1_500;
 
 type DictationMeter = {
   context: AudioContext;
@@ -85,6 +92,31 @@ function stopRecorder(recorder: MediaRecorder): void {
   }
 }
 
+function whenTrackLive(stream: MediaStream): Promise<void> {
+  const track = stream.getAudioTracks()[0];
+  if (!track?.muted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = (): void => {
+      window.clearTimeout(timer);
+      track.removeEventListener('unmute', done);
+      resolve();
+    };
+    const timer = window.setTimeout(done, UNMUTE_WAIT_MS);
+    track.addEventListener('unmute', done);
+  });
+}
+
+// Starts the transcription server while the user is still speaking, so the
+// upload does not also pay its cold start. Purely an optimisation: an older
+// daemon or a failed warm-up leaves transcribeAudio to start it as before.
+function warmTranscription(): void {
+  void Promise.resolve()
+    .then(() => window.mixdogDesktop.invokeCapability({ capability: 'prepareTranscription', args: [] }))
+    .catch(() => {
+      // Ignored on purpose; see above.
+    });
+}
+
 function microphoneFailureText(reason: unknown): string {
   const name = reason instanceof DOMException ? reason.name : '';
   if (name === 'NotAllowedError') {
@@ -124,7 +156,9 @@ export function useComposerDictation({
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   // Smoothed 0..1 input level, read by the overlay's own animation frame.
   const dictationLevelRef = useRef(0);
-  const dictationPreparing = useRef(false);
+  // The take whose microphone is still being opened; cancelling it releases
+  // the stream the moment getUserMedia hands it over.
+  const dictationAttempt = useRef<{ cancelled: boolean } | null>(null);
   // Mic visibility: the composer shows the mic only once the managed voice
   // runtime is installed (Extensions → Voice transcription). Installs and
   // removals made while the composer is mounted arrive over the
@@ -162,17 +196,22 @@ export function useComposerDictation({
     submitOnStop: boolean;
     stopTimer: number;
     meter: DictationMeter | null;
+    /** Audio is actually being captured (state `recording`). */
+    live: boolean;
   } | null>(null);
 
   const toggleDictation = useCallback(async () => {
     if (dictationState === 'transcribing' || transitioningRef.current) return;
     const active = dictationSession.current;
     if (active) {
+      // Stopped while still preparing, the take holds no speech: onstop
+      // discards it instead of transcribing.
       stopRecorder(active.recorder);
       return;
     }
-    if (dictationPreparing.current) return;
-    dictationPreparing.current = true;
+    if (dictationAttempt.current) return;
+    const attempt = { cancelled: false };
+    dictationAttempt.current = attempt;
     try {
       // Installation status is already refreshed on mount and runtime changes.
       // Never put a server round trip ahead of microphone capture: on remote
@@ -182,6 +221,7 @@ export function useComposerDictation({
         showNotice('Install voice transcription from Extensions first.');
         return;
       }
+      setDictationState('preparing');
       // Transcription needs intelligibility, not fidelity: engines resample to
       // 16 kHz mono anyway, and 24 kbps Opus is transparent for speech. The
       // browser default (48 kHz stereo, 48-64 kbps) sent two to three times
@@ -195,6 +235,10 @@ export function useComposerDictation({
           noiseSuppression: true,
         },
       });
+      if (attempt.cancelled) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm';
@@ -207,10 +251,20 @@ export function useComposerDictation({
         submitOnStop: false,
         stopTimer: 0,
         meter: null as DictationMeter | null,
+        live: false,
       };
       dictationSession.current = session;
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) session.chunks.push(event.data);
+      };
+      recorder.onstart = () => {
+        void whenTrackLive(stream).then(() => {
+          if (session.cancelled || recorder.state === 'inactive' || dictationSession.current !== session) return;
+          session.live = true;
+          setRecordingSince(Date.now());
+          setDictationState('recording');
+          warmTranscription();
+        });
       };
       recorder.onstop = () => {
         void (async () => {
@@ -219,7 +273,7 @@ export function useComposerDictation({
           session.meter = null;
           dictationSession.current = null;
           for (const track of session.stream.getTracks()) track.stop();
-          if (session.cancelled || session.chunks.length === 0) {
+          if (session.cancelled || !session.live || session.chunks.length === 0) {
             setDictationState('idle');
             return;
           }
@@ -266,13 +320,13 @@ export function useComposerDictation({
       recorder.start();
       session.meter = startLevelMeter(stream, dictationLevelRef);
       session.stopTimer = window.setTimeout(() => stopRecorder(recorder), 120_000);
-      setRecordingSince(Date.now());
-      setDictationState('recording');
     } catch (reason) {
+      // A cancelled attempt already went idle; a newer take may own the state.
+      if (attempt.cancelled) return;
       showNotice(microphoneFailureText(reason));
       setDictationState('idle');
     } finally {
-      dictationPreparing.current = false;
+      if (dictationAttempt.current === attempt) dictationAttempt.current = null;
     }
   }, [
     dictationInstalled,
@@ -300,6 +354,13 @@ export function useComposerDictation({
   // Discarding is its own path: `toggleDictation` always transcribes what it
   // stopped, so a take started by mistake had no way back (overlay ×, Esc).
   const cancelDictation = useCallback(() => {
+    const pending = dictationAttempt.current;
+    if (pending) {
+      pending.cancelled = true;
+      dictationAttempt.current = null;
+      setDictationState('idle');
+      return;
+    }
     const active = dictationSession.current;
     if (!active) return;
     active.cancelled = true;
@@ -309,8 +370,9 @@ export function useComposerDictation({
   // Enter finishes the take, Esc discards it. Capture phase, because the
   // composer's own Escape policy would otherwise clear the draft and Enter
   // would send it while the mic is still live.
+  // While preparing, Enter is swallowed: there is no speech yet to finish.
   useEffect(() => {
-    if (dictationState !== 'recording') return undefined;
+    if (dictationState !== 'recording' && dictationState !== 'preparing') return undefined;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.isComposing) return;
       if (event.key === 'Escape') {
@@ -324,7 +386,7 @@ export function useComposerDictation({
       }
       event.preventDefault();
       event.stopPropagation();
-      void toggleDictation();
+      if (dictationState === 'recording') void toggleDictation();
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
@@ -344,6 +406,7 @@ export function useComposerDictation({
 
   useEffect(
     () => () => {
+      if (dictationAttempt.current) dictationAttempt.current.cancelled = true;
       const session = dictationSession.current;
       if (!session) return;
       session.cancelled = true;

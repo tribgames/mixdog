@@ -39,18 +39,29 @@ const SLOW_READS = new Set([
   'invokeCapability:getTurnReviewDiff',
 ]);
 
+// Dictation (keyed by capability at the dispatch site). A transcription runs
+// for seconds; as a general-lane barrier it waited for every in-flight read
+// and then held every later call. Neither touches state another call reads,
+// so they share their own lane and only observe mutations queued before them.
+export const VOICE_CALLS: ReadonlySet<string> = new Set([
+  'invokeCapability:transcribeAudio',
+  'invokeCapability:prepareTranscription',
+]);
+
 const TERMINAL_METHODS = new Set(['termEnsure', 'termProfiles', 'termWrite', 'termResize', 'termDispose']);
 
-export function createRemoteCallQueue(concurrency = 4, slowConcurrency = 2) {
+export function createRemoteCallQueue(concurrency = 4, slowConcurrency = 2, voiceConcurrency = 2) {
   const general = createCallLane(concurrency);
   const slow = createCallLane(slowConcurrency);
+  const voice = createCallLane(voiceConcurrency);
   const terminal = createCallLane(1);
   return {
     run(method: string, task: () => Promise<void>): Promise<void> {
       if (TERMINAL_METHODS.has(method)) return terminal.run(method, task);
-      if (!SLOW_READS.has(method)) return general.run(method, task);
+      const lane = SLOW_READS.has(method) ? slow : VOICE_CALLS.has(method) ? voice : null;
+      if (!lane) return general.run(method, task);
       const writes = general.writesSettled();
-      return slow.run(method, async () => {
+      return lane.run(method, async () => {
         await writes;
         await task();
       });
@@ -58,6 +69,7 @@ export function createRemoteCallQueue(concurrency = 4, slowConcurrency = 2) {
     close(): void {
       general.close();
       slow.close();
+      voice.close();
       terminal.close();
     },
   };
@@ -98,7 +110,7 @@ function createCallLane(concurrency: number) {
   return {
     run(method: string, task: () => Promise<void>): Promise<void> {
       if (closed) return Promise.reject(new Error('Remote client disconnected.'));
-      const read = PARALLEL_READS.has(method) || SLOW_READS.has(method);
+      const read = PARALLEL_READS.has(method) || SLOW_READS.has(method) || VOICE_CALLS.has(method);
       const result = new Promise<void>((resolve, reject) => {
         queued.push({ read, run: task, resolve, reject });
       });

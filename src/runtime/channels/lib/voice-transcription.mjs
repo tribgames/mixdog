@@ -126,6 +126,9 @@ function createVoiceWavCache() {
           const _ffmpegPromise = runCmd(ffmpegPath, [
             '-i',
             audioPath,
+            // Leading silence so a clipped onset still decodes as the first word.
+            '-af',
+            'adelay=300:all=1',
             '-ar',
             String(sampleRate),
             '-ac',
@@ -149,8 +152,36 @@ function createVoiceWavCache() {
   };
 }
 
+// The one resolution of the managed runtime and the exact whisper-server
+// contract, shared by transcription and warm-up. Returns { error } (a
+// user-actionable message) when the runtime is not installed.
+function resolveVoiceTranscriptionRuntime(config, dataDir) {
+  const runtime = resolveVoiceRuntime(dataDir, { modelId: selectVoiceModelId(config.voice) });
+  if (!runtime?.installed) {
+    const missing = [runtime?.binary ? null : 'binary', runtime?.model ? null : 'model', runtime?.ffmpeg ? null : 'ffmpeg']
+      .filter(Boolean)
+      .join(' + ');
+    return {
+      error: `voice runtime not installed (missing: ${missing}) — open the setup wizard and click "Install voice"`,
+    };
+  }
+  const cpuCount = (() => {
+    try {
+      return os.cpus().length;
+    } catch {
+      return 2;
+    }
+  })();
+  const threadCount = config.voice?.transcription?.threadCount ?? Math.max(1, Math.ceil(cpuCount / 4));
+  return {
+    runtime,
+    threadCount,
+    serverContract: { serverCmd: runtime.serverCmd, modelPath: runtime.modelPath, threadCount, host: '127.0.0.1' },
+  };
+}
+
 // Creates the voice-transcription surface bound to a live config getter and
-// data dir. Returns { isVoiceAttachment, transcribeVoice }.
+// data dir. Returns { isVoiceAttachment, transcribeVoice, prepareTranscription }.
 function createVoiceTranscription({ getConfig, dataDir }) {
   const _voiceTranscriptionQueue = createVoiceTranscriptionQueue(getConfig);
   const _voiceWavCache = createVoiceWavCache();
@@ -209,43 +240,21 @@ function createVoiceTranscription({ getConfig, dataDir }) {
   async function _doTranscribeVoice(audioPath, attachmentId) {
     const config = getConfig();
     try {
-      const runtime = resolveVoiceRuntime(dataDir, { modelId: selectVoiceModelId(config.voice) });
-      if (!runtime?.installed) {
-        const missing = [
-          runtime?.binary ? null : 'binary',
-          runtime?.model ? null : 'model',
-          runtime?.ffmpeg ? null : 'ffmpeg',
-        ]
-          .filter(Boolean)
-          .join(' + ');
-        throw new Error(
-          `voice runtime not installed (missing: ${missing}) — open the setup wizard and click "Install voice"`
-        );
-      }
-      const whisperCmd = runtime.whisperCmd;
-      const modelPath = runtime.modelPath;
-      const ffmpegPath = runtime.ffmpegPath;
+      const { error, runtime, threadCount, serverContract } = resolveVoiceTranscriptionRuntime(config, dataDir);
+      if (error) throw new Error(error);
       const lang = normalizeWhisperLanguage(config.voice?.language) ?? detectDeviceLanguage();
-      const _cpuCount = (() => {
-        try {
-          return os.cpus().length;
-        } catch {
-          return 2;
-        }
-      })();
-      const threadCount = config.voice?.transcription?.threadCount ?? Math.max(1, Math.ceil(_cpuCount / 4));
       const wavPath = await _voiceWavCache.ensureWav({
         audioPath,
         attachmentId,
-        ffmpegPath,
+        ffmpegPath: runtime.ffmpegPath,
         threadCount,
         sampleRate: config.voice?.transcription?.sampleRate ?? 16000,
         channels: config.voice?.transcription?.channels ?? 1,
       });
       process.stderr.write(
-        `mixdog: voice.transcription start runtime=${runtime.kind} cmd=${path.basename(whisperCmd)}\n`
+        `mixdog: voice.transcription start runtime=${runtime.kind} cmd=${path.basename(runtime.whisperCmd)}\n`
       );
-      await ensureReady({ serverCmd: runtime.serverCmd, modelPath, threadCount, host: '127.0.0.1' });
+      await ensureReady(serverContract);
       const text = await transcribe(wavPath, { language: lang });
       const result = text.trim() || null;
       if (attachmentId && result) _voiceTranscriptCache.set(attachmentId, result);
@@ -259,7 +268,21 @@ function createVoiceTranscription({ getConfig, dataDir }) {
     }
   }
 
-  return { isVoiceAttachment, transcribeVoice };
+  // Warm the singleton whisper-server for the current contract (re-arming its
+  // idle release) so the next transcription skips the cold model load. Never
+  // throws: warm-up is advisory and the real transcription reports failures.
+  async function prepareTranscription() {
+    const { error, serverContract } = resolveVoiceTranscriptionRuntime(getConfig(), dataDir);
+    if (error) return { ready: false, reason: error };
+    try {
+      await ensureReady(serverContract);
+      return { ready: true };
+    } catch (err) {
+      return { ready: false, reason: String(err?.message || err) };
+    }
+  }
+
+  return { isVoiceAttachment, transcribeVoice, prepareTranscription };
 }
 
 export { createVoiceTranscription };

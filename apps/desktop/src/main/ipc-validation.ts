@@ -203,6 +203,7 @@ const CAPABILITY_ARITY = {
   setWebhookEnabled: [2, 2],
   clear: [0, 0],
   transcribeAudio: [1, 1],
+  prepareTranscription: [0, 0],
   resizeImage: [1, 1],
   listMediaLanes: [0, 0],
   listMediaAssets: [0, 1],

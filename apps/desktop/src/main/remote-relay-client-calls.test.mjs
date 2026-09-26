@@ -49,3 +49,40 @@ test('the per-minute call record carries the capability name', async () => {
   await execution;
   assert.deepEqual(recorded, [['invokeCapability:getVoiceStatus', { requestBytes: 240, responseBytes: 120 }]]);
 });
+
+test('dictation calls are queued on their capability key, other capabilities on the method', async () => {
+  const keys = [];
+  const client = {
+    pendingFrames: 0,
+    callQueue: {
+      run: (key, task) => {
+        keys.push(key);
+        return task();
+      },
+    },
+  };
+  const dispatch = createRelayClientCallDispatch({
+    host: {},
+    methods: { invokeCapability: async () => ({ value: true }) },
+    attached: () => true,
+    live: () => true,
+    sendEncryptedFrame: async () => {},
+    acknowledgePaintProbe: () => null,
+    resyncClient() {},
+    recordCall() {},
+  });
+  for (const [id, capability] of ['transcribeAudio', 'prepareTranscription', 'getVoiceStatus'].entries()) {
+    const { execution } = await dispatch(
+      'client-1',
+      client,
+      { id, method: 'invokeCapability', params: [{ capability, args: [] }] },
+      10
+    );
+    await execution;
+  }
+  assert.deepEqual(keys, [
+    'invokeCapability:transcribeAudio',
+    'invokeCapability:prepareTranscription',
+    'invokeCapability',
+  ]);
+});
