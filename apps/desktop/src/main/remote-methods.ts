@@ -779,7 +779,13 @@ export function createRemoteMethods({
       // A phone addresses the same pane session the desktop does. Dropping the
       // id answered every session-scoped read (/context, /inherit) from the
       // blank control session (user: 모바일 /context가 0으로 나온다).
-      return host.invokeCapability(request.capability, request.args, request.sessionId);
+      const result = host.invokeCapability(request.capability, request.args, request.sessionId);
+      // The daemon answers a session-addressed call with that session's whole
+      // snapshot (transcript included). The turn review bar reads the value
+      // only and the phone mirrors the session on its own lane, so each
+      // re-read crossed the relay carrying the entire conversation.
+      if (request.capability !== 'getTurnReviewDiff') return result;
+      return result.then(({ value }) => ({ value }));
     },
     readCapabilities: ([input]) => {
       const requests = requiredDesktopCapabilityReadRequests(input);

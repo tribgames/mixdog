@@ -209,6 +209,19 @@ export function createRelayClientCallDispatch(
           responseBytes += bytes;
         });
       }
+      if (responseBytes > 8_192 && queueKey === 'invokeCapability:getTurnReviewDiff') {
+        // Which part of a large turn review crossed the relay: patch text,
+        // child-agent reviews or the file list. Sizes and kinds only.
+        const result = ((response as { value?: unknown } | undefined)?.value ?? {}) as Record<string, unknown>;
+        const value = (result.value ?? {}) as Record<string, unknown>;
+        const size = (field: unknown): number => (field === undefined ? 0 : JSON.stringify(field).length);
+        console.info(
+          `[mixdog-remote-review] bytes=${responseBytes} kind=${String(value.snapshotKind || '-')}` +
+            ` sessionSnapshot=${size(result.snapshot)}` +
+            ` patch=${size(value.patch)} agents=${size(value.agents)} files=${size(value.files)}` +
+            ` omitted=${value.patchOmitted === true} etag=${typeof value.etag === 'string'}`
+        );
+      }
       if (deps.attached(clientId, client)) {
         deps.recordCall(remoteCallStatName(method, call?.params), callMs, {
           requestBytes: frameBytes,
