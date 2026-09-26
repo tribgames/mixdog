@@ -282,6 +282,9 @@ function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: numbe
 }
 
 type TurnReviewCapabilityValue = {
+  /** The review is exactly the one tagged `etag` the bar already holds. */
+  unchanged?: boolean;
+  etag?: unknown;
   supported?: boolean;
   authoritative?: boolean;
   snapshotKind?: unknown;
@@ -693,9 +696,13 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   } | null>(null);
   const refreshAgentReviewsRef = useRef<(refreshWorktree?: boolean) => Promise<void>>(async () => undefined);
   const lastAgentReviewSignature = useRef<string | null>(null);
+  // Tag of the last applied review for its scope: an unchanged re-read then
+  // answers with the tag alone instead of every patch again.
+  const lastReviewTag = useRef<{ scopeKey: string; etag: string } | null>(null);
   useEffect(() => {
     pendingCapabilityRefresh.current = null;
     lastAgentReviewSignature.current = null;
+    lastReviewTag.current = null;
     setExpanded(false);
     setOpenFile('');
     setConfirmFile('');
@@ -781,15 +788,19 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         // This bar belongs to the pane's session. During a tab switch the host's
         // focused view can already point elsewhere, so omitting this address
         // mixed another turn's diff into the bar and could hit a stale view.
+        const known = lastReviewTag.current?.scopeKey === requestedScope ? lastReviewTag.current.etag : '';
         const result = await api.invokeCapability({
           capability: TURN_REVIEW_CAPABILITY,
-          args: [{ refresh: refreshWorktree }],
+          args: [{ refresh: refreshWorktree, ...(known ? { known } : {}) }],
           sessionId,
         });
-        const decoded = decodeTurnReviewCapabilityValue((result?.value ?? null) as TurnReviewCapabilityValue);
+        const value = (result?.value ?? null) as TurnReviewCapabilityValue;
+        if (value?.unchanged === true) return;
+        const decoded = decodeTurnReviewCapabilityValue(value);
         if (!decoded) {
           return;
         }
+        if (typeof value?.etag === 'string') lastReviewTag.current = { scopeKey: requestedScope, etag: value.etag };
         const { leadPatch, snapshotKind, checkpointId, files, reviews } = decoded;
         const signature = JSON.stringify([leadPatch, files, snapshotKind, checkpointId, reviews]);
         rememberAgentReviews(requestedScope, reviews, leadPatch, files, snapshotKind, checkpointId);

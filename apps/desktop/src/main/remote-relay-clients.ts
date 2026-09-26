@@ -79,6 +79,8 @@ export interface RelayClientState {
   /** Issued inside this phone's encrypted channel once it announced view
    *  resumption; its lanes are parked under it when the relay drops the leg. */
   viewResumeToken?: string;
+  /** The phone persists its sessions roster (remote-roster-log.ts). */
+  rosterStamp?: boolean;
 }
 
 /** A push lane reaches a browser that registered it, or one that predates the

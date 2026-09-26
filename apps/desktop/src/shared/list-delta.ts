@@ -8,13 +8,35 @@ export interface KeyedListDeltaEncoder<T> {
   /** The keyed rows a receiver that applied every emitted frame holds; null
    *  without a baseline. Mirrors the decoder's resumePoint(). */
   resumePoint(): ViewResumePoint | null;
+  /** Take `items` as delivered, exactly as a full baseline would, without
+   *  producing its frame: the receiver was brought to the same rows another
+   *  way (a roster catch-up). Answers the revision a later patch builds on. */
+  adopt(items: readonly T[]): number;
 }
 
 interface KeyedListDeltaDecoder<T> {
   decode(wire: unknown): { ok: boolean; items?: T[] };
   reset(): void;
   resumePoint(): ViewResumePoint | null;
+  /** Rows a later `__listCatch` frame applies to. Holds no revision: any
+   *  ordinary patch still answers `ok: false` until a frame establishes one. */
+  seed(held: ReadonlyArray<readonly [string, T]>): void;
 }
+
+/** A roster catch-up (see main/remote-roster-log.ts): full rows changed since
+ *  the version the receiver claimed, the keys removed since, and either the
+ *  whole order or each upserted row's final index (ascending, aligned with
+ *  `upsert`); every other row keeps its relative order. Only ever sent to a
+ *  receiver that claimed rows, so older decoders never see it. */
+type ListCatchUp<T> = {
+  revision: number;
+  upsert: Array<[string, T]>;
+  removed: string[];
+  place?: number[];
+  order?: string[];
+  count: number;
+  digest: string;
+};
 
 const NO_LIST_DELTA = Symbol('mixdog.no-list-delta');
 export function isNoListDelta(value: unknown): boolean {
@@ -81,6 +103,13 @@ export function createKeyedListDeltaEncoder<T>(keyOf: (item: T, index: number) =
         }),
       };
     },
+    adopt(items): number {
+      emitted = true;
+      revision += 1;
+      order = items.map((item, index) => keyOf(item, index));
+      previous = new Map(items.map((item, index) => [order![index], { signature: JSON.stringify(item) }]));
+      return revision;
+    },
     encode(items): unknown {
       emitted = true;
       revision += 1;
@@ -146,11 +175,71 @@ export function createKeyedListDeltaDecoder<T>(): KeyedListDeltaDecoder<T> {
   let revision: number | null = null;
   let order: string[] = [];
   let rows = new Map<string, T>();
+  let seeded = false;
+  const catchUp = (patch: Partial<ListCatchUp<T>>): { ok: boolean; items?: T[] } => {
+    if (
+      (revision === null && !seeded) ||
+      !Number.isSafeInteger(patch.revision) ||
+      !Number.isSafeInteger(patch.count) ||
+      !Array.isArray(patch.upsert) ||
+      !Array.isArray(patch.removed) ||
+      (patch.order === undefined
+        ? !Array.isArray(patch.place) || patch.place.length !== patch.upsert.length
+        : !Array.isArray(patch.order))
+    )
+      return { ok: false };
+    const nextRows = new Map(rows);
+    for (const key of patch.removed) {
+      if (typeof key !== 'string') return { ok: false };
+      nextRows.delete(key);
+    }
+    for (const entry of patch.upsert) {
+      if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string') return { ok: false };
+      nextRows.set(entry[0], entry[1] as T);
+    }
+    let nextOrder: string[];
+    if (patch.order) {
+      nextOrder = [...patch.order];
+    } else {
+      const placed = new Set(patch.upsert.map(([key]) => key));
+      const rest = order.filter((key) => !placed.has(key) && nextRows.has(key));
+      nextOrder = [];
+      let taken = 0;
+      for (const [index, at] of (patch.place as unknown[]).entries()) {
+        if (!Number.isSafeInteger(at) || (at as number) < nextOrder.length || (at as number) - nextOrder.length > rest.length - taken) {
+          return { ok: false };
+        }
+        while (nextOrder.length < (at as number)) nextOrder.push(rest[taken++]);
+        nextOrder.push(patch.upsert[index][0]);
+      }
+      nextOrder.push(...rest.slice(taken));
+    }
+    const listed = new Set(nextOrder);
+    if (
+      nextOrder.length !== patch.count ||
+      listed.size !== nextOrder.length ||
+      nextOrder.some((key) => typeof key !== 'string' || !nextRows.has(key))
+    )
+      return { ok: false };
+    for (const key of nextRows.keys()) if (!listed.has(key)) nextRows.delete(key);
+    revision = patch.revision as number;
+    seeded = false;
+    order = nextOrder;
+    rows = nextRows;
+    return { ok: true, items: order.map((key) => rows.get(key) as T) };
+  };
   return {
     reset(): void {
       revision = null;
+      seeded = false;
       order = [];
       rows = new Map();
+    },
+    seed(held): void {
+      revision = null;
+      seeded = true;
+      order = held.map(([key]) => key);
+      rows = new Map(held.map(([key, row]) => [key, row]));
     },
     resumePoint(): ViewResumePoint | null {
       if (revision === null) return null;
@@ -163,7 +252,9 @@ export function createKeyedListDeltaDecoder<T>(): KeyedListDeltaDecoder<T> {
         __listRevision?: unknown;
         rows?: unknown;
         __listPatch?: Partial<ListPatch<T>>;
+        __listCatch?: Partial<ListCatchUp<T>>;
       };
+      if (record.__listCatch) return catchUp(record.__listCatch);
       if (!record.__listPatch) {
         if (!Number.isSafeInteger(record.__listRevision) || !Array.isArray(record.rows)) {
           return { ok: false };

@@ -9,6 +9,8 @@ import { isSessionId } from './desktop-state';
 import { remoteTranscriptSnapshot } from './remote-transcript';
 import { MAX_VIEW_BASELINE_BYTES, readViewBaselineOffer, VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 import { readViewResumeRequest, viewResumeLaneMatches, type ViewResumeRequest } from '../shared/remote-view-resume';
+import { readRosterClaim, type RosterClaim } from '../shared/remote-roster-cache';
+import { rosterDigest, sessionRosterLog, stampRoster } from './remote-roster-log';
 
 const VIEW_REPLACED = 'Remote view was replaced during synchronization.';
 
@@ -38,6 +40,9 @@ interface RelayViewSyncState {
   /** Issued once this phone announced resumption (see remote-view-resume.ts);
    *  its lanes are parked under it when the leg drops. */
   viewResumeToken?: string;
+  /** The phone persists its roster: sessions frames carry the roster version
+   *  (see remote-roster-log.ts). Announced with each view sync. */
+  rosterStamp?: boolean;
 }
 
 /** A departed phone's encoders, detached from its client state. */
@@ -88,6 +93,8 @@ export async function registerAndSynchronizeRelayViews(
   const claim = readViewResumeRequest(params[2]);
   // Taken exactly once: a failed recovery leaves nothing a retry could adopt.
   const parked = claim?.token && takeParkedViews ? takeParkedViews(claim.token) : null;
+  const roster = readRosterClaim(params[3]);
+  state.rosterStamp = roster !== null;
   state.syncing = true;
   state.visibleSessionIds = new Set(ids);
   try {
@@ -100,7 +107,8 @@ export async function registerAndSynchronizeRelayViews(
       current,
       send,
       readViewBaselineOffer(params[1]),
-      claim && parked ? { claim, parked } : null
+      claim && parked ? { claim, parked } : null,
+      roster?.claim ?? null
     );
   } finally {
     state.syncing = false;
@@ -164,7 +172,8 @@ export async function synchronizeRelayViews(
   current: () => boolean,
   send: (frame: unknown) => Promise<void>,
   retained: ReadonlySet<string> | null = null,
-  resume: RelayViewResume | null = null
+  resume: RelayViewResume | null = null,
+  rosterClaim: RosterClaim | null = null
 ): Promise<void> {
   state.syncing = true;
   const writes: Promise<void>[] = [];
@@ -233,11 +242,32 @@ export async function synchronizeRelayViews(
           sendDelta({ event: 'sessionState', payload: { ...update, wire, snapshot: undefined } }, isNoDelta(wire))
         );
       }
+      // A phone that persisted its roster gets only what changed since the
+      // version it claims; the encoder then stands exactly where a baseline
+      // would have left it, so later live patches apply unchanged.
+      const rosterLog = state.rosterStamp && state.listDelta ? sessionRosterLog<DesktopSessionSummary>(host) : null;
+      const catchUp =
+        rosterLog && rosterClaim && !adopted?.sessions ? rosterLog.catchUp(rosterClaim, snapshot.sessions) : null;
+      if (rosterLog && catchUp) {
+        const revision = state.sessionsEncoder.adopt(snapshot.sessions);
+        const payload = {
+          __listCatch: {
+            revision,
+            ...catchUp,
+            count: snapshot.sessions.length,
+            digest: rosterDigest(state.sessionsEncoder.resumePoint()?.held),
+          },
+          __roster: [rosterLog.epoch, rosterLog.ingest(snapshot.sessions)],
+        };
+        writes.push(send({ event: 'sessions', payload }));
+      }
       for (const [event, encoder, items, resumed] of [
         ['sessions', state.sessionsEncoder, snapshot.sessions, !!adopted?.sessions],
         ['agentPool', state.agentPoolEncoder, snapshot.agents, !!adopted?.agentPool],
       ] as const) {
-        const payload = state.listDelta ? (encoder as KeyedListDeltaEncoder<unknown>).encode(items) : items;
+        if (event === 'sessions' && catchUp) continue;
+        let payload = state.listDelta ? (encoder as KeyedListDeltaEncoder<unknown>).encode(items) : items;
+        if (event === 'sessions' && rosterLog) payload = stampRoster(rosterLog, items, payload);
         writes.push(
           resumed ? sendDelta({ event, payload }, isNoListDelta(payload)) : sendBaseline({ event, payload })
         );

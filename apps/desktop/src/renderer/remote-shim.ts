@@ -58,6 +58,7 @@ import { createRemoteSessionInbox } from './remote-session-inbox';
 import { createRemoteViewSync } from './remote-view-sync';
 import { createRemoteViewBaselineCache, VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 import { createViewResumeRequest, readViewResumeGrant, type ViewResumePoint } from '../shared/remote-view-resume';
+import { createIndexedDbRosterStorage, createRemoteRosterCache } from '../shared/remote-roster-cache';
 import { recoverableCreation } from './recoverable-creation';
 import { isInstalledMobileWebAppSurface } from './mobile-surface';
 import {
@@ -345,9 +346,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           }
         : null;
       const resume = await createViewResumeRequest(resumeToken, points);
+      // The persisted roster, claimed by version: an unchanged roster costs
+      // one small frame instead of the whole list.
+      const roster = await rosterCache.claim();
       const retained = viewBaselines.begin();
       try {
-        const result = await invoke('synchronizeViews', [sessionIds, retained.offer, resume]);
+        const result = await invoke('synchronizeViews', [sessionIds, retained.offer, resume, roster]);
         restoredVisibleSessionIds = [];
         if (epoch === deltaEpoch) viewResumeToken = readViewResumeGrant(result);
         // A resumed sync may resend no transcript: the phone already shows
@@ -381,6 +385,17 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let relayBinaryFrames = false;
   const sessionsDecoder = createKeyedListDeltaDecoder<DesktopSessionSummary>();
   const agentPoolDecoder = createKeyedListDeltaDecoder<DesktopAgentPoolRow>();
+  // Keyed to this pairing: another desktop or a re-pair never reads it.
+  const rosterCache = createRemoteRosterCache<DesktopSessionSummary>({
+    storage: createIndexedDbRosterStorage(),
+    scope: () =>
+      e2eePairing ? [serverBase, deviceId, e2eePairing.serverPublicKey, e2eePairing.pairingSecret].join('\n') : null,
+    decoder: sessionsDecoder,
+    onMismatch: () => {
+      reportRemoteConnectionIssue('sessions-gap');
+      requestResync();
+    },
+  });
 
   // Another tab shares localStorage and may have re-registered this browser,
   // rotating the per-browser credential; always dial with the freshest one.
@@ -530,6 +545,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
    *  that cannot be stored is a refused approval rather than a half pairing. */
   const adoptApproval = (credential: string, material: RelayE2EEPairingMaterial): boolean => {
     if (!persistApproval(credential, material)) return false;
+    rosterCache.clear();
     token = credential;
     e2eePairing = material;
     // Claim approval already minted this browser's credential server-side.
@@ -825,6 +841,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         return;
       }
       sessionsCatalog.publish(decoded.items ?? []);
+      rosterCache.observe(message.payload);
     } else if (message.event === 'agentPool') {
       const decoded = Array.isArray(message.payload)
         ? { ok: true, items: message.payload as DesktopAgentPoolRow[] }
@@ -1061,6 +1078,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // survives because it is a routing label, not a credential.
   const resetApprovalAndAsk = (message: string): void => {
     viewBaselines.clear();
+    rosterCache.clear();
     resetDeltaState();
     clearRemoteConnectionState();
     try {

@@ -559,13 +559,18 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     validateSecret(options.apiKey, 'OpenCode console API key');
   }
   if (capability === 'getTurnReviewDiff' && args[0] !== undefined) {
-    // The turn review bar asks for `{ refresh }`: whether to re-read the
-    // worktree before diffing. Anything else is not a review option.
+    // The turn review bar asks for `{ refresh, known }`: whether to re-read
+    // the worktree before diffing, and the tag of the review it already
+    // shows. Anything else is not a review option.
     const options =
       args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]) ? (args[0] as Record<string, unknown>) : null;
     if (
       !options ||
-      Object.entries(options).some(([key, option]) => key !== 'refresh' || typeof option !== 'boolean')
+      Object.entries(options).some(([key, option]) =>
+        key === 'refresh'
+          ? typeof option !== 'boolean'
+          : key !== 'known' || typeof option !== 'string' || !/^[a-f0-9]{32}$/.test(option)
+      )
     ) {
       throw new TypeError('turn review options are invalid.');
     }

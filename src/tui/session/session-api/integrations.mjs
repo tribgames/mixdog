@@ -4,6 +4,7 @@
  * dashboards, turn review diffs, onboarding, channel setup, and the
  * webhook / schedule automation entries.
  */
+import { createHash } from 'node:crypto';
 import { createApiHelpers } from './shared.mjs';
 
 export function createSessionIntegrationsApi(bag, { oauthFlows }) {
@@ -41,7 +42,16 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       return await requireRuntimeMethod('consumeCodexRateLimitResetCredit', 'Codex reset is unavailable')(options);
     },
     getTurnReviewDiff: async (options = {}) => {
-      return (await runtime.getTurnReviewDiff?.(options)) ?? { supported: false, files: [], patch: '' };
+      const { known, ...reviewOptions } = options || {};
+      const review = (await runtime.getTurnReviewDiff?.(reviewOptions)) ?? {
+        supported: false,
+        files: [],
+        patch: '',
+      };
+      // The review bar re-reads every few seconds during a turn; an unchanged
+      // review answers with its tag instead of re-sending every patch.
+      const etag = createHash('sha256').update(JSON.stringify(review)).digest('hex').slice(0, 32);
+      return known === etag ? { unchanged: true, etag } : { ...review, etag };
     },
     getSessionReviewDiff: async () => {
       return (await runtime.getSessionReviewDiff?.()) ?? { supported: false, files: [], patch: '' };

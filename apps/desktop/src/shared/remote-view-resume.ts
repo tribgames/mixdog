@@ -41,7 +41,7 @@ type WireLane = [number, string];
 
 /** Object keys sorted at every depth: both ends must hash the same JSON even
  * where a decoder merged fields into a different key order. */
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   return JSON.stringify(value, (_key, entry: unknown) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
     const record = entry as Record<string, unknown>;

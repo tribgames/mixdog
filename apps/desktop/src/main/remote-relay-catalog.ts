@@ -8,6 +8,7 @@ import { isNoListDelta } from '../shared/list-delta';
 import { createRemoteCatalog } from '../shared/remote-catalog';
 import type { DesktopService } from './desktop-service-contract';
 import type { RelayClientState } from './remote-relay-clients';
+import { sessionRosterLog, stampRoster } from './remote-roster-log';
 
 export interface RelayCatalogDeps {
   host: DesktopService;
@@ -31,6 +32,8 @@ interface RosterLane<T> {
   catalog: ReturnType<typeof createRemoteCatalog<T>>;
   read(): Promise<T[]>;
   encoder(state: RelayClientState): { reset(): void; encode(rows: T[]): unknown };
+  /** The list-delta payload as this client receives it. */
+  stamp?(state: RelayClientState, rows: T[], wire: unknown): unknown;
   event: 'sessions' | 'agentPool';
   label: string;
 }
@@ -40,6 +43,9 @@ export function createRelayCatalogs(deps: RelayCatalogDeps): RelayCatalogs {
     catalog: createRemoteCatalog<DesktopSessionSummary>(),
     read: () => deps.host.listSessions(),
     encoder: (state) => state.sessionsEncoder,
+    // A phone that persists its roster learns which version each frame is.
+    stamp: (state, rows, wire) =>
+      state.rosterStamp ? stampRoster(sessionRosterLog<DesktopSessionSummary>(deps.host), rows, wire) : wire,
     event: 'sessions',
     label: 'session',
   };
@@ -63,7 +69,7 @@ export function createRelayCatalogs(deps: RelayCatalogDeps): RelayCatalogs {
           clientId,
           {
             event: lane.event,
-            payload: state.listDelta ? wire : rows,
+            payload: state.listDelta ? (lane.stamp?.(state, rows, wire) ?? wire) : rows,
           },
           false
         );
@@ -77,7 +83,7 @@ export function createRelayCatalogs(deps: RelayCatalogDeps): RelayCatalogs {
       if (!state.channel || state.syncing) continue;
       const wire = lane.encoder(state).encode(rows);
       if (isNoListDelta(wire)) continue;
-      const payload = state.listDelta ? wire : rows;
+      const payload = state.listDelta ? (lane.stamp?.(state, rows, wire) ?? wire) : rows;
       // Roster frames carry delta patches: dropping one under congestion
       // breaks the chain for every later push, so they are never droppable.
       void deps.sendEncryptedFrame(clientId, { event: lane.event, payload }, false);
