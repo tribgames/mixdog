@@ -33,7 +33,16 @@ function callCapabilities(method: string, params: unknown): string[] {
 /** The per-minute call summary key: the method, plus its capability names. */
 export function remoteCallStatName(method: string, params: unknown): string {
   const capabilities = callCapabilities(method, params);
-  return capabilities.length ? `${method}:${capabilities.join('+')}` : method;
+  if (!capabilities.length) return method;
+  const name = `${method}:${capabilities.join('+')}`;
+  // Whether a turn review re-read carried the tag of the review it holds:
+  // tells a phone that never sends it from a review that keeps changing.
+  if (name === 'invokeCapability:getTurnReviewDiff') {
+    const args = (Array.isArray(params) ? (params[0] as { args?: unknown } | null)?.args : null) as unknown;
+    const options = Array.isArray(args) ? (args[0] as { known?: unknown } | null) : null;
+    if (typeof options?.known === 'string') return `${name}+tagged`;
+  }
+  return name;
 }
 
 export interface RelayClientCallDeps {
@@ -173,10 +182,11 @@ export function createRelayClientCallDispatch(
     // The turn review diff re-reads the worktree (seconds while a turn runs)
     // and is read-only: it rides the slow-read lane instead of fencing
     // stat/read/submit calls behind it.
-    const queueKey =
-      remoteCallStatName(String(call?.method ?? ''), call?.params) === 'invokeCapability:getTurnReviewDiff'
-        ? 'invokeCapability:getTurnReviewDiff'
-        : String(call?.method ?? '');
+    const queueKey = remoteCallStatName(String(call?.method ?? ''), call?.params).startsWith(
+      'invokeCapability:getTurnReviewDiff'
+    )
+      ? 'invokeCapability:getTurnReviewDiff'
+      : String(call?.method ?? '');
     const execution = client.callQueue.run(queueKey, async () => {
       if (!deps.attached(clientId, client)) return;
       const callStartedAt = Date.now();

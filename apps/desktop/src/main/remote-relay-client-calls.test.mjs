@@ -10,6 +10,12 @@ test('capability calls are named by their allow-listed capabilities, never by ar
     ]),
     'invokeCapability:getTurnReviewDiff'
   );
+  // A re-read carrying its held tag is counted apart; the tag itself never is.
+  const tagged = remoteCallStatName('invokeCapability', [
+    { capability: 'getTurnReviewDiff', args: [{ refresh: true, known: 'f'.repeat(32) }], sessionId: 's' },
+  ]);
+  assert.equal(tagged, 'invokeCapability:getTurnReviewDiff+tagged');
+  assert.doesNotMatch(tagged, /f{8}/);
   assert.equal(
     remoteCallStatName('readCapabilities', [[{ capability: 'getTheme' }, { capability: 'getProfile' }]]),
     'readCapabilities:getTheme+getProfile'

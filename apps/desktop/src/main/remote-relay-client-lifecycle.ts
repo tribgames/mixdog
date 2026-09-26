@@ -125,6 +125,23 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
       // head patches to the prompt history.
       client.promptHistoryPatch = (hello as typeof hello & { promptHistoryPatch?: unknown }).promptHistoryPatch === 1;
       client.viewSync = hello.viewSync === 1 && deps.viewSyncSupported();
+      // Which wire features this phone build announced: the only way to tell
+      // a stale cached build from a feature that fails on the live path.
+      console.info(
+        `[mixdog-remote-hello] client=${clientId.slice(0, 8)} features=` +
+          [
+            ['binaryFrames', client.binaryFrames],
+            ['listDelta', client.listDelta],
+            ['compactWire', client.compactWire],
+            ['transcriptPaging', client.transcriptPaging],
+            ['transcriptPrepend', client.transcriptPrepend],
+            ['promptHistoryPatch', client.promptHistoryPatch],
+            ['viewSync', client.viewSync],
+          ]
+            .filter(([, on]) => on)
+            .map(([name]) => name)
+            .join(',')
+      );
       client.stateLane = createRemoteStateLane(
         client.compactWire,
         (payload, droppable) =>
