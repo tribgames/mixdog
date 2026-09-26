@@ -8,6 +8,15 @@ import {
   requiredNewTaskDraft,
 } from './ipc-validation.ts';
 
+test('the turn review bar reaches its diff with only a boolean refresh option', () => {
+  for (const args of [[], [{}], [{ refresh: true }], [{ refresh: false }]]) {
+    assert.doesNotThrow(() => requiredDesktopCapabilityRequest({ capability: 'getTurnReviewDiff', args }));
+  }
+  for (const args of [[{ refresh: 'yes' }], [{ cwd: 'C:/' }], [null], [[]], [{ refresh: true }, {}]]) {
+    assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'getTurnReviewDiff', args }), TypeError);
+  }
+});
+
 test('Local Provider and Code Tidy lifecycle requests pass the desktop IPC boundary', () => {
   assert.deepEqual(
     requiredDesktopCapabilityRequest({
