@@ -238,6 +238,19 @@ function statusCode(entry: TurnReviewFileEntry): string {
 // Single-quoted so the capability-inventory source scan counts this surface.
 const TURN_REVIEW_CAPABILITY = 'getTurnReviewDiff';
 
+// Tag of the last applied review per session and turn scope. Module-level so
+// a remounted bar keeps it: a tag lost with the component makes every re-read
+// carry the whole patch again. A stale tag only costs one full answer; the
+// daemon compares against the live review.
+const REVIEW_TAGS = new Map<string, string>();
+const MAX_REVIEW_TAGS = 64;
+
+function rememberReviewTag(key: string, etag: string): void {
+  REVIEW_TAGS.delete(key);
+  REVIEW_TAGS.set(key, etag);
+  if (REVIEW_TAGS.size > MAX_REVIEW_TAGS) REVIEW_TAGS.delete(REVIEW_TAGS.keys().next().value as string);
+}
+
 function toolPublishesPatch(item: TranscriptItem): boolean {
   const categories = item.categories;
   if (categories && typeof categories === 'object' && Object.hasOwn(categories, 'Patch')) return true;
@@ -696,13 +709,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   } | null>(null);
   const refreshAgentReviewsRef = useRef<(refreshWorktree?: boolean) => Promise<void>>(async () => undefined);
   const lastAgentReviewSignature = useRef<string | null>(null);
-  // Tag of the last applied review for its scope: an unchanged re-read then
-  // answers with the tag alone instead of every patch again.
-  const lastReviewTag = useRef<{ scopeKey: string; etag: string } | null>(null);
   useEffect(() => {
     pendingCapabilityRefresh.current = null;
     lastAgentReviewSignature.current = null;
-    lastReviewTag.current = null;
     setExpanded(false);
     setOpenFile('');
     setConfirmFile('');
@@ -788,7 +797,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         // This bar belongs to the pane's session. During a tab switch the host's
         // focused view can already point elsewhere, so omitting this address
         // mixed another turn's diff into the bar and could hit a stale view.
-        const known = lastReviewTag.current?.scopeKey === requestedScope ? lastReviewTag.current.etag : '';
+        const tagKey = `${sessionId}\0${requestedScope}`;
+        const known = REVIEW_TAGS.get(tagKey) ?? '';
         const result = await api.invokeCapability({
           capability: TURN_REVIEW_CAPABILITY,
           args: [{ refresh: refreshWorktree, ...(known ? { known } : {}) }],
@@ -800,7 +810,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         if (!decoded) {
           return;
         }
-        if (typeof value?.etag === 'string') lastReviewTag.current = { scopeKey: requestedScope, etag: value.etag };
+        if (typeof value?.etag === 'string') rememberReviewTag(tagKey, value.etag);
         const { leadPatch, snapshotKind, checkpointId, files, reviews } = decoded;
         const signature = JSON.stringify([leadPatch, files, snapshotKind, checkpointId, reviews]);
         rememberAgentReviews(requestedScope, reviews, leadPatch, files, snapshotKind, checkpointId);
