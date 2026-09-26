@@ -46,6 +46,7 @@
     "build:fast": "electron-vite build && node scripts/build-daemon.mjs",
     "capture:ui": "npm run build && node src/renderer/capture-ui.mjs",
     "prepare:runtime": "node scripts/prepare-runtime.mjs",
+    "prepare:fast-runtime-code": "node scripts/prepare-fast-runtime-code.mjs",
     "brand:win": "node scripts/generate-brand-icons.mjs",
     "build:win": "npm run build && npm run prepare:runtime -- --platform=win32 --arch=x64 && npm run brand:win && electron-builder --win --x64 --publish never && npm run verify:update-metadata",
     "build:win:arm64": "npm run build && npm run prepare:runtime -- --platform=win32 --arch=arm64 && npm run brand:win && electron-builder --win --arm64 --publish never && npm run verify:update-metadata",

@@ -740,7 +740,10 @@ function Invoke-FastDirectChangedOutputs {
                 }
                 Write-Step "preparing changed FastDirect runtime ($runtimeMode)"
                 if ($runtimeMode -eq 'code') {
-                    & node scripts/prepare-fast-runtime-code.mjs `
+                    # Through npm like prepare:runtime below: the script packs
+                    # via npm_execpath, which a bare node launch (deploy-remote
+                    # -FastDirect run outside npm) never had.
+                    & npm.cmd run prepare:fast-runtime-code -- `
                         "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
                         "--runtime-hash=$($Plan.groups.runtime.hash)"
                     if ($LASTEXITCODE -ne 0) { throw "prepare-fast-runtime-code exited with $LASTEXITCODE" }
