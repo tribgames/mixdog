@@ -1431,6 +1431,24 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     return invoke<T>(method, params);
   };
 
+  /** The roster a view-synchronizing desktop already delivered. Every sync
+   *  sends the sessions and agent catalogs in full before its receipt and
+   *  keeps them current with pushes, so once the view is synchronized the
+   *  retained copy IS the answer. Asking again only re-downloaded the whole
+   *  catalog, and on the desktop that read queued behind every earlier
+   *  capability call: a cold boot's catalog readiness — and with it a session
+   *  opened from a notification — waited seconds for unrelated settings
+   *  probes. Legacy peers and an unset catalog still read over the relay. */
+  const readCatalog = async <T>(
+    catalog: ReturnType<typeof createRemoteCatalog<T>>,
+    method: 'listSessions' | 'listAgentPool'
+  ): Promise<T[]> => {
+    await connect();
+    if (!peerViewSync) return call<T[]>(method);
+    await viewSync.ready();
+    return (await catalog.read(() => invoke<T[]>(method))) ?? call<T[]>(method);
+  };
+
   const fire = (method: string, params: unknown[]): void => {
     void connect()
       .then((ws) => sendApplicationFrame(ws, { method, params }))
@@ -1511,11 +1529,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     subscribeFolderChanges: (listener) => laneSubscription('files', folderChangeListeners, listener),
     resolveLocalPaths: (paths) => call('resolveLocalPaths', [paths]),
     readLocalFile: (path) => call('readLocalFile', [path]),
-    listSessions: () => call('listSessions'),
+    listSessions: () => readCatalog(sessionsCatalog, 'listSessions'),
     markSessionRead: (sessionId, messageCount, consumedUnread) =>
       call<boolean>('markSessionRead', [sessionId, messageCount, consumedUnread]),
     subscribeSessions: (listener) => sessionsCatalog.subscribe(listener),
-    listAgentPool: () => call('listAgentPool'),
+    listAgentPool: () => readCatalog(agentsCatalog, 'listAgentPool'),
     subscribeAgentPool: (listener) => agentsCatalog.subscribe(listener),
     renameSession: (sessionId, title) => call('renameSession', [sessionId, title]),
     setSessionArchived: (sessionId: string, archived: boolean) => call('setSessionArchived', [sessionId, archived]),

@@ -12,8 +12,9 @@ const PARALLEL_READS = new Set([
   'listProjectDir',
   'readProjectFile',
   'statProjectFile',
-  'searchProjectFiles',
-  'previewDocumentPages',
+  // Validated to read-only capabilities (ipc-validation) and served by the
+  // control session's read path, so it need not fence later calls.
+  'readCapabilities',
   'gitStatus',
   'gitDiff',
   'gitLog',
@@ -22,17 +23,32 @@ const PARALLEL_READS = new Set([
   'gitShowDiff',
 ]);
 
+// Read-only operations that may walk a whole Project index, grep its text or
+// render document pages (seconds, occasionally minutes). They get their own bounded lane so
+// stat/read/capability/submit calls are never queued behind them. They still
+// observe every mutation queued before them; later mutations need not wait
+// for them, because a search or preview has nothing a write could overtake.
+const SLOW_READS = new Set(['searchProjectFiles', 'searchWorkspaceText', 'previewDocumentPages']);
+
 const TERMINAL_METHODS = new Set(['termEnsure', 'termProfiles', 'termWrite', 'termResize', 'termDispose']);
 
-export function createRemoteCallQueue(concurrency = 4) {
+export function createRemoteCallQueue(concurrency = 4, slowConcurrency = 2) {
   const general = createCallLane(concurrency);
+  const slow = createCallLane(slowConcurrency);
   const terminal = createCallLane(1);
   return {
     run(method: string, task: () => Promise<void>): Promise<void> {
-      return (TERMINAL_METHODS.has(method) ? terminal : general).run(method, task);
+      if (TERMINAL_METHODS.has(method)) return terminal.run(method, task);
+      if (!SLOW_READS.has(method)) return general.run(method, task);
+      const writes = general.writesSettled();
+      return slow.run(method, async () => {
+        await writes;
+        await task();
+      });
     },
     close(): void {
       general.close();
+      slow.close();
       terminal.close();
     },
   };
@@ -49,6 +65,8 @@ function createCallLane(concurrency: number) {
   let active = 0;
   let writing = false;
   let closed = false;
+  // Settles once every mutation queued so far has finished or been dropped.
+  let lastWrite: Promise<void> = Promise.resolve();
   const pump = (): void => {
     if (closed || writing) return;
     while (queued.length && active < concurrency) {
@@ -71,11 +89,21 @@ function createCallLane(concurrency: number) {
   return {
     run(method: string, task: () => Promise<void>): Promise<void> {
       if (closed) return Promise.reject(new Error('Remote client disconnected.'));
+      const read = PARALLEL_READS.has(method) || SLOW_READS.has(method);
       const result = new Promise<void>((resolve, reject) => {
-        queued.push({ read: PARALLEL_READS.has(method), run: task, resolve, reject });
+        queued.push({ read, run: task, resolve, reject });
       });
+      if (!read) {
+        lastWrite = result.then(
+          () => undefined,
+          () => undefined
+        );
+      }
       pump();
       return result;
+    },
+    writesSettled(): Promise<void> {
+      return lastWrite;
     },
     close(): void {
       closed = true;

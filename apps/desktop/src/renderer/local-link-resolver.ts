@@ -120,3 +120,67 @@ export async function resolveLocalLink(project: string, path: string): Promise<R
   }
   throw new Error(t('File not found in the Project: {{file}}', { file: path }));
 }
+
+// Rendering verifies every filename mention in a transcript, and one name is
+// often mentioned many times: each (Project, path) costs one request per
+// file service while it is in flight or recently settled. A found file stays
+// verified briefly; a missing one retries soon, since it may be about to be
+// written.
+const VERIFIED_TTL_MS = 30_000;
+const MISSING_TTL_MS = 3_000;
+const VERIFICATION_CACHE_LIMIT = 256;
+
+interface Verification {
+  result: Promise<ResolvedLocalLink>;
+  expiresAt: number;
+}
+
+const verifications = new WeakMap<object, Map<string, Verification>>();
+
+/** Confirm that an automatic mention names an existing file or folder: the
+ *  conversation's Project first, then the other registered Projects (or the
+ *  exact absolute path). Remote searches run in their own call lane, so this
+ *  never queues other calls behind a Project index walk. Resolution results
+ *  may be stale, so the resolved file is statted as well. */
+export function verifyLocalLink(project: string, path: string): Promise<ResolvedLocalLink> {
+  const api = window.mixdogDesktop;
+  const statProjectFile = api?.statProjectFile;
+  // Never trust the resolver's no-stat compatibility fallback.
+  if (!api || !statProjectFile) {
+    return Promise.reject(new Error(t('Local file links can only be opened in the desktop app.')));
+  }
+  let cache = verifications.get(api);
+  if (!cache) {
+    cache = new Map();
+    verifications.set(api, cache);
+  }
+  const key = `${project}\0${path}`;
+  const cached = cache.get(key);
+  cache.delete(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    cache.set(key, cached);
+    return cached.result;
+  }
+  const result = resolveLocalLink(project, path).then(async (match) => {
+    // External folders were already statted by resolveLocalPaths and open
+    // in the file manager, without an editor access token.
+    if (!match.directory) await statProjectFile(match.project, match.path, match.accessToken);
+    return match;
+  });
+  const entry: Verification = { result, expiresAt: Number.POSITIVE_INFINITY };
+  cache.set(key, entry);
+  while (cache.size > VERIFICATION_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+  result.then(
+    () => {
+      entry.expiresAt = Date.now() + VERIFIED_TTL_MS;
+    },
+    () => {
+      entry.expiresAt = Date.now() + MISSING_TTL_MS;
+    }
+  );
+  return result;
+}

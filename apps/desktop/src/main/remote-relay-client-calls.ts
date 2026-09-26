@@ -15,6 +15,19 @@ import { isStateResyncFrame } from './state-delta';
 // that got there while staying silent for ordinary work.
 const SLOW_REMOTE_CALL_MS = 2_000;
 
+// Names the capabilities behind a slow capability call, so the log says which
+// one was slow instead of only "invokeCapability".
+function slowCallCapabilities(method: string, params: unknown): string {
+  if (method !== 'invokeCapability' && method !== 'readCapabilities') return '';
+  const input = Array.isArray(params) ? params[0] : undefined;
+  const requests = Array.isArray(input) ? input : [input];
+  return requests
+    .map((request) => String((request as { capability?: unknown } | null)?.capability ?? ''))
+    .filter((name) => /^[\w.:-]{1,64}$/u.test(name))
+    .slice(0, 8)
+    .join(',');
+}
+
 export interface RelayClientCallDeps {
   host: DesktopService;
   methods: ReturnType<typeof createRemoteMethods>;
@@ -155,8 +168,10 @@ export function createRelayClientCallDispatch(
       const method =
         typeof call?.method === 'string' && Object.hasOwn(deps.methods, call.method) ? call.method : 'unknown';
       if (callMs + queueMs >= SLOW_REMOTE_CALL_MS) {
+        const capabilities = slowCallCapabilities(method, call?.params);
         console.error(
           `[mixdog-remote-slow-call] method=${method}` +
+            (capabilities ? ` capability=${capabilities}` : '') +
             ` ms=${callMs} queueMs=${queueMs} queuedBehind=${client.pendingFrames}`
         );
       }

@@ -164,6 +164,54 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.equal(f.toasts.length + f.external.length + f.popups.length, 0);
   });
 
+  test(`${pipeline}: automatic mentions link across Projects, verified once per name`, async (t) => {
+    const other = 'C:/Project/GamerScroll';
+    const calls = [];
+    const f = await mount(
+      t,
+      render,
+      [
+        '`favicon.svg` and `app.ts` changed.',
+        'Again `favicon.svg`, `app.ts:3` and `app.ts` (line 9).',
+        'Also `src/only-there.ts` and `src/app.ts`.',
+      ].join('\n\n'),
+      PROJECT,
+      (f) => {
+        installProjectFiles(f, {
+          [PROJECT]: ['src/app.ts'],
+          [other]: ['favicon.svg', 'src/only-there.ts'],
+        });
+        const api = f.dom.window.mixdogDesktop;
+        for (const method of ['listProjects', 'statProjectFile', 'searchProjectFiles']) {
+          const original = api[method];
+          api[method] = (...args) => {
+            calls.push([method, ...args]);
+            return original(...args);
+          };
+        }
+      }
+    );
+    // Names found only in another Project link there; nothing stays pending.
+    assert.equal(f.links().length, 7);
+    assert.equal(f.dom.window.document.querySelectorAll('.markdown-link-pending').length, 0);
+    assert.equal(f.links().filter((a) => a.title.startsWith(`${other}/`)).length, 3);
+    const count = (method, project, path) =>
+      calls.filter((call) => call[0] === method && call[1] === project && call[2] === path).length;
+    // Five mentions of two bare names: one stat and one index search each in
+    // the conversation Project, and other Projects only for the missing name.
+    assert.equal(count('statProjectFile', PROJECT, 'favicon.svg'), 1);
+    assert.equal(count('searchProjectFiles', PROJECT, 'favicon.svg'), 1);
+    assert.equal(count('statProjectFile', PROJECT, 'app.ts'), 1);
+    assert.equal(count('searchProjectFiles', PROJECT, 'app.ts'), 1);
+    assert.equal(calls.filter((call) => call[1] === other && call[2] === 'app.ts').length, 0);
+    // A click on an automatic link opens the verified target without searching again.
+    const searches = calls.length;
+    await f.click(3);
+    assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', 3]]);
+    assert.equal(calls.length, searches);
+    assert.equal(f.toasts.length, 0);
+  });
+
   test(`${pipeline}: cwd changes retarget file links and discard the previous Project tooltip`, async (t) => {
     const other = 'C:/Project/GamerScroll';
     const f = await mount(t, render, '`src/app.ts`', PROJECT, (f) =>

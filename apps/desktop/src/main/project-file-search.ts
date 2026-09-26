@@ -8,9 +8,12 @@ const MAX_SCANNED_ENTRIES = 100_000;
 // behavior). Invalidation is TTL-based ON PURPOSE: a recursive fs.watch on the
 // project root silently flips the process exit code to 1 on Windows when the
 // watched root itself is deleted (no 'error' event, verified empirically), so
-// a short TTL is the reliable cross-platform staleness bound.
-const INDEX_CACHE_LIMIT = 4;
-const INDEX_TTL_MS = 10_000;
+// a TTL is the reliable cross-platform staleness bound. A stale index is
+// still served while it rebuilds in the background (stale-while-revalidate),
+// so only a root's first search waits for a walk; the next search after the
+// rebuild sees current files.
+const INDEX_CACHE_LIMIT = 16;
+const INDEX_TTL_MS = 60_000;
 
 interface ProjectFileIndex {
   files: string[];
@@ -153,34 +156,43 @@ async function collectProjectFiles(
   return files;
 }
 
-async function projectFilesFor(root: string): Promise<string[]> {
-  const now = Date.now();
-  const cached = projectFileIndexes.get(root);
-  if (cached && now - cached.builtAt <= INDEX_TTL_MS) {
-    // LRU touch so hot roots survive the cache cap.
-    projectFileIndexes.delete(root);
-    projectFileIndexes.set(root, cached);
-    return cached.files;
-  }
+function buildProjectIndex(root: string): Promise<string[]> {
   const inFlight = buildingIndexes.get(root);
   if (inFlight) return inFlight;
-  const build = (async () => {
-    projectFileIndexes.delete(root);
-    const files = await collectProjectFiles(root);
-    projectFileIndexes.set(root, { files, builtAt: Date.now() });
-    while (projectFileIndexes.size > INDEX_CACHE_LIMIT) {
-      const oldest = projectFileIndexes.keys().next().value;
-      if (oldest === undefined) break;
-      projectFileIndexes.delete(oldest);
-    }
-    return files;
-  })();
+  const build = collectProjectFiles(root)
+    .then(
+      (files) => {
+        projectFileIndexes.delete(root);
+        projectFileIndexes.set(root, { files, builtAt: Date.now() });
+        while (projectFileIndexes.size > INDEX_CACHE_LIMIT) {
+          const oldest = projectFileIndexes.keys().next().value;
+          if (oldest === undefined) break;
+          projectFileIndexes.delete(oldest);
+        }
+        return files;
+      },
+      (error: unknown) => {
+        // A root that can no longer be walked must not keep serving its old
+        // list; the next search walks again and reports the failure.
+        projectFileIndexes.delete(root);
+        throw error;
+      }
+    )
+    .finally(() => {
+      if (buildingIndexes.get(root) === build) buildingIndexes.delete(root);
+    });
   buildingIndexes.set(root, build);
-  try {
-    return await build;
-  } finally {
-    buildingIndexes.delete(root);
-  }
+  return build;
+}
+
+async function projectFilesFor(root: string): Promise<string[]> {
+  const cached = projectFileIndexes.get(root);
+  if (!cached) return buildProjectIndex(root);
+  // LRU touch so hot roots survive the cache cap.
+  projectFileIndexes.delete(root);
+  projectFileIndexes.set(root, cached);
+  if (Date.now() - cached.builtAt > INDEX_TTL_MS) void buildProjectIndex(root).catch(() => undefined);
+  return cached.files;
 }
 
 export async function searchProjectDirectory(

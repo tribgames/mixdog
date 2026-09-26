@@ -6,7 +6,7 @@ import { t } from './i18n';
 import { localPathMentionHref, PATH_LINK_CLASS } from './markdown-plugins';
 import { isLocalMarkdownLink, projectRelativeFilePath } from './markdown-url';
 import { prefetchEditorPane, scheduleEditorPanePrefetch } from './lazy-widgets';
-import { resolveLocalLink, type ResolvedLocalLink } from './local-link-resolver';
+import { resolveLocalLink, verifyLocalLink, type ResolvedLocalLink } from './local-link-resolver';
 import { localFileOpener, localLinkKind, parseLocalFileLocation } from '../shared/local-files';
 
 /** Plain text of rendered children: highlighted code and link captions are
@@ -126,20 +126,16 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
 
   // A filename-shaped mention is not an authored link. Keep it noninteractive
   // until the owning Project and actual file/folder are confirmed.
-  // Search results may be stale; stat the resolved path as well. Do not use
-  // the resolver's legacy no-stat fallback as evidence that a file exists.
+  // Verification looks only in the conversation's Project (a bare name found
+  // in another Project stays text): searching every registered Project per
+  // rendered mention would flood the file service. Repeated mentions of one
+  // name share a single verification.
   useEffect(() => {
     if (!verify || !local) return;
     setVerifiedKey('');
-    const statProjectFile = window.mixdogDesktop?.statProjectFile;
-    if (!statProjectFile) return;
     let active = true;
-    resolveLocalLink(projectPath, location.path)
-      .then(async (match) => {
-        if (!active) return;
-        // External folders were already statted by resolveLocalPaths and
-        // open in the file manager, without an editor access token.
-        if (!match.directory) await statProjectFile(match.project, match.path, match.accessToken);
+    verifyLocalLink(projectPath, location.path)
+      .then((match) => {
         if (!active) return;
         setResolved({
           key: resolutionKey,

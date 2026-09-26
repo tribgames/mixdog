@@ -10,6 +10,30 @@ import { clean } from './session-text.mjs';
 // gets its confirmed outcome and the surface revalidates on its own cadence.
 const REDEEM_REFRESH_BUDGET_MS = 15_000;
 
+// A refresh is a live sweep of every connected provider's quota API, paced by
+// the slowest one (seconds; tens of seconds for a stalled provider). Every
+// surface asks for one — the desktop rail's cadence, each phone boot and wake,
+// the TUI — so a phone opening while the desktop refreshed paid a second full
+// sweep for the same numbers. A matching sweep already running is joined, and
+// a complete sweep that finished within this window answers a plain refresh.
+export const USAGE_REFRESH_REUSE_MS = 30_000;
+
+/** Identity of the providers a refresh forces live; '' = all of them. */
+function refreshScopeKey(options) {
+  const requested = options?.refreshProviders;
+  if (!Array.isArray(requested)) return '';
+  return [
+    ...new Set(
+      requested
+        .slice(0, 16)
+        .map((value) => clean(value).toLowerCase())
+        .filter(Boolean)
+    ),
+  ]
+    .sort()
+    .join(',');
+}
+
 export function createProviderUsage({
   caches,
   getReg,
@@ -25,6 +49,10 @@ export function createProviderUsage({
   const reg = () => getReg();
   let quickSetupRequest = null;
   let dashboardRequest = null;
+  /** In-flight usage refreshes by scope, each tied to the cache generation it
+   *  started in: a sweep begun before an invalidation (credential change,
+   *  reset-credit redeem) is never joined by a request made after it. */
+  const liveRefreshes = new Map();
 
   function refreshStatuslineUsageSnapshot(routeLike = {}) {
     const providerId = clean(routeLike.provider);
@@ -79,24 +107,61 @@ export function createProviderUsage({
     return await promise;
   }
 
+  function cachedDashboard(options) {
+    const cached = {
+      ...caches.usageDashboardCache.dashboard,
+      refresh: false,
+      checking: false,
+      cached: true,
+      cachedAt: caches.usageDashboardCache.at,
+    };
+    if (typeof options?.onUpdate === 'function') {
+      try {
+        options.onUpdate(cached);
+      } catch {}
+    }
+    return cached;
+  }
+
   async function getUsageDashboard(options = {}) {
     const refreshUsage = options?.refresh === true;
     const forceSetup = options?.force === true || (refreshUsage && options?.refreshSetup !== false);
     if (!forceSetup && !refreshUsage && caches.usageDashboardCache.dashboard) {
-      const cached = {
-        ...caches.usageDashboardCache.dashboard,
-        refresh: false,
-        checking: false,
-        cached: true,
-        cachedAt: caches.usageDashboardCache.at,
-      };
-      if (typeof options?.onUpdate === 'function') {
-        try {
-          options.onUpdate(cached);
-        } catch {}
-      }
-      return cached;
+      return cachedDashboard(options);
     }
+    if (refreshUsage && !forceSetup) {
+      const scope = refreshScopeKey(options);
+      const cache = caches.usageDashboardCache;
+      if (
+        !scope &&
+        cache.dashboard &&
+        Number.isFinite(cache.liveAt) &&
+        Date.now() - cache.liveAt < USAGE_REFRESH_REUSE_MS
+      ) {
+        return cachedDashboard(options);
+      }
+      const running = liveRefreshes.get(scope);
+      if (running?.cache === cache) {
+        const dashboard = await running.promise;
+        if (typeof options?.onUpdate === 'function') {
+          try {
+            options.onUpdate(dashboard);
+          } catch {}
+        }
+        return dashboard;
+      }
+      const entry = { cache, promise: buildUsageDashboard(options, { refreshUsage, forceSetup, scope }) };
+      liveRefreshes.set(scope, entry);
+      try {
+        return await entry.promise;
+      } finally {
+        if (liveRefreshes.get(scope) === entry) liveRefreshes.delete(scope);
+      }
+    }
+    return await buildUsageDashboard(options, { refreshUsage, forceSetup, scope: refreshScopeKey(options) });
+  }
+
+  async function buildUsageDashboard(options, { refreshUsage, forceSetup, scope }) {
     if (!forceSetup && !refreshUsage && caches.usageDashboardPromise) return await caches.usageDashboardPromise;
     const cache = caches.usageDashboardCache;
     const request = {};
@@ -142,7 +207,10 @@ export function createProviderUsage({
       // A newer refresh supersedes this request; replacing the cache object
       // invalidates all older requests, including pre-redeem quota snapshots.
       if (dashboardRequest === request && caches.usageDashboardCache === cache) {
-        caches.usageDashboardCache = { dashboard, at: Date.now() };
+        const at = Date.now();
+        // Only a sweep that forced EVERY provider live may stand in for a
+        // later refresh; a plain build or a scoped one served cached quotas.
+        caches.usageDashboardCache = { dashboard, at, ...(refreshUsage && !scope ? { liveAt: at } : {}) };
       }
       return dashboard;
     };

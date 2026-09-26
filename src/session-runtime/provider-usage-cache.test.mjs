@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { setImmediate } from 'node:timers/promises';
 import test from 'node:test';
 import { createProviderReadiness } from './provider-readiness.mjs';
-import { createProviderUsage } from './provider-usage.mjs';
+import { createProviderUsage, USAGE_REFRESH_REUSE_MS } from './provider-usage.mjs';
 
 function deferred() {
   const { promise, resolve } = Promise.withResolvers();
@@ -152,6 +152,73 @@ test('a dashboard preview is already part of the shared in-flight build', async 
   await Promise.all([first, joined]);
   assert.equal(previews, 1);
   assert.equal(builds, 1);
+});
+
+test('concurrent plain refreshes share one live sweep', async () => {
+  const requests = [];
+  const f = fixture({
+    createUsageDashboard: () => {
+      const request = deferred();
+      requests.push(request);
+      return request.promise;
+    },
+  });
+  const rail = f.usage.getUsageDashboard({ refresh: true, refreshSetup: false });
+  await setImmediate();
+  const phone = f.usage.getUsageDashboard({ refresh: true, refreshSetup: false });
+  await setImmediate();
+  assert.equal(requests.length, 1);
+  requests[0].resolve({ generation: 'live' });
+  assert.equal((await rail).generation, 'live');
+  assert.equal((await phone).generation, 'live');
+});
+
+test('a plain refresh right after a complete sweep reuses it; a later or scoped one sweeps again', async (t) => {
+  let now = 1_000_000;
+  t.mock.method(Date, 'now', () => now);
+  let builds = 0;
+  const f = fixture({
+    createUsageDashboard: async () => ({ generation: ++builds }),
+  });
+  assert.equal((await f.usage.getUsageDashboard({ refresh: true, refreshSetup: false })).generation, 1);
+  now += USAGE_REFRESH_REUSE_MS - 1;
+  const reused = await f.usage.getUsageDashboard({ refresh: true, refreshSetup: false });
+  assert.equal(reused.generation, 1);
+  assert.equal(reused.cached, true);
+  // An account switch forces its provider live even inside the window.
+  const scoped = await f.usage.getUsageDashboard({ refresh: true, refreshSetup: false, refreshProviders: ['x'] });
+  assert.equal(scoped.generation, 2);
+  // A scoped sweep served the other providers from cache: it is no stand-in.
+  now += 1;
+  assert.equal((await f.usage.getUsageDashboard({ refresh: true, refreshSetup: false })).generation, 3);
+  now += USAGE_REFRESH_REUSE_MS;
+  assert.equal((await f.usage.getUsageDashboard({ refresh: true, refreshSetup: false })).generation, 4);
+  // A plain (unforced) build is not a live sweep either.
+  f.invalidate();
+  await f.usage.getUsageDashboard({ quickSetup: false });
+  assert.equal((await f.usage.getUsageDashboard({ refresh: true, refreshSetup: false })).generation, 6);
+});
+
+test('a refresh after an invalidation never joins the sweep that predates it', async () => {
+  const requests = [];
+  const f = fixture({
+    createUsageDashboard: () => {
+      const request = deferred();
+      requests.push(request);
+      return request.promise;
+    },
+  });
+  const before = f.usage.getUsageDashboard({ refresh: true, refreshSetup: false });
+  await setImmediate();
+  f.invalidate();
+  const after = f.usage.getUsageDashboard({ refresh: true, refreshSetup: false });
+  await setImmediate();
+  assert.equal(requests.length, 2);
+  requests[0].resolve({ generation: 'old' });
+  requests[1].resolve({ generation: 'new' });
+  assert.equal((await before).generation, 'old');
+  assert.equal((await after).generation, 'new');
+  assert.equal((await f.usage.getUsageDashboard()).generation, 'new');
 });
 
 test('a pre-redeem dashboard cannot restore spent reset credits in the cache', async () => {

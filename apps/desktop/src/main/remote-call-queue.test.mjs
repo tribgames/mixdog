@@ -90,6 +90,95 @@ test('a slow read does not block another read; mutations remain ordered barriers
   assert.deepEqual(seen, ['read-start', 'snapshot', 'read-end', 'write', 'after-write']);
 });
 
+test('slow searches never delay a stat, capability read or submit issued after them', async () => {
+  const queue = createRemoteCallQueue();
+  const gate = deferred();
+  const seen = [];
+  const searches = Array.from({ length: 8 }, (_, index) =>
+    queue.run(['searchProjectFiles', 'searchWorkspaceText', 'previewDocumentPages'][index % 3], async () => {
+      seen.push('search');
+      await gate.promise;
+    })
+  );
+  await queue.run('statProjectFile', async () => {
+    seen.push('stat');
+  });
+  await queue.run('readCapabilities', async () => {
+    seen.push('capabilities');
+  });
+  await queue.run('submitToSession', async () => {
+    seen.push('submit');
+  });
+  await queue.run('submitNewTask', async () => {
+    seen.push('new-task');
+  });
+  // The slow lane is bounded on its own: two searches run, the rest wait.
+  assert.deepEqual(
+    seen.filter((entry) => entry !== 'search'),
+    ['stat', 'capabilities', 'submit', 'new-task']
+  );
+  assert.equal(seen.filter((entry) => entry === 'search').length, 2);
+  gate.resolve();
+  await Promise.all(searches);
+  assert.equal(seen.filter((entry) => entry === 'search').length, 8);
+  queue.close();
+});
+
+test('a slow capability read does not fence the reads issued after it', async () => {
+  const queue = createRemoteCallQueue();
+  const gate = deferred();
+  const seen = [];
+  const read = queue.run('readCapabilities', async () => {
+    await gate.promise;
+    seen.push('capabilities');
+  });
+  await queue.run('listSessions', async () => {
+    seen.push('sessions');
+  });
+  assert.deepEqual(seen, ['sessions']);
+  gate.resolve();
+  await read;
+  queue.close();
+});
+
+test('a slow search observes mutations queued before it', async () => {
+  const queue = createRemoteCallQueue();
+  const gate = deferred();
+  const seen = [];
+  const write = queue.run('writeProjectFile', async () => {
+    await gate.promise;
+    seen.push('write');
+  });
+  const search = queue.run('searchProjectFiles', async () => {
+    seen.push('search');
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(seen, []);
+  gate.resolve();
+  await Promise.all([write, search]);
+  assert.deepEqual(seen, ['write', 'search']);
+  queue.close();
+});
+
+test('disconnect rejects queued slow searches', async () => {
+  const queue = createRemoteCallQueue(4, 1);
+  const gate = deferred();
+  let ran = 0;
+  const running = queue.run('searchProjectFiles', async () => {
+    ran += 1;
+    await gate.promise;
+  });
+  const queued = queue.run('searchProjectFiles', async () => {
+    ran += 1;
+  });
+  const rejected = assert.rejects(queued, /disconnected/);
+  await Promise.resolve();
+  queue.close();
+  gate.resolve();
+  await Promise.all([running, rejected]);
+  assert.equal(ran, 1);
+});
+
 test('read concurrency is bounded and disconnect never starts queued mutations', async () => {
   const queue = createRemoteCallQueue(2);
   const gate = deferred();
