@@ -52,7 +52,7 @@ import {
   readTranscriptVirtualSnapshot,
   transcriptRowNamespace,
 } from './transcript-virtual-cache';
-import { useTranscriptHistory } from './use-transcript-history';
+import { TRANSCRIPT_HISTORY_TOP_PX, useTranscriptHistory, useTranscriptHistoryFill } from './use-transcript-history';
 import { LiveActivity, resetToolDisclosureScope, ToolActivityGroup, TranscriptRow } from './TranscriptView';
 import { useTranscriptFollow } from './use-transcript-follow';
 import { useTranscriptReveal } from './use-transcript-reveal';
@@ -824,6 +824,9 @@ export function Conversation({
     content,
     hasScrollGesture: hasTranscriptScrollGesture,
   });
+  // A short first window (down to 8 huge rows) may not fill the pane, and
+  // with nothing to scroll the top threshold is never crossed.
+  useTranscriptHistoryFill(viewport, requestEarlierTranscript, settledItems.length, transcriptRevealed);
   // Animate only completions that ARRIVE while this session's transcript is
   // already hydrated on screen. The baseline is a per-session UNION of every
   // completion key ever committed, not the previous frame: pane focus swaps
@@ -1002,7 +1005,7 @@ export function Conversation({
           }}
           onScroll={(event) => {
             handleTranscriptScroll();
-            if (event.currentTarget.scrollTop <= 320) requestEarlierTranscript();
+            if (event.currentTarget.scrollTop <= TRANSCRIPT_HISTORY_TOP_PX) requestEarlierTranscript();
           }}
           onWheel={handleTranscriptWheel}
           onPointerDown={handleTranscriptPointerDown}

@@ -51,6 +51,8 @@ import { _shouldDrop, _sessionWriteAuthorityRefusal } from './store/write-admiss
 import {
   lifecycleOfSessionDocument as _lifecycleOfSessionDocument,
   stampSessionScratch as _stampSessionScratch,
+  announcePendingOwnCommit as _announcePendingOwnCommit,
+  withdrawPendingOwnCommit as _withdrawPendingOwnCommit,
   recordOwnSessionCommit as _recordOwnSessionCommit,
 } from './store/canonical-reader.mjs';
 // Durable lifecycle reads, heartbeat freshness and live-cache reclamation are
@@ -155,7 +157,10 @@ export function saveSession(session, opts) {
   // foreign/ambiguous/unreadable canonical record is never cached as locally
   // owned, not even transiently, so this runs BEFORE setLiveSession and the
   // optimistic summary row. True absence stays creatable.
-  const refusal = _sessionWriteAuthorityRefusal(id);
+  // A synchronous save is ONE operation from here to the rename: its
+  // pre-admission and its three write-authority checks share one scratch.
+  const syncAttempt = opts?.sync ? {} : null;
+  const refusal = _sessionWriteAuthorityRefusal(id, syncAttempt);
   // A refused record publishes NOTHING: no live snapshot, no optimistic
   // summary row. The write itself still travels the normal path, where the
   // strict under-lock admission refuses it and produces the established
@@ -188,7 +193,9 @@ export function saveSession(session, opts) {
   // read-your-writes; sync remains for callers that require immediate disk.
   if (opts?.sync) {
     try {
-      if (_doSaveSync(payload) !== SAVE_OUTCOME_SAVED) _rollbackCachedSessionSummary(id, summaryVersion);
+      if (_doSaveSync({ ...payload, attempt: syncAttempt }) !== SAVE_OUTCOME_SAVED) {
+        _rollbackCachedSessionSummary(id, summaryVersion);
+      }
     } catch (err) {
       _rollbackCachedSessionSummary(id, summaryVersion);
       throw err;
@@ -293,6 +300,20 @@ export function _saveSessionSync(session, opts, options = {}) {
   });
 }
 
+// Rename a scratch file into place, announcing its identity to the peer realm
+// first (see announcePendingOwnCommit) so a read-only lifecycle check landing
+// between the rename and the commit announcement is not a whole-file read. A
+// failed rename withdraws the announcement.
+function _commitScratchAnnounced(tmp, target, id, scratch, lifecycle) {
+  _announcePendingOwnCommit(target, scratch, lifecycle);
+  try {
+    _commitSessionWrite(tmp, target, id);
+  } catch (err) {
+    _withdrawPendingOwnCommit(target, scratch);
+    throw err;
+  }
+}
+
 function _doSaveSync(payload) {
   const {
     session,
@@ -309,6 +330,9 @@ function _doSaveSync(payload) {
   // must still be able to prove which incarnation it belonged to.
   const settlement = payload.settlement ?? incarnation;
   const mayMutate = () => _isCurrentSessionIncarnation(id, settlement);
+  // Write-authority scratch of THIS save only (see _shouldDrop): a later
+  // check reuses an earlier strict verdict only for a stamp-identical file.
+  const attempt = payload.attempt ?? {};
   // EVERY exit — stale, drop, refusal, success, throw — releases the
   // ownership reference exactly once through this finally.
   try {
@@ -316,7 +340,7 @@ function _doSaveSync(payload) {
     // REVERT durable history. Refuse before any scratch file is written and
     // before any marker is touched (no failure, no drop — nothing was lost).
     if (_isStaleWriteEpoch(opts)) return SAVE_OUTCOME_STALE;
-    if (_shouldDrop(id, opts)) {
+    if (_shouldDrop(id, opts, attempt)) {
       if (mayMutate()) _recordSaveDrop(id, epoch);
       return SAVE_OUTCOME_DROPPED;
     }
@@ -331,7 +355,7 @@ function _doSaveSync(payload) {
       // The lifecycle these exact bytes carry, recorded with the commit stamp.
       const lifecycle = _lifecycleOfSessionDocument(disk);
       writeFileSync(tmp, attempted, 'utf-8');
-      if (_shouldDrop(id, opts)) {
+      if (_shouldDrop(id, opts, attempt)) {
         _discardSaveTmp(tmp);
         if (mayMutate()) _recordSaveDrop(id, epoch);
         return SAVE_OUTCOME_DROPPED;
@@ -351,7 +375,7 @@ function _doSaveSync(payload) {
         busy.code = 'ECOMMITBUSY';
         throw busy;
       }
-      if (commitControl === false || _shouldDrop(id, opts)) {
+      if (commitControl === false || _shouldDrop(id, opts, attempt)) {
         _discardSaveTmp(tmp);
         _releaseWriteCommit(commitControl);
         if (mayMutate()) _recordSaveDrop(id, epoch);
@@ -359,7 +383,7 @@ function _doSaveSync(payload) {
       }
       try {
         const scratch = _stampSessionScratch(tmp);
-        _commitSessionWrite(tmp, target, id);
+        _commitScratchAnnounced(tmp, target, id, scratch, lifecycle);
         _recordOwnSessionCommit(target, scratch, lifecycle);
         _publishLandedWriteEpoch(opts, epoch);
         _untrackSaveTmp(tmp);
@@ -586,6 +610,8 @@ async function _doSave(payload) {
   // delayed failure/drop for a hard-deleted (or re-created) id moves nothing.
   const settlement = payload.settlement ?? incarnation;
   const mayMutate = () => _isCurrentSessionIncarnation(id, settlement);
+  // Write-authority scratch of THIS save only (see _doSaveSync).
+  const attempt = {};
   // Same freshness fence as the sync path (see _doSaveSync).
   if (_isStaleWriteEpoch(opts)) {
     _releasePayloadIncarnation(payload);
@@ -594,7 +620,7 @@ async function _doSave(payload) {
   }
   // First check: upfront, before any disk I/O. Cheap short-circuit when a
   // tombstone is already on disk when the caller arrives.
-  if (_shouldDrop(id, opts)) {
+  if (_shouldDrop(id, opts, attempt)) {
     if (mayMutate()) _recordSaveDrop(id, epoch);
     _releasePayloadIncarnation(payload);
     _drainQueue(id, payload);
@@ -614,7 +640,7 @@ async function _doSave(payload) {
     // Second check: between the temp write and the rename, closeSession()
     // may have planted a tombstone. Re-check on disk; if a newer tombstone
     // now exists, discard our temp file rather than let rename clobber it.
-    if (_shouldDrop(id, opts)) {
+    if (_shouldDrop(id, opts, attempt)) {
       _discardSaveTmp(tmp);
       process.stderr.write(`[session-store] ${id}: dropped stale save (tombstone planted during write)\n`);
       if (mayMutate()) _recordSaveDrop(id, epoch);
@@ -629,7 +655,7 @@ async function _doSave(payload) {
       _drainQueue(id, payload);
       return SAVE_OUTCOME_STALE;
     }
-    if (commitControl === false || _shouldDrop(id, opts)) {
+    if (commitControl === false || _shouldDrop(id, opts, attempt)) {
       _discardSaveTmp(tmp);
       _releaseWriteCommit(commitControl);
       if (mayMutate()) _recordSaveDrop(id, epoch);
@@ -639,7 +665,7 @@ async function _doSave(payload) {
     }
     try {
       const scratch = _stampSessionScratch(tmp);
-      _commitSessionWrite(tmp, target, id);
+      _commitScratchAnnounced(tmp, target, id, scratch, lifecycle);
       _recordOwnSessionCommit(target, scratch, lifecycle);
       _publishLandedWriteEpoch(opts, epoch);
       _untrackSaveTmp(tmp);

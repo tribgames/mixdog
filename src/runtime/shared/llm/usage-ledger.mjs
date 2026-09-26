@@ -12,8 +12,30 @@ import { resolvePluginData } from '../plugin-paths.mjs';
 import { usageRollupDayKey, isConversationUsageSource } from './usage-rollup.mjs';
 import { priceUsage } from './cost.mjs';
 import { rollupUsage } from './usage-ledger-rollup.mjs';
+import { SHARE_ENV } from 'node:worker_threads';
+import { createWorkerRequestClient } from '../worker-requests.mjs';
 
+// One worker (usage-ledger-worker.mjs) runs the ledger's heavy SQLite work —
+// rollups, queued live writes, unpriced-refresh queries and repair writes — on
+// its own connections. SHARE_ENV keeps its local-time day boundaries (TZ)
+// identical to this thread's. The main thread already reports node:sqlite's
+// experimental warning; the worker must not print it again.
+// The worker retires after 30 s with nothing queued or in flight (like the
+// session save worker) and restarts on the next request. Writes are posted
+// one batch at a time, so a retirement can only fall between batches.
+const configuredIdleMs = Number(process.env.MIXDOG_USAGE_LEDGER_WORKER_IDLE_MS);
+const requestLedgerWorker = createWorkerRequestClient(new URL('./usage-ledger-worker.mjs', import.meta.url), {
+  env: SHARE_ENV,
+  execArgv: ['--disable-warning=ExperimentalWarning'],
+  idleExitMs: Number.isFinite(configuredIdleMs) && configuredIdleMs > 0 ? configuredIdleMs : 30_000,
+});
+
+/** Whether the usage-ledger worker thread is currently running. */
+export function usageLedgerWorkerRunning() {
+  return requestLedgerWorker.running();
+}
 const stores = new Map();
+const ROLLUP_CACHE_LIMIT = 8;
 const number = (value) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : 0);
 const text = (value) => (typeof value === 'string' ? value.slice(0, 300) : '');
 
@@ -249,11 +271,27 @@ export function makeUsageRecord(args) {
 }
 
 export class UsageLedger {
-  constructor(path) {
+  /**
+   * `existing: true` attaches another connection to a ledger that an owning
+   * UsageLedger already opened, migrated and initialized (the ledger worker's
+   * per-request writer): no directory, migration or schema writes.
+   */
+  constructor(path, { existing = false } = {}) {
     this.path = path;
-    if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    if (!existing && path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;');
+    this.rollupStamp = null;
+    this.rollups = new Map();
+    this.pendingRollups = new Map();
+    this.writeQueue = [];
+    this.writing = null;
+    this.captureBegun = false;
+    if (existing) {
+      this.migration = null;
+      this.prepareStatements();
+      return;
+    }
     const version = this.db.prepare('PRAGMA user_version').get().user_version;
     if (version !== 0 && version !== 1 && version !== 2) {
       this.db.close();
@@ -290,6 +328,10 @@ export class UsageLedger {
             CREATE TABLE IF NOT EXISTS legacy_days (day TEXT PRIMARY KEY, document TEXT NOT NULL);
             PRAGMA user_version=2;
         `);
+    this.prepareStatements();
+  }
+
+  prepareStatements() {
     this.insert = compactEventWriter(this.db);
     this.daily = this.db.prepare(`INSERT INTO daily VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(day,rank,provider,model,kind,cost_source,conversation) DO UPDATE SET
@@ -299,6 +341,16 @@ export class UsageLedger {
             imported=MAX(imported,excluded.imported)`);
     this.session = this.db.prepare(`INSERT INTO day_sessions VALUES (?,?,?,?)
             ON CONFLICT(day,rank,session_id) DO UPDATE SET tokens=tokens+excluded.tokens`);
+    // Moves on every commit: data_version for other connections (other
+    // processes included), total_changes() for this one.
+    this.changeStamp = this.db.prepare(
+      'SELECT total_changes() AS local,(SELECT data_version FROM pragma_data_version) AS shared'
+    );
+  }
+
+  /** Run one ledger-worker operation against this ledger's file. */
+  workerRequest(op, payload = {}) {
+    return requestLedgerWorker({ ...payload, op, path: this.path });
   }
 
   close() {
@@ -313,8 +365,12 @@ export class UsageLedger {
       .run(key, String(value));
   }
 
+  // liveSince is written once and never removed, so after this connection has
+  // ensured it exists, later sends skip the per-send write statement.
   beginCapture(ts) {
+    if (this.captureBegun) return;
     this.db.prepare('INSERT OR IGNORE INTO metadata VALUES (?,?)').run('liveSince', String(ts));
+    this.captureBegun = true;
   }
 
   indexRecord(row, rank) {
@@ -393,6 +449,57 @@ export class UsageLedger {
     }
   }
 
+  /**
+   * record([row]) without blocking the event loop: rows queue in call order and
+   * every row queued while a write is in flight commits in the next single
+   * transaction on the ledger worker's own connection (same insert-or-ignore
+   * idempotency, BEGIN IMMEDIATE and busy timeout as record()). A batch that
+   * fails is retried row by row, so one bad row only fails itself. Resolves
+   * once the row is durable. An in-memory ledger has no second connection and
+   * records in-thread.
+   */
+  recordQueued(row) {
+    if (this.path === ':memory:') {
+      return Promise.resolve().then(() => {
+        this.record([row]);
+      });
+    }
+    return new Promise((resolve, reject) => {
+      this.writeQueue.push({ row, resolve, reject });
+      this.pumpWrites();
+    });
+  }
+
+  pumpWrites() {
+    if (this.writing || this.writeQueue.length === 0) return;
+    const batch = this.writeQueue.splice(0);
+    this.writing = this.workerRequest('record', { rows: batch.map((entry) => entry.row) })
+      .then(
+        (outcomes) => {
+          batch.forEach((entry, index) => {
+            const outcome = outcomes[index];
+            if (outcome.error) entry.reject(Object.assign(new Error(outcome.error.message), { code: outcome.error.code }));
+            else entry.resolve();
+          });
+        },
+        (error) => {
+          for (const entry of batch) entry.reject(error);
+        }
+      )
+      .finally(() => {
+        this.writing = null;
+        this.pumpWrites();
+      });
+  }
+
+  /** Resolves once every row queued so far is committed (or has failed). */
+  async settleWrites() {
+    while (this.writing || this.writeQueue.length) {
+      this.pumpWrites();
+      await this.writing;
+    }
+  }
+
   preserveLegacyDays(days) {
     const insert = this.db.prepare('INSERT OR IGNORE INTO legacy_days VALUES (?,?)');
     this.db.exec('BEGIN IMMEDIATE');
@@ -411,9 +518,71 @@ export class UsageLedger {
    * Read cached amounts; group retained attribution separately for distinct
    * sessions. Window resolution, the bucket algebra, the three queries and
    * the legacy merge live in usage-ledger-rollup.mjs.
+   *
+   * A rollup is a pure function of the stored rows and its query, so an
+   * unchanged ledger answers a repeated query from memory. The result is
+   * shared between callers and must be treated as read-only.
    */
   rollup(options = {}) {
-    return rollupUsage(this.db, options);
+    this.syncRollupStamp();
+    const key = JSON.stringify(options);
+    const result = this.rollups.get(key) ?? rollupUsage(this.db, options);
+    this.rememberRollup(key, result);
+    return result;
+  }
+
+  /**
+   * rollup() with the query run on the shared rollup worker's own read-only
+   * connection, so a changed ledger never costs the event loop the full
+   * rollup. Shares rollup()'s cache: an unchanged ledger answers from memory
+   * and concurrent identical queries share one worker request. An in-memory
+   * ledger cannot be opened by a second connection and rolls up in-thread.
+   */
+  async rollupAsync(options = {}) {
+    if (this.path === ':memory:') return this.rollup(options);
+    const stamp = this.syncRollupStamp();
+    const key = JSON.stringify(options);
+    const cached = this.rollups.get(key);
+    if (cached) {
+      this.rememberRollup(key, cached);
+      return cached;
+    }
+    let pending = this.pendingRollups.get(key);
+    if (!pending) {
+      pending = this.workerRequest('rollup', { options })
+        .then((result) => {
+          // A newer stamp cleared the cache meanwhile; never file this
+          // answer under it. The worker may have read commits newer than
+          // `stamp`, which only means the next stamp change discards it.
+          if (this.rollupStamp === stamp) this.rememberRollup(key, result);
+          return result;
+        })
+        .finally(() => {
+          if (this.pendingRollups.get(key) === pending) this.pendingRollups.delete(key);
+        });
+      this.pendingRollups.set(key, pending);
+    }
+    return pending;
+  }
+
+  /** Drop cached and in-flight rollups once any connection has committed. */
+  syncRollupStamp() {
+    const { local, shared } = this.changeStamp.get();
+    const stamp = `${local}:${shared}`;
+    if (this.rollupStamp !== stamp) {
+      this.rollups.clear();
+      this.pendingRollups.clear();
+      this.rollupStamp = stamp;
+    }
+    return stamp;
+  }
+
+  rememberRollup(key, result) {
+    this.rollups.delete(key);
+    this.rollups.set(key, result);
+    // Rolling windows (the hour view) change key on every call; keep the
+    // most recently used queries only.
+    if (this.rollups.size > ROLLUP_CACHE_LIMIT) this.rollups.delete(this.rollups.keys().next().value);
   }
 }
 

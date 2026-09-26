@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createTeardown } from './teardown.mjs';
 
-function fixture({ session = { id: 's1', messages: [{ role: 'user', content: 'hi' }] }, flushConfig } = {}) {
+function fixture({
+  session = { id: 's1', messages: [{ role: 'user', content: 'hi' }] },
+  flushConfig,
+  onCloseSurface,
+} = {}) {
   const calls = [];
   const state = { session, closeRequested: false };
   const record =
@@ -69,6 +73,7 @@ function fixture({ session = { id: 's1', messages: [{ role: 'user', content: 'hi
     ingestSessionIntoMemory: async (s) => calls.push(['ingest', s?.id ?? null]),
     closeSurfaceSession: (s, reason, opts) => {
       calls.push(['closeSurfaceSession', s.id, reason, opts]);
+      onCloseSurface?.(s);
       return true;
     },
     cancelBackgroundTasks: record('cancelBackgroundTasks'),
@@ -181,6 +186,42 @@ test('a config flush failure at teardown is reported instead of silently losing 
   } finally {
     process.off('warning', onWarning);
     f.cleanup();
+  }
+});
+
+test('concurrent teardowns close their sessions one per event-loop turn, in order', async () => {
+  // A heartbeat that re-queues itself runs once per loop iteration; the
+  // value it has reached when a close runs identifies that close's turn.
+  let turn = 0;
+  let beating = true;
+  const beat = () => {
+    turn += 1;
+    if (beating) setImmediate(beat);
+  };
+  setImmediate(beat);
+  const closes = [];
+  const fixtures = Array.from({ length: 6 }, (_, i) =>
+    fixture({
+      session: { id: `evict-${i}`, messages: [{ role: 'user', content: 'hi' }] },
+      onCloseSurface: (s) => closes.push({ id: s.id, turn }),
+    })
+  );
+  try {
+    const results = await Promise.all(
+      fixtures.map((f) => f.teardown.close('idle and unwatched', { keepBackgroundWork: true }))
+    );
+    assert.deepEqual(results, fixtures.map(() => true));
+    assert.deepEqual(
+      closes.map((c) => c.id),
+      fixtures.map((_, i) => `evict-${i}`)
+    );
+    const perTurn = new Map();
+    for (const { turn: t } of closes) perTurn.set(t, (perTurn.get(t) || 0) + 1);
+    assert.equal(Math.max(...perTurn.values()), 1, 'never two session closes in one loop turn');
+    for (const f of fixtures) assert.equal(f.state.session, null);
+  } finally {
+    beating = false;
+    for (const f of fixtures) f.cleanup();
   }
 });
 

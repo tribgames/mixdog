@@ -69,6 +69,9 @@ test('settling an assistant preserves its rendered Markdown without an empty int
 
 test('completion reserves the review slot through stale and queued final responses, including an empty final diff', async (t) => {
   const { root, document, window } = mount(t);
+  // ComposerDock loads the review bar lazily; with the chunk cached it mounts
+  // in the first commit.
+  await import('./TurnReview');
   for (const hasDiff of [true, false]) {
     const pending = [];
     window.mixdogDesktop.invokeCapability = (request) => {

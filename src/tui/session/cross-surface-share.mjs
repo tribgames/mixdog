@@ -18,11 +18,12 @@
  *    flicker); when the owner disappears the quiet re-resume promotes this
  *    surface to real ownership.
  */
-import { statSync, watch } from 'node:fs';
+import { statSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { sessionPath } from '../../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
 import { createLiveShare, forwardViewerSubmit, liveSharePipePath } from './live-share.mjs';
 import { promptDisplayText } from './queue-helpers.mjs';
+import { sharedDirWatch } from './shared-dir-watch.mjs';
 
 const SPOOL_WATCH_DEBOUNCE_MS = 120;
 const OWNER_CLOSED_PROMOTE_DELAY_MS = 1500;
@@ -221,15 +222,18 @@ function wrapViewerApi({ api, bag, runtime, liveShare, getState, ensureLiveShare
 
 // Instant input pickup: watch the shared pending spool so an attached
 // surface's fallback submit reaches this owner immediately instead of on the
-// 3s tick. Best-effort — the tick remains the safety net.
-function startSpoolWatcher({ runtime, flags, getState, drainRemoteInjections }) {
-  let watcher = null;
+// 3s tick. Best-effort — the tick remains the safety net. The spool sits
+// directly in the data dir, so that is the narrowest directory to watch; the
+// handle is shared by every session in the process (shared-dir-watch.mjs)
+// and each session keeps its own filter/debounce below.
+function startSpoolWatcher({ runtime, flags, getState, drainRemoteInjections, watchDir }) {
+  let release = null;
   let debounce = null;
   try {
     const spoolPath = String(runtime.pendingSpoolPath?.() || '');
     if (spoolPath) {
       const spoolFile = basename(spoolPath);
-      watcher = watch(dirname(spoolPath), { persistent: false }, (_event, filename) => {
+      release = watchDir(dirname(spoolPath), (_event, filename) => {
         if (filename && String(filename) !== spoolFile) return;
         if (flags.disposed || debounce) return;
         debounce = setTimeout(() => {
@@ -245,25 +249,14 @@ function startSpoolWatcher({ runtime, flags, getState, drainRemoteInjections }) 
         }, SPOOL_WATCH_DEBOUNCE_MS);
         debounce.unref?.();
       });
-      watcher.on?.('error', () => {
-        try {
-          watcher.close();
-        } catch {
-          /* already closed */
-        }
-        watcher = null;
-      });
     }
   } catch {
     /* spool watch is an optimization; the 3s tick remains */
   }
   return {
     close: () => {
-      try {
-        watcher?.close();
-      } catch {
-        /* already closed */
-      }
+      release?.();
+      release = null;
       if (debounce) {
         clearTimeout(debounce);
         debounce = null;
@@ -371,8 +364,10 @@ export function attachCrossSurfaceShare({
   getPublishedState,
   listeners,
   set,
-  // Test seam: the pipe layer is replaced by a fake share in unit tests.
+  // Test seams: the pipe layer is replaced by a fake share in unit tests, and
+  // the process-wide directory watch by an isolated registry.
   createShare = createLiveShare,
+  watchDir = sharedDirWatch.subscribe,
 }) {
   const drainRemoteInjections = createRemoteInjectionDrain({ runtime, bag });
   const liveShare = createSessionLiveShare({
@@ -406,6 +401,6 @@ export function attachCrossSurfaceShare({
   // Cover session runtimes whose runtime already has a session at construction
   // time; do not wait for a lifecycle method or the 3s safety pulse to open the pipe.
   ensureLiveShare();
-  const spoolWatcher = startSpoolWatcher({ runtime, flags, getState, drainRemoteInjections });
+  const spoolWatcher = startSpoolWatcher({ runtime, flags, getState, drainRemoteInjections, watchDir });
   startRemoteAttachTicker({ runtime, api, flags, getState, liveShare, spoolWatcher, drainRemoteInjections });
 }

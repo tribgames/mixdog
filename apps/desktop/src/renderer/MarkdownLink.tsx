@@ -46,10 +46,47 @@ export interface LocalLinkTarget {
   title?: string;
   /** Hover intent: warms the editor chunk and fills the tooltip in. */
   revealTitle?: () => void;
-  /** Press intent, for touch surfaces that never hover: start the editor
-   *  chunk now so the click itself no longer pays for it. */
-  warmEditor: () => void;
+  /** Press intent, for surfaces that never hover: start the editor chunk
+   *  before the click so the click itself no longer pays for it. */
+  onPointerDown: (event: LinkPress) => void;
+  onPointerUp: (event: LinkPress) => void;
+  onPointerCancel: () => void;
   open: () => Promise<void>;
+}
+
+type LinkPress = { pointerType: string; pointerId: number; clientX: number; clientY: number };
+const TAP_SLOP_PX = 10;
+
+/** Which press is an open intent. A mouse press is one. A touch or pen press
+ *  usually starts a scroll, and evaluating the editor's 4 MB chunk under it
+ *  is a ~280 ms long task mid-swipe on a phone, so those count only as a tap:
+ *  released where they began (a scroll ends in pointercancel or elsewhere). */
+export function createLinkPressIntent() {
+  let touch: LinkPress | null = null;
+  return {
+    /** True when the press itself is the intent. */
+    down(event: LinkPress): boolean {
+      touch = null;
+      if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return true;
+      const { pointerType, pointerId, clientX, clientY } = event;
+      touch = { pointerType, pointerId, clientX, clientY };
+      return false;
+    },
+    /** True when a touch or pen press ends as a tap. */
+    up(event: LinkPress): boolean {
+      const start = touch;
+      touch = null;
+      return Boolean(
+        start &&
+          start.pointerId === event.pointerId &&
+          Math.abs(event.clientX - start.clientX) <= TAP_SLOP_PX &&
+          Math.abs(event.clientY - start.clientY) <= TAP_SLOP_PX
+      );
+    },
+    cancel(): void {
+      touch = null;
+    },
+  };
 }
 
 /** One opening rule for every local mention (chat links, tool subjects):
@@ -65,6 +102,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
     target: null,
   });
   const [verifiedKey, setVerifiedKey] = useState('');
+  const [press] = useState(createLinkPressIntent);
   const resolutionKey = `${projectPath}\0${target}`;
   const resolvedTitle = resolved.key === resolutionKey ? resolved.title : '';
   const resolvedTarget = resolved.key === resolutionKey ? resolved.target : null;
@@ -178,7 +216,13 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
     suffix,
     title,
     revealTitle,
-    warmEditor,
+    onPointerDown: (event) => {
+      if (press.down(event)) warmEditor();
+    },
+    onPointerUp: (event) => {
+      if (press.up(event)) warmEditor();
+    },
+    onPointerCancel: press.cancel,
     open,
   };
 }
@@ -203,8 +247,10 @@ export function LocalPathMention({ path, line, children }: { path: string; line?
       onMouseEnter={link.revealTitle}
       onPointerDown={(event) => {
         event.stopPropagation();
-        link.warmEditor();
+        link.onPointerDown(event);
       }}
+      onPointerUp={link.onPointerUp}
+      onPointerCancel={link.onPointerCancel}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -287,7 +333,9 @@ export function MarkdownLink({
       className={linkClass}
       title={local ? title || link.title : title}
       onMouseEnter={link.revealTitle}
-      onPointerDown={local ? link.warmEditor : undefined}
+      onPointerDown={local ? link.onPointerDown : undefined}
+      onPointerUp={local ? link.onPointerUp : undefined}
+      onPointerCancel={local ? link.onPointerCancel : undefined}
       onAuxClick={local ? (event) => event.preventDefault() : undefined}
       onClick={(event) => {
         if (local) {

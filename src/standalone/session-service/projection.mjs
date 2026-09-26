@@ -26,9 +26,14 @@ export function createSessionProjection({
   releaseProjection,
   startEvictionSweep,
   onSessionLive,
+  prependViewer,
 }) {
   const index = createSessionAddressIndex({ sessionsById, externalViewEntries, addSubscriber, onSessionLive });
-  const { advance, projectionResult } = createRevisionSteps({ revisionEpoch, index, updateEntryBusy });
+  const { advance, projectionResult, unchangedProjectionResult } = createRevisionSteps({
+    revisionEpoch,
+    index,
+    updateEntryBusy,
+  });
   const frames = createFramePublisher({
     index,
     advance,
@@ -39,6 +44,7 @@ export function createSessionProjection({
     updateEntryBusy,
     releaseProjection,
     startEvictionSweep,
+    prependViewer,
   });
   const externalViews = createExternalViews({
     externalViewEntries,
@@ -56,6 +62,7 @@ export function createSessionProjection({
   return {
     advance,
     projectionResult,
+    unchangedProjectionResult,
     currentSessionId: index.currentSessionId,
     indexSessionEntry: index.indexSessionEntry,
     publishStep: frames.publishStep,

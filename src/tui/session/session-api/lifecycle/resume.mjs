@@ -1,5 +1,6 @@
 // Resume: reopen a stored session, rebuild the visible transcript from its
 // messages and reconcile live-share and steering at the same boundary.
+import { primeContextEstimates } from '../../../../runtime/agent/orchestrator/session/context-utils.mjs';
 
 export function createResumeAction(bag, { restoreTranscriptItems }) {
   const {
@@ -33,6 +34,12 @@ export function createResumeAction(bag, { restoreTranscriptItems }) {
       try {
         const r = await runtime.resume(id);
         if (!r) return false;
+        // The context sync below prices the whole just-loaded transcript
+        // synchronously. When this thread owns the runtime session, meter it
+        // in event-loop slices first so that sync reads memoized estimates.
+        if (Array.isArray(r.messages) && runtime.session?.messages === r.messages) {
+          await primeContextEstimates(r.messages, runtime.session);
+        }
         resetStatsAndSyncContext();
         const requestedLimit = Number(options.transcriptItemLimit);
         if (Number.isFinite(requestedLimit) && requestedLimit > 0) {

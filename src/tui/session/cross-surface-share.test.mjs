@@ -1,6 +1,36 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { attachCrossSurfaceShare } from './cross-surface-share.mjs';
+import { createSharedDirWatch } from './shared-dir-watch.mjs';
+
+// Lets settled drains release their in-flight slot (setImmediate is not mocked).
+const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve));
+
+// fs.watch stand-in: records every underlying handle and lets the test fire
+// directory events into the open ones.
+function createFakeWatch() {
+  const handles = [];
+  const impl = (dir, _options, onChange) => {
+    const handle = {
+      dir,
+      closed: false,
+      close() {
+        handle.closed = true;
+      },
+      on() {
+        return handle;
+      },
+    };
+    handles.push({ handle, onChange });
+    return handle;
+  };
+  const emit = (filename) => {
+    for (const { handle, onChange } of handles) if (!handle.closed) onChange('rename', filename);
+  };
+  return { impl, handles, emit };
+}
 
 function createFakeShare(overrides = {}) {
   const calls = { ensure: 0, dispose: 0, abort: 0 };
@@ -19,7 +49,7 @@ function createFakeShare(overrides = {}) {
   return { share, calls };
 }
 
-function createHarness({ state: stateExtra = {}, runtime: runtimeExtra = {}, share: shareOverrides } = {}) {
+function createHarness({ state: stateExtra = {}, runtime: runtimeExtra = {}, share: shareOverrides, watchDir } = {}) {
   let state = { sessionId: 'sess-1', sessionRemoteAttached: false, busy: false, commandBusy: false, ...stateExtra };
   const flags = { disposed: false, pendingSessionReset: false };
   const { share, calls } = createFakeShare(shareOverrides);
@@ -72,6 +102,7 @@ function createHarness({ state: stateExtra = {}, runtime: runtimeExtra = {}, sha
       state = { ...state, ...patch };
     },
     createShare: () => share,
+    ...(watchDir ? { watchDir } : {}),
   });
   return {
     api,
@@ -148,6 +179,78 @@ test('the attach tick drains the owner spool and disposes the share once the sto
     flags.disposed = true;
     mock.timers.tick(3000);
     assert.equal(calls.dispose, 1);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('32 sessions share one spool directory watcher; each keeps its own filter and drain', async () => {
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const fake = createFakeWatch();
+    const registry = createSharedDirWatch(fake.impl);
+    const spool = join(tmpdir(), 'mixdog-shared-spool', 'session-pending-messages.json');
+    const drains = new Array(32).fill(0);
+    const sessions = drains.map((_, index) =>
+      createHarness({
+        state: { sessionId: `sess-${index}` },
+        runtime: {
+          pendingSpoolPath: () => spool,
+          takeRemoteInjections: async () => {
+            drains[index] += 1;
+            return [];
+          },
+        },
+        watchDir: registry.subscribe,
+      })
+    );
+    assert.equal(fake.handles.length, 1, 'one underlying fs.watch for 32 sessions');
+    assert.equal(fake.handles[0].handle.dir, dirname(spool));
+    assert.equal(registry.watchedCount(), 1);
+
+    // Same per-session filter as before: sibling lock/tmp files are ignored.
+    fake.emit('session-pending-messages.json.lock');
+    mock.timers.tick(120);
+    await flushMicrotasks();
+    assert.deepEqual(drains, new Array(32).fill(0));
+
+    // A spool change reaches every session exactly once after its debounce.
+    fake.emit('session-pending-messages.json');
+    fake.emit('session-pending-messages.json');
+    mock.timers.tick(120);
+    await flushMicrotasks();
+    assert.deepEqual(drains, new Array(32).fill(1));
+
+    // A busy session skips the watch-driven drain; the others still drain.
+    sessions[1].setState({ busy: true });
+    fake.emit('session-pending-messages.json');
+    mock.timers.tick(120);
+    await flushMicrotasks();
+    assert.equal(drains[1], 1);
+    assert.equal(drains[2], 2);
+    sessions[1].setState({ busy: false });
+
+    // Closing one session releases only its subscription.
+    sessions[0].flags.disposed = true;
+    mock.timers.tick(3000);
+    await flushMicrotasks();
+    assert.equal(fake.handles[0].handle.closed, false);
+    drains.fill(0);
+    fake.emit('session-pending-messages.json');
+    mock.timers.tick(120);
+    await flushMicrotasks();
+    assert.equal(drains[0], 0);
+    assert.deepEqual(drains.slice(1), new Array(31).fill(1));
+
+    // The last release closes the shared handle; a new session reopens one.
+    for (const session of sessions) session.flags.disposed = true;
+    mock.timers.tick(3000);
+    await flushMicrotasks();
+    assert.equal(fake.handles[0].handle.closed, true);
+    assert.equal(registry.watchedCount(), 0);
+    createHarness({ runtime: { pendingSpoolPath: () => spool }, watchDir: registry.subscribe });
+    assert.equal(fake.handles.length, 2);
+    assert.equal(registry.watchedCount(), 1);
   } finally {
     mock.timers.reset();
   }

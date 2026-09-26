@@ -5,7 +5,6 @@
  * file. store.mjs re-exports these so
  * importers stay unchanged.
  */
-import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { updateJsonAtomicSync, updateJsonAtomic, writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
@@ -19,13 +18,14 @@ import { isStoredSessionId, positiveNumber as _positiveNumber } from './store-su
 
 export const SESSION_SUMMARY_INDEX_VERSION = 2;
 
+// Pure path: every writer (lock acquisition and atomic write) creates the
+// directory itself, and a reader treats a missing directory like a missing
+// file, so no synchronous mkdir runs on each deferred flush.
 export function summaryIndexPath() {
-  const dir = getPluginData();
-  mkdirSync(dir, { recursive: true });
-  return join(dir, 'session-summaries.json');
+  return join(getPluginData(), 'session-summaries.json');
 }
 
-function _cleanPreview(text, max = 240) {
+function _computeCleanPreview(text, max) {
   const value = cleanSessionPreview(text, max);
   return value.length > max
     ? value
@@ -35,13 +35,46 @@ function _cleanPreview(text, max = 240) {
     : value;
 }
 
+// Every index flush re-normalizes EVERY row's stored title and preview, and
+// cleaning runs a chain of regex replaces that each allocate a copy. Those
+// short strings repeat from flush to flush, so the pure result is memoized per
+// (max, text). Long raw message text is not kept here (see _previewFromMessage).
+const CLEAN_PREVIEW_MEMO_TEXT_LIMIT = 2048;
+const CLEAN_PREVIEW_MEMO_ENTRIES = 8192;
+const cleanPreviewMemo = new Map(); // max → Map<text, cleaned>
+
+function _cleanPreview(text, max = 240) {
+  if (typeof text !== 'string' || text.length > CLEAN_PREVIEW_MEMO_TEXT_LIMIT) return _computeCleanPreview(text, max);
+  let byText = cleanPreviewMemo.get(max);
+  if (!byText) {
+    byText = new Map();
+    cleanPreviewMemo.set(max, byText);
+  }
+  let cleaned = byText.get(text);
+  if (cleaned === undefined) {
+    cleaned = _computeCleanPreview(text, max);
+    if (byText.size >= CLEAN_PREVIEW_MEMO_ENTRIES) byText.clear();
+    byText.set(text, cleaned);
+  }
+  return cleaned;
+}
+
 const sessionMessageProjectionMemo = new WeakMap();
+// message → { raw, preview }. A session's first real user message is
+// re-checked on every save; its text is re-derived (cheap) and the preview is
+// recomputed only when that text actually changed, so an in-place content
+// scrub still invalidates it while an unchanged (often huge) prompt is never
+// re-cleaned.
+const messagePreviewMemo = new WeakMap();
 
 function _previewFromMessage(message) {
   if (message?.role !== 'user') return '';
   const raw = sessionMessageText(message.content);
-  if (isSessionPreviewNoise(raw)) return '';
-  return _cleanPreview(raw);
+  const memo = messagePreviewMemo.get(message);
+  if (memo && memo.raw === raw) return memo.preview;
+  const preview = isSessionPreviewNoise(raw) ? '' : _cleanPreview(raw);
+  messagePreviewMemo.set(message, { raw, preview });
+  return preview;
 }
 
 function _sessionMessageProjection(session) {

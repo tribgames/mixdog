@@ -56,6 +56,8 @@ function reserveSessionId(boot, id) {
   });
 }
 
+// Every session's 2 s status pulse lands here; activeWorkflowSummary reads
+// through the process-wide shared caches, so no per-session file I/O.
 function currentWorkflow(boot) {
   const { rt, cfgMod } = boot;
   const active = workflowHelpers.activeWorkflowSummary(rt.config, dataDirOf(cfgMod));

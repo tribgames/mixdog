@@ -2,7 +2,16 @@ import assert from 'node:assert/strict';
 import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -256,6 +265,44 @@ test('live foreign tokens remain protected while a proven-dead owner can be recl
   assert.equal(existsSync(lock), false);
 });
 
+test('a reclaim guard stranded by a dead process is revoked only once stale', async (t) => {
+  const { dir, lock } = fixture(t);
+  const guard = `${lock}.reclaim`;
+  const deadLockPid = 999_999_998;
+  const deadGuardPid = 999_999_997;
+  const kill = process.kill.bind(process);
+  t.mock.method(process, 'kill', (pid, signal) => {
+    if (pid !== deadLockPid && pid !== deadGuardPid) return kill(pid, signal);
+    throw Object.assign(new Error('owner exited'), { code: 'ESRCH' });
+  });
+  const old = new Date(Date.now() - 60_000);
+  writeFileSync(lock, `${deadLockPid} 0 dead-token\n`);
+
+  // A fresh guard may belong to a reclaim still in progress.
+  writeFileSync(guard, `${deadGuardPid} 0 fresh\n`);
+  for (const acquire of [withFileLockSync, withFileLock]) {
+    await assert.rejects(
+      Promise.resolve().then(() => acquire(lock, () => assert.fail('guarded'), { timeoutMs: 0 })),
+      { code: 'ELOCKCONTENDED' }
+    );
+  }
+  // A stale guard of a live owner is never revoked.
+  writeFileSync(guard, `${process.pid} 0 live\n`);
+  utimesSync(guard, old, old);
+  await assert.rejects(withFileLock(lock, () => assert.fail('guarded'), { timeoutMs: 0 }), {
+    code: 'ELOCKCONTENDED',
+  });
+  assert.equal(readFileSync(guard, 'utf8'), `${process.pid} 0 live\n`);
+
+  for (const acquire of [withFileLockSync, withFileLock]) {
+    writeFileSync(lock, `${deadLockPid} 0 dead-token\n`);
+    writeFileSync(guard, `${deadGuardPid} 0 stranded\n`);
+    utimesSync(guard, old, old);
+    assert.equal(await acquire(lock, () => 'reclaimed', { timeoutMs: 0 }), 'reclaimed');
+  }
+  assert.deepEqual(readdirSync(dir), []);
+});
+
 test('separate processes keep atomic read-modify-write updates mutually exclusive', async (t) => {
   const { dir, path } = fixture(t);
   writeJsonAtomicSync(path, { count: 0 });
@@ -278,6 +325,89 @@ test('separate processes keep atomic read-modify-write updates mutually exclusiv
   );
   assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { count: 24 });
   assert.deepEqual(readdirSync(dir), ['state.json']);
+});
+
+test('sync and async updaters in separate processes stay mutually exclusive', async (t) => {
+  const { dir, path } = fixture(t);
+  writeJsonAtomicSync(path, { count: 0 });
+  const source = `
+    import { updateJsonAtomic, updateJsonAtomicSync } from ${JSON.stringify(new URL('./atomic-file.mjs', import.meta.url).href)};
+    const update = process.env.ATOMIC_TEST_MODE === 'sync' ? updateJsonAtomicSync : updateJsonAtomic;
+    for (let index = 0; index < 8; index++) {
+      await update(process.env.ATOMIC_TEST_PATH,
+        (value) => ({ count: value.count + 1 }), { fsync: false, timeoutMs: 8000 });
+    }
+  `;
+  const run = promisify(execFile);
+  await Promise.all(
+    ['sync', 'async', 'sync', 'async'].map((mode) =>
+      run(process.execPath, ['--input-type=module', '-e', source], {
+        cwd: dir,
+        env: { ...process.env, ATOMIC_TEST_PATH: path, ATOMIC_TEST_MODE: mode },
+        timeout: 20_000,
+      })
+    )
+  );
+  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { count: 32 });
+  assert.deepEqual(readdirSync(dir), ['state.json']);
+});
+
+test('an async lock wait on a live foreign holder never blocks the event loop', async (t) => {
+  const { lock } = fixture(t);
+  // Own pid + foreign token: a live holder that is never reclaimable.
+  writeFileSync(lock, `${process.pid} ${Date.now()} foreign-token\n`);
+  let maxLagMs = 0;
+  let last = performance.now();
+  const probe = setInterval(() => {
+    const now = performance.now();
+    maxLagMs = Math.max(maxLagMs, now - last - 10);
+    last = now;
+  }, 10);
+  const release = setTimeout(() => unlinkSync(lock), 600);
+  try {
+    assert.equal(await withFileLock(lock, () => 'acquired', { timeoutMs: 5000 }), 'acquired');
+  } finally {
+    clearInterval(probe);
+    clearTimeout(release);
+  }
+  // A synchronous wait would have frozen the loop for the whole 600ms hold.
+  assert.ok(maxLagMs < 200, `event loop blocked for ${Math.round(maxLagMs)}ms during the lock wait`);
+  assert.equal(existsSync(lock), false);
+});
+
+test('a sync waiter fails fast while an async acquisition is still opening the lock', async (t) => {
+  const { lock } = fixture(t);
+  const open = fsPromises.open;
+  const opening = Promise.withResolvers();
+  const proceed = Promise.withResolvers();
+  t.mock.method(fsPromises, 'open', async (target, ...args) => {
+    if (target === lock) {
+      opening.resolve();
+      await proceed.promise;
+    }
+    return open(target, ...args);
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  const owner = withFileLock(lock, () => 'async owner');
+  await opening.promise;
+  const startedAt = Date.now();
+  // Waiting here would block the thread that has to finish the async open.
+  assert.throws(
+    () => withFileLockSync(lock, () => assert.fail('must not enter'), { timeoutMs: 10_000 }),
+    (error) => error.code === 'ELOCKCONTENDED'
+  );
+  assert.ok(Date.now() - startedAt < 1000);
+  proceed.resolve();
+  assert.equal(await owner, 'async owner');
+  assert.equal(existsSync(lock), false);
+  assert.equal(
+    withFileLockSync(lock, () => 'sync owner'),
+    'sync owner'
+  );
 });
 
 test('secret writes fail closed without publishing when Windows ACL tooling is unavailable', {
@@ -382,21 +512,32 @@ test('failed lock-owner writes never run the mutation or remove a replacement lo
   const source = `
     import assert from 'node:assert/strict';
     import fs from 'node:fs';
+    import fsp from 'node:fs/promises';
     import { syncBuiltinESMExports } from 'node:module';
     import { withFileLock, withFileLockSync } from ${JSON.stringify(new URL('./atomic-file.mjs', import.meta.url).href)};
     const lock = process.env.ATOMIC_TEST_LOCK;
     const write = fs.writeFileSync;
+    const writeAsync = fsp.writeFile;
     const failure = Object.assign(new Error('lock owner write failed'), { code: 'ENOSPC' });
     const replacement = 'replacement owner\\n';
     for (const acquire of [withFileLockSync, withFileLock]) {
       for (const replace of [false, true]) {
-        fs.writeFileSync = (target, ...args) => {
-          if (typeof target !== 'number') return write(target, ...args);
+        // The owner record is written through the open handle: an fd on the
+        // sync path, a FileHandle on the async path.
+        const failOwnerWrite = () => {
           if (replace) {
             fs.unlinkSync(lock);
             write(lock, replacement);
           }
           throw failure;
+        };
+        fs.writeFileSync = (target, ...args) => {
+          if (typeof target !== 'number') return write(target, ...args);
+          failOwnerWrite();
+        };
+        fsp.writeFile = async (target, ...args) => {
+          if (typeof target === 'string') return writeAsync(target, ...args);
+          failOwnerWrite();
         };
         syncBuiltinESMExports();
         let called = false;
@@ -409,6 +550,7 @@ test('failed lock-owner writes never run the mutation or remove a replacement lo
           if (replace) assert.equal(fs.readFileSync(lock, 'utf8'), replacement);
         } finally {
           fs.writeFileSync = write;
+          fsp.writeFile = writeAsync;
           syncBuiltinESMExports();
           fs.rmSync(lock, { force: true });
         }

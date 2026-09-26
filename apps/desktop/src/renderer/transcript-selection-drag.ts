@@ -19,7 +19,13 @@
  *  - mark the gesture on <html> and the pressed viewport so CSS can make the
  *    transcript the only selectable surface for its duration: Chromium then
  *    clamps a pointer that leaves the viewport to the first/last row instead
- *    of jumping to whatever selectable text follows in DOM order;
+ *    of jumping to whatever selectable text follows in DOM order. Only a real
+ *    mouse drag (a press on a row, then a move with the button held) starts
+ *    the gesture: a click never selects through here, and a touch or pen
+ *    press is almost always a scroll — marking <html> restyles the whole
+ *    document, so doing it per touch made phone scrolling pay a style recalc
+ *    and a Selection read per swipe. Their long-press selections still reach
+ *    the pin through selectionchange;
  *  - report native autoscroll to the follow hook so an upward scroll during
  *    a drag releases tail following like any other reader scroll;
  *  - while the pointer is OUTSIDE the viewport, re-aim the range's moving end
@@ -69,6 +75,11 @@ export function transcriptSelectionPrimaryButtonDown(buttons: number): boolean {
   return Number.isInteger(buttons) && (buttons & 1) === 1;
 }
 
+/** Touch and pen presses scroll; only a mouse press can start a drag. */
+function touchLikePointer(event: PointerEvent): boolean {
+  return event.pointerType === 'touch' || event.pointerType === 'pen';
+}
+
 function isTextFieldElement(element: Element | null): boolean {
   if (!(element instanceof HTMLElement)) return false;
   return element.tagName === 'TEXTAREA' || element.tagName === 'INPUT' || element.isContentEditable;
@@ -92,6 +103,9 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
   let selecting = false;
   let finishing = false;
   let seed: TranscriptSelectionEndpoint | null = null;
+  /** A mouse press on a row that has not moved yet. A click never becomes a
+   *  gesture, so it never marks, pins or reads the Selection on release. */
+  let pressed: TranscriptSelectionEndpoint | null = null;
   let lastPointer = { x: 0, y: 0 };
   let lastScrollTop = 0;
 
@@ -240,21 +254,28 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
     scheduleOutsideSync();
   };
   const handlePointerUp = (event: PointerEvent) => {
+    if (event.button === 0) pressed = null;
     if (!selecting || finishing || event.button !== 0) return;
     lastPointer = { x: event.clientX, y: event.clientY };
     requestFinish();
   };
+  const cancelGesture = () => {
+    pressed = null;
+    requestFinish();
+  };
   const handlePointerDown = (event: PointerEvent) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || touchLikePointer(event)) return;
     // A fresh press supersedes any deferred finish without rewriting its range.
     finishSelection();
+    pressed = null;
     const target = event.target as Node | null;
     if (isTextFieldElement(target instanceof Element ? target : null)) return;
-    const endpoint = endpointForNode(target);
-    if (!endpoint) return;
+    pressed = endpointForNode(target);
+    lastPointer = { x: event.clientX, y: event.clientY };
+  };
+  const startSelection = (endpoint: TranscriptSelectionEndpoint) => {
     selecting = true;
     seed = endpoint;
-    lastPointer = { x: event.clientX, y: event.clientY };
     lastScrollTop = root.scrollTop;
     markSelecting(true);
     // Pin the press row now, before native autoscroll can move it out of the
@@ -262,6 +283,13 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
     setPin({ anchor: endpoint, focus: endpoint });
   };
   const handlePointerMove = (event: PointerEvent) => {
+    if (pressed) {
+      const endpoint = pressed;
+      pressed = null;
+      // Without the button the release happened outside: it was a click.
+      if (!transcriptSelectionPrimaryButtonDown(event.buttons)) return;
+      startSelection(endpoint);
+    }
     if (!selecting || finishing) return;
     if (!transcriptSelectionPrimaryButtonDown(event.buttons)) {
       // The release was outside; a returning hover is not its final coordinate.
@@ -272,10 +300,12 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
     scheduleOutsideSync();
   };
   const handleScroll = () => {
+    // Every other scroll (touch flings included) leaves layout unread.
+    if (!selecting || finishing) return;
     const top = root.scrollTop;
     const delta = top - lastScrollTop;
     lastScrollTop = top;
-    if (!selecting || finishing || !delta || !pointerOutsideVertically()) return;
+    if (!delta || !pointerOutsideVertically()) return;
     onAutoScroll(delta);
   };
 
@@ -283,20 +313,21 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
   root.addEventListener('scroll', handleScroll, { passive: true });
   document.addEventListener('pointermove', handlePointerMove, true);
   document.addEventListener('pointerup', handlePointerUp, true);
-  document.addEventListener('pointercancel', requestFinish, true);
+  document.addEventListener('pointercancel', cancelGesture, true);
   document.addEventListener('selectionchange', syncPin);
-  window.addEventListener('blur', requestFinish);
+  window.addEventListener('blur', cancelGesture);
   return () => {
     root.removeEventListener('pointerdown', handlePointerDown, true);
     root.removeEventListener('scroll', handleScroll);
     document.removeEventListener('pointermove', handlePointerMove, true);
     document.removeEventListener('pointerup', handlePointerUp, true);
-    document.removeEventListener('pointercancel', requestFinish, true);
+    document.removeEventListener('pointercancel', cancelGesture, true);
     document.removeEventListener('selectionchange', syncPin);
-    window.removeEventListener('blur', requestFinish);
+    window.removeEventListener('blur', cancelGesture);
     selecting = false;
     finishing = false;
     seed = null;
+    pressed = null;
     cancelOutsideSync();
     markSelecting(false);
     setPin(null);

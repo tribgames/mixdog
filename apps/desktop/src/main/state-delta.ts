@@ -65,6 +65,8 @@ const WIRE_FIELDS = new Set([
 interface ItemsPatch {
   base?: unknown;
   revision?: unknown;
+  /** Rows revealed ABOVE the held list (an older-history page). */
+  prepend?: unknown;
   prefix?: unknown;
   append?: unknown;
 }
@@ -111,14 +113,30 @@ function sameSnapshotField(before: unknown, after: unknown): boolean {
   return JSON.stringify(before) === JSON.stringify(after);
 }
 
+function itemId(item: unknown): unknown {
+  return item && typeof item === 'object' ? (item as Record<string, unknown>).id : undefined;
+}
+
 /** Item-by-item reuse. Transcript items are appended and settled in place, so
  *  an unchanged prefix is the norm, and its identity is exactly what the delta
- *  encoders read to mean "the receiver already holds this". */
-function reconcileProjectionItems(before: readonly unknown[], after: readonly unknown[]): readonly unknown[] {
-  let reusedAll = before.length === after.length;
+ *  encoders read to mean "the receiver already holds this". An older-history
+ *  page grows the list at its HEAD instead: the held rows reappear shifted by
+ *  the page length, so they are aligned on the first held row's id. */
+export function reconcileTranscriptItems(before: readonly unknown[], after: readonly unknown[]): readonly unknown[] {
+  const firstId = itemId(before[0]);
+  let offset = 0;
+  if (firstId != null && itemId(after[0]) !== firstId) {
+    offset = Math.max(
+      0,
+      after.findIndex((item) => itemId(item) === firstId)
+    );
+  }
+  let reusedAll = offset === 0 && before.length === after.length;
   const items = after.map((item, index) => {
-    const prior = index < before.length ? before[index] : undefined;
-    if (index < before.length && sameSnapshotField(prior, item)) return prior;
+    const priorIndex = index - offset;
+    if (priorIndex >= 0 && priorIndex < before.length && sameSnapshotField(before[priorIndex], item)) {
+      return before[priorIndex];
+    }
     reusedAll = false;
     return item;
   });
@@ -144,7 +162,7 @@ export function reconcileSessionProjection<T>(previous: T, next: T): T {
   let identical = Object.keys(before).length === Object.keys(after).length;
   for (const [key, value] of Object.entries(after)) {
     if (key === 'items' && Array.isArray(value) && Array.isArray(before.items)) {
-      const items = reconcileProjectionItems(before.items, value);
+      const items = reconcileTranscriptItems(before.items, value);
       merged.items = items;
       if (items !== before.items) identical = false;
       continue;
@@ -213,10 +231,15 @@ export function isNoDelta(wire: unknown): boolean {
 interface SnapshotDeltaEncoderOptions {
   /** Only for a peer that announced it understands the compact shape. */
   compact?: boolean;
+  /** Only for a peer whose decoder applies `prepend` (compact `h`): an
+   *  older-history page then carries just the revealed rows. A decoder that
+   *  predates it would drop them, so every other peer gets the whole list. */
+  prepend?: boolean;
 }
 
 export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions = {}): SnapshotDeltaEncoder {
   const compact = options.compact === true;
+  const prependAllowed = options.prepend === true;
   let sentItems: readonly unknown[] | null = null;
   let sentStreamingTail: Record<string, unknown> | null = null;
   let sentStreamingTailEpoch: number | null = null;
@@ -249,16 +272,23 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
       revision += 1;
       if (sentItems) {
         const base = revision - 1;
+        // Rows revealed above the held list: the held rows now start `head`
+        // rows in, and only the revealed ones travel.
+        let head = 0;
+        if (prependAllowed && sentItems !== items && sentItems.length > 0 && items[0] !== sentItems[0]) {
+          head = Math.max(0, items.indexOf(sentItems[0]));
+        }
         let prefix = sentItems === items ? items.length : 0;
         if (sentItems !== items) {
-          const shared = Math.min(sentItems.length, items.length);
-          while (prefix < shared && sentItems[prefix] === items[prefix]) prefix += 1;
+          const shared = Math.min(sentItems.length, items.length - head);
+          while (prefix < shared && sentItems[prefix] === items[head + prefix]) prefix += 1;
         }
         const wire: Record<string, unknown> = {};
-        const append = items.slice(prefix);
+        const prepend = items.slice(0, head);
+        const append = items.slice(head + prefix);
         // A retained prefix can be the whole NEXT list while still deleting
         // rows from the previous one (cancel/restore or clearing a transcript).
-        const itemsChanged = prefix !== sentItems.length || append.length > 0;
+        const itemsChanged = head > 0 || prefix !== sentItems.length || append.length > 0;
         // Ordering fields alone are not news. Anything that gives the receiver
         // something it does not already hold sets this.
         let carriesNews = itemsChanged;
@@ -270,10 +300,10 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
           // the envelope, not repeated in every payload.
           wire.r = revision;
           if (itemsChanged) {
-            wire.ip = { p: prefix, a: append };
+            wire.ip = head > 0 ? { h: prepend, p: prefix, a: append } : { p: prefix, a: append };
           }
         } else {
-          wire.__itemsPatch = { base, revision, prefix, append };
+          wire.__itemsPatch = head > 0 ? { base, revision, prepend, prefix, append } : { base, revision, prefix, append };
         }
 
         const nextFields = snapshotFieldsFrom(record);
@@ -389,7 +419,11 @@ function expandCompactWire(record: Record<string, unknown>): Record<string, unkn
     base: Number.isSafeInteger(revision) ? (revision as number) - 1 : undefined,
     revision,
     ...(itemsPatch && typeof itemsPatch === 'object' && !Array.isArray(itemsPatch)
-      ? { prefix: itemsPatch.p, append: itemsPatch.a }
+      ? {
+          ...(Object.hasOwn(itemsPatch, 'h') ? { prepend: itemsPatch.h } : {}),
+          prefix: itemsPatch.p,
+          append: itemsPatch.a,
+        }
       : {}),
   };
   if (Object.hasOwn(record, 'sc') || Object.hasOwn(record, 'sd')) {
@@ -481,6 +515,7 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
       const defaultAppend = compactFrame ? [] : undefined;
       const patchPrefix = Object.hasOwn(patch, 'prefix') ? patch.prefix : defaultPrefix;
       const patchAppend = Object.hasOwn(patch, 'append') ? patch.append : defaultAppend;
+      const patchPrepend = Object.hasOwn(patch, 'prepend') ? patch.prepend : [];
       if (
         revision === null ||
         patch.base !== revision ||
@@ -489,6 +524,7 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         (patchPrefix as number) < 0 ||
         (patchPrefix as number) > items.length ||
         !Array.isArray(patchAppend) ||
+        !Array.isArray(patchPrepend) ||
         (statePatch != null &&
           ((!compactFrame &&
             (statePatch.base !== revision ||
@@ -503,9 +539,10 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
       ) {
         return { ok: false };
       }
+      // Held rows keep their identity; revealed older rows go in front.
       const nextItems =
-        (patchPrefix as number) !== items.length || patchAppend.length > 0
-          ? items.slice(0, patchPrefix as number).concat(patchAppend)
+        patchPrepend.length > 0 || (patchPrefix as number) !== items.length || patchAppend.length > 0
+          ? patchPrepend.concat(items.slice(0, patchPrefix as number), patchAppend)
           : items;
       let nextStateFields: Record<string, unknown>;
       if (statePatch) {

@@ -5,26 +5,33 @@ import { existsSync } from 'node:fs';
 import { clean } from '../session-text.mjs';
 import { readDirEntriesSafe, readTextSafe } from '../fs-utils.mjs';
 import { DEFAULT_WORKFLOW_ID, normalizeWorkflowId } from '../workflow-ids.mjs';
+import { createSharedScanCache } from './shared-scan-cache.mjs';
+
+const WORKFLOW_ENTRY = 'WORKFLOW.md';
+// Resolved packs shared process-wide, one cache per markdown parser so
+// loaders built with different parsers never see each other's results.
+const packCaches = new Map();
 
 export function createWorkflowPacks({ rootDir, dataDir, readMarkdownDocument }) {
+  if (!packCaches.has(readMarkdownDocument)) packCaches.set(readMarkdownDocument, createSharedScanCache());
+  const packCache = packCaches.get(readMarkdownDocument);
   const workflowSourceDirs = (dir) => [
     { root: join(rootDir, 'workflows'), source: 'built-in' },
     { root: join(dir || dataDir, 'workflows'), source: 'user' },
   ];
 
-  function readWorkflowPackFromDir(dir, source = 'built-in', dirName = '') {
-    const entry = 'WORKFLOW.md';
-    const doc = readMarkdownDocument(readTextSafe(join(dir, entry)));
+  function parseWorkflowPack(text, source, dirName) {
+    const doc = readMarkdownDocument(text);
     const body = doc.body;
     if (!body) return null;
     const fm = doc.frontmatter || {};
-    const id = normalizeWorkflowId(clean(fm.id) || dirName || basename(dir));
+    const id = normalizeWorkflowId(clean(fm.id) || dirName);
     if (!id) return null;
     return {
       id,
       name: clean(fm.name) || id,
       description: clean(fm.description),
-      entry,
+      entry: WORKFLOW_ENTRY,
       hidden:
         String(fm.hidden ?? '')
           .trim()
@@ -33,6 +40,29 @@ export function createWorkflowPacks({ rootDir, dataDir, readMarkdownDocument }) 
       source,
     };
   }
+
+  function readWorkflowPackFromDir(dir, source = 'built-in', dirName = '') {
+    return parseWorkflowPack(readTextSafe(join(dir, WORKFLOW_ENTRY)), source, dirName || basename(dir));
+  }
+
+  // User copy first, then built-in, then the built-in default pack. Yields its
+  // file reads; see shared-scan-cache.mjs.
+  function* resolveWorkflowPack(dir, wanted) {
+    for (const { root, source } of workflowSourceDirs(dir).reverse()) {
+      const text = yield { op: 'readText', path: join(root, wanted, WORKFLOW_ENTRY) };
+      const pack = parseWorkflowPack(text, source, wanted);
+      if (pack) return pack;
+    }
+    const fallback = yield { op: 'readText', path: join(rootDir, 'workflows', DEFAULT_WORKFLOW_ID, WORKFLOW_ENTRY) };
+    return parseWorkflowPack(fallback, 'built-in', DEFAULT_WORKFLOW_ID);
+  }
+
+  function wantedWorkflowId(id) {
+    const normalized = normalizeWorkflowId(id, DEFAULT_WORKFLOW_ID);
+    return normalized === 'solo' ? DEFAULT_WORKFLOW_ID : normalized;
+  }
+
+  const packKey = (dir, wanted) => `${rootDir}\n${dir || dataDir}\n${wanted}`;
 
   function listWorkflowPacks(dir) {
     const byId = new Map();
@@ -54,15 +84,21 @@ export function createWorkflowPacks({ rootDir, dataDir, readMarkdownDocument }) 
     return id === 'solo' ? DEFAULT_WORKFLOW_ID : id;
   }
 
+  // Fresh read for explicit callers (workflow editor, session create,
+  // automation). The app's writers read the pack back through here after a
+  // save/delete/switch, which republishes it for sharedWorkflowPack at once.
   function loadWorkflowPack(dir, id) {
-    const normalized = normalizeWorkflowId(id, DEFAULT_WORKFLOW_ID);
-    const wanted = normalized === 'solo' ? DEFAULT_WORKFLOW_ID : normalized;
-    for (const { root, source } of workflowSourceDirs(dir).reverse()) {
-      const pack = readWorkflowPackFromDir(join(root, wanted), source, wanted);
-      if (pack) return pack;
-    }
-    return readWorkflowPackFromDir(join(rootDir, 'workflows', DEFAULT_WORKFLOW_ID), 'built-in', DEFAULT_WORKFLOW_ID);
+    const wanted = wantedWorkflowId(id);
+    return packCache.fresh(packKey(dir, wanted), () => resolveWorkflowPack(dir, wanted));
   }
 
-  return { listWorkflowPacks, activeWorkflowId, loadWorkflowPack };
+  // Per-tick read for the status pulse: shared across sessions, revalidated
+  // in the background at most once per SHARED_SCAN_REVALIDATE_MS, so an
+  // out-of-app edit shows up within that interval plus one background read.
+  function sharedWorkflowPack(dir, id) {
+    const wanted = wantedWorkflowId(id);
+    return packCache.shared(packKey(dir, wanted), () => resolveWorkflowPack(dir, wanted));
+  }
+
+  return { listWorkflowPacks, activeWorkflowId, loadWorkflowPack, sharedWorkflowPack };
 }

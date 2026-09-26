@@ -22,6 +22,25 @@ const WARMUP_TIMER_KEYS = [
 ];
 const PREWARM_TIMER_KEYS = ['channelStartTimer', 'codeGraphPrewarmTimer', 'searchRuntimeWarmupTimer'];
 
+// The synchronous close block (runtime stops + the canonical lifecycle
+// barrier, a full rewrite of the session file) runs in its OWN event-loop
+// turn, one teardown at a time, process-wide. Concurrent teardowns (an idle
+// sweep evicting many sessions) otherwise reach it in the same microtask batch
+// and block the loop for the sum of every barrier. Each turn is a fresh
+// setImmediate queued after the previous close finished, so I/O and timers run
+// between two closes. Order is FIFO; a teardown's own steps keep their order.
+let closeTurns = Promise.resolve();
+const nextLoopTurn = () => new Promise((resolve) => setImmediate(resolve));
+
+function inOwnLoopTurn(work) {
+  const turn = closeTurns.then(nextLoopTurn).then(work);
+  closeTurns = turn.then(
+    () => {},
+    () => {}
+  );
+  return turn;
+}
+
 function clearTimers(holder, keys) {
   for (const key of keys) {
     if (holder[key]) {
@@ -146,9 +165,11 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
         agentTool.closeAll(reason, scope.scopedTeardown ? { callerSessionId: scope.closingSessionId } : {});
       } catch {}
     }
-    const runtimeStops = startRuntimeStops(deps, reason, scope);
-    const ok = closeOwnSession(deps, closeSurfaceSession, reason);
-    const stops = { channelStop, ...runtimeStops, ...startWorkStops(deps, reason, scope) };
+    const { ok, stops } = await inOwnLoopTurn(() => {
+      const runtimeStops = startRuntimeStops(deps, reason, scope);
+      const closed = closeOwnSession(deps, closeSurfaceSession, reason);
+      return { ok: closed, stops: { channelStop, ...runtimeStops, ...startWorkStops(deps, reason, scope) } };
+    });
     if (scope.detach) await settleDetached(withTeardownDeadline, stops);
     else await settleAll(withTeardownDeadline, stops);
     // The session went away (idle eviction included): free its save baselines.

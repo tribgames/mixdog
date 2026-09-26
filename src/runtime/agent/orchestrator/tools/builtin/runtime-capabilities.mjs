@@ -1,5 +1,7 @@
 import { accessSync, constants as fsConstants, readdirSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { readdir as readdirAsync } from 'node:fs/promises';
+import { runGitOffThread } from '../../../../shared/git-runner.mjs';
 import {
   delimiter as pathDelimiter,
   dirname as pathDirname,
@@ -162,24 +164,82 @@ function _headBranch(gitDirectory) {
   }
 }
 
-function _repositoryChangeState(root) {
+function _changeStateArgs(root) {
+  return ['--no-optional-locks', '-C', root, 'status', '--porcelain=v1', '--untracked-files=normal'];
+}
+
+function _probeRepositoryChangeStateSync(root) {
   try {
-    const result = spawnSync(
-      'git',
-      ['--no-optional-locks', '-C', root, 'status', '--porcelain=v1', '--untracked-files=normal'],
-      {
-        encoding: 'utf8',
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
-        maxBuffer: 64 * 1024,
-        timeout: 1500,
-        windowsHide: true,
-      }
-    );
+    const result = spawnSync('git', _changeStateArgs(root), {
+      encoding: 'utf8',
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      maxBuffer: 64 * 1024,
+      timeout: 1500,
+      windowsHide: true,
+    });
     const output = String(result.stdout || '').trim();
     if (result.status === 0) return output ? 'changes present' : 'clean';
     if (result.error?.code === 'ENOBUFS' && output) return 'changes present';
   } catch {}
   return null;
+}
+
+async function _probeRepositoryChangeState(root) {
+  try {
+    const result = await runGitOffThread(_changeStateArgs(root), {
+      cwd: root,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      maxBytes: 64 * 1024,
+      timeoutMs: 1500,
+    });
+    if (result.code === 0) return result.stdout.trim() ? 'changes present' : 'clean';
+  } catch (error) {
+    // Porcelain output past the cap cannot be an empty (clean) listing.
+    if (error?.code === 'EMAXBUFFER') return 'changes present';
+  }
+  return null;
+}
+
+// root → { value, pending }. `git status` costs a process spawn, which blocks
+// the event loop (~0.5s on Windows at session start). The first use per root
+// in this process probes synchronously exactly as before and caches the
+// answer; later uses serve the cached answer and start one off-thread refresh
+// (at most one in flight per root), so a session sees at worst the previous
+// observation.
+const _repositoryChangeStates = new Map();
+
+// Entries are { value, ready, generation, pending }. A prewarm (see
+// prewarmGitStartupProbes) creates an entry that is not ready until its
+// off-thread probe answers; using a root before that falls back to the same
+// synchronous probe as a first use. Every probe records the generation it
+// started under, so an older answer never overwrites a newer one.
+function _startChangeStateProbe(root, entry) {
+  const generation = entry.generation;
+  entry.pending = _probeRepositoryChangeState(root).then((value) => {
+    if (entry.generation === generation) {
+      entry.value = value;
+      entry.ready = true;
+    }
+    entry.pending = null;
+  });
+}
+
+function _repositoryChangeState(root) {
+  let entry = _repositoryChangeStates.get(root);
+  if (!entry?.ready) {
+    const value = _probeRepositoryChangeStateSync(root);
+    if (entry) {
+      entry.generation += 1;
+      entry.value = value;
+      entry.ready = true;
+    } else {
+      entry = { value, ready: true, generation: 0, pending: null };
+      _repositoryChangeStates.set(root, entry);
+    }
+    return value;
+  }
+  if (!entry.pending) _startChangeStateProbe(root, entry);
+  return entry.value;
 }
 
 // Startup snapshot, same contract as the shell line above: it states what was
@@ -214,10 +274,13 @@ export function describeGitStartupState({ cwd = process.cwd(), ...pathOptions } 
 // ahead of files so the cap trims loose files before the tree's shape.
 const CWD_STARTUP_ENTRY_LIMIT = 40;
 
-function _gitIgnoredEntries(directory, names) {
-  if (!names.length || !findRepositoryRoot(directory)) return new Set();
+function _checkIgnoreArgs(directory) {
+  return ['--no-optional-locks', '-C', directory, 'check-ignore', '--stdin', '-z'];
+}
+
+function _probeGitIgnoredEntriesSync(directory, names) {
   try {
-    const result = spawnSync('git', ['--no-optional-locks', '-C', directory, 'check-ignore', '--stdin', '-z'], {
+    const result = spawnSync('git', _checkIgnoreArgs(directory), {
       encoding: 'utf8',
       input: `${names.join('\0')}\0`,
       env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
@@ -235,6 +298,112 @@ function _gitIgnoredEntries(directory, names) {
   } catch {
     return new Set();
   }
+}
+
+async function _probeGitIgnoredEntries(directory, names) {
+  try {
+    const result = await runGitOffThread(_checkIgnoreArgs(directory), {
+      cwd: directory,
+      input: `${names.join('\0')}\0`,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      maxBytes: 1024 * 1024,
+      timeoutMs: 1500,
+    });
+    // Exit 1 is "nothing ignored", not a failure.
+    if (result.code !== 0 && result.code !== 1) return new Set();
+    return new Set(result.stdout.split('\0').filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+// directory → { observation: { names, ignored }, generation, pending }. Same
+// rule as the git status line: with no cached answer for this directory in
+// this process, `git check-ignore` runs synchronously exactly as before and
+// is cached. An answer only covers the names it was asked about, so a changed
+// entry set also takes the synchronous probe. Otherwise the cached answer is
+// served and one off-thread refresh starts; a refresh started before a newer
+// synchronous probe (older generation) is discarded.
+const _gitIgnoreObservations = new Map();
+
+function _coversNames(observation, names) {
+  return observation.names.size === names.length && names.every((name) => observation.names.has(name));
+}
+
+function _gitIgnoredEntries(directory, names) {
+  if (!names.length || !findRepositoryRoot(directory)) return new Set();
+  let entry = _gitIgnoreObservations.get(directory);
+  if (!entry?.observation || !_coversNames(entry.observation, names)) {
+    const observation = { names: new Set(names), ignored: _probeGitIgnoredEntriesSync(directory, names) };
+    if (entry) {
+      entry.observation = observation;
+      entry.generation += 1;
+    } else {
+      entry = { observation, generation: 0, pending: null };
+      _gitIgnoreObservations.set(directory, entry);
+    }
+    return observation.ignored;
+  }
+  if (!entry.pending) {
+    const probed = names.slice();
+    const generation = entry.generation;
+    entry.pending = _probeGitIgnoredEntries(directory, probed).then((ignored) => {
+      if (entry.generation === generation) entry.observation = { names: new Set(probed), ignored };
+      entry.pending = null;
+    });
+  }
+  return entry.observation.ignored;
+}
+
+/** Resolves once every in-flight startup git probe has finished. */
+/**
+ * Boot-time prewarm: start the off-thread `git status` and `git check-ignore`
+ * probes for directories a session is likely to open, so the first session's
+ * prompt composition finds finished answers instead of spawning git on the
+ * event loop. Never waits and never throws; a directory whose prewarm has not
+ * answered yet when a session composes its prompt takes the synchronous probe
+ * exactly as without prewarm.
+ */
+export function prewarmGitStartupProbes(directories) {
+  for (const raw of Array.isArray(directories) ? directories : []) {
+    if (!raw) continue;
+    let directory;
+    try {
+      directory = pathResolveAbsolute(String(raw));
+    } catch {
+      continue;
+    }
+    const found = findRepositoryRoot(directory);
+    if (!found) continue;
+    if (!_repositoryChangeStates.has(found.root)) {
+      const entry = { value: null, ready: false, generation: 0, pending: null };
+      _repositoryChangeStates.set(found.root, entry);
+      _startChangeStateProbe(found.root, entry);
+    }
+    if (!_gitIgnoreObservations.has(directory)) {
+      const entry = { observation: null, generation: 0, pending: null };
+      _gitIgnoreObservations.set(directory, entry);
+      entry.pending = readdirAsync(directory)
+        .then((names) => {
+          const probed = names.filter((name) => name !== '.git');
+          if (!probed.length) return;
+          const generation = entry.generation;
+          return _probeGitIgnoredEntries(directory, probed).then((ignored) => {
+            if (entry.generation === generation) entry.observation = { names: new Set(probed), ignored };
+          });
+        })
+        .catch(() => {})
+        .finally(() => {
+          entry.pending = null;
+        });
+    }
+  }
+}
+
+export async function settleGitStartupProbes() {
+  await Promise.all(
+    [..._repositoryChangeStates.values(), ..._gitIgnoreObservations.values()].map((entry) => entry.pending)
+  );
 }
 
 export function describeCwdStartupEntries({ cwd = process.cwd(), limit = CWD_STARTUP_ENTRY_LIMIT } = {}) {

@@ -12,14 +12,19 @@ import { join } from 'node:path';
 const STALE_MS = 24 * 60 * 60 * 1000;
 const HEARTBEAT_MS = 10_000;
 const PROCESS_NONCE = randomUUID();
+// Exactly the names create() makes: pid, process nonce (a UUID), mkdtemp
+// suffix. Other `mixdog-transcript-*` directories (tests, caches, other
+// features) are not spill directories and must never be swept.
+const SPILL_DIR_NAME = /^mixdog-transcript-(\d+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[^-]+$/i;
 
 export function cleanupStaleTranscriptSpillDirs({ root = tmpdir(), now = Date.now(), staleMs = STALE_MS } = {}) {
   try {
     for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !entry.name.startsWith('mixdog-transcript-')) continue;
+      const match = entry.isDirectory() ? SPILL_DIR_NAME.exec(entry.name) : null;
+      if (!match) continue;
       const path = join(root, entry.name);
       try {
-        const ownerPid = Number(/^mixdog-transcript-(\d+)-/.exec(entry.name)?.[1]);
+        const ownerPid = Number(match[1]);
         let pidAlive = false;
         if (ownerPid > 0) {
           try {

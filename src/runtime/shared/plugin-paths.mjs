@@ -12,8 +12,23 @@ import { fileURLToPath } from 'node:url';
 
 const DEFAULT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+// The defaults are joins over values that almost never change; they are hot
+// (every session path resolves the data dir), so each default join is reused
+// while its input string is unchanged. Env overrides are read on every call.
+let homeBase = null;
+let homePath = null;
+let dataBase = null;
+let dataPath = null;
+
 export function mixdogHome() {
-  return process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
+  const configured = process.env.MIXDOG_HOME;
+  if (configured) return configured;
+  const home = homedir();
+  if (home !== homeBase) {
+    homeBase = home;
+    homePath = join(home, '.mixdog');
+  }
+  return homePath;
 }
 
 export function mixdogRoot() {
@@ -21,5 +36,12 @@ export function mixdogRoot() {
 }
 
 export function resolvePluginData() {
-  return process.env.MIXDOG_DATA_DIR || join(mixdogHome(), 'data');
+  const configured = process.env.MIXDOG_DATA_DIR;
+  if (configured) return configured;
+  const home = mixdogHome();
+  if (home !== dataBase) {
+    dataBase = home;
+    dataPath = join(home, 'data');
+  }
+  return dataPath;
 }

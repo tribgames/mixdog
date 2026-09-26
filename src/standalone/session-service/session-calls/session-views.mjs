@@ -6,17 +6,28 @@ import { SESSION_READ_ACTION_SET } from '../../session-protocol.mjs';
 import { SESSION_ID_PATTERN } from '../agent-tree.mjs';
 import {
   loadLiveTranscriptHead,
+  rebudgetTranscriptWindow,
+  requestedHeldTranscript,
   requestedTranscriptWindow,
   requestLiveTranscriptWindow,
+  transcriptPageBody,
 } from '../projection/transcript-window.mjs';
 
 export function createSessionViewCalls(ctx) {
   const { log, readStoredSession, externalViewEntries, runSessionAction, sessionResult, advanceForCaller } = ctx;
-  const { currentSessionId, externalEntryForView, projectionResult, sessionOwner } = ctx.projection;
+  const { currentSessionId, externalEntryForView, projectionResult, unchangedProjectionResult, sessionOwner } =
+    ctx.projection;
   /** The owner a concurrent materialization may have produced while a disk
    *  read was in flight: a daemon-owned runtime outranks an external view. */
   const lateOwnerFor = (id) => sessionOwner(id) || externalEntryForView(id);
-  const { subscriberToken, addSubscriber, trackPendingViewer, dropPendingViewer, adoptPendingViewers } = ctx.viewers;
+  const {
+    subscriberToken,
+    addSubscriber,
+    trackPendingViewer,
+    dropPendingViewer,
+    adoptPendingViewers,
+    notePrependViewer,
+  } = ctx.viewers;
   const { sessionBusy, retainUnwatched, releaseProjection, startEvictionSweep } = ctx.retention;
   const {
     assertAvailable,
@@ -27,7 +38,8 @@ export function createSessionViewCalls(ctx) {
     bindExternalSessionView,
     destroy,
   } = ctx.entries;
-  const { storedSessionProjection, requestedMessageSlice, forgetStoredSession } = ctx.storedReader;
+  const { storedSessionProjection, storedProjectionUnchanged, requestedMessageSlice, forgetStoredSession } =
+    ctx.storedReader;
 
   /** A read/subscribe names the transcript window its view wants (none: the
    *  whole transcript). A window grown past what a resumed runtime holds is
@@ -36,6 +48,9 @@ export function createSessionViewCalls(ctx) {
     const request = requestedTranscriptWindow(params);
     // A model-message read (messageStart) is not a view and leaves the window.
     if (request || !Number.isInteger(params.messageStart)) requestLiveTranscriptWindow(entry, request);
+    // No baseline the next step can patch: this caller receives the window
+    // whole, so it goes out within its byte budget.
+    if (request && params.baseRevision !== entry.revision) rebudgetTranscriptWindow(entry);
     if (await loadLiveTranscriptHead(entry, sessionId, readStoredSession)) forgetStoredSession(sessionId);
     assertAvailable(entry);
   }
@@ -89,7 +104,11 @@ export function createSessionViewCalls(ctx) {
     retainUnwatched(entry, 'headless session read');
     const messages = await requestedMessageSlice(params, sessionId);
     assertAvailable(entry);
-    return sessionResult(entry, step, baseRevision, messages);
+    const prepend = params.transcriptPrepend === true;
+    return transcriptPageBody(
+      sessionResult(entry, step, baseRevision, messages, { prepend }),
+      requestedHeldTranscript(params)
+    );
   }
 
   /** The live entry a view can attach to: the owner, an external view, or a
@@ -97,12 +116,13 @@ export function createSessionViewCalls(ctx) {
   const liveEntryFor = async (id) =>
     liveEntryForView(id) || externalEntryForView(id) || (await bindExternalSessionView(id));
 
-  async function readSession(params = {}, _viewer = null) {
+  async function readSession(params = {}, viewer = null) {
     assertAvailable();
     const { sessionId, open: openHints = {}, baseRevision = null, baseProjectionStamp = null } = params;
     if (params.action != null) {
       return runSessionAction(params, SESSION_READ_ACTION_SET);
     }
+    notePrependViewer(viewer, params);
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const live = await liveEntryFor(id);
@@ -111,7 +131,19 @@ export function createSessionViewCalls(ctx) {
       return liveSessionReadResult(live, params, id, baseRevision);
     }
     if (typeof readStoredSession === 'function') {
-      const projection = await storedSessionProjection(id, openHints, requestedTranscriptWindow(params));
+      const window = requestedTranscriptWindow(params);
+      // The cold-view refresh re-asks with the projection it holds. While the
+      // session's files keep the settled identity that projection was built
+      // from, nothing is read and the caller keeps its baseline.
+      const held = Number.isInteger(params.messageStart)
+        ? null
+        : unchangedProjectionResult(id, baseProjectionStamp, baseRevision);
+      if (held && (await storedProjectionUnchanged(id, openHints, window, baseProjectionStamp))) {
+        assertAvailable();
+        const lateOwner = lateOwnerFor(id);
+        return lateOwner ? liveSessionReadResult(lateOwner, params, id, baseRevision) : held;
+      }
+      const projection = await storedSessionProjection(id, openHints, window);
       assertAvailable();
       const lateOwner = lateOwnerFor(id);
       if (lateOwner) {
@@ -128,7 +160,7 @@ export function createSessionViewCalls(ctx) {
       });
       const messages = await requestedMessageSlice(params, id);
       assertAvailable();
-      return { ...result, ...messages };
+      return { ...transcriptPageBody(result, requestedHeldTranscript(params)), ...messages };
     }
     // Embedders without a store reader keep the legacy load-on-read seam.
     const entry = await entryForSession(id, openHints || {});
@@ -141,7 +173,7 @@ export function createSessionViewCalls(ctx) {
     await applyTranscriptRequest(entry, params, currentSessionId(entry) || String(params.sessionId || ''));
     const step = advanceForCaller(entry);
     addSubscriber(entry, viewer);
-    return sessionResult(entry, step, baseRevision, { subscribed: true });
+    return sessionResult(entry, step, baseRevision, { subscribed: true }, { prepend: params.transcriptPrepend === true });
   };
 
   async function subscribeSession(params = {}, viewer = null) {
@@ -149,6 +181,7 @@ export function createSessionViewCalls(ctx) {
     assertAvailable();
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
+    notePrependViewer(viewer, params);
     const live = await liveEntryFor(id);
     assertAvailable(live);
     if (live) return subscribeLive(live, params, viewer, baseRevision);
@@ -156,8 +189,11 @@ export function createSessionViewCalls(ctx) {
       // Register BEFORE the disk read: a concurrent materialization adopts
       // pending viewers only after its runtime is indexed, so this order
       // guarantees either adoption or the live re-check below.
-      trackPendingViewer(id, viewer);
-      const projection = await storedSessionProjection(id, openHints, requestedTranscriptWindow(params));
+      // The view's window goes with it: the entry that later adopts this
+      // viewer serves it the same bounded tail, never the whole transcript.
+      const window = requestedTranscriptWindow(params);
+      trackPendingViewer(id, viewer, window);
+      const projection = await storedSessionProjection(id, openHints, window);
       assertAvailable();
       const lateOwner = lateOwnerFor(id);
       if (lateOwner) {

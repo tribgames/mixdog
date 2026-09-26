@@ -2,6 +2,7 @@ import {
   resolveAgentWatchdogPolicy,
   resolveHandoffMessageStartIndex,
   watchdogPartialHandoffFromError,
+  watchdogStoppedHandoff,
 } from '../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { clean, normalizeAgentName, resolvePrompt } from './helpers.mjs';
 import { abnormalEmptyFinishError, renderResult } from './render.mjs';
@@ -115,7 +116,7 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
           agent: session.agent || null,
           provider: session.provider,
           model: session.model,
-          content: partial,
+          content: watchdogStoppedHandoff(error, partial),
           stallAbort: true,
         };
         if (job) job._terminalResultValue = value;

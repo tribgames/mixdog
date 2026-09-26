@@ -35,6 +35,9 @@ export interface RelayE2EEChallenge {
    *  (`transcriptHasOlder`); a browser that does not echo it keeps the
    *  512-item page. */
   transcriptPaging?: 1;
+  /** An older-history page travels as a prepend patch (only the revealed
+   *  rows); a browser that does not echo it receives the whole list. */
+  transcriptPrepend?: 1;
 }
 
 interface RelayE2EEHello {
@@ -48,6 +51,7 @@ interface RelayE2EEHello {
   deflate?: 1;
   compactWire?: 1;
   transcriptPaging?: 1;
+  transcriptPrepend?: 1;
   viewSync?: 1;
 }
 
@@ -591,6 +595,7 @@ export async function createRelayE2EEClientHandshake(
     ...(challenge.deflate === 1 && relayE2EECompressionSupported() ? { deflate: 1 as const } : {}),
     ...(challenge.compactWire === 1 ? { compactWire: 1 as const } : {}),
     ...(challenge.transcriptPaging === 1 ? { transcriptPaging: 1 as const } : {}),
+    ...(challenge.transcriptPrepend === 1 ? { transcriptPrepend: 1 as const } : {}),
   };
   const key = await deriveChannelKey({
     privateKey: pair.privateKey,

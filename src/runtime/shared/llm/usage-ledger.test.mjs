@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { UsageLedger, makeUsageRecord, getUsageLedger, closeUsageLedgers } from './usage-ledger.mjs';
 import { priceUsage } from './cost.mjs';
+import { rollupUsage } from './usage-ledger-rollup.mjs';
 import { accountProviderSend } from './usage-accounting.mjs';
 import { importUsageHistory, importTraceRow } from './usage-ledger-import.mjs';
 import { usageStatsSnapshot } from '../../../standalone/usage-stats-model.mjs';
@@ -324,6 +325,40 @@ test('API uses the ledger and reports a failed historical import instead of zero
     },
   });
   await assert.rejects(failure.getUsageStats(), /offline/);
+});
+
+test('a repeated rollup is served unchanged until this or another connection appends', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-rollup-cache-'));
+  const path = join(dir, 'ledger.sqlite');
+  const ledger = new UsageLedger(path);
+  t.after(() => {
+    ledger.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  const queries = [
+    {},
+    { fromDay: '2026-09-11', toDay: '2026-09-12' },
+    { hourlyDay: '2026-09-12', fromDay: '2026-09-11', toDay: '2026-09-12', fromMs: now - 86_400_000, toMs: now },
+  ];
+  const expectFresh = () => {
+    for (const query of queries) assert.deepEqual(ledger.rollup(query), rollupUsage(ledger.db, query));
+  };
+  ledger.record([row({ responseId: 'a' }), row({ responseId: 'b', ts: day.getTime() - 1, sessionId: 'other' })]);
+  expectFresh();
+  const cached = ledger.rollup();
+  assert.equal(ledger.rollup(), cached);
+
+  ledger.record([row({ responseId: 'c', ts: now - 1000, sourceType: 'worker' })]);
+  assert.notEqual(ledger.rollup(), cached);
+  expectFresh();
+
+  const other = new UsageLedger(path);
+  other.record([row({ responseId: 'd', ts: now - 2000, model: 'claude-sonnet-4-5', sessionId: 'third' })]);
+  other.close();
+  expectFresh();
+  assert.equal(ledger.rollup().days['2026-09-12'].turns, 3);
 });
 
 test('seven calendar days and the previous window have no overlap or wrong divisor', (t) => {

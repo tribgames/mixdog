@@ -58,9 +58,14 @@ export const DESKTOP_TRANSCRIPT_ITEM_LIMIT = 512;
 /** First-open transcript tail for paging views: the virtual list paints about
  *  28 rows at first (a ~1080px pane at the 60px row estimate plus 10 overscan
  *  rows), so 32 items cover it; the byte budget may cut that to no fewer than
- *  16 items (enforced by the daemon) when single rows are huge. */
+ *  8 items (enforced by the daemon) when single rows are huge, and a viewport
+ *  those rows do not fill loads older history on its own. */
 export const DESKTOP_TRANSCRIPT_TAIL_ITEMS = 32;
 export const DESKTOP_TRANSCRIPT_TAIL_BYTES = 1_000_000;
+/** Serialized bytes of the older rows one history page reveals (the page adds
+ *  up to 64 items, the renderer's TRANSCRIPT_TAIL_PAGE_ITEMS); the daemon
+ *  always reveals at least 8 (TRANSCRIPT_WINDOW_MIN_ITEMS) so paging progresses. */
+export const DESKTOP_TRANSCRIPT_PAGE_BYTES = 1_000_000;
 // shellJobsStatus itself is cache-only and refreshes its disk-backed cache
 // asynchronously. Polling at the cache's 1s cadence keeps disk work out of the
 // engine's 50ms publication path.

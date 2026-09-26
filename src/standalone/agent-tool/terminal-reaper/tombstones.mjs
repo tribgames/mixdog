@@ -6,14 +6,63 @@ import { tagTombstoneKey } from '../worker-rows.mjs';
 import { insertTombstone, isTerminalRow } from './row-helpers.mjs';
 import { findTagTombstone, tombstoneBlocksWork } from '../../../runtime/shared/agent-reap-state.mjs';
 
+// Tombstone rows are flat records. Legacy-owner recovery returns fresh (but
+// equal) objects on every read, so equality is by field, not identity.
+function sameTombstoneRows(a, b) {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] === b[i]) continue;
+    const keys = Object.keys(a[i]);
+    if (keys.length !== Object.keys(b[i]).length) return false;
+    if (!keys.every((key) => Object.hasOwn(b[i], key) && Object.is(a[i][key], b[i][key]))) return false;
+  }
+  return true;
+}
+
 export function createTagTombstones({ tagMaps, index }) {
   const { readAllTagTombstones, readTagTombstones, writeWorkerRows, flushWorkerIndexMutations, removeWorkerRow } =
     index;
 
+  // Scans check every listed session, and each blocked check used to rebuild
+  // the keyed tombstone Map and the whole tombstone-filtered worker-row list.
+  // Both projections are memoized on the row store's parsed arrays, which the
+  // store revalidates by file stat (and drops after its own writes), so a
+  // tombstone written by this or another process still invalidates them.
+  let memo = null; // { tombstones, byKey, workerRows, liveWork }
+
+  function tombstoneMemo() {
+    const rows = readAllTagTombstones();
+    if (!memo || !sameTombstoneRows(memo.tombstones, rows)) {
+      const byKey = new Map();
+      for (const row of rows) byKey.set(tagTombstoneKey(row), row);
+      memo = { tombstones: rows, byKey, workerRows: null, liveWork: null };
+    }
+    return memo;
+  }
+
+  // Shared read-only index: callers only look tombstones up.
   function tagTombstoneIndex() {
-    const byKey = new Map();
-    for (const row of readAllTagTombstones()) byKey.set(tagTombstoneKey(row), row);
-    return byKey;
+    return tombstoneMemo().byKey;
+  }
+
+  // sessionId -> tags of the worker rows readWorkerRows() admits. That filter
+  // depends only on the parsed rows and tombstones, so it is rebuilt only when
+  // either changes.
+  function admittedWorkRow(sessionId, tag) {
+    const workerRows = index.readAllWorkerRows();
+    const current = tombstoneMemo();
+    if (current.workerRows !== workerRows) {
+      const liveWork = new Map();
+      for (const row of index.readWorkerRows()) {
+        let tags = liveWork.get(row.sessionId);
+        if (!tags) liveWork.set(row.sessionId, (tags = new Set()));
+        tags.add(row.tag);
+      }
+      current.workerRows = workerRows;
+      current.liveWork = liveWork;
+    }
+    return current.liveWork.get(sessionId)?.has(tag) === true;
   }
 
   // Without this guard a session scan re-binds a reaped tag and re-stamps the
@@ -23,11 +72,11 @@ export function createTagTombstones({ tagMaps, index }) {
     const value = clean(tag);
     const sessionId = clean(session?.id);
     if (!value || !sessionId) return false;
-    const tombstone = findTagTombstone({ ...session, tag: value }, tombstones);
+    const tombstone = findTagTombstone(session, tombstones, value);
     if (!tombstoneBlocksWork(session, tombstone)) return false;
     // A cached binding alone may have come from an old scan. Only a worker
     // row admitted by the same reap rule can prove a subsequent real turn.
-    return !index.readWorkerRows().some((row) => row.sessionId === sessionId && row.tag === value);
+    return !admittedWorkRow(sessionId, value);
   }
 
   function forgetTerminalSession(tag, sessionId) {

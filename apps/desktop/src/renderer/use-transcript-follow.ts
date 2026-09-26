@@ -208,13 +208,13 @@ export function programmaticWriteMatches({
   return writes.some((entry) => now - entry.time < windowMs && Math.abs(rounded - entry.top) < 2);
 }
 
-function reportRelease(reason: string, element: HTMLElement, previousTop: number): void {
+function reportRelease(reason: string, metrics: ScrollMetrics, previousTop: number): void {
   try {
     window.mixdogDesktop?.perfLog?.(
       `transcript-follow-release reason=${reason}` +
-        ` top=${Math.round(element.scrollTop)}` +
-        ` delta=${Math.round(element.scrollTop - previousTop)}` +
-        ` distance=${Math.round(element.scrollHeight - element.clientHeight - element.scrollTop)}`
+        ` top=${Math.round(metrics.top)}` +
+        ` delta=${Math.round(metrics.top - previousTop)}` +
+        ` distance=${Math.round(distanceFromBottom(metrics))}`
     );
   } catch {
     /* diagnostics only */
@@ -252,20 +252,80 @@ function boundaryTarget(root: HTMLElement, target: EventTarget | null): HTMLElem
   return nested && nested !== root ? nested : root;
 }
 
-function distanceFromBottom(element: HTMLElement): number {
-  return element.scrollHeight - element.clientHeight - element.scrollTop;
+/** Scroll extent of a viewport owned by the virtual timeline, known without a
+ *  layout read: the viewport height comes from a ResizeObserver and the
+ *  content height from the virtual total size. */
+interface TranscriptScrollGeometry {
+  viewportHeight(): number;
+  contentHeight(): number;
+  /** Offset as last seen in a scroll event or written by the timeline. */
+  scrollTop(): number;
 }
 
-function canScroll(element: HTMLElement): boolean {
-  return element.scrollHeight - element.clientHeight > 1;
+const scrollGeometries = new WeakMap<Element, TranscriptScrollGeometry>();
+
+export function registerTranscriptScrollGeometry(viewport: Element, geometry: TranscriptScrollGeometry): () => void {
+  scrollGeometries.set(viewport, geometry);
+  return () => {
+    if (scrollGeometries.get(viewport) === geometry) scrollGeometries.delete(viewport);
+  };
+}
+
+/** Whether a mounted timeline answers for this viewport's geometry. */
+export function transcriptScrollGeometryRegistered(element: Element): boolean {
+  return scrollGeometries.has(element);
+}
+
+/** Reading scrollHeight/clientHeight on every scroll event or animation frame
+ *  forced a synchronous layout of the whole list; a registered timeline
+ *  answers from its own geometry. Anything else still asks the DOM. */
+export function transcriptScrollExtent(
+  element: HTMLElement,
+  observedViewportHeight?: number
+): { viewportHeight: number; maxScrollTop: number } {
+  const geometry = scrollGeometries.get(element);
+  const viewportHeight = observedViewportHeight ?? (geometry ? geometry.viewportHeight() : element.clientHeight);
+  const contentHeight = geometry ? geometry.contentHeight() : element.scrollHeight;
+  return { viewportHeight, maxScrollTop: Math.max(0, contentHeight - viewportHeight) };
+}
+
+interface ScrollMetrics {
+  top: number;
+  viewportHeight: number;
+  maxScrollTop: number;
+}
+
+/** Offset and extent. Outside a scroll event (which passes the offset it just
+ *  read) the timeline's cached offset stands in: an animation frame or
+ *  observer callback runs after React commits, where a scrollTop read forced
+ *  a layout of the whole list. */
+export function transcriptScrollPosition(
+  element: HTMLElement,
+  observedViewportHeight?: number,
+  observedTop?: number
+): ScrollMetrics {
+  const geometry = scrollGeometries.get(element);
+  const extent = transcriptScrollExtent(element, observedViewportHeight);
+  const top = observedTop ?? (geometry ? Math.min(Math.max(0, geometry.scrollTop()), extent.maxScrollTop) : element.scrollTop);
+  return { top, ...extent };
+}
+
+const scrollMetrics = transcriptScrollPosition;
+
+function distanceFromBottom(metrics: ScrollMetrics): number {
+  return metrics.maxScrollTop - metrics.top;
+}
+
+function canScroll(metrics: ScrollMetrics): boolean {
+  return metrics.maxScrollTop > 1;
 }
 
 // The downward-arrival band scales with the pane: on a tall transcript a fast
 // turn appends far more than 32px between the reader's last scroll frame and
 // the scroll event that lands, so a fixed band left the reader detached right
 // under the tail (user: 스크롤이 너무 자주 풀린다).
-function reattachBand(element: HTMLElement): number {
-  return Math.max(REATTACH_THRESHOLD_PX, Math.round(element.clientHeight * 0.12));
+function reattachBand(metrics: ScrollMetrics): number {
+  return Math.max(REATTACH_THRESHOLD_PX, Math.round(metrics.viewportHeight * 0.12));
 }
 
 /** Has the viewport arrived back at the tail? A transcript that no longer
@@ -274,18 +334,18 @@ function reattachBand(element: HTMLElement): number {
  *  turn streams, the bottom keeps moving away between the reader's last scroll
  *  frame and the handler, so the narrow band could never be met on the way
  *  back. Re-attaching only flips the flag; nothing here writes scrollTop. */
-function scrollShouldReattachFollow(element: HTMLElement, previousTop: number): boolean {
-  if (!canScroll(element)) return true;
-  const distance = distanceFromBottom(element);
+function scrollShouldReattachFollow(metrics: ScrollMetrics, previousTop: number): boolean {
+  if (!canScroll(metrics)) return true;
+  const distance = distanceFromBottom(metrics);
   if (distance < BOTTOM_THRESHOLD_PX) return true;
-  return element.scrollTop > previousTop && distance <= reattachBand(element);
+  return metrics.top > previousTop && distance <= reattachBand(metrics);
 }
 
 /** Is the tail far enough out of sight to offer the jump? One viewport, and
  *  never less than 400px, on a transcript that actually overflows. */
-function jumpButtonVisible(element: HTMLElement): boolean {
-  if (!canScroll(element)) return false;
-  return distanceFromBottom(element) > Math.max(400, element.clientHeight);
+function jumpButtonVisible(metrics: ScrollMetrics): boolean {
+  if (!canScroll(metrics)) return false;
+  return distanceFromBottom(metrics) > Math.max(400, metrics.viewportHeight);
 }
 
 interface TranscriptFollow {
@@ -345,6 +405,21 @@ export function useTranscriptFollow({
   // idle fallback) once the fling is over.
   const touchLatched = useRef(false);
   const touchDown = useRef(false);
+  // A touch keeps targeting the element it started on. When virtualization
+  // unmounts that row mid-drag, its touchend never reaches the viewport, and
+  // "finger down" stayed true until the NEXT touch: every row size deferred
+  // for reader motion then stayed deferred and the geometry never recovered.
+  // A detached target ends the finger's ownership; the scroll-idle fallback
+  // still owns the fling.
+  const touchTarget = useRef<{ isConnected?: boolean } | null>(null);
+  const fingerOnGlass = useCallback(() => {
+    if (!touchDown.current) return false;
+    if (touchTarget.current?.isConnected === false) {
+      touchDown.current = false;
+      return false;
+    }
+    return true;
+  }, []);
   const touchScrollAt = useRef(0);
   const pointerGesture = useRef<{ x: number; y: number } | undefined>(undefined);
   const chromeScroll = useRef(false);
@@ -414,9 +489,10 @@ export function useTranscriptFollow({
     const element = viewport.current;
     if (element) {
       try {
-        lastTop.current = element.scrollTop;
-        lastScrollHeight.current = element.scrollHeight;
-        lastDistance.current = distanceFromBottom(element);
+        const metrics = scrollMetrics(element);
+        lastTop.current = metrics.top;
+        lastScrollHeight.current = metrics.maxScrollTop + metrics.viewportHeight;
+        lastDistance.current = distanceFromBottom(metrics);
       } catch {
         /* layout only */
       }
@@ -455,10 +531,10 @@ export function useTranscriptFollow({
     () =>
       touchScrollLatchOpen({
         latched: touchLatched.current,
-        touchDown: touchDown.current,
+        touchDown: fingerOnGlass(),
         sinceScrollMs: Date.now() - touchScrollAt.current,
       }),
-    []
+    [fingerOnGlass]
   );
   const hasReaderScroll = useCallback(
     () => hasGesture() || hasTouchScroll() || Date.now() - readerMotionAt.current < READER_SCROLL_IDLE_MS,
@@ -474,12 +550,12 @@ export function useTranscriptFollow({
     programmatic.current = queue.slice(-PROGRAMMATIC_MEMORY);
   }, []);
 
-  const isProgrammatic = useCallback((element: HTMLElement) => {
+  const isProgrammatic = useCallback((top: number) => {
     const time = Date.now();
     const queue = programmatic.current.filter((entry) => time - entry.time < PROGRAMMATIC_WINDOW_MS);
     programmatic.current = queue;
     if (!queue.length) return false;
-    return programmaticWriteMatches({ writes: queue, top: element.scrollTop, now: time });
+    return programmaticWriteMatches({ writes: queue, top, now: time });
   }, []);
 
   const scrollToBottom = useCallback(
@@ -488,12 +564,13 @@ export function useTranscriptFollow({
       if (!element) return;
       if (force && !followingRef.current) publish(true);
       if (!force && !followingRef.current) return;
-      if (distanceFromBottom(element) < 2) return;
+      const metrics = scrollMetrics(element);
+      if (distanceFromBottom(metrics) < 2) return;
       if (transcriptScrollDiagnosticsEnabled()) {
         logTranscriptScroll('follow-request', {
           force,
-          top: element.scrollTop,
-          distance: distanceFromBottom(element),
+          top: metrics.top,
+          distance: distanceFromBottom(metrics),
         });
       }
       scrollToEndRef?.current?.('auto');
@@ -505,12 +582,13 @@ export function useTranscriptFollow({
     (reason = 'gesture', previousTop = 0) => {
       const element = viewport.current;
       if (!element) return;
-      if (!canScroll(element)) {
+      const metrics = scrollMetrics(element);
+      if (!canScroll(metrics)) {
         publish(true);
         return;
       }
       if (!followingRef.current) return;
-      reportRelease(reason, element, previousTop);
+      reportRelease(reason, metrics, previousTop);
       publish(false);
     },
     [publish, viewport]
@@ -519,7 +597,9 @@ export function useTranscriptFollow({
   const pause = useCallback(() => stop('pause'), [stop]);
 
   const updateScrollState = useCallback((element: HTMLDivElement) => {
-    const jump = jumpButtonVisible(element);
+    // No timeline mounted yet: nothing to jump to, and the DOM fallback would
+    // force a layout of the opening pane from this animation frame.
+    const jump = transcriptScrollGeometryRegistered(element) && jumpButtonVisible(scrollMetrics(element));
     setShowJump((current) => (current === jump ? current : jump));
   }, []);
 
@@ -546,13 +626,17 @@ export function useTranscriptFollow({
     // stream has actually stopped delivering.
     if (touchLatched.current) touchScrollAt.current = Date.now();
     const previousTop = lastTop.current;
-    lastTop.current = element.scrollTop;
-    const programmaticScroll = isProgrammatic(element);
-    if (transcriptScrollDiagnosticsEnabled() && Math.abs(element.scrollTop - previousTop) >= 8) {
+    // The offset is the only layout value read here; the extent comes from the
+    // timeline's geometry.
+    const metrics = scrollMetrics(element, undefined, element.scrollTop);
+    const top = metrics.top;
+    lastTop.current = top;
+    const programmaticScroll = isProgrammatic(top);
+    if (transcriptScrollDiagnosticsEnabled() && Math.abs(top - previousTop) >= 8) {
       logTranscriptScroll('viewport-move', {
         from: previousTop,
-        to: element.scrollTop,
-        delta: element.scrollTop - previousTop,
+        to: top,
+        delta: top - previousTop,
         programmatic: programmaticScroll,
         following: followingRef.current,
       });
@@ -560,13 +644,13 @@ export function useTranscriptFollow({
     // A native reader ramp may outlive the initial 250ms gesture window.
     // Extend ownership only from real movement, never from a virtual-core
     // correction, so compensation resumes once wheel/inertia actually stops.
-    if (element.scrollTop !== previousTop && !programmaticScroll && hasReaderScroll()) {
+    if (top !== previousTop && !programmaticScroll && hasReaderScroll()) {
       markReaderMotion();
     }
-    lastScrollHeight.current = element.scrollHeight;
+    lastScrollHeight.current = metrics.maxScrollTop + metrics.viewportHeight;
     // A scroll event is the reader's (or the core's) position talking, not a
     // content mutation: it is exactly the snapshot the content observer needs.
-    lastDistance.current = distanceFromBottom(element);
+    lastDistance.current = distanceFromBottom(metrics);
     // Re-attaching at the tail is NOT gesture-gated. Smooth-scroll and inertial
     // tails deliver their last frames well after the 250ms window closes, and a
     // streaming turn keeps pushing the bottom down, so requiring an open
@@ -579,7 +663,7 @@ export function useTranscriptFollow({
       if (programmaticScroll) return;
       // The tail is regained by the next append instead of a jump: the reader's
       // offset is never rolled back.
-      if (scrollShouldReattachFollow(element, previousTop)) publish(true);
+      if (scrollShouldReattachFollow(metrics, previousTop)) publish(true);
       return;
     }
     // A content click must not open the gesture window: a stream wobble in
@@ -590,7 +674,7 @@ export function useTranscriptFollow({
       readerScrollShouldReleaseFollow({
         programmatic: programmaticScroll,
         chromePointer: chromeScroll.current,
-        upwardMove: previousTop - element.scrollTop,
+        upwardMove: previousTop - top,
       })
     ) {
       stop('scroll', previousTop);
@@ -647,10 +731,11 @@ export function useTranscriptFollow({
         pointerGesture.current = undefined;
       }
       if (!pointerDragging.current) return;
+      const metrics = scrollMetrics(root);
       if (
         !pointerShouldReleaseFollow({
-          distance: distanceFromBottom(root),
-          upwardMove: lastTop.current - root.scrollTop,
+          distance: distanceFromBottom(metrics),
+          upwardMove: lastTop.current - metrics.top,
         })
       )
         return;
@@ -682,6 +767,7 @@ export function useTranscriptFollow({
   const handleTouchStart = useCallback((event: TouchLike) => {
     touchGesture.current = event.touches[0]?.clientY;
     touchDown.current = true;
+    touchTarget.current = event.target as { isConnected?: boolean } | null;
     touchScrollAt.current = Date.now();
   }, []);
 
@@ -729,12 +815,12 @@ export function useTranscriptFollow({
     const element = viewport.current;
     if (!element) return undefined;
     const closeLatch = () => {
-      if (touchDown.current) return;
+      if (fingerOnGlass()) return;
       touchLatched.current = false;
     };
     element.addEventListener('scrollend', closeLatch);
     return () => element.removeEventListener('scrollend', closeLatch);
-  }, [viewport]);
+  }, [fingerOnGlass, viewport]);
 
   const handleInteraction = useCallback(() => {
     // Click and in-place selection are not scroll intent. Releasing here
@@ -769,7 +855,7 @@ export function useTranscriptFollow({
         cancelJumpPin();
         return;
       }
-      if (distanceFromBottom(root) < 2) {
+      if (distanceFromBottom(scrollMetrics(root)) < 2) {
         jumpPinSettled.current += 1;
         if (jumpPinSettled.current >= JUMP_PIN_SETTLE_FRAMES) {
           cancelJumpPin();
@@ -825,27 +911,33 @@ export function useTranscriptFollow({
     // Chromium always provides ResizeObserver. The renderer's jsdom harness
     // intentionally omits it in tests that do not exercise layout delivery.
     if (typeof ResizeObserver !== 'function') return undefined;
-    let viewportHeight = Math.round(element.getBoundingClientRect().height);
+    const seed = scrollMetrics(element);
+    let viewportHeight = Math.round(seed.viewportHeight);
     // Seed the growth baseline with the height already on screen so the first
     // observation cannot report the whole transcript as this commit's growth.
-    lastScrollHeight.current = element.scrollHeight;
-    lastDistance.current = distanceFromBottom(element);
+    lastScrollHeight.current = seed.maxScrollTop + seed.viewportHeight;
+    lastDistance.current = distanceFromBottom(seed);
     // A fresh observer delivers the CURRENT box of every target it starts
     // watching — that first callback is an attach report, not a mutation. This
     // effect re-runs on every follow flip, so writing on it re-pinned the tail
     // one frame after the reader had released it (user: 위로 올려도 다시
     // 내려온다). The attach delivery may only seed the baselines.
     let attachDelivery = true;
-    const observer = new ResizeObserver(() => {
+    const observer = new ResizeObserver((entries) => {
       const root = viewport.current;
       if (!root) return;
       scheduleScrollState(root);
-      const height = Math.round(root.getBoundingClientRect().height);
+      // The viewport's own box, when this delivery carries it, is the freshest
+      // height; otherwise the last one observed still holds.
+      const box = entries.find((entry) => entry.target === root)?.borderBoxSize?.[0];
+      const height = box ? Math.round(box.blockSize) : viewportHeight;
+      const metrics = scrollMetrics(root, height);
       const viewportHeightChanged = height !== viewportHeight;
       viewportHeight = height;
-      const growth = root.scrollHeight - lastScrollHeight.current;
-      lastScrollHeight.current = root.scrollHeight;
-      const distance = distanceFromBottom(root);
+      const scrollHeight = metrics.maxScrollTop + metrics.viewportHeight;
+      const growth = scrollHeight - lastScrollHeight.current;
+      lastScrollHeight.current = scrollHeight;
+      const distance = distanceFromBottom(metrics);
       // The pre-mutation snapshot: the distance left by the last event that
       // was NOT this content mutation.
       const distanceBefore = lastDistance.current;
@@ -855,7 +947,7 @@ export function useTranscriptFollow({
       // side of that rule is driven by the rows commit in Conversation, not by
       // a second observer here — virtual-core stays the only content-growth
       // scroll authority.
-      if (!canScroll(root)) {
+      if (!canScroll(metrics)) {
         if (!followingRef.current) publish(true);
         return;
       }
@@ -875,7 +967,7 @@ export function useTranscriptFollow({
         // reading offset resolving from its estimate — lands with the offset
         // sitting on the core's own corrective write. That is the timeline
         // holding the reader still, never the reader arriving at the tail.
-        if (isProgrammatic(root)) return;
+        if (isProgrammatic(metrics.top)) return;
         // Nor is a frame the reader is actively scrolling through: the wheel
         // that just released follow is still animating its notch.
         if (hasGesture()) return;

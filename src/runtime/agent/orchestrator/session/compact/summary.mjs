@@ -61,15 +61,28 @@ Rules:
 - Use the same language as the active user thread when it is clear.
 - Do not mention the summary process or that context was compacted.`;
 
-function transcriptLineForCompaction(m, index, perMessageChars) {
-  const role = m?.role || 'unknown';
-  const text = truncateMiddle(extractText(m).trim(), perMessageChars);
-  const meta = `${toolCallSummary(m, toolCallArgBudget(perMessageChars))}${toolResultId(m)}`;
-  if (!text) return `${index + 1}. ${role}${meta}`;
-  return `${index + 1}. ${role}${meta}:\n${text}`;
+// The index-independent part of one transcript line. A batch fit rebuilds the
+// prompt for many overlapping slices of the same head; `lineCache` (scoped to
+// one fit sequence at a fixed perMessageChars) keeps each message's rendering
+// so text extraction, redaction and CRLF normalization run once per message.
+function transcriptLineBody(m, perMessageChars, lineCache) {
+  const cached = lineCache?.get(m);
+  if (cached) return cached;
+  const body = {
+    label: `${m?.role || 'unknown'}${toolCallSummary(m, toolCallArgBudget(perMessageChars))}${toolResultId(m)}`,
+    text: truncateMiddle(extractText(m).trim(), perMessageChars),
+  };
+  lineCache?.set(m, body);
+  return body;
 }
 
-function buildCompactionPrompt({ head, previousSummary, preservedFacts }, perMessageChars) {
+function transcriptLineForCompaction(m, index, perMessageChars, lineCache) {
+  const { label, text } = transcriptLineBody(m, perMessageChars, lineCache);
+  if (!text) return `${index + 1}. ${label}`;
+  return `${index + 1}. ${label}:\n${text}`;
+}
+
+function buildCompactionPrompt({ head, previousSummary, preservedFacts }, perMessageChars, lineCache = null) {
   const lines = [
     previousSummary
       ? 'Update the anchored summary below using the conversation history that follows. Preserve still-true details, remove stale details, and merge in the new facts.'
@@ -87,7 +100,7 @@ function buildCompactionPrompt({ head, previousSummary, preservedFacts }, perMes
     lines.push('[No additional older messages before the preserved recent tail.]');
   } else {
     for (let i = 0; i < head.length; i += 1) {
-      lines.push(transcriptLineForCompaction(head[i], i, perMessageChars));
+      lines.push(transcriptLineForCompaction(head[i], i, perMessageChars, lineCache));
     }
   }
   lines.push('</conversation-history>');
@@ -96,8 +109,9 @@ function buildCompactionPrompt({ head, previousSummary, preservedFacts }, perMes
 
 // Rolling compaction batches complete source fragments instead of silently
 // clipping every message or discarding the oldest input to make a request fit.
-export function fitCompleteCompactionPrompt(input, targetTokens) {
-  const prompt = buildCompactionPrompt(input, Number.MAX_SAFE_INTEGER);
+// Pass one `lineCache` (a Map) across the fits of one unchanged head.
+export function fitCompleteCompactionPrompt(input, targetTokens, lineCache = null) {
+  const prompt = buildCompactionPrompt(input, Number.MAX_SAFE_INTEGER, lineCache);
   return estimateMessagesTokens([
     { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
     { role: 'user', content: prompt },
@@ -137,8 +151,10 @@ export function enforceCompactSummarySchema(summary, ctx = {}) {
   return { summary: repairCompactSummary(text, ctx), repaired: true };
 }
 
-function makeGeneratedHandoffMessage(oldHistory, summary, handoffMeta = {}, preservedFacts = '') {
-  const header = compactHeader(oldHistory);
+// `headerLines` is compactHeader(oldHistory): the header hashes the whole old
+// history, so each fit computes it once instead of once per candidate.
+function makeGeneratedHandoffMessage(headerLines, summary, handoffMeta = {}, preservedFacts = '') {
+  const header = [...headerLines];
   header.push(
     `generated_handoff=true provider=${handoffMeta.provider || 'unknown'} model=${handoffMeta.model || 'unknown'}`
   );
@@ -159,11 +175,12 @@ function makeGeneratedHandoffMessage(oldHistory, summary, handoffMeta = {}, pres
 // summary cannot fit (caller throws).
 export function fitGeneratedHandoffMessage(oldHistory, summary, remainingTokens, handoffMeta, preservedFacts = '') {
   const text = String(summary || '').trim();
+  const headerLines = compactHeader(oldHistory);
   const tryFit = (factsText) => {
     // Minimal schema-valid body (headings + "(none)"). If even this does
     // not fit, this facts variant cannot produce a valid message.
     const minimalBody = text ? minimalSchemaSummary() : '';
-    const minimal = makeGeneratedHandoffMessage(oldHistory, minimalBody, handoffMeta, factsText);
+    const minimal = makeGeneratedHandoffMessage(headerLines, minimalBody, handoffMeta, factsText);
     if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
     if (!text) return minimal;
     // Binary search the per-section body budget; keep all anchors intact.
@@ -172,7 +189,7 @@ export function fitGeneratedHandoffMessage(oldHistory, summary, remainingTokens,
       text.length,
       (perSectionChars) => {
         const body = truncateSummaryBySections(text, perSectionChars);
-        return { body, message: makeGeneratedHandoffMessage(oldHistory, body, handoffMeta, factsText) };
+        return { body, message: makeGeneratedHandoffMessage(headerLines, body, handoffMeta, factsText) };
       },
       ({ body, message }) => estimateMessagesTokens([message]) <= remainingTokens && summaryIsSchemaValid(body)
     );
@@ -184,9 +201,8 @@ export function fitGeneratedHandoffMessage(oldHistory, summary, remainingTokens,
   return result;
 }
 
-function makeFreshContextSummaryMessageParts(oldHistory, handoffPart) {
-  const header = compactHeader(oldHistory);
-  const parts = [header.join('\n')];
+function makeFreshContextSummaryMessageParts(headerText, handoffPart) {
+  const parts = [headerText];
   const handoff = String(handoffPart || '').trim();
   if (handoff) parts.push(handoff);
   return makeSummaryMessage(parts.join('\n\n'));
@@ -239,7 +255,8 @@ function fitHandoffChars(handoff, build, fits) {
 
 export function fitFreshContextSummaryMessage(oldHistory, handoffText, remainingTokens) {
   const handoff = String(handoffText || '').trim();
-  const build = (body) => makeFreshContextSummaryMessageParts(oldHistory, body);
+  const headerText = compactHeader(oldHistory).join('\n');
+  const build = (body) => makeFreshContextSummaryMessageParts(headerText, body);
   const fits = (candidate) => estimateMessagesTokens([candidate]) <= remainingTokens;
   const minimal = build('');
   if (!fits(minimal)) return null;

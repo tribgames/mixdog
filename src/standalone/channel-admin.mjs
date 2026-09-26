@@ -263,18 +263,21 @@ export async function saveSchedule({
     enabled: enabled !== false,
     nextFireAt: whenAt,
   });
+  automationProbe.invalidate();
   return scheduleToDisplay(saved);
 }
 
 export async function deleteSchedule(name) {
   const id = assertScheduleName(name);
   await dbDeleteSchedule(id);
+  automationProbe.invalidate();
   return { name: id, deleted: true };
 }
 
 export async function setScheduleEnabled(name, enabled) {
   const id = assertScheduleName(name);
   const updated = await dbSetEnabled(id, enabled !== false);
+  automationProbe.invalidate();
   if (!updated) throw new Error(`schedule "${id}" does not exist`);
   return { name: id, enabled: enabled !== false };
 }
@@ -355,6 +358,7 @@ export async function saveWebhook({
     instructions: body,
     enabled: enabled !== false,
   });
+  automationProbe.invalidate();
   return {
     name: id,
     description: saved.description,
@@ -374,12 +378,14 @@ export async function saveWebhook({
 export async function deleteWebhook(name) {
   const id = assertName(name, 'webhook name');
   await dbDeleteEndpoint(id);
+  automationProbe.invalidate();
   return { name: id, deleted: true };
 }
 
 export async function setWebhookEnabled(name, enabled) {
   const id = assertName(name, 'webhook name');
   const updated = await dbSetEndpointEnabled(id, enabled !== false);
+  automationProbe.invalidate();
   if (!updated) throw new Error(`webhook "${id}" does not exist`);
   return { name: id, enabled: enabled !== false };
 }
@@ -396,16 +402,64 @@ export async function getWebhookSecret(name) {
 // worker boot decision independently of the messaging channels — schedules
 // and webhooks run sessions, so they must not require Discord/Telegram
 // tokens or an explicit remote toggle.
-export async function hasActiveAutomation() {
-  try {
-    const [schedules, webhooks] = await Promise.all([listSchedules(), listWebhooks()]);
-    return (
-      schedules.some((entry) => entry?.enabled !== false && entry?.status !== 'done') ||
-      webhooks.some((entry) => entry?.enabled !== false)
-    );
-  } catch {
-    return false;
-  }
+async function checkActiveAutomation() {
+  const [schedules, webhooks] = await Promise.all([listSchedules(), listWebhooks()]);
+  return (
+    schedules.some((entry) => entry?.enabled !== false && entry?.status !== 'done') ||
+    webhooks.some((entry) => entry?.enabled !== false)
+  );
+}
+
+// Every session runtime in the process asks this at boot. Concurrent callers
+// join one in-flight check and a settled answer is reused for ttlMs, so N
+// runtimes booting together cost one PG query (and at most one PG boot)
+// instead of N. Automation writes through this module invalidate the answer
+// at once; writes from other processes are picked up after ttlMs. A failed
+// check (e.g. PG still booting) answers false to its callers but is never
+// reused, so the next runtime checks again.
+export const AUTOMATION_PROBE_TTL_MS = 60_000;
+
+export function createAutomationProbe(check, { ttlMs = AUTOMATION_PROBE_TTL_MS, now = Date.now } = {}) {
+  let pending = null;
+  let answer = null;
+  let settledAt = 0;
+  let generation = 0;
+  return {
+    probe() {
+      if (pending) return pending;
+      if (answer !== null && now() - settledAt < ttlMs) return Promise.resolve(answer);
+      const startedGeneration = generation;
+      const current = Promise.resolve()
+        .then(check)
+        .then(
+          (active) => ({ active: active === true, settled: true }),
+          () => ({ active: false, settled: false })
+        )
+        .then(({ active, settled }) => {
+          if (startedGeneration === generation) {
+            if (settled) {
+              answer = active;
+              settledAt = now();
+            }
+            pending = null;
+          }
+          return active;
+        });
+      pending = current;
+      return current;
+    },
+    invalidate() {
+      generation += 1;
+      pending = null;
+      answer = null;
+    },
+  };
+}
+
+const automationProbe = createAutomationProbe(checkActiveAutomation);
+
+export function hasActiveAutomation() {
+  return automationProbe.probe();
 }
 
 export async function channelSetup(config = null) {

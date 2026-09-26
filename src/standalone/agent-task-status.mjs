@@ -1,7 +1,6 @@
 import {
   agentWatchdogPolicyActive,
   evaluateAgentWatchdogAbort,
-  resolveEffectiveToolRunningCeilingMs,
 } from '../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 
 const ACTIVE_RUNTIME_STAGES = new Set([
@@ -33,17 +32,12 @@ function formatAgentWatchdogSummary(policy, snapshot = null, watchdogState = nul
     if (snapshot.waitingForFirstSemantic && semanticMs > 0) {
       return `armed semantic=${Math.round(semanticMs / 1000)}s`;
     }
-    if (snapshot.stage === 'tool_running' && policy.toolRunningMs > 0) {
-      const effectiveMs = resolveEffectiveToolRunningCeilingMs(snapshot, policy);
-      return `armed tool=${Math.round(effectiveMs / 1000)}s`;
-    }
     if (policy.idleStaleMs > 0) return `armed idle=${Math.round(policy.idleStaleMs / 1000)}s`;
   }
   const parts = [];
   if (transportMs > 0) parts.push(`transport=${Math.round(transportMs / 1000)}s`);
   if (semanticMs > 0) parts.push(`semantic=${Math.round(semanticMs / 1000)}s`);
   if (policy.idleStaleMs > 0) parts.push(`idle=${Math.round(policy.idleStaleMs / 1000)}s`);
-  if (policy.toolRunningMs > 0) parts.push(`tool=${Math.round(policy.toolRunningMs / 1000)}s`);
   return parts.length ? `armed ${parts.join(' ')}` : null;
 }
 

@@ -304,12 +304,6 @@ export function resolveAgentStallThresholds(agent, env = process.env) {
   return { warn, abort, firstByteAbort };
 }
 
-export function resolveAgentToolThresholdSeconds(agent, thresholdSeconds) {
-  const cfg = agent ? getHiddenAgent(agent) : null;
-  if (cfg?.stallCap?.toolRunningSeconds > 0) return cfg.stallCap.toolRunningSeconds;
-  return thresholdSeconds;
-}
-
 export function providerTimeoutError(label, timeoutMs) {
   const err = new Error(`${label} timed out after ${timeoutMs}ms`);
   err.name = 'ProviderTimeoutError';

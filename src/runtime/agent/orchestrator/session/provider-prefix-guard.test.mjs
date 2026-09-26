@@ -1,6 +1,63 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import { prepareProviderPrefixGuard, ProviderPrefixMutationError } from './provider-prefix-guard.mjs';
+
+// The pre-memo request-prefix digests, verbatim.
+function referenceDigest(value) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+function referencePrefixHashes(requestPrefix, provider, model) {
+  const prefix = requestPrefix && typeof requestPrefix === 'object' ? requestPrefix : {};
+  const anthropic = /^(?:anthropic|anthropic-oauth)$/i.test(String(provider || ''));
+  const relevant = (tools) =>
+    Array.isArray(tools)
+      ? tools.filter((tool) => !anthropic || (tool?.deferLoading !== true && tool?.defer_loading !== true))
+      : [];
+  const relevantPrefix = { ...prefix, tools: relevant(prefix.tools), nativeTools: relevant(prefix.nativeTools) };
+  return {
+    requestPrefixHash: referenceDigest({ provider, model, requestPrefix: relevantPrefix }),
+    toolSchemaHash: referenceDigest(relevantPrefix.tools),
+    nativeToolSchemaHash: referenceDigest(relevantPrefix.nativeTools),
+  };
+}
+
+test('memoized tool and request-prefix digests equal the full digests, including in-place edits', () => {
+  const tool = (name, extra = {}) => ({
+    name,
+    description: `${name} tool`,
+    inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+    ...extra,
+  });
+  const tools = [tool('read'), tool('grep'), tool('deferred', { deferLoading: true })];
+  const nativeTools = [{ type: 'web_search', name: 'web_search' }];
+  const check = (requestPrefix, provider, model = 'm') => {
+    const snapshot = prepareProviderPrefixGuard(null, [], requestPrefix, { provider, model });
+    const { requestPrefixHash, toolSchemaHash, nativeToolSchemaHash } = snapshot;
+    assert.deepEqual(
+      { requestPrefixHash, toolSchemaHash, nativeToolSchemaHash },
+      referencePrefixHashes(requestPrefix, provider, model)
+    );
+  };
+  for (let round = 0; round < 3; round += 1) {
+    for (const provider of ['anthropic', 'anthropic-oauth', 'openai', '']) {
+      check({ tools, nativeTools }, provider);
+      check({ nativeTools, tools }, provider);
+      check({ tools, nativeTools, system: 'extra key' }, provider);
+      check({ tools: null }, provider);
+      check(undefined, provider);
+    }
+  }
+  // In-place edits of a memoized list: schema text, a defer flag, growth.
+  tools[0].inputSchema.properties.path.type = 'number';
+  check({ tools, nativeTools }, 'anthropic');
+  tools[1].deferLoading = true;
+  check({ tools, nativeTools }, 'anthropic');
+  check({ tools, nativeTools }, 'openai');
+  tools.push(tool('write'));
+  check({ tools, nativeTools }, 'anthropic');
+  check({ tools, nativeTools }, 'anthropic', 'other-model');
+});
 
 const CACHE_PROVIDERS = [
   'anthropic',

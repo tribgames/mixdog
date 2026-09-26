@@ -9,7 +9,45 @@ import { sessionPath } from './paths-heartbeat.mjs';
 import {
   readCanonicalSessionRecord as _readCanonicalRecord,
   CANONICAL_RECORD_UNREADABLE as LIFECYCLE_AMBIGUOUS,
+  statSessionStamp as _statSessionStamp,
+  sameSessionStamp as _sameSessionStamp,
 } from './canonical-reader.mjs';
+
+const _observeStamp = (target) => {
+  try {
+    return _statSessionStamp(target);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The write-authority record for `target`: own-commit stamp or strict read,
+ * never the settled-stamp cache. `attempt` (optional) is the scratch state of
+ * ONE save operation: a later check of that same save reuses the verdict an
+ * earlier check read strictly only while the file's FULL stamp is identical
+ * to the one observed unchanged around that read — stat first, and any
+ * difference (another writer's rename, an in-place rewrite, deletion) reads
+ * strictly again. Nothing outlives the save that created it.
+ */
+function _writeAuthorityRecord(target, attempt) {
+  if (attempt?.stamp) {
+    const current = _observeStamp(target);
+    if (current && _sameSessionStamp(current, attempt.stamp)) return attempt.record;
+    attempt.stamp = null;
+    attempt.record = undefined;
+  }
+  const before = attempt ? _observeStamp(target) : null;
+  const record = _readCanonicalRecord(target, true, { ownCommitsOnly: true });
+  if (attempt && before && record && record !== LIFECYCLE_AMBIGUOUS) {
+    const after = _observeStamp(target);
+    if (after && _sameSessionStamp(before, after)) {
+      attempt.stamp = before;
+      attempt.record = record;
+    }
+  }
+  return record;
+}
 import { isCancelledWrite as _isCancelledWrite } from './write-guards.mjs';
 import { _setSessionWriteAuthorityCheck } from './save-worker.mjs';
 
@@ -34,15 +72,16 @@ import { _setSessionWriteAuthorityCheck } from './save-worker.mjs';
  * it would have been able to skip the absent-vs-owned-vs-ambiguous check
  * entirely — the exact hole this guard exists to close.
  */
-export function _shouldDrop(id, opts) {
+export function _shouldDrop(id, opts, attempt = null) {
   if (_isCancelledWrite(opts)) return true;
   const expected = typeof opts?.expectedGeneration === 'number' ? opts.expectedGeneration : null;
   const target = sessionPath(id);
   let record;
   try {
     // Own-commit stamp or strict read — never the settled-stamp cache: this
-    // is the final drop verdict (see the note below).
-    record = _readCanonicalRecord(target, true, { ownCommitsOnly: true });
+    // is the final drop verdict (see the note below). Within one save
+    // (`attempt`) only a stamp-identical file reuses that save's own verdict.
+    record = _writeAuthorityRecord(target, attempt);
   } catch {
     // The guard could not establish WHAT is on disk. Refusing the write is
     // the only safe verdict: the alternative renames over a record whose
@@ -98,11 +137,13 @@ export function _shouldDrop(id, opts) {
 // verdict strictly read at a settled stamp: coalesced calls against an
 // unchanged file cost one stat each, and the final verdict is still taken
 // under the lock by _shouldDrop.
-export function _sessionWriteAuthorityRefusal(id) {
+export function _sessionWriteAuthorityRefusal(id, attempt = null) {
   if (!id) return null;
   let authority;
   try {
-    authority = _readCanonicalRecord(sessionPath(id), true);
+    // A synchronous save passes its `attempt`: its pre-admission is then the
+    // first strict write-authority read of that same save (see _shouldDrop).
+    authority = attempt ? _writeAuthorityRecord(sessionPath(id), attempt) : _readCanonicalRecord(sessionPath(id), true);
   } catch {
     // A THROWN authority check is never acceptance: fail closed.
     return 'unreadable';

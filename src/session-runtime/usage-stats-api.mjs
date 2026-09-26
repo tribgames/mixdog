@@ -2,7 +2,7 @@
 // dependencies after the one-time import of surviving historical originals.
 import { getUsageLedger } from '../runtime/shared/llm/usage-ledger.mjs';
 import { importUsageHistory } from '../runtime/shared/llm/usage-ledger-import.mjs';
-import { refreshUnpricedUsage } from '../runtime/shared/llm/usage-pricing-refresh.mjs';
+import { refreshUnpricedUsageAsync } from '../runtime/shared/llm/usage-pricing-refresh.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { usageStatsSnapshot } from '../standalone/usage-stats-model.mjs';
 import { resolveUsageStatsPeriod } from '../standalone/usage-stats-period.mjs';
@@ -76,15 +76,20 @@ export function createUsageStatsApi({ ledger = getUsageLedger, importHistory = i
     async getUsageStats(options = {}) {
       const store = ledger();
       if (!store) throw new Error('Usage ledger is unavailable');
+      // Live sends commit through the ledger worker; statistics requested
+      // after a send must include it.
+      await store.settleWrites();
       const liveSince = Number(store.get('liveSince'));
       await ensureHistoryImported(store, liveSince);
-      refreshUnpricedUsage(store);
+      await refreshUnpricedUsageAsync(store);
       // Imports may take time: their newly retained timestamps must not fall
       // beyond a clock captured before the import started.
       const now = Date.now();
       const period = usagePeriodFor(options, now);
+      // The rollup query runs off the event loop (usage-rollup-worker.mjs).
+      const rollup = await store.rollupAsync(usageRollupQuery(period));
       const snapshot = usageStatsSnapshot({
-        rollup: store.rollup(usageRollupQuery(period)),
+        rollup,
         days: normalizeDays(options?.days),
         period,
         modelLimit: normalizeModelLimit(options?.modelLimit),

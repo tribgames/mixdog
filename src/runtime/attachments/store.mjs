@@ -17,8 +17,8 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { readdir, readFile as readFileAsync, stat, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readdir, readFile as readFileAsync, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { inspectPdfBuffer } from './pdf-extract.mjs';
@@ -37,13 +37,16 @@ const ATTACHMENT_GC_MIN_AGE_MS = Math.max(
 );
 const ATTACHMENT_GC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const ATTACHMENT_GC_START_DELAY_MS = 5_000;
+// A census that died mid-run must not hold the claim forever.
+const ATTACHMENT_GC_LOCK_STALE_MS = 60 * 60 * 1000;
 
 const bufferCache = new Map();
 let bufferCacheBytes = 0;
 let cacheHits = 0;
 let cacheMisses = 0;
 let attachmentGcTimer = null;
-let lastAttachmentGcAt = readAttachmentGcStamp();
+// Referenced ids per reference file, keyed by path + full stat stamp.
+let referenceCache = null; // { root, files: Map<path, { stamp, refs }> }
 
 function attachmentsDir() {
   return join(resolvePluginData(), 'prompt-attachments', 'sha256');
@@ -54,6 +57,14 @@ function attachmentsDir() {
 // and daemon launch (a 1.9 GB census spiked the heap past 500 MB).
 function attachmentGcStampPath() {
   return join(resolvePluginData(), 'prompt-attachments', 'gc-last-run');
+}
+
+function attachmentGcLockPath() {
+  return join(resolvePluginData(), 'prompt-attachments', 'gc-running');
+}
+
+function attachmentReferenceCachePath() {
+  return join(resolvePluginData(), 'prompt-attachments', 'gc-reference-cache.json');
 }
 
 function readAttachmentGcStamp() {
@@ -181,6 +192,12 @@ export function readAttachmentBuffer(value) {
   }
   rememberBuffer(path, buffer);
   return buffer;
+}
+
+// A referenced blob that is gone from disk (retention, manual cleanup, a
+// copied session) surfaces from readAttachmentBuffer as the stat ENOENT.
+export function isMissingAttachmentError(error) {
+  return error?.code === 'ENOENT';
 }
 
 export function readAttachmentBase64(value) {
@@ -503,21 +520,79 @@ function addReferencedAttachments(buffer, referenced) {
   }
 }
 
+function referenceFileStamp(info) {
+  return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+}
+
+// Session files are mostly idle, so a census re-reads only the files whose
+// stamp changed since the last census in any process (the cache is persisted
+// beside the run stamp). An unusable cache file only costs a full re-read.
+async function loadReferenceCache(root) {
+  if (referenceCache?.root === root) return referenceCache.files;
+  const files = new Map();
+  try {
+    const parsed = JSON.parse(await readFileAsync(attachmentReferenceCachePath(), 'utf8'));
+    if (parsed?.version === 1 && parsed.files && typeof parsed.files === 'object') {
+      for (const [path, entry] of Object.entries(parsed.files)) {
+        if (
+          typeof entry?.stamp === 'string' &&
+          Array.isArray(entry.refs) &&
+          entry.refs.every((ref) => ATTACHMENT_REF_RE.test(String(ref)))
+        ) {
+          files.set(path, { stamp: entry.stamp, refs: entry.refs });
+        }
+      }
+    }
+  } catch {}
+  referenceCache = { root, files };
+  return files;
+}
+
+async function saveReferenceCache(root, files) {
+  referenceCache = { root, files };
+  const target = attachmentReferenceCachePath();
+  const temp = `${target}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(temp, JSON.stringify({ version: 1, files: Object.fromEntries(files) }));
+    await rename(temp, target);
+  } catch {
+    try {
+      await unlink(temp);
+    } catch {}
+  }
+}
+
 export async function collectPromptAttachments({ now = Date.now(), minAgeMs = ATTACHMENT_GC_MIN_AGE_MS } = {}) {
+  const root = resolvePluginData();
+  const cached = await loadReferenceCache(root);
+  const current = new Map();
+  let reread = false;
   const referenced = new Set();
   let referenceFiles = 0;
   for (const path of await persistedAttachmentReferencePaths()) {
-    let raw;
+    let entry;
     try {
-      raw = await readFileAsync(path);
+      // Stat before reading: content changed after the stat gets a new stamp,
+      // so the next census re-reads it.
+      const stamp = referenceFileStamp(await stat(path, { bigint: true }));
+      entry = cached.get(path);
+      if (entry?.stamp !== stamp) {
+        const found = new Set();
+        addReferencedAttachments(await readFileAsync(path), found);
+        entry = { stamp, refs: [...found] };
+        reread = true;
+      }
     } catch (error) {
       if (error?.code === 'ENOENT') continue;
       // A partial reference census must never authorize deletion.
       return { deleted: 0, referenced: 0, fresh: 0, scanned: 0, incomplete: true };
     }
+    current.set(path, entry);
     referenceFiles += 1;
-    addReferencedAttachments(raw, referenced);
+    for (const ref of entry.refs) referenced.add(ref);
   }
+  if (reread || current.size !== cached.size) await saveReferenceCache(root, current);
 
   const cutoff = Number(now) - Math.max(0, Number(minAgeMs) || 0);
   let prefixes;
@@ -570,30 +645,79 @@ export async function collectPromptAttachments({ now = Date.now(), minAgeMs = AT
   return { deleted, referenced: referenced.size, fresh, scanned, referenceFiles };
 }
 
+// Remaining wait while a census from any process is within the interval, else 0.
+function attachmentGcFreshFor() {
+  const last = readAttachmentGcStamp();
+  return last > 0 ? Math.max(0, ATTACHMENT_GC_INTERVAL_MS - (Date.now() - last)) : 0;
+}
+
+// Exclusive per-data-dir claim so concurrent processes never run the census
+// together. Returns whether this process created the claim file, or null when
+// the claim itself is unusable (the census then runs unclaimed, as before).
+function claimAttachmentGc() {
+  const lock = attachmentGcLockPath();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      mkdirSync(dirname(lock), { recursive: true });
+      writeFileSync(lock, String(process.pid), { flag: 'wx' });
+      return true;
+    } catch (error) {
+      if (error?.code !== 'EEXIST') return null;
+    }
+    try {
+      if (Date.now() - statSync(lock).mtimeMs < ATTACHMENT_GC_LOCK_STALE_MS) return false;
+      unlinkSync(lock);
+    } catch {}
+  }
+  return false;
+}
+
+// Runs the census unless another process ran it within the interval or is
+// running it now; the stamp is re-read at fire time, not only when armed.
+// Resolves to the delay before the next attempt.
+async function runScheduledAttachmentGc() {
+  const freshFor = attachmentGcFreshFor();
+  if (freshFor > 0) return freshFor;
+  const claim = claimAttachmentGc();
+  if (claim === false) return ATTACHMENT_GC_INTERVAL_MS;
+  try {
+    const claimedFreshFor = attachmentGcFreshFor();
+    if (claimedFreshFor > 0) return claimedFreshFor;
+    const result = await collectPromptAttachments();
+    if (!result?.incomplete) writeAttachmentGcStamp();
+    return ATTACHMENT_GC_INTERVAL_MS;
+  } finally {
+    if (claim) {
+      try {
+        unlinkSync(attachmentGcLockPath());
+      } catch {}
+    }
+  }
+}
+
 function armAttachmentGc(delayMs) {
   if (attachmentGcTimer) return;
   attachmentGcTimer = setTimeout(
     () => {
       attachmentGcTimer = null;
-      void collectPromptAttachments()
-        .then((result) => {
-          if (!result?.incomplete) writeAttachmentGcStamp();
-        })
-        .catch(() => undefined)
-        .finally(() => {
-          lastAttachmentGcAt = Date.now();
-          armAttachmentGc(ATTACHMENT_GC_INTERVAL_MS);
-        });
+      void runScheduledAttachmentGc()
+        .catch(() => ATTACHMENT_GC_INTERVAL_MS)
+        .then((nextDelayMs) => armAttachmentGc(nextDelayMs));
     },
     Math.max(ATTACHMENT_GC_START_DELAY_MS, Number(delayMs) || 0)
   );
   attachmentGcTimer.unref?.();
 }
 
+// Armed by saveBuffer and by daemon start (startAttachmentGc): the daemon
+// intake (session-service submitSession) is the sole attachment writer, and
+// blobs orphaned by deleted sessions must not wait for the next attachment.
+// Readers (TUI, provider lowering) never run it.
 function scheduleAttachmentGc() {
   if (attachmentGcTimer) return;
-  const elapsed = Date.now() - lastAttachmentGcAt;
-  armAttachmentGc(lastAttachmentGcAt === 0 ? ATTACHMENT_GC_START_DELAY_MS : ATTACHMENT_GC_INTERVAL_MS - elapsed);
+  armAttachmentGc(attachmentGcFreshFor());
 }
 
-scheduleAttachmentGc();
+export function startAttachmentGc() {
+  scheduleAttachmentGc();
+}

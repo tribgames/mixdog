@@ -61,7 +61,8 @@ export interface SessionHostLifecycleOwner {
     sessionId: string,
     forceFull?: boolean,
     publish?: boolean,
-    readTraceId?: string
+    readTraceId?: string,
+    page?: boolean
   ): Promise<SessionSnapshot>;
   invokeSession(
     sessionId: string,
@@ -202,11 +203,19 @@ export class SessionHostLifecycle {
     const traceId = transcriptReadTraceId(readTraceId);
     const startedAt = performance.now();
     reportTranscriptRead(id, traceId, 'host-start');
+    let grown = false;
     if (typeof transcriptItemLimit === 'number') {
-      this.owner.transcriptWindows.grow(id, Math.max(1, Math.min(8_192, Math.floor(Number(transcriptItemLimit)))));
+      // The page's byte budget bounds only the rows above what this host holds.
+      const held = this.owner.publication.projections.get(id)?.snapshot?.items?.length ?? 0;
+      grown = this.owner.transcriptWindows.grow(
+        id,
+        Math.max(1, Math.min(8_192, Math.floor(Number(transcriptItemLimit)))),
+        held
+      );
     }
     try {
-      const snapshot = await this.owner.readSession(id, false, false, traceId);
+      // A grown window is a page: the daemon may send only the revealed rows.
+      const snapshot = await this.owner.readSession(id, false, false, traceId, grown);
       reportTranscriptRead(id, traceId, 'host-projected', {
         elapsedMs: performance.now() - startedAt,
         itemCount: Array.isArray(snapshot?.items) ? snapshot.items.length : 0,
@@ -314,6 +323,9 @@ export class SessionHostLifecycle {
           open: this.owner.openHints(sessionId),
           ...this.owner.transcriptWindows.send(sessionId),
           baseRevision: prior?.revision ?? null,
+          // Live frames to this host may carry older-history pages as the
+          // revealed rows only.
+          transcriptPrepend: true,
         },
         this.owner.callOptions(undefined, TRANSCRIPT_READ_TIMEOUT_MS)
       );

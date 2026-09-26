@@ -49,8 +49,12 @@ const SESSION_ID = /^[A-Za-z0-9_-]+$/;
 // than dropping records — recovery correctness outranks a rare, bounded stall.
 const MAX_PENDING_JOURNAL_BYTES = 4 * 1024 * 1024;
 
+function checkpointDirPath() {
+  return join(getPluginData(), 'turn-checkpoints');
+}
+
 function checkpointDir() {
-  const dir = join(getPluginData(), 'turn-checkpoints');
+  const dir = checkpointDirPath();
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -62,14 +66,29 @@ function assertSessionId(sessionId) {
   return sessionId;
 }
 
-export function turnCheckpointPath(sessionId) {
+// Writers resolve paths through checkpointDir(), which creates the directory.
+// Readers and removers only need the name: a missing directory reads exactly
+// like a missing file, so they skip the synchronous directory probe.
+function checkpointFilePath(sessionId, extension, { ensureDir }) {
   assertSessionId(sessionId);
-  return join(checkpointDir(), `${sessionId}.json`);
+  return join(ensureDir ? checkpointDir() : checkpointDirPath(), `${sessionId}${extension}`);
+}
+
+export function turnCheckpointPath(sessionId) {
+  return checkpointFilePath(sessionId, '.json', { ensureDir: true });
 }
 
 export function turnJournalPath(sessionId) {
-  assertSessionId(sessionId);
-  return join(checkpointDir(), `${sessionId}.jsonl`);
+  return checkpointFilePath(sessionId, '.jsonl', { ensureDir: true });
+}
+
+/** Header path without creating the checkpoint directory (read/remove only). */
+export function turnCheckpointReadPath(sessionId) {
+  return checkpointFilePath(sessionId, '.json', { ensureDir: false });
+}
+
+function turnJournalReadPath(sessionId) {
+  return checkpointFilePath(sessionId, '.jsonl', { ensureDir: false });
 }
 
 export function checkpointMessage(message) {
@@ -142,8 +161,24 @@ export function writeCheckpointHeader(checkpoint) {
 }
 
 export function readTurnCheckpointHeader(sessionId) {
+  return readTurnCheckpointHeaderState(sessionId).header;
+}
+
+/** `present` is false only when the header file does not exist (ENOENT);
+ * an unreadable or invalid header is present with a null `header`. */
+export function readTurnCheckpointHeaderState(sessionId) {
+  let text;
   try {
-    const value = JSON.parse(readFileSync(turnCheckpointPath(sessionId), 'utf8'));
+    text = readFileSync(turnCheckpointReadPath(sessionId), 'utf8');
+  } catch (error) {
+    return { present: error?.code !== 'ENOENT', header: null };
+  }
+  return { present: true, header: parseTurnCheckpointHeader(text, sessionId) };
+}
+
+function parseTurnCheckpointHeader(text, sessionId) {
+  try {
+    const value = JSON.parse(text);
     if (
       value?.version !== TURN_CHECKPOINT_VERSION ||
       value?.sessionId !== sessionId ||
@@ -326,21 +361,16 @@ export function openJournalForTurn(sessionId, openLines) {
   return false;
 }
 
+/**
+ * Remove the journal through the ordered write lane. The unlink runs off the
+ * event loop, after any older in-flight write (which could otherwise recreate
+ * the file behind it) and before any later turn's open, which the lane fences
+ * behind it. A crash before it lands leaves a journal whose header is already
+ * gone, which replay never reads; process exit re-runs it synchronously.
+ */
 export function removeTurnJournal(sessionId) {
-  const path = turnJournalPath(sessionId);
   cancelJournalWrites(sessionId);
-  if (!_journalWrites.has(sessionId)) {
-    try {
-      unlinkSync(path);
-    } catch {
-      /* best-effort */
-    }
-    return true;
-  }
-  // An older write is in flight; unlinking now would let it recreate the file
-  // behind us. Queue the removal so it runs after that write.
-  _enqueueJournalOp(sessionId, { kind: 'remove', path });
-  return false;
+  _enqueueJournalOp(sessionId, { kind: 'remove', path: turnJournalReadPath(sessionId) });
 }
 
 /** Test/shutdown helper: resolve once the write lane for a session is idle. */
@@ -435,7 +465,7 @@ export function replayTurnJournal(header) {
   if (!header) return null;
   let raw;
   try {
-    raw = readFileSync(turnJournalPath(header.sessionId), 'utf8');
+    raw = readFileSync(turnJournalReadPath(header.sessionId), 'utf8');
   } catch {
     return header;
   }

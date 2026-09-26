@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { drainSessionStore, saveSessionAsync, saveSessionAsyncDeferred, subscribeLiveSessions } from './store.mjs';
+import { settleSessionSummaryIndex } from './store/listing.mjs';
 
 // The store's worker can still be retiring a temp file under the data dir
 // when the test tears down; a recursive rm racing that lands ENOTEMPTY on
@@ -52,6 +53,9 @@ test('async and deferred session saves publish their admitted live snapshots', a
   } finally {
     unsubscribe();
     drainSessionStore();
+    // Summary-index writes queued by the saves land after they resolve and
+    // would recreate the directory (session-summaries.json) behind the rm.
+    await settleSessionSummaryIndex();
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
     await removeDataDir(root);
@@ -89,6 +93,9 @@ test('an unowned async save publishes no live snapshot', async () => {
   } finally {
     unsubscribe();
     drainSessionStore();
+    // Summary-index writes queued by the saves land after they resolve and
+    // would recreate the directory (session-summaries.json) behind the rm.
+    await settleSessionSummaryIndex();
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
     await removeDataDir(root);

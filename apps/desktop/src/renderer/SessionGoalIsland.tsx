@@ -1,10 +1,10 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 import { liveAgentRows } from './AgentActivityPane';
 import type { GoalSnapshot, GoalTask, Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
-import { GoalSubmissionContext, useGoalAfterSubmission } from './session-goal-submission';
+import { useGoalAfterSubmission } from './session-goal-submission';
 import {
   goalDisplayStatus,
   goalElapsedLabel,
@@ -63,24 +63,6 @@ const GOAL_TASK_GLYPHS = {
 function GoalTaskGlyph({ status }: { status?: GoalTask['status'] }) {
   const name = (status && GOAL_TASK_GLYPHS[status as keyof typeof GOAL_TASK_GLYPHS]) || 'pending';
   return <MxIcon name={name} size={14} />;
-}
-
-export function SessionGoalHost({
-  placement,
-  children,
-  submissionId = '',
-}: {
-  placement: 'composer';
-  children?: ReactNode;
-  submissionId?: string;
-}) {
-  return (
-    <GoalSubmissionContext.Provider value={submissionId}>
-      <div className="session-goal-host" data-goal-placement={placement}>
-        {children}
-      </div>
-    </GoalSubmissionContext.Provider>
-  );
 }
 
 export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {

@@ -18,8 +18,10 @@ export function createWorkflowContext({ packs, agents }) {
     };
   }
 
+  // Status-pulse read (boot/facade currentWorkflow, every session every 2 s):
+  // the pack and the agent list both come from the process-wide shared caches.
   function activeWorkflowSummary(config, dir) {
-    return workflowSummary(packs.loadWorkflowPack(dir, packs.activeWorkflowId(config)), {
+    return workflowSummary(packs.sharedWorkflowPack(dir, packs.activeWorkflowId(config)), {
       hasAgents: agents.delegatableAgentIds(config, dir).length > 0,
       orchestrationMode: configuredOrchestrationMode(config),
     });

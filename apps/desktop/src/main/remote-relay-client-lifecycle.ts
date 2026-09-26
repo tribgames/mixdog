@@ -58,6 +58,7 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
       ...(relayE2EECompressionSupported() ? { deflate: 1 as const } : {}),
       compactWire: 1 as const,
       transcriptPaging: 1 as const,
+      transcriptPrepend: 1 as const,
     };
     if (!deps.clients.open(clientId, challenge)) return;
     deps.sendEnvelope({
@@ -119,6 +120,7 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
       client.listDelta = hello.listDelta === 1;
       client.compactWire = hello.compactWire === 1;
       client.transcriptPaging = hello.transcriptPaging === 1;
+      client.transcriptPrepend = hello.transcriptPrepend === 1;
       client.viewSync = hello.viewSync === 1 && deps.viewSyncSupported();
       client.stateLane = createRemoteStateLane(client.compactWire, (payload, droppable) =>
         deps.clients.attached(clientId, client)

@@ -10,6 +10,12 @@ import { listStoredActiveGoalSessionIds, readStoredGoalSnapshot } from '../sessi
 
 export function createStoredSessionViews({ desktopRuntime, dataDir }) {
   return {
+    // Settled identity of the files a stored projection is built from; the
+    // cold-view refresh skips a session while it is unchanged.
+    statStoredSession: async (sessionId) => {
+      const store = await desktopRuntime.loadSessionStore();
+      return store.storedSessionTranscriptStamp?.(sessionId) ?? null;
+    },
     sessionExists: async (sessionId) => {
       const store = await desktopRuntime.loadSessionStore();
       return store.storedSessionExists?.(sessionId) === true;

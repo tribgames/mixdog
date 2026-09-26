@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
-import { attachmentTextForPart, isAttachmentReference, readAttachmentBase64 } from '../../../attachments/store.mjs';
+import {
+  attachmentTextForPart,
+  isAttachmentReference,
+  isMissingAttachmentError,
+  readAttachmentBase64,
+} from '../../../attachments/store.mjs';
 import { base64ByteLength, inlineFileKind } from '../../../shared/inline-file-kind.mjs';
 
 const DEFAULT_IMAGE_MIME = 'image/png';
@@ -168,15 +173,17 @@ function contentParts(content) {
   if (content && typeof content === 'object' && Array.isArray(content.content)) {
     return content.content;
   }
+  // The reference test comes first: it needs no blob read, which the others
+  // would do merely to classify a referenced part.
   if (
     content &&
     typeof content === 'object' &&
-    (imageUrlFromPart(content) ||
+    (isAttachmentReference(content) ||
+      imageUrlFromPart(content) ||
       imageFileIdFromPart(content) ||
       imageFileUriFromPart(content) ||
       geminiInlineInfo(content) ||
-      fileInfo(content) ||
-      isAttachmentReference(content))
+      fileInfo(content))
   )
     return [content];
   return null;
@@ -186,6 +193,9 @@ function jsonFallbackFromPart(block) {
   const text = textFromPart(block);
   if (text) return text;
   if (!block || typeof block !== 'object') return block == null ? '' : String(block);
+  // A referenced image has no text either way; do not read its blob to learn
+  // that it is an image.
+  if (block.type === 'image' && isAttachmentReference(block)) return '';
   if (imageUrlFromPart(block) || imageFileIdFromPart(block) || imageFileUriFromPart(block) || geminiInlineInfo(block))
     return '';
   const file = fileInfo(block);
@@ -291,12 +301,34 @@ export function contentFileDescriptors(content) {
   });
 }
 
-export function contentToText(content, fallback = '') {
+function projectContentText(content, fallback, projectPart) {
   if (typeof content === 'string') return content;
   const parts = contentParts(content);
   if (!parts) return content == null ? fallback : stringifyFallback(content);
-  const text = parts.map(jsonFallbackFromPart).filter(Boolean).join('\n');
+  const text = parts.map(projectPart).filter(Boolean).join('\n');
   return text || fallback;
+}
+
+export function contentToText(content, fallback = '') {
+  return projectContentText(content, fallback, jsonFallbackFromPart);
+}
+
+// Context estimation's text projection. A referenced file or text whose blob
+// is missing is priced as the part's own metadata, like any part with no
+// readable payload; a referenced image already projects to '' and is priced
+// by its descriptor. Provider sends keep contentToText and the normalizers
+// below, which still fail on a missing blob.
+function estimatePartText(part) {
+  try {
+    return jsonFallbackFromPart(part);
+  } catch (error) {
+    if (!isAttachmentReference(part) || !isMissingAttachmentError(error)) throw error;
+    return stringifyFallback(part);
+  }
+}
+
+export function contentToEstimateText(content, fallback = '') {
+  return projectContentText(content, fallback, estimatePartText);
 }
 
 function storedHistoryImagePlaceholder(part) {

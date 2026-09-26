@@ -46,12 +46,19 @@ export async function projectStoredTranscript(sessionId, doc, options) {
   );
   let preparedContextProjection = null;
   try {
-    const [{ prepareSessionProjection }, { createContextStatus }] = await Promise.all([
+    const [{ prepareSessionProjection }, { createContextStatus }, { primeContextEstimates }] = await Promise.all([
       import('./manager.mjs'),
       import('../../../../session-runtime/context-status.mjs'),
+      import('./context-utils.mjs'),
     ]);
     const prepared = prepareSessionProjection(session, 'full');
     if (prepared) session = prepared;
+    // The gauge below prices the whole cold transcript synchronously; meter
+    // it (and the baseline signatures it will read) in event-loop slices
+    // first so that pass reads the per-message memos. Same values, and the
+    // memos stay with the message objects for a later resume of them.
+    const gaugeMessages = Array.isArray(session.liveTurnMessages) ? session.liveTurnMessages : session.messages;
+    await primeContextEstimates(gaugeMessages, session);
     const { contextStatus } = createContextStatus({
       getSession: () => session,
       getRoute: () => ({

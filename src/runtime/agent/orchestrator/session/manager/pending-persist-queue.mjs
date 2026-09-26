@@ -49,6 +49,10 @@ export function persistPendingMessages(sessionId, messages) {
   // Best-effort: the returned promise is fire-and-forget; depth is reported
   // optimistically from the buffered batch length.
   const operation = updateSpool((raw) => {
+    // Close fence, INSIDE the spool lock: a close/detach that tore this
+    // session's pending state down while the write waited for the lock owns
+    // the spool from here on — the superseded write may not land after it.
+    if (!pendingStateUnchanged(sessionId, stateHandle, stateEpoch)) return undefined;
     // Durable commit window: re-read the lifecycle INSIDE the spool lock.
     // A cross-process close/detach between acceptance and this commit must
     // drop the old-generation input without touching the new owner's rows.

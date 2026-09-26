@@ -1,6 +1,7 @@
 // Session-address index: which execution entry currently owns a durable
 // session id. External agent views never enter the index, so a later ordinary
 // materialization can adopt their viewers and take authority.
+import { inheritTranscriptWindow } from './transcript-window.mjs';
 
 export function createSessionAddressIndex({ sessionsById, externalViewEntries, addSubscriber, onSessionLive }) {
   function currentSessionId(entry) {
@@ -32,6 +33,7 @@ export function createSessionAddressIndex({ sessionsById, externalViewEntries, a
       for (const token of external.subscribers || []) {
         addSubscriber(entry, { clientToken: token });
       }
+      if ((external.subscribers?.size || 0) > 0) inheritTranscriptWindow(entry, external.transcriptView);
     }
     sessionsById.set(nextId, entry);
     entry.indexedSessionId = nextId;

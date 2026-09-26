@@ -6,8 +6,10 @@ import {
   sessionStampOf,
   ownCommittedLifecycle,
   readCanonicalSessionRecord,
+  acceptStrictSessionRecords,
 } from './canonical-reader.mjs';
 import { sessionPath } from './paths-heartbeat.mjs';
+import { noteMemoryRelease } from '../../../../shared/idle-gc.mjs';
 
 // Recent full-session reads are much hotter than writes while a user hops
 // between conversations. Verify the file identity on every access, but reuse
@@ -47,12 +49,116 @@ function _putCached(path, entry) {
 
 /** Drop everything cached for `id` (its runtime was closed, unloaded or evicted). */
 export function forgetSessionLoadCache(id) {
-  if (id) _dropCached(sessionPath(id));
+  if (!id) return;
+  _dropCached(sessionPath(id));
+  _dropHandoff(sessionPath(id));
+  // A whole session just became unreachable: tell the idle collector a
+  // large release is waiting (it sweeps once the host is idle again).
+  noteMemoryRelease();
 }
+
+// A data-dir switch (tests, profile change) invalidates every cached path.
+function _syncCacheDataDir() {
+  const dataDir = getPluginData();
+  if (_sessionLoadCacheDataDir === dataDir) return;
+  _sessionLoadCacheDataDir = dataDir;
+  _sessionLoadCache.clear();
+  _sessionLoadCacheChars = 0;
+  _sessionLoadCacheDocs = 0;
+  _handoffs.clear();
+  _handoffChars = 0;
+  _handoffBatch = 0;
+}
+
+// ── Pending hand-offs ────────────────────────────────────────────────────────
+// A strict parse handed over by another reader (a pane's cold read, the
+// pre-load existence check) waits here until the resume it precedes claims
+// it. At boot every visible pane is read before the first runtime finishes
+// booting, so these could not share the ordinary eight-document budget: the
+// 31st hand-off evicted the first long before its resume came. They get their
+// own bound and a short life instead — a claimed one becomes an ordinary
+// entry, an unclaimed one (a pane nobody resumes) is released after
+// HANDOFF_TTL_MS.
+const HANDOFF_MAX_DOCS = 64;
+const HANDOFF_MAX_CHARS = 64 * 1024 * 1024;
+const HANDOFF_TTL_MS = 20_000;
+const _handoffs = new Map(); // path → { signature, session, chars, expiresAt }
+let _handoffChars = 0;
+let _handoffTimer = null;
+
+// Hand-offs taken since the pending list was last empty: a boot restore batch.
+let _handoffBatch = 0;
+
+function _dropHandoff(path) {
+  const entry = _handoffs.get(path);
+  if (!entry) return null;
+  _handoffChars -= entry.chars;
+  _handoffs.delete(path);
+  if (_handoffs.size === 0 && _handoffBatch > 0) {
+    // The restore batch is over (every hand-off claimed or expired): its
+    // file texts, private projection parses and superseded copies are now
+    // garbage. One idle sweep reclaims them instead of leaving the boot peak
+    // resident until V8 happens to collect.
+    _handoffBatch = 0;
+    noteMemoryRelease();
+  }
+  return entry;
+}
+
+function _expireHandoffs() {
+  _handoffTimer = null;
+  const now = Date.now();
+  for (const [path, entry] of _handoffs) if (entry.expiresAt <= now) _dropHandoff(path);
+  _scheduleHandoffExpiry();
+}
+
+function _scheduleHandoffExpiry() {
+  if (_handoffTimer || _handoffs.size === 0) return;
+  const next = Math.min(...[..._handoffs.values()].map((entry) => entry.expiresAt));
+  _handoffTimer = setTimeout(_expireHandoffs, Math.max(0, next - Date.now()));
+  // Releasing memory must never be the reason a process stays up.
+  _handoffTimer.unref?.();
+}
+
+const _signatureOf = (stamp) => `${stamp.dev}:${stamp.ino}:${stamp.size}:${stamp.mtimeNs}:${stamp.ctimeNs}`;
+
+// A strict parse another reader in this realm made of bytes it proved to come
+// from `stamp` (see offerStrictSessionRecord). Held as a pending hand-off under
+// that full stamp, only when the record names the session this path belongs
+// to and nothing is cached or pending for this exact file yet (an existing
+// entry may already be handed out).
+function _adoptStrictRecord(path, stamp, record, chars) {
+  _syncCacheDataDir();
+  if (typeof record?.id !== 'string' || !record.doc || path !== sessionPath(record.id)) return false;
+  if (!(chars > 0) || chars > HANDOFF_MAX_CHARS) return false;
+  const signature = _signatureOf(stamp);
+  if (_sessionLoadCache.get(path)?.signature === signature) return false;
+  if (_handoffs.get(path)?.signature === signature) return false;
+  _dropHandoff(path);
+  const now = Date.now();
+  for (const [other, entry] of _handoffs) if (entry.expiresAt <= now) _dropHandoff(other);
+  _handoffs.set(path, { signature, session: record.doc, chars, expiresAt: now + HANDOFF_TTL_MS });
+  _handoffChars += chars;
+  _handoffBatch += 1;
+  // Oldest first: the pane read longest ago is the least likely to be resumed next.
+  for (const oldest of _handoffs.keys()) {
+    if (_handoffs.size <= HANDOFF_MAX_DOCS && _handoffChars <= HANDOFF_MAX_CHARS) break;
+    _dropHandoff(oldest);
+  }
+  _scheduleHandoffExpiry();
+  return true;
+}
+acceptStrictSessionRecords(_adoptStrictRecord);
 
 /** Test/diagnostic seam: entries, retained documents and their source characters. */
 export function sessionLoadCacheStats() {
-  return { entries: _sessionLoadCache.size, documents: _sessionLoadCacheDocs, chars: _sessionLoadCacheChars };
+  return {
+    entries: _sessionLoadCache.size,
+    documents: _sessionLoadCacheDocs,
+    chars: _sessionLoadCacheChars,
+    pendingHandoffs: _handoffs.size,
+    pendingHandoffChars: _handoffChars,
+  };
 }
 
 // A session file is only ever replaced atomically (write tmp → rename over
@@ -113,7 +219,7 @@ function _observe(path, attempt) {
       state: 'present',
       // The full stamp: a rename brings a new inode and change time, and an
       // in-place rewrite moves the change time even when mtime is restored.
-      signature: `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`,
+      signature: _signatureOf(info),
       stamp: sessionStampOf(info),
       code: null,
     };
@@ -156,7 +262,10 @@ function _selectCachedSession(entry, preferInMemory) {
     _releaseDocument(entry);
     return preferred;
   }
-  return entry.session;
+  // A document released for budget while something else (a live runtime)
+  // still holds it is still the parse of exactly this file: the stamp is
+  // unchanged, so hand out that same object again instead of re-reading.
+  return entry.session ?? entry.released?.deref() ?? null;
 }
 
 function _cacheStable(path, signature, session, preferInMemory, chars) {
@@ -187,11 +296,17 @@ function _trimSessionLoadCache() {
   }
 }
 
-// Keep only the validation header of a cached (in-map) entry.
+// Keep only the validation header of a cached (in-map) entry, plus a WEAK
+// reference to the released document: never a reason to keep a transcript
+// resident, but while its owner (the runtime that loaded it) still holds it,
+// the next load of the unchanged file gets it back without a whole-file read.
+// forgetSessionLoadCache (close, unload, eviction) drops the entry and the
+// reference with it.
 function _releaseDocument(entry) {
   if (!entry.session) return;
   _sessionLoadCacheChars -= entry.chars;
   _sessionLoadCacheDocs -= 1;
+  entry.released = new WeakRef(entry.session);
   entry.chars = 0;
   entry.session = null;
 }
@@ -218,13 +333,7 @@ function _decisiveReplacementSnapshot(id, path, attempt) {
 }
 
 export function _readStoredSessionCached(id, path, { preferInMemory = null } = {}) {
-  const dataDir = getPluginData();
-  if (_sessionLoadCacheDataDir !== dataDir) {
-    _sessionLoadCacheDataDir = dataDir;
-    _sessionLoadCache.clear();
-    _sessionLoadCacheChars = 0;
-    _sessionLoadCacheDocs = 0;
-  }
+  _syncCacheDataDir();
   let last = { state: 'absent', signature: null, code: 'ENOENT' };
   for (let attempt = 0; attempt < SESSION_LOAD_STABLE_ATTEMPTS; attempt++) {
     // The final attempt must DECIDE — it may not defer to yet another
@@ -253,6 +362,13 @@ export function _readStoredSessionCached(id, path, { preferInMemory = null } = {
       }
       // The live owner went away or disk now outranks it. A validation header
       // is not a transcript: re-read the complete record before returning it.
+    }
+    // A strict parse another reader handed over for exactly this file: claim
+    // it instead of reading. Any other stamp (changed, replaced by another
+    // writer) drops it and reads strictly below.
+    const handoff = _dropHandoff(path);
+    if (handoff && handoff.signature === before.signature) {
+      return { exists: true, session: _cacheStable(path, before.signature, handoff.session, preferInMemory, handoff.chars) };
     }
     // This realm's OWN last commit is still on disk: its bytes are our strict,
     // valid serialization, so its header validates without re-reading. When

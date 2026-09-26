@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { resolvePluginData } from '../../../../runtime/shared/plugin-paths.mjs';
 import { readSection } from '../../../../runtime/shared/config.mjs';
-import { updateJsonAtomicSync } from '../../../../runtime/shared/atomic-file.mjs';
+import { updateJsonAtomic, updateJsonAtomicSync } from '../../../../runtime/shared/atomic-file.mjs';
 import { computeCostUsd, isInclusiveProvider } from '../../../../runtime/shared/llm/cost.mjs';
 import { getModelMetadataSync } from '../../../../runtime/agent/orchestrator/providers/model-catalog.mjs';
 import {
@@ -23,6 +23,8 @@ let routeSectionKey = null;
 let routeSectionStartedAt = 0;
 let pendingUsageEvents = [];
 let usageFlushTimer = null;
+// Settles once every async usage flush started so far has landed or failed.
+let usageFlushTail = Promise.resolve();
 
 function num(value, fallback = 0) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -534,28 +536,56 @@ function usageStorePath() {
   return join(resolvePluginData(), GATEWAY_USAGE_FILE);
 }
 
-function flushGatewayUsageEvents() {
+const USAGE_FLUSH_OPTS = Object.freeze({ compact: true, fsync: false, fsyncDir: false });
+
+// Take the pending batch and build its read-modify-write mutator.
+function takePendingUsageBatch() {
   if (usageFlushTimer) {
     clearTimeout(usageFlushTimer);
     usageFlushTimer = null;
   }
-  if (!pendingUsageEvents.length) return;
+  if (!pendingUsageEvents.length) return null;
   const eventsToWrite = pendingUsageEvents;
   pendingUsageEvents = [];
   const cutoff = Date.now() - USAGE_EVENT_TTL_MS;
+  return (curRaw) => {
+    const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
+    const events = Array.isArray(cur.events) ? cur.events : [];
+    const kept = events
+      .filter(e => num(e?.ts, 0) >= cutoff)
+      .slice(-MAX_USAGE_EVENTS + eventsToWrite.length);
+    kept.push(...eventsToWrite);
+    return { version: 1, updatedAt: Date.now(), events: kept.slice(-MAX_USAGE_EVENTS) };
+  };
+}
+
+// Normal flushes run on the event loop's schedule but never block it: the
+// cross-process lock wait and the file I/O are asynchronous. Batches keep
+// their order because withFileLock queues same-path callers in call order.
+function flushGatewayUsageEvents() {
+  const mutate = takePendingUsageBatch();
+  if (!mutate) return usageFlushTail;
+  const flush = updateJsonAtomic(usageStorePath(), mutate, USAGE_FLUSH_OPTS).catch(() => {
+    // Local telemetry must never affect the routed model call.
+  });
+  usageFlushTail = Promise.all([usageFlushTail, flush]).then(() => {});
+  return usageFlushTail;
+}
+
+// Process exit cannot await, so the last batch is written synchronously.
+function flushGatewayUsageEventsSync() {
+  const mutate = takePendingUsageBatch();
+  if (!mutate) return;
   try {
-    updateJsonAtomicSync(usageStorePath(), (curRaw) => {
-      const cur = curRaw && typeof curRaw === 'object' ? curRaw : {};
-      const events = Array.isArray(cur.events) ? cur.events : [];
-      const kept = events
-        .filter(e => num(e?.ts, 0) >= cutoff)
-        .slice(-MAX_USAGE_EVENTS + eventsToWrite.length);
-      kept.push(...eventsToWrite);
-      return { version: 1, updatedAt: Date.now(), events: kept.slice(-MAX_USAGE_EVENTS) };
-    }, { compact: true, fsync: false, fsyncDir: false });
+    updateJsonAtomicSync(usageStorePath(), mutate, USAGE_FLUSH_OPTS);
   } catch {
     // Local telemetry must never affect the routed model call.
   }
+}
+
+/** Resolves once every recorded usage event has been handed to disk. */
+export function settleGatewayUsageWrites() {
+  return flushGatewayUsageEvents();
 }
 
 function scheduleGatewayUsageFlush() {
@@ -566,7 +596,7 @@ function scheduleGatewayUsageFlush() {
 
 try {
   process.on('beforeExit', flushGatewayUsageEvents);
-  process.on('exit', flushGatewayUsageEvents);
+  process.on('exit', flushGatewayUsageEventsSync);
 } catch {
   // Embedded runtimes may not expose process lifecycle hooks.
 }

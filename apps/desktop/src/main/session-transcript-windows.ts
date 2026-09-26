@@ -1,5 +1,6 @@
 import {
   DESKTOP_TRANSCRIPT_ITEM_LIMIT,
+  DESKTOP_TRANSCRIPT_PAGE_BYTES,
   DESKTOP_TRANSCRIPT_TAIL_BYTES,
   DESKTOP_TRANSCRIPT_TAIL_ITEMS,
 } from './desktop-support';
@@ -8,17 +9,22 @@ import {
 export interface TranscriptWindowRequest {
   transcriptItemLimit: number;
   transcriptByteBudget?: number;
+  /** Newest items the reader already holds: the byte budget bounds only the
+   *  older rows a page reveals above them. */
+  transcriptPageBase?: number;
 }
 
 /**
  * One daemon transcript window per session, shared by every source (desktop
  * window, each phone) that shows it — the host holds one projection per
- * session. Paging views open on a byte-budgeted tail; a legacy source (an old
- * phone build that cannot page from `transcriptHasOlder`) raises the window to
- * the 512-item page it expects. Reading older history only ever grows it.
+ * session. Paging views open on a byte-budgeted tail and page older history
+ * in byte-budgeted pages; a legacy source (an old phone build that cannot
+ * page from `transcriptHasOlder`) raises the window to the 512-item page it
+ * expects and pages by count, unbudgeted. Reading older history only ever
+ * grows it.
  */
 export class SessionTranscriptWindows {
-  private readonly grown = new Map<string, number>();
+  private readonly grown = new Map<string, { limit: number; held: number }>();
   private readonly legacySources = new Set<string>();
   private readonly sent = new Map<string, string>();
 
@@ -34,18 +40,24 @@ export class SessionTranscriptWindows {
     for (const source of this.legacySources) {
       if (this.sources.get(source)?.has(sessionId)) legacy = true;
     }
-    const grown = this.grown.get(sessionId) ?? 0;
-    const base = legacy ? DESKTOP_TRANSCRIPT_ITEM_LIMIT : DESKTOP_TRANSCRIPT_TAIL_ITEMS;
-    if (grown > base) return { transcriptItemLimit: grown };
-    return legacy
-      ? { transcriptItemLimit: DESKTOP_TRANSCRIPT_ITEM_LIMIT }
-      : { transcriptItemLimit: DESKTOP_TRANSCRIPT_TAIL_ITEMS, transcriptByteBudget: DESKTOP_TRANSCRIPT_TAIL_BYTES };
+    const grown = this.grown.get(sessionId);
+    // A legacy source counts pages by item count, so its windows are never cut.
+    if (legacy) return { transcriptItemLimit: Math.max(grown?.limit ?? 0, DESKTOP_TRANSCRIPT_ITEM_LIMIT) };
+    if (grown && grown.limit > DESKTOP_TRANSCRIPT_TAIL_ITEMS) {
+      return {
+        transcriptItemLimit: grown.limit,
+        transcriptByteBudget: DESKTOP_TRANSCRIPT_PAGE_BYTES,
+        transcriptPageBase: grown.held,
+      };
+    }
+    return { transcriptItemLimit: DESKTOP_TRANSCRIPT_TAIL_ITEMS, transcriptByteBudget: DESKTOP_TRANSCRIPT_TAIL_BYTES };
   }
 
-  /** A reader reached the top: widen the window. False when it already covers `limit`. */
-  grow(sessionId: string, limit: number): boolean {
+  /** A reader holding `held` items reached the top: widen the window to
+   *  `limit`. False when it already covers `limit`. */
+  grow(sessionId: string, limit: number, held: number): boolean {
     if (limit <= this.request(sessionId).transcriptItemLimit) return false;
-    this.grown.set(sessionId, limit);
+    this.grown.set(sessionId, { limit, held: Math.max(0, Math.min(limit, Math.floor(held) || 0)) });
     return true;
   }
 
@@ -70,5 +82,5 @@ export class SessionTranscriptWindows {
 }
 
 function windowKey(request: TranscriptWindowRequest): string {
-  return `${request.transcriptItemLimit}:${request.transcriptByteBudget ?? ''}`;
+  return `${request.transcriptItemLimit}:${request.transcriptByteBudget ?? ''}:${request.transcriptPageBase ?? ''}`;
 }

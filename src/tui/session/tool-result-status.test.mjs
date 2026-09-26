@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  aggregateRawResult,
   aggregateResultPatch,
   aggregateToolMembers,
   assignUiDiffFromMessage,
@@ -19,6 +20,32 @@ import {
   displayTerminalStatus,
   shellDisplayStatus,
 } from '../../runtime/shared/tool-card-model.mjs';
+
+test('the aggregate raw result numbers each resolved member output exactly as before', () => {
+  const big = `${'line of tool output\n'.repeat(20_000)}tail`;
+  const calls = [
+    { resolved: true, name: 'grep', rawResultText: 'a.js:1: hit\n\n  ' },
+    { resolved: false, name: 'read', rawResultText: 'still running' },
+    { resolved: true, name: '', category: 'Search', resultText: 'only display text' },
+    { resolved: true, name: 'read', rawResultText: '   \n' },
+    { resolved: true, rawResultText: big },
+  ];
+  // The previous join-based construction is the reference.
+  const reference = [];
+  for (const rec of calls) {
+    if (rec.resolved !== true) continue;
+    const text = String(rec.rawResultText ?? rec.resultText ?? '').replace(/\s+$/, '');
+    if (!text.trim()) continue;
+    reference.push(`${reference.length + 1}. ${String(rec.name || rec.category || 'tool').trim() || 'tool'}\n${text}`);
+  }
+  const joined = aggregateRawResult(calls);
+  assert.equal(joined, reference.join('\n\n'));
+  assert.ok(joined.startsWith('1. grep\na.js:1: hit\n\n2. Search\nonly display text\n\n3. tool\nline of tool output\n'));
+  assert.ok(joined.endsWith('\ntail'));
+  assert.equal(aggregateRawResult([]), '');
+  assert.equal(aggregateRawResult([{ resolved: false, rawResultText: 'x' }]), '');
+  assert.equal(aggregateRawResult(null), '');
+});
 
 // Outcome taxonomy contract (user report: "Exit 0" rendered as if failed):
 // - exit 0            → plain success ("Ok" bucket, success tone)

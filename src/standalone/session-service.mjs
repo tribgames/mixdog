@@ -37,6 +37,7 @@ export function createSessionService({
   createSessionRuntime = null,
   sessionExists = null,
   readStoredSession = null,
+  statStoredSession = null,
   forgetStoredSession = null,
   readStoredGoal = null,
   listStoredActiveGoalSessionIds = null,
@@ -110,6 +111,7 @@ export function createSessionService({
     log,
     startEvictionSweep: retention.startEvictionSweep,
     sessionBusy: retention.sessionBusy,
+    releaseProjection: retention.releaseProjection,
     currentSessionId: (entry) => projection.currentSessionId(entry),
     destroy: (entry, reason, options) => entries.destroy(entry, reason, options),
     forgetStoredSession: (sessionId) => storedReader.forgetStoredSession(sessionId),
@@ -132,6 +134,7 @@ export function createSessionService({
     releaseProjection: retention.releaseProjection,
     startEvictionSweep: retention.startEvictionSweep,
     onSessionLive: (sessionId) => storedReader.forgetStoredSession(sessionId),
+    prependViewer: viewers.prependViewer,
   });
   const unsubscribeExternalSessionStates =
     typeof subscribeExternalSessionStates === 'function'
@@ -157,6 +160,7 @@ export function createSessionService({
   const storedReader = createStoredSessionReader({
     readStoredSession,
     readStoredGoal,
+    statStoredSession,
     forgetStoredSession,
     sessionOwner: projection.sessionOwner,
     log,

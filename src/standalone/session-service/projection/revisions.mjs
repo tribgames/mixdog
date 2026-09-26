@@ -22,18 +22,31 @@ function snapshotOf(entry) {
 }
 
 /** Broadcast body: every attached view is, by construction, at the previous
- *  revision — one that is not resyncs itself off the revision gap. */
-export function frameBody(step) {
-  return step.patch
-    ? { revision: step.revision, baseRevision: step.previousRevision, patch: step.patch }
+ *  revision — one that is not resyncs itself off the revision gap. A view
+ *  that announced `transcriptPrepend` receives an older-history page as the
+ *  revealed rows only (`prependPatch`). */
+export function frameBody(step, prepend = false) {
+  const patch = prepend && step.prependPatch ? step.prependPatch : step.patch;
+  return patch
+    ? { revision: step.revision, baseRevision: step.previousRevision, patch }
     : { revision: step.revision, full: step.snapshot };
 }
 
 /** Response body for the CALLER, which announced the revision it holds. */
-export function bodyForClient(step, baseRevision) {
+export function bodyForClient(step, baseRevision, prepend = false) {
   if (!step.changed && baseRevision === step.revision) return { revision: step.revision };
-  if (step.patch && baseRevision === step.previousRevision) return frameBody(step);
+  if (step.patch && baseRevision === step.previousRevision) return frameBody(step, prepend);
   return { revision: step.revision, full: step.snapshot };
+}
+
+/** The same delta with rows revealed above the previous list sent as
+ *  `itemsPrepend`, or null when the list did not grow at its head. */
+function headGrowthPatch(previous, snapshot) {
+  const before = previous?.items;
+  const after = snapshot?.items;
+  if (!Array.isArray(before) || !Array.isArray(after) || before.length === 0 || after[0] === before[0]) return null;
+  const patch = diffSessionState(previous, snapshot, { prepend: true });
+  return patch?.itemsPrepend ? patch : null;
 }
 
 export function createRevisionSteps({ revisionEpoch, index, updateEntryBusy }) {
@@ -43,6 +56,17 @@ export function createRevisionSteps({ revisionEpoch, index, updateEntryBusy }) {
   let revision = revisionEpoch;
   const nextRevision = () => ++revision;
 
+  /** A revision this daemon issued: the caller holds a baseline it can keep. */
+  const issuedRevision = (baseRevision) =>
+    Number.isSafeInteger(baseRevision) && baseRevision > revisionEpoch && baseRevision <= revision;
+
+  /** The bodiless answer for a caller whose stored projection is known to be
+   *  current, or null when its baseline is not one this daemon issued. */
+  function unchangedProjectionResult(sessionId, projectionStamp, baseRevision) {
+    if (!projectionStamp || !issuedRevision(baseRevision)) return null;
+    return { sessionId, reservedOnly: false, projection: true, revision: baseRevision, projectionStamp, unchanged: true };
+  }
+
   function projectionResult(
     sessionId,
     projection,
@@ -51,13 +75,7 @@ export function createRevisionSteps({ revisionEpoch, index, updateEntryBusy }) {
     const stamp = typeof projection?.projectionStamp === 'string' ? projection.projectionStamp : '';
     // A stamp alone identifies content, not the caller's wire baseline.
     // Preserve a known baseline; otherwise return a full, freshly ordered body.
-    const unchanged =
-      allowUnchanged &&
-      stamp &&
-      stamp === baseProjectionStamp &&
-      Number.isSafeInteger(baseRevision) &&
-      baseRevision > revisionEpoch &&
-      baseRevision <= revision;
+    const unchanged = allowUnchanged && stamp && stamp === baseProjectionStamp && issuedRevision(baseRevision);
     return {
       sessionId,
       reservedOnly: false,
@@ -86,7 +104,7 @@ export function createRevisionSteps({ revisionEpoch, index, updateEntryBusy }) {
     const previous = entry.publishedSnapshot;
     const previousRevision = entry.revision || 0;
     if (snapshot === previous) {
-      return { changed: false, snapshot, revision: previousRevision, previousRevision, patch: null };
+      return { changed: false, snapshot, revision: previousRevision, previousRevision, patch: null, prependPatch: null };
     }
     entry.publishedSnapshot = snapshot;
     entry.revision = nextRevision();
@@ -96,8 +114,9 @@ export function createRevisionSteps({ revisionEpoch, index, updateEntryBusy }) {
       revision: entry.revision,
       previousRevision,
       patch: previous ? diffSessionState(previous, snapshot) : null,
+      prependPatch: previous ? headGrowthPatch(previous, snapshot) : null,
     };
   }
 
-  return { advance, projectionResult };
+  return { advance, projectionResult, unchangedProjectionResult };
 }

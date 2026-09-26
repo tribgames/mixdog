@@ -1,10 +1,9 @@
-import { useRef, type MutableRefObject, type ReactNode } from 'react';
+import { lazy, Suspense, useRef, type MutableRefObject, type ReactNode } from 'react';
 import type { NavigationSelection, WorkspaceSelection } from './navigation';
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import type { useWorkbenchWorkspace } from './workbench-workspace';
 import { navigationKey } from './text-format';
-import { PullRequestEditor } from './PullRequestsPane';
 import { DeferredPersistentSurface, PersistentPanePortal } from './PaneSurfaceGate';
 import {
   DIFF_STARTUP_DELAY_MS,
@@ -17,6 +16,12 @@ import {
   TERMINAL_STARTUP_DELAY_MS,
 } from './app-shell-components';
 import { DesktopLoadingSurface } from './RendererRecovery';
+
+// A pull-request tab is never part of the default first screen; its editor
+// loads with the tab, behind the same "Loading pull request…" surface.
+const PullRequestEditor = lazy(() =>
+  import('./PullRequestEditor').then((module) => ({ default: module.PullRequestEditor }))
+);
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
 type WorkbenchWorkspace = ReturnType<typeof useWorkbenchWorkspace>;
@@ -258,12 +263,14 @@ export function useAppPersistentPaneSurfaces({
       surface = <ReadyGitDiffPane selection={utilitySelection} active={utilityActive} onOpenFile={openFileTab} />;
     } else {
       surface = (
-        <PullRequestEditor
-          projectPath={utilitySelection.project}
-          number={utilitySelection.number}
-          mode={utilitySelection.mode}
-          active={utilityActive}
-        />
+        <Suspense fallback={<DesktopLoadingSurface label={startupLabel} />}>
+          <PullRequestEditor
+            projectPath={utilitySelection.project}
+            number={utilitySelection.number}
+            mode={utilitySelection.mode}
+            active={utilityActive}
+          />
+        </Suspense>
       );
     }
     return (

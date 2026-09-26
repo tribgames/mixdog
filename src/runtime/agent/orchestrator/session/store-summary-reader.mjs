@@ -21,6 +21,7 @@ import { desktopSession, isStoredSessionId, positiveNumber } from './store-summa
 import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
 import {
   readCanonicalSessionRecord as readCanonicalLifecycle,
+  offerStrictSessionRecord,
   statSessionStamp,
   sameSessionStamp,
   isSettledSessionStamp,
@@ -381,7 +382,9 @@ export function storedSessionExists(id) {
   // The store's strict lifecycle authority: a stat when the file is this
   // process's own commit or an unchanged settled stamp, a strict read
   // otherwise. Absent, unreadable, ambiguous or foreign → false.
-  const lifecycle = readCanonicalLifecycle(join(dataDir(), 'sessions', `${sessionId}.json`), true);
+  // The session service asks this right before loading the session, so a
+  // strict read here hands its parse over to that load (handOff).
+  const lifecycle = readCanonicalLifecycle(join(dataDir(), 'sessions', `${sessionId}.json`), true, { handOff: true });
   return Boolean(lifecycle && typeof lifecycle === 'object' && lifecycle.id === sessionId);
 }
 
@@ -429,6 +432,39 @@ function storedSessionMetadata(sessionId, session) {
   };
 }
 
+/** The two files a stored transcript projection is built from. */
+function storedTranscriptInputPaths(sessionId) {
+  return {
+    recordPath: join(dataDir(), 'sessions', `${sessionId}.json`),
+    checkpointPath: join(dataDir(), 'turn-checkpoints', `${sessionId}.json`),
+  };
+}
+
+const STAMP_ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
+
+/** Settled identity of the files readStoredSessionTranscript projects from:
+ *  the canonical record and its turn-checkpoint sidecar. Null while either is
+ *  too fresh to vouch for by stat alone (isSettledSessionStamp), unreadable,
+ *  or the record is absent — the caller then reads normally. */
+export function storedSessionTranscriptStamp(id) {
+  const sessionId = String(id || '').trim();
+  if (!isStoredSessionId(sessionId)) return null;
+  const { recordPath, checkpointPath } = storedTranscriptInputPaths(sessionId);
+  const settled = (path, absent) => {
+    let stamp;
+    try {
+      stamp = statSessionStamp(path);
+    } catch (error) {
+      return STAMP_ABSENT_CODES.has(error?.code) ? absent : null;
+    }
+    if (!isSettledSessionStamp(stamp)) return null;
+    return `${stamp.dev}:${stamp.ino}:${stamp.size}:${stamp.mtimeNs}:${stamp.ctimeNs}`;
+  };
+  const record = settled(recordPath, null);
+  const checkpoint = record && settled(checkpointPath, 'absent');
+  return checkpoint ? `${record}|${checkpoint}` : null;
+}
+
 /** Read exactly one persisted session for a visible desktop pane. This never
  * enumerates siblings. Normal reads stay independent of runtime ownership;
  * interrupted turns conditionally use the same durable reconnect recovery as
@@ -438,7 +474,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
   if (!isStoredSessionId(sessionId)) return null;
   // Same strict authority as the store, and the same fail-closed rule: an
   // absent, unreadable, ambiguous or foreign record yields no transcript.
-  const recordPath = join(dataDir(), 'sessions', `${sessionId}.json`);
+  const { recordPath, checkpointPath } = storedTranscriptInputPaths(sessionId);
   if (options.metadataOnly === true) return readStoredSessionMetadata(recordPath, sessionId);
   // The checkpoint sidecar shapes the projection as much as the record does,
   // so its identity joins the cache fingerprint. Only a PROVABLY absent
@@ -448,10 +484,13 @@ export async function readStoredSessionTranscript(id, options = {}) {
   const recordStat = probePath(recordPath);
   if (recordStat.state === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
   if (recordStat.state !== PROBE_PRESENT) return null;
-  const checkpoint = probePath(join(dataDir(), 'turn-checkpoints', `${sessionId}.json`));
+  const checkpoint = probePath(checkpointPath);
   const requestedLimit = Number(options.transcriptItemLimit);
   const itemLimit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : Number.POSITIVE_INFINITY;
   let readState = PROBE_PRESENT;
+  // Full stamp the loaded text provably came from (unchanged around the
+  // read), or null. Only such a parse may serve other readers.
+  let readStamp = null;
   // The strict record parse (full JSON + duplicate-key scan) is itself a
   // large share of a cold read, so it only runs when the content is new.
   const mode = options.includeMessages === true ? 'messages' : 'items';
@@ -469,18 +508,53 @@ export async function readStoredSessionTranscript(id, options = {}) {
     ].join(':'),
     fileStat: recordStat,
     loadText: () => {
+      const before = observeStamp(recordPath);
       const body = readTextFile(recordPath);
       readState = body.state;
-      return body.state === PROBE_PRESENT ? body.text : null;
+      if (body.state !== PROBE_PRESENT) return null;
+      readStamp = before && sameSessionStamp(before, observeStamp(recordPath)) ? before : null;
+      return body.text;
     },
-    produce: (text) => {
+    produce: async (text) => {
+      const stamp = readStamp;
       const record = readTopLevelLifecycleRecord(text);
       if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
-      return projectStoredTranscript(sessionId, record.doc, {
-        itemLimit,
-        includeMessages: options.includeMessages === true,
-        checkpointAbsent: checkpoint.state === PROBE_ABSENT,
-      });
+      // The same strict verdict the lifecycle authority would reach for these
+      // bytes (storedSessionExists runs next when the pane's runtime loads).
+      if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, record);
+      const checkpointAbsent = checkpoint.state === PROBE_ABSENT;
+      // Hand the parse to the session load cache BEFORE projecting: a resume
+      // that runs while this projection is still being built (the daemon
+      // resumes the panes it restores) claims it instead of reading the file
+      // again. The projection path loads the store anyway, so loading its
+      // cache first costs nothing and gives the hand-off somewhere to go on
+      // the process's first read.
+      let handedOver = false;
+      if (stamp) {
+        await import('./store/load-cache.mjs');
+        handedOver = offerStrictSessionRecord(recordPath, stamp, record, text.length);
+      }
+      // Once handed over, the record is a runtime's mutable session. The
+      // projection is then built from a private parse of the same bytes, so
+      // nothing it retains aliases that session and it needs no copying. With
+      // a turn checkpoint the projection recovers through loadSession, the very
+      // load the hand-off serves, and projects the load cache's session
+      // exactly as before; only that projection is detached.
+      const value = await projectStoredTranscript(
+        sessionId,
+        handedOver && checkpointAbsent ? JSON.parse(text) : record.doc,
+        {
+          itemLimit,
+          includeMessages: options.includeMessages === true,
+          checkpointAbsent,
+        }
+      );
+      if (!handedOver || checkpointAbsent || !value || mode !== 'items') return value;
+      try {
+        return structuredClone(value);
+      } catch {
+        return value;
+      }
     },
   });
   // The record vanished between stat and read: same answer as an absent probe.

@@ -35,9 +35,9 @@ export const PAIRING_COOKIE_NAME = 'mixdog_token';
 export const DEVICE_COOKIE_NAME = 'mixdog_device';
 
 // Text assets ship uncompressed otherwise: the renderer bundle alone is ~1.3MB
-// over a phone link. Fonts and images are already compressed, so they stay raw
-// (gzip would only burn CPU).
-const COMPRESSIBLE_TYPE = /^(?:text\/|application\/(?:json|wasm)|image\/svg)/;
+// over a phone link. woff/woff2 and raster images are already compressed, so
+// they stay raw (gzip would only burn CPU); TrueType is uncompressed tables.
+const COMPRESSIBLE_TYPE = /^(?:text\/|application\/(?:json|wasm)|image\/svg|font\/ttf)/;
 const COMPRESS_MIN_BYTES = 1024;
 const NO_CACHE_SUFFIXES = ['index.html', 'manifest.webmanifest', 'sw.js', 'sw-shell.js', 'ui-language.js', 'boot.js'];
 // Siblings written by `npm run stage:web` next to each text asset.

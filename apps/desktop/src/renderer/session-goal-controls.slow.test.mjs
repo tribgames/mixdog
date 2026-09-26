@@ -6,7 +6,8 @@ import { build } from 'esbuild';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import puppeteer from 'puppeteer-core';
-import { SessionGoalHost, SessionGoalIsland } from './SessionGoalIsland.tsx';
+import { SessionGoalIsland } from './SessionGoalIsland.tsx';
+import { SessionGoalHost } from './session-goal-submission.ts';
 
 // The DOM suite owns actions and confirmation. This browser check owns
 // geometry: all three controls must remain visible beside the summary,

@@ -7,7 +7,8 @@
 //     cancellation and clear all keep latest-wins recovery semantics.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import fs, { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -386,9 +387,50 @@ test('clear is token-guarded and removes header + journal', async () => {
   assert.equal(clearTurnCheckpoint(sessionId, 'someone-elses-token'), false);
   assert.ok(existsSync(turnCheckpointPath(sessionId)));
   assert.equal(clearTurnCheckpoint(sessionId, `tok-${sessionId}`), true);
+  // The header (recovery gate) is gone synchronously; the journal unlink
+  // rides the ordered write lane off the event loop.
   assert.equal(existsSync(turnCheckpointPath(sessionId)), false);
-  assert.equal(existsSync(turnJournalPath(sessionId)), false);
   assert.equal(readTurnCheckpoint(sessionId), null);
+  await settleTurnCheckpointWrites(sessionId);
+  assert.equal(existsSync(turnJournalPath(sessionId)), false);
+});
+
+test('clear never runs a synchronous journal unlink and a follow-up turn opens after it', async (t) => {
+  const sessionId = 'sess-clear-lane';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+  const journalPath = turnJournalPath(sessionId);
+  const unlinks = [];
+  const unlink = fs.unlinkSync;
+  t.mock.method(fs, 'unlinkSync', (target, ...args) => {
+    unlinks.push(String(target));
+    return unlink(target, ...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.equal(clearTurnCheckpoint(sessionId, `tok-${sessionId}`), true);
+    assert.equal(clearTurnCheckpoint(sessionId), true);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+  assert.ok(!unlinks.includes(journalPath), 'journal unlink ran on the event loop');
+  // The next turn starts while the removal is still queued: its open must
+  // land after the removal, never be deleted by it.
+  const next = createTurnCheckpointRecorder({ sessionId, generation: 3, turnToken: 'tok-next', startedAt: 3000 });
+  next.record({
+    currentUserContent: 'next prompt',
+    turnOutgoing: [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'next prompt' },
+    ],
+    interruption: createTurnInterruptionTracker(),
+  });
+  await settleTurnCheckpointWrites(sessionId);
+  const journal = readFileSync(journalPath, 'utf8').trim().split('\n');
+  assert.equal(JSON.parse(journal[0]).turnToken, 'tok-next');
+  assert.equal(readTurnCheckpoint(sessionId).turnToken, 'tok-next');
 });
 
 // ── In-flight write races (regressions) ─────────────────────────────────────

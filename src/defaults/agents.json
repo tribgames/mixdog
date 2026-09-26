@@ -10,7 +10,7 @@
       "toolSchemaProfile": "none",
       "kind": "maintenance",
       "permission": "read",
-      "stallCap": { "idleSeconds": 300, "toolRunningSeconds": 300 }
+      "stallCap": { "idleSeconds": 300 }
     },
     {
       "agent": "cycle2-agent",
@@ -22,7 +22,7 @@
       "toolSchemaProfile": "none",
       "kind": "maintenance",
       "permission": "read",
-      "stallCap": { "idleSeconds": 300, "toolRunningSeconds": 300 }
+      "stallCap": { "idleSeconds": 300 }
     },
     {
       "agent": "title-agent",
@@ -34,7 +34,7 @@
       "toolSchemaProfile": "none",
       "kind": "maintenance",
       "permission": "read",
-      "stallCap": { "idleSeconds": 90, "toolRunningSeconds": 90 }
+      "stallCap": { "idleSeconds": 90 }
     }
   ]
 }

@@ -16,6 +16,19 @@ import { Session } from 'node:inspector';
 const DISABLED = /^(0|false|off)$/i;
 const MB = 1024 * 1024;
 
+// Large releases (a session runtime closed, unloaded or evicted) announced by
+// the owners of that memory. Growth alone never re-arms the sweep after one:
+// the dead transcripts still count as heapUsed until something collects them,
+// so the heap looks unchanged from the last sweep for as long as nothing does.
+let releaseSeq = 0;
+let lastReleaseAt = 0;
+
+/** A large amount of memory just became unreachable in this process. */
+export function noteMemoryRelease() {
+  releaseSeq += 1;
+  lastReleaseAt = Date.now();
+}
+
 function envNumber(name, fallback, min = 0) {
   const raw = Number(process.env[name]);
   return Number.isFinite(raw) && raw >= min ? raw : fallback;
@@ -78,12 +91,15 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
   // what lets V8 release those pages — so either signal alone arms the sweep.
   const minSlackBytes = envNumber('MIXDOG_IDLE_GC_MIN_SLACK_MB', 64) * MB;
   // Re-sweeping a process that has not allocated since the last sweep only
-  // burns CPU; require real growth before running again.
+  // burns CPU; require real growth (or an announced release, see
+  // noteMemoryRelease) before running again.
   const growthBytes = envNumber('MIXDOG_IDLE_GC_GROWTH_MB', 64) * MB;
 
   let timer = null;
   let lastBusyAt = Date.now();
   let lastSweptHeap = 0;
+  let sweptReleaseSeq = releaseSeq;
+  let appliedReleaseAt = lastReleaseAt;
   let sweeping = false;
 
   async function tick() {
@@ -98,14 +114,24 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
       lastBusyAt = Date.now();
       return 'busy';
     }
+    // A release is activity too: closing sessions settles like a turn does.
+    // Each release restarts the idle clock once, clamped to now: a release
+    // stamped by a clock that later stepped back must not hold the sweep off
+    // until the clock catches up.
+    if (lastReleaseAt !== appliedReleaseAt) {
+      appliedReleaseAt = lastReleaseAt;
+      lastBusyAt = Math.max(lastBusyAt, Math.min(lastReleaseAt, Date.now()));
+    }
     if (Date.now() - lastBusyAt < idleMs) return 'settling';
     const usageBefore = process.memoryUsage();
     const before = usageBefore.heapUsed;
     const slackBefore = Math.max(0, usageBefore.heapTotal - before);
     if (before < minHeapBytes && slackBefore < minSlackBytes) return 'small';
-    if (lastSweptHeap && before < lastSweptHeap + growthBytes) return 'unchanged';
+    const released = releaseSeq !== sweptReleaseSeq;
+    if (lastSweptHeap && !released && before < lastSweptHeap + growthBytes) return 'unchanged';
 
     sweeping = true;
+    const releaseSeqAtSweep = releaseSeq;
     const startedAt = Date.now();
     try {
       if (!(await collectGarbageNow())) {
@@ -116,6 +142,8 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
       const usageAfter = process.memoryUsage();
       const after = usageAfter.heapUsed;
       lastSweptHeap = after;
+      // Releases announced while this sweep ran still get their own.
+      sweptReleaseSeq = releaseSeqAtSweep;
       const mb = (bytes) => (bytes / MB).toFixed(1);
       // Committed total is reported beside the live heap because that is the
       // number the OS actually charges this process for.

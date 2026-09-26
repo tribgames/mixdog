@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
+import { memo, useEffect, useRef, useState, type ComponentType } from 'react';
 
 import type { MarkdownAstRoot } from './markdown-ast';
 import { LatestMarkdownAstQueue, readCachedStreamingMarkdownAst } from './markdown-worker-client';
@@ -17,18 +17,31 @@ interface RenderedMarkdownAst {
   root: MarkdownAstRoot;
 }
 
+function promoteMarkdownAst(
+  current: RenderedMarkdownAst | null,
+  root: MarkdownAstRoot,
+  parsedText: string,
+  source: string
+): RenderedMarkdownAst | null {
+  if (current?.text === parsedText) return current;
+  // Results are single-flight, but never let an older parse replace a newer
+  // one if one ever lands out of order.
+  if (current && current.source.length > source.length && current.source.startsWith(source)) {
+    return current;
+  }
+  return { text: parsedText, source, root };
+}
+
 const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   text,
   parseText,
   parse,
   copyControl,
-  onRendered,
 }: {
   text: string;
   parseText: string;
   parse: boolean;
   copyControl: MarkdownCopyControl;
-  onRendered?: () => void;
 }) {
   const [rendered, setRendered] = useState<RenderedMarkdownAst | null>(() => {
     // A cache read is free, so even a tail past the parse cap opens styled
@@ -42,44 +55,39 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   queue.current ??= new LatestMarkdownAstQueue();
   requestedText.current = parseText;
   requestedSource.current = text;
-  const exact = rendered?.text === parseText ? rendered : null;
+  // A cached AST is promoted while rendering, so the delta that produced it
+  // commits once instead of committing the stale parse and then re-committing
+  // from an effect.
+  let current = rendered;
+  if (parse && current?.text !== parseText) {
+    const cachedRoot = readCachedStreamingMarkdownAst(parseText);
+    if (cachedRoot) {
+      const promoted = promoteMarkdownAst(current, cachedRoot, parseText, text);
+      if (promoted !== current) {
+        current = promoted;
+        setRendered(promoted);
+      }
+    }
+  }
+  const exact = current?.text === parseText ? current : null;
   // While a newer parse is in flight, the last COMPLETED parse stays on
   // screen. Our parse runs in a
   // worker, so the equivalent guarantee is "the parsed source is a prefix of
   // what is on screen now" — append-only streaming keeps that true and a
   // truncation/replacement drops it back to source.
-  const usable = exact ?? (rendered && text.startsWith(rendered.source) ? rendered : null);
+  const usable = exact ?? (current && text.startsWith(current.source) ? current : null);
   const renderedRoot = usable?.root ?? null;
   // A cold web Worker can trail the first streamed tokens by a network round
   // trip. Fenced scripts still reserve their final card/mono geometry during
   // that gap; ordinary prose stays hidden so raw Markdown markers never flash.
   const showFencedSourceFallback = !renderedRoot && containsFencedCodeMarkdown(text);
-  const fallbackMeasureText = showFencedSourceFallback ? text : '';
-  useLayoutEffect(() => {
-    if (renderedRoot || fallbackMeasureText) onRendered?.();
-  }, [fallbackMeasureText, onRendered, renderedRoot]);
 
   useEffect(() => {
-    if (!parse) return;
+    // A cached AST was already promoted during render.
+    if (!parse || readCachedStreamingMarkdownAst(parseText)) return;
     // The source snapshot that produced this request: the render right before
     // this effect published it, so later growth can be recognised as append.
     const source = requestedSource.current;
-    const promote = (root: MarkdownAstRoot, parsedText: string) => {
-      setRendered((current) => {
-        if (current?.text === parsedText) return current;
-        // Results are single-flight, but never let an older parse replace a
-        // newer one if one ever lands out of order.
-        if (current && current.source.length > source.length && current.source.startsWith(source)) {
-          return current;
-        }
-        return { text: parsedText, source, root };
-      });
-    };
-    const cachedRoot = readCachedStreamingMarkdownAst(parseText);
-    if (cachedRoot) {
-      promote(cachedRoot, parseText);
-      return;
-    }
     queue.current?.request(parseText, (root, parsedText) => {
       // Requiring an EXACT match here meant that whenever the worker was
       // slower than the 20 Hz publication cadence every result was discarded,
@@ -91,7 +99,8 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
       if (requestedText.current !== parsedText && !requestedSource.current.startsWith(source)) {
         return;
       }
-      promote(root, parsedText);
+      // One landed parse, one commit.
+      setRendered((latest) => promoteMarkdownAst(latest, root, parsedText, source));
     });
   }, [parse, parseText]);
   useEffect(() => () => queue.current?.dispose(), []);
@@ -122,13 +131,11 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   parseText,
   parse = true,
   copyControl,
-  onRendered,
 }: {
   text: string;
   parseText?: string;
   parse?: boolean;
   copyControl: MarkdownCopyControl;
-  onRendered?: () => void;
 }) {
   // Stable chunks promote exactly (immutable text -> exact AST, whose source
   // never changes). The live tail renders the latest COMPLETED parse and
@@ -142,7 +149,6 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
       parseText={parseText ?? text}
       parse={parse}
       copyControl={copyControl}
-      onRendered={onRendered}
     />
   );
 });

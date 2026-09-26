@@ -2,6 +2,9 @@
  * Unified agent progress / stale watchdog policy for agent-tool spawns and
  * agent-dispatch internal roles. Activity heartbeats (session manager) refresh
  * lastProgressAt during long tool work; this module decides when to abort.
+ * How long one tool runs is never a stall by itself: every tool owns its own
+ * deadline (shell timeout_ms, task wait timeout), so a legitimate 10-minute
+ * wait is not cut off at a role budget. Only model-response progress is judged.
  */
 
 import { appendAgentTrace } from '../agent-trace-io.mjs';
@@ -12,7 +15,6 @@ import {
   PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
   STALL_TICK_MS,
   resolveAgentStallThresholds,
-  resolveAgentToolThresholdSeconds,
 } from '../stall-policy.mjs';
 
 // Ordering guarantee, stated in stall-policy.mjs: the provider layer — which
@@ -27,7 +29,7 @@ const PROVIDER_RECOVERY_FLOOR_MS =
   Math.max(PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS, PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS) + STALL_TICK_MS;
 
 const WATCHDOG_ABORT_RE =
-  /^agent (?:first (?:transport|semantic response|response) stale|task stale|tool running stale)\s*\(/;
+  /^agent (?:first (?:transport|semantic response|response) stale|task stale)\s*\(/;
 
 /**
  * Typed abort error for the agent progress watchdog. Carrying a stable `name`
@@ -47,48 +49,6 @@ export class AgentStallAbortError extends Error {
 function isAgentProgressWatchdogAbortError(err) {
   const msg = err?.message;
   return typeof msg === 'string' && WATCHDOG_ABORT_RE.test(msg);
-}
-
-// Tools that enforce their own execution deadline: shell kills the process
-// only when the caller supplied a positive timeout_ms. These are NOT
-// blanket-exempted from the
-// tool-running watchdog — if their own
-// deadline timer dies the session would otherwise hang forever. Instead the
-// watchdog raises the tool-running ceiling to their self-deadline + a grace
-// window (below), so normal long runs are allowed but a dead timer is still
-// caught. Unknown/missing self-deadline falls back to the plain toolRunningMs.
-const SELF_DEADLINE_TOOLS = new Set(['shell']);
-// Grace added on top of a tool's own deadline before the watchdog steps in, so
-// the tool's in-process kill always fires first under normal operation.
-const TOOL_SELF_DEADLINE_GRACE_MS = 60_000;
-function bareToolName(toolName) {
-  if (typeof toolName !== 'string' || !toolName) return '';
-  // Strip any MCP/server prefix (e.g. 'server__shell' or 'server.shell').
-  return toolName.split(/[.]|__/).pop();
-}
-
-function isSelfDeadlineTool(toolName) {
-  const bare = bareToolName(toolName);
-  return SELF_DEADLINE_TOOLS.has(bare) || SELF_DEADLINE_TOOLS.has(toolName);
-}
-
-/**
- * Resolve the self-enforced deadline (ms) for a tool call from its arguments,
- * recorded into the progress snapshot at dispatch time. Returns a positive
- * number when the tool enforces its own deadline, or null when unknown/missing
- * (caller then falls back to the plain toolRunningMs ceiling).
- *   - shell: explicit positive `timeout_ms`; omitted/0 has no self-deadline.
- */
-export function resolveToolSelfDeadlineMs(toolName, args) {
-  if (!isSelfDeadlineTool(toolName)) return null;
-  const bare = bareToolName(toolName);
-  const a = args && typeof args === 'object' ? args : {};
-  if (bare === 'shell') {
-    const t = Number(a.timeout_ms);
-    if (Number.isFinite(t) && t > 0) return t;
-    return null;
-  }
-  return null;
 }
 
 function assistantMessageText(content) {
@@ -121,6 +81,9 @@ function collectSessionAssistantHandoffText(session, messageStartIndex = 0) {
 
 export function watchdogPartialHandoffFromError(error, session, messageStartIndex = 0) {
   if (!isAgentProgressWatchdogAbortError(error)) return null;
+  // A canonical agent turn cannot expose its live transcript here, so it
+  // reads the text itself and carries it on the stall error.
+  if (typeof error.partialHandoff === 'string') return error.partialHandoff;
   return partialHandoffTextFromSession(session, messageStartIndex);
 }
 
@@ -134,19 +97,18 @@ export function partialHandoffTextFromSession(session, messageStartIndex = 0) {
   return text.trim() ? text : null;
 }
 
-function resolveWatchdogAbortElapsedMs({ error, snapshot, policy, now, anchorTs, lastProgressAt }) {
+/** Owner-facing handoff for a watchdog-stopped agent: the stop and its reason
+ *  come first, so the owner never mistakes the partial text for a finished
+ *  result or a user cancel. */
+export function watchdogStoppedHandoff(error, partial) {
+  return `[Agent stopped by the progress watchdog: ${error.message}. The output below is partial.]\n\n${partial}`;
+}
+
+function resolveWatchdogAbortElapsedMs({ snapshot, policy, now, anchorTs, lastProgressAt }) {
   if (snapshot && policy) {
     if (snapshot.waitingForFirstSemantic) {
       const startedAt = snapshot.modelRequestStartedAt || snapshot.askStartedAt;
       if (startedAt) return Math.max(0, now - startedAt);
-    }
-    if (
-      snapshot.stage === 'tool_running' &&
-      snapshot.toolStartedAt &&
-      typeof error?.message === 'string' &&
-      error.message.includes('tool running stale')
-    ) {
-      return Math.max(0, now - snapshot.toolStartedAt);
     }
     const last = snapshot.lastProgressAt || snapshot.firstActivityAt;
     if (last) return Math.max(0, now - last);
@@ -169,7 +131,6 @@ function recordAgentWatchdogAbort({
 }) {
   if (!sessionId || !error) return;
   const elapsed = resolveWatchdogAbortElapsedMs({
-    error,
     snapshot,
     policy,
     now,
@@ -241,9 +202,9 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
     // BACKSTOP only, so it must not exceed the stall abort (600s default) —
     // the old 30-min value meant a ping-only wedge that slipped past the
     // provider layer would still hang the owner for half an hour. Cap it at
-    // the stall abort while keeping 30 min as an absolute ceiling. The
-    // tool-running heartbeat exemption (toolRunningMs, below) is unchanged,
-    // so legitimately long tool calls still refresh progress and are safe.
+    // the stall abort while keeping 30 min as an absolute ceiling. Long tool
+    // calls refresh progress through the activity heartbeat, so they never
+    // trip this backstop.
     const { abort } = resolveAgentStallThresholds(agent);
     const backstopMs = Math.max(0, Math.floor(abort * 1000));
     idleStaleMs = backstopMs > 0 ? Math.min(DEFAULT_STALE_TIMEOUT_MS, backstopMs) : DEFAULT_STALE_TIMEOUT_MS;
@@ -251,10 +212,6 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
     // role-specific caps must not undercut the provider window either.
     idleStaleMs = Math.max(idleStaleMs, PROVIDER_RECOVERY_FLOOR_MS);
   }
-
-  const idleSec = idleStaleMs / 1000;
-  const toolRunningSec = resolveAgentToolThresholdSeconds(agent, idleSec);
-  const toolRunningMs = Math.max(0, Math.floor(toolRunningSec * 1000));
 
   return {
     firstTransportMs,
@@ -264,7 +221,6 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
     firstResponseMs: firstTransportMs,
     firstVisibleCeilingMs: firstSemanticMs,
     idleStaleMs,
-    toolRunningMs,
   };
 }
 
@@ -295,38 +251,7 @@ export function evaluateAgentWatchdogAbort(snapshot, now, policy) {
     return new AgentStallAbortError(`agent task stale (${policy.idleStaleMs}ms without stream/tool progress)`);
   }
 
-  if (
-    snapshot.stage === 'tool_running' &&
-    snapshot.toolStartedAt &&
-    policy.toolRunningMs > 0 &&
-    now - snapshot.toolStartedAt > policy.toolRunningMs
-  ) {
-    // Deadline-aware ceiling for tools that self-enforce their own deadline
-    // (SELF_DEADLINE_TOOLS). Rather than a blanket exemption (which would hang
-    // forever if the tool's own timer died), raise the tool-running ceiling
-    // to max(toolRunningMs, selfDeadlineMs + grace): normal long runs are
-    // allowed because the tool kills itself first, but a dead deadline timer
-    // is still caught after the grace window. Unknown/missing self-deadline
-    // (selfDeadlineMs <= 0) keeps the plain toolRunningMs behavior. All
-    // other tools are unaffected.
-    const ceilingMs = resolveEffectiveToolRunningCeilingMs(snapshot, policy);
-    if (now - snapshot.toolStartedAt > ceilingMs) {
-      return new AgentStallAbortError(`agent tool running stale (${ceilingMs}ms)`);
-    }
-  }
-
   return null;
-}
-
-/** The exact tool ceiling enforced by evaluateAgentWatchdogAbort. */
-export function resolveEffectiveToolRunningCeilingMs(snapshot, policy) {
-  const policyMs = Number(policy?.toolRunningMs);
-  let ceilingMs = Number.isFinite(policyMs) && policyMs > 0 ? policyMs : 0;
-  const selfDeadlineMs = Number(snapshot?.toolSelfDeadlineMs);
-  if (isSelfDeadlineTool(snapshot?.currentTool) && Number.isFinite(selfDeadlineMs) && selfDeadlineMs > 0) {
-    ceilingMs = Math.max(ceilingMs, selfDeadlineMs + TOOL_SELF_DEADLINE_GRACE_MS);
-  }
-  return ceilingMs;
 }
 
 export function agentWatchdogPolicyActive(policy) {
@@ -334,7 +259,6 @@ export function agentWatchdogPolicyActive(policy) {
   return (
     (policy.firstTransportMs ?? policy.firstResponseMs) > 0 ||
     (policy.firstSemanticMs ?? policy.firstVisibleCeilingMs) > 0 ||
-    policy.idleStaleMs > 0 ||
-    policy.toolRunningMs > 0
+    policy.idleStaleMs > 0
   );
 }

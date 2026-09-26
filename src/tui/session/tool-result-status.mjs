@@ -141,16 +141,26 @@ function firstErrorLine(text) {
   );
 }
 
+/** The members' raw outputs as one numbered text (`1. grep\n…\n\n2. read\n…`).
+ *
+ *  Built by `+`, never `join`: V8 keeps a concatenation as a rope that points
+ *  at the member strings the aggregate already holds (toolMembers[].rawResult,
+ *  the calls' raw text) and copies it flat only when something reads its
+ *  characters. A resumed session restores hundreds of aggregates it never
+ *  displays; a joined string gave each of them a second, flat copy of every
+ *  tool output (~1 MB per idle session in a 30-session measurement). */
 export function aggregateRawResult(calls) {
-  const chunks = [];
+  let joined = '';
+  let index = 0;
   for (const rec of calls || []) {
     if (rec?.resolved !== true) continue;
     const text = String(rec?.rawResultText ?? rec?.resultText ?? '').replace(/\s+$/, '');
     if (!text.trim()) continue;
     const label = String(rec?.name || rec?.category || 'tool').trim() || 'tool';
-    chunks.push(`${chunks.length + 1}. ${label}\n${text}`);
+    index += 1;
+    joined = joined + (index > 1 ? `\n\n${index}. ${label}\n` : `${index}. ${label}\n`) + text;
   }
-  return chunks.join('\n\n');
+  return joined;
 }
 
 /** Preserve the atomic calls behind a visual aggregate. Renderers can keep the

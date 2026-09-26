@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAgentTree } from './agent-tree.mjs';
 import { lastStoredAgentHandoff } from './agent-tree/agent-rehydrate.mjs';
+import { AgentStallAbortError } from '../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 
 // The Agent child catalog against fake session-service hooks: how children
 // are linked and rooted, what a turn does to a descriptor, how cancellation
@@ -18,6 +19,11 @@ function createHarness({ rows = [], stored = {}, busyIds = new Set() } = {}) {
   const runtimeFor = (id) => {
     if (!runtimes.has(id)) {
       runtimes.set(id, {
+        messages: [],
+        readModelMessages(start) {
+          const list = runtimeFor(id).messages;
+          return { messageCount: list.length, messages: list.slice(start) };
+        },
         getState: () => ({ items: busyIds.has(id) ? [1, 2, 3] : [] }),
         async submitAndWait(prompt, options) {
           turns.push({ id, prompt, options });
@@ -121,6 +127,31 @@ test('runAgentTurn drives the runtime, records the handoff and reports terminal 
   h.runtimeFor(session.id).reply = async () => ({ status: 'cancelled' });
   await assert.rejects(() => h.tree.runAgentTurn({ session, prompt: 'again' }), /cancelled/);
   assert.equal(h.tree.agentDescriptor(session.id).status, 'cancelled');
+});
+
+test('a watchdog stop surfaces as its stall error with the turn partial output, not a user cancel', async () => {
+  const h = createHarness();
+  const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  const runtime = h.runtimeFor(session.id);
+  runtime.messages.push({ role: 'assistant', content: 'earlier turn' });
+  const aborts = [];
+  runtime.abort = (options) => aborts.push(options);
+  const watchdog = new AbortController();
+  h.tree.agentManager.linkParentSignalToSession(session.id, watchdog.signal);
+  const stall = new AgentStallAbortError('agent task stale (315000ms without stream/tool progress)');
+  runtime.reply = async () => {
+    runtime.messages.push({ role: 'user', content: 'measure' }, { role: 'assistant', content: 'measured half' });
+    watchdog.abort(stall);
+    return { status: 'cancelled' };
+  };
+  await assert.rejects(
+    () => h.tree.runAgentTurn({ session, prompt: 'measure' }),
+    (error) => error === stall && error.partialHandoff === 'measured half'
+  );
+  assert.deepEqual(aborts, [{ restorePrompt: false, reason: 'agent-watchdog' }]);
+  assert.equal(h.tree.agentDescriptor(session.id).status, 'error');
+  runtime.reply = async () => ({ status: 'cancelled' });
+  await assert.rejects(() => h.tree.runAgentTurn({ session, prompt: 'again' }), /agent session turn cancelled/);
 });
 
 test('cancelAgentTree closes descendants first and marks every descriptor closed', async () => {

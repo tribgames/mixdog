@@ -42,7 +42,6 @@ import {
   conversationMarkdownPending,
 } from './first-submit-stability';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
-import { SessionGoalIsland } from './SessionGoalIsland';
 import { ContextUsageIndicator } from './TranscriptView';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 
@@ -357,9 +356,38 @@ function usePaneIslandSnapshot(sessionId: string, hidden: boolean): Snapshot {
   return hidden || !sessionId ? EMPTY_SNAPSHOT : (lane ?? EMPTY_SNAPSHOT);
 }
 
+// Most sessions have no Goal, so the capsule module loads on the first lane
+// frame that carries one. Once loaded the island stays mounted exactly as
+// before, keeping its own presence diagnostics and submission mask.
+let sessionGoalModuleLoaded = false;
+const SessionGoalIsland = React.lazy(() =>
+  import('./SessionGoalIsland').then((module) => {
+    sessionGoalModuleLoaded = true;
+    return { default: module.SessionGoalIsland };
+  })
+);
+
+/** Holds a boot reveal until a restored Goal capsule has painted, so it never
+ *  pops in above the composer after the shell is shown. */
+function GoalIslandBootReady({ bootKey }: { bootKey: string }) {
+  useEffect(() => {
+    reportBootSurfaceReady('goal-island', bootKey);
+  }, [bootKey]);
+  return null;
+}
+
 /** Goal capsule snapshot owner for the composer. */
 export function PaneGoalIsland({ sessionId, hidden }: { sessionId: string; hidden: boolean }) {
-  return <SessionGoalIsland snapshot={usePaneIslandSnapshot(sessionId, hidden)} />;
+  const snapshot = usePaneIslandSnapshot(sessionId, hidden);
+  const goalPresent = Boolean(snapshot.goal);
+  if (!goalPresent && !sessionGoalModuleLoaded) return null;
+  if (goalPresent) beginBootSurface('goal-island', sessionId);
+  return (
+    <React.Suspense fallback={null}>
+      <SessionGoalIsland snapshot={snapshot} />
+      {goalPresent ? <GoalIslandBootReady bootKey={sessionId} /> : null}
+    </React.Suspense>
+  );
 }
 
 /** Context gauge alone, for the desktop composer footer: the same lane read

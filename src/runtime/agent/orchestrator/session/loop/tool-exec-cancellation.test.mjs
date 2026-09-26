@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { rmSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +19,10 @@ after(async () => {
     else process.env[key] = value;
   }
   await rm(root, { recursive: true, force: true });
+  // The tools flush read snapshots into the data dir from their own exit
+  // hooks and recreate it; registered after those modules loaded, this
+  // removal runs after every one of them.
+  process.once('exit', () => rmSync(root, { recursive: true, force: true }));
 });
 const { executeTool } = await import('./tool-exec.mjs');
 const { createStandaloneHookBus } = await import('../../../../../standalone/hook-bus.mjs');

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs, { mkdtempSync, readFileSync, writeFileSync, statSync, utimesSync } from 'node:fs';
+import fs, { mkdtempSync, readFileSync, rmSync, writeFileSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -19,6 +19,10 @@ const { executeBuiltinTool } = await import('../../tools/builtin.mjs');
 const { BUILTIN_TOOLS } = await import('../../tools/builtin/builtin-tools.mjs');
 const { processToolBatch } = await import('../tool-batch.mjs');
 const { createEagerDispatcher } = await import('../eager-dispatch.mjs');
+// The read tools flush range indexes and read snapshots into the data dir from
+// their own exit hooks. Registered after those modules loaded, this removal
+// runs after every one of them.
+process.once('exit', () => rmSync(root, { recursive: true, force: true }));
 
 function fixture(text = 'LINE_1\nLINE_2\nLINE_3\nLINE_4\nLINE_5\n') {
   const cwd = mkdtempSync(join(root, 'case-'));

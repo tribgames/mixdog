@@ -24,6 +24,64 @@ export function alignedRow(a: TranscriptItem, b: TranscriptItem): boolean {
   return true;
 }
 
+/** Rows lined up by kind alone (two turn-completion rows, two tool calls of the
+ *  same name) must share at least this many positions before an alignment
+ *  without a single id match may adopt ids: one completion row against another
+ *  is a coincidence, and adopting across it spliced an older page into the
+ *  newest turn. */
+const MIN_ANONYMOUS_OVERLAP = 8;
+
+/** Whether an alignment is evidence enough to adopt ids: at least one shared
+ *  id, or an overlap covering the shorter side (up to MIN_ANONYMOUS_OVERLAP). */
+export function alignmentAnchored(
+  candidate: { overlap: number; idMatches: number },
+  previousLength: number,
+  incomingLength: number
+): boolean {
+  return (
+    candidate.idMatches > 0 ||
+    candidate.overlap >= Math.min(previousLength, incomingLength, MIN_ANONYMOUS_OVERLAP)
+  );
+}
+
+type PrependAlignment = { start: number; overlap: number; idMatches: number };
+
+/** An incoming window that starts BEFORE the displayed one (an older page
+ *  loaded above it) carries `previous` from index `start` > 0. Offsets inside
+ *  `previous` belong to findTranscriptAlignment; a prepend wins only when it
+ *  overlaps more than `floor` (or as much, with more shared ids). */
+export function findTranscriptPrependAlignment(
+  previous: readonly TranscriptItem[],
+  incoming: readonly TranscriptItem[],
+  floor: { overlap: number; idMatches: number } | null
+): PrependAlignment | null {
+  let best: PrependAlignment | null = null;
+  for (let start = 1; start < incoming.length; start += 1) {
+    // Non-increasing in `start`: once it cannot win, no later start can.
+    const span = Math.min(previous.length, incoming.length - start);
+    if (best && span < best.overlap) break;
+    if (floor && (span < floor.overlap || (span === floor.overlap && floor.idMatches >= span))) break;
+    let idMatches = 0;
+    let aligned = true;
+    for (let index = 0; index < span; index += 1) {
+      const a = previous[index],
+        b = incoming[start + index];
+      if (a !== b && !alignedRow(a, b)) {
+        aligned = false;
+        break;
+      }
+      if (sameRowId(a, b)) idMatches += 1;
+    }
+    if (!aligned) continue;
+    const candidate = { start, overlap: span, idMatches };
+    if (!alignmentAnchored(candidate, previous.length, incoming.length)) continue;
+    if (floor && span === floor.overlap && idMatches <= floor.idMatches) continue;
+    if (!best || span > best.overlap || idMatches > best.idMatches) best = candidate;
+    if (idMatches === span) break;
+  }
+  return best;
+}
+
 type AlignmentCandidate = {
   offset: number;
   overlap: number;

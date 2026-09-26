@@ -73,8 +73,13 @@ export function createChannelStart({
   // enabled schedules/webhooks boot the worker on their own — no messaging
   // provider. The worker runs headless (scheduler/webhooks/voice only).
   // Unlike scheduleChannelStart this probes once at the boot delay and never
-  // re-arms.
+  // re-arms. The probe itself is shared process-wide (channel-admin
+  // hasActiveAutomation), so N runtimes booting together check once.
   function scheduleAutomationAutostart(delayMs) {
+    if (envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
+      bootProfile('channels:start-skipped');
+      return;
+    }
     timers.channelStartTimer = setTimeout(() => {
       timers.channelStartTimer = null;
       if (isCloseRequested()) return;

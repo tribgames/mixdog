@@ -15,7 +15,7 @@ const registrations = new WeakMap();
 export function getProgressWatchdogState(mgr, sessionId) {
   const state = registrations.get(mgr)?.get(sessionId);
   return {
-    registered: Boolean(state && !state.controller.signal.aborted),
+    registered: Boolean(state?.linked && !state.controller.signal.aborted),
     lastCheckedAt: state?.lastCheckedAt || null,
     error: state?.error || null,
   };
@@ -32,14 +32,32 @@ export function createProgressWatchdogRegistry({ mgr }) {
     timer = null;
   }
 
+  // Link the watchdog's abort to the session runtime. A rehydrated agent's
+  // runtime loads only once its turn starts, so a failed link is retried on
+  // every sweep instead of leaving that turn unwatched.
+  function link(state) {
+    try {
+      const unlink = mgr.linkParentSignalToSession(state.sessionId, state.controller.signal);
+      state.unlink = typeof unlink === 'function' ? unlink : null;
+    } catch {
+      return false;
+    }
+    state.linked = true;
+    // Progress baselines count from when the watchdog can actually stop the turn.
+    state.anchorTs = Date.now();
+    return true;
+  }
+
   function check(state) {
-    const { sessionId, watchdogPolicy, agent, controller, anchorTs } = state;
+    const { sessionId, watchdogPolicy, agent, controller } = state;
     if (controller.signal?.aborted) {
       state.unlink?.();
       watched.delete(sessionId);
       stopTimerIfIdle();
       return;
     }
+    if (!state.linked && !link(state)) return;
+    const { anchorTs } = state;
     const now = Date.now();
     state.lastCheckedAt = now;
     state.error = null;
@@ -149,32 +167,27 @@ export function createProgressWatchdogRegistry({ mgr }) {
 
   return {
     /** Watch a session until the returned handle is stopped; null when the
-     *  policy is off or the manager cannot link an abort signal. */
+     *  policy is off or the manager has no progress or abort hooks. A session
+     *  whose runtime is not loaded yet is linked on a later sweep. */
     start(sessionId, watchdogPolicy, agent = null, { onTurnStart = null, onProgress = null } = {}) {
       if (!sessionId || !agentWatchdogPolicyActive(watchdogPolicy)) return null;
       if (typeof mgr.getSessionProgressSnapshot !== 'function' && typeof mgr.getSessionLastProgressAt !== 'function')
         return null;
       if (typeof mgr.linkParentSignalToSession !== 'function') return null;
-      const controller = new AbortController();
-      const anchorTs = Date.now();
-      let unlink;
-      try {
-        unlink = mgr.linkParentSignalToSession(sessionId, controller.signal);
-      } catch {
-        return null;
-      }
       const state = {
         sessionId,
         watchdogPolicy,
         agent,
-        controller,
-        unlink: typeof unlink === 'function' ? unlink : null,
-        anchorTs,
+        controller: new AbortController(),
+        unlink: null,
+        linked: false,
+        anchorTs: Date.now(),
         onTurnStart: typeof onTurnStart === 'function' ? onTurnStart : null,
         onProgress: typeof onProgress === 'function' ? onProgress : null,
         lastAskStartedAt: 0,
         lastProgressSignature: '',
       };
+      link(state);
       watched.set(sessionId, state);
       ensureTimer();
       return {

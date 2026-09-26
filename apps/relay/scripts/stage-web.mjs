@@ -24,7 +24,9 @@ const cacheDir = join(relayRoot, '.web-precompress');
 const compressBrotli = promisify(brotliCompress);
 
 // woff2/png/ico arrive compressed; re-encoding them only burns build time.
+// TrueType (KaTeX's fallback faces) is raw glyph tables and shrinks well.
 const COMPRESSIBLE = new Set([
+  '.ttf',
   '.js',
   '.mjs',
   '.css',

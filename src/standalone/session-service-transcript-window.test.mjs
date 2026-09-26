@@ -96,7 +96,7 @@ test('a paging view receives a bounded tail, live patches against it, and older 
   }
 });
 
-test('the byte budget cuts the tail below its item limit but never below sixteen items', async () => {
+test('the byte budget cuts the tail below its item limit but never below eight items', async () => {
   const id = 'sess_tail_budget';
   const heavy = 'x'.repeat(100_000);
   const live = liveRuntime(
@@ -107,9 +107,10 @@ test('the byte budget cuts the tail below its item limit but never below sixteen
   try {
     await service.createSession({ sessionId: id });
     const first = await service.subscribeSession({ sessionId: id, ...TAIL }, { clientToken: 'viewer' });
-    assert.equal(first.full.items.length, 16);
+    // Nine 100 KB rows fit the 1 MB budget; the tenth would pass it.
+    assert.equal(first.full.items.length, 9);
     assert.equal(first.full.transcriptHasOlder, true);
-    assert.ok(Buffer.byteLength(JSON.stringify(first.full)) < 2_000_000);
+    assert.ok(Buffer.byteLength(JSON.stringify(first.full.items)) <= 1_000_000);
 
     const light = liveRuntime(
       Array.from({ length: 40 }, (_, index) => item(`l${index}`, 'y'.repeat(20_000))),
@@ -228,8 +229,8 @@ test('a cold paging view reads a bounded stored tail and grows it on demand', as
   });
   try {
     const tail = await service.subscribeSession({ sessionId: id, ...TAIL }, { clientToken: 'viewer' });
-    // Ten 200 KB rows exceed the 1 MB budget; the floor keeps sixteen.
-    assert.deepEqual(ids(tail.full.items), Array.from({ length: 16 }, (_, index) => `c${84 + index}`));
+    // Ten 200 KB rows exceed the 1 MB budget; the floor keeps eight.
+    assert.deepEqual(ids(tail.full.items), Array.from({ length: 8 }, (_, index) => `c${92 + index}`));
     assert.equal(tail.full.transcriptHasOlder, true);
     const page = await service.readSession({ sessionId: id, transcriptItemLimit: 80 });
     assert.deepEqual(ids(page.full.items), Array.from({ length: 80 }, (_, index) => `c${20 + index}`));
@@ -238,6 +239,314 @@ test('a cold paging view reads a bounded stored tail and grows it on demand', as
     const legacy = await service.readSession({ sessionId: id, open: {} });
     assert.equal(legacy.full.items.length, 100);
     assert.deepEqual(reads, [32, 80, 512]);
+  } finally {
+    await service.stop('test complete');
+  }
+});
+
+const PAGE_BYTES = 1_000_000;
+const page = (held, extra = {}) => ({
+  transcriptItemLimit: held + 64,
+  transcriptByteBudget: PAGE_BYTES,
+  transcriptPageBase: held,
+  ...extra,
+});
+const bytesOf = (rows) => rows.reduce((sum, row) => sum + Buffer.byteLength(JSON.stringify(row)), 0);
+
+function coldHistoryService(history) {
+  return createSessionService({
+    createSessionRuntime: async () => {
+      throw new Error('cold views never materialize');
+    },
+    sessionExists: async () => true,
+    readStoredSession: async (sessionId, options) => {
+      const limit = options.transcriptItemLimit;
+      return {
+        sessionId,
+        projectionStamp: `stamp:${limit}`,
+        items: history.slice(-limit),
+        transcriptHasOlder: history.length > limit,
+        queued: [],
+      };
+    },
+    idleEvictMs: 60_000,
+    evictSweepMs: 60_000,
+  });
+}
+
+test('a cold older-history page reveals up to 64 rows within its byte budget, keeping every held row', async () => {
+  // Oldest 40 rows are 150 KB, the newest 100 are 1 KB.
+  const history = Array.from({ length: 140 }, (_, index) => item(`p${index}`, 'z'.repeat(index < 40 ? 150_000 : 1_000)));
+  const service = coldHistoryService(history);
+  const viewer = { clientToken: 'viewer' };
+  try {
+    const tail = await service.subscribeSession({ sessionId: 'sess_page_cold', ...TAIL }, viewer);
+    assert.deepEqual(ids(tail.full.items), ids(history.slice(-32)));
+    // Small rows: the whole 64-item page fits the budget.
+    const first = await service.readSession({ sessionId: 'sess_page_cold', ...page(32) }, viewer);
+    assert.deepEqual(ids(first.full.items), ids(history.slice(-96)));
+    assert.equal(first.full.transcriptHasOlder, true);
+    // Four 1 KB rows, then 150 KB rows until the next would pass 1 MB: ten.
+    const second = await service.readSession({ sessionId: 'sess_page_cold', ...page(96) }, viewer);
+    assert.deepEqual(ids(second.full.items), ids(history.slice(-106)));
+    assert.ok(bytesOf(second.full.items.slice(0, 10)) <= PAGE_BYTES);
+    assert.equal(second.full.transcriptHasOlder, true);
+    // Six 150 KB rows fill the budget, but a page never reveals fewer than eight.
+    const third = await service.readSession({ sessionId: 'sess_page_cold', ...page(106) }, viewer);
+    assert.deepEqual(ids(third.full.items), ids(history.slice(-114)));
+    // The held rows are never budgeted away, however large the window is.
+    assert.ok(bytesOf(third.full.items) > PAGE_BYTES);
+  } finally {
+    await service.stop('test complete');
+  }
+});
+
+test('pages of huge rows still progress by eight and report the start of history', async () => {
+  const huge = 'h'.repeat(1_200_000);
+  const history = Array.from({ length: 30 }, (_, index) => item(`g${index}`, huge));
+  const service = coldHistoryService(history);
+  const viewer = { clientToken: 'viewer' };
+  try {
+    const tail = await service.subscribeSession({ sessionId: 'sess_page_huge', ...TAIL }, viewer);
+    assert.equal(tail.full.items.length, 8);
+    let held = 8;
+    const counts = [];
+    let hasOlder = true;
+    while (hasOlder) {
+      const next = await service.readSession({ sessionId: 'sess_page_huge', ...page(held) }, viewer);
+      held = next.full.items.length;
+      hasOlder = next.full.transcriptHasOlder;
+      counts.push(held);
+    }
+    assert.deepEqual(counts, [16, 24, 30]);
+    assert.equal(hasOlder, false);
+  } finally {
+    await service.stop('test complete');
+  }
+});
+
+test('a live older-history page is byte-budgeted, and so is durable history above a resumed runtime', async () => {
+  const id = 'sess_page_live';
+  const live = liveRuntime(
+    Array.from({ length: 100 }, (_, index) => item(`l${index}`, 'y'.repeat(index < 50 ? 300_000 : 500))),
+    id
+  );
+  const { service } = liveService(live);
+  const viewer = { clientToken: 'viewer' };
+  try {
+    await service.createSession({ sessionId: id });
+    const tail = await service.subscribeSession({ sessionId: id, ...TAIL }, viewer);
+    assert.equal(tail.full.items.length, 32);
+    // 18 small rows, then three 300 KB rows fit; a fourth would pass 1 MB.
+    const grown = await service.readSession({ sessionId: id, baseRevision: tail.revision, ...page(32) }, viewer);
+    const items = grown.patch ? applySessionStatePatch(tail.full, grown.patch).items : grown.full.items;
+    assert.deepEqual(ids(items), Array.from({ length: 53 }, (_, index) => `l${47 + index}`));
+  } finally {
+    await service.stop('test complete');
+  }
+
+  const resumedId = 'sess_page_resumed';
+  const restoredId = (index) => `hist_${resumedId}_${index}_1`;
+  const resumed = liveRuntime(
+    Array.from({ length: 20 }, (_, index) => item(restoredId(80 + index))),
+    resumedId
+  );
+  const { service: resumedService } = liveService(resumed, {
+    readStoredSession: async (sessionId, options) => {
+      const history = Array.from({ length: 100 }, (_, index) => item(restoredId(index), 'x'.repeat(100_000)));
+      const limit = options.transcriptItemLimit;
+      return { sessionId, items: history.slice(-limit), transcriptHasOlder: history.length > limit, queued: [] };
+    },
+  });
+  try {
+    await resumedService.createSession({ sessionId: resumedId });
+    await resumedService.subscribeSession({ sessionId: resumedId, ...TAIL }, viewer);
+    const paged = await resumedService.readSession({ sessionId: resumedId, ...page(20) }, viewer);
+    // Nine 100 KB durable rows fit the page budget above the 20 restored ones.
+    assert.deepEqual(
+      ids(paged.full.items),
+      Array.from({ length: 29 }, (_, index) => restoredId(71 + index))
+    );
+    assert.equal(paged.full.transcriptHasOlder, true);
+  } finally {
+    await resumedService.stop('test complete');
+  }
+});
+
+// A cold pane's window must survive the session going live. Adopted without
+// one, the first frame carried the runtime's whole restored transcript (a
+// profiled 9.16 MB frame; 8-20 MB on the largest real sessions).
+function adoptionService() {
+  const history = Array.from({ length: 300 }, (_, index) => item(`a${index}`, 'w'.repeat(60_000)));
+  const frames = [];
+  let externalPublish = () => {};
+  const runtimes = [];
+  const service = createSessionService({
+    sessionExists: async () => true,
+    readStoredSession: async (sessionId, options) => {
+      const limit = options.transcriptItemLimit;
+      return { sessionId, projectionStamp: `s${limit}`, items: history.slice(-limit), transcriptHasOlder: true, queued: [] };
+    },
+    createSessionRuntime: async () => {
+      let state = { sessionId: '', items: [], queued: [] };
+      let listener = () => {};
+      const runtime = {
+        isWireSafe: true,
+        getState: () => state,
+        subscribe(next) {
+          listener = next;
+          return () => {};
+        },
+        append(row) {
+          state = { ...state, items: [...state.items, row] };
+          listener();
+        },
+        async resume(sessionId, options) {
+          state = { sessionId, items: history.slice(-(options?.transcriptItemLimit ?? 512)), queued: [] };
+          return true;
+        },
+        getAutoClear: async () => false,
+        dispose: async () => {},
+      };
+      runtimes.push(runtime);
+      return runtime;
+    },
+    subscribeExternalSessionStates: (publish) => {
+      externalPublish = publish;
+      return () => {};
+    },
+    onFrame: (frame, targets) => {
+      if (frame.type === 'session-state') frames.push({ frame, targets: [...(targets || [])] });
+    },
+    publishIntervalMs: 0,
+    idleEvictMs: 60_000,
+    evictSweepMs: 60_000,
+  });
+  return { service, frames, history, runtimes, external: (update) => externalPublish(update) };
+}
+const OPEN = { open: { resumeOptions: { transcriptItemLimit: 512 } } };
+const frameBytes = (frame) => Buffer.byteLength(JSON.stringify(frame));
+
+test('a cold tail view keeps its byte-budgeted window when the session is loaded live', async () => {
+  const { service, frames, history } = adoptionService();
+  const id = 'sess_adopt_load';
+  try {
+    await service.subscribeSession({ sessionId: id, ...TAIL, ...OPEN }, { clientToken: 'desktop' });
+    // A submit/configure on the cold session loads its runtime (512 items).
+    await service.readSession({ sessionId: id, action: 'getAutoClear', ...OPEN });
+    await delay(5);
+    const first = frames.find(({ targets }) => targets.includes('desktop'))?.frame;
+    assert.ok(first?.full, 'the adopted view receives a full first frame');
+    // 16 rows of ~60 KB fit the 1 MB budget; never the 512-row restore (~31 MB).
+    assert.deepEqual(ids(first.full.items), ids(history.slice(-16)));
+    assert.equal(first.full.transcriptHasOlder, true);
+    assert.ok(frameBytes(first) < 1_100_000, `first frame ${frameBytes(first)} bytes`);
+  } finally {
+    await service.stop('test complete');
+  }
+});
+
+test('an old whole-transcript cold view still receives the whole restored transcript when adopted', async () => {
+  const { service, frames, runtimes } = adoptionService();
+  const id = 'sess_adopt_legacy';
+  try {
+    await service.subscribeSession({ sessionId: id, ...OPEN }, { clientToken: 'old-phone' });
+    await service.readSession({ sessionId: id, action: 'getAutoClear', ...OPEN });
+    runtimes.at(-1).append(item('live-row'));
+    await delay(5);
+    const first = frames.find(({ targets }) => targets.includes('old-phone'))?.frame;
+    assert.equal(first.full.items.length, 301, 'the whole resume page, unchanged');
+    assert.equal('transcriptHasOlder' in first.full, false);
+  } finally {
+    await service.stop('test complete');
+  }
+});
+
+test('an external worker view and the runtime that later owns it serve the cold view its window', async () => {
+  const { service, frames, history, external } = adoptionService();
+  const id = 'sess_adopt_worker';
+  try {
+    await service.subscribeSession({ sessionId: id, ...TAIL, ...OPEN }, { clientToken: 'desktop' });
+    // The Lead's runtime starts publishing its worker's whole transcript.
+    external({ sessionId: id, snapshot: { sessionId: id, items: history, queued: [] } });
+    const bound = frames.at(-1).frame;
+    assert.deepEqual(ids(bound.full.items), ids(history.slice(-16)));
+    assert.ok(frameBytes(bound) < 1_100_000);
+
+    // A daemon runtime then materializes the address and takes over the view.
+    frames.length = 0;
+    await service.readSession({ sessionId: id, action: 'getAutoClear', ...OPEN });
+    await delay(5);
+    const owned = frames.find(({ targets }) => targets.includes('desktop'))?.frame;
+    assert.ok(owned, 'the owner publishes to the adopted view');
+    assert.ok(frameBytes(owned) < 1_100_000, `owner frame ${frameBytes(owned)} bytes`);
+  } finally {
+    await service.stop('test complete');
+  }
+});
+
+test('a tail window grown by appends goes out whole only within its byte budget', async () => {
+  const id = 'sess_sticky_growth';
+  const live = liveRuntime(
+    Array.from({ length: 4 }, (_, index) => item(`s${index}`)),
+    id
+  );
+  const frames = [];
+  const service = createSessionService({
+    createSessionRuntime: async () => live.runtime,
+    onFrame: (frame, targets) => frames.push({ frame, targets: [...(targets || [])] }),
+    publishIntervalMs: 0,
+    idleEvictMs: 60_000,
+    evictSweepMs: 60_000,
+  });
+  try {
+    await service.createSession({ sessionId: id });
+    // A pane attached while the worker had four rows: its window starts at 0.
+    const first = await service.subscribeSession({ sessionId: id, ...TAIL }, { clientToken: 'desktop' });
+    assert.equal(first.full.items.length, 4);
+    // Thirty 40 KB rows land as small suffix patches (1.2 MB of window).
+    for (let index = 0; index < 30; index += 1) {
+      live.append(item(`g${index}`, 'g'.repeat(40_000)));
+      await delay(1);
+    }
+    const appended = frames.filter(({ targets }) => targets.includes('desktop'));
+    assert.ok(appended.every(({ frame }) => frame.patch?.itemsAppend?.values.length <= 1));
+    const revision = appended.at(-1).frame.revision;
+
+    // A second view joins with no baseline: a fresh tail within 1 MB, not
+    // the 34 rows the first view accumulated.
+    frames.length = 0;
+    const joined = await service.subscribeSession({ sessionId: id, ...TAIL }, { clientToken: 'phone' });
+    assert.deepEqual(
+      ids(joined.full.items),
+      Array.from({ length: 24 }, (_, index) => `g${6 + index}`)
+    );
+    assert.ok(Buffer.byteLength(JSON.stringify(joined.full.items)) <= 1_000_000);
+    assert.equal(joined.full.transcriptHasOlder, true);
+    // The view already attached follows the cut in one bounded patch.
+    const cut = frames.find(({ targets }) => targets.includes('desktop')).frame;
+    assert.equal(cut.baseRevision, revision);
+    assert.equal(cut.patch.itemsAppend.from, 0);
+    assert.deepEqual(ids(cut.patch.itemsAppend.values), ids(joined.full.items));
+
+    // Later rows are ordinary suffix patches again, for both views.
+    frames.length = 0;
+    live.append(item('after'));
+    await delay(5);
+    assert.deepEqual(frames.at(-1).frame.patch.itemsAppend, { from: 24, values: [item('after')] });
+
+    // A resync read (stale baseline) is budgeted too.
+    const resync = await service.readSession({ sessionId: id, ...TAIL, baseRevision: 1 });
+    assert.ok(Buffer.byteLength(JSON.stringify(resync.full.items)) <= 1_000_000);
+
+    // Rows too large for the budget: the cut keeps the eight-row minimum.
+    for (let index = 0; index < 12; index += 1) live.append(item(`h${index}`, 'h'.repeat(300_000)));
+    await delay(5);
+    const huge = await service.subscribeSession({ sessionId: id, ...TAIL }, { clientToken: 'tablet' });
+    assert.deepEqual(
+      ids(huge.full.items),
+      Array.from({ length: 8 }, (_, index) => `h${4 + index}`)
+    );
   } finally {
     await service.stop('test complete');
   }

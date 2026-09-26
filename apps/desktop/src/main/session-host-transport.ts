@@ -43,6 +43,10 @@ export interface SessionHostTransportOwner {
     value: Record<string, unknown> | null | undefined,
     publish?: boolean
   ): SessionSnapshot;
+  /** The rows held for a paged read (see SessionHostPublication.heldTranscript). */
+  heldTranscript(sessionId: string): { firstId: unknown; count: number; digest: string } | null;
+  /** Null when the held rows changed since the page was asked for. */
+  applyTranscriptPage(sessionId: string, value: Record<string, unknown>, publish?: boolean): SessionSnapshot | null;
   deleteProjection(sessionId: string): void;
 }
 
@@ -76,14 +80,18 @@ export class SessionHostTransport {
     return { callId, ...(timeoutMs ? { timeoutMs } : {}) };
   }
 
+  /** `page`: this read grows the window with older history, so the daemon
+   *  may answer with only the rows above the ones this host holds. */
   async readSession(
     sessionId: string,
     forceFull = false,
     publish = true,
-    readTraceId?: string
+    readTraceId?: string,
+    page = false
   ): Promise<SessionSnapshot> {
     const id = sessionIdOf(sessionId);
     const prior = this.owner.projection(id);
+    const held = page && !forceFull ? this.owner.heldTranscript(id) : null;
     const startedAt = performance.now();
     reportTranscriptRead(id, readTraceId, 'host-read-start');
     const result = await this.client.read(
@@ -93,12 +101,21 @@ export class SessionHostTransport {
         ...this.owner.transcriptWindow(id),
         baseRevision: forceFull ? null : (prior?.revision ?? null),
         ...(!forceFull && prior?.projectionStamp ? { baseProjectionStamp: prior.projectionStamp } : {}),
+        // Frames and replies to this host may carry older-history pages as
+        // the revealed rows only.
+        transcriptPrepend: true,
+        ...(held ? { transcriptHeld: held } : {}),
       },
       this.callOptions(undefined, TRANSCRIPT_READ_TIMEOUT_MS)
     );
     reportTranscriptRead(id, readTraceId, 'host-read-result', {
       durationMs: performance.now() - startedAt,
     });
+    if (result.page && typeof result.page === 'object') {
+      // The held rows moved since the request (a live frame landed, the
+      // session was compacted): read the whole window instead.
+      return this.owner.applyTranscriptPage(id, result, publish) ?? this.readSession(id, true, publish, readTraceId);
+    }
     const current = this.owner.projection(id);
     const hasFull = result.full !== null && typeof result.full === 'object';
     const hasBaseline =

@@ -19,7 +19,6 @@ import MarkdownBody from './MarkdownBody';
 import MarkdownAstBody from './MarkdownAstBody';
 import { MarkdownSourceFallback } from './MarkdownSourceFallback';
 import StreamingMarkdownBody from './StreamingMarkdownBody';
-import { createTranscriptRowMeasureScheduler } from './transcript-measure';
 
 function flatten(node) {
   if (node.type === 'text') return JSON.stringify(node.value);
@@ -173,18 +172,6 @@ test('source fallback keeps fenced code in its final card grammar', () => {
   assert.match(markup, /const a = 1;/);
 });
 
-test('markdown chunk promotions coalesce into one transcript row measurement', async () => {
-  let measurements = 0;
-  const schedule = createTranscriptRowMeasureScheduler(() => {
-    measurements += 1;
-  });
-  schedule();
-  schedule();
-  assert.equal(measurements, 0);
-  await Promise.resolve();
-  assert.equal(measurements, 1);
-});
-
 test('streaming markdown never exposes source while its first AST is pending', async () => {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/',
@@ -200,10 +187,6 @@ test('streaming markdown never exposes source while its first AST is pending', a
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   const root = createRoot(dom.window.document.getElementById('root'));
   const CopyControl = () => null;
-  let measurements = 0;
-  const onRendered = () => {
-    measurements += 1;
-  };
   try {
     await act(async () => {
       root.render(
@@ -211,13 +194,11 @@ test('streaming markdown never exposes source while its first AST is pending', a
           text: 'first line',
           parse: false,
           copyControl: CopyControl,
-          onRendered,
         })
       );
     });
     assert.equal(dom.window.document.getElementById('root').textContent, '');
     assert.equal(dom.window.document.querySelector('[data-transcript-pending]'), null);
-    assert.equal(measurements, 0);
 
     await act(async () => {
       root.render(
@@ -225,12 +206,10 @@ test('streaming markdown never exposes source while its first AST is pending', a
           text: 'first line\nsecond line',
           parse: false,
           copyControl: CopyControl,
-          onRendered,
         })
       );
     });
     assert.equal(dom.window.document.getElementById('root').textContent, '');
-    assert.equal(measurements, 0);
   } finally {
     await act(async () => root.unmount());
     dom.window.close();
@@ -257,10 +236,6 @@ test('streaming fenced scripts keep final card geometry while their first AST is
   const host = dom.window.document.getElementById('root');
   const root = createRoot(host);
   const CopyControl = () => null;
-  let measurements = 0;
-  const onRendered = () => {
-    measurements += 1;
-  };
   try {
     await act(async () => {
       root.render(
@@ -268,7 +243,6 @@ test('streaming fenced scripts keep final card geometry while their first AST is
           text: '```ts',
           parse: false,
           copyControl: CopyControl,
-          onRendered,
         })
       );
     });
@@ -284,12 +258,10 @@ test('streaming fenced scripts keep final card geometry while their first AST is
           text: '```ts\nconst answer = 42;',
           parse: false,
           copyControl: CopyControl,
-          onRendered,
         })
       );
     });
     assert.equal(host.querySelector('.markdown-code-fallback code')?.textContent, 'const answer = 42;');
-    assert.equal(measurements, 2);
   } finally {
     await act(async () => root.unmount());
     dom.window.close();

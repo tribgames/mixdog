@@ -8,8 +8,9 @@ import type {
 } from '../shared/contract';
 import { isSessionId } from './desktop-state';
 import { sessionIdOf } from './session-host-transport';
-import { reconcileSessionProjection } from './state-delta';
+import { reconcileSessionProjection, reconcileTranscriptItems } from './state-delta';
 import { estimateRetainedChars } from '../shared/retained-value-weight';
+import { transcriptItemsDigest } from '../../../../src/standalone/session-state-patch.mjs';
 
 const UNWATCHED_PROJECTION_MAX_BYTES = 16 * 1024 * 1024;
 const UNWATCHED_PROJECTION_MAX_ENTRIES = 64;
@@ -44,10 +45,30 @@ function statePatch(snapshot: SessionSnapshot, patch: Record<string, unknown>): 
   const next: Record<string, unknown> = { ...base, ...set };
   const append =
     patch.itemsAppend && typeof patch.itemsAppend === 'object' ? (patch.itemsAppend as Record<string, unknown>) : null;
-  if (append) {
+  const prepend =
+    patch.itemsPrepend && typeof patch.itemsPrepend === 'object'
+      ? (patch.itemsPrepend as Record<string, unknown>)
+      : null;
+  if (prepend) {
+    // An older-history page from a daemon that knows this host announced
+    // transcriptPrepend: rows revealed above the held ones, which keep their
+    // identity; `itemsAppend.from` indexes the held list.
+    const items = Array.isArray(base.items) ? base.items : [];
+    const head = Array.isArray(prepend.values) ? prepend.values : [];
+    const from = append ? Math.max(0, Math.min(items.length, Math.floor(Number(append.from) || 0))) : items.length;
+    const tail = append && Array.isArray(append.values) ? append.values : [];
+    next.items = head.concat(items.slice(0, from), tail);
+  } else if (append) {
     const items = Array.isArray(base.items) ? base.items : [];
     const from = Math.max(0, Math.floor(Number(append.from) || 0));
-    next.items = items.slice(0, from).concat(Array.isArray(append.values) ? append.values : []);
+    const values = Array.isArray(append.values) ? append.values : [];
+    // A window grown with older history replaces the list from its first row.
+    // The rows this host already held keep their identity, so the views
+    // downstream receive only the revealed page.
+    next.items =
+      from === 0 && items.length > 0
+        ? (reconcileTranscriptItems(items, values) as typeof items)
+        : items.slice(0, from).concat(values);
   }
   for (const key of Array.isArray(patch.remove) ? patch.remove : []) {
     if (typeof key === 'string') delete next[key];
@@ -310,6 +331,47 @@ export class SessionHostPublication {
       this.publishSession(id, snapshot);
     }
     return this.snapshotWithRemoteSession(snapshot);
+  }
+
+  /** The rows this host holds for a session, named for a paged read: the
+   *  daemon answers with only the rows above them when they match its own. */
+  heldTranscript(sessionId: string): { firstId: unknown; count: number; digest: string } | null {
+    const items = this.projections.get(sessionId)?.snapshot?.items;
+    const firstId = Array.isArray(items) ? (items[0] as { id?: unknown } | undefined)?.id : undefined;
+    if (!Array.isArray(items) || firstId == null) return null;
+    return { firstId, count: items.length, digest: transcriptItemsDigest(items) };
+  }
+
+  /** Apply a paged read's `page` answer: the revealed rows go in front of the
+   *  rows this host still holds. Null when the held rows are no longer the
+   *  ones the page was answered for — the caller then reads in full. */
+  applyTranscriptPage(
+    sessionId: string,
+    value: Record<string, unknown>,
+    publish = true
+  ): SessionSnapshot | null {
+    const id = sessionIdOf(value.sessionId || sessionId);
+    const page = value.page as
+      | { firstHeldId?: unknown; heldCount?: unknown; items?: unknown; state?: unknown }
+      | undefined;
+    const items = this.projections.get(id)?.snapshot?.items;
+    if (
+      !page ||
+      !Array.isArray(items) ||
+      !Array.isArray(page.items) ||
+      !page.state ||
+      typeof page.state !== 'object' ||
+      items.length !== page.heldCount ||
+      (items[0] as { id?: unknown } | undefined)?.id !== page.firstHeldId
+    ) {
+      return null;
+    }
+    const { page: _page, ...rest } = value;
+    return this.applySessionResult(
+      id,
+      { ...rest, full: { ...(page.state as Record<string, unknown>), items: page.items.concat(items) } },
+      publish
+    );
   }
 
   /** A reply can outlive the baseline it was computed against: the projection

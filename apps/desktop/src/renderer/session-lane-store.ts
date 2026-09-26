@@ -296,6 +296,15 @@ export function laneFrameRetainingSettledRows(prior: Snapshot | null, next: Snap
   if (offset < 0) return next;
   // Lane frames own their tail. A window can omit only the cached head.
   if (offset === 0 || nextItems.length === 0) return next;
+  // An older page starts BEFORE the cached window and already carries it.
+  // A lone weak row match at the cached tail must not glue the cached head in
+  // front of it, which painted the older page below the newest turn.
+  const prepended = laneWindowOffset(nextItems, priorItems);
+  if (
+    prepended > 0 &&
+    Math.min(priorItems.length, nextItems.length - prepended) > Math.min(priorItems.length - offset, nextItems.length)
+  )
+    return next;
   return mergedLaneFrame(prior, next, [...priorItems.slice(0, offset), ...nextItems], false);
 }
 

@@ -158,6 +158,8 @@ for (const reopenBeforeSubmit of [true, false]) {
     assert.equal(f.texts().at(-1), 'old progress 11');
     await f.host.setVisibleSessions([]);
     t.mock.timers.tick(10_000);
+    // The sweep disposes one evicted session per event-loop turn.
+    for (let turn = 0; turn < 3; turn++) await new Promise((resolve) => setImmediate(resolve));
     assert.equal(f.service.size, 0);
 
     // No subscriber receives the eviction notice. The host intentionally

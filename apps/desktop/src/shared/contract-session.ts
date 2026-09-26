@@ -219,6 +219,8 @@ export type DesktopSessionLaneEnd = 'gone' | 'unloaded' | 'disconnected';
 export interface DesktopStateItemsPatch {
   base: number;
   revision: number;
+  /** Older rows revealed above the held list (session lanes only). */
+  prepend?: DesktopTranscriptItem[];
   prefix: number;
   append: DesktopTranscriptItem[];
 }

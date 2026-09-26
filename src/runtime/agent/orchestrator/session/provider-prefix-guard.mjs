@@ -73,15 +73,17 @@ function matchShape(value, tokens, cursor) {
     return next;
   }
   if (tokens[cursor] !== OBJECT_TOKEN || !isPlainObject(value)) return -1;
-  const keys = Object.keys(value);
-  if (tokens[cursor + 1] !== keys.length) return -1;
+  // for-in visits own string keys in Object.keys order without allocating
+  // the key array (this walk runs over every tool schema on every send).
+  let count = 0;
   let next = cursor + 2;
-  for (let index = 0; index < keys.length && next >= 0; index += 1) {
-    const key = keys[index];
-    if (tokens[next] !== key) return -1;
+  for (const key in value) {
+    if (!Object.hasOwn(value, key)) continue;
+    if (next < 0 || tokens[next] !== key) return -1;
     next = matchShape(value[key], tokens, next + 1);
+    count += 1;
   }
-  return next;
+  return count === tokens[cursor + 1] ? next : -1;
 }
 
 function messageDigest(message) {
@@ -95,31 +97,92 @@ function messageDigest(message) {
   return hash;
 }
 
-function cacheRelevantRequestPrefix(requestPrefix, provider) {
+function cacheRelevantTools(tools, anthropic) {
+  return Array.isArray(tools)
+    ? tools.filter((tool) => !anthropic || (tool?.deferLoading !== true && tool?.defer_loading !== true))
+    : [];
+}
+
+function cacheRelevantRequestPrefix(requestPrefix, anthropic) {
   const prefix = requestPrefix && typeof requestPrefix === 'object' ? requestPrefix : {};
-  const anthropic = /^(?:anthropic|anthropic-oauth)$/i.test(String(provider || ''));
-  const cacheRelevantTools = (tools) =>
-    Array.isArray(tools)
-      ? tools.filter((tool) => !anthropic || (tool?.deferLoading !== true && tool?.defer_loading !== true))
-      : [];
   return {
     ...prefix,
-    tools: cacheRelevantTools(prefix.tools),
-    nativeTools: cacheRelevantTools(prefix.nativeTools),
+    tools: cacheRelevantTools(prefix.tools, anthropic),
+    nativeTools: cacheRelevantTools(prefix.nativeTools, anthropic),
   };
+}
+
+// Tool schemas are the bulk of every request prefix and are re-sent unchanged
+// turn after turn, yet they used to be serialized and hashed three times per
+// send (inside the request-prefix digest and for each schema digest). The
+// digest of a tool list is memoized on the list's identity, validated by the
+// same allocation-free shape walk as message digests (it also covers the
+// deferLoading flags the filter depends on).
+const toolListDigestMemo = new WeakMap(); // source list → { tokens, byFilter: Map<anthropic, hash> }
+
+function toolListDigest(tools, anthropic) {
+  if (!Array.isArray(tools)) return digest([]);
+  let memo = toolListDigestMemo.get(tools);
+  if (memo && matchShape(tools, memo.tokens, 0) !== memo.tokens.length) memo = null;
+  if (!memo) {
+    const tokens = [];
+    if (!recordShape(tools, tokens)) {
+      toolListDigestMemo.delete(tools);
+      return digest(cacheRelevantTools(tools, anthropic));
+    }
+    memo = { tokens, byFilter: new Map() };
+    toolListDigestMemo.set(tools, memo);
+  }
+  let hash = memo.byFilter.get(anthropic);
+  if (hash === undefined) {
+    hash = digest(cacheRelevantTools(tools, anthropic));
+    memo.byFilter.set(anthropic, hash);
+  }
+  return hash;
+}
+
+// When the prefix holds nothing but the two tool lists (the request
+// projection's shape), its digest is fully determined by provider, model, key
+// order and the two list digests, so it is memoized on those. Any other prefix
+// key is hashed in full every time.
+const REQUEST_PREFIX_MEMO_LIMIT = 256;
+const requestPrefixDigestMemo = new Map();
+
+function toolOnlyPrefixKeyOrder(prefix) {
+  const keys = Object.keys(prefix);
+  if (keys.length !== 2) return null;
+  if (keys[0] === 'tools' && keys[1] === 'nativeTools') return 't';
+  if (keys[0] === 'nativeTools' && keys[1] === 'tools') return 'n';
+  return null;
 }
 
 function snapshot(messages, requestPrefix, options = {}) {
   const provider = String(options.provider || '');
   const model = String(options.model || '');
-  const relevantPrefix = cacheRelevantRequestPrefix(requestPrefix, provider);
+  const anthropic = /^(?:anthropic|anthropic-oauth)$/i.test(provider);
+  const prefix = requestPrefix && typeof requestPrefix === 'object' ? requestPrefix : {};
+  const toolSchemaHash = toolListDigest(prefix.tools, anthropic);
+  const nativeToolSchemaHash = toolListDigest(prefix.nativeTools, anthropic);
+  const order = toolOnlyPrefixKeyOrder(prefix);
+  let requestPrefixHash;
+  if (order) {
+    const key = JSON.stringify([order, provider, model, toolSchemaHash, nativeToolSchemaHash]);
+    requestPrefixHash = requestPrefixDigestMemo.get(key);
+    if (requestPrefixHash === undefined) {
+      requestPrefixHash = digest({ provider, model, requestPrefix: cacheRelevantRequestPrefix(prefix, anthropic) });
+      if (requestPrefixDigestMemo.size >= REQUEST_PREFIX_MEMO_LIMIT) requestPrefixDigestMemo.clear();
+      requestPrefixDigestMemo.set(key, requestPrefixHash);
+    }
+  } else {
+    requestPrefixHash = digest({ provider, model, requestPrefix: cacheRelevantRequestPrefix(prefix, anthropic) });
+  }
   return {
     messageHashes: messages.map(messageDigest),
-    requestPrefixHash: digest({ provider, model, requestPrefix: relevantPrefix }),
+    requestPrefixHash,
     provider,
     model,
-    toolSchemaHash: digest(relevantPrefix.tools),
-    nativeToolSchemaHash: digest(relevantPrefix.nativeTools),
+    toolSchemaHash,
+    nativeToolSchemaHash,
   };
 }
 

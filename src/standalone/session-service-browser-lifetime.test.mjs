@@ -47,6 +47,8 @@ test('browser teardown follows idle runtime eviction, not view detach or live wo
     const releases = () => frames.filter((event) => event.frame.message?.name === 'session-runtime-released');
     assert.equal(releases().length, 0, 'leaving a view retains the browser');
     t.mock.timers.tick(150);
+    // The sweep disposes one evicted session per event-loop turn.
+    for (let turn = 0; turn < 3; turn++) await new Promise((resolve) => setImmediate(resolve));
     const events = releases();
     assert.deepEqual(
       events.map((event) => event.frame.message.value),

@@ -20,7 +20,14 @@
 // changes what any host API is called with.
 
 import type { Snapshot, TranscriptItem } from './desktop-types';
-import { alignedRow, findTranscriptAlignment, hasOwnId, sameRowId } from './transcript-alignment';
+import {
+  alignedRow,
+  alignmentAnchored,
+  findTranscriptAlignment,
+  findTranscriptPrependAlignment,
+  hasOwnId,
+  sameRowId,
+} from './transcript-alignment';
 
 // Must cover every concurrently visible pane lane (8) plus the focused
 // pipeline with headroom: evicting a still-visible session's baseline would
@@ -48,16 +55,22 @@ export function adoptTranscriptIdentity(
   // frame is a tail WINDOW of the transcript already displayed.
   let alignedOffset = 0;
   if (incomingItems && prevItems && incomingItems.length > 0 && prevItems.length > 0 && incomingItems !== prevItems) {
-    const best = findTranscriptAlignment(prevItems, incomingItems);
-    acceptedAlignment = best !== null;
+    const found = findTranscriptAlignment(prevItems, incomingItems);
+    // A lone weak match (one completion row against another) is not evidence:
+    // adopting across it gave an older page's first row the newest row's id.
+    const inWindow = found && alignmentAnchored(found, prevItems.length, incomingItems.length) ? found : null;
+    // An older page loaded above the displayed rows starts BEFORE them.
+    const prepend = findTranscriptPrependAlignment(prevItems, incomingItems, inWindow);
     // No candidate at all: the incoming transcript is a different history.
     // It keeps its own ids and replaces the baseline.
-    const offset = best?.offset ?? 0;
+    acceptedAlignment = inWindow !== null || prepend !== null;
+    const offset = prepend ? 0 : (inWindow?.offset ?? 0);
+    const start = prepend?.start ?? 0;
     let out: TranscriptItem[] | null = null;
-    let index = 0;
-    for (; best && index < incomingItems.length; index += 1) {
+    let index = start;
+    for (; acceptedAlignment && index < incomingItems.length; index += 1) {
       const inc = incomingItems[index] as TranscriptItem;
-      const prev = prevItems[index + offset];
+      const prev = prevItems[index - start + offset];
       if (!prev) break;
       if (prev === inc) continue;
       if (!alignedRow(prev, inc)) break;
@@ -66,14 +79,15 @@ export function adoptTranscriptIdentity(
         out[index] = { ...inc, id: prev.id };
       }
     }
-    consumed = best ? Math.min(index + offset, prevItems.length) : 0;
+    const walked = index - start;
+    consumed = acceptedAlignment ? Math.min(walked + offset, prevItems.length) : 0;
     // Only a walk that actually aligned a row proves the offset.
-    if (index > 0) alignedOffset = offset;
+    if (walked > 0) alignedOffset = offset;
     // Settle carryover: the first row past the shared history may be the
     // previously merged streaming tail landing as a settled row under a
     // fresh id — keep the id it was displayed with.
     const tailDonor = previous?.tail;
-    if (best && index < incomingItems.length && tailDonor && consumed >= prevItems.length) {
+    if (acceptedAlignment && index < incomingItems.length && tailDonor && consumed >= prevItems.length) {
       const inc = incomingItems[index] as TranscriptItem;
       if (alignedRow(tailDonor, inc) && hasOwnId(tailDonor) && !sameRowId(tailDonor, inc)) {
         out ||= incomingItems.slice();

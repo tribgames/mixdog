@@ -36,10 +36,20 @@ const replace = (id, text) => {
   renameSync(`${fileOf(id)}.tmp`, fileOf(id));
 };
 for (const id of ids) replace(id, record(id));
-// Stamps younger than the racy window are never trusted.
-await new Promise((resolve) => setTimeout(resolve, 2_200));
+// Stamps younger than the racy windows (2 s lifecycle, 2.5 s projection) are
+// never trusted.
+await new Promise((resolve) => setTimeout(resolve, 2_700));
 
-test.after(() => rmSync(root, { recursive: true, force: true }));
+test.after(async () => {
+  // The cold projection loads the store, whose summary-index writes land in
+  // the data dir after the read returns; let them finish before removing it.
+  const { settleSessionSummaryIndex } = await import('./store/listing.mjs');
+  await settleSessionSummaryIndex();
+  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  // Modules the projection loaded flush into the data dir from their own exit
+  // hooks and recreate it; this hook is registered after theirs, so it runs last.
+  process.once('exit', () => rmSync(root, { recursive: true, force: true }));
+});
 
 function countReads(t) {
   const original = fs.readFileSync;

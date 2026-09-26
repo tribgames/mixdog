@@ -1,11 +1,17 @@
 import { createHash } from 'node:crypto';
 import { estimateTokens } from './token-estimate.mjs';
+import { isWhitespace } from './token-estimate-floors.mjs';
+import { positiveInt } from '../../../shared/numbers.mjs';
 import { createContextFingerprinter } from './context-fingerprint.mjs';
 import {
   isFinalizedProviderRequestTools,
   providerNativeToolPrefixCount,
 } from '../../../../session-runtime/provider-request-tools.mjs';
-import { contentFileDescriptors, contentImageDescriptors, contentToText } from '../providers/media-normalization.mjs';
+import {
+  contentFileDescriptors,
+  contentImageDescriptors,
+  contentToEstimateText,
+} from '../providers/media-normalization.mjs';
 
 export {
   dedupToolResultBodies,
@@ -157,13 +163,17 @@ function nativeBlocksEstimateText(value) {
     })
     .join('\n');
 }
-function messageEstimateText(m) {
+// `projection`, when given, also receives the provider-replay piece as
+// `replay`, so messageTextTokens need not rebuild it.
+function messageEstimateText(m, projection = null) {
   if (!m || typeof m !== 'object') return '';
   // Multimodal image payloads remain on the live message for provider sends,
   // but their base64/data-url JSON is not text and must not dominate local
   // context estimates. Use the same media-aware text projection for every
   // estimate consumer (live gauge, compaction fallback, and summaries).
-  let text = contentToText(m.content, '');
+  // A referenced attachment whose blob is gone degrades instead of failing
+  // every estimate (and so every compaction) of the session.
+  let text = contentToEstimateText(m.content, '');
   if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
     try {
       text += `\n${JSON.stringify(m.toolCalls)}`;
@@ -174,7 +184,9 @@ function messageEstimateText(m) {
   const providerReplayItems =
     m.role === 'assistant' && Array.isArray(m.providerReplay?.items) ? m.providerReplay.items : null;
   if (providerReplayItems?.length) {
-    text += `\n${nativeBlocksEstimateText(providerReplayItems)}`;
+    const replay = nativeBlocksEstimateText(providerReplayItems);
+    if (projection) projection.replay = replay;
+    text += `\n${replay}`;
   }
   // Anthropic adaptive-thinking blocks round-trip verbatim (thinking text +
   // signature / redacted data) and are re-sent on tool-continuation turns, so
@@ -209,7 +221,7 @@ function messageEstimateText(m) {
 // projection is ever undercounted and nothing is counted twice.
 // messageEstimateText itself stays byte-identical — prefix signatures and
 // fingerprints hash the full concatenation and must not shift across deploys.
-function messageTextTokens(m, precomputedText = null) {
+function messageTextTokens(m, precomputedText = null, precomputedReplay = null) {
   const text = precomputedText ?? messageEstimateText(m);
   const replayItems =
     m?.role === 'assistant' && Array.isArray(m.providerReplay?.items) && m.providerReplay.items.length
@@ -217,7 +229,7 @@ function messageTextTokens(m, precomputedText = null) {
       : null;
   const fullTokens = estimateTokens(text);
   if (!replayItems) return fullTokens;
-  const replayTokens = estimateTokens(nativeBlocksEstimateText(replayItems));
+  const replayTokens = estimateTokens(precomputedReplay ?? nativeBlocksEstimateText(replayItems));
   return Math.max(fullTokens - replayTokens, replayTokens);
 }
 function imageDescriptorAllowance(descriptor) {
@@ -288,8 +300,8 @@ export function messageAttachmentBreakdown(m) {
 // The one per-message meter: replay-aware text tokens plus the image AND
 // document allowances. The gauge summary and the compaction pressure estimate
 // must price a message identically.
-function meteredMessageTokens(m, precomputedText = null) {
-  return messageTextTokens(m, precomputedText) + messageImageAllowance(m) + messageFileAllowance(m) + 4;
+function meteredTokensFromText(m, textTokens) {
+  return textTokens + messageImageAllowance(m) + messageFileAllowance(m) + 4;
 }
 // Compaction, pressure and budget checks re-price the same live message
 // objects many times per turn. Memoize the meter per message object, validated
@@ -406,16 +418,83 @@ function meteredMessageEntry(m) {
     meteredMessageMemo.delete(m);
     return null;
   }
-  const entry = { snapshot, tokens: undefined };
+  const entry = {
+    snapshot,
+    tokens: undefined,
+    textTokens: undefined,
+    reasoningTokens: undefined,
+    toolCallTokens: undefined,
+  };
   meteredMessageMemo.set(m, entry);
   return entry;
 }
 
-export function estimateMessageTokens(m) {
-  const entry = meteredMessageEntry(m);
-  if (!entry) return meteredMessageTokens(m);
-  entry.tokens ??= meteredMessageTokens(m);
+// A value derived only from the metered fields, kept on the memo entry.
+function memoizedEntryValue(entry, field, compute) {
+  if (!entry) return compute();
+  entry[field] ??= compute();
+  return entry[field];
+}
+
+// One message's estimate text (and its replay piece), built at most once for
+// every consumer that asks for it while that message is being metered.
+function lazyEstimateProjection(m) {
+  let projection = null;
+  return () => {
+    if (!projection) {
+      const next = { text: '', replay: null };
+      next.text = messageEstimateText(m, next);
+      projection = next;
+    }
+    return projection;
+  };
+}
+
+const NO_PROJECTION = () => null;
+
+function projectedTextTokens(m, projectionOf) {
+  const projection = projectionOf();
+  return messageTextTokens(m, projection?.text ?? null, projection?.replay ?? null);
+}
+
+// messageTextTokens(m) through the memo entry; `projectionOf` supplies the
+// estimate text only when it must be computed.
+function memoizedTextTokens(m, entry, projectionOf = NO_PROJECTION) {
+  if (!entry) return projectedTextTokens(m, projectionOf);
+  entry.textTokens ??= projectedTextTokens(m, projectionOf);
+  return entry.textTokens;
+}
+
+function memoizedMessageTokens(m, entry, projectionOf) {
+  if (!entry) return meteredTokensFromText(m, memoizedTextTokens(m, entry, projectionOf));
+  entry.tokens ??= meteredTokensFromText(m, memoizedTextTokens(m, entry, projectionOf));
   return entry.tokens;
+}
+
+export function estimateMessageTokens(m) {
+  return memoizedMessageTokens(m, meteredMessageEntry(m));
+}
+
+function memoizedReasoningTokens(m, entry, projectionOf) {
+  return memoizedEntryValue(
+    entry,
+    'reasoningTokens',
+    () => reasoningBreakdown(m, () => memoizedTextTokens(m, entry, projectionOf)).tokens
+  );
+}
+
+function memoizedToolCallTokens(m, entry) {
+  return memoizedEntryValue(entry, 'toolCallTokens', () => toolCallTokensOf(m.toolCalls));
+}
+
+// Everything the gauge contribution meters for one message, into its memo
+// entry; the contribution itself (fingerprint, reminder sections) is left to
+// the synchronous transcript pass, which then only reads these values.
+function primeMessageMeter(m, entry, projectionOf) {
+  memoizedMessageTokens(m, entry, projectionOf);
+  if (!entry || m.role !== 'assistant') return;
+  memoizedReasoningTokens(m, entry, projectionOf);
+  if (Array.isArray(m.toolCalls) && m.toolCalls.length) memoizedToolCallTokens(m, entry);
 }
 
 function isReasoningBlock(block) {
@@ -425,6 +504,12 @@ function isReasoningBlock(block) {
 // Split the current message's existing estimate, never add generation usage.
 // Use the same replay precedence and opaque-payload meter as the total.
 export function messageReasoningBreakdown(message) {
+  return reasoningBreakdown(message, () => messageTextTokens(message));
+}
+
+// `fullTextTokens` returns messageTextTokens(message); read only when the
+// message carries reasoning blocks.
+function reasoningBreakdown(message, fullTextTokens) {
   if (message?.role !== 'assistant') return { tokens: 0, blocks: [], message };
   const blocks = [];
   const withoutReasoning = (items) => {
@@ -448,7 +533,7 @@ export function messageReasoningBreakdown(message) {
     }
   }
   return {
-    tokens: blocks.length ? Math.max(0, messageTextTokens(message) - messageTextTokens(visible)) : 0,
+    tokens: blocks.length ? Math.max(0, fullTextTokens() - messageTextTokens(visible)) : 0,
     blocks,
     message: visible,
   };
@@ -456,6 +541,21 @@ export function messageReasoningBreakdown(message) {
 
 export function estimateMessagesTokens(messages) {
   return messages.reduce((sum, m) => sum + estimateMessageTokens(m), 0);
+}
+
+const PRIME_SLICE_MS = 20;
+
+/**
+ * Meter a (possibly cold, freshly loaded) transcript into the per-message
+ * memos in event-loop slices of ~PRIME_SLICE_MS, so the synchronous
+ * whole-transcript estimates that follow (estimateMessagesTokens,
+ * summarizeContextMessages) read memoized values instead of metering every
+ * message in one block. The memoized values are exactly what those calls
+ * compute. A message that fails to meter stops priming; the synchronous
+ * caller then meters it and reports the failure itself.
+ */
+export function primeMessageEstimates(messages) {
+  return primeContextEstimates(messages);
 }
 
 // Context status is polled while the agent loop mutates and replaces message
@@ -517,12 +617,16 @@ function contextMessageContribution(message) {
   const fingerprint = contextMessageFingerprint(message, cached?.fingerprint);
   if (cached && sameContextMessageFingerprint(cached.fingerprint, fingerprint)) return cached.contribution;
   const role = ['system', 'user', 'assistant', 'tool'].includes(fingerprint.role) ? fingerprint.role : 'other';
-  const text = messageEstimateText(message);
-  const tokens = meteredMessageTokens(message, text);
+  // Share the per-message meter memo with estimateMessageTokens: a transcript
+  // priced by both the gauge and the compaction plan is metered once.
+  const projectionOf = lazyEstimateProjection(message);
+  const textOf = () => projectionOf().text;
+  const entry = meteredMessageEntry(message);
+  const tokens = memoizedMessageTokens(message, entry, projectionOf);
   const contribution = {
     role,
     tokens,
-    reasoningTokens: messageReasoningBreakdown(message).tokens,
+    reasoningTokens: memoizedReasoningTokens(message, entry, projectionOf),
     reminderBuckets: null,
     systemWorkflowTokens: 0,
     toolCallCount: 0,
@@ -532,16 +636,16 @@ function contextMessageContribution(message) {
   };
   if (
     role === 'user' &&
-    String(text || '')
+    String(textOf() || '')
       .trim()
       .startsWith('<system-reminder>')
   ) {
-    contribution.reminderBuckets = reminderBucketsFor(text, tokens);
+    contribution.reminderBuckets = reminderBucketsFor(textOf(), tokens);
   }
-  if (role === 'system') contribution.systemWorkflowTokens = systemWorkflowTokensOf(text);
+  if (role === 'system') contribution.systemWorkflowTokens = systemWorkflowTokensOf(textOf());
   if (fingerprint.role === 'assistant' && Array.isArray(message?.toolCalls) && message.toolCalls.length) {
     contribution.toolCallCount = message.toolCalls.length;
-    contribution.toolCallTokens = toolCallTokensOf(message.toolCalls);
+    contribution.toolCallTokens = memoizedToolCallTokens(message, entry);
   }
   if (message && typeof message === 'object') {
     contextMessageMemo.set(message, { fingerprint, contribution });
@@ -793,7 +897,14 @@ function samePrefixContributions(previous, current, end) {
 // the last one. A new turn therefore serializes only the messages it appended
 // or edited, never the settled transcript before them; the digest is exactly
 // the one a from-scratch hash produces.
+// Besides the sparse checkpoints, a chain keeps the exact state after each of
+// its last SIGNATURE_RECENT_STATES messages (`states`, keyed by prefix
+// length): the tail is where turns append, stream and restore arguments in
+// place, so an edit there rewinds to the message before it and a prefix
+// check just behind the tail resumes from its own state — the settled
+// messages between the last checkpoint and the edit are not re-serialized.
 const SIGNATURE_CHECKPOINT_INTERVAL = 64;
+const SIGNATURE_RECENT_STATES = 64;
 const signatureChains = new WeakMap();
 
 function signatureChainFor(list, kind) {
@@ -807,25 +918,230 @@ function signatureChainFor(list, kind) {
   let chain = chains.get(kind);
   if (!chain) {
     const origin = createHash('sha256');
-    chain = { refs: [], entries: [], checkpoints: [origin], tail: origin };
+    chain = { refs: [], entries: [], checkpoints: [origin], states: new Map(), tail: origin };
     chains.set(kind, chain);
   }
   return chain;
 }
 
-function hashMessageIdentity(hash, identity) {
-  hash.update(JSON.stringify(identity));
-  hash.update('\0');
+function pruneSignatureStates(chain) {
+  const oldest = chain.refs.length - SIGNATURE_RECENT_STATES;
+  for (const length of chain.states.keys()) {
+    if (length <= oldest || length > chain.refs.length) chain.states.delete(length);
+  }
 }
 
-function transcriptPrefixDigest(list, end, kind, messageIdentity) {
-  const chain = signatureChainFor(list, kind);
-  if (!chain) {
-    const hash = createHash('sha256');
-    for (let index = 0; index < end; index += 1) hashMessageIdentity(hash, messageIdentity(list[index]));
-    return hash.digest('hex');
+// --- Identity serialization -------------------------------------------------
+//
+// A message's identity is hashed as the UTF-8 bytes of JSON.stringify(identity)
+// followed by '\0'. The bytes are produced here directly into a reused scratch
+// buffer: the transcript text inside an identity is escaped (and, for the
+// shape identity, normalized) on the fly instead of first building the
+// escaped JSON, the placeholder-stripped copy and the whitespace-collapsed
+// copy of every message. The byte stream — and so every digest — is exactly
+// the one JSON.stringify produces.
+const IDENTITY_SCRATCH = Buffer.allocUnsafe(1 << 16);
+const HEX_DIGITS = '0123456789abcdef';
+// \b \t \n \f \r: the control characters JSON.stringify escapes by letter.
+const SHORT_ESCAPES = new Uint8Array(32);
+SHORT_ESCAPES[0x08] = 0x62;
+SHORT_ESCAPES[0x09] = 0x74;
+SHORT_ESCAPES[0x0a] = 0x6e;
+SHORT_ESCAPES[0x0c] = 0x66;
+SHORT_ESCAPES[0x0d] = 0x72;
+let identityPos = 0;
+let identityHash = null;
+
+function flushIdentity() {
+  if (identityPos) identityHash.update(IDENTITY_SCRATCH.subarray(0, identityPos));
+  identityPos = 0;
+}
+
+function reserveIdentity(bytes) {
+  if (identityPos + bytes > IDENTITY_SCRATCH.length) flushIdentity();
+}
+
+function putUnicodeEscape(code) {
+  const s = IDENTITY_SCRATCH;
+  s[identityPos++] = 0x5c;
+  s[identityPos++] = 0x75;
+  s[identityPos++] = HEX_DIGITS.charCodeAt((code >> 12) & 15);
+  s[identityPos++] = HEX_DIGITS.charCodeAt((code >> 8) & 15);
+  s[identityPos++] = HEX_DIGITS.charCodeAt((code >> 4) & 15);
+  s[identityPos++] = HEX_DIGITS.charCodeAt(code & 15);
+}
+
+// Writes the code unit at `index` of `text` (a whole surrogate pair when one
+// starts there) as UTF-8, JSON-escaped when `escape`; returns the next index.
+function putCodeUnit(text, index, escape) {
+  reserveIdentity(6);
+  const s = IDENTITY_SCRATCH;
+  const c = text.charCodeAt(index);
+  if (c < 0x80) {
+    if (!escape || (c >= 0x20 && c !== 0x22 && c !== 0x5c)) {
+      s[identityPos++] = c;
+    } else if (c === 0x22 || c === 0x5c) {
+      s[identityPos++] = 0x5c;
+      s[identityPos++] = c;
+    } else if (SHORT_ESCAPES[c]) {
+      s[identityPos++] = 0x5c;
+      s[identityPos++] = SHORT_ESCAPES[c];
+    } else {
+      putUnicodeEscape(c);
+    }
+    return index + 1;
   }
-  const limit = Math.min(chain.refs.length, end);
+  if (c < 0x800) {
+    s[identityPos++] = 0xc0 | (c >> 6);
+    s[identityPos++] = 0x80 | (c & 0x3f);
+    return index + 1;
+  }
+  if (c >= 0xd800 && c <= 0xdfff) {
+    const next = c <= 0xdbff && index + 1 < text.length ? text.charCodeAt(index + 1) : 0;
+    if (next >= 0xdc00 && next <= 0xdfff) {
+      const point = (c - 0xd800) * 0x400 + (next - 0xdc00) + 0x10000;
+      s[identityPos++] = 0xf0 | (point >> 18);
+      s[identityPos++] = 0x80 | ((point >> 12) & 0x3f);
+      s[identityPos++] = 0x80 | ((point >> 6) & 0x3f);
+      s[identityPos++] = 0x80 | (point & 0x3f);
+      return index + 2;
+    }
+    // A lone surrogate: JSON.stringify escapes it (raw JSON never has one).
+    putUnicodeEscape(c);
+    return index + 1;
+  }
+  s[identityPos++] = 0xe0 | (c >> 12);
+  s[identityPos++] = 0x80 | ((c >> 6) & 0x3f);
+  s[identityPos++] = 0x80 | (c & 0x3f);
+  return index + 1;
+}
+
+function putRaw(text) {
+  for (let index = 0; index < text.length; ) index = putCodeUnit(text, index, false);
+}
+
+function putJsonString(text) {
+  putRaw('"');
+  for (let index = 0; index < text.length; ) index = putCodeUnit(text, index, true);
+  putRaw('"');
+}
+
+// One element of an identity array (strings escaped here; the other values
+// are small plain data and serialize through JSON.stringify).
+function putJsonElement(value) {
+  if (typeof value === 'string') putJsonString(value);
+  else putRaw(JSON.stringify(value) ?? 'null');
+}
+
+const STORED_MEDIA_PLACEHOLDER_PREFIXES = [
+  '[Image omitted from stored history',
+  '[File omitted from stored history',
+];
+
+// JSON.stringify of
+//   text.replace(/\[(?:Image|File) omitted from stored history[^\]]*\]/g, ' ')
+//       .replace(/\s+/g, ' ').trim()
+// written in one pass; returns how many placeholders were replaced.
+function putShapeText(text) {
+  putRaw('"');
+  let placeholders = 0;
+  let emitted = false;
+  let pendingSpace = false;
+  let closable = true;
+  for (let index = 0; index < text.length; ) {
+    const c = text.charCodeAt(index);
+    if (c === 0x5b && closable) {
+      let prefix = null;
+      for (const candidate of STORED_MEDIA_PLACEHOLDER_PREFIXES) {
+        if (text.startsWith(candidate, index)) prefix = candidate;
+      }
+      if (prefix) {
+        const close = text.indexOf(']', index + prefix.length);
+        // No `]` after this one means no later placeholder can close either.
+        if (close < 0) {
+          closable = false;
+        } else {
+          placeholders += 1;
+          pendingSpace = emitted;
+          index = close + 1;
+          continue;
+        }
+      }
+    }
+    if (isWhitespace(c)) {
+      pendingSpace = emitted;
+      index += 1;
+      continue;
+    }
+    if (pendingSpace) {
+      putRaw(' ');
+      pendingSpace = false;
+    }
+    index = putCodeUnit(text, index, true);
+    emitted = true;
+  }
+  putRaw('"');
+  return placeholders;
+}
+
+function beginIdentity(hash) {
+  identityHash = hash;
+  identityPos = 0;
+}
+
+function endIdentity() {
+  putRaw('\0');
+  flushIdentity();
+  identityHash = null;
+}
+
+// JSON.stringify([role, toolCallId, estimateText, imageAllowance, images]).
+// Every value is taken before anything is written, so a throwing projection
+// leaves `hash` untouched.
+function hashExactIdentity(hash, message, text = messageEstimateText(message)) {
+  const role = message?.role || '';
+  const toolCallId = message?.toolCallId || '';
+  const allowance = messageImageAllowance(message);
+  const images = messageImageDescriptors(message);
+  beginIdentity(hash);
+  putRaw('[');
+  putJsonElement(role);
+  putRaw(',');
+  putJsonElement(toolCallId);
+  putRaw(',');
+  putJsonString(text);
+  putRaw(',');
+  putJsonElement(allowance);
+  putRaw(',');
+  putJsonElement(images);
+  putRaw(']');
+  endIdentity();
+}
+
+// JSON.stringify([role, toolCallId, shapeText, images + placeholders]):
+// storage-form-independent (see contextMessagesShapeSignature).
+function hashShapeIdentity(hash, message) {
+  const role = message?.role || '';
+  const toolCallId = message?.toolCallId || '';
+  const text = messageEstimateText(message);
+  const images = messageImageDescriptors(message).length;
+  beginIdentity(hash);
+  putRaw('[');
+  putJsonElement(role);
+  putRaw(',');
+  putJsonElement(toolCallId);
+  putRaw(',');
+  const placeholders = putShapeText(text);
+  putRaw(',');
+  putJsonElement(images + placeholders);
+  putRaw(']');
+  endIdentity();
+}
+
+// Rewinds `chain` to the longest prefix of its first `limit` messages that
+// `list` still carries unchanged: exactly, when a recent state covers it,
+// else to the last checkpoint inside it.
+function rewindSignatureChain(list, chain, limit) {
   let valid = 0;
   while (
     valid < limit &&
@@ -834,19 +1150,37 @@ function transcriptPrefixDigest(list, end, kind, messageIdentity) {
   ) {
     valid += 1;
   }
-  if (valid < limit) {
-    // Rewind to the last checkpoint inside the still-valid prefix.
+  if (valid >= limit) return;
+  const state = chain.states.get(valid);
+  if (state) {
+    chain.refs.length = valid;
+    chain.tail = state;
+  } else {
     const keep = Math.floor(valid / SIGNATURE_CHECKPOINT_INTERVAL);
-    chain.checkpoints.length = keep + 1;
     chain.refs.length = keep * SIGNATURE_CHECKPOINT_INTERVAL;
-    chain.entries.length = chain.refs.length;
     chain.tail = chain.checkpoints[keep];
   }
+  chain.entries.length = chain.refs.length;
+  chain.checkpoints.length = Math.floor(chain.refs.length / SIGNATURE_CHECKPOINT_INTERVAL) + 1;
+  pruneSignatureStates(chain);
+}
+
+function transcriptPrefixDigest(list, end, kind, hashIdentity) {
+  const chain = signatureChainFor(list, kind);
+  if (!chain) {
+    const hash = createHash('sha256');
+    for (let index = 0; index < end; index += 1) hashIdentity(hash, list[index]);
+    return hash.digest('hex');
+  }
+  rewindSignatureChain(list, chain, Math.min(chain.refs.length, end));
   const chained = chain.refs.length;
   let start = chained;
   let hash;
   if (end >= chained) {
     hash = chain.tail.copy();
+  } else if (chain.states.has(end)) {
+    start = end;
+    hash = chain.states.get(end).copy();
   } else {
     const checkpoint = Math.floor(end / SIGNATURE_CHECKPOINT_INTERVAL);
     start = checkpoint * SIGNATURE_CHECKPOINT_INTERVAL;
@@ -858,6 +1192,7 @@ function transcriptPrefixDigest(list, end, kind, messageIdentity) {
   const refs = [];
   const entries = [];
   const checkpoints = [];
+  const states = [];
   let tail = null;
   for (let index = start; index < end; index += 1) {
     const message = list[index];
@@ -871,8 +1206,12 @@ function transcriptPrefixDigest(list, end, kind, messageIdentity) {
         tail = hash.copy();
       }
     }
-    hashMessageIdentity(hash, messageIdentity(message));
-    if (extending && (index + 1) % SIGNATURE_CHECKPOINT_INTERVAL === 0) checkpoints.push(hash.copy());
+    hashIdentity(hash, message);
+    if (extending) {
+      const length = index + 1;
+      if (length % SIGNATURE_CHECKPOINT_INTERVAL === 0) checkpoints.push(hash.copy());
+      if (length > end - SIGNATURE_RECENT_STATES) states.push([length, hash.copy()]);
+    }
   }
   if (refs.length) {
     for (let index = 0; index < refs.length; index += 1) {
@@ -880,7 +1219,9 @@ function transcriptPrefixDigest(list, end, kind, messageIdentity) {
       chain.entries.push(entries[index]);
     }
     for (const checkpoint of checkpoints) chain.checkpoints.push(checkpoint);
+    for (const [length, state] of states) chain.states.set(length, state);
     chain.tail = tail || hash.copy();
+    pruneSignatureStates(chain);
   }
   return hash.digest('hex');
 }
@@ -891,7 +1232,7 @@ function transcriptPrefixDigest(list, end, kind, messageIdentity) {
 // a whole transcript on every pressure check; otherwise the digest comes from
 // the incremental `kind` chain and is remembered per prefix length, most
 // recent CONTEXT_SIGNATURE_COUNTS_MAX kept.
-function memoizedTranscriptSignature(messages, count, kind, messageIdentity) {
+function memoizedTranscriptSignature(messages, count, kind, hashIdentity) {
   const list = Array.isArray(messages) ? messages : [];
   const end = Math.max(0, Math.min(list.length, Number.isInteger(count) ? count : list.length));
   let signatures = null;
@@ -906,7 +1247,7 @@ function memoizedTranscriptSignature(messages, count, kind, messageIdentity) {
       return previous.signature;
     }
   }
-  const signature = transcriptPrefixDigest(list, end, kind, messageIdentity);
+  const signature = transcriptPrefixDigest(list, end, kind, hashIdentity);
   if (transcript) {
     const contributions = transcript.contributions.slice(0, end);
     signatures ||= new Map();
@@ -923,13 +1264,158 @@ function memoizedTranscriptSignature(messages, count, kind, messageIdentity) {
 }
 
 export function contextMessagesSignature(messages, count = messages?.length) {
-  return memoizedTranscriptSignature(messages, count, 'exact', (message) => [
-    message?.role || '',
-    message?.toolCallId || '',
-    messageEstimateText(message),
-    messageImageAllowance(message),
-    messageImageDescriptors(message),
-  ]);
+  return memoizedTranscriptSignature(messages, count, 'exact', hashExactIdentity);
+}
+
+// --- Sliced priming ----------------------------------------------------------
+//
+// A chain being extended by a primer: its tail is the primer's own working
+// hash, advanced in place, so after every absorbed message the chain is
+// complete and consistent (another pass may use it between slices; if that
+// pass moves the tail, the primer stops and the chain is that pass's).
+function openChainPrime(list, kind) {
+  const chain = signatureChainFor(list, kind);
+  if (!chain) return null;
+  rewindSignatureChain(list, chain, Math.min(chain.refs.length, list.length));
+  const hash = chain.tail.copy();
+  chain.tail = hash;
+  return { chain, hash, recentFrom: list.length - SIGNATURE_RECENT_STATES };
+}
+
+// Absorbs list[chain length] exactly as transcriptPrefixDigest would (same
+// hash sequence, checkpoints and recent states); false when it cannot.
+function extendChainPrime(prime, message, entry, hashIdentity) {
+  if (!entry || prime.chain.tail !== prime.hash) return false;
+  hashIdentity(prime.hash);
+  const { chain, hash } = prime;
+  chain.refs.push(message);
+  chain.entries.push(entry);
+  const length = chain.refs.length;
+  if (length % SIGNATURE_CHECKPOINT_INTERVAL === 0) chain.checkpoints.push(hash.copy());
+  if (length > prime.recentFrom) chain.states.set(length, hash.copy());
+  return true;
+}
+
+function closeChainPrime(prime) {
+  if (prime.chain.tail === prime.hash) pruneSignatureStates(prime.chain);
+}
+
+// The digest of the first `end` messages of a chain a primer just completed
+// over `list`, without revalidating it: the same value transcriptPrefixDigest
+// returns.
+function primedChainDigest(list, chain, end, hashIdentity) {
+  const state = chain.states.get(end);
+  if (state) return state.copy().digest('hex');
+  const checkpoint = Math.floor(end / SIGNATURE_CHECKPOINT_INTERVAL);
+  const hash = chain.checkpoints[checkpoint].copy();
+  for (let index = checkpoint * SIGNATURE_CHECKPOINT_INTERVAL; index < end; index += 1) {
+    hashIdentity(hash, list[index]);
+  }
+  return hash.digest('hex');
+}
+
+// Every primer in the process shares one ~PRIME_SLICE_MS budget per
+// event-loop turn: many panes priming at once (boot) would otherwise each
+// take a full slice back-to-back inside one check phase. All waiters resume
+// on the same immediate; the first spends the turn, the rest wait again.
+let primeTurnStart = -Infinity;
+let nextPrimeTurn = null;
+
+function primeTurnSpent() {
+  return performance.now() - primeTurnStart >= PRIME_SLICE_MS;
+}
+
+function yieldSlice() {
+  nextPrimeTurn ??= new Promise((resolve) => {
+    setImmediate(() => {
+      nextPrimeTurn = null;
+      primeTurnStart = performance.now();
+      resolve();
+    });
+  });
+  return nextPrimeTurn;
+}
+
+// Extends the `kind` chain of `list` to its full length in slices.
+async function primeSignatureChain(list, kind, hashIdentity) {
+  const prime = openChainPrime(list, kind);
+  if (!prime) return;
+  while (prime.chain.refs.length < list.length) {
+    while (primeTurnSpent()) await yieldSlice();
+    const message = list[prime.chain.refs.length];
+    if (!extendChainPrime(prime, message, meteredMessageEntry(message), (hash) => hashIdentity(hash, message))) break;
+  }
+  closeChainPrime(prime);
+}
+
+// The gates providerBaselineCoverage (loop/compact-policy.mjs) applies before
+// it reads any transcript signature: priming signatures that no reader will
+// ask for would only allocate.
+function baselineSignaturesRead(messages, baseline) {
+  if (!baseline || baseline.lastContextTokensStaleAfterCompact === true) return false;
+  if (!String(baseline.contextPressureBaselinePrefixSignature || '')) return false;
+  if (!positiveInt(baseline.contextPressureBaselineTokens)) return false;
+  const count = Number(baseline.contextPressureBaselineMessageCount);
+  if (!Number.isInteger(count) || count < 0 || count > messages.length) return false;
+  const baselineAt = Number(baseline.contextPressureBaselineUpdatedAt || 0);
+  const compactAt = Number(baseline.compaction?.lastChangedAt || baseline.compaction?.lastCompactAt || 0);
+  if (compactAt > 0 && baselineAt > 0 && baselineAt < compactAt) return false;
+  return (
+    baseline.contextPressureBaselineProvider === (baseline.provider || null) &&
+    baseline.contextPressureBaselineModel === (baseline.model || null)
+  );
+}
+
+/**
+ * Meter a (possibly cold, freshly loaded) transcript into the per-message
+ * memos, plus the signatures a provider-baseline check will read (exact, and
+ * shape when the exact prefix no longer matches), in event-loop slices of
+ * ~PRIME_SLICE_MS, so the synchronous whole-transcript estimates that follow
+ * read memoized values. One pass: each message's estimate text is built once
+ * and shared by its meter and its exact identity. `baseline` carries the
+ * session's contextPressureBaseline* (and provider/model/compaction) fields.
+ * The values later computed are unchanged; only when they are computed
+ * moves. A message that fails to meter stops priming; the synchronous caller
+ * then meters it and reports the failure itself.
+ */
+export async function primeContextEstimates(messages, baseline = null) {
+  if (!Array.isArray(messages)) return;
+  let exact = baselineSignaturesRead(messages, baseline) ? openChainPrime(messages, 'exact') : null;
+  try {
+    for (let index = 0; index < messages.length; index += 1) {
+      while (primeTurnSpent()) await yieldSlice();
+      const message = messages[index];
+      const entry = meteredMessageEntry(message);
+      const projectionOf = lazyEstimateProjection(message);
+      primeMessageMeter(message, entry, projectionOf);
+      if (
+        exact &&
+        exact.chain.refs.length === index &&
+        !extendChainPrime(exact, message, entry, (hash) => hashExactIdentity(hash, message, projectionOf().text))
+      ) {
+        closeChainPrime(exact);
+        exact = null;
+      }
+    }
+  } catch {
+    if (exact) closeChainPrime(exact);
+    return;
+  }
+  if (!exact) return;
+  closeChainPrime(exact);
+  if (exact.chain.tail !== exact.hash || exact.chain.refs.length !== messages.length) return;
+  const count = Number(baseline.contextPressureBaselineMessageCount);
+  try {
+    if (
+      baseline.contextPressureBaselineShapeSignature &&
+      primedChainDigest(messages, exact.chain, count, hashExactIdentity) !==
+        String(baseline.contextPressureBaselinePrefixSignature)
+    ) {
+      await primeSignatureChain(messages, 'shape', hashShapeIdentity);
+    }
+  } catch {
+    // The synchronous signature path computes (and reports) it itself.
+  }
 }
 
 // Storage-form-independent transcript identity.
@@ -942,28 +1428,10 @@ export function contextMessagesSignature(messages, count = messages?.length) {
 // estimate — measured at 1.1x-4.9x the provider's own prompt across real stored
 // sessions. This projection reduces media to a per-message count and collapses
 // whitespace, so both storage forms of one transcript hash identically while any
-// real change to role, tool identity, or text still changes the hash.
-const STORED_MEDIA_PLACEHOLDER_RE = /\[(?:Image|File) omitted from stored history[^\]]*\]/g;
-
-function messageShapeText(message) {
-  let placeholders = 0;
-  const text = messageEstimateText(message).replace(STORED_MEDIA_PLACEHOLDER_RE, () => {
-    placeholders += 1;
-    return ' ';
-  });
-  return { text: text.replace(/\s+/g, ' ').trim(), placeholders };
-}
-
+// real change to role, tool identity, or text still changes the hash. The
+// projection itself is hashShapeIdentity / putShapeText above.
 export function contextMessagesShapeSignature(messages, count = messages?.length) {
-  return memoizedTranscriptSignature(messages, count, 'shape', (message) => {
-    const shape = messageShapeText(message);
-    return [
-      message?.role || '',
-      message?.toolCallId || '',
-      shape.text,
-      messageImageDescriptors(message).length + shape.placeholders,
-    ];
-  });
+  return memoizedTranscriptSignature(messages, count, 'shape', hashShapeIdentity);
 }
 
 const toolSchemaAnalysisMemo = new WeakMap();

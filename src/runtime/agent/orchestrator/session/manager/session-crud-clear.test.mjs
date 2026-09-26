@@ -11,6 +11,7 @@ mkdirSync(join(root, 'sessions'));
 const { drainSessionStore, saveSessionAsync } = await import('../store.mjs');
 const { SUMMARY_PREFIX } = await import('../compact.mjs');
 const { clearSessionMessages } = await import('./session-crud.mjs');
+const { settleSessionSummaryIndex } = await import('../store/listing.mjs');
 
 async function removeDataDir(dir) {
   for (let attempt = 0; ; attempt += 1) {
@@ -26,6 +27,9 @@ async function removeDataDir(dir) {
 
 test.after(async () => {
   drainSessionStore();
+  // Summary-index writes queued by the saves land after they resolve and
+  // would recreate the directory (session-summaries.json) behind the rm.
+  await settleSessionSummaryIndex();
   if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
   else process.env.MIXDOG_DATA_DIR = previousDataDir;
   await removeDataDir(root);

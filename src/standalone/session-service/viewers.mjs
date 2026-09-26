@@ -15,6 +15,8 @@
  * without a second subscribe round-trip.
  */
 
+import { requestLiveTranscriptWindow } from './projection/transcript-window.mjs';
+
 /**
  * @param {object} deps
  * @param {Set<object>} deps.sessions
@@ -34,10 +36,27 @@ export function createViewerRegistry({
   currentSessionId,
   destroy,
   forgetStoredSession,
+  releaseProjection = () => {},
 }) {
+  // Client tokens whose reads/subscriptions announced `transcriptPrepend`:
+  // their frames may carry an older-history page as `patch.itemsPrepend`.
+  const prependViewers = new Set();
+  // sessionId -> (token -> transcript window it subscribed with, null for a
+  // legacy whole-transcript view). A cold view's window must survive the
+  // session going live: an entry adopted without one published the runtime's
+  // WHOLE transcript to a 32-item / 1 MB tail view (9-20 MB first frames).
+  const pendingWindows = new Map();
+
   function subscriberToken(ctx) {
     return ctx?.clientToken ? String(ctx.clientToken) : '';
   }
+
+  function notePrependViewer(ctx, params) {
+    const token = subscriberToken(ctx);
+    if (token && params?.transcriptPrepend === true) prependViewers.add(token);
+  }
+
+  const prependViewer = (token) => prependViewers.has(String(token || ''));
 
   function addSubscriber(entry, ctx) {
     const token = subscriberToken(ctx);
@@ -52,7 +71,16 @@ export function createViewerRegistry({
     return entry;
   }
 
-  function trackPendingViewer(sessionId, ctx) {
+  function forgetPendingWindow(sessionId, token) {
+    const windows = pendingWindows.get(sessionId);
+    if (!windows) return;
+    windows.delete(token);
+    if (windows.size === 0) pendingWindows.delete(sessionId);
+  }
+
+  /** `window`: the transcript window this cold view subscribed with
+   *  (requestedTranscriptWindow; null for a legacy whole-transcript view). */
+  function trackPendingViewer(sessionId, ctx, window = null) {
     const token = subscriberToken(ctx);
     if (!token) return;
     let tokens = pendingViewers.get(sessionId);
@@ -61,6 +89,12 @@ export function createViewerRegistry({
       pendingViewers.set(sessionId, tokens);
     }
     tokens.add(token);
+    let windows = pendingWindows.get(sessionId);
+    if (!windows) {
+      windows = new Map();
+      pendingWindows.set(sessionId, windows);
+    }
+    windows.set(token, window);
   }
 
   /** Returns whether any cold viewer of this session remains. */
@@ -69,15 +103,24 @@ export function createViewerRegistry({
     const tokens = pendingViewers.get(sessionId);
     if (!token || !tokens) return Boolean(tokens);
     tokens.delete(token);
+    forgetPendingWindow(sessionId, token);
     if (tokens.size === 0) pendingViewers.delete(sessionId);
     return tokens.size > 0;
   }
 
+  /** The entry now hosting `sessionId` takes over its cold viewers, each
+   *  with the transcript window it subscribed with. */
   function adoptPendingViewers(entry, sessionId) {
-    const tokens = pendingViewers.get(String(sessionId || ''));
+    const id = String(sessionId || '');
+    const tokens = pendingViewers.get(id);
+    const windows = pendingWindows.get(id);
+    pendingWindows.delete(id);
     if (!tokens) return;
-    pendingViewers.delete(String(sessionId || ''));
-    for (const token of tokens) addSubscriber(entry, { clientToken: token });
+    pendingViewers.delete(id);
+    for (const token of tokens) {
+      addSubscriber(entry, { clientToken: token });
+      if (windows?.has(token)) requestLiveTranscriptWindow(entry, windows.get(token));
+    }
   }
 
   /** A client that deregistered (or whose process died) stops being a viewer.
@@ -86,7 +129,9 @@ export function createViewerRegistry({
   function releaseClient(clientToken) {
     const token = String(clientToken || '');
     if (!token) return { ok: true };
+    prependViewers.delete(token);
     for (const [pendingId, tokens] of [...pendingViewers]) {
+      forgetPendingWindow(pendingId, token);
       if (tokens.delete(token) && tokens.size === 0) {
         pendingViewers.delete(pendingId);
         // The last cold view left: its disk projection is no longer needed.
@@ -104,6 +149,10 @@ export function createViewerRegistry({
         continue;
       }
       entry.retainedAt = Date.now();
+      // Same as the last unsubscribe: nobody reads the wire projection of an
+      // unwatched session, and a client that vanished never sends one. It
+      // stayed pinned (~1 MB per open session) until the runtime's eviction.
+      releaseProjection(entry);
       startEvictionSweep();
       log(`session ${currentSessionId(entry) || '(creating)'} unwatched (client ${token} gone) — retained`);
     }
@@ -115,5 +164,14 @@ export function createViewerRegistry({
     return { ok: true };
   }
 
-  return { subscriberToken, addSubscriber, trackPendingViewer, dropPendingViewer, adoptPendingViewers, releaseClient };
+  return {
+    subscriberToken,
+    addSubscriber,
+    trackPendingViewer,
+    dropPendingViewer,
+    adoptPendingViewers,
+    releaseClient,
+    notePrependViewer,
+    prependViewer,
+  };
 }

@@ -8,7 +8,6 @@ import React, {
   useMemo,
   useRef,
   useState,
-  type RefObject,
 } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
@@ -17,7 +16,6 @@ import { LocalPathMention } from './MarkdownLink';
 import { MxIcon } from './MxIcon';
 import { CodeDiff } from './transcript-diff';
 import { CopyControl, TextShimmer } from './transcript-primitives';
-import { requestTranscriptRowMeasure } from './transcript-measure';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
 import {
   desktopToolActivityCategoryGroups,
@@ -72,22 +70,13 @@ function toolActivityDisclosureKey(items: readonly TranscriptItem[], scope: stri
   return id ? `${scope}:tool-activity:${id}` : '';
 }
 
-/** Open state remembered per disclosure key across virtualized remounts; a
- *  flip re-measures the owning transcript row before paint. */
-function useRememberedDisclosure(
-  disclosureKey: string,
-  measureRef: RefObject<HTMLElement | null>
-): [open: boolean, toggle: () => void] {
+/** Open state remembered per disclosure key across virtualized remounts. The
+ *  transcript row's ResizeObserver picks up the height a flip changes. */
+function useRememberedDisclosure(disclosureKey: string): [open: boolean, toggle: () => void] {
   const [open, setOpen] = useState(() => (disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false));
   useLayoutEffect(() => {
     setOpen(disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false);
   }, [disclosureKey]);
-  const measuredOpen = useRef(open);
-  useLayoutEffect(() => {
-    if (measuredOpen.current === open) return;
-    measuredOpen.current = open;
-    requestTranscriptRowMeasure(measureRef.current);
-  }, [measureRef, open]);
   const toggle = () => {
     const next = !open;
     rememberToolDisclosure(disclosureKey, next);
@@ -96,16 +85,26 @@ function useRememberedDisclosure(
   return [open, toggle];
 }
 
-export function ToolActivityGroup({
-  items,
-  disclosureScope = '',
-}: {
+interface ToolActivityGroupProps {
   items: readonly TranscriptItem[];
   disclosureScope?: string;
-}) {
+}
+
+/** The live projection rebuilds a group's items array on every tick from the
+ *  same item objects; element identity is what decides a re-render. */
+function sameToolActivityGroupProps(previous: ToolActivityGroupProps, next: ToolActivityGroupProps): boolean {
+  if ((previous.disclosureScope ?? '') !== (next.disclosureScope ?? '')) return false;
+  if (previous.items === next.items) return true;
+  return previous.items.length === next.items.length && previous.items.every((item, index) => item === next.items[index]);
+}
+
+/** Memoized: every TranscriptList render re-invokes renderRow for each row. */
+export const ToolActivityGroup = React.memo(function ToolActivityGroup({
+  items,
+  disclosureScope = '',
+}: ToolActivityGroupProps) {
   const disclosureKey = toolActivityDisclosureKey(items, disclosureScope);
-  const groupRef = useRef<HTMLElement>(null);
-  const [open, toggleOpen] = useRememberedDisclosure(disclosureKey, groupRef);
+  const [open, toggleOpen] = useRememberedDisclosure(disclosureKey);
   const contentId = useId();
   const pending = items.some((item) => !toolItemDone(item));
   const categoryGroups = useMemo(() => desktopToolActivityCategoryGroups(items), [items]);
@@ -118,7 +117,7 @@ export function ToolActivityGroup({
   const label = categorySummary || t('Tool use');
 
   return (
-    <article ref={groupRef} className="tool-activity" data-surface="desktop" data-open={open ? 'true' : 'false'}>
+    <article className="tool-activity" data-surface="desktop" data-open={open ? 'true' : 'false'}>
       <button
         type="button"
         className="tool-header tool-activity-header"
@@ -150,7 +149,7 @@ export function ToolActivityGroup({
       <TranscriptArtifacts items={items} />
     </article>
   );
-}
+}, sameToolActivityGroupProps);
 
 function activityItemKey(item: TranscriptItem, index: number): string {
   return String(item.id ?? `${String(item.name || 'tool')}:${index}`);
@@ -167,7 +166,6 @@ function ToolActivityDetails({
   groups: ReturnType<typeof desktopToolActivityCategoryGroups>;
   disclosureKey: string;
 }) {
-  const rootRef = useRef<HTMLDivElement>(null);
   const contentId = useId();
   const allItems = groups.flatMap((group) => group.items);
   const rememberedCategory = () =>
@@ -189,9 +187,6 @@ function ToolActivityDetails({
     const item = rememberedItem();
     setOpenItem(item ? activityItemKey(item, allItems.indexOf(item)) : null);
   }, [disclosureKey, groups]);
-  useLayoutEffect(() => {
-    requestTranscriptRowMeasure(rootRef.current);
-  }, [openCategory, openItem]);
 
   const rememberToggledDisclosure = (kind: 'category' | 'item', id: string, open: string | null): string | null => {
     const next = open === id ? null : id;
@@ -217,7 +212,7 @@ function ToolActivityDetails({
 
   let itemIndex = 0;
   return (
-    <div ref={rootRef} className="tool-activity-details">
+    <div className="tool-activity-details">
       {groups.map((group, groupIndex) => {
         const groupItems = group.items.map((item) => ({
           item,
@@ -335,10 +330,7 @@ type ToolActivityPresentation = ReturnType<typeof desktopToolActivityItemPresent
 
 /** Disclosure in two steps so the body can animate: it is mounted before it
  *  expands and stays mounted until the collapse transition is over. */
-function useToolActivityDisclosure(
-  panelOpen: boolean,
-  itemRef: RefObject<HTMLElement | null>
-): { rendered: boolean; expanded: boolean } {
+function useToolActivityDisclosure(panelOpen: boolean): { rendered: boolean; expanded: boolean } {
   const [rendered, setRendered] = useState(panelOpen);
   const [expanded, setExpanded] = useState(panelOpen);
   useLayoutEffect(() => {
@@ -354,9 +346,6 @@ function useToolActivityDisclosure(
     );
     return () => window.clearTimeout(timer);
   }, [panelOpen]);
-  useLayoutEffect(() => {
-    requestTranscriptRowMeasure(itemRef.current);
-  }, [rendered, expanded]);
   return { rendered, expanded };
 }
 
@@ -541,22 +530,15 @@ function ToolActivityItem({
   onToggle: () => void;
   contentId: string;
 }) {
-  const itemRef = useRef<HTMLElement>(null);
   const presentation = useMemo(() => desktopToolActivityItemPresentation(item), [item]);
   const panelOpen = open && presentation.hasDetails;
-  const { rendered, expanded } = useToolActivityDisclosure(panelOpen, itemRef);
+  const { rendered, expanded } = useToolActivityDisclosure(panelOpen);
 
   return (
     <article
-      ref={itemRef}
       className={`tool-activity-item ${presentation.tone}`}
       data-open={open ? 'true' : 'false'}
       data-expanded={expanded ? 'true' : 'false'}
-      onTransitionEnd={(event) => {
-        if (event.propertyName === 'grid-template-rows') {
-          requestTranscriptRowMeasure(itemRef.current);
-        }
-      }}
     >
       {renderToolActivityHeader({ presentation, open, onToggle, contentId })}
       {rendered && presentation.hasDetails && renderToolActivityDetails(presentation, contentId)}
@@ -566,8 +548,7 @@ function ToolActivityItem({
 
 export function ToolCard({ item, disclosureScope = '' }: { item: TranscriptItem; disclosureScope?: string }) {
   const disclosureKey = toolDisclosureKey(item, disclosureScope);
-  const cardRef = useRef<HTMLElement>(null);
-  const [open, toggleOpen] = useRememberedDisclosure(disclosureKey, cardRef);
+  const [open, toggleOpen] = useRememberedDisclosure(disclosureKey);
   const contentId = useId();
   const done = toolItemDone(item);
   const startedAt = Number(item.startedAt || 0);
@@ -629,7 +610,6 @@ export function ToolCard({ item, disclosureScope = '' }: { item: TranscriptItem;
   const detailRowVisible = Boolean(model.detailLine) && open;
   return (
     <article
-      ref={cardRef}
       className={`tool-card ${failure ? 'failed' : ''} ${warning ? 'warning' : ''} ${failureArrived ? 'failure-arrived' : ''} ${done ? 'settled' : ''}`}
       data-category={category}
       data-kind={errorCard ? 'tool-error-card' : undefined}

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createPrewarmSchedulers } from './prewarm.mjs';
+import { createAutomationProbe } from '../standalone/channel-admin.mjs';
 
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -133,6 +134,88 @@ test('automation autostart probes once and only boots the worker when automation
   await tick();
   assert.deepEqual(off.profiles, []);
   assert.equal(off.starts.length, 0);
+});
+
+test('the channel-start disable flag also stops the automation autostart before any probe', async () => {
+  let probes = 0;
+  const { schedulers, profiles, timers, starts } = fixture({
+    envFlag: (name) => name === 'MIXDOG_DISABLE_CHANNEL_START',
+    hasActiveAutomation: async () => {
+      probes += 1;
+      return true;
+    },
+  });
+  schedulers.scheduleAutomationAutostart(0);
+  schedulers.scheduleChannelStart(0);
+  await tick();
+  assert.deepEqual(events(profiles), ['channels:start-skipped', 'channels:start-skipped']);
+  assert.deepEqual(timers, {});
+  assert.equal(probes, 0);
+  assert.equal(starts.length, 0);
+});
+
+test('runtimes booting together share one automation probe and each still autostarts', async () => {
+  let checks = 0;
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const shared = createAutomationProbe(async () => {
+    checks += 1;
+    await gate;
+    return true;
+  });
+  const runtimes = Array.from({ length: 12 }, () => fixture({ hasActiveAutomation: shared.probe }));
+  for (const runtime of runtimes) runtime.schedulers.scheduleAutomationAutostart(0);
+  await tick();
+  release();
+  await tick();
+  assert.equal(checks, 1, 'concurrent runtimes join one in-flight probe');
+  for (const runtime of runtimes) assert.equal(runtime.starts.length, 1);
+
+  // A runtime created later reuses the settled answer instead of re-querying.
+  const late = fixture({ hasActiveAutomation: shared.probe });
+  late.schedulers.scheduleAutomationAutostart(0);
+  await tick();
+  assert.equal(checks, 1);
+  assert.equal(late.starts.length, 1);
+});
+
+test('the shared automation probe re-checks after a local write and after its ttl', async () => {
+  let now = 0;
+  let active = false;
+  let checks = 0;
+  const shared = createAutomationProbe(
+    async () => {
+      checks += 1;
+      return active;
+    },
+    { ttlMs: 1_000, now: () => now }
+  );
+  assert.equal(await shared.probe(), false);
+  assert.equal(await shared.probe(), false);
+  assert.equal(checks, 1);
+  active = true;
+  shared.invalidate(); // saveSchedule / saveWebhook / enable in this process
+  assert.equal(await shared.probe(), true);
+  assert.equal(checks, 2);
+  active = false;
+  now = 1_000; // a write from another process shows up after the ttl
+  assert.equal(await shared.probe(), false);
+  assert.equal(checks, 3);
+
+  // A failed check answers false but is not reused: PG booting at daemon
+  // start must not suppress autostart for the next runtimes.
+  let failures = 1;
+  let failingChecks = 0;
+  const failing = createAutomationProbe(async () => {
+    failingChecks += 1;
+    if (failures-- > 0) throw new Error('pg down');
+    return true;
+  });
+  assert.equal(await failing.probe(), false);
+  assert.equal(await failing.probe(), true);
+  assert.equal(failingChecks, 2);
 });
 
 test('search runtime warmup is armed at most once per runtime', () => {

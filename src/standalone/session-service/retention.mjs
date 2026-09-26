@@ -31,8 +31,42 @@ export function createSessionRetention({
   destroy,
 }) {
   let evictTimer = null;
+  // Entries the sweep found evictable, disposed one per event-loop turn.
+  const evictQueue = new Set();
+  let evictDrain = null;
   const busy = createBusyTracker({ sessions, currentSessionId });
   const { sessionBusy } = busy;
+
+  // Re-evaluated when the entry's turn comes: a client may have come back, or
+  // work may have started, since the sweep queued it.
+  function evictable(entry, now) {
+    if (entry.disposed || !sessions.has(entry) || entry.subscribers?.size > 0 || !entry.retainedAt) return false;
+    if (sessionBusy(entry)) {
+      entry.retainedAt = now;
+      return false;
+    }
+    return now - entry.retainedAt >= idleEvictMs;
+  }
+
+  // One disposal per macrotask: a batch of idle sessions must never block the
+  // loop for more than one session's synchronous teardown. Each next step is
+  // a setImmediate queued from the previous one, i.e. the next loop iteration.
+  function drainEvictions() {
+    evictDrain = null;
+    const [entry] = evictQueue;
+    if (!entry) return;
+    evictQueue.delete(entry);
+    if (!isClosed() && evictable(entry, Date.now())) {
+      // Eviction is a MEMORY reclaim, never a user teardown: the runtime's
+      // agent workers and background jobs are daemon-owned work that must
+      // survive the owner's idle eviction (observed: switching desktop tabs
+      // evicted the Lead after 2 minutes and its teardown closed every idle
+      // worker with reap time left — and cancelled running ones).
+      void destroy(entry, 'idle and unwatched', { keepBackgroundWork: true });
+    }
+    if (evictQueue.size > 0 && !isClosed()) evictDrain = setImmediate(drainEvictions);
+    else evictQueue.clear();
+  }
 
   function releaseProjection(entry) {
     if (!entry) return;
@@ -71,13 +105,9 @@ export function createSessionRetention({
           continue;
         }
         if (now - entry.retainedAt < idleEvictMs) continue;
-        // Eviction is a MEMORY reclaim, never a user teardown: the runtime's
-        // agent workers and background jobs are daemon-owned work that must
-        // survive the owner's idle eviction (observed: switching desktop tabs
-        // evicted the Lead after 2 minutes and its teardown closed every idle
-        // worker with reap time left — and cancelled running ones).
-        void destroy(entry, 'idle and unwatched', { keepBackgroundWork: true });
+        evictQueue.add(entry);
       }
+      if (evictQueue.size > 0 && !evictDrain) evictDrain = setImmediate(drainEvictions);
       stopEvictionSweepIfIdle();
     }, evictSweepMs);
     evictTimer.unref?.();
@@ -96,6 +126,9 @@ export function createSessionRetention({
   }
 
   function stopSweep() {
+    if (evictDrain) clearImmediate(evictDrain);
+    evictDrain = null;
+    evictQueue.clear();
     if (!evictTimer) return;
     clearInterval(evictTimer);
     evictTimer = null;

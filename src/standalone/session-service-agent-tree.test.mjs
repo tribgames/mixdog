@@ -63,6 +63,9 @@ function fakeRuntimeFactory(events) {
         emit();
         return { status: 'done', result: { content } };
       },
+      readModelMessages() {
+        return { messageCount: 0, messages: [] };
+      },
       async abort(options) {
         events.push(['abort', state.sessionId, options]);
         state.busy = false;

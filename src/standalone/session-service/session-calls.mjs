@@ -23,12 +23,13 @@ import { createSessionViewCalls } from './session-calls/session-views.mjs';
 export function createSessionCalls(deps) {
   const { advance, currentSessionId, publishStep, bodyForClient } = deps.projection;
 
-  function sessionResult(entry, step, baseRevision = null, extra = {}) {
+  /** `prepend`: the caller announced transcriptPrepend (see frameBody). */
+  function sessionResult(entry, step, baseRevision = null, extra = {}, { prepend = false } = {}) {
     return {
       sessionId: currentSessionId(entry),
       reservedOnly: entry.reservedOnly === true,
       ...extra,
-      ...bodyForClient(step, Number.isInteger(baseRevision) ? baseRevision : null),
+      ...bodyForClient(step, Number.isInteger(baseRevision) ? baseRevision : null, prepend),
     };
   }
 

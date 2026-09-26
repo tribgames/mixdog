@@ -88,7 +88,7 @@ const catalog = await import('../../agent/orchestrator/providers/model-catalog.m
 const { priceUsage } = await import('./cost.mjs');
 const { UsageLedger, makeUsageRecord } = await import('./usage-ledger.mjs');
 const { refreshUnpricedUsage } = await import('./usage-pricing-refresh.mjs');
-const { usageLedgerIntegrity } = await import('./usage-ledger-repair.mjs');
+const { repairUsageLedger, usageLedgerIntegrity } = await import('./usage-ledger-repair.mjs');
 const { createUsageStatsApi } = await import('../../../session-runtime/usage-stats-api.mjs');
 const injectedFetch = async (url) => ({
   ok: true,
@@ -323,6 +323,34 @@ test('Antigravity missing prices recover at the direct API rates without double-
   assert.equal(refreshed.totals.costUsd, 2.3625);
   assert.equal(refreshed.totals.costCoverage, 1);
   assert.equal(refreshUnpricedUsage(ledger).skipped, true);
+});
+
+test('newly appended unpriced rows are examined alone; out-of-order rows get a full pass', (t) => {
+  const ledger = new UsageLedger(join(directory, 'unpriced-incremental.sqlite'));
+  t.after(() => ledger.close());
+  const base = Date.now() - 60_000;
+  const unpriced = (id, ts) => ({
+    ...makeUsageRecord({ id, ts, provider: 'custom-api', model: 'unknown', inputTokens: 20 }),
+    costUsd: null,
+    costSource: 'unpriced',
+    rates: null,
+  });
+  ledger.record([unpriced('a', base), unpriced('b', base + 1), unpriced('c', base + 2)]);
+  assert.equal(refreshUnpricedUsage(ledger).stillUnpriced, 3);
+  assert.equal(refreshUnpricedUsage(ledger).skipped, true, 'an unchanged ledger is not re-examined');
+  const before = usageLedgerIntegrity(ledger.db);
+
+  ledger.record([unpriced('d', base + 10)]);
+  const appended = refreshUnpricedUsage(ledger);
+  assert.equal(appended.stillUnpriced, 1, 'only the appended row is repriced');
+
+  ledger.record([unpriced('late', base + 5)]);
+  assert.equal(refreshUnpricedUsage(ledger).stillUnpriced, 5, 'a row older than the last check forces a full pass');
+  assert.equal(refreshUnpricedUsage(ledger).skipped, true);
+  assert.equal(usageLedgerIntegrity(ledger.db).records, before.records + 2);
+  const settled = repairUsageLedger(ledger, { throughTs: Date.now(), onlyUnpriced: true });
+  assert.equal(settled.stillUnpriced, 5);
+  assert.equal(settled.integrity, null, 'a repair without changes does not hash the ledger');
 });
 
 test('expired catalogs refresh, failures retain disk prices, and retry waits for its cooldown', async (t) => {

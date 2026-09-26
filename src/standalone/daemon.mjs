@@ -574,6 +574,28 @@ async function main() {
 
   claimDaemonOwnership(bootPhases);
   registerMemoryRuntimeLazy();
+  // The daemon owns prompt attachments; its census runs off the boot path
+  // (first attempt after the store's start delay, then per its interval).
+  void import('../runtime/attachments/store.mjs')
+    .then((store) => store.startAttachmentGc())
+    .catch(() => {});
+  // The first session per repository would otherwise run `git status` and
+  // `git check-ignore` synchronously while composing its prompt. Registered
+  // projects (a small JSON list, most recently selected first) are the cwds
+  // sessions open; prewarm their probes on the git worker, off the boot path.
+  void Promise.all([
+    import('./projects.mjs'),
+    import('../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs'),
+  ])
+    .then(([projects, capabilities]) =>
+      capabilities.prewarmGitStartupProbes(
+        projects
+          .listProjects()
+          .slice(0, 8)
+          .map((project) => project.path)
+      )
+    )
+    .catch(() => {});
   agentDispatchBroker = createAgentDispatchBroker({
     // Memory-cycle agents use the same lazy provider/orchestrator graph as
     // session actors; it stays unloaded until a real cycle requests it.

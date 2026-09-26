@@ -1,10 +1,40 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  AgentStallAbortError,
+  evaluateAgentWatchdogAbort,
   partialHandoffTextFromSession,
+  resolveAgentWatchdogPolicy,
   resolveHandoffMessageStartIndex,
   watchdogPartialHandoffFromError,
+  watchdogStoppedHandoff,
 } from './agent-progress-watchdog.mjs';
+
+test('a long tool call is not a stall while its heartbeat keeps progress fresh', () => {
+  const policy = resolveAgentWatchdogPolicy('worker');
+  const now = 10_000_000;
+  const snapshot = {
+    stage: 'tool_running',
+    currentTool: 'task',
+    modelRequestStartedAt: now - 20 * 60_000,
+    toolStartedAt: now - 10 * 60_000,
+    lastProgressAt: now - 30_000,
+  };
+  assert.equal(evaluateAgentWatchdogAbort(snapshot, now, policy), null);
+  const silent = { ...snapshot, lastProgressAt: now - policy.idleStaleMs - 1 };
+  assert.match(evaluateAgentWatchdogAbort(silent, now, policy).message, /^agent task stale \(/);
+});
+
+test('a stall error that carries its own partial handoff is reported as a stop with that text', () => {
+  const error = new AgentStallAbortError('agent task stale (100ms without stream/tool progress)');
+  error.partialHandoff = 'carried';
+  const session = { messages: [{ role: 'assistant', content: 'from session' }] };
+  const partial = watchdogPartialHandoffFromError(error, session);
+  assert.equal(partial, 'carried');
+  const handoff = watchdogStoppedHandoff(error, partial);
+  assert.match(handoff, /^\[Agent stopped by the progress watchdog: agent task stale \(100ms/);
+  assert.ok(handoff.endsWith('\n\ncarried'));
+});
 
 test('partial handoff collects only assistant text appended in the current turn', () => {
   const session = { messages: [{ role: 'assistant', content: 'previous turn' }] };
@@ -42,7 +72,6 @@ test('watchdog handoff preserves supported stale-error messages and the turn bou
     'agent first semantic response stale (100ms)',
     'agent first response stale (100ms)',
     'agent task stale (100ms without stream/tool progress)',
-    'agent tool running stale (100ms)',
   ]) {
     assert.equal(watchdogPartialHandoffFromError(new Error(message), session, 1), 'current');
   }

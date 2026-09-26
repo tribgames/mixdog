@@ -260,3 +260,58 @@ test('a burst of programmatic writes stays attributable to the timeline', () => 
     false
   );
 });
+
+// A touch keeps targeting the row it started on. Virtualization unmounting
+// that row mid-drag means its touchend never reaches the viewport; the finger
+// then "stayed down" until the next touch, and every row size deferred for
+// reader motion stayed deferred with the rows drawn over each other.
+test('a touch whose row is virtualized away stops owning the transcript once its fling idles', async () => {
+  const [{ JSDOM }, React, { createRoot }, { useTranscriptFollow }] = await Promise.all([
+    import('jsdom'),
+    import('react'),
+    import('react-dom/client'),
+    import('./use-transcript-follow.ts'),
+  ]);
+  const dom = new JSDOM("<div id='root'></div>", { url: 'http://localhost/', pretendToBeVisual: true });
+  const keys = ['window', 'document', 'Element', 'IS_REACT_ACT_ENVIRONMENT'];
+  const previous = new Map(keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, 'Element', { configurable: true, value: dom.window.Element });
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const realNow = Date.now;
+  let now = 100_000;
+  Date.now = () => now;
+  const root = createRoot(document.getElementById('root'));
+  let follow = null;
+  function Harness() {
+    const viewport = React.useRef(null);
+    const content = React.useRef(null);
+    follow = useTranscriptFollow({ viewport, content, sessionKey: 'touch' });
+    return React.createElement(
+      'div',
+      { ref: viewport },
+      React.createElement('div', { ref: content }, React.createElement('p', { id: 'row' }, 'row'))
+    );
+  }
+  try {
+    await React.act(async () => root.render(React.createElement(Harness)));
+    const viewport = document.getElementById('row').parentElement.parentElement;
+    const row = document.getElementById('row');
+    const touch = (clientY) => ({ target: row, currentTarget: viewport, touches: [{ clientY }] });
+    follow.handleTouchStart(touch(100));
+    follow.handleTouchMove(touch(160));
+    now += 5_000;
+    assert.equal(follow.hasScrollGesture(), true, 'a finger resting on the glass keeps ownership');
+    row.remove();
+    assert.equal(follow.hasScrollGesture(), false, 'its lost touchend cannot hold ownership forever');
+  } finally {
+    Date.now = realNow;
+    await React.act(async () => root.unmount());
+    dom.window.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  }
+});

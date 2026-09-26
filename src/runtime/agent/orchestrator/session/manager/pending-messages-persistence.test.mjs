@@ -38,6 +38,7 @@ const {
   pendingMessagesSpoolPath,
   settlePendingMessageWrites,
 } = await import('./pending-messages.mjs');
+const { flushPendingMessagePersistsSync } = await import('./pending-persist-queue.mjs');
 
 const sleep = (ms) =>
   new Promise((resolve) => {
@@ -85,6 +86,15 @@ function spoolRows(sessionId) {
     return Array.isArray(rows) ? rows : [];
   } catch {
     return [];
+  }
+}
+
+function spoolText() {
+  try {
+    return readFileSync(pendingMessagesSpoolPath(), 'utf8');
+  } catch (err) {
+    if (err?.code === 'ENOENT') return null;
+    throw err;
   }
 }
 
@@ -301,8 +311,16 @@ test('a closed session never resurrects its persist retry', async () => {
     await sleep(350);
     assert.equal(spoolRows(sessionId).length, 0);
 
-    // Close tears the pending state down; in-flight failures must not
-    // rebuild the buffer or re-arm the retry timer behind it.
+    // Force the interleaving that used to race: a commit attempt is IN FLIGHT
+    // (waiting on the lock) when the session closes. Whether the requeued
+    // batch sits behind its retry timer or is already retrying, after this
+    // flush exactly one attempt is in flight.
+    flushPendingMessagePersistsSync();
+    const spoolBeforeClose = spoolText();
+
+    // Close tears the pending state down; the in-flight commit must not land
+    // after it, and in-flight failures must not rebuild the buffer or re-arm
+    // the retry timer behind it.
     _dropPendingMessageState(sessionId);
     // ...and the fence must survive the state map's size trim: an evicted
     // entry that decays into "never closed" would let the in-flight failure
@@ -312,7 +330,11 @@ test('a closed session never resurrects its persist retry', async () => {
     }
     unlinkSync(lockPath);
     lockHeld = false;
-    await sleep(900);
+    // Await the ACTUAL completion of the in-flight commit and of the close's
+    // clear chained behind it; the settle also flushes any buffer a failure
+    // rebuilt, so a resurrected retry would write here too.
+    assert.equal(await settlePendingMessageWrites({ timeoutMs: 4000, throwOnTimeout: true }), true);
+    assert.equal(spoolText(), spoolBeforeClose, 'a pending-message write landed after the session closed');
     assert.deepEqual(spoolRows(sessionId), []);
   } finally {
     if (lockHeld) {

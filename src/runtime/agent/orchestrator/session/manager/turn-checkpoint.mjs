@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync } from 'node:fs';
+import { unlinkSync } from 'node:fs';
 import { finalizeTurnInterruptionSnapshot } from './turn-interruption.mjs';
 import {
   appendJournalLines,
@@ -8,10 +8,12 @@ import {
   findTurnStart,
   openJournalForTurn,
   readTurnCheckpointHeader,
+  readTurnCheckpointHeaderState,
   removeTurnJournal,
   replayTurnJournal,
   settleTurnJournalWrites,
   turnCheckpointPath,
+  turnCheckpointReadPath,
   turnMessagesForCheckpoint,
   writeCheckpointHeader,
 } from './turn-checkpoint-journal.mjs';
@@ -129,25 +131,34 @@ export function readTurnCheckpoint(sessionId) {
   return replayTurnJournal(header);
 }
 
+// The header stays a synchronous read + unlink: header writes are synchronous
+// too, so the token check and the removal cannot interleave with a follow-up
+// turn's new header. Only the journal removal (ordered by its write lane) and
+// the directory probes left the event loop.
 export function clearTurnCheckpoint(sessionId, turnToken = null) {
-  const target = turnCheckpointPath(sessionId);
+  const target = turnCheckpointReadPath(sessionId);
   // Queued appends are stale the moment the caller decides to clear this
   // turn's checkpoint; retire them BEFORE the token guard reads disk so a
   // lagging write can never resurrect state after the unlink.
-  if (!turnToken) cancelPendingTurnCheckpoint(sessionId);
-  if (!existsSync(target)) {
-    // Header already gone: drop any orphan journal (a late in-flight append
-    // can recreate the file after a previous clear).
-    if (!turnToken) removeTurnJournal(sessionId);
-    return true;
-  }
-  if (turnToken) {
-    const current = readTurnCheckpointHeader(sessionId);
-    // A token guard prevents an older turn's late terminal save from
-    // deleting the checkpoint already created by its queued follow-up.
-    if (current?.turnToken && current.turnToken !== turnToken) return false;
+  if (!turnToken) {
     cancelPendingTurnCheckpoint(sessionId);
+    let removed = true;
+    try {
+      unlinkSync(target);
+    } catch (error) {
+      // A missing header is already cleared; still drop any orphan journal
+      // (a late in-flight append can recreate it after a previous clear).
+      if (error?.code !== 'ENOENT') removed = false;
+    }
+    removeTurnJournal(sessionId);
+    return removed;
   }
+  const current = readTurnCheckpointHeaderState(sessionId);
+  if (!current.present) return true;
+  // A token guard prevents an older turn's late terminal save from
+  // deleting the checkpoint already created by its queued follow-up.
+  if (current.header?.turnToken && current.header.turnToken !== turnToken) return false;
+  cancelPendingTurnCheckpoint(sessionId);
   let removed = true;
   try {
     unlinkSync(target);

@@ -4,7 +4,7 @@
 // the differential tests pin them against those expressions.
 
 // RegExp `\s` and String#trim whitespace: WhiteSpace + LineTerminator.
-function isWhitespace(c) {
+export function isWhitespace(c) {
   if (c <= 0x20) return c === 0x20 || (c >= 0x09 && c <= 0x0d);
   if (c < 0xa0) return false;
   return (

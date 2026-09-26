@@ -3,7 +3,7 @@
 // swap the adjacent panel; creation actions live in the Sessions panel header.
 // Usage and Settings live at the rail foot.
 import type React from 'react';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { DESKTOP_SIDEBAR_DEFAULT_WIDTH } from '../shared/window-layout';
 import { desktopFeatureEnabled, desktopSidebarDestinationEnabled } from './desktop-feature-config';
@@ -11,9 +11,8 @@ import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ProviderIcon } from './provider-display';
-import { SidebarUsage } from './SidebarUsage';
 import { InitialSurface } from './InitialSurface';
-import { useUsageRailPin } from './use-usage-rail-pin';
+import { loadSidebarUsageModule, useUsageRailPin } from './use-usage-rail-pin';
 import {
   getUsageDashboardSnapshot,
   holdUsageDashboardCadence,
@@ -33,6 +32,11 @@ import {
 } from './sidebar-view-layout';
 import { viewGroupContainerDropProps } from './view-group-layout';
 import { useDockVisibilityMenu, type DockIconEntry } from './dock-icon-visibility';
+
+// The flyout body loads on hover/focus intent (or the open itself), not with
+// the rail; its data is already warm in the shared usage store.
+const SidebarUsage = lazy(() => loadSidebarUsageModule().then((module) => ({ default: module.SidebarUsage })));
+const prefetchSidebarUsage = () => void loadSidebarUsageModule().catch(() => undefined);
 
 type ActivityRailSurface = 'projects' | 'schedules' | 'webhooks' | 'settings';
 function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'], loading: boolean) {
@@ -366,8 +370,14 @@ export function ActivityRail({
           aria-expanded={usageOpen}
           aria-haspopup="dialog"
           data-tooltip={t('Usage')}
-          onPointerEnter={(event) => rememberUsageAnchor(event.currentTarget)}
-          onFocus={(event) => rememberUsageAnchor(event.currentTarget)}
+          onPointerEnter={(event) => {
+            prefetchSidebarUsage();
+            rememberUsageAnchor(event.currentTarget);
+          }}
+          onFocus={(event) => {
+            prefetchSidebarUsage();
+            rememberUsageAnchor(event.currentTarget);
+          }}
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             usageClickGuard.markPointerActivation();
@@ -421,24 +431,26 @@ export function ActivityRail({
         >
           {/* The popup shares the rail's host API so its open-time revalidation
             hits the same store entry the rail already prewarmed. */}
-          <SidebarUsage
-            sidebarOpen
-            api={usageApi}
-            onAddProviders={() => {
-              setUsageOpen(false);
-              (onOpenProviders || onOpenSettings)();
-            }}
-            onOpenStats={
-              onOpenUsageStats
-                ? () => {
-                    setUsageOpen(false);
-                    onOpenUsageStats();
-                  }
-                : undefined
-            }
-            pinned={usagePinned}
-            onTogglePin={toggleUsagePin}
-          />
+          <Suspense fallback={<InitialSurface />}>
+            <SidebarUsage
+              sidebarOpen
+              api={usageApi}
+              onAddProviders={() => {
+                setUsageOpen(false);
+                (onOpenProviders || onOpenSettings)();
+              }}
+              onOpenStats={
+                onOpenUsageStats
+                  ? () => {
+                      setUsageOpen(false);
+                      onOpenUsageStats();
+                    }
+                  : undefined
+              }
+              pinned={usagePinned}
+              onTogglePin={toggleUsagePin}
+            />
+          </Suspense>
         </div>
       )}
       {menu}

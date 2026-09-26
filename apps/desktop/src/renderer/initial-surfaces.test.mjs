@@ -496,7 +496,10 @@ test('usage pin waits for its initial setting and data, without letting a late r
   const view = harness(t);
   const settings = Promise.withResolvers();
   window.mixdogDesktop.readSettings = () => settings.promise;
-  const { useUsageRailPin } = await import('./use-usage-rail-pin.ts');
+  const { loadSidebarUsageModule, useUsageRailPin } = await import('./use-usage-rail-pin.ts');
+  // The pin reader is a lazy chunk; with it cached, only the setting and the
+  // usage data remain to wait for.
+  await loadSidebarUsageModule();
   Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', {
     configurable: true,
     get: () => 800,

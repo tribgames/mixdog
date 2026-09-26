@@ -43,7 +43,7 @@ import { normalizeAgentPermissionOrNone, parseMarkdownFrontmatter } from '../../
 const _MIXDOG_ROOT = mixdogRoot();
 const _AGENTS_PATH = join(_MIXDOG_ROOT, 'defaults', 'agents.json');
 
-/** @type {{ mtime: number, map: object } | null} */
+/** @type {{ mtime: number, files: string[], map: object } | null} */
 let _hiddenAgentsCache = null;
 
 function _mtimeSafe(file) {
@@ -54,19 +54,27 @@ function _mtimeSafe(file) {
   }
 }
 
-function _hiddenAgentsDependencyMtime() {
-  let mtime = _mtimeSafe(_AGENTS_PATH);
+function _maxMtime(files) {
+  let mtime = 0;
+  for (const file of files) mtime = Math.max(mtime, _mtimeSafe(file));
+  return mtime;
+}
+
+// agents.json plus every systemFile it references. Parsing agents.json is
+// only needed to discover that list, and any list change rewrites agents.json
+// (moving its mtime), so the warm path re-stats the cached list instead.
+function _hiddenAgentsDependencyFiles() {
+  const files = [_AGENTS_PATH];
   try {
     const raw = JSON.parse(readFileSync(_AGENTS_PATH, 'utf8'));
     for (const entry of raw.agents || []) {
       const systemFile = typeof entry?.systemFile === 'string' ? entry.systemFile.trim() : '';
-      if (!systemFile) continue;
-      mtime = Math.max(mtime, _mtimeSafe(join(_MIXDOG_ROOT, systemFile)));
+      if (systemFile) files.push(join(_MIXDOG_ROOT, systemFile));
     }
   } catch {
     /* Best-effort: only systemFile mtimes are lost; the agents.json mtime still gates reloads. */
   }
-  return mtime;
+  return files;
 }
 
 function _loadHiddenAgentFrontmatter(systemFile) {
@@ -116,12 +124,13 @@ function _loadHiddenAgents() {
 function _getHiddenAgents() {
   // The mtime probe never throws; a load failure surfaces with the message
   // _loadHiddenAgents already gave it, and the stale cache is not reused.
-  const mtime = _hiddenAgentsDependencyMtime();
-  if (_hiddenAgentsCache && mtime <= _hiddenAgentsCache.mtime) {
+  if (_hiddenAgentsCache && _maxMtime(_hiddenAgentsCache.files) <= _hiddenAgentsCache.mtime) {
     return _hiddenAgentsCache.map;
   }
+  const files = _hiddenAgentsDependencyFiles();
+  const mtime = _maxMtime(files);
   const map = _loadHiddenAgents();
-  _hiddenAgentsCache = { mtime, map };
+  _hiddenAgentsCache = { mtime, files, map };
   return map;
 }
 

@@ -68,6 +68,8 @@ interface TranscriptRowBuilder {
   rows: TranscriptRowModel[];
   currentTurnKey: string;
   previousRowWasUser: boolean;
+  /** Tool group keys already used in this projection. */
+  toolGroupKeys: Set<string>;
 }
 
 /** pending:${id} and turn:${id} are one submission. The virtualizer identifies
@@ -127,6 +129,51 @@ interface PendingToolActivityItem {
   turnKey: string;
 }
 
+// A tool group's row key is the key it was FIRST shown under, remembered per
+// member id. Keying by the first member alone re-keyed (and remounted) a group
+// whenever an older history page supplied the tools a window cut had split
+// off its head; keying by the last member would re-key it on every tool a
+// live turn appends. Any member that was already shown carries the group's
+// key into the next projection, so both growth directions keep it.
+const TOOL_GROUP_KEY_SESSIONS = 16;
+const toolGroupKeys = new Map<string, Map<string, string>>();
+
+function toolGroupKeyMemory(sessionKey: string): Map<string, string> {
+  let memory = toolGroupKeys.get(sessionKey);
+  if (memory) toolGroupKeys.delete(sessionKey);
+  else memory = new Map();
+  toolGroupKeys.set(sessionKey, memory);
+  while (toolGroupKeys.size > TOOL_GROUP_KEY_SESSIONS) {
+    const oldest = toolGroupKeys.keys().next().value;
+    if (oldest === undefined) break;
+    toolGroupKeys.delete(oldest);
+  }
+  return memory;
+}
+
+function toolActivityRowKey(
+  builder: TranscriptRowBuilder,
+  sessionKey: string,
+  pending: readonly PendingToolActivityItem[]
+): string {
+  const first = pending[0] as PendingToolActivityItem;
+  const ids = pending.map(({ item }) => item?.id).filter((id) => id !== undefined && id !== null).map(String);
+  const own = `${transcriptRowKey(sessionKey, first.item, first.index)}:tool-activity`;
+  if (ids.length === 0) return own;
+  const memory = toolGroupKeyMemory(sessionKey);
+  let key = own;
+  for (const id of ids) {
+    const remembered = memory.get(id);
+    // One key per row within a projection, whatever the memory says.
+    if (remembered && !builder.toolGroupKeys.has(remembered)) {
+      key = remembered;
+      break;
+    }
+  }
+  for (const id of ids) memory.set(id, key);
+  return key;
+}
+
 function pushToolActivity(
   builder: TranscriptRowBuilder,
   sessionKey: string,
@@ -135,9 +182,11 @@ function pushToolActivity(
   const first = pending[0];
   if (!first) return;
   beginBuilderTurn(builder, sessionKey, first.turnKey);
+  const key = toolActivityRowKey(builder, sessionKey, pending);
+  builder.toolGroupKeys.add(key);
   builder.rows.push({
     _tag: 'ToolActivity',
-    key: `${transcriptRowKey(sessionKey, first.item, first.index)}:tool-activity`,
+    key,
     turnKey: first.turnKey,
     items: pending.map(({ item }) => item),
   });
@@ -207,6 +256,7 @@ export function projectSettledTranscriptRows({
     rows: [],
     currentTurnKey: '',
     previousRowWasUser: false,
+    toolGroupKeys: new Set(),
   };
   let pendingToolActivity: PendingToolActivityItem[] = [];
   const flushToolActivity = () => {
@@ -319,6 +369,7 @@ export function appendLiveTranscriptRows({
     rows: [...settled.rows],
     currentTurnKey: settled.currentTurnKey,
     previousRowWasUser: settled.previousRowWasUser,
+    toolGroupKeys: new Set(),
   };
   const itemCount = settled.itemCount;
   const activePrompts = pendingItems.filter((item) => item.queuedBehindTurn !== true);

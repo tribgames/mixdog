@@ -40,6 +40,9 @@ export interface RelayClientState {
    *  sessions open on a bounded tail. A browser that predates this keeps the
    *  512-item page it pages from by count. */
   transcriptPaging: boolean;
+  /** The browser's decoder applies prepend patches, so an older-history page
+   *  carries only the revealed rows. An older build receives the whole list. */
+  transcriptPrepend: boolean;
   /** Push lanes this browser actually reads ('terminal', 'editor',
    *  'files'). Terminal output, diagnostics and folder events are produced
    *  by DESKTOP activity — a build, a save — and used to reach every paired
@@ -160,6 +163,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
         listDelta: false,
         compactWire: false,
         transcriptPaging: false,
+        transcriptPrepend: false,
         lanes: null,
         sessionHandles: new Map(),
         sessionsEncoder: createKeyedListDeltaEncoder<DesktopSessionSummary>((session, index) =>

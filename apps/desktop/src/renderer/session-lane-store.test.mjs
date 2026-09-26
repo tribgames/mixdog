@@ -158,6 +158,48 @@ test('a transport baseline release keeps a mounted pane painted', () => {
   store.clear();
 });
 
+// A byte-budgeted older page can start at any row, and its first row can be
+// the same weak kind as the cached window's last row (two turn completions).
+// Read as a tail window aligned at that row, the cached head was glued in
+// front of the page: the older rows painted below the newest turn.
+test('an older page that starts before the cached window replaces it as a prepend', () => {
+  const rows = [
+    { kind: 'turndone' },
+    { kind: 'user', text: 'first question' },
+    { kind: 'assistant', text: 'first answer' },
+    { kind: 'turndone' },
+    { kind: 'user', text: 'second question' },
+    { kind: 'assistant', text: 'second answer' },
+    { kind: 'turndone' },
+  ];
+  const cached = rows.slice(4);
+  const paged = rows.slice(0);
+  for (const withIds of [false, true]) {
+    const withId = (items, from) => (withIds ? items.map((item, index) => ({ ...item, id: `h${from + index}` })) : items);
+    const store = createSessionLaneStore({ decorator });
+    store.apply({ sessionId: 'session', snapshot: { sessionId: 'session', items: withId(cached, 4) }, frameSource: 'live' });
+    const page = withId(paged, 0);
+    if (withIds) page[0] = { ...page[0], id: 'h6' };
+    store.apply({ sessionId: 'session', snapshot: { sessionId: 'session', items: page }, frameSource: 'replay' });
+    assert.deepEqual(
+      store.get('session').items.map((item) => item.text ?? item.kind),
+      paged.map((item) => item.text ?? item.kind),
+      withIds ? 'a page row carrying the cached tail id' : 'rows matched by content'
+    );
+    // A genuine tail window still keeps the cached head.
+    store.apply({
+      sessionId: 'session',
+      snapshot: { sessionId: 'session', items: [...withId(paged.slice(5), 5), ...withId([{ kind: 'user', text: 'third' }], 7)] },
+      frameSource: 'live',
+    });
+    assert.deepEqual(
+      store.get('session').items.map((item) => item.text ?? item.kind),
+      [...paged, { text: 'third' }].map((item) => item.text ?? item.kind)
+    );
+    store.clear();
+  }
+});
+
 test('unsubscribing releases a lane notification key', () => {
   const store = createSessionLaneStore({ decorator });
   const unsubscribe = store.subscribe('session', () => {});

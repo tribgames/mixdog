@@ -21,7 +21,7 @@ export async function accountProviderSend(provider, instance, send, model, opts 
   } catch (error) {
     openingError = error;
   }
-  const record = (result) => {
+  const record = async (result) => {
     if (!result?.usage) return;
     if (openingError) throw openingError;
     if (!ledger) return;
@@ -48,11 +48,14 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       responseId: result.responseId,
       durationMs: Date.now() - startedAt,
     });
-    ledger.record([row]);
+    // Committed by the ledger worker (batched with concurrent sends); the
+    // send still settles only once its row is durable, as before, but the
+    // SQLite write no longer runs on the event loop.
+    await ledger.recordQueued(row);
   };
-  const save = (result) => {
+  const save = async (result) => {
     try {
-      record(result);
+      await record(result);
     } catch (error) {
       result.usageAccountingError = String(error?.message || error);
       process.stderr.write(`[usage-ledger] RECORD NOT SAVED: ${result.usageAccountingError}\n`);
@@ -73,9 +76,9 @@ export async function accountProviderSend(provider, instance, send, model, opts 
   } catch (error) {
     // Only provider-reported partial usage is recordable; never invent
     // tokens for a failed request or reinterpret an error as a success.
-    if (error?.usage) save(error);
+    if (error?.usage) await save(error);
     throw error;
   }
-  save(result);
+  await save(result);
   return result;
 }

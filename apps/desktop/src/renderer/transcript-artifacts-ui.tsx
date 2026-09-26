@@ -7,7 +7,6 @@ import { t } from './i18n';
 import { MarkdownLink } from './MarkdownLink';
 import { MxIcon } from './MxIcon';
 import { mediaUrl } from './studio-support';
-import { requestTranscriptRowMeasure } from './transcript-measure';
 import { transcriptArtifacts, type TranscriptArtifact } from './transcript-artifacts';
 
 /** file:// href for a local artifact path; a Windows drive segment stays unencoded. */
@@ -131,18 +130,9 @@ function GeneratedMedia({ artifact }: { artifact: TranscriptArtifact }) {
 
 export function TranscriptArtifacts({ items }: { items: readonly TranscriptItem[] }) {
   const artifacts = useMemo(() => transcriptArtifacts(items), [items]);
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!root.current) return;
-    requestTranscriptRowMeasure(root.current);
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(() => requestTranscriptRowMeasure(root.current));
-    observer.observe(root.current);
-    return () => observer.disconnect();
-  }, [artifacts]);
   if (!artifacts.length) return null;
   return (
-    <div ref={root} className="transcript-artifacts">
+    <div className="transcript-artifacts">
       {artifacts.map((artifact) =>
         artifact.assetId ? (
           <GeneratedMedia key={artifact.key} artifact={artifact} />

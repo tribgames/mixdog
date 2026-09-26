@@ -8,12 +8,19 @@ export function createTranscriptEndPin({
   getVirtualizer,
   getViewport,
   getSpacer,
+  getMaxScrollTop,
+  getScrollTop,
   hasReaderGesture,
   markProgrammaticScroll,
 }: {
   getVirtualizer(): Virtualizer<HTMLDivElement, HTMLDivElement>;
   getViewport(): HTMLDivElement | null;
   getSpacer(): HTMLDivElement | null;
+  /** Largest offset of the committed geometry, derived from the virtual total
+   *  size and the observed viewport height — never read back from layout. */
+  getMaxScrollTop(): number;
+  /** The viewport offset as last observed or written, or null if unknown. */
+  getScrollTop(): number | null;
   hasReaderGesture(): boolean;
   markProgrammaticScroll(top: number, intended: number): void;
 }) {
@@ -36,7 +43,9 @@ export function createTranscriptEndPin({
         if (instance.options.anchorTo !== 'end' && !instance.options.followOnAppend) return;
         const spacer = getSpacer();
         if (spacer) spacer.style.height = `${instance.getTotalSize()}px`;
-        const max = Math.max(0, element.scrollHeight - element.clientHeight);
+        // Reading scrollHeight right after that write forced a synchronous
+        // layout of the whole list; the virtual geometry already knows it.
+        const max = getMaxScrollTop();
         // Cancel stale core compensation as well as its pending native timer:
         // this write already includes every measured delta in the commit.
         const core = instance as unknown as {
@@ -55,9 +64,13 @@ export function createTranscriptEndPin({
         core.scrollOffset = max;
         // scrollHeight/scrollTop read back AFTER the write forces a synchronous
         // layout, so the probe only resolves its fields when diagnostics are on.
+        // Writing scrollTop lays out too: a pin whose end is already held (a
+        // second request in the same frame, a resize that left the end in
+        // place) skips it.
         const diagnose = transcriptScrollDiagnosticsEnabled();
         const before = diagnose ? element.scrollTop : 0;
-        if (Math.abs(element.scrollTop - max) >= 1) element.scrollTop = max;
+        const known = getScrollTop();
+        if (known === null || Math.abs(known - max) >= 0.5) element.scrollTop = max;
         if (diagnose) {
           logTranscriptScroll('end-pin', {
             from: before,
@@ -67,7 +80,7 @@ export function createTranscriptEndPin({
             height: element.scrollHeight,
           });
         }
-        markProgrammaticScroll(element.scrollTop, max);
+        markProgrammaticScroll(max, max);
       });
     },
     cancel() {

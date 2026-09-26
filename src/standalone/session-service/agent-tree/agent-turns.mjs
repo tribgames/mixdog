@@ -3,6 +3,7 @@
 // runtime. Creating that child lives in ./agent-child.mjs.
 import { randomUUID } from 'node:crypto';
 import { createAgentChildFactory } from './agent-child.mjs';
+import { partialHandoffTextFromSession } from '../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 
 export function createAgentTurns({
   registry,
@@ -10,8 +11,19 @@ export function createAgentTurns({
   entryForSession,
   retainUnwatched,
   createSession,
+  takeWatchdogStop,
 }) {
   const createAgentChild = createAgentChildFactory({ registry, rehydrateAgentSessions, createSession });
+
+  // The progress watchdog stopped the turn: rethrow its stall error carrying
+  // the assistant text the turn produced, so the owner still gets a partial
+  // result.
+  async function watchdogStopError(runtime, error, messageStart) {
+    const { messages } = await runtime.readModelMessages(messageStart);
+    const partial = partialHandoffTextFromSession({ messages });
+    if (partial) error.partialHandoff = partial;
+    return error;
+  }
 
   async function runAgentTurn({ session, prompt, context = null, onToolResult, onTerminalResult } = {}) {
     await rehydrateAgentSessions();
@@ -30,6 +42,11 @@ export function createAgentTurns({
     if (typeof target !== 'function') {
       throw new TypeError('session runtime must implement submitAndWait');
     }
+    // A stop left over from an earlier turn must not relabel this one.
+    takeWatchdogStop(sessionId);
+    // Transcript length before this turn: where a watchdog stop's partial
+    // output starts.
+    const { messageCount: messageStart } = await entry.runtime.readModelMessages(Number.MAX_SAFE_INTEGER);
     descriptor.status = 'running';
     descriptor.stage = 'running';
     descriptor.updatedAt = Date.now();
@@ -47,6 +64,8 @@ export function createAgentTurns({
         throw new Error(String(detail.error || 'agent session turn failed'));
       }
       if (detail?.status === 'cancelled') {
+        const watchdogStop = takeWatchdogStop(sessionId);
+        if (watchdogStop) throw await watchdogStopError(entry.runtime, watchdogStop, messageStart);
         throw new Error('agent session turn cancelled');
       }
       const result = detail?.result || { content: '' };

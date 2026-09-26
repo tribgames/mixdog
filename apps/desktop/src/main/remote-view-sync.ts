@@ -17,6 +17,8 @@ interface RelayViewSyncState {
   compactWire: boolean;
   /** False for a browser that cannot page transcript history (see RelayClientState). */
   transcriptPaging?: boolean;
+  /** The browser decodes prepend patches (see RelayClientState). */
+  transcriptPrepend?: boolean;
   listDelta: boolean;
   sessionStateEncoders: Map<string, SnapshotDeltaEncoder>;
   sessionsEncoder: KeyedListDeltaEncoder<DesktopSessionSummary>;
@@ -100,7 +102,10 @@ export async function synchronizeRelayViews(
         })
       );
       for (const update of snapshot.sessionStates) {
-        const encoder = createSnapshotDeltaEncoder({ compact: state.compactWire });
+        const encoder = createSnapshotDeltaEncoder({
+          compact: state.compactWire,
+          prepend: state.transcriptPrepend === true,
+        });
         state.sessionStateEncoders.set(update.sessionId, encoder);
         writes.push(
           sendBaseline({

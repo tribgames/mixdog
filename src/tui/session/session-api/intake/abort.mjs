@@ -92,7 +92,10 @@ export function createAbortAction(bag, { acceptingSubmissions }) {
   const abort = (options = {}) => {
     const submissionId = String(options?.submissionId || '').trim();
     if (!getState().busy) return reclaimIdleSubmission(submissionId);
-    denyAllToolApprovals('interrupted by user');
+    // Non-user callers (the agent progress watchdog) name their own reason so
+    // the transcript marker and tool denials never claim a user cancel.
+    const reason = String(options?.reason || '').trim() || 'user-cancel';
+    denyAllToolApprovals(reason === 'user-cancel' ? 'interrupted by user' : `interrupted (${reason})`);
     const restoreState = flags.activePromptRestore;
     // A queued steering prompt means the user already redirected the turn:
     // interrupting should just cancel the running turn and let the steering
@@ -116,7 +119,7 @@ export function createAbortAction(bag, { acceptingSubmissions }) {
             (entry) => entry?.abortDiscardOnAbort !== true && entry?.mode !== 'pending-resume'
           )
         : [];
-    const aborted = abortGoalTurn(runtime, flags, hasPendingSteering);
+    const aborted = abortGoalTurn(runtime, flags, hasPendingSteering, reason);
     if (restoreState) {
       if (aborted !== false && Array.isArray(restoreState.discardExecutionPendingResumeKeys)) {
         discardExecutionPendingResume?.(restoreState.discardExecutionPendingResumeKeys);

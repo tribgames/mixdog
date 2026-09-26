@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 // module renderer transform roughly in half.
 import react from '@vitejs/plugin-react-swc';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
+import type { OutputChunk } from 'rollup';
 import type { Plugin } from 'vite';
 import { stampRendererShell } from './scripts/renderer-shell';
 import { computerSourceVitePlugin } from './scripts/computer-source-assets.mjs';
@@ -69,23 +70,24 @@ const inlineBootScript: Plugin = {
   },
 };
 
-// Keep this order intentional. Production serves HTTP/1.1 and a phone opens
-// six connections: CSS plus the first five modules get the cold-start lane,
-// while everything after them waits for a slot.
-const FIRST_SCREEN_CHUNK_NAMES = [
+// The dynamic imports the entry (main.tsx) starts before the first screen.
+// Every static dependency of the entry and of these roots is read from the
+// bundle graph, so a renamed or re-split chunk can never drop out of the
+// hints. Keep this order intentional: production serves HTTP/1.1 and a phone
+// opens six connections, so the entry's own graph and then bootstrap claim
+// the cold-start lane first.
+const FIRST_SCREEN_ROOT_CHUNKS = [
   'bootstrap',
-  'react-vendor',
-  'ui-vendor',
   'remote-shim',
   'i18n',
   'mobile-surface',
   // A restored Markdown conversation must be complete when the shell reveals.
-  // These remain in the first fan-out, but follow every shell-critical chunk
-  // so HTTP/1.1 gives bootstrap and React the first connection slots.
+  // It follows every shell-critical chunk so bootstrap and React keep the
+  // first connection slots.
   'MarkdownBody',
-  'markdown-plugins',
 ] as const;
-const FIRST_SCREEN_STYLE_NAMES = ['bootstrap-styles.css'] as const;
+// The heaviest shell-critical modules outrank the rest of the fan-out.
+const FIRST_SCREEN_HIGH_PRIORITY_CHUNKS = new Set(['bootstrap', 'react-vendor', 'ui-vendor']);
 const FIRST_SCREEN_LOCALE_CHUNKS = {
   de: 'de',
   es: 'es',
@@ -111,46 +113,59 @@ const firstScreenHints: Plugin = {
       // The dev server has no bundle: the entry is served unhashed and the
       // hints would name files that do not exist yet.
       if (!context.bundle) return html.replace(placeholder, '');
-      const outputByName = new Map<string, string>();
-      for (const output of Object.values(context.bundle)) {
-        if (output.name) outputByName.set(output.name, output.fileName);
-      }
-      const styles = FIRST_SCREEN_STYLE_NAMES.flatMap((name) => {
-        const fileName = outputByName.get(name);
-        return fileName
-          ? [`<link rel="stylesheet" fetchpriority="high" href="./${fileName}">`]
-          : [];
-      });
-      const modules = FIRST_SCREEN_CHUNK_NAMES.flatMap((name, index) => {
-        const fileName = outputByName.get(name);
-        return fileName
-          ? [`<link rel="modulepreload" crossorigin${index < 3 ? ' fetchpriority="high"' : ''}`
-            + ` href="./${fileName}">`]
-          : [];
-      });
+      const bundle = context.bundle;
+      const chunks = Object.values(bundle).filter((output): output is OutputChunk => output.type === 'chunk');
+      const chunkByName = new Map(chunks.map((chunk) => [chunk.name, chunk]));
+      const entry = chunks.find((chunk) => chunk.isEntry);
+      const roots = FIRST_SCREEN_ROOT_CHUNKS.flatMap((name) => chunkByName.get(name) ?? []);
+      // Pre-order walk of the static graph: each chunk precedes its imports,
+      // and every chunk carries the stylesheets Vite would otherwise attach
+      // only when its dynamic import runs.
+      const modules: OutputChunk[] = [];
+      const styles = new Set<string>();
+      const visit = (chunk: OutputChunk): void => {
+        if (modules.includes(chunk)) return;
+        modules.push(chunk);
+        chunk.viteMetadata?.importedCss.forEach((fileName) => styles.add(fileName));
+        for (const fileName of chunk.imports) {
+          const imported = bundle[fileName];
+          if (imported?.type === 'chunk') visit(imported);
+        }
+      };
+      if (entry) visit(entry);
+      roots.forEach(visit);
+      const styleHints = [...styles].map(
+        (fileName) => `<link rel="stylesheet" fetchpriority="high" href="./${fileName}">`,
+      );
+      const moduleHints = modules.map(
+        (chunk) => `<link rel="modulepreload" crossorigin`
+          + `${FIRST_SCREEN_HIGH_PRIORITY_CHUNKS.has(chunk.name) ? ' fetchpriority="high"' : ''}`
+          + ` href="./${chunk.fileName}">`,
+      );
       // The language is known synchronously in boot.js. Keep every catalog
       // inert in the template, then move only the resolved locale into <head>
       // so Korean does not pay a serial request after i18n evaluates.
-      const locales = Object.entries(FIRST_SCREEN_LOCALE_CHUNKS).flatMap(([language, name]) => {
-        const fileName = outputByName.get(name);
+      const localeHints = Object.entries(FIRST_SCREEN_LOCALE_CHUNKS).flatMap(([language, name]) => {
+        const fileName = chunkByName.get(name)?.fileName;
         return fileName
           ? [`<link rel="modulepreload" crossorigin data-mixdog-locale="${language}"`
             + ` href="./${fileName}">`]
           : [];
       });
-      // Renaming a first-screen module is not an error, but silently losing the
+      // Renaming a first-screen root is not an error, but silently losing the
       // hint would put the serial boot back without anyone noticing.
-      if (styles.length !== FIRST_SCREEN_STYLE_NAMES.length
-        || modules.length !== FIRST_SCREEN_CHUNK_NAMES.length
-        || locales.length !== Object.keys(FIRST_SCREEN_LOCALE_CHUNKS).length) {
+      if (!entry
+        || roots.length !== FIRST_SCREEN_ROOT_CHUNKS.length
+        || styles.size === 0
+        || localeHints.length !== Object.keys(FIRST_SCREEN_LOCALE_CHUNKS).length) {
         console.warn(
-          `[mixdog] first-screen hints matched ${styles.length}/${FIRST_SCREEN_STYLE_NAMES.length}`
-          + ` styles, ${modules.length}/${FIRST_SCREEN_CHUNK_NAMES.length} modules`
-          + ` and ${locales.length}/${Object.keys(FIRST_SCREEN_LOCALE_CHUNKS).length} locales;`
+          `[mixdog] first-screen hints matched ${entry ? 1 : 0}/1 entry,`
+          + ` ${roots.length}/${FIRST_SCREEN_ROOT_CHUNKS.length} root chunks, ${styles.size} styles`
+          + ` and ${localeHints.length}/${Object.keys(FIRST_SCREEN_LOCALE_CHUNKS).length} locales;`
           + ' the web app boots the missing ones serially.',
         );
       }
-      const hints = [...styles, ...modules, ...locales].join('');
+      const hints = [...styleHints, ...moduleHints, ...localeHints].join('');
       return stampRendererShell(html.replace(
         placeholder,
         hints ? `<template id="mixdog-first-screen">${hints}</template>` : '',

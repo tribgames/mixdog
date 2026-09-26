@@ -205,6 +205,8 @@ export async function generateFreshHandoffSummary(provider, messages, model, bud
   }
   const callBudget = Math.max(1, Math.floor((opts.compactionInputBudgetTokens || budget) * COMPACTION_PROMPT_HEADROOM));
   let previousSummary = source.previousSummary;
+  // Batch fitting renders overlapping slices of the same head repeatedly.
+  const lineCache = new Map();
   const fit = (items, previous) =>
     fitCompleteCompactionPrompt(
       {
@@ -213,7 +215,8 @@ export async function generateFreshHandoffSummary(provider, messages, model, bud
         previousSummary: previous,
         preservedFacts: null,
       },
-      callBudget
+      callBudget,
+      lineCache
     );
   // Old installations may carry an enormous verbatim Memory handoff. Feed
   // every fragment through the same bounded pass; never silently cut it.

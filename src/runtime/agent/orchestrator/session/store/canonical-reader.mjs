@@ -140,6 +140,8 @@ export function connectOwnCommitPeer(port) {
     _absorbPeerCommits();
     _ownCommitPeer.close();
   }
+  // Announcements of a departing peer can never be settled any more.
+  _pendingOwnCommits.clear();
   _ownCommitPeer = port ?? null;
   // Receipt is synchronous only; the port must never hold the event loop.
   _ownCommitPeer?.unref();
@@ -153,10 +155,59 @@ function _publishOwnCommit(target, entry) {
   }
 }
 
+// ── Pending own commits (announced by the peer BEFORE its rename) ───────────
+// A peer's commit is announced only after its rename, so a read-only check
+// landing between the two saw a stamp nobody had vouched for and read the
+// whole file. The peer therefore also announces the scratch file's identity
+// right before renaming it: a rename keeps dev, ino, size and mtime (only the
+// change time moves). A READ-ONLY lifecycle check whose current stamp carries
+// exactly that identity adopts the announced lifecycle; write-authority reads
+// never do. The real commit (same identity) or a failed rename clears it.
+const _pendingOwnCommits = new Map(); // target → { stamp: scratch identity, value }
+
+const _sameScratchIdentity = (a, b) =>
+  !!a && !!b && a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeNs === b.mtimeNs;
+
+/** Peer side: the scratch file about to be renamed onto `target`. */
+export function announcePendingOwnCommit(target, scratchStamp, lifecycle) {
+  if (!_ownCommitPeer || !scratchStamp || !lifecycle) return;
+  try {
+    _ownCommitPeer.postMessage({ target, pending: { stamp: scratchStamp, value: lifecycle } });
+  } catch {
+    /* peer gone: its next check reads strictly */
+  }
+}
+
+/** Peer side: that rename did not happen. */
+export function withdrawPendingOwnCommit(target, scratchStamp) {
+  if (!_ownCommitPeer || !scratchStamp) return;
+  try {
+    _ownCommitPeer.postMessage({ target, withdraw: scratchStamp });
+  } catch {
+    /* peer gone: nothing it could adopt */
+  }
+}
+
+/** Read-only lifecycle verdict of a pending peer commit whose identity `stamp` carries. */
+export function pendingOwnCommittedLifecycle(target, stamp) {
+  _absorbPeerCommits();
+  const pending = _pendingOwnCommits.get(target);
+  return pending && _sameScratchIdentity(pending.stamp, stamp) ? pending.value : null;
+}
+
 function _absorbPeerCommits() {
   if (!_ownCommitPeer) return;
   for (let got = receiveMessageOnPort(_ownCommitPeer); got; got = receiveMessageOnPort(_ownCommitPeer)) {
-    _adoptOwnSessionCommit(got.message?.target, got.message?.entry);
+    const message = got.message;
+    const target = message?.target;
+    if (message?.pending) {
+      const value = lifecycleOfSessionDocument(message.pending.value);
+      if (value && message.pending.stamp) _pendingOwnCommits.set(target, { stamp: message.pending.stamp, value });
+      continue;
+    }
+    const settled = message?.withdraw ?? message?.entry?.stamp;
+    if (_sameScratchIdentity(_pendingOwnCommits.get(target)?.stamp, settled)) _pendingOwnCommits.delete(target);
+    if (message?.entry) _adoptOwnSessionCommit(target, message.entry);
   }
 }
 
@@ -182,8 +233,42 @@ export function ownCommittedLifecycle(target, stamp) {
   const entry = _ownCommits.get(target);
   if (!entry) return null;
   if (sameSessionStamp(entry.stamp, stamp)) return entry.value;
-  _ownCommits.delete(target);
+  // The caller's stamp may predate a commit absorbed just now. Keep an entry
+  // the file still carries so later checks hit it; this check reads strictly.
+  let current = null;
+  try {
+    current = statSessionStamp(target);
+  } catch {
+    current = null;
+  }
+  if (!current || !sameSessionStamp(current, entry.stamp)) _ownCommits.delete(target);
   return null;
+}
+
+// ── Strict-parse hand-off ────────────────────────────────────────────────────
+// A cold transcript read strictly parses a whole record the session load cache
+// would parse again moments later (a pane opens, then its runtime resumes).
+// The load cache registers itself here (this module is the leaf both import),
+// so the one parse is handed over instead of re-read. Only a parse whose bytes
+// were proven to come from `stamp` (stat → read → stat, unchanged) is offered;
+// the load cache keys it by that full stamp and bounds it exactly like its own
+// documents. Without a registered acceptor (the load cache is not loaded in
+// this process) nothing is retained.
+let _strictRecordAcceptor = null;
+
+/** Registered by the session load cache. */
+export function acceptStrictSessionRecords(acceptor) {
+  _strictRecordAcceptor = typeof acceptor === 'function' ? acceptor : null;
+}
+
+/**
+ * Offer a strict parse of the bytes at `target` observed at `stamp`. When the
+ * load cache adopts it (true), `record.doc` belongs to the load cache: the
+ * caller must not keep or alias it.
+ */
+export function offerStrictSessionRecord(target, stamp, record, chars) {
+  if (!_strictRecordAcceptor || !stamp || isLifecycleUnreadable(record)) return false;
+  return _strictRecordAcceptor(target, stamp, record, chars) === true;
 }
 
 /**
@@ -216,11 +301,14 @@ export function createCanonicalSessionReader({
     entries.set(target, { stamp, value });
     while (entries.size > maxEntries) entries.delete(entries.keys().next().value);
   };
-  const read = (target, lifecycleOnly = false, { ownCommitsOnly = false } = {}) => {
+  const read = (target, lifecycleOnly = false, { ownCommitsOnly = false, handOff = false } = {}) => {
     const before = lifecycleOnly ? observe(target) : null;
     if (before) {
       const own = ownCommittedLifecycle(target, before);
       if (own) return own;
+      // Read-only checks only: a peer rename announced but not yet committed.
+      const pending = ownCommitsOnly ? null : pendingOwnCommittedLifecycle(target, before);
+      if (pending) return pending;
       const cached = entries.get(target);
       if (!ownCommitsOnly && cached && sameSessionStamp(cached.stamp, before)) {
         entries.delete(target);
@@ -242,11 +330,15 @@ export function createCanonicalSessionReader({
       ? CANONICAL_RECORD_UNREADABLE
       : Object.freeze({ id: record.id, closed: record.closed, generation: record.generation });
     forget(target);
-    // Cached only when the bytes provably came from `before` (unchanged
-    // around the read) and that stamp is past the racy window.
-    if (before && settledStamp(before, nowNs()) && sameSessionStamp(before, observe(target))) {
-      remember(target, before, value);
-    }
+    // Reused only when the bytes provably came from `before` (unchanged
+    // around the read).
+    const stable = Boolean(before) && sameSessionStamp(before, observe(target));
+    // The verdict is cached only past the racy window.
+    if (stable && settledStamp(before, nowNs())) remember(target, before, value);
+    // A pre-load check (`handOff`) already parsed the whole record its caller
+    // is about to load: hand the parse to the session load cache instead of
+    // letting the load read and parse the same bytes again.
+    if (stable && handOff && !invalid) offerStrictSessionRecord(target, before, record, raw.length);
     return value;
   };
   return Object.assign(read, {
@@ -258,6 +350,31 @@ export function createCanonicalSessionReader({
      * only while the full stamp is unchanged. Own-commit-only checks never
      * consult it.
      */
+    /**
+     * A lifecycle barrier this realm just renamed into place. Barrier
+     * rewrites are deliberately NOT own commits (write authority re-reads
+     * them strictly), but a read-only lifecycle check may reuse the exact
+     * lifecycle the barrier wrote while the canonical file still shows the
+     * barrier's own inode (verified against the scratch stamp, like an own
+     * commit, so no settle window is needed). Own-commit-only (write
+     * authority) reads never consult this cache; any other stamp misses and
+     * is read strictly.
+     */
+    rememberOwnBarrier(target, scratchStamp, lifecycle) {
+      if (!scratchStamp || !lifecycle) return;
+      const stamp = observe(target);
+      if (
+        !stamp ||
+        stamp.dev !== scratchStamp.dev ||
+        stamp.ino !== scratchStamp.ino ||
+        stamp.size !== scratchStamp.size ||
+        stamp.mtimeNs !== scratchStamp.mtimeNs
+      ) {
+        forget(target);
+        return;
+      }
+      remember(target, stamp, lifecycle);
+    },
     rememberStrictVerdict(target, stamp, record) {
       if (!stamp || isLifecycleUnreadable(record) || !settledStamp(stamp, nowNs())) return;
       remember(target, stamp, Object.freeze({ id: record.id, closed: record.closed, generation: record.generation }));

@@ -2,7 +2,6 @@
 // eager-result consumption or serial execution, and the same-anchor edit
 // retry. Returns the execution record the outcome/finalize phases consume.
 import { markSessionToolCall } from '../manager.mjs';
-import { resolveToolSelfDeadlineMs } from '../../agent-runtime/agent-progress-watchdog.mjs';
 import { classifyResultKind } from '../result-classification.mjs';
 import { normalizeToolEnvelope } from '../tool-envelope.mjs';
 import { captureReadCacheState, tryReadCached, tryScopedToolCached } from '../read-dedup.mjs';
@@ -21,7 +20,7 @@ function classifyToolReturn(value, toolName = '') {
 
 export async function executeBatchCall(batch, call, callIndex) {
   const { sessionId, sessionRef } = batch;
-  if (sessionId) markSessionToolCall(sessionId, call.name, resolveToolSelfDeadlineMs(call.name, call.arguments));
+  if (sessionId) markSessionToolCall(sessionId, call.name);
   const exec = {
     result: undefined,
     resultKind: 'normal',

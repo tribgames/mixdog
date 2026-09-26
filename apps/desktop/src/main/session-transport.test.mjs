@@ -857,7 +857,11 @@ test('views open on a byte-budgeted tail, page older history through the daemon,
     }));
     return { sessionId, revision: ++revision, full: { sessionId, items, queued: [], transcriptHasOlder: limit < 1000 } };
   };
-  const window = ({ transcriptItemLimit, transcriptByteBudget }) => [transcriptItemLimit, transcriptByteBudget ?? null];
+  const window = ({ transcriptItemLimit, transcriptByteBudget, transcriptPageBase }) => [
+    transcriptItemLimit,
+    transcriptByteBudget ?? null,
+    transcriptPageBase ?? null,
+  ];
   const client = {
     list: unsupported,
     create: unsupported,
@@ -896,31 +900,33 @@ test('views open on a byte-budgeted tail, page older history through the daemon,
     const latest = () => updates.at(-1)?.snapshot;
 
     await host.setVisibleSessions(['s1']);
-    assert.deepEqual(calls, [['subscribe', 32, 1_000_000]], 'the desktop opens on the tail');
+    assert.deepEqual(calls, [['subscribe', 32, 1_000_000, null]], 'the desktop opens on the tail');
     assert.equal(latest().items.length, 32);
     assert.equal(latest().transcriptHasOlder, true);
 
-    // Scrolling to the top: one page more, read through the daemon.
+    // Scrolling to the top: one page more, read through the daemon, with a
+    // byte budget for the rows revealed above the 32 this host holds.
     assert.equal(await host.prefetchSession('s1', 96), true);
-    assert.deepEqual(calls.at(-1), ['read', 96, null]);
+    assert.deepEqual(calls.at(-1), ['read', 96, 1_000_000, 32]);
     assert.deepEqual(latest().items.slice(0, 2).map((item) => item.id), ['i904', 'i905']);
     // An ordinary re-read (cold open, retry) keeps the grown window.
     assert.equal(await host.prefetchSession('s1'), true);
-    assert.deepEqual(calls.at(-1), ['read', 96, null]);
+    assert.deepEqual(calls.at(-1), ['read', 96, 1_000_000, 32]);
 
-    // An old phone (no paging flag) raises the shared window to its page.
+    // An old phone (no paging flag) raises the shared window to its page,
+    // never byte-budgeted: it pages by count.
     await host.setVisibleSessionsForSource('remote:old-phone', ['s1'], true);
-    assert.deepEqual(calls.at(-1), ['read', 512, null]);
+    assert.deepEqual(calls.at(-1), ['read', 512, null, null]);
     assert.equal(latest().items.length, 512);
     // ...and its count-based paging still grows it.
     assert.equal(await host.prefetchSession('s1', 1024), true);
-    assert.deepEqual(calls.at(-1), ['read', 1024, null]);
+    assert.deepEqual(calls.at(-1), ['read', 1024, null, null]);
 
     // A session nobody shows any more starts from the tail again.
     await host.setVisibleSessionsForSource('remote:old-phone', [], true);
     await host.setVisibleSessions([]);
     await host.setVisibleSessions(['s1']);
-    assert.deepEqual(calls.at(-1), ['subscribe', 32, 1_000_000]);
+    assert.deepEqual(calls.at(-1), ['subscribe', 32, 1_000_000, null]);
   } finally {
     await host?.dispose();
     await rm(userDataPath, { recursive: true, force: true });

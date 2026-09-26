@@ -13,6 +13,7 @@ export function createFramePublisher({
   updateEntryBusy,
   releaseProjection,
   startEvictionSweep,
+  prependViewer = () => false,
 }) {
   function publishStep(entry, step) {
     const sessionId = index.currentSessionId(entry);
@@ -24,19 +25,27 @@ export function createFramePublisher({
     // a materialized session during newSession/resume). A session subscriber
     // has no copy of that session runtime-only base, so the first frame for each session
     // address must be FULL; only later frames may use session runtime revision deltas.
-    const body =
-      entry.publishedSessionId === sessionId ? frameBody(step) : { revision: step.revision, full: step.snapshot };
+    const continues = entry.publishedSessionId === sessionId;
+    const body = continues ? frameBody(step) : { revision: step.revision, full: step.snapshot };
     entry.publishedSessionId = sessionId;
     entry.lastPublishedAt = Date.now();
-    onFrame(
-      {
-        type: 'session-state',
-        key: `session-state:${sessionId}`,
-        sessionId,
-        ...body,
-      },
-      entry.subscribers
-    );
+    const frame = (frameBodyValue) => ({
+      type: 'session-state',
+      key: `session-state:${sessionId}`,
+      sessionId,
+      ...frameBodyValue,
+    });
+    // An older-history page reaches views that announced transcriptPrepend
+    // as the revealed rows only; every other view gets the ordinary patch.
+    const subscribers = entry.subscribers;
+    const prepending = continues && step.prependPatch && subscribers ? [...subscribers].filter(prependViewer) : [];
+    if (prepending.length === 0) {
+      onFrame(frame(body), subscribers);
+      return;
+    }
+    onFrame(frame(frameBody(step, true)), new Set(prepending));
+    const others = [...subscribers].filter((token) => !prepending.includes(token));
+    if (others.length > 0) onFrame(frame(body), new Set(others));
   }
 
   function publish(entry) {

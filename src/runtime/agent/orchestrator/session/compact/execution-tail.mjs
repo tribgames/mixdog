@@ -19,9 +19,15 @@ export function toolHistoryBudget(contextWindow) {
 // Count arguments and provider replay as well as results. The serialized
 // estimate is deliberately conservative for provider-specific opaque metadata.
 // UI diffs never reach the model and must not displace execution evidence.
+// Only messages that carry a uiDiff are copied: an uncopied message keeps its
+// per-message token memo, and its serialization is the same either way.
 export function executionTokens(messages) {
   if (!messages.length) return 0;
-  const budgetMessages = messages.map(({ uiDiff: _uiDiff, ...message }) => message);
+  const budgetMessages = messages.map((message) => {
+    if (!Object.hasOwn(message, 'uiDiff')) return message;
+    const { uiDiff: _uiDiff, ...rest } = message;
+    return rest;
+  });
   return Math.max(estimateMessagesTokens(budgetMessages), estimateTokens(JSON.stringify(budgetMessages)));
 }
 

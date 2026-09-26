@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { sweepStaleSessions } from './listing.mjs';
+import { settleSessionSummaryIndex, sweepStaleSessions } from './listing.mjs';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -15,7 +15,7 @@ function writeSession(dir, doc, mtimeMs) {
   return path;
 }
 
-test('a session whose file changed between sweeps is judged from its new contents', () => {
+test('a session whose file changed between sweeps is judged from its new contents', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-sweep-cache-'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = root;
@@ -50,6 +50,9 @@ test('a session whose file changed between sweeps is judged from its new content
     assert.equal(result.tombstonesCleaned, 1);
     assert.equal(existsSync(path), false);
   } finally {
+    // The sweep's summary-index writes land after it returns; let them finish
+    // before the data dir goes, or they recreate it.
+    await settleSessionSummaryIndex();
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previous;
     rmSync(root, { recursive: true, force: true });

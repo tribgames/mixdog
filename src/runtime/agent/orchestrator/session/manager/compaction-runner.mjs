@@ -5,10 +5,12 @@
 // runSessionCompaction().
 import { getProvider } from '../../providers/registry.mjs';
 import { HANDOFF_TIMEOUT_MAX_MS } from '../compact/constants.mjs';
+import { jsonByteLength } from '../compact/json-byte-length.mjs';
 import {
   estimateMessagesTokens,
   estimateRequestReserveTokens,
   estimateTranscriptContextUsage,
+  primeContextEstimates,
   resolveCompactBufferRatio,
 } from '../context-utils.mjs';
 import { runFreshContextCompact } from '../loop/fresh-context.mjs';
@@ -164,12 +166,15 @@ export async function runHandoffCompaction({
 // Everything the pass settles before deciding to run: mode, the aligned
 // policy and the token numbers every stage reports from. Null = nothing to
 // do for this session.
-function sessionCompactionPlan(session, opts) {
+async function sessionCompactionPlan(session, opts) {
   const resolvedSessionId = opts.sessionId || session.id || null;
   const mode = opts.mode === 'auto' ? 'auto' : 'manual';
   const force = opts.force === true || mode === 'manual';
   if (mode === 'auto' && session.compaction?.auto === false) return null;
-  const messages = Array.isArray(session.messages) ? session.messages : [];
+  // Every stage prices and compacts this snapshot. The live array keeps
+  // receiving turns meanwhile (nothing serializes an ask against a running
+  // compaction), and commitSessionCompaction reconciles it with the result.
+  const messages = Array.isArray(session.messages) ? session.messages.slice() : [];
   if (messages.length < 3 && !force) return null;
   const boundary =
     positiveInt(session.compactBoundaryTokens) ||
@@ -184,6 +189,9 @@ function sessionCompactionPlan(session, opts) {
   // MIXDOG_AGENT_COMPACT_RESERVED_TOKENS env). The old request-only value left
   // the manual / auto-clear compact budget without the configured headroom the
   // loop path reserves, so a compacted transcript could overflow on next send.
+  // A cold (just loaded) transcript is metered in slices first; the plan
+  // numbers below then read the per-message memos.
+  await primeContextEstimates(messages, session);
   const alignedPolicy = resolveSessionCompactionPolicy(session);
   return {
     session,
@@ -369,12 +377,93 @@ function recordFailedCompaction(plan, run, compactStartedAt) {
   });
 }
 
-function encodedOrEmpty(messages) {
-  try {
-    return JSON.stringify(messages);
-  } catch {
-    return '';
+const ENCODE_SLICE_MS = 20;
+
+// JSON.stringify(list) is exactly '[' + each element's own encoding ('null'
+// when that is undefined) joined by ',' + ']', and that concatenation parses
+// back unambiguously. So byte length is additive over elements and two lists
+// encode equal iff they have the same length and equal element encodings; a
+// shared element object encodes the same on both sides. Compare the pre- and
+// post-compaction transcripts element by element, yielding between slices,
+// instead of building two whole-transcript strings in one block. A null byte
+// count means that list does not encode (JSON.stringify throws).
+// toJSON(key) sees the element index only inside the array, so a list with a
+// toJSON element is encoded whole.
+async function compareTranscriptEncodings(before, after) {
+  const hasToJson = (list) => list.some((m) => typeof m?.toJSON === 'function');
+  if (hasToJson(before) || hasToJson(after)) {
+    const whole = (list) => {
+      try {
+        return JSON.stringify(list);
+      } catch {
+        return null;
+      }
+    };
+    const beforeEncoded = whole(before);
+    const afterEncoded = whole(after);
+    return {
+      beforeBytes: beforeEncoded === null ? null : Buffer.byteLength(beforeEncoded, 'utf8'),
+      afterBytes: afterEncoded === null ? null : Buffer.byteLength(afterEncoded, 'utf8'),
+      differ: beforeEncoded !== afterEncoded,
+    };
   }
+  // Encodings are built only to compare an unshared pair while the lists
+  // could still encode equal; every other element is only measured.
+  const encode = (value) => {
+    try {
+      return JSON.stringify(value) ?? 'null';
+    } catch {
+      return null;
+    }
+  };
+  const measure = (value, index) => {
+    try {
+      return jsonByteLength(value, index) ?? 4;
+    } catch {
+      return null;
+    }
+  };
+  const encodedBytes = (json) => (json === null ? null : Buffer.byteLength(json, 'utf8'));
+  // Brackets plus one comma between elements.
+  const side = (list) => ({ bytes: list.length ? 1 + list.length : 2, ok: true });
+  const add = (target, bytes) => {
+    if (bytes === null) target.ok = false;
+    else target.bytes += bytes;
+  };
+  const beforeSide = side(before);
+  const afterSide = side(after);
+  let differ = before.length !== after.length;
+  let sliceStart = performance.now();
+  const count = Math.max(before.length, after.length);
+  for (let index = 0; index < count && (beforeSide.ok || afterSide.ok); index += 1) {
+    const inBefore = index < before.length;
+    const inAfter = index < after.length;
+    const shared = inBefore && inAfter && before[index] === after[index];
+    let beforeBytes = null;
+    let afterBytes = null;
+    if (!differ && !shared) {
+      const beforeJson = encode(before[index]);
+      const afterJson = encode(after[index]);
+      beforeBytes = encodedBytes(beforeJson);
+      afterBytes = encodedBytes(afterJson);
+      if (beforeJson !== afterJson) differ = true;
+    } else {
+      if (inBefore && (beforeSide.ok || shared)) beforeBytes = measure(before[index], index);
+      if (shared) afterBytes = beforeBytes;
+      else if (inAfter && afterSide.ok) afterBytes = measure(after[index], index);
+    }
+    if (inBefore && beforeSide.ok) add(beforeSide, beforeBytes);
+    if (inAfter && afterSide.ok) add(afterSide, afterBytes);
+    if (performance.now() - sliceStart >= ENCODE_SLICE_MS) {
+      await new Promise((resolve) => setImmediate(resolve));
+      sliceStart = performance.now();
+    }
+  }
+  return {
+    beforeBytes: beforeSide.ok ? beforeSide.bytes : null,
+    afterBytes: afterSide.ok ? afterSide.bytes : null,
+    differ,
+  };
 }
 
 // Best-effort GC only: the 10-minute mtime gate plus this idle-only guard
@@ -424,7 +513,7 @@ function compactionOutcome(session, freshContextResult, changed, now) {
 function traceCommittedCompaction(
   plan,
   compactStartedAt,
-  { messages, compacted, beforeEncoded, afterEncoded, changed }
+  { messages, compacted, beforeBytes, afterBytes, changed }
 ) {
   let beforePrefixHash = null;
   try {
@@ -438,8 +527,8 @@ function traceCommittedCompaction(
       input_prefix_hash: beforePrefixHash,
       before_count: messages.length,
       after_count: compacted.length,
-      before_bytes: beforeEncoded ? Buffer.byteLength(beforeEncoded, 'utf8') : null,
-      after_bytes: afterEncoded ? Buffer.byteLength(afterEncoded, 'utf8') : null,
+      before_bytes: beforeBytes,
+      after_bytes: afterBytes,
     },
   });
 }
@@ -449,31 +538,97 @@ function traceCommittedCompaction(
 // the provider baseline, so the gauge's post-compact number is the
 // calibrated transcript estimate plus the request reserve. The raw sum
 // reported roughly half of that.
-function afterCompactionNumbers(plan, compacted) {
-  const { session, messages, reserveTokens } = plan;
-  const beforeEncoded = encodedOrEmpty(messages);
-  const afterEncoded = encodedOrEmpty(compacted);
-  const afterMessageTokens = estimateMessagesTokens(compacted);
-  const postCompactPolicy = resolveSessionCompactionPolicy(session, compacted) || plan.alignedPolicy;
+function afterTranscriptTokens(plan, transcript, afterMessageTokens) {
+  const postCompactPolicy = resolveSessionCompactionPolicy(plan.session, transcript) || plan.alignedPolicy;
   const afterTokens = postCompactPolicy
     ? currentContextEstimateTokens(afterMessageTokens, postCompactPolicy)
-    : afterMessageTokens + reserveTokens;
-  const changed =
-    beforeEncoded && afterEncoded
-      ? beforeEncoded !== afterEncoded
-      : compacted.length !== messages.length || afterMessageTokens !== plan.beforeMessageTokens;
-  return { beforeEncoded, afterEncoded, afterMessageTokens, postCompactPolicy, afterTokens, changed };
+    : afterMessageTokens + plan.reserveTokens;
+  return { postCompactPolicy, afterTokens };
 }
+
+async function afterCompactionNumbers(plan, compacted) {
+  const { messages } = plan;
+  const { beforeBytes, afterBytes, differ } = await compareTranscriptEncodings(messages, compacted);
+  const afterMessageTokens = estimateMessagesTokens(compacted);
+  const changed =
+    beforeBytes !== null && afterBytes !== null
+      ? differ
+      : compacted.length !== messages.length || afterMessageTokens !== plan.beforeMessageTokens;
+  return {
+    beforeBytes,
+    afterBytes,
+    afterMessageTokens,
+    ...afterTranscriptTokens(plan, compacted, afterMessageTokens),
+    changed,
+    transcript: compacted,
+  };
+}
+
+// The messages appended to the live transcript since the plan snapshot, in
+// order ([] when none), or null when it no longer starts with every snapshot
+// message (rewound, cleared, replaced or edited): the compacted result then
+// cannot be reconciled with it.
+function appendedSinceSnapshot(plan) {
+  const live = plan.session.messages;
+  const snapshot = plan.messages;
+  if (!Array.isArray(live) || live.length < snapshot.length) return null;
+  for (let index = 0; index < snapshot.length; index += 1) {
+    if (live[index] !== snapshot[index]) return null;
+  }
+  return live.slice(snapshot.length);
+}
+
+// Numbers for the compacted result followed by the messages a finished turn
+// appended meanwhile. The token estimate is a per-message sum and the JSON
+// byte length of a concatenation is the sum less one pair of brackets plus a
+// separating comma, so only the appended messages are priced again.
+function withAppendedMessages(plan, numbers, appended) {
+  const transcript = [...numbers.transcript, ...appended];
+  const afterMessageTokens = numbers.afterMessageTokens + estimateMessagesTokens(appended);
+  let afterBytes = null;
+  if (numbers.afterBytes !== null) {
+    try {
+      const appendedBytes = Buffer.byteLength(JSON.stringify(appended), 'utf8');
+      afterBytes = numbers.afterBytes + appendedBytes - 2 + (numbers.transcript.length ? 1 : 0);
+    } catch {
+      afterBytes = null;
+    }
+  }
+  return {
+    ...numbers,
+    afterBytes,
+    afterMessageTokens,
+    ...afterTranscriptTokens(plan, transcript, afterMessageTokens),
+    transcript,
+  };
+}
+
+const TRANSCRIPT_MOVED_ERROR =
+  'compact: the conversation changed while compacting; compaction not applied, run it again';
 
 async function commitSessionCompaction(plan, run, compactStartedAt) {
   const { session, messages, mode, force, resolvedSessionId, reserveTokens } = plan;
-  const { compacted, freshContextResult } = run;
-  const { beforeEncoded, afterEncoded, afterMessageTokens, postCompactPolicy, afterTokens, changed } =
-    afterCompactionNumbers(plan, compacted);
+  const { freshContextResult } = run;
+  const numbers = await afterCompactionNumbers(plan, run.compacted);
+  // Reconcile with the live transcript synchronously up to the replacement
+  // below: a turn in flight owns it and would overwrite the result, and a
+  // transcript that no longer extends the snapshot cannot take it. Both
+  // leave the conversation exactly as it is now. Messages a finished turn
+  // appended are kept, in order, after the compacted result.
+  const appended = isSessionCompactionBlocked(resolvedSessionId) ? null : appendedSinceSnapshot(plan);
+  if (!appended) {
+    return recordFailedCompaction(
+      plan,
+      { compactError: new Error(TRANSCRIPT_MOVED_ERROR), freshContextError: null },
+      compactStartedAt
+    );
+  }
+  const { beforeBytes, afterBytes, afterMessageTokens, postCompactPolicy, afterTokens, changed, transcript } =
+    appended.length ? withAppendedMessages(plan, numbers, appended) : numbers;
   let unchangedReason = null;
   if (!changed) unchangedReason = force ? 'nothing to compact' : 'below threshold';
   const now = Date.now();
-  session.messages = compacted;
+  session.messages = transcript;
   if (changed) resetReadStateAfterCompaction(resolvedSessionId);
   await pruneCompactedOffloads(session, resolvedSessionId);
   if (changed) session.providerState = undefined;
@@ -491,7 +646,7 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
     invalidateProviderContextBaseline(session);
     if (postCompactPolicy) {
       recordContextUsageSnapshot(session, postCompactPolicy, {
-        messages: compacted,
+        messages: transcript,
         usedTokens: afterTokens,
         messageTokensEst: afterMessageTokens,
         source: 'post_compact',
@@ -499,7 +654,13 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
       });
     }
   }
-  traceCommittedCompaction(plan, compactStartedAt, { messages, compacted, beforeEncoded, afterEncoded, changed });
+  traceCommittedCompaction(plan, compactStartedAt, {
+    messages,
+    compacted: transcript,
+    beforeBytes,
+    afterBytes,
+    changed,
+  });
   // Park a one-shot intent so the next turn's first send tags its cache
   // break instead of logging an unexplained input_prefix_mismatch.
   if (changed) {
@@ -508,7 +669,7 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
   return compactionResult(
     plan,
     { changed, reason: unchangedReason },
-    { messages: compacted.length, tokens: afterTokens, messageTokens: afterMessageTokens },
+    { messages: transcript.length, tokens: afterTokens, messageTokens: afterMessageTokens },
     {
       freshContext: freshContextResult?.freshContext === true,
       freshContextError: null,
@@ -520,7 +681,7 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
 
 export async function runSessionCompaction(session, opts = {}) {
   if (!session || session.closed === true) return null;
-  const plan = sessionCompactionPlan(session, opts);
+  const plan = await sessionCompactionPlan(session, opts);
   if (!plan) return null;
   if (!plan.force && plan.pressureTokens < plan.triggerTokens) {
     return compactionResult(plan, { changed: false, reason: 'below threshold' }, unchangedAfter(plan), {
@@ -533,6 +694,9 @@ export async function runSessionCompaction(session, opts = {}) {
   } catch {
     /* best-effort */
   }
+  // Keep the plan's whole-transcript pricing and the handoff pass in separate
+  // event-loop turns.
+  await new Promise((resolve) => setImmediate(resolve));
   const run = await runSessionHandoff(plan, opts);
   if (!run.compacted) return recordFailedCompaction(plan, run, compactStartedAt);
   return commitSessionCompaction(plan, run, compactStartedAt);

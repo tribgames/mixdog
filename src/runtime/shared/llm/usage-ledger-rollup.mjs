@@ -163,13 +163,18 @@ function foldDailyAmounts(days, amounts) {
 // originals, without modifying them or guessing from account/pool ids.
 // Aggregate compact integer keys BEFORE decoding attribution. The old
 // view decoded JSON and joined every historical request on each open.
+// An unbounded window matches every row: `+ts` then scans the table instead of
+// paying one primary-key search per usage_events_time entry in this WITHOUT
+// ROWID table (~90 ms vs ~330 ms over 120k real rows). A bounded window keeps
+// the index.
 function readSessionAttribution(db, { fromDay, toDay, fromTs, toTs }) {
+  const ts = fromTs > 0 || toTs < Number.MAX_SAFE_INTEGER ? 'ts' : '+ts';
   return db
     .prepare(`
             WITH grouped AS (
                 SELECT day,route,session,SUM(input) AS input,SUM(output) AS output,
                     SUM(cache_read) AS cacheRead,SUM(cache_write) AS cacheWrite
-                FROM usage_events WHERE ts>=? AND ts<?
+                FROM usage_events WHERE ${ts}>=? AND ${ts}<?
                 GROUP BY day,route,session
             ), attributed AS (
                 SELECT printf('%04d-%02d-%02d',e.day/10000,(e.day/100)%100,e.day%100) AS day,

@@ -149,7 +149,6 @@ export function markSessionAskStart(id) {
   entry.transportTrackingEnabled = false;
   entry.lastToolCall = null;
   entry.toolStartedAt = null;
-  entry.toolSelfDeadlineMs = null;
   entry.toolOutputTail = null;
   entry.toolOutputTailAt = null;
   entry.lastError = null;
@@ -252,7 +251,7 @@ export async function markSessionStreamDelta(id, kind = 'semantic') {
   }
   entry.updatedAt = now;
 }
-export function markSessionToolCall(id, toolName, selfDeadlineMs) {
+export function markSessionToolCall(id, toolName) {
   if (!id) return;
   // A real tool call always follows markSessionAskStart. Never create or
   // revive a runtime from a late provider callback after the turn settled.
@@ -263,11 +262,6 @@ export function markSessionToolCall(id, toolName, selfDeadlineMs) {
   // A new tool call invalidates the previous call's live-output tail.
   entry.toolOutputTail = null;
   entry.toolOutputTailAt = null;
-  // Self-enforced deadline (ms) for tools that kill themselves at a known
-  // budget (shell timeout / task wait). The watchdog raises the tool-running
-  // ceiling to this + grace instead of aborting at toolRunningMs. Null/<=0
-  // means unknown -> plain toolRunningMs behavior.
-  entry.toolSelfDeadlineMs = typeof selfDeadlineMs === 'number' && selfDeadlineMs > 0 ? selfDeadlineMs : null;
   entry.toolStartedAt = Date.now();
   entry.lastTransportAt = entry.toolStartedAt;
   if (!entry.firstSemanticAt) entry.firstSemanticAt = entry.toolStartedAt;
@@ -405,7 +399,6 @@ export function getSessionProgressSnapshot(sessionId) {
     lastStreamDeltaAt: entry.lastStreamDeltaAt || 0,
     toolStartedAt: entry.toolStartedAt || 0,
     currentTool: entry.lastToolCall || null,
-    toolSelfDeadlineMs: entry.toolSelfDeadlineMs || 0,
     toolOutputTail: entry.toolOutputTail || null,
     toolOutputTailAt: entry.toolOutputTailAt || 0,
     lastProgressAt: entry.lastProgressAt || 0,

@@ -141,6 +141,8 @@ export class SessionHost implements DesktopService {
         };
       },
       applySessionResult: (sessionId, value, publish) => this.publication.applySessionResult(sessionId, value, publish),
+      heldTranscript: (sessionId) => this.publication.heldTranscript(sessionId),
+      applyTranscriptPage: (sessionId, value, publish) => this.publication.applyTranscriptPage(sessionId, value, publish),
       deleteProjection: (sessionId) => {
         this.publication.projections.delete(sessionId);
       },
@@ -194,8 +196,8 @@ export class SessionHost implements DesktopService {
       resolveSessionWorkspace: (path) => this.resolveSessionWorkspace(path),
       projectDirectory: (path) => this.projectDirectory(path),
       openHints: (sessionId) => this.openHints(sessionId),
-      readSession: (sessionId, forceFull, publish, readTraceId) =>
-        this.readSession(sessionId, forceFull, publish, readTraceId),
+      readSession: (sessionId, forceFull, publish, readTraceId, page) =>
+        this.readSession(sessionId, forceFull, publish, readTraceId, page),
       invokeSession: (sessionId, method, args) => this.transport.invokeSession(sessionId, method, args),
       ensureControlSession: () => this.transport.ensureControlSession(),
       invokeControlResult: (method, args) => this.transport.invokeControlResult(method, args),
@@ -361,9 +363,10 @@ export class SessionHost implements DesktopService {
     sessionId: string,
     forceFull = false,
     publish = true,
-    readTraceId?: string
+    readTraceId?: string,
+    page = false
   ): Promise<SessionSnapshot> {
-    return this.transport.readSession(sessionId, forceFull, publish, readTraceId);
+    return this.transport.readSession(sessionId, forceFull, publish, readTraceId, page);
   }
 
   async startProject(projectPath: string): Promise<SessionSnapshot> {

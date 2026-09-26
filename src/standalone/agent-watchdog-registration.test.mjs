@@ -4,7 +4,7 @@ import { createProgressWatchdogRegistry, getProgressWatchdogState } from './agen
 import { buildAgentTaskProgressFields } from './agent-task-status.mjs';
 import { createAgentTree } from './session-service/agent-tree.mjs';
 
-const policy = { firstTransportMs: 120000, firstSemanticMs: 600000, idleStaleMs: 315000, toolRunningMs: 315000 };
+const policy = { firstTransportMs: 120000, firstSemanticMs: 600000, idleStaleMs: 315000 };
 
 test('configured thresholds are not reported as an armed watchdog without registration', () => {
   const mgr = {};
@@ -23,12 +23,37 @@ test('canonical agent manager exposes actual progress and an unlinkable abort br
   const parent = new AbortController();
   const unlink = tree.agentManager.linkParentSignalToSession('worker', parent.signal);
   parent.abort();
-  assert.deepEqual(aborts, [{ restorePrompt: false }]);
+  assert.deepEqual(aborts, [{ restorePrompt: false, reason: 'agent-watchdog' }]);
   unlink();
   const detached = new AbortController();
   tree.agentManager.linkParentSignalToSession('worker', detached.signal)();
   detached.abort();
   assert.equal(aborts.length, 1);
+});
+
+test('a session whose runtime loads after the turn starts is linked on a later sweep', async () => {
+  let runtimeLoaded = false;
+  let linked = 0;
+  const mgr = {
+    getSessionProgressSnapshot: () => null,
+    linkParentSignalToSession: () => {
+      if (!runtimeLoaded) throw new Error('agent runtime cannot abort session worker');
+      linked += 1;
+      return () => {};
+    },
+  };
+  const registry = createProgressWatchdogRegistry({ mgr });
+  const handle = registry.start('worker', policy);
+  assert.notEqual(handle, null, 'an unloaded runtime still gets a watchdog');
+  assert.equal(getProgressWatchdogState(mgr, 'worker').registered, false, 'not armed until linked');
+  runtimeLoaded = true;
+  for (const deadline = Date.now() + 5000; linked === 0 && Date.now() < deadline; ) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(linked, 1);
+  assert.equal(getProgressWatchdogState(mgr, 'worker').registered, true);
+  handle.stop();
+  assert.equal(getProgressWatchdogState(mgr, 'worker').registered, false);
 });
 
 test('stopping a registered watchdog clears its state and abort listener', () => {

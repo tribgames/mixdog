@@ -1,8 +1,28 @@
-import { useEffect, useMemo, useState, type MutableRefObject, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type MutableRefObject,
+  type ReactNode,
+} from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { reviewSlotReserved, turnTouchesFiles } from './composer-dock-reservation';
-import { SessionGoalHost } from './SessionGoalIsland';
-import { TurnReviewBar } from './TurnReview';
+import { SessionGoalHost } from './session-goal-submission';
+
+// The review bar only paints for a file-touching turn, so its diff analysis
+// stays out of the first-screen bundle.
+const TurnReviewBar = lazy(() => import('./TurnReview').then((module) => ({ default: module.TurnReviewBar })));
+
+/** While the review chunk loads, a file-touching turn keeps its slot reserved
+ *  exactly as it does for an in-flight read; the bar reports its own pending
+ *  state as soon as it mounts. */
+function TurnReviewLoading({ onPendingChange }: { onPendingChange(pending: boolean): void }) {
+  useLayoutEffect(() => onPendingChange(true), [onPendingChange]);
+  return null;
+}
 
 /**
  * The chrome stacked ABOVE the prompt input: Goal capsule, runtime progress,
@@ -119,15 +139,17 @@ export function ComposerDock({
           It is not a timeline row: as scroll content it read as a detached
           card floating over the composer. */}
       <div className="turn-review-slot" data-reserved={reserved ? 'true' : 'false'}>
-        <TurnReviewBar
-          items={reviewItems}
-          active={reviewActive}
-          busy={reviewBusy}
-          sessionId={reviewSessionId}
-          cwd={reviewCwd}
-          onOpenFile={onOpenFile}
-          onPendingChange={setReviewPending}
-        />
+        <Suspense fallback={<TurnReviewLoading onPendingChange={setReviewPending} />}>
+          <TurnReviewBar
+            items={reviewItems}
+            active={reviewActive}
+            busy={reviewBusy}
+            sessionId={reviewSessionId}
+            cwd={reviewCwd}
+            onOpenFile={onOpenFile}
+            onPendingChange={setReviewPending}
+          />
+        </Suspense>
       </div>
       {children}
     </div>

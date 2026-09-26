@@ -10,7 +10,23 @@ export type MarkdownCopyControl = ComponentType<{
   className: string;
 }>;
 
-export function markdownComponents(CopyControl: MarkdownCopyControl) {
+type MarkdownComponents = ReturnType<typeof createMarkdownComponents>;
+
+// Component types must be stable: toJsxRuntime runs on every landed parse of a
+// live tail, and a fresh `pre`/`table` type per call remounted every code card
+// and table wrapper (with its copy control) on each streamed token.
+const componentsByCopyControl = new WeakMap<MarkdownCopyControl, MarkdownComponents>();
+
+export function markdownComponents(CopyControl: MarkdownCopyControl): MarkdownComponents {
+  let components = componentsByCopyControl.get(CopyControl);
+  if (!components) {
+    components = createMarkdownComponents(CopyControl);
+    componentsByCopyControl.set(CopyControl, components);
+  }
+  return components;
+}
+
+function createMarkdownComponents(CopyControl: MarkdownCopyControl) {
   return {
     a: MarkdownLink,
     table({ children }: { children?: ReactNode }) {

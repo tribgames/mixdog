@@ -307,3 +307,58 @@ test('a patch after cache eviction re-reads its baseline without publishing an e
   assert.equal(seen.length, 1);
   assert.equal(seen[0].items[0].text, 'original');
 });
+
+test('a live frame carrying itemsPrepend puts the revealed rows above the held ones', () => {
+  const lane = owner();
+  lane.visible.add('live');
+  const publication = new SessionHostPublication(lane);
+  const row = (id) => ({ id, kind: 'assistant', text: `row ${id}` });
+  const held = [row('r0'), row('r1'), row('r2')];
+  publication.applySessionResult('live', { sessionId: 'live', revision: 1, full: { sessionId: 'live', items: held } });
+  publication.handleSessionFrame({
+    type: 'session-state',
+    sessionId: 'live',
+    revision: 2,
+    baseRevision: 1,
+    patch: {
+      set: {},
+      remove: [],
+      itemsPrepend: { values: [row('h0'), row('h1')] },
+      itemsAppend: { from: 2, values: [row('r2b')] },
+    },
+  });
+  const items = publication.projections.get('live').snapshot.items;
+  assert.deepEqual(
+    items.map((item) => item.id),
+    ['h0', 'h1', 'r0', 'r1', 'r2b']
+  );
+  assert.equal(items[2], held[0]);
+  assert.equal(items[3], held[1]);
+});
+
+test('an older page grown into a live window keeps the rows this host already held', () => {
+  const lane = owner();
+  lane.visible.add('live');
+  const publication = new SessionHostPublication(lane);
+  const seen = [];
+  publication.subscribeSessionStates((update) => seen.push(update.snapshot));
+  const row = (id) => ({ id, kind: 'assistant', text: `row ${id}` });
+  const held = [row('r0'), row('r1')];
+  publication.applySessionResult('live', { sessionId: 'live', revision: 1, full: { sessionId: 'live', items: held } });
+  // The daemon answers a grown window with a suffix replacement from row 0.
+  const values = JSON.parse(JSON.stringify([row('h0'), row('h1'), ...held]));
+  publication.applySessionResult('live', {
+    sessionId: 'live',
+    revision: 2,
+    baseRevision: 1,
+    patch: { set: { transcriptHasOlder: false }, itemsAppend: { from: 0, values } },
+  });
+  const items = seen.at(-1).items;
+  assert.deepEqual(
+    items.map((item) => item.id),
+    ['h0', 'h1', 'r0', 'r1']
+  );
+  assert.equal(items[2], held[0], 'held rows keep their identity, so views receive only the page');
+  assert.equal(items[3], held[1]);
+  assert.equal(seen.at(-1).transcriptHasOlder, false);
+});

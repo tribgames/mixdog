@@ -68,6 +68,14 @@ test('a steering abort preserves requested Goal time while a later explicit stop
   assert.deepEqual(reasons, ['interrupt', 'user-cancel']);
 });
 
+test('a named abort reason reaches the runtime unless a steering prompt is pending', () => {
+  const reasons = [];
+  const runtime = { abort: (reason) => reasons.push(reason) };
+  abortGoalTurn(runtime, { leadTurnEpoch: 1 }, false, 'agent-watchdog');
+  abortGoalTurn(runtime, { leadTurnEpoch: 1 }, true, 'agent-watchdog');
+  assert.deepEqual(reasons, ['agent-watchdog', 'interrupt']);
+});
+
 test('rejected or failed abort requests cannot authorize a steering handoff', () => {
   for (const shouldThrow of [false, true]) {
     const flags = { leadTurnEpoch: 2, goalSteeringAbortEpoch: 1 };

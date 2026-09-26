@@ -55,6 +55,10 @@ export function scheduleFontWarmup(): void {
     document.fonts.forEach((face) => {
       if (face.status !== 'unloaded') return;
       if (!warmHangul && /pretendard/i.test(face.family)) return;
+      // KaTeX declares ~20 faces that only rendered math uses, and a remote
+      // surface fetches each one over the network. Math loads its own faces
+      // when it paints; the local desktop still warms them from disk.
+      if (remote && /katex/i.test(face.family)) return;
       pending.push(face);
     });
     if (pending.length === 0) return;

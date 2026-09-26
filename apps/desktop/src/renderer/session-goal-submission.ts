@@ -1,7 +1,25 @@
-import { createContext, useContext, useRef } from 'react';
+import { createContext, createElement, useContext, useRef, type ReactNode } from 'react';
 import type { GoalSnapshot } from './desktop-types';
 
 export const GoalSubmissionContext = createContext('');
+
+// Kept outside SessionGoalIsland so the composer can mount the host while the
+// capsule module loads only for a session that has a Goal.
+export function SessionGoalHost({
+  placement,
+  children,
+  submissionId = '',
+}: {
+  placement: 'composer';
+  children?: ReactNode;
+  submissionId?: string;
+}) {
+  return createElement(
+    GoalSubmissionContext.Provider,
+    { value: submissionId },
+    createElement('div', { className: 'session-goal-host', 'data-goal-placement': placement }, children)
+  );
+}
 
 // Clock/transport publications are not a new goal. Only an actual change to
 // its identity, lifecycle, or work should release the previous-turn mask.

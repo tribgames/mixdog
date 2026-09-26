@@ -110,7 +110,8 @@ export class DesktopStateBridge {
       return;
     }
     let encoder = this.sessionEncoders.get(sessionId);
-    if (!encoder) encoder = createSnapshotDeltaEncoder();
+    // The preload decodes with this same build, so older-history pages travel as prepends.
+    if (!encoder) encoder = createSnapshotDeltaEncoder({ prepend: true });
     if (update.snapshot === null) {
       this.send(DESKTOP_IPC.sessionState, {
         sessionId,

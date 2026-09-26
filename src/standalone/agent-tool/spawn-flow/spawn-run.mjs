@@ -16,6 +16,7 @@ import { createProgressWatchdogRegistry } from '../../agent-watchdog-registry.mj
 import {
   resolveHandoffMessageStartIndex,
   watchdogPartialHandoffFromError,
+  watchdogStoppedHandoff,
 } from '../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { saveSessionAsync } from '../../../runtime/agent/orchestrator/session/store.mjs';
 import { presetDescriptor } from './spawn-prep.mjs';
@@ -174,7 +175,7 @@ export function createSpawnRunner({
           tag,
           sessionId: session.id,
           ...presetDescriptor(agent, preset, presetName),
-          content: partial,
+          content: watchdogStoppedHandoff(error, partial),
           stallAbort: true,
         };
         if (job) job._terminalResultValue = value;

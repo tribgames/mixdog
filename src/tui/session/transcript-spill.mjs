@@ -28,6 +28,8 @@ const TRANSCRIPT_RESTORE_OVERLAP_ITEMS = 64;
 
 export { cleanupStaleTranscriptSpillDirs };
 
+let staleSpillSweepDone = false;
+
 // Serialized pages deliberately release the old item object graph while
 // keeping every byte restorable. Only `items` is render-live and walkable.
 // This buffer owns the page list, the reading cursor and snapshots; the spill
@@ -45,7 +47,12 @@ export function createTranscriptSpillBuffer({
   try {
     writeOwnerRegistry();
   } catch {}
-  cleanupStaleTranscriptSpillDirs();
+  // One sweep per process: it lists the whole temp directory synchronously,
+  // and a buffer is created per session.
+  if (!staleSpillSweepDone) {
+    staleSpillSweepDone = true;
+    cleanupStaleTranscriptSpillDirs();
+  }
   const pages = [];
   let cursor = null;
   let spillDir = null;

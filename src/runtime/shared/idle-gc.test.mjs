@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { collectGarbageNow, createIdleGc } from './idle-gc.mjs';
+import { collectGarbageNow, createIdleGc, noteMemoryRelease } from './idle-gc.mjs';
 import { sleep } from './sleep.mjs';
 
 async function withEnv(vars, run) {
@@ -84,6 +84,28 @@ test('an idle host sweeps once, then waits for real growth', async () => {
     assert.match(lines.join('\n'), /idle gc: heapUsed [\d.]+ -> [\d.]+ MB \(reclaimed -?[\d.]+ MB\) in \d+ms/);
     // Nothing allocated since, so the next cycle must not burn another sweep.
     assert.equal(await gc._tickForTest(), 'unchanged');
+  });
+});
+
+test('a large release re-arms one sweep once the host is idle again, never while busy', async () => {
+  await withEnv({ MIXDOG_IDLE_GC_IDLE_MS: '1000', MIXDOG_IDLE_GC_MIN_HEAP_MB: '0' }, async () => {
+    let busy = false;
+    const gc = createIdleGc({ isBusy: () => busy });
+    await sleep(1100);
+    assert.equal(await gc._tickForTest(), 'swept');
+    assert.equal(await gc._tickForTest(), 'unchanged');
+    // Sessions closed: their memory is dead but still counted as heapUsed,
+    // so growth alone would never trigger another sweep.
+    noteMemoryRelease();
+    assert.equal(await gc._tickForTest(), 'settling', 'the release itself is activity');
+    busy = true;
+    await sleep(1100);
+    assert.equal(await gc._tickForTest(), 'busy');
+    busy = false;
+    assert.equal(await gc._tickForTest(), 'settling');
+    await sleep(1100);
+    assert.equal(await gc._tickForTest(), 'swept');
+    assert.equal(await gc._tickForTest(), 'unchanged', 'one release buys one sweep');
   });
 });
 

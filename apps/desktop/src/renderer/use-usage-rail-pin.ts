@@ -1,10 +1,25 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
-import { usagePinEntries } from './SidebarUsage';
 import { usagePinStackFits } from './rail-usage-pin-room';
 import type { UsageDashboardSnapshot } from './usage-dashboard-store';
 
 const USAGE_RAIL_PIN_KEY = 'mixdog.desktop.usage-rail-pin.v1';
+
+type SidebarUsageModule = typeof import('./SidebarUsage');
+type UsagePinEntries = SidebarUsageModule['usagePinEntries'];
+
+// The usage flyout and the pin reader share one module that is off the first
+// screen unless the rail is pinned; a pinned rail holds its boot surface until
+// the reader arrives, so the stack never paints a provisional glyph first.
+let sidebarUsageModule: Promise<SidebarUsageModule> | null = null;
+export function loadSidebarUsageModule(): Promise<SidebarUsageModule> {
+  sidebarUsageModule ||= import('./SidebarUsage').catch((error) => {
+    sidebarUsageModule = null;
+    throw error;
+  });
+  return sidebarUsageModule;
+}
+const NO_PIN_ENTRIES: UsagePinEntries = () => [];
 
 /** Keep pin restoration and its measured first frame in one owner. */
 export function useUsageRailPin(
@@ -70,7 +85,24 @@ export function useUsageRailPin(
       /* local state still applies */
     });
   };
-  const wanted = usagePinned ? usagePinEntries(snapshot.dashboard) : [];
+  const [usagePinEntries, setUsagePinEntries] = useState<UsagePinEntries | null>(null);
+  useEffect(() => {
+    if (!usagePinned || usagePinEntries) return;
+    let live = true;
+    void loadSidebarUsageModule().then(
+      (module) => {
+        if (live) setUsagePinEntries(() => module.usagePinEntries);
+      },
+      () => {
+        // An unavailable chunk leaves the plain glyph instead of a stuck gate.
+        if (live) setUsagePinEntries(() => NO_PIN_ENTRIES);
+      }
+    );
+    return () => {
+      live = false;
+    };
+  }, [usagePinEntries, usagePinned]);
+  const wanted = usagePinned && usagePinEntries ? usagePinEntries(snapshot.dashboard) : [];
   const [pinRoom, setPinRoom] = useState(true);
   const { rail, nav, settings } = refs;
   useLayoutEffect(() => {
@@ -94,7 +126,9 @@ export function useUsageRailPin(
   const loading =
     enabled &&
     (!settingsReady ||
-      (usagePinned && wanted.length === 0 && (snapshot.status === 'idle' || snapshot.status === 'loading')));
+      (usagePinned &&
+        (!usagePinEntries ||
+          (wanted.length === 0 && (snapshot.status === 'idle' || snapshot.status === 'loading')))));
   if (enabled) beginBootSurface('usage-controls', 'pin');
   useEffect(() => {
     if (enabled && !loading) reportBootSurfaceReady('usage-controls', 'pin');

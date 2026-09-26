@@ -28,6 +28,15 @@ export function createAgentTree({
   const registry = createAgentRegistry();
   const progress = new Map();
   const progressReads = new Set();
+  // Stall errors of turns the progress watchdog stopped. The runtime reports
+  // such a turn only as cancelled; this lets it surface as a watchdog stop
+  // with partial output instead of a user cancel.
+  const watchdogStops = new Map();
+  const takeWatchdogStop = (sessionId) => {
+    const error = watchdogStops.get(sessionId) || null;
+    watchdogStops.delete(sessionId);
+    return error;
+  };
   function getSessionProgressSnapshot(sessionId) {
     const runtime = sessionOwner(sessionId)?.runtime;
     if (typeof runtime?.getTurnLiveness !== 'function') return null;
@@ -48,6 +57,7 @@ export function createAgentTree({
     entryForSession,
     retainUnwatched,
     createSession,
+    takeWatchdogStop,
   });
   const { cancelAgentTree, cancelAgentDescendants } = createAgentCancellation({
     registry,
@@ -124,7 +134,8 @@ export function createAgentTree({
       const runtime = sessionOwner(sessionId)?.runtime;
       if (typeof runtime?.abort !== 'function') throw new Error(`agent runtime cannot abort session ${sessionId}`);
       const abort = () => {
-        Promise.resolve(runtime.abort({ restorePrompt: false })).catch((error) => {
+        watchdogStops.set(sessionId, signal.reason);
+        Promise.resolve(runtime.abort({ restorePrompt: false, reason: 'agent-watchdog' })).catch((error) => {
           log(`agent watchdog abort failed session=${sessionId}: ${error?.message || error}`);
         });
       };

@@ -1,4 +1,4 @@
-import { Suspense, lazy, memo, useEffect, useMemo, useRef } from 'react';
+import { Suspense, lazy, memo, useEffect, useRef } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
 import { preloadMarkdownBody } from './markdown-body-loader';
@@ -10,7 +10,6 @@ import {
   resolveStreamingMarkdownChunks,
 } from './streaming-markdown';
 import StreamingMarkdownBody from './StreamingMarkdownBody';
-import { createTranscriptRowMeasureScheduler, requestTranscriptRowMeasure } from './transcript-measure';
 import { imagePreviewCache, imagePreviewKey } from './transcript-metrics';
 import { CopyControl } from './transcript-primitives';
 import { CompletionStatus } from './transcript-status';
@@ -30,18 +29,13 @@ const StableMarkdownBody = memo(function StableMarkdownBody({ text }: { text: st
 
 const MarkdownResponse = memo(function MarkdownResponse({ text, streaming }: { text: string; streaming: boolean }) {
   const markdownCache = useRef(createStreamingMarkdownCache());
-  const markdownRoot = useRef<HTMLDivElement>(null);
-  const scheduleMarkdownMeasure = useMemo(
-    () => createTranscriptRowMeasureScheduler(() => requestTranscriptRowMeasure(markdownRoot.current)),
-    []
-  );
   const workerPipeline = useRef(streaming);
   if (streaming) workerPipeline.current = true;
   const markdownParts = resolveStreamingMarkdownChunks(text, streaming, markdownCache.current);
   const renderedChunks = markdownParts.stableChunks.map((chunk, index) => (
     <Suspense fallback={<span hidden data-transcript-pending />} key={markdownParts.stableChunkKeys[index]}>
       {workerPipeline.current ? (
-        <StreamingMarkdownBody text={chunk} copyControl={CopyControl} onRendered={scheduleMarkdownMeasure} />
+        <StreamingMarkdownBody text={chunk} copyControl={CopyControl} />
       ) : (
         <StableMarkdownBody text={chunk} />
       )}
@@ -59,7 +53,6 @@ const MarkdownResponse = memo(function MarkdownResponse({ text, streaming }: { t
             parseText={unstableParseText}
             parse={markdownParts.parseUnstable}
             copyControl={CopyControl}
-            onRendered={scheduleMarkdownMeasure}
           />
         ) : (
           <StableMarkdownBody text={markdownParts.unstableText} />
@@ -68,7 +61,7 @@ const MarkdownResponse = memo(function MarkdownResponse({ text, streaming }: { t
     );
   }
   return (
-    <div className={`markdown ${streaming ? 'streaming' : ''}`} ref={markdownRoot}>
+    <div className={`markdown ${streaming ? 'streaming' : ''}`}>
       {renderedChunks}
     </div>
   );

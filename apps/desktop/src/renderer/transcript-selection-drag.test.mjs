@@ -62,6 +62,24 @@ function selectionFixture(t) {
       offset: x < (box.left + box.right) / 2 ? 0 : row.textContent.length,
     };
   };
+  // Count the reads that force style/layout, to prove a touch scroll skips them.
+  const reads = { selection: 0, scrollTop: 0 };
+  const nativeGetSelection = window.getSelection.bind(window);
+  window.getSelection = () => {
+    reads.selection += 1;
+    return nativeGetSelection();
+  };
+  let scrollTop = 0;
+  Object.defineProperty(root, 'scrollTop', {
+    configurable: true,
+    get: () => {
+      reads.scrollTop += 1;
+      return scrollTop;
+    },
+    set: (value) => {
+      scrollTop = value;
+    },
+  });
   const pins = [];
   const scrolls = [];
   let detach = attachTranscriptSelectionDrag({
@@ -82,22 +100,25 @@ function selectionFixture(t) {
       else delete globalThis[key];
     }
   });
-  const selection = window.getSelection();
-  const emit = (type, x, y, buttons = 1, target = document, button = 0) => {
-    target.dispatchEvent(
-      new window.MouseEvent(type, {
-        bubbles: true,
-        clientX: x,
-        clientY: y,
-        buttons,
-        button,
-      })
-    );
+  const selection = nativeGetSelection();
+  // jsdom ships no PointerEvent; a MouseEvent carrying pointerType stands in.
+  const emit = (type, x, y, buttons = 1, target = document, button = 0, pointerType = 'mouse') => {
+    const event = new window.MouseEvent(type, {
+      bubbles: true,
+      clientX: x,
+      clientY: y,
+      buttons,
+      button,
+    });
+    Object.defineProperty(event, 'pointerType', { value: pointerType });
+    target.dispatchEvent(event);
   };
   const begin = () => {
     emit('pointerdown', 200, 240, 1, rows[1]);
     // Native selection runs after the capture listener.
     selection.collapse(rows[1].firstChild, 2);
+    // The drag's first move, still inside the press row.
+    emit('pointermove', 202, 240);
   };
   const nativeFallback = () => selection.extend(rows[0].firstChild, 0);
   const snapshot = () => ({
@@ -118,6 +139,7 @@ function selectionFixture(t) {
     caretReads,
     pins,
     scrolls,
+    reads,
     emit,
     begin,
     nativeFallback,
@@ -257,6 +279,83 @@ test('a deferred finish never extends a new selection on another surface', (t) =
   assert.equal(f.selection.toString(), 'other');
   assert.deepEqual(f.caretReads, []);
   assert.equal(f.pins.at(-1), null);
+});
+
+const noGesture = (f) => {
+  assert.deepEqual(f.pins, []);
+  assert.deepEqual(f.scrolls, []);
+  assert.equal(f.frames.size, 0);
+  assert.equal(f.document.documentElement.dataset.transcriptSelecting, undefined);
+  assert.equal(f.root.dataset.transcriptSelectionRoot, undefined);
+  assert.deepEqual(f.reads, { selection: 0, scrollTop: 0 });
+};
+
+for (const pointerType of ['touch', 'pen']) {
+  test(`a ${pointerType} scroll over the rows never starts the selection path`, (t) => {
+    const f = selectionFixture(t);
+    f.emit('pointerdown', 200, 240, 1, f.rows[1], 0, pointerType);
+    f.emit('pointermove', 200, 200, 1, f.document, 0, pointerType);
+    f.root.scrollTop = 40;
+    f.root.dispatchEvent(new f.window.Event('scroll'));
+    // The browser takes the pan over.
+    f.emit('pointercancel', 200, 200, 0, f.document, 0, pointerType);
+    f.root.scrollTop = 120;
+    f.root.dispatchEvent(new f.window.Event('scroll'));
+    f.flushFrame();
+    // A tap as well.
+    f.emit('pointerdown', 200, 240, 1, f.rows[1], 0, pointerType);
+    f.emit('pointerup', 200, 240, 0, f.document, 0, pointerType);
+    f.flushFrame();
+    noGesture(f);
+  });
+}
+
+test('a touch long-press selection still pins its rows through selectionchange', (t) => {
+  const f = selectionFixture(t);
+  f.emit('pointerdown', 200, 240, 1, f.rows[1], 0, 'touch');
+  f.selection.collapse(f.rows[1].firstChild, 0);
+  f.selection.extend(f.rows[2].firstChild, 3);
+  f.document.dispatchEvent(new f.window.Event('selectionchange'));
+  assert.deepEqual(f.pins, [
+    {
+      anchor: { key: 'row-1', index: 1 },
+      focus: { key: 'row-2', index: 2 },
+    },
+  ]);
+  assert.equal(f.document.documentElement.dataset.transcriptSelecting, undefined);
+});
+
+test('a mouse click without a drag never marks, pins or reads the Selection', (t) => {
+  const f = selectionFixture(t);
+  f.emit('pointerdown', 200, 240, 1, f.rows[1]);
+  f.selection.collapse(f.rows[1].firstChild, 2);
+  f.emit('pointerup', 200, 240, 0);
+  f.flushFrame();
+  f.emit('pointermove', 900, 700, 1);
+  f.flushFrame();
+  noGesture(f);
+});
+
+test('a mouse drag fences the document and reports autoscroll only while it lasts', (t) => {
+  const f = selectionFixture(t);
+  f.root.scrollTop = 200;
+  f.begin();
+  assert.equal(f.document.documentElement.dataset.transcriptSelecting, 'true');
+  assert.equal(f.root.dataset.transcriptSelectionRoot, 'true');
+  assert.deepEqual(f.pins, [{ anchor: { key: 'row-1', index: 1 }, focus: { key: 'row-1', index: 1 } }]);
+  f.emit('pointermove', 200, 50);
+  f.root.scrollTop = 160;
+  f.root.dispatchEvent(new f.window.Event('scroll'));
+  assert.deepEqual(f.scrolls, [-40]);
+  f.emit('pointerup', 200, 50, 0);
+  f.flushFrame();
+  assert.equal(f.document.documentElement.dataset.transcriptSelecting, undefined);
+  assert.equal(f.root.dataset.transcriptSelectionRoot, undefined);
+  const scrollTopReads = f.reads.scrollTop;
+  f.root.scrollTop = 100;
+  f.root.dispatchEvent(new f.window.Event('scroll'));
+  assert.equal(f.reads.scrollTop, scrollTopReads);
+  assert.deepEqual(f.scrolls, [-40]);
 });
 
 test('detaching cancels a pending final correction and clears the selection fence', (t) => {

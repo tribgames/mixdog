@@ -1,11 +1,13 @@
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, memo, type ReactNode } from 'react';
 import { jsx, jsxs } from 'react/jsx-runtime';
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime';
 
 import type { MarkdownAstRoot } from './markdown-ast';
 import { markdownComponents, type MarkdownCopyControl } from './markdown-components';
 
-export default function MarkdownAstBody({
+// A streamed token re-renders the owner while the same parse stays on screen;
+// only a newly landed AST rebuilds the element tree.
+export default memo(function MarkdownAstBody({
   root,
   copyControl,
 }: {
@@ -20,4 +22,4 @@ export default function MarkdownAstBody({
     ignoreInvalidStyle: true,
     passKeys: true,
   }) as ReactNode;
-}
+});

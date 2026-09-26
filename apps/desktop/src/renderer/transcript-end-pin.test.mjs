@@ -26,6 +26,8 @@ function fixture() {
     getVirtualizer: () => virtualizer,
     getViewport: () => viewport,
     getSpacer: () => null,
+    getMaxScrollTop: () => Math.max(0, virtualizer.getTotalSize() - viewport.clientHeight),
+    getScrollTop: () => null,
     hasReaderGesture: () => gesture,
     markProgrammaticScroll() {},
   });

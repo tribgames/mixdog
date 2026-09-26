@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { cleanString as clean } from './clean.mjs';
+import { runGitOffThread } from './git-runner.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 const COMMAND_TIMEOUT_MS = 30_000;
@@ -37,83 +37,16 @@ function commandError(args, stderr, code) {
   return error;
 }
 
-function runGit(
+// Every git child is spawned from the shared git-runner worker thread: a turn
+// runs several git commands, and process creation is a synchronous native
+// call that would otherwise stall the event loop each time.
+async function runGit(
   args,
   { cwd, input = '', timeoutMs = COMMAND_TIMEOUT_MS, maxBytes = COMMAND_MAX_BYTES, allowFailure = false } = {}
 ) {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const hasInput = (typeof input === 'string' || Buffer.isBuffer(input)) && input.length > 0;
-    const child = spawn('git', args, {
-      cwd,
-      windowsHide: true,
-      stdio: [hasInput ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-    });
-    const stdout = [];
-    const stderr = [];
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    let stdinError = null;
-    let settled = false;
-    const finish = (error, result) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (error) rejectPromise(error);
-      else resolvePromise(result);
-    };
-    const timer = setTimeout(() => {
-      const error = new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`);
-      error.code = 'ETIMEDOUT';
-      try {
-        child.kill();
-      } catch {}
-      finish(error);
-    }, timeoutMs);
-    timer.unref?.();
-    const collect = (chunks, chunk, kind) => {
-      const next = Buffer.from(chunk);
-      if (kind === 'stdout') stdoutBytes += next.length;
-      else stderrBytes += next.length;
-      if (stdoutBytes + stderrBytes > maxBytes) {
-        const error = new Error(`git ${args.join(' ')} exceeded ${maxBytes} output bytes`);
-        error.code = 'EMAXBUFFER';
-        try {
-          child.kill();
-        } catch {}
-        finish(error);
-        return;
-      }
-      chunks.push(next);
-    };
-    child.stdout.on('data', (chunk) => collect(stdout, chunk, 'stdout'));
-    child.stderr.on('data', (chunk) => collect(stderr, chunk, 'stderr'));
-    child.once('error', (error) => finish(error));
-    child.once('close', (code) => {
-      const result = {
-        code: Number(code ?? 1),
-        stdout: Buffer.concat(stdout).toString('utf8'),
-        stderr: Buffer.concat(stderr).toString('utf8'),
-      };
-      if (result.code !== 0 && !allowFailure) {
-        finish(commandError(args, result.stderr, result.code));
-        return;
-      }
-      if (stdinError && result.code === 0) {
-        finish(stdinError);
-        return;
-      }
-      finish(null, result);
-    });
-    if (child.stdin) {
-      // A short-lived git command can close before Node flushes stdin. Keep
-      // that transport race inside this promise instead of emitting an
-      // unhandled EPIPE that terminates the entire release validator.
-      child.stdin.on('error', (error) => {
-        stdinError = error;
-      });
-      child.stdin.end(input);
-    }
-  });
+  const result = await runGitOffThread(args, { cwd, input, timeoutMs, maxBytes });
+  if (result.code !== 0 && !allowFailure) throw commandError(args, result.stderr, result.code);
+  return result;
 }
 
 async function exists(path) {

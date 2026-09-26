@@ -14,6 +14,8 @@ import { sessionPath, deleteHeartbeat } from './paths-heartbeat.mjs';
 import {
   readCanonicalSessionRecord as _readCanonicalRecord,
   CANONICAL_RECORD_UNREADABLE as LIFECYCLE_AMBIGUOUS,
+  stampSessionScratch as _stampSessionScratch,
+  lifecycleOfSessionDocument as _lifecycleOfSessionDocument,
 } from './canonical-reader.mjs';
 import {
   guardedSaveOptions as _guardedSaveOptions,
@@ -76,9 +78,18 @@ function _cancelStatusFields(base, reason, requested, closeTime) {
  * exactly like a failed commit (closeSession must not report a close that
  * never fenced anything). Returns LIFECYCLE_AMBIGUOUS on refusal, else the
  * record (null when absent).
+ *
+ * `lifecycleOnly` is for a barrier that derives nothing from the disk document
+ * (the detach bump rewrites `loadSession`'s copy): the verdict then comes from
+ * this realm's own-commit stamp when the canonical file is exactly our last
+ * rename, and otherwise from the same strict read of the current bytes. Never
+ * from the settled-stamp cache — this is a final write authority, exactly like
+ * _shouldDrop.
  */
-function _readLifecycleAuthority(id, reason, action) {
-  const authority = _readCanonicalRecord(sessionPath(id));
+function _readLifecycleAuthority(id, reason, action, lifecycleOnly = false) {
+  const authority = lifecycleOnly
+    ? _readCanonicalRecord(sessionPath(id), true, { ownCommitsOnly: true })
+    : _readCanonicalRecord(sessionPath(id));
   if (authority === LIFECYCLE_AMBIGUOUS || (authority && authority.id !== id)) {
     const err = new Error(`[session-store] ${id}: refusing to ${action} — canonical record is unreadable or foreign`);
     err.code = 'ELIFECYCLEUNREADABLE';
@@ -93,8 +104,13 @@ function _writeLifecycleRecord(id, record, existing, reason) {
   const target = sessionPath(id);
   const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
   try {
-    writeFileSync(tmp, JSON.stringify(_sessionForDisk(record)), 'utf-8');
+    const disk = _sessionForDisk(record);
+    writeFileSync(tmp, JSON.stringify(disk), 'utf-8');
+    const scratch = _stampSessionScratch(tmp);
     _commitSessionWrite(tmp, target, id);
+    // Read-only lifecycle checks (pending-message gates right after a close/
+    // detach) reuse what this barrier wrote; write authority still re-reads.
+    _readCanonicalRecord.rememberOwnBarrier(target, scratch, _lifecycleOfSessionDocument(disk));
     _untrackSaveTmp(tmp);
     return true;
   } catch (err) {
@@ -244,8 +260,10 @@ export function bumpSessionGeneration(id, reason = 'detach') {
   const commitControl = _acquireWriteCommit(detachGuard);
   if (commitControl === false) return null;
   try {
-    // Same durable authority as the tombstone barrier.
-    if (_readLifecycleAuthority(id, reason, 'detach') === LIFECYCLE_AMBIGUOUS) return null;
+    // Same durable authority as the tombstone barrier, but only its verdict
+    // is consumed here: bytes this realm renamed into place (own-commit
+    // stamp) are not re-read and re-parsed; anything else is read strictly.
+    if (_readLifecycleAuthority(id, reason, 'detach', true) === LIFECYCLE_AMBIGUOUS) return null;
     // Only a VALIDATED barrier may disrupt pending persistence: on an
     // ambiguous/foreign refusal above the debounced save stays scheduled
     // and usable.
