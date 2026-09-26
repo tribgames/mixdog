@@ -9,6 +9,9 @@ const PARALLEL_READS = new Set([
   'listProjects',
   'listSessions',
   'listAgentPool',
+  // The catalog read is 140 KB and takes seconds while a turn runs; as a
+  // barrier it held the transcript's getSnapshot behind it.
+  'listProviderModels',
   'listProjectDir',
   'readProjectFile',
   'statProjectFile',

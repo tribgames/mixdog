@@ -37,6 +37,24 @@ test('terminal input bypasses unrelated work while terminal lifecycle stays orde
   queue.close();
 });
 
+test('a slow model catalog read does not hold a snapshot read behind it', async () => {
+  const queue = createRemoteCallQueue();
+  const catalog = deferred();
+  const seen = [];
+  const models = queue.run('listProviderModels', async () => {
+    await catalog.promise;
+    seen.push('models');
+  });
+  await queue.run('getSnapshot', async () => {
+    seen.push('snapshot');
+  });
+  assert.deepEqual(seen, ['snapshot']);
+  catalog.resolve();
+  await models;
+  assert.deepEqual(seen, ['snapshot', 'models']);
+  queue.close();
+});
+
 test('disconnect rejects queued terminal input without replaying it', async () => {
   const queue = createRemoteCallQueue();
   const gate = deferred();

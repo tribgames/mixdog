@@ -7,12 +7,22 @@ import type { RelayE2EEChannel, RelayE2EEChallenge } from '../shared/remote-e2ee
 import type { DesktopService } from './desktop-service-contract';
 import { createRemoteCallQueue } from './remote-call-queue';
 import type { createRemoteStateLane } from './remote-state-lane';
+import type { ParkedRelayViews } from './remote-view-sync';
 import type { createSnapshotDeltaEncoder } from './state-delta';
 
 const MAX_ACTIVE_REMOTE_CLIENTS = 32;
 const MAX_PENDING_REMOTE_FRAMES = 256;
 const MAX_PENDING_REMOTE_TOTAL_FRAMES = 512;
 const E2EE_HANDSHAKE_TIMEOUT_MS = 10_000;
+/** How long a dropped phone's delta lanes wait for it to come back. */
+export const VIEW_RESUME_TTL_MS = 120_000;
+
+const createSessionsEncoder = () =>
+  createKeyedListDeltaEncoder<DesktopSessionSummary>((session, index) => String(session.id || `session:${index}`));
+const createAgentPoolEncoder = () =>
+  createKeyedListDeltaEncoder<DesktopAgentPoolRow>((agent, index) =>
+    String(agent.sessionId || agent.tag || `agent:${index}`)
+  );
 
 export interface RelayClientState {
   syncing?: boolean;
@@ -63,6 +73,9 @@ export interface RelayClientState {
    *  and no counter in this process could tell that gap from a slow link. */
   openedAt: number;
   firstTranscriptReported: boolean;
+  /** Issued inside this phone's encrypted channel once it announced view
+   *  resumption; its lanes are parked under it when the relay drops the leg. */
+  viewResumeToken?: string;
 }
 
 /** A push lane reaches a browser that registered it, or one that predates the
@@ -81,6 +94,7 @@ export interface RelayClientRegistryDeps {
   onClientCountChanged(): void;
   /** The last phone left: per-leg meters have nothing left to attribute. */
   onEmpty(): void;
+  now?: () => number;
 }
 
 export interface RelayClientRegistry {
@@ -94,9 +108,15 @@ export interface RelayClientRegistry {
    *  replaces any previous state under the id, and starts the handshake
    *  deadline. Returns the fresh state, or null when refused. */
   open(clientId: string, challenge: RelayE2EEChallenge): RelayClientState | null;
-  remove(clientId: string): boolean;
-  /** Drops every client and notifies once. */
+  /** `park`: the relay reported the leg gone, so an authenticated phone that
+   *  announced resumption keeps its delta lanes for VIEW_RESUME_TTL_MS. */
+  remove(clientId: string, park?: boolean): boolean;
+  /** Drops every client (and every parked set) and notifies once. */
   clear(): void;
+  /** The parked lanes for a token, at most once and only before expiry. */
+  takeParkedViews(token: string): ParkedRelayViews | null;
+  /** Unpair or credential change: no parked lanes may outlive it. */
+  dropParkedViews(): void;
   /** Drops the client and tells the relay why. */
   close(clientId: string, reason: string): void;
   /** Counts an inbound frame against the client and leg budgets; false (and
@@ -116,9 +136,51 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
     state.pendingBytes + nextBytes <= deps.frameBudgetBytes &&
     totalPendingFrames < MAX_PENDING_REMOTE_TOTAL_FRAMES &&
     totalPendingBytes + nextBytes <= deps.frameBudgetBytes * 2;
-  const remove = (clientId: string): boolean => {
+  const now = deps.now ?? Date.now;
+  // Keyed by a 256-bit token only the phone's own encrypted channel ever
+  // carried, so no other paired browser can name — let alone adopt — them.
+  const parked = new Map<string, { views: ParkedRelayViews; expiresAt: number; timer: NodeJS.Timeout }>();
+  const dropParked = (token: string): void => {
+    const entry = parked.get(token);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    parked.delete(token);
+  };
+  const dropParkedViews = (): void => {
+    for (const token of [...parked.keys()]) dropParked(token);
+  };
+  const park = (state: RelayClientState): void => {
+    const token = state.viewResumeToken;
+    // Mid-recovery encoders describe no settled stream.
+    if (!state.channel || !token || state.syncing) return;
+    const views: ParkedRelayViews = {
+      compactWire: state.compactWire,
+      transcriptPrepend: state.transcriptPrepend,
+      listDelta: state.listDelta,
+      stateEncoder: state.stateLane?.park() ?? null,
+      sessionsEncoder: state.sessionsEncoder,
+      agentPoolEncoder: state.agentPoolEncoder,
+      sessionStateEncoders: new Map(state.sessionStateEncoders),
+    };
+    // Detached: a late write still holding the departed state can no longer
+    // move what was parked.
+    state.sessionsEncoder = createSessionsEncoder();
+    state.agentPoolEncoder = createAgentPoolEncoder();
+    state.sessionStateEncoders = new Map();
+    dropParked(token);
+    while (parked.size >= MAX_ACTIVE_REMOTE_CLIENTS) {
+      const oldest = parked.keys().next();
+      if (oldest.done) break;
+      dropParked(oldest.value);
+    }
+    const timer = setTimeout(() => dropParked(token), VIEW_RESUME_TTL_MS);
+    timer.unref?.();
+    parked.set(token, { views, expiresAt: now() + VIEW_RESUME_TTL_MS, timer });
+  };
+  const remove = (clientId: string, parkLanes = false): boolean => {
     const state = clients.get(clientId);
     if (!state) return false;
+    if (parkLanes) park(state);
     clearTimeout(state.handshakeTimer);
     state.callQueue.close();
     state.stateLane?.clear();
@@ -166,12 +228,8 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
         transcriptPrepend: false,
         lanes: null,
         sessionHandles: new Map(),
-        sessionsEncoder: createKeyedListDeltaEncoder<DesktopSessionSummary>((session, index) =>
-          String(session.id || `session:${index}`)
-        ),
-        agentPoolEncoder: createKeyedListDeltaEncoder<DesktopAgentPoolRow>((agent, index) =>
-          String(agent.sessionId || agent.tag || `agent:${index}`)
-        ),
+        sessionsEncoder: createSessionsEncoder(),
+        agentPoolEncoder: createAgentPoolEncoder(),
         openedAt: Date.now(),
         firstTranscriptReported: false,
       };
@@ -181,10 +239,18 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
     },
     remove,
     clear: () => {
+      dropParkedViews();
       if (clients.size === 0) return;
       for (const clientId of [...clients.keys()]) remove(clientId);
       deps.onClientCountChanged();
     },
+    takeParkedViews: (token) => {
+      const entry = parked.get(token);
+      if (!entry) return null;
+      dropParked(token);
+      return entry.expiresAt > now() ? entry.views : null;
+    },
+    dropParkedViews,
     close,
     admitFrame: (clientId, state, bytes) => {
       if (!budgetAvailable(state, bytes)) {
@@ -204,6 +270,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
       totalPendingBytes = Math.max(0, totalPendingBytes - bytes);
     },
     resetDeltas: () => {
+      dropParkedViews();
       for (const state of clients.values()) {
         state.stateLane?.clear();
         state.sessionStateEncoders.clear();

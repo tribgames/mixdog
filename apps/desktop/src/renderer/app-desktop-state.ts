@@ -48,7 +48,9 @@ export function useDesktopState() {
       return;
     }
     let live = true;
-    const releaseStats = holdStatsDataCache(host);
+    // A remote client reads statistics only for its open dialog: background
+    // warmup re-read them over the tunnel on every turn of every session.
+    const releaseStats = holdStatsDataCache(host, { background: !remoteSurface() });
     const update = (next: SessionSnapshot | null) => {
       if (live) {
         applyReceivedSnapshot(next);

@@ -2,9 +2,16 @@
 // transports. Decoders retain unchanged field/item objects, so only appended
 // transcript entries, appended streaming text, and changed state fields cross
 // the structured-clone/JSON boundary.
+import type { ViewResumePoint } from '../shared/remote-view-resume';
+
 export interface SnapshotDeltaEncoder {
   encode(snapshot: unknown): unknown;
   reset(): void;
+  /** Some frame has left this encoder, so a receiver may hold its output. */
+  readonly emitted: boolean;
+  /** What a receiver that applied every emitted frame holds; null without a
+   *  baseline. Mirrors the decoder's resumePoint() field for field. */
+  resumePoint(): ViewResumePoint | null;
 }
 
 interface SnapshotDeltaDecodeResult {
@@ -15,6 +22,7 @@ interface SnapshotDeltaDecodeResult {
 interface SnapshotDeltaDecoder {
   decode(wire: unknown): SnapshotDeltaDecodeResult;
   reset(): void;
+  resumePoint(): ViewResumePoint | null;
 }
 
 interface SessionStateRetentionStore {
@@ -247,6 +255,7 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
   let sentTailIdentity: string | null = null;
   let sentWireEpoch: number | null = null;
   let revision = 0;
+  let emitted = false;
 
   const reset = (): void => {
     sentItems = null;
@@ -259,9 +268,20 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
 
   return {
     reset,
+    get emitted() {
+      return emitted;
+    },
+    resumePoint() {
+      if (!sentItems) return null;
+      return {
+        revision,
+        held: { items: sentItems, fields: sentStateFields, tail: sentStreamingTail, epoch: sentWireEpoch },
+      };
+    },
     encode(snapshot: unknown): unknown {
       const record = snapshot as Record<string, unknown> | null;
       const items = record && Array.isArray(record.items) ? (record.items as unknown[]) : null;
+      emitted = true;
       if (!record || !items) {
         reset();
         return snapshot;
@@ -467,6 +487,10 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
   };
   return {
     reset,
+    resumePoint() {
+      if (revision === null) return null;
+      return { revision, held: { items, fields: stateFields, tail: streamingTail, epoch: retainedEpoch } };
+    },
     decode(wire: unknown): SnapshotDeltaDecodeResult {
       if (!wire || typeof wire !== 'object') {
         reset();

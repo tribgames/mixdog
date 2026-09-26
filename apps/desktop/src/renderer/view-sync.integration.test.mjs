@@ -299,6 +299,26 @@ test('real host, relay and browser shim recover through reconnects and backgroun
       sockets.at(-1).receivedBytes < fullBytes / 2,
       `reconnect used ${sockets.at(-1).receivedBytes} bytes after a ${fullBytes}-byte full recovery`
     );
+    // A transcript that moved while the phone was away changes its baseline
+    // hash, so only delta resumption keeps that reconnect small: the kept
+    // decoders receive just the new row.
+    {
+      const before = sockets.length;
+      sockets.at(-1).terminate();
+      await until(() => handle.clientCount === 0);
+      f.put('lead', 'changed while away');
+      await until(
+        () =>
+          sockets.length === before + 1 &&
+          text.textContent === 'changed while away' &&
+          w.document.documentElement.dataset.mixdogRemoteConnection === 'connected'
+      );
+      assert.deepEqual(JSON.parse(JSON.stringify(store.get('lead').items)), f.records.get('lead').snapshot.items);
+      assert.ok(
+        sockets.at(-1).receivedBytes < fullBytes / 4,
+        `resumed reconnect used ${sockets.at(-1).receivedBytes} bytes after a ${fullBytes}-byte full recovery`
+      );
+    }
     const submitsBeforeCreation = f.state.submits;
     const [first, retry] = await Promise.all([
       api.submitNewTask('created once', { id: 'web-creation-receipt' }),

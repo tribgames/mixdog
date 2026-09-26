@@ -440,6 +440,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     acknowledgePaintProbe: sessionStates.acknowledgeFrame,
     resyncClient: sessionWiring.resyncClient,
     recordCall: remoteCallStats.record,
+    takeParkedViews: clients.takeParkedViews,
   });
   const clientLifecycle = createRelayClientLifecycle({
     clients,
@@ -484,7 +485,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     onClientClaim: clientLifecycle.answerClaim,
     onClientOpen: clientLifecycle.open,
     onClientClose: (clientId) => {
-      if (clients.remove(clientId)) options.onClientCountChanged?.();
+      // The phone's leg dropped, not its pairing: its lanes wait briefly.
+      if (clients.remove(clientId, true)) options.onClientCountChanged?.();
     },
     onMediaFlowControl: (id) => {
       if (id) sendEnvelope({ type: 'media-error', id });
@@ -638,9 +640,12 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       // Per-browser credentials are isolated: revoking one deletes only that
       // browser's token on the relay. The QR bootstrap token never rotates
       // here, so every other paired browser keeps working untouched.
+      clients.dropParkedViews();
       await control.request<boolean>('revoke-client', { clientId });
-      // The credential is gone; its notifications must go with it.
+      // The credential is gone; its notifications must go with it. Parked
+      // lanes cannot be attributed to a browser, so none survive a revocation.
       sessionSubscriptions.forgetClient(clientId);
+      clients.dropParkedViews();
     },
     resume: (): void => {
       if (closed) return;
@@ -662,7 +667,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       }
       connect();
     },
-    revoke: (): Promise<void> => revokeDeviceOverSocket({ currentSocket: () => socket, closed: () => closed }),
+    revoke: (): Promise<void> => {
+      clients.dropParkedViews();
+      return revokeDeviceOverSocket({ currentSocket: () => socket, closed: () => closed });
+    },
     close: async (): Promise<void> => {
       if (closed) return;
       closed = true;

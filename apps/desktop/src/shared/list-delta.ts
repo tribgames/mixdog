@@ -1,11 +1,19 @@
+import type { ViewResumePoint } from './remote-view-resume';
+
 export interface KeyedListDeltaEncoder<T> {
   encode(items: readonly T[]): unknown;
   reset(): void;
+  /** Some frame has left this encoder, so a receiver may hold its output. */
+  readonly emitted: boolean;
+  /** The keyed rows a receiver that applied every emitted frame holds; null
+   *  without a baseline. Mirrors the decoder's resumePoint(). */
+  resumePoint(): ViewResumePoint | null;
 }
 
 interface KeyedListDeltaDecoder<T> {
   decode(wire: unknown): { ok: boolean; items?: T[] };
   reset(): void;
+  resumePoint(): ViewResumePoint | null;
 }
 
 const NO_LIST_DELTA = Symbol('mixdog.no-list-delta');
@@ -51,6 +59,7 @@ function rowFieldDelta(
 
 export function createKeyedListDeltaEncoder<T>(keyOf: (item: T, index: number) => string): KeyedListDeltaEncoder<T> {
   let revision = 0;
+  let emitted = false;
   let order: string[] | null = null;
   let previous = new Map<string, { signature: string }>();
   return {
@@ -58,7 +67,22 @@ export function createKeyedListDeltaEncoder<T>(keyOf: (item: T, index: number) =
       order = null;
       previous = new Map();
     },
+    get emitted() {
+      return emitted;
+    },
+    resumePoint(): ViewResumePoint | null {
+      if (!order) return null;
+      const signatures = previous;
+      return {
+        revision,
+        held: order.map((key) => {
+          const signature = signatures.get(key)?.signature;
+          return [key, signature === undefined ? null : JSON.parse(signature)];
+        }),
+      };
+    },
     encode(items): unknown {
+      emitted = true;
       revision += 1;
       const nextOrder = items.map((item, index) => keyOf(item, index));
       const next = new Map<string, { signature: string }>();
@@ -127,6 +151,11 @@ export function createKeyedListDeltaDecoder<T>(): KeyedListDeltaDecoder<T> {
       revision = null;
       order = [];
       rows = new Map();
+    },
+    resumePoint(): ViewResumePoint | null {
+      if (revision === null) return null;
+      const held = rows;
+      return { revision, held: order.map((key) => [key, held.get(key) ?? null]) };
     },
     decode(wire): { ok: boolean; items?: T[] } {
       if (!wire || typeof wire !== 'object') return { ok: false };

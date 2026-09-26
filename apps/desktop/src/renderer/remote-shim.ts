@@ -57,6 +57,7 @@ import { createRemotePairingScreen } from './remote-pairing-screen';
 import { createRemoteSessionInbox } from './remote-session-inbox';
 import { createRemoteViewSync } from './remote-view-sync';
 import { createRemoteViewBaselineCache, VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
+import { createViewResumeRequest, readViewResumeGrant, type ViewResumePoint } from '../shared/remote-view-resume';
 import { recoverableCreation } from './recoverable-creation';
 import { isInstalledMobileWebAppSurface } from './mobile-surface';
 import {
@@ -308,15 +309,47 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let legacyVisibleSessionsQueue: Promise<unknown> = Promise.resolve();
   let pendingReconnectNotification = false;
   const viewBaselines = createRemoteViewBaselineCache();
+  // Delta-lane resumption (shared/remote-view-resume.ts). The desktop issues a
+  // token with each completed view sync; it stays valid only while every
+  // decoder holds exactly what that desktop's encoders sent. A close carries
+  // it (and the decoders) over to the next connection's first sync; any gap,
+  // resync or reset clears it, and the epoch voids a sync already in flight.
+  let viewResumeToken: string | null = null;
+  let carriedResumeToken: string | null = null;
+  let deltaEpoch = 0;
+  const invalidateViewResume = (): void => {
+    viewResumeToken = null;
+    carriedResumeToken = null;
+    deltaEpoch += 1;
+  };
   const viewSync = createRemoteViewSync({
     synchronize: async () => {
       setRemoteConnectionPhase('sync');
       const sessionIds = viewSyncSessionIds();
       requestedViewSyncKey = sessionSetKey(sessionIds);
+      const resumeToken = carriedResumeToken;
+      carriedResumeToken = null;
+      viewResumeToken = null;
+      const epoch = deltaEpoch;
+      // Captured synchronously: a frame landing while the digests are computed
+      // replaces decoder state instead of mutating what was captured.
+      const points = resumeToken
+        ? {
+            state: stateDecoder.resumePoint(),
+            sessions: sessionsDecoder.resumePoint(),
+            agentPool: agentPoolDecoder.resumePoint(),
+            sessionStates: sessionIds.map((sessionId): [string, ViewResumePoint | null] => [
+              sessionId,
+              sessionStateDecoders.get(sessionId)?.resumePoint() ?? null,
+            ]),
+          }
+        : null;
+      const resume = await createViewResumeRequest(resumeToken, points);
       const retained = viewBaselines.begin();
       try {
-        const result = await invoke('synchronizeViews', [sessionIds, retained.offer]);
+        const result = await invoke('synchronizeViews', [sessionIds, retained.offer, resume]);
         restoredVisibleSessionIds = [];
+        if (epoch === deltaEpoch) viewResumeToken = readViewResumeGrant(result);
         return result;
       } finally {
         retained.finish();
@@ -537,6 +570,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const stateDecoder = createSnapshotDeltaDecoder();
   const sessionStateDecoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();
   const resetDeltaState = (): void => {
+    invalidateViewResume();
     stateDecoder.reset();
     for (const decoder of sessionStateDecoders.values()) decoder.reset();
     sessionStateDecoders.clear();
@@ -565,6 +599,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let lastResyncAt = 0;
   let trailingResyncTimer: number | null = null;
   const requestResync = (): void => {
+    // A gap, a dropped frame or a wake that doubts the stream: this browser's
+    // decoders no longer vouch for what the desktop last sent.
+    invalidateViewResume();
     if (peerViewSync && connectionReady) {
       void viewSync.request().catch(() => undefined);
       return;
@@ -1018,6 +1055,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // survives because it is a routing label, not a credential.
   const resetApprovalAndAsk = (message: string): void => {
     viewBaselines.clear();
+    resetDeltaState();
     clearRemoteConnectionState();
     try {
       clearStoredRemotePairing(localStorage);
@@ -1333,8 +1371,15 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         awaitingPong = false;
         resyncOnWake = true;
         // A new connection starts a fresh delta lane; a stale base revision
-        // must never accidentally match the new encoder's numbering.
-        resetDeltaState();
+        // must never accidentally match the new encoder's numbering. Only
+        // intact decoders survive, and only to be verified by revision and
+        // content digest before the desktop continues any lane from them (a
+        // new encoder's first frame is always a full baseline).
+        // An attempt that closes before its first sync keeps the token it
+        // was carrying: nothing consumed it.
+        if (viewResumeToken) carriedResumeToken = viewResumeToken;
+        viewResumeToken = null;
+        if (!carriedResumeToken) resetDeltaState();
         // Decided BEFORE the rejection sweep empties the map: a keepalive
         // recycle only stays quiet while nothing was waiting on this leg.
         const quietRecycle = quietRecycledSockets.delete(ws) && pending.size === 0;

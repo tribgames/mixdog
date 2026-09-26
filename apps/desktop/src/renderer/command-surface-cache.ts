@@ -31,8 +31,16 @@ type StatsCache = {
   listeners: Set<() => void>;
   holders: number;
   release: (() => void) | null;
+  /** Remote hold only: usage changed since the last read began. */
+  dirty: boolean;
+  readAt: number;
+  timer: ReturnType<typeof setTimeout> | null;
 };
 const statsDataCache = new WeakMap<SurfaceApi, StatsCache>();
+
+/** A remote client re-reads changed usage at most this often while the
+ * statistics dialog is open; closed, it waits for the next opening. */
+export const REMOTE_STATS_REFRESH_INTERVAL_MS = 30_000;
 
 function statsCache(api: SurfaceApi): StatsCache {
   let cache = statsDataCache.get(api);
@@ -44,6 +52,9 @@ function statsCache(api: SurfaceApi): StatsCache {
       listeners: new Set(),
       holders: 0,
       release: null,
+      dirty: false,
+      readAt: 0,
+      timer: null,
     };
     statsDataCache.set(api, cache);
   }
@@ -101,7 +112,25 @@ export function subscribeStatsDataCache(api: SurfaceApi, listener: () => void): 
   cache.listeners.add(listener);
   return () => {
     cache.listeners.delete(listener);
+    if (cache.listeners.size === 0) clearStaleRefresh(cache);
   };
+}
+
+function clearStaleRefresh(cache: StatsCache): void {
+  if (cache.timer) clearTimeout(cache.timer);
+  cache.timer = null;
+}
+
+/** Remote: changed usage re-reads only while the dialog is open, no sooner
+ * than the interval after the previous read began. */
+function scheduleStaleRefresh(api: SurfaceApi, cache: StatsCache): void {
+  if (!cache.dirty || cache.timer || cache.listeners.size === 0) return;
+  const delay = Math.max(0, cache.readAt + REMOTE_STATS_REFRESH_INTERVAL_MS - Date.now());
+  cache.timer = setTimeout(() => {
+    cache.timer = null;
+    if (!cache.dirty || cache.listeners.size === 0) return;
+    void refreshStatsDataCache(api).catch(() => undefined);
+  }, delay);
 }
 
 /** Opening and background warmup share one read, including changes that arrive
@@ -112,6 +141,8 @@ export function refreshStatsDataCache(api: SurfaceApi): Promise<Record<string, u
   cache.pending = (async () => {
     while (true) {
       const revision = cache.revision;
+      cache.dirty = false;
+      cache.readAt = Date.now();
       const [value] = await readGlobalCapabilities(api, [
         {
           capability: 'getUsageStats',
@@ -130,8 +161,10 @@ export function refreshStatsDataCache(api: SurfaceApi): Promise<Record<string, u
 }
 
 /** The desktop owns this subscription even while the statistics dialog is
- * closed. Streaming text and context estimates do not invalidate usage. */
-export function holdStatsDataCache(api: SurfaceApi): () => void {
+ * closed. Streaming text and context estimates do not invalidate usage.
+ * Without `background` (a remote client), usage changes are only recorded:
+ * opening the dialog reads, and an open dialog re-reads at a bounded rate. */
+export function holdStatsDataCache(api: SurfaceApi, { background = true }: { background?: boolean } = {}): () => void {
   const cache = statsCache(api);
   cache.holders += 1;
   if (cache.holders === 1) {
@@ -155,6 +188,11 @@ export function holdStatsDataCache(api: SurfaceApi): () => void {
       ]);
       if (signatures.get(sessionId) === signature) return;
       signatures.set(sessionId, signature);
+      if (!background) {
+        cache.dirty = true;
+        scheduleStaleRefresh(api, cache);
+        return;
+      }
       cache.revision += 1;
       warm();
     };
@@ -163,8 +201,9 @@ export function holdStatsDataCache(api: SurfaceApi): () => void {
     cache.release = () => {
       unsubscribeState?.();
       unsubscribeSession?.();
+      clearStaleRefresh(cache);
     };
-    warm();
+    if (background) warm();
   }
   let released = false;
   return () => {

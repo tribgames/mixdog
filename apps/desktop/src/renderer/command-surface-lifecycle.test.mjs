@@ -309,6 +309,80 @@ test('desktop state warms statistics before the dialog mounts without blocking b
   assert.equal(sessionListeners.size, 0);
 });
 
+test('a remote client reads statistics only for its open dialog, at a bounded rate', async (context) => {
+  context.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const { useDesktopState } = await import('./app-desktop-state.ts');
+  const { REMOTE_STATS_REFRESH_INTERVAL_MS } = await import('./command-surface-cache.ts');
+  let surface;
+  function Harness({ open }) {
+    useDesktopState();
+    surface = useCommandSurfaceLifecycle({ surface: 'stats', open, api: window.mixdogDesktop });
+    return null;
+  }
+  const render = setupDomHarness(context, Harness);
+  const sessionListeners = new Set();
+  const reads = [];
+  const api = {
+    async getSnapshot() {
+      return { sessionId: '' };
+    },
+    async invokeCapability(request) {
+      reads.push(request);
+      return { value: { totals: { tokens: reads.length * 1000 } } };
+    },
+    subscribeState() {
+      return () => {};
+    },
+    subscribeSessionState(listener) {
+      sessionListeners.add(listener);
+      return () => sessionListeners.delete(listener);
+    },
+  };
+  window.mixdogRemoteServer = 'https://desktop.test';
+  window.mixdogDesktop = api;
+  let tokens = 0;
+  const turn = async (seconds) => {
+    await act(async () => {
+      context.mock.timers.tick(seconds * 1000);
+      tokens += 100;
+      for (const listener of sessionListeners) {
+        listener({ sessionId: 'busy-session', snapshot: { stats: { inputTokens: tokens } } });
+      }
+      await new Promise(setImmediate);
+    });
+  };
+  const usageReads = () => reads.filter(({ capability }) => capability === 'getUsageStats').length;
+
+  // Closed dialog: boot and a stream of per-turn usage changes read nothing.
+  await render({ open: false });
+  for (const seconds of [2, 5, 15, 3, 8]) await turn(seconds);
+  assert.equal(usageReads(), 0);
+
+  // Opening reads once; changes while open coalesce into one read per interval.
+  await render({ open: true });
+  assert.equal(usageReads(), 1);
+  assert.equal(surface.data.getUsageStats.totals.tokens, 1000);
+  for (const seconds of [2, 5, 15, 3]) await turn(seconds);
+  assert.equal(usageReads(), 1, 'changes inside the interval wait for it');
+  await act(async () => {
+    context.mock.timers.tick(REMOTE_STATS_REFRESH_INTERVAL_MS - 25_000);
+    await new Promise(setImmediate);
+  });
+  assert.equal(usageReads(), 2);
+  assert.equal(surface.data.getUsageStats.totals.tokens, 2000);
+  await act(async () => {
+    context.mock.timers.tick(REMOTE_STATS_REFRESH_INTERVAL_MS * 2);
+    await new Promise(setImmediate);
+  });
+  assert.equal(usageReads(), 2, 'an unchanged open dialog does not poll');
+
+  // Closing cancels the pending refresh and stops reading again.
+  await turn(1);
+  await render({ open: false });
+  for (const seconds of [2, 30, 60]) await turn(seconds);
+  assert.equal(usageReads(), 2);
+});
+
 test('inherit blocked reasons evaluate conditions in deterministic sequence', () => {
   // 1. Missing session ID
   assert.equal(

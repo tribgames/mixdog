@@ -6,7 +6,7 @@ import { filterSessionIds } from './desktop-state';
 import type { createRemoteMethods } from './remote-methods';
 import { executeRemoteFrame } from './remote-methods';
 import type { RelayClientState } from './remote-relay-clients';
-import { registerAndSynchronizeRelayViews } from './remote-view-sync';
+import { registerAndSynchronizeRelayViews, type ParkedRelayViews } from './remote-view-sync';
 import { isStateResyncFrame } from './state-delta';
 
 // A phone gives up on an unanswered call at 20s (renderer remote-shim), closes
@@ -46,6 +46,8 @@ export interface RelayClientCallDeps {
   acknowledgePaintProbe(payload: unknown): { sessionId: string; roundTripMs: number; receiveToPaintMs: number } | null;
   resyncClient(clientId: string, state: RelayClientState): void;
   recordCall(method: string, callMs: number, bytes: { requestBytes: number; responseBytes: number }): void;
+  /** A departed phone's lanes, claimed by the resume token it presents. */
+  takeParkedViews?(token: string): ParkedRelayViews | null;
 }
 
 export interface RelayClientCallOutcome {
@@ -86,15 +88,16 @@ export function createRelayClientCallDispatch(
         if (!deps.attached(clientId, client)) return;
         try {
           if (!client.viewSync) throw new TypeError('View synchronization is unavailable.');
-          await registerAndSynchronizeRelayViews(
+          const value = await registerAndSynchronizeRelayViews(
             deps.host,
             clientId,
             client,
             call.params,
             () => deps.live(clientId, client),
-            (payload) => deps.sendEncryptedFrame(clientId, payload, false, undefined, true)
+            (payload) => deps.sendEncryptedFrame(clientId, payload, false, undefined, true),
+            deps.takeParkedViews
           );
-          await deps.sendEncryptedFrame(clientId, { id: call.id, ok: true, value: true });
+          await deps.sendEncryptedFrame(clientId, { id: call.id, ok: true, value });
         } catch (error) {
           client.syncing = false;
           await deps.sendEncryptedFrame(clientId, {
