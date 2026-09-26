@@ -9,7 +9,7 @@ import { startRemoteRelay } from './remote-relay.ts';
 import { createRelayE2EEClientHandshake } from '../shared/remote-e2ee.ts';
 import { createSnapshotDeltaDecoder, markCompactWire } from './state-delta.ts';
 
-test('a paging phone opens tail windows and receives older pages as prepends; an older build keeps the legacy page', async () => {
+test('a paging phone opens tail windows and receives older pages and submits as patches; an older build keeps the legacy page and whole prompt history', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mixdog-relay-paging-'));
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
@@ -57,6 +57,8 @@ test('a paging phone opens tail windows and receives older pages as prepends; an
           } else {
             assert.equal(hello.transcriptPaging, 1);
             assert.equal(hello.transcriptPrepend, 1);
+            // Announced by the browser itself, as remote-shim does.
+            hello.promptHistoryPatch = 1;
           }
           peer.channel = handshake.channel;
           socket.send(JSON.stringify({ type: 'frame', clientId: peer.id, data: JSON.stringify(hello) }));
@@ -138,6 +140,25 @@ test('a paging phone opens tail windows and receives older pages as prepends; an
     assert.equal(legacyPage.a.length, 5);
     for (const peer of [newPhone, oldPhone]) {
       assert.deepEqual(decode(peer, frames(peer)[1]), ['h0', 'h1', 'r0', 'r1', 'r2']);
+    }
+
+    // A submit puts one prompt in front of a long history.
+    const history = Array.from({ length: 50 }, (_, index) => `prompt ${index} ${'x'.repeat(1200)}`);
+    const withHistory = (promptHistoryList) => ({ sessionId: 'session', items: paged, promptHistoryList });
+    publishSessionState({ sessionId: 'session', snapshot: withHistory(history), frameSource: 'live' });
+    for (const peer of [newPhone, oldPhone]) await waitFor(peer, () => frames(peer).length === 3);
+    const submitted = ['submitted prompt', ...history].slice(0, 50);
+    publishSessionState({ sessionId: 'session', snapshot: withHistory(submitted), frameSource: 'live' });
+    for (const peer of [newPhone, oldPhone]) await waitFor(peer, () => frames(peer).length === 4);
+    const submitFrame = frames(newPhone)[3].w;
+    assert.deepEqual(submitFrame.sl, { promptHistoryList: { h: ['submitted prompt'], k: 49 } });
+    assert.equal(Object.hasOwn(submitFrame, 'sc'), false, 'the announcing phone gets the new prompt only');
+    const legacySubmit = frames(oldPhone)[3].w;
+    assert.equal(Object.hasOwn(legacySubmit, 'sl'), false, 'an older build is never sent a history patch');
+    assert.deepEqual(legacySubmit.sc.promptHistoryList, submitted);
+    for (const peer of [newPhone, oldPhone]) {
+      for (const index of [2, 3]) decode(peer, frames(peer)[index]);
+      assert.deepEqual(decoders.get(peer).resumePoint().held.fields.promptHistoryList, submitted);
     }
   } finally {
     await handle?.close();

@@ -1347,7 +1347,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             const handshake = await createRelayE2EEClientHandshake(e2eePairing, clear);
             if (closed) return;
             secureChannel = handshake.channel;
-            ws.send(JSON.stringify({ ...handshake.hello, viewSync: 1 }));
+            // promptHistoryPatch: this build's snapshot decoder applies head
+            // patches to the prompt history; a desktop that predates it
+            // ignores the flag and keeps sending the whole field.
+            ws.send(JSON.stringify({ ...handshake.hello, viewSync: 1, promptHistoryPatch: 1 }));
             return;
           }
           await deliverSecureFrame(clear);

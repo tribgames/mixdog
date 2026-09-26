@@ -1,6 +1,7 @@
 // What an attached phone's decrypted frame asks for, after the E2EE handshake:
 // transport-scoped registrations (lanes, visible sessions, view sync, resync)
 // answered here, and every other call queued into the host's remote methods.
+import { DESKTOP_CAPABILITIES } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import { filterSessionIds } from './desktop-state';
 import type { createRemoteMethods } from './remote-methods';
@@ -15,17 +16,24 @@ import { isStateResyncFrame } from './state-delta';
 // that got there while staying silent for ordinary work.
 const SLOW_REMOTE_CALL_MS = 2_000;
 
-// Names the capabilities behind a slow capability call, so the log says which
-// one was slow instead of only "invokeCapability".
-function slowCallCapabilities(method: string, params: unknown): string {
-  if (method !== 'invokeCapability' && method !== 'readCapabilities') return '';
+const KNOWN_CAPABILITIES: ReadonlySet<string> = new Set(DESKTOP_CAPABILITIES);
+
+// Names the capabilities behind a capability call, so the logs say which one
+// ran instead of only "invokeCapability". Only allow-listed names; never args.
+function callCapabilities(method: string, params: unknown): string[] {
+  if (method !== 'invokeCapability' && method !== 'readCapabilities') return [];
   const input = Array.isArray(params) ? params[0] : undefined;
   const requests = Array.isArray(input) ? input : [input];
-  return requests
-    .map((request) => String((request as { capability?: unknown } | null)?.capability ?? ''))
-    .filter((name) => /^[\w.:-]{1,64}$/u.test(name))
-    .slice(0, 8)
-    .join(',');
+  return requests.slice(0, 8).map((request) => {
+    const name = (request as { capability?: unknown } | null)?.capability;
+    return typeof name === 'string' && KNOWN_CAPABILITIES.has(name) ? name : 'unknown';
+  });
+}
+
+/** The per-minute call summary key: the method, plus its capability names. */
+export function remoteCallStatName(method: string, params: unknown): string {
+  const capabilities = callCapabilities(method, params);
+  return capabilities.length ? `${method}:${capabilities.join('+')}` : method;
 }
 
 export interface RelayClientCallDeps {
@@ -171,7 +179,7 @@ export function createRelayClientCallDispatch(
       const method =
         typeof call?.method === 'string' && Object.hasOwn(deps.methods, call.method) ? call.method : 'unknown';
       if (callMs + queueMs >= SLOW_REMOTE_CALL_MS) {
-        const capabilities = slowCallCapabilities(method, call?.params);
+        const capabilities = callCapabilities(method, call?.params).join(',');
         console.error(
           `[mixdog-remote-slow-call] method=${method}` +
             (capabilities ? ` capability=${capabilities}` : '') +
@@ -185,7 +193,10 @@ export function createRelayClientCallDispatch(
         });
       }
       if (deps.attached(clientId, client)) {
-        deps.recordCall(method, callMs, { requestBytes: frameBytes, responseBytes });
+        deps.recordCall(remoteCallStatName(method, call?.params), callMs, {
+          requestBytes: frameBytes,
+          responseBytes,
+        });
       }
     });
     // Observe early rejection while the decode queue is still settling.

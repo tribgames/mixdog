@@ -53,6 +53,9 @@ export interface RelayClientState {
   /** The browser's decoder applies prepend patches, so an older-history page
    *  carries only the revealed rows. An older build receives the whole list. */
   transcriptPrepend: boolean;
+  /** The browser's decoder applies head patches to `promptHistoryList`, so a
+   *  submit carries the new prompt only. An older build receives the field. */
+  promptHistoryPatch: boolean;
   /** Push lanes this browser actually reads ('terminal', 'editor',
    *  'files'). Terminal output, diagnostics and folder events are produced
    *  by DESKTOP activity — a build, a save — and used to reach every paired
@@ -156,6 +159,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
     const views: ParkedRelayViews = {
       compactWire: state.compactWire,
       transcriptPrepend: state.transcriptPrepend,
+      promptHistoryPatch: state.promptHistoryPatch,
       listDelta: state.listDelta,
       stateEncoder: state.stateLane?.park() ?? null,
       sessionsEncoder: state.sessionsEncoder,
@@ -226,6 +230,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
         compactWire: false,
         transcriptPaging: false,
         transcriptPrepend: false,
+        promptHistoryPatch: false,
         lanes: null,
         sessionHandles: new Map(),
         sessionsEncoder: createSessionsEncoder(),

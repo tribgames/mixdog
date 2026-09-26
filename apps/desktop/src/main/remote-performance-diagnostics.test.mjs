@@ -61,3 +61,20 @@ test('RPC diagnostics attribute actual byte counts without retaining request or 
   stats.record('getSnapshot', 1);
   assert.equal(lines.length, 1);
 });
+
+test('capability calls are summarized per capability name', () => {
+  let now = 0;
+  const lines = [];
+  const stats = createRemoteCallStats({ now: () => now, write: (line) => lines.push(line) });
+  stats.record('invokeCapability:getTurnReviewDiff', 0, { requestBytes: 240, responseBytes: 180 });
+  stats.record('invokeCapability:getTurnReviewDiff', 0, { requestBytes: 240, responseBytes: 180 });
+  stats.record('readCapabilities:getTheme+getProfile', 1, { requestBytes: 200, responseBytes: 300 });
+  stats.record('invokeCapability:not a name', 1);
+  now = 60_000;
+  stats.record('listProjects', 0);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /calls=5/);
+  assert.match(lines[0], /invokeCapability:getTurnReviewDiff=2x\/0ms\/rx-box=480B\/tx-routed=360B/);
+  assert.match(lines[0], /readCapabilities:getTheme\+getProfile=1x\/1ms/);
+  assert.match(lines[0], / unknown=1x/);
+});

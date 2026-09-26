@@ -84,6 +84,67 @@ interface StateFieldsPatch {
   revision?: unknown;
   changed?: unknown;
   removed?: unknown;
+  /** Head patches for HEAD_PATCH_FIELDS, keyed by field (compact `sl`). */
+  lists?: unknown;
+}
+
+/** State fields that grow at their head. `promptHistoryList` is newest-first
+ *  and capped, so a submit puts one prompt in front of the held entries and
+ *  may push the oldest off the end — yet the field used to travel whole, at
+ *  up to 50 full prompts, on every submit. */
+const HEAD_PATCH_FIELDS = ['promptHistoryList'] as const;
+
+interface HeadListPatch {
+  /** Entries in front of the held ones. */
+  h: unknown[];
+  /** How many held entries follow them, from the front (after `x` is gone). */
+  k: number;
+  /** The one held index that left its place: a re-sent prompt moves to the
+   *  front, so it travels in `h` and drops out of the held run. */
+  x?: number;
+}
+
+/** `after` as new entries in front of the first `k` entries of `before`
+ *  (optionally without the one held entry at `x`), or null for any other
+ *  change (rewind, abort, a cut with nothing new, reorder) — those travel as
+ *  the whole field. The shortest head wins. */
+function headListPatch(before: unknown, after: unknown): HeadListPatch | null {
+  if (!Array.isArray(before) || !Array.isArray(after) || before.length === 0) return null;
+  for (let head = Math.max(1, after.length - before.length); head < after.length; head += 1) {
+    const keep = after.length - head;
+    let removed: number | null = null;
+    let held = 0;
+    for (let index = head; index < after.length && held < before.length; held += 1) {
+      if (sameSnapshotField(before[held], after[index])) {
+        index += 1;
+      } else if (removed === null) {
+        removed = held;
+      } else {
+        break;
+      }
+    }
+    // Every entry after the head was matched in order, skipping at most one.
+    const matched = held - (removed === null ? 0 : 1);
+    if (matched !== keep) continue;
+    const h = after.slice(0, head);
+    return removed === null ? { h, k: keep } : { h, k: keep, x: removed };
+  }
+  return null;
+}
+
+/** The list a head patch describes, or null when it does not apply to the
+ *  held one (a broken chain the caller answers with a resync). */
+function applyHeadListPatch(held: unknown, patch: unknown): unknown[] | null {
+  if (!Array.isArray(held) || !patch || typeof patch !== 'object' || Array.isArray(patch)) return null;
+  const { h, k, x } = patch as Partial<HeadListPatch>;
+  if (!Array.isArray(h) || h.length === 0 || !Number.isSafeInteger(k)) return null;
+  let kept: readonly unknown[] = held;
+  if (x !== undefined) {
+    if (!Number.isSafeInteger(x) || x < 0 || x >= held.length) return null;
+    kept = held.slice(0, x).concat(held.slice(x + 1));
+  }
+  if ((k as number) < 1 || (k as number) > kept.length) return null;
+  return h.concat(kept.slice(0, k as number));
 }
 
 interface StreamingTailPatch {
@@ -243,11 +304,17 @@ interface SnapshotDeltaEncoderOptions {
    *  older-history page then carries just the revealed rows. A decoder that
    *  predates it would drop them, so every other peer gets the whole list. */
   prepend?: boolean;
+  /** Only for a peer whose decoder applies head list patches (compact `sl`):
+   *  a submit then carries the new prompt instead of the whole
+   *  `promptHistoryList`. A decoder that predates it would keep its stale
+   *  list, so every other peer gets the whole field. */
+  historyPatch?: boolean;
 }
 
 export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions = {}): SnapshotDeltaEncoder {
   const compact = options.compact === true;
   const prependAllowed = options.prepend === true;
+  const historyPatchAllowed = options.historyPatch === true;
   let sentItems: readonly unknown[] | null = null;
   let sentStreamingTail: Record<string, unknown> | null = null;
   let sentStreamingTailEpoch: number | null = null;
@@ -328,16 +395,28 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
 
         const nextFields = snapshotFieldsFrom(record);
         const { changed, removed } = diffStateFields(sentStateFields || {}, nextFields);
+        const lists: Record<string, HeadListPatch> = {};
+        if (historyPatchAllowed) {
+          for (const field of HEAD_PATCH_FIELDS) {
+            if (!Object.hasOwn(changed, field)) continue;
+            const patch = headListPatch(sentStateFields?.[field], changed[field]);
+            if (!patch) continue;
+            lists[field] = patch;
+            delete changed[field];
+          }
+        }
         const changedCount = Object.keys(changed).length;
-        const stateChanged = changedCount > 0 || removed.length > 0;
+        const listCount = Object.keys(lists).length;
+        const stateChanged = changedCount > 0 || removed.length > 0 || listCount > 0;
         if (stateChanged) carriesNews = true;
         if (!compact) {
-          wire.__statePatch = { base, revision, changed, removed };
+          wire.__statePatch = { base, revision, changed, removed, ...(listCount > 0 ? { lists } : {}) };
         } else if (stateChanged) {
           // Ordering rides the items patch, so this carries payload only —
           // and an unchanged state block leaves the frame entirely.
           if (changedCount > 0) wire.sc = changed;
           if (removed.length > 0) wire.sd = removed;
+          if (listCount > 0) wire.sl = lists;
         }
 
         const previousTail = sentStreamingTail;
@@ -446,10 +525,11 @@ function expandCompactWire(record: Record<string, unknown>): Record<string, unkn
         }
       : {}),
   };
-  if (Object.hasOwn(record, 'sc') || Object.hasOwn(record, 'sd')) {
+  if (Object.hasOwn(record, 'sc') || Object.hasOwn(record, 'sd') || Object.hasOwn(record, 'sl')) {
     expanded.__statePatch = {
       ...(Object.hasOwn(record, 'sc') ? { changed: record.sc } : {}),
       ...(Object.hasOwn(record, 'sd') ? { removed: record.sd } : {}),
+      ...(Object.hasOwn(record, 'sl') ? { lists: record.sl } : {}),
     };
   }
   if (Object.hasOwn(record, 'ta')) {
@@ -559,7 +639,9 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
               (typeof statePatch.changed !== 'object' ||
                 statePatch.changed === null ||
                 Array.isArray(statePatch.changed))) ||
-            (statePatch.removed !== undefined && !Array.isArray(statePatch.removed))))
+            (statePatch.removed !== undefined && !Array.isArray(statePatch.removed)) ||
+            (statePatch.lists !== undefined &&
+              (typeof statePatch.lists !== 'object' || statePatch.lists === null || Array.isArray(statePatch.lists)))))
       ) {
         return { ok: false };
       }
@@ -575,6 +657,11 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
           if (typeof key === 'string') delete nextStateFields[key];
         }
         if (statePatch.changed) Object.assign(nextStateFields, statePatch.changed);
+        for (const [field, listPatch] of Object.entries((statePatch.lists as Record<string, unknown> | undefined) ?? {})) {
+          const list = applyHeadListPatch(stateFields[field], listPatch);
+          if (!list) return { ok: false };
+          nextStateFields[field] = list;
+        }
       } else if (compactFrame) {
         nextStateFields = stateFields;
       } else {

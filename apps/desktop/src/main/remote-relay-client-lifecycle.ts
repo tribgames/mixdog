@@ -121,11 +121,17 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
       client.compactWire = hello.compactWire === 1;
       client.transcriptPaging = hello.transcriptPaging === 1;
       client.transcriptPrepend = hello.transcriptPrepend === 1;
+      // Announced by the browser itself (like viewSync): its decoder applies
+      // head patches to the prompt history.
+      client.promptHistoryPatch = (hello as typeof hello & { promptHistoryPatch?: unknown }).promptHistoryPatch === 1;
       client.viewSync = hello.viewSync === 1 && deps.viewSyncSupported();
-      client.stateLane = createRemoteStateLane(client.compactWire, (payload, droppable) =>
-        deps.clients.attached(clientId, client)
-          ? deps.sendEncryptedFrame(clientId, payload, droppable, undefined, !droppable)
-          : Promise.resolve()
+      client.stateLane = createRemoteStateLane(
+        client.compactWire,
+        (payload, droppable) =>
+          deps.clients.attached(clientId, client)
+            ? deps.sendEncryptedFrame(clientId, payload, droppable, undefined, !droppable)
+            : Promise.resolve(),
+        client.promptHistoryPatch
       );
       clearTimeout(client.handshakeTimer);
       const uplink = deps.relayRoutingCapsPayload();

@@ -19,11 +19,12 @@ export function encodeRelayClientSessionState(
   sessionId: string,
   snapshot: unknown,
   compact = false,
-  prepend = false
+  prepend = false,
+  historyPatch = false
 ): unknown {
   let encoder = encoders.get(sessionId);
   if (!encoder) {
-    encoder = createSnapshotDeltaEncoder({ compact, prepend });
+    encoder = createSnapshotDeltaEncoder({ compact, prepend, historyPatch });
     encoders.set(sessionId, encoder);
   }
   return encoder.encode(remoteTranscriptSnapshot(snapshot));
@@ -63,7 +64,8 @@ export function createRelaySessionStateFanout(deps: RelaySessionStateFanoutDeps)
             sessionId,
             update.snapshot,
             state.compactWire,
-            state.transcriptPrepend
+            state.transcriptPrepend,
+            state.promptHistoryPatch
           );
           // This client's baseline already matches the snapshot: the frame would
           // carry a revision number and nothing else.

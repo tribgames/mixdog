@@ -20,9 +20,16 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 function fixture() {
   const item = (id, size = 900) => ({ id, kind: 'assistant', text: `${id} `.repeat(size / 4), thinkingBlocks: ['x'] });
   const history = Array.from({ length: 120 }, (_, index) => item(`lead-${index}`));
+  const prompts = Array.from({ length: 50 }, (_, index) => `prompt ${index} ${'p'.repeat(1200)}`);
   const host = {
     now: 0,
-    state: { sessionId: 'lead', status: 'idle', items: [item('app-0', 200)], streamingTail: null },
+    state: {
+      sessionId: 'lead',
+      status: 'idle',
+      items: [item('app-0', 200)],
+      streamingTail: null,
+      promptHistoryList: prompts,
+    },
     sessions: [
       { id: 'lead', title: 'Lead', working: true },
       { id: 'side', title: 'Side', working: false },
@@ -34,6 +41,7 @@ function fixture() {
         busy: true,
         items: history,
         streamingTail: { id: 'tail-1', kind: 'assistant', text: 'Str' },
+        promptHistoryList: prompts,
       },
       side: { sessionId: 'side', busy: false, items: [item('side-0'), item('side-1')], streamingTail: null },
     },
@@ -124,15 +132,23 @@ function harness() {
       listDelta: true,
       transcriptPaging: true,
       transcriptPrepend: true,
+      promptHistoryPatch: true,
     });
-    const leg = { clientId, state, lose: false, bytes: 0 };
+    const leg = { clientId, state, lose: false, bytes: 0, wires: [] };
     leg.deliver = (frame) => {
       if (leg.lose) return;
       const text = JSON.stringify(frame);
       leg.bytes += text.length;
       phone.apply(JSON.parse(text));
     };
-    state.stateLane = createRemoteStateLane(true, async (payload) => leg.deliver(payload));
+    state.stateLane = createRemoteStateLane(
+      true,
+      async (payload) => {
+        leg.wires.push(plain(payload.w));
+        leg.deliver(payload);
+      },
+      true
+    );
     leg.sync = async (resume) => {
       const offer = phone.cache.begin();
       const frames = [];
@@ -161,9 +177,12 @@ function harness() {
         sessionId,
         f.host.transcripts[sessionId],
         true,
+        true,
         true
       );
-      if (!isNoDelta(wire)) leg.deliver({ e: 'T', s: 1, n: sessionId, w: wire });
+      if (isNoDelta(wire)) return;
+      leg.wires.push(plain(wire));
+      leg.deliver({ e: 'T', s: 1, n: sessionId, w: wire });
     };
     /** A live roster push, as remote-relay-catalog sends it. */
     leg.publishSessions = () => {
@@ -190,13 +209,16 @@ function harness() {
    *  row lands, the roster flips. */
   const advance = (step) => {
     const lead = f.host.transcripts.lead;
+    // Each step is a submit: newest-first, capped at 50.
+    const promptHistoryList = [`submit ${step}`, ...lead.promptHistoryList].slice(0, 50);
     f.host.transcripts.lead = {
       ...lead,
       items: [...lead.items, f.item(`lead-answer-${step}`, 120)],
       streamingTail: { ...lead.streamingTail, text: `${lead.streamingTail.text} more ${step}` },
+      promptHistoryList,
     };
     f.host.sessions = [{ ...f.host.sessions[0], working: step % 2 === 0 }, f.host.sessions[1]];
-    f.host.state = { ...f.host.state, status: `step-${step}` };
+    f.host.state = { ...f.host.state, status: `step-${step}`, promptHistoryList };
   };
   return { ...f, connect, assertSynchronized, advance };
 }
@@ -217,6 +239,10 @@ test('a short reconnect resumes every lane with deltas only and reconstructs the
     await settle();
   }
   h.assertSynchronized(phone);
+  // Every submit reached both lanes as a head patch, never the whole list.
+  const submits = first.wires.filter((wire) => wire.sl);
+  assert.equal(submits.length, 6);
+  for (const wire of first.wires) assert.equal(Object.hasOwn(wire.sc ?? {}, 'promptHistoryList'), false);
   assert.equal(first.drop(), true);
 
   h.advance(4);
@@ -245,6 +271,18 @@ test('a short reconnect resumes every lane with deltas only and reconstructs the
   second.state.stateLane.publish(h.host.state);
   await settle();
   h.assertSynchronized(phone);
+});
+
+test('a cold sync sends the visible transcripts before the roster lists', async () => {
+  const h = harness();
+  const phone = createPhone();
+  const { frames } = await h.connect(phone).sync();
+  h.assertSynchronized(phone);
+  const events = frames.map((frame) => (frame.event === 'viewBaseline' ? frame.payload.frame?.event : frame.event));
+  const lastTranscript = events.lastIndexOf('sessionState');
+  assert.ok(lastTranscript >= 0, 'the visible transcripts are sent');
+  assert.ok(lastTranscript < events.indexOf('sessions'), `order: ${events.join(',')}`);
+  assert.ok(lastTranscript < events.indexOf('agentPool'), `order: ${events.join(',')}`);
 });
 
 test('a frame lost in flight during the disconnect falls back to a full baseline for that lane only', async () => {

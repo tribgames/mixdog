@@ -20,6 +20,8 @@ interface RelayViewSyncState {
   transcriptPaging?: boolean;
   /** The browser decodes prepend patches (see RelayClientState). */
   transcriptPrepend?: boolean;
+  /** The browser decodes prompt-history head patches (see RelayClientState). */
+  promptHistoryPatch?: boolean;
   listDelta: boolean;
   sessionStateEncoders: Map<string, SnapshotDeltaEncoder>;
   sessionsEncoder: KeyedListDeltaEncoder<DesktopSessionSummary>;
@@ -42,6 +44,7 @@ interface RelayViewSyncState {
 export interface ParkedRelayViews {
   compactWire: boolean;
   transcriptPrepend: boolean;
+  promptHistoryPatch: boolean;
   listDelta: boolean;
   stateEncoder: SnapshotDeltaEncoder | null;
   sessionsEncoder: KeyedListDeltaEncoder<DesktopSessionSummary>;
@@ -116,6 +119,7 @@ async function adoptParkedViews(state: RelayViewSyncState, resume: RelayViewResu
   if (
     parked.compactWire !== state.compactWire ||
     parked.transcriptPrepend !== (state.transcriptPrepend === true) ||
+    parked.promptHistoryPatch !== (state.promptHistoryPatch === true) ||
     parked.listDelta !== state.listDelta
   ) {
     return adopted;
@@ -195,15 +199,9 @@ export async function synchronizeRelayViews(
             : state.stateLane.reset(snapshot.snapshot, sendBaseline)
         );
       }
-      for (const [event, encoder, items, resumed] of [
-        ['sessions', state.sessionsEncoder, snapshot.sessions, !!adopted?.sessions],
-        ['agentPool', state.agentPoolEncoder, snapshot.agents, !!adopted?.agentPool],
-      ] as const) {
-        const payload = state.listDelta ? (encoder as KeyedListDeltaEncoder<unknown>).encode(items) : items;
-        writes.push(
-          resumed ? sendDelta({ event, payload }, isNoListDelta(payload)) : sendBaseline({ event, payload })
-        );
-      }
+      // Transcripts go before the roster lists: a full sessions list is the
+      // largest baseline (~200KB for a long history) and, sent first, held
+      // the visible conversation behind it on a phone link.
       for (const update of snapshot.sessionStates) {
         const resumed = adopted?.sessionStates.get(update.sessionId);
         const encoder =
@@ -211,6 +209,7 @@ export async function synchronizeRelayViews(
           createSnapshotDeltaEncoder({
             compact: state.compactWire,
             prepend: state.transcriptPrepend === true,
+            historyPatch: state.promptHistoryPatch === true,
           });
         state.sessionStateEncoders.set(update.sessionId, encoder);
         const wire = encoder.encode(remoteTranscriptSnapshot(update.snapshot));
@@ -232,6 +231,15 @@ export async function synchronizeRelayViews(
         }
         writes.push(
           sendDelta({ event: 'sessionState', payload: { ...update, wire, snapshot: undefined } }, isNoDelta(wire))
+        );
+      }
+      for (const [event, encoder, items, resumed] of [
+        ['sessions', state.sessionsEncoder, snapshot.sessions, !!adopted?.sessions],
+        ['agentPool', state.agentPoolEncoder, snapshot.agents, !!adopted?.agentPool],
+      ] as const) {
+        const payload = state.listDelta ? (encoder as KeyedListDeltaEncoder<unknown>).encode(items) : items;
+        writes.push(
+          resumed ? sendDelta({ event, payload }, isNoListDelta(payload)) : sendBaseline({ event, payload })
         );
       }
       // All baseline encryptions are already queued. A later live frame now

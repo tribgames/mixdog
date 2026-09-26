@@ -3,8 +3,12 @@ import { createLatestStateMailbox, type LatestStateMailbox } from './desktop-ser
 
 /** Each receiver owns its baseline and one coalescing mailbox. Recovering a
  *  sleeping phone must not invalidate another phone's healthy delta stream. */
-export function createRemoteStateLane(compact: boolean, send: (payload: unknown, droppable: boolean) => Promise<void>) {
-  let encoder: SnapshotDeltaEncoder = createSnapshotDeltaEncoder({ compact });
+export function createRemoteStateLane(
+  compact: boolean,
+  send: (payload: unknown, droppable: boolean) => Promise<void>,
+  historyPatch = false
+) {
+  let encoder: SnapshotDeltaEncoder = createSnapshotDeltaEncoder({ compact, historyPatch });
   type Publication = {
     snapshot: unknown;
     critical: boolean;
@@ -48,7 +52,7 @@ export function createRemoteStateLane(compact: boolean, send: (payload: unknown,
     /** Hands the encoder over for a later resume; this lane starts afresh. */
     park(): SnapshotDeltaEncoder {
       const parked = encoder;
-      encoder = createSnapshotDeltaEncoder({ compact });
+      encoder = createSnapshotDeltaEncoder({ compact, historyPatch });
       mailbox.clear();
       return parked;
     },

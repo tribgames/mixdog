@@ -682,6 +682,11 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   const authoritativeWorktreeSnapshot =
     authoritativeSnapshotKind === 'worktree' || authoritativeSnapshotKind === 'scoped';
   const capabilityRequestInFlight = useRef(false);
+  // The read issued in the current synchronous pass (one commit's effects),
+  // cleared at the next microtask.
+  const sameCommitRequest = useRef<{ scopeKey: string; boundaryKey: string; refreshWorktree: boolean } | null>(
+    null
+  );
   const pendingCapabilityRefresh = useRef<{
     scopeKey: string;
     refreshWorktree: boolean;
@@ -748,6 +753,17 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         return;
       }
       if (capabilityRequestInFlight.current) {
+        // The boundary effect and the busy poll both ask when one commit moves
+        // a boundary: the read already sent for it answers both, so a queued
+        // follow-up would only repeat it.
+        const issued = sameCommitRequest.current;
+        if (
+          issued?.scopeKey === requestedScope &&
+          issued.boundaryKey === reviewBoundaryKey &&
+          (issued.refreshWorktree || !refreshWorktree)
+        ) {
+          return;
+        }
         const pending = pendingCapabilityRefresh.current;
         pendingCapabilityRefresh.current = {
           scopeKey: requestedScope,
@@ -756,6 +772,11 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         return;
       }
       capabilityRequestInFlight.current = true;
+      const issued = { scopeKey: requestedScope, boundaryKey: reviewBoundaryKey, refreshWorktree };
+      sameCommitRequest.current = issued;
+      queueMicrotask(() => {
+        if (sameCommitRequest.current === issued) sameCommitRequest.current = null;
+      });
       try {
         // This bar belongs to the pane's session. During a tab switch the host's
         // focused view can already point elsewhere, so omitting this address

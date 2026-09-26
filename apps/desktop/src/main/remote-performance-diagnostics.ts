@@ -45,7 +45,9 @@ export function createRemoteCallStats({
     record(method, elapsedMs, bytes = {}): void {
       const current = now();
       since ??= current;
-      const name = /^[A-Za-z][A-Za-z0-9_]{0,79}$/.test(method) ? method : 'unknown';
+      // A method, optionally keyed by the capability names it carried
+      // (`invokeCapability:getFoo`, `readCapabilities:getA+getB`).
+      const name = /^[A-Za-z][A-Za-z0-9_]{0,79}(?::[A-Za-z0-9_+]{1,512})?$/.test(method) ? method : 'unknown';
       const row = stats.get(name) ?? { calls: 0, ms: 0, rx: 0, tx: 0 };
       row.calls += 1;
       row.ms += Math.max(0, Number(elapsedMs) || 0);
