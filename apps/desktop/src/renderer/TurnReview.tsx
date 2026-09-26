@@ -19,6 +19,7 @@ import { readDiffStyle, TURN_REVIEW_DIFF_STYLE_KEY, type TranscriptItem, writeDi
 import { reviewScopePending } from './composer-dock-reservation';
 import { parseUnifiedDiff, turnReviewScope } from './renderer-logic.mjs';
 import { RendererLruCache } from './renderer-lru-cache';
+import { isMobileRemoteSurface } from './mobile-surface';
 import { registerIdleReclaim } from './idle-reclaim';
 import {
   agentReviewCache,
@@ -873,9 +874,15 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     // without leaving every mounted session on a permanent six-second poll.
     if (busy || expanded) {
       void refreshAgentReviews(true);
-      const timer = window.setInterval(() => {
-        void refreshAgentReviews(true);
-      }, 6_000);
+      // Every tool/turn boundary already re-reads (effect above). On a phone
+      // each timed re-read of a working turn moves its whole diff over the
+      // relay and re-diffs the desktop worktree, so the timer only backstops.
+      const timer = window.setInterval(
+        () => {
+          void refreshAgentReviews(true);
+        },
+        isMobileRemoteSurface() ? 30_000 : 6_000
+      );
       return () => window.clearInterval(timer);
     }
     const delays = [6_000, 12_000, 24_000, 48_000];
