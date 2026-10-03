@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.0.5 - 2026-10-03
+
 - The desktop app can raise an OS notification, with a sound, when a turn
   ends with its final answer, and the notification leads back to that
   session.
