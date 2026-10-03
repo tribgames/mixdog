@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe">
-    <img src="https://img.shields.io/badge/Download_for_Windows_x64-0078D4?style=for-the-badge&logo=windows11&logoColor=white" alt="Download Mixdog for Windows x64" height="56">
+    <img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/download-windows.svg" alt="Download Mixdog for Windows x64" width="320">
   </a>
 </p>
 
