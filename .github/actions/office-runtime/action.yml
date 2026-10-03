@@ -20,10 +20,29 @@ runs:
     # (CDDE43BA4DE3F09D7CE7016673AEE920AD55F5A0) ships beside this action:
     # add-apt-repository spent ~25s resolving it through the Launchpad API on
     # every run, then refreshed the package lists a second time.
+    #
+    # The cask downloads from download.documentfoundation.org, which has gone
+    # down for hours at a time. When the cask fails, the same release comes from
+    # TDF mirrors and is checked against the cask's own sha256. Every macOS
+    # runner using this action is arm64 (macos-14).
     - name: Install fonts and LibreOffice
       if: runner.os == 'macOS'
       shell: bash
-      run: brew install --cask libreoffice font-carlito
+      run: |
+        set -euo pipefail
+        brew install --cask font-carlito
+        if brew install --cask libreoffice; then
+          exit 0
+        fi
+        echo "LibreOffice cask failed; installing from a TDF mirror" >&2
+        dmg=LibreOffice_26.8.0_MacOS_aarch64.dmg
+        for base in https://mirrors.dotsrc.org/tdf https://ftp.kaist.ac.kr/tdf; do
+          curl -fL --retry 3 --max-time 600 -o "$dmg" "$base/libreoffice/stable/26.8.0/mac/aarch64/$dmg" && break
+        done
+        echo "8858d8058da4f862f47559486814e65efc27294da67c5e4bb56b006b1ee59f89  $dmg" | shasum -a 256 -c -
+        mount=$(hdiutil attach -nobrowse -readonly "$dmg" | awk -F'\t' '/\/Volumes\//{print $NF}')
+        cp -R "$mount/LibreOffice.app" /Applications/
+        hdiutil detach "$mount"
     - name: Install fonts and LibreOffice
       if: runner.os == 'Linux'
       shell: bash
