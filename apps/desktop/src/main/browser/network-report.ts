@@ -57,7 +57,7 @@ function truncateNetworkBody(body: string, maxChars: number): string {
   return `${redacted.slice(0, limit)}\n[truncated: at least ${Math.max(1, body.length - limit)} more characters]`;
 }
 
-export interface BrowserNetworkReportHost {
+interface BrowserNetworkReportHost {
   /** The ledger recording this page's requests. */
   ledgerFor(guest: WebContents): BrowserNetworkLedger;
   cdp: BrowserCdpPort;

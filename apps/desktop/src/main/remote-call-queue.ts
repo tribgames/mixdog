@@ -35,6 +35,10 @@ const SLOW_READS = new Set([
   'searchProjectFiles',
   'searchWorkspaceText',
   'previewDocumentPages',
+  // GitHub CLI reads (gh process + GitHub API round trip). Observed at 20s as
+  // an unknown-method barrier, holding Settings reads ~10s behind it.
+  'githubCliStatus',
+  'githubCliAccount',
   // Keyed by capability at the dispatch site: a worktree diff read.
   'invokeCapability:getTurnReviewDiff',
 ]);

@@ -589,7 +589,7 @@ test('Studio select-all covers unloaded pages, so a bulk delete empties the tab'
   try {
     await settle();
     assert.equal(tiles(), 60, 'the gallery holds only its first page');
-    await act(async () => button('Clean up').click());
+    await act(async () => host.querySelector('button[aria-label="Clean up"]').click());
     await act(async () => button('Select items').click());
     await act(async () => button('Select all').click());
     await settle();

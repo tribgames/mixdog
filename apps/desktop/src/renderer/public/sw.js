@@ -380,6 +380,18 @@ self.addEventListener('push', (event) => {
   );
 });
 
+// The browser may expire or rotate a subscription on its own. Renew it with
+// the same sender key; the app hands the current endpoint to the desktop on
+// its next launch (push-notification-bridge.ts syncPushSubscription).
+self.addEventListener('pushsubscriptionchange', (event) => {
+  if (event.newSubscription) return;
+  const applicationServerKey = event.oldSubscription?.options?.applicationServerKey;
+  if (!applicationServerKey) return;
+  event.waitUntil(
+    self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey }).catch(() => undefined)
+  );
+});
+
 // Tapping the notification opens the session it came from. An app that is
 // still resident is focused and told where to go; a closed one is launched.
 self.addEventListener('notificationclick', (event) => {

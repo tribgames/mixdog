@@ -25,7 +25,7 @@ import { timedBrowserOperation } from './timing';
 export { fileInputsFromDomSnapshot } from './snapshot-accessibility-read';
 export type { AccessibilityRef, AccessibilityRefSnapshot } from './snapshot-ref-calls';
 
-export interface BrowserSnapshotCaptureHost {
+interface BrowserSnapshotCaptureHost {
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal, timeoutMs?: number): Promise<T>;
   cdp: BrowserCdpPort;
   /** The CDP target sessions this page has attached, for frame geometry, and

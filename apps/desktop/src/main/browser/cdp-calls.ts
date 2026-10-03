@@ -16,7 +16,7 @@ export interface BrowserCdpCallOptions {
   timeoutMs?: number;
 }
 
-export interface CdpCallsHost {
+interface CdpCallsHost {
   state: BrowserGuestStateStore;
   sendCdp: BrowserCdpSend;
   guestDebugger(guest: WebContents, answeringDialog?: boolean): Promise<Electron.Debugger>;

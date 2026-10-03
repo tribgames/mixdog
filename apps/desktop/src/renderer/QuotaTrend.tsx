@@ -531,7 +531,7 @@ export function QuotaTrend({
                   <dd>{statsTokens(active.tokens)}</dd>
                 </div>
                 <div>
-                  <dt>{t('Subscription list-price value')}</dt>
+                  <dt>{t('List-price value')}</dt>
                   <dd title={`${quotaValueBreakdown(active)}\n${quotaValueCaution()}`}>{quotaValue(active)}</dd>
                 </div>
               </dl>

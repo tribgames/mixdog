@@ -10,7 +10,7 @@ import type { BrowserCommand, BrowserCommandResult } from './command';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 import { type BrowserUrlPolicy, normalizeAgentUrl } from './url-policy';
 
-export interface BrowserPageStateHost {
+interface BrowserPageStateHost {
   /** The partition every agent page shares, and where its cookies live. */
   partitionSession: Session;
   /** Read at call time: the policy can change while the host runs. */

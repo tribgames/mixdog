@@ -510,10 +510,11 @@
    An inactive tab is not a disabled tab: it is a document you can read the
    name of, and its glyph inherits the same currentColor, so muted dimmed the
    title AND the icon together (user: 선택하지 않은 pane 라벨이 너무 연하다).
-   The active tab is already told apart by its plate and underline, so the
-   resting label can sit one step under full ink instead of two. */
+   The resting label takes the strip's idle ink (--mx-tab-idle-ink): soft
+   (85%) and then 78% both read as the selection's own color (user: 탭
+   선택하나 안 하나 색감 같아 보인다). */
 .workspace-tab {
-  color: var(--mx-text-soft);
+  color: var(--mx-tab-idle-ink);
 }
 .workspace-tab.active {
   color: var(--mx-text);

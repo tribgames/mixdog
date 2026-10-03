@@ -16,7 +16,7 @@ import { assertBackgroundTabCapacity, backgroundPageIdle, normalizeBackgroundTab
 import type { BackgroundPage } from './tabs-contract';
 import { type BrowserUrlPolicy, normalizePageUrl, normalizeRestoredPageUrl } from './url-policy';
 
-export interface BrowserGuestLifecycleHost {
+interface BrowserGuestLifecycleHost {
   window: BrowserWindow;
   partitionSession: Electron.Session;
   state: BrowserGuestStateStore;

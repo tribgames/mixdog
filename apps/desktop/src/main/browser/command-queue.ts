@@ -12,7 +12,7 @@ import { throwIfBrowserCancelled } from './settle';
 import { timeBrowserCommand } from './timing';
 import { BROWSER_INPUT_EXPIRED } from '../../shared/browser-input-policy';
 
-export interface BrowserCommandQueueHost extends QueueLedger, QueueKeyHost {
+interface BrowserCommandQueueHost extends QueueLedger, QueueKeyHost {
   run(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult>;
   /** The per-command ceiling, which also cancels the work it was waiting on. */
   bounded<T>(

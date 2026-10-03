@@ -56,10 +56,16 @@ export function useDesktopState() {
         applyReceivedSnapshot(next);
         setHydrated(true);
         const previousReadError = initialReadError;
+        initialReadFailed = false;
         initialReadError = '';
         setError((current) => (current === previousReadError ? '' : current));
       }
     };
+    // Tracked apart from the message: a dropped connection rejects with an
+    // EMPTY message, and keying the retry on the text left a phone that booted
+    // while its desktop was still redialing (a relay deploy) unhydrated behind
+    // the boot cover for good.
+    let initialReadFailed = false;
     let initialReadError = '';
     let readPending = false;
     const readInitialSnapshot = () => {
@@ -70,6 +76,7 @@ export function useDesktopState() {
         .then(update)
         .catch((reason) => {
           if (live) {
+            initialReadFailed = true;
             initialReadError = reason instanceof Error ? reason.message : String(reason);
             setError(initialReadError);
             // Native boot retains its bounded recovery. A remote boot needs a
@@ -83,7 +90,7 @@ export function useDesktopState() {
     };
     readInitialSnapshot();
     const unsubscribeConnection = subscribeRemoteConnectionState(() => {
-      if (initialReadError && currentRemoteConnectionState() === 'connected') {
+      if (initialReadFailed && currentRemoteConnectionState() === 'connected') {
         readInitialSnapshot();
       }
     });

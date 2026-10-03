@@ -21,14 +21,14 @@ test('auto-clear and compact completion render polished localized labels', async
         item: { kind: 'statusdone', label: 'Auto-clear complete' },
       })
     );
-    assert.match(autoClearMarkup, /유휴 세션 정리 완료/);
+    assert.match(autoClearMarkup, /세션 자동 정리 완료/);
 
     const autoClearSkippedMarkup = renderToStaticMarkup(
       React.createElement(CompletionStatus, {
         item: { kind: 'statusdone', label: 'Auto-clear skipped', detail: 'conversation kept · nothing to compact' },
       })
     );
-    assert.match(autoClearSkippedMarkup, /자동 정리 생략됨 \(대화 유지\)/);
+    assert.match(autoClearSkippedMarkup, /자동 정리 생략 \(대화 유지\)/);
     assert.match(autoClearSkippedMarkup, /대화 내용 보존/);
 
     const compactMarkup = renderToStaticMarkup(
@@ -36,7 +36,7 @@ test('auto-clear and compact completion render polished localized labels', async
         item: { kind: 'statusdone', label: 'Compact complete', detail: '2s' },
       })
     );
-    assert.match(compactMarkup, /대화 맥락 정리 완료/);
+    assert.match(compactMarkup, /대화 압축 완료/);
   } finally {
     await i18n.changeLanguage(previousLang);
   }

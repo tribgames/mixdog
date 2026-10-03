@@ -280,7 +280,7 @@ export function UsageStatsBody({
       />
       <div className="stats-cards">
         <StatCard
-          label={t('Subscription list-price value')}
+          label={t('List-price value')}
           value={moneyFor(subscriptionRows)}
           detail={t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')}
           loading={loading}
@@ -292,7 +292,7 @@ export function UsageStatsBody({
           loading={loading}
         />
         <StatCard label={t('Tokens')} value={statsTokens(tokens, incomplete)} detail={tokenInfo} loading={loading} />
-        <StatCard label={t('Usage records')} value={statsCount(turns)} loading={loading} />
+        <StatCard label={t('Requests')} value={statsCount(turns)} loading={loading} />
       </div>
       <TokenMix totals={totals} loading={loading} />
       {/* The legend and every bar band read from one order, so a provider keeps
@@ -317,9 +317,9 @@ export function UsageStatsBody({
             <tr>
               <th scope="col">{t('Provider')}</th>
               <th scope="col" className="stats-share-col">
-                {t('Usage share')}
+                {t('Share')}
               </th>
-              <SortHeader label={t('Usage records')} column="turns" sort={sort} onSort={setSort} />
+              <SortHeader label={t('Requests')} column="turns" sort={sort} onSort={setSort} />
               <th scope="col" className="stats-breakdown" title={t('Fresh input plus cache writes')}>
                 {t('Input')}
               </th>

@@ -12,7 +12,7 @@ const MAX_SNAPSHOT_ELEMENTS = 500;
 const DEFAULT_SNAPSHOT_TEXT_CHARS = 2_400;
 const MAX_SNAPSHOT_TEXT_CHARS = 12_000;
 
-export interface BrowserSnapshotExpressionOptions {
+interface BrowserSnapshotExpressionOptions {
   snapshotId: string;
   maxElements?: number;
   textChars?: number;

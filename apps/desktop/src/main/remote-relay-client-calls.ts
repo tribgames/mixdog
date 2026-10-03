@@ -149,6 +149,7 @@ export function createRelayClientCallDispatch(
     // decides if a finished turn still needs a push notification.
     if (call?.method === 'setForeground' && Array.isArray(call.params)) {
       client.background = call.params[0] === false;
+      if (typeof call.params[1] === 'string') client.browserId = call.params[1].slice(0, 64);
       return {};
     }
     if (call?.method === 'setVisibleSessions' && Array.isArray(call.params)) {

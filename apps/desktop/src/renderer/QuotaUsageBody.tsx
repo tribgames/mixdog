@@ -181,9 +181,9 @@ function QuotaTable({
               className="stats-share-col"
               title={t('Model shares are estimates split by list-price value.')}
             >
-              {t('Usage share')}
+              {t('Share')}
             </th>
-            <th scope="col">{t('Usage records')}</th>
+            <th scope="col">{t('Requests')}</th>
             <th scope="col" className="stats-breakdown" title={t('Fresh input plus cache writes')}>
               {t('Input')}
             </th>
@@ -200,7 +200,7 @@ function QuotaTable({
               {t('Tokens')}
             </th>
             <th scope="col" className="stats-cost-cell">
-              {t('Subscription list-price value')}
+              {t('List-price value')}
             </th>
           </tr>
         </thead>
@@ -311,9 +311,9 @@ function QuotaHistory({
             <th scope="col">{t('Period')}</th>
             <th scope="col">{t('Used')}</th>
             <th scope="col">{t('Maxed out')}</th>
-            <th scope="col">{t('Subscription list-price value')}</th>
-            <th scope="col">{t('Value per 1%')}</th>
-            <th scope="col">{t('Value at 100%')}</th>
+            <th scope="col">{t('List-price value')}</th>
+            <th scope="col">{t('Per 1%')}</th>
+            <th scope="col">{t('At 100%')}</th>
           </tr>
         </thead>
         <tbody>
@@ -533,12 +533,12 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
   // A limit window: the whole limit at Mixdog's own rate, outside use excluded.
   const perPercent = summary.costPerPercent == null ? null : statsNumber(summary.costPerPercent);
   const valueCard: CardSpec = {
-    label: t('Subscription list-price value'),
+    label: t('List-price value'),
     value: quotaValue(summary, windowView),
     detail: `${quotaValueBreakdown(summary)}\n${quotaValueCaution()}\n${t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')}`,
   };
   const perPercentCard: CardSpec = {
-    label: t('Value per 1%'),
+    label: t('Per 1%'),
     value: perPercent === null ? '—' : usageMoney(perPercent),
     note: perPercent === null ? t('Not enough measured usage to estimate.') : '',
     detail: quotaValueCaution(),
@@ -551,27 +551,30 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
   }
   // The reset and the forecast run-out already read off the period and the
   // chart; the card says what is left to spend: the rest of the limit spread
-  // evenly to the reset — per hour in a window shorter than a day, per day
-  // otherwise. An ended window shows how fast it went instead.
+  // evenly to the reset — per day while more than a day is left, per hour
+  // otherwise, and never more than the rest itself. An ended window shows how
+  // fast it went instead, per hour in a window shorter than a day.
   const spanMs = statsNumber(focus.endMs) - statsNumber(focus.startMs);
-  const unitMs = spanMs > DAY_MS ? DAY_MS : HOUR_MS;
-  const perUnit = (percent: number) =>
+  const unitFor = (ms: number) => (ms > DAY_MS ? DAY_MS : HOUR_MS);
+  const perUnit = (percent: number, unitMs: number) =>
     unitMs === DAY_MS
       ? t('{{percent}} a day', { percent: quotaPercent(percent) })
       : t('{{percent}} an hour', { percent: quotaPercent(percent) });
   const leftMs = resetAt - now;
   let allowanceCard: CardSpec;
   if (!current) {
+    const unitMs = unitFor(spanMs);
     allowanceCard = {
       label: t('Average pace'),
-      value: spanMs > 0 ? perUnit((statsNumber(focus.peak) * unitMs) / spanMs) : '—',
+      value: spanMs > 0 ? perUnit((statsNumber(focus.peak) * unitMs) / spanMs, unitMs) : '—',
     };
   } else if (used >= 100) {
     allowanceCard = { label: t('Allowance to reset'), value: '—', note: t('Maxed out'), tone: 'danger' };
   } else {
+    const unitMs = unitFor(leftMs);
     allowanceCard = {
       label: t('Allowance to reset'),
-      value: leftMs > 0 ? perUnit(((100 - used) * unitMs) / leftMs) : '—',
+      value: leftMs > 0 ? perUnit(Math.min(100 - used, ((100 - used) * unitMs) / leftMs), unitMs) : '—',
       note: leftMs > 0 ? t('{{time}} left', { time: formatUsageResetRemaining(leftMs) }) : '',
     };
   }

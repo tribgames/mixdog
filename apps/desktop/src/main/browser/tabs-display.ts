@@ -3,7 +3,7 @@
 import type { DesktopBrowserTab } from '../../shared/contract';
 import type { BackgroundPage, BrowserTabsHost } from './tabs-contract';
 
-export type DisplayTabsHost = Pick<
+type DisplayTabsHost = Pick<
   BrowserTabsHost,
   'visibleGuests' | 'backgroundPages' | 'ensureOffscreen' | 'pageId' | 'currentGuest' | 'selectGuest' | 'closeGuest'
 >;

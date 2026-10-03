@@ -23,9 +23,9 @@ export interface BrowserRefRecoveryContext {
   resolvedTargets: string[];
 }
 
-export type RefRecoveryHost = Pick<BrowserReplyHost, 'state' | 'captureSnapshotPayload'>;
+type RefRecoveryHost = Pick<BrowserReplyHost, 'state' | 'captureSnapshotPayload'>;
 
-export interface RefRecoveryReplies {
+interface RefRecoveryReplies {
   dialogResult(guest: WebContents, dispatched?: boolean): BrowserCommandResult | null;
   reportSnapshot(
     guest: WebContents,

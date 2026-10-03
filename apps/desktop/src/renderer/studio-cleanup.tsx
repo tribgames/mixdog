@@ -85,15 +85,19 @@ export function StudioCleanupBar({
   };
   return (
     <div className="studio-cleanup" ref={menuNode}>
+      {/* Icon-only trash trigger (user: 클린업 말고 휴지통 아이콘); the
+            name rides the tooltip and the accessible label. */}
       <button
         type="button"
+        className="studio-cleanup-trigger"
+        aria-label={t('Clean up')}
+        data-tooltip={t('Clean up')}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={!visibleCount}
         onClick={() => setOpen((current) => !current)}
       >
-        <ListChecks size={14} aria-hidden="true" />
-        {t('Clean up')}
+        <Trash2 size={15} aria-hidden="true" />
       </button>
       {open ? (
         <div className="studio-cleanup-menu" role="menu">

@@ -6,7 +6,7 @@
  */
 import type { BrowserScreenshotRect } from './screenshot-policy';
 
-export interface BrowserScreenshotClip {
+interface BrowserScreenshotClip {
   rect: BrowserScreenshotRect;
   /** The element runs past the viewport, so the image shows only part of it. */
   partial: boolean;

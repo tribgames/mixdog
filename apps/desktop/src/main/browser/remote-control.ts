@@ -14,7 +14,7 @@ import { browserImagePointToCss, type createBrowserInputDriver } from './input';
 import type { BrowserScreenshotCapture } from './screenshot';
 import { sendRemoteBrowserKeyboard } from './remote-keyboard';
 
-export interface BrowserRemoteControlHost {
+interface BrowserRemoteControlHost {
   state: BrowserGuestStateStore;
   cdp: Pick<BrowserGuestCdp, 'guestDebugger' | 'sendCdpInput' | 'waitForInitialDocument'>;
   input: ReturnType<typeof createBrowserInputDriver>;

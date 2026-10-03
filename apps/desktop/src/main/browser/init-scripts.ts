@@ -22,7 +22,7 @@ interface RegisteredInitScript {
   preview: string;
 }
 
-export interface BrowserInitScriptHost {
+interface BrowserInitScriptHost {
   cdp: BrowserCdpPort;
 }
 

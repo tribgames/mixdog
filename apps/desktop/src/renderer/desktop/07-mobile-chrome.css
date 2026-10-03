@@ -417,12 +417,15 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header {
   height: 48px;
 }
 /* The touch tier keeps its own panel start; the desktop surface now opens
-   under the 52px band instead. */
+   under the rail panel band instead. */
 html[data-mixdog-mobile-tabs] .session-sidebar-surface {
   top: 36px;
 }
+/* The touch tier keeps the roomy 52px title band; the desktop band shrank to
+   the pane tab strip's height, which has no counterpart on the phone. */
 html[data-mixdog-mobile-tabs] {
   --mx-rail-panel-content-top: 12px;
+  --mx-rail-panel-band: 52px;
 }
 /* Tier 2 for the shared title-row slot: EVERY panel that owns it draws the
    same +. Sessions had the 44 box while Projects/Schedules/Webhooks arrived
@@ -456,6 +459,7 @@ html[data-mixdog-mobile-tabs] .pane-cell > .workspace-tabs-shell {
   border-top: 0;
   border-bottom: 0;
   background: var(--mx-window-band);
+  box-shadow: none;
 }
 
 /* ── Mobile session drawer (user: 사이드탭은 전체 안 가리게 비율로, 상하는

@@ -10,7 +10,7 @@ import type { BrowserCdpPort } from './cdp';
 import type { BrowserTargetSession } from './snapshot-accessibility-read';
 import { BROWSER_FRAME_HAS_TRANSFORM } from './frame-transform';
 
-export interface FrameOffsetHost {
+interface FrameOffsetHost {
   cdp: BrowserCdpPort;
   sessions(guest: WebContents): Map<string, BrowserTargetSession>;
 }

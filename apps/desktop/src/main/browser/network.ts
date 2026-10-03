@@ -50,7 +50,7 @@ export function pageFaultsFirst(lines: string[], limit: number): string[] {
   return lines.filter((_, index) => picked.has(index));
 }
 
-export interface BrowserWebSocketFrame {
+interface BrowserWebSocketFrame {
   direction: 'sent' | 'received';
   opcode: number;
   data: string;

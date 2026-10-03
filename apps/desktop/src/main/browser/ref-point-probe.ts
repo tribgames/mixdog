@@ -13,7 +13,7 @@ import { browserRefPointExpression } from './snapshot-scripts';
 import { BROWSER_STABLE_RECT } from './stable-rect';
 import { BROWSER_FRAME_HAS_TRANSFORM } from './frame-transform';
 
-export type RefPointProbeHost = Pick<
+type RefPointProbeHost = Pick<
   BrowserRefPointHost,
   'callAccessibilityRef' | 'evaluate' | 'frameOffsetForSession' | 'accessibilityRefs'
 >;

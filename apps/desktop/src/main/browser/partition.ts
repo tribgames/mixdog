@@ -15,7 +15,7 @@ import { clearBrowserPermissionHandlers, lockDownBrowserPermissions } from './pe
 import { redactBrowserText } from './redaction';
 import { browserPartitionUserAgent } from './user-agent';
 
-export interface BrowserPartitionHost {
+interface BrowserPartitionHost {
   /** Policy check for a page-generated request, DNS answer included. */
   assertResolvedResourceUrlAllowed(url: string): Promise<void>;
   downloadsDirectory(): string;

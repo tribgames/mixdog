@@ -35,7 +35,7 @@ export interface ChromeSetupControl {
   enabled: boolean;
 }
 
-export interface ChromeAddressField {
+interface ChromeAddressField {
   ref: string;
   value: string;
 }

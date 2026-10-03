@@ -15,7 +15,7 @@ import { redactBrowserText } from './redaction';
 const MAX_ACCESSIBILITY_TARGETS = 32;
 const MAX_FRAME_DOCUMENTS = 64;
 
-export interface DomSnapshotDocument {
+interface DomSnapshotDocument {
   frameId?: number;
   nodes?: {
     backendNodeId?: number[];
@@ -37,7 +37,7 @@ export interface BrowserTargetSession {
   ready?: Promise<unknown>;
 }
 
-export interface AccessibilityTargetsRead {
+interface AccessibilityTargetsRead {
   snapshots: AccessibilityTargetSnapshot[];
   /** Cross-origin targets beyond the per-snapshot cap. */
   omittedTargets: number;

@@ -81,6 +81,9 @@ async function main() {
       preview: { type: 'boolean', default: false },
       profile: { type: 'string' },
       port: { type: 'string', default: String(DEV_DEBUG_PORT) },
+      // An inherited MIXDOG_RELAY_URL is stripped with every other live
+      // override; a local test relay is named explicitly instead.
+      'relay-url': { type: 'string' },
     },
   });
   if (values.fresh && values.profile !== undefined) {
@@ -90,6 +93,7 @@ async function main() {
   const port = Number(values.port);
   await assertDebugPortAvailable(port);
   const env = profile ? await createPersistentDevEnv(process.env, profile) : await createIsolatedDevEnv();
+  if (values['relay-url']) env.MIXDOG_RELAY_URL = values['relay-url'];
   // electron-vite's preview CLI has no --remoteDebuggingPort option. Supply
   // only our own Electron args after stripping any inherited app overrides.
   if (values.preview) {

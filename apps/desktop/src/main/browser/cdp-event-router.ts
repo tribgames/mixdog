@@ -15,7 +15,7 @@ import { redactBrowserText } from './redaction';
 type CdpParams = Record<string, unknown>;
 type GuestRecord = ReturnType<BrowserGuestStateStore['for']>;
 
-export interface BrowserCdpEventRouterHost extends RequestPauseHost, TargetAttachHost {}
+interface BrowserCdpEventRouterHost extends RequestPauseHost, TargetAttachHost {}
 
 interface EventContext {
   guest: WebContents;

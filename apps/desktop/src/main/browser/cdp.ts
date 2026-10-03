@@ -19,7 +19,7 @@ import type { BrowserFetchPattern, BrowserInterceptRule } from './intercept';
 
 export type { BrowserCdpCallOptions } from './cdp-calls';
 
-export interface BrowserGuestCdpHost {
+interface BrowserGuestCdpHost {
   state: BrowserGuestStateStore;
   /** Extra Fetch patterns interception wants paused on this guest. */
   interceptFetchPatterns(guest: WebContents): BrowserFetchPattern[];

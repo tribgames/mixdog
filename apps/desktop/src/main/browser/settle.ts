@@ -13,12 +13,12 @@ import { browserPostconditionMatches, type BrowserPostcondition } from './postco
 import { timedBrowserOperation } from './timing';
 import { createBrowserDomQuiet } from './dom-quiet';
 
-export interface BrowserSettleDiagnostics {
+interface BrowserSettleDiagnostics {
   network: BrowserNetworkLedger;
   pendingDialog: { type: string; message: string } | null;
 }
 
-export interface BrowserSettleHost {
+interface BrowserSettleHost {
   diagnostics(guest: WebContents): BrowserSettleDiagnostics;
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
   renderCheckpoint(guest: WebContents, background: boolean, signal?: AbortSignal): Promise<void>;

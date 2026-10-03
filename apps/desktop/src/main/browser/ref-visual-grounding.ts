@@ -23,7 +23,7 @@ export interface VisualGrounding {
   viewportHeight: number;
 }
 
-export type VisualGroundingHost = Pick<BrowserRefPointHost, 'evaluate' | 'visualGrounding' | 'revision'>;
+type VisualGroundingHost = Pick<BrowserRefPointHost, 'evaluate' | 'visualGrounding' | 'revision'>;
 
 const VISUAL_GROUNDING_TTL_MS = 30_000;
 

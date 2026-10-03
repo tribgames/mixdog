@@ -8,6 +8,9 @@
 // The same channel carries the UI language outward. A worker has no
 // localStorage, and the device showing a notification — not the desktop that
 // sent it — is the one whose language it should speak.
+import type { DesktopApi } from '../shared/contract';
+
+type PushRegistrationApi = Pick<Partial<DesktopApi>, 'registerPushSubscription'>;
 
 /** Mirrors public/sw.js. A worker is a standalone script that cannot import
  *  renderer modules, so both carry these names and a test asserts they agree. */
@@ -42,6 +45,35 @@ export async function publishUiLanguage(language: string, environment: AppStateE
   } catch {
     // Without storage the worker falls back to the phone's system language,
     // which is still this device rather than the desktop's.
+  }
+}
+
+/** Hand one browser subscription to the desktop that will push to it. */
+export async function registerBrowserPushSubscription(
+  api: PushRegistrationApi,
+  subscription: PushSubscription
+): Promise<void> {
+  const keys = subscription.toJSON().keys ?? {};
+  await api.registerPushSubscription?.({
+    endpoint: subscription.endpoint,
+    p256dh: String(keys.p256dh || ''),
+    auth: String(keys.auth || ''),
+  });
+}
+
+/** Re-state this browser's CURRENT subscription once per launch. The browser
+ *  may renew it on its own (sw.js pushsubscriptionchange) and the desktop
+ *  would otherwise keep pushing to the retired endpoint. */
+export async function syncPushSubscription(api: PushRegistrationApi | undefined): Promise<void> {
+  if (!api?.registerPushSubscription) return;
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager?.getSubscription();
+    if (subscription) await registerBrowserPushSubscription(api, subscription);
+  } catch {
+    // The next launch states it again.
   }
 }
 

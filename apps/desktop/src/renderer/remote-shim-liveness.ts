@@ -8,7 +8,7 @@ import {
   setRemoteConnectionState,
   shouldRunRemoteHeartbeat,
 } from './remote-connection-state';
-import type { RemoteShimContext } from './remote-shim-state';
+import { REMOTE_CONNECTION_READY_EVENT, type RemoteShimContext } from './remote-shim-state';
 
 export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
   // NAT/carrier middleboxes silently drop idle WebSockets; the browser
@@ -83,16 +83,22 @@ export const installRemoteLiveness = (ctx: RemoteShimContext): void => {
   const BACKGROUND_GRACE_MS = 30_000;
   // The socket outlives the grace above, so "connected" no longer means "on
   // screen": the desktop is told directly, or it would hold back the push
-  // notification for a turn that finishes while the phone is in a pocket. A
-  // fresh connection starts in the foreground on the desktop side, so only a
-  // change on the live socket is reported.
+  // notification for a turn that finishes while the phone is in a pocket.
+  // Every report names this browser: the relay gives each leg a fresh id, and
+  // only the browser id ties the leg to this browser's push subscription.
   let reportedBackground = false;
   const reportForeground = (foreground: boolean): void => {
     if (reportedBackground === !foreground) return;
     reportedBackground = !foreground;
     if (ctx.socket?.readyState !== WebSocket.OPEN) return;
-    ctx.fire('setForeground', [foreground]);
+    ctx.fire('setForeground', [foreground, ctx.browserId]);
   };
+  // A new leg is unknown to the desktop until it reports, so each connection
+  // states its current visibility once.
+  window.addEventListener(REMOTE_CONNECTION_READY_EVENT, () => {
+    reportedBackground = document.visibilityState === 'hidden';
+    ctx.fire('setForeground', [!reportedBackground, ctx.browserId]);
+  });
   const clearBackgroundGrace = (): void => {
     if (ctx.backgroundGraceTimer === null) return;
     window.clearTimeout(ctx.backgroundGraceTimer);

@@ -43,10 +43,12 @@
 /* Title row = .session-panel-header (09-sidebar-chrome.css): the popup only
    adds its bottom hairline and the panel's 12px text inset. Pin then + sit in
    the shared 28px action slot (user: 사이드 메뉴들이랑 크기·구성 통일). */
+/* No hairlines anywhere in the flyout (user: 구분선 다 없애 보자): the
+   title band, the providers and the reset band part by spacing alone. */
 .sidebar-usage-heading.session-panel-header {
   min-width: 0;
   padding: 0 4px 0 12px;
-  border-bottom: 1px solid var(--mx-border-muted);
+  border-bottom: 0;
 }
 .sidebar-usage-heading.session-panel-header::after {
   display: none;
@@ -63,16 +65,23 @@
    as wide as the longest label on screen (capped at 84px) and every track
    starts right after it (user: 앞쪽 글자 영역까지 최대한 확장). The 10px side
    inset lives here, not on the rows: a subgrid's own padding would eat into
-   its edge columns. */
+   its edge columns. The reset column sizes to its longest value (floor
+   52px): a fixed 52px clipped "13h 41m" to "13h 4…" (user: 시간 잘리는 거
+   안 잘리게); the track gives up the difference.
+   Groups sit on borderless plates (user: 상세 창처럼 프레임 구분 → 테두리
+   없는 옅은 바탕 판): each provider row paints its plate 8px past the
+   columns, so the 14px inset leaves the plate 6px off the popup edge and
+   the text 8px inside it; the reset band takes the same plate and edges. */
 .sidebar-usage-list {
   display: grid;
-  grid-template-columns: fit-content(84px) minmax(64px, 1fr) 38px 52px;
+  grid-template-columns: fit-content(84px) minmax(64px, 1fr) 38px minmax(52px, max-content);
   column-gap: 6px;
-  row-gap: 0;
+  row-gap: 6px;
   min-width: 0;
   overflow: hidden;
-  padding: 0 10px;
+  padding: 0 14px 6px;
   border: 0;
+  isolation: isolate;
 }
 .sidebar-usage > .pane-surface-gate {
   min-height: 180px;
@@ -102,19 +111,15 @@
   background: transparent;
   text-align: left;
 }
-/* Full-bleed hairline between providers: drawn past the list inset so it
-   still runs edge to edge of the popup. */
-.sidebar-usage-row::after {
+.sidebar-usage-row::before {
   content: "";
   position: absolute;
-  right: -10px;
-  bottom: 0;
-  left: -10px;
-  height: 1px;
-  background: color-mix(in srgb, var(--mx-border-muted) 72%, transparent);
-}
-.sidebar-usage-row:last-child::after {
-  display: none;
+  z-index: -1;
+  inset: 0 -8px;
+  border-radius: 8px;
+  /* 2.5%: at 4% the plates read as boxes (user: 좀 더 옅게). */
+  background: color-mix(in srgb, var(--mx-text) 2.5%, transparent);
+  pointer-events: none;
 }
 .sidebar-usage-provider-icon {
   display: grid;
@@ -144,9 +149,9 @@
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: var(--mx-text);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-semibold);
+  color: var(--mx-rail-label-ink);
+  font-size: var(--mx-rail-label-size);
+  font-weight: var(--mx-rail-label-weight);
   line-height: var(--mx-line-minor);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -160,11 +165,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
+  color: var(--mx-row-meta-ink);
+  font-size: var(--mx-font-supporting);
   font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-micro);
+  line-height: var(--mx-line-meta);
 }
+/* Type ladder = the side panels' own (01-tokens.css), so the flyout reads
+   like every rail list (user: 폰트 위계 정리 → 통일감 있게):
+   1. title — the panel title band (16 / 600);
+   2. group labels — provider names and the reset heading (rail label,
+      14 / 600, full ink);
+   3. rows — ticket names (14 / 400, row-title ink);
+   4. supporting — window labels, reset times, expiry (13 / 400, row-meta
+      ink); the percentage figure shares the 13px size at 500 in full ink.
+   12px stays reserved for the count chip. The 13px / 600 window labels had
+   out-weighed the values beside them, and ticket names sat on the group
+   tier. */
 /* Detail-style quota block: each window is one row — label, progress
    track, percentage, its OWN reset schedule (user: 리셋날짜랑 % 좌우로 자리바꿔).
    Both levels subgrid the roster columns, so quota rows start at the
@@ -187,8 +203,8 @@
 .sidebar-usage-meter > em {
   min-width: 0;
   overflow: hidden;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
+  color: var(--mx-row-meta-ink);
+  font-size: var(--mx-font-supporting);
   font-style: normal;
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-micro);
@@ -202,9 +218,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-semibold);
+  color: var(--mx-row-meta-ink);
+  font-size: var(--mx-font-supporting);
+  font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
   letter-spacing: var(--mx-tracking-wide);
 }
@@ -233,7 +249,7 @@
 }
 .sidebar-usage-meter > b {
   color: var(--mx-text);
-  font-size: var(--mx-font-minor);
+  font-size: var(--mx-font-meta);
   /* One weight under the provider names, so each row reads name first and
      the figure second (user: % 가 좀 굵다). */
   font-weight: var(--mx-weight-medium);
@@ -272,11 +288,11 @@
 .sidebar-usage-reset-credit {
   display: grid;
   gap: 0;
-  margin: 0;
-  padding: 8px 12px;
+  margin: 0 6px 6px;
+  padding: 8px;
   border: 0;
-  border-top: 1px solid var(--mx-border-muted);
-  background: transparent;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mx-text) 2.5%, transparent);
 }
 .sidebar-usage-reset-heading {
   min-width: 0;
@@ -284,12 +300,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 0 0 7px;
+  padding: 0 0 2px;
 }
 .sidebar-usage-reset-heading > b {
-  color: var(--mx-text);
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-semibold);
+  color: var(--mx-rail-label-ink);
+  font-size: var(--mx-rail-label-size);
+  font-weight: var(--mx-rail-label-weight);
   line-height: var(--mx-line-meta);
 }
 .sidebar-usage-reset-heading > small {
@@ -304,14 +320,16 @@
 .sidebar-usage-reset-list {
   display: grid;
 }
+/* Ticket rows part by spacing alone — a hairline over every row stacked
+   five rules into one short popup (user: 왜 이렇게 선 구분이 많냐). The
+   section's own top rule still sets the reset band off the roster. */
 .sidebar-usage-reset-row {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px 10px;
-  padding: 7px 0 0;
-  border-top: 1px solid color-mix(in srgb, var(--mx-border-muted) 68%, transparent);
+  padding: 6px 0 0;
 }
 .sidebar-usage-reset-summary {
   min-width: 0;
@@ -320,14 +338,18 @@
 }
 .sidebar-usage-reset-summary > b {
   overflow: hidden;
-  color: var(--mx-text);
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-semibold);
+  color: var(--mx-row-title-ink);
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sidebar-usage-reset-summary > small,
+.sidebar-usage-reset-summary > small {
+  color: var(--mx-row-meta-ink);
+  font-size: var(--mx-font-supporting);
+  line-height: var(--mx-line-meta);
+}
 .sidebar-usage-reset-confirmation p,
 .sidebar-usage-reset-notice {
   color: var(--mx-text-muted);
@@ -375,7 +397,6 @@
 .sidebar-usage-reset-notice {
   margin: 0;
   padding: 8px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--mx-border-muted) 72%, transparent);
 }
 .sidebar-update-loader {
   position: relative;

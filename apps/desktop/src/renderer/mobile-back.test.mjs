@@ -103,6 +103,41 @@ test('releasing an entry the back button already consumed is a no-op', async () 
   assert.equal(dom.window.history.length, length);
 });
 
+test('CloseWatcher browsers close layers without touching history', async () => {
+  const watchers = [];
+  dom.window.CloseWatcher = class {
+    onclose = null;
+    destroyed = false;
+    constructor() {
+      watchers.push(this);
+    }
+    destroy() {
+      this.destroyed = true;
+    }
+  };
+  try {
+    const closed = [];
+    const length = dom.window.history.length;
+    const releaseSheet = registerMobileBack(() => closed.push('sheet'));
+    const releaseMenu = registerMobileBack(() => closed.push('menu'));
+    assert.equal(dom.window.history.length, length);
+
+    // Back on the topmost watcher closes that layer only.
+    watchers[1].onclose();
+    assert.deepEqual(closed, ['menu']);
+    releaseMenu();
+    assert.equal(watchers[1].destroyed, false);
+
+    // A UI-side close destroys its watcher quietly.
+    assert.equal(await quietWindow(() => releaseSheet()), 0);
+    assert.equal(watchers[0].destroyed, true);
+    assert.deepEqual(closed, ['menu']);
+    assert.equal(dom.window.history.length, length);
+  } finally {
+    delete dom.window.CloseWatcher;
+  }
+});
+
 test('desktop surfaces never arm a sentinel', () => {
   const root = dom.window.document.documentElement;
   root.removeAttribute('data-mixdog-mobile-tabs');

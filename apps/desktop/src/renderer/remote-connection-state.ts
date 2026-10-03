@@ -166,6 +166,8 @@ export function clearRemoteConnectionState(): void {
 
 export function subscribeRemoteConnectionState(listener: () => void): () => void {
   if (typeof window === 'undefined') return () => {};
-  window.addEventListener(REMOTE_CONNECTION_STATE_EVENT, listener);
-  return () => window.removeEventListener(REMOTE_CONNECTION_STATE_EVENT, listener);
+  // Released from the window it was added to, even after a rebind.
+  const target = window;
+  target.addEventListener(REMOTE_CONNECTION_STATE_EVENT, listener);
+  return () => target.removeEventListener(REMOTE_CONNECTION_STATE_EVENT, listener);
 }

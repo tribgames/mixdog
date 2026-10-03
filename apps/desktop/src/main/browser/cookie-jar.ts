@@ -13,7 +13,7 @@ export interface BrowserCookieSetDetails extends CookiesSetDetails {
   partitionKey?: BrowserCookiePartitionKey;
 }
 
-export interface BrowserCookieFilter {
+interface BrowserCookieFilter {
   url?: string;
   name?: string;
   /** null selects only unpartitioned cookies; omission selects every partition. */

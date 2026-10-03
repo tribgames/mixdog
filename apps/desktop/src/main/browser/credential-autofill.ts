@@ -109,7 +109,7 @@ export const BROWSER_CREDENTIAL_AUTOFILL_FUNCTION = String.raw`async function(cr
   };
 }`;
 
-export interface BrowserCredentialFillHost {
+interface BrowserCredentialFillHost {
   cdp: BrowserCdpPort;
   /** Remember the password so replies redact it; returns the live secret set. */
   rememberSecret(guest: WebContents, secret: string): unknown;

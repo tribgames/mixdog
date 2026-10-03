@@ -9,7 +9,7 @@ import type { WebContents } from 'electron';
 import { checkedBrowserRefResult, type createBrowserRefAccess } from './ref-access';
 import type { BrowserRefActionsHost } from './ref-actions';
 
-export type RefControlStateHost = Pick<BrowserRefActionsHost, 'resolveRefPoint' | 'input'>;
+type RefControlStateHost = Pick<BrowserRefActionsHost, 'resolveRefPoint' | 'input'>;
 type CallRef = ReturnType<typeof createBrowserRefAccess>['callRef'];
 
 const READ_SELECT_OPTIONS = `function() {

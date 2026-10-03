@@ -2,7 +2,8 @@
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
 .workspace-tabs {
-  height: 38px;
+  /* 43px row + the strip's 1px edge = the 44px rail title band. */
+  height: 43px;
   align-self: center;
   gap: 0;
   padding: 0;
@@ -85,7 +86,7 @@
 .workspace-tab {
   --workspace-tab-surface: var(--mx-window-band);
   position: relative;
-  height: 38px;
+  height: 43px;
   /* Browser-style tab-strip layout: tabs shrink TOGETHER from the 160px
      preferred width; below the
      crossover the ACTIVE tab pins at its close-button floor while inactive
@@ -100,8 +101,8 @@
      CALCULATION — calculateChromeTabWidths clamps to the strip — never by
      flex shrink. */
   min-width: var(--workspace-tab-current-width, 30px);
-  max-width: var(--workspace-tab-current-width, 200px);
-  flex: 1 1 var(--workspace-tab-current-width, 200px);
+  max-width: var(--workspace-tab-current-width, 160px);
+  flex: 1 1 var(--workspace-tab-current-width, 160px);
   transition:
     min-width var(--mx-motion-chrome),
     max-width var(--mx-motion-chrome),
@@ -180,11 +181,25 @@
    2) labels go icon-only below the favicon+title floor;
    3) a sliver that fits NOTHING keeps its lone glyph and centers it across
       the whole cell;
-   4) the ACTIVE tab keeps favicon + close to its floor
-      (user: 선택탭 넓이 — icon+close fit at 56px); only its label yields. */
+   4) the ACTIVE tab keeps its close to its floor (user: 선택탭 넓이 —
+      icon+close fit at 56px), but under the same 84px line its X stops
+      reserving a slot: it floats over the cell's right end and the label
+      steps aside for it only while the pointer or keyboard is on the tab.
+      A reserved slot cost the active label ~20px, so it vanished well
+      before its idle neighbours' at the same width (user: 작은 창에서 선택
+      탭만 폰트가 빨리 사라진다); labels now drop at one shared floor. */
 @container (max-width: 84px) {
   .workspace-tab:not(.active) .workspace-tab-close {
     display: none;
+  }
+  .workspace-tab.active .workspace-tab-close {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
+  }
+  .workspace-tab.active:is(:hover, :focus-within) .workspace-tab-main {
+    padding-right: 18px;
   }
 }
 @container (max-width: 48px) {
@@ -200,11 +215,6 @@
     margin-left: -10px;
     margin-right: -6px;
     padding: 0;
-  }
-}
-@container (max-width: 64px) {
-  .workspace-tab.active .workspace-tab-main span {
-    display: none;
   }
 }
 /* Tab DnD: the source tab stays in
@@ -264,110 +274,79 @@
   margin: 0;
   pointer-events: none;
 }
-/* Every cell wears a plate (user: 미선택 탭이 아예 비어 보인다 — 글자는
-   그대로, 아주 옅은 배경으로): an idle tab rests on a faint fill, hover lifts
-   it to the hover plate, and the selection is the ringed card below. The
-   plates separate the cells, replacing the old short dividers that stepped
-   aside next to the selection and left a two-tab strip with no seam at all. */
-.workspace-tab {
-  --workspace-tab-plate-top: 5px;
-  --workspace-tab-plate-left: 2px;
-  --workspace-tab-plate-right: 2px;
-  isolation: isolate;
-}
-.workspace-tab::before {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-}
-.workspace-tab:not(.drop-target-right)::before {
-  top: var(--workspace-tab-plate-top);
-  right: var(--workspace-tab-plate-right);
-  bottom: 5px;
-  left: var(--workspace-tab-plate-left);
-  z-index: -1;
-  border-radius: var(--mx-radius-md);
-  background: color-mix(in srgb, var(--mx-text) 3%, transparent);
-}
 .workspace-tab:active {
   cursor: grabbing;
 }
-/* Selected vs idle reads by a PLATE (user: 탭 쪽 UI — 선택하고 미선택하고).
-   Under Mica the strip and the sheet are one surface, so a Chrome-style
-   top-rounded plate had nothing to join below and read as a slab cut off at
-   the strip floor (user: 탭 이거 너무 어색한데 선택시). The selected tab is a
-   raised card inset from the strip edges instead (Firefox Proton style,
-   picked over a flat pill, a softer pill and text-only), drawn on the cell's
-   seam pseudo so the cell box, its width math and its hit area stay as they
-   were; a hovered idle tab wears a flat, fainter plate of the same shape. A
-   drop-target cell hands the pseudo back to the insertion line. */
-.workspace-tab:hover,
-.workspace-tab:focus-within,
+/* Hover lifts only the plate; the label keeps its idle ink rather than
+   jumping to the selection's full ink (user: 마우스 올린 미선택 탭은 굳이
+   다 똑같이). */
 .workspace-tab.active {
   color: var(--mx-text);
 }
-.workspace-tab:is(:hover, :focus-within):not(.drop-target-right)::before {
-  background: var(--mx-plate-hover);
+/* PANE tabs are flat cells on the strip, which wears the pane surface
+   (pane-layout.css) with no closing hairline. The selection is a borderless
+   rounded plate, Fleet/Arc style (user: 시안 R5). It replaced an inset plate
+   with a ring and a focus band laid on its top edge (user: 포커스 페이탭의
+   띠지 안 마음에 안 드는데), then square VS Code cells capped by a 2px top
+   line. Background panes wear a neutral plate; the focused pane of a split
+   tints it accent. Hover draws a fainter plate of the same shape. Labels and
+   icons keep their ink on every pane (user: 포커싱 안 된 페인도 폰트랑
+   아이콘 색은 유지). A drop-target-right cell hands its ::before back to the
+   insertion line. */
+/* Seams are SHORT, centered 16px strokes, Chrome style: full-height seams
+   hung loose once the strip lost its closing hairline (user: 탭 사이 연결
+   마감 정리). Painted as a background image so both pseudos stay free for
+   the plate and the drop markers. Every pair of neighbours keeps its seam,
+   the active and hovered cells included — hiding it beside them lost the
+   boundary between adjacent tabs (user: 바로 인접한 탭의 중앙 경계는 안
+   보이는 게 별로); only the last cell drops it before the +. */
+.pane-cell .workspace-tab {
+  isolation: isolate;
+  background: linear-gradient(var(--mx-border-structure), var(--mx-border-structure)) right center / 1px 16px no-repeat;
+  box-shadow: none;
 }
-/* The leading plate steps off the sidebar edge instead of grazing it. */
-.workspace-tab:first-child {
-  --workspace-tab-plate-left: 6px;
+.pane-cell .workspace-tab:last-child {
+  background-image: none;
 }
-/* The selection: a quiet fill edged by a 1px ring, no drop shadow — a
-   lifted card with a shadow read as a button floating on the sheet. */
-.workspace-tab.active:not(.drop-target-right)::before {
-  background: color-mix(in srgb, var(--mx-text) 10%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-text) 12%, transparent);
-}
-/* On light an ink-tinted fill sits BELOW the strip and reads pressed, not
-   raised: the plate is white there, edged by the same hairline ring. */
-:root[data-mixdog-theme="light"] .workspace-tab.active:not(.drop-target-right)::before {
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-text) 10%, transparent);
-}
-/* PANE strips: ONE body with the content (user: VS코드처럼 라벨쪽과 패널
-   사이에 줄 없고 배경색 구분도 없이 일체) — the strip band and the active
-   tab both take the workspace sheet, so the label row flows straight into
-   the transcript/editor. Tabs still read through ink steps, cell dividers,
-   the hover pill, and the 2px active top band. */
-.pane-cell > .workspace-tabs-shell {
-  background: var(--mx-workspace-sheet);
-}
-.pane-cell .workspace-tab,
-.pane-cell .workspace-tab.active {
-  --workspace-tab-surface: var(--mx-workspace-sheet);
-}
-.workspace-tab.active::after {
+/* Idle tabs rest on a very faint plate of the same shape (user: 미선택도
+   바탕판 아주 희게), so every cell reads as a tab; hover and the selection
+   steps below lift it. */
+.pane-cell .workspace-tab:not(.drop-target-right)::before {
   content: "";
+  background: color-mix(in srgb, var(--mx-text) 3%, transparent);
   position: absolute;
-  top: 0;
-  /* Active border-top: a band across the WHOLE tab, anchored at the top
-     edge and growing DOWNWARD. The old complaint (탭 선택 띠가 너무 두껍다)
-     was about a 2px inset PILL — a rounded floating bar — not this flush
-     full-width line, which is exactly what marks the active tab
-     and what the user asked to lean on (파란 띠가 위에 그대로, 두께만 아래로).
-     Moving it to the bottom edge and painting it without focus was tried and
-     reverted (user: 완전 이상한데 — 기존으로 롤백); only the height changed. */
-  left: 0;
-  right: 0;
-  /* ONE thickness for both states (user: 상단 회색 띠는 2pt로 포커스 띠랑
-     같았으면): background panes draw the band in neutral ink and the focused
-     pane only recolors it, so the strip never shifts weight on focus. */
-  height: 2px;
-  border-radius: 0;
-  /* The plate marks the selection now; the band only names the FOCUSED pane
-     once the workspace is split into several (one pane is always focused). */
-  background: transparent;
+  /* 30px plate in the 43px row. */
+  inset: 7px 3px 6px;
+  z-index: -1;
+  border-radius: 7px;
   pointer-events: none;
 }
-.pane-split .workspace-tabs-shell[data-focused="true"] .workspace-tab.active::after {
-  /* Share the plate's origin, including the leading tab's extra inset.
-     Both ends clear its rounded corners by the same distance. */
-  top: var(--workspace-tab-plate-top);
-  left: calc(var(--workspace-tab-plate-left) + var(--mx-radius-md));
-  right: calc(var(--workspace-tab-plate-right) + var(--mx-radius-md));
-  border-radius: 0 0 var(--mx-radius-hair) var(--mx-radius-hair);
-  background: var(--mx-accent);
+.pane-cell .workspace-tab:not(.active):is(:hover, :focus-within):not(.drop-target-right)::before {
+  background: var(--mx-hover);
+}
+/* Focus reads by BRIGHTNESS, not color (user: 선택탭 색감 재고 → 시안 C1):
+   the selection plate is a neutral ink step — the same neutral family as the
+   side panel's selected row. Three steps (user: 비포커스 선택은 중간짜리로):
+   the focused pane's selection — 14% plate, full ink; a background pane's
+   selection — 7% plate, 83% ink; idle tabs — a 3% plate, the strip's idle
+   ink (--mx-tab-idle-ink, 67%) on every pane (user: 비선택 탭 폰트색은
+   포커스 기준이 아니라 탭 기준). The inks sit an even ~16% apart so the
+   three steps read in the labels too, not only in the plates (user: 폰트
+   3단계도 좀 명확하게); 75% / 70% had left the lower two nearly equal. */
+.pane-cell .workspace-tab.active:not(.drop-target-right)::before {
+  background: color-mix(in srgb, var(--mx-text) 14%, transparent);
+}
+/* The focused pane's selection alone adds a quiet 1px ring — the one extra
+   accent on the strip (user: 하나 더 강조 → 포커싱된 선택 탭 테두리). A
+   lone pane is always focused, so it wears the ring too. */
+.workspace-tabs-shell[data-focused="true"] .workspace-tab.active:not(.drop-target-right)::before {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-text) 18%, transparent);
+}
+.pane-split .workspace-tabs-shell[data-focused="false"] .workspace-tab.active:not(.drop-target-right)::before {
+  background: color-mix(in srgb, var(--mx-text) 7%, transparent);
+}
+.pane-split .workspace-tabs-shell[data-focused="false"] .workspace-tab.active {
+  color: color-mix(in srgb, var(--mx-text) 83%, transparent);
 }
 /* Every tab — the selected one too — shows its X only under the pointer or
    keyboard, keeping its slot so the label never shifts; unsaved work keeps
@@ -394,15 +373,11 @@
 .workspace-tab-close:focus-visible {
   outline: 0;
 }
-/* The first-cell inset steps when the leading tab closes; it glides on the
-   same clock as the widths instead of snapping once the ghost unmounts. */
+/* Square cells share one inset; the old extra step on non-leading tabs only
+   tracked the leading plate's wider edge offset. */
 .workspace-tab-main {
   gap: 4px;
   padding: 0;
-  transition: padding-left var(--mx-motion-chrome);
-}
-.workspace-tab:not(:first-child) > .workspace-tab-main {
-  padding-left: 4px;
 }
 /* Glyph, spinner, X and + all sit on the cell centre line — no optical lift
    (user: 라벨 안의 아이콘이랑 스피너도 같은 선상에). */

@@ -801,9 +801,9 @@ export function WorkspaceTabStrip({
         {/* Same lucide family and weight as the tab glyphs and dock toggles
               beside it; the codicon + read as a foreign mark (user: + 버튼이
               이질감이 있네). */}
-        {/* 18px @ stroke 2 → a 10.5px cross on a 1.5px line, the visible
-              size of the codicon X in the tabs beside it. */}
-        <Plus size={18} strokeWidth={2} aria-hidden="true" />
+        {/* 15px → a ~8.8px cross on the strip's 1.5px line: at 18px the +
+              out-sized the 14px tab labels (user: +가 너무 크다). */}
+        <Plus size={15} strokeWidth={2} aria-hidden="true" />
       </button>
       {tabMenu &&
         workspaceTabContextMenu({

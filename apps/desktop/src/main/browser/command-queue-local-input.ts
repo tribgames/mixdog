@@ -13,7 +13,7 @@ interface LocalInput {
   until: number;
 }
 
-export interface LocalInputQueueHost {
+interface LocalInputQueueHost {
   /** Agent command controllers per queue key, aborted by a takeover. */
   agents: Map<string, Set<AbortController>>;
   keyFor(command: BrowserCommand): string;

@@ -6,7 +6,7 @@ import type { BrowserCommandResult } from './command';
 
 type Phase = 'wait' | 'snapshot' | 'screenshot' | 'target' | 'actionability' | 'input';
 const PHASES: Phase[] = ['wait', 'snapshot', 'screenshot', 'target', 'actionability', 'input'];
-export interface BrowserStepTiming {
+interface BrowserStepTiming {
   index: number;
   commandMs: number;
   waitMs: number;

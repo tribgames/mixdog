@@ -18,10 +18,12 @@ html[data-window-material="mica"] {
   /* Solid copy for ink that must stay opaque (the send arrow) once the
      workspace turns its surface tokens clear. */
   --mx-sheet-ink: var(--mx-workspace-sheet);
-  /* Depth steps INWARD (user: GPT는 점점 더 안쪽으로 진해지는 느낌): the
-     Mica frame is the lightest, the side panel one step deeper, the
-     workspace deepest. Each is a single layer straight on the material, so
-     the wallpaper hue only dims — it never turns grey. */
+  /* Depth steps INWARD once: the Mica frame is the lightest and the side
+     panel one step deeper; the workspace then shares the side panel's tone
+     instead of stepping deeper again, so the two read as one body (user:
+     GPT 대비 사이드 패널이랑 동떨어진 느낌 → 시안 B, 색 순서 뒤집기). Each
+     is a single layer straight on the material, so the wallpaper hue only
+     dims — it never turns grey. */
   /* The frame tint lays Windows' own inactive fallback (#202020) at half
      strength over the material: the wallpaper shows at half (user: 미카를
      너무 과하게) and the jump when the window loses focus — Windows swaps
@@ -36,8 +38,8 @@ html[data-window-material="mica"] {
      Mica for a flat fallback whenever the window loses focus, and a
      translucent workspace carried that swap across most of the screen (user:
      포커스 전환 시 풀려버려 코덱스는 전혀 풀리지 않는데). Solid, only the
-     frame and the side panel's glint change. One step deeper than the panel. */
-  --mx-mica-layer: #18181b;
+     frame and the side panel's glint change. Same tone as the panel. */
+  --mx-mica-layer: var(--mx-mica-panel-solid);
   /* The side panel's composited tone, solid: the right dock lives on the
      opaque workspace, where no Mica can show through, yet it should read as
      the same panel as the left one (user: 오른쪽도 왼쪽처럼). */
@@ -47,7 +49,7 @@ html[data-window-material="mica"] {
 html[data-window-material="mica"][data-mixdog-theme="light"] {
   --mx-mica-frame: rgb(243 243 243 / 50%);
   --mx-mica-panel: rgb(247 247 250 / 88%);
-  --mx-mica-layer: #fbfbfc;
+  --mx-mica-layer: var(--mx-mica-panel-solid);
   --mx-mica-panel-solid: #f7f7fa;
 }
 html[data-window-material="mica"] body {

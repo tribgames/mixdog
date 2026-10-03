@@ -6,7 +6,9 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createWorkerPool } from './worker-pool.ts';
 
-test('retiring a host worker releases its session and process', { skip: process.platform !== 'win32' && 'Windows only' }, async () => {
+test('retiring a host worker releases its session and process', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-worker-pool-'));
   const retiredSessions = [];
   const pool = createWorkerPool({

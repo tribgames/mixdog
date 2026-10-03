@@ -10,7 +10,7 @@ import { isIP } from 'node:net';
 
 import { assertResolvedAddressAllowed, normalizeAgentUrl, normalizePageUrl, type BrowserUrlPolicy } from './url-policy';
 
-export interface BrowserUrlAdmissionHost {
+interface BrowserUrlAdmissionHost {
   /** The allow-list and private-network stance this host runs under. */
   policy: BrowserUrlPolicy;
   lookupAddresses?: (hostname: string) => Promise<Array<{ address: string }>>;

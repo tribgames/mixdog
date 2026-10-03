@@ -5,6 +5,24 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Phone push notifications stay quiet while the app is on screen, follow a
+  subscription the browser renews on its own, and the toggle turns off when
+  notifications are blocked in system settings.
+
+- The phone app no longer stays on its loading screen when it returns after
+  a relay update; it finishes loading as soon as the desktop reconnects, and
+  a fast first launch no longer skips installing the app's service worker.
+
+- On Android, the back gesture closes the open panel or menu without
+  flashing the navigation bar.
+
+- Workspace tabs, the side panel header and the Studio cleanup button are
+  more compact, and the selected tab stands out more clearly.
+
+- Usage labels are shorter, the allowance to reset reads per hour once less
+  than a day is left and never exceeds what remains, and translations are
+  polished across languages.
+
 ## v1.0.5 - 2026-10-03
 
 - The desktop app can raise an OS notification, with a sound, when a turn

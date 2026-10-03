@@ -177,8 +177,8 @@ test('the usage dialog header switches to subscription usage and opens there nex
   assert.deepEqual(texts('.stats-card small'), [
     t('Used'),
     t('Allowance to reset'),
-    t('Subscription list-price value'),
-    t('Value per 1%'),
+    t('List-price value'),
+    t('Per 1%'),
   ]);
   assert.equal(document.querySelectorAll('.stats-card > b')[0].textContent, '30%');
   // 70 % left over the 3.5 h to the 18:00 reset: 20 % an hour.
@@ -243,8 +243,8 @@ test('the usage dialog header switches to subscription usage and opens there nex
   assert.deepEqual(texts('.stats-card small'), [
     t('Times maxed out'),
     t('Period usage'),
-    t('Subscription list-price value'),
-    t('Value per 1%'),
+    t('List-price value'),
+    t('Per 1%'),
   ]);
   // The day holds the whole five-hour window, which rose from 0 to 30 %.
   assert.equal(document.querySelectorAll('.stats-card > b')[1].textContent, '30%');
@@ -484,6 +484,39 @@ test('a provider meter opens its own subscription window', async (context) => {
   assert.deepEqual(calls[0], { provider: 'anthropic-oauth', account: '', window: '7D', view: 'window' });
   assert.equal(document.querySelector('.quota-window[aria-pressed="true"]').textContent, '7D');
   assert.equal(document.querySelectorAll('.stats-card > b')[0].textContent, '12%');
+});
+
+test('the allowance to reset never spreads the rest past what is left', async (context) => {
+  const render = harness(context);
+  const ledger = new UsageLedger(':memory:');
+  context.after(() => ledger.close());
+  const reading = (label, usedPct, reset) => ({
+    provider: 'anthropic-oauth',
+    account: 'default',
+    label,
+    ts: now - 10 * MINUTE,
+    usedPct,
+    resetAt: reset,
+  });
+  // The weekly resets in 12 h with 60 % left; the five-hour in 30 min with 60 % left.
+  ledger.recordQuota([reading('7D', 40, now + 12 * HOUR), reading('5H', 40, now + 30 * MINUTE)]);
+  const { api } = usageHost(context, ledger);
+  window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'quota');
+  await render({ surface: 'stats', open: true, onClose() {}, api });
+  assert.equal(document.querySelector('.quota-window[aria-pressed="true"]').textContent, '7D');
+  // Under a day left: 60 % over 12 h reads per hour, not 120 % a day.
+  assert.equal(
+    document.querySelectorAll('.stats-card > b')[1].textContent,
+    t('{{percent}} an hour', { percent: '5%' })
+  );
+  await act(async () =>
+    [...document.querySelectorAll('.quota-window')].find((node) => node.textContent === '5H').click()
+  );
+  // Under an hour left: the rest itself, not 120 % an hour.
+  assert.equal(
+    document.querySelectorAll('.stats-card > b')[1].textContent,
+    t('{{percent}} an hour', { percent: '60%' })
+  );
 });
 
 test('a subscription is listed once and its accounts are picked beside it', async (context) => {

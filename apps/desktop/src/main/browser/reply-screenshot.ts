@@ -10,7 +10,7 @@ import { persistFrameImage } from '../frame-files';
 import type { BrowserCommand, BrowserCommandResult, BrowserSnapshotResultOptions } from './command';
 import type { BrowserReplyHost } from './reply';
 
-export type ReplyScreenshotHost = Pick<BrowserReplyHost, 'state' | 'captureScreenshot' | 'bindVisualGrounding'>;
+type ReplyScreenshotHost = Pick<BrowserReplyHost, 'state' | 'captureScreenshot' | 'bindVisualGrounding'>;
 
 /** Where a screenshot goes: into the reply, or beside the run when the caller
  *  asked to keep pixels out of the conversation. A frame that cannot be

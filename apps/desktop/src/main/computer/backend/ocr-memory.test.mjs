@@ -93,7 +93,9 @@ try {
     );
     await t.test('Windows OCR recognizes the generated text', (recognition) => {
       if (!outcome.available) {
-        recognition.skip('Windows OCR en-US cannot recognize rendered text on this host; recognition verification is blocked');
+        recognition.skip(
+          'Windows OCR en-US cannot recognize rendered text on this host; recognition verification is blocked'
+        );
         return;
       }
       assert.ok(

@@ -35,7 +35,7 @@ export interface BrowserNativeRect {
   height: number;
 }
 
-export interface BrowserNativeViewHost {
+interface BrowserNativeViewHost {
   shell: BrowserWindow;
   currentGuest(sessionId: string): WebContents | null;
   /** A person pressed, dragged, scrolled or typed on a presented page. */
@@ -147,5 +147,3 @@ export function createBrowserNativeViews(host: BrowserNativeViewHost) {
     parkAll,
   };
 }
-
-export type BrowserNativeViews = ReturnType<typeof createBrowserNativeViews>;

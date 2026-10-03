@@ -9,6 +9,7 @@
 import type { DesktopApi } from '../shared/contract';
 import { earlyUiT } from './early-ui-i18n';
 import { isInstalledMobileWebAppSurface } from './mobile-surface';
+import { syncPushSubscription } from './push-notification-bridge';
 import { setRemoteConnectionState, shouldRunRemoteHeartbeat } from './remote-connection-state';
 import { createRemoteApi } from './remote-shim-api';
 import { installRemoteCalls } from './remote-shim-calls';
@@ -16,7 +17,7 @@ import { installRemoteDispatch } from './remote-shim-dispatch';
 import { installRemoteLiveness } from './remote-shim-liveness';
 import { installRemotePairing } from './remote-shim-pairing';
 import { installRemoteSocket } from './remote-shim-socket';
-import { createRemoteShimContext } from './remote-shim-state';
+import { REMOTE_CONNECTION_READY_EVENT, createRemoteShimContext } from './remote-shim-state';
 import { installRemoteSync } from './remote-shim-sync';
 
 (() => {
@@ -32,6 +33,10 @@ import { installRemoteSync } from './remote-shim-sync';
   installRemoteCalls(ctx);
 
   w.mixdogDesktop = Object.freeze(createRemoteApi(ctx));
+  // A renewed subscription reaches the desktop without a trip through Settings.
+  window.addEventListener(REMOTE_CONNECTION_READY_EVENT, () => void syncPushSubscription(w.mixdogDesktop), {
+    once: true,
+  });
   // Settings → Connection on a remote surface: expose where this session is
   // connected so the panel shows live status instead of desktop-only pairing.
   (w as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer = ctx.serverBase || location.origin;

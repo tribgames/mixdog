@@ -1,6 +1,6 @@
 import { pageFaultsFirst } from './network';
 
-export type BrowserConsoleLevel = 'debug' | 'info' | 'warning' | 'error';
+type BrowserConsoleLevel = 'debug' | 'info' | 'warning' | 'error';
 
 interface BrowserConsoleEntry {
   level: BrowserConsoleLevel;

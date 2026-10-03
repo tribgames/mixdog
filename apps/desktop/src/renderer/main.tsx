@@ -24,15 +24,15 @@ if (remoteBrowser) {
   // A mobile browser tab remains the lightweight installation page. It still
   // needs the worker to become installable; desktop browsers do not.
   if (isMobileRemoteSurface() && window.isSecureContext && 'serviceWorker' in navigator) {
-    window.addEventListener(
-      'load',
-      () => {
-        void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
-          // Installation remains available from browsers that do not need a worker.
-        });
-      },
-      { once: true }
-    );
+    const registerWorker = (): void => {
+      void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
+        // Installation remains available from browsers that do not need a worker.
+      });
+    };
+    // The await above can outlast the page load on a fast launch; a listener
+    // added after `load` never fires, and the worker never registered.
+    if (document.readyState === 'complete') registerWorker();
+    else window.addEventListener('load', registerWorker, { once: true });
   }
   launchApplication = isInstalledMobileWebAppSurface();
 }

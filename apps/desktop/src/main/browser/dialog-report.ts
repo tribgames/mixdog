@@ -20,7 +20,7 @@ export interface PendingBrowserDialog {
   bridgeRequestId?: string;
 }
 
-export interface BrowserDialogReportHost {
+interface BrowserDialogReportHost {
   diagnostics(guest: WebContents): {
     pendingDialog: PendingBrowserDialog | null;
     fault: string;

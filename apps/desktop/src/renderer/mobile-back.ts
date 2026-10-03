@@ -1,11 +1,20 @@
 // Android back-button (ABB) grammar for the projected phone surface: every
 // transient layer (session drawer, tab overview, bottom panel, utility dock)
-// pushes ONE history sentinel when it opens, so the hardware/gesture back
-// closes the topmost layer instead of leaving the PWA (user: 백버튼 처리 —
-// 지금은 그냥 닫히는데). With no layer open, back falls through to the
-// browser default. Desktop/Electron surfaces never register: the helper
-// no-ops unless the mobile-tabs marker is present.
+// claims the hardware/gesture back while it is open, so back closes the
+// topmost layer instead of leaving the PWA (user: 백버튼 처리 — 지금은 그냥
+// 닫히는데). With no layer open, back falls through to the browser default.
+// Desktop/Electron surfaces never register: the helper no-ops unless the
+// mobile-tabs marker is present.
+//
+// Browsers with CloseWatcher (Android Chrome) get one watcher per layer and
+// history is never touched: a pushState/back pair on every open and close
+// flashed the Android navigation bar white (user: 창을 열고 닫을 때 네비게이션
+// 바가 잠시 흰색으로 반전). Browsers without it keep one history sentinel per
+// layer.
 import { useEffect, useRef } from 'react';
+
+type CloseWatcherLike = { onclose: (() => void) | null; destroy(): void };
+type CloseWatcherConstructor = new () => CloseWatcherLike;
 
 type BackEntry = { close: () => void; armed: boolean };
 
@@ -45,9 +54,33 @@ function mobileBackSurface(): boolean {
   );
 }
 
+function closeWatcherConstructor(): CloseWatcherConstructor | null {
+  const ctor = (window as unknown as { CloseWatcher?: CloseWatcherConstructor }).CloseWatcher;
+  return typeof ctor === 'function' ? ctor : null;
+}
+
+/** The browser keeps the watcher stack, so the newest layer is closed first.
+ *  A UI-side close destroys the watcher without firing its close event. */
+function registerCloseWatcher(Watcher: CloseWatcherConstructor, close: () => void): () => void {
+  const watcher = new Watcher();
+  let open = true;
+  watcher.onclose = () => {
+    if (!open) return;
+    open = false;
+    close();
+  };
+  return () => {
+    if (!open) return; // already consumed by the back button
+    open = false;
+    watcher.destroy();
+  };
+}
+
 /** Register an open transient layer; returns its unregister cleanup. */
 export function registerMobileBack(close: () => void): () => void {
   if (!mobileBackSurface()) return () => {};
+  const Watcher = closeWatcherConstructor();
+  if (Watcher) return registerCloseWatcher(Watcher, close);
   if (!armed) {
     armed = true;
     window.addEventListener('popstate', onPopState);

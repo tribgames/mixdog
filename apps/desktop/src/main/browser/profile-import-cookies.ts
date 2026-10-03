@@ -19,14 +19,14 @@ export interface BrowserImportCookie {
   partitionKey?: unknown;
 }
 
-export interface NativeCookieImportFailures {
+interface NativeCookieImportFailures {
   decryption: number;
   domainMismatch: number;
   invalidEncoding: number;
   invalidPartition: number;
 }
 
-export interface NativeCookieImportReport {
+interface NativeCookieImportReport {
   version: 2;
   sourceCount: number;
   expired: number;

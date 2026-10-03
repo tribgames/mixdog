@@ -127,7 +127,7 @@ export function UsageTrend({
   const metrics: ReadonlyArray<{ key: Metric; label: string }> = [
     { key: 'tokens', label: t('Tokens') },
     { key: 'costUsd', label: t('Cost') },
-    { key: 'turns', label: t('Usage records') },
+    { key: 'turns', label: t('Requests') },
   ];
   return (
     <section className="stats-trend">

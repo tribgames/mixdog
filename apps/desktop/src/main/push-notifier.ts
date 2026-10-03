@@ -23,10 +23,14 @@ interface PushNotifierOptions {
   /** Off by default; the user opts in per browser from Settings. */
   isEnabled(): boolean;
   readFinalAnswer(sessionId: string, startedAt: number): Promise<SessionFinalAnswer | null>;
-  /** Foreground browsers suppress ordinary replies, but not scheduled ones. */
-  isClientForeground(clientId: string): boolean;
+  /** Foreground browsers suppress ordinary replies, but not scheduled ones.
+   *  Takes the browser id the subscription was registered with. */
+  isClientForeground(browserId: string): boolean;
   fetchImpl?: typeof fetch;
   onError?(detail: string): void;
+  /** Every decision on the way to a phone, so a missing notification can be
+   *  traced to detection, suppression or the push service's answer. */
+  onDiagnostic?(event: string, details: Record<string, unknown>): void;
 }
 
 /** RFC 8292 wants a contactable sender. A mailto the push service can reach
@@ -36,7 +40,10 @@ const VAPID_SUBJECT = 'mailto:push@mixdog.app';
 export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
   const deliver = async (completion: TurnCompletion): Promise<void> => {
     const [keys, subscriptions] = await Promise.all([options.store.keys(), options.store.list()]);
-    if (subscriptions.length === 0) return;
+    if (subscriptions.length === 0) {
+      options.onDiagnostic?.('suppressed', { sessionId: completion.sessionId, reason: 'no-subscription' });
+      return;
+    }
     const payload = JSON.stringify({
       title: completion.title,
       // The session's own last words travel as they are; the sentence used
@@ -49,7 +56,11 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
     await Promise.allSettled(
       subscriptions.map(async (subscription) => {
         const foreground = Boolean(subscription.clientId && options.isClientForeground(subscription.clientId));
-        if (!shouldShowTurnNotification(completion, foreground)) return;
+        const target = { sessionId: completion.sessionId, browser: subscription.clientId.slice(0, 8) };
+        if (!shouldShowTurnNotification(completion, foreground)) {
+          options.onDiagnostic?.('suppressed', { ...target, reason: 'foreground' });
+          return;
+        }
         const result = await sendWebPush({
           subscription,
           payload,
@@ -58,12 +69,15 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
           ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
         });
         if (result.expired) {
+          options.onDiagnostic?.('expired', { ...target, status: result.statusCode });
           await options.store.remove(subscription.endpoint).catch(() => false);
           return;
         }
         if (result.statusCode >= 400 || result.error) {
           options.onError?.(`push ${result.statusCode}${result.error ? `: ${result.error}` : ''}`);
+          return;
         }
+        options.onDiagnostic?.('sent', { ...target, status: result.statusCode });
       })
     );
   };
@@ -72,6 +86,7 @@ export function createPushNotifier(options: PushNotifierOptions): PushNotifier {
     isEnabled: options.isEnabled,
     readFinalAnswer: options.readFinalAnswer,
     onError: options.onError,
+    onDiagnostic: options.onDiagnostic,
     onFinalAnswer: (completion) => {
       void deliver(completion).catch((error: unknown) => {
         options.onError?.(error instanceof Error ? error.message : String(error));

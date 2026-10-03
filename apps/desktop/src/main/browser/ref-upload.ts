@@ -14,7 +14,7 @@ import type { PendingFileChooser } from './guest-state';
 import { browserRefElementSource } from './ref-access';
 import type { BrowserRefActionsHost } from './ref-actions';
 
-export type RefUploadHost = Pick<
+type RefUploadHost = Pick<
   BrowserRefActionsHost,
   | 'cdp'
   | 'accessibilityRefs'

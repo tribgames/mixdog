@@ -12,7 +12,7 @@ import { checkedBrowserRefResult, type createBrowserRefAccess } from './ref-acce
 import type { BrowserRefActionsHost } from './ref-actions';
 import { redactBrowserText } from './redaction';
 
-export type RefTextEntryHost = Pick<BrowserRefActionsHost, 'cdp' | 'input' | 'rememberSecret'>;
+type RefTextEntryHost = Pick<BrowserRefActionsHost, 'cdp' | 'input' | 'rememberSecret'>;
 type CallRef = ReturnType<typeof createBrowserRefAccess>['callRef'];
 
 /** Page functions written once for both realms: the accessibility snapshot

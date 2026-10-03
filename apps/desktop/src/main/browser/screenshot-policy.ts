@@ -67,7 +67,7 @@ export function boundedFullPageRect(contentSize: {
   return { x, y, width, height };
 }
 
-export function scaledScreenshotRect(rect: BrowserScreenshotRect, scale: number): BrowserScreenshotRect {
+function scaledScreenshotRect(rect: BrowserScreenshotRect, scale: number): BrowserScreenshotRect {
   return {
     x: Math.floor(rect.x * scale),
     y: Math.floor(rect.y * scale),

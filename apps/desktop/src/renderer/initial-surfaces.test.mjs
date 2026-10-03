@@ -436,6 +436,29 @@ test('failed remote snapshot stays unhydrated and recovers on connection without
   assert.equal(calls, 2, 'a repaired initial read does not need another recovery read');
 });
 
+test('a snapshot read cut off by a dropped connection is read again once connected', async (t) => {
+  const view = harness(t);
+  window.mixdogRemoteServer = 'https://mixdog.test';
+  const { useDesktopState } = await import('./app-desktop-state.ts');
+  const { remoteConnectionInterruptedError, setRemoteConnectionState } = await import('./remote-connection-state.ts');
+  let calls = 0;
+  window.mixdogDesktop.getSnapshot = () => {
+    calls++;
+    return calls === 1 ? Promise.reject(remoteConnectionInterruptedError()) : Promise.resolve({ sessionId: '' });
+  };
+  window.mixdogDesktop.subscribeState = () => () => {};
+  function Probe() {
+    const { hydrated } = useDesktopState();
+    return React.createElement('output', { 'data-hydrated': String(hydrated) });
+  }
+  await view.settle(() => setRemoteConnectionState('connecting'));
+  await view.render(React.createElement(Probe));
+  assert.equal(view.host.querySelector('output').dataset.hydrated, 'false');
+  await view.settle(() => setRemoteConnectionState('connected'));
+  assert.equal(calls, 2);
+  assert.equal(view.host.querySelector('output').dataset.hydrated, 'true');
+});
+
 test('startup emits no settled signal while persisted panes are still being validated', async (t) => {
   const view = harness(t);
   const { useAppStartupRestore } = await import('./use-app-startup-restore.ts');

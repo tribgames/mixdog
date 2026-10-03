@@ -49,7 +49,7 @@ export interface BrowserDragInterception {
 }
 
 /** Where a delivered payload lands, and who to wake when it does. */
-export interface BrowserDragSlots {
+interface BrowserDragSlots {
   interceptedDrag?: BrowserDragData;
   notifyInterceptedDrag?: (data: BrowserDragData) => void;
 }

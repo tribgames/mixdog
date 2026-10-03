@@ -22,7 +22,7 @@ const DEFAULT_MAX_REQUEST_BYTES = 256 * 1024;
 const DEFAULT_MAX_CONCURRENT_REQUESTS = 32;
 const MAX_CONNECTIONS = 64;
 
-export interface BrowserBridgeServerOptions<TCommand extends object> {
+interface BrowserBridgeServerOptions<TCommand extends object> {
   execute(command: TCommand, signal: AbortSignal): Promise<unknown>;
   redactError(value: string): string;
   onReady?(): void;

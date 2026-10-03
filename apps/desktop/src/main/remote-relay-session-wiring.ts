@@ -75,11 +75,22 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
         readFinalAnswer: (sessionId, startedAt) => deps.host.readSessionFinalAnswer(sessionId, startedAt),
         // Connected is not enough: a phone that just left the app keeps its
         // socket through a background grace and reports itself hidden.
-        isClientForeground: (clientId) => {
-          const client = deps.clients.get(clientId);
-          return client !== undefined && !client.background;
+        // The subscription names the BROWSER; relay legs carry a per-connection
+        // id, so the leg is found by the browser id it reported.
+        isClientForeground: (browserId) => {
+          for (const client of deps.clients.clients.values()) {
+            if (client.browserId === browserId && !client.background) return true;
+          }
+          return false;
         },
         onError: (detail) => console.error(`[mixdog-remote-push] ${detail}`),
+        onDiagnostic: (event, details) =>
+          console.info(
+            `[mixdog-remote-push] ${event}` +
+              Object.entries(details)
+                .map(([key, value]) => ` ${key}=${String(value)}`)
+                .join('')
+          ),
       });
       const unsubscribeState = deps.host.subscribe((snapshot) => broadcastState(snapshot));
       const unsubscribeSessions = deps.host.subscribeSessions((sessions) => {

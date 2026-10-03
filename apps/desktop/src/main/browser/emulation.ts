@@ -16,7 +16,7 @@ import {
 } from './emulation-overrides';
 import { validateEmulationCommand } from './emulation-validation';
 
-export interface BrowserEmulationHost {
+interface BrowserEmulationHost {
   cdp: BrowserCdpPort;
   /** An override changes the page, so refs taken before it are no longer safe. */
   invalidateInteractionState(guest: WebContents): void;

@@ -6,12 +6,12 @@ export const MAX_BACKGROUND_TABS = 8;
 export const BACKGROUND_PAGE_IDLE_MS = 30 * 60_000;
 const MAX_BACKGROUND_TAB_NAME_CHARS = 64;
 
-export interface BrowserGuestCandidate {
+interface BrowserGuestCandidate {
   id: number;
   isDestroyed(): boolean;
 }
 
-export interface RepaintableBrowserGuestCandidate extends BrowserGuestCandidate {
+interface RepaintableBrowserGuestCandidate extends BrowserGuestCandidate {
   invalidate(): void;
 }
 

@@ -30,16 +30,20 @@
   color: color-mix(in srgb, var(--mx-text) 50%, transparent);
 }
 /* Glyph and cell measured against VS Code on the same screen (user: 상하
-   간격이 다르다): a 44px cell pitch, while the glyph keeps the 24px codicon
-   em (≈20px of ink) — at 22px the marks read a step smaller than VS Code's. */
-.activity-rail > button > svg {
-  width: 24px;
-  height: 24px;
+   간격이 다르다): a 44px cell pitch. The glyph steps down from the 24px
+   codicon em to 22px (user: 왼쪽 아이콘 살짝만 줄일까) — the rail read
+   heavier than the 44px title band and the 14px tab glyphs beside it. The
+   destinations render lucide at size 24, so CSS sets the box for every
+   rail glyph. */
+.activity-rail > button > svg,
+.activity-rail .workbench-side-icon-bar.is-vertical > button > svg {
+  width: 22px;
+  height: 22px;
 }
 /* Outrank Monaco's global codicon font shorthand even when its lazy CSS loads
-   after the rail, so Settings keeps the same 24px tier as the SVG destinations. */
+   after the rail, so Settings keeps the same 22px tier as the SVG destinations. */
 .activity-rail .codicon[class*="codicon-"] {
-  font-size: var(--mx-icon-2xl);
+  font-size: 22px;
 }
 /* Direct rail controls only: the usage popup nests its own buttons (rows,
    detail actions) that must keep their list styling. */

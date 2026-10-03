@@ -9,12 +9,12 @@ import { BrowserActionabilityError } from './actionability';
 import type { BrowserRefPointHost } from './ref-points';
 import { BROWSER_REF_RECT, browserRefRectExpression } from './ref-rect';
 
-export type RefRectProbeHost = Pick<
+type RefRectProbeHost = Pick<
   BrowserRefPointHost,
   'callAccessibilityRef' | 'evaluate' | 'frameOffsetForSession' | 'accessibilityRefs'
 >;
 
-export interface RefRect {
+interface RefRect {
   x: number;
   y: number;
   width: number;

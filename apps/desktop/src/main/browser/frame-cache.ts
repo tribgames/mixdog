@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron';
 
-export interface BrowserFrameCache {
+interface BrowserFrameCache {
   epoch: number;
   targets: string;
   frames?: Map<string, string | undefined>;

@@ -88,7 +88,7 @@ export interface AccessibilityPageInfo {
   textClipped?: boolean;
 }
 
-export interface AccessibilitySnapshotRef {
+interface AccessibilitySnapshotRef {
   ref: string;
   backendNodeId: number;
   sessionId?: string;

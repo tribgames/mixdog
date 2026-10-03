@@ -111,9 +111,15 @@
   --mx-font-body: 15px;
   --mx-font-panel-title: 16px;
   /* Rail panel titles (세션, 에이전트 …): the 16px panel tier — 18 read too
-     large (user: 이건 또 너무 커) — in a roomier band (--mx-rail-panel-band). */
+     large (user: 이건 또 너무 커) — in the title band (--mx-rail-panel-band).
+     The band matches the PANE tab strip (43px row + 1px edge) so the side
+     panel's head and the workspace's tab row read as one line; the old 52px
+     band stood taller than the strip and the two looked detached (user:
+     GPT 대비 사이드 패널이랑 동떨어진 느낌 → 높이 맞추기). 39px read
+     cramped once the selection became a plate (user: 위아래로 좁은 것 같다
+     → 44). */
   --mx-rail-panel-title: 16px;
-  --mx-rail-panel-band: 52px;
+  --mx-rail-panel-band: 44px;
   /* Air between that band and a panel's first box. The band's own lower
      half already leaves ~16px under the title, so the content adds only a
      small step — every rail page (Sessions, Agents, Schedules, Workflows,
@@ -212,6 +218,12 @@
   /* Soft ink: one step under full text (was ad-hoc 80/82/85% color-mix
      strays). Mix keeps it theme-adaptive like the strays it replaces. */
   --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
+  /* Resting ink of an idle pane tab's label and glyph, under the selected
+     tab's full ink. 78% still read as the same color as the selection
+     (user: 탭 선택하나 안 하나 색감 같아 보인다). 67% is the bottom of an
+     even 100 / 83 / 67 ladder with a background pane's selection (user:
+     폰트 3단계도 좀 명확하게, 비선택도 완전히 죽이진 말고). */
+  --mx-tab-idle-ink: color-mix(in srgb, var(--mx-text) 67%, transparent);
   /* List-row ink roles, ONE rule for every rail list (sessions, agents,
      workflows, projects, extensions): the title rests a step under full ink
      and lifts on hover or selection; the supporting line sits under it. The

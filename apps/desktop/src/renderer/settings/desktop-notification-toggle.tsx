@@ -30,7 +30,9 @@ export function DesktopNotificationToggle() {
   return (
     <Group
       title={t('Notifications')}
-      description={t('Get a notification on this device when a task finishes, even while the app is closed.')}
+      description={t(
+        'Get a notification on this computer when a task finishes while the Mixdog window is not in focus.'
+      )}
     >
       <ToggleRow
         title={t('Notify me when a task finishes')}

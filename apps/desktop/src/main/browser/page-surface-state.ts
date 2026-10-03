@@ -5,7 +5,7 @@ import type { WebContents } from 'electron';
 import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
 import type { BrowserScreenshotCapture } from './screenshot';
 
-export interface PageSurfaceStateHost {
+interface PageSurfaceStateHost {
   state: BrowserGuestStateStore;
   currentGuest?(sessionId: string): WebContents | null;
 }

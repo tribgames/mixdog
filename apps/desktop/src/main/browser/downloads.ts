@@ -26,7 +26,7 @@ export interface TrackedBrowserDownload {
   completedAt?: number;
 }
 
-export interface BrowserDownloadsHost {
+interface BrowserDownloadsHost {
   /** Newest first, isolated to the addressed browser session. */
   downloads(sessionId: string): TrackedBrowserDownload[];
   pause(ms: number, signal?: AbortSignal): Promise<void>;
@@ -201,7 +201,7 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
   return { listDownloads };
 }
 
-export interface BrowserDownloadLedgerHost {
+interface BrowserDownloadLedgerHost {
   /** Where files land; downloads auto-save here with no dialog. */
   downloadsDirectory(): string;
   /** The conversation session that owns a guest, if it is registered. */

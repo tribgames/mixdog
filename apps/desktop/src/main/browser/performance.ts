@@ -70,7 +70,7 @@ export interface ActiveBrowserPerformanceTrace {
   raw?: BrowserTraceExport;
 }
 
-export interface BrowserPerformanceCommandHost {
+interface BrowserPerformanceCommandHost {
   cdp: BrowserCdpPort;
   /** Shared with the CDP listener that feeds and completes a running trace. */
   tracesByGuest: GuestSlot<ActiveBrowserPerformanceTrace>;

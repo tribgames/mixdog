@@ -8,7 +8,7 @@
  */
 export type BrowserSemanticMatchField = 'name' | 'value' | 'role' | 'href';
 
-export interface BrowserSemanticMatch {
+interface BrowserSemanticMatch {
   field: BrowserSemanticMatchField;
   score: number;
   /** How many of the query's keywords matched (1 for a regular expression). */
@@ -17,7 +17,7 @@ export interface BrowserSemanticMatch {
   terms: number;
 }
 
-export interface BrowserQueryPlan {
+interface BrowserQueryPlan {
   regex?: RegExp;
   tokens: string[];
 }

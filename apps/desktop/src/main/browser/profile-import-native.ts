@@ -8,7 +8,7 @@ export interface NativeBrowserImporter {
   sha256: string;
 }
 
-export interface NativeBrowserImporterEnvironment {
+interface NativeBrowserImporterEnvironment {
   isPackaged: boolean;
   platform: NodeJS.Platform;
   resourcesPath: string;

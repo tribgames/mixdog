@@ -74,9 +74,10 @@
   width: 100%;
   text-align: center;
   font-size: var(--mx-font-micro);
-  /* A gauge readout, not a heading: the label weight keeps the figures
-     legible without out-weighing the rail icons (user: % 가 좀 굵다). */
-  font-weight: var(--mx-weight-medium);
+  /* A gauge readout, not a heading: regular weight keeps the figures
+     legible without out-weighing the rail icons (user: % 가 좀 굵다 →
+     레일 % 폰트 굵기 조정; 500 still read bold under the 22px glyphs). */
+  font-weight: var(--mx-weight-regular);
   line-height: 11px;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;

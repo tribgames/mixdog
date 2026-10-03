@@ -23,10 +23,10 @@ const NATIVE_IMPORT_TIMEOUT_MS = 120_000;
 const CHROME_CLOSE_TIMEOUT_MS = 30_000;
 const execFileAsync = promisify(execFile);
 
-export type BrowserImportItem = 'passwords' | 'cookies' | 'history';
-export type BrowserImportItemState = 'running' | 'completed' | 'failed';
+type BrowserImportItem = 'passwords' | 'cookies' | 'history';
+type BrowserImportItemState = 'running' | 'completed' | 'failed';
 
-export interface BrowserImportProfile {
+interface BrowserImportProfile {
   id: string;
   name: string;
   accountEmail?: string;
@@ -97,7 +97,7 @@ interface NativeCredential {
   note?: unknown;
 }
 
-export interface BrowserProfileImportOptions {
+interface BrowserProfileImportOptions {
   userDataDirectory: string;
   temporaryDirectory: string;
   partition: Session;
@@ -110,7 +110,7 @@ export interface BrowserProfileImportOptions {
   readNativeCookies?: (profileId: string) => Promise<unknown>;
 }
 
-export interface BrowserProcessCloseTarget {
+interface BrowserProcessCloseTarget {
   imageName: string;
   timeoutMs?: number;
 }

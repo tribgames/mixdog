@@ -12,7 +12,7 @@ import type { BrowserReplyHost } from './reply';
 import { pause, throwIfBrowserCancelled } from './settle';
 import { measureBrowserPhase } from './timing';
 
-export type ReplyWaitHost = Pick<BrowserReplyHost, 'settleAfterAction' | 'postconditionMatchesGuest'>;
+type ReplyWaitHost = Pick<BrowserReplyHost, 'settleAfterAction' | 'postconditionMatchesGuest'>;
 
 export interface ReplyWait {
   settleMs: number;

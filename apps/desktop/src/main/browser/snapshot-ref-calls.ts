@@ -22,7 +22,7 @@ export interface AccessibilityRefSnapshot {
   refs: Map<string, AccessibilityRef>;
 }
 
-export interface SnapshotRefCallHost {
+interface SnapshotRefCallHost {
   cdp: BrowserCdpPort;
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal, timeoutMs?: number): Promise<T>;
   accessibilityRefs: GuestSlot<AccessibilityRefSnapshot>;

@@ -23,7 +23,7 @@ import type { createBrowserTabs } from './tabs';
 import type { createBrowserTaskLifecycle } from './task-lifecycle';
 import type { WebContents } from 'electron';
 
-export interface BrowserCommandRunnerHost {
+interface BrowserCommandRunnerHost {
   state: BrowserGuestStateStore;
   approvals: ReturnType<typeof createBrowserActionApproval>;
   browserSessions: BrowserSessionRegistry;

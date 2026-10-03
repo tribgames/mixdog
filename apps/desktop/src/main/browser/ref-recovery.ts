@@ -1,6 +1,6 @@
 import type { BrowserSnapshotElement, BrowserSnapshotPayload } from './accessibility';
 
-export interface BrowserRefFingerprint {
+interface BrowserRefFingerprint {
   ref: string;
   snapshotId: string;
   url: string;
@@ -27,7 +27,7 @@ export interface BrowserRefSet {
   query?: string;
 }
 
-export interface BrowserRefRecoveryResult {
+interface BrowserRefRecoveryResult {
   ref?: string;
   reason?: string;
 }

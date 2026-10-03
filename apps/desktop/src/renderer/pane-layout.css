@@ -647,7 +647,7 @@
 /* ONE unit-wide header line (user: 헤더 한 줄) — just the child icons,
    spanning [diff | panel], height matched to the PANE tab strip. */
 /* Same title band as the left side panel (user: 오른쪽 패널도 왼쪽 사이드
-   레일 패널처럼): the roomy 52px band, flowing into its list with no hairline
+   레일 패널처럼): the shared rail title band, flowing into its list with no hairline
    under it. */
 .pane-side-dock-header {
   flex: 0 0 var(--mx-rail-panel-band);
@@ -1154,12 +1154,14 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
   align-self: stretch;
   /* Strip: tabs sit flush in a square band — no inset. */
   padding: 0;
-  /* The tab band sits one step darker than the sheet and needs no closing
-     hairline: the ACTIVE (sheet-colored) tab runs straight into its surface
-     below. The 1px bottom edge stays (the strip keeps the sidebar header's
-     36px band) but clear of the band paint, so the sheet shows through it. */
-  background: var(--mx-window-band);
-  background-clip: padding-box;
+  /* The strip wears the pane surface itself — no darker band: the empty run
+     beside the tabs read as a dark bar even at a 14% step (user: 빈 탭
+     색깔, 그쪽 라인이 제일 문제). No hairline closes the row either — it
+     boxed the strip in (user: 구분선 없애거나 각진 느낌 줄이기 → 아래
+     테두리만 없애기); the cell seams and the selection plate
+     (04-workspace-tabs.css) carry the row. The 1px bottom edge keeps the strip on the side panel's title
+     band height. */
+  background: transparent;
   border-bottom: 1px solid transparent;
 }
 /* Workspace scrollbars follow the shell-wide square grammar (desktop.css). */

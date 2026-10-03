@@ -6,9 +6,12 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
+import { registerBrowserPushSubscription } from '../push-notification-bridge';
 import { Group, ToggleRow } from './capability-controls';
 
 type PushApi = Partial<DesktopApi>;
+
+const BLOCKED_NOTE = 'Notifications are blocked for this app. Allow them in your browser or system settings first.';
 
 /** The applicationServerKey travels as base64url text but subscribe() wants a
  *  BufferSource; the buffer is allocated at the exact length so passing it
@@ -43,20 +46,32 @@ export function PushNotificationToggle({ api }: { api: PushApi }) {
   const [note, setNote] = useState('');
 
   // The browser owns the truth: a subscription can survive a reinstall of the
-  // app or be cleared from browser settings without this UI ever hearing.
+  // app or be cleared from browser settings without this UI ever hearing. A
+  // subscription is only ON while the OS still lets this app notify: blocking
+  // it in system settings keeps the subscription but shows nothing. Re-read on
+  // return, since that change happens outside the app.
   useEffect(() => {
     if (!supported) return undefined;
     let live = true;
-    void navigator.serviceWorker.ready
-      .then((registration) => registration.pushManager.getSubscription())
-      .then((subscription) => {
-        if (live) setEnabled(Boolean(subscription));
-      })
-      .catch(() => {
-        /* worker not ready yet; the toggle stays off */
-      });
+    const refresh = (): void => {
+      if (document.visibilityState === 'hidden') return;
+      void navigator.serviceWorker.ready
+        .then((registration) => registration.pushManager.getSubscription())
+        .then((subscription) => {
+          if (!live) return;
+          const permission = Notification.permission;
+          setEnabled(Boolean(subscription) && permission === 'granted');
+          if (subscription && permission === 'denied') setNote(BLOCKED_NOTE);
+        })
+        .catch(() => {
+          /* worker not ready yet; the toggle stays off */
+        });
+    };
+    refresh();
+    document.addEventListener('visibilitychange', refresh);
     return () => {
       live = false;
+      document.removeEventListener('visibilitychange', refresh);
     };
   }, [supported]);
 
@@ -82,11 +97,7 @@ export function PushNotificationToggle({ api }: { api: PushApi }) {
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') {
           setEnabled(false);
-          setNote(
-            permission === 'denied'
-              ? 'Notifications are blocked for this app. Allow them in your browser or system settings first.'
-              : 'Notification permission was dismissed.'
-          );
+          setNote(permission === 'denied' ? BLOCKED_NOTE : 'Notification permission was dismissed.');
           return;
         }
         const publicKey = await api.pushPublicKey?.();
@@ -95,12 +106,7 @@ export function PushNotificationToggle({ api }: { api: PushApi }) {
           userVisibleOnly: true,
           applicationServerKey: bufferFromBase64Url(publicKey),
         });
-        const keys = subscription.toJSON().keys ?? {};
-        await api.registerPushSubscription?.({
-          endpoint: subscription.endpoint,
-          p256dh: String(keys.p256dh || ''),
-          auth: String(keys.auth || ''),
-        });
+        await registerBrowserPushSubscription(api, subscription);
         setEnabled(true);
       })()
         .catch(() => {

@@ -368,6 +368,42 @@ test('a hidden failed request does not start a retry, and returning recovers', a
   await clock.settle();
 });
 
+test('a pending retry runs as soon as the remote connection is back', async (t) => {
+  const clock = createRendererClock();
+  bind(t, clock);
+  const dataset = {};
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { documentElement: { dataset } } });
+  t.after(() => {
+    if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument);
+    else delete globalThis.document;
+  });
+  let calls = 0;
+  const api = {
+    invokeCapability() {
+      calls += 1;
+      return calls === 1 ? Promise.reject(new Error('')) : Promise.resolve(response);
+    },
+  };
+  const release = holdUsageDashboardCadence(api);
+  await refreshUsageDashboard(api);
+  assert.equal(getUsageDashboardSnapshot().status, 'loading');
+  dataset.mixdogRemoteConnection = 'reconnecting';
+  clock.win.emit('mixdog:remote-connection-state');
+  await clock.settle();
+  assert.equal(calls, 1, 'a connection that is not back yet leaves the retry armed');
+  dataset.mixdogRemoteConnection = 'connected';
+  clock.win.emit('mixdog:remote-connection-state');
+  await clock.settle();
+  assert.equal(calls, 2);
+  assert.equal(getUsageDashboardSnapshot().status, 'ready');
+  await clock.advance(RETRY * 2);
+  assert.equal(calls, 2, 'the early retry replaces the delayed one');
+  release();
+  await clock.settle();
+  assert.equal(clock.timers.size + clock.doc.listenerCount() + clock.win.listenerCount(), 0);
+});
+
 test("an old document's holder cannot stop the replacement document's cadence", async (t) => {
   const old = createRendererClock();
   bind(t, old);

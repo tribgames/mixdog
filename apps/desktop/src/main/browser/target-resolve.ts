@@ -169,7 +169,7 @@ export function selectBrowserTarget(
   );
 }
 
-export interface BrowserTargetResolverHost {
+interface BrowserTargetResolverHost {
   captureSnapshotPayload(
     guest: WebContents,
     command: BrowserCommand,

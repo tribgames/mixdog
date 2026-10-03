@@ -14,7 +14,7 @@ import type { createBrowserCdpExecution } from './cdp-execution';
 
 export type BrowserCdpSend = ReturnType<typeof createBrowserCdpExecution>['sendCdp'];
 
-export interface BrowserCdpSessionInitHost {
+interface BrowserCdpSessionInitHost {
   state: BrowserGuestStateStore;
   interceptFetchPatterns(guest: WebContents): BrowserFetchPattern[];
   pageGuardScripts?(): string[];

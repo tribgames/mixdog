@@ -32,7 +32,7 @@ export interface SnapshotDiagnosticsView {
 }
 
 /** Session-level facts worth a line in this page's report. */
-export interface SnapshotExtras {
+interface SnapshotExtras {
   /** Downloads that started or finished since the page last reported. */
   downloads?: Array<{
     id: string;

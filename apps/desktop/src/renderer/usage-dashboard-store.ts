@@ -17,6 +17,7 @@
 //               the pending slot, so an old finally cannot clear a newer one.
 import type { DesktopApi, SessionSnapshot } from '../shared/contract';
 import { readGlobalCapabilities } from './global-capability-reads';
+import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
 import { startVisibleRefreshCadence } from './visible-refresh-cadence';
 
 export type UsageApi = Partial<
@@ -82,6 +83,7 @@ let retryTimer: number | null = null;
 let retryUsed = false;
 let cadenceHolders = 0;
 let releaseCadence: (() => void) | null = null;
+let releaseReconnectRetry: (() => void) | null = null;
 let cadenceApi: UsageApi | undefined;
 let accountChangesApi: UsageApi | undefined;
 let releaseAccountChanges: (() => void) | null = null;
@@ -223,6 +225,8 @@ function clearTimers(): void {
 function stopCadence(): void {
   const release = releaseCadence;
   releaseCadence = null;
+  releaseReconnectRetry?.();
+  releaseReconnectRetry = null;
   releaseAccountChanges?.();
   releaseAccountChanges = null;
   accountChangesApi = undefined;
@@ -640,6 +644,17 @@ export function holdUsageDashboardCadence(api: UsageApi | undefined): () => void
         retryTimer = null;
         if (!pending && snapshot.status === 'loading') publishStatus(settledStatus());
       },
+    });
+    // A phone that booted while its desktop was still redialing (a relay
+    // deploy) failed this read on the dropped connection; the bounded retry
+    // runs as soon as the connection is back instead of holding the boot cover
+    // for the full delay.
+    releaseReconnectRetry = subscribeRemoteConnectionState(() => {
+      if (retryTimer === null || host !== win || cadenceHolders === 0) return;
+      if (currentRemoteConnectionState() !== 'connected' || win.document?.visibilityState === 'hidden') return;
+      clearTracked(win, retryTimer);
+      retryTimer = null;
+      void refreshUsageDashboard(cadenceApi, { force: true, retry: true });
     });
   }
   let released = false;

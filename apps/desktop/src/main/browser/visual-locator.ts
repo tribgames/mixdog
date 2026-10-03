@@ -1,4 +1,4 @@
-export interface BrowserVisualCandidate {
+interface BrowserVisualCandidate {
   score: number;
   tag: string;
   role: string;

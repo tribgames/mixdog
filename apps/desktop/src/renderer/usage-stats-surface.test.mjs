@@ -390,7 +390,7 @@ test('statistics open with the last 24 hours, four cards, and no sessions or inf
   );
   assert.deepEqual(
     [...document.querySelectorAll('.stats-card small')].map((node) => node.textContent),
-    ['Subscription list-price value', 'API cost', 'Tokens', 'Usage records'].map((label) => t(label))
+    ['List-price value', 'API cost', 'Tokens', 'Requests'].map((label) => t(label))
   );
   assert.equal(document.querySelector('.stats-controls [role="img"]'), null);
   assert.equal(button('Sessions'), undefined);
@@ -408,7 +408,7 @@ test('models start expanded, request counts lead numeric columns, and cache hits
   await render({ data: { getUsageStats: stats }, request: async () => stats });
   assert.deepEqual(
     [...document.querySelectorAll('thead th')].map((th) => th.textContent),
-    ['Provider', 'Usage share', 'Usage records', 'Input', 'Output', 'Cache hits', 'Hit rate', 'Tokens', 'Cost'].map(
+    ['Provider', 'Share', 'Requests', 'Input', 'Output', 'Cache hits', 'Hit rate', 'Tokens', 'Cost'].map(
       (key) => t(key)
     )
   );
@@ -813,7 +813,7 @@ test('chart hover and click expose compact token totals and provider splits, wit
     [...document.querySelectorAll('.stats-trend-detail li > b')].map((node) => node.textContent),
     ['$1.50', '$0.50']
   );
-  await act(async () => button('Usage records').click());
+  await act(async () => button('Requests').click());
   await act(async () => bar.click());
   assert.deepEqual(
     [...document.querySelectorAll('.stats-trend-detail li > b')].map((node) => node.textContent),
@@ -943,7 +943,7 @@ test('Korean chart hover uses the same thousand, ten-thousand and hundred-millio
     ['1.2억', '1234.6만', '1.2천']
   );
   assert.equal(document.querySelectorAll('.stats-trend-detail dd')[2].textContent, '1,387');
-  await act(async () => button('Usage records').click());
+  await act(async () => button('Requests').click());
   await act(async () => bar.click());
   assert.deepEqual(
     [...document.querySelectorAll('.stats-trend-detail li > b')].map((node) => node.textContent),

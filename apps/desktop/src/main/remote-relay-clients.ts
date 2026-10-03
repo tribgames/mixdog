@@ -39,6 +39,9 @@ export interface RelayClientState {
   /** The phone reported its app hidden while this socket still lives (the
    *  background grace before it suspends). Push notifications reach it then. */
   background: boolean;
+  /** The paired browser behind this leg, as it reports itself. The relay names
+   *  each leg with a fresh id, while a push subscription names the browser. */
+  browserId: string;
   visibleSessionIds: Set<string>;
   /** Transcript delta baselines are receiver-specific. A shared encoder
    *  advances even for clients filtered out of a session, so their first
@@ -238,6 +241,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
         pendingFrames: 0,
         pendingBytes: 0,
         background: false,
+        browserId: '',
         visibleSessionIds: new Set(),
         sessionStateEncoders: new Map(),
         binaryFrames: false,

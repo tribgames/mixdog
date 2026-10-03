@@ -5,12 +5,12 @@ import type { WebContents } from 'electron';
 import { normalizeBackgroundTabName } from './tab-policy';
 import type { BackgroundPage, BrowserTabsHost } from './tabs-contract';
 
-export type TabTargetingHost = Pick<
+type TabTargetingHost = Pick<
   BrowserTabsHost,
   'visibleGuests' | 'backgroundPages' | 'backgroundEntryByPageId' | 'ensureOffscreen' | 'pageId' | 'selectGuest'
 >;
 
-export interface ResolvedTabTarget {
+interface ResolvedTabTarget {
   guest: WebContents;
   background: boolean;
   tabName?: string;

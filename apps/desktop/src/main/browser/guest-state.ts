@@ -17,7 +17,7 @@ import type { VisualGrounding } from './ref-points';
 import type { BrowserRefSet } from './ref-recovery';
 import type { AccessibilityRefSnapshot } from './snapshot-capture';
 
-export interface CdpTargetSession {
+interface CdpTargetSession {
   type: string;
   url: string;
   frameId: string;
@@ -25,7 +25,7 @@ export interface CdpTargetSession {
   ready: Promise<void>;
 }
 
-export interface RemoteBrowserFrameCache {
+interface RemoteBrowserFrameCache {
   frameId: string;
   image: { mimeType: 'image/jpeg' | 'image/png'; data: string };
   width: number;
@@ -47,7 +47,7 @@ export interface PendingFileChooser {
 
 /** The page-health view every report reads: what blocks it, what it logged,
  *  and which CDP child sessions currently belong to it. */
-export interface BrowserDiagnostics {
+interface BrowserDiagnostics {
   pendingDialog: PendingBrowserDialog | null;
   pendingFileChooser: PendingFileChooser | null;
   console: BrowserConsoleLedger;
@@ -63,7 +63,7 @@ export interface BrowserDiagnostics {
   fault: string;
 }
 
-export interface BrowserGuestState extends BrowserDiagnostics {
+interface BrowserGuestState extends BrowserDiagnostics {
   readonly pageId: string;
   snapshotGeneration: number;
   documentGeneration: number;

@@ -8,7 +8,7 @@ import type { BrowserGuestStateStore } from './guest-state';
 
 type CdpParams = Record<string, unknown>;
 
-export interface DebuggerAttachmentHost {
+interface DebuggerAttachmentHost {
   state: BrowserGuestStateStore;
   onCdpEvent(
     guest: WebContents,

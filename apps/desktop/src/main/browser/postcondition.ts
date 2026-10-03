@@ -14,7 +14,7 @@ export interface BrowserPostcondition {
   timeoutMs: number;
 }
 
-export interface BrowserPostconditionState {
+interface BrowserPostconditionState {
   /** Null means text was not observed, never an observed empty document. */
   text: string | null;
   url: string;

@@ -18,7 +18,7 @@ import {
   type BrowserCookieSetDetails,
 } from './cookie-jar';
 
-export interface StoredSessionCookie {
+interface StoredSessionCookie {
   name: string;
   value: string;
   domain: string;
@@ -30,7 +30,7 @@ export interface StoredSessionCookie {
   partitionKey?: BrowserCookiePartitionKey;
 }
 
-export interface BrowserSessionStoreHost {
+interface BrowserSessionStoreHost {
   cookies: Pick<BrowserCookieJar, 'get' | 'set' | 'supportsPartitions'>;
   directory: string;
   /** Seal and unseal the file; defaults to Electron's safeStorage. */

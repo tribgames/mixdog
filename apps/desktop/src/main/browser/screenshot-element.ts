@@ -17,7 +17,7 @@ export type ScreenshotCapture = (
   signal?: AbortSignal
 ) => Promise<BrowserScreenshotCapture>;
 
-export interface ElementPageGeometry {
+interface ElementPageGeometry {
   viewport: { width: number; height: number };
   scroll: { x: number; y: number };
 }
