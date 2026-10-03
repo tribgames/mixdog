@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.0.6 - 2026-10-03
+
 - Phone push notifications stay quiet while the app is on screen, follow a
   subscription the browser renews on its own, and the toggle turns off when
   notifications are blocked in system settings.
