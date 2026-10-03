@@ -5,6 +5,23 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- The desktop app can raise an OS notification, with a sound, when a turn
+  ends with its final answer, and the notification leads back to that
+  session.
+
+- The Office tools author docx, xlsx and pdf documents from HTML through one
+  shared browser session.
+
+- Usage shows quota value estimates and per-session totals.
+
+- Browser and Computer Use hosts are more robust: frame transforms, visual
+  privacy, tiled screenshots and recovery after failures.
+
+- The PowerShell syntax check no longer mistakes verb-hyphen fragments inside
+  paths for cmdlets.
+
+- `adm-zip` is updated to 0.6.1 for CVE-2026-102282.
+
 ## v1.0.4 - 2026-10-01
 
 - Model pickers refresh as soon as a provider changes. Browser-based OAuth
