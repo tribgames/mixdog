@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.0.7 - 2026-10-04
+
 - Browser Use on the phone streams the desktop page live instead of
   refreshing snapshots, and takes the same mouse, touch, wheel, keyboard and
   IME input as the desktop pane. When an agent hands the page over (for
