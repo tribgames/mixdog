@@ -36,19 +36,32 @@ export function projectStoredTranscriptOffThread({ sessionId, text, itemLimit })
   return client({ sessionId, text, itemLimit });
 }
 
+/** Whether a projection worker is attached (a request now skips its start). */
+export function storedTranscriptWorkerRunning() {
+  return client?.running() === true;
+}
+
 async function project({ sessionId, text, itemLimit }) {
+  const importStartedAt = performance.now();
   const [{ readTopLevelLifecycleRecord, isLifecycleUnreadable }, { projectStoredTranscript }] = await Promise.all([
     import('./lifecycle-scan.mjs'),
     import('./store-transcript-projection.mjs'),
   ]);
+  const parseStartedAt = performance.now();
   const record = readTopLevelLifecycleRecord(text);
   if (isLifecycleUnreadable(record) || record.id !== sessionId) return { unreadable: true };
+  const projectStartedAt = performance.now();
   const value = await projectStoredTranscript(sessionId, record.doc, {
     itemLimit,
     includeMessages: false,
     checkpointAbsent: true,
   });
-  return { value, lifecycle: { id: record.id, closed: record.closed, generation: record.generation } };
+  const timing = {
+    importMs: parseStartedAt - importStartedAt,
+    parseMs: projectStartedAt - parseStartedAt,
+    projectMs: performance.now() - projectStartedAt,
+  };
+  return { value, lifecycle: { id: record.id, closed: record.closed, generation: record.generation }, timing };
 }
 
 if (!isMainThread && workerData?.kind === WORKER_KIND) serveWorkerRequests(project);

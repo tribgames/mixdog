@@ -152,7 +152,7 @@ function makeHarness(t, { provider = makeProvider('discord'), config = makeConfi
     scheduler: {
       start: () => record('scheduler.start'),
       stop: () => record('scheduler.stop'),
-      reloadConfig: (_a, _b, channelId, opts) => record('scheduler.reload', channelId, opts?.restart),
+      reloadConfig: (_a, _b, opts) => record('scheduler.reload', opts?.restart),
     },
     statusState: {
       update: (fn) => {
@@ -317,7 +317,7 @@ test('reloadRuntimeConfig swaps a provider whose credentials changed and reconne
   assert.equal(state.provider, next);
   assert.equal(state.connected, true);
   assert.deepEqual(calls[0], ['loadConfig', true]);
-  assert.deepEqual(calls[1], ['scheduler.reload', 'chan-2', true]);
+  assert.deepEqual(calls[1], ['scheduler.reload', true]);
   assert.equal(calls.filter((c) => c[0] === 'provider.disconnect' && c[1] === 'discord').length, 1);
   assert.ok(names().includes('provider.connect'));
   assert.ok(!names().includes('status.update'), 'same provider type keeps the routing snapshot');

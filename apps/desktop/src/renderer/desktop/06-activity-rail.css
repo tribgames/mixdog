@@ -25,9 +25,10 @@
   background: var(--mx-window-band);
   user-select: none;
 }
-/* Light band: the same 50% step, in the theme's dark ink. */
+/* Light band: the theme's dark ink at 65%. The mirrored 50% sat at exactly
+   3.0:1 on paper — the floor for icons — while dark's rail reads 5.3:1. */
 :root[data-mixdog-theme="light"] .activity-rail {
-  color: color-mix(in srgb, var(--mx-text) 50%, transparent);
+  color: color-mix(in srgb, var(--mx-text) 65%, transparent);
 }
 /* Glyph and cell measured against VS Code on the same screen (user: 상하
    간격이 다르다): a 44px cell pitch. The glyph steps down from the 24px
@@ -85,7 +86,7 @@
   position: absolute;
   z-index: -1;
   inset: 4px 6px;
-  border-radius: 8px;
+  border-radius: var(--mx-radius-md);
   background: var(--mx-rail-tile-hover);
   opacity: 0;
   transition: opacity var(--mx-motion-ink);

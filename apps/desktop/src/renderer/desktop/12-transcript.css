@@ -423,10 +423,10 @@ html[data-mixdog-mobile-tabs] .conversation {
   line-height: var(--mx-line-prose);
   letter-spacing: 0;
 }
-/* Half a prose line, so the paragraph break stays proportional to the looser
-   26px rhythm instead of shrinking against it. */
+/* Half a prose line, so the paragraph break stays proportional to the 24px
+   rhythm. */
 .message-body p {
-  margin: 0 0 14px;
+  margin: 0 0 12px;
 }
 /* Turn rhythm: the LAST paragraph's bottom margin stacked on the thread's
    16px row gap and read as a two-line hole between turns (user) — collapse
@@ -614,7 +614,7 @@ html[data-mixdog-mobile-tabs] .conversation {
      (tool output lives in 13px chrome), .markdown steps up to the prose mono
      right below. */
   background: var(--mx-bg-base);
-  box-shadow: 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
 }

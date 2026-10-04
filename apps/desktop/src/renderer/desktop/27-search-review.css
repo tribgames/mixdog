@@ -277,7 +277,7 @@
   border-radius: var(--mx-radius-md);
 }
 .turn-review-bar[data-expanded="true"] .turn-review-head {
-  border-bottom: 0.5px solid var(--mx-border-muted);
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
   border-radius: var(--mx-radius-md) var(--mx-radius-md) 0 0;
 }
 .turn-review-head .turn-review-summary {
@@ -360,7 +360,7 @@
 .turn-review-files li.turn-review-source {
   min-height: 24px;
   color: var(--mx-text-muted);
-  border-bottom: 0.5px solid var(--mx-border-muted);
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
   border-radius: 0;
 }
 .turn-review-files li.turn-review-source:not(:first-child) {
@@ -510,7 +510,7 @@
   padding: 4px;
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-layer-1);
-  box-shadow: 0 0 0 0.5px var(--mx-border);
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border);
 }
 @container (max-width: 540px) {
   .turn-review-attribution {
@@ -725,7 +725,12 @@
    warm tokens — var()-based, so light AND dark themes both resolve. The
    div-prefixed selector outranks the library's lazily loaded sheet. */
 div.diff-tailwindcss-wrapper[data-theme="light"],
-div.diff-tailwindcss-wrapper[data-theme="dark"] {
+div.diff-tailwindcss-wrapper[data-theme="dark"],
+/* The library re-declares its whole palette on .diff-style-root INSIDE the
+   wrapper, so tokens set on the wrapper alone never reached a single cell:
+   every diff still wore the GitHub blues, in both themes. */
+div.diff-tailwindcss-wrapper[data-theme="light"] div.diff-style-root,
+div.diff-tailwindcss-wrapper[data-theme="dark"] div.diff-style-root {
   font-family: var(--mx-font-mono);
   --diff-border--: var(--mx-border-muted);
   --diff-plain-content--: var(--mx-bg-base);
@@ -747,6 +752,21 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
   --diff-hunk-content-color--: var(--mx-text-muted);
   --diff-add-widget--: var(--mx-bg-contrast);
   --diff-add-widget-color--: var(--mx-grey-100);
+}
+/* The table wrapper names Menlo/Consolas itself; the diff is code and wears
+   the app's code face like every other code surface. */
+div.diff-tailwindcss-wrapper .diff-table-scroll-container {
+  /* The library sets its face inline. */
+  font-family: var(--mx-font-mono) !important;
+}
+/* Line numbers are already the faint ink; the library halves them again and
+   they dropped to ~2:1 in both themes. */
+div.diff-tailwindcss-wrapper .diff-line-num > div {
+  opacity: 1;
+}
+/* Diff code wears the app's text ink, not the library's pure white/black. */
+div.diff-tailwindcss-wrapper .diff-line {
+  color: var(--mx-text);
 }
 .review-pane {
   min-height: 0;
@@ -863,7 +883,7 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 .review-file {
   border-radius: var(--mx-radius-md);
   background: transparent;
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .review-file-header {
   position: sticky;
@@ -876,7 +896,7 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 }
 .review-file[data-open] .review-file-header {
   border-radius: var(--mx-radius-md) var(--mx-radius-md) 0 0;
-  box-shadow: 0 0.5px 0 var(--mx-border-muted);
+  box-shadow: 0 var(--mx-hairline) 0 var(--mx-border-muted);
 }
 .review-file-trigger {
   flex: 1;

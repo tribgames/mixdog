@@ -232,7 +232,6 @@ function wireInternalTools(boot) {
       officeToolsEnabled: boot.officeToolsEnabledFn,
       mediaToolEnabled: boot.mediaToolEnabledFn,
       tidyToolEnabled: boot.tidyToolEnabledFn,
-      channelsEnabled: boot.channelsEnabled,
       getWebSearchModule: boot.getWebSearchModule,
       getMemoryModule: boot.getMemoryModule,
       getCodeGraphModule: boot.getCodeGraphModule,

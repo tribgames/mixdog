@@ -1,31 +1,34 @@
-import type { DesktopRemoteBrowserControl } from './contract';
+import { normalizeBrowserPageControl } from './browser-page-control';
+import type {
+  DesktopRemoteBrowserControl,
+  DesktopRemoteBrowserPageInput,
+  DesktopRemoteBrowserStreamOptions,
+} from './contract';
 
-const MAX_REMOTE_BROWSER_COORDINATE = 100_000;
-const MAX_REMOTE_BROWSER_DELTA = 20_000;
+/** Encrypted relay push carrying a DesktopRemoteBrowserStreamFrame. */
+export const REMOTE_BROWSER_FRAME_EVENT = 'browserRemoteFrame';
+/** Encrypted relay push carrying a DesktopBrowserOpenRequest for an agent
+ * handoff (explicit reveal) or hide, so paired clients open the same surface. */
+export const REMOTE_BROWSER_OPEN_EVENT = 'browserOpenRequested';
 
-function requiredFiniteNumber(value: unknown, label: string, minimum: number, maximum: number): number {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < minimum || number > maximum) {
-    throw new TypeError(`${label} is invalid.`);
-  }
-  return number;
-}
+/** Desktop-service event carrying a DesktopBrowserOpenRequest to the relay,
+ * which forwards it to paired clients as REMOTE_BROWSER_OPEN_EVENT. */
+export const BROWSER_OPEN_REQUESTED_DESKTOP_EVENT = 'browser-open-requested';
 
-function requiredPoint(value: unknown, label: string): { x: number; y: number } {
-  if (!value || typeof value !== 'object') throw new TypeError(`${label} is invalid.`);
-  const point = value as Record<string, unknown>;
-  return {
-    x: requiredFiniteNumber(point.x, `${label}.x`, 0, MAX_REMOTE_BROWSER_COORDINATE),
-    y: requiredFiniteNumber(point.y, `${label}.y`, 0, MAX_REMOTE_BROWSER_COORDINATE),
+const MAX_REMOTE_BROWSER_TEXT = 2_000;
+const MAX_STREAM_DIMENSION = 4_096;
+
+/** Live-view size a client asks for, in device pixels. */
+export function normalizeRemoteBrowserStreamOptions(value: unknown): DesktopRemoteBrowserStreamOptions {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const dimension = (name: 'maxWidth' | 'maxHeight'): number => {
+    const number = input[name];
+    if (typeof number !== 'number' || !Number.isFinite(number) || number < 64 || number > MAX_STREAM_DIMENSION) {
+      throw new TypeError(`remote browser stream ${name} is invalid.`);
+    }
+    return Math.round(number);
   };
-}
-
-export function normalizeRemoteBrowserFrameId(value: unknown): string {
-  if (value == null || value === '') return '';
-  if (typeof value !== 'string' || !/^rbf_[a-z0-9]+$/iu.test(value)) {
-    throw new TypeError('remote browser frame id is invalid.');
-  }
-  return value;
+  return { maxWidth: dimension('maxWidth'), maxHeight: dimension('maxHeight') };
 }
 
 export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrowserControl {
@@ -34,23 +37,6 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
   }
   const input = value as Record<string, unknown>;
   const type = String(input.type || '');
-  const requiredFrameId = (): string => {
-    const frameId = normalizeRemoteBrowserFrameId(input.frameId);
-    if (!frameId) throw new TypeError('remote browser control requires a frame id.');
-    return frameId;
-  };
-  const keyboardIdentity = (): { frameId: string; documentId?: string } => {
-    const frameId = requiredFrameId();
-    if (input.documentId === undefined) return { frameId };
-    if (
-      typeof input.documentId !== 'string' ||
-      input.documentId.length > 64 ||
-      !/^p[1-9]\d*:\d+$/u.test(input.documentId)
-    ) {
-      throw new TypeError('remote browser document id is invalid.');
-    }
-    return { frameId, documentId: input.documentId };
-  };
   if (type === 'navigate') {
     if (typeof input.url !== 'string' || input.url.length < 1 || input.url.length > 4_096) {
       throw new TypeError('remote browser url is invalid.');
@@ -60,47 +46,30 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
   if (type === 'back' || type === 'forward' || type === 'reload' || type === 'stop') {
     return { type };
   }
-  if (type === 'tap') {
-    return { type, frameId: requiredFrameId(), ...requiredPoint(input, 'remote browser tap') };
-  }
-  if (type === 'swipe') {
-    return {
-      type,
-      frameId: requiredFrameId(),
-      from: requiredPoint(input.from, 'remote browser swipe start'),
-      to: requiredPoint(input.to, 'remote browser swipe end'),
-    };
-  }
-  if (type === 'scroll') {
-    return {
-      type,
-      frameId: requiredFrameId(),
-      ...requiredPoint(input, 'remote browser scroll'),
-      deltaX: requiredFiniteNumber(
-        input.deltaX,
-        'remote browser horizontal scroll',
-        -MAX_REMOTE_BROWSER_DELTA,
-        MAX_REMOTE_BROWSER_DELTA
-      ),
-      deltaY: requiredFiniteNumber(
-        input.deltaY,
-        'remote browser vertical scroll',
-        -MAX_REMOTE_BROWSER_DELTA,
-        MAX_REMOTE_BROWSER_DELTA
-      ),
-    };
-  }
-  if (type === 'text') {
-    if (typeof input.text !== 'string' || input.text.length < 1 || input.text.length > 2_000) {
+  if (
+    type === 'pointer' ||
+    type === 'wheel' ||
+    type === 'text' ||
+    type === 'key' ||
+    type === 'composition' ||
+    type === 'composition-end'
+  ) {
+    if (
+      typeof input.documentId !== 'string' ||
+      input.documentId.length > 64 ||
+      !/^p[1-9]\d*:\d+$/u.test(input.documentId)
+    ) {
+      throw new TypeError('remote browser document id is invalid.');
+    }
+    if (
+      (type === 'text' || type === 'composition' || type === 'composition-end') &&
+      (typeof input.text !== 'string' || input.text.length > MAX_REMOTE_BROWSER_TEXT)
+    ) {
       throw new TypeError('remote browser text is invalid.');
     }
-    return { type, ...keyboardIdentity(), text: input.text };
-  }
-  if (type === 'key') {
-    if (typeof input.key !== 'string' || input.key.length < 1 || input.key.length > 64) {
-      throw new TypeError('remote browser key is invalid.');
-    }
-    return { type, ...keyboardIdentity(), key: input.key };
+    // The local pane's validator owns phases, buttons, modifiers, click counts
+    // and bounded coordinates/deltas, so both surfaces admit the same input.
+    return normalizeBrowserPageControl(input) as DesktopRemoteBrowserPageInput;
   }
   throw new TypeError(`unknown remote browser control "${type || '(none)'}".`);
 }

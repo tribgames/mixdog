@@ -188,17 +188,13 @@ function scheduleToDisplay(s) {
     whenAt: s.whenAt || undefined,
     whenCron: s.whenCron || undefined,
     timezone: s.timezone || undefined,
-    channel: s.channelId || undefined,
     model: s.model || undefined,
     cwd: s.cwd || undefined,
     workflow: s.workflow || undefined,
     attachments: s.attachments || undefined,
-    // Delivery mode: legacy channel-target rows (pre-delivery) behaved as
-    // relay+visible, which maps to 'both'.
-    delivery: s.delivery || (s.target === 'channel' ? 'both' : 'app'),
     enabled: s.enabled !== false,
     instructions: s.prompt,
-    route: s.target === 'channel' ? `channel:${s.channelId}` : 'session',
+    route: 'session',
   };
 }
 
@@ -210,7 +206,7 @@ export async function listSchedules() {
 // Register or update a schedule in the PG store. Recurring input maps `time`
 // (+ optional `days`) to a cron; one-shot input maps an `at` datetime; the two
 // are mutually exclusive (also enforced by the store's when_at/when_cron XOR).
-// `channel` selects a channel target; otherwise session. Both require a model.
+// Every schedule runs as a visible app session and requires a model.
 export async function saveSchedule({
   name,
   description = '',
@@ -218,12 +214,10 @@ export async function saveSchedule({
   at,
   timezone,
   days,
-  channel,
   model,
   cwd,
   workflow,
   attachments,
-  delivery,
   enabled,
   instructions,
   overwrite = false,
@@ -233,11 +227,6 @@ export async function saveSchedule({
   if (!body) throw new Error('schedule instructions are required');
   const scheduleModel = String(model || '').trim();
   if (!scheduleModel) throw new Error('schedule model is required — choose a model before saving');
-  // 'app' → session-only; 'channel'/'both' → the run result relays to the
-  // main channel (target 'channel', channelId resolved at fire time).
-  const requestedMode = String(delivery || '').trim();
-  let mode = channel ? 'both' : 'app';
-  if (['app', 'channel', 'both'].includes(requestedMode)) mode = requestedMode;
   const hasTime = time != null && String(time).trim() !== '';
   const hasAt = at != null && String(at).trim() !== '';
   if (hasTime && hasAt) throw new Error('provide either `time` (recurring) or `at` (one-shot), not both');
@@ -254,13 +243,13 @@ export async function saveSchedule({
     whenCron,
     whenAt,
     timezone: scheduleTimezone,
-    target: mode === 'app' ? 'session' : 'channel',
-    channelId: channel ? String(channel).trim() : null,
+    target: 'session',
+    channelId: null,
     model: scheduleModel,
     cwd: cwd ? String(cwd).trim() : null,
     workflow: workflow ? String(workflow).trim() : null,
     attachments: normalizeAutomationAttachments(attachments),
-    delivery: mode,
+    delivery: 'app',
     prompt: body,
     enabled: enabled !== false,
     nextFireAt: whenAt,
@@ -294,19 +283,17 @@ async function listWebhooks() {
     name: ep.name,
     description: ep.description || '',
     parser: ep.parser || 'github',
-    ...(ep.channelId ? { channel: ep.channelId } : {}),
     ...(ep.model ? { model: ep.model } : {}),
     ...(ep.cwd ? { cwd: ep.cwd } : {}),
     ...(ep.workflow ? { workflow: ep.workflow } : {}),
     ...(ep.attachments ? { attachments: ep.attachments } : {}),
-    delivery: ep.delivery || 'app',
     enabled: ep.enabled,
     // The store never projects the plaintext secret through list paths; it
     // exposes a presence flag (secretSet) instead.
     secretSet: ep.secretSet === true,
     secret: undefined,
     instructions: ep.instructions,
-    route: ep.channelId ? `channel:${ep.channelId}` : 'session',
+    route: 'session',
   }));
 }
 
@@ -315,12 +302,10 @@ export async function saveWebhook({
   description = '',
   parser = 'github',
   secret,
-  channel,
   model,
   cwd,
   workflow,
   attachments,
-  delivery,
   enabled,
   instructions,
   overwrite = false,
@@ -334,7 +319,6 @@ export async function saveWebhook({
   }
   const body = String(instructions || '').trim();
   if (!body) throw new Error('webhook instructions are required');
-  if (channel && !model) throw new Error('model is required when channel is set');
   if (overwrite !== true && (await dbLoadEndpoint(id))) {
     throw new Error(`webhook "${id}" already exists`);
   }
@@ -350,12 +334,12 @@ export async function saveWebhook({
     name: id,
     description: String(description || '').trim(),
     parser: nextParser,
-    channelId: channel ? String(channel).trim() : null,
+    channelId: null,
     model: model ? String(model).trim() : null,
     cwd: cwd ? String(cwd).trim() : null,
     workflow: workflow ? String(workflow).trim() : null,
     attachments: normalizeAutomationAttachments(attachments),
-    delivery: ['app', 'channel', 'both'].includes(String(delivery || '').trim()) ? String(delivery).trim() : 'app',
+    delivery: 'app',
     secret: secretValue,
     instructions: body,
     enabled: enabled !== false,
@@ -365,12 +349,10 @@ export async function saveWebhook({
     name: id,
     description: saved.description,
     parser: saved.parser,
-    ...(saved.channelId ? { channel: saved.channelId } : {}),
     ...(saved.model ? { model: saved.model } : {}),
     ...(saved.cwd ? { cwd: saved.cwd } : {}),
     ...(saved.workflow ? { workflow: saved.workflow } : {}),
     ...(saved.attachments ? { attachments: saved.attachments } : {}),
-    delivery: saved.delivery || 'app',
     ...(enabled === false ? { enabled: false } : {}),
     secret: secretValue,
     instructions: body,

@@ -69,7 +69,7 @@
   flex: 0 0 auto;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--mx-radius-pill);
   color: var(--mx-text-soft);
   background: transparent;
   cursor: pointer;
@@ -318,7 +318,7 @@
   /* 30px plate in the 43px row. */
   inset: 7px 3px 6px;
   z-index: -1;
-  border-radius: 7px;
+  border-radius: var(--mx-radius-md);
   pointer-events: none;
 }
 .pane-cell .workspace-tab:not(.active):is(:hover, :focus-within):not(.drop-target-right)::before {
@@ -480,7 +480,7 @@
 .workspace-tab-main .workspace-tab-status {
   flex: 0 0 auto;
   color: var(--mx-text-muted);
-  animation: spin 1.1s linear infinite;
+  animation: var(--mx-motion-spin);
 }
 .workspace-tab-unread-dot {
   display: block;

@@ -2,6 +2,8 @@
 // its lane.
 import type {
   DesktopAgentPoolRow,
+  DesktopBrowserOpenRequest,
+  DesktopRemoteBrowserStreamFrame,
   DesktopLspDiagnosticEvent,
   DesktopLspStatusEvent,
   DesktopSessionSummary,
@@ -16,9 +18,31 @@ import { VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 import { takeRemoteConnectionTimeline, reportRemoteConnectionIssue } from './remote-connection-state';
 import type { RemoteShimContext } from './remote-shim-state';
 import { ACTIVITY_RAIL_PINS_EVENT, readActivityRailPinsState } from '../shared/activity-rail-pins';
+import { REMOTE_BROWSER_FRAME_EVENT, REMOTE_BROWSER_OPEN_EVENT } from '../shared/remote-browser';
 import { PROVIDER_MODELS_EVENT, readProviderModelsChange } from '../shared/provider-models';
 
-export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
+const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
+/** Shape check for a pushed live frame; a malformed one is dropped. */
+export function readRemoteBrowserStreamFrame(value: unknown): DesktopRemoteBrowserStreamFrame | null {
+  if (!value || typeof value !== 'object') return null;
+  const frame = value as Partial<DesktopRemoteBrowserStreamFrame>;
+  if (typeof frame.sessionId !== 'string' || !frame.sessionId) return null;
+  if (typeof frame.documentId !== 'string' || !frame.documentId) return null;
+  if (!Number.isSafeInteger(frame.seq)) return null;
+  if (!finite(frame.width) || !finite(frame.height) || !finite(frame.viewportWidth) || !finite(frame.viewportHeight)) {
+    return null;
+  }
+  if (typeof frame.url !== 'string' || typeof frame.title !== 'string') return null;
+  if (frame.image !== undefined) {
+    const image = frame.image as { mimeType?: unknown; data?: unknown };
+    if (!image || (image.mimeType !== 'image/jpeg' && image.mimeType !== 'image/png')) return null;
+    if (typeof image.data !== 'string') return null;
+  }
+  return frame as DesktopRemoteBrowserStreamFrame;
+}
+
+export const installRemoteDispatch =(ctx: RemoteShimContext): void => {
   /** Fan a push out to one lane's listeners. A faulting renderer listener
    *  must never stop the frame from reaching the rest. */
   const fanOut = <T>(listeners: Set<(value: T) => void>, value: T): void => {
@@ -201,6 +225,16 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       if (!authenticated) return;
       const change = readProviderModelsChange(message.payload);
       if (change) fanOut(ctx.providerModelsListeners, change);
+    } else if (message.event === REMOTE_BROWSER_FRAME_EVENT) {
+      if (!authenticated) return;
+      const frame = readRemoteBrowserStreamFrame(message.payload);
+      if (frame) fanOut(ctx.remoteBrowserFrameListeners, frame);
+    } else if (message.event === REMOTE_BROWSER_OPEN_EVENT) {
+      if (!authenticated) return;
+      const request = message.payload as DesktopBrowserOpenRequest | null;
+      if (request && typeof request === 'object' && typeof request.sessionId === 'string' && request.sessionId) {
+        fanOut(ctx.browserOpenListeners, request);
+      }
     } else if (message.event === 'termData') {
       const payload = (message.payload ?? {}) as { id?: unknown; data?: unknown };
       fanOut(ctx.termListeners, { id: String(payload.id || ''), data: String(payload.data ?? '') });

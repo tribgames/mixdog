@@ -44,14 +44,6 @@ const PARSER_OPTIONS = [
   { value: 'sentry', label: 'Sentry' },
 ];
 
-// Delivery: where a fire's result surfaces — the app session, the messaging
-// channel, or both (user decision).
-const DELIVERY_OPTIONS = [
-  { value: 'app', label: 'App' },
-  { value: 'channel', label: 'Channel' },
-  { value: 'both', label: 'App + Channel' },
-];
-
 interface WebhookDraft {
   name: string;
   description: string;
@@ -59,7 +51,6 @@ interface WebhookDraft {
   model: string;
   cwd: string;
   workflow: string;
-  delivery: string;
   attachments: AutomationAttachment[];
   instructions: string;
   enabled: boolean;
@@ -80,7 +71,6 @@ function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
     // New-task parity: an automation always carries a workflow; legacy rows
     // without one edit as the Default pack.
     workflow: String(source.workflow || 'default'),
-    delivery: String(source.delivery || 'app'),
     attachments: attachmentsFromRecords(source.attachments),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
@@ -90,11 +80,10 @@ function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
 // Sub-line: parser first, then delivery route, model, and paused state.
 function webhookMeta(webhook: RecordValue) {
   const parser = String(webhook.parser || 'github');
-  const delivery = webhook.channel ? `channel ${String(webhook.channel)}` : 'session';
   const route = automationRouteSummary(String(webhook.model || ''));
   return (
     <>
-      {parser} · {delivery}
+      {parser} · session
       {route && (
         <>
           {' '}
@@ -193,7 +182,6 @@ function WebhookEditor({
   const [parser, setParser] = useState(draft.parser);
   const [cwd, setCwd] = useState(draft.cwd);
   const [workflow, setWorkflow] = useState(draft.workflow);
-  const [delivery, setDelivery] = useState(draft.delivery);
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
   const [enabled, setEnabled] = useState(draft.enabled);
   // EDIT never reveals the stored secret; rotation mints a replacement that
@@ -281,7 +269,6 @@ function WebhookEditor({
               ...(model ? { model: `${model}${effortSuffix}${fastSuffix}${parameterSuffix}` } : {}),
               ...(cwd ? { cwd } : {}),
               ...(workflow ? { workflow } : {}),
-              delivery,
               ...(attachments.length ? { attachments } : {}),
               ...(effectiveSecret ? { secret: effectiveSecret } : {}),
               instructions: text('webhook-instructions'),
@@ -370,19 +357,6 @@ function WebhookEditor({
                 disabled={busy}
                 options={projectOptions}
                 onChange={(next) => setCwd(next === '__none__' ? '' : next)}
-              />
-            </div>
-          </div>
-          <div className="schedules-field">
-            <span>{t('Delivery')}</span>
-            <small>{t('Where completed results are sent.')}</small>
-            <div className="schedules-frequency">
-              <OpenSelect
-                ariaLabel={t('Webhook delivery')}
-                value={delivery}
-                disabled={busy}
-                options={DELIVERY_OPTIONS}
-                onChange={setDelivery}
               />
             </div>
           </div>
@@ -654,7 +628,7 @@ export function WebhooksPane({
         )}
         {!loading && visible.length === 0 && (
           <div className="schedules-empty">
-            <Webhook size={40} strokeWidth={1.5} aria-hidden="true" />
+            <Webhook size={40} aria-hidden="true" />
             <p>{webhooks.length ? t('No webhooks match the current filter.') : t('No inbound webhooks yet.')}</p>
           </div>
         )}

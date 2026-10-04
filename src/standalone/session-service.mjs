@@ -39,6 +39,7 @@ export function createSessionService({
   readStoredSession = null,
   statStoredSession = null,
   forgetStoredSession = null,
+  releaseStoredSession = null,
   readStoredGoal = null,
   listStoredActiveGoalSessionIds = null,
   subscribeExternalSessionStates = null,
@@ -114,7 +115,7 @@ export function createSessionService({
     releaseProjection: retention.releaseProjection,
     currentSessionId: (entry) => projection.currentSessionId(entry),
     destroy: (entry, reason, options) => entries.destroy(entry, reason, options),
-    forgetStoredSession: (sessionId) => storedReader.forgetStoredSession(sessionId),
+    releaseStoredSession: (sessionId) => storedReader.releaseStoredSession(sessionId),
   });
   // Wire projection + frame publication (see session-service/projection.mjs).
   const projection = createSessionProjection({
@@ -162,6 +163,7 @@ export function createSessionService({
     readStoredGoal,
     statStoredSession,
     forgetStoredSession,
+    releaseStoredSession,
     sessionOwner: projection.sessionOwner,
     log,
   });

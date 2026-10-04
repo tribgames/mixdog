@@ -31,10 +31,26 @@ export const SETUP_EXTENDED_ACTION_FIELDS = Object.freeze({
   save_project: 'project',
   remove_project: 'projectPath',
   revoke_linked_device: 'name',
+  set_activity_rail_pins: 'activityRailPins',
+  set_developer_option: 'name enabled riskAccepted?',
 });
+
+/** Mirrors ACTIVITY_RAIL_PIN_IDS in apps/desktop/src/shared/activity-rail-pins.ts. */
+export const SETUP_ACTIVITY_RAIL_PIN_IDS = Object.freeze([
+  'sessions',
+  'agents',
+  'schedules',
+  'workflows',
+  'projects',
+  'extensions',
+  'source-control',
+  'search',
+  'webhooks',
+]);
 
 export const SETUP_EXTENDED_DOMAINS = Object.freeze([
   'capabilities',
+  'developer',
   'desktop',
   'appearance',
   'projects',
@@ -49,6 +65,7 @@ export const SETUP_DESKTOP_ACTIONS = Object.freeze([
   'save_project',
   'remove_project',
   'revoke_linked_device',
+  'set_activity_rail_pins',
 ]);
 export const SETUP_DESKTOP_DOMAINS = Object.freeze(['desktop', 'appearance', 'projects', 'connection']);
 
@@ -128,7 +145,6 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
       timezone: text,
       days: { ...text, description: 'Schedule day selector, e.g. weekdays or mon,wed,fri.' },
       parser: { type: 'string', enum: ['github', 'generic', 'stripe', 'sentry'] },
-      channel: text,
       model: {
         ...text,
         description:
@@ -153,7 +169,6 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
           ['kind', 'data']
         ),
       },
-      delivery: { type: 'string', enum: ['app', 'channel', 'both'] },
       enabled: boolean,
       overwrite: { ...boolean, description: 'Explicitly update an existing entry; omitted fields are preserved.' },
     },
@@ -178,10 +193,19 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
       description: 'Desktop UI language id from status appearance; independent of profile language.',
     },
     sidePanels: { type: 'string', enum: ['close-left', 'close-right', 'close-both', 'keep-open'] },
-    zoom: { type: 'number', minimum: 0.5, maximum: 2 },
   }),
   project: object({ path: text, alias: text }, ['path']),
   projectPath: { ...text, description: 'Exact registered Project root.' },
+  activityRailPins: {
+    type: 'array',
+    items: { type: 'string', enum: [...SETUP_ACTIVITY_RAIL_PIN_IDS] },
+    description: 'set_activity_rail_pins: complete ordered list of pinned activity rail items; it replaces the current list.',
+  },
+  riskAccepted: {
+    ...boolean,
+    description:
+      "set_developer_option: the user's explicit acceptance of the option warning; required to enable an option that has one.",
+  },
 });
 
 export const SETUP_HANDOFFS = Object.freeze({

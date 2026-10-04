@@ -39,6 +39,7 @@ export function createCompactionSettings({
   hasOwn,
   normalizeAutoClearConfig,
   autoClearIdleMsForProvider,
+  resolveAutoClearIdleMs,
   normalizeCompactionConfig,
   autoClearProviderDefaults,
   parseDurationMs,
@@ -96,7 +97,9 @@ export function createCompactionSettings({
       const normalized = normalizeAutoClearConfig(config.autoClear);
       const provider = route?.provider || null;
       const providerDefault = autoClearIdleMsForProvider(provider, normalized.providerIdleMs);
-      const idleMs = normalized.custom ? normalized.idleMs : providerDefault;
+      const idleMs = resolveAutoClearIdleMs(config, provider);
+      const key = String(provider || '').toLowerCase();
+      const providerCustom = Boolean(key && key !== 'default' && normalized.providerIdleMs?.[key]);
       // Advanced picker shows only providers the user actually has enabled
       // (config.providers[*].enabled), plus the active route provider, any
       // provider with a custom override, and the 'default' fallback row —
@@ -114,6 +117,7 @@ export function createCompactionSettings({
         enabled: normalized.enabled,
         idleMs,
         custom: normalized.custom,
+        providerCustom,
         providerDefault,
         provider,
         providerDefaults,

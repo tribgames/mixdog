@@ -106,17 +106,26 @@ test('the cold-view refresh reads nothing while the session files keep their set
   }
 });
 
-test('the last cold view leaving forgets the remembered file stamp', async () => {
-  const { service, reads } = coldService();
-  const id = 'sess_cold_forget';
+test('a revisit after the last cold view left keeps its baseline until the files change', async () => {
+  const { service, files, reads } = coldService();
+  const id = 'sess_cold_revisit';
   const viewer = { clientToken: 'desktop' };
   try {
     const opened = await service.subscribeSession({ sessionId: id, ...LEGACY_PAGE }, viewer);
     await service.unsubscribeSession({ sessionId: id }, viewer);
-    await service.readSession(
+    const revisit = await service.readSession(
       { sessionId: id, ...LEGACY_PAGE, baseRevision: opened.revision, baseProjectionStamp: opened.projectionStamp },
       viewer
     );
+    assert.equal(revisit.unchanged, true, 'unchanged files answer by stat alone');
+    assert.deepEqual(reads, [512]);
+    files.stamp = 'file-2';
+    files.version = 2;
+    const changed = await service.readSession(
+      { sessionId: id, ...LEGACY_PAGE, baseRevision: opened.revision, baseProjectionStamp: opened.projectionStamp },
+      viewer
+    );
+    assert.equal(changed.full.items[0].text, 'version 2');
     assert.deepEqual(reads, [512, 512]);
   } finally {
     await service.stop('test complete');

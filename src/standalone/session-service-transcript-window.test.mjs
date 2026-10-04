@@ -583,8 +583,9 @@ test('a tail window grown by appends goes out whole only within its byte budget'
   }
 });
 
-test('cold projections are released when the session goes live or its last view leaves', async () => {
+test('cold projections turn idle when their last view leaves and are dropped when the session goes live', async () => {
   const forgotten = [];
+  const released = [];
   const coldId = 'sess_cold_release';
   const liveId = 'sess_live_release';
   const live = liveRuntime([item('only')], liveId);
@@ -593,6 +594,7 @@ test('cold projections are released when the session goes live or its last view 
     sessionExists: async () => true,
     readStoredSession: async (sessionId) => ({ sessionId, items: [item('stored')], queued: [] }),
     forgetStoredSession: (sessionId) => forgotten.push(sessionId),
+    releaseStoredSession: (sessionId) => released.push(sessionId),
     idleEvictMs: 60_000,
     evictSweepMs: 60_000,
   });
@@ -603,14 +605,15 @@ test('cold projections are released when the session goes live or its last view 
     await service.subscribeSession({ sessionId: coldId, ...TAIL }, second);
     await service.unsubscribeSession({ sessionId: coldId }, first);
     await delay(0);
-    assert.deepEqual(forgotten, [], 'another cold view still reads it');
+    assert.deepEqual(released, [], 'another cold view still reads it');
     await service.unsubscribeSession({ sessionId: coldId }, second);
-    await waitUntil(() => forgotten.length > 0, { message: 'last cold view released' });
-    assert.deepEqual(forgotten, [coldId]);
+    await waitUntil(() => released.length > 0, { message: 'last cold view released' });
+    assert.deepEqual(released, [coldId]);
+    assert.deepEqual(forgotten, [], 'a revisit may still reuse the idle projection');
 
     await service.createSession({ sessionId: liveId });
-    await waitUntil(() => forgotten.length > 1, { message: 'live session releases its cold projection' });
-    assert.deepEqual(forgotten, [coldId, liveId]);
+    await waitUntil(() => forgotten.length > 0, { message: 'live session drops its cold projection' });
+    assert.deepEqual(forgotten, [liveId]);
   } finally {
     await service.stop('test complete');
   }

@@ -302,9 +302,6 @@ export class SessionHost implements DesktopService {
       const projection = this.publication.projections.get(sessionId);
       if (projection) this.publishSession(sessionId, projection.snapshot);
     }
-    // Pool rows carry per-session shell counts, including sessions with no
-    // projection; republish so a started or finished job repaints the pane.
-    if (sessionIds.length > 0) this.publishAgentPoolShellJobs();
   }
 
   private publishSession(
@@ -512,31 +509,13 @@ export class SessionHost implements DesktopService {
       })();
       this.agentPoolRowsPromise = pending;
     }
-    let rows: DesktopAgentPoolRow[];
+    // Share only the outstanding store read: each caller gets fresh row
+    // objects, and the next settled call must observe subsequent store changes.
     try {
-      rows = await pending;
+      return (await pending).map((row) => ({ ...row }));
     } finally {
       if (this.agentPoolRowsPromise === pending) this.agentPoolRowsPromise = null;
     }
-    // Each row carries only its OWN session's active shell count from this
-    // host's poller buckets; non-visible sessions are covered because the
-    // buckets span every session the process owns. Share only the outstanding
-    // store read: each caller gets fresh row objects and the latest job counts,
-    // and the next settled call must observe subsequent store changes.
-    return rows.map((row) => ({
-      ...row,
-      shellJobCount: this.shellJobsPoller.statusFor(String(row.sessionId || '')).count,
-    }));
-  }
-
-  private publishAgentPoolShellJobs(): void {
-    if (this.disposed) return;
-    this.listAgentPool().then(
-      (agents) => {
-        if (!this.disposed) this.publication.publishAgents(agents);
-      },
-      () => {}
-    );
   }
 
   async markSessionRead(sessionId: string, messageCount: number, consumedUnread = false): Promise<boolean> {

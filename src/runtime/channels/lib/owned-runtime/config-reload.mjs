@@ -26,7 +26,7 @@ export function createConfigReloader({
     // startAutomationRuntime() is already past its automationRunning guard, so
     // nobody would call scheduler.start() again and every saved/edited schedule
     // stayed silently disarmed until the daemon restarted.
-    scheduler.reloadConfig(getConfig().nonInteractive ?? [], getConfig().interactive ?? [], getConfig().channelId, {
+    scheduler.reloadConfig(getConfig().nonInteractive ?? [], getConfig().interactive ?? [], {
       restart: state.automationRunning || getBridgeRuntimeConnected(),
     });
   }

@@ -38,8 +38,13 @@ export function createSessionViewCalls(ctx) {
     bindExternalSessionView,
     destroy,
   } = ctx.entries;
-  const { storedSessionProjection, storedProjectionUnchanged, requestedMessageSlice, forgetStoredSession } =
-    ctx.storedReader;
+  const {
+    storedSessionProjection,
+    storedProjectionUnchanged,
+    requestedMessageSlice,
+    forgetStoredSession,
+    releaseStoredSession,
+  } = ctx.storedReader;
 
   /** A read/subscribe names the transcript window its view wants (none: the
    *  whole transcript). A window grown past what a resumed runtime holds is
@@ -229,8 +234,9 @@ export function createSessionViewCalls(ctx) {
         if (token) external.subscribers?.delete(token);
         if ((external.subscribers?.size || 0) === 0) externalViewEntries.delete(id);
       }
-      // The last cold view left: its disk projection is no longer needed.
-      if (!coldViewers) forgetStoredSession(id);
+      // The last cold view left: its disk projection turns idle, kept within
+      // the store's idle budget so a revisit skips the parse.
+      if (!coldViewers) releaseStoredSession(id);
       return { sessionId: id, unsubscribed: true };
     }
     const entry = owner;

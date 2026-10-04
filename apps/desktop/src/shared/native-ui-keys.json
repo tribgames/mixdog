@@ -1,6 +1,5 @@
 [
   "Action",
-  "Actual Size",
   "Allow once",
   "Allow this action once?",
   "Browser Use approval",
@@ -40,7 +39,5 @@
   "Undo",
   "View",
   "Window",
-  "Your active task remains in the desktop host. Reload the interface to continue.",
-  "Zoom In",
-  "Zoom Out"
+  "Your active task remains in the desktop host. Reload the interface to continue."
 ]

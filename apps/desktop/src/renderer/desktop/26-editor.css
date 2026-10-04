@@ -105,7 +105,7 @@
   align-items: center;
   gap: 4px;
   padding: 0 5px 0 8px;
-  border-bottom: 0.5px solid var(--mx-border-muted);
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
   color: var(--mx-text-muted);
   background: var(--mx-workspace-sheet);
   font-size: var(--mx-font-minor);
@@ -196,7 +196,7 @@
   align-items: center;
   gap: 4px;
   padding: 0 4px;
-  border-bottom: 0.5px solid var(--mx-border-muted);
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
 }
@@ -301,14 +301,14 @@
   padding: 6px 12px;
   font-size: var(--mx-font-minor);
   background: color-mix(in srgb, var(--mx-warning) 12%, transparent);
-  border-bottom: 0.5px solid var(--mx-border-muted);
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
 }
 .editor-pane-recovery > span {
   min-width: 0;
   flex: 1;
 }
 .editor-pane-recovery button {
-  border: 0.5px solid var(--mx-border-muted);
+  border: var(--mx-hairline) solid var(--mx-border-muted);
   background: var(--mx-workspace-sheet);
   font-size: var(--mx-font-minor);
   padding: 2px 8px;
@@ -345,7 +345,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 0 4px;
-  border-top: 0.5px solid var(--mx-border-muted);
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
   color: var(--mx-text);
   background: var(--mx-window-band);
   font-size: var(--mx-font-minor);
@@ -668,7 +668,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: 0.5px solid var(--mx-border-muted);
+  border: var(--mx-hairline) solid var(--mx-border-muted);
   background: none;
   color: var(--mx-text);
   font-size: var(--mx-font-minor);
@@ -696,7 +696,7 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  border: 0.5px solid var(--mx-border-muted);
+  border: var(--mx-hairline) solid var(--mx-border-muted);
   border-radius: var(--mx-radius-sm);
   background: var(--mx-grey-50);
 }
@@ -719,7 +719,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: 0.5px solid var(--mx-border-muted);
+  border: var(--mx-hairline) solid var(--mx-border-muted);
   background: none;
   color: var(--mx-text);
   font-size: var(--mx-font-minor);
@@ -728,7 +728,7 @@
   cursor: pointer;
 }
 .editor-pane-spinner {
-  animation: spin 1s linear infinite;
+  animation: var(--mx-motion-spin);
 }
 .workbench-quick-access-layer {
   position: fixed;
@@ -755,7 +755,7 @@
   align-items: center;
   gap: 9px;
   padding: 0 12px;
-  border-bottom: 0.5px solid var(--mx-border-muted);
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
   color: var(--mx-icon-muted);
   background: var(--mx-workspace-sheet);
 }
@@ -944,7 +944,7 @@
   align-items: center;
   gap: 6px;
   padding: 0 6px 0 12px;
-  border-bottom: 0.5px solid var(--mx-border-muted);
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
   color: var(--mx-text-muted);
   /* The strip is CHROME, not terminal content: without its own surface it
      sat on the always-dark terminal bg, and light-theme ink vanished on it

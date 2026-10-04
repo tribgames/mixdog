@@ -69,11 +69,11 @@ export function StudioCleanupBar({
           {t('Select all')}
         </button>
         <button type="button" className="studio-cleanup-danger" disabled={!selectedCount} onClick={onDeleteSelected}>
-          <Trash2 size={13} aria-hidden="true" />
+          <Trash2 size={14} aria-hidden="true" />
           {t('Delete selected')}
         </button>
         <button type="button" aria-label={t('Cancel')} title={t('Cancel')} onClick={onExitSelection}>
-          <X size={13} aria-hidden="true" />
+          <X size={14} aria-hidden="true" />
         </button>
       </div>
     );
@@ -97,7 +97,7 @@ export function StudioCleanupBar({
         disabled={!visibleCount}
         onClick={() => setOpen((current) => !current)}
       >
-        <Trash2 size={15} aria-hidden="true" />
+        <Trash2 size={16} aria-hidden="true" />
       </button>
       {open ? (
         <div className="studio-cleanup-menu" role="menu">

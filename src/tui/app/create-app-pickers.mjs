@@ -262,6 +262,7 @@ export function createAppPickers({
     openWorkflowPicker,
     openOutputStylePicker,
     openSettingsPicker,
+    openDeveloperPicker,
     runSlashCommand,
   };
 }

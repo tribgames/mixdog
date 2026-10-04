@@ -1,4 +1,5 @@
-import { ArrowLeft, ArrowRight, ExternalLink, Keyboard, LoaderCircle, RotateCw, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ExternalLink, Keyboard, RotateCw, X } from 'lucide-react';
+import { ProgressSpinner } from './ProgressSpinner';
 import {
   useCallback,
   useEffect,
@@ -9,15 +10,17 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 
-import type { DesktopRemoteBrowserControl, DesktopRemoteBrowserFrame } from '../shared/contract';
+import type { DesktopRemoteBrowserControl, DesktopRemoteBrowserStreamFrame } from '../shared/contract';
 import { remoteBrowserImagePoint } from '../shared/remote-browser';
 import { normalizeAddressInput } from './browser-address';
 import { createRemoteBrowserInputQueue } from './remote-browser-input';
-import { readBrowserZoom, writeBrowserZoom } from './browser-zoom-level';
+import { createRemoteBrowserInputClient, type RemoteInputFrame } from './remote-browser-input-client';
+import { createRemoteTouchController } from './remote-browser-touch';
+import { useBrowserPageInput } from './use-browser-page-input';
+import { readBrowserZoom, stepBrowserZoom, writeBrowserZoom } from './browser-zoom-level';
 import { BrowserZoomPill } from './BrowserZoomPill';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
-import { createBrowserDisplayHealth } from './browser-display-health';
 import type { BrowserPaneProps } from './BrowserPane.lazy';
 
 /** Keep a zoomed frame's edges inside the box: the image may pan only as far
@@ -27,53 +30,62 @@ function clampPan(offset: number, size: number, zoom: number): number {
   return Math.min(reach, Math.max(-reach, offset));
 }
 
-const ACTIVE_POLL_MS = 350;
-const IDLE_POLL_MS = 900;
+/** The desktop stops a stream that is not renewed for 4s. */
+export const STREAM_RENEW_MS = 2_000;
+/** Same value as REMOTE_CONNECTION_READY_EVENT (remote-shim-state), which the
+ * pane must not import: it would pull the whole shim into this chunk. */
+const REMOTE_CONNECTION_READY_EVENT = 'mixdog:remote-connection-ready';
+/** A control rejected because the page moved on is not an error to show: the
+ * next frame carries the new document. */
+const PAGE_CHANGED = /\b(stale|changed)\b/i;
+const reportable = (message: string) => (PAGE_CHANGED.test(message) ? '' : message);
+const TOUCH_INDICATOR_MS = 450;
+const FALLBACK_STREAM_BOX = { maxWidth: 1280, maxHeight: 720 };
+
+type StreamFrameMeta = Omit<DesktopRemoteBrowserStreamFrame, 'image'>;
+
+async function decodeImage(url: string): Promise<void> {
+  const image = new Image();
+  image.src = url;
+  if (typeof image.decode === 'function') await image.decode();
+}
 
 export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProps) {
   const api = window.mixdogDesktop;
   const ownerSessionId = sessionId;
   const addressFocused = useRef(false);
-  const frameId = useRef('');
-  /** Frame size of the last delivered picture: the health window restarts
-   *  while the geometry keeps changing, not on every new frame id. */
-  const geometry = useRef('');
-  const health = useMemo(() => createBrowserDisplayHealth(), []);
+  const addressRef = useRef<HTMLInputElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const composing = useRef(false);
-  const wakePoll = useRef<(() => void) | null>(null);
-  const pointerStart = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
+  const keyboardRef = useRef<HTMLTextAreaElement | null>(null);
+  /** Geometry of the newest displayed frame; the input adapter reads it. */
+  const frameRef = useRef<RemoteInputFrame | null>(null);
+  const imageSize = useRef<{ width: number; height: number } | null>(null);
   const [address, setAddress] = useState('');
-  const [frame, setFrame] = useState<DesktopRemoteBrowserFrame | null>(null);
+  const [frame, setFrame] = useState<StreamFrameMeta | null>(null);
   const [imageUrl, setImageUrl] = useState('');
   const [failure, setFailure] = useState('');
   const [actionFailure, setActionFailure] = useState('');
   const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const refreshSoon = useCallback(() => wakePoll.current?.(), []);
+  const [touchDot, setTouchDot] = useState<{ x: number; y: number; key: number } | null>(null);
   const inputQueue = useMemo(
     () =>
       createRemoteBrowserInputQueue({
         send: async (input) => {
           await api?.remoteBrowserControl?.(ownerSessionId, input);
         },
-        failure: setActionFailure,
-        settled: refreshSoon,
+        failure: (message) => setActionFailure(reportable(message)),
+        settled: () => {},
       }),
-    [api, ownerSessionId, refreshSoon]
+    [api, ownerSessionId]
   );
-
-  useEffect(() => {
-    if (active) inputQueue.activate();
-    else inputQueue.dispose();
-    return () => inputQueue.dispose();
-  }, [active, inputQueue]);
-  // Client-side zoom of the frame image (user: 화면 하단 중앙에 확대축소):
-  // the desktop keeps sending the same frame; the phone scales and pans it.
-  // Tap coordinates read the image's transformed box, so they stay exact.
+  // Client-side zoom of the frame image: the desktop keeps streaming the same
+  // frame; the phone scales and pans it. Pointer coordinates read the image's
+  // transformed box, so they stay exact.
   const [zoomLevel, setZoomLevel] = useState(() => readBrowserZoom(window.localStorage, sessionId));
+  const zoomRef = useRef(zoomLevel);
+  zoomRef.current = zoomLevel;
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const panStart = useRef({ x: 0, y: 0 });
   const changeZoomLevel = useCallback(
     (level: number) => {
       const next = writeBrowserZoom(window.localStorage, ownerSessionId, level);
@@ -91,89 +103,205 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     [ownerSessionId]
   );
 
+  const shortcutRef = useRef((_name: string) => {});
+  shortcutRef.current = (name) => {
+    if (name === 'address') addressRef.current?.focus();
+    else if (name === 'zoom-in') changeZoomLevel(stepBrowserZoom(zoomRef.current, 1));
+    else if (name === 'zoom-out') changeZoomLevel(stepBrowserZoom(zoomRef.current, -1));
+    else if (name === 'zoom-reset') changeZoomLevel(1);
+  };
+  const client = useMemo(
+    () =>
+      createRemoteBrowserInputClient({
+        frame: () => frameRef.current,
+        send: (input) => {
+          setActionFailure('');
+          return inputQueue.enqueue(input);
+        },
+        failure: (message) => setActionFailure(reportable(message)),
+        shortcut: (name) => shortcutRef.current(name),
+      }),
+    [inputQueue]
+  );
+  const input = useBrowserPageInput(client, imageRef, keyboardRef);
+  const inputRef = useRef(input);
+  inputRef.current = input;
+
+  /** Client pixel → page CSS pixel through the (possibly zoomed) image box. */
+  const viewportPoint = useCallback((clientX: number, clientY: number) => {
+    const picture = frameRef.current;
+    const bounds = imageRef.current?.getBoundingClientRect();
+    if (!picture || !bounds) return null;
+    const pixel = remoteBrowserImagePoint(bounds, picture, { x: clientX, y: clientY });
+    return pixel
+      ? {
+          x: (pixel.x * picture.viewportWidth) / picture.width,
+          y: (pixel.y * picture.viewportHeight) / picture.height,
+        }
+      : null;
+  }, []);
+  const touch = useMemo(() => {
+    let dotTimer = 0;
+    return createRemoteTouchController({
+      page: viewportPoint,
+      pageDelta: (dx, dy) => {
+        const picture = frameRef.current;
+        const bounds = imageRef.current?.getBoundingClientRect();
+        if (!picture || !bounds) return { x: 0, y: 0 };
+        const scale = Math.min(bounds.width / picture.width, bounds.height / picture.height);
+        return {
+          x: (dx * picture.viewportWidth) / (picture.width * scale),
+          y: (dy * picture.viewportHeight) / (picture.height * scale),
+        };
+      },
+      send: (action) => client.fire(action),
+      panning: () => zoomRef.current > 1,
+      pan: (dx, dy) => {
+        const image = imageRef.current;
+        if (!image) return;
+        setPan((current) => ({
+          x: clampPan(current.x + dx, image.clientWidth, zoomRef.current),
+          y: clampPan(current.y + dy, image.clientHeight, zoomRef.current),
+        }));
+      },
+      indicator: (x, y) => {
+        const box = contentRef.current?.getBoundingClientRect();
+        setTouchDot({ x: x - (box?.left ?? 0), y: y - (box?.top ?? 0), key: Date.now() + Math.random() });
+        window.clearTimeout(dotTimer);
+        dotTimer = window.setTimeout(() => setTouchDot(null), TOUCH_INDICATOR_MS);
+      },
+    });
+  }, [client, viewportPoint]);
+
+  // Declared before the queue effect so an unmount releases a held press
+  // (and flushes coalesced motion) before the queue stops accepting input.
+  useEffect(
+    () => () => {
+      touch.dispose();
+      client.flush();
+    },
+    [touch, client]
+  );
   useEffect(() => {
-    if (!active || !api?.remoteBrowserFrame) return undefined;
+    if (active) inputQueue.activate();
+    else inputQueue.dispose();
+    return () => inputQueue.dispose();
+  }, [active, inputQueue]);
+
+  // Newest frame for this session only. A metadata-only frame keeps the last
+  // image; a frame is acknowledged once its image is decoded and displayed.
+  useEffect(() => {
+    if (!active || !api?.onRemoteBrowserFrame) return undefined;
+    let disposed = false;
+    let imageToken = 0;
+    /** Metadata is applied the moment a frame arrives, image or not. */
+    const applyMetadata = (next: DesktopRemoteBrowserStreamFrame) => {
+      const { image: _image, ...meta } = next;
+      const previous = frameRef.current;
+      if (previous && previous.documentId !== next.documentId) {
+        // The old document's queued/coalesced input and held buttons must not
+        // reach the new page. Releases still name the document they pressed.
+        inputQueue.reset();
+        client.reset();
+        touch.dispose();
+        inputRef.current?.onPointerCancel();
+        setActionFailure('');
+      }
+      const size = imageSize.current ?? next;
+      frameRef.current = {
+        documentId: next.documentId,
+        width: size.width,
+        height: size.height,
+        viewportWidth: next.viewportWidth,
+        viewportHeight: next.viewportHeight,
+      };
+      setFrame(meta);
+      setFailure('');
+      if (!addressFocused.current) setAddress(next.url === 'about:blank' ? '' : next.url);
+    };
+    const unsubscribe = api.onRemoteBrowserFrame((next) => {
+      if (next.sessionId !== ownerSessionId) return;
+      applyMetadata(next);
+      if (!next.image) {
+        api.remoteBrowserStreamAck?.(ownerSessionId, next.seq);
+        return;
+      }
+      const token = ++imageToken;
+      const url = `data:${next.image.mimeType};base64,${next.image.data}`;
+      const present = () => {
+        if (disposed || token !== imageToken) return;
+        imageSize.current = { width: next.width, height: next.height };
+        if (frameRef.current?.documentId === next.documentId) {
+          frameRef.current = { ...frameRef.current, width: next.width, height: next.height };
+        }
+        setImageUrl(url);
+        api.remoteBrowserStreamAck?.(ownerSessionId, next.seq);
+      };
+      decodeImage(url).then(present, present);
+    });
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [active, api, ownerSessionId, inputQueue, client, touch]);
+
+  // Live view: start, renew every ~2s while shown, stop when hidden/inactive.
+  useEffect(() => {
+    if (!active || !api?.remoteBrowserStream) return undefined;
     setFailure('');
     setActionFailure('');
-    let cancelled = false;
     let timer = 0;
-    let polling = false;
-    let wakeRequested = false;
-    const schedule = (delay: number) => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(poll, delay);
+    let running = false;
+    const renew = () => {
+      const box = contentRef.current?.getBoundingClientRect();
+      const scale = window.devicePixelRatio || 1;
+      const options =
+        box && box.width > 0 && box.height > 0
+          ? { maxWidth: Math.round(box.width * scale), maxHeight: Math.round(box.height * scale) }
+          : FALLBACK_STREAM_BOX;
+      api.remoteBrowserStream!(ownerSessionId, options).catch((error: unknown) => {
+        if (running) setFailure(error instanceof Error ? error.message : String(error));
+      });
     };
-    const poll = async () => {
-      if (polling) {
-        wakeRequested = true;
-        return;
-      }
-      polling = true;
-      let delay = 1_500;
-      try {
-        const next = await api.remoteBrowserFrame?.(ownerSessionId, frameId.current);
-        if (cancelled || !next) return;
-        frameId.current = next.frameId;
-        setFrame(next);
-        health.recovered();
-        geometry.current = `${next.width}:${next.height}`;
-        setFailure('');
-        if (next.image) {
-          setImageUrl(`data:${next.image.mimeType};base64,${next.image.data}`);
-        }
-        if (!addressFocused.current) {
-          setAddress(next.url === 'about:blank' ? '' : next.url);
-        }
-        delay = next.loading ? ACTIVE_POLL_MS : IDLE_POLL_MS;
-      } catch (error) {
-        if (cancelled) return;
-        // A page that is navigating is not a lost connection. The phone polls
-        // again at the active cadence and only reports a display that stops
-        // making progress, exactly as the desktop pane does.
-        const message = health.failed(error, Date.now(), geometry.current);
-        setFailure(message);
-        if (!message) delay = ACTIVE_POLL_MS;
-      } finally {
-        polling = false;
-        if (!cancelled) {
-          const nextDelay = wakeRequested ? 0 : delay;
-          wakeRequested = false;
-          schedule(nextDelay);
-        }
-      }
+    const begin = () => {
+      if (running) return;
+      running = true;
+      renew();
+      timer = window.setInterval(renew, STREAM_RENEW_MS);
     };
-    wakePoll.current = () => {
-      if (polling) {
-        wakeRequested = true;
-        return;
-      }
-      schedule(0);
+    const end = () => {
+      if (!running) return;
+      running = false;
+      window.clearInterval(timer);
+      api.remoteBrowserStream!(ownerSessionId, null).catch(() => {});
     };
-    void poll();
+    const visibility = () => (document.visibilityState === 'hidden' ? end() : begin());
+    // A fresh relay connection lost the desktop's stream state: start again so
+    // the view resyncs at once instead of waiting for the next renewal.
+    const reconnected = () => {
+      if (running) renew();
+    };
+    document.addEventListener('visibilitychange', visibility);
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, reconnected);
+    visibility();
     return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      wakePoll.current = null;
+      document.removeEventListener('visibilitychange', visibility);
+      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, reconnected);
+      end();
     };
-  }, [active, api, ownerSessionId, health]);
+  }, [active, api, ownerSessionId]);
 
   useEffect(() => {
-    if (keyboardOpen) inputRef.current?.focus();
+    if (keyboardOpen) keyboardRef.current?.focus();
   }, [keyboardOpen]);
 
   const control = useCallback(
-    async (input: DesktopRemoteBrowserControl) => {
+    async (next: DesktopRemoteBrowserControl) => {
       if (!api?.remoteBrowserControl) return;
-      // This ref is only the image de-duplication cursor. Input keeps the
-      // displayed frame/document even while the follow-up poll is in flight.
-      frameId.current = '';
       setActionFailure('');
-      if ((input.type === 'text' || input.type === 'key') && frame?.documentId) {
-        input = { ...input, documentId: frame.documentId };
-      }
-      await inputQueue.enqueue(input);
+      await inputQueue.enqueue(next);
     },
-    [api, inputQueue, frame?.documentId]
+    [api, inputQueue]
   );
 
   const navigate = useCallback(
@@ -186,69 +314,33 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     [control]
   );
 
-  const imagePoint = useCallback(
-    (clientX: number, clientY: number) => {
-      const image = imageRef.current;
-      if (!image || !frame) return null;
-      const bounds = image.getBoundingClientRect();
-      return remoteBrowserImagePoint(bounds, { width: frame.width, height: frame.height }, { x: clientX, y: clientY });
-    },
-    [frame]
-  );
-
-  const currentFrameId = frame?.frameId || '';
   const externalUrl = frame?.url && frame.url !== 'about:blank' ? frame.url : '';
 
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const point = imagePoint(event.clientX, event.clientY);
-    if (!point) return;
+    if (event.pointerType !== 'touch') return input.onPointerDown(event);
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    pointerStart.current = { clientX: event.clientX, clientY: event.clientY, ...point };
-    panStart.current = pan;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    touch.down(event.pointerId, event.clientX, event.clientY);
   };
-
-  // Zoomed in, a one-finger drag pans the frame instead of swiping the page.
   const pointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const start = pointerStart.current;
-    const image = imageRef.current;
-    if (!start || zoomLevel <= 1 || !image) return;
+    if (event.pointerType !== 'touch') return input.onPointerMove(event);
     event.preventDefault();
-    setPan({
-      x: clampPan(panStart.current.x + (event.clientX - start.clientX), image.clientWidth, zoomLevel),
-      y: clampPan(panStart.current.y + (event.clientY - start.clientY), image.clientHeight, zoomLevel),
-    });
+    touch.move(event.pointerId, event.clientX, event.clientY);
   };
-
   const pointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const start = pointerStart.current;
-    pointerStart.current = null;
-    if (!start) return;
+    if (event.pointerType !== 'touch') return input.onPointerUp(event);
     event.preventDefault();
-    const end = imagePoint(event.clientX, event.clientY);
-    if (!end) return;
-    const distance = Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY);
-    if (distance < 9) {
-      void control({ type: 'tap', frameId: currentFrameId, x: end.x, y: end.y });
-      return;
-    }
-    if (zoomLevel > 1) return;
-    void control({
-      type: 'swipe',
-      frameId: currentFrameId,
-      from: { x: start.x, y: start.y },
-      to: end,
-    });
+    touch.up(event.pointerId, event.clientX, event.clientY);
+  };
+  const pointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'touch') return input.onPointerCancel();
+    touch.cancel(event.pointerId);
   };
 
   const submitAddress = (event: FormEvent) => {
     event.preventDefault();
     navigate(address);
     addressFocused.current = false;
-  };
-
-  const sendPageText = (text: string) => {
-    if (text) void control({ type: 'text', frameId: currentFrameId, text });
   };
 
   return (
@@ -262,7 +354,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
           aria-label={t('Back')}
           data-tooltip={t('Back')}
         >
-          <ArrowLeft size={15} />
+          <ArrowLeft size={16} />
         </button>
         <button
           type="button"
@@ -272,7 +364,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
           aria-label={t('Forward')}
           data-tooltip={t('Forward')}
         >
-          <ArrowRight size={15} />
+          <ArrowRight size={16} />
         </button>
         <button
           type="button"
@@ -281,10 +373,11 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
           aria-label={frame?.loading ? t('Stop loading') : t('Reload')}
           data-tooltip={frame?.loading ? t('Stop loading') : t('Reload')}
         >
-          {frame?.loading ? <X size={15} /> : <RotateCw size={15} />}
+          {frame?.loading ? <X size={16} /> : <RotateCw size={16} />}
         </button>
         <form className="browser-pane-address-form" onSubmit={submitAddress}>
           <input
+            ref={addressRef}
             className="browser-pane-address"
             type="text"
             value={address}
@@ -310,7 +403,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
           aria-label={t('Type on page')}
           data-tooltip={t('Type on page')}
         >
-          <Keyboard size={15} />
+          <Keyboard size={16} />
         </button>
         <button
           type="button"
@@ -322,69 +415,46 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
           aria-label={t('Open in system browser')}
           data-tooltip={t('Open in system browser')}
         >
-          <ExternalLink size={15} />
+          <ExternalLink size={16} />
         </button>
       </div>
-      {keyboardOpen && (
-        <div className="browser-remote-keyboard">
-          <input
-            ref={inputRef}
-            type="text"
-            inputMode="text"
-            maxLength={2_000}
-            autoComplete="off"
-            autoCapitalize="none"
-            placeholder={t('Type into selected page element')}
-            onCompositionStart={() => {
-              composing.current = true;
-            }}
-            onCompositionEnd={(event) => {
-              composing.current = false;
-              sendPageText(event.currentTarget.value);
-              event.currentTarget.value = '';
-            }}
-            onInput={(event) => {
-              if (composing.current) return;
-              sendPageText(event.currentTarget.value);
-              event.currentTarget.value = '';
-            }}
-            onKeyDown={(event) => {
-              if (composing.current) return;
-              if (
-                !['Backspace', 'Enter', 'Tab', 'Escape', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(
-                  event.key
-                )
-              )
-                return;
-              event.preventDefault();
-              void control({ type: 'key', frameId: currentFrameId, key: event.key });
-            }}
-          />
-          <button type="button" onClick={() => setKeyboardOpen(false)} aria-label={t('Close')}>
-            <X size={15} />
-          </button>
-        </div>
-      )}
+      {/* One persistent textarea: the visible phone keyboard bar when open,
+          otherwise an invisible focus target for desktop key/IME/paste. */}
+      <div className="browser-remote-keyboard" data-open={keyboardOpen ? 'true' : 'false'}>
+        <textarea
+          ref={keyboardRef}
+          rows={1}
+          maxLength={2_000}
+          inputMode="text"
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          aria-label={t('Type on page')}
+          placeholder={t('Type into selected page element')}
+          onKeyDown={input.onKeyDown}
+          onInput={input.onInput}
+          onPaste={input.onPaste}
+          onBlur={input.onBlur}
+          onCompositionStart={input.onCompositionStart}
+          onCompositionUpdate={input.onCompositionUpdate}
+          onCompositionEnd={input.onCompositionEnd}
+        />
+        <button type="button" onClick={() => setKeyboardOpen(false)} aria-label={t('Close')}>
+          <X size={16} />
+        </button>
+      </div>
       <div
+        ref={contentRef}
         className="browser-pane-content browser-remote-content"
         onPointerDown={pointerDown}
         onPointerMove={pointerMove}
         onPointerUp={pointerUp}
-        onPointerCancel={() => {
-          pointerStart.current = null;
+        onPointerCancel={pointerCancel}
+        onLostPointerCapture={(event) => {
+          if (event.pointerType !== 'touch') input.onPointerCancel();
         }}
-        onWheel={(event) => {
-          const point = imagePoint(event.clientX, event.clientY);
-          if (!point) return;
-          event.preventDefault();
-          void control({
-            type: 'scroll',
-            frameId: currentFrameId,
-            ...point,
-            deltaX: event.deltaX,
-            deltaY: event.deltaY,
-          });
-        }}
+        onWheel={input.onWheel}
+        onContextMenu={(event) => event.preventDefault()}
       >
         {imageUrl && (
           <img
@@ -402,15 +472,10 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
         {!imageUrl && (
           <div className="browser-remote-empty">
             {failure ? (
-              <ErrorNotice
-                error={failure}
-                title={t('Could not connect to browser screen')}
-                onRetry={refreshSoon}
-                role="status"
-              />
+              <ErrorNotice error={failure} title={t('Could not connect to browser screen')} role="status" />
             ) : (
               <>
-                <LoaderCircle size={24} className="is-spinning" />
+                <ProgressSpinner size={24} />
                 <span>{t('Connecting to desktop Browser Use…')}</span>
               </>
             )}
@@ -422,9 +487,16 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
               errors={[imageUrl ? failure : '', actionFailure]}
               role="status"
               onDismiss={actionFailure ? () => setActionFailure('') : undefined}
-              onRetry={failure ? refreshSoon : undefined}
             />
           </div>
+        )}
+        {touchDot && (
+          <span
+            key={touchDot.key}
+            className="browser-remote-touch-dot"
+            style={{ left: touchDot.x, top: touchDot.y }}
+            aria-hidden="true"
+          />
         )}
         {imageUrl && <BrowserZoomPill level={zoomLevel} onChange={changeZoomLevel} />}
       </div>

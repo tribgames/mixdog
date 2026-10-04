@@ -50,7 +50,7 @@ test('missing liveness is unknown, and execution capacity waits are queued', () 
   assert.equal(desktopAgentActivityState({ status: 'running', stage: 'resource_wait' }), 'queued');
 });
 
-test('shell waits preserve running, queued, unknown and cancellation states', () => {
+test('background shell jobs never change an agent state or count as waiting', () => {
   for (const [status, expected] of [
     ['running', 'running'],
     ['queued', 'queued'],
@@ -63,9 +63,8 @@ test('shell waits preserve running, queued, unknown and cancellation states', ()
       expected
     );
   }
-  assert.equal(desktopAgentActivityState({ status: 'idle', shellJobCount: 1 }, { unread: true }), 'waiting');
-  assert.equal(desktopAgentActivityState({ status: 'idle', shellJobCount: 0 }, { unread: true }), 'done');
-  assert.equal(desktopAgentActivityState({ status: 'idle', shellJobCount: 0 }), 'idle');
+  assert.equal(desktopAgentActivityState({ status: 'idle', shellJobCount: 1 }, { unread: true }), 'done');
+  assert.equal(desktopAgentActivityState({ status: 'idle', shellJobCount: 1 }), 'idle');
 });
 
 async function expandAllAgentGroups() {
@@ -1280,7 +1279,7 @@ test('Agents keep sibling statuses independent under one owner', async () => {
   }
 });
 
-test('Korean Agents pane distinguishes shell work waits, unread completion and idle after reading', async () => {
+test('Korean Agents pane shows unread completion and idle after reading, regardless of shell jobs', async () => {
   const dom = installDom();
   const previousLanguage = i18n.language;
   i18n.addResourceBundle(
@@ -1336,13 +1335,13 @@ test('Korean Agents pane distinguishes shell work waits, unread completion and i
   try {
     await i18n.changeLanguage('ko');
     await renderPane(new Set(['lead-shell', 'worker-shell']));
-    // A folded child's shell still keeps its parent waiting.
-    assertStatus('lead-shell', 'waiting', '작업 대기');
+    // A folded child's shell job is not agent work: the parent is complete.
+    assertStatus('lead-shell', 'done', '작업 완료');
     assertStatus('unrelated', 'idle', '대기 중');
     await expandAllAgentGroups();
-    assertStatus('worker-shell', 'waiting', '작업 대기');
+    assertStatus('worker-shell', 'done', '작업 완료');
     await setShellCounts(1, 0);
-    assertStatus('lead-shell', 'waiting', '작업 대기');
+    assertStatus('lead-shell', 'done', '작업 완료');
     assertStatus('worker-shell', 'done', '작업 완료');
     await setShellCounts(0, 0);
     assertStatus('lead-shell', 'done', '작업 완료');

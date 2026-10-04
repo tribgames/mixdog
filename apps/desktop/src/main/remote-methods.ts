@@ -14,7 +14,7 @@ import {
 import type { DesktopService } from './desktop-service-contract';
 import type { DesktopSettingsStore } from './settings-store';
 import type { DesktopLocalPathEntry, DesktopSettings } from '../shared/contract';
-import { normalizeRemoteBrowserControl, normalizeRemoteBrowserFrameId } from '../shared/remote-browser';
+import { normalizeRemoteBrowserControl } from '../shared/remote-browser';
 import { requiredSessionId } from './desktop-state';
 import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
 import type { TerminalSpawnProfile } from './terminal-contract';
@@ -121,7 +121,7 @@ export interface RemoteMethodDependencies {
     write(id: string, data: string): void;
     resize(id: string, cols: number, rows: number): void;
   };
-  browserRemote?: (method: 'frame' | 'control' | 'release', args: unknown[]) => Promise<unknown>;
+  browserRemote?: (method: 'stream' | 'control' | 'release', args: unknown[]) => Promise<unknown>;
 }
 
 type RemoteMethod = (params: unknown[]) => unknown;
@@ -768,8 +768,6 @@ export function createRemoteMethods({
       for (const request of requests) assertRemoteCapability(request.capability);
       return host.readCapabilities(requests);
     },
-    browserRemoteFrame: ([sessionId, previousFrameId]) =>
-      requiredBrowserRemote()('frame', [requiredSessionId(sessionId), normalizeRemoteBrowserFrameId(previousFrameId)]),
     browserRemoteControl: ([sessionId, input]) =>
       requiredBrowserRemote()('control', [requiredSessionId(sessionId), normalizeRemoteBrowserControl(input)]),
     ...gitRemoteMethods(invokeDesktopOperation),

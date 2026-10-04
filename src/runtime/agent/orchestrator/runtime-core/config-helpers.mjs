@@ -227,10 +227,14 @@ export function resolveAgentTerminalReapMs(config, provider) {
 }
 
 // Resolve the effective auto-clear idle window for a config + provider:
-// an explicit user-set idleMs (config.autoClear.idleMs) always wins; else
-// fall back to the provider's default; else the global 1h default.
+// a provider-specific override (autoClear.providerIdleMs[provider]) wins;
+// else the global user-set idleMs (autoClear.idleMs); else the provider's
+// built-in window, then providerIdleMs.default / the built-in 1h default.
 export function resolveAutoClearIdleMs(config, provider) {
   const raw = config?.autoClear && typeof config.autoClear === 'object' ? config.autoClear : {};
+  const key = clean(provider).toLowerCase();
+  const providerOverride = key && key !== 'default' ? normalizeAutoClearProviderIdleMs(raw.providerIdleMs)[key] : null;
+  if (providerOverride) return providerOverride;
   const idleMs = Number(raw.idleMs);
   if (Number.isFinite(idleMs) && idleMs > 0) return Math.max(60_000, Math.round(idleMs));
   return autoClearIdleMsForProvider(provider, raw.providerIdleMs);

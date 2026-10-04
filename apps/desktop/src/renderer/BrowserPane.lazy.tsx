@@ -11,15 +11,16 @@ import {
   Globe,
   KeyRound,
   Link2,
-  LoaderCircle,
   RotateCw,
   Smartphone,
   X,
 } from 'lucide-react';
+import { ProgressSpinner } from './ProgressSpinner';
 
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { normalizeAddressInput } from './browser-address';
+import { onBrowserPageAddressRequested } from './browser-page-request';
 import { BrowserImportDialog } from './BrowserImportDialog';
 import { scheduleBrowserForegroundRepaint, watchBrowserForegroundReturns } from './browser-foreground-lifecycle';
 import {
@@ -365,10 +366,10 @@ function browserCredentialControl({
   let credentialLabel = t('Fill with stored credentials');
   if (credentialStatus === 'success') credentialLabel = t('Filled stored credentials');
   else if (credentialStatus === 'error') credentialLabel = t('Could not fill stored credentials');
-  let credentialGlyph = <KeyRound size={15} />;
-  if (credentialBusy) credentialGlyph = <LoaderCircle size={15} className="is-spinning" />;
-  else if (credentialStatus === 'success') credentialGlyph = <Check size={15} />;
-  else if (credentialStatus === 'error') credentialGlyph = <AlertTriangle size={15} />;
+  let credentialGlyph = <KeyRound size={16} />;
+  if (credentialBusy) credentialGlyph = <ProgressSpinner size={16} />;
+  else if (credentialStatus === 'success') credentialGlyph = <Check size={16} />;
+  else if (credentialStatus === 'error') credentialGlyph = <AlertTriangle size={16} />;
   return (
     <div className="browser-pane-credential-control">
       <button
@@ -396,7 +397,7 @@ function browserCredentialControl({
               role="menuitem"
               onClick={() => fillStoredCredential(credential.id)}
             >
-              <KeyRound size={15} />
+              <KeyRound size={16} />
               <span>{credential.label}</span>
             </button>
           ))}
@@ -696,6 +697,37 @@ function DesktopBrowserPane({
     }
   }, []);
 
+  // A page card in the transcript hands its address to this session's pane.
+  // The card usually opens the pane in the same press, so the address tends
+  // to arrive before the guest exists: it waits for the guest's first
+  // dom-ready instead of being dropped by a loadURL on an unattached view.
+  useEffect(() => {
+    const view = webviewRef.current;
+    let wanted = '';
+    const guestReady = () => {
+      try {
+        return Boolean(view) && Number(view?.getWebContentsId()) > 0;
+      } catch {
+        return false;
+      }
+    };
+    const loadWanted = () => {
+      if (!wanted) return;
+      const url = wanted;
+      wanted = '';
+      navigate(url);
+    };
+    const stop = onBrowserPageAddressRequested(sessionId, (url) => {
+      wanted = url;
+      if (guestReady()) loadWanted();
+    });
+    view?.addEventListener('dom-ready', loadWanted);
+    return () => {
+      stop();
+      view?.removeEventListener('dom-ready', loadWanted);
+    };
+  }, [sessionId, navigate]);
+
   useEffect(() => {
     if (!addressHasFocus || !address.trim() || !desktopApi?.browserHistorySearch) {
       setHistorySuggestions([]);
@@ -769,7 +801,7 @@ function DesktopBrowserPane({
           aria-label={t('Back')}
           data-tooltip={t('Back')}
         >
-          <ArrowLeft size={15} />
+          <ArrowLeft size={16} />
         </button>
         <button
           type="button"
@@ -779,7 +811,7 @@ function DesktopBrowserPane({
           aria-label={t('Forward')}
           data-tooltip={t('Forward')}
         >
-          <ArrowRight size={15} />
+          <ArrowRight size={16} />
         </button>
         <button
           type="button"
@@ -794,7 +826,7 @@ function DesktopBrowserPane({
           aria-label={loading ? t('Stop loading') : t('Reload')}
           data-tooltip={loading ? t('Stop loading') : t('Reload')}
         >
-          {loading ? <X size={15} /> : <RotateCw size={15} />}
+          {loading ? <X size={16} /> : <RotateCw size={16} />}
         </button>
         {browserAddressField({
           address,
@@ -811,7 +843,7 @@ function DesktopBrowserPane({
             className="browser-pane-viewport-control"
             value={viewportPresetId}
             ariaLabel={t('Browser viewport size: {{label}}', { label: t(viewportPreset.label) })}
-            leading={<Smartphone size={15} aria-hidden="true" />}
+            leading={<Smartphone size={16} aria-hidden="true" />}
             menuMinWidth={236}
             options={BROWSER_VIEWPORT_PRESETS.map((preset) => ({
               value: preset.id,
@@ -846,7 +878,7 @@ function DesktopBrowserPane({
           aria-label={t('Open in system browser')}
           data-tooltip={t('Open in system browser')}
         >
-          <ExternalLink size={15} />
+          <ExternalLink size={16} />
         </button>
         {desktopApi?.browserProfileImportSources && (
           <button
@@ -858,7 +890,7 @@ function DesktopBrowserPane({
           >
             {/* Import links this pane to a system browser's profile (user: 링크를
             연상시키는 버튼) — a chain glyph, not a download arrow. */}
-            <Link2 size={15} />
+            <Link2 size={16} />
           </button>
         )}
       </div>
@@ -909,7 +941,7 @@ function DesktopBrowserPane({
 }
 
 export default function BrowserPane(props: BrowserPaneProps) {
-  if (typeof window.mixdogDesktop?.remoteBrowserFrame === 'function') {
+  if (typeof window.mixdogDesktop?.remoteBrowserStream === 'function') {
     return <RemoteBrowserPane {...props} />;
   }
   return <DesktopBrowserPane {...props} />;

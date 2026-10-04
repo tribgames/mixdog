@@ -12,6 +12,9 @@ import { createSettingsApi } from '../settings-api.mjs';
 import {
   normalizeAutoClearConfig,
   normalizeCompactionConfig,
+  resolveAutoClearIdleMs,
+  autoClearIdleMsForProvider,
+  autoClearProviderDefaults,
 } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { createMcpGlue } from '../mcp-glue.mjs';
 import { createResourceApi } from '../resource-api.mjs';
@@ -273,27 +276,24 @@ test('definition partial edits preserve names and bodies not requested for chang
   );
 });
 
-test('schedule creation rejects missing or blank models for every delivery mode', async () => {
-  for (const delivery of ['app', 'channel', 'both']) {
-    for (const modelFields of [{}, { model: '' }, { model: ' \t ' }]) {
-      await assert.rejects(
-        run(
-          { saveSchedule },
-          {
-            action: 'save_automation',
-            automationKind: 'schedule',
-            entry: {
-              name: 'missing-model',
-              instructions: 'Test schedule',
-              at: '2035-01-01T09:00:00.000Z',
-              delivery,
-              ...modelFields,
-            },
-          }
-        ),
-        /schedule model is required/
-      );
-    }
+test('schedule creation rejects missing or blank models', async () => {
+  for (const modelFields of [{}, { model: '' }, { model: ' \t ' }]) {
+    await assert.rejects(
+      run(
+        { saveSchedule },
+        {
+          action: 'save_automation',
+          automationKind: 'schedule',
+          entry: {
+            name: 'missing-model',
+            instructions: 'Test schedule',
+            at: '2035-01-01T09:00:00.000Z',
+            ...modelFields,
+          },
+        }
+      ),
+      /schedule model is required/
+    );
   }
 });
 
@@ -396,4 +396,183 @@ test('first-use approval can be inspected, and failed persistence cannot produce
     ),
     /disk unavailable/
   );
+});
+
+test('forgetting OAuth auth names one account; several accounts require an explicit accountId', async () => {
+  const forgotten = [];
+  let accounts = [{ id: 'a1' }, { id: 'a2' }];
+  const api = {
+    getProviderSetup: async () => ({ oauth: [{ id: 'oauth-fixture' }], api: [{ id: 'api-fixture' }] }),
+    getProviderAccounts: () => ({ accounts }),
+    forgetProviderAuth: async (...args) => {
+      forgotten.push(args);
+      return { forgotten: true };
+    },
+  };
+  await assert.rejects(run(api, { action: 'forget_provider_auth', name: 'oauth-fixture' }), /2 accounts/);
+  assert.deepEqual(forgotten, []);
+  const named = await run(api, { action: 'forget_provider_auth', name: 'oauth-fixture', accountId: 'a2' });
+  assert.equal(named.accountId, 'a2');
+  accounts = [{ id: 'only' }];
+  await run(api, { action: 'forget_provider_auth', name: 'oauth-fixture' });
+  await run(api, { action: 'forget_provider_auth', name: 'api-fixture' });
+  assert.deepEqual(forgotten, [['oauth-fixture', 'a2'], ['oauth-fixture', 'only'], ['api-fixture']]);
+  await assert.rejects(
+    run(api, { action: 'forget_provider_auth', name: 'api-fixture', accountId: 'a1' }),
+    /only to OAuth/
+  );
+});
+
+test('provider account changes reach the roster API and return no usage or identity details', async () => {
+  let received;
+  const api = {
+    updateProviderAccounts: async (provider, change) => {
+      received = [provider, change];
+      return {
+        selectedId: 'a2',
+        auto: false,
+        accounts: [{ id: 'a2', label: 'Home', authenticated: true, reauthRequired: false, identity: 'x@y.test' }],
+      };
+    },
+  };
+  const result = await run(api, {
+    action: 'set_provider_account',
+    name: 'oauth-fixture',
+    providerAccount: { selectedId: 'a2', auto: false },
+  });
+  assert.deepEqual(received, ['oauth-fixture', { selectedId: 'a2', auto: false }]);
+  assert.equal(result.selectedId, 'a2');
+  assert.doesNotMatch(JSON.stringify(result), /x@y\.test/);
+  await assert.rejects(
+    run(api, { action: 'set_provider_account', name: 'oauth-fixture', providerAccount: {} }),
+    /at least one setting/
+  );
+});
+
+test('developer options with a warning turn on only with explicit risk acceptance', async () => {
+  const calls = [];
+  const view = {
+    sections: [{ id: 'providers', options: [{ id: 'risky', label: 'Risky', warning: 'Account risk.' }, { id: 'plain' }] }],
+  };
+  const api = {
+    getDeveloperSettings: () => view,
+    setDeveloperOption: async (id, enabled) => {
+      calls.push([id, enabled]);
+      return view;
+    },
+  };
+  await assert.rejects(
+    run(api, { action: 'set_developer_option', name: 'risky', enabled: true }),
+    /riskAccepted:true.*Account risk/
+  );
+  await run(api, { action: 'set_developer_option', name: 'risky', enabled: true, riskAccepted: true });
+  await run(api, { action: 'set_developer_option', name: 'risky', enabled: false });
+  await run(api, { action: 'set_developer_option', name: 'plain', enabled: true });
+  await assert.rejects(run(api, { action: 'set_developer_option', name: 'missing', enabled: true }), /Unknown/);
+  assert.deepEqual(calls, [
+    ['risky', true],
+    ['risky', false],
+    ['plain', true],
+  ]);
+});
+
+test('profile edits reject unknown language or experience ids instead of silently resetting them', async () => {
+  const saved = [];
+  const api = {
+    setProfile: (profile) => {
+      saved.push(profile);
+      return profile;
+    },
+  };
+  await assert.rejects(run(api, { action: 'set_profile', profile: { language: 'korean' } }), /profile\.language/);
+  await assert.rejects(
+    run(api, { action: 'set_profile', profile: { experienceLevel: 'senior' } }),
+    /profile\.experienceLevel/
+  );
+  await run(api, { action: 'set_profile', profile: { language: 'ko', experienceLevel: '' } });
+  assert.deepEqual(saved, [{ language: 'ko', experienceLevel: '' }]);
+});
+
+test('skill definitions read the frontmatter-free body; built-in skills accept only dependency edits', async () => {
+  const saved = [];
+  const rows = [
+    { name: 'user-skill', description: 'Mine', whenToUse: 'Probe', editable: true, toolDependencies: [] },
+    { name: 'builtin-skill', description: 'Shipped', editable: false, toolDependencies: [{ type: 'tool', value: 'setup' }] },
+  ];
+  const api = {
+    skillContent: async (name) => ({ content: `Body of ${name}.` }),
+    skillsStatus: async () => ({ skills: rows }),
+    saveSkill: async (input) => {
+      saved.push(input);
+      return { skill: input };
+    },
+  };
+  const read = await run(api, { action: 'read_definition', definitionKind: 'skill', name: 'user-skill' });
+  assert.equal(read.body, 'Body of user-skill.');
+  assert.equal(read.description, 'Mine');
+  await run(api, {
+    action: 'save_definition',
+    definitionKind: 'skill',
+    definition: { originalName: 'user-skill', description: 'Changed' },
+  });
+  assert.equal(saved.at(-1).body, 'Body of user-skill.');
+  assert.equal(saved.at(-1).whenToUse, 'Probe');
+  const dependencies = [
+    { type: 'tool', value: 'setup' },
+    { type: 'tool', value: 'memory' },
+  ];
+  await run(api, {
+    action: 'save_definition',
+    definitionKind: 'skill',
+    definition: { originalName: 'builtin-skill', toolDependencies: dependencies },
+  });
+  assert.deepEqual(saved.at(-1), { originalName: 'builtin-skill', dependenciesOnly: true, toolDependencies: dependencies });
+  await assert.rejects(
+    run(api, {
+      action: 'save_definition',
+      definitionKind: 'skill',
+      definition: { originalName: 'builtin-skill', description: 'Rewritten' },
+    }),
+    /only toolDependencies/
+  );
+});
+
+test('plugin MCP enablement resolves the registered plugin by name', async () => {
+  const plugin = { id: 'fixture-id', name: 'fixture', root: '/plugins/fixture', mcpScript: 'mcp.js' };
+  let received;
+  const api = {
+    pluginsStatus: () => ({ plugins: [plugin] }),
+    enablePluginMcp: async (value) => {
+      received = value;
+      return { serverName: 'fixture', status: { connectedCount: 1, servers: [{ name: 'fixture', connected: true }] } };
+    },
+  };
+  const result = await run(api, { action: 'enable_plugin_mcp', name: 'fixture' });
+  assert.equal(received, plugin);
+  assert.equal(result.mcp.servers[0].connected, true);
+  await assert.rejects(run(api, { action: 'enable_plugin_mcp', name: 'missing' }), /not found/);
+});
+
+test('getAutoClear: provider override beats global idleMs and is flagged', () => {
+  const config = {
+    autoClear: { enabled: true, idleMs: 7200000, providerIdleMs: { 'openai-oauth': 1800000 } },
+  };
+  for (const [provider, idleMs, providerCustom] of [
+    ['openai-oauth', 1800000, true],
+    ['anthropic-oauth', 7200000, false],
+  ]) {
+    const api = createSettingsApi({
+      getConfig: () => config,
+      getRoute: () => ({ provider }),
+      hasOwn: (value, key) => Object.hasOwn(value, key),
+      normalizeAutoClearConfig,
+      normalizeCompactionConfig,
+      resolveAutoClearIdleMs,
+      autoClearIdleMsForProvider,
+      autoClearProviderDefaults,
+    });
+    const result = api.getAutoClear();
+    assert.equal(result.idleMs, idleMs);
+    assert.equal(result.providerCustom, providerCustom);
+  }
 });

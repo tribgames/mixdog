@@ -62,12 +62,10 @@ export function isCancelUnconfirmedDesktopAgentEntry(value: unknown): boolean {
   return statusValues(value).some((status) => DESKTOP_CANCEL_UNCONFIRMED_STATUS.test(status));
 }
 
+/** Agent work still in flight. Background shell jobs are not agent work: a
+ *  long-lived shell (dev server, watcher) never makes a row wait. */
 export function hasPendingDesktopAgentWork(value: unknown): boolean {
-  return (
-    isActiveDesktopAgentEntry(value) ||
-    isCancelUnconfirmedDesktopAgentEntry(value) ||
-    Number(record(value).shellJobCount) > 0
-  );
+  return isActiveDesktopAgentEntry(value) || isCancelUnconfirmedDesktopAgentEntry(value);
 }
 
 /** The cancel status itself, not whichever of stage/status happens to come
@@ -92,8 +90,8 @@ export type DesktopAgentActivityState =
  *  carries stage `queued`, and one cancelled WHILE RUNNING still carries stage
  *  `running`, so asking the queued/active predicates first would settle both of
  *  them as work in progress or as a completion. An inactive parent with
- *  unsettled descendants or shell jobs is waiting, even if its last response
- *  is unread. */
+ *  unsettled descendant agents is waiting, even if its last response is
+ *  unread. */
 export function desktopAgentActivityState(
   value: unknown,
   options: { unread?: boolean; waitingForTasks?: boolean } = {}

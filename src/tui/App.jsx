@@ -297,6 +297,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     openOnboardingAuthStep,
     openProviderSetupPicker,
     openSettingsPicker,
+    openDeveloperPicker,
     runSlashCommand,
   } = createAppPickers({
     state,
@@ -325,7 +326,11 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     openContextPicker: (...a) => openContextPicker(...a),
   });
   // Setup tool `open` requests: app/use-ui-open-request.mjs.
-  useUiOpenRequest({ uiOpenRequest: state.uiOpenRequest, runSlashCommand });
+  useUiOpenRequest({
+    uiOpenRequest: state.uiOpenRequest,
+    runSlashCommand,
+    sections: { openDeveloperPicker, openSettingsPicker, pushNotice: (...a) => store.pushNotice(...a) },
+  });
   const {
     dragRef,
     transcriptViewportRef,

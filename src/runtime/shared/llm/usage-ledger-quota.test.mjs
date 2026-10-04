@@ -431,6 +431,32 @@ test('an idle meter stays one row, and the subscription whose meter moved opens 
   assert.equal(codex.period, null, 'an idle meter opened no window');
 });
 
+test('an early reset opens the current window before the next request', async (t) => {
+  const ledger = store(t);
+  ledger.recordQuota([reading(at(0, 30), 10), reading(at(1), 40)]);
+  // The provider resets the window two hours early; nothing has run since.
+  const early = at(2);
+  ledger.recordQuota([reading(early, 0, { resetAt: early + 5 * HOUR }), reading(at(2, 30), 0, { resetAt: early + 5 * HOUR })]);
+  const now = at(2, 31);
+  const history = await ledger.quotaHistoryAsync({ now });
+  assert.equal(history.period.fromMs, early);
+  assert.equal(history.period.toMs, early + 5 * HOUR);
+  assert.equal(history.period.isCurrent, true);
+  assert.equal(history.focus.usedPct, 0);
+  const earlier = await ledger.quotaHistoryAsync({ now, anchor: history.period.previousAnchor });
+  assert.equal(earlier.period.toMs, early, 'the reset closed the earlier window');
+  assert.equal(earlier.period.isCurrent, false);
+  assert.equal(earlier.focus.peak, 40);
+  const listed = await ledger.quotaWindowsAsync({ now });
+  assert.deepEqual(
+    listed.windows.map((row) => [row.peak, row.current]),
+    [
+      [0, true],
+      [40, false],
+    ]
+  );
+});
+
 test('a subscription opens on its weekly window unless another was asked for', async (t) => {
   const ledger = store(t);
   const week = resetAt + 5 * 24 * HOUR;

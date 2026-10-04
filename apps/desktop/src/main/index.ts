@@ -62,12 +62,12 @@ import {
   configureTitleBarThemePersistence,
   initialTitleBarWindowOverrides,
   installDesktopWindowMaterial,
-  setDesktopTitleBarZoom,
 } from './window-options';
 import {
   DESKTOP_IPC,
   type DesktopRemoteAccessInfo,
   type DesktopRemoteBrowserControl,
+  type DesktopRemoteBrowserStreamOptions,
   type DesktopSettings,
 } from '../shared/contract';
 import { persistWindowState, readWindowState } from './window-state';
@@ -595,7 +595,9 @@ unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value
       value && typeof value === 'object' ? (value as { id?: unknown; method?: unknown; args?: unknown }) : {};
     const id = typeof request.id === 'string' ? request.id : '';
     const method =
-      request.method === 'frame' || request.method === 'control' || request.method === 'release' ? request.method : '';
+      request.method === 'stream' || request.method === 'control' || request.method === 'release'
+        ? request.method
+        : '';
     const args = Array.isArray(request.args) ? request.args : [];
     if (!id || !method) return;
     void (async () => {
@@ -603,8 +605,11 @@ unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value
         if (!browserHost) throw new Error('Desktop Browser Use is unavailable.');
         const sessionId = typeof args[0] === 'string' ? args[0] : '';
         let result: unknown;
-        if (method === 'frame') {
-          result = await browserHost.remoteBrowserFrame(sessionId, typeof args[1] === 'string' ? args[1] : '');
+        if (method === 'stream') {
+          result = await browserHost.remoteBrowserStream(
+            sessionId,
+            args[1] as DesktopRemoteBrowserStreamOptions | null
+          );
         } else if (method === 'control') {
           result = await browserHost.remoteBrowserControl(sessionId, args[1] as DesktopRemoteBrowserControl);
         } else {
@@ -742,17 +747,6 @@ function startDiagnosticsEventLoopMonitor(): void {
 function installDesktopMenu(): void {
   installNativeMenu(
     Boolean(process.env.ELECTRON_RENDERER_URL),
-    {
-      reset: () => {
-        void setPersistentZoom(1);
-      },
-      zoomIn: () => {
-        void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) + 0.2);
-      },
-      zoomOut: () => {
-        void setPersistentZoom((mainWindow?.webContents.getZoomFactor() || 1) - 0.2);
-      },
-    },
     {
       // The OS window stays in Electron; the daemon owns both remote transports.
       showRemoteAccess: () => {
@@ -959,18 +953,6 @@ function handleGpuChildCrash(reason: string, exitCode: number): void {
     .finally(() => {
       gpuFallbackPromptOpen = false;
     });
-}
-
-async function setPersistentZoom(factor: number): Promise<void> {
-  const window = mainWindow;
-  if (!window || window.isDestroyed()) return;
-  const next = Math.min(10, Math.max(0.2, Math.round(factor * 100) / 100));
-  window.webContents.setZoomFactor(next);
-  setDesktopTitleBarZoom(window, next);
-  const saved = await settingsStore.updateZoom(next);
-  if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-    window.webContents.send(DESKTOP_IPC.zoomFactorChanged, saved);
-  }
 }
 
 function configuredDevelopmentUrl(candidate: string): URL {
@@ -1283,10 +1265,7 @@ async function createWindow(): Promise<void> {
     resolveRendererTarget();
 
   const statePath = join(app.getPath('userData'), 'window-state.json');
-  const [savedState, initialZoom] = await Promise.all([
-    readWindowState(statePath, screen.getAllDisplays()),
-    settingsStore.readZoom(),
-  ]);
+  const savedState = await readWindowState(statePath, screen.getAllDisplays());
   diagnostics?.write('window-state-ready', {
     totalMs: Date.now() - startupStartedAt,
   });
@@ -1332,6 +1311,14 @@ async function createWindow(): Promise<void> {
   // while the Browser Use setting is on, mirroring Computer Use.
   browserHost = createBrowserHost(window, {
     onDiagnostic: (event, data) => diagnostics?.write(event, data),
+    // Live frames and explicit reveal/hide requests reach paired clients
+    // through the service, which owns the relay and per-client pacing.
+    publishRemoteFrame: async (frame) => {
+      await serviceClient.invokeDesktopOperation('browserRemoteFrame', [frame]);
+    },
+    onSurfaceRequest: (request) => {
+      void serviceClient.invokeDesktopOperation('browserRemoteOpen', [request]).catch(() => {});
+    },
   });
   browserHost.setBridgeEnabled(browserControlEnabled);
   // A dead capture/automation CDP client can leave the renderer frozen at a
@@ -1383,16 +1370,12 @@ async function createWindow(): Promise<void> {
   window.on('session-end', () => {
     quitApproved = true;
   });
-  // Apply the persisted zoom BEFORE the first paint. It used to be applied by
-  // the renderer's lazy getZoomFactor call a beat after the window appeared,
-  // which rescaled the page and the titlebar overlay height in quick
-  // succession — the visible double "pop" of the title tab on startup.
-  if (initialZoom !== 1) {
-    setDesktopTitleBarZoom(window, initialZoom);
-    window.webContents.on('dom-ready', () => {
-      window.webContents.setZoomFactor(initialZoom);
-    });
-  }
+  // Pin only the application shell; Browser Use guests keep their own zoom.
+  window.webContents.setZoomFactor(1);
+  void window.webContents.setVisualZoomLevelLimits(1, 1);
+  window.webContents.on('dom-ready', () => {
+    window.webContents.setZoomFactor(1);
+  });
   removeIpc = registerDesktopIpc(window, host, {
     app,
     translateUi: nativeT,

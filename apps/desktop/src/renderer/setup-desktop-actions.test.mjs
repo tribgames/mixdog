@@ -6,6 +6,8 @@ import { desktopSettingsFromConfig } from '../main/settings-store.ts';
 import { SETUP_ACTIONS } from '../../../../src/session-runtime/setup-tool/tool-defs.mjs';
 import { DESKTOP_READ_CAPABILITIES } from '../shared/contract.ts';
 import { SESSION_READ_ACTIONS } from '../../../../src/standalone/session-protocol.mjs';
+import { SETUP_ACTIVITY_RAIL_PIN_IDS } from '../../../../src/session-runtime/setup-tool/settings-contract.mjs';
+import { ACTIVITY_RAIL_PIN_IDS } from '../shared/activity-rail-pins.ts';
 
 function fixture() {
   let settings = desktopSettingsFromConfig({});
@@ -14,8 +16,14 @@ function fixture() {
   let clients = [
     { id: 'phone', name: 'Phone', platform: 'mobile', browser: 'Browser', createdAt: 1, lastSeenAt: 2, online: true },
   ];
+  let railPins = { pins: ['sessions', 'agents'], revision: 1 };
   const writes = [];
   const api = {
+    readActivityRailPins: async () => railPins,
+    updateActivityRailPins: async (pins) => {
+      railPins = { pins, revision: railPins.revision + 1 };
+      return railPins;
+    },
     readSettings: async () => ({ ...settings }),
     updateSetting: async (key, value) => {
       writes.push([key, value]);
@@ -63,6 +71,17 @@ test('every persisted Desktop setting is classified and points to a real setup a
   for (const action of Object.values(DESKTOP_SETUP_SETTING_ACTIONS)) assert.ok(SETUP_ACTIONS.includes(action));
   assert.ok(DESKTOP_READ_CAPABILITIES.includes('isSetupRequestActive'));
   assert.ok(SESSION_READ_ACTIONS.includes('isSetupRequestActive'));
+});
+
+test('activity rail pins: setup accepts exactly the Desktop pin ids and replaces the ordered list', async () => {
+  assert.deepEqual(SETUP_ACTIVITY_RAIL_PIN_IDS, [...ACTIVITY_RAIL_PIN_IDS]);
+  const { run } = fixture();
+  const result = await run({ action: 'set_activity_rail_pins', activityRailPins: ['search', 'sessions'] });
+  assert.deepEqual(result.activityRailPins, ['search', 'sessions']);
+  assert.equal(result.scope, 'desktop-host');
+  const status = await run({ action: 'status', domain: 'desktop' });
+  assert.deepEqual(status.activityRailPins, ['search', 'sessions']);
+  await assert.rejects(run({ action: 'set_activity_rail_pins', activityRailPins: ['nope'] }), /known activity rail/);
 });
 
 test('Desktop changes use existing setters and preserve false and unrelated values', async () => {

@@ -227,9 +227,10 @@
 .turn-status.complete,
 .turn-status.success {
   color: var(--mx-text-soft);
-  /* The settled row and running band are the same 13px operational line;
-     12px metadata remains the one quiet rung beneath them. */
-  font-weight: var(--mx-weight-medium);
+  /* A settled turn is history, not news: regular weight, so "Response
+     complete" stops reading as loud as the answer above it (user: 코덱스보다
+     안 이쁘네 → A안). The running band keeps its medium weight. */
+  font-weight: var(--mx-weight-regular);
 }
 .turn-status.complete .turn-status-icon,
 .turn-status.success .turn-status-icon {
@@ -407,7 +408,7 @@
   overflow: hidden;
   border-radius: var(--mx-radius-sm);
   background: var(--mx-bg-base);
-  box-shadow: 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .office-approval-preview img {
   display: block;
@@ -456,18 +457,18 @@
 .code-diff {
   border-radius: var(--mx-radius-lg);
   background: var(--mx-bg-base);
-  box-shadow: 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .diff-file > header {
   gap: 6px;
   min-height: 28px;
   padding: 0 12px;
-  border-bottom: 0.5px solid var(--mx-border-muted);
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
   color: var(--mx-text-faint);
   background: transparent;
   font-size: var(--mx-font-meta);
 }
 /* Multi-file patches: the removed band used to separate stacked files. */
 .diff-file + .diff-file > header {
-  border-top: 0.5px solid var(--mx-border-muted);
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }

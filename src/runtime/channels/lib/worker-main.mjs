@@ -131,9 +131,7 @@ const statusState = new JsonStateFile(STATUS_FILE, {});
 statusState.ensure();
 const scheduler = new Scheduler(
   config.nonInteractive ?? [],
-  config.interactive ?? [],
-  // Single resolved main-channel id used for the schedule `channel` flag.
-  config.channelId
+  config.interactive ?? []
 );
 // Schedules fire as visible sessions; the session runner belongs to the
 // session-runtime layer, so this worker entry injects it (lazy, like webhooks).
@@ -220,16 +218,12 @@ scheduler.setInjectHandler((channelId, name, content, options) => {
 // actually holds the live bridge seat; otherwise the scheduler falls back to
 // the visible-session run so the fire is never lost.
 scheduler.setInjectReadyCheck(() => bridgeRuntimeConnected && currentOwnerState().owned);
-scheduler.setSendHandler(async () => {
-  // Channel delivery is retired: schedule results surface in the app session
-  // (parent notify / Automations row) only.
-});
 function wireWebhookHandlers() {
   if (!webhookServer) return;
   webhookServer.setEventPipeline(eventPipeline);
   // Webhook fires run as sessions (schedules parity); the Automations
   // session row is the only surface (channel relay retired).
-  webhookServer.setBridgeDispatch(async ({ prompt, model, cwd, workflow, attachments, delivery, context, signal }) => {
+  webhookServer.setBridgeDispatch(async ({ prompt, model, cwd, workflow, attachments, context, signal }) => {
     const { runWebhookSession } = await import('../../../session-runtime/webhook-session-run.mjs');
     const run = await runWebhookSession({
       name: context?.endpoint || 'webhook',
@@ -237,7 +231,6 @@ function wireWebhookHandlers() {
       cwd: cwd || null,
       workflow: workflow || null,
       attachments: attachments || null,
-      delivery: delivery || null,
       // Dispatch-timeout cancellation only works if the signal reaches the run.
       signal: signal || null,
       prompt,

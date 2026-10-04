@@ -6,7 +6,7 @@ import type { BrowserWindow, BrowserWindowConstructorOptions, NativeTheme } from
 import { DESKTOP_WINDOW_DEFAULT_WIDTH, DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
 
 /* Dark window band — must track --mx-window-band in desktop.css :root. */
-export const DESKTOP_BACKGROUND_COLOR = '#151518';
+export const DESKTOP_BACKGROUND_COLOR = '#18181b';
 /* Light window band (neutral set) — must track --mx-window-band on light. */
 export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#efeff2';
 export const DESKTOP_TITLEBAR_HEIGHT = 35;

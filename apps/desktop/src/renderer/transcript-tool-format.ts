@@ -7,9 +7,6 @@ export const TOOL_DETAIL_LABELS = {
   get arguments() {
     return t('Arguments');
   },
-  get content() {
-    return t('Content');
-  },
   get before() {
     return t('Before');
   },
@@ -39,6 +36,9 @@ export const TOOL_DETAIL_LABELS = {
   },
   get targets() {
     return t('Targets');
+  },
+  get prompt() {
+    return t('Prompt');
   },
 };
 
@@ -179,6 +179,20 @@ export function toolActivityCodeLanguage(pathText: string): string {
 }
 
 export const TOOL_ACTIVITY_INTERNAL_ARGS = new Set(['categoryOrder', 'loadingTargets', 'agentBatch', 'verifyShell']);
+
+/** Knobs that bound a call (how much, how long) rather than say what it did.
+ *  They are never shown: a row of "Limit 45 · Timeout 10s" told the reader
+ *  nothing about the work. */
+export const TOOL_ACTIVITY_OPERATIONAL_ARGS = new Set([
+  'limit',
+  'head_limit',
+  'output_limit',
+  'max_results',
+  'offset',
+  'timeout',
+  'timeout_ms',
+  'wait_ms',
+]);
 
 export const TOOL_ACTIVITY_BULK_ARGS = new Set([
   'old_string',
@@ -390,11 +404,9 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
   [['code_graph'], codeGraphSubject],
   [
     ['list', 'ls'],
-    (args) =>
-      toolActivityCompact([
-        toolActivityOneOrCount(toolActivityValues(args.path ?? args.dir ?? args.cwd), 'path'),
-        Number(args.limit) > 0 ? t('{{count}} entries', { count: Number(args.limit) }) : '',
-      ]),
+    // The entry limit is an argument, not what was listed: beside the result
+    // count it read as a second, contradicting total ("80 entries 81 entries").
+    (args) => toolActivityOneOrCount(toolActivityValues(args.path ?? args.dir ?? args.cwd), 'path'),
   ],
   [
     ['web_search', 'web_search_call', 'search_query', 'image_query'],
@@ -430,6 +442,8 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
     (args, _path, fallback) => toolActivityFirstText(args, 'description', 'tag', 'role', 'model') || fallback,
   ],
   [['request_user_input'], questionsSubject],
+  // "open · example.com/path": the scheme says nothing on a browser row.
+  [['browser', 'browser_devtools'], (_args, _path, fallback) => fallback.replace(/https?:\/\/(?:www\.)?/g, '')],
 ]);
 
 export function toolActivitySubject(normalizedName: string, args: Record<string, unknown>, fallback: string): string {
@@ -544,7 +558,7 @@ const TOOL_REPRESENTED_KEYS = byToolName<readonly string[]>([
   [['find'], ['query', 'fuzzy', 'path']],
   [
     ['list', 'ls'],
-    ['path', 'dir', 'cwd', 'limit'],
+    ['path', 'dir', 'cwd'],
   ],
   [
     ['web_search', 'web_search_call', 'search_query', 'image_query'],

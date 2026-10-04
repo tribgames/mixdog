@@ -5,7 +5,7 @@
   display: grid;
   gap: 6px;
   padding: 8px 10px;
-  border: 0.5px solid var(--mx-border);
+  border: var(--mx-hairline) solid var(--mx-border);
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: var(--mx-bg-layer-1);
@@ -106,7 +106,7 @@
   color: var(--mx-text-muted);
 }
 .error-notice-details pre + pre {
-  border-top: 0.5px solid var(--mx-border);
+  border-top: var(--mx-hairline) solid var(--mx-border);
 }
 .mx-toast > .error-notice {
   width: 100%;

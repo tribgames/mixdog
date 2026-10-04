@@ -1,4 +1,5 @@
 import type { DesktopApi, DesktopSettingKey, DesktopCapability, DesktopRemoteAccessInfo } from '../shared/contract';
+import { normalizeActivityRailPins } from '../shared/activity-rail-pins';
 
 type Values = Record<string, unknown>;
 export interface SetupPreferences {
@@ -37,7 +38,12 @@ type SetupActionContext = {
 async function statusAction({ args, api, preferences, invoke, projects }: SetupActionContext): Promise<Values> {
   switch (args.domain) {
     case 'desktop':
-      return { settings: await api.readSettings(), voice: await invoke('getVoiceStatus'), scope: 'desktop-host' };
+      return {
+        settings: await api.readSettings(),
+        voice: await invoke('getVoiceStatus'),
+        activityRailPins: (await api.readActivityRailPins())?.pins ?? null,
+        scope: 'desktop-host',
+      };
     case 'appearance':
       return {
         ...(await preferences.read()),
@@ -117,6 +123,14 @@ async function builtinAction(
   const result = await mutate(() => api.updateSetting(enabledKey, enabled));
   if (result[enabledKey] !== enabled) throw new Error(`${name} enabled state was not saved`);
   return saved({ settings: result }, 'Desktop settings now; tool availability follows the session feature policy');
+}
+
+async function setActivityRailPinsAction({ args, api, mutate, saved }: SetupActionContext): Promise<Values> {
+  const pins = normalizeActivityRailPins(args.activityRailPins);
+  if (!pins) throw new Error('activityRailPins must list known activity rail items');
+  const state = await mutate(() => api.updateActivityRailPins(pins));
+  if (state.pins.join('\n') !== pins.join('\n')) throw new Error('Activity rail pins were not saved');
+  return saved({ activityRailPins: state.pins });
 }
 
 async function saveProjectAction({ args, api, mutate, projects, saved }: SetupActionContext): Promise<Values> {
@@ -203,6 +217,8 @@ export async function executeSetupDesktopAction(
       return removeProjectAction(context);
     case 'revoke_linked_device':
       return revokeLinkedDeviceAction(context);
+    case 'set_activity_rail_pins':
+      return setActivityRailPinsAction(context);
     default:
       throw new Error(`Unsupported Desktop setup action: ${action}`);
   }

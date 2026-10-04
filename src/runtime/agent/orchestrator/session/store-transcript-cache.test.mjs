@@ -169,6 +169,24 @@ test('a recent ctime or incomplete identity cannot use the stat-only fast path',
   }
 });
 
+test('a released projection is reused on revisit while idle ones fit their own budget', async () => {
+  // {"items":[]} is 12 serialized bytes: two idle projections fit 24.
+  const cache = createStoredTranscriptCache({ maxIdleBytes: 24 });
+  const produce = () => ({ items: [] });
+  const base = { fingerprint: '', fileStat: stat(1, 4), now: 10_000, produce };
+  for (const key of ['a|1', 'b|1', 'c|1']) await cache.read({ ...base, key, loadText: text(key) });
+  cache.release('a|', 10_000);
+  assert.equal(cache.stats().entries, 3);
+  const revisit = await cache.read({ ...base, key: 'a|1', now: 10_001, loadText: text('a|1') });
+  assert.equal(revisit.hit, true, 'the view that left comes back without a parse');
+  for (const prefix of ['a|', 'b|', 'c|']) cache.release(prefix, 10_001);
+  assert.equal(cache.stats().entries, 2, 'the least recently used idle projection goes');
+  const dropped = await cache.read({ ...base, key: 'b|1', now: 10_001, loadText: text('b|1') });
+  assert.equal(dropped.hit, false);
+  const kept = await cache.read({ ...base, key: 'a|1', now: 10_001, loadText: text('a|1') });
+  assert.equal(kept.hit, true);
+});
+
 test('the cache stays within its entry and projected-byte budgets', async () => {
   // {"items":[]} is 12 serialized bytes; the source text size is irrelevant.
   const cache = createStoredTranscriptCache({ maxEntries: 2, maxBytes: 30 });

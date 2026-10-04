@@ -1,4 +1,4 @@
-import { MoreHorizontal } from 'lucide-react';
+import { ArrowLeftRight } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ProviderAccountsList } from './ProviderAccountsList';
@@ -55,7 +55,7 @@ export function ProviderAccountPicker({ api, provider }: { api?: UsageApi; provi
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <MoreHorizontal size={16} aria-hidden="true" />
+        <ArrowLeftRight size={14} aria-hidden="true" />
       </button>
       {open &&
         createPortal(

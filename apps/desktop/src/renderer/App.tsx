@@ -697,6 +697,7 @@ export function App() {
   useAppWorkspaceWarmup({
     ready: desktopBootReady,
     workspace: paneWorkspace,
+    sessions,
     mountSidebarPanel,
     trackSidebarPanelModule,
   });

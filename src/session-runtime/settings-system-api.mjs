@@ -1,39 +1,21 @@
-// Channels, the system shell and self-update settings.
+// Automation worker status, the system shell and self-update settings.
 export function createSystemSettings({
   getConfig,
   saveConfigAndAdopt,
   normalizeSystemShellConfig,
   normalizeSystemShellCommand,
   setConfiguredShell,
-  setModuleEnabledInConfig,
   localPackageVersion,
-  channelsEnabled,
   autoUpdateEnabled,
   getUpdateCheckState,
   getUpdateProcessState,
-  invalidatePreSessionToolSurface,
   channels,
-  clearChannelStartTimer,
   checkForUpdateInternal,
   runUpdateNowInternal,
 }) {
   return {
     getChannelSettings(options = {}) {
-      return {
-        enabled: channelsEnabled(),
-        ...(options?.includeStatus === false ? {} : { status: channels.status() }),
-      };
-    },
-    async setChannelsEnabled(enabled) {
-      const config = getConfig();
-      const nextConfig = setModuleEnabledInConfig({ ...config }, 'channels', enabled !== false);
-      saveConfigAndAdopt(nextConfig);
-      if (!channelsEnabled()) {
-        clearChannelStartTimer();
-        await channels.stop('settings-disabled', { waitForExit: false }).catch(() => {});
-      }
-      invalidatePreSessionToolSurface();
-      return this.getChannelSettings();
+      return options?.includeStatus === false ? {} : { status: channels.status() };
     },
     getSystemShell() {
       const config = getConfig();

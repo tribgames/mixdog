@@ -52,7 +52,16 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     startTask: () => call('startTask'),
     listProjects: () => call('listProjects'),
     addProject: (projectPath) => call('addProject', [projectPath]),
-    remoteBrowserFrame: (sessionId, previousFrameId) => call('browserRemoteFrame', [sessionId, previousFrameId ?? '']),
+    remoteBrowserStream: (sessionId, options) => call('browserRemoteStream', [sessionId, options]),
+    remoteBrowserStreamAck: (sessionId, seq) => fire('browserRemoteStreamAck', [sessionId, seq]),
+    onRemoteBrowserFrame: (listener) => {
+      ctx.remoteBrowserFrameListeners.add(listener);
+      return () => { ctx.remoteBrowserFrameListeners.delete(listener); };
+    },
+    onBrowserOpenRequested: (listener) => {
+      ctx.browserOpenListeners.add(listener);
+      return () => { ctx.browserOpenListeners.delete(listener); };
+    },
     remoteBrowserControl: (sessionId, input) => call('browserRemoteControl', [sessionId, input]),
     renameProject: (projectPath, alias) => call('renameProject', [projectPath, alias]),
     removeProject: (projectPath) => call('removeProject', [projectPath]),

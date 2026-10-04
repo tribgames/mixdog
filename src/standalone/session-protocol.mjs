@@ -138,7 +138,6 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'setAgentRoute',
   'setAutoClear',
   'setAutoUpdate',
-  'setChannelsEnabled',
   'setCompactionSettings',
   'setCwd',
   'setDeveloperOption',

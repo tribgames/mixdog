@@ -8,15 +8,24 @@ import type {
   CompositionEvent,
   WheelEvent,
 } from 'react';
-import type { createBrowserPageClient } from './browser-page-client';
+import type { DesktopBrowserPageAction } from '../shared/contract';
 import { remoteBrowserImagePoint } from '../shared/remote-browser';
+
+/** What the input hook needs from a page client: the local isolated page
+ * client and the relay-stream adapter both satisfy it. */
+export interface BrowserPageInputClient {
+  frame(): { width: number; height: number; viewportWidth: number; viewportHeight: number } | null;
+  fire(action: DesktopBrowserPageAction, token?: string): void;
+  shortcut(shortcut: string): void;
+  inputToken(): string;
+}
 
 const POINTER_BUTTONS: Partial<Record<number, 'middle' | 'right'>> = { 1: 'middle', 2: 'right' };
 const POINTER_BUTTON_BITS: Partial<Record<number, number>> = { 0: 1, 1: 4 };
 const COMMAND_KEY_SHORTCUTS: Partial<Record<string, string>> = { l: 'address', '0': 'zoom-reset', '-': 'zoom-out' };
 
 export function useBrowserPageInput(
-  client: ReturnType<typeof createBrowserPageClient>,
+  client: BrowserPageInputClient,
   image: RefObject<HTMLElement | null>,
   keyboard: RefObject<HTMLTextAreaElement | null>
 ) {

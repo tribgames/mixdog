@@ -19,7 +19,7 @@ test('schedule log lines are not double-terminated on stderr', async () => {
     return true;
   };
   try {
-    await scheduler.fireTimedPrompt({ name: 'daily', model: 'm' }, 'non-interactive', 'p', null);
+    await scheduler.fireTimedPrompt({ name: 'daily', model: 'm' }, 'non-interactive', 'p');
   } finally {
     process.stderr.write = original;
   }

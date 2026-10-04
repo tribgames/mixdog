@@ -2,8 +2,16 @@ import type { TranscriptItem } from './desktop-types';
 import { normalizeApplyPatch } from './renderer-logic.mjs';
 import { asRecord, oneLine } from './text-format';
 import {
+  toolFileEntries,
+  toolFileSection,
+  toolOutputSections,
+  type ToolFileEntry,
+  type ToolOutputSection,
+} from './transcript-tool-sections';
+import {
   desktopToolActivityCategory,
   desktopToolActivityModeledName,
+  desktopToolActivityRowVerb,
   desktopToolActivityUnitLabel,
   toolActivityItemTone,
   toolItemDone,
@@ -13,8 +21,8 @@ import {
   TOOL_ACTIVITY_BULK_ARGS,
   TOOL_ACTIVITY_INTERNAL_ARGS,
   TOOL_ACTIVITY_MEANINGLESS_RESULT,
+  TOOL_ACTIVITY_OPERATIONAL_ARGS,
   TOOL_ACTIVITY_ROUTINE_RESULT,
-  TOOL_DETAIL_LABELS,
   toolActivityCodeLanguage,
   toolActivityCommand,
   toolActivityFieldLabel,
@@ -69,6 +77,8 @@ const ROUTINE_RESULT_TOOLS = new Set([
 interface DesktopToolActivityItemPresentation {
   category: string;
   title: string;
+  /** The short verb the call's own row opens with. */
+  verb: string;
   subject: string;
   /** Each target of a call that carried several (files, patterns, commands…). */
   targets: string[];
@@ -81,9 +91,7 @@ interface DesktopToolActivityItemPresentation {
   outputText: string;
   metaText: string;
   outputLanguage: string;
-  previewLabel: string;
   previewText: string;
-  previewLanguage: string;
   beforeText: string;
   afterText: string;
   replacementLanguage: string;
@@ -95,6 +103,96 @@ interface DesktopToolActivityItemPresentation {
    *  subject can open it like a chat file link. */
   targetPath: string;
   targetLine?: number;
+  /** The subject as the row shows it: a file target by name, not full path. */
+  headerSubject: string;
+  /** The subject names the target itself, so it may open it. A search
+   *  pattern beside a search folder is not a link to that folder. */
+  subjectIsTarget: boolean;
+  /** How the row sets its subject: a file or a count of them reads as a
+   *  name, a command or pattern as code, anything else as plain words. */
+  subjectKind: 'target' | 'code' | 'text';
+  /** A read, grep or code-graph result as per-file sections of numbered rows. */
+  sections: ToolOutputSection[];
+  /** A glob, find or list result as file rows, with the lines that are not. */
+  entries: ToolFileEntry[];
+  entryNotes: string[];
+  /** What the copy control of a sectioned result writes. */
+  sectionCopyText: string;
+  /** Short scalar arguments, shown as one quiet line instead of a table. */
+  fieldsInline: boolean;
+  /** Output that is literal text (file rows, matches, a listing, a command's
+   *  output), never markdown: a `# grep src/a.ts` section is not a heading. */
+  outputLiteral: boolean;
+  /** The instructions an agent call handed over. */
+  promptText: string;
+}
+
+const LITERAL_OUTPUT_CATEGORIES = new Set(['Read', 'Search', 'Git', 'Shell', 'Patch', 'Task']);
+const CODE_SUBJECT_TOOLS = /^(?:shell|bash|bash_session|shell_command|job_wait|git|grep|glob|find|code_graph)$/;
+const SECTION_TOOLS = new Set(['read', 'grep', 'code_graph']);
+const LISTING_TOOLS = new Set(['glob', 'find', 'list', 'ls']);
+
+const HUNK_HEADER = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
+
+/** A unified diff whose every hunk carries the line counts its header states.
+ *  Output cut at a limit fails this and stays terminal text: the diff view
+ *  cannot draw half a hunk. */
+function isCompletePatch(text: string): boolean {
+  if (!/^diff --git /.test(text)) return false;
+  let hunks = 0;
+  let oldLeft = 0;
+  let newLeft = 0;
+  for (const line of text.split('\n')) {
+    const header = HUNK_HEADER.exec(line);
+    if (header) {
+      if (oldLeft || newLeft) return false;
+      hunks += 1;
+      oldLeft = Number(header[1] ?? 1);
+      newLeft = Number(header[2] ?? 1);
+      continue;
+    }
+    if (!oldLeft && !newLeft) {
+      if (hunks && line && !/^(?:diff --git |index |--- |\+\+\+ |new file|deleted file|similarity|rename|old mode|new mode|\\)/.test(line)) {
+        return false;
+      }
+      continue;
+    }
+    if (line.startsWith('+')) newLeft -= 1;
+    else if (line.startsWith('-')) oldLeft -= 1;
+    else if (line.startsWith(' ') || line === '') {
+      oldLeft -= 1;
+      newLeft -= 1;
+    } else if (!line.startsWith('\\')) return false;
+    if (oldLeft < 0 || newLeft < 0) return false;
+  }
+  return hunks > 0 && !oldLeft && !newLeft;
+}
+
+function isJsonText(text: string): boolean {
+  const trimmed = text.trim();
+  if (!/^[{[]/.test(trimmed)) return false;
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The row already says "Git": `git diff -- a.ts` reads as `diff -- a.ts`. */
+function rowSubject(normalizedName: string, subject: string): string {
+  return normalizedName === 'git' ? subject.replace(/^git\s+/, '') : subject;
+}
+
+/** `src/app/a.ts:3-9` reads as `a.ts:3-9` on the row; the panel names the path. */
+function fileHeaderSubject(subject: string, targetPath: string): string {
+  if (!targetPath || !subject.startsWith(targetPath)) return subject;
+  const base =
+    targetPath
+      .replace(/[\\/]+$/, '')
+      .split(/[\\/]/)
+      .pop() || targetPath;
+  return `${base}${subject.slice(targetPath.length)}`;
 }
 
 export function desktopToolActivityItemPresentation(
@@ -172,6 +270,7 @@ export function desktopToolActivityItemPresentation(
         !represented.has(key) &&
         !TOOL_ACTIVITY_INTERNAL_ARGS.has(key) &&
         !TOOL_ACTIVITY_BULK_ARGS.has(key) &&
+        !TOOL_ACTIVITY_OPERATIONAL_ARGS.has(key) &&
         value !== false &&
         value !== 0
     )
@@ -188,13 +287,15 @@ export function desktopToolActivityItemPresentation(
   else if (normalizedName === 'apply_patch' && typeof args.patch === 'string') {
     diffPatch = normalizeApplyPatch(args.patch).trim();
   }
-  const previewText = originalName === 'write' && typeof args.content === 'string' ? args.content : '';
+  // A written file that already has a diff shows the diff alone: the preview
+  // would repeat every line of it.
+  const previewText =
+    !diffPatch && originalName === 'write' && typeof args.content === 'string' ? args.content : '';
   const beforeText =
     !diffPatch && normalizedName === 'edit' ? toolActivityFirstText(args, 'old_string', 'oldString', 'old_str') : '';
   const afterText =
     !diffPatch && normalizedName === 'edit' ? toolActivityFirstText(args, 'new_string', 'newString', 'new_str') : '';
   const targetPath = toolActivityFirstText(args, 'file_path', 'filePath', 'path', 'file', 'target');
-  const previewLanguage = previewText ? toolActivityCodeLanguage(targetPath) : '';
   const replacementLanguage = beforeText || afterText ? toolActivityCodeLanguage(targetPath) : '';
   const rawOutput = item.result ?? model.displayedResultBodyText ?? item.rawResult;
   let outputText =
@@ -251,8 +352,56 @@ export function desktopToolActivityItemPresentation(
   ) {
     outputText = '';
   }
+  // A clean exit is the default; the row only reports the ones that are not.
+  if (/^Exit 0$/i.test(resultLabel)) resultLabel = '';
+  // A patch's first line ("diff --git a/… b/…") is not an outcome.
+  if (/^diff --git /.test(resultLabel)) resultLabel = '';
+  // A patch summary ("Updated 2 Files · +129 lines") repeats the row's verb:
+  // the row keeps what was touched, and the line delta moves to the outcome.
+  const patchSummary =
+    category === 'Patch' && tone === 'neutral'
+      ? /^(?:Updated|Created|Deleted|Changed) (.+?)(?: · (.+))?$/.exec(subject || resultLabel)
+      : null;
+  if (patchSummary && (!subject || !resultLabel)) resultLabel = patchSummary[2] ?? '';
   resultLabel = resultLabel ? toolActivityLocalizedResult(resultLabel) : '';
-  const outputLanguage = outputText && !command && /^[{[]/.test(outputText.trimStart()) ? 'json' : '';
+  // Only text that parses is JSON: a log line opening with "[warn]" is not.
+  const outputLanguage = outputText && !command && isJsonText(outputText) ? 'json' : '';
+  // A clean exit is the default; only a failing code is worth a line.
+  if (command && normalizedName !== 'git') outputText = outputText.replace(/^\[exit code: 0\]\n*/, '');
+  // `git diff` output is a patch: it renders as the diff card, not as text.
+  if (normalizedName === 'git' && command && !diffPatch && isCompletePatch(outputText)) {
+    diffPatch = outputText;
+    outputText = '';
+  }
+  let sections: ToolOutputSection[] = [];
+  if (previewText) sections = [toolFileSection(previewText, targetPath)];
+  else if (outputText && SECTION_TOOLS.has(normalizedName)) {
+    sections = toolOutputSections(
+      outputText,
+      normalizedName as 'read' | 'grep' | 'code_graph',
+      normalizedName === 'read' && !targets.length ? targetPath : ''
+    );
+  }
+  const listing =
+    outputText && LISTING_TOOLS.has(normalizedName)
+      ? toolFileEntries(
+          outputText,
+          /^(?:list|ls)$/.test(normalizedName) ? toolActivityFirstText(args, 'path', 'dir', 'cwd') : ''
+        )
+      : { entries: [], notes: [] };
+  let sectionCopyText = outputText;
+  if (previewText) sectionCopyText = previewText;
+  else if (normalizedName === 'read') {
+    sectionCopyText = sections.map((section) => section.rows.map((row) => row.text).join('\n')).join('\n\n');
+  }
+  let subjectKind: 'target' | 'code' | 'text' = 'text';
+  // A file, or a bare count of targets ("4 files"), names what was touched.
+  if ((targetPath && subject.startsWith(targetPath)) || (targets.length > 0 && !subject.includes(' · '))) {
+    subjectKind = 'target';
+  }
+  if (subjectKind === 'text' && CODE_SUBJECT_TOOLS.test(normalizedName)) subjectKind = 'code';
+  const promptText =
+    normalizedName === 'agent' && !model.isAgentResponse ? toolActivityFirstText(args, 'prompt') : '';
   const hasDetails = Boolean(
     command ||
       targets.length ||
@@ -260,7 +409,8 @@ export function desktopToolActivityItemPresentation(
       diffPatch ||
       outputText ||
       metaText ||
-      previewText ||
+      sections.length ||
+      promptText ||
       beforeText ||
       afterText ||
       structured.rows.length
@@ -268,6 +418,7 @@ export function desktopToolActivityItemPresentation(
   return {
     category,
     title,
+    verb: desktopToolActivityRowVerb(name, item.args),
     subject,
     targets,
     resultLabel,
@@ -279,9 +430,7 @@ export function desktopToolActivityItemPresentation(
     outputText,
     metaText,
     outputLanguage,
-    previewLabel: previewText ? TOOL_DETAIL_LABELS.content : '',
     previewText,
-    previewLanguage,
     beforeText,
     afterText,
     replacementLanguage,
@@ -291,5 +440,15 @@ export function desktopToolActivityItemPresentation(
     hideSubjectWhenOpen: Boolean(command),
     targetPath,
     ...(normalizedName === 'read' && Number(args.offset) > 0 ? { targetLine: Math.floor(Number(args.offset)) } : {}),
+    headerSubject: rowSubject(normalizedName, patchSummary?.[1].toLowerCase() ?? fileHeaderSubject(subject, targetPath)),
+    subjectIsTarget: Boolean(targetPath) && subject.startsWith(targetPath),
+    subjectKind: patchSummary ? 'target' : subjectKind,
+    sections,
+    entries: listing.entries,
+    entryNotes: listing.notes,
+    sectionCopyText,
+    fieldsInline: fields.every((field) => field.value.length <= 40 && !field.value.includes('\n')),
+    outputLiteral: LITERAL_OUTPUT_CATEGORIES.has(category),
+    promptText,
   };
 }

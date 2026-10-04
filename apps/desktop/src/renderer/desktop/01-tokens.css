@@ -62,18 +62,14 @@
   --mx-green-1200: #14361d;
   --mx-avatar-shadow: #00000066;
 
-  /* ── 2. Surfaces (back → front) ──
-     ONE dark ramp — the ORIGINAL Mixdog grey ramp, restored as THE default
-     (user: 그레이 색을 다크 기본으로 롤백, 별도 Gray 테마는 삭제); the
-     black Codex-style ramp is retired. Every step carries a +3 blue offset —
-     a perfectly equal-channel grey reads warm next to the shell's
-     amber/orange content (user: 갈색빛이 있다), and the offset cancels it
-     while still measuring as neutral grey.
-     Band = rails/titlebar/window bezel vs sheet = workspace; the
-     composer/menu surface sits lighter so cards float. */
+  /* ── 2. Surfaces ──
+     Dark content sits inside a slightly lighter sidebar/frame. Cards and
+     the composer keep their existing raised tones; only the shell's broad
+     surfaces deepen. A small blue offset keeps these near-black neutrals
+     from looking brown beside warm content. */
   --mx-bg-deep: #101013;
-  --mx-window-band: #151518;
-  --mx-workspace-sheet: #1c1c1f;
+  --mx-window-band: #18181b;
+  --mx-workspace-sheet: #111113;
   --mx-bg-base: #222225;
   --mx-bg-layer-1: #2a2a2d;
   --mx-bg-layer-2: #323236;
@@ -89,8 +85,9 @@
   --mx-composer-surface: var(--mx-bg-layer-1);
   --mx-composer-lift: 0 12px 24px -4px rgb(0 0 0 / 22%);
   --mx-user-bubble: var(--mx-bg-layer-1);
-  /* Terminal canvas stays dark in every theme (xterm palette parity). */
+  /* Terminal canvas and ink stay dark-theme paired in every app theme. */
   --mx-terminal-bg: #121215;
+  --mx-terminal-fg: #e9e9e9;
 
   /* ── Type scale ── */
   /* One chrome ramp on SIX real sizes — 12 badge · 13 meta · 14 item ·
@@ -134,7 +131,10 @@
      so every cue points one way: heavier AND brighter than the 14/400 rows,
      one size under the 16px panel title. */
   --mx-rail-label-size: var(--mx-font-item);
-  --mx-rail-label-weight: var(--mx-weight-semibold);
+  /* 500, not 600: at 600 the labels out-shouted the rows and the panel
+     title together (user: 왼쪽 사이드패널 헤더랑 카테고리 굵기 넘 굵은 거
+     아니냐). Full ink and one weight step still rank them above the rows. */
+  --mx-rail-label-weight: var(--mx-weight-medium);
   --mx-rail-label-ink: var(--mx-text);
   /* Page-scale titles and figures: the Settings page title, the large
      command dialogs (Context, Usage, Doctor) and a dashboard card's figure.
@@ -161,8 +161,10 @@
      references set, but Hangul (and CJK generally) fills its line box edge to
      edge, so the identical ratio reads packed (user: 행간이 특히 빡빡하다).
      1.73 is the CJK reading band, and it also gives Thai/Devanagari/Arabic
-     marks the vertical room the tighter box clipped. Chrome rows keep 24. */
-  --mx-line-prose: 26px;
+     marks the vertical room the tighter box clipped. Chrome rows keep 24.
+     Back to 24 beside Codex's tighter prose, chosen side by side with the
+     looser rhythm (user: 코덱스보다 안 이쁘네 → A안). */
+  --mx-line-prose: 24px;
   /* Tracking, two steps beside the 0 base: tight for 14px+ headings,
      wide for uppercase micro labels/badges. Sub-.015em strays dropped to
      0; content strays (onboarding hero -.45px, PR title -.015em,
@@ -180,29 +182,32 @@
      heavier than the mono rows beside it, and 400 disappears under them, so
      13px/500 is the weight that sits right in both places. It is a LABEL
      tier — do not let it creep back into body text or row copy.
-     450 remains the Pretendard reading weight for transcript prose; Markdown
-     strong uses the 500 label step without changing size. */
+     Transcript prose reads at 400 like the reference chat apps: 450 made
+     every paragraph look bold beside Codex (user: 일부 글씨가 너무 굵나). */
   --mx-weight-regular: 400;
-  --mx-weight-body: 450;
+  --mx-weight-body: 400;
   --mx-weight-medium: 500;
   --mx-weight-semibold: 600;
-  /* Markdown `strong` only. Transcript prose reads at 450, so the 600 chrome
-     tier cleared it by too little to register as emphasis in Hangul (user:
-     볼드가 티가 안 난다). The variable faces carry a real 650 instance —
-     `font-synthesis: none` never synthesizes it — and 650 keeps strong clear
-     of the 600 heading tier, where size and ink carry the hierarchy. */
+  /* Markdown `strong` only. 600 over the 400 prose still did not register
+     as emphasis in Hangul (user: 볼드가 티가 안 나긴 하네); the variable faces
+     carry a real 650 instance — weight synthesis stays disabled —
+     which clears the body by 250 while staying off the 700 display tier. */
   --mx-weight-strong: 650;
   /* A row or field LABEL beside its value (Settings rows). Semibold is the
      heading tier; a label sits one step under it (user: 폰트 위계 · 웨이트). */
   --mx-weight-label: var(--mx-weight-medium);
   /* Opacity ladder, five tiers between the functional 0/1: ghost .35
-     (always-visible disabled arrows) < disabled .45 (standard disabled
-     controls) < dim .55 (cut/waiting content, skeleton low) < secondary
+     (always-visible disabled arrows) < dim .55 (cut/waiting content,
+     skeleton low) < disabled .6 (standard disabled controls) < secondary
      .72 (companion glyphs) < soft .85 (near-full rest states). Strays
      (.25/.3, .4-.5, .58/.6, .65/.7, .8/.9) converged to the nearest
      tier; the .999 compositing hack stays literal. */
   --mx-op-ghost: 0.35;
-  --mx-op-disabled: 0.45;
+  /* 0.6, not 0.45: at 0.45 a disabled row fell to ~2:1 in BOTH themes — an
+     uninstalled extension, a busy action — and read as missing, not as
+     unavailable (user: 잘 안 보이는 것도 있고). 0.6 keeps the label near 4:1
+     and is still an unmistakable step under a live control. */
+  --mx-op-disabled: 0.6;
   --mx-op-dim: 0.55;
   --mx-op-secondary: 0.72;
   --mx-op-soft: 0.85;
@@ -210,11 +215,14 @@
   /* ── 3. Ink: text, icons, borders ── */
   --mx-text: #e9e9e9;
   --mx-text-muted: #a8a8a8;
-  /* 5.8:1 on sheet. #8a8a8a sat at 4.8 and structured-input keys, group
-     headings and counters read as grey mush next to their full-ink rows
-     (user: 중요한 라벨 이름이 잘 안 보인다); it still lands a clear step
-     under muted's 6.9 so the tier keeps its meaning. */
-  --mx-text-faint: #9b9b9b;
+  /* Faint IS muted. It was raised for legibility until it sat one shade under
+     muted (#9b9b9b against #a8a8a8, 5.8 against 6.9:1) — a step no eye could
+     read, which left three near-identical greys on screen and no real third
+     tier (user: 정리가 덜 된 느낌). AA leaves no room for a lighter one, so
+     the ladder is honest about having two greys: soft (85% of the ink) and
+     muted. The name stays so its 130-odd call sites keep saying "this is the
+     quietest text here". */
+  --mx-text-faint: var(--mx-text-muted);
   /* Soft ink: one step under full text (was ad-hoc 80/82/85% color-mix
      strays). Mix keeps it theme-adaptive like the strays it replaces. */
   --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
@@ -234,12 +242,13 @@
   --mx-row-meta-ink: var(--mx-text-muted);
   /* Brand accent = Google's own blue (user: 구글색이 낫다). The Material 3
      indigo tones this replaces sat near hue 275 and read pale violet rather
-     than the Google indigo they were meant to echo: #8ab4f8 is the accent
-     Google draws on its dark UI, and paper takes its 700 rung #1967d2 (the
-     #1a73e8 link blue fell under 4.5:1 on every paper plate except white).
+     than the Google indigo they were meant to echo. Dark takes the 400 rung
+     #669df6: the 300 rung #8ab4f8 read pastel at 9:1 on the sheet, where the
+     reference dark themes hold their link blue at 6-7:1 (VS Code #4daafc,
+     Primer #4493f8). Paper takes the 800 rung (light block below).
      It lives on the THEME, not on a surface attribute, so the web shell
      paints the same accent as the desktop window. */
-  --mx-text-accent: #8ab4f8;
+  --mx-text-accent: #669df6;
   --mx-accent: var(--mx-text-accent);
   /* Markdown inline-code ink stays a SEPARATE token from the brand accent.
      Both are blue now, but code ink answers to "reads as code/reference"
@@ -269,13 +278,15 @@
      19-studio.css used to neutralise dark only, and the light block's blue
      outranked it. */
   --mx-focus: var(--mx-border-strong);
-  --mx-hover: rgba(255, 255, 255, 0.06);
-  --mx-pressed: rgba(255, 255, 255, 0.1);
+  /* 8 / 12: at 6% the dark hover (1.15:1) was the quietest among the
+     reference dark themes (VS Code 1.19, Primer 1.20, Radix 1.32). */
+  --mx-hover: rgba(255, 255, 255, 0.08);
+  --mx-pressed: rgba(255, 255, 255, 0.12);
   /* Opaque hover/pressed equivalents for rows that stack OPAQUE action
      gradients on top (a translucent wash under them renders a visible
      rectangle around the actions). */
-  --mx-hover-opaque: color-mix(in srgb, var(--mx-text) 6%, var(--mx-bg-base));
-  --mx-pressed-opaque: color-mix(in srgb, var(--mx-text) 10%, var(--mx-bg-base));
+  --mx-hover-opaque: color-mix(in srgb, var(--mx-text) 8%, var(--mx-bg-base));
+  --mx-pressed-opaque: color-mix(in srgb, var(--mx-text) 12%, var(--mx-bg-base));
   /* One shell-wide scrollbar ink; registry themes inject
      their own pair from the TUI palette. */
   --mx-scrollbar-thumb: color-mix(in srgb, var(--mx-text) 24%, transparent);
@@ -319,20 +330,20 @@
   --mx-merged: #b287f8;
 
   /* ── 6. Elevation (dark values) ── */
-  --mx-switch-off: inset 0 -0.5px 0 var(--mx-alpha-light-10), inset 0 0 0 0.5px var(--mx-alpha-light-16);
-  --mx-switch-on: inset 0 -0.5px 0 var(--mx-alpha-light-10), inset 0 0 0 0.5px var(--mx-alpha-light-16);
+  --mx-switch-off: inset 0 calc(var(--mx-hairline) * -1) 0 var(--mx-alpha-light-10), inset 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16);
+  --mx-switch-on: inset 0 calc(var(--mx-hairline) * -1) 0 var(--mx-alpha-light-10), inset 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16);
   --mx-switch-thumb-shadow: 0 0.5px 0.5px var(--mx-alpha-dark-40);
   /* Switch thumb outline: invisible-on-purpose in dark (white on white
      thumb), a soft ink line in light so the off thumb reads on the track. */
   --mx-switch-thumb-border: var(--mx-grey-50);
   --mx-raised:
-    0 2px 4px var(--mx-alpha-dark-30), 0 1px 2px var(--mx-alpha-dark-30), 0 0 0 0.5px var(--mx-alpha-light-16),
+    0 2px 4px var(--mx-alpha-dark-30), 0 1px 2px var(--mx-alpha-dark-30), 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16),
     0 -0.5px 0 var(--mx-alpha-light-6);
   --mx-floating:
-    0 8px 16px var(--mx-alpha-dark-30), 0 4px 8px var(--mx-alpha-dark-30), 0 0 0 0.5px var(--mx-alpha-light-16),
+    0 8px 16px var(--mx-alpha-dark-30), 0 4px 8px var(--mx-alpha-dark-30), 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16),
     0 -0.5px 0 var(--mx-alpha-light-6);
   --mx-overlay:
-    0 16px 32px var(--mx-alpha-dark-30), 0 8px 16px var(--mx-alpha-dark-30), 0 0 0 0.5px var(--mx-alpha-light-16),
+    0 16px 32px var(--mx-alpha-dark-30), 0 8px 16px var(--mx-alpha-dark-30), 0 0 0 var(--mx-hairline) var(--mx-alpha-light-16),
     0 -0.5px 0 var(--mx-alpha-light-6);
   /* Soft contact shadow under cards/rows (composer, context dock, model
      rows). Dark shades with its own deepest surface; light overrides with a
@@ -358,8 +369,8 @@
      overrides with an ink wash — a white wash vanishes on white. */
   --mx-chip-bg: var(--mx-alpha-light-6);
   /* Buttons are flat (user): one hairline boundary, no drop or bevel. */
-  --mx-button: 0 0 0 0.5px var(--mx-alpha-light-20);
-  --mx-button-contrast: 0 0 0 0.5px var(--mx-alpha-light-40);
+  --mx-button: 0 0 0 var(--mx-hairline) var(--mx-alpha-light-20);
+  --mx-button-contrast: 0 0 0 var(--mx-hairline) var(--mx-alpha-light-40);
 
   /* ── Popup surface ──
      ONE skin for everything that floats or modals over the shell — menus,
@@ -398,15 +409,15 @@
   /* Card and plate steps shared by the flat shell: a grouped card's whisper
      edge (Settings groups, dialog lists, usage cards), and the hover and
      selected plates a flat item wears (workspace tabs). */
-  --mx-card-outline: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-text) 6%, transparent);
+  --mx-card-outline: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-text) 6%, transparent);
   /* The app's one hover wash: at 4% a hovered tab sat at 1.09:1 on the sheet,
      half the step every other hover takes. */
   --mx-plate-hover: var(--mx-hover);
   /* Selected rides the app's pressed fill (a selected session row's too), a
      clear step over the hover wash. */
   --mx-plate-selected: var(--mx-pressed);
-  --mx-popup-action-ring: inset 0 0 0 0.5px var(--mx-border-muted);
-  --mx-popup-action-ring-hover: inset 0 0 0 0.5px var(--mx-border-strong);
+  --mx-popup-action-ring: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  --mx-popup-action-ring-hover: inset 0 0 0 var(--mx-hairline) var(--mx-border-strong);
   /* Hover bridge geometry — the transparent frame that JOINS a card to the
      control it hangs off (user: 투명으로 중간에 이어주는 프레임). Reach clears
      the card's 6px offset and still overlaps the control, so no hairline of
@@ -424,17 +435,19 @@
      Latin in Geist and its Hangul in Pretendard — two ink densities inside
      one 12px label (the exact defect .message-body fixed for prose, left
      unfixed for chrome). Pretendard's Latin is Inter-metric-compatible, so
-     the rhythm the Geist stack set is preserved. Mono is the TUI stack. */
-  --mx-font-prose:
-    "Pretendard Variable", Pretendard, "Geist Variable", "Inter Variable", Inter, "Malgun Gothic", "Segoe UI",
-    sans-serif;
+     the rhythm the Geist stack set is preserved. Only Pretendard and
+     JetBrains Mono ship in the bundle (bootstrap-styles.ts); the rest of each
+     stack is the OS fallback. Mono is the TUI stack. */
+  --mx-font-prose: "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif;
   --mx-font-sans: var(--mx-font-prose);
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
   letter-spacing: 0;
-  font-synthesis: none;
+  /* Pretendard has no italic face. Allow slanted emphasis/preview labels,
+     but keep variable-font weights real rather than synthesizing bold. */
+  font-synthesis: style;
   --mx-font-mono: "JetBrains Mono Variable", "JetBrains Mono", Consolas, monospace;
   --titlebar-height: 35px;
   /* ── Motion scale ── THREE clocks and THREE curves for the whole shell. The
@@ -546,9 +559,16 @@
      at ≥13:1, so prose never reads grey (user-flagged twice). Muted/faint carry
      the surfaces' +3 offset instead of their own stronger blue cast. */
   --mx-text: #242529;
+  /* Muted stays at the reference light themes' secondary-ink level (6.3:1 on
+     the sheet; Primer 6.1, VS Code 6.2), keeping a 2.3x gap under the body
+     ink — a darker muted flattened the hierarchy. Faint is the same ink (see the
+     dark set): the lighter greys tried under it fell below AA on the plates
+     (#6a6a6e reached 4.2:1 on layer-3). */
   --mx-text-muted: #5c5c60;
-  --mx-text-faint: #6a6a6e; /* ≥4.5:1 on the band; #8a8f95 sat at 3.1 and read washed under its own rows */
-  --mx-text-accent: #1967d2;
+  --mx-text-faint: var(--mx-text-muted);
+  /* Google Blue 800 for INK: the 700 rung #1967d2 fell to 4.2:1 on the grey
+     plates. The filled accent surface (--mx-accent-bg) keeps 700. */
+  --mx-text-accent: #185abc;
   --mx-accent: var(--mx-text-accent);
   --mx-md-code: var(--mx-text-accent);
   --mx-icon: var(--mx-text);
@@ -561,15 +581,12 @@
 
   /* ── 4. Interaction ── */
   --mx-focus: var(--mx-border-strong);
-  --mx-hover: rgba(0, 0, 0, 0.05);
-  --mx-pressed: rgba(0, 0, 0, 0.09);
+  /* Same 6 / 10 steps as dark: at 5% a hovered row barely lifted off paper. */
+  --mx-hover: rgba(0, 0, 0, 0.06);
+  --mx-pressed: rgba(0, 0, 0, 0.1);
   /* Opaque sidebar-row tones (hover/selected under opaque action gradients). */
   --mx-hover-opaque: #e8e8eb;
   --mx-pressed-opaque: #e1e1e4;
-  /* Light tab pill: OPAQUE grey ≈4% below the band so the active tab
-     stays visible — an alpha pill stacked with the close-button gradient into
-     blotchy double-darkening. */
-  --mx-tab-pill: #e5e5e8;
   --mx-scrim: rgba(20, 20, 22, 0.38);
   --mx-accent-bg: #1967d2;
   --mx-contrast-hover: rgba(255, 255, 255, 0.122);
@@ -581,28 +598,29 @@
   --mx-warning-bg: #fefaec;
   /* #cb9f34 washed out for modified-file names on the white sheet (~2.5:1),
      and GitHub-light attention gold #9a6700 still fell under 4.5:1 on the
-     band and raised plates; one rung deeper keeps the warm hue legible. */
-  --mx-warning: #8f6000;
+     band and raised plates; #8f6000 still dipped to 4.3 on layer-3, so one
+     more rung keeps the warm hue legible on every plate. */
+  --mx-warning: #855900;
   --mx-success-bg: #e7f9ea;
   /* Google Green 800: #198b43 read 3.7-4.4:1 on the paper plates. */
   --mx-success: #137333;
   --mx-success-border: #b8e9c1;
-  --mx-merged: #7a48d8;
+  --mx-merged: #6d3fc4;
 
   /* ── 6. Elevation (light values) ── */
   --mx-switch-off:
     inset 0 1px 1px rgba(0, 0, 0, 0.078), inset 0 0.5px 0.5px rgba(0, 0, 0, 0.078),
-    inset 0 0 0 0.5px rgba(0, 0, 0, 0.102);
+    inset 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.102);
   --mx-switch-on:
-    inset 0 2px 2px rgba(0, 0, 0, 0.102), inset 0 1px 1px rgba(0, 0, 0, 0.102), inset 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+    inset 0 2px 2px rgba(0, 0, 0, 0.102), inset 0 1px 1px rgba(0, 0, 0, 0.102), inset 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.2);
   --mx-switch-thumb-shadow: 0 0.5px 0.5px rgba(0, 0, 0, 0.4);
   --mx-switch-thumb-border: rgba(23, 24, 26, 0.25);
   /* Same two-drop + hairline build as the dark set; the drops are strong
      enough to lift a white card off the paper sheet (the old 4%/8% pair did
      not register, so cards leaned on the hairline alone). */
-  --mx-raised: 0 2px 4px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
-  --mx-floating: 0 8px 16px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
-  --mx-overlay: 0 16px 32px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.08), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+  --mx-raised: 0 2px 4px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.12);
+  --mx-floating: 0 8px 16px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.06), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.12);
+  --mx-overlay: 0 16px 32px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.08), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.12);
   --mx-shadow-tint: rgba(0, 0, 0, 0.22);
   --mx-chart-purple: #8066b0;
   --mx-chart-teal: #398e82;
@@ -616,8 +634,8 @@
   --mx-chart-violet: #ab7cbb;
   --mx-chart-grey: #7b8088;
   --mx-chip-bg: rgba(23, 24, 26, 0.05);
-  --mx-button: 0 0 0 0.5px rgba(0, 0, 0, 0.141);
-  --mx-button-contrast: 0 0 0 0.5px #3a3a3a;
+  --mx-button: 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.141);
+  --mx-button-contrast: 0 0 0 var(--mx-hairline) #3a3a3a;
 }
 
 /* Per-theme semantic tokens are injected from the canonical TUI registry. */

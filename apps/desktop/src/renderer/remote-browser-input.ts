@@ -17,6 +17,10 @@ export function createRemoteBrowserInputQueue(options: {
     activate() {
       active = true;
     },
+    /** Drop input admitted but not yet sent (the document it targeted is gone). */
+    reset() {
+      generation += 1;
+    },
     dispose() {
       active = false;
       generation += 1;

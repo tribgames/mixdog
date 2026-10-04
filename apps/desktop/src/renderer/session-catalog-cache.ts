@@ -30,10 +30,6 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
   const projectPath = text(row.projectPath, 32_768);
   const sourceType = row.sourceType === 'schedule' || row.sourceType === 'webhook' ? row.sourceType : undefined;
   const sourceName = text(row.sourceName, 1_024);
-  const sourceDelivery =
-    row.sourceDelivery === 'app' || row.sourceDelivery === 'channel' || row.sourceDelivery === 'both'
-      ? row.sourceDelivery
-      : undefined;
   const activityAt = finiteNumber(row.activityAt, Number.NaN);
 
   return {
@@ -51,7 +47,6 @@ function cachedSessionRow(value: unknown): DesktopSessionSummary | null {
     ...(row.archived === true ? { archived: true } : {}),
     ...(sourceType ? { sourceType } : {}),
     ...(sourceName ? { sourceName } : {}),
-    ...(sourceDelivery ? { sourceDelivery } : {}),
   };
 }
 

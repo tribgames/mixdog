@@ -20,6 +20,7 @@ import { featureEnvOverride, memoryToolsEnabled, moduleEnabled } from './config-
 import { readBridgeDiscovery } from '../../../bridge-discovery.mjs';
 import { HEADLESS_MODEL_TOOL_NAMES, HEADLESS_TOOL_PROFILE, normalizeToolProfile } from './tool-profile.mjs';
 import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
+import { gitExecutablePresent } from '../../../shared/path-executable.mjs';
 
 // Browser Use / Computer Use have no install marker: the desktop app publishes
 // a loopback bridge discovery file while the feature is on. The same file
@@ -51,8 +52,13 @@ export function builtinFeatureActive(configLike, id) {
       (builtinInstalled(configLike, 'memory') && memoryToolsEnabled(configLike, true))
     );
   }
+  // The Git extension (GitHub tools, git-requiring skills) is install-gated;
+  // the local `git` command tool is not — see localGitToolsActive.
   if (id === 'git') {
-    return localGitToolsActive(configLike);
+    return (
+      featureEnvOverride('MIXDOG_FEATURE_GIT') ??
+      (builtinInstalled(configLike, 'git') && moduleEnabled(configLike, 'git', true))
+    );
   }
   if (id === 'office') {
     return (
@@ -99,14 +105,14 @@ export function builtinFeatureActive(configLike, id) {
  *  overrides), which the caller passes in. */
 export function featureDisallowedToolsFor(
   configLike,
-  { browserAvailable = false, computerAvailable = false, toolProfile = 'interactive' } = {}
+  { browserAvailable = false, computerAvailable = false, toolProfile = 'interactive', gitAvailable } = {}
 ) {
   const browser = featureEnvOverride('MIXDOG_FEATURE_BROWSER') ?? browserAvailable === true;
   const computer = featureEnvOverride('MIXDOG_FEATURE_COMPUTER') ?? computerAvailable === true;
   const denied = [
     ...(builtinFeatureActive(configLike, 'webSearch') ? [] : ['web_search', 'web_fetch']),
     ...(builtinFeatureActive(configLike, 'memory') ? [] : ['memory', 'recall']),
-    ...(localGitToolsActive(configLike, toolProfile) ? [] : ['git']),
+    ...(localGitToolsActive(configLike, { gitAvailable }) ? [] : ['git']),
     ...(builtinFeatureActive(configLike, 'git') ? [] : ['github']),
     ...(browser ? [] : ['browser', 'browser_devtools']),
     ...(computer ? [] : ['computer']),
@@ -130,12 +136,15 @@ export function builtinInstalled(configLike, id) {
   return configLike?.builtins?.[id]?.installed === true;
 }
 
-// The Git command tool needs no desktop extension installation in headless
-// runs. Existing feature overrides and explicit OFF preferences still apply.
-export function localGitToolsActive(configLike, toolProfile = 'interactive') {
+// The Git command tool ships with the runtime and activates by itself wherever
+// a git executable is on PATH — no extension install, on any tool profile, so
+// interactive and headless sessions share one surface. Without the executable
+// the schema would only cost tokens. Feature overrides and explicit OFF
+// preferences still apply.
+export function localGitToolsActive(configLike, { gitAvailable } = {}) {
   return (
     featureEnvOverride('MIXDOG_FEATURE_GIT') ??
-    (moduleEnabled(configLike, 'git', true) && (toolProfile === 'headless' || builtinInstalled(configLike, 'git')))
+    (moduleEnabled(configLike, 'git', true) && (gitAvailable ?? gitExecutablePresent()))
   );
 }
 

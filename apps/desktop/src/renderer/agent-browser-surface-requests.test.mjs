@@ -248,3 +248,41 @@ test('temporary task reveal restores the original dock and never overwrites a us
     host.remove();
   }
 });
+
+test('a remote-shim open request reveals and hides that session browser surface', async () => {
+  const { createRemoteApi } = await import('./remote-shim-api.ts');
+  const ctx = { browserOpenListeners: new Set() };
+  window.mixdogDesktop = createRemoteApi(ctx);
+  const deliver = (request) => {
+    for (const listener of [...ctx.browserOpenListeners]) listener(request);
+  };
+  const selections = [];
+  let surfaces;
+  function Harness() {
+    surfaces = useSessionPaneSurfaces();
+    useAgentBrowserSurfaceRequests({
+      owners: [{ sessionId: 'alpha', leafId: 'leaf' }],
+      focusedLeafId: 'leaf',
+      surfaces: { ...surfaces, browserSurfaces: { ensure() {} } },
+      prefetch: async () => {},
+      select: (leafId, surface) => selections.push([leafId, surface]),
+    });
+    return null;
+  }
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    assert.equal(ctx.browserOpenListeners.size, 1);
+    await act(async () => deliver({ sessionId: 'alpha', reveal: true }));
+    assert.deepEqual(selections, [['leaf', 'browser']]);
+    assert.equal(surfaces.sessionSideSurfaces.get('alpha'), 'browser');
+    await act(async () => deliver({ sessionId: 'alpha', hide: true }));
+    assert.equal(surfaces.sessionSideSurfaces.has('alpha'), false);
+  } finally {
+    await act(async () => root.unmount());
+    assert.equal(ctx.browserOpenListeners.size, 0);
+    host.remove();
+  }
+});

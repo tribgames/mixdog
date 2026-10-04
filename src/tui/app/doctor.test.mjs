@@ -39,7 +39,7 @@ function runtime(overrides = {}) {
     }),
     getVoiceStatus: () => ({ enabled: true, installed: true, components: { model: true } }),
     getRecapSettings: () => ({ enabled: true }),
-    getChannelSettings: () => ({ enabled: true, status: { running: true, mode: 'daemon' } }),
+    getChannelSettings: () => ({ status: { running: true, mode: 'daemon' } }),
     skillsStatus: () => ({ count: 0, skills: [] }),
     pluginsStatus: () => ({ count: 0, plugins: [] }),
     hooksStatus: () => ({
@@ -54,10 +54,10 @@ function runtime(overrides = {}) {
 }
 
 test('a stopped channel worker is idle without automation and a warning with it', async () => {
-  const stopped = { getChannelSettings: () => ({ enabled: true, status: { running: false } }) };
+  const stopped = { getChannelSettings: () => ({ status: { running: false } }) };
   const channelsCheck = async (overrides) =>
     (await runDoctorChecks(runtime({ ...stopped, ...overrides }), state)).checks.find(
-      (check) => check.id === 'channels'
+      (check) => check.id === 'automation'
     );
 
   const idle = await channelsCheck({
@@ -67,7 +67,7 @@ test('a stopped channel worker is idle without automation and a warning with it'
     }),
   });
   assert.equal(idle.level, 'ok');
-  assert.equal(idle.detail, 'enabled · idle (no active schedules or webhooks)');
+  assert.equal(idle.detail, 'idle (no active schedules or webhooks)');
 
   for (const setup of [
     { schedules: [{ name: 'nightly', enabled: true }], webhooks: [] },
@@ -75,13 +75,13 @@ test('a stopped channel worker is idle without automation and a warning with it'
   ]) {
     const active = await channelsCheck({ getChannelSetup: async () => setup });
     assert.equal(active.level, 'warn');
-    assert.equal(active.detail, 'enabled · worker stopped with active automation');
+    assert.equal(active.detail, 'worker stopped with active automation');
     assert.deepEqual(active.fix, { hint: 'enabled schedules and webhooks are not running' });
   }
 
   const unknown = await channelsCheck({});
   assert.equal(unknown.level, 'warn');
-  assert.equal(unknown.detail, 'enabled · worker stopped');
+  assert.equal(unknown.detail, 'worker stopped');
 });
 
 function reportRow(report, label) {
@@ -146,7 +146,7 @@ test('structured rows carry summary counts and the command that fixes each probl
     result.checks.map((check) => check.id),
     [
       'mixdog', 'node', 'providers', 'mcp', 'memory', 'localProvider', 'builtins', 'voice',
-      'channels', 'skills', 'plugins', 'hooks', 'data', 'config', 'logs',
+      'automation', 'skills', 'plugins', 'hooks', 'data', 'config', 'logs',
     ]
   );
   assert.deepEqual(result.summary, { ok: 13, warn: 1, fail: 1 });
@@ -241,7 +241,7 @@ test('missing, null, empty and rejected accessors never become healthy defaults'
   for (const value of [undefined, null, {}]) {
     const rt = Object.fromEntries(Object.keys(runtime()).map((key) => [key, async () => value]));
     const report = await buildDoctorReport(rt, state);
-    for (const label of ['mixdog', 'providers', 'mcp', 'memory', 'channels', 'skills', 'plugins', 'hooks']) {
+    for (const label of ['mixdog', 'providers', 'mcp', 'memory', 'automation', 'skills', 'plugins', 'hooks']) {
       assert.match(reportRow(report, label), /^⚠ /, `${label}: ${String(value)}`);
     }
   }
@@ -267,7 +267,7 @@ test('all status accessors can be asynchronous without losing flags or counts', 
   const rt = runtime();
   for (const [name, fn] of Object.entries(rt)) rt[name] = async (...args) => fn(...args);
   const report = await buildDoctorReport(rt, state);
-  assert.equal(reportRow(report, 'channels'), '✓ channels: enabled · worker running');
+  assert.equal(reportRow(report, 'automation'), '✓ automation: worker running');
   assert.equal(reportRow(report, 'skills'), '✓ skills: 0/0 active');
   assert.equal(reportRow(report, 'plugins'), '✓ plugins: 0/0 active');
   assert.equal(reportRow(report, 'hooks'), '✓ hooks: enabled · 0 rules · 0 configured events');
@@ -415,12 +415,11 @@ test('memory reports install/enable configuration instead of asserting availabil
   }
 });
 
-test('channels distinguish disabled, stopped and unknown workers and support the worker accessor', async () => {
+test('automation distinguishes stopped and unknown workers and supports the worker accessor', async () => {
   for (const [settings, worker, expected] of [
-    [{ enabled: false }, undefined, '✓ channels: disabled'],
-    [{ enabled: true, status: { running: false } }, undefined, '⚠ channels: enabled · worker stopped'],
-    [{ enabled: true }, undefined, '⚠ channels: enabled · worker status unavailable'],
-    [{ enabled: true }, { running: true }, '✓ channels: enabled · worker running'],
+    [{ status: { running: false } }, undefined, '⚠ automation: worker stopped'],
+    [{}, undefined, '⚠ automation: worker status unavailable'],
+    [{}, { running: true }, '✓ automation: worker running'],
   ]) {
     const report = await buildDoctorReport(
       runtime({
@@ -432,7 +431,7 @@ test('channels distinguish disabled, stopped and unknown workers and support the
       }),
       state
     );
-    assert.equal(reportRow(report, 'channels'), expected);
+    assert.equal(reportRow(report, 'automation'), expected);
   }
 });
 

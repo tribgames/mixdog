@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ExternalLink, Globe, LoaderCircle, Maximize2, Minimize2, Plus, X } from 'lucide-react';
+import { ExternalLink, Globe, Maximize2, Minimize2, Plus, X } from 'lucide-react';
+import { ProgressSpinner } from './ProgressSpinner';
 import type { DesktopBrowserTab } from '../shared/contract';
 import { t } from './i18n';
 import { wrappedNavigationIndex } from './list-navigation';
@@ -87,9 +88,9 @@ export function BrowserTabStrip({
                 onClick={() => void run(() => onSelect(tab.id))}
               >
                 {tab.loading ? (
-                  <LoaderCircle size={13} className="is-spinning" aria-hidden="true" />
+                  <ProgressSpinner size={14} aria-hidden="true" />
                 ) : (
-                  <TabGlyph size={13} aria-hidden="true" />
+                  <TabGlyph size={14} aria-hidden="true" />
                 )}
                 <span>{title}</span>
                 {tab.kind === 'popup' && <small>{t('Popup')}</small>}
@@ -116,7 +117,7 @@ export function BrowserTabStrip({
         data-tooltip={t('New tab')}
         onClick={() => void run(onCreate)}
       >
-        <Plus size={15} />
+        <Plus size={16} />
       </button>
       {onToggleExpanded && (
         <button
@@ -126,7 +127,7 @@ export function BrowserTabStrip({
           data-tooltip={expanded ? t('Restore browser') : t('Expand browser')}
           onClick={onToggleExpanded}
         >
-          {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
         </button>
       )}
     </div>

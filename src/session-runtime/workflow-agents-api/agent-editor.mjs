@@ -5,7 +5,11 @@ import { hasOwn } from '../../runtime/shared/object.mjs';
 import { serializeFrontmatterDoc } from '../../runtime/shared/markdown-frontmatter.mjs';
 import { isHiddenAgent } from '../../runtime/agent/orchestrator/internal-agents.mjs';
 import { AGENT_DELETED_MARKER, FIXED_AGENT_SLOTS, availableAgentId, clearAgentDefinitionCache } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
-import { canonicalizeAgentRouteStorage, isAgentDisabled } from '../../runtime/shared/agent-route-config.mjs';
+import {
+  canonicalizeAgentRouteStorage,
+  isAgentDisabled,
+  withAgentDisabled,
+} from '../../runtime/shared/agent-route-config.mjs';
 import { agentEditorId, effectiveAgentRoute, oneLine, resolveDataDir } from './shared.mjs';
 
 const isFixedAgent = (id) => FIXED_AGENT_SLOTS.some((agent) => agent.id === id);
@@ -95,15 +99,21 @@ export function createAgentEditorApi(deps) {
     if (!body) throw new Error('AGENT.md body must not be empty');
     const dataDir = resolveDataDir(deps);
     const { id, name, description } = resolveSaveTarget(payload, dataDir);
+    const existed = Boolean(loadAgentDefinition(dataDir, id));
     writeAgentFiles(join(dataDir, 'agents', id), { name: name || id, description, body });
     clearAgentDefinitionCache(id);
+    // A newly created agent starts enabled; a stale roster entry left by an
+    // earlier agent of the same id must not disable it.
+    if (!existed && isAgentDisabled(getConfig(), id)) saveConfigAndAdopt(withAgentDisabled(getConfig(), id, false));
     if (payload.route) await setAgentRoute(id, payload.route);
     return getAgentDefinition(id);
   }
 
-  // A removed custom agent must not leave a dangling route/preset.
+  // A removed custom agent must not leave a dangling route/preset or a
+  // disabled-roster entry that would silently disable a later agent of the
+  // same id.
   function dropAgentRoute(id) {
-    const nextConfig = { ...getConfig() };
+    const nextConfig = withAgentDisabled(getConfig(), id, false);
     if (nextConfig.agents && id in nextConfig.agents) {
       const agents = { ...nextConfig.agents };
       delete agents[id];

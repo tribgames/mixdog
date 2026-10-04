@@ -66,7 +66,7 @@ function harness(t, extraOptions = {}) {
 test('a restored background completion produces one native notification with plain text and opens its session', async (t) => {
   const h = harness(t);
   h.finish();
-  await h.tick(2_499);
+  await h.tick(299);
   assert.equal(h.notifications.length, 0);
   await h.tick(1);
   assert.deepEqual(h.notifications[0].content, { title: 'Task', body: '검사 완료: file.ts' });
@@ -153,7 +153,18 @@ test('notification text removes Markdown syntax without damaging paths, links or
     notificationPreview('# 완료\n\n**굵게**와 *강조*, `src/a_b.ts`\n- [결과](https://example.com)\n> 확인'),
     '완료 굵게와 강조, src/a_b.ts 결과 확인'
   );
-  assert.equal(notificationPreview('![설명](image.png)\n\n```ts\nconst x = 1;\n```'), '설명 const x = 1;');
+  // Code and tables are not prose a banner can summarize.
+  assert.equal(notificationPreview('![설명](image.png)\n\n```ts\nconst x = 1;\n```'), '설명');
+  assert.equal(notificationPreview('결과입니다.\n\n| 이름 | 값 |\n|---|---|\n| a | 1 |'), '결과입니다.');
+  // Hangul strong that CommonMark leaves unpaired still reads as plain text.
+  assert.equal(
+    notificationPreview('**VPS(폰에서 여는 웹앱):**는 바로 바뀝니다. **`v1.0.6`**로 올라갔습니다.'),
+    'VPS(폰에서 여는 웹앱):는 바로 바뀝니다. v1.0.6로 올라갔습니다.'
+  );
+  // A long answer ends on its last whole sentence instead of mid-word.
+  const sentence =
+    '작업을 마쳤고 변경 사항을 모두 확인했습니다. 테스트도 통과했고 커밋 준비가 끝났습니다. 배포는 요청하실 때 바로 진행하겠습니다.';
+  assert.equal(notificationPreview(`${sentence} ${'추가 설명이 계속 이어집니다 '.repeat(10)}`), sentence);
   assert.equal(notificationPreview('a_b_c & <https://example.com>'), 'a_b_c & https://example.com');
   assert.equal(notificationPreview('😀'.repeat(161)), `${'😀'.repeat(159)}…`);
   assert.equal(notificationPreview('**' + 'a'.repeat(161) + '**'), `${'a'.repeat(159)}…`);

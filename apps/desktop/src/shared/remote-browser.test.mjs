@@ -3,59 +3,113 @@ import test from 'node:test';
 
 import {
   normalizeRemoteBrowserControl,
-  normalizeRemoteBrowserFrameId,
+  normalizeRemoteBrowserStreamOptions,
   remoteBrowserImagePoint,
 } from './remote-browser.ts';
 
-test('remote browser controls admit only bounded navigation and human input', () => {
-  assert.deepEqual(normalizeRemoteBrowserControl({ type: 'tap', frameId: 'rbf_a9', x: 120.5, y: 44 }), {
-    type: 'tap',
-    frameId: 'rbf_a9',
-    x: 120.5,
-    y: 44,
-  });
+test('remote browser controls admit only bounded navigation and document-bound human input', () => {
+  const documentId = 'p2:17';
+  assert.deepEqual(normalizeRemoteBrowserControl({ type: 'reload', extra: 1 }), { type: 'reload' });
   assert.deepEqual(
     normalizeRemoteBrowserControl({
-      type: 'swipe',
-      frameId: 'rbf_a9',
-      from: { x: 10, y: 20 },
-      to: { x: 30, y: 40 },
+      type: 'pointer',
+      documentId,
+      phase: 'mousePressed',
+      x: 120.5,
+      y: 44,
+      button: 'left',
+      buttons: 1,
+      modifiers: 0,
+      clickCount: 1,
       ignored: 'not forwarded',
     }),
     {
-      type: 'swipe',
-      frameId: 'rbf_a9',
-      from: { x: 10, y: 20 },
-      to: { x: 30, y: 40 },
+      type: 'pointer',
+      documentId,
+      phase: 'mousePressed',
+      x: 120.5,
+      y: 44,
+      button: 'left',
+      buttons: 1,
+      modifiers: 0,
+      clickCount: 1,
     }
   );
-  assert.equal(normalizeRemoteBrowserFrameId('rbf_a9'), 'rbf_a9');
+  assert.deepEqual(normalizeRemoteBrowserControl({ type: 'wheel', documentId, x: 1, y: 2, deltaX: 0, deltaY: -40 }), {
+    type: 'wheel',
+    documentId,
+    x: 1,
+    y: 2,
+    deltaX: 0,
+    deltaY: -40,
+  });
+  assert.deepEqual(normalizeRemoteBrowserControl({ type: 'composition-end', documentId, text: '' }), {
+    type: 'composition-end',
+    documentId,
+    text: '',
+  });
   for (const command of [
     { type: 'text', text: 'hello' },
     { type: 'key', key: 'Backspace' },
+    { type: 'composition', text: 'ab', selectionStart: 1, selectionEnd: 2 },
   ]) {
-    assert.deepEqual(normalizeRemoteBrowserControl({ ...command, frameId: 'rbf_a9', documentId: 'p2:17' }), {
-      ...command,
-      frameId: 'rbf_a9',
-      documentId: 'p2:17',
-    });
-    assert.deepEqual(normalizeRemoteBrowserControl({ ...command, frameId: 'rbf_a9' }), {
-      ...command,
-      frameId: 'rbf_a9',
-    });
-    for (const documentId of ['', 'p0:1', 'p2', 'p2:17\n', 17, null, `p2:${'1'.repeat(64)}`]) {
+    assert.deepEqual(normalizeRemoteBrowserControl({ ...command, documentId }), { ...command, documentId });
+    for (const bad of [undefined, '', 'p0:1', 'p2', 'p2:17\n', 17, null, `p2:${'1'.repeat(64)}`]) {
       assert.throws(
-        () => normalizeRemoteBrowserControl({ ...command, frameId: 'rbf_a9', documentId }),
+        () => normalizeRemoteBrowserControl({ ...command, documentId: bad }),
         /document id is invalid/
       );
     }
   }
-  assert.throws(() => normalizeRemoteBrowserControl({ type: 'text', text: 'x'.repeat(2_001) }), /text is invalid/);
-  assert.throws(() => normalizeRemoteBrowserControl({ type: 'tap', x: 10, y: 20 }), /requires a frame id/);
+  assert.throws(
+    () => normalizeRemoteBrowserControl({ type: 'text', documentId, text: 'x'.repeat(2_001) }),
+    /text is invalid/
+  );
+  assert.throws(() => normalizeRemoteBrowserControl({ type: 'key', documentId, key: 'k'.repeat(65) }), /key is invalid/);
+  for (const bad of [
+    { x: -1, y: 0 },
+    { x: Number.NaN, y: 0 },
+    { x: 0, y: 100_001 },
+    { phase: 'mouseDragged' },
+    { button: 'back' },
+    { clickCount: 4 },
+  ]) {
+    assert.throws(() =>
+      normalizeRemoteBrowserControl({
+        type: 'pointer',
+        documentId,
+        phase: 'mouseMoved',
+        x: 0,
+        y: 0,
+        button: 'none',
+        buttons: 0,
+        modifiers: 0,
+        clickCount: 0,
+        ...bad,
+      })
+    );
+  }
+  assert.throws(
+    () => normalizeRemoteBrowserControl({ type: 'wheel', documentId, x: 0, y: 0, deltaX: 0, deltaY: 20_001 }),
+    /deltaY is invalid/
+  );
+  for (const retired of ['tap', 'swipe', 'scroll']) {
+    assert.throws(() => normalizeRemoteBrowserControl({ type: retired, x: 1, y: 1 }), /unknown remote browser control/);
+  }
   assert.throws(
     () => normalizeRemoteBrowserControl({ type: 'evaluate', script: 'document.cookie' }),
     /unknown remote browser control/
   );
+});
+
+test('stream options are bounded and rounded', () => {
+  assert.deepEqual(normalizeRemoteBrowserStreamOptions({ maxWidth: 800.4, maxHeight: 600 }), {
+    maxWidth: 800,
+    maxHeight: 600,
+  });
+  for (const bad of [null, {}, { maxWidth: 10, maxHeight: 600 }, { maxWidth: 800, maxHeight: 5_000 }, { maxWidth: '800', maxHeight: 600 }]) {
+    assert.throws(() => normalizeRemoteBrowserStreamOptions(bad), /stream max/);
+  }
 });
 
 test('remote browser taps map through contain sizing and ignore letterbox space', () => {

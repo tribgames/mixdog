@@ -126,6 +126,8 @@ export const withShim = async ({ secure = true } = {}, run) => {
       stateListeners: new Set(),
       activityRailPinsListeners: new Set(),
       providerModelsListeners: new Set(),
+      remoteBrowserFrameListeners: new Set(),
+      browserOpenListeners: new Set(),
       activeLanes: new Set(),
       compactFrames: { reset() {} },
       viewBaselines: { restore: (value) => value, clear() {} },

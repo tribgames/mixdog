@@ -3,7 +3,8 @@
 // on the internet reaches this machine without port forwarding.
 import WebSocket from 'ws';
 
-import type { DesktopRemoteClientInfo } from '../shared/contract';
+import type { DesktopRemoteBrowserStreamFrame, DesktopRemoteClientInfo } from '../shared/contract';
+import { createBrowserRemoteStreams } from './remote-browser-streams';
 import { loadOrCreatePairingToken } from './remote-pairing-token';
 import { relayE2EEPairingMaterial, type RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
 import { createRemoteByteMeter } from '../shared/remote-performance';
@@ -81,6 +82,8 @@ export interface RemoteRelayHandle {
   token: string;
   pairing: RelayE2EEPairingMaterial;
   readonly clientCount: number;
+  /** A live Browser Use frame from the desktop, paced to each subscribed client. */
+  publishBrowserFrame(frame: DesktopRemoteBrowserStreamFrame): void;
   listClients(): Promise<DesktopRemoteClientInfo[]>;
   revokeClient(clientId: string): Promise<void>;
   /** System resume: the socket is likely half-dead after sleep — drop it and
@@ -390,6 +393,14 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   ): void => {
     void broadcastEncryptedAsync(payload, droppable, include);
   };
+  const browserStreams = createBrowserRemoteStreams({
+    isLive: (clientId) => Boolean(clients.get(clientId)?.channel),
+    send: (clientId, payload) => sendEncryptedFrame(clientId, payload, true),
+    request: (sessionId, streamOptions) => {
+      if (!options.browserRemote) return Promise.reject(new TypeError('Remote Browser Use is unavailable.'));
+      return options.browserRemote('stream', [sessionId, streamOptions]);
+    },
+  });
   const sessionStates = createRelaySessionStateFanout({ clients: clients.clients, sendEncryptedFrame });
   const resetTransportDeltas = (): void => {
     sessionStates.clear();
@@ -430,6 +441,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     attached: clients.attached,
     live,
     sendEncryptedFrame,
+    browserStreams,
     acknowledgePaintProbe: sessionStates.acknowledgeFrame,
     resyncClient: sessionWiring.resyncClient,
     recordCall: remoteCallStats.record,
@@ -636,7 +648,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       control
         .request<DesktopRemoteClientInfo[]>('list-clients')
         .then((remoteClients) => (Array.isArray(remoteClients) ? remoteClients : [])),
+    publishBrowserFrame: (frame) => browserStreams.publish(frame),
     revokeClient: async (clientId: string): Promise<void> => {
+      browserStreams.dropClient(clientId);
       if (!/^[0-9a-f-]{8,64}$/u.test(clientId)) throw new TypeError('Invalid remote client id.');
       // Per-browser credentials are isolated: revoking one deletes only that
       // browser's token on the relay. The QR bootstrap token never rotates
@@ -677,6 +691,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       closed = true;
       resetTransportDeltas();
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      browserStreams.dispose();
       sessionSubscriptions.dispose();
       for (const pending of revocationSockets) {
         try {

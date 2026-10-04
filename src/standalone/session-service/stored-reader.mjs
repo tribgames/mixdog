@@ -9,6 +9,7 @@ export function createStoredSessionReader({
   readStoredGoal,
   statStoredSession = null,
   forgetStoredSession = null,
+  releaseStoredSession = null,
   sessionOwner,
   log,
 }) {
@@ -46,10 +47,26 @@ export function createStoredSessionReader({
       .catch((err) => log(`stored projection release failed session=${sessionId}: ${err?.message || err}`));
   }
 
-  function traceStoredProjectionRead({ sessionId, hit, ms, chars, items }) {
+  /** Its last view left. The file-identity records stay (a revisit holding
+   *  the same projection is answered by stat alone) and the store keeps the
+   *  projection within its idle budget. */
+  function releaseStoredProjection(sessionId) {
+    if (typeof releaseStoredSession !== 'function') return;
+    void Promise.resolve()
+      .then(() => releaseStoredSession(sessionId))
+      .catch((err) => log(`stored projection idle release failed session=${sessionId}: ${err?.message || err}`));
+  }
+
+  function traceStoredProjectionRead({ sessionId, hit, ms, chars, items, timing = {} }) {
     // Shared parse waiters are cache hits; report only the parse itself.
     if (hit || ms < SLOW_STORED_PROJECTION_MS) return;
-    log(`slow stored projection session=${sessionId} ${Math.round(ms)}ms` + ` chars=${chars} items=${items}`);
+    const phases = Object.entries(timing)
+      .map(([name, value]) => `${name}=${typeof value === 'number' ? `${Math.round(value)}ms` : value}`)
+      .join(' ');
+    log(
+      `slow stored projection session=${sessionId} ${Math.round(ms)}ms` +
+        ` chars=${chars} items=${items}${phases ? ` ${phases}` : ''}`
+    );
   }
 
   const itemLimitFor = (hints, window) => {
@@ -164,5 +181,6 @@ export function createStoredSessionReader({
     storedProjectionUnchanged,
     requestedMessageSlice,
     forgetStoredSession: forgetStoredProjection,
+    releaseStoredSession: releaseStoredProjection,
   };
 }

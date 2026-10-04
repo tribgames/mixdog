@@ -141,7 +141,9 @@
   padding: 0 4px 0 6px;
   color: var(--mx-text);
   font-size: var(--mx-rail-panel-title);
-  font-weight: var(--mx-weight-semibold);
+  /* The 16px size already ranks the title over the 14px labels; 600 on top
+     of it read heavy (user: 헤더랑 카테고리 굵기 넘 굵은 거 아니냐). */
+  font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-emphasis);
   letter-spacing: 0;
   user-select: none;

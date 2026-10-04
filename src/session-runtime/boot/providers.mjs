@@ -71,9 +71,11 @@ function wireConfigLifecycle(boot) {
     LAZY_SECRET_PROVIDERS,
     clean,
     resolve,
+    onConfigReloaded: () => boot.invalidateContextStatusCache?.(),
     STANDALONE_DATA_DIR,
   });
   const {
+    disposeConfigSync,
     getOutputStyleStatusCached,
     invalidateOutputStyleStatusCache,
     seedOutputStyleStatusCache,
@@ -89,6 +91,7 @@ function wireConfigLifecycle(boot) {
     ensureConfigForRouteProvider,
   } = lifecycle;
   Object.assign(boot, {
+    disposeConfigSync,
     getOutputStyleStatusCached,
     invalidateOutputStyleStatusCache,
     seedOutputStyleStatusCache,

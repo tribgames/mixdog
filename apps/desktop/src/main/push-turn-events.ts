@@ -13,6 +13,10 @@ export interface TurnCompletion {
   preview: string;
   startedAt: number;
   at: number;
+  /** The Lead's OWN turn ended in this roster push. False when the session
+   *  went idle because its background agents or shell jobs settled: the Lead
+   *  may take their results into a new turn at once. */
+  leadFinished: boolean;
 }
 
 interface TurnCompletionTracker {
@@ -49,19 +53,18 @@ function isWorking(session: DesktopSessionSummary): boolean {
   return Boolean(session.working || session.leadWorking || session.agentWorking);
 }
 
-/** Lead sessions still waiting on background work they started: a running or
- *  queued child agent, a cancel not yet proven, or a live shell job. The Lead's
- *  OWN row is judged by its shell jobs only — its turn state comes from the
- *  roster, and a stale `running` on that row must not hold a finished turn. */
+/** Lead sessions still waiting on agent work they started: a running or queued
+ *  child agent, or a cancel not yet proven. Background shell jobs never hold a
+ *  finished turn (a dev server may run for hours). The Lead's OWN row is
+ *  skipped — its turn state comes from the roster, and a stale `running` on
+ *  that row must not hold a finished turn. */
 export function sessionsWithPendingWork(agents: readonly DesktopAgentPoolRow[]): Set<string> {
   const pending = new Set<string>();
   for (const agent of agents) {
     const sessionId = String(agent?.sessionId || '');
     const ownerSessionId = String(agent?.ownerSessionId || '') || sessionId;
-    if (!ownerSessionId) continue;
-    const ownRow = sessionId === ownerSessionId;
-    const childBusy = !ownRow && (isActiveDesktopAgentEntry(agent) || isCancelUnconfirmedDesktopAgentEntry(agent));
-    if (childBusy || Number(agent.shellJobCount) > 0) pending.add(ownerSessionId);
+    if (!ownerSessionId || sessionId === ownerSessionId) continue;
+    if (isActiveDesktopAgentEntry(agent) || isCancelUnconfirmedDesktopAgentEntry(agent)) pending.add(ownerSessionId);
   }
   return pending;
 }
@@ -85,7 +88,8 @@ export function createTurnCompletionTracker(): TurnCompletionTracker {
         const busy = isWorking(session) || pendingWork?.has(id) === true;
         const wasBusy = working.get(id) === true;
         const leadBusy = session.leadWorking ?? session.working ?? false;
-        if ((leadBusy && !leadWorking.get(id)) || (busy && !started.has(id))) started.set(id, nowMs);
+        const leadWasBusy = leadWorking.get(id) === true;
+        if ((leadBusy && !leadWasBusy) || (busy && !started.has(id))) started.set(id, nowMs);
         leadWorking.set(id, leadBusy);
         working.set(id, busy);
         if (!seeded || !wasBusy || busy) continue;
@@ -99,6 +103,7 @@ export function createTurnCompletionTracker(): TurnCompletionTracker {
           preview: '',
           startedAt: started.get(id) ?? nowMs,
           at: nowMs,
+          leadFinished: leadWasBusy,
         });
       }
       for (const id of working.keys()) {

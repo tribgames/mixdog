@@ -123,7 +123,7 @@
   background: var(--mx-bg-base);
   box-shadow:
     var(--mx-overlay),
-    inset 0 0 0 0.5px var(--mx-border-muted);
+    inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .studio-cleanup-menu > button {
   display: flex;
@@ -279,7 +279,7 @@
   border: 0;
   border-radius: var(--mx-radius-xl);
   background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   cursor: pointer;
 }
 .studio-tile.selected .studio-tile-open {
@@ -599,12 +599,7 @@
   background: color-mix(in srgb, var(--mx-danger) 72%, transparent);
 }
 .studio-spinner {
-  animation: studio-spin 1.1s linear infinite;
-}
-@keyframes studio-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  animation: var(--mx-motion-spin);
 }
 @media (prefers-reduced-motion: reduce) {
   .studio-tile--pending .studio-tile-open::after,
@@ -1080,7 +1075,7 @@
   background: var(--mx-workspace-sheet);
   box-shadow:
     var(--mx-overlay),
-    inset 0 0 0 0.5px var(--mx-border-muted);
+    inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .studio-detail-stage {
   /* Anchor for the paging arrows and the compact-layout close. */
@@ -1180,7 +1175,7 @@
   padding: 16px;
   overflow: hidden;
   background: var(--mx-bg-base);
-  box-shadow: inset 0.5px 0 0 var(--mx-border-muted);
+  box-shadow: inset var(--mx-hairline) 0 0 var(--mx-border-muted);
   animation: studio-side-in var(--mx-motion-chrome);
 }
 @keyframes studio-detail-in {
@@ -1256,7 +1251,7 @@
   padding: 12px;
   border-radius: var(--mx-radius-lg);
   background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .studio-detail-block-head {
   display: flex;
@@ -1346,7 +1341,7 @@
   border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
   background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
@@ -1382,7 +1377,7 @@
   background: var(--mx-bg-base);
   box-shadow:
     var(--mx-overlay),
-    inset 0 0 0 0.5px var(--mx-border-muted);
+    inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .studio-detail-menu > button {
   display: flex;
@@ -1417,7 +1412,7 @@
     background: var(--mx-bg-base);
     box-shadow:
       var(--mx-overlay),
-      inset 0 0 0 0.5px var(--mx-border-muted);
+      inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   }
   .studio-detail-stage {
     position: relative;
@@ -1463,7 +1458,7 @@
     /* The rounded card frame owns the shape now: a second sheet curve here
        stacked a 16px arc inside the 12px card corner. */
     border-radius: 0;
-    box-shadow: inset 0 0.5px 0 var(--mx-border-muted);
+    box-shadow: inset 0 var(--mx-hairline) 0 var(--mx-border-muted);
   }
   .studio-detail-side > header {
     display: none;
@@ -1483,7 +1478,7 @@
     padding: 10px 12px;
     border-radius: var(--mx-radius-lg);
     background: var(--mx-bg-layer-1);
-    box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+    box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   }
   .studio-detail-block + .studio-detail-block .studio-detail-block-head {
     display: none;
@@ -1502,7 +1497,7 @@
     padding: 4px 10px;
     border-radius: var(--mx-radius-pill);
     background: var(--mx-bg-layer-1);
-    box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+    box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   }
   .studio-detail-block dt {
     position: absolute;
@@ -1595,7 +1590,7 @@
     grid-template-rows: minmax(0, 1fr);
   }
   .studio-detail-side {
-    box-shadow: inset 0.5px 0 0 var(--mx-border-muted);
+    box-shadow: inset var(--mx-hairline) 0 0 var(--mx-border-muted);
   }
   .studio-detail-body {
     overflow-y: auto;

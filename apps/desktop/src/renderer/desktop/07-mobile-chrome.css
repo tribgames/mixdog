@@ -88,7 +88,7 @@ html[data-mixdog-mobile-tabs] .workspace-tab-compact-current {
   min-height: calc(44px * var(--mx-device-scale, 2.5));
   padding: 0 calc(14px * var(--mx-device-scale, 2.5));
   gap: calc(8px * var(--mx-device-scale, 2.5));
-  border-radius: 999px;
+  border-radius: var(--mx-radius-pill);
   background: var(--mx-hover);
   font-size: calc(14px * var(--mx-device-scale, 2.5));
 }
@@ -108,7 +108,7 @@ html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new svg {
   width: var(--mx-touch-glyph-main);
   height: var(--mx-touch-glyph-main);
   padding: calc(5px * var(--mx-device-scale, 2.5));
-  border-radius: 999px;
+  border-radius: var(--mx-radius-pill);
 }
 html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new svg.lucide {
   stroke-width: calc(1.75px * var(--mx-device-scale, 2.5));
@@ -129,7 +129,7 @@ html[data-mixdog-mobile-tabs] .workspace-tabs-trailing .pane-dock-toggle {
   width: calc(40px * var(--mx-device-scale, 2.5));
   height: calc(40px * var(--mx-device-scale, 2.5));
   flex-basis: calc(40px * var(--mx-device-scale, 2.5));
-  border-radius: 999px;
+  border-radius: var(--mx-radius-pill);
 }
 html[data-mixdog-mobile-tabs] .workspace-tabs-trailing .pane-dock-toggle svg.lucide {
   width: var(--mx-touch-row-glyph-main);
@@ -184,7 +184,7 @@ html[data-mixdog-mobile-tabs] :is(.composer-mic, .send-button) {
   min-width: calc(44px * var(--mx-device-scale, 2.5));
   flex-basis: calc(44px * var(--mx-device-scale, 2.5));
   padding: calc(4px * var(--mx-device-scale, 2.5));
-  border-radius: 999px;
+  border-radius: var(--mx-radius-pill);
   background-clip: content-box;
 }
 /* ── Composer discs, restated as DESKTOP proportions (user: 비율 똑같이
@@ -691,7 +691,7 @@ html[data-mixdog-mobile-tabs] .pane-side-dock-close {
   height: var(--mx-touch-main);
   flex-basis: var(--mx-touch-main);
   margin: 0;
-  border-radius: 999px;
+  border-radius: var(--mx-radius-pill);
 }
 html[data-mixdog-mobile-tabs] .pane-side-dock-header .pane-dock-toggle svg.lucide,
 html[data-mixdog-mobile-tabs] .pane-side-dock-close > svg {

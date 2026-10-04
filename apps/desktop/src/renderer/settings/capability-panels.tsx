@@ -255,7 +255,13 @@ function ContextPanel({ data, pending, run }: PanelContext) {
       />
       <ToggleRow
         title="Auto-clear"
-        description={`Clear idle sessions after ${formatDuration(autoClear.idleMs) || 'the provider default'}.`}
+        description={`Clear idle sessions after ${formatDuration(autoClear.idleMs) || 'the provider default'} (${
+          autoClear.providerCustom
+            ? `${String(autoClear.provider)} override`
+            : autoClear.custom
+              ? 'global duration'
+              : `${String(autoClear.provider || 'default')} default`
+        }). A provider idle window below overrides the global duration.`}
         checked={autoClear.enabled !== false}
         disabled={busy}
         onChange={(enabled) => void run('setAutoClear', [{ enabled }])}

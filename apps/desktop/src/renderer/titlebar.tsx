@@ -48,7 +48,7 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
             {updateInstalling ? (
               <ProgressSpinner size={12} className="sidebar-update-loader" aria-hidden="true" />
             ) : (
-              <ArrowDown size={16} strokeWidth={2.6} aria-hidden="true" />
+              <ArrowDown size={16} aria-hidden="true" />
             )}
           </button>
         )}

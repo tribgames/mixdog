@@ -146,9 +146,9 @@ monaco.editor.defineTheme('mixdog-dark', {
   inherit: true,
   rules: [],
   colors: {
-    'editor.background': '#1c1c1f',
+    'editor.background': '#111113',
     'editor.foreground': '#e9e9e9',
-    'editorGutter.background': '#1c1c1f',
+    'editorGutter.background': '#111113',
     'editorLineNumber.foreground': '#858585',
     'editorLineNumber.activeForeground': '#d0d0d0',
     'editor.lineHighlightBackground': '#222225',
@@ -158,8 +158,8 @@ monaco.editor.defineTheme('mixdog-dark', {
     'editorWhitespace.foreground': '#3d3d41',
     'editorIndentGuide.background1': '#2a2a2d',
     'editorIndentGuide.activeBackground1': '#5c5c61',
-    'minimap.background': '#1c1c1f',
-    'editorOverviewRuler.background': '#1c1c1f',
+    'minimap.background': '#111113',
+    'editorOverviewRuler.background': '#111113',
     'editorOverviewRuler.border': '#00000000',
     'scrollbar.shadow': '#00000000',
     'scrollbarSlider.background': '#85858533',
@@ -274,7 +274,7 @@ function withAlpha(color: string, alpha: string): string {
 }
 
 function currentMonacoColors(light: boolean): Record<string, string> {
-  const sheet = resolveThemeColor('--mx-workspace-sheet', light ? '#f8f8fb' : '#1c1c1f');
+  const sheet = resolveThemeColor('--mx-workspace-sheet', light ? '#f8f8fb' : '#111113');
   const text = resolveThemeColor('--mx-text', light ? '#242529' : '#e9e9e9');
   const faint = resolveThemeColor('--mx-text-faint', light ? '#6a6a6e' : '#808080');
   const icon = resolveThemeColor('--mx-icon', light ? '#3f4348' : '#d0d0d0');
@@ -283,7 +283,6 @@ function currentMonacoColors(light: boolean): Record<string, string> {
   const layer2 = resolveThemeColor('--mx-bg-layer-2', light ? '#ececef' : '#323236');
   const layer3 = resolveThemeColor('--mx-bg-layer-3', light ? '#e3e3e6' : '#3d3d41');
   const contrast = resolveThemeColor('--mx-bg-contrast', light ? '#b0b0b0' : '#5c5c61');
-  const focus = resolveThemeColor('--mx-focus', light ? '#005fb8' : '#0078d4');
   const scrollbarThumb = resolveThemeColor('--mx-scrollbar-thumb', withAlpha(faint, '33'));
   const scrollbarThumbHover = resolveThemeColor('--mx-scrollbar-thumb-hover', withAlpha(faint, '55'));
   return {
@@ -317,8 +316,8 @@ function currentMonacoColors(light: boolean): Record<string, string> {
     // #3c3c3c select surface.
     'menu.background': sheet,
     'menu.foreground': text,
-    'menu.selectionBackground': focus,
-    'menu.selectionForeground': '#ffffff',
+    'menu.selectionBackground': layer2,
+    'menu.selectionForeground': text,
     'menu.separatorBackground': withAlpha(text, '33'),
   };
 }

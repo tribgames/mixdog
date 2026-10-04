@@ -1,7 +1,6 @@
 {
   "de": {
     "Action": "Aktion",
-    "Actual Size": "Tatsächliche Größe",
     "Allow once": "Einmal zulassen",
     "Allow this action once?": "Diese Aktion einmal erlauben?",
     "Browser Use approval": "Browser Use genehmigen",
@@ -41,13 +40,10 @@
     "Undo": "Rückgängig",
     "View": "Ansicht",
     "Window": "Fenster",
-    "Your active task remains in the desktop host. Reload the interface to continue.": "Ihre aktive Aufgabe bleibt auf dem Desktop-Host. Laden Sie die Schnittstelle neu, um fortzufahren.",
-    "Zoom In": "Vergrößern",
-    "Zoom Out": "Herauszoomen"
+    "Your active task remains in the desktop host. Reload the interface to continue.": "Ihre aktive Aufgabe bleibt auf dem Desktop-Host. Laden Sie die Schnittstelle neu, um fortzufahren."
   },
   "es": {
     "Action": "Acción",
-    "Actual Size": "Tamaño real",
     "Allow once": "Permitir una vez",
     "Allow this action once?": "¿Permitir esta acción una vez?",
     "Browser Use approval": "Autorización de Browser Use",
@@ -87,13 +83,10 @@
     "Undo": "Deshacer",
     "View": "Ver",
     "Window": "Ventana",
-    "Your active task remains in the desktop host. Reload the interface to continue.": "Su tarea activa permanece en el host de escritorio. Vuelva a cargar la interfaz para continuar.",
-    "Zoom In": "Acercar",
-    "Zoom Out": "Alejar"
+    "Your active task remains in the desktop host. Reload the interface to continue.": "Su tarea activa permanece en el host de escritorio. Vuelva a cargar la interfaz para continuar."
   },
   "fr": {
     "Action": "Action",
-    "Actual Size": "Taille réelle",
     "Allow once": "Autoriser une fois",
     "Allow this action once?": "Autoriser cette action une seule fois ?",
     "Browser Use approval": "Autorisation de Browser Use",
@@ -133,13 +126,10 @@
     "Undo": "Annuler",
     "View": "Voir",
     "Window": "Fenêtre",
-    "Your active task remains in the desktop host. Reload the interface to continue.": "Votre tâche active reste dans l'hôte de bureau. Rechargez l'interface pour continuer.",
-    "Zoom In": "Zoomer",
-    "Zoom Out": "Zoom arrière"
+    "Your active task remains in the desktop host. Reload the interface to continue.": "Votre tâche active reste dans l'hôte de bureau. Rechargez l'interface pour continuer."
   },
   "it": {
     "Action": "Azione",
-    "Actual Size": "Dimensioni reali",
     "Allow once": "Consenti una volta",
     "Allow this action once?": "Consentire questa azione una sola volta?",
     "Browser Use approval": "Autorizzazione di Browser Use",
@@ -179,13 +169,10 @@
     "Undo": "Annulla",
     "View": "Visualizza",
     "Window": "Finestra",
-    "Your active task remains in the desktop host. Reload the interface to continue.": "L'attività attiva rimane nell'host desktop. Ricaricare l'interfaccia per continuare.",
-    "Zoom In": "Ingrandisci",
-    "Zoom Out": "Rimpicciolisci"
+    "Your active task remains in the desktop host. Reload the interface to continue.": "L'attività attiva rimane nell'host desktop. Ricaricare l'interfaccia per continuare."
   },
   "ja": {
     "Action": "アクション",
-    "Actual Size": "実際のサイズ",
     "Allow once": "今回のみ許可",
     "Allow this action once?": "この操作を一度だけ許可しますか？",
     "Browser Use approval": "Browser Use の承認",
@@ -225,13 +212,10 @@
     "Undo": "元に戻す",
     "View": "見る",
     "Window": "窓",
-    "Your active task remains in the desktop host. Reload the interface to continue.": "アクティブなタスクはデスクトップ ホストに残ります。続行するにはインターフェイスをリロードします。",
-    "Zoom In": "ズームイン",
-    "Zoom Out": "ズームアウト"
+    "Your active task remains in the desktop host. Reload the interface to continue.": "アクティブなタスクはデスクトップ ホストに残ります。続行するにはインターフェイスをリロードします。"
   },
   "ko": {
     "Action": "작업",
-    "Actual Size": "실제 크기",
     "Allow once": "이번만 허용",
     "Allow this action once?": "이 작업을 한 번 허용할까요?",
     "Browser Use approval": "브라우저 유즈 승인",
@@ -271,13 +255,10 @@
     "Undo": "되돌리기",
     "View": "보기",
     "Window": "창",
-    "Your active task remains in the desktop host. Reload the interface to continue.": "활성 작업은 데스크톱 호스트에 유지됩니다. 계속하려면 화면을 다시 불러오세요.",
-    "Zoom In": "확대",
-    "Zoom Out": "축소"
+    "Your active task remains in the desktop host. Reload the interface to continue.": "활성 작업은 데스크톱 호스트에 유지됩니다. 계속하려면 화면을 다시 불러오세요."
   },
   "pt-BR": {
     "Action": "Ação",
-    "Actual Size": "Tamanho real",
     "Allow once": "Permitir uma vez",
     "Allow this action once?": "Permitir esta ação uma vez?",
     "Browser Use approval": "Autorização de Browser Use",
@@ -317,13 +298,10 @@
     "Undo": "Desfazer",
     "View": "Ver",
     "Window": "Janela",
-    "Your active task remains in the desktop host. Reload the interface to continue.": "Sua tarefa ativa permanece no host da área de trabalho. Recarregue a interface para continuar.",
-    "Zoom In": "Ampliar",
-    "Zoom Out": "Diminuir zoom"
+    "Your active task remains in the desktop host. Reload the interface to continue.": "Sua tarefa ativa permanece no host da área de trabalho. Recarregue a interface para continuar."
   },
   "ru": {
     "Action": "Действие",
-    "Actual Size": "Фактический размер",
     "Allow once": "Разрешить один раз",
     "Allow this action once?": "Разрешить это действие один раз?",
     "Browser Use approval": "Разрешение на Browser Use",
@@ -363,13 +341,10 @@
     "Undo": "Отменить",
     "View": "Посмотреть",
     "Window": "Окно",
-    "Your active task remains in the desktop host. Reload the interface to continue.": "Ваша активная задача остается на хосте рабочего стола. Перезагрузите интерфейс, чтобы продолжить.",
-    "Zoom In": "Увеличить масштаб",
-    "Zoom Out": "Уменьшить масштаб"
+    "Your active task remains in the desktop host. Reload the interface to continue.": "Ваша активная задача остается на хосте рабочего стола. Перезагрузите интерфейс, чтобы продолжить."
   },
   "vi": {
     "Action": "Hành động",
-    "Actual Size": "Kích thước thực tế",
     "Allow once": "Cho phép một lần",
     "Allow this action once?": "Cho phép hành động này một lần?",
     "Browser Use approval": "Phê duyệt Browser Use",
@@ -409,13 +384,10 @@
     "Undo": "Hoàn tác",
     "View": "Xem",
     "Window": "Cửa sổ",
-    "Your active task remains in the desktop host. Reload the interface to continue.": "Tác vụ đang hoạt động của bạn vẫn còn trong máy chủ để bàn. Tải lại giao diện để tiếp tục.",
-    "Zoom In": "Phóng to",
-    "Zoom Out": "Thu nhỏ"
+    "Your active task remains in the desktop host. Reload the interface to continue.": "Tác vụ đang hoạt động của bạn vẫn còn trong máy chủ để bàn. Tải lại giao diện để tiếp tục."
   },
   "zh-CN": {
     "Action": "行动",
-    "Actual Size": "实际尺寸",
     "Allow once": "允许一次",
     "Allow this action once?": "是否允许执行此操作一次？",
     "Browser Use approval": "Browser Use 授权",
@@ -455,13 +427,10 @@
     "Undo": "撤销",
     "View": "查看",
     "Window": "窗户",
-    "Your active task remains in the desktop host. Reload the interface to continue.": "您的活动任务保留在桌面主机中。重新加载界面以继续。",
-    "Zoom In": "放大",
-    "Zoom Out": "缩小"
+    "Your active task remains in the desktop host. Reload the interface to continue.": "您的活动任务保留在桌面主机中。重新加载界面以继续。"
   },
   "zh-TW": {
     "Action": "行動",
-    "Actual Size": "實際尺寸",
     "Allow once": "允許一次",
     "Allow this action once?": "是否允許執行此操作一次？",
     "Browser Use approval": "Browser Use 授權",
@@ -501,8 +470,6 @@
     "Undo": "復原",
     "View": "查看",
     "Window": "窗戶",
-    "Your active task remains in the desktop host. Reload the interface to continue.": "您的活動任務保留在桌面主機中。重新加載介面以繼續。",
-    "Zoom In": "放大",
-    "Zoom Out": "縮小"
+    "Your active task remains in the desktop host. Reload the interface to continue.": "您的活動任務保留在桌面主機中。重新加載介面以繼續。"
   }
 }

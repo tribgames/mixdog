@@ -992,7 +992,7 @@
 }
 .dock-scm-file[data-selected="true"] {
   background: var(--mx-pressed);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 /* Changed-file status glyphs, painted with
    the conventional status colour map on our own semantic tokens:
@@ -1499,7 +1499,7 @@
 }
 .dock-scm-commit-file[data-open] > .dock-scm-commit-file-row {
   background: var(--mx-pressed);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 /* The path is ScmPathText, exactly as in the Changes list: .dock-scm-file-copy
    brings its own flex/type/truncation grammar, so nothing here may re-impose a
@@ -2789,7 +2789,7 @@ i.dock-pr-row-checks[data-checks="pending"] {
   line-height: 1.45;
 }
 .dock-source-control .spin {
-  animation: spin 1s linear infinite;
+  animation: var(--mx-motion-spin);
 }
 .dock-scm-operation {
   display: flex;

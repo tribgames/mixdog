@@ -22,7 +22,6 @@ export function createInternalToolExecutor({
   officeToolsEnabled,
   mediaToolEnabled,
   tidyToolEnabled = () => true,
-  channelsEnabled,
   getWebSearchModule,
   getMemoryModule,
   getCodeGraphModule,
@@ -68,7 +67,6 @@ export function createInternalToolExecutor({
     if (callerCtx?.invocationSource === 'model-tool') guardModelCall(name);
     if (Object.hasOwn(handlers, name)) return handlers[name](args, { name, callerCtx, callerCwd });
     if (channels.isChannelTool(name)) {
-      if (!channelsEnabled()) throw new Error('channels are disabled in settings');
       return await channels.execute(name, args || {});
     }
     throw new Error(`unknown standalone internal tool: ${name}`);

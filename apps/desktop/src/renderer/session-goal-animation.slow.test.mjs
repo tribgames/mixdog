@@ -15,7 +15,15 @@ test('Goal activity rotates steadily without pulsing and stops for inactive stat
   });
   t.after(() => browser.close());
   const page = await browser.newPage();
-  const css = await readFile(new URL('./desktop/22-markdown.css', import.meta.url), 'utf8');
+  const [tokens, styles, markdown] = await Promise.all(
+    ['./ui/tokens.css', './styles.css', './desktop/22-markdown.css'].map((path) =>
+      readFile(new URL(path, import.meta.url), 'utf8')
+    )
+  );
+  // The glyph turns on the shared spinner token and its keyframes.
+  const spinKeyframes = styles.match(/@keyframes spin \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(spinKeyframes, 'styles.css defines the shared spin keyframes');
+  const css = `${tokens}\n${spinKeyframes}\n${markdown}`;
   const render = async (status, execution = {}) => {
     const markup = renderToStaticMarkup(
       React.createElement(SessionGoalIsland, {

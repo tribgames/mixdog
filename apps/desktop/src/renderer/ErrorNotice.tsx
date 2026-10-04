@@ -67,7 +67,7 @@ export function ErrorNotice({
   return (
     <section className={`error-notice ${className}`} role={role} data-count={total}>
       <div className="error-notice-summary">
-        <AlertCircle size={15} aria-hidden="true" />
+        <AlertCircle size={16} aria-hidden="true" />
         <div className="error-notice-copy">
           {title && <strong>{title}</strong>}
           <span>{summary}</span>

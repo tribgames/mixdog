@@ -97,14 +97,12 @@ function releaseSchedulerRuntime(scheduler) {
 class Scheduler {
   nonInteractive;
   interactive;
-  channelId;
   promptsDir;
   tickTimer = null;
   lastFired = /* @__PURE__ */ new Map();
   // name -> "YYYY-MM-DDTHH:MM"
   running = /* @__PURE__ */ new Set();
   injectFn = null;
-  sendFn = null;
   injectReadyFn = null;
   pendingCheck = null;
   // Injected by the host: (schedule, { prompt }) => Promise<{ result }>.
@@ -118,13 +116,9 @@ class Scheduler {
   // name -> node-cron ScheduledTask for cron-expression entries
   oneShotTimers = /* @__PURE__ */ new Map();
   // name -> setTimeout handle for when_at one-shot entries
-  //
-  // `channelId` is the single resolved main-channel id used when a schedule's
-  // `channel` flag is set (post-to-channel); absent flag → inject into session.
-  constructor(nonInteractive, interactive, channelId) {
+  constructor(nonInteractive, interactive) {
     this.nonInteractive = nonInteractive.filter((s) => s.enabled !== false);
     this.interactive = interactive.filter((s) => s.enabled !== false);
-    this.channelId = channelId ?? '';
     this.promptsDir = join(DATA_DIR, 'prompts');
     for (const s of [...this.nonInteractive, ...this.interactive]) {
       if (s.lastFiredAt) this.lastFired.set(s.name, new Date(s.lastFiredAt).toISOString());
@@ -133,9 +127,6 @@ class Scheduler {
   }
   setInjectHandler(fn) {
     this.injectFn = fn;
-  }
-  setSendHandler(fn) {
-    this.sendFn = fn;
   }
   /** Probe for a live Lead bridge seat. When set, the interactive
    *  inject only fires while it reports true; otherwise the visible-session
@@ -561,10 +552,9 @@ ${prompt}`;
     releaseSchedulerRuntime(this);
     this.start();
   }
-  reloadConfig(nonInteractive, interactive, channelId, options = {}) {
+  reloadConfig(nonInteractive, interactive, options = {}) {
     this.nonInteractive = nonInteractive.filter((s) => s.enabled !== false);
     this.interactive = interactive.filter((s) => s.enabled !== false);
-    this.channelId = channelId ?? '';
     this.promptsDir = join(DATA_DIR, 'prompts');
     // Defer/skip state is persisted (deferred_until / skipped_until) and
     // re-read from the reloaded rows, so a reload no longer drops it.
@@ -629,14 +619,10 @@ ${prompt}`;
       this.notifyFailure(schedule, 'prompt not found — fire skipped');
       return false;
     }
-    // target 'channel' → relay the run result to the schedule's channel_id
-    // (falling back to the resolved main channel). target 'session' → no
-    // channel relay; the visible session run IS the surface.
-    const channelId = schedule.target === 'channel' ? this.resolveChannel(schedule.channelId) : '';
-    return await this.fireTimedPrompt(schedule, type, prompt, channelId, opts);
+    return await this.fireTimedPrompt(schedule, type, prompt, opts);
   }
   /** Fire a timed schedule with the given prompt content */
-  async fireTimedPrompt(schedule, type, prompt, channelId, { awaitDispatch = false } = {}) {
+  async fireTimedPrompt(schedule, type, prompt, { awaitDispatch = false } = {}) {
     logSchedule(`firing ${schedule.name} (${type})\n`);
     if (this.running.has(schedule.name)) {
       // Not silent anymore: overlap skips were invisible and read as the
@@ -644,7 +630,7 @@ ${prompt}`;
       logSchedule(`${schedule.name}: skipped — previous run still in progress\n`);
       return false;
     }
-    if (type === 'interactive' && this.injectIntoLead(schedule, type, prompt, channelId)) return true;
+    if (type === 'interactive' && this.injectIntoLead(schedule, type, prompt)) return true;
     this.running.add(schedule.name);
     const presetId = schedule.model;
     if (!presetId) {
@@ -657,7 +643,7 @@ ${prompt}`;
     // and swallow async failures. A one-shot (awaitDispatch) instead awaits
     // the dispatch so a rejected run propagates and the caller leaves the
     // entry pending for retry instead of retiring it.
-    const dispatch = this.dispatchScheduleRun(schedule, prompt, channelId, awaitDispatch);
+    const dispatch = this.dispatchScheduleRun(schedule, prompt, awaitDispatch);
     if (awaitDispatch) return await dispatch;
     return true;
   }
@@ -666,11 +652,11 @@ ${prompt}`;
    *  exactly like inbound channel messages — enqueue counts as the fire.
    *  False when no live Lead seat is attached or the inject fails, so the
    *  visible-session run remains the fallback and a fire is never lost. */
-  injectIntoLead(schedule, type, prompt, channelId) {
+  injectIntoLead(schedule, type, prompt) {
     if (!this.injectFn || !this.injectReady()) return false;
     try {
       const wrapped = this.wrapPrompt(schedule.name, prompt, type);
-      this.injectFn(channelId, `schedule:${schedule.name}`, ' ', { type: 'schedule', instruction: wrapped });
+      this.injectFn('', `schedule:${schedule.name}`, ' ', { type: 'schedule', instruction: wrapped });
       logSchedule(`${schedule.name}: injected into Lead session queue (interactive fire)\n`);
       return true;
     } catch (err) {
@@ -682,21 +668,16 @@ ${prompt}`;
   }
   /** Fires run as VISIBLE schedule sessions (desktop Recent / TUI resume)
    *  via runScheduleSession; the wrapped prompt keeps the schedule context
-   *  header, and the result is relayed to the channel. Resolves true on
-   *  success; a failure rejects for awaitDispatch callers and resolves false
-   *  (after a channel notice) for fire-and-forget cron fires. */
-  dispatchScheduleRun(schedule, prompt, channelId, awaitDispatch) {
+   *  header. Resolves true on success; a failure rejects for awaitDispatch
+   *  callers and resolves false (after a logged notice) for fire-and-forget
+   *  cron fires. */
+  dispatchScheduleRun(schedule, prompt, awaitDispatch) {
     const run = this.scheduleRunner
       ? this.scheduleRunner(schedule, { prompt })
       : Promise.reject(new Error('schedule runner not configured'));
     return run
       .then(({ result }) => {
         this.running.delete(schedule.name);
-        if (result && channelId && this.sendFn) {
-          this.sendFn(channelId, result).catch((err) =>
-            process.stderr.write(`mixdog scheduler: ${schedule.name} relay failed: ${err}\n`)
-          );
-        }
         logSchedule(`${schedule.name} done\n`);
         return true;
       })
@@ -704,7 +685,7 @@ ${prompt}`;
         this.running.delete(schedule.name);
         logSchedule(`${schedule.name} LLM error: ${err.message}\n`);
         // The cron fire-and-forget contract swallowed failures entirely;
-        // surface them on the channel so a failed scheduled run is never
+        // log them so a failed scheduled run is never
         // silent (one-shots propagate via the awaitDispatch throw instead).
         if (awaitDispatch) throw err;
         this.notifyFailure(schedule, `run failed: ${err.message}`);
@@ -712,18 +693,9 @@ ${prompt}`;
       });
   }
   // ── Helpers ─────────────────────────────────────────────────────────
-  /** Best-effort failure notice to the schedule's channel (or the main
-   *  channel) so scheduled fires never fail silently. Respects an explicit
-   *  channel opt-out ("false" → resolveChannel yields "" → no notice). */
+  /** Failure notice: logged so scheduled fires never fail silently. */
   notifyFailure(schedule, reason) {
-    try {
-      if (!this.sendFn) return;
-      const target = this.resolveChannel(schedule?.channelId);
-      if (!target) return;
-      Promise.resolve(this.sendFn(target, `schedule "${schedule?.name}": ${reason}`)).catch(() => {});
-    } catch {
-      /* best-effort */
-    }
+    logSchedule(`schedule "${schedule?.name}": ${reason}\n`);
   }
   /** Resolve prompt: inline text from the row, with a prompts-dir file
    *  fallback for legacy `<name>.md` references. */
@@ -735,19 +707,6 @@ ${prompt}`;
   loadPrompt(nameOrPath) {
     const full = isAbsolute(nameOrPath) ? nameOrPath : join(this.promptsDir, nameOrPath);
     return tryRead(full);
-  }
-  /** Resolve a schedule's channel flag to a channel id (pre-refactor
-   *  semantics): absent/empty/"false" → "" (inject into session); a
-   *  pure-digit / snowflake value is honored verbatim as an explicit id
-   *  override; any other value — including legacy labels like "main" —
-   *  resolves to the configured main channel. */
-  resolveChannel(flag) {
-    if (flag == null) return this.channelId ?? '';
-    const v = String(flag).trim();
-    if (v.toLowerCase() === 'false') return '';
-    if (/^-?\d+$/.test(v)) return v;
-    // empty or a legacy label ("main") → configured main channel
-    return this.channelId ?? '';
   }
 }
 export { Scheduler };

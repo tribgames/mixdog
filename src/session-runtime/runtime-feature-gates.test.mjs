@@ -45,7 +45,7 @@ test('gates read the live config, so a toggle takes effect without rebuilding th
   assert.equal(gates.featureDisallowedTools().includes('office'), true);
 });
 
-test('the git gate follows the live tool profile', (t) => {
+test('the git gate needs no install marker on any tool profile', (t) => {
   withoutFeatureOverrides(t);
   let toolProfile = 'interactive';
   const gates = createRuntimeFeatureGates({
@@ -53,9 +53,10 @@ test('the git gate follows the live tool profile', (t) => {
     getToolProfile: () => toolProfile,
   });
 
-  // Not installed: interactive denies the git tool, headless needs no install.
-  assert.equal(gates.gitToolsEnabledFn(), false);
-  assert.equal(gates.featureDisallowedTools().includes('git'), true);
+  // Not installed: the git tool is still offered; only GitHub stays gated.
+  assert.equal(gates.gitToolsEnabledFn(), true);
+  assert.equal(gates.featureDisallowedTools().includes('git'), false);
+  assert.equal(gates.featureDisallowedTools().includes('github'), true);
 
   toolProfile = 'headless';
 
@@ -72,11 +73,10 @@ test('an uninstalled built-in stays inactive and is denied at the session surfac
 
   assert.equal(gates.memoryToolsEnabledFn(), false);
   assert.equal(gates.localProviderEnabledFn(), false);
-  for (const denied of ['memory', 'recall', 'git', 'github']) {
+  for (const denied of ['memory', 'recall', 'github']) {
     assert.equal(gates.featureDisallowedTools().includes(denied), true);
   }
   // Module-level features keep their enabled-by-default answer.
-  assert.equal(gates.channelsEnabled(), true);
   assert.equal(gates.recapEnabledFn(), true);
   assert.equal(gates.webSearchEnabled(), true);
 });

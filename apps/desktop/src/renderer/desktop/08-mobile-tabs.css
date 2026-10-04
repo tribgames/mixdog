@@ -30,7 +30,7 @@
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--mx-radius-pill);
   color: var(--mx-text);
   background: transparent;
   cursor: pointer;
@@ -62,7 +62,7 @@
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text);
   background: var(--mx-hover);
-  font-size: 15px;
+  font-size: var(--mx-font-body);
 }
 .mobile-tab-overview-search::placeholder {
   color: var(--mx-text-muted);
@@ -87,7 +87,7 @@
   grid-column: 1 / -1;
   margin: 0;
   color: var(--mx-text-muted);
-  font-size: 13px;
+  font-size: var(--mx-font-meta);
   text-align: center;
 }
 /* Chrome's card is tall because it carries a SCREENSHOT. This surface carries
@@ -99,7 +99,7 @@
   min-height: 132px;
   display: flex;
   overflow: hidden;
-  border-radius: 16px;
+  border-radius: var(--mx-radius-sheet);
   background: var(--mx-hover);
   box-shadow: inset 0 0 0 1px var(--mx-border-muted);
 }
@@ -132,7 +132,7 @@
 }
 .mobile-tab-card-head > .codicon {
   flex: 0 0 auto;
-  font-size: 14px;
+  font-size: var(--mx-icon-sm);
   color: var(--mx-text-soft);
 }
 .mobile-tab-card-head > b {
@@ -140,7 +140,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-medium);
 }
 /* Three lines of the tab's own words — the card's identity, where Chrome
@@ -392,7 +392,8 @@
 }
 .workbench-side-section-body > .utility-dock .utility-dock-header > b {
   font-size: var(--mx-rail-panel-title);
-  font-weight: var(--mx-weight-semibold);
+  /* The rail panel title weight (09-sidebar-chrome.css .session-panel-header). */
+  font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-emphasis);
   letter-spacing: 0;
 }

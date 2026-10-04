@@ -8,9 +8,11 @@ import {
   SETUP_ACTIONS,
   SETUP_BUILTIN_TOGGLE_FEATURES,
   SETUP_OPEN_TARGETS,
+  SETUP_SECTION_OPEN_TARGETS,
   SETUP_STATUS_DOMAINS,
   SETUP_TOOL_DEFS,
 } from './tool-defs.mjs';
+import { SETUP_SECTION_TARGETS as TUI_SECTION_TARGETS } from '../../tui/app/use-ui-open-request.mjs';
 import { createSetupToolExecutor } from './executor.mjs';
 import { createNotificationBus } from '../notification-bus.mjs';
 import { resolveTuiRuntimeNotificationDelivery } from '../../tui/session/notification-plan.mjs';
@@ -64,16 +66,33 @@ test('tool definition: schema enums mirror the exported action/domain/target lis
   }
 });
 
-test('every open target is a slash command in both TUI and Desktop tables', () => {
+test('every open target is a slash command or a settings section routed by both TUI and Desktop', () => {
   const tuiNames = new Set(TUI_SLASH_COMMANDS.flatMap((cmd) => [cmd.name, ...(cmd.aliases || [])]));
-  const desktopSource = fs.readFileSync(
-    path.join(repoRoot, 'apps', 'desktop', 'src', 'renderer', 'slash-commands.ts'),
-    'utf8'
-  );
+  const renderer = path.join(repoRoot, 'apps', 'desktop', 'src', 'renderer');
+  const desktopSource = fs.readFileSync(path.join(renderer, 'slash-commands.ts'), 'utf8');
+  const desktopSections = fs.readFileSync(path.join(renderer, 'app-shell-ui-open-request.ts'), 'utf8');
   for (const target of SETUP_OPEN_TARGETS) {
+    if (SETUP_SECTION_OPEN_TARGETS.includes(target)) {
+      assert.ok(!tuiNames.has(target), `/${target} is a slash command, not a section target`);
+      assert.match(desktopSections, new RegExp(`^\\s+${target}: '`, 'm'), `Desktop does not route ${target}`);
+      continue;
+    }
     assert.ok(tuiNames.has(target), `TUI slash table lacks /${target}`);
     assert.match(desktopSource, new RegExp(`name: '${target}'`), `Desktop slash table lacks /${target}`);
   }
+  assert.deepEqual(Object.keys(TUI_SECTION_TARGETS).sort(), [...SETUP_SECTION_OPEN_TARGETS].sort());
+});
+
+test('TUI section targets open their surface or explain a Desktop-only one', () => {
+  const calls = [];
+  const sections = {
+    openDeveloperPicker: () => calls.push('developer'),
+    openSettingsPicker: () => calls.push('settings'),
+    pushNotice: (text) => calls.push(text),
+  };
+  for (const target of SETUP_SECTION_OPEN_TARGETS) TUI_SECTION_TARGETS[target](sections);
+  assert.deepEqual(calls.slice(0, 2), ['developer', 'settings']);
+  assert.match(calls[2], /Desktop app: Settings → Connection/);
 });
 
 test('open: attached UI handles the request -> opened:true; headless -> guidance text', async () => {
@@ -189,10 +208,30 @@ test('status providers exposes connection state and key-console URL, never secre
           local: [],
         };
       },
+      getProviderAccounts: () => ({
+        provider: 'anthropic',
+        auto: true,
+        selectedId: 'a1',
+        accounts: [
+          {
+            id: 'a1',
+            label: 'Work',
+            authenticated: true,
+            reauthRequired: false,
+            identity: 'person@example.test',
+            usage: { percent: 40 },
+          },
+        ],
+      }),
     }),
     getSessionId: () => '',
   });
   const status = await run(executor, { action: 'status', domain: 'providers' });
+  assert.deepEqual(status.oauth[0].accounts, {
+    selectedId: 'a1',
+    auto: true,
+    accounts: [{ id: 'a1', label: 'Work', authenticated: true, reauthRequired: false }],
+  });
   assert.equal(status.domain, 'providers');
   assert.equal(status.api[0].keyUrl, 'https://platform.openai.com/api-keys');
   assert.equal(status.api[0].source, 'none');

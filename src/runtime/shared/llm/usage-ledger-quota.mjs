@@ -209,11 +209,22 @@ function quotaInstances(rows, label, now) {
       paced: false,
     };
   });
+  // After a reset, early or on time, the meter reads zero until the next
+  // request: that last run is the window open now, not a gap between windows.
+  const latest = instances.at(-1);
+  if (
+    latest?.idle &&
+    instances.some((instance) => !instance.idle) &&
+    (latest.resetAt == null || latest.resetAt > now)
+  ) {
+    latest.idle = false;
+  }
   const active = instances.filter((instance) => !instance.idle);
   let previousEnd = -Infinity;
-  active.forEach((instance, index) => {
+  active.forEach((instance) => {
     const first = instance.rows[0];
-    const next = active[index + 1];
+    // Any later reading, even an idle one after an early reset, closes it.
+    const next = instances[instances.indexOf(instance) + 1];
     // A window's clock started at its opening: never after its first reading,
     // never inside the window before it.
     const opened = quotaWindowOpened(label, instance.resetAt);

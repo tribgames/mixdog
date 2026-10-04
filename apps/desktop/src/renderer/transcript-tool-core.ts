@@ -330,8 +330,121 @@ function desktopToolActivityUnit(
   return { category, done, noun, unitKey: named.unitKey, label: named.label };
 }
 
-/** The work-unit name a call is counted under in the group summary; its own
- *  row carries the same name so the two levels read as one vocabulary. */
+/** The one-word verb a call's own row opens with ("Read a.ts", "Run npm
+ *  test"). The group summary counts work units by their full name; a row sits
+ *  beside its target, so the short verb is all it needs. Empty when the unit
+ *  has no plain verb (a named skill, an MCP server). */
+function toolActivityRowVerb(category: string, done: string, noun: string): string {
+  switch (toolActivityUnitKey(category, done, noun)) {
+    case 'Read|Read|file':
+    case 'Read|Read|image':
+    case 'Read|Read|resource':
+    case 'Read|Read|code map':
+      return t('Read');
+    case 'Search|Searched|pattern':
+      return t('Search');
+    case 'Search|Found|glob':
+    case 'Search|Found|query':
+    case 'Search|Mapped|symbol':
+      return t('Find');
+    case 'Search|Listed|directory':
+      return t('List');
+    case 'Patch|Created|file':
+      return t('Write');
+    case 'Patch|Edited|file':
+    case 'Patch|Changed|file':
+      return t('Edit');
+    case 'Patch|Deleted|file':
+      return t('Delete');
+    case 'Web Research|Researched|query':
+      return t('Web search');
+    case 'Web Research|Fetched|URL':
+    case 'Web Research|Fetched|message':
+      return t('Fetch');
+    case 'Shell|Ran|command':
+      return t('Run');
+    case 'Git|Ran|Git command':
+    case 'Git|Staged|change':
+      return t('Git');
+    case 'Browser|Browsed|action':
+      return t('Browser');
+    case 'Agent|Called|agent':
+    case 'Agent|Completed|agent':
+    case 'Agent|Failed|agent':
+    case 'Agent|Cancelled|agent':
+      return t('Agent');
+    case 'Task|Checked|task':
+    case 'Task|Waited for|task':
+    case 'Task|Listed|task':
+    case 'Task|Cancelled|task':
+      return t('Task');
+    default:
+      return '';
+  }
+}
+
+export function desktopToolActivityRowVerb(name: unknown, args: unknown): string {
+  const unit = desktopToolActivityUnit(name, args);
+  return toolActivityRowVerb(unit.category, unit.done, unit.noun) || unit.label;
+}
+
+export interface ToolActivityBrowserPage {
+  url: string;
+  /** Host, the card's title. */
+  host: string;
+  /** Path and query after the host; empty for a site root. */
+  path: string;
+}
+
+/** The last page a group's browser calls navigated to, for the page card
+ *  under the group. Failed calls and calls that name no http(s) address
+ *  (a click, a snapshot, a wait on a URL fragment) leave no page. */
+export function desktopToolActivityBrowserPage(items: readonly TranscriptItem[]): ToolActivityBrowserPage | null {
+  let page: ToolActivityBrowserPage | null = null;
+  for (const item of flattenedToolActivityItems(items)) {
+    if (item.isError) continue;
+    const surface = desktopToolActivitySurface(item.name, item.args);
+    if (surface.normalizedName !== 'browser') continue;
+    // The action rides at the argument root, beside the nested `input` the
+    // surface unwraps; a stored call may still carry its arguments as JSON.
+    let root = asRecord(item.args);
+    if (!root && typeof item.args === 'string') {
+      try {
+        root = asRecord(JSON.parse(item.args));
+      } catch {
+        root = null;
+      }
+    }
+    const action = String(root?.action ?? surface.args.action ?? '');
+    if (!/^(?:navigate|open)$/.test(action)) continue;
+    const address = surface.args.url ?? asRecord(root?.input)?.url ?? root?.url;
+    const raw = typeof address === 'string' ? address.trim() : '';
+    if (!/^https?:\/\//i.test(raw)) continue;
+    try {
+      const parsed = new URL(raw);
+      const path = `${parsed.pathname}${parsed.search}`;
+      page = { url: parsed.href, host: parsed.host, path: path === '/' ? '' : path };
+    } catch {
+      // Not an address the pane could load; keep the previous page.
+    }
+  }
+  return page;
+}
+
+/** The group summary: each row verb once, in first-use order, with its call
+ *  count when it ran more than once ("Read 6 · Search · Run 4"). The summary
+ *  and the rows under it speak one vocabulary, and a long turn no longer
+ *  runs the line off the edge with full work-unit names. */
+export function desktopToolActivitySummary(items: readonly TranscriptItem[]): string {
+  const counts = new Map<string, number>();
+  for (const item of flattenedToolActivityItems(items)) {
+    const verb = desktopToolActivityRowVerb(item.name, item.args);
+    counts.set(verb, (counts.get(verb) || 0) + Math.max(1, Math.round(Number(item.count || 1))));
+  }
+  return [...counts].map(([verb, count]) => (count > 1 ? `${verb} ${count}` : verb)).join(' · ');
+}
+
+/** The work-unit name a call is counted under. */
 export function desktopToolActivityUnitLabel(name: unknown, args: unknown): string {
   return desktopToolActivityUnit(name, args).label;
 }

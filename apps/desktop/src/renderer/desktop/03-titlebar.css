@@ -5,50 +5,22 @@
 .app-shell {
   background: var(--mx-window-band);
 }
-/* Windows 11 Mica (main/window-options.ts marks html[data-window-material]),
-   laid out as Windows' own standard pattern (Microsoft Learn, Mica material:
-   Mica as the base layer, one low-opacity content layer on top). The frame —
-   titlebar, rail and side panel — is the material itself; the workspace (tab
-   strip + panes) is ONE translucent layer rounded at its top-left, so the
-   wallpaper hue carries through every surface. The earlier Mica rim beside
-   flat grey panels, lifted +11 to meet the material, read muddy (user: 뭔가
-   왜이렇게 탁하냐). In dark the layer DARKENS the material so the
-   conversation keeps its depth; cards, bubbles and the prompt stay opaque. */
+/* Windows 11 Mica (main/window-options.ts marks html[data-window-material])
+   stays on the titlebar and activity rail only. Side panels and the workspace
+   stay opaque, so wallpaper and focus changes cannot tint the content. */
 html[data-window-material="mica"] {
   /* Solid copy for ink that must stay opaque (the send arrow) once the
      workspace turns its surface tokens clear. */
   --mx-sheet-ink: var(--mx-workspace-sheet);
-  /* Depth steps INWARD once: the Mica frame is the lightest and the side
-     panel one step deeper; the workspace then shares the side panel's tone
-     instead of stepping deeper again, so the two read as one body (user:
-     GPT 대비 사이드 패널이랑 동떨어진 느낌 → 시안 B, 색 순서 뒤집기). Each
-     is a single layer straight on the material, so the wallpaper hue only
-     dims — it never turns grey. */
-  /* The frame tint lays Windows' own inactive fallback (#202020) at half
-     strength over the material: the wallpaper shows at half (user: 미카를
-     너무 과하게) and the jump when the window loses focus — Windows swaps
-     Mica for that flat fallback — halves with it (user: 포커싱 안 하면 미카
-     풀리는 거 이상하고). The steps inward stay gentle (user: 사이드레일
-     오른쪽 패널에 너무 강도가 심한). */
-  --mx-mica-frame: rgb(32 32 32 / 50%);
-  /* The side panel is nearly solid — the material only glints through it
-     (user: 사이드레일 오른쪽 프레임은 그냥 살짝 비치는 정도로만). */
-  --mx-mica-panel: rgb(28 28 31 / 88%);
-  /* The workspace is SOLID, as in Codex's own Windows shell: Windows swaps
-     Mica for a flat fallback whenever the window loses focus, and a
-     translucent workspace carried that swap across most of the screen (user:
-     포커스 전환 시 풀려버려 코덱스는 전혀 풀리지 않는데). Solid, only the
-     frame and the side panel's glint change. Same tone as the panel. */
-  --mx-mica-layer: var(--mx-mica-panel-solid);
-  /* The side panel's composited tone, solid: the right dock lives on the
-     opaque workspace, where no Mica can show through, yet it should read as
-     the same panel as the left one (user: 오른쪽도 왼쪽처럼). */
-  --mx-mica-panel-solid: #1c1c1f;
+  /* Let native Mica supply the dark frame without an extra grey wash.
+     Snapshot the root colors before panel descendants clear their tokens. */
+  --mx-mica-frame: transparent;
+  --mx-mica-layer: var(--mx-sheet-ink);
+  --mx-mica-panel-solid: var(--mx-window-band);
 }
 /* Paper runs the same ladder toward white over its #f3f3f3 fallback. */
 html[data-window-material="mica"][data-mixdog-theme="light"] {
   --mx-mica-frame: rgb(243 243 243 / 50%);
-  --mx-mica-panel: rgb(247 247 250 / 88%);
   --mx-mica-layer: var(--mx-mica-panel-solid);
   --mx-mica-panel-solid: #f7f7fa;
 }
@@ -82,7 +54,7 @@ html[data-window-material="mica"] .main-panel {
   box-shadow: inset 0 1px 0 var(--mx-border-structure);
 }
 html[data-window-material="mica"] .workbench-side-panel {
-  background: var(--mx-mica-panel);
+  background: var(--mx-mica-panel-solid);
 }
 /* The parked conversation stays painted under a Studio/terminal/diff tab;
    with the sheet token cleared the covering layer turned see-through and the

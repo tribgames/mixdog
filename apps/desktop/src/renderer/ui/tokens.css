@@ -14,6 +14,18 @@
   --mx-radius-sheet: 16px;
   --mx-radius-pill: 999px;
   --mx-radius-hair: 2px;
+  /* THE hairline. One device pixel on every display: 1px at 1x, 0.5px from
+     1.5x up. A literal 0.5px only draws a true hairline on a dense display —
+     at 1x a 0.5px ring shadow is a 1px line at HALF its alpha, so the 10-14%
+     border inks landed at 5-7% and frames, cards and field edges all but
+     vanished (user: 잘 안 보이는 것도 있고). Every seam and ring reads this. */
+  --mx-hairline: 1px;
+  /* THE spinner turn. Every rotating progress mark reads this, so two
+     spinners on one screen (a tab's status, a pane loading under it) turn
+     together. They used to run at six speeds, 0.7s to 1.1s, off five copies
+     of the same keyframe. The response glyph's slow 2.9s orbit is a
+     different mark and keeps its own clock. */
+  --mx-motion-spin: spin 900ms linear infinite;
   --mx-control-xs: 24px;
   --mx-control-sm: 28px;
   --mx-control-md: 32px;
@@ -152,4 +164,9 @@
   min-height: 0;
   overflow: auto;
   padding: var(--mx-space-3);
+}
+@media (min-resolution: 1.5dppx) {
+  :root {
+    --mx-hairline: 0.5px;
+  }
 }

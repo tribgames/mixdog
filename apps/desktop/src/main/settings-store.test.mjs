@@ -7,6 +7,49 @@ import { DesktopSettingsStore, desktopSettingsFromConfig, settingsConfigModuleUr
 import { registerDesktopIpc } from './ipc.ts';
 import { requiredDesktopCapabilityRequest, requiredDesktopSettingKey } from './ipc-validation.ts';
 import { DESKTOP_IPC } from '../shared/contract.ts';
+import { registerWindowSettingsIpc } from './ipc-window-settings.ts';
+
+test('desktop zoom ignores legacy values and rejects changes without rewriting unrelated settings', async () => {
+  const config = { desktop: { zoomFactor: 1.2, keepAwake: true } };
+  let writes = 0;
+  const store = new DesktopSettingsStore({
+    loadConfig: async () => ({
+      readConfig: () => config,
+      updateConfigAsync: async () => {
+        writes += 1;
+        return config;
+      },
+    }),
+  });
+  assert.equal(await store.readZoom(), 1);
+  assert.equal(await store.updateZoom(1), 1);
+  for (const factor of [0.8, 1.2, 2, NaN]) {
+    await assert.rejects(store.updateZoom(factor), /fixed at 100%/);
+    assert.equal(await store.readZoom(), 1);
+  }
+  assert.equal(writes, 0);
+  assert.deepEqual(config, { desktop: { zoomFactor: 1.2, keepAwake: true } });
+});
+
+test('desktop zoom IPC returns native scale and cannot apply a different scale', async () => {
+  const handlers = new Map();
+  const applied = [];
+  const store = new DesktopSettingsStore();
+  registerWindowSettingsIpc({
+    window: {
+      webContents: { setZoomFactor: (factor) => applied.push(factor), send() {} },
+      setTitleBarOverlay() {},
+    },
+    app: {},
+    host: {},
+    handle: (channel, handler) => handlers.set(channel, handler),
+    settingsStore: store,
+  });
+  assert.equal(await handlers.get(DESKTOP_IPC.getZoomFactor)({}), 1);
+  await assert.rejects(handlers.get(DESKTOP_IPC.setZoomFactor)({}, 1.2), /fixed at 100%/);
+  assert.equal(await handlers.get(DESKTOP_IPC.setZoomFactor)({}, 1), 1);
+  assert.deepEqual(applied, [1, 1]);
+});
 
 test('settings config URL follows development and packaged runtime layouts', () => {
   // Absolute fixtures in the host's own path grammar: a Windows-only literal

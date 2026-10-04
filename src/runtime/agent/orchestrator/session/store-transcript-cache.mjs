@@ -35,6 +35,10 @@ const SETTLED_FILE_AGE_MS = 2_500;
 // newcomer is served uncached.
 const ACTIVE_ENTRY_MS = 5_000;
 const GHOST_LIMIT = 256;
+// Projections nobody is being served (a view that left, a hover/boot
+// prefetch never opened) stay for a quick revisit only within this budget;
+// the full budget above is for the views still refreshing.
+const STORED_TRANSCRIPT_IDLE_MAX_BYTES = 4 * 1024 * 1024;
 
 function sameFileStat(left, right) {
   return (
@@ -60,6 +64,7 @@ export function createStoredTranscriptCache({
   // LRU reparsed every unchanged record when nine visible sessions refreshed.
   maxEntries = Number.POSITIVE_INFINITY,
   maxBytes = STORED_TRANSCRIPT_CACHE_MAX_BYTES,
+  maxIdleBytes = STORED_TRANSCRIPT_IDLE_MAX_BYTES,
 } = {}) {
   // Retain a content digest, not a second full transcript beside its projection.
   // The bound is the size of what is actually retained: the projection.
@@ -126,6 +131,17 @@ export function createStoredTranscriptCache({
     entries.delete(key);
     entries.set(key, entry);
   };
+  // Oldest idle entries go first until the idle ones fit their own budget.
+  const trimIdle = (now) => {
+    let idleBytes = 0;
+    for (const entry of entries.values()) if (now - entry.usedAt > ACTIVE_ENTRY_MS) idleBytes += entry.bytes;
+    for (const [key, entry] of [...entries]) {
+      if (idleBytes <= maxIdleBytes) break;
+      if (now - entry.usedAt <= ACTIVE_ENTRY_MS) continue;
+      idleBytes -= entry.bytes;
+      drop(key);
+    }
+  };
 
   return {
     /** The cached projection for this exact content, or a fresh one from
@@ -133,6 +149,7 @@ export function createStoredTranscriptCache({
      *  the entry. Concurrent callers with the same content share one parse.
      *  Entries naming the same `group` replace each other. */
     async read({ key, group = null, fingerprint, fileStat = null, loadText, produce, now = Date.now() }) {
+      trimIdle(now);
       const cached = entries.get(key);
       if (
         cached &&
@@ -180,6 +197,14 @@ export function createStoredTranscriptCache({
       } finally {
         if (inFlight.get(key) === record) inFlight.delete(key);
       }
+    },
+    /** The last view of these projections left: they turn idle now and stay
+     *  only within the idle budget, ready for a revisit. */
+    release(keyPrefix, now = Date.now()) {
+      for (const [key, entry] of entries) {
+        if (key.startsWith(keyPrefix)) entry.usedAt = Math.min(entry.usedAt, now - ACTIVE_ENTRY_MS - 1);
+      }
+      trimIdle(now);
     },
     forget(keyPrefix) {
       for (const key of inFlight.keys()) {

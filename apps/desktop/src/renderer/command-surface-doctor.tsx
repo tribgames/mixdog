@@ -68,8 +68,8 @@ function checkLabel(check: DoctorCheck): string {
       return t('Built-ins');
     case 'voice':
       return t('Voice transcription');
-    case 'channels':
-      return t('Channels');
+    case 'automation':
+      return t('Automations');
     case 'skills':
       return t('Skills');
     case 'plugins':

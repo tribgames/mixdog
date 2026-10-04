@@ -5,6 +5,33 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Browser Use on the phone streams the desktop page live instead of
+  refreshing snapshots, and takes the same mouse, touch, wheel, keyboard and
+  IME input as the desktop pane. When an agent hands the page over (for
+  example a CAPTCHA), the phone opens it too.
+
+- Tool activity in the transcript is easier to scan: each row opens with a
+  short verb, reads and searches show per-file results, listings show file
+  rows, commands sit in their own box, `git diff` output renders as a diff,
+  and a page the browser visited gets a card that reopens it in the pane.
+
+- Finished-turn notifications arrive sooner, show plain text instead of raw
+  Markdown, end on a whole sentence, and are no longer held back by
+  long-running background shell jobs.
+
+- Recently used sessions open faster after a restart and when revisited.
+
+- The setup tool can manage OAuth accounts, developer options, activity rail
+  pins and a plugin's MCP server, and requests from split-pane sessions are
+  handled. A provider's own auto-clear window now overrides the global one.
+
+- The Git tool turns on wherever `git` is installed, without installing an
+  extension. Schedules and webhooks always deliver to the app session.
+
+- The app interface stays at 100% scale, settings saved in another window or
+  terminal apply right away, and borders, icons, list spacing and dialog
+  entrances are more consistent.
+
 ## v1.0.6 - 2026-10-03
 
 - Phone push notifications stay quiet while the app is on screen, follow a

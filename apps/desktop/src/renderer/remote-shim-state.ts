@@ -4,6 +4,8 @@
 // seeing the same connection.
 import type {
   DesktopAgentPoolRow,
+  DesktopBrowserOpenRequest,
+  DesktopRemoteBrowserStreamFrame,
   DesktopLspDiagnosticEvent,
   DesktopLspStatusEvent,
   DesktopSessionSummary,
@@ -136,6 +138,8 @@ export interface RemoteShimCollaborators {
   folderChangeListeners: Set<(dir: string) => void>;
   activityRailPinsListeners: Set<(state: ActivityRailPinsState) => void>;
   providerModelsListeners: Set<(change: ProviderModelsChange) => void>;
+  remoteBrowserFrameListeners: Set<(frame: DesktopRemoteBrowserStreamFrame) => void>;
+  browserOpenListeners: Set<(request: DesktopBrowserOpenRequest) => void>;
   lspDiagnosticsListeners: Set<(event: DesktopLspDiagnosticEvent) => void>;
   lspStatusListeners: Set<(event: DesktopLspStatusEvent) => void>;
   // Push lanes this browser actually reads. Terminal output, diagnostics and
@@ -344,6 +348,8 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     folderChangeListeners: new Set(),
     activityRailPinsListeners: new Set(),
     providerModelsListeners: new Set(),
+    remoteBrowserFrameListeners: new Set(),
+    browserOpenListeners: new Set(),
     lspDiagnosticsListeners: new Set(),
     lspStatusListeners: new Set(),
     activeLanes: new Set(),

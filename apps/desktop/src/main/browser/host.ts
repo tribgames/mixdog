@@ -28,7 +28,9 @@ import {
   type DesktopBrowserPageResample,
   type DesktopBrowserPageControl,
   type DesktopRemoteBrowserControl,
-  type DesktopRemoteBrowserFrame,
+  type DesktopBrowserOpenRequest,
+  type DesktopRemoteBrowserStreamFrame,
+  type DesktopRemoteBrowserStreamOptions,
 } from '../../shared/contract';
 import { createBrowserActionApproval, type BrowserApprovalRequest } from './action-approval';
 import { requestBrowserApproval } from './approval-dialog';
@@ -96,6 +98,7 @@ import { createBrowserRefActions } from './ref-actions';
 import { redactBrowserText } from './redaction';
 import { createBrowserRefPoints } from './ref-points';
 import { createBrowserRemoteControl } from './remote-control';
+import { createPageInputDispatcher } from './page-surface-control';
 import { createBrowserReply } from './reply';
 import { createBrowserScreenshotService } from './screenshot';
 import { createBrowserVisualPrivacy } from './visual-privacy';
@@ -141,7 +144,8 @@ export interface BrowserHost {
   browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]>;
   browserCredentialSuggestions(sessionId: string): Promise<BrowserCredentialSuggestion[]>;
   browserCredentialFill(sessionId: string, credentialId: string): Promise<BrowserCredentialFillResult>;
-  remoteBrowserFrame(sessionId: string, previousFrameId?: string): Promise<DesktopRemoteBrowserFrame>;
+  /** Start/renew (options) or stop (null) streaming a session's live frames. */
+  remoteBrowserStream(sessionId: string, options: DesktopRemoteBrowserStreamOptions | null): Promise<void>;
   remoteBrowserControl(sessionId: string, input: DesktopRemoteBrowserControl): Promise<void>;
   dispose(): Promise<void>;
 }
@@ -248,6 +252,10 @@ export function createBrowserHost(
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
     requestApproval?: (request: BrowserApprovalRequest, signal?: AbortSignal) => Promise<boolean>;
     chooseBrowserFiles?: (multiple: boolean) => Promise<{ canceled: boolean; filePaths: string[] }>;
+    /** An explicit reveal or hide of a session's surface, for paired clients. */
+    onSurfaceRequest?: (request: DesktopBrowserOpenRequest) => void;
+    /** One live frame of a remotely streamed session, handed to the service. */
+    publishRemoteFrame?: (frame: DesktopRemoteBrowserStreamFrame) => Promise<void>;
   } = {}
 ): BrowserHost {
   const state = new BrowserGuestStateStore();
@@ -352,6 +360,9 @@ export function createBrowserHost(
       displayTextures.attach(guest);
       nativeViews?.watch(guest);
     },
+    onSurfaceRequest: (request) => {
+      if (request.hide || request.reveal === true) options.onSurfaceRequest?.(request);
+    },
     nativeView,
   });
   const nativeViews = nativeView
@@ -396,7 +407,6 @@ export function createBrowserHost(
       evaluate: (guest, expression, signal) => cdp.evaluate(guest, expression, signal),
     },
   });
-  const screenshots = createBrowserScreenshotService(cdp, SCREENSHOT_TIMEOUT_MS, SCREENSHOT_FALLBACK_TIMEOUT_MS);
   const agentScreenshots = createBrowserScreenshotService(
     cdp,
     SCREENSHOT_TIMEOUT_MS,
@@ -523,14 +533,20 @@ export function createBrowserHost(
   const remote = createBrowserRemoteControl({
     state,
     cdp,
-    input,
     urlPolicy: browserUrlPolicy,
     ensureGuest: lifecycle.ensureGuest,
+    currentGuest: (sessionId) => browserSessions.currentGuest(sessionId) ?? null,
     viewerChanged: (sessionId, active) => sendToRenderer(DESKTOP_IPC.browserRemoteViewerChanged, { sessionId, active }),
     onUserControl: retainGuest,
-    captureScreenshot: screenshots.capture,
     assertResolvedUrlAllowed: urls.assertResolvedUrlAllowed,
-    revision: documents.revision,
+    dispatchPageInput: createPageInputDispatcher({
+      state,
+      cdp,
+      dispatchInput,
+      urlPolicy: browserUrlPolicy,
+      assertUrl: urls.assertResolvedUrlAllowed,
+    }),
+    publishFrame: (frame) => options.publishRemoteFrame?.(frame) ?? Promise.resolve(),
   });
   const displayCapture = createBrowserDisplayCapture(browserSharedTextureRendering());
   const pageSurface = createBrowserPageSurface({
@@ -848,10 +864,8 @@ export function createBrowserHost(
         credentialFill.fillCredentialInGuest(guest, credential)
       );
     },
-    remoteBrowserFrame(sessionId: string, previousFrameId = ''): Promise<DesktopRemoteBrowserFrame> {
-      return executeSerialized({ action: 'remote_frame', session_id: browserSessionId(sessionId) }, undefined, () =>
-        remote.remoteBrowserFrame(browserSessionId(sessionId), previousFrameId)
-      );
+    remoteBrowserStream(sessionId: string, streamOptions: DesktopRemoteBrowserStreamOptions | null): Promise<void> {
+      return remote.remoteBrowserStream(browserSessionId(sessionId), streamOptions);
     },
     remoteBrowserControl(sessionId: string, control: DesktopRemoteBrowserControl): Promise<void> {
       return executeSerialized({ action: 'remote_control', session_id: browserSessionId(sessionId) }, undefined, () =>

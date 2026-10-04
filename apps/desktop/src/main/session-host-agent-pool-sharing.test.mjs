@@ -34,7 +34,7 @@ test('concurrent agent pool callers share the store read but not returned arrays
   const results = await Promise.all(calls);
   assert.equal(reads, 1);
   for (const rows of results) {
-    assert.deepEqual(rows, [{ ...source[0], shellJobCount: 0 }]);
+    assert.deepEqual(rows, [{ ...source[0] }]);
     assert.notEqual(rows, source);
     assert.notEqual(rows[0], source[0]);
   }
@@ -47,24 +47,20 @@ test('concurrent agent pool callers share the store read but not returned arrays
   assert.equal(source[0].status, 'running');
 });
 
-test('settled reads are not cached and shell counts are sampled after the shared read', async (t) => {
+test('settled reads are not cached', async (t) => {
   const release = Promise.withResolvers();
   t.after(() => release.resolve());
   let reads = 0;
   let rows = [{ tag: 'a', sessionId: 'a', status: 'running' }, { tag: 'b', sessionId: 'b', status: 'idle' }];
-  const counts = new Map([['a', 1], ['b', 0]]);
   const host = await hostFor(t, async () => {
     await release.promise;
     return { listStoredAgentWorkers: () => { reads++; return rows; } };
   });
-  t.mock.method(host.shellJobsPoller, 'statusFor', (sessionId) => ({ count: counts.get(sessionId) || 0 }));
   const pending = host.listAgentPool();
-  counts.set('a', 3);
   release.resolve();
-  assert.deepEqual((await pending).map((row) => row.shellJobCount), [3, 0]);
+  assert.deepEqual((await pending).map((row) => row.sessionId), ['a', 'b']);
   rows = [{ tag: 'b', sessionId: 'b', status: 'running' }];
-  counts.set('b', 2);
-  assert.deepEqual(await host.listAgentPool(), [{ ...rows[0], shellJobCount: 2 }]);
+  assert.deepEqual(await host.listAgentPool(), [{ ...rows[0] }]);
   rows = [];
   assert.deepEqual(await host.listAgentPool(), []);
   assert.equal(reads, 3);

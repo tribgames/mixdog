@@ -205,31 +205,23 @@ function reportMemory(runtime) {
 
 function reportChannels(runtime) {
   return async (settings, row) => {
-    if (typeof settings.enabled !== 'boolean') {
-      row('warn', 'status unavailable');
-      return;
-    }
-    if (!settings.enabled) {
-      row('ok', 'disabled');
-      return;
-    }
     const worker = settings.status || (await runtime.getChannelWorkerStatus?.());
     if (typeof worker?.running !== 'boolean') {
-      row('warn', 'enabled · worker status unavailable');
+      row('warn', 'worker status unavailable');
       return;
     }
     if (worker.running) {
-      row('ok', 'enabled · worker running');
+      row('ok', 'worker running');
       return;
     }
     // The worker boots only for enabled schedules or webhooks, so without
     // them a stopped worker is idle, not a fault.
     const setup = await runtime.getChannelSetup?.();
     if (setup && !hasEnabledAutomation(setup)) {
-      row('ok', 'enabled · idle (no active schedules or webhooks)');
+      row('ok', 'idle (no active schedules or webhooks)');
       return;
     }
-    row('warn', setup ? 'enabled · worker stopped with active automation' : 'enabled · worker stopped', {
+    row('warn', setup ? 'worker stopped with active automation' : 'worker stopped', {
       hint: 'enabled schedules and webhooks are not running',
     });
   };
@@ -410,8 +402,8 @@ export async function runDoctorChecks(runtime = {}, getState = () => ({}), optio
       reportVoice,
     ],
     [
-      'channels',
-      'channels',
+      'automation',
+      'automation',
       () => runtime.getChannelSettings?.({ includeStatus: true }),
       reportChannels(runtime),
     ],

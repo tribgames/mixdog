@@ -234,7 +234,7 @@ export function QueueList({
                 aria-label={t('Steer queued follow-up now: {{text}}', { text })}
                 data-tooltip={t('Interrupt and steer now')}
               >
-                <MxIcon name="zap" size={13} />
+                <MxIcon name="zap" size={14} />
                 <span>{t('Steer now')}</span>
               </button>
               <button

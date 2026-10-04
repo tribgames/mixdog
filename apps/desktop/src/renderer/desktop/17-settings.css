@@ -26,6 +26,10 @@
      스타일 중구난방). */
   background: var(--mx-scrim);
   backdrop-filter: blur(2px);
+  /* The dialog system's entrance too: Settings was the one modal that
+     appeared in a single frame. The layer leaves display:none to open, which
+     restarts both animations on every open. */
+  animation: mx-scrim-in var(--mx-motion-chrome);
 }
 /* Closed-but-mounted (idle prewarm keeps the ~330ms dialog tree alive):
    display:none is the one hiding primitive no descendant can override, so
@@ -57,6 +61,7 @@
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
+  animation: mx-dialog-in var(--mx-motion-chrome);
 }
 .mixdog-settings__panel {
   position: relative;
@@ -159,7 +164,10 @@
   color: var(--mx-text);
   font-size: var(--mx-font-body);
   font-weight: var(--mx-weight-semibold);
-  line-height: 1;
+  /* The UI line box every other heading and label sits on. At 1 the box was
+     exactly the glyph height: Hangul and descenders had no room, and the
+     heading was the one title in the app off the 20px rhythm. */
+  line-height: var(--mx-line-ui);
 }
 .settings-group > header p {
   color: var(--mx-text-muted);
@@ -183,7 +191,7 @@
   min-height: 0;
   padding: 20px 0;
   gap: 16px;
-  border-bottom: 0.5px solid var(--mx-border-muted);
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
 }
 .mixdog-settings-v2 .mixdog-settings__row {
   display: grid;
@@ -250,7 +258,7 @@
   align-items: center;
   gap: 5px;
   padding: 0 6px;
-  border: 0.5px solid var(--mx-border);
+  border: var(--mx-hairline) solid var(--mx-border);
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
   background: var(--mx-hover);
@@ -328,7 +336,7 @@
   width: 16px;
   height: 16px;
   margin: 0;
-  border: 0.5px solid var(--mx-switch-thumb-border);
+  border: var(--mx-hairline) solid var(--mx-switch-thumb-border);
   border-radius: 50%;
   background: linear-gradient(180deg, var(--mx-grey-50), transparent), var(--mx-grey-200);
   box-shadow: var(--mx-switch-thumb-shadow);
@@ -468,7 +476,7 @@
   gap: 16px;
   min-height: 56px;
   padding: 12px 0;
-  border-bottom: 0.5px solid var(--mx-border);
+  border-bottom: var(--mx-hairline) solid var(--mx-border);
 }
 .core-memory-list > :last-child {
   border-bottom: 0;
@@ -514,7 +522,7 @@
   gap: 16px;
 }
 .settings-shortcut-row + .settings-shortcut-row {
-  border-top: 0.5px solid var(--mx-border-muted);
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }
 .settings-shortcut-row span {
   color: var(--mx-text);

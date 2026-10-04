@@ -48,7 +48,6 @@ export async function runScheduleSession(schedule, { config = null, prompt: prom
     owner: 'user',
     sourceType: 'schedule',
     sourceName: schedule.name,
-    sourceDelivery: schedule.delivery || null,
     ...(cwd ? { cwd } : {}),
     desktopSession: cwd
       ? { classification: 'project', projectPath: cwd }

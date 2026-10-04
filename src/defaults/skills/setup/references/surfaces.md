@@ -25,6 +25,9 @@ or requests a setting with no mutation action.
 | `usage` | Provider usage sign-in |
 | `doctor` | Runtime diagnostics |
 | `context` | Context and compaction |
+| `developer` | Developer options (TUI: Developer picker) |
+| `voice` | Voice built-in (TUI: Settings hub) |
+| `connection` | Web-app pairing; Desktop only, the TUI shows guidance |
 
 An attached Desktop or TUI may navigate and return `opened:true`.
 
@@ -39,6 +42,7 @@ An attached Desktop or TUI may navigate and return `opened:true`.
 - Settings → Connection: web-app pairing and linked devices.
 - Settings → System: update, keep-awake, run in background after the window
   closes, and Doctor.
+- Settings → Developer options: risk-gated OAuth providers.
 - Projects: Project registration, name, Project Memories, and Common Memory.
 - Workflows: workflow packs, Main and Web Search defaults, and agent editing.
 - Extensions → Plugin: Built-in cards and plugins.
@@ -50,13 +54,14 @@ the user to Desktop.
 ## Desktop-backed settings
 
 Setup can read and change Desktop appearance, keep-awake, run in background,
-usage pin, Computer observe-only, Browser/Computer/voice installation and
+usage pin, activity rail pins, Computer observe-only, Browser/Computer/voice installation and
 toggles, Projects, and linked-device revocation through the attached
 Desktop. A receipt identifies `scope:desktop-host`; appearance is not applied
 to the paired browser. No Desktop claimant means no confirmed change.
 
-Computer observe-only has no Desktop settings control; setup is its only
-supported route. Usage pin is the pin toggle on the activity rail usage card.
+Computer observe-only, background Memory cycles (`set_recap_enabled`), and
+Browser/Computer first-use approval have no settings control in either app;
+setup is their only supported route. Usage pin is the pin toggle on the activity rail usage card.
 
 Schedules/webhooks and workflow/agent/skill definitions use their runtime
 actions directly. These do not require clicking their Desktop rails.

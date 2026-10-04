@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { makeResolveRoute } from './config-helpers.mjs';
+import { makeResolveRoute, resolveAutoClearIdleMs } from './config-helpers.mjs';
 
 const resolveRoute = makeResolveRoute(() => 'fallback');
 
@@ -69,4 +69,12 @@ test('raw selectors, explicit providers, and incomplete presets do not select a 
     assert.equal(route.preset, null);
   }
   assert.equal(resolveRoute({ default: 'main', presets: [{ id: 'main', provider: 'demo' }] }).preset, null);
+});
+
+test('provider idle window overrides the global auto-clear idleMs', () => {
+  const config = { autoClear: { idleMs: 2 * 3600_000, providerIdleMs: { 'openai-oauth': 30 * 60_000 } } };
+  assert.equal(resolveAutoClearIdleMs(config, 'openai-oauth'), 30 * 60_000);
+  assert.equal(resolveAutoClearIdleMs(config, 'anthropic-oauth'), 2 * 3600_000);
+  assert.equal(resolveAutoClearIdleMs({ autoClear: {} }, 'openai-oauth'), 30 * 60_000);
+  assert.equal(resolveAutoClearIdleMs({ autoClear: { providerIdleMs: { default: 5 * 60_000 } } }, 'unknown'), 5 * 60_000);
 });

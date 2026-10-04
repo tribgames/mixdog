@@ -25,13 +25,6 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-const DEFAULT_ZOOM_FACTOR = 1;
-
-function desktopZoomFromConfig(value: unknown): number {
-  const factor = Number(record(record(value).desktop).zoomFactor);
-  return Number.isFinite(factor) && factor >= 0.2 && factor <= 10 ? factor : DEFAULT_ZOOM_FACTOR;
-}
-
 export function settingsConfigModuleUrl(
   packaged = false,
   resourcesPath = process.resourcesPath,
@@ -192,19 +185,12 @@ export class DesktopSettingsStore {
   }
 
   async readZoom(): Promise<number> {
-    const config = await this.loadConfig();
-    return desktopZoomFromConfig(config.readConfig());
+    // Ignore legacy persisted zoom: the application UI always uses native scale.
+    return 1;
   }
 
   async updateZoom(factor: number): Promise<number> {
-    const config = await this.loadConfig();
-    const saved = await config.updateConfigAsync((current) => ({
-      ...record(current),
-      desktop: {
-        ...record(record(current).desktop),
-        zoomFactor: factor,
-      },
-    }));
-    return desktopZoomFromConfig(saved);
+    if (factor !== 1) throw new TypeError('Desktop zoom is fixed at 100%.');
+    return 1;
   }
 }

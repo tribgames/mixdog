@@ -175,23 +175,34 @@ export type DesktopBrowserPageAction =
 
 export type DesktopBrowserPageControl = DesktopBrowserPageAction & { documentId: string };
 
+/** Live view a paired client starts or renews: the largest image, in device
+ * pixels, it can display. The desktop never encodes a larger frame. */
+export interface DesktopRemoteBrowserStreamOptions {
+  maxWidth: number;
+  maxHeight: number;
+}
+
+/** One pushed live frame of a session's visible page. A client receives its
+ * next frame only after acknowledging `seq` (or after the ack window lapses),
+ * and that frame is always the newest one; superseded frames are dropped. */
+export interface DesktopRemoteBrowserStreamFrame extends DesktopRemoteBrowserFrame {
+  sessionId: string;
+  /** Monotonic within one stream. */
+  seq: number;
+  documentId: string;
+  /** CSS viewport the image depicts; pointer and wheel coordinates use it. */
+  viewportWidth: number;
+  viewportHeight: number;
+}
+
+/** Human page input from a paired client: the local pane's own input set,
+ * guarded by the document the client was showing when it was produced. */
+export type DesktopRemoteBrowserPageInput = Extract<
+  DesktopBrowserPageAction,
+  { type: 'pointer' | 'wheel' | 'text' | 'key' | 'composition' | 'composition-end' }
+> & { documentId: string };
+
 export type DesktopRemoteBrowserControl =
   | { type: 'navigate'; url: string }
   | { type: 'back' | 'forward' | 'reload' | 'stop' }
-  | { type: 'tap'; frameId: string; x: number; y: number }
-  | {
-      type: 'swipe';
-      frameId: string;
-      from: { x: number; y: number };
-      to: { x: number; y: number };
-    }
-  | {
-      type: 'scroll';
-      frameId: string;
-      x: number;
-      y: number;
-      deltaX: number;
-      deltaY: number;
-    }
-  | { type: 'text'; frameId: string; documentId?: string; text: string }
-  | { type: 'key'; frameId: string; documentId?: string; key: string };
+  | DesktopRemoteBrowserPageInput;

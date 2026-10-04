@@ -41,17 +41,32 @@ function harness(t, enabled = { value: true }) {
   return { watcher, delivered, answers, reads, errors, tick };
 }
 
-test('the completed turn answer, not the first prompt, is delivered after the quiet period', async (t) => {
+test('a Lead that finished its own turn is announced at once, with the completed turn answer', async (t) => {
   const { watcher, delivered, tick } = harness(t);
   watcher.onSessions([session('a', { working: true })]);
   watcher.onSessions([session('a')]);
-  await tick(2_499);
+  await tick(299);
   assert.deepEqual(delivered, []);
   await tick(1);
   assert.deepEqual(
     delivered.map((row) => [row.sessionId, row.preview]),
     [['a', 'Final answer a']]
   );
+});
+
+test('a mid-turn flicker with no new answer keeps polling and stays quiet when the turn resumes', async (t) => {
+  const { watcher, delivered, answers, reads, tick } = harness(t);
+  answers.read = async () => null;
+  watcher.onSessions([session('a', { working: true })]);
+  watcher.onSessions([session('a')]);
+  await tick(300);
+  assert.equal(reads.length, 1);
+  await tick(500);
+  assert.equal(reads.length, 2, 'the missing answer is re-read on the short poll');
+  watcher.onSessions([session('a', { working: true })]);
+  answers.read = async () => ({ id: 'mid', at: Date.now(), status: 'done', text: 'Not final' });
+  await tick(5_000);
+  assert.deepEqual(delivered, []);
 });
 
 test('a turn that resumes within the quiet period is not delivered', async (t) => {
@@ -93,15 +108,12 @@ test('schedules respect disabled notifications and disabling during the quiet pe
   assert.deepEqual(reads, []);
 });
 
-test('a Lead waiting on its shell job is delivered only once the job settles', async (t) => {
+test('a running background shell job never holds the Lead final answer', async (t) => {
   const { watcher, delivered, tick } = harness(t);
   watcher.onSessions([session('a', { working: true })]);
   watcher.onAgentPool([lead('a', { shellJobCount: 1 })]);
   watcher.onSessions([session('a')]);
-  await tick(3_000);
-  assert.deepEqual(delivered, []);
-  watcher.onAgentPool([lead('a', { shellJobCount: 0 })]);
-  await tick(3_000);
+  await tick(300);
   assert.deepEqual(
     delivered.map((row) => row.sessionId),
     ['a']
@@ -124,10 +136,10 @@ test('an answer arriving after idle is awaited instead of replaced by a preview 
   watcher.onSessions([session('a', { working: true })]);
   watcher.onSessions([session('a', { preview: 'first user prompt' })]);
   await tick(2_500);
-  assert.equal(reads.length, 1);
+  assert.ok(reads.length >= 1);
   assert.deepEqual(delivered, []);
   answers.read = async () => ({ id: 'final', at: Date.now(), status: 'done', text: 'The actual final reply' });
-  await tick(2_500);
+  await tick(500);
   assert.equal(delivered[0].preview, 'The actual final reply');
   await tick(5_000);
   assert.equal(delivered.length, 1);

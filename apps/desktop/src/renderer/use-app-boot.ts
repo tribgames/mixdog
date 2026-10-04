@@ -30,6 +30,12 @@ import { asRecord, navigationKey } from './text-format';
 import type { useAppShellPanels } from './use-app-shell-panels';
 import { loadSidebarUsageModule } from './use-usage-rail-pin';
 
+import type { DesktopSessionSummary } from '../shared/contract';
+
+/** Bounded so the warm reads stay a few small tails inside the renderer lane
+ *  and daemon idle budgets. */
+const RECENT_SESSION_WARMUP_COUNT = 6;
+
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
 type SidebarModuleTracker = ShellPanels['trackSidebarPanelModule'];
 type WarmupWorkspace = Pick<ReturnType<typeof usePaneWorkspace>, 'leaves' | 'focusedLeafId'>;
@@ -250,11 +256,13 @@ export function useLaunchTabMeasurements() {
 export function useAppWorkspaceWarmup({
   ready,
   workspace,
+  sessions,
   mountSidebarPanel,
   trackSidebarPanelModule,
 }: {
   ready: boolean;
   workspace: WarmupWorkspace;
+  sessions: readonly DesktopSessionSummary[];
   mountSidebarPanel: ShellPanels['mountSidebarPanel'];
   trackSidebarPanelModule: SidebarModuleTracker;
 }) {
@@ -274,6 +282,25 @@ export function useAppWorkspaceWarmup({
       for (const cancel of cancels) cancel();
     };
   }, [ready, workspace.focusedLeafId, workspace.leaves]);
+  // Once per boot, after the catalog lands: a session opened earlier was
+  // cold again after every restart (0.3-1.5s disk parse on its first click).
+  const recentWarmed = useRef(false);
+  useEffect(() => {
+    if (!ready || recentWarmed.current || isMobileRemoteSurface() || sessions.length === 0) return;
+    recentWarmed.current = true;
+    const open = new Set(paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId));
+    sessions
+      .filter((session) => !session.archived && !session.sourceType && !open.has(session.id))
+      .sort((left, right) => (right.activityAt ?? right.updatedAt) - (left.activityAt ?? left.updatedAt))
+      .slice(0, RECENT_SESSION_WARMUP_COUNT)
+      .forEach((session, index) =>
+        scheduleBootWarmup({
+          id: `transcript:${session.id}`,
+          priority: BOOT_WARMUP.recentTranscript + index,
+          run: () => requestSessionRead(session.id),
+        })
+      );
+  }, [ready, sessions, workspace.focusedLeafId, workspace.leaves]);
   // Code may warm on a normal remote link; it is cached independently of transcripts.
   useEffect(() => {
     if (!ready) return undefined;

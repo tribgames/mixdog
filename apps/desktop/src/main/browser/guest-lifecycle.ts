@@ -29,6 +29,8 @@ interface BrowserGuestLifecycleHost {
   isBackgroundBusy(sessionId: string, name: string): boolean;
   onPopup?(opener: WebContents, popup: WebContents): void;
   onGuest?(guest: WebContents): void;
+  /** The display client was asked to reveal or hide the session's surface. */
+  onSurfaceRequest?(request: { sessionId: string; reveal?: boolean; hide?: boolean }): void;
   waitForLoadSettle(guest: WebContents, timeoutMs: number, signal?: AbortSignal): Promise<unknown>;
   /** Native presentation: pages compose in their own hidden, frameless native
    *  windows, which the pane shows over its surface (see native-view). */
@@ -442,10 +444,10 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     if (window.isDestroyed() || window.webContents.isDestroyed()) {
       throw new Error('desktop window is unavailable');
     }
-    window.webContents.send(DESKTOP_IPC.browserOpenRequested, {
-      sessionId,
-      ...(reveal === 'hide' ? { hide: true } : { reveal }),
-    });
+    const request = { sessionId, ...(reveal === 'hide' ? { hide: true } : { reveal }) };
+    window.webContents.send(DESKTOP_IPC.browserOpenRequested, request);
+    // An explicit reveal or hide is an agent handoff paired clients must see too.
+    host.onSurfaceRequest?.(request);
   }
 
   /** Visibility requests only affect the display client, never page ownership

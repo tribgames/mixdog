@@ -29,7 +29,7 @@
   outline: none;
 }
 .composer-add-menu [role="menuitem"]:disabled {
-  opacity: 0.45;
+  opacity: var(--mx-op-disabled);
 }
 .composer-add-menu [role="menuitem"] > svg {
   flex: 0 0 16px;
@@ -79,7 +79,7 @@
   color: var(--mx-text-muted);
 }
 .composer-add-menu .composer-add-divider {
-  height: 0.5px;
+  height: var(--mx-hairline);
   margin: 4px 6px;
   background: var(--mx-border-muted);
 }

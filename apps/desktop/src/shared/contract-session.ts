@@ -79,8 +79,6 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   updatedAt: number | string | null;
   idleSince?: number | string | null;
   reapAt?: number | string | null;
-  /** Active background shell jobs owned by this session only. */
-  shellJobCount?: number;
   cwd: string | null;
   clientHostPid: number | null;
   taskId: string | null;

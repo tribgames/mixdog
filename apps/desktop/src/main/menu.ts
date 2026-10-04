@@ -1,12 +1,6 @@
 import { Menu, type MenuItemConstructorOptions } from 'electron';
 import { nativeT } from './native-i18n';
 
-interface NativeZoomActions {
-  reset(): void;
-  zoomIn(): void;
-  zoomOut(): void;
-}
-
 interface NativeMenuExtras {
   /** Opens the phone pairing window (starts the remote legs on demand). */
   showRemoteAccess?: () => void;
@@ -14,7 +8,6 @@ interface NativeMenuExtras {
 
 function nativeMenuTemplate(
   development: boolean,
-  zoom?: NativeZoomActions,
   extras?: NativeMenuExtras
 ): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = [];
@@ -61,17 +54,6 @@ function nativeMenuTemplate(
               { role: 'forceReload' as const, label: nativeT('Force Reload') },
             ]
           : []),
-        ...(zoom
-          ? [
-              { label: nativeT('Actual Size'), accelerator: 'CmdOrCtrl+0', click: zoom.reset },
-              { label: nativeT('Zoom In'), accelerator: 'CmdOrCtrl+Plus', click: zoom.zoomIn },
-              { label: nativeT('Zoom Out'), accelerator: 'CmdOrCtrl+-', click: zoom.zoomOut },
-            ]
-          : [
-              { role: 'resetZoom' as const, label: nativeT('Actual Size'), accelerator: 'CmdOrCtrl+0' },
-              { role: 'zoomIn' as const, label: nativeT('Zoom In'), accelerator: 'CmdOrCtrl+Plus' },
-              { role: 'zoomOut' as const, label: nativeT('Zoom Out'), accelerator: 'CmdOrCtrl+-' },
-            ]),
         { type: 'separator' },
         {
           role: 'togglefullscreen',
@@ -95,6 +77,6 @@ function nativeMenuTemplate(
   return template;
 }
 
-export function installNativeMenu(development: boolean, zoom?: NativeZoomActions, extras?: NativeMenuExtras): void {
-  Menu.setApplicationMenu(Menu.buildFromTemplate(nativeMenuTemplate(development, zoom, extras)));
+export function installNativeMenu(development: boolean, extras?: NativeMenuExtras): void {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(nativeMenuTemplate(development, extras)));
 }

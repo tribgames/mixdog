@@ -17,7 +17,11 @@ import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-
 import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './store-summary-visibility.mjs';
 import { applySummaryLogText, readSummaryLogText } from './store-summary-log.mjs';
 import { createStoredTranscriptCache, nextProjectionStamp } from './store-transcript-cache.mjs';
-import { OFFLOAD_MIN_CHARS, projectStoredTranscriptOffThread } from './store-transcript-worker.mjs';
+import {
+  OFFLOAD_MIN_CHARS,
+  projectStoredTranscriptOffThread,
+  storedTranscriptWorkerRunning,
+} from './store-transcript-worker.mjs';
 import { projectStoredTranscript } from './store-transcript-projection.mjs';
 import { dataDir, sessionHeartbeatMtimes } from './store-summary-locations.mjs';
 import { desktopSession, isStoredSessionId, positiveNumber } from './store-summary-fields.mjs';
@@ -47,6 +51,12 @@ export function clearStoredTranscriptCache() {
 /** Drop one session's cold projections: it went live, or its last view left. */
 export function forgetStoredSessionTranscript(sessionId) {
   storedTranscriptCache.forget(`${String(sessionId || '').trim()}|`);
+}
+
+/** Its last view left: keep the cold projections for a revisit, within the
+ *  cache's idle budget. */
+export function releaseStoredSessionTranscript(sessionId) {
+  storedTranscriptCache.release(`${String(sessionId || '').trim()}|`);
 }
 
 /** Test/diagnostic seam: size of the retained cold projections. */
@@ -184,7 +194,6 @@ function normalizedRow(row, heartbeatAt = 0) {
     agent: row.agent || null,
     sourceType: row.sourceType || null,
     sourceName: row.sourceName || null,
-    sourceDelivery: row.sourceDelivery || null,
     scopeKey: row.scopeKey || null,
     ownerSessionId: row.ownerSessionId || row.parentSessionId || null,
     visibility: sessionVisibility(row),
@@ -487,6 +496,8 @@ export async function readStoredSessionTranscript(id, options = {}) {
   // checkpoint skips recovery: an unreadable probe must not silently
   // downgrade an interrupted turn to a plain cold read.
   const startedAt = performance.now();
+  // Phase durations of the parse this call ran (absent on a cache hit).
+  const timing = {};
   const recordStat = probePath(recordPath);
   if (recordStat.state === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
   if (recordStat.state !== PROBE_PRESENT) return null;
@@ -517,6 +528,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
     ].join(':'),
     fileStat: recordStat,
     loadText: async () => {
+      const readStartedAt = performance.now();
       const before = observeStamp(recordPath);
       let body = null;
       if (offloadable) {
@@ -529,6 +541,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
         }
       }
       body ||= readTextFile(recordPath);
+      timing.readMs = performance.now() - readStartedAt;
       readState = body.state;
       if (body.state !== PROBE_PRESENT) return null;
       readStamp = before && sameSessionStamp(before, observeStamp(recordPath)) ? before : null;
@@ -541,7 +554,11 @@ export async function readStoredSessionTranscript(id, options = {}) {
       // no parse to the load cache (a later resume reads the file itself).
       if (offloadable && text.length >= OFFLOAD_MIN_CHARS) {
         try {
+          timing.worker = storedTranscriptWorkerRunning() ? 'warm' : 'cold';
+          const workerStartedAt = performance.now();
           const answer = await projectStoredTranscriptOffThread({ sessionId, text, itemLimit });
+          timing.workerMs = performance.now() - workerStartedAt;
+          Object.assign(timing, answer.timing);
           if (answer.unreadable) return null;
           if (stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, stamp, answer.lifecycle);
           // Stamps are process-unique per module realm; re-issue in this one.
@@ -551,7 +568,9 @@ export async function readStoredSessionTranscript(id, options = {}) {
           // Worker unavailable: fall through to the in-process pipeline.
         }
       }
+      const parseStartedAt = performance.now();
       const record = readTopLevelLifecycleRecord(text);
+      timing.parseMs = performance.now() - parseStartedAt;
       if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
       // The same strict verdict the lifecycle authority would reach for these
       // bytes (storedSessionExists runs next when the pane's runtime loads).
@@ -574,6 +593,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
       // a turn checkpoint the projection recovers through loadSession, the very
       // load the hand-off serves, and projects the load cache's session
       // exactly as before; only that projection is detached.
+      const projectStartedAt = performance.now();
       const value = await projectStoredTranscript(
         sessionId,
         handedOver && checkpointAbsent ? JSON.parse(text) : record.doc,
@@ -583,6 +603,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
           checkpointAbsent,
         }
       );
+      timing.projectMs = performance.now() - projectStartedAt;
       if (!handedOver || checkpointAbsent || !value || mode !== 'items') return value;
       try {
         return structuredClone(value);
@@ -601,6 +622,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
       ms: performance.now() - startedAt,
       chars: recordStat.size,
       items: Array.isArray(value?.items) ? value.items.length : 0,
+      timing,
     });
   }
   return value;

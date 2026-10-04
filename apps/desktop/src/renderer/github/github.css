@@ -92,7 +92,7 @@
 .github-action-form h3,
 .github-detail h3 {
   margin: 4px 0;
-  font-size: 15px;
+  font-size: var(--mx-font-category);
   overflow-wrap: anywhere;
 }
 .github-action-form textarea {
@@ -120,7 +120,7 @@
   padding: 10px;
 }
 .github-item b {
-  font-size: 13px;
+  font-size: var(--mx-font-meta);
   overflow-wrap: anywhere;
 }
 .github-item small,
@@ -158,7 +158,7 @@
 .github-body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: var(--mx-font-meta);
   line-height: 1.6;
 }
 .github-comment {

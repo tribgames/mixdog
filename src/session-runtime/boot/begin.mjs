@@ -86,7 +86,6 @@ export async function loadModules(boot) {
     localProviderEnabledFn,
     mediaToolEnabledFn,
     tidyToolEnabledFn,
-    channelsEnabled,
     featureDisallowedTools,
   } = createRuntimeFeatureGates({
     getConfig: () => rt.config,
@@ -114,7 +113,6 @@ export async function loadModules(boot) {
     localProviderEnabledFn,
     mediaToolEnabledFn,
     tidyToolEnabledFn,
-    channelsEnabled,
     featureDisallowedTools,
     getMemoryModule,
     getWebSearchModule,

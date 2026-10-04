@@ -134,7 +134,7 @@ test('desktop activity shows repeated tool counts as bare trailing numbers', asy
     });
 
     const title = document.querySelector('.tool-activity-title')?.textContent?.trim() || '';
-    assert.equal(title, 'File reading · Content search 2');
+    assert.equal(title, 'Read · Search 2');
     assert.doesNotMatch(title, /×/);
   } finally {
     await act(async () => dom.root.unmount());
@@ -446,7 +446,7 @@ test('desktop activity lists every call as one row under the summary, without ca
     const group = document.querySelector('.tool-activity');
     assert.equal(
       group?.querySelector('.tool-activity-title')?.textContent?.trim(),
-      'Content search 2 · Command execution'
+      'Search 2 · Run'
     );
     assert.equal(group?.querySelector('.tool-activity-failed'), null);
 
@@ -458,7 +458,7 @@ test('desktop activity lists every call as one row under the summary, without ca
     assert.equal(group?.querySelectorAll('.tool-activity-category').length, 0);
     assert.deepEqual(
       [...(group?.querySelectorAll('.tool-activity-item-title b') ?? [])].map((node) => node.textContent),
-      ['Content search', 'Content search', 'Command execution']
+      ['Search', 'Search', 'Run']
     );
   } finally {
     await act(async () => dom.root.unmount());
@@ -745,10 +745,9 @@ test('expanded tool detail stays in the runtime English while chips localize', (
     completedAt: 1,
   });
   assert.equal(write.title, 'File editing');
-  // Detail labels are literals, never catalog keys: the body must read as the
-  // tool reported it even when the collapsed row is localized.
-  assert.equal(write.previewLabel, 'Content');
-  assert.equal(write.previewLanguage, 'ts');
+  // A written file opens as one numbered section in its own language.
+  assert.equal(write.sections[0].path, 'src/a.ts');
+  assert.equal(write.sections[0].language, 'ts');
 
   // English UI: a runtime-composed chip keeps its own (grammatical) plural.
   const read = desktopToolActivityItemPresentation({
@@ -817,4 +816,153 @@ test('desktop activity tags structured bodies with a highlighting language', () 
     completedAt: 1,
   });
   assert.equal(log.outputLanguage, '');
+});
+
+test('desktop activity cuts read and grep results into per-file sections', () => {
+  const read = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'read-gutter',
+    name: 'read',
+    args: { file_path: 'src/app/a.ts', offset: 7, limit: 2 },
+    result: '[lines 7-8]\nconst a = 1;\n\n[lines 7-8 of 20]',
+    completedAt: 1,
+  });
+  assert.equal(read.subject, 'src/app/a.ts:7-8');
+  assert.equal(read.headerSubject, 'a.ts:7-8');
+  assert.equal(read.subjectKind, 'target');
+  assert.deepEqual(read.sections, [
+    {
+      title: '',
+      path: 'src/app/a.ts',
+      line: 7,
+      meta: '7–8',
+      language: 'ts',
+      rows: [
+        { line: 7, text: 'const a = 1;' },
+        { line: 8, text: '' },
+      ],
+    },
+  ]);
+  assert.equal(read.sectionCopyText, 'const a = 1;\n');
+
+  const batch = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'read-batch-sections',
+    name: 'read',
+    args: { file_path: ['a.ts', 'b.css'] },
+    result: 'read 2\na.ts [ok]\n[lines 1-1]\nconst a = 1;\n\nb.css [ok]\n[lines 4-5]\n.a {\n}',
+    completedAt: 1,
+  });
+  assert.deepEqual(
+    batch.sections.map(({ path, meta, language, rows }) => ({ path, meta, language, rows: rows.length })),
+    [
+      { path: 'a.ts', meta: '1', language: 'ts', rows: 1 },
+      { path: 'b.css', meta: '4–5', language: 'css', rows: 2 },
+    ]
+  );
+
+  const grep = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'grep-sections',
+    name: 'grep',
+    args: { pattern: 'x', path: 'src' },
+    result: '# grep src/a.ts\n74:  x: true,\n\nsrc/b.ts (2 hits)\n  3: x()\n  9: x()\n\n(no matches) paths=["c.ts"]',
+    completedAt: 1,
+  });
+  assert.equal(grep.subjectKind, 'code');
+  assert.deepEqual(
+    grep.sections.map(({ path, meta, rows }) => ({ path, meta, rows: rows.map((row) => row.line) })),
+    [
+      { path: 'src/a.ts', meta: '1 match', rows: [74] },
+      { path: 'src/b.ts', meta: '2 matches', rows: [3, 9, null, null] },
+    ]
+  );
+
+  // A result with no numbered rows (an error, a bare status) is not sectioned.
+  const failed = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'read-missing',
+    name: 'read',
+    args: { file_path: 'src/missing.ts' },
+    result: 'Error: file not found',
+    isError: true,
+    completedAt: 1,
+  });
+  assert.deepEqual(failed.sections, []);
+});
+
+test('desktop activity lists found files as rows and renders git diff as a patch', () => {
+  const list = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'list',
+    name: 'list',
+    args: { path: 'data', limit: 80 },
+    result: 'agents\tdir\ncache.json\tfile',
+    completedAt: 1,
+  });
+  assert.equal(list.subject, 'data');
+  assert.deepEqual(list.entries, [
+    { path: 'data/agents', name: 'agents', dir: '', kind: 'dir' },
+    { path: 'data/cache.json', name: 'cache.json', dir: '', kind: 'file' },
+  ]);
+  assert.equal(list.fieldsInline, true);
+
+  const find = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'find',
+    name: 'find',
+    args: { query: 'a' },
+    result: 'src/app/a.ts\nsrc/a.css',
+    completedAt: 1,
+  });
+  assert.deepEqual(
+    find.entries.map(({ name, dir }) => `${dir}|${name}`),
+    ['src/app|a.ts', 'src|a.css']
+  );
+
+  const git = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'git-diff',
+    name: 'git',
+    args: { command: 'git diff' },
+    result: 'diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n-old\n+new',
+    completedAt: 1,
+  });
+  assert.equal(git.diffPatch.startsWith('diff --git'), true);
+  assert.equal(git.outputText, '');
+});
+
+test('desktop activity treats only parseable output as JSON and surfaces the agent prompt', () => {
+  const log = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'bracket-log',
+    name: 'unknown_tool',
+    args: { q: 'x' },
+    result: '[warn] retrying\n[info] done',
+    completedAt: 1,
+  });
+  assert.equal(log.outputLanguage, '');
+
+  const spawn = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'agent-prompt',
+    name: 'agent',
+    args: { type: 'spawn', agent: 'worker', prompt: 'Review the diff.' },
+    completedAt: 1,
+  });
+  assert.equal(spawn.promptText, 'Review the diff.');
+  assert.equal(spawn.hasDetails, true);
+
+  // A write that already carries a diff shows the diff alone.
+  const write = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'write-diff',
+    name: 'write',
+    args: { file_path: 'src/a.ts', content: 'export const a = 1;\n' },
+    uiDiff: 'diff --git a/src/a.ts b/src/a.ts\n@@\n+export const a = 1;',
+    result: 'written',
+    completedAt: 1,
+  });
+  assert.deepEqual(write.sections, []);
+  assert.equal(write.diffPatch.includes('src/a.ts'), true);
 });

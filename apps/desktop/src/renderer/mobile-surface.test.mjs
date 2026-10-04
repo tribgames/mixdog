@@ -44,25 +44,42 @@ test('phone draft context keeps Project and its height while Workflow loads', ()
   }
 });
 
-test('first-paint theme uses the same dark default and explicit System preference as App', () => {
-  for (const [preference, light] of [
-    [null, false],
-    ['dark', false],
-    ['gray', false],
-    ['white', true],
-    ['system', true],
-  ]) {
-    const dom = new JSDOM('<!doctype html><html><body></body></html>', {
-      runScripts: 'outside-only',
-      url: 'https://mixdog.test/',
-    });
-    dom.window.matchMedia = (query) => ({ matches: query === '(prefers-color-scheme: light)' });
-    if (preference) dom.window.localStorage.setItem('mixdog.desktop-theme-preference', preference);
-    try {
-      dom.window.eval(bootSource);
-      assert.equal(dom.window.document.documentElement.dataset.mixdogTheme === 'light', light, String(preference));
-    } finally {
-      dom.window.close();
+test('first-paint theme uses the same dark default and explicit System preference as App', async () => {
+  for (const osLight of [false, true]) {
+    for (const [preference, light, storageBlocked = false] of [
+      [null, false],
+      ['dark', false],
+      ['gray', false],
+      ['white', true],
+      ['system', osLight],
+      [null, false, true],
+    ]) {
+      const dom = new JSDOM('<!doctype html><html><head><meta name="color-scheme" content="dark light"></head><body></body></html>', {
+        runScripts: 'outside-only',
+        url: 'https://mixdog.test/',
+      });
+      dom.window.matchMedia = (query) => ({
+        matches: query === `(prefers-color-scheme: ${osLight ? 'light' : 'dark'})`,
+      });
+      if (preference) dom.window.localStorage.setItem('mixdog.desktop-theme-preference', preference);
+      if (storageBlocked) {
+        Object.defineProperty(dom.window, 'localStorage', {
+          get() {
+            throw new dom.window.DOMException('Storage is blocked', 'SecurityError');
+          },
+        });
+      }
+      try {
+        dom.window.eval(bootSource);
+        const root = dom.window.document.documentElement;
+        const scenario = JSON.stringify({ preference, osLight, storageBlocked });
+        assert.equal(root.dataset.mixdogTheme === 'light', light, scenario);
+        assert.equal(root.style.colorScheme, light ? 'light' : 'dark', scenario);
+      } finally {
+        // Let boot observers finish before destroying their document.
+        await new Promise((resolve) => setImmediate(resolve));
+        dom.window.close();
+      }
     }
   }
 });
@@ -527,10 +544,8 @@ test('remote web surfaces clear and block renderer and browser zoom', async () =
   dom.window.document.documentElement.style.zoom = '1.8';
 
   try {
-    const { zoomIn } = await import(`./webview-zoom.ts?remote-zoom=${Date.now()}`);
+    await import(`./webview-zoom.ts?remote-zoom=${Date.now()}`);
     assert.equal(dom.window.localStorage.getItem('mixdog.web-zoom'), null);
-    assert.equal(dom.window.document.documentElement.style.zoom, '');
-    await zoomIn();
     assert.equal(dom.window.document.documentElement.style.zoom, '');
 
     const shortcut = new dom.window.KeyboardEvent('keydown', {
@@ -551,6 +566,43 @@ test('remote web surfaces clear and block renderer and browser zoom', async () =
     const gesture = new dom.window.Event('gesturestart', { cancelable: true });
     dom.window.document.dispatchEvent(gesture);
     assert.equal(gesture.defaultPrevented, true);
+  } finally {
+    restore();
+  }
+});
+
+test('desktop shell blocks zoom shortcuts and pinch without blocking normal scrolling', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body></body></html>',
+    expose: ['navigator'],
+    actEnvironment: false,
+  });
+  const zoomCalls = [];
+  dom.window.mixdogDesktop = { setZoomFactor: async (factor) => zoomCalls.push(factor) };
+  dom.window.localStorage.setItem('mixdog.web-zoom', '1.2');
+  dom.window.document.documentElement.style.zoom = '1.2';
+  try {
+    await import(`./webview-zoom.ts?desktop-zoom=${Date.now()}`);
+    assert.equal(dom.window.localStorage.getItem('mixdog.web-zoom'), null);
+    assert.equal(dom.window.document.documentElement.style.zoom, '');
+    for (const modifier of ['ctrlKey', 'metaKey']) {
+      for (const key of ['=', '+', '-', '0']) {
+        const event = new dom.window.KeyboardEvent('keydown', { key, [modifier]: true, cancelable: true });
+        dom.window.dispatchEvent(event);
+        assert.equal(event.defaultPrevented, true, `${modifier} ${key}`);
+      }
+    }
+    for (const ctrlKey of [true, false]) {
+      const event = new dom.window.WheelEvent('wheel', { ctrlKey, cancelable: true });
+      dom.window.dispatchEvent(event);
+      assert.equal(event.defaultPrevented, ctrlKey);
+    }
+    for (const name of ['gesturestart', 'gesturechange', 'gestureend']) {
+      const event = new dom.window.Event(name, { cancelable: true });
+      dom.window.document.dispatchEvent(event);
+      assert.equal(event.defaultPrevented, true);
+    }
+    assert.deepEqual(zoomCalls, []);
   } finally {
     restore();
   }

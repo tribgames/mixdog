@@ -63,9 +63,6 @@ export interface DesktopSessionSummary {
   sourceType?: 'schedule' | 'webhook';
   /** Schedule/webhook name — the Automations row label. */
   sourceName?: string;
-  /** Automation delivery mode: 'channel'-only runs hide from Automations
-   *  (they surface on the messaging channel; the session lands in Archived). */
-  sourceDelivery?: 'app' | 'channel' | 'both';
   /** Last known route of this session. The catalog row is the FIRST-FRAME
    *  source for pane chrome: naming the model must not wait for a lane
    *  snapshot, a peek, or pane focus. */

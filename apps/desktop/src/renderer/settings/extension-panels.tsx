@@ -105,7 +105,7 @@ function SkillExtensionCreateDialog({
     >
       <div className="extensions-create-options">
         <button type="button" data-extension-create-kind="skill" onClick={() => onSelect('skill')}>
-          <Sparkles size={17} aria-hidden="true" />
+          <Sparkles size={18} aria-hidden="true" />
           <span>
             <b>{t('Skill')}</b>
             <small>{t('Instructions that define how this skill works.')}</small>
@@ -113,7 +113,7 @@ function SkillExtensionCreateDialog({
           <ChevronRight size={16} aria-hidden="true" />
         </button>
         <button type="button" data-extension-create-kind="mcp" onClick={() => onSelect('mcp')}>
-          <Plug size={17} aria-hidden="true" />
+          <Plug size={18} aria-hidden="true" />
           <span>
             <b>{t('MCP')}</b>
             <small>{t('How Mixdog connects to this MCP server.')}</small>

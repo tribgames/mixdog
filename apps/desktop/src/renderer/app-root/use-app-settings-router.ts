@@ -5,7 +5,8 @@ import { extensionSectionForSettings, type ExtensionsSection } from '../extensio
 import type { SettingsSection as SlashSettingsSection } from '../slash-commands';
 import { loadSidebarPanelModule, warmSettingsView } from '../app-shell-components';
 import { requestOpenModelPicker } from '../model-picker-event';
-import { useAppUiOpenRequest } from '../app-shell-ui-open-request';
+import { useAppUiOpenRequest, type SetupLaneSource } from '../app-shell-ui-open-request';
+import { defaultSessionLaneStore } from '../session-lane-store';
 import { useSetupDesktopRequest } from '../use-setup-desktop-request';
 import { useProviderModelsSync } from '../sidebar-reference-cache';
 import type { Snapshot } from '../desktop-types';
@@ -104,14 +105,25 @@ export function useAppSettingsRouter({
     ]
   );
 
+  // Setup requests from split-pane sessions arrive on their session lanes.
+  // Only a session this window shows may navigate it or claim a request.
+  const subscribeSessionLanes = useCallback<SetupLaneSource>(
+    (listener) =>
+      window.mixdogDesktop.subscribeSessionState?.((update) => {
+        if (defaultSessionLaneStore.subscribedSessionIds().includes(update.sessionId)) listener(update);
+      }) ?? (() => {}),
+    []
+  );
+
   useAppUiOpenRequest({
     uiOpenRequest,
     sessionId,
     openConversationCommandSurface,
     openSettings,
+    subscribeSessionLanes,
   });
 
-  useSetupDesktopRequest(setupUiRequest, sessionId, window.mixdogDesktop);
+  useSetupDesktopRequest(setupUiRequest, sessionId, window.mixdogDesktop, subscribeSessionLanes);
   useProviderModelsSync(window.mixdogDesktop);
 
   return {

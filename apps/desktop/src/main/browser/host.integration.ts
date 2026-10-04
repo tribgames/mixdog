@@ -27,6 +27,7 @@ import {
   DESKTOP_IPC,
   type DesktopBrowserGuestViewportChange,
   type DesktopBrowserOpenRequest,
+  type DesktopRemoteBrowserStreamFrame,
 } from '../../shared/contract';
 
 interface CommandResponse {
@@ -160,7 +161,13 @@ async function run(): Promise<void> {
         webviewTag: true,
       },
     });
-    host = createBrowserHost(parent, { requestApproval: async () => true });
+    const remoteFrames: DesktopRemoteBrowserStreamFrame[] = [];
+    host = createBrowserHost(parent, {
+      requestApproval: async () => true,
+      publishRemoteFrame: async (frame) => {
+        remoteFrames.push(frame);
+      },
+    });
     const browserSurfaceRequests: DesktopBrowserOpenRequest[] = [];
     const viewportChanges: DesktopBrowserGuestViewportChange[] = [];
     const parentWebContents = parent.webContents;
@@ -1590,20 +1597,29 @@ async function run(): Promise<void> {
     }
 
     const surfaceRequestCountBeforeRemoteFrame = browserSurfaceRequests.length;
-    const remoteFrame = await host.remoteBrowserFrame('browser-integration-session');
+    remoteFrames.length = 0;
+    await host.remoteBrowserStream('browser-integration-session', { maxWidth: 800, maxHeight: 600 });
+    const streamDeadline = Date.now() + 5_000;
+    while (!remoteFrames.some((frame) => frame.image?.data) && Date.now() < streamDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const remoteFrame = remoteFrames.find((frame) => frame.image?.data);
+    assert.ok(remoteFrame, 'streaming produced an image frame');
     assert.equal(browserSurfaceRequests.length, surfaceRequestCountBeforeRemoteFrame);
     assert.match(remoteFrame.frameId, /^rbf_[a-z0-9]+$/);
-    assert.ok(remoteFrame.image?.data);
     await assert.rejects(
       host.remoteBrowserControl('browser-integration-session', {
-        type: 'tap',
-        frameId: 'rbf_stale',
+        type: 'wheel',
+        documentId: 'p999:999',
         x: 10,
         y: 10,
+        deltaX: 0,
+        deltaY: 10,
       }),
-      /frame is stale/
+      /page changed/
     );
-    progress('remote Browser Use frame binding complete');
+    await host.remoteBrowserStream('browser-integration-session', null);
+    progress('remote Browser Use stream complete');
 
     // The visible page is where Chromium can paint past the window, so this
     // is where a section taller than the viewport must arrive whole.

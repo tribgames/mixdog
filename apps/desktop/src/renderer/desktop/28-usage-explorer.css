@@ -62,7 +62,7 @@
   top: 0;
   z-index: 1;
   padding: 8px 12px;
-  border-bottom: 0.5px solid var(--mx-border);
+  border-bottom: var(--mx-hairline) solid var(--mx-border);
   color: var(--mx-text-faint);
   background: var(--mx-bg-layer-1);
   text-align: left;
@@ -74,7 +74,7 @@
 }
 .usage-table td {
   padding: 7px 12px;
-  border-bottom: 0.5px solid var(--mx-border);
+  border-bottom: var(--mx-hairline) solid var(--mx-border);
   vertical-align: middle;
 }
 .usage-table tbody tr:last-child td {
@@ -118,7 +118,7 @@
   background: var(--mx-bg-layer-2);
 }
 .usage-plan[data-plan="api"] {
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-strong);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-strong);
 }
 .usage-row-values {
   display: flex;
@@ -317,7 +317,7 @@
   width: 26px;
   height: 26px;
   padding: 0;
-  border: 0.5px solid var(--mx-border);
+  border: var(--mx-hairline) solid var(--mx-border);
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
   background: transparent;
@@ -338,7 +338,7 @@
 .stats-range {
   height: 26px;
   padding: 0 12px;
-  border: 0.5px solid var(--mx-border);
+  border: var(--mx-hairline) solid var(--mx-border);
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
   background: transparent;
@@ -375,7 +375,7 @@
   width: max-content;
   gap: 10px;
   padding: 10px;
-  border: 0.5px solid var(--mx-border-strong);
+  border: var(--mx-hairline) solid var(--mx-border-strong);
   border-radius: var(--mx-radius-md);
   background: var(--mx-popup-bg);
   box-shadow: var(--mx-popup-shadow);
@@ -499,7 +499,7 @@
 }
 .stats-provider-row td {
   background: var(--mx-bg-layer-1);
-  border-top: 0.5px solid var(--mx-border);
+  border-top: var(--mx-hairline) solid var(--mx-border);
 }
 .stats-provider:first-of-type .stats-provider-row td {
   border-top: 0;
@@ -741,7 +741,7 @@
   /* A quiet day is still a day: without a floor its bar rounds to nothing and
      the date silently disappears from the series. */
   min-height: 3px;
-  border-radius: 2px 2px 0 0;
+  border-radius: var(--mx-radius-hair) var(--mx-radius-hair) 0 0;
   overflow: hidden;
   background: var(--stats-provider-color);
 }
@@ -813,7 +813,7 @@
   list-style: none;
   margin: 0;
   padding: 8px 0 0;
-  border-top: 0.5px solid var(--mx-border);
+  border-top: var(--mx-hairline) solid var(--mx-border);
 }
 .stats-trend-detail li,
 .stats-trend-detail li > span {
@@ -844,7 +844,7 @@
   justify-content: center;
   height: 72px;
   margin: 0;
-  border: 0.5px dashed var(--mx-border);
+  border: var(--mx-hairline) dashed var(--mx-border);
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-faint);
   font-size: var(--mx-font-micro);
@@ -1005,7 +1005,7 @@
   position: absolute;
   inset: auto 0 -0.5px;
   height: 2px;
-  border-radius: 2px 2px 0 0;
+  border-radius: var(--mx-radius-hair) var(--mx-radius-hair) 0 0;
   background: var(--mx-text);
 }
 /* A card may add one line under its figure: what it means right now. */
@@ -1153,7 +1153,7 @@
   gap: 4px;
   margin: 0;
   padding: 28px 12px;
-  border: 0.5px dashed var(--mx-border);
+  border: var(--mx-hairline) dashed var(--mx-border);
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
@@ -1375,7 +1375,7 @@ button.quota-chart-slot[aria-expanded="true"] {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  border-top: 0.5px solid var(--mx-border);
+  border-top: var(--mx-hairline) solid var(--mx-border);
   color: var(--mx-text-muted);
   background: var(--mx-bg-layer-1);
   font-size: var(--mx-font-meta);
@@ -1579,18 +1579,22 @@ button.quota-chart-slot[aria-expanded="true"] {
   --mx-syntax-type: #4ec9b0;
   --mx-syntax-function: #dcdcaa;
   --mx-syntax-variable: #9cdcfe;
-  --mx-syntax-meta: #d16969;
+  --mx-syntax-meta: #d67373;
 }
 :root[data-mixdog-theme="light"] {
-  --mx-syntax-comment: #008000;
-  --mx-syntax-keyword: #0000ff;
-  --mx-syntax-control: #af00db;
-  --mx-syntax-string: #a31515;
-  --mx-syntax-number: #098658;
-  --mx-syntax-type: #267f99;
-  --mx-syntax-function: #795e26;
-  --mx-syntax-variable: #001080;
-  --mx-syntax-meta: #cd3131;
+  /* A calm light ramp. The stock Light+ primaries (#0000ff, #a31515, #008000)
+     were built for a white editor; on the tinted code plates they read as
+     harsh, dated ink (user: 폰트색이 구리다). Every hue keeps >= 4.5:1 on
+     the layer-1 plate. */
+  --mx-syntax-comment: #6b7280;
+  --mx-syntax-keyword: #0b5cad;
+  --mx-syntax-control: #7c3aad;
+  --mx-syntax-string: #a34a1c;
+  --mx-syntax-number: #0d7267;
+  --mx-syntax-type: #1a6f80;
+  --mx-syntax-function: #6b4e00;
+  --mx-syntax-variable: #2b4a80;
+  --mx-syntax-meta: #b83a36;
 }
 .markdown-code .hljs-comment,
 .markdown-code .hljs-quote {
@@ -1672,7 +1676,7 @@ button.quota-chart-slot[aria-expanded="true"] {
   left: -100px;
   padding: 2px 8px;
   border-radius: var(--mx-radius-sm);
-  border: 0.5px solid var(--mx-border-muted);
+  border: var(--mx-hairline) solid var(--mx-border-muted);
   background: var(--mx-workspace-sheet);
   color: var(--mx-text);
   font-size: var(--mx-font-minor);

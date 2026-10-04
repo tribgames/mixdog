@@ -1,5 +1,5 @@
 // Decides when a Lead session has given its FINAL answer: its turn stopped, no
-// shell job or child agent it started is still running, and it stayed that way
+// child agent it started is still running, and it stayed that way
 // through a short quiet period. The phone's Web Push and the desktop's own OS
 // notification both deliver from here, so the two never disagree.
 import { createTurnCompletionTracker, sessionsWithPendingWork, type TurnCompletion } from './push-turn-events';
@@ -9,7 +9,7 @@ import { notificationPreview } from './notification-preview';
 
 export interface FinalAnswerWatcher {
   onSessions(sessions: readonly DesktopSessionSummary[]): void;
-  /** Child agents and shell jobs: a Lead waiting on them has not answered yet. */
+  /** Child agents: a Lead waiting on them has not answered yet. */
   onAgentPool(agents: readonly DesktopAgentPoolRow[]): void;
   dispose(): void;
 }
@@ -23,10 +23,17 @@ interface FinalAnswerWatcherOptions {
   onDiagnostic?(event: string, details: Record<string, unknown>): void;
 }
 
-/** A turn frequently reports done a moment before the next tool call restarts
- *  it. Waiting this long and re-checking keeps a working agent quiet, at the
- *  cost of a notification arriving a beat later than the desktop's own flash. */
+/** Background agents settling can be followed at once by a new
+ *  Lead turn that takes their results; waiting this long and re-checking keeps
+ *  that hand-off quiet. */
 const STABILIZE_MS = 2_500;
+/** A Lead that finished its own turn is confirmed by the turn's recorded
+ *  answer (session-final-answer.ts), not by waiting: a mid-turn flicker has no
+ *  answer newer than the turn's start and simply keeps polling. The short
+ *  delay lets the transcript projection land; the full quiet period made every
+ *  notification ~3 s late (user: 알림이 좀 늦어 보이는데). */
+const LEAD_FINISHED_MS = 300;
+const ANSWER_POLL_MS = 500;
 
 export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): FinalAnswerWatcher {
   const tracker = createTurnCompletionTracker();
@@ -47,12 +54,13 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
     pending.get(entry.completion.sessionId) === entry &&
     tracker.isIdle(entry.completion.sessionId);
 
-  const schedule = (entry: Pending): void => {
+  const schedule = (entry: Pending, delayMs: number): void => {
     entry.timer = setTimeout(() => {
       void deliver(entry);
-    }, STABILIZE_MS);
+    }, delayMs);
     entry.timer.unref?.();
   };
+  const retryDelay = (entry: Pending): number => (entry.completion.leadFinished ? ANSWER_POLL_MS : STABILIZE_MS);
   const deliver = async (entry: Pending): Promise<void> => {
     const { completion } = entry;
     if (!current(entry)) {
@@ -64,7 +72,7 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
       answer = await options.readFinalAnswer(completion.sessionId, completion.startedAt);
     } catch (error) {
       options.onError?.(error instanceof Error ? error.message : String(error));
-      if (current(entry)) schedule(entry);
+      if (current(entry)) schedule(entry, STABILIZE_MS);
       return;
     }
     // The answer read may cross a new turn, an archive, settings change or
@@ -75,7 +83,7 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
         options.onDiagnostic?.('waiting-answer', { sessionId: completion.sessionId });
         entry.waitingReported = true;
       }
-      schedule(entry);
+      schedule(entry, retryDelay(entry));
       return;
     }
     cancel(completion.sessionId);
@@ -114,7 +122,7 @@ export function createFinalAnswerWatcher(options: FinalAnswerWatcherOptions): Fi
       options.onDiagnostic?.('detected', { sessionId: completion.sessionId });
       const entry = { completion };
       pending.set(completion.sessionId, entry);
-      schedule(entry);
+      schedule(entry, completion.leadFinished ? LEAD_FINISHED_MS : STABILIZE_MS);
     }
   };
 

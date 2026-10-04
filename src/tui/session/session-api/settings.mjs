@@ -152,15 +152,9 @@ export function createSessionSettingsApi(bag) {
     getChannelSettings: (options = {}) => {
       return (
         runtime.getChannelSettings?.(options) || {
-          enabled: true,
           ...(options?.includeStatus === false ? {} : { status: runtime.getChannelWorkerStatus?.() }),
         }
       );
     },
-    setChannelsEnabled: withCommandLock(async (enabled) => {
-      const next = await runtime.setChannelsEnabled?.(enabled);
-      publishRoute();
-      return next;
-    }),
   };
 }

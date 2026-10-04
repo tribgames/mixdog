@@ -32,8 +32,13 @@ export const SETUP_STATUS_DOMAINS = Object.freeze([
   ...SETUP_EXTENDED_DOMAINS,
 ]);
 
+/** Settings sections without a slash command. Each UI routes them with its
+ *  own setup-open table (Desktop app-shell-ui-open-request.ts, TUI
+ *  use-ui-open-request.mjs). */
+export const SETUP_SECTION_OPEN_TARGETS = Object.freeze(['developer', 'voice', 'connection']);
+
 /** Slash-command names shared by TUI (slash-commands.mjs) and Desktop
- *  (slash-commands.ts); each UI routes the name with its own table. */
+ *  (slash-commands.ts), then the settings sections above. */
 export const SETUP_OPEN_TARGETS = Object.freeze([
   'settings',
   'providers',
@@ -53,6 +58,7 @@ export const SETUP_OPEN_TARGETS = Object.freeze([
   'usage',
   'doctor',
   'context',
+  ...SETUP_SECTION_OPEN_TARGETS,
 ]);
 
 // Runtime dispatch contract. A trailing ? denotes an optional field. Keep
@@ -86,7 +92,8 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   delete_local_model: 'confirmationToken',
   set_system_shell: 'command',
   set_auto_update: 'enabled',
-  forget_provider_auth: 'name',
+  forget_provider_auth: 'name accountId?',
+  set_provider_account: 'name providerAccount',
   add_mcp_server: 'server',
   save_mcp_server: 'server',
   remove_mcp_server: 'name',
@@ -98,6 +105,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   update_plugin: 'name',
   set_plugin_enabled: 'name enabled',
   remove_plugin: 'name',
+  enable_plugin_mcp: 'name',
   ...SETUP_EXTENDED_ACTION_FIELDS,
 });
 
@@ -160,7 +168,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         target: {
           type: 'string',
           enum: [...SETUP_OPEN_TARGETS],
-          description: 'open: settings surface, named by its slash command.',
+          description: 'open: settings surface, named by its slash command or settings section.',
         },
         route: {
           ...ROUTE_SCHEMA,
@@ -174,7 +182,8 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           type: 'object',
           additionalProperties: false,
           properties: { title: { type: 'string' }, language: { type: 'string' }, experienceLevel: { type: 'string' } },
-          description: 'set_profile: only the given fields change.',
+          description:
+            'set_profile: only the given fields change. language and experienceLevel take ids from status profile; experienceLevel "" clears it.',
         },
         autoclear: {
           type: 'object',
@@ -204,7 +213,28 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         },
         name: {
           type: 'string',
-          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. set_first_use_approval: browser|computer; revoke_linked_device: client id from status connection, not its display name; else MCP/plugin/provider id.`,
+          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. set_first_use_approval: browser|computer; revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; else MCP/plugin/provider id.`,
+        },
+        accountId: {
+          type: 'string',
+          description:
+            'forget_provider_auth: OAuth account id from status providers; required when the provider has several accounts.',
+        },
+        providerAccount: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            selectedId: { type: 'string', description: 'Account to use now.' },
+            auto: { type: 'boolean', description: 'Automatic switching to another account when one is exhausted.' },
+            order: { type: 'array', items: { type: 'string' }, description: 'Every connected account id exactly once.' },
+            rename: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['id', 'label'],
+              properties: { id: { type: 'string' }, label: { type: 'string', maxLength: 80 } },
+            },
+          },
+          description: 'set_provider_account: OAuth account change; account ids from status providers.',
         },
         modelId: {
           type: 'string',

@@ -66,6 +66,7 @@ export function createConfigLifecycle({
   clean,
   resolve,
   performanceNow = () => performance.now(),
+  onConfigReloaded,
   STANDALONE_DATA_DIR,
 }) {
   const outputStyleCache = createOutputStyleStatusCache({
@@ -160,7 +161,17 @@ export function createConfigLifecycle({
     return ensureFullConfig();
   }
 
+  // Settings persisted by any other runtime (or process) reach this runtime's
+  // in-memory config. reloadFullConfig keeps our own pending edits, and the
+  // shared layer coalesces bursts into one pass per subscriber.
+  const unsubscribeConfigChange = sharedCfgMod?.subscribeConfigChange?.(() => {
+    reloadFullConfig();
+    outputStyleCache.invalidateOutputStyleStatusCache();
+    onConfigReloaded?.();
+  });
+
   return {
+    disposeConfigSync: () => unsubscribeConfigChange?.(),
     // output-style cache
     ...outputStyleCache,
     // adopt / save

@@ -73,9 +73,6 @@ export function groupAutomationSessions(activityOrderedRows: DesktopSessionSumma
   const groups = new Map<string, { name: string; runs: DesktopSessionSummary[] }>();
   for (const session of activityOrderedRows) {
     if (session.archived === true || !isAutomationRow(session)) continue;
-    // Channel-only runs never surface in Automations (user decision): the
-    // messaging channel is their surface; the session parks in Archived.
-    if (session.sourceDelivery === 'channel') continue;
     const key = `${session.sourceType}:${
       String(session.sourceName || '')
         .trim()

@@ -434,7 +434,7 @@ test('production entry has no capture side effects and capture harness is exclud
   // path races it against a short grace instead of awaiting it bare.
   assert.match(capture, /await Promise\.race\(\[\s*host\.dispose\(\),/);
   assert.match(options, /Object\.freeze/);
-  assert.match(options, /DESKTOP_BACKGROUND_COLOR\s*=\s*'#151518'/);
+  assert.match(options, /DESKTOP_BACKGROUND_COLOR\s*=\s*'#18181b'/);
   assert.match(options, /DESKTOP_LIGHT_BACKGROUND_COLOR\s*=\s*'#efeff2'/);
   assert.match(options, /DESKTOP_TITLEBAR_HEIGHT\s*=\s*35/);
   assert.match(options, /color:\s*'#00000000'/);
@@ -602,7 +602,7 @@ test('production shell persists safe window state and installs native shortcuts'
   assert.match(state, /writeFile\(temporaryPath/);
   assert.match(state, /rename\(temporaryPath,\s*filePath\)/);
   assert.match(menu, /role:\s*'quit',[^}]*registerAccelerator:\s*false/);
-  assert.match(menu, /CmdOrCtrl\+0/);
+  assert.doesNotMatch(menu, /CmdOrCtrl\+(?:0|Plus|-)/);
   assert.match(menu, /togglefullscreen/);
   assert.doesNotMatch(menu, /openExternal|loadURL/);
 });

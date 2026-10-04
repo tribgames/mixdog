@@ -12,19 +12,12 @@ import type { PageSurfaceState } from './page-surface-state';
 /** Float noise from Chromium's zoom-level round trip, not a new zoom. */
 const ZOOM_EPSILON = 0.001;
 
-export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: PageSurfaceState) {
-  const { paneSizes, invalidateGeometry, presenting } = state;
-
-  function controlTabs(sessionId: string, input: DesktopBrowserPageControl): boolean {
-    if (input.type !== 'new-tab' && input.type !== 'select-tab' && input.type !== 'close-tab') return false;
-    if (!host.tabs) throw new Error('Browser tabs are unavailable.');
-    if (input.type === 'new-tab') host.tabs.create(sessionId);
-    else if (input.type === 'select-tab') host.tabs.select(sessionId, input.tabId);
-    else host.tabs.close(sessionId, input.tabId);
-    return true;
-  }
-
-  async function dispatchPageInput(
+/** Human page input through CDP under the caller's document guard. Shared by
+ *  the local pane and paired remote clients so both behave identically. */
+export function createPageInputDispatcher(
+  host: Pick<BrowserPageSurfaceHost, 'state' | 'cdp' | 'dispatchInput' | 'urlPolicy' | 'assertUrl'>
+) {
+  return async function dispatchPageInput(
     guest: WebContents,
     input: DesktopBrowserPageControl,
     assertCurrent: () => void,
@@ -123,6 +116,20 @@ export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: Pa
         );
         break;
     }
+  };
+}
+
+export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: PageSurfaceState) {
+  const { paneSizes, invalidateGeometry, presenting } = state;
+  const dispatchPageInput = createPageInputDispatcher(host);
+
+  function controlTabs(sessionId: string, input: DesktopBrowserPageControl): boolean {
+    if (input.type !== 'new-tab' && input.type !== 'select-tab' && input.type !== 'close-tab') return false;
+    if (!host.tabs) throw new Error('Browser tabs are unavailable.');
+    if (input.type === 'new-tab') host.tabs.create(sessionId);
+    else if (input.type === 'select-tab') host.tabs.select(sessionId, input.tabId);
+    else host.tabs.close(sessionId, input.tabId);
+    return true;
   }
 
   return async function control(

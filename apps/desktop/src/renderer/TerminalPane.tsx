@@ -338,7 +338,7 @@ function cssVar(name: string, fallback: string): string {
 
 function terminalTheme() {
   const background = cssVar('--mx-terminal-bg', '#121215');
-  const foreground = cssVar('--mx-text', '#e9e9e9');
+  const foreground = cssVar('--mx-terminal-fg', '#e9e9e9');
   return {
     background,
     foreground,

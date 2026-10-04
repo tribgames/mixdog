@@ -1,21 +1,50 @@
-import { ChevronRight, Code2, Layers3, ListTree } from 'lucide-react';
+import {
+  AppWindow,
+  Bot,
+  Brain,
+  Brush,
+  ChevronRight,
+  Code2,
+  FileSpreadsheet,
+  GitBranch,
+  Globe,
+  Layers3,
+  ListTree,
+  Monitor,
+  PackageOpen,
+  Plug,
+  Settings2,
+  Sparkles,
+} from 'lucide-react';
 import React, { Suspense, lazy, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { LocalPathMention } from './MarkdownLink';
 import { MxIcon } from './MxIcon';
+import { ProgressSpinner } from './ProgressSpinner';
 import { CodeDiff } from './transcript-diff';
 import { CopyControl, TextShimmer } from './transcript-primitives';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
+import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
 import {
-  desktopToolActivityCategoryGroups,
+  ToolCode,
+  ToolCommand,
+  ToolFileList,
+  ToolPanel,
+  ToolSections,
+  toolCodeRowsPlain,
+} from './transcript-tool-panel';
+import {
+  desktopToolActivityBrowserPage,
+  desktopToolActivitySummary,
   desktopToolActivityItemPresentation,
   flattenedToolActivityItems,
   isHookApprovalDenialToolItem,
   TOOL_DETAIL_LABELS,
   toolActivityIsCompleted,
   toolItemDone,
+  type ToolActivityBrowserPage,
   type ToolCardModel,
 } from './transcript-tool-model';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
@@ -77,6 +106,32 @@ function useRememberedDisclosure(disclosureKey: string): [open: boolean, toggle:
   return [open, toggle];
 }
 
+/** Disclosure in two steps so the body can animate: it is mounted before it
+ *  expands and stays mounted until the collapse transition is over. */
+function useToolActivityDisclosure(panelOpen: boolean): { rendered: boolean; expanded: boolean } {
+  const [rendered, setRendered] = useState(panelOpen);
+  const [expanded, setExpanded] = useState(panelOpen);
+  useLayoutEffect(() => {
+    if (panelOpen) {
+      setRendered(true);
+      // No frame clock (a headless DOM): expand on the next task instead.
+      if (typeof window.requestAnimationFrame !== 'function') {
+        const timer = window.setTimeout(() => setExpanded(true), 0);
+        return () => window.clearTimeout(timer);
+      }
+      const frame = window.requestAnimationFrame(() => setExpanded(true));
+      return () => window.cancelAnimationFrame(frame);
+    }
+    setExpanded(false);
+    const timer = window.setTimeout(
+      () => setRendered(false),
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 200
+    );
+    return () => window.clearTimeout(timer);
+  }, [panelOpen]);
+  return { rendered, expanded };
+}
+
 interface ToolActivityGroupProps {
   items: readonly TranscriptItem[];
   disclosureScope?: string;
@@ -99,17 +154,13 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
 }: ToolActivityGroupProps) {
   const disclosureKey = toolActivityDisclosureKey(items, disclosureScope);
   const [open, toggleOpen] = useRememberedDisclosure(disclosureKey);
+  const { rendered, expanded } = useToolActivityDisclosure(open);
   const contentId = useId();
   const pending = items.some((item) => !toolItemDone(item));
-  const categoryGroups = useMemo(() => desktopToolActivityCategoryGroups(items), [items]);
   const calls = useMemo(() => flattenedToolActivityItems(items), [items]);
-  // A single call carries no count: "Skill mixdog-refs" not "Skill mixdog-refs 1".
-  const categorySummary = (() => {
-    const summary = new Map<string, number>();
-    for (const group of categoryGroups) summary.set(group.label, (summary.get(group.label) || 0) + group.count);
-    return [...summary].map(([groupLabel, count]) => (count > 1 ? `${groupLabel} ${count}` : groupLabel)).join(' · ');
-  })();
-  const label = categorySummary || t('Tool use');
+  const summary = useMemo(() => desktopToolActivitySummary(items), [items]);
+  const browserPage = useMemo(() => desktopToolActivityBrowserPage(items), [items]);
+  const label = summary || t('Tool use');
 
   return (
     <article className="tool-activity" data-surface="desktop" data-open={open ? 'true' : 'false'}>
@@ -138,15 +189,48 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
           <ChevronRight size={16} />
         </span>
       </button>
-      {open && (
-        <div className="tool-activity-content" id={contentId}>
-          <ToolActivityDetails items={calls} disclosureKey={disclosureKey} />
+      {rendered && (
+        <div className="tool-activity-reveal" data-expanded={expanded ? 'true' : 'false'}>
+          <div className="tool-activity-reveal-clip">
+            <div className="tool-activity-content" id={contentId}>
+              <ToolActivityDetails items={calls} disclosureKey={disclosureKey} />
+            </div>
+          </div>
         </div>
       )}
+      {browserPage && <ToolBrowserPageCard page={browserPage} sessionId={disclosureScope} />}
       <TranscriptArtifacts items={items} />
     </article>
   );
 }, sameToolActivityGroupProps);
+
+/** The page a turn left open in the browser pane, as a card under its tool
+ *  group: where it was, and one press to bring the pane back to it. Without
+ *  it the only trace of a page was a tool row, and reopening the pane after
+ *  closing it meant finding the address again. Hidden where no pane can be
+ *  revealed (a draft with no session, a paired phone). */
+function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPage; sessionId: string }) {
+  if (!sessionId || sessionId === 'new-task' || !browserPageRequestsAvailable()) return null;
+  return (
+    <div className="transcript-browser-page">
+      <span className="transcript-browser-page-icon" aria-hidden="true">
+        <Globe size={16} />
+      </span>
+      <span className="transcript-browser-page-copy" title={page.url}>
+        <b>{page.host}</b>
+        <small>{[page.path, t('Opened in browser')].filter(Boolean).join(' · ')}</small>
+      </span>
+      <button
+        type="button"
+        className="transcript-browser-page-open"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={() => requestBrowserPage(sessionId, page.url)}
+      >
+        {t('Open')}
+      </button>
+    </div>
+  );
+}
 
 function activityItemKey(item: TranscriptItem, index: number): string {
   return String(item.id ?? `${String(item.name || 'tool')}:${index}`);
@@ -210,59 +294,56 @@ function toolActivityLooksMarkdown(text: string): boolean {
   return text.length <= TOOL_ACTIVITY_MARKDOWN_MAX && TOOL_ACTIVITY_MARKDOWN_HINT.test(text);
 }
 
-function toolActivityFencedCode(text: string, language: string): string {
-  const longest = [...text.matchAll(/`{3,}/g)].reduce((max, match) => Math.max(max, match[0].length), 0);
-  const fence = '`'.repeat(Math.max(3, longest + 1));
-  return `${fence}${language}\n${text}\n${fence}`;
-}
-
-function ToolActivityRichBody({
-  text,
-  language,
-  fallbackClassName,
-}: {
-  text: string;
-  language: string;
-  fallbackClassName: string;
-}) {
-  const source = language ? toolActivityFencedCode(text, language) : text;
+function ToolActivityRichBody({ text, fallbackClassName }: { text: string; fallbackClassName: string }) {
   return (
     <div className="markdown tool-activity-markdown">
       <Suspense fallback={<pre className={fallbackClassName}>{text}</pre>}>
-        <ToolMarkdownBody text={source} copyControl={CopyControl} />
+        <ToolMarkdownBody text={text} copyControl={CopyControl} />
       </Suspense>
     </div>
   );
 }
 
-function ToolActivityBody({ text, language, className }: { text: string; language: string; className: string }) {
-  if (!language && !toolActivityLooksMarkdown(text)) {
-    return <pre className={className}>{text}</pre>;
-  }
-  return <ToolActivityRichBody text={text} language={language} fallbackClassName={className} />;
+function ToolActivityBody({ text, className }: { text: string; className: string }) {
+  if (!toolActivityLooksMarkdown(text)) return <pre className={className}>{text}</pre>;
+  return <ToolActivityRichBody text={text} fallbackClassName={className} />;
 }
 
 type ToolActivityPresentation = ReturnType<typeof desktopToolActivityItemPresentation>;
 
-/** Disclosure in two steps so the body can animate: it is mounted before it
- *  expands and stays mounted until the collapse transition is over. */
-function useToolActivityDisclosure(panelOpen: boolean): { rendered: boolean; expanded: boolean } {
-  const [rendered, setRendered] = useState(panelOpen);
-  const [expanded, setExpanded] = useState(panelOpen);
-  useLayoutEffect(() => {
-    if (panelOpen) {
-      setRendered(true);
-      const frame = window.requestAnimationFrame(() => setExpanded(true));
-      return () => window.cancelAnimationFrame(frame);
-    }
-    setExpanded(false);
-    const timer = window.setTimeout(
-      () => setRendered(false),
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : 200
-    );
-    return () => window.clearTimeout(timer);
-  }, [panelOpen]);
-  return { rendered, expanded };
+/** What a closed row says about the outcome: nothing, unless it changed
+ *  lines (the +/- chips) or went wrong (the failure). Counts and statuses
+ *  ("424 lines", "13 matches", "background task") wait inside the row —
+ *  on every row they buried the list (user: 열기 전이 너무 디테일). */
+const MACHINE_ID = /\b([a-z]+)_\d{10,}_([0-9a-f]{4,})\b/g;
+
+/** `job_1790959235138_a33acd` reads as `job a33acd`: the timestamp is noise,
+ *  and the suffix is what tells two background tasks apart. */
+function shortMachineId(text: string): string {
+  return text.replace(MACHINE_ID, '$1 $2');
+}
+
+/** The closed row already carries this outcome as +/- chips. */
+function rowShowsOutcome(presentation: ToolActivityPresentation): boolean {
+  return (splitLineDeltaTokens(presentation.resultLabel) as DetailLinePart[]).some((part) => part.delta);
+}
+
+function ToolRowOutcome({ presentation }: { presentation: ToolActivityPresentation }) {
+  if (!presentation.resultLabel) return null;
+  if (presentation.tone !== 'neutral') {
+    return <span className="tool-activity-item-result">{presentation.resultLabel}</span>;
+  }
+  const deltas = (splitLineDeltaTokens(presentation.resultLabel) as DetailLinePart[]).filter((part) => part.delta);
+  if (!deltas.length) return null;
+  return (
+    <span className="tool-activity-item-result">
+      {deltas.map((part, index) => (
+        <em key={index} data-delta={part.delta}>
+          {part.text}
+        </em>
+      ))}
+    </span>
+  );
 }
 
 function renderToolActivityHeader({
@@ -286,29 +367,29 @@ function renderToolActivityHeader({
       aria-expanded={presentation.hasDetails ? open : undefined}
       aria-controls={presentation.hasDetails ? contentId : undefined}
     >
-      <span className="tool-icon">{toolIcon(presentation.category)}</span>
       <span
         className="tool-title tool-activity-item-title"
         title={[presentation.title, presentation.subject, presentation.resultLabel].filter(Boolean).join(' · ')}
       >
         <b>
-          <TextShimmer text={presentation.title} active={presentation.pending} />
+          <TextShimmer text={presentation.verb} active={presentation.pending} />
         </b>
-        {presentation.subject &&
+        {presentation.headerSubject &&
           !(open && presentation.hideSubjectWhenOpen) &&
           !(presentation.pending && !presentation.command) && (
-            <small>
-              {presentation.targetPath ? (
+            <small data-kind={presentation.subjectKind}>
+              {presentation.subjectIsTarget ? (
                 <LocalPathMention path={presentation.targetPath} line={presentation.targetLine}>
-                  {presentation.subject}
+                  {presentation.headerSubject}
                 </LocalPathMention>
               ) : (
-                presentation.subject
+                presentation.headerSubject
               )}
             </small>
           )}
       </span>
-      {presentation.resultLabel && <span className="tool-activity-item-result">{presentation.resultLabel}</span>}
+      <ToolRowOutcome presentation={presentation} />
+      {presentation.pending && <ProgressSpinner className="tool-activity-item-spinner" size={12} aria-hidden="true" />}
       {presentation.pending && (
         <span className="sr-only" role="status">
           {t('Running')}
@@ -323,18 +404,25 @@ function renderToolActivityHeader({
   );
 }
 
+/** A command run: the command sits in its own framed box, highlighted as
+ *  shell, and what it printed follows as plain terminal text below the box. */
 function renderToolActivityTerminal(presentation: ToolActivityPresentation) {
   return (
-    <section className="tool-activity-terminal">
-      <pre className="tool-activity-item-command">
-        <code>$ {presentation.command}</code>
-      </pre>
-      {presentation.outputText && <pre className="tool-activity-item-output">{presentation.outputText}</pre>}
-      <CopyControl
-        className="tool-detail-copy tool-activity-copy"
-        label="Copy"
-        value={[presentation.command, presentation.outputText].filter(Boolean).join('\n\n')}
-      />
+    <section className="tool-activity-item-section tool-activity-terminal">
+      <ToolPanel
+        kind="command"
+        copyValue={[presentation.command, presentation.outputText].filter(Boolean).join('\n\n')}
+      >
+        <span className="tool-terminal-prompt" aria-hidden="true">
+          $
+        </span>
+        <ToolCommand command={presentation.command} />
+      </ToolPanel>
+      {presentation.outputText && (
+        <pre className="tool-activity-item-output tool-terminal-output" data-scrollable>
+          {presentation.outputText}
+        </pre>
+      )}
     </section>
   );
 }
@@ -370,17 +458,58 @@ function renderToolActivityStructured(presentation: ToolActivityPresentation) {
 }
 
 function renderToolActivityReplacement(presentation: ToolActivityPresentation) {
+  const sides = [
+    { kind: 'before', label: TOOL_DETAIL_LABELS.before, text: presentation.beforeText },
+    { kind: 'after', label: TOOL_DETAIL_LABELS.after, text: presentation.afterText },
+  ];
   return (
     <section className="tool-activity-item-section tool-activity-replacement">
-      <div className="tool-activity-replacement-block" data-kind="before">
-        <span>{TOOL_DETAIL_LABELS.before}</span>
-        <ToolActivityBody text={presentation.beforeText} language={presentation.replacementLanguage} className="" />
-      </div>
-      <div className="tool-activity-replacement-block" data-kind="after">
-        <span>{TOOL_DETAIL_LABELS.after}</span>
-        <ToolActivityBody text={presentation.afterText} language={presentation.replacementLanguage} className="" />
-      </div>
+      {sides.map((side) => (
+        <ToolPanel
+          className="tool-activity-replacement-block"
+          kind={side.kind}
+          label={side.label}
+          copyValue={side.text}
+          key={side.kind}
+        >
+          <ToolCode rows={toolCodeRowsPlain(side.text)} language={presentation.replacementLanguage} />
+        </ToolPanel>
+      ))}
     </section>
+  );
+}
+
+/** A tool's own result: file rows, JSON, a rendered answer, or plain text. */
+function renderToolActivityOutput(presentation: ToolActivityPresentation) {
+  const className = 'tool-activity-item-section tool-activity-item-result-block';
+  if (presentation.entries.length > 0) {
+    return (
+      <ToolPanel className={className} kind="files" copyValue={presentation.outputText}>
+        <ToolFileList entries={presentation.entries} />
+        {presentation.entryNotes.length > 0 && (
+          <pre className="tool-activity-item-output tool-file-notes">{presentation.entryNotes.join('\n')}</pre>
+        )}
+      </ToolPanel>
+    );
+  }
+  if (presentation.outputLanguage) {
+    return (
+      <ToolPanel className={className} kind="code" copyValue={presentation.outputText}>
+        <ToolCode rows={toolCodeRowsPlain(presentation.outputText)} language={presentation.outputLanguage} />
+      </ToolPanel>
+    );
+  }
+  if (!presentation.outputLiteral && toolActivityLooksMarkdown(presentation.outputText)) {
+    return (
+      <ToolPanel className={className} bare copyValue={presentation.outputText}>
+        <ToolActivityRichBody text={presentation.outputText} fallbackClassName="tool-activity-item-output" />
+      </ToolPanel>
+    );
+  }
+  return (
+    <ToolPanel className={className} kind="text" copyValue={presentation.outputText}>
+      <pre className="tool-activity-item-output">{presentation.outputText}</pre>
+    </ToolPanel>
   );
 }
 
@@ -405,8 +534,22 @@ function renderToolActivityFields(presentation: ToolActivityPresentation) {
 function renderToolActivityDetails(presentation: ToolActivityPresentation, contentId: string) {
   return (
     <div className="tool-activity-item-body" id={contentId}>
-      {presentation.metaText && <p className="tool-activity-item-meta">{presentation.metaText}</p>}
-      {presentation.targets.length > 0 && (
+      <div className="tool-activity-item-body-inner">
+      {(presentation.metaText ||
+        (presentation.tone === 'neutral' && presentation.resultLabel && !rowShowsOutcome(presentation)) ||
+        (presentation.fieldsInline && presentation.fields.length > 0)) && (
+        <p className="tool-activity-item-meta">
+          {[
+            presentation.metaText,
+            presentation.tone === 'neutral' && !rowShowsOutcome(presentation) ? presentation.resultLabel : '',
+            ...(presentation.fieldsInline ? presentation.fields.map((field) => `${field.label} ${field.value}`) : []),
+          ]
+            .filter(Boolean)
+            .map(shortMachineId)
+            .join(' · ')}
+        </p>
+      )}
+      {presentation.targets.length > 0 && presentation.sections.length === 0 && (
         <section className="tool-activity-item-section">
           <span>{TOOL_DETAIL_LABELS.targets}</span>
           <ul className="tool-activity-targets">
@@ -416,31 +559,35 @@ function renderToolActivityDetails(presentation: ToolActivityPresentation, conte
           </ul>
         </section>
       )}
-      {presentation.command && renderToolActivityTerminal(presentation)}
       {presentation.structuredRows.length > 0 && renderToolActivityStructured(presentation)}
-      {presentation.previewText && (
-        <section className="tool-activity-item-section">
-          <span>{presentation.previewLabel}</span>
-          <ToolActivityBody
-            text={presentation.previewText}
-            language={presentation.previewLanguage}
-            className="tool-activity-item-preview"
-          />
-        </section>
+      {presentation.promptText && (
+        <ToolPanel
+          className="tool-activity-item-section"
+          kind="prose"
+          label={TOOL_DETAIL_LABELS.prompt}
+          copyValue={presentation.promptText}
+        >
+          <ToolActivityBody text={presentation.promptText} className="tool-activity-item-prompt" />
+        </ToolPanel>
+      )}
+      {presentation.sections.length > 0 && (
+        <ToolPanel
+          className="tool-activity-item-section tool-activity-item-result-block"
+          kind="code"
+          copyValue={presentation.sectionCopyText}
+        >
+          <ToolSections sections={presentation.sections} />
+        </ToolPanel>
       )}
       {(presentation.beforeText || presentation.afterText) && renderToolActivityReplacement(presentation)}
-      {presentation.fields.length > 0 && renderToolActivityFields(presentation)}
+      {presentation.fields.length > 0 && !presentation.fieldsInline && renderToolActivityFields(presentation)}
+      {presentation.command && renderToolActivityTerminal(presentation)}
       {presentation.diffPatch && <CodeDiff patch={presentation.diffPatch} />}
-      {presentation.outputText && !presentation.command && (
-        <section className="tool-activity-item-section tool-activity-item-result-block">
-          <ToolActivityBody
-            text={presentation.outputText}
-            language={presentation.outputLanguage}
-            className="tool-activity-item-output"
-          />
-          <CopyControl className="tool-detail-copy tool-activity-copy" label="Copy" value={presentation.outputText} />
-        </section>
-      )}
+      {presentation.outputText &&
+        !presentation.command &&
+        presentation.sections.length === 0 &&
+        renderToolActivityOutput(presentation)}
+      </div>
     </div>
   );
 }
@@ -598,10 +745,27 @@ export function ToolCard({ item, disclosureScope = '' }: { item: TranscriptItem;
   );
 }
 
+const TOOL_CATEGORY_ICONS: Record<string, React.ReactNode> = {
+  Patch: <Code2 size={16} />,
+  Read: <MxIcon name="open-file" size={16} />,
+  Search: <MxIcon name="magnifying-glass" size={16} />,
+  'Web Research': <Globe size={16} />,
+  Shell: <MxIcon name="terminal" size={16} />,
+  Git: <GitBranch size={16} />,
+  Agent: <Bot size={16} />,
+  Task: <MxIcon name="tasks" size={16} />,
+  Memory: <Brain size={16} />,
+  MCP: <Plug size={16} />,
+  Skill: <Sparkles size={16} />,
+  Load: <PackageOpen size={16} />,
+  Setup: <Settings2 size={16} />,
+  Browser: <AppWindow size={16} />,
+  Computer: <Monitor size={16} />,
+  Office: <FileSpreadsheet size={16} />,
+  Media: <MxIcon name="photo" size={16} />,
+  Tidy: <Brush size={16} />,
+};
+
 function toolIcon(category: unknown) {
-  if (category === 'Patch') return <Code2 size={16} />;
-  if (category === 'Read') return <MxIcon name="open-file" size={16} />;
-  if (category === 'Search' || category === 'Web Research') return <MxIcon name="magnifying-glass" size={16} />;
-  if (category === 'Shell') return <MxIcon name="terminal" size={16} />;
-  return <Layers3 size={16} />;
+  return TOOL_CATEGORY_ICONS[String(category)] ?? <Layers3 size={16} />;
 }

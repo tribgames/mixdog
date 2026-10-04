@@ -18,6 +18,12 @@ import {
 } from './tool-defs.mjs';
 import { schemaValueError } from '../../runtime/shared/schema-value-error.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import profileConfig from '../../runtime/shared/profile-config.cjs';
+
+const PROFILE_VALUE_IDS = Object.freeze({
+  language: profileConfig.PROFILE_LANGUAGES.map((entry) => entry.id),
+  experienceLevel: ['', ...profileConfig.PROFILE_EXPERIENCE_LEVELS.map((entry) => entry.id)],
+});
 
 const ACTION_APPLIES_TO = {
   set_recap_enabled: 'background Memory cycles; no restart required',
@@ -49,6 +55,9 @@ const OPEN_TARGET_HINTS = Object.freeze({
   usage: 'Desktop: /usage in the composer · TUI: /usage',
   doctor: 'Desktop: Settings → System → Doctor, or /doctor in the composer · TUI: /doctor',
   context: 'Desktop: /context in the composer · TUI: /context',
+  developer: 'Desktop: Settings → Developer options · TUI: /setting → Developer',
+  voice: 'Desktop: Extensions → Plugin → Built-in (Voice) · TUI: /setting → Voice',
+  connection: 'Desktop only: Settings → Connection',
 });
 
 function requireEnum(value, allowed, label) {
@@ -120,6 +129,20 @@ function publicProviderRows(setup) {
         baseURL: row.baseURL || row.defaultURL || '',
       })
     ),
+  };
+}
+
+/** OAuth account roster without usage meters or provider-side identities. */
+function publicAccounts(pool) {
+  return {
+    selectedId: pool.selectedId,
+    auto: pool.auto,
+    accounts: pool.accounts.map(({ id, label, authenticated, reauthRequired }) => ({
+      id,
+      label,
+      authenticated,
+      reauthRequired,
+    })),
   };
 }
 
@@ -241,7 +264,14 @@ const SETUP_STATUS_READERS = {
     };
   },
   shell: (rt) => rt.getSystemShell?.() || {},
-  providers: async (rt) => publicProviderRows(await rt.getProviderSetup?.({})),
+  providers: async (rt) => {
+    const rows = publicProviderRows(await rt.getProviderSetup?.({}));
+    rows.oauth = rows.oauth.map((row) =>
+      row.authenticated ? { ...row, accounts: publicAccounts(rt.getProviderAccounts(row.id)) } : row
+    );
+    return rows;
+  },
+  developer: (rt) => rt.getDeveloperSettings(),
   mcp: (rt) => mcpRows(rt.mcpStatus?.()),
   skills: (rt) => ({ ...(rt.skillsStatus?.() || {}), disabled: rt.getDisabledSkills?.()?.disabled || [] }),
   plugins: (rt) => rt.pluginsStatus?.() || {},
@@ -274,7 +304,7 @@ function validateSetupInput(args) {
       throw new Error('route.contextPercent is only accepted by set_route');
     }
   }
-  for (const field of ['desktop', 'appearance', 'webhook', 'compaction']) {
+  for (const field of ['desktop', 'appearance', 'webhook', 'compaction', 'providerAccount']) {
     if (args[field] && !Object.keys(args[field]).length) throw new Error(`${field} requires at least one setting`);
   }
   return action;
@@ -326,6 +356,11 @@ const SETUP_ACTION_HANDLERS = {
     const profile = args.profile && typeof args.profile === 'object' ? args.profile : null;
     if (!profile || !Object.keys(profile).length)
       throw new Error('profile with title, language, or experienceLevel is required');
+    for (const [field, ids] of Object.entries(PROFILE_VALUE_IDS)) {
+      if (Object.hasOwn(profile, field) && !ids.includes(profile[field])) {
+        throw new Error(`profile.${field} must be one of ${ids.map((id) => JSON.stringify(id)).join(', ')}`);
+      }
+    }
     const result = rt.setProfile(profile);
     return {
       title: result.title || '',
@@ -414,7 +449,23 @@ const SETUP_ACTION_HANDLERS = {
     rt.deleteLocalProviderModel(requireText(args.confirmationToken, 'confirmationToken')),
   set_system_shell: (rt, args) => rt.setSystemShell({ command: clean(args.command) }),
   set_auto_update: (rt, args) => rt.setAutoUpdate(requireBoolean(args.enabled)),
-  forget_provider_auth: (rt, args) => rt.forgetProviderAuth(requireText(args.name, 'name')),
+  forget_provider_auth: async (rt, args) => {
+    const name = requireText(args.name, 'name');
+    const setup = await rt.getProviderSetup({});
+    if (!(setup?.oauth || []).some((row) => row.id === name)) {
+      if (Object.hasOwn(args, 'accountId')) throw new Error('accountId applies only to OAuth providers');
+      return rt.forgetProviderAuth(name);
+    }
+    const { accounts } = rt.getProviderAccounts(name);
+    if (!accounts.length) throw new Error(`${name} has no connected account`);
+    if (!Object.hasOwn(args, 'accountId') && accounts.length > 1) {
+      throw new Error(`${name} has ${accounts.length} accounts; pass accountId from status providers`);
+    }
+    const accountId = Object.hasOwn(args, 'accountId') ? requireText(args.accountId, 'accountId') : accounts[0].id;
+    return { ...(await rt.forgetProviderAuth(name, accountId)), accountId };
+  },
+  set_provider_account: async (rt, args) =>
+    publicAccounts(await rt.updateProviderAccounts(requireText(args.name, 'name'), args.providerAccount)),
   add_mcp_server: async (rt, args) => {
     const server = mcpServerInput(args);
     requireText(server.name, 'server.name');
@@ -456,6 +507,13 @@ const SETUP_ACTION_HANDLERS = {
   remove_plugin: async (rt, args) => ({
     plugin: (await rt.removePlugin(requireText(args.name, 'name')))?.plugin || null,
   }),
+  enable_plugin_mcp: async (rt, args) => {
+    const name = requireText(args.name, 'name');
+    const plugin = ((await rt.pluginsStatus())?.plugins || []).find((row) => row.name === name || row.id === name);
+    if (!plugin) throw new Error(`plugin "${name}" not found`);
+    const result = await rt.enablePluginMcp(plugin);
+    return { serverName: result.serverName, mcp: mcpRows(result.status) };
+  },
 };
 
 const READ_ONLY_SETUP_ACTIONS = new Set([

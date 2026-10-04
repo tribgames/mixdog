@@ -45,6 +45,9 @@ if (!/Electron/i.test(navigator.userAgent)) {
 }
 
 // First-paint theme: resolve the stored preference before any CSS evaluates.
+// Pin the dark default before reading storage: the document also accepts light,
+// so Android can otherwise show light system chrome until the app mounts.
+document.documentElement.style.colorScheme = 'dark';
 try {
   var mixdogThemePref = localStorage.getItem('mixdog.desktop-theme-preference');
   var mixdogLight =

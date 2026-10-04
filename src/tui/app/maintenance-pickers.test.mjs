@@ -119,7 +119,7 @@ test('Auto-clear: rows follow the current setting, ←/→ write, Advanced lists
   await flush();
   assert.equal(h.current().title, 'Auto-clear');
   assert.equal(h.row('toggle').meta, 'On');
-  assert.equal(h.row('toggle').description, 'Clear idle sessions after 30m · lead cache TTL 5m.');
+  assert.equal(h.row('toggle').description, 'Clear idle sessions after 30m (openai default) · lead cache TTL 5m.');
 
   h.current().onLeft(h.row('toggle'));
   await flush();

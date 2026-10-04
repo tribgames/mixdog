@@ -187,7 +187,9 @@ async function routeToolContract(repoRoot, route) {
       ...pristine.agentDefaults,
       modules: { webSearch: { enabled: false } },
       memoryTools: { enabled: false },
-    }, { toolProfile: 'headless' }),
+    // The digest describes the trial container, not this host: headless
+    // trials run with git on PATH, so the host's own PATH must not decide.
+    }, { toolProfile: 'headless', gitAvailable: true }),
     ...disallowedModelToolNamesForProfile(allTools, 'headless'),
   ])];
   const allowed = (tools) => filterModelToolsForProfile(tools, 'headless')

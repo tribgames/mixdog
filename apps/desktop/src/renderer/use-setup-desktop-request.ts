@@ -9,15 +9,15 @@ import {
 } from './i18n';
 import { getSidePanelMode, setSidePanelMode, type SidePanelMode } from './side-panel-preferences';
 import { executeSetupDesktopAction, type SetupPreferences } from './setup-desktop-actions';
+import type { SetupLaneSource } from './app-shell-ui-open-request';
 
-async function readDesktopAppearance(api: DesktopApi) {
+async function readDesktopAppearance() {
   return {
     theme: getDesktopThemePreference(),
     themes: desktopThemeOptions(),
     displayLanguage: getUiLanguagePreference(),
     languages: [{ value: 'system', label: 'System' }, ...SUPPORTED_UI_LANGUAGES],
     sidePanels: getSidePanelMode(),
-    zoom: await api.getZoomFactor(),
   };
 }
 
@@ -36,11 +36,8 @@ function assertAppearanceInput(
     throw new Error('Unknown side-panel mode');
 }
 
-function desktopSetupPreferences(
-  api: DesktopApi,
-  assertActive: () => Promise<void> = async () => {}
-): SetupPreferences {
-  const read = () => readDesktopAppearance(api);
+function desktopSetupPreferences(assertActive: () => Promise<void> = async () => {}): SetupPreferences {
+  const read = () => readDesktopAppearance();
   return {
     read,
     async write(input) {
@@ -60,7 +57,6 @@ function desktopSetupPreferences(
       if (input.sidePanels !== undefined && !setSidePanelMode(input.sidePanels as SidePanelMode)) {
         throw new Error('Side-panel preference was not persisted');
       }
-      if (input.zoom !== undefined) await api.setZoomFactor(Number(input.zoom));
       return {
         ...(await read()),
         saved: true,
@@ -72,14 +68,19 @@ function desktopSetupPreferences(
   };
 }
 
+type SetupUiRequest = { id: string; at: number } | null | undefined;
+
 export function useSetupDesktopRequest(
-  request: { id: string; at: number } | null | undefined,
+  request: SetupUiRequest,
   sessionId: string | null | undefined,
-  api: DesktopApi
+  api: DesktopApi,
+  /** Split-pane sessions publish on their own lane, not the App snapshot. */
+  subscribeSessionLanes?: SetupLaneSource
 ) {
   const owner = useRef<string | null>(null);
   const seen = useRef(new Set<string>());
-  useEffect(() => {
+  const handle = useRef<(request: SetupUiRequest, sessionId: string | null | undefined) => void>(() => {});
+  handle.current = (request, sessionId) => {
     // This method exists only on the local Desktop API, never the web shim.
     if (!api.getRemoteAccessInfo || !request?.id || !sessionId || seen.current.has(request.id)) return;
     seen.current.add(request.id);
@@ -109,7 +110,7 @@ export function useSetupDesktopRequest(
         const result = await executeSetupDesktopAction(
           claimed.value.args,
           api,
-          desktopSetupPreferences(api, assertActive),
+          desktopSetupPreferences(assertActive),
           sessionId,
           assertActive
         );
@@ -125,5 +126,13 @@ export function useSetupDesktopRequest(
         sessionId,
       });
     })().catch((error) => console.error('Desktop setup receipt failed', error));
-  }, [api, request, sessionId]);
+  };
+  useEffect(() => handle.current(request, sessionId), [api, request, sessionId]);
+  useEffect(
+    () =>
+      subscribeSessionLanes?.(({ sessionId: laneSessionId, snapshot }) =>
+        handle.current((snapshot as { setupUiRequest?: SetupUiRequest } | null)?.setupUiRequest, laneSessionId)
+      ),
+    [subscribeSessionLanes]
+  );
 }

@@ -1,4 +1,3 @@
-import { parseSkillDocument } from '../../runtime/shared/skill-document.mjs';
 import { SETUP_EXTENDED_PROPERTIES, SETUP_DESKTOP_ACTIONS } from './settings-contract.mjs';
 
 const own = (value, key) => Object.hasOwn(value || {}, key);
@@ -76,15 +75,16 @@ export function validateMcpInput(server) {
 async function readDefinition(rt, kind, name) {
   if (kind === 'workflow') return rt.getWorkflowPack(name);
   if (kind === 'agent') return rt.getAgentDefinition(name);
+  // skillContent already returns the SKILL.md body without frontmatter; the
+  // frontmatter fields come from the catalog row.
   const resource = await rt.skillContent(name);
   const metadata = (await rt.skillsStatus()).skills.find((row) => row.name === name) || {};
-  const parsed = parseSkillDocument(resource.content);
   return {
     name,
     originalName: name,
-    description: metadata.description || parsed.description || '',
-    whenToUse: metadata.whenToUse || parsed.whenToUse || '',
-    body: parsed.body,
+    description: metadata.description || '',
+    whenToUse: metadata.whenToUse || '',
+    body: resource.content,
     toolDependencies: metadata.toolDependencies || [],
     editable: metadata.editable === true,
   };
@@ -103,6 +103,19 @@ async function saveDefinition(rt, args) {
   const id = input.originalName || input.id || input.name;
   if (!creating && !String(id || '').trim()) throw new Error('An existing definition identity is required');
   const current = creating ? {} : await readDefinition(rt, kind, id);
+  if (kind === 'skill' && !creating && !current.editable) {
+    // Built-in and plugin skills keep their document; like the Skills editor,
+    // only their tool dependencies are user-editable (null restores them).
+    const edits = Object.keys(input).filter((key) => key !== 'originalName' && key !== 'name');
+    if (edits.length !== 1 || edits[0] !== 'toolDependencies' || (own(input, 'name') && input.name !== current.name)) {
+      throw new Error('Built-in and plugin skills accept only toolDependencies edits');
+    }
+    return rt.saveSkill({
+      originalName: current.originalName,
+      dependenciesOnly: true,
+      toolDependencies: input.toolDependencies,
+    });
+  }
   const next = { ...pick(current, definitionKeys), ...input };
   if (!String(next.body || '').trim()) throw new Error('definition.body must not be empty');
   if (kind === 'workflow') {
@@ -115,7 +128,6 @@ async function saveDefinition(rt, args) {
     }
     return rt.saveAgentDefinition(creating ? next : { ...next, id: current.id });
   }
-  if (!creating && !current.editable) throw new Error('Only machine-global user skills can be edited');
   return creating ? rt.addSkill(next) : rt.saveSkill({ ...next, originalName: current.originalName });
 }
 
@@ -188,6 +200,19 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
     args.automationKind === 'schedule'
       ? rt.setScheduleEnabled(args.name, args.enabled)
       : rt.setWebhookEnabled(args.name, args.enabled),
+  async set_developer_option(rt, args) {
+    const option = rt
+      .getDeveloperSettings()
+      .sections.flatMap((section) => section.options)
+      .find((row) => row.id === args.name);
+    if (!option) throw new Error(`Unknown developer option "${args.name}"; read status developer`);
+    if (args.enabled && option.warning && args.riskAccepted !== true) {
+      throw new Error(
+        `Enabling ${option.label} requires riskAccepted:true after the user explicitly accepts: ${option.warning}`
+      );
+    }
+    return { developer: await rt.setDeveloperOption(option.id, args.enabled) };
+  },
   async set_webhook_config(rt, args) {
     await rt.setWebhookConfig(args.webhook);
     const status = await rt.getChannelSetup();

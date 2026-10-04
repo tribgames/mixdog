@@ -53,7 +53,6 @@ async function loadConfig() {
     return applyDefaults({
       ...DEFAULT_CONFIG,
       ...raw,
-      channelId: '',
       access: {
         ...DEFAULT_ACCESS,
         ...(raw.access || {}),

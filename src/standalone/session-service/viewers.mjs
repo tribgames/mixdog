@@ -35,7 +35,7 @@ export function createViewerRegistry({
   sessionBusy,
   currentSessionId,
   destroy,
-  forgetStoredSession,
+  releaseStoredSession,
   releaseProjection = () => {},
 }) {
   // Client tokens whose reads/subscriptions announced `transcriptPrepend`:
@@ -134,8 +134,8 @@ export function createViewerRegistry({
       forgetPendingWindow(pendingId, token);
       if (tokens.delete(token) && tokens.size === 0) {
         pendingViewers.delete(pendingId);
-        // The last cold view left: its disk projection is no longer needed.
-        forgetStoredSession(pendingId);
+        // The last cold view left: its disk projection turns idle.
+        releaseStoredSession(pendingId);
       }
     }
     for (const entry of sessions) {

@@ -1,51 +1,9 @@
-import { accessSync, constants as fsConstants, readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { readdir as readdirAsync } from 'node:fs/promises';
 import { runGitOffThread } from '../../../../shared/git-runner.mjs';
-import {
-  delimiter as pathDelimiter,
-  dirname as pathDirname,
-  join as pathJoin,
-  resolve as pathResolveAbsolute,
-} from 'node:path';
-
-function _pathDirectory(value) {
-  const text = String(value || '').trim();
-  return text.length >= 2 && text.startsWith('"') && text.endsWith('"') ? text.slice(1, -1) : text;
-}
-
-function _executableNames(name, platform) {
-  const text = String(name || '').trim();
-  if (!text) return [];
-  if (platform !== 'win32' || /\.(?:exe|cmd|bat|com)$/i.test(text)) return [text];
-  return [text, `${text}.exe`, `${text}.cmd`, `${text}.bat`, `${text}.com`];
-}
-
-function findPathExecutable(
-  name,
-  { pathValue = process.env.PATH || '', platform = process.platform, maxDirectories = 64 } = {}
-) {
-  const names = _executableNames(name, platform);
-  if (!names.length) return null;
-  const seenDirectories = new Set();
-  for (const rawDirectory of String(pathValue).split(pathDelimiter)) {
-    const directory = _pathDirectory(rawDirectory);
-    if (!directory) continue;
-    const key = platform === 'win32' ? directory.toLowerCase() : directory;
-    if (seenDirectories.has(key)) continue;
-    seenDirectories.add(key);
-    if (seenDirectories.size > maxDirectories) break;
-    for (const executable of names) {
-      const file = pathJoin(directory, executable);
-      try {
-        if (!statSync(file).isFile()) continue;
-        accessSync(file, platform === 'win32' ? fsConstants.F_OK : fsConstants.X_OK);
-        return `${executable} (${directory.replace(/\\/g, '/')})`;
-      } catch {}
-    }
-  }
-  return null;
-}
+import { findPathExecutable } from '../../../../shared/path-executable.mjs';
+import { dirname as pathDirname, join as pathJoin, resolve as pathResolveAbsolute } from 'node:path';
 
 // Startup shell-tool line. An earlier inventory was dropped because it was
 // measured in this process's PATH while commands run under the login-shell

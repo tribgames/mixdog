@@ -41,6 +41,9 @@
   font-size: var(--mx-rail-label-size);
   font-weight: var(--mx-rail-label-weight);
   line-height: var(--mx-line-ui);
+  /* Every other rail label is untracked; this one inherited the Settings
+     heading's tight tracking and sat 0.14px narrower than its siblings. */
+  letter-spacing: 0;
 }
 .extensions-pane .settings-group > header p {
   color: var(--mx-text-muted);

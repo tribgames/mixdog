@@ -137,6 +137,13 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
       );
       const layout = await page.evaluate(async () => {
         await document.fonts.ready;
+        // Measure the settled card: the dialog's entrance scales it in.
+        await Promise.all(
+          document
+            .getAnimations()
+            .filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime))
+            .map((animation) => animation.finished.catch(() => undefined))
+        );
         const dialog = document.querySelector('.command-surface');
         const body = dialog.querySelector('.mixdog-settings__body');
         const layer = dialog.parentElement;

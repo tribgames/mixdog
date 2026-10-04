@@ -135,7 +135,7 @@
   -webkit-backdrop-filter: blur(12px) saturate(140%);
   backdrop-filter: blur(12px) saturate(140%);
   box-shadow:
-    inset 0 0 0 0.5px var(--mx-border),
+    inset 0 0 0 var(--mx-hairline) var(--mx-border),
     var(--mx-raised);
 }
 /* Hover is the island's slot idiom — one thin ink wash over the plate, not a
@@ -192,7 +192,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   background: var(--session-island-frame-bg);
   backdrop-filter: none;
   box-shadow:
-    inset 0 0 0 0.5px var(--mx-border),
+    inset 0 0 0 var(--mx-hairline) var(--mx-border),
     var(--mx-raised);
 }
 /* Pane-owned slots: work status, context gauge, then the right utility-dock
@@ -327,7 +327,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 .live-work-group + .live-work-group {
   padding-top: 8px;
-  border-top: 0.5px solid var(--mx-border);
+  border-top: var(--mx-hairline) solid var(--mx-border);
 }
 .live-work-group-header {
   min-width: 0;
@@ -369,7 +369,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   padding: 7px var(--live-work-inset);
   border-radius: var(--mx-radius-md);
   background: color-mix(in srgb, var(--mx-bg-layer-1) 72%, transparent);
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-border-muted) 76%, transparent);
+  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-border-muted) 76%, transparent);
 }
 .session-work-indicator .live-work-row:hover {
   background: var(--mx-hover);
@@ -432,7 +432,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .live-work-stop:hover:not(:disabled) {
   color: var(--mx-danger);
   background: var(--mx-danger-bg);
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-danger) 38%, transparent);
+  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 38%, transparent);
 }
 .live-work-stop:disabled {
   opacity: var(--mx-op-disabled);
@@ -661,7 +661,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   align-items: center;
   gap: 12px;
   padding: 14px 0;
-  border-bottom: 0.5px solid var(--mx-border);
+  border-bottom: var(--mx-hairline) solid var(--mx-border);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-ui);
 }
@@ -819,9 +819,11 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .markdown {
   --mx-md-indent: 24px;
 }
+/* A list opens close under its lead-in sentence (8px) and keeps the full
+   block gap after it (user: 코덱스보다 안 이쁘네 → A안). */
 .markdown ul,
 .markdown ol {
-  margin: 12px 0;
+  margin: 8px 0 12px;
   padding-left: var(--mx-md-indent);
 }
 /* A NESTED list lives inside its parent item, so the flow-block margin belongs
@@ -835,8 +837,10 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
    a three-item list into three paragraphs (reference density is
    4-8px). A LOOSE item carries its own <p> and IS a paragraph, so it
    keeps the wider gap that separates prose blocks. */
+/* Tight items read as one list: 6px under a 26px line spread a two-bullet
+   list to a 32px pitch, half again Codex's. */
 .markdown li {
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 .markdown li:has(> p) {
   margin-bottom: 12px;
@@ -895,7 +899,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
      yes/no or count column: at 96px a four-column table forced a horizontal
      scrollbar it never needed. */
   min-width: 64px;
-  border-bottom: 0.5px solid var(--mx-border);
+  border-bottom: var(--mx-hairline) solid var(--mx-border);
   text-align: left;
   vertical-align: top;
   /* Same Hangul rule as prose — cells wrap between words, and only a token
@@ -1087,7 +1091,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   /* Grok-web table container: rounded card with a hairline ring and a tinted
      header band instead of a naked full-bleed grid. */
   border-radius: var(--mx-radius-lg);
-  box-shadow: 0 0 0 0.5px var(--mx-border);
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border);
   background: var(--mx-bg-base);
 }
 .markdown-table table {
@@ -1571,7 +1575,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 /* Open drawer: separate the header from the task list. */
 .session-goal-island[data-open="true"] .session-goal-summary {
-  border-bottom: 0.5px solid var(--mx-border);
+  border-bottom: var(--mx-hairline) solid var(--mx-border);
 }
 .session-goal-trigger {
   min-width: 0;
@@ -1641,7 +1645,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   box-shadow: inset 0 0 0 2px var(--mx-focus);
 }
 .session-goal-control:disabled {
-  opacity: 0.45;
+  opacity: var(--mx-op-disabled);
   cursor: default;
 }
 .session-goal-glyph {
@@ -1670,12 +1674,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 .session-goal-island[data-waiting="true"] .session-goal-glyph > svg {
   transform-origin: center;
-  animation: session-goal-spin 900ms linear infinite;
-}
-@keyframes session-goal-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  animation: var(--mx-motion-spin);
 }
 @media (prefers-reduced-motion: reduce) {
   .session-goal-island[data-waiting="true"] .session-goal-glyph > svg {
@@ -1789,7 +1788,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 /* Hairline between rows: multi-line tasks otherwise merge into one block. */
 .session-goal-tasks li + li {
-  border-top: 0.5px solid color-mix(in srgb, var(--mx-border) 70%, transparent);
+  border-top: var(--mx-hairline) solid color-mix(in srgb, var(--mx-border) 70%, transparent);
 }
 .session-goal-tasks li > span {
   width: var(--mx-icon-md);
@@ -1867,7 +1866,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   justify-content: flex-end;
   gap: 4px;
   padding-top: 4px;
-  border-top: 0.5px solid var(--mx-border);
+  border-top: var(--mx-hairline) solid var(--mx-border);
 }
 .session-goal-actions .composer-tool {
   width: auto;

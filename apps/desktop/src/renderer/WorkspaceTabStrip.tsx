@@ -199,7 +199,7 @@ function closingTabGhost(tab: WorkspaceTab, active: boolean) {
         <span>{tab.title}</span>
       </button>
       <button type="button" className="workspace-tab-close" tabIndex={-1}>
-        <X size={18} strokeWidth={2} aria-hidden="true" />
+        <X size={18} aria-hidden="true" />
       </button>
     </div>
   );
@@ -334,7 +334,7 @@ function workspaceTabNode({
             ●
           </span>
         ) : (
-          <X size={18} strokeWidth={2} aria-hidden="true" />
+          <X size={18} aria-hidden="true" />
         )}
       </button>
     </div>
@@ -803,7 +803,7 @@ export function WorkspaceTabStrip({
               이질감이 있네). */}
         {/* 15px → a ~8.8px cross on the strip's 1.5px line: at 18px the +
               out-sized the 14px tab labels (user: +가 너무 크다). */}
-        <Plus size={15} strokeWidth={2} aria-hidden="true" />
+        <Plus size={16} aria-hidden="true" />
       </button>
       {tabMenu &&
         workspaceTabContextMenu({

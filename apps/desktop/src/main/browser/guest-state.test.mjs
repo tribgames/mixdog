@@ -70,14 +70,12 @@ test('invalidating interaction forgets document-bound state only', () => {
   record.refSet = { snapshotId: 'p1-s1' };
   record.accessibilityRefs = { refs: [] };
   record.visualGrounding = { snapshotId: 'p1-s1' };
-  record.remoteFrame = { frameId: 'rbf_1' };
   record.fault = 'kept';
   record.performanceTrace = { trace: [] };
   store.invalidateInteraction(page);
   assert.equal(record.refSet, undefined);
   assert.equal(record.accessibilityRefs, undefined);
   assert.equal(record.visualGrounding, undefined);
-  assert.equal(record.remoteFrame, undefined);
   assert.equal(record.fault, 'kept');
   assert.ok(record.performanceTrace);
 });

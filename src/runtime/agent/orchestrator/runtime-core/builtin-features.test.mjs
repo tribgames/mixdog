@@ -24,7 +24,7 @@ test('headless basic tools omit the loader and its guidance without removing opt
   try {
     const basic = { builtins: {}, modules: { webSearch: { enabled: false } } };
     const surface = (config, profile) => {
-      const denied = featureDisallowedToolsFor(config, { toolProfile: profile });
+      const denied = featureDisallowedToolsFor(config, { toolProfile: profile, gitAvailable: true });
       const session = {
         provider: 'openai-oauth',
         model: 'gpt-5.6-sol',
@@ -129,7 +129,7 @@ test('structural keys alone never grandfather a profile', () => {
 
 test('a fresh profile keeps every gated tool family off the session surface', () => {
   const config = withGrandfatheredBuiltins({});
-  assert.deepEqual(featureDisallowedToolsFor(config), [
+  assert.deepEqual(featureDisallowedToolsFor(config, { gitAvailable: false }), [
     'memory',
     'recall',
     'git',
@@ -146,16 +146,23 @@ test('installed features with live bridges expose the full tool surface', () => 
   // tidy ships after the grandfathering cut, so an upgraded profile still has
   // to install it; everything grandfathered stays available.
   const config = setBuiltinInstalledInConfig(withGrandfatheredBuiltins({ presets: [] }), 'tidy', true);
-  assert.deepEqual(featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true }), []);
+  assert.deepEqual(
+    featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true, gitAvailable: true }),
+    []
+  );
   // A missing bridge keeps browser/computer out even on an installed profile.
-  assert.deepEqual(featureDisallowedToolsFor(config), ['browser', 'browser_devtools', 'computer']);
+  assert.deepEqual(featureDisallowedToolsFor(config, { gitAvailable: true }), ['browser', 'browser_devtools', 'computer']);
 });
 
-test('headless Git needs no install marker but respects OFF and does not enable extension tools', () => {
+test('Git needs no install marker but respects OFF and does not enable extension tools', () => {
   const config = { builtins: {} };
-  const blocked = featureDisallowedToolsFor(config, { toolProfile: 'headless' });
-  assert.equal(blocked.includes('git'), false);
-  assert.equal(blocked.includes('github'), true);
+  for (const toolProfile of ['headless', 'interactive']) {
+    const blocked = featureDisallowedToolsFor(config, { toolProfile, gitAvailable: true });
+    assert.equal(blocked.includes('git'), false);
+    assert.equal(blocked.includes('github'), true);
+    // No git executable: the tool stays off the surface on either profile.
+    assert.ok(featureDisallowedToolsFor(config, { toolProfile, gitAvailable: false }).includes('git'));
+  }
   assert.deepEqual(config, { builtins: {} });
   const off = featureDisallowedToolsFor(
     {

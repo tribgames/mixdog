@@ -25,15 +25,6 @@ interface CdpTargetSession {
   ready: Promise<void>;
 }
 
-interface RemoteBrowserFrameCache {
-  frameId: string;
-  image: { mimeType: 'image/jpeg' | 'image/png'; data: string };
-  width: number;
-  height: number;
-  url: string;
-  capturedAt?: number;
-  revision?: string;
-}
 
 /** A native file picker the page asked for. Chromium hands it to the host
  *  instead of showing it, and `upload` answers it with the approved paths. */
@@ -82,7 +73,6 @@ interface BrowserGuestState extends BrowserDiagnostics {
   performanceTrace?: ActiveBrowserPerformanceTrace;
   /** Secrets typed into this document; redacted from every reply. */
   sensitiveValues?: Set<string>;
-  remoteFrame?: RemoteBrowserFrameCache;
   /** The payload Chromium handed over instead of running the page's own
    *  HTML5 drag, so the driver can finish that gesture as drag events. */
   interceptedDrag?: BrowserDragData;
@@ -167,7 +157,6 @@ export class BrowserGuestStateStore {
     state.accessibilityRefs = undefined;
     state.refSet = undefined;
     state.visualGrounding = undefined;
-    state.remoteFrame = undefined;
   }
 
   markCrashed(guest: WebContents, fault: string): void {

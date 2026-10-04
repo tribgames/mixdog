@@ -10,7 +10,6 @@ import { READ_ONLY_ACTIONS } from './command.ts';
 import { flowActions } from './actions/flow.ts';
 import { createBrowserSettle } from './settle.ts';
 import { observationActions } from './actions/observe.ts';
-import { createBrowserRemoteControl } from './remote-control.ts';
 import { createBrowserPageState } from './page-state.ts';
 import { createBrowserRefActions } from './ref-actions.ts';
 import { normalizeAgentUrl, assertResolvedAddressAllowed } from './url-policy.ts';
@@ -40,10 +39,8 @@ test('cookie values stay private and known secrets remain masked in reads after 
   const state = new BrowserGuestStateStore();
   const secret = 'opaque-credential-fixture-1234';
   state.rememberSecret(guest, secret);
-  state.for(guest).remoteFrame = { frameId: 'old' };
   state.for(guest).refSet = { snapshotId: 'old' };
   state.beginDocument(guest);
-  assert.equal(state.for(guest).remoteFrame, undefined);
   assert.equal(state.for(guest).refSet, undefined);
   const read = await observationActions.read({
     guest,
@@ -134,43 +131,6 @@ test('failed observation cannot satisfy textGone and blocked sequence steps neve
     /Sequence stopped.*no step completed/
   );
   assert.equal(calls, 1);
-});
-
-test('remote frame is consumed once and changed pixels or revisions refuse input', async () => {
-  for (const variant of ['same', 'pixels', 'revision']) {
-    const guest = page();
-    const state = new BrowserGuestStateStore();
-    let taps = 0;
-    const remote = createBrowserRemoteControl({
-      state,
-      ensureGuest: async () => guest,
-      noteRemoteViewer() {},
-      cdp: {},
-      revision: async () => (variant === 'revision' ? 'new' : 'old'),
-      captureScreenshot: async () => ({ data: variant === 'pixels' ? 'new' : 'pixels' }),
-      input: {
-        tapAt: async () => {
-          taps++;
-        },
-      },
-    });
-    state.for(guest).remoteFrame = {
-      frameId: 'frame',
-      url: guest.getURL(),
-      capturedAt: Date.now(),
-      revision: 'old',
-      image: { data: 'pixels' },
-    };
-    const command = { type: 'tap', frameId: 'frame', x: 1, y: 1 };
-    if (variant === 'same') {
-      await remote.remoteBrowserControl('s', command);
-      assert.equal(taps, 1);
-      await assert.rejects(remote.remoteBrowserControl('s', command), /stale/);
-    } else {
-      await assert.rejects(remote.remoteBrowserControl('s', command), /changed/);
-      assert.equal(taps, 0);
-    }
-  }
 });
 
 test('fill respects readonly, disabled and disabled fieldset in AX and fallback paths', async () => {

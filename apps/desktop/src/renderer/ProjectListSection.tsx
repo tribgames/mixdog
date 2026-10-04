@@ -859,7 +859,7 @@ export function ProjectListSection({
       )}
       {(projectsReady || projects.length > 0) && visible.length === 0 && (
         <div className="schedules-empty">
-          <Folder size={40} strokeWidth={1.5} aria-hidden="true" />
+          <Folder size={40} aria-hidden="true" />
           <p>
             {projects.length
               ? t('No projects match the current search.')

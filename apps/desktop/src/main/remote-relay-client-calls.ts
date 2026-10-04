@@ -4,7 +4,9 @@
 import { DESKTOP_CAPABILITIES } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import { VOICE_CALLS } from './remote-call-queue';
-import { filterSessionIds } from './desktop-state';
+import { filterSessionIds, requiredSessionId } from './desktop-state';
+import { normalizeRemoteBrowserStreamOptions } from '../shared/remote-browser';
+import type { createBrowserRemoteStreams } from './remote-browser-streams';
 import type { createRemoteMethods } from './remote-methods';
 import { executeRemoteFrame } from './remote-methods';
 import type { RelayClientState, SendEncryptedFrame } from './remote-relay-clients';
@@ -58,6 +60,8 @@ export interface RelayClientCallDeps {
   acknowledgePaintProbe(payload: unknown): { sessionId: string; roundTripMs: number; receiveToPaintMs: number } | null;
   resyncClient(clientId: string, state: RelayClientState): void;
   recordCall(method: string, callMs: number, bytes: { requestBytes: number; responseBytes: number }): void;
+  /** Live Browser Use frame subscriptions, per client. */
+  browserStreams: Pick<ReturnType<typeof createBrowserRemoteStreams>, 'subscribe' | 'unsubscribe' | 'acknowledge'>;
   /** A departed phone's lanes, claimed by the resume token it presents. */
   takeParkedViews?(token: string): ParkedRelayViews | null;
 }
@@ -142,6 +146,33 @@ export function createRelayClientCallDispatch(
           ok: true,
           value: true,
         });
+      }
+      return {};
+    }
+    // Live Browser Use view: the subscription belongs to THIS client, so it is
+    // registered here rather than through the client-less method table. The
+    // ack is fire-and-forget and must never queue behind slower calls.
+    if (call?.method === 'browserRemoteStream' && Array.isArray(call.params)) {
+      try {
+        const sessionId = requiredSessionId(call.params[0]);
+        if (call.params[1] == null) deps.browserStreams.unsubscribe(clientId, sessionId);
+        else deps.browserStreams.subscribe(clientId, sessionId, normalizeRemoteBrowserStreamOptions(call.params[1]));
+        if (typeof call.id === 'number') await deps.sendEncryptedFrame(clientId, { id: call.id, ok: true, value: null });
+      } catch (error) {
+        if (typeof call.id === 'number') {
+          await deps.sendEncryptedFrame(clientId, {
+            id: call.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return {};
+    }
+    if (call?.method === 'browserRemoteStreamAck' && Array.isArray(call.params)) {
+      const [sessionId, seq] = call.params;
+      if (typeof sessionId === 'string' && typeof seq === 'number') {
+        deps.browserStreams.acknowledge(clientId, sessionId, seq);
       }
       return {};
     }

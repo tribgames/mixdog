@@ -31,7 +31,6 @@ function harness(overrides = {}) {
     officeToolsEnabled: () => false,
     mediaToolEnabled: () => false,
     tidyToolEnabled: () => false,
-    channelsEnabled: () => true,
     getWebSearchModule: async () => null,
     getMemoryModule: async () => ({ handleToolCall: record('memory') }),
     getCodeGraphModule: async () => ({ executeCodeGraphTool: record('code_graph') }),
@@ -64,9 +63,6 @@ test('model-tool calls to disabled features are refused before any dispatch', as
     else process.env.MIXDOG_FEATURE_BROWSER = previous;
   }
   assert.deepEqual(calls, []);
-  const off = harness({ channelsEnabled: () => false });
-  await assert.rejects(off.execute('channel_send', {}, source), /channels are disabled/);
-  assert.deepEqual(off.calls, []);
 });
 
 test('injected runtimes receive the caller context each tool expects', async () => {

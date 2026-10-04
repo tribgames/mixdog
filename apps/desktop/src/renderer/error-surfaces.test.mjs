@@ -283,14 +283,27 @@ test('successful remote screen reads do not erase an unsuccessful user gesture',
   withDom(async ({ render }) => {
     let controls = 0;
     window.mixdogDesktop = {
-      remoteBrowserFrame: async () => ({
-        frameId: 'frame',
-        width: 100,
-        height: 100,
-        url: 'https://example.test/',
-        title: 'Page',
-        image: { mimeType: 'image/png', data: 'AA==' },
-      }),
+      remoteBrowserStream: async () => {},
+      remoteBrowserStreamAck: () => {},
+      onRemoteBrowserFrame: (listener) => {
+        listener({
+          sessionId: 'a',
+          seq: 1,
+          frameId: 'frame',
+          documentId: 'd',
+          width: 100,
+          height: 100,
+          viewportWidth: 100,
+          viewportHeight: 100,
+          url: 'https://example.test/',
+          title: 'Page',
+          loading: false,
+          canGoBack: false,
+          canGoForward: false,
+          image: { mimeType: 'image/png', data: 'AA==' },
+        });
+        return () => {};
+      },
       remoteBrowserControl: async () => {
         controls++;
         throw new Error('gesture could not be delivered');

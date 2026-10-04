@@ -301,7 +301,6 @@ function ScheduleEditor({
               ...(frequency === 'once'
                 ? { at: text('schedule-at') }
                 : { time: scheduleCron(frequency, text, weekday) }),
-              delivery: 'app',
               model: `${model}${effortSuffix}${fastSuffix}${parameterSuffix}`,
               ...(cwd ? { cwd } : {}),
               ...(workflow ? { workflow } : {}),
@@ -674,7 +673,7 @@ export function SchedulesPane({
         )}
         {!loading && visible.length === 0 && (
           <div className="schedules-empty">
-            <AlarmClock size={40} strokeWidth={1.5} aria-hidden="true" />
+            <AlarmClock size={40} aria-hidden="true" />
             <p>{schedules.length ? t('No schedules match the current filter.') : t('No scheduled tasks yet.')}</p>
           </div>
         )}

@@ -186,7 +186,6 @@ html[data-mixdog-mobile-tabs] .model-trigger {
      rests as a static partial fill. `:root` outranks the lazily loaded
      browser-pane and extension layers that land after this one. */
   .spin,
-  :root .is-spinning,
   .workspace-tab-main .workspace-tab-status,
   .schedules-row-spinner,
   .dock-source-control .spin,

@@ -91,7 +91,7 @@ export function createAutoClearPicker({
       const current = await readCurrent();
       own.paint({
         title: 'Auto-clear · Advanced',
-        description: 'Provider default idle windows. Enter edits the duration text.',
+        description: 'Provider idle windows override the global duration. Enter edits the duration text.',
         help: '↑/↓ Select · Enter Edit · Esc Back',
         indexMode: 'always',
         labelWidth: 18,
@@ -110,13 +110,18 @@ export function createAutoClearPicker({
       const enabled = current?.enabled !== false;
       const idleMs = Number(current?.idleMs || HOUR_MS);
       const cacheTtlLabel = !enabled || idleMs >= HOUR_MS ? '1h' : '5m';
+      const sourceLabel = current?.providerCustom
+        ? `${current.provider} override`
+        : current?.custom
+          ? 'global'
+          : `${current?.provider || 'default'} default`;
       const items = [
         {
           value: 'toggle',
           label: 'Auto-clear',
           meta: enabled ? 'On' : 'Off',
           description: enabled
-            ? `Clear idle sessions after ${formatDuration(idleMs)} · lead cache TTL ${cacheTtlLabel}.`
+            ? `Clear idle sessions after ${formatDuration(idleMs)} (${sourceLabel}) · lead cache TTL ${cacheTtlLabel}.`
             : 'Idle auto-clear disabled.',
           _action: 'toggle',
         },
@@ -129,7 +134,7 @@ export function createAutoClearPicker({
       ];
       own.paint({
         title: 'Auto-clear',
-        description: `Clear idle context after ${enabled ? formatDuration(idleMs) : 'never'} · lead cache TTL ${cacheTtlLabel}.`,
+        description: `Clear idle context after ${enabled ? `${formatDuration(idleMs)} (${sourceLabel})` : 'never'} · lead cache TTL ${cacheTtlLabel}.`,
         help: '↑/↓ Select · ←/→ Toggle On/Off · Enter Open/Toggle · Esc Close',
         indexMode: 'always',
         labelWidth: 10,

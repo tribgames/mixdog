@@ -116,7 +116,7 @@
   position: absolute;
   z-index: -1;
   inset: 0 -8px;
-  border-radius: 8px;
+  border-radius: var(--mx-radius-md);
   /* 2.5%: at 4% the plates read as boxes (user: 좀 더 옅게). */
   background: color-mix(in srgb, var(--mx-text) 2.5%, transparent);
   pointer-events: none;
@@ -291,7 +291,7 @@
   margin: 0 6px 6px;
   padding: 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--mx-radius-md);
   background: color-mix(in srgb, var(--mx-text) 2.5%, transparent);
 }
 .sidebar-usage-reset-heading {
@@ -405,7 +405,7 @@
   height: 10px;
   display: block;
   color: currentColor;
-  animation: spin 0.7s linear infinite;
+  animation: var(--mx-motion-spin);
 }
 @media (prefers-reduced-motion: reduce) {
   .sidebar-update-loader {

@@ -1,11 +1,10 @@
 /* Desktop layer 02 — Scrollbars, focus rings, caret, icon + type grammar.
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
-/* Icon FONTS are geometry, not prose (user: 아이콘들이 좀 흐릿한 느낌): the
-   shell-wide `antialiased` above forces grayscale smoothing, which throws away
-   the subpixel coverage Windows uses to ink a 16px glyph, so codicon stems read
-   a tone lighter and softer than the SVG glyphs sitting next to them. Only the
-   icon font opts back into the platform default; prose keeps grayscale. */
+/* Icon FONTS are geometry, not prose: the icon font opts back into the
+   platform default smoothing while prose keeps the shell-wide `antialiased`.
+   `-webkit-font-smoothing` is honored on macOS only — Chromium on Windows
+   ignores it — so this rule changes nothing in the Windows desktop window. */
 .codicon {
   -webkit-font-smoothing: auto;
 }
@@ -91,6 +90,14 @@ textarea::placeholder {
   opacity: 1;
 }
 /* No custom ::selection; native color-scheme selection applies. */
+/* A bare <b>/<strong> takes the scale's semibold, never the browser's 700:
+   the variable faces draw 700 as a display weight, and the two or three
+   unstyled ones (a diff file name, a figure caption) stood out as the only
+   black-weight text on screen. Any class rule still wins. */
+b,
+strong {
+  font-weight: var(--mx-weight-semibold);
+}
 code,
 pre,
 kbd {

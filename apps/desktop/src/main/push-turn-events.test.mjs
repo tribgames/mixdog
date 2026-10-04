@@ -96,21 +96,22 @@ const agentRow = (sessionId, ownerSessionId, overrides = {}) => ({
   ...overrides,
 });
 
-test('pending work comes from running children and live shell jobs, not the Lead row status', () => {
+test('pending work comes from running child agents only, not shell jobs or the Lead row status', () => {
   const pending = sessionsWithPendingWork([
     agentRow('child-1', 'a', { status: 'running', stage: 'running' }),
     agentRow('child-2', 'b', { status: 'queued', stage: 'queued' }),
     agentRow('c', 'c', { shellJobCount: 1 }),
+    agentRow('child-c', 'c', { status: 'idle', stage: 'idle', shellJobCount: 2 }),
     agentRow('child-3', 'd', { status: 'idle', stage: 'idle' }),
     agentRow('e', 'e', { status: 'running', stage: 'running' }),
   ]);
-  assert.deepEqual([...pending].sort(), ['a', 'b', 'c']);
+  assert.deepEqual([...pending].sort(), ['a', 'b']);
 });
 
 test('a Lead that stops to wait on background work is not announced until the work settles', () => {
   const tracker = createTurnCompletionTracker();
   tracker.observe([session('a', { working: true })], 1_000);
-  // Lead turn ended while its shell job still runs: an intermediate stop.
+  // Lead turn ended while its child agent still runs: an intermediate stop.
   assert.deepEqual(tracker.observe([session('a', { working: false })], 2_000, new Set(['a'])), []);
   assert.equal(tracker.isIdle('a'), false);
   // The job finished and woke the Lead for its final answer.

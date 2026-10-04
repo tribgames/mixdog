@@ -443,7 +443,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
             )}
             {workflows.length === 0 && (
               <div className="schedules-empty">
-                <Layers3 size={40} strokeWidth={1.5} aria-hidden="true" />
+                <Layers3 size={40} aria-hidden="true" />
                 <p>{t('No workflow packs found.')}</p>
               </div>
             )}

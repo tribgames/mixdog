@@ -45,7 +45,7 @@
 .schedules-filters button.active {
   color: var(--mx-text);
   background: var(--mx-pressed);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 /* Schedules interact states stay flat (user: no hover wash). */
 .schedules-page .settings-action:hover:not(:disabled) {
@@ -256,7 +256,7 @@
      muted hairline — the memory viewport and the skill preview wear the
      same — instead of a lighter layer-1 slab with no edge. */
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .webhook-connection-row {
   gap: 2px;
@@ -335,7 +335,7 @@
   padding: 12px 16px;
   border-radius: var(--mx-radius-lg);
   background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .compact-switch {
   cursor: pointer;
@@ -363,7 +363,7 @@
   display: block;
   transform-box: view-box;
   transform-origin: center;
-  animation: spin 1.1s linear infinite;
+  animation: var(--mx-motion-spin);
 }
 /* Single column pinned to the copy box: a bare `auto` track let a long name
    or route line size the column past the row and shove the trailing status. */
@@ -708,7 +708,7 @@
   gap: 8px;
   min-height: 0;
   padding: 12px 0;
-  border-bottom: 0.5px solid var(--mx-border);
+  border-bottom: var(--mx-hairline) solid var(--mx-border);
 }
 .projects-memory-row-head,
 .projects-memory-row-foot {
@@ -754,7 +754,7 @@
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background-color: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   font: inherit;
 }
 .projects-memory-editor .core-memory-actions {
@@ -787,7 +787,7 @@
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   font-size: var(--mx-font-minor);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -796,7 +796,7 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-deep);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
 }
 .settings-metric-grid span {
   color: var(--mx-text-faint);
@@ -883,7 +883,7 @@
   padding: 0 12px;
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-deep);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
   font-size: var(--mx-font-minor);
 }
 .settings-oauth-status span {
@@ -911,7 +911,7 @@
   padding: 12px;
   border-radius: var(--mx-radius-md);
   background: color-mix(in srgb, var(--mx-warning) 10%, var(--mx-bg-deep));
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-warning) 45%, var(--mx-border));
+  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-warning) 45%, var(--mx-border));
   font-size: var(--mx-font-minor);
 }
 .settings-oauth-verify b {
@@ -967,7 +967,7 @@
   outline: none;
   color: var(--mx-text-muted);
   background: var(--mx-bg-deep);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
   font-family: var(--mx-font-mono);
   /* Code size like every other mono field; 11px made this the one text box
      that read smaller than its neighbours. */
@@ -992,11 +992,11 @@
   outline: none;
   color: var(--mx-text);
   background: var(--mx-bg-deep);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-strong);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-strong);
   font-size: var(--mx-font-minor);
 }
 .settings-oauth-code input:focus {
-  box-shadow: inset 0 0 0 0.5px var(--mx-focus);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-focus);
 }
 .settings-oauth-code button,
 .settings-oauth-dialog > footer button {
@@ -1140,7 +1140,7 @@
 .settings-confirm-dialog > footer button.danger {
   color: var(--mx-danger);
   background: var(--mx-danger-bg);
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-danger) 28%, transparent);
+  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 28%, transparent);
 }
 /* Each variant owns its feedback: the neutral hover above cannot reach
    .primary or .danger (both outrank it). */

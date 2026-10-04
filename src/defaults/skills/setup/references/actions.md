@@ -6,8 +6,8 @@ Read this when choosing a `setup` mutation.
 
 - `status` reads one domain: summary, model, agents, workflow, websearch,
   output-style, profile, autoclear, compaction, memory, features, local-provider, shell,
-  providers, mcp, skills, plugins, update, onboarding, capabilities, desktop,
-  appearance, projects, connection, schedules, or webhooks.
+  providers, mcp, skills, plugins, update, onboarding, capabilities, developer,
+  desktop, appearance, projects, connection, schedules, or webhooks.
 - `open` navigates to a supported UI surface. Read `surfaces.md` for targets and
   UI-only settings.
 
@@ -41,7 +41,9 @@ Read this when choosing a `setup` mutation.
 | Permanently delete confirmed, unchanged, unused model files | `delete_local_model` |
 | TUI system shell | `set_system_shell` |
 | Automatic updates | `set_auto_update` |
-| Remove stored provider authentication | `forget_provider_auth` |
+| Remove stored provider authentication (one OAuth account at a time) | `forget_provider_auth` |
+| Select, rename, reorder, or auto-switch OAuth accounts | `set_provider_account` |
+| Developer options such as risk-gated OAuth providers | `set_developer_option` |
 | Add an MCP server | `add_mcp_server` |
 | Edit or rename an MCP server | `save_mcp_server` |
 | Remove an MCP server | `remove_mcp_server` |
@@ -53,6 +55,7 @@ Read this when choosing a `setup` mutation.
 | Refresh a plugin checkout | `update_plugin` |
 | Enable or disable a plugin | `set_plugin_enabled` |
 | Remove a plugin | `remove_plugin` |
+| Install or reconfigure the MCP server a plugin ships | `enable_plugin_mcp` |
 | Available hosted models and their options; optionally native-search capable only | `list_models` |
 | Agent orchestration, independent of workflow instructions | `set_orchestration_mode` |
 | Safe MCP edit metadata, excluding raw connection/credential values | `get_mcp_server` |
@@ -65,7 +68,8 @@ Read this when choosing a `setup` mutation.
 | Enable/disable a schedule/webhook | `set_automation_enabled` |
 | Webhook listener enabled state, port, or domain | `set_webhook_config` |
 | Desktop keep-awake, run in background after window close, usage pin, or Computer observe-only state | `set_desktop_settings` |
-| Desktop theme, display language, side panels, or zoom | `set_appearance` |
+| Desktop theme, display language, or side panels | `set_appearance` |
+| Which activity rail items are pinned, in order (current list in `status desktop`) | `set_activity_rail_pins` |
 | Register a Project and optionally set its display alias | `save_project` |
 | Unregister a Project without deleting its files | `remove_project` |
 | Revoke one linked device by its client id from `status connection`; re-pairing restores access | `revoke_linked_device` |
@@ -85,6 +89,8 @@ workflow` before changing the corresponding domain.
   then supply only changed fields. Workflow/agent ids cannot be renamed through
   a save; change their display name instead. User skills may be renamed with
   `originalName` and `name`. Skill deletion is not exposed; disable it instead.
+  Built-in and plugin skills accept only `toolDependencies` edits (`null`
+  restores their declared dependencies).
 - Changing orchestration does not rewrite workflow instructions or agents.
 
 ## Providers and authentication
@@ -100,14 +106,26 @@ values through chat.
   and recovery. Its narrow status domain exposes installed models and progress;
   the detail dialog lists installed models rather than the download catalog.
 - Forgetting authentication is destructive and requires explicit approval.
+  It removes one OAuth account; a provider with several accounts requires
+  `accountId` from the account list in `status providers`.
+- `set_provider_account` changes the selected account, automatic switching,
+  account order (every account id exactly once), or an account label. Sign-in
+  for a new account still happens in the Providers UI.
+- `status developer` lists developer options. An option with a `warning` is
+  enabled only after the user explicitly accepts that warning, passed as
+  `riskAccepted:true`; never assume acceptance.
 - Usage sign-in is completed on the Usage or Providers surface.
 
 ## Profile, session, and Memory
 
 - Output style changes do not rewrite the current answer already in progress.
+- Profile `language` and `experienceLevel` take ids listed by `status profile`;
+  unknown ids are rejected, and an empty `experienceLevel` clears it.
 - Auto-clear supports global/provider idle durations, `minContextPercent`,
-  `reset`, and `resetProvider`. A reset and a duration are mutually exclusive;
-  provider reset requires a provider.
+  `reset`, and `resetProvider`. A provider window overrides the global
+  duration; `provider: "default"` sets the fallback for providers without a
+  built-in window. A reset and a duration are mutually exclusive; provider
+  reset requires a provider.
 - Compaction supports `enabled` and either `mainBufferTokens` or
   `mainBufferPercent`. Changing representation replaces the previous budget.
 - If no supported action exposes a requested Memory interval, report it as
@@ -154,6 +172,8 @@ the Browser Use / Computer Use installed and enabled markers are read with
 - Environment/header maps are partial patches. Omitted keys are preserved;
   `null` explicitly removes one key, including a stored credential.
 - Plugin enablement moves its contributed skills and MCP integrations together.
+- `enable_plugin_mcp` writes the MCP server a plugin ships and reconnects; it
+  fails for a plugin without an MCP script.
 
 ## Desktop, Projects, and automation
 

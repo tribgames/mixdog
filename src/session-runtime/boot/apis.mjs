@@ -20,6 +20,7 @@ import {
   normalizeSystemShellCommand,
   normalizeAutoClearConfig,
   autoClearIdleMsForProvider,
+  resolveAutoClearIdleMs,
   autoClearProviderDefaults,
   normalizeCompactionConfig,
   setModuleEnabledInConfig,
@@ -75,7 +76,10 @@ export function wireApis(boot) {
   });
   boot.lifecycleApi = lifecycleApiFor(boot);
   boot.resourceApi = resourceApiFor(boot);
-  boot.disposeGlobalExtensionSubscription = () => boot.resourceApi.disposeGlobalExtensionSubscription?.();
+  boot.disposeGlobalExtensionSubscription = () => {
+    boot.disposeConfigSync?.();
+    boot.resourceApi.disposeGlobalExtensionSubscription?.();
+  };
   boot.modelRouteApi = modelRouteApiFor(boot);
   boot.workflowAgentsApi = workflowAgentsApiFor(boot);
   boot.sessionTurnApi = sessionTurnApiFor(boot);
@@ -207,6 +211,7 @@ function settingsApiFor(boot) {
     hasOwn,
     normalizeAutoClearConfig,
     autoClearIdleMsForProvider,
+    resolveAutoClearIdleMs,
     autoClearProviderDefaults,
     normalizeCompactionConfig,
     normalizeSystemShellConfig,
@@ -229,7 +234,6 @@ function settingsApiFor(boot) {
     tidyToolEnabledFn: boot.tidyToolEnabledFn,
     localProviderEnabledFn: boot.localProviderEnabledFn,
     webSearchEnabled: boot.webSearchEnabled,
-    channelsEnabled: boot.channelsEnabled,
     autoUpdateEnabled: selfUpdate.autoUpdateEnabled,
     getUpdateCheckState: () => selfUpdate.getCheckState(),
     getUpdateProcessState: () => selfUpdate.getProcessState(),

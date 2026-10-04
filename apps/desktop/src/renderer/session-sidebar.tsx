@@ -187,9 +187,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   }, []);
   const archivedRows = useMemo(
     () =>
-      allRows.filter(
-        (session) => session.archived === true || (isAutomationRow(session) && session.sourceDelivery === 'channel')
-      ),
+      allRows.filter((session) => session.archived === true),
     [allRows]
   );
   const automationRows = useMemo(() => automationGroups.flatMap(({ runs }) => runs), [automationGroups]);

@@ -266,12 +266,12 @@ html[data-window-material="mica"] .session-sidebar {
 .session-sidebar-panels .schedules-row[data-drop-position="before"] {
   box-shadow:
     inset 0 2px 0 var(--mx-focus),
-    inset 0 0 0 0.5px var(--mx-rail-item-outline);
+    inset 0 0 0 var(--mx-hairline) var(--mx-rail-item-outline);
 }
 .session-sidebar-panels .schedules-row[data-drop-position="after"] {
   box-shadow:
     inset 0 -2px 0 var(--mx-focus),
-    inset 0 0 0 0.5px var(--mx-rail-item-outline);
+    inset 0 0 0 var(--mx-hairline) var(--mx-rail-item-outline);
 }
 /* One rail gap between Common Memory and the first project card — the same
    rhythm the cards keep among themselves (user: 간격이 어색하다). The page's
@@ -289,7 +289,7 @@ html[data-window-material="mica"] .session-sidebar {
   border: 0;
   border-radius: var(--mx-radius-lg);
   background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 0.5px var(--mx-rail-item-outline);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-rail-item-outline);
   transition: background-color var(--mx-motion-ink);
 }
 /* In-row ramp: NAME leads at 13/400 full ink, then description/meta at 12. */
@@ -322,7 +322,7 @@ html[data-window-material="mica"] .session-sidebar {
    Hover still acknowledges that the row can be opened. */
 .session-sidebar-panels .projects-pane .projects-row.selected {
   background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 0.5px var(--mx-rail-item-outline);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-rail-item-outline);
 }
 .session-sidebar-panels .projects-pane .projects-row:hover {
   background: var(--mx-hover);
@@ -381,7 +381,7 @@ html[data-window-material="mica"] .session-sidebar {
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   font-size: var(--mx-font-micro);
   font-weight: var(--mx-weight-regular);
   line-height: 1;
@@ -391,19 +391,19 @@ html[data-window-material="mica"] .session-sidebar {
 .extensions-dialog .sidebar-resource-tag[data-tone="warn"] {
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-warning) 35%, transparent);
+  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-warning) 35%, transparent);
 }
 .session-sidebar-panels .sidebar-resource-tag[data-tone="danger"],
 .extensions-dialog .sidebar-resource-tag[data-tone="danger"] {
   color: var(--mx-danger);
   background: color-mix(in srgb, var(--mx-danger) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-danger) 35%, transparent);
+  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 35%, transparent);
 }
 .session-sidebar-panels .sidebar-resource-tag[data-tone="ok"],
 .extensions-dialog .sidebar-resource-tag[data-tone="ok"] {
   color: var(--mx-success);
   background: color-mix(in srgb, var(--mx-success) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-success) 35%, transparent);
+  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-success) 35%, transparent);
 }
 .session-sidebar-panels .sidebar-resource-row {
   border: 0;
@@ -564,6 +564,10 @@ html[data-window-material="mica"] .session-sidebar {
      the agent name/tag while retaining a stable right-aligned time column. */
   min-width: 42px;
   flex: 0 0 auto;
+  /* The state word ends where the group heading's overflow dots end (user:
+     ...이랑 안맞잖아): the 18px glyph's dots stop 6px inside the 24px trigger,
+     which sits on the page edge, one card gutter outside this column. */
+  margin-right: calc(6px - var(--mx-rail-gutter));
   display: grid;
   /* Text-only status column (the row spinner is gone): ONE track, so every
      card's state word lands on the same right axis. */
@@ -595,27 +599,33 @@ html[data-window-material="mica"] .session-sidebar {
    full ink; a finished notice only needs to be noticed (user: 중요도에 따라
    위계 — 작업 완료가 진행 중보다 튀었다). */
 .utility-dock .agent-activity-elapsed[data-state="running"] {
-  color: var(--mx-text);
-}
-/* Completion notice: an idle row whose session is still unseen carries the
-   Recent-dot meaning as ACCENTED TEXT (user: 닷 대용으로 완료알림), at the
-   regular weight — the hue alone marks it, as the Sessions dot does. It
-   fades back to the muted idle tone the moment the session is opened. */
-.utility-dock .agent-activity-elapsed[data-state="done"] {
   color: var(--mx-text-accent);
+}
+/* Waiting on child work has its own hue so it never reads like live work
+   (user: 작업중 작업대기는 다른색). Regular weight keeps it apart from the
+   bold cancel-unconfirmed warning. */
+.utility-dock .agent-activity-elapsed[data-state="waiting"] {
+  color: var(--mx-warning);
+  font-weight: var(--mx-weight-regular);
+}
+/* Completion notice: an idle row whose session is still unseen reads in the
+   success hue (user: 완료가 녹색), at the regular weight — the hue alone marks
+   it. It fades back to the muted idle tone the moment the session is opened. */
+.utility-dock .agent-activity-elapsed[data-state="done"] {
+  color: var(--mx-success);
   font-weight: var(--mx-weight-regular);
 }
 /* A cancel is not a completion and not a rest. It never borrows the accented
    "done" tone or the live running tone: a stopped row reads as stopped. */
 .utility-dock .agent-activity-elapsed[data-state="cancelled"] {
   color: var(--mx-danger);
-  font-weight: 600;
+  font-weight: var(--mx-weight-semibold);
 }
 /* Delivered but unproven (Windows git-bash survivors): the warning tone says
    the process could not be confirmed gone, never that the cancel succeeded. */
 .utility-dock .agent-activity-elapsed[data-state="cancel-unconfirmed"] {
   color: var(--mx-warning);
-  font-weight: 600;
+  font-weight: var(--mx-weight-semibold);
 }
 /* Agents dock reuses the Workflows rail grammar. */
 .utility-dock .agent-activity-page .workflows-models,
@@ -644,7 +654,7 @@ html[data-window-material="mica"] .session-sidebar {
   border: 0;
   border-radius: var(--mx-radius-lg);
   background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 0.5px var(--mx-rail-item-outline);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-rail-item-outline);
 }
 .utility-dock .agent-activity-page :is(.agent-session-heading, .agent-pool-row) {
   user-select: none;

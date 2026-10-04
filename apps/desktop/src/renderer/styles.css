@@ -306,7 +306,7 @@ button {
   white-space: pre-wrap;
 }
 .spin {
-  animation: spin 1.1s linear infinite;
+  animation: var(--mx-motion-spin);
 }
 @keyframes spin {
   to {

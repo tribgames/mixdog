@@ -304,7 +304,7 @@
   align-items: center;
   justify-content: flex-end;
   padding: 0 6px 0 12px;
-  border-bottom: 0.5px solid var(--mx-border-muted);
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
   color: var(--mx-text-muted);
   background: var(--mx-window-band);
 }

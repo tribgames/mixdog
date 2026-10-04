@@ -28,6 +28,9 @@ export const BOOT_WARMUP = Object.freeze({
    *  the same frame as its transcript. */
   sessionGoalModule: 55,
   surfaceChunk: 60,
+  /** The most recent sidebar sessions not open in a pane, so the first
+   *  click after launch paints from the lane, not a cold disk parse. */
+  recentTranscript: 62,
   /** Hidden mount of the composer's full model list, so the Model row opens
    *  onto rows that already exist. */
   modelCatalog: 65,

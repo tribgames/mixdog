@@ -157,7 +157,7 @@
   outline-offset: 0;
 }
 .sidebar-dialog-loading > svg {
-  animation: spin 1.1s linear infinite;
+  animation: var(--mx-motion-spin);
 }
 /* The guided-setup card is fixed-size, so it follows the shorter layer too. */
 .onboarding-dialog {
@@ -391,7 +391,7 @@
 .mx-dialog > footer button.danger {
   color: var(--mx-danger);
   background: var(--mx-danger-bg);
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-danger) 28%, transparent);
+  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 28%, transparent);
 }
 .schedules-dialog footer button.danger:hover:not(:disabled),
 .settings-confirm-dialog > footer button.danger:hover:not(:disabled),
@@ -400,7 +400,7 @@
 .mx-dialog > footer button.danger:hover:not(:disabled) {
   color: var(--mx-danger);
   background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-danger-bg);
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-danger) 28%, transparent);
+  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 28%, transparent);
 }
 /* The solid pressed plate carries the danger read — drop the resting ring. */
 .schedules-dialog footer button.danger:active:not(:disabled),
@@ -571,6 +571,24 @@ html:not([data-mixdog-mobile-tabs]) :is(.session-sidebar, .session-sidebar-panel
      dot/spinner axis (row edge − 14px). The old 5px bezel put it 1px off. */
   padding-inline: 4px;
 }
+/* Desktop moves the box line to 16px: at 12px the titles and rows sat
+   against the panel edge (user: 패딩이 좀 빡빡한가 — 사이드레일 패널 헤더
+   왼쪽). Header and lists step together, so the trailing controls keep their
+   shared axis. The phone drawer keeps 12px. */
+html:not([data-mixdog-mobile-tabs])
+  :is(
+    .sidebar.session-sidebar > .session-sidebar-scroll,
+    .session-sidebar-sessions > .session-sidebar-scroll,
+    .session-sidebar-launchers,
+    .session-sidebar .session-panel-header
+  ) {
+  padding-inline: 8px;
+}
+/* The Agents dock draws its own title and list on the rail gutter; it takes
+   the same 16px line. */
+html:not([data-mixdog-mobile-tabs]) .utility-dock {
+  --mx-rail-gutter: 16px;
+}
 /* Every trailing rail control shares the framed rows' 20px centerline. A 28px
    header action would otherwise center at 14px, so move its box 6px inward. */
 .session-sidebar .session-panel-header-actions > .session-panel-action:last-child {
@@ -678,11 +696,11 @@ html:not([data-mixdog-mobile-tabs]) :is(.session-sidebar, .session-sidebar-panel
    muted tier under them. Completed rows stay static across focus changes. */
 .turn-status.complete,
 .turn-status.success {
-  color: var(--mx-text-soft);
+  color: var(--mx-text-muted);
 }
 .turn-status.complete::before,
 .turn-status.success::before {
-  color: var(--mx-text-soft);
+  color: var(--mx-text-muted);
 }
 .turn-status.complete small,
 .turn-status.success small {

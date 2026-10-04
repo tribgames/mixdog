@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, Cookie, History, KeyRound, LoaderCircle, X } from 'lucide-react';
+import { AlertTriangle, Check, Cookie, History, KeyRound, X } from 'lucide-react';
+import { ProgressSpinner } from './ProgressSpinner';
 
 import type {
   DesktopBrowserImportItem,
@@ -29,7 +30,7 @@ function progressStateLabel(state: string): string {
 function ProgressStateIcon({ state }: { state: string }) {
   if (state === 'completed') return <Check size={16} />;
   if (state === 'failed') return <AlertTriangle size={16} />;
-  return <LoaderCircle size={16} className="is-spinning" />;
+  return <ProgressSpinner size={16} />;
 }
 
 function checkedItems(items: Record<DesktopBrowserImportItem, boolean>): DesktopBrowserImportItem[] {
@@ -336,7 +337,7 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
               }
               onClick={startImport}
             >
-              {busy ? <LoaderCircle size={15} className="is-spinning" /> : null}
+              {busy ? <ProgressSpinner size={16} /> : null}
               {finished ? t('Retry') : t('Import')}
             </button>
           )}

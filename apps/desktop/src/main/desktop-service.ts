@@ -1,4 +1,10 @@
-import type { DesktopRemoteClientInfo, DesktopSessionStateUpdate, SessionSnapshot } from '../shared/contract';
+import type {
+  DesktopRemoteBrowserStreamFrame,
+  DesktopRemoteClientInfo,
+  DesktopSessionStateUpdate,
+  SessionSnapshot,
+} from '../shared/contract';
+import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT } from '../shared/remote-browser';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { MixdogProjectsModule, MixdogSessionStoreModule, StatuslineSegmentsModule } from './desktop-support';
 import { SessionHost, type SessionClient } from './session-host';
@@ -136,7 +142,7 @@ function createRemoteClaimArbiter(publish: (claim: RemoteClientClaim) => void) {
  *  as an event and its answer returns as an operation. Each request is bounded,
  *  so a window that never answers fails the call instead of holding it open. */
 function createBrowserRemoteRequests(
-  publish: (request: { id: string; method: 'frame' | 'control' | 'release'; args: unknown[] }) => void
+  publish: (request: { id: string; method: 'stream' | 'control' | 'release'; args: unknown[] }) => void
 ) {
   let nextRequestId = 0;
   const pendingRequests = new Map<
@@ -148,7 +154,7 @@ function createBrowserRemoteRequests(
     }
   >();
   return {
-    request(method: 'frame' | 'control' | 'release', args: unknown[]): Promise<unknown> {
+    request(method: 'stream' | 'control' | 'release', args: unknown[]): Promise<unknown> {
       const id = `browser_remote_${++nextRequestId}`;
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -509,6 +515,15 @@ export async function createDesktopService({
       case 'remoteAccessResume':
         if (remoteRelay) remoteRelay.resume();
         else await startRemoteServices();
+        return null;
+      // The window process's live Browser Use frames and explicit reveal/hide
+      // requests. Frames are paced per client by the relay; an open request is
+      // a desktop event the relay forwards to every paired client.
+      case 'browserRemoteFrame':
+        remoteRelay?.publishBrowserFrame(operationArgs[0] as DesktopRemoteBrowserStreamFrame);
+        return null;
+      case 'browserRemoteOpen':
+        publishDesktopEvent(BROWSER_OPEN_REQUESTED_DESKTOP_EVENT, operationArgs[0]);
         return null;
       case 'browserRemoteResolve':
         return browserRemoteRequests.settle(

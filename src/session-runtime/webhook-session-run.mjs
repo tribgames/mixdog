@@ -36,7 +36,6 @@ export async function runWebhookSession({
   cwd = null,
   workflow = null,
   attachments = null,
-  delivery = null,
   signal = null,
 }) {
   const endpoint = String(name || '').trim();
@@ -53,7 +52,6 @@ export async function runWebhookSession({
     owner: 'user',
     sourceType: 'webhook',
     sourceName: endpoint,
-    sourceDelivery: delivery || null,
     tools: WEBHOOK_SESSION_TOOLS,
     ...(projectCwd ? { cwd: projectCwd } : {}),
     desktopSession: projectCwd

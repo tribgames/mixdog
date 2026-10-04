@@ -136,7 +136,7 @@
   height: 24px;
   display: block;
   color: var(--mx-text-accent);
-  animation: spin 0.75s linear infinite;
+  animation: var(--mx-motion-spin);
 }
 .desktop-recovery-screen {
   box-sizing: border-box;

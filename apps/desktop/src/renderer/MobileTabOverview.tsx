@@ -170,7 +170,7 @@ export function MobileTabOverview({
               onNewTask();
             }}
           >
-            <Plus size={22} aria-hidden="true" />
+            <Plus size={20} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -178,7 +178,7 @@ export function MobileTabOverview({
             aria-label={t('Close tab overview')}
             onClick={onClose}
           >
-            <X size={22} aria-hidden="true" />
+            <X size={20} aria-hidden="true" />
           </button>
         </header>
         {tabs.length > SEARCH_MIN_TABS && (

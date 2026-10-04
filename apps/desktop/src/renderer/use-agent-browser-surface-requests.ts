@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 
+import { onBrowserPageRevealRequested } from './browser-page-request';
+
 import type { DesktopBrowserOpenRequest } from '../shared/contract';
 import {
   browserSurfaceRequestShouldReveal,
@@ -111,6 +113,16 @@ export function useAgentBrowserSurfaceRequests(options: BrowserSurfaceRequests) 
         requestRef.current(request);
       }),
     []
+  );
+  // A page card in the transcript: the user asked for the pane, so a panel
+  // they closed earlier opens again and the layout change is theirs to keep.
+  useEffect(
+    () =>
+      onBrowserPageRevealRequested((sessionId) => {
+        surfaces.browserAutoRevealSuppressed.current.delete(sessionId);
+        requestRef.current({ sessionId });
+      }),
+    [surfaces.browserAutoRevealSuppressed]
   );
   useEffect(() => {
     for (const sessionId of pendingBrowserAutoReveal.current) {

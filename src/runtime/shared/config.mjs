@@ -2,7 +2,7 @@
  * Unified config reader/writer.
  * Single file: mixdog-config.json with sections such as channels, agent, and memory.
  */
-import { readFileSync, statSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, statSync, mkdirSync, existsSync, watch as fsWatch } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import { resolvePluginData } from './plugin-paths.mjs';
@@ -315,8 +315,72 @@ function readAllForRmW() {
   }
 }
 
+// Config-change notification. In-process writes notify directly after the file
+// is persisted; writes from other processes arrive through one lazily started
+// directory watch (the atomic rename replaces the file, which would orphan a
+// file-level watch on POSIX). Bursts coalesce into one listener pass.
+const CONFIG_CHANGE_DEBOUNCE_MS = 100;
+const _configChangeListeners = new Set();
+let _configChangeTimer = null;
+let _configWatcher = null;
+let _configWatchDir = '';
+
+function stopConfigWatcher() {
+  try {
+    _configWatcher?.close();
+  } catch {}
+  _configWatcher = null;
+  _configWatchDir = '';
+}
+
+function notifyConfigChanged() {
+  if (!_configChangeListeners.size) return;
+  if (_configChangeTimer) clearTimeout(_configChangeTimer);
+  _configChangeTimer = setTimeout(() => {
+    _configChangeTimer = null;
+    invalidateConfigReadCache();
+    for (const listener of [..._configChangeListeners]) {
+      try {
+        listener();
+      } catch {}
+    }
+  }, CONFIG_CHANGE_DEBOUNCE_MS);
+  _configChangeTimer.unref?.();
+}
+
+function ensureConfigWatcher() {
+  const dir = dirname(configPath());
+  if (_configWatcher && _configWatchDir === dir) return;
+  stopConfigWatcher();
+  try {
+    _configWatcher = fsWatch(dir, (_event, filename) => {
+      if (!filename || String(filename) === 'mixdog-config.json') notifyConfigChanged();
+    });
+    _configWatcher.unref?.();
+    _configWatcher.on?.('error', stopConfigWatcher);
+    _configWatchDir = dir;
+  } catch {
+    _configWatcher = null;
+  }
+}
+
+/** Subscribe to persisted config changes (this process or another). Returns unsubscribe. */
+export function subscribeConfigChange(listener) {
+  _configChangeListeners.add(listener);
+  ensureConfigWatcher();
+  return () => {
+    _configChangeListeners.delete(listener);
+    if (!_configChangeListeners.size) {
+      if (_configChangeTimer) clearTimeout(_configChangeTimer);
+      _configChangeTimer = null;
+      stopConfigWatcher();
+    }
+  };
+}
+
 function writeAll(data) {
   writeConfigFile(canonicalizeUnifiedConfig(data));
+  notifyConfigChanged();
 }
 
 // Serialize a read-modify-write under the same file lock. Concurrent
@@ -390,6 +454,7 @@ async function writeConfigFileAsync(data) {
 
 async function writeAllAsync(data) {
   await writeConfigFileAsync(canonicalizeUnifiedConfig(data));
+  notifyConfigChanged();
 }
 
 function withConfigLockAsync(fn) {

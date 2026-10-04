@@ -18,7 +18,7 @@ function EngineRows({ rows }: { rows: EngineRow[] }) {
       {rows.map(({ engine, tag, description, tone }) => (
         <ExtensionItemRow
           key={engine.id}
-          icon={<CapabilityIcon name="code-tidy" size={15} />}
+          icon={<CapabilityIcon name="code-tidy" size={16} />}
           title={engine.title}
           description={description}
           tone={tone}

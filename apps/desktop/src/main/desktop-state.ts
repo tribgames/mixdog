@@ -111,9 +111,6 @@ export function desktopSessionSummaries(
       const sourceName = String(row.sourceName || '').trim();
       const automationType =
         sourceType === 'schedule' || sourceType === 'webhook' ? (sourceType as 'schedule' | 'webhook') : null;
-      const sourceDelivery = ['app', 'channel', 'both'].includes(String(row.sourceDelivery || '').trim())
-        ? (String(row.sourceDelivery).trim() as 'app' | 'channel' | 'both')
-        : null;
       // The store index already carries each session's last route. Passing it
       // through lets pane chrome name the model on its first frame instead of
       // blanking until a lane snapshot arrives.
@@ -140,7 +137,6 @@ export function desktopSessionSummaries(
           ...(agentWorking ? { agentWorking: true } : {}),
           ...(automationType ? { sourceType: automationType } : {}),
           ...(automationType && sourceName ? { sourceName } : {}),
-          ...(automationType && sourceDelivery ? { sourceDelivery } : {}),
           ...(provider ? { provider } : {}),
           ...(model ? { model } : {}),
         },

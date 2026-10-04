@@ -138,6 +138,24 @@ test('saving an off agent with a picked model stores the model and keeps the age
   assert.deepEqual(state.config.agents[created.id], savedRoute);
 });
 
+test('deleting an agent clears its disabled-roster entry, and a recreated agent of that id starts enabled', async (t) => {
+  const { dataDir, helpers, state, api } = fixture(t);
+  const starter = helpers.listCustomAgentIds(dataDir)[0];
+  state.config = { ...state.config, disabledAgents: [starter, 'other-agent'] };
+  await api.deleteAgentDefinition(starter);
+  assert.deepEqual(state.config.disabledAgents, ['other-agent']);
+
+  state.config = { ...state.config, disabledAgents: [starter, 'other-agent'] };
+  await api.saveAgentDefinition({ id: starter, name: 'Recreated', body: 'Recreated prompt.' });
+  assert.equal(api.listAgents().find((agent) => agent.id === starter).disabled, false);
+  assert.deepEqual(state.config.disabledAgents, ['other-agent']);
+
+  await api.saveAgentDefinition({ id: starter, name: 'Recreated', body: 'Edited prompt.' });
+  state.config = { ...state.config, disabledAgents: [starter] };
+  await api.saveAgentDefinition({ id: starter, name: 'Recreated', body: 'Edited again.' });
+  assert.equal(api.listAgents().find((agent) => agent.id === starter).disabled, true);
+});
+
 test('agent editor validation: empty body, bad id, missing name, hidden roles', async (t) => {
   const { api } = fixture(t);
   await assert.rejects(api.saveAgentDefinition({ name: 'x' }), /AGENT.md body must not be empty/);

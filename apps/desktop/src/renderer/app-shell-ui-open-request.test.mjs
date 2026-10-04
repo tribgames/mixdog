@@ -85,10 +85,62 @@ test('useAppUiOpenRequest handles sequence increasing, deduplication, TTL, and s
       );
     });
     assert.equal(openedSettings, 'providers');
+
+    // 6. Setup section target without a slash command routes to its settings section
+    await act(async () => {
+      root.render(
+        React.createElement(TestHarness, {
+          request: { command: 'developer', seq: 7, at: Date.now() },
+          sessionId: 'session-1',
+        })
+      );
+    });
+    assert.equal(openedSettings, 'developer');
   } finally {
     await act(async () => {
       root.unmount();
     });
+    restore();
+  }
+});
+
+test('useAppUiOpenRequest routes split-pane session lane requests once per session sequence', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><div id="root"></div>',
+    jsdom: { url: 'about:blank' },
+  });
+  const opened = [];
+  const surfaces = [];
+  let laneListener = null;
+  const subscribeSessionLanes = (listener) => {
+    laneListener = listener;
+    return () => {
+      laneListener = null;
+    };
+  };
+  function TestHarness() {
+    useAppUiOpenRequest({
+      uiOpenRequest: null,
+      sessionId: null,
+      openConversationCommandSurface: (surface, sessionId) => surfaces.push([surface, sessionId]),
+      openSettings: (section) => opened.push(section),
+      subscribeSessionLanes,
+    });
+    return null;
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  const lane = (sessionId, command, seq) =>
+    act(async () => laneListener({ sessionId, snapshot: { uiOpenRequest: { command, seq, at: Date.now() } } }));
+  try {
+    await act(async () => root.render(React.createElement(TestHarness)));
+    await lane('pane-a', 'connection', 3);
+    await lane('pane-a', 'connection', 3);
+    await lane('pane-b', 'doctor', 1);
+    assert.deepEqual(opened, ['connection']);
+    assert.deepEqual(surfaces, [['doctor', 'pane-b']]);
+    await act(async () => root.unmount());
+    assert.equal(laneListener, null);
+  } finally {
     restore();
   }
 });

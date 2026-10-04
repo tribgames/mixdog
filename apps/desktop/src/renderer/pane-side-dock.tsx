@@ -899,7 +899,7 @@ export function PaneSideDock({
             at the pictograms' weight reads HEAVIER than they do, so it takes
             one step less stroke to sit at the same optical weight (user: X가
             뭔가 달라보이는데). */}
-            <X size={20} strokeWidth={1.5} aria-hidden="true" />
+            <X size={20} aria-hidden="true" />
           </button>
         </header>
       )}

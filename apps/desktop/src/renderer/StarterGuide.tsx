@@ -436,7 +436,7 @@ export function StarterGuide({
             aria-live="polite"
             style={toastPosition(pillRef.current)}
           >
-            <Check size={13} strokeWidth={2.5} aria-hidden="true" />
+            <Check size={14} aria-hidden="true" />
             <span>{justDoneLabel}</span>
             <b>{t('Done')}</b>
           </output>,

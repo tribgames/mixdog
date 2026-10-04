@@ -39,7 +39,8 @@ import type {
   DesktopBrowserRemoteViewerChange,
   DesktopBrowserViewportConfig,
   DesktopRemoteBrowserControl,
-  DesktopRemoteBrowserFrame,
+  DesktopRemoteBrowserStreamFrame,
+  DesktopRemoteBrowserStreamOptions,
 } from './contract-browser';
 import type {
   DesktopGitBranch,
@@ -514,9 +515,14 @@ export interface DesktopApi {
   /** Current session's Browser Use page only. Passwords never cross this API. */
   browserCredentialSuggestions?(sessionId: string): Promise<DesktopBrowserCredentialSuggestion[]>;
   browserCredentialFill?(sessionId: string, credentialId: string): Promise<DesktopBrowserCredentialFillResult>;
-  /** Paired web app: pixels and bounded human input target the desktop's
-   * current Browser Use guest, preserving its cookies and agent-visible page. */
-  remoteBrowserFrame?(sessionId: string, previousFrameId?: string): Promise<DesktopRemoteBrowserFrame>;
+  /** Paired web app live view of the desktop's current Browser Use guest,
+   * preserving its cookies and agent-visible page. Options start or renew the
+   * session's pushed frame stream (renew within 2s while shown; the desktop
+   * stops a stream not renewed for 4s); null stops it. */
+  remoteBrowserStream?(sessionId: string, options: DesktopRemoteBrowserStreamOptions | null): Promise<void>;
+  /** Acknowledge a displayed frame so the desktop sends the newest next one. */
+  remoteBrowserStreamAck?(sessionId: string, seq: number): void;
+  onRemoteBrowserFrame?(listener: (frame: DesktopRemoteBrowserStreamFrame) => void): () => void;
   remoteBrowserControl?(sessionId: string, input: DesktopRemoteBrowserControl): Promise<void>;
   /** systemPreference keeps DWM on 'system' so OS theme tracking survives. */
   applyTitleBarTheme(theme: string, systemPreference?: boolean): Promise<void>;

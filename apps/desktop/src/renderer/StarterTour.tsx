@@ -421,7 +421,7 @@ export function StarterWelcome({
       <div className="starter-tour-scrim" />
       <section ref={cardRef} className="starter-welcome" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <span className="starter-welcome-icon" aria-hidden="true">
-          <GraduationCap size={22} />
+          <GraduationCap size={20} />
         </span>
         <h2 id={titleId}>{t('Welcome to Mixdog')}</h2>
         <p>{t('Five quick steps to get set up.')}</p>
