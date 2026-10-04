@@ -62,6 +62,40 @@ const cell = (name, task) => {
     return e.pass > 0 ? 'pass' : 'fail';
 };
 
+// Per-task comparison against the paired baseline, straight from the Sol run
+// report: every paired trial of a task summed on both sides.
+const solReport = JSON.parse(readFileSync(join(RUNS['sol-xhigh'], 'report.json'), 'utf8'));
+const pairByTask = {};
+for (const row of solReport.pair?.tasks ?? []) {
+    const e = (pairByTask[row.task] ??= { trials: 0, ours: { pass: 0, tokens: 0, requests: 0 }, baseline: { pass: 0, tokens: 0, requests: 0 } });
+    e.trials += 1;
+    for (const side of ['ours', 'baseline']) {
+        e[side].pass += row[side].passed ? 1 : 0;
+        e[side].tokens += row[side].tokens.input + row[side].tokens.output;
+        e[side].requests += row[side].providerRequests;
+    }
+}
+const pairRows = Object.entries(pairByTask)
+    .map(([task, e]) => ({ task, ...e, ratio: e.ours.tokens / e.baseline.tokens }))
+    .sort((x, y) => x.ratio - y.ratio);
+const millions = (n) => `${(n / 1e6).toFixed(2)}M`;
+const change = (ratio) => {
+    const pct = Math.round((1 - ratio) * 100);
+    return pct >= 0 ? `${pct}% fewer` : `${-pct}% more`;
+};
+const pairSection = pairRows.length === 0 ? [] : [
+    `## ${published.sol.modelLabel} — mixdog vs ${published.sol.baselineLabel}, per task`,
+    '',
+    'Each row sums the paired trials of one task. Tokens are input (cached',
+    'included) plus output; requests are model requests per trial. Sorted by',
+    'token change, largest saving first.',
+    '',
+    `| task | mixdog pass | ${published.sol.baselineLabel} pass | mixdog tokens | ${published.sol.baselineLabel} tokens | change | requests per trial |`,
+    '|---|---|---|---|---|---|---|',
+    ...pairRows.map((r) => `| ${r.task} | ${r.ours.pass}/${r.trials} | ${r.baseline.pass}/${r.trials} | ${millions(r.ours.tokens)} | ${millions(r.baseline.tokens)} | ${change(r.ratio)} | ${Math.round(r.ours.requests / r.trials)} vs ${Math.round(r.baseline.requests / r.trials)} |`),
+    '',
+];
+
 const md = [
     '# Terminal-Bench 2.1 — per-task results',
     '',
@@ -76,6 +110,7 @@ const md = [
     '|---|---|---|',
     ...tasks.map((t) => `| ${t} | ${cell('opus5', t)} | ${cell('sol-xhigh', t)} |`),
     '',
+    ...pairSection,
 ];
 writeFileSync('results.md', md.join('\n'));
 writeFileSync('results.json', JSON.stringify({

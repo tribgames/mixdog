@@ -1,58 +1,78 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" role="img" aria-labelledby="t d" font-family="Styrene A,Segoe UI Variable Display,Segoe UI,Inter,Helvetica Neue,Arial,sans-serif">
-  <title id="t">Terminal-Bench 2.1: mixdog with GPT-5.6 Sol xhigh versus Codex CLI</title>
-  <desc id="d">In matched-model solo runs, mixdog scored 86.5 percent over 445 trials versus Codex CLI at 86.1 percent over 445 trials, ran 1.05 times faster by full-trial wall time, finished tasks with a 46 percent smaller median context, and cost 39 percent less.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="920" viewBox="0 0 1200 920" role="img" aria-labelledby="t d" font-family="Styrene A,Segoe UI Variable Display,Segoe UI,Inter,Helvetica Neue,Arial,sans-serif">
+  <title id="t">Terminal-Bench 2.1: Mixdog with GPT-5.6 Sol xhigh versus Codex CLI</title>
+  <desc id="d">In matched-model solo runs, Mixdog used 63 percent fewer tokens, scored 86.5 percent over 445 trials versus Codex CLI at 86.1 percent over 445 trials, ran 1.05 times faster by full-trial wall time, finished tasks with a 46 percent smaller median context, and cost 39 percent less.</desc>
   <defs>
     <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
       <rect width="6" height="6" fill="#FBFAF7"/>
       <line x1="0" y1="0" x2="0" y2="6" stroke="#B8B4A7" stroke-width="1.4"/>
     </pattern>
   </defs>
-  <rect width="1200" height="600" fill="#F0EEE6"/>
+  <rect width="1200" height="920" fill="#F0EEE6"/>
   <text x="64" y="62" font-size="11" letter-spacing="2" font-weight="600" fill="#7A776C">TERMINAL-BENCH 2.1 · 89 TASKS · K=5 VS K=5 · SELF-REPORTED</text>
-  <text x="64" y="98" font-size="28" font-weight="650" letter-spacing="-0.3" fill="#191919">mixdog vs Codex CLI</text>
+  <text x="64" y="98" font-size="28" font-weight="650" letter-spacing="-0.3" fill="#191919">Mixdog vs Codex CLI</text>
   <text x="64" y="124" font-size="13.5" fill="#6E6B60">GPT-5.6 Sol xhigh · same model, same reasoning level · solo loop</text>
   <rect x="922" y="82" width="14" height="14" fill="#D97706"/>
-  <text x="944" y="94" font-size="13" fill="#191919">mixdog</text>
+  <text x="944" y="94" font-size="13" fill="#191919">Mixdog</text>
   <rect x="1014" y="82" width="14" height="14" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
   <text x="1036" y="94" font-size="13" fill="#6E6B60">Codex CLI</text>
 
-  <text x="64" y="184" font-size="15" font-weight="650" fill="#191919">Score</text>
-  <text x="64" y="204" font-size="11.5" fill="#8A8779">385 vs 383 of 445 trials · +2 trials</text>
-  <rect x="88" y="250" width="72" height="270" fill="#D97706"/>
-  <text x="124" y="236" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">86.5%</text>
-  <rect x="184" y="251.4" width="72" height="268.6" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
-  <text x="220" y="237.4" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">86.1%</text>
-  <line x1="64" y1="520" x2="296" y2="520" stroke="#A8A499" stroke-width="1.2"/>
-  <text x="124" y="546" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">mixdog</text>
-  <text x="220" y="546" text-anchor="middle" font-size="12" fill="#6E6B60">Codex CLI</text>
+  <text x="64" y="184" font-size="15" font-weight="650" fill="#191919">Total tokens</text>
+  <text x="64" y="204" font-size="11.5" fill="#8A8779">input incl. cached + output · 63% fewer</text>
+  <rect x="96" y="402" width="88" height="78" fill="#D97706"/>
+  <text x="140" y="388" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">156.5M</text>
+  <rect x="224" y="270" width="88" height="210" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="268" y="256" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">421.4M</text>
+  <line x1="64" y1="480" x2="368" y2="480" stroke="#A8A499" stroke-width="1.2"/>
+  <text x="140" y="506" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">Mixdog</text>
+  <text x="268" y="506" text-anchor="middle" font-size="12" fill="#6E6B60">Codex CLI</text>
 
-  <text x="340" y="184" font-size="15" font-weight="650" fill="#191919">Speed</text>
-  <text x="340" y="204" font-size="11.5" fill="#8A8779">wall time per trial · 1.05&#215; faster</text>
-  <rect x="364" y="263.7" width="72" height="256.3" fill="#D97706"/>
-  <text x="400" y="249.7" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">415s</text>
-  <rect x="460" y="250" width="72" height="270" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
-  <text x="496" y="236" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">437s</text>
-  <line x1="340" y1="520" x2="572" y2="520" stroke="#A8A499" stroke-width="1.2"/>
-  <text x="400" y="546" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">mixdog</text>
-  <text x="496" y="546" text-anchor="middle" font-size="12" fill="#6E6B60">Codex CLI</text>
+  <text x="432" y="184" font-size="15" font-weight="650" fill="#191919">Score</text>
+  <text x="432" y="204" font-size="11.5" fill="#8A8779">385 vs 383 of 445 trials · +2 trials</text>
+  <rect x="464" y="270" width="88" height="210" fill="#D97706"/>
+  <text x="508" y="256" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">86.5%</text>
+  <rect x="592" y="271.1" width="88" height="208.9" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="636" y="257.1" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">86.1%</text>
+  <line x1="432" y1="480" x2="736" y2="480" stroke="#A8A499" stroke-width="1.2"/>
+  <text x="508" y="506" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">Mixdog</text>
+  <text x="636" y="506" text-anchor="middle" font-size="12" fill="#6E6B60">Codex CLI</text>
 
-  <text x="616" y="184" font-size="15" font-weight="650" fill="#191919">Final context</text>
-  <text x="616" y="204" font-size="11.5" fill="#8A8779">median tokens at task end · 46% less</text>
-  <rect x="640" y="374.3" width="72" height="145.7" fill="#D97706"/>
-  <text x="676" y="360.3" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">18.5K</text>
-  <rect x="736" y="250" width="72" height="270" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
-  <text x="772" y="236" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">34.3K</text>
-  <line x1="616" y1="520" x2="848" y2="520" stroke="#A8A499" stroke-width="1.2"/>
-  <text x="676" y="546" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">mixdog</text>
-  <text x="772" y="546" text-anchor="middle" font-size="12" fill="#6E6B60">Codex CLI</text>
+  <text x="800" y="184" font-size="15" font-weight="650" fill="#191919">Priced cost</text>
+  <text x="800" y="204" font-size="11.5" fill="#8A8779">index, Codex CLI = 100 · 39% less</text>
+  <rect x="832" y="352.2" width="88" height="127.8" fill="#D97706"/>
+  <text x="876" y="338.2" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">60.9</text>
+  <rect x="960" y="270" width="88" height="210" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="1004" y="256" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">100</text>
+  <line x1="800" y1="480" x2="1104" y2="480" stroke="#A8A499" stroke-width="1.2"/>
+  <text x="876" y="506" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">Mixdog</text>
+  <text x="1004" y="506" text-anchor="middle" font-size="12" fill="#6E6B60">Codex CLI</text>
 
-  <text x="892" y="184" font-size="15" font-weight="650" fill="#191919">Priced cost</text>
-  <text x="892" y="204" font-size="11.5" fill="#8A8779">index, Codex CLI = 100 · 39% less</text>
-  <rect x="916" y="355.7" width="72" height="164.3" fill="#D97706"/>
-  <text x="952" y="341.7" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">60.9</text>
-  <rect x="1012" y="250" width="72" height="270" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
-  <text x="1048" y="236" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">100</text>
-  <line x1="892" y1="520" x2="1124" y2="520" stroke="#A8A499" stroke-width="1.2"/>
-  <text x="952" y="546" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">mixdog</text>
-  <text x="1048" y="546" text-anchor="middle" font-size="12" fill="#6E6B60">Codex CLI</text>
+  <text x="64" y="570" font-size="15" font-weight="650" fill="#191919">Initial context</text>
+  <text x="64" y="590" font-size="11.5" fill="#8A8779">median tokens of first request · 67% less</text>
+  <rect x="96" y="796.7" width="88" height="69.3" fill="#D97706"/>
+  <text x="140" y="782.7" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">4.7K</text>
+  <rect x="224" y="656" width="88" height="210" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="268" y="642" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">14.4K</text>
+  <line x1="64" y1="866" x2="368" y2="866" stroke="#A8A499" stroke-width="1.2"/>
+  <text x="140" y="892" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">Mixdog</text>
+  <text x="268" y="892" text-anchor="middle" font-size="12" fill="#6E6B60">Codex CLI</text>
+
+  <text x="432" y="570" font-size="15" font-weight="650" fill="#191919">Model requests</text>
+  <text x="432" y="590" font-size="11.5" fill="#8A8779">across 445 trials · 33% fewer</text>
+  <rect x="464" y="724.3" width="88" height="141.7" fill="#D97706"/>
+  <text x="508" y="710.3" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">6,266</text>
+  <rect x="592" y="656" width="88" height="210" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="636" y="642" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">9,284</text>
+  <line x1="432" y1="866" x2="736" y2="866" stroke="#A8A499" stroke-width="1.2"/>
+  <text x="508" y="892" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">Mixdog</text>
+  <text x="636" y="892" text-anchor="middle" font-size="12" fill="#6E6B60">Codex CLI</text>
+
+  <text x="800" y="570" font-size="15" font-weight="650" fill="#191919">Final context</text>
+  <text x="800" y="590" font-size="11.5" fill="#8A8779">median tokens at task end · 46% less</text>
+  <rect x="832" y="752.7" width="88" height="113.3" fill="#D97706"/>
+  <text x="876" y="738.7" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">18.5K</text>
+  <rect x="960" y="656" width="88" height="210" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="1004" y="642" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">34.3K</text>
+  <line x1="800" y1="866" x2="1104" y2="866" stroke="#A8A499" stroke-width="1.2"/>
+  <text x="876" y="892" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">Mixdog</text>
+  <text x="1004" y="892" text-anchor="middle" font-size="12" fill="#6E6B60">Codex CLI</text>
 </svg>

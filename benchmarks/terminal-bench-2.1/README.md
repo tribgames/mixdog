@@ -1,19 +1,19 @@
-# mixdog — Terminal-Bench 2.1 controlled comparisons
+# Mixdog — Terminal-Bench 2.1 controlled comparisons
 
-Model-matched full runs compare mixdog directly with the native coding harness
+Model-matched full runs compare Mixdog directly with the native coding harness
 for the same model family. Each run covers all 89 tasks with unmodified task
 timeouts and resources, scored by the official Harbor verifier.
 
 The Sol comparison runs the protocol the official leaderboard requires on
-both sides: all 89 tasks repeated five times (`k=5`, 445 trials) for mixdog
+both sides: all 89 tasks repeated five times (`k=5`, 445 trials) for Mixdog
 and for the Codex CLI baseline alike. The Opus run and the Claude Code
 baseline are single passes (`k=1`, 89 trials each), where per-task score
 differences sit within normal run-to-run variance. The leaderboard is not
 accepting community submissions, so these runs are published with their raw
 artifacts under `raw-runs/` instead of submitted.
 
-These runs test whether mixdog can match the native harnesses on results
-while spending far less to get there. The mixdog side is a strict
+These runs test whether Mixdog can match the native harnesses on results
+while spending far less to get there. The Mixdog side is a strict
 **single-model, single-session bench**: one primary model, no sub-agent
 delegation, and no helper-model lookups.
 
@@ -21,38 +21,44 @@ delegation, and no helper-model lookups.
 
 ### Claude Opus 5 vs Claude Code
 
-![Terminal-Bench 2.1 comparison of mixdog with Claude Opus 5 and Claude Code](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-opus-vs-claude-code.svg)
+![Terminal-Bench 2.1 comparison of Mixdog with Claude Opus 5 and Claude Code](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-opus-vs-claude-code.svg)
 
 - Score: **79/89 vs 77/89** — +2 tasks
 - Priced cost: **19% lower** ($104.29 vs $129.21, all 89 tasks)
 - Final context: **28% smaller** (median tokens at task end, 27.6K vs 38.2K)
 - Speed: **1.16×** (full-trial wall time, 610s vs 708s per trial)
 
-Every mixdog trial is one Opus 5 session with delegation and helper-model
+Every Mixdog trial is one Opus 5 session with delegation and helper-model
 lookups disabled. The Claude Code baseline uses its standard shipped loop.
 
 ### GPT-5.6 Sol xhigh vs Codex CLI
 
-![Terminal-Bench 2.1 comparison of mixdog with GPT-5.6 Sol xhigh and Codex CLI](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-sol-vs-codex.svg)
+![Terminal-Bench 2.1 comparison of Mixdog with GPT-5.6 Sol xhigh and Codex CLI](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-sol-vs-codex.svg)
 
+- Total tokens: **63% fewer** (156.5M vs 421.4M, input including cached plus output)
 - Score: **86.5% (385/445) vs 86.1% (383/445)** — +2 trials at `k=5` both sides
 - Pass@5: **96.6% vs 95.5%** (86/89 vs 85/89 tasks solved at least once)
 - Priced cost: **39% lower** ($0.476 vs $0.782 per trial at current list rates)
+- Initial context: **67% smaller** (median input tokens of the first request, 4.7K vs 14.4K)
+- Model requests: **33% fewer** (6,266 vs 9,284 across 445 trials)
 - Final context: **46% smaller** (median tokens at task end, 18.5K vs 34.3K)
 - Speed: matched — **415s vs 437s** full-trial wall time per trial
 
-Both sides are full `k=5` runs: 445 mixdog trials paired against 445 Codex CLI
+Both sides are full `k=5` runs: 445 Mixdog trials paired against 445 Codex CLI
 trials. Pairing is per task — each side's five trials are ordered pass-first
 and matched index for index, which keeps the outcome counts deterministic and
 equal to the per-task overlap.
 
 Speed is wall clock for the whole trial — environment build, agent setup, the
-agent itself, verifier, teardown — baseline over mixdog, read from the same
+agent itself, verifier, teardown — baseline over Mixdog, read from the same
 Harbor timestamps on both sides. The agent-phase-only ratio is also recorded
 in each run's `report.json`.
 Final context is the median context occupancy of each run's
 last model call, measured from the session logs of both harnesses.
-The mixdog runs use the product `mixdog exec` path as a strict single-model,
+Initial context is the median input of each trial's first model request —
+system instructions, tool descriptions, and the task prompt — read from the
+same session logs.
+The Mixdog runs use the product `mixdog exec` path as a strict single-model,
 single-session bench. The native baselines keep their standard shipped loops.
 
 Baselines are full runs of each native harness: Claude Code 2.1.220
@@ -61,7 +67,7 @@ Baselines are full runs of each native harness: Claude Code 2.1.220
 Codex CLI 0.146.0 run (`jobs-full-codex`, 75/89) stays archived: it anchored
 the previous published comparison and validates the pre-cut Sol price card.
 
-Neither published mixdog run is a zero-retry clean run: the Opus pass settled
+Neither published Mixdog run is a zero-retry clean run: the Opus pass settled
 all 89 tasks with 6 errored trials and 5 infra retries, and the Sol run
 settled all 445 trials with 9 agent timeouts and no retries. The Codex `k=5`
 baseline settled all 445 trials with 7 agent timeouts and no retries.
@@ -83,7 +89,7 @@ $5 cache write (1.25× input), $20 output per million tokens. OpenAI cut the
 Sol list price in August 2026; the card is validated against Harbor's own
 `cost_usd`, which fits the pre-cut 5/0.5/30 card with zero residual on the
 2026-08-02 Codex run and the current 4/0.4/20 card with zero residual on all
-445 trials of the 2026-08-31 run. mixdog trials are priced from their usage
+445 trials of the 2026-08-31 run. Mixdog trials are priced from their usage
 snapshots on that same card ($211.71 total); the Codex baseline's
 Harbor-reported `cost_usd` ($347.89 total) is that card by construction.
 
@@ -97,7 +103,7 @@ neither Sol total is missing a priced component.
 - `presets.json` / `run.ps1` — model presets and the synchronous benchmark runner
 - `harness/` — Harbor installed-agent adapter, Lead driver, launcher
 - `analysis/` — metric scripts that recompute every published number from raw artifacts
-- `source-provenance.json` — the source commit each published mixdog run executed
+- `source-provenance.json` — the source commit each published Mixdog run executed
 - `analysis/verify-source-commit.mjs` — re-derives each run's contract digests from that commit and compares them to what the run recorded
 - `analysis/publish-assets.mjs` — regenerates the charts, tables, and cost archive from the run reports
 - `analysis/trace-recovered-cost.json` — raw token splits for the timeout trials priced from the agent trace
@@ -121,7 +127,7 @@ Versions: Claude Code **2.1.220**
 `terminal-bench/terminal-bench-2-1` (per-trial `task_checksum` recorded in
 each archived `config.json`).
 
-Both mixdog runs install the published npm package **0.9.150** as a dependency
+Both Mixdog runs install the published npm package **0.9.150** as a dependency
 shell and overlay the local source tree on top of it, so the package version
 alone does not name the code that ran. That source is commit **`09eea819`**,
 pinned in `source-provenance.json` and checkable with
@@ -137,9 +143,9 @@ runtime bundle directly in `runtime-provenance.json`, with a per-file
 `runtime-manifest.json` alongside it.
 
 Prereqs: Docker + [Harbor](https://github.com/laude-institute/harbor), and
-your own provider auth configured through mixdog on the host.
+your own provider auth configured through Mixdog on the host.
 
-### mixdog presets
+### Mixdog presets
 ```powershell
 cd benchmarks/terminal-bench-2.1
 .\run.ps1 -Preset sol-xhigh
@@ -204,6 +210,7 @@ also where a `clean=false` run or a lower-bound baseline is flagged.
 node analysis/verify-source-commit.mjs  # each published run ↔ the source commit it ran
 node analysis/results-table.mjs   # regenerates results.md/.json
 node analysis/final-context.mjs   # final-context medians for all runs
+node analysis/first-context.mjs   # first-request medians (needs the local jobs-* session logs)
 node harness/cost-exact.mjs jobs-full-opus5-solo-20260825-155233/2026-08-26__00-52-35 cc-baseline-plus.json
 node harness/cost-exact.mjs jobs-full-sol-xhigh-k5-20260825-182921/2026-08-26__03-29-24
 
@@ -220,15 +227,17 @@ entries on shared tasks); the pinned original is unmodified.
 ### Claim → raw evidence map
 | Claim | Raw artifacts |
 |---|---|
-| mixdog Opus 5 79/89 (single-model, single-session) | `raw-runs/jobs-full-opus5-solo-20260825-155233/` |
+| Mixdog Opus 5 79/89 (single-model, single-session) | `raw-runs/jobs-full-opus5-solo-20260825-155233/` |
 | Claude Code 77/89 | `raw-runs/jobs-full-cc-n8/` |
-| mixdog Sol 385/445, `k=5` (single-model, single-session) | `raw-runs/jobs-full-sol-xhigh-k5-20260825-182921/` |
+| Mixdog Sol 385/445, `k=5` (single-model, single-session) | `raw-runs/jobs-full-sol-xhigh-k5-20260825-182921/` |
 | Codex CLI 383/445, `k=5` | `raw-runs/jobs-full-codex-k5-20260831-050151/` |
 | Codex CLI 75/89, archived `k=1` | `raw-runs/jobs-full-codex/` |
 
 Every trial directory under `raw-runs/` archives `result.json` (Harbor verdict),
 `config.json` (agent config + task checksum), the official verifier output, and
 the usage snapshot — each published metric is recomputable from these files
-alone, except the Codex final-context median, which is read from the Codex
-trajectories in the local jobs directory and pinned in `presets.json`. Full
+alone, except two figures read from session logs in the local jobs
+directories: the Codex final-context median, pinned in `presets.json`, and
+the first-request medians of both sides, pinned in
+`analysis/first-context.json`. Full
 session transcripts stay in the local `jobs-*` directories.

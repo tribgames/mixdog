@@ -3,7 +3,7 @@
   "version": "1.0.6",
   "private": false,
   "type": "module",
-  "description": "Standalone mixdog coding-agent CLI/TUI workspace.",
+  "description": "Open-source coding agent that matches Codex on Terminal-Bench 2.1 with 63% fewer tokens.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -14,10 +14,17 @@
   },
   "homepage": "https://github.com/tribgames/mixdog#readme",
   "keywords": [
+    "ai",
     "agent",
-    "cli",
-    "tui",
     "coding-agent",
+    "llm",
+    "claude",
+    "codex",
+    "openai",
+    "token-efficiency",
+    "terminal-bench",
+    "desktop",
+    "cli",
     "mcp"
   ],
   "bin": {

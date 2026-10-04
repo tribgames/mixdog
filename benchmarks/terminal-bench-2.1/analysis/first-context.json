@@ -1,0 +1,18 @@
+{
+  "sol": {
+    "jobsDir": "jobs-full-sol-xhigh-k5-20260825-182921",
+    "baselineJobsDir": "jobs-full-codex-k5-20260831-050151/2026-08-31__05-01-53",
+    "ours": {
+      "trials": 445,
+      "medianTokens": 4742,
+      "minTokens": 4614,
+      "maxTokens": 5730
+    },
+    "baseline": {
+      "trials": 445,
+      "medianTokens": 14372,
+      "minTokens": 14231,
+      "maxTokens": 15350
+    }
+  }
+}

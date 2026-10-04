@@ -1,8 +1,12 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/tribgames/mixdog/main/apps/desktop/build/mixdog.png" alt="" width="96">
+</p>
+
 <h1 align="center">Mixdog</h1>
 
 <p align="center">
-  <b>Same model. Same score. 63% fewer tokens.</b><br>
-  Free, open-source coding agent for Windows — benchmarked against Codex CLI on Terminal-Bench 2.1.
+  <b>Same model. Same performance. 63% fewer tokens.</b><br>
+  Free, open-source desktop coding agent for Windows.
 </p>
 
 <p align="center">
@@ -12,38 +16,66 @@
 </p>
 
 <p align="center">
-  <sub>The installer is unsigned, so Windows SmartScreen may show a warning.</sub>
+  <a href="https://github.com/tribgames/mixdog/releases/latest"><img src="https://img.shields.io/github/v/release/tribgames/mixdog?label=release" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 license"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20x64-0078D4" alt="Windows x64">
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/mixdog"><img src="https://img.shields.io/npm/v/mixdog" alt="npm"></a>
-  <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license">
-  <img src="https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-brightgreen" alt="Node.js ^22.19.0 || >=24.0.0">
+  <sub>The installer is not code-signed yet. If Windows SmartScreen appears,
+  choose <b>More info → Run anyway</b>.</sub>
 </p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/desktop.png" alt="Mixdog Desktop" width="860">
 </p>
 
-## Same model. Same results. A fraction of the tokens.
+<a name="benchmarks"></a>
+## Same performance, 63% fewer tokens
 
-Terminal-Bench 2.1 — same model, same 89 tasks, same official verifier.
-Only the harness changes.
-
-### GPT-5.6 Sol xhigh — Mixdog vs Codex CLI (`k=5`, 445 trials each)
+Mixdog and Codex CLI ran Terminal-Bench 2.1 on the same model, GPT-5.6 Sol
+xhigh. Both passed the same share of tasks. Mixdog used 63% fewer tokens.
 
 | | Mixdog | Codex CLI | |
 | --- | --- | --- | --- |
 | **Total tokens** (incl. cached input) | **156.5M** | 421.4M | **63% fewer** |
-| Success rate | **86.5%** (385/445) | 86.1% (383/445) | +2 trials |
-| Pass@5 | **96.6%** | 95.5% | |
+| Success rate | **86.5%** (385/445) | 86.1% (383/445) | matched |
 | Priced cost per trial | **$0.476** | $0.782 | 39% lower |
+| Median first request | **4.7k** | 14.4k | 67% smaller |
 | Median final context | **18.5k** | 34.3k | 46% smaller |
 | Wall time per trial | **415s** | 437s | matched |
 
 ![Terminal-Bench 2.1: Mixdog with GPT-5.6 Sol xhigh versus Codex CLI](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-sol-vs-codex.svg)
 
-### Claude Opus 5 — Mixdog vs Claude Code (`k=1`, 89 trials each)
+- **The official leaderboard protocol.** All 89 tasks, five trials each — 445
+  trials per side — with unmodified task timeouts and resources, scored by the
+  official Harbor verifier.
+- **Same conditions on both sides.** Same model and reasoning level, the same
+  kind of subscription sign-in, fast mode off, no retries of task failures or
+  agent timeouts.
+- **Everything is published.** Verdicts, verifier output, and usage snapshots
+  for both sides, plus the scripts that recompute every number, are in
+  [`benchmarks/terminal-bench-2.1/`](benchmarks/terminal-bench-2.1/).
+
+### Across the 89 tasks
+
+Mixdog used fewer tokens on 87 of the 89 tasks. The median task used 68% fewer.
+
+| Token change | Tasks |
+| --- | --- |
+| 75% fewer or better | 24 |
+| 50–75% fewer | 42 |
+| 25–50% fewer | 19 |
+| 0–25% fewer | 2 |
+| More tokens | 2 |
+
+Pass counts were equal on 60 tasks; Mixdog passed more trials on 14 and Codex
+CLI on 15. Mixdog used more tokens on `mteb-leaderboard` (6.8×) and
+`crack-7z-hash` (1.4×). Every task is listed in
+[`results.md`](benchmarks/terminal-bench-2.1/results.md).
+
+<details>
+<summary><b>Claude Opus 5 — Mixdog vs Claude Code</b> (single pass, 89 trials each)</summary>
 
 | | Mixdog | Claude Code | |
 | --- | --- | --- | --- |
@@ -54,48 +86,114 @@ Only the harness changes.
 
 ![Terminal-Bench 2.1: Mixdog with Claude Opus 5 versus Claude Code](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-opus-vs-claude-code.svg)
 
-<sub>Official Harbor verifier, fast mode off, no retries of task failures or
-agent timeouts. Mixdog runs are single-model, single-session — no sub-agents
-or helper models. Cost values both sides at the same API list rates, not
-subscription charges. Results measure the pinned source revision. Raw
-verdicts, verifier output, usage snapshots, and the scripts that recompute
-every number are in [`benchmarks/terminal-bench-2.1/`](benchmarks/terminal-bench-2.1/).</sub>
+One trial per task, so per-task differences sit within run-to-run variance.
 
-## Why Mixdog
+</details>
 
-- **All your models in one app.** Use supported subscription accounts, API
-  keys, or the built-in Local Provider side by side.
-- **Agents by role.** Assign a different model to each agent role and combine
-  them through orchestration — from **Solo** (the lead does the work) up to
-  **Swarm** (maximum delegation). Run separate sessions in parallel, too.
-- **Easy to set up.** Onboarding walks you through connecting providers,
-  choosing models, and setting up workflows. Workflows and agents are
-  Markdown packs (`WORKFLOW.md`, `AGENT.md`) with visual editors in the app.
-- **Lean context.** Scoped tools, provider-aware caching, and structured
-  compaction keep prompts small. Search past work and keep project memory
-  without loading the whole archive. See
-  [Context efficiency](docs/context-efficiency.md).
-- **See where tokens go.** Usage stats by provider and model — input, output,
-  cache hits, and cost — plus supported providers' quota windows and resets.
+<sub>Codex CLI 0.151.0. Mixdog ran single-model, single-session — no
+sub-agents or helper models. Cost values both sides at the same API list
+rates, not subscription charges. Results measure the pinned source revision.
+The leaderboard is not accepting community submissions, so the runs are
+published here instead.</sub>
+
+## How it uses fewer tokens
+
+- **A light start.** System instructions and tool descriptions are kept to
+  what the model needs.
+  *67% smaller first request — 4.7k tokens against 14.4k.*
+- **Fewer round trips.** The agent picks the right tool first and runs
+  independent actions in one batch.
+  *33% fewer model requests — a median of 10 per trial against 16.*
+- **Smaller requests.** Tools return only the part that was asked for, and
+  95% of terminal output is filtered before it reaches the model.
+  *46% less input per request — 24.3k tokens against 44.9k.*
+- **Shorter output.** Less filler and repetition in replies.
+  *8% fewer output tokens.*
+
+The benchmark ran one model in one session. In everyday use, more applies on
+top of that:
+
+- **Auto-clear.** After a long break, the conversation is compacted before
+  work resumes.
+- **Light compaction.** Long sessions continue from a structured handoff
+  instead of the full history.
+- **Database memory.** Past work is stored and searched, so the prompt does
+  not grow with the archive.
+- **Code graph.** Query a project's structure instead of reading whole files.
+- **Orchestration.** Hand routine work to cheaper models and keep the
+  expensive one for the steps that need it.
+
+See [Context efficiency](docs/context-efficiency.md) for how each layer works.
+
+## A model for each job
+
+Not every step needs your most expensive model.
+
+- **Mix models by role.** Let a strong model lead and plan while cheaper ones
+  search, edit, and review.
+- **Dial delegation from Solo to Swarm.** The lead can do the work itself or
+  coordinate a team of agents working in parallel.
+- **Workflows you can read.** Workflows and agents are plain Markdown
+  (`WORKFLOW.md`, `AGENT.md`) with visual editors in the app.
+- **Every account in one place.** Claude, ChatGPT, and Grok subscriptions, API
+  keys, and local models side by side.
+- **Run models on your own GPU.** The built-in Local Provider downloads and
+  runs models inside the app.
+- **Know what it costs.** Usage by provider and model — input, output, cache
+  hits, and cost — plus quota windows and resets.
+
+## Everything in one window
+
+- **A full workspace.** Tabs and split panes, Monaco editor, terminals, file
+  explorer, and language servers that start when you open a file.
+- **Git and GitHub built in.** Review changes, commit, and handle pull
+  requests, issues, Actions, and releases without leaving the app.
+- **Code that stays clean.** The code graph maps a project's structure, and
+  Code Tidy formats, lints, and applies structural fixes.
+- **Memory that lasts.** Mixdog remembers what matters across sessions and
+  searches past work on demand.
+- **Extend it.** Add skills, MCP servers, and plugins from one Extensions view.
+
+## It keeps working when you step away
+
+- **Goals.** Set a Goal and the session keeps working toward it — pause and
+  resume whenever you like.
+- **Schedules and webhooks.** Run a task on a timer or whenever a URL is
+  called.
+- **Your phone is the remote.** Scan a QR code to continue the same live
+  session from your phone, end-to-end encrypted, with a notification when the
+  task finishes.
 
 ## Beyond code
 
-- **Workspace** — tabs and split panes, Monaco editor, Git and GitHub,
-  terminals, file explorer, code graph, and Code Tidy in one window.
-- **Browser Use** — operate signed-in Chromium pages, with Chrome profile
-  import on Windows.
-- **Computer Use (Windows)** — operate native apps with guarded input and an
+- **Browser Use.** Operate real, signed-in web pages, with Chrome profile
+  import.
+- **Computer Use.** Operate native Windows apps with guarded input and an
   on-screen Stop control.
-- **Documents** — Word, Excel, PowerPoint, and PDF with rendered previews.
-- **Image and video Studio** — generate and edit with a local gallery.
-- **Continue anywhere** — pick up the same live session from Desktop, the
-  terminal, or a paired browser on your computer or phone over end-to-end
-  encryption.
+- **Documents.** Create and edit Word, Excel, PowerPoint, and PDF with
+  rendered previews.
+- **Image and video Studio.** Generate and edit with a local gallery.
 
 Browser Use and Computer Use are opt-in and ask for approval before their
-first live call in each interactive session.
+first live call in each session.
 
-## Providers
+## Get started
+
+[Download the installer](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe)
+and sign in. No config files, no YAML, no terminal.
+
+- **One sign-in and you are working.** Use the ChatGPT, Claude, or Grok
+  subscription you already pay for, or paste an API key. Mixdog picks the
+  model for you.
+- **Advanced setups, one switch each.** A team of agents, a model per role,
+  long-term memory, phone access — each is a toggle, not a config file.
+- **You won't get lost.** A short tutorial gets you set up in five quick
+  steps.
+- **Batteries included.** Git, Memory, Browser, and Office tools ship with the
+  app. Turn on what you need.
+
+<details>
+<summary><b>Supported providers</b></summary>
 
 - Anthropic API keys and Claude account OAuth
 - OpenAI API keys and ChatGPT/Codex account OAuth
@@ -108,32 +206,16 @@ first live call in each interactive session.
 Cursor and Antigravity (Gemini) OAuth are off by default under
 **Settings → Developer**; using them through OAuth risks account restrictions.
 
-## Get started
+</details>
 
-### Desktop (Windows)
+<details>
+<summary><b>Command line</b></summary>
 
-[Download the installer](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe)
-and follow onboarding.
-
-### CLI
-
-Requires Node.js 22.19+ (22.x) or 24+.
+Mixdog also runs in the terminal. Requires Node.js 22.19+ (22.x) or 24+.
 
 ```bash
 npm install -g mixdog
 mixdog
-```
-
-<details>
-<summary><b>CLI options and headless exec</b></summary>
-
-```bash
-mixdog                                   # start in the current project
-mixdog --provider anthropic-oauth --model claude-haiku-4-5-20251001
-mixdog --workflow default
-mixdog --readonly                        # read-only tools
-mixdog --remote                          # enable remote mode
-mixdog --onboarding                      # run onboarding again
 ```
 
 `mixdog exec` runs one non-interactive, single-model session without personal
@@ -141,7 +223,6 @@ memory, prior sessions, skills, MCP servers, or plugins:
 
 ```bash
 mixdog exec --provider openai-oauth --model gpt-5.6-sol --effort xhigh "fix the failing test"
-mixdog exec --provider openai-oauth --model gpt-5.6-sol --json "review the current diff"
 ```
 
 Web search is off by default (`--web-search` enables it). This does not block
@@ -151,49 +232,21 @@ Run `mixdog --help` for the full reference.
 
 </details>
 
-<details>
-<summary><b>TUI commands</b></summary>
-
-```text
-/clear        start a fresh chat
-/project      switch the current project
-/resume       resume a saved chat
-/inherit      carry this conversation into a new session on the current model
-/compact      compact older conversation context
-/goal         start, inspect, pause, or resume a durable session Goal
-/autoclear    manage idle-time context compaction
-/context      inspect the current context surface
-/usage        show provider quota and balance
-/providers    configure provider authentication
-/model        choose the main provider and model
-/websearch    choose the web search route
-/workflow     choose the active workflow
-/agents       inspect agents and model overrides
-/effort       set reasoning effort
-/fast         toggle supported model fast mode
-/OutputStyle  choose the Lead response style
-/theme        change the TUI color theme
-/memory       inspect and edit core memory
-/mcp          manage MCP servers and tools
-/skills       choose a skill for the next request
-/plugins      manage local plugin integrations
-/setting      open runtime settings
-/profile      set your title, development experience, and response language
-/update       check for updates
-/doctor       diagnose installation health
-/quit         quit the TUI
-```
-
-</details>
-
 ## Docs
 
 - [Context efficiency](docs/context-efficiency.md)
+- [Benchmarks](benchmarks/terminal-bench-2.1/)
 - [Code Tidy](docs/code-tidy.md)
 - [Git & GitHub](docs/git-github-integration.md)
 - [Language servers](docs/language-servers.md)
 - [Office runtime](src/runtime/office/README.md)
 - [Development, configuration, and testing](docs/development.md)
+
+## Feedback
+
+Found a bug or missing a feature?
+[Open an issue](https://github.com/tribgames/mixdog/issues). If Mixdog saves
+you tokens, a star helps others find it.
 
 ## License
 
