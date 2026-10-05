@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.0.8 - 2026-10-05
+
 - The macOS app is signed with a Developer ID certificate and notarized by
   Apple, so a downloaded copy opens without a Gatekeeper warning and macOS
   auto-update can install new versions. Microphone and AppleScript prompts
