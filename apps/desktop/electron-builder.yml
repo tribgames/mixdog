@@ -84,6 +84,15 @@ mac:
     - zip
   hardenedRuntime: true
   gatekeeperAssess: false
+  # Developer ID builds run under the hardened runtime. The entitlements keep
+  # V8's JIT, bundled native modules, composer dictation, and the osascript
+  # helpers (folder picker, clipboard attachments) working; helpers inherit them.
+  # Signing and notarization only happen when CI provides the credentials.
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Mixdog uses the microphone for voice dictation.
+    NSAppleEventsUsageDescription: Mixdog uses AppleScript to show native folder pickers and read clipboard attachments.
 linux:
   category: Development
   target:

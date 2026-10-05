@@ -38,6 +38,14 @@ kiwi-model/
 .env
 .env.*
 !.env.example
+# Apple code-signing material: exported certificates and API keys stay out of
+# the public tree; CI reads them from repository secrets.
+*.p12
+*.p8
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
 
 # OS / editor cruft
 .DS_Store

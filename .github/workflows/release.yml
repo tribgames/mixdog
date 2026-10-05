@@ -4,7 +4,8 @@
 # to one hidden GitHub draft. The draft becomes public only after the exact
 # four-platform asset set succeeds. Deploy is the only release entry point;
 # there is no direct tag-push trigger.
-# Requires the NPM_TOKEN repo secret (npm automation token).
+# Requires the NPM_TOKEN repo secret (npm automation token). The optional
+# MAC_CERTIFICATE_* and APPLE_API_* secrets sign and notarize the macOS app.
 
 name: Release
 
@@ -31,6 +32,18 @@ on:
         required: true
       RELAY_KNOWN_HOSTS:
         required: true
+      # Developer ID signing and notarization for the macOS package; without
+      # them the app is packaged unsigned.
+      MAC_CERTIFICATE_P12_BASE64:
+        required: false
+      MAC_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_API_KEY_P8:
+        required: false
+      APPLE_API_KEY_ID:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
 
 permissions:
   contents: write # version commit, tag push, release creation
@@ -281,6 +294,12 @@ jobs:
       arch: arm64
       artifact_arch: arm64
       target: mac
+    secrets:
+      MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+      MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
   desktop-linux-x64:
     needs: [desktop-build, prepare-github-release]

@@ -27,6 +27,19 @@ on:
       target:
         required: true
         type: string
+    # Developer ID signing and notarization for the macOS package. Only the
+    # darwin caller passes them; without the full set the app stays unsigned.
+    secrets:
+      MAC_CERTIFICATE_P12_BASE64:
+        required: false
+      MAC_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_API_KEY_P8:
+        required: false
+      APPLE_API_KEY_ID:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
 
 permissions:
   contents: write
@@ -161,10 +174,60 @@ jobs:
           npm run brand:win
           npx --no-install electron-builder --win --x64 --publish never
       - name: Build Unix desktop package
+        id: unix-package
         if: inputs.platform != 'win32'
         shell: bash
         working-directory: apps/desktop
-        run: npx --no-install electron-builder --${{ inputs.target }} --${{ inputs.arch }} --publish never
+        env:
+          MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          signed=false
+          if [ "${{ inputs.platform }}" = darwin ]; then
+            # Sign and notarize only with the complete credential set: a signed
+            # but un-notarized app is still blocked by Gatekeeper, so a partial
+            # set fails here instead of shipping one.
+            present=0
+            for name in MAC_CERTIFICATE_P12_BASE64 MAC_CERTIFICATE_PASSWORD \
+              APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_API_ISSUER; do
+              if [ -n "${!name}" ]; then present=$((present + 1)); fi
+            done
+            if [ "$present" -eq 5 ]; then
+              key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+              printf '%s\n' "$APPLE_API_KEY_P8" > "$key_path"
+              chmod 600 "$key_path"
+              # electron-builder imports the base64 .p12 into a temporary
+              # keychain and notarizes through notarytool with the API key.
+              export CSC_LINK="$MAC_CERTIFICATE_P12_BASE64"
+              export CSC_KEY_PASSWORD="$MAC_CERTIFICATE_PASSWORD"
+              export APPLE_API_KEY="$key_path"
+              signed=true
+            elif [ "$present" -eq 0 ]; then
+              echo "::warning title=Unsigned macOS package::Developer ID signing secrets are not configured; packaging an unsigned app."
+              export CSC_IDENTITY_AUTO_DISCOVERY=false
+            else
+              echo "::error title=Incomplete macOS signing secrets::Configure all five Developer ID secrets or none."
+              exit 1
+            fi
+          fi
+          unset MAC_CERTIFICATE_P12_BASE64 MAC_CERTIFICATE_PASSWORD APPLE_API_KEY_P8
+          echo "signed=$signed" >> "$GITHUB_OUTPUT"
+          npx --no-install electron-builder --${{ inputs.target }} --${{ inputs.arch }} --publish never
+      - name: Verify macOS signature and notarization
+        if: inputs.platform == 'darwin' && steps.unix-package.outputs.signed == 'true'
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          app="$(find dist -maxdepth 2 -type d -name 'Mixdog.app' | head -n 1)"
+          test -n "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=4 "$app"
       - name: Verify packaged updater metadata
         run: npm run verify:update-metadata
         working-directory: apps/desktop

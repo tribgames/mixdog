@@ -87,3 +87,21 @@ scripts/        tests, diagnostics, benchmarks, and build scripts
 benchmarks/     reproducible benchmark harnesses, results, and raw artifacts
 src/vendor/     vendored runtime components
 ```
+
+## macOS signing and notarization
+
+Release builds sign the macOS app with a Developer ID certificate and notarize
+it when all five repository secrets below are set. With none of them the app is
+packaged unsigned; a partial set fails the macOS job rather than shipping a
+signed but un-notarized app.
+
+| Secret | Value |
+| --- | --- |
+| `MAC_CERTIFICATE_P12_BASE64` | Base64 of the exported Developer ID Application `.p12` |
+| `MAC_CERTIFICATE_PASSWORD` | Password of that `.p12` |
+| `APPLE_API_KEY_P8` | Contents of the App Store Connect API key (`AuthKey_*.p8`) |
+| `APPLE_API_KEY_ID` | Key ID of that API key |
+| `APPLE_API_ISSUER` | Issuer ID of the App Store Connect team |
+
+The hardened-runtime entitlements live in
+`apps/desktop/build/entitlements.mac.plist`.
