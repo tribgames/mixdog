@@ -7,7 +7,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 - Signing in to GitHub from Settings, and every other feature that starts a
   terminal process, works again in the installed desktop app instead of
-  failing with "posix_spawnp failed".
+  failing with "posix_spawnp failed". A stale extra GitHub account stored by
+  gh no longer makes a successful sign-in report "no account is signed in".
 
 ## v1.0.8 - 2026-10-05
 

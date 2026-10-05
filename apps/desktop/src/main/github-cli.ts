@@ -61,7 +61,14 @@ function loginFromAuthOutput(output: string): string {
 export async function githubCliStatus(refresh = false): Promise<DesktopGithubCliStatus> {
   const gh = await resolveGh(refresh);
   if (!gh) return { installed: false, authenticated: false };
-  const auth = await run(gh.path, ['auth', 'status', '--hostname', 'github.com']);
+  // Without --active, `gh auth status` exits 1 when ANY stored github.com
+  // account has a stale token, even though the active one is signed in, so a
+  // successful login was reported as "no account is signed in". gh < 2.40 has
+  // no --active flag; fall back to the plain check there.
+  let auth = await run(gh.path, ['auth', 'status', '--hostname', 'github.com', '--active']);
+  if (auth.code !== 0 && /unknown flag:? --active/i.test(`${auth.stdout}\n${auth.stderr}`)) {
+    auth = await run(gh.path, ['auth', 'status', '--hostname', 'github.com']);
+  }
   const authenticated = auth.code === 0;
   const login = authenticated ? loginFromAuthOutput(`${auth.stdout}\n${auth.stderr}`) : '';
   return {
