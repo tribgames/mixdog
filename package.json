@@ -58,7 +58,7 @@
   "scripts": {
     "postinstall": "node scripts/prune-embedding-runtime.mjs && node scripts/prepare-native-assets.mjs",
     "prepack": "npm run build:tui",
-    "prepublishOnly": "node -e \"if(!process.env.CI){console.error('local npm publish is disabled — run npm run release:patch');process.exit(1)}\"",
+    "prepublishOnly": "node -e \"if(!process.env.CI){console.error('local npm publish is disabled \u2014 run npm run release:patch');process.exit(1)}\"",
     "start": "node src/cli.mjs",
     "test": "node scripts/test.mjs",
     "test:slow": "node scripts/test.mjs --lane slow",
@@ -189,7 +189,10 @@
       ".": "1.29.0",
       "global-agent": "^4.1.3"
     },
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "pptxgenjs": {
+      "image-size": "2.0.3"
+    }
   },
   "devDependencies": {
     "acorn": "^8.17.0",
