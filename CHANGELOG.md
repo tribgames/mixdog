@@ -5,6 +5,11 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- The macOS app is signed with a Developer ID certificate and notarized by
+  Apple, so a downloaded copy opens without a Gatekeeper warning and macOS
+  auto-update can install new versions. Microphone and AppleScript prompts
+  now explain what Mixdog uses them for.
+
 ## v1.0.7 - 2026-10-04
 
 - Browser Use on the phone streams the desktop page live instead of
