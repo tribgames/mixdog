@@ -20,6 +20,25 @@ import { optionValue } from './cli-args.mjs';
 import { copyRuntimePackagePayload, runtimePackageSource } from './runtime-package-payload.mjs';
 
 const execFileAsync = promisify(execFile);
+
+// node-pty derives its spawn-helper path by rewriting `app.asar` to
+// `app.asar.unpacked`. The desktop ships node-pty already inside
+// app.asar.unpacked, so the upstream rewrite yields
+// `app.asar.unpacked.unpacked/...`, the helper is never found and every PTY
+// spawn fails with "posix_spawnp failed". Rewrite only an `app.asar` segment
+// that is not already unpacked, and refuse to build if upstream changed the line.
+const PTY_HELPER_REWRITE = "helperPath = helperPath.replace('app.asar', 'app.asar.unpacked');";
+const PTY_HELPER_REWRITE_FIXED = "helperPath = helperPath.replace(/app\\.asar(?!\\.unpacked)/, 'app.asar.unpacked');";
+
+async function patchDesktopPtyHelperPath(packageDir) {
+  const file = join(packageDir, 'lib', 'unixTerminal.js');
+  const source = await readFile(file, 'utf8');
+  if (source.includes(PTY_HELPER_REWRITE_FIXED)) return;
+  if (!source.includes(PTY_HELPER_REWRITE)) {
+    throw new Error(`node-pty spawn-helper path rewrite changed upstream; review ${file}`);
+  }
+  await writeFile(file, source.replace(PTY_HELPER_REWRITE, PTY_HELPER_REWRITE_FIXED));
+}
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const rootDir = resolve(desktopDir, '../..');
 const runtimeDir = join(desktopDir, '.runtime');
@@ -494,6 +513,7 @@ async function prepareRuntime(manifest, fingerprint) {
     // letting it reach app.asar.unpacked.
     await timed('desktop-node-pty', async () => {
       await cp(desktopPtyPackageDir, builderDesktopPtyDir, { recursive: true });
+      await patchDesktopPtyHelperPath(builderDesktopPtyDir);
       const ptyPrune = await pruneDesktopPtyPackage(builderDesktopPtyDir, embeddingTarget);
       console.log(
         `Pruned desktop node-pty from ${(ptyPrune.beforeBytes / 1024 / 1024).toFixed(1)} MiB ` +
