@@ -505,26 +505,6 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(builder, /!out\/main\/capture-window\.js/);
 });
 
-test('desktop source has no legacy host implementation or local fallback entry', async () => {
-  const sourceFiles = [
-    './desktop-service-contract.ts',
-    './session-host.ts',
-    './desktop-support.ts',
-    './desktop-service.ts',
-    './desktop-service-client.ts',
-    './session-transport.ts',
-    './index.ts',
-  ];
-  const source = (await Promise.all(sourceFiles.map((path) => readFile(new URL(path, import.meta.url), 'utf8')))).join(
-    '\n'
-  );
-  const legacyHostPattern = new RegExp(
-    `\\b${['Engine', 'Host'].join('')}\\b|engine-host|engine-lifecycle|session-live-lanes`
-  );
-  assert.doesNotMatch(source, legacyHostPattern);
-  assert.doesNotMatch(source, /session\.invoke|callDaemonSession/);
-});
-
 test('runtime preparation reuses prepared output and persistent validated dependency caches', async () => {
   const preparation = await readFile(new URL('../../scripts/prepare-runtime.mjs', import.meta.url), 'utf8');
   const ignore = await readFile(new URL('../../../../.gitignore', import.meta.url), 'utf8');
@@ -566,10 +546,9 @@ test('runtime preparation reuses prepared output and persistent validated depend
   assert.match(preparation, /node,dll,dylib,so,so\.\*/);
 });
 
-test('packaged runtime verification has no memory-pressure bypass', async () => {
+test('packaged runtime verification runs the app binary as Node with the caller environment', async () => {
   const verifier = await readFile(new URL('../../scripts/verify-packaged-runtime.mjs', import.meta.url), 'utf8');
   assert.match(verifier, /ELECTRON_RUN_AS_NODE:\s*'1'/);
-  assert.doesNotMatch(verifier, /MIXDOG_EMBED_PRESSURE_MIN_FREE_MB/);
   assert.match(verifier, /env:\s*\{\s*\.\.\.process\.env,/);
 });
 

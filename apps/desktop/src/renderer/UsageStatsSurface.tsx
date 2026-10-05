@@ -12,6 +12,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { modelDisplayName, providerDisplayName, ProviderIcon } from './provider-display';
 import { record, rows } from './record-utils';
@@ -306,11 +307,7 @@ export function UsageStatsBody({
         period={period}
         loading={loading}
       />
-      {error && (
-        <p className="stats-error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice error={error} className="stats-error" />}
       <div className="usage-table-shell">
         <table className="usage-table stats-table" aria-label={t('Token usage')} inert={loading ? true : undefined}>
           <thead>

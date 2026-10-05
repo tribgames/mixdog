@@ -274,8 +274,8 @@ function laneFrameWithRetainedContextWindow(prior: Snapshot | null, next: Snapsh
 // the session runtime state carries none, so every snapshot returned by a
 // runtime CALL — slash command, model/Fast switch, workflow change, new-task
 // submit — reaches this lane with the field absent. Adopting such a frame
-// whole blanked the work card to "No background work" while a shell was still
-// running, until the next host frame refilled it (user: 간헐적으로 작업중인
+// whole dropped the running shells from view while one was still running,
+// until the next host frame refilled it (user: 간헐적으로 작업중인
 // 셸이 있는데 호버하면 작업중인게 없다고 뜸). A host frame ALWAYS names the
 // bucket, empty ones included, so retaining the last known jobs for a frame
 // that omits the field entirely can never keep a finished shell on screen.

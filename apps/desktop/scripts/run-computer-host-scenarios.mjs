@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 import { optionValue } from './cli-args.mjs';
-import { repeatRequiresPass } from './computer-host-repeat-policy.mjs';
+import { repeatRequiresPass, scenarioGroupOnly } from './computer-host-repeat-policy.mjs';
 import { computerSourceEsbuildPlugin } from './computer-source-assets.mjs';
 import { bundleElectronEntry, electronProcessEnv, spawnElectron, waitForChildExit } from './electron-harness.mjs';
 
@@ -17,7 +17,10 @@ const requirePass = repeatRequiresPass();
 // Foreground delivery takes the real pointer, so this lane lets the rest of the
 // matrix run while someone is using the machine.
 const skipForeground = process.argv.includes('--skip-foreground');
-const only = optionValue('only');
+// --group=<name> runs one scenario group (see harness/scenario-groups.json); --only picks ids directly.
+const group = optionValue('group');
+if (group && optionValue('only')) throw new Error('--group and --only are mutually exclusive');
+const only = group ? scenarioGroupOnly(group) : optionValue('only');
 const timeoutMs = Number(optionValue('timeout-ms')) || 900_000;
 const staging = await mkdtemp(join(tmpdir(), 'mixdog-computer-host-scenarios-'));
 const profile = await mkdtemp(join(tmpdir(), 'mixdog-computer-scenarios-profile-'));

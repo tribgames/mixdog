@@ -59,9 +59,8 @@ toggles, Projects, and linked-device revocation through the attached
 Desktop. A receipt identifies `scope:desktop-host`; appearance is not applied
 to the paired browser. No Desktop claimant means no confirmed change.
 
-Computer observe-only, background Memory cycles (`set_recap_enabled`), and
-Browser/Computer first-use approval have no settings control in either app;
-setup is their only supported route. Usage pin is the pin toggle on the activity rail usage card.
+Computer observe-only and background Memory cycles (`set_recap_enabled`)
+have no settings control in either app; setup is their only supported route. Usage pin is the pin toggle on the activity rail usage card.
 
 Schedules/webhooks and workflow/agent/skill definitions use their runtime
 actions directly. These do not require clicking their Desktop rails.

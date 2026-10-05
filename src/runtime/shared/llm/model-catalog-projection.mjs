@@ -138,6 +138,8 @@ const LITELLM_FLAG_FIELDS = [
   'supports_websearch',
   'supports_prompt_caching',
   'supports_reasoning',
+  // Reader: supportsAnthropicFastMode (anthropic-betas.mjs).
+  'supports_fast_mode',
 ];
 const LITELLM_STRING_FIELDS = ['mode', 'litellm_provider', 'reasoning_content_field'];
 

@@ -12,15 +12,67 @@ import type { ComputerWindowRecord, ComputerWindowTransition } from '../shared/w
 import { buildActionReply } from './action-reply';
 import type { CommandRouterHost } from './command-router';
 import type { ComputerExecutionPolicy } from './execution-policy';
+import type { InputRecoveryState, SessionDesktopAnchor } from './execution-state';
 import type { InputRunContext, PreparedInputRun } from './input-run-prepare';
 import { readSequenceStep } from './sequence-dispatch';
+
+/**
+ * The restore point once the user lets the agent go on after touching the
+ * desktop: the window they switched to and their pointer there, or, when they
+ * stayed on the session's own windows, the original restore point with only
+ * its input baseline moved past their touch.
+ */
+function rebasedDesktopAnchor(anchor: SessionDesktopAnchor, current: InputRecoveryState): InputRecoveryState {
+  const foreground = current.foregroundWindowId;
+  const onSessionWindow =
+    !foreground ||
+    foreground === anchor.targetWindowId ||
+    foreground === anchor.heldWindowId ||
+    current.foregroundWithinTarget === true ||
+    current.foregroundChildProcess === true;
+  if (!onSessionWindow) return { ...current, restoreWindowId: foreground, restoreOwnerWindowId: '' };
+  return {
+    ...anchor.recovery,
+    inputObserverReady: current.inputObserverReady,
+    inputMonitorId: current.inputMonitorId,
+    inputUserSequence: current.inputUserSequence,
+  };
+}
+
+/**
+ * The restore point of a session whose first foreground input finds another
+ * agent session's window in front: what the user had when that session began,
+ * never the other agent's window. Any other window in front is where the user
+ * left the desktop. Input sequences cannot decide this: each session's worker
+ * numbers the input it observes on its own.
+ */
+function borrowedDesktopRecovery(
+  anchors: Map<string, SessionDesktopAnchor>,
+  current: InputRecoveryState
+): InputRecoveryState {
+  const foreground = current.foregroundWindowId;
+  if (!foreground) return current;
+  for (const other of anchors.values()) {
+    const otherWindows = [other.targetWindowId, other.heldWindowId, ...(other.handedWindowIds ?? [])];
+    if (!other.userOwned && otherWindows.includes(foreground)) {
+      return {
+        ...current,
+        restoreWindowId: other.recovery.restoreWindowId,
+        restoreOwnerWindowId: other.recovery.restoreOwnerWindowId,
+        cursorX: other.recovery.cursorX,
+        cursorY: other.recovery.cursorY,
+      };
+    }
+  }
+  return current;
+}
 
 export type InputRunSettleHost = Pick<
   CommandRouterHost,
   | 'sessionIdFor'
   | 'executionContext'
   | 'sessionRecoveryBySession'
-  | 'sequenceCursorAnchor'
+  | 'sessionDesktopAnchor'
   | 'claimComputerTargets'
   | 'readComputerWindows'
   | 'verifyInputRecovery'
@@ -89,7 +141,7 @@ function inputRecoveryFailureReply(
         delivery_accepted: result.delivery_accepted,
         cursor_feedback: result.cursor_feedback,
       },
-      verdict: { decision: 'escalate', recommended: 'user_resume' },
+      verdict: { decision: 'escalate', recommended: 'wait_for_user' },
       capture_skipped: 'user_control_active',
     }),
   };
@@ -140,21 +192,52 @@ export async function settleInputRun(
     result.windows = windows;
     result.text = filterComputerUseWindowListText(result.text, windows);
   }
-  // The first step of a sequence owns the pointer position the user left behind.
-  // Later steps restore against that same anchor rather than wherever their
-  // predecessor stopped, and only the closing step hands the cursor back.
-  const holdCursor = command.input_continues === true;
+  // The session's first foreground input records the user's focus and pointer,
+  // or takes them over from an agent session that already has the desktop; they
+  // come back once, when the last such session's turn ends. Between commands the
+  // desktop stays where the agent left it. A user who touches it and lets the
+  // agent go on moves that restore point instead of cancelling it.
   const anchorKey = host.sessionIdFor(command);
   let recoveryBaseline = inputRecovery;
+  let anchor = host.sessionDesktopAnchor.get(anchorKey);
   if (inputRecovery) {
-    const anchored = host.sequenceCursorAnchor.get(anchorKey);
-    if (anchored) recoveryBaseline = { ...inputRecovery, cursorX: anchored.cursorX, cursorY: anchored.cursorY };
-    else if (holdCursor) host.sequenceCursorAnchor.set(anchorKey, inputRecovery);
-    if (!holdCursor) host.sequenceCursorAnchor.delete(anchorKey);
+    if (!anchor) {
+      anchor = {
+        recovery: borrowedDesktopRecovery(host.sessionDesktopAnchor, inputRecovery),
+        targetWindowId: String(targetWindowId || ''),
+        userOwned: false,
+      };
+      host.sessionDesktopAnchor.set(anchorKey, anchor);
+      recoveryBaseline = {
+        ...inputRecovery,
+        restoreWindowId: anchor.recovery.restoreWindowId,
+        restoreOwnerWindowId: anchor.recovery.restoreOwnerWindowId,
+      };
+    } else {
+      if (
+        anchor.userOwned ||
+        anchor.recovery.inputMonitorId !== inputRecovery.inputMonitorId ||
+        anchor.recovery.inputUserSequence !== inputRecovery.inputUserSequence
+      ) {
+        anchor.recovery = rebasedDesktopAnchor(anchor, inputRecovery);
+        anchor.userOwned = false;
+      }
+      anchor.targetWindowId = String(targetWindowId || '');
+      recoveryBaseline = {
+        ...inputRecovery,
+        restoreWindowId: anchor.recovery.restoreWindowId,
+        restoreOwnerWindowId: anchor.recovery.restoreOwnerWindowId,
+      };
+    }
   }
-  const inputRecoveryVerification = recoveryBaseline
-    ? await host.verifyInputRecovery(command, targetWindowId, recoveryBaseline, actionTimings, result, holdCursor)
-    : undefined;
+  const inputRecoveryVerification =
+    recoveryBaseline && !anchor?.userOwned
+      ? await host.verifyInputRecovery(command, targetWindowId, recoveryBaseline, actionTimings, result, true)
+      : undefined;
+  if (inputRecoveryVerification?.user_control === true && anchor) anchor.userOwned = true;
+  if (anchor && typeof inputRecoveryVerification?.actual_focus_window_id === 'string') {
+    anchor.heldWindowId = inputRecoveryVerification.actual_focus_window_id;
+  }
   if (inputRecoveryVerification?.ok === false) {
     return inputRecoveryFailureReply(host, run, targetWindowId, result, inputRecoveryVerification);
   }

@@ -4,7 +4,12 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { optionValue } from './cli-args.mjs';
-import { assertRepeatedScenariosPassed, repeatRequiresPass } from './computer-host-repeat-policy.mjs';
+import {
+  assertRepeatedScenariosPassed,
+  readScenarioGroups,
+  repeatRequiresPass,
+  scenarioGroupOnly,
+} from './computer-host-repeat-policy.mjs';
 
 const repeatCount = Math.max(1, Number(optionValue('repeat')) || 10);
 const label = optionValue('label') || 'baseline';
@@ -23,38 +28,19 @@ const only = optionValue('only');
 const customTimeoutMs = Number(optionValue('timeout-ms')) || 300_000;
 const scenarioRunner = fileURLToPath(new URL('./run-computer-host-scenarios.mjs', import.meta.url));
 const mergeRunner = fileURLToPath(new URL('./merge-computer-host-scenarios.mjs', import.meta.url));
-const coreShards = [
-  {
-    name: 'observation',
-    only: 'S01,S02,S03,S04,S05,S24,S25,S27,S31,S40,S44',
-    timeoutMs: 240_000,
-  },
-  {
-    name: 'input',
-    only: 'S06,S07,S08,S09,S10,S11,S12,S13,S14,S28,S32,S36,S37,S38,S39',
-    timeoutMs: 360_000,
-  },
-  {
-    name: 'recovery',
-    only: 'S15,S16,S17,S18,S26,S35,S41,S42,S43',
-    timeoutMs: 360_000,
-  },
-  {
-    name: 'external',
-    only: 'S19',
-    timeoutMs: 240_000,
-  },
-  {
-    name: 'real-apps',
-    only: 'S20,S21,S22,S23,S29,S33,S34',
-    timeoutMs: 300_000,
-  },
-  {
-    name: 'performance',
-    only: 'S30',
-    timeoutMs: 300_000,
-  },
-];
+const groupTimeoutsMs = {
+  observation: 240_000,
+  input: 360_000,
+  recovery: 360_000,
+  external: 240_000,
+  'real-apps': 300_000,
+  performance: 300_000,
+};
+const coreShards = Object.keys(readScenarioGroups()).map((name) => ({
+  name,
+  only: scenarioGroupOnly(name),
+  timeoutMs: groupTimeoutsMs[name] ?? 300_000,
+}));
 const shards = only ? [{ name: 'custom', only, timeoutMs: customTimeoutMs }] : coreShards;
 
 function percentile(values, fraction) {

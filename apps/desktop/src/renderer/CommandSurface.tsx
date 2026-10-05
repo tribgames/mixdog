@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { DesktopModelSelection } from '../shared/contract';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
+import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { trappedTabIndex } from './list-navigation';
 import { acquireModalLayer } from './modal-layer';
@@ -189,11 +190,7 @@ export function CommandSurface({
                 <p id="command-surface-description" className="sr-only">
                   {t('{{title}} for the active Mixdog session.', { title })}
                 </p>
-                {surface === 'stats' && error && (
-                  <p className="stats-error" role="alert">
-                    {error}
-                  </p>
-                )}
+                {surface === 'stats' && error && <ErrorNotice error={error} className="stats-error" />}
                 {!showStatsErrorOnly && showLoadingPlaceholder && surface === 'usage' && <UsageSkeleton />}
                 {!showStatsErrorOnly && showLoadingPlaceholder && surface !== 'usage' && (
                   <p className="settings-loading" role="status">

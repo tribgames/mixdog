@@ -1139,13 +1139,6 @@ html[data-mixdog-mobile-tabs] .composer-attachments .attachment-remove {
   height: var(--mx-touch-fixed-main);
   flex-basis: var(--mx-touch-fixed-main);
 }
-/* Also a mark beside text (the banner sentence), so it takes the compact tier
-   like the transcript copies below. */
-html[data-mixdog-mobile-tabs] .composer-banner-close {
-  width: var(--mx-touch-fixed-main);
-  height: var(--mx-touch-fixed-main);
-  flex-basis: var(--mx-touch-fixed-main);
-}
 
 /* ── 3. Transcript ─────────────────────────────────────────────────────────
    The most-touched surface on the phone had exactly one mobile rule (the
@@ -1158,7 +1151,6 @@ html[data-mixdog-mobile-tabs] .composer-banner-close {
 html[data-mixdog-mobile-tabs] .message .message-actions,
 html[data-mixdog-mobile-tabs] .tool-detail-copy,
 html[data-mixdog-mobile-tabs] .markdown-code-copy,
-html[data-mixdog-mobile-tabs] .live-work-stop,
 html[data-mixdog-mobile-tabs] .turn-review-open,
 html[data-mixdog-mobile-tabs] .turn-review-revert,
 html[data-mixdog-mobile-tabs] .queue-remove {

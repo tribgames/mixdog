@@ -1,4 +1,4 @@
-import { Check, ShieldAlert, X } from 'lucide-react';
+import { ShieldAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Approval } from './desktop-types';
 import { t } from './i18n';
@@ -9,6 +9,16 @@ import { asRecord, textOf } from './text-format';
 function approvalText(value: unknown, preferredKey: string): string {
   const preferred = asRecord(value)?.[preferredKey];
   return (typeof preferred === 'string' ? preferred : textOf(value)).trim();
+}
+
+// The one argument that says what the call does, shown on its own the way a
+// command approval shows the command; anything else falls back to the JSON.
+const PRIMARY_ARG_KEYS = ['command', 'cmd', 'script', 'patch', 'file_path', 'path', 'url', 'query', 'pattern'];
+
+function approvalDetail(args: unknown): string {
+  const record = asRecord(args);
+  const key = PRIMARY_ARG_KEYS.find((name) => typeof record?.[name] === 'string' && String(record[name]).trim());
+  return key ? String(record?.[key]).trim() : textOf(args).trim();
 }
 
 function localPreviewUrl(path: unknown): string {
@@ -24,11 +34,11 @@ export function ApprovalCard({
   resolve: (approved: boolean) => Promise<unknown>;
 }) {
   const reason = approvalText(approval.reason, 'message') || t('Review this tool request before continuing.');
-  const cwd = approvalText(approval.cwd, 'path');
   const args = asRecord(approval.args);
   const action = String(args?.action || '').toLowerCase();
   const officeTransaction =
     String(approval.name || '').toLowerCase() === 'office' && ['commit', 'rollback', 'discard'].includes(action);
+  const detail = officeTransaction ? '' : approvalDetail(approval.args);
   const transaction = asRecord(args?.transaction);
   const diff = asRecord(transaction?.diff);
   const summary = asRecord(diff?.summary);
@@ -120,9 +130,11 @@ export function ApprovalCard({
       aria-labelledby="approval-title"
       aria-describedby="approval-description"
     >
+      {/* Icon column + title on one row; the reason and the call itself hang
+          from the title's left edge, and the decision sits under them. */}
       <div className="approval-heading">
         <span>
-          <ShieldAlert size={18} />
+          <ShieldAlert size={16} />
         </span>
         <div>
           <b id="approval-title">{officeTransaction ? t('Office transaction review') : t('Tool approval required')}</b>
@@ -131,90 +143,81 @@ export function ApprovalCard({
           </small>
         </div>
       </div>
-      <p id="approval-description">{reason}</p>
-      <dl>
-        {cwd && (
-          <>
-            <dt>{t('Folder')}</dt>
-            <dd>{cwd}</dd>
-          </>
+      <div className="approval-body">
+        <p id="approval-description">{reason}</p>
+        {detail && <pre className="approval-detail">{detail}</pre>}
+        {officeTransaction && (
+          <dl>
+            {Boolean(args?.document) && (
+              <>
+                <dt>{t('Document')}</dt>
+                <dd>
+                  <code>{String(args?.document)}</code>
+                </dd>
+              </>
+            )}
+            {Boolean(transaction?.id) && (
+              <>
+                <dt>{t('Transaction')}</dt>
+                <dd>
+                  <code>{String(transaction?.id)}</code>
+                </dd>
+              </>
+            )}
+            {summary && (
+              <>
+                <dt>{t('Changes')}</dt>
+                <dd>
+                  {t('{{total}} paths · +{{added}} −{{removed}} ~{{modified}}', {
+                    total: Number(summary.total || 0),
+                    added: Number(summary.added || 0),
+                    removed: Number(summary.removed || 0),
+                    modified: Number(summary.modified || 0),
+                  })}
+                </dd>
+              </>
+            )}
+            {Boolean(preview?.output) && (
+              <>
+                <dt>{t('Preview')}</dt>
+                <dd>
+                  <code>{String(preview?.output)}</code>
+                </dd>
+              </>
+            )}
+            {visualDiff?.available === true && (
+              <>
+                <dt>{t('Visual diff')}</dt>
+                <dd>{t('{{percent}}% changed pixels', { percent: Number(visualDiff.changedPercent || 0) })}</dd>
+              </>
+            )}
+          </dl>
         )}
-        {officeTransaction && Boolean(args?.document) && (
-          <>
-            <dt>{t('Document')}</dt>
-            <dd>
-              <code>{String(args?.document)}</code>
-            </dd>
-          </>
+        {officeTransaction && previewImages.length > 0 && (
+          <div className="office-approval-preview" aria-label={t('Document preview')}>
+            {previewImages.map((image, index) => (
+              <figure key={`${String(image.path)}:${index}`}>
+                <img
+                  src={localPreviewUrl(image.path)}
+                  alt={
+                    image.kind === 'visual-diff'
+                      ? t('Visual diff page {{page}}', { page: Number(image.page || index + 1) })
+                      : t('Preview page {{page}}', { page: Number(image.page || index + 1) })
+                  }
+                />
+                <figcaption>{image.kind === 'visual-diff' ? t('Visual diff') : t('Preview')}</figcaption>
+              </figure>
+            ))}
+          </div>
         )}
-        {officeTransaction && Boolean(transaction?.id) && (
-          <>
-            <dt>{t('Transaction')}</dt>
-            <dd>
-              <code>{String(transaction?.id)}</code>
-            </dd>
-          </>
-        )}
-        {officeTransaction && summary && (
-          <>
-            <dt>{t('Changes')}</dt>
-            <dd>
-              {t('{{total}} paths · +{{added}} −{{removed}} ~{{modified}}', {
-                total: Number(summary.total || 0),
-                added: Number(summary.added || 0),
-                removed: Number(summary.removed || 0),
-                modified: Number(summary.modified || 0),
-              })}
-            </dd>
-          </>
-        )}
-        {officeTransaction && Boolean(preview?.output) && (
-          <>
-            <dt>{t('Preview')}</dt>
-            <dd>
-              <code>{String(preview?.output)}</code>
-            </dd>
-          </>
-        )}
-        {officeTransaction && visualDiff?.available === true && (
-          <>
-            <dt>{t('Visual diff')}</dt>
-            <dd>{t('{{percent}}% changed pixels', { percent: Number(visualDiff.changedPercent || 0) })}</dd>
-          </>
-        )}
-        {!officeTransaction && approval.args != null && (
-          <>
-            <dt>{t('Arguments')}</dt>
-            <dd>
-              <code>{textOf(approval.args)}</code>
-            </dd>
-          </>
-        )}
-      </dl>
-      {officeTransaction && previewImages.length > 0 && (
-        <div className="office-approval-preview" aria-label={t('Document preview')}>
-          {previewImages.map((image, index) => (
-            <figure key={`${String(image.path)}:${index}`}>
-              <img
-                src={localPreviewUrl(image.path)}
-                alt={
-                  image.kind === 'visual-diff'
-                    ? t('Visual diff page {{page}}', { page: Number(image.page || index + 1) })
-                    : t('Preview page {{page}}', { page: Number(image.page || index + 1) })
-                }
-              />
-              <figcaption>{image.kind === 'visual-diff' ? t('Visual diff') : t('Preview')}</figcaption>
-            </figure>
-          ))}
-        </div>
-      )}
-      {approvalError && <ErrorNotice error={approvalError} />}
+        {approvalError && <ErrorNotice error={approvalError} />}
+      </div>
       <div className="approval-actions">
-        <button type="button" disabled={resolving} onClick={() => void decide(false)}>
-          <X size={16} /> {officeTransaction ? t('Keep editing') : t('Deny')}
+        <button type="button" disabled={resolving} className="deny" onClick={() => void decide(false)}>
+          {officeTransaction ? t('Keep editing') : t('Deny')}
         </button>
         <button type="button" disabled={resolving} className="allow" onClick={() => void decide(true)}>
-          <Check size={16} /> {officeTransaction ? actionLabel : t('Allow once')}
+          {officeTransaction ? actionLabel : t('Allow')}
         </button>
       </div>
     </article>

@@ -9,8 +9,7 @@ let loadedReviewModule: TurnReviewModule | null = null;
 let reviewModulePromise: Promise<TurnReviewModule> | null = null;
 
 /**
- * The chrome stacked ABOVE the prompt input: Goal capsule, runtime progress,
- * tool approval, the draft-only context bar, and the turn-review slot, with
+ * The chrome stacked ABOVE the prompt input: Goal capsule, tool approval, the draft-only context bar, and the turn-review slot, with
  * the composer itself as the last child.
  *
  * Slots take space only while their content renders. Their geometry commits
@@ -22,7 +21,6 @@ let reviewModulePromise: Promise<TurnReviewModule> | null = null;
 export function ComposerDock({
   goalIsland,
   goalSubmissionId,
-  runtimeProgress,
   approval,
   showProjectSelector,
   contextBar,
@@ -38,7 +36,6 @@ export function ComposerDock({
   /** Closes previous-turn Goal chrome with the optimistic row (see
    *  session-goal-submission). */
   goalSubmissionId: string;
-  runtimeProgress?: ReactNode;
   approval?: ReactNode;
   showProjectSelector: boolean;
   contextBar?: ReactNode;
@@ -76,7 +73,6 @@ export function ComposerDock({
       <SessionGoalHost placement="composer" submissionId={goalSubmissionId}>
         {goalIsland}
       </SessionGoalHost>
-      {runtimeProgress}
       {approval && <div className="composer-approval-row">{approval}</div>}
       {showProjectSelector && <div className="composer-context-bar">{contextBar}</div>}
       {/* Review sits attached ABOVE the input (user: 채팅창 위에 붙어야 한다).

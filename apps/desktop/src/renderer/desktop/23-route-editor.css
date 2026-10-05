@@ -584,43 +584,6 @@
 .composer-attachments > div.image .attachment-remove:focus-visible {
   opacity: 1;
 }
-.composer-notice {
-  /* Banner ABOVE the input card: full column width, card-language radius. */
-  margin: 0 0 6px;
-  padding: 8px 12px;
-  border-radius: var(--mx-radius-md);
-  font-size: var(--mx-font-ui);
-  line-height: var(--mx-line-ui);
-  overflow-wrap: anywhere;
-  /* Immediate dismiss X (user request): text column + trailing button. */
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.composer-notice > span {
-  flex: 1 1 auto;
-}
-.composer-banner-close {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 19px;
-  height: 19px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: inherit;
-  background: transparent;
-  cursor: pointer;
-  opacity: var(--mx-op-secondary);
-}
-.composer-banner-close:hover {
-  opacity: 1;
-  background: var(--mx-hover);
-}
-.composer-notice {
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
-}
 .task-drop-overlay {
   inset: 6px;
   border-color: var(--mx-focus);
@@ -1256,10 +1219,9 @@
 .session-context-indicator > button:disabled {
   cursor: default;
 }
-.session-status-island > .session-work-indicator,
 .session-status-island > .session-context-indicator {
-  /* Both cards anchor to the island itself, not to either 28px slot, so their
-     right edges stay flush with the capsule's right edge. */
+  /* The card anchors to the island itself, not to its 28px slot, so its right
+     edge stays flush with the capsule's right edge. */
   position: static;
 }
 .session-context-indicator {
@@ -1334,11 +1296,11 @@
   position: absolute;
   z-index: 20;
   /* The island hangs at the transcript's top-right corner, so its card opens
-     DOWNWARD against the right edge — the same geometry .live-work-popover
-     already uses, and nothing above the composer can be covered by it. */
+     DOWNWARD against the right edge, and nothing above the composer can be
+     covered by it. */
   top: calc(100% + 6px);
   right: 0;
-  /* Context, Shell, and Agent cards share one compact fixed width. */
+  /* One compact fixed width. */
   width: var(--session-status-card-width, 220px);
   max-width: calc(100vw - 24px);
   display: grid;

@@ -26,7 +26,8 @@ pub fn window_id(handle: Wid) -> String {
 /// non-ASCII input is simply "no prefix" instead of a panic.
 fn strip_prefix_ignore_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
     let head = value.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix).then(|| &value[prefix.len()..])
+    head.eq_ignore_ascii_case(prefix)
+        .then(|| &value[prefix.len()..])
 }
 
 pub fn parse_window_id(value: &str) -> Wid {

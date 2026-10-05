@@ -549,13 +549,17 @@
   width: 32%;
   animation: voice-install-indeterminate 1.1s ease-in-out infinite;
 }
-/* One installation = progress + its row + error, as one divided card row. */
+/* One installation = its row, then a full-width bar (or its error line), as
+   one divided card row. */
 .local-provider-installation {
   min-width: 0;
   display: grid;
-  gap: 10px;
+  gap: 8px;
   padding: 12px 0;
   border-bottom: var(--mx-hairline) solid var(--mx-border);
+}
+.local-provider-installation > .built-in-feature-slot-progress {
+  width: 100%;
 }
 .local-provider-installation:last-child {
   border-bottom: 0;

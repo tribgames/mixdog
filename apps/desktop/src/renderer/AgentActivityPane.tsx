@@ -35,9 +35,6 @@ export {
   agentActivityGroups,
   flattenAgentActivityNodes,
   liveAgentRows,
-  liveShellCount,
-  liveShellRows,
-  liveTaskCount,
   preloadAgentPool,
 } from './agent-activity-model';
 

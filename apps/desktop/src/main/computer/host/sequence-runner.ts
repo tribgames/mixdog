@@ -203,8 +203,6 @@ export interface SequenceRunnerHost extends Pick<CaptureEngine, 'captureAfterAct
   freshObservedWindowScope(command: ComputerCommand): ObservedWindowScope | undefined;
   recordProgress?(completed: number, inFlight?: number): void;
   preflightSteps?(command: ComputerCommand, steps: ComputerCommand[]): Promise<void>;
-  /** Ends the cursor-theme hold a foreground sequence took for its steps. */
-  releaseCursorTheme?(command: ComputerCommand): Promise<void>;
   /** Late-bound: each step goes back through the router. */
   runCommand(command: ComputerCommand): Promise<ComputerCommandResult>;
 }
@@ -286,13 +284,7 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
         }
       },
       (completed) => host.recordProgress?.(completed)
-    ).finally(async () => {
-      // A stopped or failed step leaves the hold in place exactly as a finished
-      // one does, so the release runs on every exit path, not just the happy one.
-      if ((command.delivery || 'background') === 'foreground') {
-        await host.releaseCursorTheme?.(command);
-      }
-    });
+    );
     const stepsMs = elapsedMs(stepsStartedAt);
     const { rows, completedSteps, stoppedReason, finalWindowId, lastTransition } = sequence;
     const completed = completedSteps === steps.length && !stoppedReason;

@@ -148,26 +148,6 @@ export function localGitToolsActive(configLike, { gitAvailable } = {}) {
   );
 }
 
-/** Capabilities that ask the user once per session before their first live
- *  call: the desktop and the browser are the user's, and one approval at the
- *  moment of first use is how the user learns the model reached for them. */
-export const BRIDGE_FIRST_USE_IDS = Object.freeze(['browser', 'computer']);
-
-/** On unless the profile turns it off for that capability;
- *  MIXDOG_BRIDGE_FIRST_USE_APPROVAL overrides per process (headless, bench). */
-export function builtinFirstUseApproval(configLike, id) {
-  return (
-    featureEnvOverride('MIXDOG_BRIDGE_FIRST_USE_APPROVAL') ?? configLike?.builtins?.[id]?.firstUseApproval !== false
-  );
-}
-
-export function setBuiltinFirstUseApprovalInConfig(configLike, id, enabled) {
-  const next = { ...(configLike || {}) };
-  next.builtins = { ...(next.builtins || {}) };
-  next.builtins[id] = { ...(next.builtins[id] || {}), firstUseApproval: enabled !== false };
-  return next;
-}
-
 export function setBuiltinInstalledInConfig(configLike, id, installed = true) {
   const next = { ...(configLike || {}) };
   next.builtins = { ...(next.builtins || {}) };

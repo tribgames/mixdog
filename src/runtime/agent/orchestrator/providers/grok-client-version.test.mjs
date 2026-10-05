@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 const realFetch = globalThis.fetch;
@@ -7,6 +10,8 @@ let nonce = 0;
 
 async function fresh(fetchImpl, env = {}) {
   for (const k of ENV_KEYS) delete process.env[k];
+  // Each case starts with no remembered version and never touches the operator's.
+  process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-client-version-'));
   Object.assign(process.env, env);
   const calls = [];
   globalThis.fetch = async (url, opts) => {
@@ -25,19 +30,19 @@ test.afterEach(() => {
 });
 
 test('live npm version is used after warm-up and deduped', async () => {
-  const { mod, calls } = await fresh(registry('1.0.44'));
+  const { mod, calls } = await fresh(registry('1.1.44'));
   await Promise.all([mod.warmGrokCliVersion(), mod.warmGrokCliVersion()]);
   await mod.warmGrokCliVersion();
-  assert.equal(mod.grokCliVersion(), '1.0.44');
+  assert.equal(mod.grokCliVersion(), '1.1.44');
   assert.deepEqual(calls, ['https://registry.npmjs.org/@xai-official/grok/latest']);
   assert.deepEqual(mod.grokClientVersionHeaders(), {
-    'x-grok-client-version': '1.0.44',
-    'User-Agent': 'xai-grok-build/1.0.44',
+    'x-grok-client-version': '1.1.44',
+    'User-Agent': 'xai-grok-build/1.1.44',
   });
 });
 
 test('env override wins and skips the registry', async () => {
-  const { mod, calls } = await fresh(registry('1.0.44'), { MIXDOG_GROK_CLIENT_VERSION: '9.9.9' });
+  const { mod, calls } = await fresh(registry('1.1.44'), { MIXDOG_GROK_CLIENT_VERSION: '9.9.9' });
   await mod.warmGrokCliVersion();
   assert.equal(mod.grokCliVersion(), '9.9.9');
   assert.equal(calls.length, 0);
@@ -67,10 +72,10 @@ test('426 minimum is learned once and only upward', async () => {
 });
 
 test('oauth-usage sends the same version headers as the proxy', async () => {
-  await fresh(registry('1.0.44'));
+  await fresh(registry('1.1.44'));
   const seen = [];
   globalThis.fetch = async (url, opts) => {
-    if (String(url).includes('registry.npmjs.org')) return registry('1.0.44')();
+    if (String(url).includes('registry.npmjs.org')) return registry('1.1.44')();
     seen.push(opts.headers);
     return { ok: false, status: 404, json: async () => ({}) };
   };
@@ -82,9 +87,24 @@ test('oauth-usage sends the same version headers as the proxy', async () => {
     force: true,
   });
   const expected = shared.grokClientVersionHeaders();
-  assert.equal(expected['x-grok-client-version'], '1.0.44');
+  assert.equal(expected['x-grok-client-version'], '1.1.44');
   const billing = seen.find((h) => h['x-grok-client-version']);
   assert.ok(billing, 'billing probe sent version headers');
   assert.equal(billing['x-grok-client-version'], expected['x-grok-client-version']);
   assert.equal(billing['User-Agent'], expected['User-Agent']);
+});
+
+test('the last live version outlives the process and an offline start', async () => {
+  const first = await fresh(registry('1.2.0'));
+  await first.mod.warmGrokCliVersion();
+  const dataDir = process.env.MIXDOG_DATA_DIR;
+  const offline = async () => {
+    throw new Error('offline');
+  };
+  const second = await fresh(offline);
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  // Answered from disk before any refresh lands, and kept when the refresh fails.
+  assert.equal(second.mod.grokCliVersion(), '1.2.0');
+  await second.mod.warmGrokCliVersion();
+  assert.equal(second.mod.grokCliVersion(), '1.2.0');
 });

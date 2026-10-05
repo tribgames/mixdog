@@ -13,6 +13,7 @@ import {
 } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { getModelMetadataSync } from '../../runtime/agent/orchestrator/providers/model-catalog.mjs';
 import { workflowPresetId } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import { resolveRouteContextState } from '../route-state.mjs';
 import { writeStatuslineRoute } from '../statusline-route.mjs';
 import { sessionHasRouteHistory, shouldRecreateEmptySessionForRouteChange } from '../../runtime/agent/orchestrator/runtime-core/session-route-policy.mjs';
 import { rebuildDeferredToolSurfaceForProvider } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
@@ -52,7 +53,12 @@ async function resolveSelectedRoute(deps, next) {
     selectedRoute.modelParameters
   );
   return {
-    selectedRoute: { ...selectedRoute, fast: fastCapable ? selectedRoute.fast === true : false },
+    selectedRoute: {
+      ...selectedRoute,
+      fast: fastCapable ? selectedRoute.fast === true : false,
+      // Lets the saved model settings tell a chosen window from the default.
+      contextDefaultPercent: resolveRouteContextState(selectedRoute, modelMeta).contextDefaultPercent,
+    },
     fastCapable,
     modelMeta,
   };

@@ -1,15 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
+import { makeTempEnvDir, writeBridgeDiscovery } from './bridge-env.test-support.mjs';
 import { executeComputerTool } from './client.mjs';
 
 async function withBridge(respond, run) {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-stale-recapture-'));
-  const previousDataDir = process.env.MIXDOG_DATA_DIR;
-  process.env.MIXDOG_DATA_DIR = directory;
+  const { directory, cleanup } = await makeTempEnvDir('MIXDOG_DATA_DIR', 'mixdog-computer-stale-recapture-');
   const requests = [];
   const server = createServer((request, response) => {
     let raw = '';
@@ -29,17 +25,12 @@ async function withBridge(respond, run) {
       server.once('error', reject);
       server.listen(0, '127.0.0.1', resolve);
     });
-    await writeFile(
-      join(directory, 'computer-bridge.json'),
-      `${JSON.stringify({ version: 1, port: server.address().port, token: 'stale-recapture-token' })}\n`
-    );
+    await writeBridgeDiscovery(directory, { port: server.address().port, token: 'stale-recapture-token' });
     await run(requests);
   } finally {
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
-    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
-    else process.env.MIXDOG_DATA_DIR = previousDataDir;
-    await rm(directory, { recursive: true, force: true });
+    await cleanup();
   }
 }
 

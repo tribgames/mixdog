@@ -11,14 +11,9 @@ import {
   agentActivityGroups,
   flattenAgentActivityNodes,
   liveAgentRows,
-  liveTaskCount,
 } from './AgentActivityPane.tsx';
-import {
-  createDesktopCancellationLedger,
-  desktopAgentActivityState,
-  desktopCancelOutcome,
-} from '../shared/agent-activity.ts';
-import { LiveWorkIndicator, SessionStatusIsland } from './SessionStatusIsland.tsx';
+import { createDesktopCancellationLedger, desktopAgentActivityState } from '../shared/agent-activity.ts';
+import { SessionStatusIsland } from './SessionStatusIsland.tsx';
 import {
   formatGoalDuration,
   goalCompletedTimeLabel,
@@ -29,7 +24,7 @@ import {
 import { CompletionStatus } from './transcript-status.tsx';
 import { PaneContextIndicator } from './app-snapshot-views.tsx';
 import { agentActivitySessionIds } from './desktop-types.ts';
-import { defaultSessionLaneStore, useSessionLane } from './session-lane-store.ts';
+import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { desktopHeaderSnapshotsEqual } from './desktop-snapshot-store.ts';
 import { shellJobsStatusEqual } from '../shared/shell-jobs-status.ts';
 import { shouldOfferSessionInheritance } from './session-inheritance.ts';
@@ -157,126 +152,6 @@ test('Agents owner list is independent from the selected session', () => {
   );
 });
 
-const TaskIndicators = ({ snapshot, onOpen }) =>
-  React.createElement(LiveWorkIndicator, { snapshot, onOpen: onOpen ?? (() => {}) });
-
-test('Agent and shell chips follow only their supplied session lane activity', async () => {
-  const dom = installDom();
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(TaskIndicators, {
-          snapshot: {
-            sessionId: 'lead-a',
-            agentWorkers: [{ agent: 'researcher', status: 'running' }],
-            shellJobs: { count: 1 },
-          },
-        })
-      );
-    });
-    assert.equal(document.querySelector('.session-work-indicator')?.dataset.active, 'true');
-    assert.match(document.body.textContent, /Researcher/);
-    assert.match(document.body.textContent, /Shell 1/);
-    assert.deepEqual(
-      [...document.querySelectorAll('.live-work-group')].map((group) => group.dataset.kind),
-      ['agent', 'shell']
-    );
-
-    await act(async () => {
-      dom.root.render(
-        React.createElement(TaskIndicators, {
-          snapshot: { sessionId: 'lead-a', agentWorkers: [], shellJobs: { count: 0 } },
-        })
-      );
-    });
-    assert.equal(document.querySelectorAll('.session-work-indicator').length, 1);
-    assert.equal(document.querySelectorAll('.session-work-indicator[data-active="false"]').length, 1);
-    // The card stays mounted while idle (user: 호버해도 그냥 아예 안 나왔거든):
-    // an idle hover answers with one explicit row instead of nothing at all.
-    assert.equal(document.querySelectorAll('.live-work-popover').length, 1);
-    assert.match(document.body.textContent, /No background work/);
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
-});
-
-test('Agent chip appears immediately from an active tool call; the shell chip waits for background promotion', async () => {
-  const dom = installDom();
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(TaskIndicators, {
-          snapshot: {
-            sessionId: 'lead-a',
-            activeTools: {
-              agent: { count: 1, startedAt: Date.now() - 2_000 },
-              shell: { count: 12, startedAt: Date.now() - 3_000 },
-            },
-          },
-        })
-      );
-    });
-    // Foreground shell calls stream in the transcript tool card; the header
-    // chip only surfaces jobs that were promoted to the background.
-    assert.equal(document.querySelector('.session-work-indicator')?.dataset.active, 'true');
-    assert.match(document.body.textContent, /Agent 1/);
-    assert.doesNotMatch(document.body.textContent, /Shell 12/);
-
-    await act(async () => {
-      dom.root.render(
-        React.createElement(TaskIndicators, {
-          snapshot: {
-            sessionId: 'lead-a',
-            activeTools: {
-              agent: { count: 1, startedAt: Date.now() - 2_000 },
-            },
-            shellJobs: { count: 12, jobs: [{ taskId: 'job-1', command: 'npm test', startedAt: Date.now() - 3_000 }] },
-          },
-        })
-      );
-    });
-    assert.equal(document.querySelector('.session-work-indicator')?.dataset.active, 'true');
-    assert.match(document.body.textContent, /npm test/);
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
-});
-
-test('a background shell row reads as its command subject, not raw argv', async () => {
-  const dom = installDom();
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(TaskIndicators, {
-          snapshot: {
-            sessionId: 'lead-a',
-            shellJobs: {
-              count: 1,
-              jobs: [
-                {
-                  taskId: 'job-1',
-                  command: 'pwsh -NoProfile -Command "npm run update:dev:fast --prefix apps/desktop"',
-                  startedAt: Date.now() - 4_000,
-                },
-              ],
-            },
-          },
-        })
-      );
-    });
-    // The card is a summary: a wrapper shell and its flags left only fragments
-    // like `--prefix` behind the ellipsis (user: 문장이 --뭐 이런 걸로 깨져나옴).
-    assert.match(document.body.textContent, /npm run update:dev:fast/);
-    assert.doesNotMatch(document.body.textContent, /--prefix/);
-    assert.doesNotMatch(document.body.textContent, /NoProfile/);
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
-});
-
 test('shell status equality includes detail fields that arrive after the task id', () => {
   const before = {
     count: 1,
@@ -299,7 +174,7 @@ test('shell status equality includes detail fields that arrive after the task id
   );
 });
 
-test('the status island carries the context gauge without the retired work readout', async () => {
+test('the status island carries the context gauge', async () => {
   const dom = installDom();
   try {
     await act(async () => {
@@ -309,17 +184,10 @@ test('the status island carries the context gauge without the retired work reado
             sessionId: 'lead-a',
             stats: { currentContextTokens: 50 },
             displayContextWindow: 100,
-            shellJobs: {
-              count: 1,
-              jobs: [{ taskId: 'job-1', command: 'npm test', cwd: 'C:\\Project\\mixdog' }],
-            },
           },
         })
       );
     });
-    // Live shell work no longer mints a chrome slot (user: 에이전트 쉘 표기줄
-    // 자체를 숨기고); the gauge is the island's only readout.
-    assert.equal(document.querySelector('.session-work-indicator'), null);
     const contextButton = document.querySelector('.session-context-indicator > button');
     await act(async () => contextButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
     assert.equal(document.querySelector('.session-context-indicator')?.dataset.open, 'true');
@@ -756,45 +624,6 @@ test('Goal clock labels explicit elapsed, total, and remaining time', () => {
   );
 });
 
-test('running background agent jobs drive the header icon until terminal', async () => {
-  const dom = installDom();
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(TaskIndicators, {
-          snapshot: {
-            sessionId: 'lead-a',
-            agentJobs: [
-              {
-                task_id: 'task-agent-1',
-                tag: 'review',
-                status: 'running',
-                startedAt: Date.now() - 1_000,
-              },
-            ],
-          },
-        })
-      );
-    });
-    assert.equal(document.querySelector('.session-work-indicator')?.dataset.active, 'true');
-
-    await act(async () => {
-      dom.root.render(
-        React.createElement(TaskIndicators, {
-          snapshot: {
-            sessionId: 'lead-a',
-            agentJobs: [{ task_id: 'task-agent-1', tag: 'review', status: 'completed' }],
-          },
-        })
-      );
-    });
-    assert.equal(document.querySelector('.session-work-indicator')?.dataset.active, 'false');
-  } finally {
-    await act(async () => dom.root.unmount());
-    dom.close();
-  }
-});
-
 test('Agent pane ignores a stale initial list that resolves after a live push', async () => {
   const dom = installDom();
   let resolveInitial;
@@ -890,61 +719,6 @@ test('active Agent pane reconciles missed pool pushes and clears departed rows',
     await act(async () => dom.root.unmount());
     window.setInterval = originalSetInterval;
     window.clearInterval = originalClearInterval;
-    dom.close();
-  }
-});
-
-test('two session task indicators update independently without focus routing', async () => {
-  const dom = installDom();
-  const LaneIndicator = ({ sessionId }) => {
-    const snapshot = useSessionLane(sessionId);
-    return React.createElement(
-      'div',
-      { 'data-lane': sessionId },
-      snapshot ? React.createElement(TaskIndicators, { snapshot }) : null
-    );
-  };
-  try {
-    await act(async () => {
-      dom.root.render(
-        React.createElement(
-          React.Fragment,
-          null,
-          React.createElement(LaneIndicator, { sessionId: 'session-a' }),
-          React.createElement(LaneIndicator, { sessionId: 'session-b' })
-        )
-      );
-    });
-    await act(async () => {
-      defaultSessionLaneStore.apply({
-        sessionId: 'session-a',
-        frameSource: 'live',
-        snapshot: { sessionId: 'session-a', shellJobs: { count: 1 } },
-      });
-      defaultSessionLaneStore.apply({
-        sessionId: 'session-b',
-        frameSource: 'live',
-        snapshot: {
-          sessionId: 'session-b',
-          agentWorkers: [{ agent: 'reviewer', status: 'running' }],
-        },
-      });
-    });
-    assert.equal(document.querySelector('[data-lane="session-a"] .session-work-indicator')?.dataset.active, 'true');
-    assert.equal(document.querySelector('[data-lane="session-b"] .session-work-indicator')?.dataset.active, 'true');
-
-    await act(async () =>
-      defaultSessionLaneStore.apply({
-        sessionId: 'session-a',
-        frameSource: 'live',
-        snapshot: { sessionId: 'session-a', shellJobs: { count: 0 } },
-      })
-    );
-    assert.equal(document.querySelector('[data-lane="session-a"] .session-work-indicator')?.dataset.active, 'false');
-    assert.equal(document.querySelector('[data-lane="session-b"] .session-work-indicator')?.dataset.active, 'true');
-  } finally {
-    await act(async () => dom.root.unmount());
-    defaultSessionLaneStore.clear();
     dom.close();
   }
 });
@@ -1645,7 +1419,6 @@ test('a cancelled agent leaves the live surfaces whatever its twin row still cla
     agentJobs: [{ task_id: 'task-1', tag: 'review', status: 'cancelled' }],
   };
   assert.deepEqual(liveAgentRows(jobCancelled), []);
-  assert.equal(liveTaskCount(jobCancelled), 0);
 
   // Same truth with the order reversed: the worker reports the cancel while
   // the job row is still marked running.
@@ -1774,7 +1547,6 @@ test('an unconfirmed cancel stays on the live surfaces; only a confirmed one dro
     liveAgentRows(unconfirmed).map((row) => [row.tag, row.state, row.queued]),
     [['build', 'cancel-unconfirmed', false]]
   );
-  assert.equal(liveTaskCount(unconfirmed), 1);
   // A worker still winding down is equally unproven.
   assert.deepEqual(
     liveAgentRows({ agentWorkers: [{ tag: 'plan', agent: 'planner', status: 'cancelling' }] }).map((row) => row.state),
@@ -1926,16 +1698,6 @@ test('the Agents pane paints a cancelled agent as cancelled, never completed or 
     await act(async () => dom.root.unmount());
     dom.close();
   }
-});
-
-test('an unconfirmed cancel is reported as unconfirmed, never as a successful cancel', () => {
-  // Windows git-bash survivors cannot be killed from JS: task control answers
-  // with cancel-unconfirmed plus the survivor warning.
-  assert.equal(desktopCancelOutcome('status: cancel-unconfirmed\ntask_id: task_shell_1'), 'unconfirmed');
-  assert.equal(desktopCancelOutcome({ text: 'SURVIVING_DESCENDANTS_UNREACHABLE_WARNING: 2 survivors' }), 'unconfirmed');
-  assert.equal(desktopCancelOutcome({ status: 'cancelled' }), 'cancelled');
-  assert.equal(desktopCancelOutcome({ status: 'completed' }), '');
-  assert.equal(desktopCancelOutcome(null), '');
 });
 
 const hierarchyPool = () => [

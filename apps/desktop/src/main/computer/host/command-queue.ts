@@ -13,6 +13,7 @@ import { createForegroundLane, PausedBeforeDispatch } from './command-queue-fore
 import { createPauseGate, PauseWaitExpired } from './command-queue-pause';
 import type { ExecutionState } from './execution-state';
 import { PausedComputerWork, pausedWorkReply } from './pending-work';
+import type { PointerHold } from './pointer-hold';
 import { isComputerRecoveryRead } from './recovery-reads';
 
 const MAX_PAUSE_WAIT_MS = 15_000;
@@ -27,6 +28,7 @@ export function createComputerCommandQueue(options: {
   recordDiagnostic?: (sessionId: string, record: Record<string, unknown>) => void;
   /** Internal/test seam; never changes the user's idle-resume setting. */
   pauseWaitMs?: number;
+  pointerHold?: Pick<PointerHold, 'claim' | 'arm'>;
 }) {
   const { coordinator, execution, sessionIdFor, runCommand } = options;
   const { commandChainsBySession, sessionAbortEpochs } = execution;
@@ -47,6 +49,7 @@ export function createComputerCommandQueue(options: {
     recordDiagnostic: options.recordDiagnostic,
     assertEpoch: gate.assertEpoch,
     runForegroundExclusive: lane.runForegroundExclusive,
+    pointerHold: options.pointerHold,
   });
   const active = new Set<Promise<void>>();
 

@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
+import { makeTempEnvDir, writeBridgeDiscovery } from './bridge-env.test-support.mjs';
 import { executeComputerTool } from './client.mjs';
 
 for (const resumed of [false, true]) {
@@ -12,9 +10,7 @@ for (const resumed of [false, true]) {
       ? 'resumed pending work preserves uncertainty without becoming a tool error'
       : 'semantic computer failure is an error while preserving its fresh observation image',
     async () => {
-      const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-semantic-error-'));
-      const previousDataDir = process.env.MIXDOG_DATA_DIR;
-      process.env.MIXDOG_DATA_DIR = directory;
+      const { directory, cleanup } = await makeTempEnvDir('MIXDOG_DATA_DIR', 'mixdog-computer-semantic-error-');
       const server = createServer((request, response) => {
         request.resume();
         request.on('end', () => {
@@ -73,14 +69,7 @@ for (const resumed of [false, true]) {
         });
         const address = server.address();
         assert.ok(address && typeof address === 'object');
-        await writeFile(
-          join(directory, 'computer-bridge.json'),
-          `${JSON.stringify({
-            version: 1,
-            port: address.port,
-            token: 'semantic-error-token',
-          })}\n`
-        );
+        await writeBridgeDiscovery(directory, { port: address.port, token: 'semantic-error-token' });
 
         const result = await executeComputerTool({
           action: 'act',
@@ -106,9 +95,7 @@ for (const resumed of [false, true]) {
       } finally {
         server.closeAllConnections?.();
         await new Promise((resolve) => server.close(resolve));
-        if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
-        else process.env.MIXDOG_DATA_DIR = previousDataDir;
-        await rm(directory, { recursive: true, force: true });
+        await cleanup();
       }
     }
   );

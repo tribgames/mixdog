@@ -1,7 +1,5 @@
-import { AlertTriangle } from 'lucide-react';
-
 import { t } from './i18n';
-import { safeErrorDetails } from './ErrorNotice';
+import { ErrorNotice, safeErrorDetails } from './ErrorNotice';
 
 type SourceControlErrorKind =
   | 'authentication'
@@ -150,40 +148,34 @@ export function sourceControlErrorToastText(reason: unknown): string {
   return presentation.details ? `${headline}\n\n${presentation.details}` : headline;
 }
 
+/** Git failures paint through the shared ErrorNotice; only the Git-specific
+ *  headline and the sign-in help action are classified here. */
 export function SourceControlErrorNotice({
   error,
   className = '',
-  compact = false,
   onAuthenticationHelp,
   authenticationHelpLabel,
 }: {
   error: unknown;
   className?: string;
-  compact?: boolean;
   onAuthenticationHelp?: () => void;
   authenticationHelpLabel?: string;
 }) {
   const presentation = describeSourceControlError(error);
   const copy = presentationCopy(presentation);
-  const classes = ['source-control-error-notice', className].filter(Boolean).join(' ');
   return (
-    <section className={classes} role="alert" data-compact={compact || undefined}>
-      <AlertTriangle size={16} aria-hidden="true" />
-      <div className="source-control-error-copy">
-        <strong>{copy.title}</strong>
-        <p>{copy.message}</p>
-        {presentation.details && (
-          <details className="source-control-error-details">
-            <summary>{t('Show details')}</summary>
-            <pre>{presentation.details}</pre>
-          </details>
-        )}
-        {presentation.kind === 'authentication' && onAuthenticationHelp && (
+    <ErrorNotice
+      className={className}
+      title={copy.title}
+      summary={copy.message}
+      error={presentation.details || copy.message}
+      action={
+        presentation.kind === 'authentication' && onAuthenticationHelp ? (
           <button type="button" onClick={onAuthenticationHelp}>
             {authenticationHelpLabel || t('Sign-in help')}
           </button>
-        )}
-      </div>
-    </section>
+        ) : undefined
+      }
+    />
   );
 }

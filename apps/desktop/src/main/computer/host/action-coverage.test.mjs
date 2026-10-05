@@ -14,7 +14,7 @@ const HOST_ACTION_LISTS = [
   'backend/worker-pool.ts',
   'backend/sources/runtime.ps1',
   'backend/sources/sequence.ps1',
-  'harness/scenarios.ts',
+  'harness/scenario-runtime.ts',
 ];
 
 test('every held-key action reaches each host list that dispatches keys', async () => {

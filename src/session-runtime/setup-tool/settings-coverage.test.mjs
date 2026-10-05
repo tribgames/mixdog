@@ -20,7 +20,6 @@ import { createMcpGlue } from '../mcp-glue.mjs';
 import { createResourceApi } from '../resource-api.mjs';
 import { isAgentDisabled } from '../../runtime/shared/agent-route-config.mjs';
 import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
-import { setBuiltinFirstUseApprovalInConfig } from '../../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { schemaValueError } from '../../runtime/shared/schema-value-error.mjs';
 import { saveSchedule } from '../services/channel-admin.mjs';
 
@@ -375,15 +374,7 @@ test('automation partial edits preserve model, one-shot timing and attachments; 
   );
 });
 
-test('first-use approval can be inspected, and failed persistence cannot produce a success receipt', async () => {
-  const config = setBuiltinFirstUseApprovalInConfig({}, 'browser', false);
-  const features = await run(
-    { getToolModuleSettings: () => ({}) },
-    { action: 'status', domain: 'features' },
-    { getConfig: () => config }
-  );
-  assert.equal(features.browser.firstUseApproval, false);
-  assert.equal(features.computer.firstUseApproval, true);
+test('failed persistence cannot produce a success receipt', async () => {
   await assert.rejects(
     run(
       { setProfile: () => ({ title: 'Changed' }) },

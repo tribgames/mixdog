@@ -3,9 +3,9 @@ import { createNpmVersionSource, maxSemver } from './npm-cli-version.mjs';
 // Grok CLI client version for the cli-chat-proxy version gate (HTTP 426).
 // Effective = env override, else max(floor, learned-from-426, live npm latest
 // of the official @xai-official/grok CLI).
-export const GROK_CLI_VERSION_FLOOR = '0.2.87';
+export const GROK_CLI_VERSION_FLOOR = '1.0.46';
 
-const live = createNpmVersionSource('@xai-official/grok');
+const live = createNpmVersionSource('@xai-official/grok', { persistKey: 'grok-cli' });
 let envVersion;
 let learned = null;
 

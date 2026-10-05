@@ -1,5 +1,6 @@
 import { overlayStyles } from './content-styles';
 import { loadOverlayFont } from './font-asset';
+import { overlayTitles } from './model';
 
 export const OVERLAY_WIDTH = 285;
 export const OVERLAY_HEIGHT = 74;
@@ -19,7 +20,7 @@ const OVERLAY_FONT = loadOverlayFont('pretendard/dist/web/static/woff2-subset/Pr
 function overlayLabels(locale: string) {
   const ko = locale.toLowerCase().startsWith('ko');
   return {
-    title: ko ? '컴퓨터 사용 중' : 'Computer in use',
+    title: overlayTitles(locale).working,
     stop: ko ? '중단' : 'Stop',
     resume: ko ? '재개' : 'Resume',
     stopping: ko ? '중단 중' : 'Stopping',

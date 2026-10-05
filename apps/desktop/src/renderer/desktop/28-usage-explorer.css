@@ -944,9 +944,6 @@
 }
 .stats-error {
   margin: 0;
-  color: var(--mx-danger);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
 }
 .stats-refresh-status {
   margin: 0;

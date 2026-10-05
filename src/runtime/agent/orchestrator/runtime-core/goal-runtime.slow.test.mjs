@@ -764,7 +764,7 @@ test('Goal status shows the model exactly what the user still sees', async () =>
   }
 });
 
-test('unified Goal tool accepts model-shaped fields and rejects retired tool names', async () => {
+test('unified Goal tool accepts model-shaped fields', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-unified-'));
   const runtime = createGoalRuntime({ dataDir });
   try {
@@ -884,20 +884,6 @@ test('unified Goal tool accepts model-shaped fields and rejects retired tool nam
       )
     ).goal;
     assert.equal(status.status, 'complete');
-
-    for (const name of ['get_goal', 'create_goal', 'update_goal', 'set_goal_tasks']) {
-      await assert.rejects(
-        runtime.executeTool(
-          name,
-          {},
-          {
-            callerSessionId: 'sess_goal_unified',
-          }
-        ),
-        /unknown Goal tool/
-      );
-    }
-    assert.equal(runtime.snapshot('sess_goal_unified').revision, status.revision);
 
     await runtime.executeTool(
       'goal',

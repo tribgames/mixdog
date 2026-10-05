@@ -10,6 +10,38 @@ the Unreleased section is empty, and stamps it with the released version.
   failing with "posix_spawnp failed". A stale extra GitHub account stored by
   gh no longer makes a successful sign-in report "no account is signed in".
 
+- Browser Use and Computer Use no longer ask for approval before their first
+  call in a session, and `setup set_first_use_approval` is gone.
+
+- The tool approval card matches the cards stacked above the input: the
+  warning icon, title and tool share one line, the reason sits under it with
+  only the command, path or URL being approved (no folder row or argument
+  dump), and Deny sits quietly beside Allow.
+
+- New models pick up their abilities from the provider catalogs instead of
+  waiting for a release: mid-conversation effort changes on the ChatGPT
+  route, Fast mode and cache settings on the OpenAI API route, Fast mode on
+  Claude, and reasoning effort on xAI. GPT-6.1 Sol and Claude Sonnet 5.5 are
+  covered now, and the Fast toggle no longer appears on Claude models that
+  cannot use it.
+
+- Claude Sonnet 5.5 shows its notes between tool calls again, and Claude
+  Fable and Mythos models can use hosted web search.
+
+- The client version each provider expects is remembered between runs, so a
+  restart or an offline start no longer falls back to an old built-in value.
+
+- More "conversation too long" errors from GLM, Kimi, Qwen, MiniMax, xAI and
+  other backends now trigger compaction instead of ending the turn, and a
+  mid-reply Claude overload follows the same retry and fallback rules as one
+  at the start of a reply.
+
+- Notices and errors no longer stack above the input: slash-command
+  confirmations and microphone, attachment and command failures appear as
+  notifications, and voice download progress shows only on its Settings card.
+  Every error now reads the same way, without a boxed card, and local model
+  downloads show a full-width progress bar under their row.
+
 ## v1.0.8 - 2026-10-05
 
 - The macOS app is signed with a Developer ID certificate and notarized by

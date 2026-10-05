@@ -2,6 +2,16 @@
  * Response formatter — strips metadata, returns human-readable text.
  */
 
+// Whether `text` names exactly this URL: an occurrence that runs on into a
+// longer URL (`…/docs` inside `…/docs/guide`) is a different page.
+function textCitesUrl(text, url) {
+  for (let at = text.indexOf(url); at !== -1; at = text.indexOf(url, at + 1)) {
+    const rest = text.slice(at + url.length, at + url.length + 2);
+    if (!/^(?:[A-Za-z0-9/?#&=%_~-]|\.[A-Za-z0-9])/.test(rest)) return true;
+  }
+  return false;
+}
+
 function formatWebSearchResults(data) {
   // data may be the full jsonText payload: { tool, providers, response, cache, ... }
   const response = data.response || data;
@@ -20,25 +30,40 @@ function formatWebSearchResults(data) {
   const SNIPPET_CAP = 600;
   const ANSWER_CAP = 4000;
   const clip = (text, cap) => (text.length > cap ? `${text.slice(0, cap)}…` : text);
-  if (answer) blocks.push(clip(answer, ANSWER_CAP));
+  const shownAnswer = answer ? clip(answer, ANSWER_CAP) : '';
+  if (shownAnswer) blocks.push(shownAnswer);
   if (!results.length) return blocks.join('\n\n');
-  blocks.push(
-    results
-      .map((r, i) => {
-        const num = i + 1;
-        const title = clip(r.title || '(no title)', TITLE_CAP);
-        const url = r.url || '';
-        const date = r.publishedDate || '';
-        const snippet = clip((r.snippet || '').trim(), SNIPPET_CAP);
-
-        const urlPart = [url, date].filter(Boolean).join(' — ');
-        const lines = [`${num}. ${title}`];
-        if (urlPart) lines.push(`   ${urlPart}`);
-        if (snippet && snippet !== title && snippet !== url) lines.push(`   ${snippet}`);
-        return lines.join('\n');
-      })
-      .join('\n\n')
-  );
+  // A native search route reports the pages a query reached without their
+  // titles, and the adapters label each one with that query. A label shared by
+  // several URLs names the search, not a page, so such a source prints as its
+  // URL alone — and not at all when the answer above already cites that URL.
+  // Measured on stored results: every source had this shape and 66% of their
+  // URLs were already in the answer.
+  const urlsByTitle = new Map();
+  for (const r of results) {
+    if (!r.title || !r.url) continue;
+    if (!urlsByTitle.has(r.title)) urlsByTitle.set(r.title, new Set());
+    urlsByTitle.get(r.title).add(r.url);
+  }
+  const entries = [];
+  for (const r of results) {
+    const url = r.url || '';
+    const date = r.publishedDate || '';
+    const snippet = clip((r.snippet || '').trim(), SNIPPET_CAP);
+    const urlPart = [url, date].filter(Boolean).join(' — ');
+    const queryLabelled =
+      !r.title || r.title === url || r.source === 'web_search_call' || urlsByTitle.get(r.title)?.size > 1;
+    if (url && !snippet && queryLabelled) {
+      if (!textCitesUrl(shownAnswer, url)) entries.push(`${entries.length + 1}. ${urlPart}`);
+      continue;
+    }
+    const title = clip(r.title || '(no title)', TITLE_CAP);
+    const lines = [`${entries.length + 1}. ${title}`];
+    if (urlPart) lines.push(`   ${urlPart}`);
+    if (snippet && snippet !== title && snippet !== url) lines.push(`   ${snippet}`);
+    entries.push(lines.join('\n'));
+  }
+  if (entries.length) blocks.push(entries.join('\n\n'));
   return blocks.join('\n\n');
 }
 

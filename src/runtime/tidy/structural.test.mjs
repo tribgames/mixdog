@@ -17,7 +17,6 @@ import {
   resetStructuralProbeCache,
   resolveStructuralAdapter,
 } from './structural.mjs';
-import { ENGINE_IDS, enginesForLanguages } from './engines.mjs';
 import { graphBinaryPath } from '../agent/orchestrator/tools/code-graph/graph-binary.mjs';
 
 function workspace(t) {
@@ -138,8 +137,8 @@ test('rule-pack test cases are not loaded as rules', (t) => {
 
 test('mixdog-graph is the only structural engine: no binary is an explicit error', async (t) => {
   const root = workspace(t);
-  // No PATH lookup, no managed install, no ast-grep: there is nothing to fall
-  // back to, and the caller has to hear why instead of getting zero matches.
+  // No PATH lookup and no managed install: there is nothing to fall back to,
+  // and the caller has to hear why instead of getting zero matches.
   await assert.rejects(
     () => resolveStructuralAdapter({ cwd: root, graphBinPath: null }),
     (error) => {
@@ -150,8 +149,6 @@ test('mixdog-graph is the only structural engine: no binary is an explicit error
       return true;
     }
   );
-  assert.equal(ENGINE_IDS.includes('ast-grep'), false, 'ast-grep must be gone from the engine catalog');
-  assert.equal(enginesForLanguages(['javascript']).includes('ast-grep'), false);
 });
 
 test('rule groups follow the scan grammar, so tsx packs run for a typescript project', () => {

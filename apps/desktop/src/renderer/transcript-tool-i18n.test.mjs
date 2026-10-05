@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import i18n, { t } from './i18n';
 import { TOOL_DETAIL_LABELS, toolActivityFieldValue } from './transcript-tool-format.ts';
 import { CodeDiff } from './transcript-diff.tsx';
+import { desktopToolActivitySummary } from './transcript-tool-core.ts';
 
 i18n.addResourceBundle(
   'ko',
@@ -66,6 +67,24 @@ test('the per-file diff copy label is the interpolated catalog template', async 
     assert.ok(actual, markup);
     assert.equal(actual, t('Copy diff for {{value0}}', { value0: 'src/a.ts' }));
     assert.notEqual(actual, 'Copy diff for src/a.ts');
+  } finally {
+    await i18n.changeLanguage('en');
+  }
+});
+
+test('desktop tool activity summary translates to natural verb phrases in Korean', async () => {
+  const items = [
+    { kind: 'tool', id: 'read-1', name: 'read', args: { file_path: 'src/a.ts' } },
+    { kind: 'tool', id: 'grep-1', name: 'grep', args: { pattern: 'first' } },
+    { kind: 'tool', id: 'grep-2', name: 'grep', args: { pattern: 'second' } },
+    { kind: 'tool', id: 'bash-1', name: 'shell', args: { command: 'npm test' } },
+  ];
+  try {
+    await i18n.changeLanguage('en');
+    assert.equal(desktopToolActivitySummary(items), 'Read file · Search 2 patterns · Run command');
+
+    await i18n.changeLanguage('ko');
+    assert.equal(desktopToolActivitySummary(items), '파일 읽기 · 패턴 2개 검색 · 명령어 실행');
   } finally {
     await i18n.changeLanguage('en');
   }

@@ -77,7 +77,7 @@ const ANTHROPIC_SSE_ERROR_TYPE_STATUS = new Map([
   ['request_too_large', 413],
   ['rate_limit_error', 429],
   ['api_error', 500],
-  ['overloaded_error', 503],
+  ['overloaded_error', 529],
 ]);
 
 function _statusForAnthropicSseError(event, payload) {

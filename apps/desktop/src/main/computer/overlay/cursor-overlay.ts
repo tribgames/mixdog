@@ -21,6 +21,10 @@ import {
 import { createCursorTail } from './cursor-tail';
 import { computerUseCursorPresentations } from './model';
 
+const POINTER_WATCH_MS = 100;
+/** DIP of drift that is still the pointer the agent left behind. */
+const POINTER_MOVE_TOLERANCE = 2;
+
 export interface ComputerUseCursorOverlay {
   dispose(): void;
 }
@@ -60,13 +64,51 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
     arrivals.delete(sessionId);
   };
 
+  // While a foreground session thinks, its arrow stands in for the hidden real
+  // pointer. The real pointer moving means the user took the mouse.
+  const heldPointers = new Map<string, Electron.Point>();
+  let pointerWatch: ReturnType<typeof setInterval> | undefined;
+  const watchHeldPointers = (cursors: Array<{ sessionId: string; mode: string }>): void => {
+    const phases = new Map(latestSnapshot.activities.map((activity) => [activity.sessionId, activity.phase]));
+    const thinking = new Set(
+      cursors
+        .filter((cursor) => cursor.mode === 'foreground' && phases.get(cursor.sessionId) === 'thinking')
+        .map((cursor) => cursor.sessionId)
+    );
+    for (const sessionId of [...heldPointers.keys()]) if (!thinking.has(sessionId)) heldPointers.delete(sessionId);
+    for (const sessionId of thinking) {
+      if (!heldPointers.has(sessionId)) heldPointers.set(sessionId, screen.getCursorScreenPoint());
+    }
+    if (heldPointers.size === 0) {
+      if (pointerWatch) clearInterval(pointerWatch);
+      pointerWatch = undefined;
+      return;
+    }
+    if (pointerWatch) return;
+    pointerWatch = setInterval(() => {
+      const point = screen.getCursorScreenPoint();
+      for (const [sessionId, held] of [...heldPointers]) {
+        if (Math.abs(point.x - held.x) + Math.abs(point.y - held.y) <= POINTER_MOVE_TOLERANCE) continue;
+        heldPointers.delete(sessionId);
+        computerUseCoordinator.releasePointer(sessionId);
+      }
+    }, POINTER_WATCH_MS);
+    pointerWatch.unref?.();
+  };
+
   /** Bring every surface in step with the snapshot: sessions that left lose
    *  their window, hidden cursors keep a warm surface, new events render. */
   const render = (): void => {
     if (disposed) return;
-    const modes = new Map(latestSnapshot.activities.map((activity) => [activity.sessionId, activity.mode]));
+    const released = new Set(latestSnapshot.releasedPointerSessionIds ?? []);
+    const modes = new Map(
+      latestSnapshot.activities
+        .filter((activity) => !released.has(activity.sessionId))
+        .map((activity) => [activity.sessionId, activity.mode])
+    );
     const cursors = tail.update(computerUseCursorPresentations(latestSnapshot), presentationBlocked(), modes);
     visibleCursorEvents = new Map(cursors.map((cursor) => [cursor.sessionId, cursor.eventId]));
+    watchHeldPointers(cursors);
     const desired = new Set(cursors.map((cursor) => cursor.sessionId));
     if (!presentationBlocked()) {
       for (const activity of latestSnapshot.activities) {
@@ -127,6 +169,8 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      if (pointerWatch) clearInterval(pointerWatch);
+      heldPointers.clear();
       tail.dispose();
       unsubscribe();
       unbindPreparation();

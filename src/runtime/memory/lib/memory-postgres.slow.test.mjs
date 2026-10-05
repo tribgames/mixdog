@@ -31,17 +31,8 @@ test('isolated PostgreSQL covers fresh schema, legacy CORE conflicts, aliases an
   const { makeChunkQuality, assessChunkQuality } = await import('./memory-chunk-quality.mjs');
   const { createMemoryActionHandlers } = await import('./memory-action-handlers.mjs');
 
-  // A fresh store has no retired review column; destructive maintenance must
-  // still work against that schema. All work stays in this empty test cluster.
-  assert.equal(
-    (
-      await db.query(
-        `SELECT column_name FROM information_schema.columns
-         WHERE table_schema='memory' AND table_name='entries' AND column_name='cycle2_reviewed_at'`
-      )
-    ).rows.length,
-    0
-  );
+  // Destructive maintenance against a fresh store. All work stays in this
+  // empty test cluster.
   const { handleMemoryAction } = createMemoryActionHandlers({
     getDb: () => db,
     readMainConfig: () => ({}),
@@ -51,10 +42,6 @@ test('isolated PostgreSQL covers fresh schema, legacy CORE conflicts, aliases an
   const rebuilt = await handleMemoryAction({ action: 'rebuild', confirm: 'REBUILD MEMORY' });
   assert.notEqual(rebuilt.isError, true);
   assert.match(rebuilt.text, /embeddings=0/);
-
-  // Emulate an existing installation. Upgrade must neither drop the old
-  // column nor overwrite its historical values.
-  await db.exec('ALTER TABLE entries ADD COLUMN cycle2_reviewed_at bigint');
 
   // This index belongs to the freshly allocated test cluster, never a live DB.
   await db.exec('DROP INDEX core_entries_unique_proj_elem');
@@ -94,9 +81,8 @@ test('isolated PostgreSQL covers fresh schema, legacy CORE conflicts, aliases an
     roots.push({ ...row, chunk_root: row.id, chunk_quality: quality });
   }
   const [older, current, independent] = roots;
-  // Seed relationships left by an older installation; no reviewer is needed
-  // to keep using these aliases after upgrading.
-  await db.query('UPDATE entries SET duplicate_of=$1, cycle2_reviewed_at=999 WHERE id=$2', [current.id, older.id]);
+  // Seed stored relationships; recall keeps using these aliases.
+  await db.query('UPDATE entries SET duplicate_of=$1 WHERE id=$2', [current.id, older.id]);
   await db.query('UPDATE entries SET concept_id=$1, supersedes_id=$1 WHERE id=$2', [older.id, current.id]);
   await db.query('INSERT INTO entry_concepts(entry_id,concept_id,supersedes_id,created_at) VALUES ($1,$2,$2,999)', [
     current.id,
@@ -131,12 +117,6 @@ test('isolated PostgreSQL covers fresh schema, legacy CORE conflicts, aliases an
   db = await openDatabase(directory, 384, identity);
   assert.deepEqual((await db.query('SELECT id,summary FROM core_entries ORDER BY id')).rows, beforeCore);
   assert.equal(Number((await db.query('SELECT COUNT(*) AS count FROM entries')).rows[0].count), 3);
-  assert.equal(
-    Number(
-      (await db.query('SELECT cycle2_reviewed_at FROM entries WHERE id=$1', [older.id])).rows[0].cycle2_reviewed_at
-    ),
-    999
-  );
   assert.equal(
     Number((await db.query('SELECT duplicate_of FROM entries WHERE id=$1', [older.id])).rows[0].duplicate_of),
     Number(current.id)

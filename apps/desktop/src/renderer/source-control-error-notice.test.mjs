@@ -34,7 +34,6 @@ test('a behind-remote push renders concise guidance with collapsed Git details',
   assert.match(markup, /role="alert"/);
   assert.match(markup, /Push blocked/);
   assert.match(markup, /remote branch has newer commits/i);
-  assert.match(markup, /<details/);
   assert.match(markup, /Show details/);
   assert.doesNotMatch(markup, /Error invoking remote method/);
 });
@@ -47,7 +46,7 @@ test('short ordinary failures stay compact without redundant details', () => {
   );
   assert.match(markup, /Git action failed/);
   assert.match(markup, /Nothing to commit\./);
-  assert.doesNotMatch(markup, /<details/);
+  assert.doesNotMatch(markup, /Show details/);
 });
 
 test('authentication failures expose sign-in help without dumping transport noise', () => {

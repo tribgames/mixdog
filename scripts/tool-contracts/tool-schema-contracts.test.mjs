@@ -18,7 +18,6 @@ import { CODE_GRAPH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools
 import { PATCH_TOOL_DEFS } from '../../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../../src/runtime/memory/tool-defs.mjs';
 import { TOOL_DEFS as WEB_SEARCH_TOOL_DEFS } from '../../src/runtime/web-search/tool-defs.mjs';
-import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../../src/runtime/channels/tool-defs.mjs';
 import { assertCodeGraphDescriptionContract } from '../code-graph-description-contract.mjs';
 
 function assertHas(set, name) {
@@ -44,7 +43,7 @@ test('shell, edit, and task keep their execution contracts', () => {
     !/^Run programs, builds, tests and computation/i.test(shellDescription) ||
     !/Never use shell commands or scripts for work covered by dedicated tools/i.test(shellDescription) ||
     !/Tool names are not shell commands/i.test(shellDescription) ||
-    !/10s foreground window.*not a timeout/i.test(shellDescription) ||
+    !/15s foreground window.*not a timeout/i.test(shellDescription) ||
     !/use task wait, not read polling/i.test(shellDescription)
   ) {
     throw new Error(
@@ -99,12 +98,10 @@ test('shell, edit, and task keep their execution contracts', () => {
     throw new Error(`task description must prohibit unsolicited progress checks: ${publicTaskTool?.description || ''}`);
   }
   if (
+    JSON.stringify(Object.keys(publicTaskProps)) !== JSON.stringify(['task_id', 'action', 'timeout_ms', 'output']) ||
     JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'wait', 'cancel']) ||
     publicTaskProps.task_id?.minLength !== undefined ||
-    publicTaskProps.monitor_interval_ms ||
-    publicTaskProps.timeout_ms?.minimum !== 0 ||
-    publicTaskProps.after_ms ||
-    publicTaskProps.poll_ms
+    publicTaskProps.timeout_ms?.minimum !== 0
   ) {
     throw new Error('task schema must expose list/read/wait/cancel with a wait ceiling and no polling parameters');
   }
@@ -567,12 +564,9 @@ test('load_tool and Skill schemas stay pure loaders', () => {
     toolSearchNamesArraySchema?.minItems !== 1 ||
     toolSearchNamesArraySchema?.items?.minLength !== undefined ||
     TOOL_SEARCH_TOOL.inputSchema?.required?.join(',') !== 'names' ||
-    TOOL_SEARCH_TOOL.inputSchema?.properties?.select ||
     TOOL_SEARCH_TOOL.inputSchema?.additionalProperties !== false
   ) {
-    throw new Error(
-      'load_tool schema must require non-empty names[] as the only loader field (legacy select stays retired)'
-    );
+    throw new Error('load_tool schema must require non-empty names[] as the only loader field');
   }
   const skillNameSchema = SKILL_TOOL.inputSchema?.properties?.name;
   if (
@@ -759,9 +753,6 @@ function assertListLocatorSchema(listTool) {
 }
 
 test('grep, glob, find, and list schemas keep locator contracts', () => {
-  if (CHANNEL_TOOL_DEFS.some((tool) => tool.name === 'reply' || tool.name === 'fetch')) {
-    throw new Error('channel reply/fetch must stay removed from the model-facing surface');
-  }
   const grepTool = BUILTIN_TOOLS.find((tool) => tool.name === 'grep');
   const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
   const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');

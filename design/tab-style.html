@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>패널 탭 스타일 시안</title>
+<style>
+  :root {
+    --band: #151518;
+    --sheet: #1c1c1f;
+    --strip-c: #161619;
+    --text: #e9e9e9;
+    --muted: #a8a8a8;
+    --faint: #9b9b9b;
+    --border: rgba(255, 255, 255, 0.125);
+    --line: rgba(255, 255, 255, 0.07);
+    --page: #0e0e10;
+    --card: #2a2a2e;
+    --radius-md: 6px;
+    --accent: #8ab4f8;
+  }
+  body.light {
+    --band: #efeff2;
+    --sheet: #f8f8fb;
+    --strip-c: #ececf0;
+    --text: #242529;
+    --muted: #5c5c60;
+    --faint: #6a6a6e;
+    --border: rgba(23, 24, 26, 0.14);
+    --line: rgba(0, 0, 0, 0.08);
+    --page: #dcdce2;
+    --card: #ffffff;
+    --accent: #1967d2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 32px 60px; background: var(--page); color: var(--text);
+    font: 13px/1.5 "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  }
+  header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+  h1 { font-size: 18px; margin: 0; }
+  button.toggle {
+    border: 1px solid var(--border); background: var(--sheet); color: var(--text);
+    border-radius: 6px; padding: 4px 12px; cursor: pointer; font: inherit;
+  }
+  .variant { margin-bottom: 32px; }
+  .variant h2 { font-size: 14px; margin: 0 0 2px; }
+  .variant h2 .tag { color: #8ab4f8; font-size: 12px; font-weight: 600; margin-left: 6px; }
+  .variant p { margin: 0 0 10px; color: var(--muted); font-size: 12px; max-width: 1100px; }
+  .variant code { font-size: 11.5px; }
+
+  /* ---------- window (카드형 + 수치: 36 / 52 / 8 / 10) ---------- */
+  .win {
+    width: 1180px; height: 250px; background: var(--band);
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    display: grid; grid-template-rows: 36px 1fr;
+  }
+  .titlebar { display: flex; justify-content: flex-end; }
+  .titlebar span { width: 46px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+  .below { display: grid; grid-template-columns: 52px 1fr; min-height: 0; }
+  .rail { display: flex; flex-direction: column; align-items: center; padding-top: 4px; }
+  .rail i { width: 40px; height: 44px; display: grid; place-items: center; }
+  .rail i::before { content: ""; width: 18px; height: 18px; border: 1.6px solid var(--muted); border-radius: 5px; }
+  .content {
+    margin-top: 8px; border-top-left-radius: 10px; overflow: hidden;
+    border: 1px solid var(--line); border-right: 0; border-bottom: 0;
+    display: grid; grid-template-columns: 230px 1fr 1fr; background: var(--sheet);
+  }
+  .side { border-right: 1px solid var(--line); padding: 12px 14px; }
+  .side b { font-size: 14px; }
+  .pane { display: flex; flex-direction: column; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--line); }
+  .pane .body { flex: 1; padding: 18px 22px; }
+  .pane .body div {
+    height: 9px; border-radius: 5px; margin-bottom: 10px;
+    background: color-mix(in srgb, var(--text) 7%, transparent);
+  }
+
+  /* ---------- 공통 탭 ---------- */
+  .strip { display: flex; align-items: stretch; flex: none; height: var(--strip-h, 30px); }
+  .tab {
+    position: relative; isolation: isolate; display: flex; align-items: center; gap: 6px;
+    padding: 0 12px; white-space: nowrap; overflow: hidden;
+    color: var(--faint); font-size: 12px; font-weight: 600;
+    --pl: 2px; --pr: 2px; --pv: 5px;
+  }
+  .tab:first-child { --pl: 6px; }
+  .tab.active { color: var(--text); }
+  .tab .ico { width: 13px; height: 13px; flex: none; }
+  .tab .x { margin-left: auto; color: var(--muted); font-size: 11px; opacity: 0; }
+  .tab.active .x { opacity: 0.8; }
+  .new { width: 30px; display: grid; place-items: center; color: var(--muted); font-size: 16px; flex: none; }
+
+  /* 판(plate) 계열: 현재, a, b, a+b */
+  .plate .tab::before {
+    content: ""; position: absolute; z-index: -1;
+    top: var(--pv); bottom: var(--pv); left: var(--pl); right: var(--pr);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--text) 3%, transparent);
+  }
+  .plate .tab.active::before {
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
+  }
+  .plate .pane.focused .tab.active::before {
+    background: color-mix(in srgb, var(--text) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent);
+  }
+  body.light .plate .tab.active::before { background: var(--card); }
+
+  /* 현재: 고정 폭 */
+  .v-now .tab { width: 190px; }
+
+  /* a: 제목 길이에 맞는 폭 */
+  .v-a .tab { width: auto; max-width: 220px; padding-right: 10px; }
+  .v-a .tab .x { margin-left: 8px; }
+
+  /* b: 더 큰 판 (줄 36, 판 28) */
+  .v-b { --strip-h: 36px; }
+  .v-b .tab { width: 190px; --pv: 4px; font-size: 12.5px; }
+  .v-b .tab:first-child { --pl: 8px; }
+  .v-b .tab::before { border-radius: 8px !important; }
+
+  /* a+b */
+  .v-ab { --strip-h: 36px; }
+  .v-ab .tab { width: auto; max-width: 220px; --pv: 4px; padding: 0 10px 0 14px; font-size: 12.5px; }
+  .v-ab .tab:first-child { --pl: 8px; }
+  .v-ab .tab .x { margin-left: 8px; }
+  .v-ab .tab::before { border-radius: 8px !important; }
+
+  /* c: 아래 내용과 이어지는 탭 (Chrome) */
+  .v-c { --strip-h: 36px; }
+  .v-c .strip { background: var(--strip-c); padding: 6px 0 0 8px; height: 36px; }
+  .v-c .tab { width: 190px; border-radius: 9px 9px 0 0; padding: 0 12px; overflow: visible; }
+  .v-c .tab:not(.active) + .tab:not(.active)::before {
+    content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 1px; background: var(--border);
+  }
+  .v-c .tab.active { background: var(--sheet); }
+  .v-c .tab.active::before,
+  .v-c .tab.active::after {
+    content: ""; position: absolute; bottom: 0; width: 9px; height: 9px;
+  }
+  .v-c .tab.active::before { left: -9px; background: radial-gradient(circle at 0 0, transparent 8.5px, var(--sheet) 9px); }
+  .v-c .tab.active::after { right: -9px; background: radial-gradient(circle at 100% 0, transparent 8.5px, var(--sheet) 9px); }
+  .v-c .pane:not(.focused) .tab.active { color: var(--muted); }
+  .v-c .new { padding-bottom: 6px; }
+
+  /* d: 납작한 칸 + 밑줄 (VS Code/JetBrains) */
+  .v-d { --strip-h: 34px; }
+  .v-d .strip { border-bottom: 1px solid var(--line); }
+  .v-d .tab { width: 170px; border-right: 1px solid var(--line); }
+  .v-d .tab.active::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+    background: color-mix(in srgb, var(--text) 28%, transparent);
+  }
+  .v-d .pane.focused .tab.active::after { background: var(--text); }
+  .v-d .pane.focused .tab.active { background: color-mix(in srgb, var(--text) 4%, transparent); }
+
+  /* d-top: 납작한 칸 + 위쪽 줄. 선택 탭은 내용과 같은 색으로 아래 경계선을 끊고 이어짐 (VS Code) */
+  .v-dt { --strip-h: 34px; }
+  .v-dt .strip { background: var(--strip-c); box-shadow: inset 0 -1px 0 var(--line); }
+  .v-dt .tab { width: 170px; border-right: 1px solid var(--line); }
+  .v-dt .tab.active { background: var(--sheet); }
+  .v-dt .tab.active::after {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: color-mix(in srgb, var(--text) 22%, transparent);
+  }
+  .v-dt-neutral .pane.focused .tab.active::after { background: var(--text); }
+  .v-dt-accent .pane.focused .tab.active::after { background: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>패널 탭 스타일 시안</h1>
+  <button class="toggle" onclick="document.body.classList.toggle('light')">다크 / 라이트 전환</button>
+  <span style="color:var(--muted);font-size:12px">모두 카드형 + 수치(36 / 52 / 8 / 10) 레이아웃 위에 올렸습니다. 오른쪽 패널이 포커스, 왼쪽 패널은 탭 2개입니다.</span>
+</header>
+
+<div id="list"></div>
+
+<script>
+  const variants = [
+    { cls: 'plate v-now', title: '현재', note: '탭 줄 <code>30px</code>, 판 높이 <code>20px</code>, 고정 폭(약 <code>190px</code>). 포커스 판만 밝게(G안).' },
+    { cls: 'plate v-a', title: 'a. 제목 길이에 맞는 폭', note: '판 크기는 그대로, 폭만 제목 길이에 맞춥니다(최대 <code>220px</code>). (Arc, Linear)' },
+    { cls: 'plate v-b', title: 'b. 더 큰 판', note: '탭 줄 <code>36px</code>, 판 높이 <code>28px</code>, 모서리 <code>8px</code>. 폭은 고정 그대로. (Firefox)' },
+    { cls: 'plate v-ab', title: 'a+b. 제목 맞춤 폭 + 큰 판', tag: '추천', note: '지금 판 모양의 정체성은 유지하면서 빈 공간과 답답함을 함께 줄입니다.' },
+    { cls: 'v-c', title: 'c. 아래 내용과 이어지는 탭', note: '탭 줄을 한 단계 어둡게, 선택 탭은 내용과 같은 색으로 아래로 이어지고 밑단이 안쪽으로 휘어 들어갑니다. 포커스 안 된 패널의 선택 탭 글자만 한 단계 흐립니다. (Chrome)' },
+    { cls: 'v-d', title: 'd. 납작한 칸 + 밑줄', note: '판 없이 칸을 선으로 나누고, 선택 탭은 밑줄로 표시합니다. 포커스 패널은 밝은 밑줄, 나머지는 흐린 밑줄. (VS Code, JetBrains)' },
+    { cls: 'v-dt v-dt-neutral', title: 'd′. 납작한 칸 + 위쪽 줄 (중립)', tag: 'NEW', note: '칸 구조는 d와 같고, 선택 탭은 내용과 같은 색으로 아래 경계선을 끊고 이어집니다. 위쪽 <code>2px</code> 줄 — 포커스 패널은 밝은 글자색, 나머지는 흐린 회색.' },
+    { cls: 'v-dt v-dt-accent', title: 'd″. 납작한 칸 + 위쪽 줄 (파랑)', tag: 'NEW', note: 'd′와 같고 포커스 패널의 위쪽 줄만 파란색. VS Code 기본 테마(Dark Modern)와 같은 방식입니다.' },
+  ];
+
+  const icon = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z"/></svg>';
+  const tab = (label, active) => `<div class="tab${active ? ' active' : ''}">${icon}${label}<span class="x">✕</span></div>`;
+  const pane = (focused, tabs) => `
+    <div class="pane${focused ? ' focused' : ''}">
+      <div class="strip">${tabs.map(([l, a]) => tab(l, a)).join('')}<div class="new">+</div></div>
+      <div class="body"><div style="width:70%"></div><div style="width:55%"></div><div style="width:62%"></div></div>
+    </div>`;
+
+  const list = document.getElementById('list');
+  for (const v of variants) {
+    const section = document.createElement('section');
+    section.className = 'variant';
+    section.innerHTML = `
+      <h2>${v.title}${v.tag ? `<span class="tag">${v.tag}</span>` : ''}</h2>
+      <p>${v.note}</p>
+      <div class="win ${v.cls}">
+        <div class="titlebar"><span>─</span><span>☐</span><span>✕</span></div>
+        <div class="below">
+          <div class="rail"><i></i><i></i><i></i><i></i></div>
+          <div class="content">
+            <div class="side"><b>에이전트</b></div>
+            ${pane(false, [['새 작업', false], ['리뷰 요청 정리', true]])}
+            ${pane(true, [['새 작업', true]])}
+          </div>
+        </div>
+      </div>`;
+    list.appendChild(section);
+  }
+</script>
+</body>
+</html>

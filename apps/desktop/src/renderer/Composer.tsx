@@ -304,7 +304,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   // Reuse the same id when the exact restored payload is retried so daemon-side
   // idempotency acknowledges it instead of posting a duplicate user message.
   const submissionRetryRef = useRef<{ key: string; id: string } | null>(null);
-  const { notice: composerNotice, showNotice: showComposerNotice, clearNotice } = useComposerNotice();
+  const { showNotice: showComposerNotice, clearNotice } = useComposerNotice();
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -372,6 +372,13 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     submissionRecoveryVersion,
     dropTargetRef,
   });
+  // Attachment, slash-usage and submission failures surface as error toasts;
+  // the state is consumed so the same failure can raise a toast again.
+  useEffect(() => {
+    if (!attachmentError) return;
+    showComposerNotice(attachmentError, 'error');
+    setAttachmentError('');
+  }, [attachmentError, setAttachmentError, showComposerNotice]);
   useComposerExternalDraft({
     draftRef,
     setDraft,
@@ -589,8 +596,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     draftRef.current = value;
     setDraft(value);
     escapeClearAtRef.current = 0;
-    if (attachmentError) setAttachmentError('');
-    if (composerNotice) clearNotice();
+    clearNotice();
     setCaretOffset(event.currentTarget.selectionStart);
     if (slash.dismissed) slash.setDismissed('');
     if (mention.dismissed) mention.setDismissed('');
@@ -639,13 +645,9 @@ export const Composer = memo(function Composer(props: ComposerProps) {
         onRemove={(id) => void queue.discardQueued(id)}
       />
       <ComposerBanners
-        attachmentError={attachmentError}
-        notice={composerNotice}
         draggingFiles={draggingFiles}
         transitioning={transitioning}
         dropTarget={dropTargetRef.current}
-        onDismissAttachmentError={() => setAttachmentError('')}
-        onDismissNotice={() => showComposerNotice('')}
       />
       <form
         ref={paletteAnchor}

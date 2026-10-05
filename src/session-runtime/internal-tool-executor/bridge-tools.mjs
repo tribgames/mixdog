@@ -1,41 +1,22 @@
-// Browser Use and Computer Use: the environment kill switch, the once-per-
-// session first-use approval, then the bridge client.
+// Browser Use and Computer Use: the environment kill switch, then the bridge
+// client. Neither asks the user before a call.
 import { executeBrowserTool } from '../../runtime/browser-bridge/client.mjs';
 import { executeComputerTool } from '../../runtime/computer-bridge/client.mjs';
-import { createBridgeFirstUseGate } from '../bridge-first-use-gate.mjs';
 import { featureEnvOverride } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { createCallerContextResolvers } from './caller-context.mjs';
 
 export function createBridgeToolHandlers({ rt }) {
-  const bridgeFirstUseGate = createBridgeFirstUseGate({ getConfig: () => rt.config });
   const { sessionIdFor, signalFor } = createCallerContextResolvers(rt);
-
-  // Browser Use and Computer Use ask the user once per session before their
-  // first live call; the answer is the tool result when it is no.
-  const firstUseDenial = async (name, args, callerCtx, callerCwd) => {
-    const denial = await bridgeFirstUseGate({
-      name,
-      args,
-      cwd: callerCwd,
-      sessionId: sessionIdFor(callerCtx),
-      toolCallId: callerCtx?.toolCallId || null,
-      toolApprovalHook: callerCtx?.toolApprovalHook,
-      invocationSource: callerCtx?.invocationSource,
-    });
-    return denial ? { content: [{ type: 'text', text: denial }], isError: true } : null;
-  };
 
   const environmentDisabled = (callerCtx, feature) =>
     callerCtx?.invocationSource === 'model-tool' && featureEnvOverride(feature) === false;
 
   // `browser` and `browser_devtools` are one bridge; the tool name only
   // scopes which actions the validator admits.
-  const browser = async (args, { name, callerCtx, callerCwd }) => {
+  const browser = async (args, { name, callerCtx }) => {
     if (environmentDisabled(callerCtx, 'MIXDOG_FEATURE_BROWSER')) {
       throw new Error('the browser tool is disabled in this environment');
     }
-    const denied = await firstUseDenial(name, args, callerCtx, callerCwd);
-    if (denied) return denied;
     return await executeBrowserTool(args, {
       tool: name,
       sessionId: sessionIdFor(callerCtx),
@@ -44,12 +25,10 @@ export function createBridgeToolHandlers({ rt }) {
     });
   };
 
-  const computer = async (args, { name, callerCtx, callerCwd }) => {
+  const computer = async (args, { callerCtx, callerCwd }) => {
     if (environmentDisabled(callerCtx, 'MIXDOG_FEATURE_COMPUTER')) {
       throw new Error('the computer tool is disabled in this environment');
     }
-    const denied = await firstUseDenial(name, args, callerCtx, callerCwd);
-    if (denied) return denied;
     return await executeComputerTool(args, {
       sessionId: sessionIdFor(callerCtx),
       cwd: callerCwd,

@@ -55,26 +55,10 @@ async function withAutoBackgroundMs(ms, run) {
   }
 }
 
-test('shell rejects retired args and absorbs timeout edge values', () => {
-  for (const retired of [
-    'timeout',
-    'cwd',
-    'workdir',
-    'mode',
-    'shell',
-    'persistent',
-    'session_id',
-    'merge_stderr',
-    'run_in_background',
-    'monitor_interval_ms',
-  ]) {
-    const err = validateBuiltinArgs('shell', {
-      command: 'node --version',
-      [retired]: retired === 'mode' ? 'async' : true,
-    });
-    if (!/unsupported.*command, timeout_ms, and wait_ms/i.test(err || '')) {
-      throw new Error(`shell retired arg must be rejected (${retired}): ${err}`);
-    }
+test('shell names its supported args for an unsupported one and absorbs timeout edge values', () => {
+  const unsupportedErr = validateBuiltinArgs('shell', { command: 'node --version', verbose: true });
+  if (!/unsupported.*command, timeout_ms, and wait_ms/i.test(unsupportedErr || '')) {
+    throw new Error(`shell must reject an unsupported arg with the supported list: ${unsupportedErr}`);
   }
   const shellZeroTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: 0 });
   const shellNegativeTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: -1 });

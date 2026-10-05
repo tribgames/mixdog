@@ -214,19 +214,6 @@ test('tool module settings include memory model metadata even before activation'
   assert.deepEqual(state.prepared, []);
 });
 
-test('first-use approval for Browser Use and Computer Use persists per capability', async () => {
-  const state = fixture();
-  const off = await state.api.setBridgeFirstUseApproval('browser', false);
-  assert.equal(off.name, 'browser');
-  assert.equal(off.firstUseApproval, false);
-  assert.equal(state.config().builtins.browser.firstUseApproval, false);
-  // Computer keeps its default (on) until set on its own.
-  const on = await state.api.setBridgeFirstUseApproval('computer', true);
-  assert.equal(on.firstUseApproval, true);
-  assert.equal(state.config().builtins.computer.firstUseApproval, true);
-  await assert.rejects(state.api.setBridgeFirstUseApproval('office', false), /browser or computer/);
-});
-
 test('Local Provider prepares its runtime, persists provider activation, and refreshes models', async () => {
   const state = fixture();
   assert.deepEqual(state.api.getToolModuleSettings().localProvider, {

@@ -6,15 +6,11 @@ import {
 } from '../shared/common';
 import { screenshotInteger } from './analysis';
 import { createCaptureImageDedupStore } from './capture-image-dedup';
+import { awaitSettledLayout } from './capture-launch-layout';
 import type { createOcrCapturePreferenceStore } from '../input/capability-policy';
 import type { ComputerCommand } from '../shared/types';
 import type { CaptureEngineHost } from './capture';
 import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
-
-/** A launched window is listed before its content finishes laying out: Paint
- *  shows 89 accessible elements half a second in and 114 once settled. */
-const LAUNCH_LAYOUT_POLL_MS = 200;
-const LAUNCH_LAYOUT_BUDGET_MS = 2_000;
 
 /** An input addressed through a semantic ref is answered by the accessibility
  *  tree it acted through; pixel-targeted or untargeted input and OCR keep the
@@ -38,41 +34,6 @@ export function createCaptureAfter(
   /** Owned by the capture engine, which releases a session's entries with the session. */
   imageDedup = createCaptureImageDedupStore()
 ) {
-  /** The window's read-only accessible roles and names, or null when unreadable. */
-  async function layoutFingerprint(command: ComputerCommand, windowId: string): Promise<string | null> {
-    try {
-      const reply = await host.callPowerShell!({
-        action: 'window_predicates',
-        window_id: windowId,
-        session_id: host.sessionIdFor(command),
-        max_elements: 400,
-        read_only: true,
-      });
-      const elements = reply.ok ? reply.result?.elements : undefined;
-      if (!Array.isArray(elements)) return null;
-      return JSON.stringify(
-        elements.map((element: { role?: unknown; name?: unknown }) => [element.role, element.name])
-      );
-    } catch {
-      return null;
-    }
-  }
-
-  /** Wait, within a bound, until two reads of the launched window agree. The
-   *  reads never touch the session's refs, so the capture that follows is the
-   *  only observation the caller receives. */
-  async function awaitSettledLayout(command: ComputerCommand, windowId: string): Promise<void> {
-    const deadline = performance.now() + LAUNCH_LAYOUT_BUDGET_MS;
-    let previous = await layoutFingerprint(command, windowId);
-    while (previous !== null && performance.now() < deadline) {
-      await sleep(LAUNCH_LAYOUT_POLL_MS);
-      host.assertExecutionNotAborted();
-      const next = await layoutFingerprint(command, windowId);
-      if (next === null || next === previous) return;
-      previous = next;
-    }
-  }
-
   return async function captureAfterAction(
     command: ComputerCommand,
     windowId: string,
@@ -93,7 +54,7 @@ export function createCaptureAfter(
     }
     if (delayMs > 0) await sleep(delayMs);
     host.assertExecutionNotAborted();
-    if (command.action === 'launch' && host.callPowerShell) await awaitSettledLayout(command, windowId);
+    if (command.action === 'launch') await awaitSettledLayout(host, command, windowId);
     try {
       const ocrPreference = ocrPreferences.resolve(host.sessionIdFor(command), {
         includeOcr: command.capture_after_include_ocr,

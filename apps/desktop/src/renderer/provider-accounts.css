@@ -289,12 +289,11 @@
 .provider-accounts-notice,
 .provider-accounts-error {
   padding: 0 0 12px 32px;
+}
+.provider-accounts-notice {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
-}
-.provider-accounts-error {
-  color: var(--mx-danger);
 }
 .provider-accounts button:focus-visible {
   outline: 2px solid var(--mx-focus);

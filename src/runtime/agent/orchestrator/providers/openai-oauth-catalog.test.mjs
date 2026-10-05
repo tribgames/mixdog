@@ -19,16 +19,19 @@ const [
   { makeModelCache },
   { _normalizeCodexModel },
   {
+    codexModelSupportsEffortUpdates,
     codexModelSupportsServiceTier,
     ensureLatestCodexModel,
     findCachedCodexModel,
     listCodexModels,
     resolveLatestCodexModel,
   },
+  { effortConfigurationMode },
 ] = await Promise.all([
   import('./model-cache.mjs'),
   import('./openai-codex-model.mjs'),
   import('./openai-oauth-catalog.mjs'),
+  import('./effort-configuration.mjs'),
 ]);
 
 test.after(() => {
@@ -56,11 +59,11 @@ test('an empty catalog refreshes once and then fails loudly instead of guessing 
 test('a fresh cache serves the picker, the lookups and the default model without auth', async () => {
   const cached = [
     { slug: 'gpt-5.5', priority: 12, visibility: 'list', service_tiers: [{ id: 'priority', name: 'Fast' }] },
-    { slug: 'gpt-5.6-terra', priority: 7, visibility: 'list' },
-    { slug: 'gpt-reserve', priority: 1, visibility: 'hide' },
+    { slug: 'gpt-5.6-terra', priority: 7, visibility: 'list', supports_reasoning_effort_updates: true },
+    { slug: 'gpt-reserve', priority: 1, visibility: 'hide', supports_reasoning_effort_updates: false },
     { slug: 'gpt-5.6-mini', priority: 9, visibility: 'list', additional_speed_tiers: ['priority'] },
   ].map(_normalizeCodexModel);
-  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 5 });
+  const cache = makeModelCache({ fileName: 'openai-oauth-models.json', ttlMs: 60_000, version: 6 });
   assert.ok(
     resolve(cache.path()).startsWith(dataDir + sep),
     'the catalog cache must resolve inside the test sandbox before it is written'
@@ -83,6 +86,17 @@ test('a fresh cache serves the picker, the lookups and the default model without
   assert.equal(codexModelSupportsServiceTier('gpt-5.6-mini', 'priority'), true);
   assert.equal(codexModelSupportsServiceTier('gpt-5.6-terra', 'priority'), false);
   assert.equal(codexModelSupportsServiceTier('gpt-5.5', 'fast'), false);
+
+  // Effort updates follow the catalog flag on the OAuth route; a model the
+  // catalog does not describe, and the public API route, use the built-in list.
+  assert.equal(codexModelSupportsEffortUpdates('gpt-5.6-terra'), true);
+  assert.equal(codexModelSupportsEffortUpdates('gpt-reserve'), false);
+  assert.equal(codexModelSupportsEffortUpdates('gpt-5.5'), null);
+  assert.equal(effortConfigurationMode('openai-oauth', 'gpt-5.6-terra'), 'responses');
+  assert.equal(effortConfigurationMode('openai-oauth', 'gpt-reserve'), null);
+  assert.equal(effortConfigurationMode('openai-oauth', 'gpt-5.5'), null);
+  assert.equal(effortConfigurationMode('openai-oauth', 'gpt-6.1-sol'), 'responses');
+  assert.equal(effortConfigurationMode('openai', 'gpt-5.6-terra'), null);
 
   // The lowest-priority picker-visible entry wins; hidden entries never do.
   assert.equal(resolveLatestCodexModel(), 'gpt-5.6-terra');

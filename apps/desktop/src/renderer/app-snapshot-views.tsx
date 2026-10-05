@@ -21,7 +21,6 @@ import {
   desktopConversationShellSnapshotsEqual,
   desktopDockSnapshotsEqual,
   desktopHeaderSnapshotsEqual,
-  desktopRuntimeProgressSnapshotsEqual,
   desktopStreamingTailSnapshotsEqual,
   type DesktopSnapshotStore,
 } from './desktop-snapshot-store';
@@ -31,7 +30,6 @@ import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { useSessionLaneRead } from './use-session-lane-read';
 import { requestSessionRead } from './session-read-request';
 export { requestSessionRead } from './session-read-request';
-import { asRecord } from './text-format';
 import { t } from './i18n';
 import {
   conversationCoverBasis,
@@ -101,22 +99,6 @@ type PaneLaneProps = {
   hidden: boolean;
 };
 
-const PaneRuntimeProgress = memo(function PaneRuntimeProgress({ sessionId, hidden }: PaneLaneProps) {
-  const lane = useSessionLane(
-    sessionId,
-    defaultSessionLaneStore,
-    desktopRuntimeProgressSnapshotsEqual,
-    !hidden && Boolean(sessionId)
-  );
-  const snapshot = lane ?? EMPTY_SNAPSHOT;
-  const text = String(asRecord(snapshot.progressHint)?.text || '');
-  return !hidden && text ? (
-    <div className="runtime-progress" role="status">
-      {text}
-    </div>
-  ) : null;
-});
-
 const PaneAssistantRow = memo(function PaneAssistantRow({
   sessionId,
   hidden,
@@ -160,7 +142,7 @@ export const DraftConversation = memo(function DraftConversation({
 // its own lane and a draft reads only its local draft props.
 type PaneConversationProps = Omit<
   React.ComponentProps<typeof Conversation>,
-  'snapshot' | 'routeSnapshot' | 'renderAssistantRow' | 'runtimeProgressSlot' | 'transcriptPending'
+  'snapshot' | 'routeSnapshot' | 'renderAssistantRow' | 'transcriptPending'
 > & {
   focused: boolean;
   sessionId: string;
@@ -349,7 +331,6 @@ export const PaneConversation = memo(function PaneConversation({
         warmPaintHandoff={warmDraftHandoff}
         onEntryRevealed={onEntryRevealed}
         renderAssistantRow={(row) => <PaneAssistantRow {...row} sessionId={sessionId} hidden={hidden} />}
-        runtimeProgressSlot={<PaneRuntimeProgress sessionId={sessionId} hidden={hidden} />}
         {...props}
         submit={submit}
         goalIsland={<PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />}

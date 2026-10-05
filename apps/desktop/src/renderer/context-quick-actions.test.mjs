@@ -8,14 +8,13 @@ import { ContextUsageIndicator } from './transcript-status.tsx';
 import { ContextBody } from './ContextBody.tsx';
 import { t } from './i18n.ts';
 
-test('context detail no longer renders the cached-input explanation', () => {
+test('context detail renders the usage-by-category estimate', () => {
   const html = renderToStaticMarkup(
     React.createElement(ContextBody, {
       status: { sessionId: 'context', contextWindow: 1000 },
       snapshot: {},
     })
   );
-  assert.ok(!html.includes(t('Input includes cached tokens. Output appears in the next measured request.')));
   assert.ok(html.includes(t('Estimated usage by category')));
 });
 

@@ -137,7 +137,7 @@ test('explicit focus preparation is not immediately undone by recovery', async (
   assert.deepEqual(calls, ['input_recovery_state']);
 });
 
-test('only target or observed owner relationship counts as preserved foreground', async () => {
+test('only target or observed owner relationship counts as preserved foreground; a held session keeps what its action raised', async () => {
   for (const owned of [true, false]) {
     const resolver = createInputResolution({
       sessionIdFor: () => 'test',
@@ -146,10 +146,12 @@ test('only target or observed owner relationship counts as preserved foreground'
         result: { ...state, foreground_window_id: 'hwnd:0x999', foreground_within_target: owned },
       }),
     });
-    // More input follows in the same sequence, so focus stays with the target.
+    // The session holds the desktop: an unrelated window its action raised is
+    // not a cleanup failure, but it is never reported as the preserved target.
     const result = await resolver.verifyInputRecovery({ action: 'click' }, 'hwnd:0x1', original, {}, {}, true);
-    assert.equal(result.ok, owned);
+    assert.equal(result.ok, true);
     assert.equal(result.focus_preserved_for_followup, owned);
+    assert.equal(result.focus_moved_by_action, owned ? undefined : true);
   }
 });
 
@@ -381,7 +383,7 @@ test('closed-dialog recovery still rejects observer loss and intervening user in
 test('a foreground launcher click may hand focus to its OS-confirmed child process without declaring cleanup failure', async () => {
   for (const [change, expected, code] of [
     [{ foreground_child_process: true }, true, undefined],
-    [{ foreground_child_process: false }, false, undefined],
+    [{ foreground_child_process: false }, true, undefined],
     [{ foreground_child_process: true, input_user_sequence: 1 }, false, 'user_input_active'],
     [{ foreground_child_process: true, input_monitor_id: 'replacement' }, false, 'input_observation_unavailable'],
   ]) {

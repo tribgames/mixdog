@@ -166,9 +166,9 @@ GNOME with the Window Calls extension); prefer accessibility refs there.
    `mouse_down` holds a button past the end of its command and is
    background-only; pair it with `mouse_up` on a fresh observation.
    `key_down` holds a key the same way and is foreground-only, because no window
-   message can leave a key physically down; pair it with `key_up`. Any session
-   exit releases what the session pressed, and a failed release is reported
-   rather than assumed.
+   message can leave a key physically down; pair it with `key_up`. The end of
+   the turn, like any session exit, releases what the session pressed, and a
+   failed release is reported rather than assumed.
    Execution stops at the first failure or when the target transitions
    (popup, dialog, window change) and returns one fresh observation. An act
    whose first action uses a `ref` returns accessibility only (`ax`) unless

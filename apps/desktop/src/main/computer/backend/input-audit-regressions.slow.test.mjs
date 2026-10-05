@@ -351,7 +351,7 @@ public static class MixWin32 {
 }
 public static class MixInputObservation { public static Evidence Read() { return new Evidence(); } }
 '@
-function Get-CurrentSession { return @{ OriginalFocus = [IntPtr]2; LastFocus = [IntPtr]1 } }
+function Get-CurrentSession { return @{ LastFocus = [IntPtr]1 } }
 function Resolve-WindowInfo($title, $id) {
   if (-not [MixWin32]::TargetExists) { throw 'window_id is stale or invalid' }
   return @{ Handle = [IntPtr]1 }
@@ -738,13 +738,12 @@ public static class MixWin32 {
   public static void NoteInjection() {}
 }
 '@
-foreach ($name in @('Invoke-ForegroundInput','New-ActionResult','Acquire-CursorTheme')) { . (Import-InputFunction $name) }
+foreach ($name in @('Invoke-ForegroundInput','Get-ForegroundRefusal','New-ActionResult','Clear-ExpiredCursorTheme','Acquire-CursorTheme')) { . (Import-InputFunction $name) }
 function Wait-UserInputIdle { return 0 }
 # Keyboard feedback reads the target's focus before any key lands; the drift
 # under test happens later, so the fixture answers it without a real window.
 function Test-FocusMasked { return $false }
 function Assert-ExecutionAuthorization($request,$handle) {}
-function Remember-FocusOrigin($state,$previous,$target) {}
 $script:state=@{LastFocus=[IntPtr]::Zero}
 function Get-CurrentSession { return $script:state }
 $script:CurrentRequest=@{action='type';window_id='hwnd:0x1';delivery='foreground'}

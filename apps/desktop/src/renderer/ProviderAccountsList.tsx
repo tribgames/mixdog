@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { DesktopCapability } from '../shared/contract';
+import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { record } from './record-utils';
 import {
@@ -453,11 +454,7 @@ export function ProviderAccountsList({
           );
         })}
       </ol>
-      {error && (
-        <div className="provider-accounts-error" role="alert">
-          {t(error)}
-        </div>
-      )}
+      {error && <ErrorNotice error={t(error)} className="provider-accounts-error" />}
     </section>
   );
 }

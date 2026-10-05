@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>사이드레일·상단 여백 시안</title>
+<style>
+  :root {
+    --band: #151518;
+    --sheet: #1c1c1f;
+    --text: #e9e9e9;
+    --muted: #a8a8a8;
+    --faint: #9b9b9b;
+    --border: rgba(255, 255, 255, 0.125);
+    --line: rgba(255, 255, 255, 0.07);
+    --page: #0e0e10;
+    --card: #2a2a2e;
+  }
+  body.light {
+    --band: #efeff2;
+    --sheet: #f8f8fb;
+    --text: #242529;
+    --muted: #5c5c60;
+    --faint: #6a6a6e;
+    --border: rgba(23, 24, 26, 0.14);
+    --line: rgba(0, 0, 0, 0.08);
+    --page: #dcdce2;
+    --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 32px 60px; background: var(--page); color: var(--text);
+    font: 13px/1.5 "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  }
+  header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+  h1 { font-size: 18px; margin: 0; }
+  button.toggle {
+    border: 1px solid var(--border); background: var(--sheet); color: var(--text);
+    border-radius: 6px; padding: 4px 12px; cursor: pointer; font: inherit;
+  }
+  .variant { margin-bottom: 36px; }
+  .variant h2 { font-size: 14px; margin: 0 0 2px; }
+  .variant h2 .tag { color: #8ab4f8; font-size: 12px; font-weight: 600; margin-left: 6px; }
+  .variant p { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+  .variant code { font-size: 11.5px; }
+
+  /* ---------- window ---------- */
+  .win {
+    --tb: 35px; --rail: 48px; --gap: 0px; --radius: 0px;
+    width: 1180px; height: 560px; background: var(--band);
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    display: grid; grid-template-rows: var(--tb) 1fr; position: relative;
+  }
+  .titlebar { display: flex; justify-content: flex-end; align-items: stretch; }
+  .titlebar span {
+    width: 46px; display: grid; place-items: center; color: var(--muted); font-size: 12px;
+  }
+  .below { display: grid; grid-template-columns: var(--rail) 1fr; min-height: 0; }
+  .rail {
+    display: flex; flex-direction: column; align-items: center; padding-top: 4px;
+    border-right: 1px solid var(--line);
+  }
+  .win.card .rail { border-right: 0; }
+  .rail i {
+    width: 40px; height: 44px; display: grid; place-items: center; flex: none;
+  }
+  .rail i::before {
+    content: ""; width: 18px; height: 18px; border: 1.6px solid var(--muted); border-radius: 5px;
+  }
+  .rail i.on { position: relative; }
+  .rail i.on::after {
+    content: ""; position: absolute; inset: 4px 2px; border-radius: 8px;
+    background: color-mix(in srgb, var(--text) 11%, transparent); z-index: 0;
+  }
+  .rail .grow { flex: 1; }
+
+  .content {
+    display: grid; grid-template-columns: 250px 1fr 1fr; min-height: 0;
+    background: var(--sheet); border-top: 1px solid var(--line);
+  }
+  .win.card .content {
+    margin-top: var(--gap);
+    border-top-left-radius: var(--radius);
+    border: 1px solid var(--line); border-right: 0; border-bottom: 0;
+    overflow: hidden;
+  }
+  .side { border-right: 1px solid var(--line); padding: 14px 14px; }
+  .side b { font-size: 14px; }
+  .side .empty { margin-top: 140px; text-align: center; color: var(--muted); font-size: 12px; }
+  .pane { display: flex; flex-direction: column; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--line); }
+  .strip { height: 30px; display: flex; align-items: stretch; flex: none; }
+  .tab {
+    position: relative; isolation: isolate; width: 170px; padding: 0 12px;
+    display: flex; align-items: center; gap: 6px; color: var(--text);
+    font-size: 12px; font-weight: 600; --pl: 6px;
+  }
+  .tab::before {
+    content: ""; position: absolute; z-index: -1; top: 5px; bottom: 5px; left: var(--pl); right: 2px;
+    border-radius: 6px; background: color-mix(in srgb, var(--text) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
+  }
+  .pane.focused .tab::before {
+    background: color-mix(in srgb, var(--text) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent);
+  }
+  body.light .tab::before { background: var(--card); }
+  .new { width: 28px; display: grid; place-items: center; color: var(--muted); font-size: 16px; }
+  .pane .body { flex: 1; display: grid; place-items: center; }
+  .pane .logo {
+    width: 120px; height: 120px; border-radius: 50%;
+    border: 16px solid color-mix(in srgb, var(--text) 9%, transparent);
+  }
+  .pane .composer {
+    margin: 0 18px 14px; height: 84px; border-radius: 14px; background: var(--card);
+    padding: 12px 16px; color: var(--muted); font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>사이드레일·상단 여백 시안</h1>
+  <button class="toggle" onclick="document.body.classList.toggle('light')">다크 / 라이트 전환</button>
+  <span style="color:var(--muted);font-size:12px">모두 실제 크기(1180×560)입니다. 오른쪽 패널이 포커스된 상태입니다.</span>
+</header>
+
+<div id="list"></div>
+
+<script>
+  const variants = [
+    {
+      title: '현재', tag: '',
+      note: '타이틀바 <code>35px</code>, 레일 <code>48px</code>. 내용 영역이 타이틀바·레일에 1px 선으로 바로 붙어 있습니다.',
+      style: '--tb:35px; --rail:48px;', card: false,
+    },
+    {
+      title: '② 수치만 넓히기', tag: '',
+      note: '타이틀바 <code>40px</code>, 레일 <code>52px</code>. 구조는 그대로입니다.',
+      style: '--tb:40px; --rail:52px;', card: false,
+    },
+    {
+      title: '① 카드형', tag: '',
+      note: '수치는 현재 그대로(<code>35px</code> / <code>48px</code>). 내용 영역을 타이틀바에서 <code>8px</code> 띄우고 왼쪽 위 모서리를 <code>10px</code> 둥글게 해서 카드처럼 띄웁니다.',
+      style: '--tb:35px; --rail:48px; --gap:8px; --radius:10px;', card: true,
+    },
+    {
+      title: '①+② 카드형 + 수치', tag: '추천',
+      note: '타이틀바 <code>36px</code>, 레일 <code>52px</code>, 카드 간격 <code>8px</code>, 모서리 <code>10px</code>. ChatGPT 데스크톱 앱과 가장 비슷한 비율입니다.',
+      style: '--tb:36px; --rail:52px; --gap:8px; --radius:10px;', card: true,
+    },
+  ];
+
+  const pane = (focused) => `
+    <div class="pane${focused ? ' focused' : ''}">
+      <div class="strip"><div class="tab">💬 새 작업</div><div class="new">+</div></div>
+      <div class="body"><div class="logo"></div></div>
+      <div class="composer">무엇이든 물어보세요...</div>
+    </div>`;
+
+  const list = document.getElementById('list');
+  for (const v of variants) {
+    const section = document.createElement('section');
+    section.className = 'variant';
+    section.innerHTML = `
+      <h2>${v.title}${v.tag ? `<span class="tag">${v.tag}</span>` : ''}</h2>
+      <p>${v.note}</p>
+      <div class="win${v.card ? ' card' : ''}" style="${v.style}">
+        <div class="titlebar"><span>─</span><span>☐</span><span>✕</span></div>
+        <div class="below">
+          <div class="rail">
+            <i></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i>
+            <div class="grow"></div><i></i><i></i>
+          </div>
+          <div class="content">
+            <div class="side"><b>에이전트</b><div class="empty">실행 중인 에이전트가 없습니다.</div></div>
+            ${pane(false)}${pane(true)}
+          </div>
+        </div>
+      </div>`;
+    list.appendChild(section);
+  }
+</script>
+</body>
+</html>

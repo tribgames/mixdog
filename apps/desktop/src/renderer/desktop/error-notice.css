@@ -1,14 +1,14 @@
-/* Compact, bounded error surfaces shared by panes, forms and notifications. */
+/* The ONE error surface (user: 에러는 다 통일): panes, forms, settings rows and
+   toasts all paint the same unboxed line — red mark, one or two lines of copy,
+   quiet text actions aligned under the copy. No card, no fill, no border. */
 .error-notice {
+  --error-notice-indent: 23px;
   min-width: 0;
   max-width: 100%;
   display: grid;
-  gap: 6px;
-  padding: 8px 10px;
-  border: var(--mx-hairline) solid var(--mx-border);
-  border-radius: var(--mx-radius-md);
+  gap: 4px;
+  padding: 0;
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-ui);
 }
@@ -54,25 +54,29 @@
 }
 .error-notice .error-notice-recovery {
   margin: 0;
+  padding-left: var(--error-notice-indent);
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
   overflow-wrap: anywhere;
 }
 .error-notice-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
+  justify-content: flex-start;
+  gap: 2px;
+  margin-left: calc(var(--error-notice-indent) - 5px);
 }
 .error-notice button {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  min-height: 26px;
-  padding: 2px 6px;
+  min-height: 22px;
+  padding: 0 5px;
   border: 0;
   border-radius: var(--mx-radius-sm);
-  color: var(--mx-text-soft);
+  color: var(--mx-text-muted);
   background: transparent;
+  font-size: var(--mx-font-meta);
   cursor: pointer;
 }
 .error-notice button:hover:not(:disabled) {
@@ -93,6 +97,7 @@
 .error-notice-details {
   min-width: 0;
   max-height: 220px;
+  padding-left: var(--error-notice-indent);
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -110,9 +115,6 @@
 }
 .mx-toast > .error-notice {
   width: 100%;
-  border: 0;
-  padding: 0;
-  background: transparent;
 }
 .mx-toast:has(> .error-notice) {
   display: block;

@@ -179,7 +179,7 @@ test('desktop registration identity reaches the daemon lifecycle callback', asyn
   }
 });
 
-test('revision 0 clients keep read compatibility without retired channel mutations', async () => {
+test('revision 0 clients keep read compatibility', async () => {
   const calls = [];
   const service = createSessionService({
     createSessionRuntime: async () =>
@@ -209,18 +209,6 @@ test('revision 0 clients keep read compatibility without retired channel mutatio
     );
     assert.deepEqual(models.value, ['model-a']);
     assert.deepEqual(calls, [['listProviderModels']]);
-    await assert.rejects(
-      service.handleCall(
-        'session.configure',
-        {
-          sessionId: created.sessionId,
-          action: 'setBackend',
-          args: ['discord'],
-        },
-        ctx
-      ),
-      /session action setBackend is unavailable/
-    );
   } finally {
     await service.stop('test end');
   }

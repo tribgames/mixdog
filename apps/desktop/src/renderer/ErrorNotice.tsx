@@ -34,6 +34,7 @@ export function ErrorNotice({
   errors,
   count,
   title,
+  summary: summaryOverride,
   className = '',
   onRetry,
   retryDisabled = false,
@@ -45,6 +46,9 @@ export function ErrorNotice({
   errors?: readonly unknown[];
   count?: number;
   title?: string;
+  /** Caller-classified headline (e.g. Git failures); replaces the generic
+   *  summary and recovery while the raw error still backs "Show details". */
+  summary?: string;
   className?: string;
   onRetry?: () => void;
   retryDisabled?: boolean;
@@ -57,7 +61,8 @@ export function ErrorNotice({
   if (!reasons.length) return null;
   const latest = describeError(reasons.at(-1));
   const total = count ?? reasons.length;
-  const summary = localizeErrorCopy(latest.summary);
+  const summary = summaryOverride || localizeErrorCopy(latest.summary);
+  const recovery = summaryOverride ? '' : latest.recovery;
   const details = reasons
     .slice(-50)
     .map((reason) => describeError(reason).details)
@@ -83,7 +88,7 @@ export function ErrorNotice({
           </button>
         )}
       </div>
-      {latest.recovery && <p className="error-notice-recovery">{localizeErrorCopy(latest.recovery)}</p>}
+      {recovery && <p className="error-notice-recovery">{localizeErrorCopy(recovery)}</p>}
       {(hasDetails || onRetry || action || verificationUrl) && (
         <div className="error-notice-actions">
           {hasDetails && (

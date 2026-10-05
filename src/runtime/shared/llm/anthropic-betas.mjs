@@ -1,5 +1,6 @@
 import { EFFORT_BETA_HEADER } from './anthropic-effort.mjs';
 import { normalizeClaudeModelId } from './anthropic-thinking-contract.mjs';
+import { getModelMetadataSync } from './model-catalog.mjs';
 
 const EXTENDED_CACHE_TTL_BETA_HEADER = 'extended-cache-ttl-2025-04-11';
 const INTERLEAVED_THINKING_BETA_HEADER = 'interleaved-thinking-2025-05-14';
@@ -10,9 +11,14 @@ export const SERVER_SIDE_FALLBACK_BETA_HEADER = 'server-side-fallback-2026-07-01
 
 // Fast mode ships on Opus 5.5, Opus 5 and Opus 4.8 only. Opus 4.7 rejects
 // `speed: "fast"` and Opus 4.6 silently runs at standard speed.
+const KNOWN_FAST_MODE_MODELS = /^claude-opus-(?:4-8|5)(?:$|[-@])/;
+
+// The id pattern is the offline floor. A model the pricing catalog declares
+// Fast-capable is accepted too, so a later release needs no edit here.
 export function supportsAnthropicFastMode(model) {
   const id = normalizeClaudeModelId(model);
-  return /^claude-opus-(?:4-8|5)(?:$|[-@])/.test(id);
+  if (!id) return false;
+  return KNOWN_FAST_MODE_MODELS.test(id) || getModelMetadataSync(id, 'anthropic')?.supportsFastMode === true;
 }
 
 export function buildAnthropicBetaHeaders({

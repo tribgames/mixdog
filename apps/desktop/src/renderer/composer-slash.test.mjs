@@ -27,6 +27,11 @@ test('the composer offers only frequent commands and preserves direct command ex
   const { desktopComposerSlashCommands, resolveDesktopSlashCommand } = await import('./slash-commands.ts');
   const expected = ['/new', '/model', '/compact', '/context', '/goal', '/inherit', '/doctor', '/fast'];
   const calls = [];
+  // Composer notices and errors leave through the toast lane, not the DOM
+  // above the input.
+  const toasts = [];
+  window.addEventListener('mixdog:desktop-toast', (event) => toasts.push(event.detail.text));
+  const toastText = () => toasts.join('\n');
   window.mixdogDesktop = {
     invokeCapability: async (request) => {
       if (request.capability === 'getVoiceStatus') return { value: { installed: false } };
@@ -216,13 +221,13 @@ test('the composer offers only frequent commands and preserves direct command ex
     await type('/not-a-command');
     await key('Enter');
     assert.equal(input.value, '/not-a-command');
-    assert.match(document.body.textContent, /Unknown command: \/not-a-command/);
+    assert.match(toastText(), /Unknown command: \/not-a-command/);
     assert.deepEqual(calls, []);
 
     await type('draft to keep');
     await key('Escape');
     assert.equal(input.value, 'draft to keep');
-    assert.match(document.body.textContent, /Esc again to clear/);
+    assert.match(toastText(), /Esc again to clear/);
     await key('Escape');
     assert.equal(input.value, '');
     assert.deepEqual(calls, []);
@@ -239,7 +244,7 @@ test('the composer offers only frequent commands and preserves direct command ex
     await type('/new');
     await key('Enter');
     assert.equal(input.value, '/new');
-    assert.match(document.body.textContent, /Wait for the current turn to finish/);
+    assert.match(toastText(), /Wait for the current turn to finish/);
     assert.deepEqual(calls, []);
 
     await act(async () => root.render(React.createElement(Composer, { ...props, transitioning: true })));

@@ -308,21 +308,19 @@ export function MarkdownLink({
   ) : (
     children
   );
+  // An automatic mention whose lookup failed names no file the app can open:
+  // it falls back to its original text, with no icon, link ink or click.
+  if (verify && local && link.missing) return <span className="markdown-path-missing">{children}</span>;
   // Paint the final icon and caption on the FIRST render. File verification
-  // only enables clicking; missing/planned files keep the same inert geometry.
-  // A healed explicit link may preview a path caption, never open its partial
-  // destination. Empty/sanitized hrefs remain noninteractive as well.
+  // only enables clicking; a mention still being verified keeps the same inert
+  // geometry. A healed explicit link may preview a path caption, never open its
+  // partial destination. Empty/sanitized hrefs remain noninteractive as well.
   if (!raw || (verify && local && !link.verified)) {
-    // A mention whose lookup failed may name a file written since, or one
-    // outside every Project: a click looks again, then opens or explains.
-    const retry = Boolean(raw) && link.missing;
     return (
       <span
         className={[linkClass, 'markdown-link-pending'].filter(Boolean).join(' ')}
         title={title || link.title}
-        role={retry ? 'link' : undefined}
-        aria-disabled={retry ? undefined : 'true'}
-        onClick={retry ? () => void link.open() : undefined}
+        aria-disabled="true"
       >
         {label}
       </span>

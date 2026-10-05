@@ -33,7 +33,9 @@ pub struct Shared {
     own_until: AtomicU64,
 }
 
+// Only the Linux and macOS input observers feed the ledger.
 impl Shared {
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
     pub fn record(&self, own: bool) {
         let tick = now_ms();
         let mut ledger = self
@@ -50,10 +52,12 @@ impl Shared {
     }
     /// For sources that only see when input happened: input inside the
     /// window this process marked as its own is attributed to it.
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
     pub fn record_untagged(&self, at_ms: u64) {
         let own = at_ms <= self.own_until.load(Ordering::SeqCst);
         self.record(own);
     }
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
     pub fn set_ready(&self, ready: bool) {
         self.ready.store(ready, Ordering::SeqCst);
     }

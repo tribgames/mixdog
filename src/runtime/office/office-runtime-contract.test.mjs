@@ -151,9 +151,9 @@ test('a delimited file reports the rows that break its shape, under its own name
   value(await executeOfficeTool({ action: 'close', session: numeric.session }, { cwd }));
 });
 
-test('removed mutation actions remain rejected', async (t) => {
+test('finalize without a review saves and closes a created file', async (t) => {
   const cwd = await workspace(t);
-  const path = join(cwd, 'removed-actions.csv');
+  const path = join(cwd, 'finalize-defaults.csv');
   const created = value(
     await executeOfficeTool(
       {
@@ -174,17 +174,6 @@ test('removed mutation actions remain rejected', async (t) => {
       { cwd }
     )
   );
-  for (const removed of ['set', 'add', 'remove', 'move']) {
-    const rejected = await executeOfficeTool(
-      {
-        action: removed,
-        session: created.session,
-      },
-      { cwd }
-    );
-    assert.equal(rejected.isError, true);
-    assert.match(rejected.content[0].text, /Unsupported Office Use action/);
-  }
   const finalized = value(
     await executeOfficeTool(
       {

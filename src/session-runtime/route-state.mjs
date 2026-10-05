@@ -5,6 +5,7 @@ import { clean, hasOwn } from '../runtime/agent/orchestrator/runtime-core/sessio
 import { coerceEffortFor } from '../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { fastCapableFor } from '../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
 import { providerCachedModelMetadataSync } from '../runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
+import { contextWindowRange } from '../runtime/shared/llm/default-context-window.mjs';
 
 export function resolveRouteEffortState(targetRoute = {}, modelMeta = null) {
   const requested = hasOwn(targetRoute, 'effort') ? targetRoute.effort : targetRoute.preset?.effort || null;
@@ -49,8 +50,11 @@ export function resolveRouteContextState(targetRoute = {}, modelMeta = null, win
     Number(modelMeta?.contextWindow) > 0 || Number(modelMeta?.maxContextWindow) > 0
       ? modelMeta
       : windowLookup?.(clean(targetRoute?.provider), clean(targetRoute?.model)) || modelMeta;
-  const defaultWindow = Math.max(0, Number(windowMeta?.contextWindow) || 0);
-  const maxWindow = Math.max(defaultWindow, Number(windowMeta?.maxContextWindow) || 0);
+  const { defaultWindow, maxWindow } = contextWindowRange({
+    provider: clean(targetRoute?.provider),
+    contextWindow: windowMeta?.contextWindow,
+    maxContextWindow: windowMeta?.maxContextWindow,
+  });
   if (!maxWindow) {
     return { contextPercent: undefined, contextDefaultPercent: undefined, selectedContextWindow: undefined };
   }

@@ -287,7 +287,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
         };
       }
     );
-    assert.equal(readableText(f.dom.window.document.querySelector('p')), 'See mixdog-refs-9a64/ or refs/.');
+    assert.equal(readableText(f.dom.window.document.querySelector('p')), 'See mixdog-refs-9a64/ or C:\\missing\\refs.');
     assert.deepEqual(f.labels(), ['mixdog-refs-9a64/']);
     assert.equal(f.links()[0].querySelector('.seti-icon'), null);
     await f.click(0);
@@ -692,7 +692,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.deepEqual(f.opened, [[PROJECT, 'scripts/Dockerfile', undefined]]);
   });
 
-  test(`${pipeline}: planned, missing and ambiguous mentions stay inert without removing their first-paint icons`, async (t) => {
+  test(`${pipeline}: planned, missing and ambiguous mentions fall back to their original text`, async (t) => {
     const f = await mount(
       t,
       render,
@@ -707,38 +707,21 @@ for (const [pipeline, render] of Object.entries(renderers)) {
         })
     );
     assert.equal(f.links().length, 0);
-    assert.deepEqual([...f.dom.window.document.querySelectorAll('p')].map(readableText), [
+    const document = f.dom.window.document;
+    assert.deepEqual([...document.querySelectorAll('p')].map((p) => p.textContent), [
       '스펙 문서(special_offer_server_spec.md)를 작성하겠습니다.',
-      'See planned.md:12, missing.ts, dup.ts, missing/ and missing-folder/.',
+      'See docs/planned.md (line 12), missing.ts, dup.ts, missing/ and missing-folder/.',
     ]);
-    const pending = [...f.dom.window.document.querySelectorAll('.markdown-link-pending')];
-    assert.deepEqual(pending.map(readableText), [
-      'special_offer_server_spec.md',
-      'planned.md:12',
-      'missing.ts',
-      'dup.ts',
-      'missing/',
-      'missing-folder/',
-    ]);
-    assert.equal(pending.filter((item) => item.querySelector('.seti-icon')).length, 4);
-    for (const item of pending) {
-      assert.equal(item.getAttribute('aria-disabled'), null);
+    assert.equal(document.querySelectorAll('.markdown-link-pending, .seti-icon').length, 0);
+    const missing = [...document.querySelectorAll('.markdown-path-missing')];
+    assert.equal(missing.length, 6);
+    // Inline code mentions keep their code formatting.
+    assert.equal(missing.filter((item) => item.querySelector('code')).length, 4);
+    for (const item of missing) {
       await act(async () => item.dispatchEvent(new f.dom.window.MouseEvent('click', { bubbles: true })));
     }
-    // A click looks again and explains why nothing opened.
-    assert.equal(f.toasts.length, pending.length);
-    assert.equal(f.opened.length + f.local.length + f.popups.length, 0);
-  });
-
-  test(`${pipeline}: a missing mention opens on click once its file exists`, async (t) => {
-    const files = { [PROJECT]: [] };
-    const f = await mount(t, render, 'See `late.png`.', PROJECT, (f) => installProjectFiles(f, files));
-    assert.equal(f.links().length, 0);
-    files[PROJECT].push('late.png');
-    const item = f.dom.window.document.querySelector('.markdown-link-pending');
-    await act(async () => item.dispatchEvent(new f.dom.window.MouseEvent('click', { bubbles: true })));
-    assert.deepEqual(f.local, [[PROJECT, 'late.png']]);
     assert.equal(f.toasts.length, 0);
+    assert.equal(f.opened.length + f.local.length + f.popups.length, 0);
   });
 
   test(`${pipeline}: automatic links show their final icons immediately and enable clicking only after verification`, async (t) => {
@@ -774,7 +757,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       f.files.push('found.ts');
     });
     assert.equal(f.links().length, 0);
-    assert.equal(readableText(f.dom.window.document.querySelector('p')), 'app.ts, output/ and found.ts.');
+    assert.equal(readableText(f.dom.window.document.querySelector('p')), 'src/app.ts, output/ and found.ts.');
     assert.equal(f.toasts.length, 0);
   });
 
@@ -784,7 +767,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       f.dom.window.mixdogDesktop.searchProjectFiles = async () => ['src/stale.ts'];
     });
     assert.equal(f.links().length, 0);
-    assert.equal(readableText(f.dom.window.document.querySelector('.markdown-link-pending')), 'stale.ts');
+    assert.equal(readableText(f.dom.window.document.querySelector('.markdown-path-missing')), 'stale.ts');
     assert.equal(f.toasts.length, 0);
   });
 
@@ -826,10 +809,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
         release({ size: 10, mtimeMs: 1 });
       });
       assert.equal(f.links().length, 0);
-      assert.equal(
-        readableText(f.dom.window.document.querySelector('.markdown-link-pending')),
-        nextPath.split('/').at(-1)
-      );
+      assert.equal(readableText(f.dom.window.document.querySelector('.markdown-path-missing')), nextPath);
       assert.equal(f.toasts.length, 0);
     });
   }
@@ -841,7 +821,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.equal(f.links().length, 1);
     await f.update(PROJECT, '`src/missing.ts`');
     assert.equal(f.links().length, 0);
-    assert.equal(readableText(f.dom.window.document.querySelector('.markdown-link-pending')), 'missing.ts');
+    assert.equal(readableText(f.dom.window.document.querySelector('.markdown-path-missing')), 'src/missing.ts');
     assert.equal(f.toasts.length, 0);
   });
 
@@ -893,13 +873,14 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.deepEqual(f.external, [['https://example.com/report'], ['https://www.example.com']]);
     assert.equal(f.local.length, 0);
     const disabled = [...f.dom.window.document.querySelectorAll('.markdown-link-pending')];
-    assert.deepEqual(disabled.map(readableText), ['unsafe', 'data', 'secret.png']);
+    assert.deepEqual(disabled.map(readableText), ['unsafe', 'data']);
     for (const item of disabled) {
       assert.equal(item.getAttribute('href'), null);
-      // An unverified local file stays retryable; sanitized schemes never are.
-      assert.equal(item.getAttribute('aria-disabled'), readableText(item) === 'secret.png' ? null : 'true');
+      assert.equal(item.getAttribute('aria-disabled'), 'true');
       await act(async () => item.dispatchEvent(new f.dom.window.MouseEvent('click', { bubbles: true })));
     }
+    // A local image whose file is missing stays its original text.
+    assert.equal(f.dom.window.document.querySelector('.markdown-path-missing').textContent, 'file:///C:/private/secret.png');
     assert.equal(f.external.length, 2);
     assert.equal(f.popups.length, 0);
     assert.notEqual(f.dom.window.document.querySelector('img')?.getAttribute('src'), 'file:///C:/private/secret.png');

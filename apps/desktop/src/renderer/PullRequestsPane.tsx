@@ -425,7 +425,6 @@ export function PullRequestsPane({
                 <SourceControlErrorNotice
                   error={createError}
                   className="dock-pr-create-error"
-                  compact
                   onAuthenticationHelp={() => void api?.openExternal?.('https://cli.github.com/manual/gh_auth_login')}
                   authenticationHelpLabel={t('GitHub CLI help')}
                 />

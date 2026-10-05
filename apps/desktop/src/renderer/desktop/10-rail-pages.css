@@ -588,9 +588,12 @@ html[data-window-material="mica"] .session-sidebar {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Every clock and state word reads bold (user: 에이전트창 오른쪽 상태 볼드좀주자);
+   states differ by hue and word, never by weight. */
 .utility-dock .agent-activity-elapsed {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-supporting);
+  font-weight: var(--mx-weight-semibold);
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
@@ -602,30 +605,25 @@ html[data-window-material="mica"] .session-sidebar {
   color: var(--mx-text-accent);
 }
 /* Waiting on child work has its own hue so it never reads like live work
-   (user: 작업중 작업대기는 다른색). Regular weight keeps it apart from the
-   bold cancel-unconfirmed warning. */
+   (user: 작업중 작업대기는 다른색). */
 .utility-dock .agent-activity-elapsed[data-state="waiting"] {
   color: var(--mx-warning);
-  font-weight: var(--mx-weight-regular);
 }
 /* Completion notice: an idle row whose session is still unseen reads in the
-   success hue (user: 완료가 녹색), at the regular weight — the hue alone marks
-   it. It fades back to the muted idle tone the moment the session is opened. */
+   success hue (user: 완료가 녹색) — the hue alone marks it. It fades back to
+   the muted idle tone the moment the session is opened. */
 .utility-dock .agent-activity-elapsed[data-state="done"] {
   color: var(--mx-success);
-  font-weight: var(--mx-weight-regular);
 }
 /* A cancel is not a completion and not a rest. It never borrows the accented
    "done" tone or the live running tone: a stopped row reads as stopped. */
 .utility-dock .agent-activity-elapsed[data-state="cancelled"] {
   color: var(--mx-danger);
-  font-weight: var(--mx-weight-semibold);
 }
 /* Delivered but unproven (Windows git-bash survivors): the warning tone says
    the process could not be confirmed gone, never that the cancel succeeded. */
 .utility-dock .agent-activity-elapsed[data-state="cancel-unconfirmed"] {
   color: var(--mx-warning);
-  font-weight: var(--mx-weight-semibold);
 }
 /* Agents dock reuses the Workflows rail grammar. */
 .utility-dock .agent-activity-page .workflows-models,

@@ -494,9 +494,9 @@ export function toolActivityTargets(normalizedName: string, args: Record<string,
 
 export function toolActivityFieldLabel(key: string): string {
   const labels: Record<string, string> = {
-    api_key: 'API key',
-    include_noise: 'Include ignored',
-    timeout_ms: 'Timeout',
+    api_key: t('API key'),
+    include_noise: t('Include ignored'),
+    timeout_ms: t('Timeout'),
   };
   if (labels[key]) return labels[key];
   const text = key

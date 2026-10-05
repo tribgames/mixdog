@@ -9,6 +9,13 @@ const CYCLE1_SESSION_CAP = 10;
 export const CYCLE1_PACKET_MAX_ROWS = 50;
 export const CYCLE1_MAX_PACKETS = 4;
 export const CYCLE1_OMITTED_COOLDOWN_MS = 60 * 60 * 1000;
+// A row the classifier leaves raw again waits twice as long each time, up to
+// this. Most such rows are one- or two-row leftovers too short for any summary
+// to come out shorter than they are, so the same prompt yields the same miss:
+// at a flat hourly retry they filled every packet slot of every run (runtime
+// log 2026-10-04..05: 1768 of 1832 classifier calls committed nothing; one
+// two-character row had been sent 278 times).
+export const CYCLE1_OMITTED_COOLDOWN_MAX_MS = 30 * 24 * 60 * 60 * 1000;
 // A session is chunked only after it has been quiet this long, so one task's
 // request, work, result and correction reach the classifier together instead
 // of being split at every scheduler tick.

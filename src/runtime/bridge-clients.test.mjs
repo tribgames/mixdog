@@ -318,7 +318,7 @@ test('browser action contract validates compact flat-schema calls', () => {
     }).error,
     /accepts only one input target form/
   );
-  assert.match(validateBrowserToolArgs({ action: 'observe' }).error, /unknown browser action "observe"/);
+  assert.match(validateBrowserToolArgs({ action: 'teleport' }).error, /unknown browser action "teleport"/);
   assert.match(
     validateBrowserToolArgs({ action: 'snapshot', input: { includeScreenshot: true } }).error,
     /does not accept input field\(s\): includeScreenshot/
@@ -581,23 +581,8 @@ test('a JSON-encoded browser input is accepted the same as the object', () => {
   assert.match(validateBrowserToolArgs({ action: 'snapshot', input: '{tab:main' }).error, /input must be an object/);
 });
 
-test('browser runtime manifest rejects removed aliases at the schema boundary', () => {
+test('browser sequence steps are the declared action set', () => {
   assert.deepEqual(SEQUENCE_STEP_ACTIONS, ['click', 'fill', 'type', 'select', 'hover', 'press', 'scroll', 'wait']);
-  for (const removed of [
-    'observe',
-    'screenshot',
-    'click_at',
-    'tap',
-    'hover_at',
-    'drag_at',
-    'swipe',
-    'fill_form',
-    'check',
-    'forward',
-  ]) {
-    assert.equal(BROWSER_ACTIONS.includes(removed), false, removed);
-    assert.match(validateBrowserToolArgs({ action: removed }).error, new RegExp(`unknown browser action "${removed}"`));
-  }
 });
 
 test('asking where an image goes only makes sense where an image exists', () => {

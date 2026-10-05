@@ -146,7 +146,7 @@ export const BUILTIN_TOOLS = [
       openWorldHint: true,
       compressible: true,
     },
-    description: `Run programs, builds, tests and computation. Never use shell commands or scripts for work covered by dedicated tools: cat/head/tail→read, ls→list, find→glob, filename lookup→find, grep/rg→grep, code structure→code_graph, file edits/writes (sed/awk/redirection)→edit/apply_patch, Git→git when that tool is on the surface. Tool names are not shell commands. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 10s foreground window (not a timeout; wait_ms extends it up to 120s for one call, e.g. a test suite), unfinished work continues under task_id; use task wait, not read polling. If no execution slot frees within the admission wait, the command is queued as a background task with a task_id.'}`,
+    description: `Run programs, builds, tests and computation. Never use shell commands or scripts for work covered by dedicated tools: cat/head/tail→read, ls→list, find→glob, filename lookup→find, grep/rg→grep, code structure→code_graph, file edits/writes (sed/awk/redirection)→edit/apply_patch, Git→git when that tool is on the surface. Tool names are not shell commands. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 15s foreground window (not a timeout; wait_ms extends it up to 120s for one call, e.g. a test suite), unfinished work continues under task_id; use task wait, not read polling. If no execution slot frees within the admission wait, the command is queued as a background task with a task_id.'}`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -155,14 +155,14 @@ export const BUILTIN_TOOLS = [
           type: 'integer',
           minimum: 0,
           description:
-            'Hard kill deadline in ms (omit or 0 = none), separate from the 10s foreground window; set one for throwaway probes so a slow check fails fast.',
+            'Hard kill deadline in ms (omit or 0 = none), separate from the 15s foreground window; set one for throwaway probes so a slow check fails fast.',
         },
         wait_ms: {
           type: 'integer',
-          minimum: 1000,
+          minimum: 15000,
           maximum: 120000,
           description:
-            'Foreground wait in ms before unfinished work continues as a background task (default 10000); raise it for a command that should return its result in this call.',
+            'Foreground wait in ms before unfinished work continues as a background task (default 15000); raise it for a command that should return its result in this call.',
         },
       },
       required: ['command'],

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>사이드 패널 ↔ 작업 영역 연결 시안</title>
+<style>
+  :root {
+    --frame: #202022;          /* Mica 프레임(타이틀바·레일) 근사 */
+    --side: #1c1c1f;           /* 사이드 패널 (88% 반투명을 단색으로 근사) */
+    --text: #e9e9e9;
+    --muted: #a8a8a8;
+    --faint: #9b9b9b;
+    --hair: rgba(255, 255, 255, 0.09);
+    --accent: #8ab4f8;
+    --page: #0e0e10;
+    --composer: #2a2a2e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 32px 60px; background: var(--page); color: var(--text);
+    font: 13px/1.5 "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 12px; margin: 0 0 22px; }
+  .variant { margin-bottom: 34px; }
+  .variant h2 { font-size: 14px; margin: 0 0 2px; }
+  .variant h2 .tag { color: var(--accent); font-size: 12px; font-weight: 600; margin-left: 6px; }
+  .variant p { margin: 0 0 10px; color: var(--muted); font-size: 12px; max-width: 1100px; }
+  .variant code { font-size: 11.5px; }
+
+  .win {
+    /* 변형별로 덮어쓰는 값 */
+    --side-head: 52px;
+    --strip: 39px;
+    --main: #18181b;
+    --band: #151517;
+
+    width: 1180px; height: 400px; background: var(--frame);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 8px; overflow: hidden;
+    display: grid; grid-template-rows: 36px 1fr;
+  }
+  .titlebar { display: flex; justify-content: flex-end; }
+  .titlebar span { width: 46px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+  .below { display: grid; grid-template-columns: 48px 252px 1fr; min-height: 0; }
+  .rail { display: flex; flex-direction: column; align-items: center; padding-top: 4px; }
+  .rail i { width: 40px; height: 44px; display: grid; place-items: center; }
+  .rail i::before { content: ""; width: 18px; height: 18px; border: 1.6px solid var(--muted); border-radius: 5px; }
+
+  .side {
+    background: var(--side); border-top-left-radius: 8px;
+    box-shadow: inset 1px 1px 0 var(--hair); border-right: 1px solid var(--hair);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .side-head {
+    height: var(--side-head); flex: none; display: flex; align-items: center;
+    padding: 0 14px; font-weight: 700; font-size: 15px;
+  }
+  .side-head .more { margin-left: auto; color: var(--muted); }
+  .side-row { padding: 6px 14px; font-size: 13px; }
+  .side-row small { display: block; color: var(--muted); font-size: 12px; }
+  .side-row.group { font-weight: 700; margin-top: 2px; }
+
+  .main { background: var(--main); box-shadow: inset 0 1px 0 var(--hair); display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+  .pane { display: flex; flex-direction: column; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--hair); }
+  .strip {
+    height: var(--strip); flex: none; display: flex; align-items: stretch;
+    background: var(--band); box-shadow: inset 0 -1px 0 var(--hair);
+  }
+  .tab {
+    position: relative; width: 160px; display: flex; align-items: center; gap: 6px; padding: 0 12px;
+    color: var(--text); font-size: 13px; box-shadow: inset -1px 0 0 var(--hair);
+  }
+  .tab .ico { width: 14px; height: 14px; flex: none; }
+  .tab.active { background: var(--main); font-weight: 600; }
+  .tab.active::after {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: color-mix(in srgb, var(--text) 22%, transparent);
+  }
+  .pane.focused .tab.active::after { background: var(--accent); }
+  .new { width: 30px; display: grid; place-items: center; color: var(--text); font-size: 17px; }
+  .actions { margin-left: auto; display: flex; gap: 14px; align-items: center; padding-right: 12px; }
+  .actions b { width: 13px; height: 13px; border: 1.4px solid var(--muted); border-radius: 3px; display: block; }
+  .pane .body { flex: 1; padding: 22px 28px; }
+  .pane .body div { height: 9px; border-radius: 5px; margin-bottom: 11px; background: color-mix(in srgb, var(--text) 7%, transparent); }
+  .pane .composer { margin: 0 18px 14px; height: 64px; border-radius: 14px; background: var(--composer); }
+
+  /* 가로선 정렬 확인용 가이드 */
+  .guide .side-head { box-shadow: inset 0 -1px 0 rgba(255, 90, 90, .55); }
+  .guide .strip { box-shadow: inset 0 -1px 0 rgba(255, 90, 90, .55); }
+  body:not(.show-guide) .guide .side-head { box-shadow: none; }
+  body:not(.show-guide) .guide .strip { box-shadow: inset 0 -1px 0 var(--hair); }
+
+  /* A: 높이 맞추기 — 둘 다 44px */
+  .v-a { --side-head: 44px; --strip: 44px; }
+  /* B: 색 순서 뒤집기 — 작업 영역 = 사이드 패널 색, 탭 줄만 은은하게 */
+  .v-b { --main: #1c1c1f; --band: #18181b; }
+  /* C: A + B */
+  .v-c { --side-head: 44px; --strip: 44px; --main: #1c1c1f; --band: #18181b; }
+  /* C2: B + 탭 줄을 사이드 머리(52px)에 맞춤 */
+  .v-c2 { --side-head: 52px; --strip: 52px; --main: #1c1c1f; --band: #18181b; }
+
+  label.guide-toggle { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; margin-bottom: 18px; cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>사이드 패널 ↔ 작업 영역 연결 시안</h1>
+<p class="lead">실제 앱 값(Mica 모드) 기준으로 그렸습니다. 탭은 현재 적용된 d″(납작한 칸 + 위쪽 줄, 160px)입니다. 오른쪽 패널이 포커스 상태입니다.</p>
+<label class="guide-toggle"><input type="checkbox" onchange="document.body.classList.toggle('show-guide', this.checked)"> 사이드 머리·탭 줄의 아래 경계를 빨간 선으로 표시 (가로선이 이어지는지 확인용)</label>
+
+<div id="list"></div>
+
+<script>
+  const variants = [
+    { cls: '', title: '현재', note: '사이드 머리 <code>52px</code> / 탭 줄 <code>39px</code>. 작업 영역 <code>#18181b</code>, 탭 줄 <code>#151517</code> — 사이드 패널(<code>#1c1c1f</code>)보다 두 단계 어둡습니다.' },
+    { cls: 'v-a', title: 'A. 높이 맞추기', note: '사이드 머리와 탭 줄을 둘 다 <code>44px</code>로. 색은 현재 그대로.' },
+    { cls: 'v-b', title: 'B. 색 순서 뒤집기', note: '작업 영역을 사이드 패널과 같은 <code>#1c1c1f</code>로, 탭 줄만 한 단계(<code>#18181b</code>) 어둡게. 높이는 현재 그대로.' },
+    { cls: 'v-c', title: 'C. A + B', tag: '추천', note: '높이 <code>44px</code>로 맞추고, 작업 영역 = 사이드 패널 색, 탭 줄만 은은하게.' },
+    { cls: 'v-c2', title: 'C2. B + 탭 줄을 52px로', note: '사이드 머리는 지금의 여유(<code>52px</code>)를 유지하고, 탭 줄을 거기에 맞춰 키웁니다. ChatGPT(Codex)의 머리 줄 높이와 비슷합니다.' },
+  ];
+  const icon = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z"/></svg>';
+  const pane = (focused, tabs) => `
+    <div class="pane${focused ? ' focused' : ''}">
+      <div class="strip">
+        ${tabs.map(([l, a]) => `<div class="tab${a ? ' active' : ''}">${icon}${l}</div>`).join('')}
+        <div class="new">+</div>
+        <div class="actions"><b></b><b></b></div>
+      </div>
+      <div class="body"><div style="width:68%"></div><div style="width:52%"></div><div style="width:60%"></div></div>
+      <div class="composer"></div>
+    </div>`;
+  const list = document.getElementById('list');
+  for (const v of variants) {
+    const s = document.createElement('section');
+    s.className = 'variant';
+    s.innerHTML = `
+      <h2>${v.title}${v.tag ? `<span class="tag">${v.tag}</span>` : ''}</h2>
+      <p>${v.note}</p>
+      <div class="win guide ${v.cls}">
+        <div class="titlebar"><span>─</span><span>☐</span><span>✕</span></div>
+        <div class="below">
+          <div class="rail"><i></i><i></i><i></i><i></i><i></i></div>
+          <div class="side">
+            <div class="side-head">에이전트<span class="more">···</span></div>
+            <div class="side-row group">새 작업 ›</div>
+            <div class="side-row">Lead<small>GPT-6.1-Sol High</small></div>
+          </div>
+          <div class="main">
+            ${pane(false, [['새 작업', false], ['새 작업', true]])}
+            ${pane(true, [['새 작업', true]])}
+          </div>
+        </div>
+      </div>`;
+    list.appendChild(s);
+  }
+</script>
+</body>
+</html>

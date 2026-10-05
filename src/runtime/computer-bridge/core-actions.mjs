@@ -276,7 +276,8 @@ function actionArgumentsError(action, type, label, frameId) {
     if (hasOwn(action, 'ref') && hasOwn(action, 'element')) return `${label} accepts only one of ref or element`;
     return typeof action.value === 'string' ? null : `${label} requires value`;
   }
-  if (type === 'key' || type === 'key_down' || type === 'key_up') return typeof action.keys === 'string' ? null : `${label} requires keys`;
+  if (type === 'key' || type === 'key_down' || type === 'key_up')
+    return typeof action.keys === 'string' ? null : `${label} requires keys`;
   if (type === 'wait') {
     const { duration } = action;
     const valid = typeof duration === 'number' && Number.isFinite(duration) && duration >= 0 && duration <= 5;

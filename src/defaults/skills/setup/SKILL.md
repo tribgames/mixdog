@@ -70,8 +70,7 @@ that a call returned without transport error.
   are read and changed with the `memory` tool, not setup.
 - Built-ins have installation state separate from enabled state. Browser Use,
   Computer Use, and voice actions require this conversation open in the local
-  Desktop window. `set_first_use_approval` controls first-use approval for
-  Browser Use and Computer Use only, not voice.
+  Desktop window.
 - Desktop appearance changes affect the Desktop host, not a paired phone.
   Display language is independent of profile response language. A required
   reload is reported, never performed automatically.

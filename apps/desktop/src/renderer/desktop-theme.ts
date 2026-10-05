@@ -52,9 +52,8 @@ function cssVariables(palette: ThemePalette): Record<string, string> {
     '--mx-success': palette.success,
     // Status ACCENTS follow the palette, so their companion plates must too:
     // without these a registry theme drew everforest/nord greens inside a
-    // default-dark green hairline and an amber approval ring.
+    // default-dark green hairline.
     '--mx-success-border': `color-mix(in srgb, ${palette.success} 45%, transparent)`,
-    '--mx-approval-ring': `color-mix(in srgb, ${palette.warning} 50%, transparent)`,
     '--mx-scrollbar-thumb': `color-mix(in srgb, ${palette.promptBorder} 72%, transparent)`,
     '--mx-scrollbar-thumb-hover': palette.promptBorder,
     // The highlight ramp belongs to the palette too: without these a registry

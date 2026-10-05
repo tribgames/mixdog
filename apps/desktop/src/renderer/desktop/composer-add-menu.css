@@ -84,7 +84,7 @@
   background: var(--mx-border-muted);
 }
 .composer-add-menu .composer-add-error {
-  color: var(--mx-text);
+  padding: 6px 8px;
 }
 .composer-input-row {
   display: flex;

@@ -17,7 +17,7 @@ const VERSION_GATE_PATTERN =
   /Claude Code\s+(\d{1,4}\.\d{1,4}\.\d{1,6})\s+does not support this model;\s*version\s+(\d{1,4}\.\d{1,4}\.\d{1,6})\s+or newer is required\b/i;
 
 // Effective version = max(floor, learned minimum, live @anthropic-ai/claude-code).
-const liveCliVersion = createNpmVersionSource('@anthropic-ai/claude-code');
+const liveCliVersion = createNpmVersionSource('@anthropic-ai/claude-code', { persistKey: 'claude-cli' });
 
 let learnedCliVersion = null;
 let learnedCliVersionLoaded = false;

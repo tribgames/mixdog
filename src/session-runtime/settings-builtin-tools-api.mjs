@@ -1,12 +1,9 @@
 // Built-in tool modules: the enable/install toggles (web search, memory, git,
 // office, tidy, local provider), the recap switch and the Code Tidy card.
 import {
-  BRIDGE_FIRST_USE_IDS,
   INSTALLABLE_BUILTIN_IDS,
   builtinFeatureActive,
-  builtinFirstUseApproval,
   builtinInstalled,
-  setBuiltinFirstUseApprovalInConfig,
   setBuiltinInstalledInConfig,
 } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
@@ -114,19 +111,6 @@ export function createBuiltinToolSettings(
       invalidateContextStatusCache();
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
-    },
-    /** Once-per-session approval before the first Browser Use or Computer Use
-     *  call. The setting is read at each call, so it applies at once. */
-    async setBridgeFirstUseApproval(name, enabled) {
-      if (!BRIDGE_FIRST_USE_IDS.includes(name)) {
-        throw new TypeError('First-use approval applies to browser or computer.');
-      }
-      saveConfigAndAdopt(setBuiltinFirstUseApprovalInConfig({ ...getConfig() }, name, enabled !== false));
-      return {
-        name,
-        firstUseApproval: builtinFirstUseApproval(getConfig(), name),
-        appliesTo: 'the next first use in any session, including this one',
-      };
     },
     async setBuiltinToolEnabled(name, enabled) {
       if (name !== 'git' && name !== 'office' && name !== 'tidy' && name !== 'localProvider') {

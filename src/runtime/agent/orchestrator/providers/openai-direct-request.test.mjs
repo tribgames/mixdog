@@ -7,6 +7,7 @@ test('public API Fast mode covers documented models only', () => {
     'gpt-6-astra',
     'gpt-6-sol',
     'gpt-6-luna',
+    'gpt-6.1-sol',
     'gpt-5.6-terra',
     'gpt-5.5',
     'gpt-5.4-mini',
@@ -20,7 +21,14 @@ test('public API Fast mode covers documented models only', () => {
 });
 
 test('GPT-5.6+ models use prompt_cache_options ttl instead of prompt_cache_retention', () => {
-  for (const model of ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-6-sol-2026-09-22']) {
+  for (const model of [
+    'gpt-6-astra',
+    'gpt-6-sol',
+    'gpt-6-luna',
+    'gpt-6.1-sol',
+    'gpt-5.6-sol',
+    'gpt-6-sol-2026-09-22',
+  ]) {
     const body = applyOpenAIDirectCachePolicy({ prompt_cache_retention: '24h' }, model, true);
     assert.deepEqual(body.prompt_cache_options, { ttl: '30m' }, model);
     assert.equal(body.prompt_cache_retention, undefined, model);

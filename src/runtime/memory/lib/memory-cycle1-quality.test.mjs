@@ -46,7 +46,7 @@ function database({ changeBeforeCommit = false } = {}) {
         if (sql.includes('error_count = COALESCE')) {
           for (const entry of entries.filter((entry) => params[0].includes(entry.id))) {
             entry.reviewed_at = params[1];
-            entry.error_count += 1;
+            if (!params[2].includes(entry.id)) entry.error_count += 1;
           }
           return { rows: params[0].map((id) => ({ id })) };
         }
@@ -157,6 +157,33 @@ test('transport errors remain visible and never archive or commit healthy rows',
     db.entries.every((entry) => entry.chunk_root === null),
     true
   );
+  // An outage cools the rows down without lengthening their next cooldown.
+  assert.equal(
+    db.entries.every((entry) => Number.isFinite(entry.reviewed_at)),
+    true
+  );
+  assert.deepEqual(
+    db.entries.map((entry) => entry.error_count),
+    [50, 50]
+  );
+});
+
+test('a summary that is not shorter than its rows leaves them raw and counts the miss', async () => {
+  const db = database();
+  const result = await runCycle1(
+    db,
+    config,
+    options(async () => `1,2|pending request|task|${'Still longer than the source. '.repeat(60)}`)
+  );
+  assert.equal(result.chunks, 0);
+  // The first grouping and its one rewrite.
+  assert.equal(result.quality.grouping_calls, 2);
+  assert.deepEqual(result.failed_row_ids, []);
+  assert.deepEqual(result.omitted_row_ids, [1, 2]);
+  assert.deepEqual(
+    db.entries.map((entry) => entry.error_count),
+    [51, 51]
+  );
 });
 
 test('a changed source rejects the transaction and retains original rows', async () => {
@@ -171,6 +198,10 @@ test('a changed source rejects the transaction and retains original rows', async
   assert.equal(
     db.entries.every((entry) => entry.is_root === 0 && entry.chunk_root === null),
     true
+  );
+  assert.deepEqual(
+    db.entries.map((entry) => entry.error_count),
+    [50, 50]
   );
 });
 

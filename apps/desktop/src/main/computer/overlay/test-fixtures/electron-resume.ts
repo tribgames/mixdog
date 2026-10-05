@@ -8,10 +8,11 @@ import { bindComputerOverlayControls } from '../ipc-controls';
 import { checkOverlayControlHitTarget, checkOverlayPulse, emulateMotionPreference } from './pill-motion';
 import { nativeOverlayClick } from './native-click';
 import { emit } from './process-output';
+import { requireEnv } from './require-env';
 import { overlayWindowOptions } from '../cursor-surface';
 
 if (process.env.OVERLAY_SOFTWARE_RENDERING === '1') app.disableHardwareAcceleration();
-app.setPath('userData', join(process.env.OVERLAY_TEST_DIRECTORY!, 'profile'));
+app.setPath('userData', join(requireEnv('OVERLAY_TEST_DIRECTORY'), 'profile'));
 // This fixture owns its only window; Electron's default quit-on-last-window-close would
 // otherwise end the process the moment a failing step reaches the finally-block destroy.
 app.on('window-all-closed', () => {});
@@ -25,7 +26,7 @@ void app
       alwaysOnTop: true,
       webPreferences: {
         ...overlayWindowOptions().webPreferences,
-        preload: join(process.env.OVERLAY_TEST_DIRECTORY!, 'preload/computer-overlay.js'),
+        preload: join(requireEnv('OVERLAY_TEST_DIRECTORY'), 'preload/computer-overlay.js'),
       },
     });
     // The shipped overlay is hardened after creation, and each of those calls

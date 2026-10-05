@@ -35,6 +35,27 @@ test('saveModelSettings updates modelSettings without a sync config write', () =
   assert.equal(next.fastModels, undefined);
 });
 
+test('a window left at the model default is not stored as a setting', () => {
+  const cfgMod = { loadConfig: () => ({ modelSettings: {} }) };
+  const route = { provider: 'anthropic-oauth', model: 'claude-opus-5-5', effort: 'high', contextDefaultPercent: 50 };
+  const saved = (contextPercent, baseConfig = cfgMod.loadConfig()) =>
+    saveModelSettings(cfgMod, { ...route, contextPercent }, { baseConfig }).modelSettings[
+      'anthropic-oauth/claude-opus-5-5'
+    ];
+  assert.equal(saved(50).contextPercent, undefined);
+  assert.equal(saved(100).contextPercent, 100);
+  // Returning to the default drops an earlier choice.
+  const chosen = { modelSettings: { 'anthropic-oauth/claude-opus-5-5': { effort: 'high', contextPercent: 100 } } };
+  assert.equal(saved(50, chosen).contextPercent, undefined);
+  // A route that does not know its default keeps the stated percentage.
+  const unknown = saveModelSettings(
+    cfgMod,
+    { provider: 'openai', model: 'gpt-5.4', contextPercent: 30 },
+    { baseConfig: cfgMod.loadConfig() }
+  );
+  assert.equal(unknown.modelSettings['openai/gpt-5.4'].contextPercent, 30);
+});
+
 function stubRouteApi({ persistLeadRoute, saveConfigAndAdopt, cfgMod }) {
   let config = { modelSettings: {} };
   let route = { provider: 'openai', model: 'gpt-5.4', effort: 'high', fast: false };

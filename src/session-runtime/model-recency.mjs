@@ -2,6 +2,7 @@
 // construction. Pure except for the
 // injected route provider (for sort priority) and webSearchCapableFor predicate.
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { contextWindowRange } from '../runtime/shared/llm/default-context-window.mjs';
 
 function parsedProviderModelVersion(id) {
   const text = clean(id).toLowerCase();
@@ -106,14 +107,21 @@ export function isSelectableLlmModel(model) {
 }
 
 export function providerModelCacheRow(name, m, webSearchCapableFor) {
+  // The pickers read the default window and the slider's range straight off
+  // this row, so a default lowered by range has to be stated here.
+  const range = contextWindowRange({
+    provider: name,
+    contextWindow: m.contextWindow,
+    maxContextWindow: m.maxContextWindow,
+  });
   return {
     id: m.id,
     provider: name,
     display: m.display || m.name || m.id,
     created: typeof m.created === 'number' ? m.created : null,
     releaseDate: m.releaseDate || null,
-    contextWindow: m.contextWindow,
-    maxContextWindow: m.maxContextWindow || null,
+    contextWindow: range.defaultWindow || m.contextWindow,
+    maxContextWindow: range.maxWindow > range.defaultWindow ? range.maxWindow : m.maxContextWindow || null,
     outputTokens: m.outputTokens || null,
     family: m.family || null,
     tier: m.tier || null,

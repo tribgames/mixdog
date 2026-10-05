@@ -482,8 +482,9 @@ async function assertHiddenAgentSchemaAndPrompt(agent, hiddenPreset, hiddenRunti
     // Order-insensitive: the session tool surface follows catalog order, while
     // schemaAllowedTools declares an allow-set; only set equality is contractual.
     const asSet = (list) => JSON.stringify(list.slice().sort());
-    if (Array.isArray(schemaAllowedTools) && schemaAllowedTools.length) {
-      // Declared specialists keep their exact allow-set, fresh and resumed.
+    if (Array.isArray(schemaAllowedTools)) {
+      // A declared schema profile is the exact allow-set, fresh and resumed —
+      // the empty one included: a tool-free role is sent no tool schema.
       if (asSet(tools) !== asSet(schemaAllowedTools) || asSet(resumedTools) !== asSet(schemaAllowedTools)) {
         throw new Error(
           `hidden agent ${agent} specialist schema mismatch: expected=${schemaAllowedTools.join(', ')} tools=${tools.join(', ')} resumed=${resumedTools.join(', ')}`
@@ -514,6 +515,10 @@ async function assertHiddenAgentSchemaAndPrompt(agent, hiddenPreset, hiddenRunti
     if (tools.includes('Skill') && !/available-skills/i.test(systemVisible)) {
       throw new Error(`hidden agent ${agent} carries Skill without its compact manifest`);
     }
+    // And the reverse for a tool-free role: no loader, so no manifest.
+    if (!tools.length && /available-skills/i.test(systemVisible)) {
+      throw new Error(`hidden agent ${agent} is offered no tool but carries the skill manifest`);
+    }
     if (/effective-cwd|Override cwd|# task-brief/i.test(systemVisible)) {
       throw new Error(`hidden agent ${agent} must not carry legacy cwd/task-brief injection`);
     }
@@ -525,7 +530,7 @@ async function assertHiddenAgentSchemaAndPrompt(agent, hiddenPreset, hiddenRunti
   }
 }
 
-test('hidden agents share the unified schema unless a specialist allow-list is declared', async (t) => {
+test('hidden agents keep the schema profile they declare and otherwise share the unified schema', async (t) => {
   // Hermetic skills root: a dev machine has installed skills while a CI
   // runner has none, and either ambient state would decide the Skill-manifest
   // assertion below. One fixture skill pins the contract everywhere.

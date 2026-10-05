@@ -23,7 +23,6 @@ const { GithubPanel } = await import('./GithubPanel.tsx');
 const { GithubActionForm } = await import('./GithubActionForm.tsx');
 const { GithubReviewForm } = await import('./GithubReviewForm.tsx');
 const { SurfaceActiveContext } = await import('../surface-activity.ts');
-const { settingsCategoriesForSurface } = await import('../settings/settings-items.ts');
 const { extensionSectionForSettings } = await import('../extension-sections.ts');
 const { SourceControlDock } = await import('../SourceControlDock.tsx');
 
@@ -55,12 +54,7 @@ const click = async (host, text) => {
 };
 const props = { projectPath: 'C:\\Project\\demo', repositoryUrl: 'https://github.com/owner/demo', section: 'issues' };
 
-test('Git settings leave the settings sidebar and legacy extension routes remain usable', () => {
-  for (const remote of [false, true])
-    assert.equal(
-      settingsCategoriesForSurface(remote).some((item) => item.value === 'git'),
-      false
-    );
+test('the git settings route opens the plugins section', () => {
   assert.equal(extensionSectionForSettings('git'), 'plugins');
 });
 

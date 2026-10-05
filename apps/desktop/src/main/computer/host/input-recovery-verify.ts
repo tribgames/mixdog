@@ -1,8 +1,9 @@
 /**
- * Whether a foreground delivery handed the desktop back. The observer must
- * still be the one recorded and no user input may have intervened; then focus
- * and pointer must be where they were — or, for a follow-up action, on the
- * target. A refused input that left focus untouched needs no restoration;
+ * Whether a foreground delivery left the desktop where it belongs. The observer
+ * must still be the one recorded and no user input may have intervened; then
+ * focus and pointer must be back where they were — unless a session holds the
+ * desktop, which keeps both until its release. A refused input that left focus
+ * untouched needs no restoration;
  * anything that drifted is reasserted once and read back. A refused input is
  * never conflated with failed cleanup: the reply builder reports the refusal,
  * this only closes cleanup.
@@ -24,19 +25,21 @@ interface RecoveryCheck {
   inputRecovery: InputRecoveryState;
   timings: Record<string, number>;
   nativeResult: Record<string, unknown>;
-  /** Focus stays on the target only for an explicit focus request or the next
-   *  step of the same sequence; otherwise the user's window gets it back. */
+  /** Focus stays on the target for an explicit focus request or a session
+   *  holding the desktop; the user's window gets it back only at release.
+   *  Keys the user types between commands therefore reach the target, and the
+   *  session stands down as soon as it observes them. */
   preserveFocusForFollowup: boolean;
-  /** More input follows in this sequence, so the pointer stays where it acts. */
-  holdCursor: boolean;
+  /** The session owns the desktop until it releases: focus stays on the target
+   *  and the pointer where it acts; the user's own state returns at release. */
+  holdDesktop: boolean;
   readbackError: string;
 }
 
-/** Between separate commands the agent thinks for seconds while the user keeps
- *  typing; focus left on the target would take that typing. Every foreground
- *  command re-activates its own target, so nothing needs it held. */
-function preservesFocusForFollowup(command: ComputerCommand, inputContinues: boolean): boolean {
-  return command.action === 'focus_window' || inputContinues;
+/** Focus stays on the target for an explicit focus request or a session
+ *  holding the desktop until its release. */
+function preservesFocusForFollowup(command: ComputerCommand, holdsDesktop: boolean): boolean {
+  return command.action === 'focus_window' || holdsDesktop;
 }
 
 const withReadback = (check: RecoveryCheck) => (check.readbackError ? { readback_error: check.readbackError } : {});
@@ -76,7 +79,11 @@ function readbackVerdict(check: RecoveryCheck, current: InputRecoveryState): Ver
     // foreground. A missing observer or intervening user input still fails above.
     const returnedToOwner =
       Boolean(inputRecovery.targetOwnerWindowId) && current.foregroundWindowId === inputRecovery.targetOwnerWindowId;
-    const cursorUnchanged = cursorMatches(current, inputRecovery);
+    const cursorSame = cursorMatches(current, inputRecovery);
+    const cursorUnchanged = check.holdDesktop || cursorSame;
+    // A held session keeps the pointer; focus that did not reach the owner is
+    // sent home by the general restore.
+    if (!returnedToOwner && check.holdDesktop) return null;
     // A click that closed its window still borrowed the pointer; focus is
     // already home, so the caller puts only the pointer back.
     if (returnedToOwner && !cursorUnchanged) return null;
@@ -84,7 +91,8 @@ function readbackVerdict(check: RecoveryCheck, current: InputRecoveryState): Ver
       ok: returnedToOwner && cursorUnchanged,
       target_closed: true,
       focus_preserved_for_followup: returnedToOwner,
-      cursor_restored: cursorUnchanged,
+      ...(check.holdDesktop ? { cursor_held_for_followup: true } : {}),
+      cursor_restored: cursorSame,
       reasserted: false,
     };
   }
@@ -120,8 +128,9 @@ async function reassertInputState(
     window_id: targetWindowId,
     restore_window_id: inputRecovery.restoreWindowId,
     restore_owner_window_id: inputRecovery.restoreOwnerWindowId,
-    cursor_x: inputRecovery.cursorX,
-    cursor_y: inputRecovery.cursorY,
+    // A held session never moves the pointer; it only sends focus home.
+    cursor_x: check.holdDesktop ? current.cursorX : inputRecovery.cursorX,
+    cursor_y: check.holdDesktop ? current.cursorY : inputRecovery.cursorY,
     restore_focus: !preserveFocusForFollowup,
     expected_input_tick: current.inputTick,
     expected_input_monitor_id: current.inputMonitorId,
@@ -182,13 +191,17 @@ function recoveryVerdict(
       (command.delivery === 'foreground' && current.foregroundChildProcess === true)) &&
     !focusRestored;
   const cursorRestored = cursorMatches(current, inputRecovery);
+  // A held session hands nothing back until release, and no user input
+  // intervened: a window the action itself brought forward is the session's.
+  const focusMovedByAction = check.holdDesktop && !focusRestored && !focusPreservedForFollowup;
   return {
-    ok: (focusRestored || focusPreservedForFollowup) && (cursorRestored || check.holdCursor),
-    ...(check.holdCursor ? { cursor_held_for_followup: true } : {}),
+    ok: (focusRestored || focusPreservedForFollowup || check.holdDesktop) && (cursorRestored || check.holdDesktop),
+    ...(check.holdDesktop ? { cursor_held_for_followup: true } : {}),
     focus_restored: focusRestored,
     focus_preserved_for_followup: focusPreservedForFollowup,
+    ...(focusMovedByAction ? { focus_moved_by_action: true } : {}),
     focus_transition_to_child: focusPreservedForFollowup && current.foregroundChildProcess === true,
-    focus_recovery: focusPreservedForFollowup ? 'session_release' : 'immediate',
+    focus_recovery: focusPreservedForFollowup || focusMovedByAction ? 'session_release' : 'immediate',
     cursor_restored: cursorRestored,
     expected_focus_window_id: inputRecovery.restoreWindowId,
     actual_focus_window_id: current.foregroundWindowId,
@@ -207,7 +220,7 @@ export async function verifyInputRecovery(
   inputRecovery: InputRecoveryState,
   timings: Record<string, number>,
   nativeResult: Record<string, unknown> = {},
-  holdCursor = false
+  holdDesktop = false
 ): Promise<Verdict> {
   const check: RecoveryCheck = {
     command,
@@ -215,8 +228,8 @@ export async function verifyInputRecovery(
     inputRecovery,
     timings,
     nativeResult,
-    preserveFocusForFollowup: preservesFocusForFollowup(command, holdCursor),
-    holdCursor,
+    preserveFocusForFollowup: preservesFocusForFollowup(command, holdDesktop),
+    holdDesktop,
     readbackError: '',
   };
   let current: InputRecoveryState | undefined;
@@ -236,6 +249,8 @@ export async function verifyInputRecovery(
     }
     const early = readbackVerdict(check, current);
     if (early) return early;
+    // A closed target has no focus left to hold: focus goes home, pointer stays.
+    if (current.targetExists === false && check.holdDesktop) check.preserveFocusForFollowup = false;
     if (current.targetExists === false && check.preserveFocusForFollowup) {
       ({ current } = await reassertInputState(host, check, current));
       const observed =
@@ -256,12 +271,10 @@ export async function verifyInputRecovery(
     let reasserted = false;
     let restoredTarget = '';
     const focusDrifted = current.foregroundWindowId !== inputRecovery.restoreWindowId;
-    // Foreground input borrows the one system pointer and gives it back. A
-    // sequence gives it back once, at the step that ends it: returning the
-    // pointer between steps would send it across the screen twice for every
-    // click or keystroke that still has input behind it.
+    // A session gives pointer and focus back once, at release; returning them
+    // between commands would send the pointer across the screen every time.
     const cursorDrifted = !cursorMatches(current, inputRecovery);
-    if ((cursorDrifted && !check.holdCursor) || (focusDrifted && !check.preserveFocusForFollowup)) {
+    if ((cursorDrifted && !check.holdDesktop) || (focusDrifted && !check.preserveFocusForFollowup)) {
       ({ current, restoredTarget } = await reassertInputState(host, check, current));
       reasserted = true;
     }

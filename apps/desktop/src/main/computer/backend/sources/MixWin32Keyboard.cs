@@ -1,0 +1,376 @@
+public partial class MixWin32
+{
+    [DllImport("user32.dll")] static extern bool EnableWindow(IntPtr h, bool enable);
+    /// XAML/WinUI and Chromium hosts activate themselves while handling an
+    /// accessibility invoke, which drags the user's screen to a window they were
+    /// not looking at. A disabled top-level cannot become the foreground window,
+    /// while the accessibility call still lands: it travels the accessibility
+    /// channel rather than the input queue this gates. Classic Win32 windows do
+    /// not self-activate, so they keep their normal enabled state.
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string title);
+    public static bool SelfActivatesOnSemanticInput(IntPtr h)
+    {
+        if (h == IntPtr.Zero || !IsWindow(h)) return false;
+        string name = ClassNameOf(h);
+        // A WinUI 3 app keeps its own top-level class (Paint's is MSPaintApp) and
+        // hosts its content in this island, which raises the app on invoke.
+        if (FindWindowEx(h, IntPtr.Zero, "Microsoft.UI.Content.DesktopChildSiteBridge", null) != IntPtr.Zero) return true;
+        return String.Equals(name, "ApplicationFrameWindow", StringComparison.OrdinalIgnoreCase)
+          || String.Equals(name, "Windows.UI.Core.CoreWindow", StringComparison.OrdinalIgnoreCase)
+          || String.Equals(name, "WinUIDesktopWin32WindowClass", StringComparison.OrdinalIgnoreCase)
+          || IsChromiumClass(name);
+    }
+    /// Returns the enabled state the window had, so the caller restores exactly
+    /// what it found instead of assuming the window started out enabled.
+    public static bool SetWindowEnabled(IntPtr h, bool enabled)
+    {
+        if (h == IntPtr.Zero || !IsWindow(h)) return true;
+        return !EnableWindow(h, enabled);
+    }
+    public static bool SupportsBackgroundKeyboardClass(string name)
+    {
+        return !String.Equals(name, "ApplicationFrameWindow", StringComparison.OrdinalIgnoreCase)
+          && !String.Equals(name, "Windows.UI.Core.CoreWindow", StringComparison.OrdinalIgnoreCase)
+          && !String.Equals(name, "WinUIDesktopWin32WindowClass", StringComparison.OrdinalIgnoreCase)
+          && !String.Equals(name, "Microsoft.UI.Content.DesktopChildSiteBridge", StringComparison.OrdinalIgnoreCase)
+          && !String.Equals(name, "Chrome_RenderWidgetHostHWND", StringComparison.OrdinalIgnoreCase)
+          && !(name ?? "").StartsWith("Chrome_WidgetWin_", StringComparison.OrdinalIgnoreCase);
+    }
+    /// A Chromium renderer rebuilds its own click count from the events its
+    /// input thread accepts, so a delivered double-click message arrives as two
+    /// ordinary clicks and the gesture never happens. A route that cannot land
+    /// must refuse before delivery rather than report input it did not make.
+    static bool IsChromiumClass(string name)
+    {
+        return String.Equals(name, "Chrome_RenderWidgetHostHWND", StringComparison.OrdinalIgnoreCase)
+          || (name ?? "").StartsWith("Chrome_WidgetWin_", StringComparison.OrdinalIgnoreCase);
+    }
+    public static bool SupportsBackgroundDoubleClickClass(string name)
+    {
+        return !IsChromiumClass(name);
+    }
+    /// A browser or Electron tab can echo an accessibility value write its renderer
+    /// never applied, so a value read back there proves nothing about the document.
+    public static bool IsWebContentHost(IntPtr window)
+    {
+        return IsChromiumClass(ClassNameOf(window));
+    }
+    public static void ValidateBackgroundInput(IntPtr top, IntPtr preferred, string action, string keys)
+    {
+        // Grammar validation precedes all delivery, including a sequence's first click.
+        if (action == "key") ParseBackgroundKeys(keys);
+        if (action != "key" && action != "type") return;
+        if (!IsWindowHandle(top)) throw new InvalidOperationException("stale_target|background input window is stale");
+        if (preferred != IntPtr.Zero) { KeyboardTarget(top, preferred); return; }
+        if (!SupportsBackgroundKeyboardClass(ClassNameOf(top)))
+        {
+            throw new InvalidOperationException(
+              "background_unsupported|target renderer does not accept posted keyboard input; use semantic value input or explicit foreground delivery; no input sent");
+        }
+    }
+    static IntPtr FocusedKeyboardDescendant(IntPtr top)
+    {
+        var threads = new HashSet<uint>();
+        threads.Add(GetWindowThreadProcessId(top, IntPtr.Zero));
+        EnumChildWindows(top, delegate (IntPtr child, IntPtr state)
+        {
+            if (BelongsToTop(top, child)) threads.Add(GetWindowThreadProcessId(child, IntPtr.Zero));
+            return true;
+        }, IntPtr.Zero);
+        var candidates = new List<KeyValuePair<IntPtr, int>>();
+        foreach (uint thread in threads)
+        {
+            GUITHREADINFO info = new GUITHREADINFO();
+            info.cbSize = (uint)Marshal.SizeOf(typeof(GUITHREADINFO));
+            if (thread == 0 || !GetGUIThreadInfo(thread, ref info) || !BelongsToTop(top, info.hwndFocus)) continue;
+            IntPtr current = info.hwndFocus;
+            int depth = 0;
+            while (current != top && current != IntPtr.Zero && depth < 64)
+            {
+                current = GetParent(current);
+                depth++;
+            }
+            if (current == top) candidates.Add(new KeyValuePair<IntPtr, int>(info.hwndFocus, depth));
+        }
+        return SelectDeepestKeyboardFocus(top, candidates);
+    }
+    internal static IntPtr SelectDeepestKeyboardFocus(IntPtr top, IEnumerable<KeyValuePair<IntPtr, int>> candidates)
+    {
+        IntPtr selected = top;
+        int selectedDepth = 0;
+        bool ambiguous = false;
+        foreach (var candidate in candidates)
+        {
+            if (candidate.Value < selectedDepth) continue;
+            if (candidate.Value > selectedDepth)
+            {
+                selected = candidate.Key;
+                selectedDepth = candidate.Value;
+                ambiguous = false;
+            }
+            else if (selected != candidate.Key)
+            {
+                ambiguous = true;
+            }
+        }
+        if (ambiguous) throw new InvalidOperationException(
+          "background_target_ambiguous|multiple focused child windows; use an exact native ref");
+        return selected;
+    }
+    static IntPtr KeyboardTarget(IntPtr top, IntPtr preferred)
+    {
+        if (!IsWindowHandle(top))
+        {
+            throw new InvalidOperationException("stale_target|background keyboard target is stale or invalid");
+        }
+        if (preferred != IntPtr.Zero)
+        {
+            if (!BelongsToTop(top, preferred))
+            {
+                throw new InvalidOperationException("target_mismatch|background keyboard ref belongs to a different window");
+            }
+        }
+        // The addressed child owns keyboard delivery, not the outer host's toolkit.
+        IntPtr focused = preferred != IntPtr.Zero ? preferred : FocusedKeyboardDescendant(top);
+        if (!SupportsBackgroundKeyboardClass(ClassNameOf(focused)))
+        {
+            throw new InvalidOperationException("background_unsupported|focused renderer does not accept posted keyboard input; no input sent");
+        }
+        // An inactive Tk window keeps its focus to itself and leaves the native
+        // focus empty; keys sent to its frame are discarded without an error.
+        if (focused == top && ClassNameOf(top).StartsWith("Tk", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+              "background_unsupported|this Tk window has no focused control while inactive, so background keys would be discarded; use explicit foreground delivery; no input sent");
+        }
+        return focused;
+    }
+    public static ushort NamedVirtualKey(string name)
+    {
+        switch (name)
+        {
+            case "BACKSPACE": case "BS": return 0x08;
+            case "TAB": return 0x09;
+            case "ENTER": case "RETURN": return 0x0D;
+            case "ESC": case "ESCAPE": return 0x1B;
+            case "SPACE": return 0x20;
+            case "PGUP": case "PRIOR": return 0x21;
+            case "PGDN": case "NEXT": return 0x22;
+            case "END": return 0x23;
+            case "HOME": return 0x24;
+            case "LEFT": return 0x25;
+            case "UP": return 0x26;
+            case "RIGHT": return 0x27;
+            case "DOWN": return 0x28;
+            case "INSERT": case "INS": return 0x2D;
+            case "DELETE": case "DEL": return 0x2E;
+            case "PLUS": return 0xBB;
+            case "MINUS": return 0xBD;
+            // Named on their own they are ordinary keys: held, released or
+            // tapped by themselves rather than decorating another key.
+            case "SHIFT": return 0x10;
+            case "CTRL": case "CONTROL": return 0x11;
+            case "ALT": case "MENU": return 0x12;
+            case "CAPSLOCK": return 0x14;
+            case "NUMLOCK": return 0x90;
+            case "SCROLLLOCK": return 0x91;
+            case "LWIN": case "WIN": return 0x5B;
+            case "APPS": return 0x5D;
+            case "PRTSC": case "PRINTSCREEN": return 0x2C;
+            case "PAUSE": return 0x13;
+        }
+        if (name.Length >= 2 && name[0] == 'F')
+        {
+            int number;
+            if (Int32.TryParse(name.Substring(1), out number) && number >= 1 && number <= 24)
+            {
+                return (ushort)(0x6F + number);
+            }
+        }
+        throw new InvalidOperationException("background_unsupported|background keyboard does not support key token {" + name + "}");
+    }
+    static bool IsExtendedVirtualKey(ushort vk)
+    {
+        return vk == 0x21 || vk == 0x22 || vk == 0x23 || vk == 0x24
+          || vk == 0x25 || vk == 0x26 || vk == 0x27 || vk == 0x28
+          || vk == 0x2D || vk == 0x2E;
+    }
+    /// The character a physical press of these keys makes: the target's own
+    /// TranslateMessage derives it from a queued key, but a sent key never passes
+    /// that loop, and Edit controls and terminals act on Enter, Tab, Backspace,
+    /// Escape and Space only through it. Queuing the key instead would let the
+    /// derived character land behind text already queued after it.
+    public static char TranslatedKeyCharacter(ushort vk)
+    {
+        switch (vk)
+        {
+            case 0x08: return '\b';
+            case 0x09: return '\t';
+            case 0x0D: return '\r';
+            case 0x1B: return (char)0x1B;
+            case 0x20: return ' ';
+            default: return '\0';
+        }
+    }
+    /// Tk derives the editing action from the key itself and repeats it for the
+    /// character, so it receives the key alone.
+    public static bool ReceivesTranslatedCharacter(string className)
+    {
+        return !(className ?? "").StartsWith("Tk", StringComparison.Ordinal);
+    }
+    static void BackgroundVirtualKey(IntPtr target, ushort vk)
+    {
+        uint scan = MapVirtualKey(vk, 0);
+        int state = 1 | ((int)scan << 16) | (IsExtendedVirtualKey(vk) ? 1 << 24 : 0);
+        int released = state | unchecked((int)0xC0000000);
+        char translated = ReceivesTranslatedCharacter(ClassNameOf(target)) ? TranslatedKeyCharacter(vk) : '\0';
+        var release = BindBackgroundRelease(target, delegate
+        {
+            SendMessageChecked(target, WM_KEYUP, new UIntPtr(vk), new IntPtr(released));
+        });
+        // A keyboard delivers the press, its character, then the release.
+        WithBackgroundRelease(
+          delegate
+          {
+              SendMessageChecked(target, WM_KEYDOWN, new UIntPtr(vk), new IntPtr(state));
+              if (translated != '\0') SendMessageChecked(target, WM_CHAR, new UIntPtr(translated), new IntPtr(state));
+          },
+          delegate { }, release);
+    }
+    static void BackgroundChar(IntPtr target, char value)
+    {
+        SendMessageChecked(target, WM_CHAR, new UIntPtr(value), new IntPtr(1));
+    }
+    public static string BackgroundText(IntPtr top, IntPtr preferred, string text)
+    {
+        IntPtr target = KeyboardTarget(top, preferred);
+        string value = text ?? "";
+        ReportWindowInput(target, "type");
+        foreach (char ch in value)
+        {
+            if (ch == '\n') BackgroundVirtualKey(target, 0x0D);
+            else if (ch != '\r') BackgroundChar(target, ch);
+        }
+        return WindowId(target);
+    }
+    public struct BackgroundKeyStroke
+    {
+        public bool IsCharacter;
+        public char Character;
+        public ushort Key;
+    }
+    // Validate the entire grammar before resolving a target or sending its prefix.
+    public static List<BackgroundKeyStroke> ParseBackgroundKeys(string keys)
+    {
+        var strokes = new List<BackgroundKeyStroke>();
+        string value = keys ?? "";
+        for (int index = 0; index < value.Length; index++)
+        {
+            char ch = value[index];
+            if (ch == '\r' || ch == '\n')
+            {
+                if (ch == '\r' && index + 1 < value.Length && value[index + 1] == '\n') index++;
+                strokes.Add(new BackgroundKeyStroke { Key = 0x0D });
+                continue;
+            }
+            if (ch == '{')
+            {
+                if (index + 2 < value.Length && value.Substring(index, 3) == "{{}")
+                {
+                    strokes.Add(new BackgroundKeyStroke { IsCharacter = true, Character = '{' }); index += 2; continue;
+                }
+                if (index + 2 < value.Length && value.Substring(index, 3) == "{}}")
+                {
+                    strokes.Add(new BackgroundKeyStroke { IsCharacter = true, Character = '}' }); index += 2; continue;
+                }
+                int end = value.IndexOf('}', index + 1);
+                if (end < 0)
+                {
+                    throw new InvalidOperationException("background_unsupported|unclosed background key token");
+                }
+                string token = value.Substring(index + 1, end - index - 1).Trim().ToUpperInvariant();
+                int repeat = 1;
+                int space = token.LastIndexOf(' ');
+                if (space > 0)
+                {
+                    int parsed;
+                    if (Int32.TryParse(token.Substring(space + 1), out parsed) && parsed >= 1 && parsed <= 100)
+                    {
+                        repeat = parsed;
+                        token = token.Substring(0, space);
+                    }
+                }
+                ushort vk = NamedVirtualKey(token);
+                if (vk == 0x5B)
+                {
+                    throw new InvalidOperationException(
+                      "background_unsupported|the Windows key needs the real keyboard; use explicit foreground delivery");
+                }
+                for (int count = 0; count < repeat; count++) strokes.Add(new BackgroundKeyStroke { Key = vk });
+                index = end;
+                continue;
+            }
+            if ("^%+~()#".IndexOf(ch) >= 0)
+            {
+                // A sequence that is nothing but the symbol means the character
+                // itself; only a longer one can be carrying grammar.
+                if (value.Length == 1)
+                {
+                    strokes.Add(new BackgroundKeyStroke { IsCharacter = true, Character = ch });
+                    continue;
+                }
+                throw new InvalidOperationException(
+                  "background_unsupported|background keyboard does not support SendKeys modifiers/groups; use explicit foreground delivery");
+            }
+            strokes.Add(new BackgroundKeyStroke { IsCharacter = true, Character = ch });
+        }
+        return strokes;
+    }
+    public static string BackgroundKeys(IntPtr top, IntPtr preferred, string keys)
+    {
+        var strokes = ParseBackgroundKeys(keys);
+        IntPtr target = KeyboardTarget(top, preferred);
+        ReportWindowInput(target, "type");
+        foreach (var stroke in strokes)
+        {
+            if (stroke.IsCharacter) BackgroundChar(target, stroke.Character);
+            else BackgroundVirtualKey(target, stroke.Key);
+        }
+        return WindowId(target);
+    }
+    public static string NativeObservableState(IntPtr target, string action)
+    {
+        if (!IsWindowHandle(target)) return "";
+        string className = ClassNameOf(target).ToUpperInvariant();
+        string normalized = (action ?? "").ToLowerInvariant();
+        if ((normalized == "key" || normalized == "type") && className.Contains("EDIT"))
+        {
+            UIntPtr rawLength = SendMessageValue(
+              target, WM_GETTEXTLENGTH, UIntPtr.Zero, IntPtr.Zero);
+            int length = (int)Math.Min(32768UL, rawLength.ToUInt64());
+            IntPtr buffer = Marshal.AllocHGlobal((length + 1) * 2);
+            try
+            {
+                for (int offset = 0; offset < (length + 1) * 2; offset++)
+                {
+                    Marshal.WriteByte(buffer, offset, 0);
+                }
+                SendMessageValue(target, WM_GETTEXT, new UIntPtr((uint)(length + 1)), buffer);
+                return "native_text=" + (Marshal.PtrToStringUni(buffer) ?? "");
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+        if ((normalized == "click" || normalized == "double_click"
+            || normalized == "right_click" || normalized == "middle_click"
+            || normalized == "triple_click") && className.Contains("BUTTON"))
+        {
+            UIntPtr check = SendMessageValue(target, BM_GETCHECK, UIntPtr.Zero, IntPtr.Zero);
+            return "native_check=" + check.ToUInt64();
+        }
+        return "";
+    }
+}

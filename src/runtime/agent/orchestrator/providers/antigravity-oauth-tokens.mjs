@@ -20,6 +20,8 @@ import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { normalizeExpiresAtMs as _normalizeExpiresAt, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 import { ANTIGRAVITY_MODELS } from '../../../shared/llm/provider-model-identities.mjs';
+import { readLastKnownVersion, rememberLastKnownVersion } from './client-version-store.mjs';
+import { maxSemver } from './npm-cli-version.mjs';
 export { ANTIGRAVITY_MODELS } from '../../../shared/llm/provider-model-identities.mjs';
 
 // The Antigravity IDE's installed-app OAuth client, which every copy of that
@@ -62,7 +64,7 @@ export const PROJECT_ENDPOINT = CONTENT_ENDPOINT;
 
 export const DEFAULT_ANTIGRAVITY_MODEL = ANTIGRAVITY_MODELS[0].id;
 
-const ANTIGRAVITY_VERSION_FALLBACK = '2.8.0';
+const ANTIGRAVITY_VERSION_FALLBACK = '2.19.1';
 export const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 export const TOKEN_TIMEOUT_MS = 30_000;
 export const PROJECT_TIMEOUT_MS = 30_000;
@@ -71,19 +73,29 @@ export const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 // The backend gates models on the client version in the User-Agent, so the
 // version tracks the latest Antigravity release via its update manifest.
-// The pinned value is the offline fallback; the env override always wins.
+// The last discovered version is kept on disk for offline starts; the pinned
+// value is only the first-run fallback. The env override always wins.
 const VERSION_MANIFEST_URL =
   'https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml';
 const VERSION_FETCH_TIMEOUT_MS = 5_000;
 const VERSION_RETRY_AFTER_MS = 10 * 60 * 1000;
+const VERSION_LAST_KNOWN_KEY = 'antigravity-hub';
 let _discoveredVersion = null;
+let _lastKnownVersion;
 let _versionFetch = null;
 let _versionFailedAt = 0;
 
 function antigravityVersion() {
   return (
-    String(process.env.MIXDOG_ANTIGRAVITY_VERSION || '').trim() || _discoveredVersion || ANTIGRAVITY_VERSION_FALLBACK
+    String(process.env.MIXDOG_ANTIGRAVITY_VERSION || '').trim() ||
+    _discoveredVersion ||
+    maxSemver(lastKnownAntigravityVersion(), ANTIGRAVITY_VERSION_FALLBACK)
   );
+}
+
+function lastKnownAntigravityVersion() {
+  if (_lastKnownVersion === undefined) _lastKnownVersion = readLastKnownVersion(VERSION_LAST_KNOWN_KEY);
+  return _lastKnownVersion;
 }
 
 /** Version from an electron-builder update manifest, or null when absent. */
@@ -113,6 +125,7 @@ export function ensureAntigravityVersion({ fetchFn = fetch } = {}) {
         signal: AbortSignal.timeout(VERSION_FETCH_TIMEOUT_MS),
       });
       if (res.ok) _discoveredVersion = parseAntigravityManifestVersion(await res.text());
+      if (_discoveredVersion) rememberLastKnownVersion(VERSION_LAST_KNOWN_KEY, _discoveredVersion);
     } catch {
       // The pinned fallback stays valid when discovery fails.
     } finally {
@@ -125,6 +138,8 @@ export function ensureAntigravityVersion({ fetchFn = fetch } = {}) {
 }
 
 export function _resetAntigravityVersionForTest() {
+  rememberLastKnownVersion(VERSION_LAST_KNOWN_KEY, null);
+  _lastKnownVersion = undefined;
   _discoveredVersion = null;
   _versionFetch = null;
   _versionFailedAt = 0;

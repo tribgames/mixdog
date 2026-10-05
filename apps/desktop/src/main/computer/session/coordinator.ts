@@ -66,6 +66,8 @@ export interface ComputerUseSnapshot {
   attentionRequired?: ComputerUseAttention;
   activities: ComputerUseActivity[];
   cursors: ComputerUseCursor[];
+  /** Sessions whose pointer went back to the user until their next pointer event. */
+  releasedPointerSessionIds?: string[];
   targetLeases: Array<{
     sessionId: string;
     windowId: string;
@@ -166,6 +168,7 @@ export class ComputerUseCoordinator {
   private readonly listeners = new Set<(snapshot: ComputerUseSnapshot) => void>();
   private readonly activities = new Map<string, ComputerUseActivity>();
   private readonly cursors = new Map<string, ComputerUseCursor>();
+  private readonly releasedPointers = new Set<string>();
   private readonly activeCounts = new Map<string, number>();
   private readonly targetLeases = new Map<string, TargetLease>();
   private readonly pendingTargetLeases: PendingTargetLease[] = [];
@@ -205,6 +208,7 @@ export class ComputerUseCoordinator {
       cursors: [...this.cursors.values()]
         .map((cursor) => ({ ...cursor }))
         .sort((left, right) => left.eventId - right.eventId),
+      releasedPointerSessionIds: [...this.releasedPointers],
       targetLeases: [...this.targetLeases.entries()].map(([windowId, lease]) => ({
         sessionId: lease.sessionId,
         windowId,
@@ -315,6 +319,7 @@ export class ComputerUseCoordinator {
     if (!Number.isFinite(input.x) || !Number.isFinite(input.y)) throw new Error('computer_cursor_invalid_point');
     const hasDestination = Number.isFinite(input.toX) && Number.isFinite(input.toY);
     const now = this.now();
+    this.releasedPointers.delete(input.sessionId);
     this.cursors.set(input.sessionId, {
       sessionId: input.sessionId,
       ...(input.windowId ? { windowId: input.windowId } : {}),
@@ -347,6 +352,15 @@ export class ComputerUseCoordinator {
     }
     this.changed();
     return this.cursorSequence;
+  }
+
+  /** The session's pointer is the user's again: its arrow hides until the
+   *  session's next pointer event. */
+  releasePointer(sessionId: string): void {
+    if (!this.activities.has(sessionId) || this.releasedPointers.has(sessionId)) return;
+    this.releasedPointers.add(sessionId);
+    this.cursors.delete(sessionId);
+    this.changed();
   }
 
   finishCommand(sessionId: string): void {
@@ -582,6 +596,7 @@ export class ComputerUseCoordinator {
     this.leaseExpiryTimer = null;
     this.activities.clear();
     this.cursors.clear();
+    this.releasedPointers.clear();
     this.activeCounts.clear();
     this.targetLeases.clear();
     this.userControlActive = false;
@@ -689,6 +704,7 @@ export class ComputerUseCoordinator {
     this.activeCounts.delete(sessionId);
     this.activities.delete(sessionId);
     this.cursors.delete(sessionId);
+    this.releasedPointers.delete(sessionId);
     if (this.attentionRequired?.sessionId === sessionId) this.attentionRequired = null;
   }
 

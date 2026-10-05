@@ -3,7 +3,7 @@
  *  reconnects, and the empty-session tool-policy refresh all apply exactly as
  *  they do for a UI click. The facade is read lazily because runtime-core
  *  registers the tool executor before it finishes assembling the API object. */
-import { builtinFeatureActive, builtinFirstUseApproval } from '../../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
+import { builtinFeatureActive } from '../../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
 import { SETUP_DESKTOP_DOMAINS, SETUP_HANDOFFS } from './settings-contract.mjs';
 import { executeExtendedSetupAction, publicAutomation, validateMcpInput } from './extended-actions.mjs';
@@ -253,14 +253,8 @@ const SETUP_STATUS_READERS = {
     const config = getConfig();
     return {
       ...featureFlags(rt),
-      browser: {
-        active: builtinFeatureActive(config, 'browser'),
-        firstUseApproval: builtinFirstUseApproval(config, 'browser'),
-      },
-      computer: {
-        active: builtinFeatureActive(config, 'computer'),
-        firstUseApproval: builtinFirstUseApproval(config, 'computer'),
-      },
+      browser: { active: builtinFeatureActive(config, 'browser') },
+      computer: { active: builtinFeatureActive(config, 'computer') },
     };
   },
   shell: (rt) => rt.getSystemShell?.() || {},
@@ -397,10 +391,6 @@ const SETUP_ACTION_HANDLERS = {
     const name = requireEnum(args.name, SETUP_BUILTIN_TOGGLE_FEATURES, 'name');
     if (DESKTOP_HOSTED_FEATURES.includes(name)) return requestDesktop(args);
     return rt.setBuiltinToolEnabled(name, requireBoolean(args.enabled));
-  },
-  set_first_use_approval: (rt, args) => {
-    const name = requireEnum(args.name, ['browser', 'computer'], 'name');
-    return rt.setBridgeFirstUseApproval(name, requireBoolean(args.enabled));
   },
   install_builtin: async (rt, args, { requestDesktop }) => {
     const name = requireEnum(args.name, SETUP_INSTALLABLE_FEATURES, 'name');

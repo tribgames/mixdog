@@ -7,7 +7,7 @@
  */
 import { createPixelCapture } from './capture-pixels';
 import { mergeCaptureOcr } from './capture-ocr';
-import { captureResultPayload } from './capture-result';
+import { finishCapture } from './capture-finish';
 import { createCaptureAfter } from './capture-after';
 import { createCaptureImageDedupStore } from './capture-image-dedup';
 import {
@@ -24,8 +24,7 @@ import {
   readAccessibilitySnapshot,
   readScreenshotCapture,
 } from './capture-reads';
-import { type CaptureBaseline, recordCaptureBaseline } from './capture-baseline';
-import { applyFrameImage, persistCaptureImage } from './capture-image-output';
+import type { CaptureBaseline } from './capture-baseline';
 
 import { DEFAULT_CAPTURE_MAX_ELEMENTS, elapsedMs } from '../shared/common';
 import { createOcrCapturePreferenceStore } from '../input/capability-policy';
@@ -83,8 +82,6 @@ export function createCaptureEngine(host: CaptureEngineHost) {
   const {
     sessionIdFor,
     assertExecutionNotAborted,
-    rememberElementTargets,
-    rememberObservedWindowScope,
     forgetObservedWindowScope,
     framesBySession,
     elementTargetsBySession,
@@ -275,71 +272,38 @@ export function createCaptureEngine(host: CaptureEngineHost) {
           ...(foregroundReady ? {} : { reason: foregroundInputReason || 'unknown' }),
         };
       }
-      if (mode !== 'vision') {
-        rememberElementTargets(command, [...rawElements, ...ocrElements]);
-      }
-      const captureOk = !screenshot?.pixelUnavailable || returnedAccessibilityElements > 0;
-      if (captureOk && observationWindowId) {
-        rememberObservedWindowScope(
+      return await finishCapture(
+        host,
+        { lastCaptureBySession, ocrPreferences },
+        {
           command,
+          mode,
+          forcedWindowId,
+          replacementRead,
+          captureStartedAt,
+          timings,
+          totalElementBudget,
+          screenshot,
+          rawElements,
+          ocrElements,
+          elements,
+          ocrPayload,
+          returnedAccessibilityElements,
           observationWindowId,
-          screenshot?.frame?.relatedWindowIds || [observationWindowId],
-          inputObservation
-        );
-      }
-      const changes =
-        // A cached visual-only read never asked the provider for elements, so
-        // comparing it to a full baseline would report the whole tree removed.
-        mode !== 'vision' && captureOk && !visualOnlyCacheHit
-          ? recordCaptureBaseline(lastCaptureBySession, sessionIdFor(command), {
-              mode,
-              command,
-              totalElementBudget,
-              rawElements,
-              observationWindowId,
-            })
-          : undefined;
-      const payload = captureResultPayload({
-        captureOk,
-        mode,
-        screenshot,
-        observationWindowId,
-        requestedWindowId,
-        generation,
-        totalElements,
-        ocrElementCount: ocrElements.length,
-        returnedAccessibilityElements,
-        elements,
-        visualOnlyCacheHit: visualOnlyCacheHit && !cachedAccessibilityError,
-        accessibilityError,
-        semanticAccessibilityAvailable,
-        changes,
-        continuation,
-        ocrPayload,
-      });
-      payload.foreground_input_ready = foregroundReady;
-      if (foregroundInputReason) payload.foreground_input_reason = foregroundInputReason;
-      if (accessibilityRetryAt) {
-        payload.accessibility_cache = 'timed_out_provider';
-        payload.accessibility_retry_after_ms = Math.max(0, accessibilityRetryAt - Date.now());
-      }
-      if (replacementRead) payload.observation_fallback = 'replacement_worker_pixels';
-      let image = await applyFrameImage(payload, timings, { command, mode, screenshot, elements });
-      timings.total_ms = elapsedMs(captureStartedAt);
-      payload.timings_ms = timings;
-      assertExecutionNotAborted();
-      if (!forcedWindowId && captureOk) {
-        ocrPreferences.remember(sessionIdFor(command), {
-          includeOcr: command.include_ocr === true,
-          ocrLanguage: command.ocr_language,
-          maxOcrWords: command.max_ocr_words,
-        });
-      }
-      image = persistCaptureImage(payload, image, { command, sessionId: sessionIdFor(command) });
-      return {
-        payload,
-        ...(image ? { image } : {}),
-      };
+          requestedWindowId,
+          generation,
+          continuation,
+          totalElements,
+          visualOnlyCacheHit,
+          cachedAccessibilityError,
+          accessibilityError,
+          semanticAccessibilityAvailable,
+          accessibilityRetryAt,
+          inputObservation,
+          foregroundReady,
+          foregroundInputReason,
+        }
+      );
     } finally {
       observationGuard.close();
     }

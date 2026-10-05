@@ -4,7 +4,31 @@
 // terminal / omitted sentinel updates.
 import { __mixdogMemoryLog } from '../memory-log.mjs';
 import { throwIfAborted } from '../memory-cycle-shared.mjs';
-import { CYCLE1_OMITTED_COOLDOWN_MS } from './cycle1-plan.mjs';
+import { CYCLE1_OMITTED_COOLDOWN_MAX_MS, CYCLE1_OMITTED_COOLDOWN_MS } from './cycle1-plan.mjs';
+
+const CYCLE1_OMITTED_MAX_DOUBLINGS = Math.ceil(Math.log2(CYCLE1_OMITTED_COOLDOWN_MAX_MS / CYCLE1_OMITTED_COOLDOWN_MS));
+
+/** SQL for "this unchunked row may be sent now": never reviewed, or its
+ *  cooldown has passed. The cooldown starts at CYCLE1_OMITTED_COOLDOWN_MS and
+ *  doubles with each further miss counted in error_count, up to the maximum.
+ *  `nowParam` is the placeholder holding the current time in ms. */
+export function cycle1RowDueSql(nowParam, alias = '') {
+  const column = alias ? `${alias}.` : '';
+  const doublings = `LEAST(GREATEST(COALESCE(${column}error_count, 0) - 1, 0), ${CYCLE1_OMITTED_MAX_DOUBLINGS})`;
+  const cooldown = `LEAST(${CYCLE1_OMITTED_COOLDOWN_MAX_MS}::bigint, ${CYCLE1_OMITTED_COOLDOWN_MS}::bigint * (1::bigint << ${doublings}))`;
+  return `(${column}reviewed_at IS NULL OR ${column}reviewed_at < ${nowParam}::bigint - ${cooldown})`;
+}
+
+/** SQL for "an unchunked row that belongs to a session". `session_id IS NOT
+ *  NULL` is implied by the trimmed check; stating it is what lets the planner
+ *  use the partial index on pending rows. Without it every count scanned the
+ *  whole table, and the backlog probe alone runs two a minute (EXPLAIN ANALYZE
+ *  on a 162K-row store: parallel seq scan, 100-170 ms and 21K blocks read,
+ *  against 32 ms through the index). */
+export function cycle1UnchunkedSql(alias = '') {
+  const column = alias ? `${alias}.` : '';
+  return `${column}chunk_root IS NULL AND ${column}session_id IS NOT NULL AND NULLIF(btrim(${column}session_id), '') IS NOT NULL`;
+}
 
 export function isStructurallyUnchunkableInput(row) {
   return !String(row?.content ?? '').trim();
@@ -41,19 +65,23 @@ export async function markTerminalRows(db, rowIds, label = 'terminal') {
   }
 }
 
-export async function markOmittedRows(db, rowIds) {
+/** Defers the rows a window left raw. Only a miss the classifier produced
+ *  counts toward the lengthening cooldown (cycle1RowDueSql); `transientRowIds`
+ *  never got an answer — a provider error, a commit that lost a race — and
+ *  come back at the base cooldown however long the outage lasts. */
+export async function markOmittedRows(db, rowIds, { transientRowIds = [] } = {}) {
   const ids = positiveEntryIds(rowIds);
   if (ids.length === 0) return { attempted: 0, deferred: 0, marked: 0, failed: 0 };
   try {
     const result = await db.query(
       `UPDATE entries
        SET reviewed_at = $2,
-           error_count = COALESCE(error_count, 0) + 1
+           error_count = COALESCE(error_count, 0) + CASE WHEN id = ANY($3::bigint[]) THEN 0 ELSE 1 END
        WHERE id = ANY($1::bigint[])
          AND chunk_root IS NULL
          AND is_root = 0
        RETURNING id`,
-      [ids, Date.now()]
+      [ids, Date.now(), positiveEntryIds(transientRowIds)]
     );
     const rows = Array.isArray(result?.rows) ? result.rows : [];
     // A model failure is not permission to retire source data. Keep every
@@ -81,12 +109,12 @@ export function selectRootId(members) {
   return rootId;
 }
 
-async function countSessionUnchunkedRows(db, { reviewedBefore = null } = {}) {
-  const where = ['chunk_root IS NULL', `NULLIF(btrim(session_id), '') IS NOT NULL`];
+async function countSessionUnchunkedRows(db, { dueAt = null } = {}) {
+  const where = [cycle1UnchunkedSql()];
   const params = [];
-  if (reviewedBefore != null) {
-    params.push(reviewedBefore);
-    where.push('(reviewed_at IS NULL OR reviewed_at < $1)');
+  if (dueAt != null) {
+    params.push(dueAt);
+    where.push(cycle1RowDueSql('$1'));
   }
   try {
     const result = await db.query(
@@ -102,7 +130,7 @@ async function countSessionUnchunkedRows(db, { reviewedBefore = null } = {}) {
 }
 
 export function countPendingRows(db) {
-  return countSessionUnchunkedRows(db, { reviewedBefore: Date.now() - CYCLE1_OMITTED_COOLDOWN_MS });
+  return countSessionUnchunkedRows(db, { dueAt: Date.now() });
 }
 
 export function countRawUnchunkedRows(db) {
@@ -115,7 +143,7 @@ export function countRawUnchunkedRows(db) {
  *  classifier prompt. Rows come back newest-first. */
 export async function fetchCycle1Rows(db, plan, now = Date.now()) {
   const sessionFilterSql = plan.onlySessionId ? 'AND session_id = $4' : '';
-  const queryParams = [plan.sessionCap, now - CYCLE1_OMITTED_COOLDOWN_MS, plan.rowsPerSession];
+  const queryParams = [plan.sessionCap, now, plan.rowsPerSession];
   if (plan.onlySessionId) queryParams.push(plan.onlySessionId);
   queryParams.push(plan.backfillCap);
   const backfillParam = `$${queryParams.length}`;
@@ -136,9 +164,8 @@ export async function fetchCycle1Rows(db, plan, now = Date.now()) {
     `WITH eligible_sessions AS (
        SELECT session_id, MAX(ts) AS latest_ts, MAX(id) AS latest_id, MIN(ts) AS oldest_ts
        FROM entries
-       WHERE chunk_root IS NULL
-         AND NULLIF(btrim(session_id), '') IS NOT NULL
-         AND (reviewed_at IS NULL OR reviewed_at < $2)
+       WHERE ${cycle1UnchunkedSql()}
+         AND ${cycle1RowDueSql('$2')}
          ${sessionFilterSql}
        GROUP BY session_id
      ), due_sessions AS (
@@ -162,8 +189,8 @@ export async function fetchCycle1Rows(db, plan, now = Date.now()) {
               ROW_NUMBER() OVER (PARTITION BY e.session_id ORDER BY e.ts DESC, e.id DESC) AS rn
        FROM entries e
        JOIN selected_sessions s ON s.session_id = e.session_id
-       WHERE e.chunk_root IS NULL
-         AND (e.reviewed_at IS NULL OR e.reviewed_at < $2)
+       WHERE ${cycle1UnchunkedSql('e')}
+         AND ${cycle1RowDueSql('$2', 'e')}
      )
      SELECT id, ts, role, content, session_id, source_ref, project_id
      FROM ranked

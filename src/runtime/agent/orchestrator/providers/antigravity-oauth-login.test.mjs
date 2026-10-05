@@ -68,7 +68,7 @@ test('hub identity and control-plane metadata exclude unsupported platform field
   });
   delete process.env.MIXDOG_ANTIGRAVITY_VERSION;
   assert.deepEqual(antigravityHeaders(), {
-    'User-Agent': 'antigravity/hub/2.8.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)',
+    'User-Agent': 'antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)',
   });
   process.env.MIXDOG_ANTIGRAVITY_VERSION = ' 2.9.0 ';
   assert.equal(

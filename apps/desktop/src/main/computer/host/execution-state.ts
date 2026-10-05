@@ -30,6 +30,21 @@ export interface InputRecoveryState {
   foregroundChildProcess?: boolean;
 }
 
+export interface SessionDesktopAnchor {
+  /** Desktop state to restore: from before the session's first foreground input,
+   *  or where the user handed the desktop back after touching it. */
+  recovery: InputRecoveryState;
+  targetWindowId: string;
+  /** Where focus was after the session's last command, when an action moved it off the target. */
+  heldWindowId?: string;
+  /** Windows other agent sessions held when their turns ended while this one
+   *  still had the desktop: this session's restore may take focus from them. */
+  handedWindowIds?: string[];
+  /** Physical user input was seen: nothing is restored until the session's next
+   *  foreground input re-anchors where the user handed the desktop back. */
+  userOwned: boolean;
+}
+
 export interface ActiveExecution {
   sessionId: string;
   aborted: boolean;
@@ -46,9 +61,9 @@ export function createExecutionState() {
   const executionContext = new AsyncLocalStorage<ActiveExecution>();
   const sessionAbortEpochs = new Map<string, number>();
   const sessionRecoveryBySession = new Map<string, InputRecoveryState>();
-  // Where the user left their own pointer, kept for as long as a sequence runs.
-  // Every step restores to this, not to wherever the step before it stopped.
-  const sequenceCursorAnchor = new Map<string, InputRecoveryState>();
+  // The user's own focus and pointer, recorded at a session's first foreground
+  // input and restored once when the session releases.
+  const sessionDesktopAnchor = new Map<string, SessionDesktopAnchor>();
   const commandChainsBySession = new Map<string, Promise<unknown>>();
 
   function assertExecutionNotAborted(): void {
@@ -104,7 +119,7 @@ export function createExecutionState() {
     executionContext,
     sessionAbortEpochs,
     sessionRecoveryBySession,
-    sequenceCursorAnchor,
+    sessionDesktopAnchor,
     commandChainsBySession,
     assertExecutionNotAborted,
     beginObservation,

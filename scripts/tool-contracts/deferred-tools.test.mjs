@@ -34,16 +34,6 @@ test('load_tool is a pure loader: free-text queries never load or discover', () 
   ) {
     throw new Error(`load_tool free-text query must not activate/discover tools: ${JSON.stringify(listQueryResult)}`);
   }
-  for (const legacyArgs of [{ select: 'shell' }, { query: 'select:shell' }]) {
-    const legacyResult = JSON.parse(__renderToolSearchForTest(legacyArgs, toolSearchSession, 'full'));
-    if (
-      legacyResult.selected ||
-      (Array.isArray(legacyResult.loaded) && legacyResult.loaded.length) ||
-      legacyResult.activeTools.includes('shell')
-    ) {
-      throw new Error(`load_tool legacy inputs must not load tools: ${JSON.stringify(legacyResult)}`);
-    }
-  }
   // names[] is the primary loader input (aliases expand, tools activate).
   const namesLoadResult = JSON.parse(
     __renderToolSearchForTest(

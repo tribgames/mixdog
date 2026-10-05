@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>탭 줄 높이 · + 크기 시안</title>
+<style>
+  :root {
+    --frame: #202022;
+    --side: #1c1c1f;
+    --main: #1c1c1f;
+    --text: #e9e9e9;
+    --muted: #a8a8a8;
+    --faint: #9b9b9b;
+    --hair: rgba(255, 255, 255, 0.09);
+    --accent: #8ab4f8;
+    --page: #0e0e10;
+    --composer: #2a2a2e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 32px 60px; background: var(--page); color: var(--text);
+    font: 13px/1.5 "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 12px; margin: 0 0 22px; max-width: 1100px; }
+  .variant { margin-bottom: 30px; }
+  .variant h2 { font-size: 14px; margin: 0 0 2px; }
+  .variant h2 .tag { color: var(--accent); font-size: 12px; font-weight: 600; margin-left: 6px; }
+  .variant p { margin: 0 0 10px; color: var(--muted); font-size: 12px; max-width: 1100px; }
+  .variant code { font-size: 11.5px; }
+
+  .win {
+    --h: 39px; --py: 6px; --plus: 16px; --plus-ink: var(--text); --title: 15px;
+    width: 1180px; height: 250px; background: var(--frame);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 8px; overflow: hidden;
+    display: grid; grid-template-rows: 36px 1fr;
+  }
+  .titlebar { display: flex; justify-content: flex-end; }
+  .titlebar span { width: 46px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+  .below { display: grid; grid-template-columns: 48px 252px 1fr; min-height: 0; }
+  .rail { display: flex; flex-direction: column; align-items: center; padding-top: 4px; }
+  .rail i { width: 40px; height: 44px; display: grid; place-items: center; }
+  .rail i::before { content: ""; width: 18px; height: 18px; border: 1.6px solid var(--muted); border-radius: 5px; }
+  .side { background: var(--side); border-top-left-radius: 8px; box-shadow: inset 1px 1px 0 var(--hair); border-right: 1px solid var(--hair); }
+  .side-head { height: var(--h); display: flex; align-items: center; padding: 0 14px; font-weight: 700; font-size: var(--title); }
+  .side-head .more { margin-left: auto; color: var(--muted); font-weight: 400; }
+  .side-row { padding: 6px 14px; font-size: 14px; display: flex; gap: 8px; align-items: center; }
+  .side-row.first { margin-top: 4px; }
+
+  .main { background: var(--main); box-shadow: inset 0 1px 0 var(--hair); display: grid; grid-template-columns: 1fr 1fr; }
+  .pane { display: flex; flex-direction: column; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--hair); }
+  .strip { height: var(--h); flex: none; display: flex; align-items: stretch; }
+  .tab {
+    position: relative; isolation: isolate; width: 150px; display: flex; align-items: center; gap: 6px; padding: 0 12px;
+    color: var(--text); font-size: 14px; white-space: nowrap; overflow: hidden;
+  }
+  .tab:not(:last-child) { background: linear-gradient(var(--hair), var(--hair)) right center / 1px 16px no-repeat; }
+  .tab .ico { width: 14px; height: 14px; flex: none; }
+  .tab.active { font-weight: 600; }
+  .tab::before { content: ""; position: absolute; inset: var(--py) 3px; border-radius: 7px; z-index: -1; }
+  .tab.active::before { background: color-mix(in srgb, var(--text) 7%, transparent); }
+  .pane.focused .tab.active::before { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .new { width: 32px; display: grid; place-items: center; color: var(--plus-ink); flex: none; }
+  .new svg { width: var(--plus); height: var(--plus); }
+  .actions { margin-left: auto; display: flex; gap: 14px; align-items: center; padding-right: 12px; }
+  .actions b { width: 13px; height: 13px; border: 1.4px solid var(--muted); border-radius: 3px; display: block; }
+  .pane .body { flex: 1; padding: 18px 28px; }
+  .pane .body div { height: 9px; border-radius: 5px; margin-bottom: 11px; background: color-mix(in srgb, var(--text) 7%, transparent); }
+
+  .v-h39s { --plus: 13px; --plus-ink: var(--muted); }
+  .v-h42  { --h: 42px; --py: 6px; --plus: 13px; --plus-ink: var(--muted); }
+  .v-h44  { --h: 44px; --py: 7px; --plus: 13px; --plus-ink: var(--muted); }
+  .v-h48  { --h: 48px; --py: 8px; --plus: 14px; --plus-ink: var(--muted); --title: 16px; }
+</style>
+</head>
+<body>
+<h1>탭 줄 높이 · + 크기 시안</h1>
+<p class="lead">R5(둥근 선택 바탕) 적용 상태 그대로, 탭 줄·사이드 머리 높이와 + 버튼만 바꿨습니다. 사이드 머리는 항상 탭 줄과 같은 높이입니다. 오른쪽 패널이 포커스 상태입니다.</p>
+<div id="list"></div>
+<script>
+  const variants = [
+    { cls: '', title: '현재', note: '높이 <code>39px</code>, 선택 바탕 <code>26px</code>(위아래 6px), + <code>16px</code> 밝은 글자색.' },
+    { cls: 'v-h39s', title: '39px + 작은 +', note: '높이는 그대로, +만 <code>13px</code> · 흐린 글자색.' },
+    { cls: 'v-h42', title: '42px', note: '높이 <code>42px</code>, 선택 바탕 <code>30px</code>, + <code>13px</code> 흐린 색.' },
+    { cls: 'v-h44', title: '44px', tag: '추천', note: '높이 <code>44px</code>, 선택 바탕 <code>30px</code>(위아래 7px), + <code>13px</code> 흐린 색. 탭이 크게 커지지 않으면서 위아래 여유가 생깁니다.' },
+    { cls: 'v-h48', title: '48px', note: '높이 <code>48px</code>, 선택 바탕 <code>32px</code>, + <code>14px</code>. 사이드 제목 16px. ChatGPT(Codex) 머리 줄에 가장 가깝습니다.' },
+  ];
+  const icon = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z"/></svg>';
+  const plus = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2.5v11M2.5 8h11"/></svg>';
+  const pane = (focused, tabs) => `
+    <div class="pane${focused ? ' focused' : ''}">
+      <div class="strip">
+        ${tabs.map(([l, a]) => `<div class="tab${a ? ' active' : ''}">${icon}${l}</div>`).join('')}
+        <div class="new">${plus}</div>
+        <div class="actions"><b></b><b></b></div>
+      </div>
+      <div class="body"><div style="width:68%"></div><div style="width:52%"></div><div style="width:60%"></div></div>
+    </div>`;
+  const list = document.getElementById('list');
+  for (const v of variants) {
+    const s = document.createElement('section');
+    s.className = 'variant';
+    s.innerHTML = `
+      <h2>${v.title}${v.tag ? `<span class="tag">${v.tag}</span>` : ''}</h2>
+      <p>${v.note}</p>
+      <div class="win ${v.cls}">
+        <div class="titlebar"><span>─</span><span>☐</span><span>✕</span></div>
+        <div class="below">
+          <div class="rail"><i></i><i></i><i></i></div>
+          <div class="side">
+            <div class="side-head">세션<span class="more">+</span></div>
+            <div class="side-row first">✎ 새 작업</div>
+            <div class="side-row">✧ 새 스튜디오</div>
+          </div>
+          <div class="main">
+            ${pane(false, [['새 작업', false], ['리뷰 정리', true]])}
+            ${pane(true, [['새 작업', true], ['메모', false]])}
+          </div>
+        </div>
+      </div>`;
+    list.appendChild(s);
+  }
+</script>
+</body>
+</html>

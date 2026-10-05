@@ -17,6 +17,7 @@ import { PausedBeforeDispatch, type ForegroundLane } from './command-queue-foreg
 import { type PauseGate, pausedForUserInput } from './command-queue-pause';
 import type { ActiveExecution, ExecutionState } from './execution-state';
 import { PausedComputerWork, pendingWorkReply } from './pending-work';
+import type { PointerHold } from './pointer-hold';
 import { isComputerRecoveryRead } from './recovery-reads';
 
 export interface CommandAttemptDeps {
@@ -29,6 +30,7 @@ export interface CommandAttemptDeps {
   recordDiagnostic?: (sessionId: string, record: Record<string, unknown>) => void;
   assertEpoch: PauseGate['assertEpoch'];
   runForegroundExclusive: ForegroundLane['runForegroundExclusive'];
+  pointerHold?: Pick<PointerHold, 'claim' | 'arm'>;
 }
 
 /** Failure codes that mean the user, not the agent, has the desktop now. */
@@ -181,7 +183,11 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
       assertRunnable: assertRunnableFor(state, epoch),
     };
     try {
-      const operation = () => runAttempt(attempt);
+      const operation = async () => {
+        // One physical pointer: another session's blanked cursor ends first.
+        if (foreground) await deps.pointerHold?.claim(sessionId);
+        return runAttempt(attempt);
+      };
       const requireFreshAfterWait = pending || observesOnly(command) ? false : undefined;
       const outcome = foreground
         ? await deps.runForegroundExclusive(sessionId, operation, {
@@ -204,6 +210,7 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
       return await failedAttempt(attempt, error);
     } finally {
       if (activeExecutionsBySession.get(sessionId) === state) activeExecutionsBySession.delete(sessionId);
+      if (foreground) deps.pointerHold?.arm(sessionId);
       coordinator.finishCommand(sessionId);
       releaseApproval();
     }

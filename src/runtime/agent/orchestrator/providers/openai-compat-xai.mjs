@@ -14,6 +14,7 @@ import { appendAgentTrace } from '../agent-trace.mjs';
 import { resolveProviderCacheKey, resolveProviderPromptCacheLane } from '../agent-runtime/cache-strategy.mjs';
 import { shouldFallbackTransport } from './retry-classifier.mjs';
 import { envFlag as _envFlag } from '../../../shared/env.mjs';
+import { getModelsDevRowSync } from '../../../shared/llm/model-catalog.mjs';
 import {
   traceHash,
   stableTraceStringify,
@@ -161,6 +162,13 @@ export function xaiModelSupportsReasoningEffort(model) {
     .toLowerCase();
   if (!id) return true;
   if (!id.startsWith('grok')) return true;
+  // The catalog answers first: a listed model takes the parameter exactly
+  // when it publishes effort values (grok-4.3 does, grok-4.20-*-reasoning
+  // does not), so a new release needs no edit here.
+  const listed = getModelsDevRowSync(id, 'xai');
+  if (listed) {
+    return (listed.reasoning_options || []).some((option) => option?.type === 'effort' && option.values?.length > 0);
+  }
   // grok-4.5 / grok-4.6 and anything newer in that line.
   return /grok[-_]?4\.(?:[5-9]|\d{2,})/.test(id);
 }

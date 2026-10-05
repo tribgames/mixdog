@@ -213,7 +213,7 @@ test('IPC accepts only the runtime-backed setting keys', () => {
   assert.throws(() => requiredDesktopSettingKey({}), /invalid/);
 });
 
-test('desktop capability validation exposes Recap and rejects the retired Memory toggle API', () => {
+test('desktop capability validation exposes Recap', () => {
   assert.deepEqual(
     requiredDesktopCapabilityRequest({
       capability: 'setRecapEnabled',
@@ -240,14 +240,6 @@ test('desktop capability validation exposes Recap and rejects the retired Memory
         args: ['off'],
       }),
     /requires a boolean/
-  );
-  assert.throws(
-    () =>
-      requiredDesktopCapabilityRequest({
-        capability: 'setMemoryEnabled',
-        args: [false],
-      }),
-    /unavailable/
   );
 });
 

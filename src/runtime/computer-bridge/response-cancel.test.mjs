@@ -1,15 +1,11 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
+import { makeTempEnvDir, writeBridgeDiscovery } from './bridge-env.test-support.mjs';
 import { executeComputerTool } from './client.mjs';
 
 test('cancellation after response headers still releases the same host session', { timeout: 10_000 }, async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-response-cancel-'));
-  const previousNamespace = process.env.MIXDOG_BRIDGE_DISCOVERY_DIR;
-  process.env.MIXDOG_BRIDGE_DISCOVERY_DIR = directory;
+  const { directory, cleanup } = await makeTempEnvDir('MIXDOG_BRIDGE_DISCOVERY_DIR', 'mixdog-response-cancel-');
   const controller = new AbortController();
   const nativeFetch = globalThis.fetch;
   const received = [];
@@ -41,15 +37,11 @@ test('cancellation after response headers still releases the same host session',
       server.once('error', reject);
       server.listen(0, '127.0.0.1', resolve);
     });
-    await writeFile(
-      join(directory, 'computer-bridge.json'),
-      JSON.stringify({
-        version: 1,
-        pid: process.pid,
-        port: server.address().port,
-        token: 'response-fixture',
-      })
-    );
+    await writeBridgeDiscovery(directory, {
+      pid: process.pid,
+      port: server.address().port,
+      token: 'response-fixture',
+    });
     globalThis.fetch = async (...args) => {
       const response = await nativeFetch(...args);
       if (!abortedAtHeaders) {
@@ -73,10 +65,8 @@ test('cancellation after response headers still releases the same host session',
     );
   } finally {
     globalThis.fetch = nativeFetch;
-    if (previousNamespace === undefined) delete process.env.MIXDOG_BRIDGE_DISCOVERY_DIR;
-    else process.env.MIXDOG_BRIDGE_DISCOVERY_DIR = previousNamespace;
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
-    await rm(directory, { recursive: true, force: true });
+    await cleanup();
   }
 });

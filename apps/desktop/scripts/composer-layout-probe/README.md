@@ -29,7 +29,7 @@ It does not connect to, restart, or modify the installed application.
   appears, Goal republications (new object, clock-only fields) must not move the
   viewport, and clearing the Goal must move it exactly once.
 - `height` covers native textarea growth/clear, approval, draft context,
-  attachments, queued messages, notices, runtime progress and Goal presence,
+  attachments, queued messages and Goal presence,
   pane width changes, and viewport height steps representing a keyboard or
   bottom panel. It combines short/long history and tail/reader ownership at
   desktop and narrow widths. Wheel, held-touch and fling fixtures ensure a

@@ -323,7 +323,7 @@ const bootstrap = harnessInstalled
   };
   const statusCommand = async (command, pattern) => {
     const notice = await submitAndWait(command, () => {
-      const candidate = queryVisible('.composer-notice');
+      const candidate = queryVisible('.mx-toast');
       return candidate && new RegExp(pattern, 'i').test(text(candidate)) ? candidate : null;
     }, 'status notice for ' + command);
     const result = text(notice);

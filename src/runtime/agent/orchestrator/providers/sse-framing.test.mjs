@@ -807,7 +807,7 @@ test('a named error frame split across chunks still throws the typed SSE error',
     (error) => {
       assert.equal(error.code, 'EANTHROPIC_SSE_ERROR');
       assert.equal(error.providerErrorType, 'overloaded_error');
-      assert.equal(error.httpStatus, 503);
+      assert.equal(error.httpStatus, 529);
       return true;
     }
   );

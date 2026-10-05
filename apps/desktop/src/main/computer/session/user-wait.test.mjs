@@ -99,14 +99,7 @@ test('held keys/buttons wait without treating ordinary input as an observation f
   assert.equal(f.counts().resumes, 1);
 });
 
-for (const reason of [
-  'user_stop',
-  'user_pause',
-  'user_takeover',
-  'input_recovery_unconfirmed',
-  'input_observation_unavailable',
-  'screen_locked',
-]) {
+for (const reason of ['user_stop', 'user_pause', 'user_takeover', 'input_observation_unavailable', 'screen_locked']) {
   test(`${reason} cannot auto-resume from elapsed time`, async (t) => {
     const f = fixture(t, reason);
     assert.equal(
@@ -122,6 +115,22 @@ for (const reason of [
     assert.equal(f.coordinator.snapshot().userControlActive, true);
   });
 }
+
+test('an unverified recovery resumes once its cleaned-up desktop has been quiet', async (t) => {
+  const f = fixture(t, 'input_recovery_unconfirmed');
+  const pending = f.manager.wait('a');
+  await f.advance(6000);
+  assert.equal(await pending, 'resumed');
+  assert.equal(f.counts().resumes, 1);
+});
+
+test('an unverified recovery whose cleanup failed waits for the user', async (t) => {
+  const f = fixture(t, 'input_recovery_unconfirmed');
+  f.coordinator.beginCleanup('a')(false);
+  await f.advance(10000);
+  assert.deepEqual(f.counts(), { reads: 0, resumes: 0 });
+  assert.equal(f.coordinator.snapshot().userControlActive, true);
+});
 
 test('cleanup must finish before observing and failed observation requires confirmation', async (t) => {
   const f = fixture(t);

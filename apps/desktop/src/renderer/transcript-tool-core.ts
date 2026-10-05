@@ -431,17 +431,86 @@ export function desktopToolActivityBrowserPage(items: readonly TranscriptItem[])
   return page;
 }
 
-/** The group summary: each row verb once, in first-use order, with its call
- *  count when it ran more than once ("Read 6 · Search · Run 4"). The summary
- *  and the rows under it speak one vocabulary, and a long turn no longer
- *  runs the line off the edge with full work-unit names. */
-export function desktopToolActivitySummary(items: readonly TranscriptItem[]): string {
-  const counts = new Map<string, number>();
-  for (const item of flattenedToolActivityItems(items)) {
-    const verb = desktopToolActivityRowVerb(item.name, item.args);
-    counts.set(verb, (counts.get(verb) || 0) + Math.max(1, Math.round(Number(item.count || 1))));
+function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, count: number): string {
+  switch (unit.unitKey) {
+    case 'Read|Read|file':
+    case 'Read|Read|image':
+    case 'Read|Read|resource':
+    case 'Read|Read|code map':
+      return count === 1 ? t('Read file') : t('Read {{count}} files', { count });
+    case 'Search|Searched|pattern':
+      return count === 1 ? t('Search code') : t('Search {{count}} patterns', { count });
+    case 'Search|Found|glob':
+      return count === 1 ? t('Find files') : t('Find {{count}} files', { count });
+    case 'Search|Found|query':
+      return count === 1 ? t('Find path') : t('Find {{count}} paths', { count });
+    case 'Search|Listed|directory':
+      return count === 1 ? t('List directory') : t('List {{count}} directories', { count });
+    case 'Search|Mapped|symbol':
+      return count === 1 ? t('Find symbol') : t('Find {{count}} symbols', { count });
+    case 'Patch|Created|file':
+      return count === 1 ? t('Create file') : t('Create {{count}} files', { count });
+    case 'Patch|Edited|file':
+      return count === 1 ? t('Edit file') : t('Edit {{count}} files', { count });
+    case 'Patch|Changed|file':
+      return count === 1 ? t('Change file') : t('Change {{count}} files', { count });
+    case 'Patch|Deleted|file':
+      return count === 1 ? t('Delete file') : t('Delete {{count}} files', { count });
+    case 'Web Research|Researched|query':
+      return count === 1 ? t('Search web') : t('Search web {{count}} times', { count });
+    case 'Web Research|Fetched|URL':
+      return count === 1 ? t('Fetch page') : t('Fetch {{count}} pages', { count });
+    case 'Web Research|Fetched|message':
+      return count === 1 ? t('Fetch message') : t('Fetch {{count}} messages', { count });
+    case 'Shell|Ran|command':
+      return count === 1 ? t('Run command') : t('Run {{count}} commands', { count });
+    case 'Git|Ran|Git command':
+      return count === 1 ? t('Run Git command') : t('Run {{count}} Git commands', { count });
+    case 'Git|Staged|change':
+      return count === 1 ? t('Stage changes') : t('Stage {{count}} changes', { count });
+    case 'Browser|Browsed|action':
+      return count === 1 ? t('Browser action') : t('Browser {{count}} actions', { count });
+    case 'Computer|Operated|action':
+      return count === 1 ? t('Computer action') : t('Computer {{count}} actions', { count });
+    case 'Office|Edited|document action':
+      return count === 1 ? t('Office action') : t('Office {{count}} actions', { count });
+    case 'Media|Generated|media action':
+      return count === 1 ? t('Generate media') : t('Generate {{count}} media', { count });
+    case 'Tidy|Tidied|cleanup pass':
+      return count === 1 ? t('Tidy code') : t('Tidy code {{count}} times', { count });
+    case 'Agent|Called|agent':
+    case 'Agent|Completed|agent':
+    case 'Agent|Failed|agent':
+    case 'Agent|Cancelled|agent':
+      return count === 1 ? t('Call agent') : t('Call {{count}} agents', { count });
+    case 'Task|Checked|task':
+    case 'Task|Waited for|task':
+    case 'Task|Listed|task':
+    case 'Task|Cancelled|task':
+      return count === 1 ? t('Check task') : t('Check {{count}} tasks', { count });
+    default:
+      return count > 1 ? `${unit.label} ${count}` : unit.label;
   }
-  return [...counts].map(([verb, count]) => (count > 1 ? `${verb} ${count}` : verb)).join(' · ');
+}
+
+/** The group summary: each work unit summarized as a natural verb phrase
+ *  ("Read 6 files · Search code · Run 4 commands"). */
+export function desktopToolActivitySummary(items: readonly TranscriptItem[]): string {
+  const groups = new Map<string, { unit: ReturnType<typeof desktopToolActivityUnit>; count: number }>();
+  for (const item of flattenedToolActivityItems(items)) {
+    const unit = desktopToolActivityUnit(item.name, item.args);
+    const prev = groups.get(unit.unitKey);
+    const added = Math.max(1, Math.round(Number(item.count || 1)));
+    if (prev) {
+      prev.count += added;
+    } else {
+      groups.set(unit.unitKey, { unit, count: added });
+    }
+  }
+  return [...groups.values()]
+    .map(({ unit, count }) => toolActivitySummaryPhrase(unit, count))
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /** The work-unit name a call is counted under. */

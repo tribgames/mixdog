@@ -195,258 +195,6 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
     inset 0 0 0 var(--mx-hairline) var(--mx-border),
     var(--mx-raised);
 }
-/* Pane-owned slots: work status, context gauge, then the right utility-dock
-   toggle. The work slot stays mounted while idle so the capsule keeps one
-   resting width and only its count area grows with live work. */
-.session-work-indicator {
-  position: relative;
-  height: 28px;
-  flex: 0 0 auto;
-}
-.session-work-indicator > button {
-  position: relative;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text-faint);
-  background: transparent;
-  box-shadow: none;
-  cursor: pointer;
-}
-.session-work-indicator > button:disabled {
-  cursor: default;
-}
-.session-work-indicator > button:hover:not(:disabled),
-.session-work-indicator > button:focus-visible {
-  color: var(--mx-text);
-  background: transparent;
-  outline: none;
-}
-.session-work-indicator[data-open="true"] > button {
-  color: var(--mx-text);
-  background: transparent;
-  box-shadow: none;
-}
-/* Active work keeps the base glyph blue. A second copy carries one narrow
-   highlight across the stroke without pulsing the whole icon. */
-.session-work-icon-stack {
-  position: relative;
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-}
-.session-work-indicator .session-work-icon {
-  grid-area: 1 / 1;
-  width: 18px;
-  height: 18px;
-  stroke-width: 1.75px;
-}
-.session-work-indicator[data-active="true"] > button {
-  color: var(--mx-text-accent);
-}
-.session-work-icon-glow {
-  opacity: 0;
-  color: color-mix(in srgb, var(--mx-text-accent) 55%, white);
-  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--mx-text-accent) 75%, transparent));
-  -webkit-mask-image: linear-gradient(90deg, transparent 34%, #000 48%, #000 52%, transparent 66%);
-  mask-image: linear-gradient(90deg, transparent 34%, #000 48%, #000 52%, transparent 66%);
-  -webkit-mask-size: 320% 100%;
-  mask-size: 320% 100%;
-  -webkit-mask-position: 120% 0;
-  mask-position: 120% 0;
-}
-.session-work-indicator[data-active="true"] .session-work-icon-glow {
-  opacity: 1;
-  animation: work-stroke-glow 1.8s linear infinite;
-}
-@keyframes work-stroke-glow {
-  from {
-    -webkit-mask-position: 120% 0;
-    mask-position: 120% 0;
-  }
-  to {
-    -webkit-mask-position: -20% 0;
-    mask-position: -20% 0;
-  }
-}
-/* Hover and keyboard focus are the DESKTOP affordances, and the button no
-   longer opens the Agents dock (user: 클릭 시 나오는 팝업/화면전환은 필요없음),
-   so nothing here is clickable on a hover surface. A touch surface has neither
-   hover nor a focus it can release — a tap would leave :hover stuck on the
-   slot and :focus-within latched to the button, so the card could never be
-   tapped shut. There the explicit data-open toggle owns the card alone. */
-.session-work-indicator[data-open="true"] .live-work-popover {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-/* Hover bridge: the card hangs 6px below its slot, and crossing that gap left
-   the slot's subtree — the card closed before the pointer could reach a Stop
-   button inside it. ONE frame geometry with the context card, overlapping the
-   slot and running past both card edges rather than meeting them flush. */
-.session-work-indicator .live-work-popover::before {
-  content: "";
-  position: absolute;
-  top: calc(-1 * var(--mx-popup-bridge-reach));
-  right: calc(-1 * var(--mx-popup-bridge-spread));
-  left: calc(-1 * var(--mx-popup-bridge-spread));
-  height: var(--mx-popup-bridge-reach);
-}
-.session-work-indicator .live-work-popover {
-  /* ONE measure ladder for the header and its rows (user: 인덱스표기가 아래랑
-     안맞고): the group count and every row's Stop button share the same
-     trailing column, and a row label starts on the header label's own column
-     instead of 23px to its left. */
-  --live-work-inset: 8px;
-  --live-work-gap: 7px;
-  --live-work-action: 28px;
-  right: 0;
-  width: var(--session-status-card-width);
-  max-width: calc(100vw - 24px);
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-  padding: 8px;
-}
-.session-work-indicator[data-active="false"] .live-work-popover {
-  width: var(--session-status-card-width);
-  min-width: 0;
-}
-.live-work-group {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-.live-work-group + .live-work-group {
-  padding-top: 8px;
-  border-top: var(--mx-hairline) solid var(--mx-border);
-}
-.live-work-group-header {
-  min-width: 0;
-  height: 30px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--live-work-action);
-  align-items: center;
-  gap: var(--live-work-gap);
-  padding: 0 var(--live-work-inset);
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text-muted);
-}
-.live-work-group-header > span {
-  overflow: hidden;
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-semibold);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-/* The count sits INSIDE the action column and centers on it, so it lands on
-   the same vertical line every Stop button below it uses. */
-.live-work-group-header > b {
-  min-width: 0;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-regular);
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-.session-work-indicator .live-work-row {
-  min-width: 0;
-  min-height: 40px;
-  display: grid;
-  /* Label, elapsed, Stop — the trailing column matches the header's count
-     column, and the leading inset matches the header's label column. */
-  grid-template-columns: minmax(0, 1fr) auto var(--live-work-action);
-  align-items: center;
-  gap: var(--live-work-gap);
-  padding: 7px var(--live-work-inset);
-  border-radius: var(--mx-radius-md);
-  background: color-mix(in srgb, var(--mx-bg-layer-1) 72%, transparent);
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-border-muted) 76%, transparent);
-}
-.session-work-indicator .live-work-row:hover {
-  background: var(--mx-hover);
-}
-/* The idle line belongs to no group, so it keeps the plain card inset. */
-.session-work-indicator .live-work-row:only-child:not([data-kind]) {
-  grid-template-columns: 1fr;
-  padding-left: var(--live-work-inset);
-  color: var(--mx-text-muted);
-  background: transparent;
-  box-shadow: none;
-}
-.session-work-indicator[data-active="false"] .live-work-row {
-  min-height: 36px;
-  padding-block: 6px;
-}
-.live-work-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.session-work-indicator .live-work-copy > span {
-  display: block;
-  overflow: hidden;
-  color: var(--mx-text);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  line-height: var(--mx-line-minor);
-}
-.session-work-indicator .live-work-copy > small {
-  display: none;
-}
-/* How long this job has been running (user: 경과 시간표기는있어야할듯). The
-   value ticks on the card's own 1s clock and reads as meta ink, so it informs
-   without competing with the label. */
-.session-work-indicator .live-work-row > time {
-  justify-self: end;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.live-work-stop {
-  width: 28px;
-  height: 28px;
-  align-self: center;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-sm);
-  color: var(--mx-icon-muted);
-  /* A filled plate on every row read as a row of little squares stamped over
-     the card (user: 중단버튼도 뭔가 튀네). The mark stays a bare glyph and
-     only earns its frame under the pointer. */
-  background: transparent;
-  box-shadow: none;
-  cursor: pointer;
-}
-.live-work-stop:hover:not(:disabled) {
-  color: var(--mx-danger);
-  background: var(--mx-danger-bg);
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 38%, transparent);
-}
-.live-work-stop:disabled {
-  opacity: var(--mx-op-disabled);
-  cursor: default;
-}
-@media (prefers-reduced-motion: reduce) {
-  .session-work-indicator[data-active="true"] .session-work-icon {
-    opacity: 1;
-    animation: none;
-  }
-  .session-work-indicator[data-active="true"] .session-work-icon-glow {
-    opacity: 0;
-  }
-}
 /* Workspace tabs live inside each pane's strip row (editor groups). */
 .workspace-tabs-shell {
   position: relative;
@@ -951,10 +699,12 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* Inline code is the ONE colored span in prose: headings, strong and links
-   stay neutral, so a single accent has nothing to compete with. The chip —
-   tint, padding, radius, ring — is gone: color and a box are two marks for one
-   meaning, and the box was the half that squashed against the glyphs. */
+/* Inline code and links share ONE blue ink (user: 인라인코드도 파란색쓰고,
+   링크는 밑줄까지 + 파일 타입 아이콘). Code keeps the host weight while links
+   take medium plus a firm underline, so the two never read as one kind (user:
+   링크하고 아닌거하고 구분이 애매). Headings and strong stay neutral. The
+   chip — tint, padding, radius, ring — is gone: color and a box are two marks
+   for one meaning, and the box was the half that squashed against the glyphs. */
 .markdown :not(pre) > code {
   color: var(--mx-md-code);
   /* Inline code runs INSIDE a sentence, so it keeps the host's face and size
@@ -1019,30 +769,39 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
 }
-/* Neutral link ink (user: no blue emphasis text) — the underline carries the
-   affordance. Ink and underline live in ONE rule; they used to sit ~6k lines
-   apart, so a later edit could retune half a link. */
+/* Links wear the inline-code ink (user: 링크 왜 흰색이냐 푸른색계열아니라):
+   the underline and, for files, the type glyph carry the affordance, and a
+   medium weight lifts it a step off the 400 prose (user: 링크는 볼드살짝).
+   Pending mentions share ink and weight so resolving one never recolours or
+   reflows the line. Ink and underline live in ONE rule; they used to sit ~6k
+   lines apart, so a later edit could retune half a link. */
 .markdown a,
 .markdown .markdown-link-pending {
-  color: var(--mx-text);
+  color: var(--mx-md-code);
+  font-weight: var(--mx-weight-medium);
 }
 /* A file mention that was not found (or not yet) stays plain text: an
    underline would promise a click that does nothing. The underline never
    changes geometry, so verifying a mention still cannot reflow the line. */
 .markdown a {
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  /* 75%, not 45%: the underline is what separates a link from same-ink
+     inline code, so it must read at a glance. */
+  text-decoration-color: color-mix(in srgb, currentColor 75%, transparent);
   text-underline-offset: 2px;
 }
 .markdown a:hover {
   text-decoration-color: currentColor;
 }
 /* Pending file mentions have the exact same icon, caption and wrapping as
-   verified links. Resolving a file must never reflow a finished line. */
+   verified links. Resolving a file must never reflow a finished line. Chat
+   file links share the link ink above; the icon marks them as files. */
 .markdown .markdown-path-link,
 .tool-path-link {
-  color: var(--mx-md-code);
   white-space: nowrap;
+}
+.tool-path-link {
+  color: var(--mx-md-code);
 }
 .markdown .markdown-path-link .seti-icon,
 .tool-path-link .seti-icon {
@@ -1197,22 +956,29 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   width: 24px;
   height: 24px;
 }
-.approval-card dd code {
+/* The review bar's inline diff box: same fill, hairline ring and corner.
+   .approval-detail is the call itself (the command, path or URL). */
+.approval-card dd code,
+.approval-detail {
   display: block;
-  max-height: min(32vh, 240px);
+  max-height: min(24vh, 160px);
   overflow: auto;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-meta);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
+/* Decision row: right-aligned chips straight under the body, no divider. */
 .approval-actions {
-  padding-top: 8px;
-}
-
-@media (max-width: 640px) {
-  .approval-card dl {
-    grid-template-columns: 1fr;
-  }
-  .approval-card dd + dt {
-    margin-top: 6px;
-  }
+  gap: 4px;
+  padding: 0 var(--approval-inset) 10px;
 }
 
 /* Composer cluster: animated status text, compact message navigation, context,
@@ -1236,7 +1002,6 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 [data-component="text-shimmer"] [data-slot="text-shimmer-char"] {
   display: inline-block;
   white-space: pre;
-  transition: color var(--mx-motion-slow) var(--mx-ease-standard);
 }
 [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"] {
   color: transparent;

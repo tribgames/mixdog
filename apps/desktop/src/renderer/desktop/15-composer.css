@@ -968,72 +968,10 @@
 .inline-error {
   display: none;
 }
-.runtime-progress {
-  border: 0;
-  color: var(--mx-success);
-  background: var(--mx-success-bg);
-  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-success-border);
-  font-size: var(--mx-font-meta);
-}
 
 /* TUI L2 activity lives beside Context in the session header. */
 .composer-region {
   position: relative;
-}
-.live-work-popover {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 6px);
-  right: 0;
-  /* Content-sized, exactly like the context gauge's card (user: 글자가 깨져
-     나온다): the old hard 176px chopped real labels mid-word, so a running
-     shell read as `--…` fragments. The card grows to its widest row and still
-     stays inside a phone screen. */
-  width: max-content;
-  min-width: 184px;
-  max-width: min(280px, calc(100vw - 24px));
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  column-gap: 16px;
-  row-gap: 7px;
-  padding: 10px 12px;
-  border: var(--mx-popup-border);
-  border-radius: var(--mx-popup-radius);
-  color: var(--mx-text);
-  /* Detail popovers must mask transcript text beneath them; translucency
-     belongs to the Task header's control frame, not this content surface. */
-  background: var(--mx-popup-bg);
-  box-shadow: var(--mx-popup-shadow);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-2px);
-  transition:
-    opacity var(--mx-motion-ink),
-    transform var(--mx-motion-ink),
-    visibility var(--mx-motion-fast);
-  pointer-events: none;
-}
-/* The row is a grouping element only; its label and value join the card's grid
-   so both columns align across every row. */
-.live-work-row {
-  display: contents;
-}
-/* A long shell command stays ONE line: the card is a summary, not a
-   transcript. */
-.live-work-popover span {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: var(--mx-font-minor);
-}
-.live-work-popover small {
-  justify-self: end;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 .composer-attachments {
   align-items: center;
@@ -1093,10 +1031,6 @@
 .composer-attachments .attachment-remove:hover {
   color: var(--mx-danger);
   background: var(--mx-hover);
-}
-.composer-notice {
-  color: var(--mx-text-muted);
-  background: var(--mx-bg-layer-2);
 }
 .task-drop-overlay {
   position: absolute;

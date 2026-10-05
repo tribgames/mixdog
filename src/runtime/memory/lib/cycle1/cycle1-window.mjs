@@ -66,6 +66,11 @@ async function commitGeneratedChunks(db, generated, signal) {
   const invalidChunks = generated.invalidChunks;
   const invalidRowIds = new Set(invalidChunks.flatMap((chunk) => chunk.member_ids || []));
   const failedRowIds = generated.rawRowIds.filter((id) => invalidRowIds.has(id));
+  // Rows that never got an answer from the classifier, as opposed to rows it
+  // answered badly or left out: these do not lengthen their retry cooldown.
+  const transientRowIds = invalidChunks
+    .filter((chunk) => chunk.reason === 'llm_error')
+    .flatMap((chunk) => chunk.member_ids || []);
   const commitStartedAt = Date.now();
   for (const chunk of generated.chunks) {
     // A chunk commit is one DB transaction; do not split it with an abort
@@ -97,7 +102,10 @@ async function commitGeneratedChunks(db, generated, signal) {
     } catch (err) {
       __mixdogMemoryLog(`[cycle1] chunk commit failed (root=${rootId}): ${err.message}\n`);
       skippedChunks += 1;
-      for (const mid of memberIds) failedRowIds.push(mid);
+      for (const mid of memberIds) {
+        failedRowIds.push(mid);
+        transientRowIds.push(mid);
+      }
     }
   }
   return {
@@ -107,6 +115,7 @@ async function commitGeneratedChunks(db, generated, signal) {
     skippedChunks,
     invalidChunks,
     failedRowIds,
+    transientRowIds,
     commitStartedAt,
   };
 }
@@ -160,7 +169,7 @@ export async function processCycle1Window({ db, rows: originalRows, windowIdx, p
 
   const rawRowIds = rows.map((r) => Number(r.id)).filter((id) => !commit.committedRowIds.has(id));
   const llmOmittedRowIds = rawRowIds.filter((id) => !commit.failedRowIds.includes(id));
-  const omittedMark = await markOmittedRows(db, rawRowIds);
+  const omittedMark = await markOmittedRows(db, rawRowIds, { transientRowIds: commit.transientRowIds });
   const omittedRowIds = llmOmittedRowIds.concat(prefilteredRowIds);
 
   __mixdogMemoryLog(

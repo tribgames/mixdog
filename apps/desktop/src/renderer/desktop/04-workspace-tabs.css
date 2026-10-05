@@ -321,6 +321,15 @@
   border-radius: var(--mx-radius-md);
   pointer-events: none;
 }
+/* The leading plate matches its 7px top inset at the strip's left edge;
+   the 3px side inset is half of the gap between neighbours. The label
+   follows the plate by the same 4px. */
+.pane-cell .workspace-tab:first-child:not(.closing) {
+  padding-left: 16px;
+}
+.pane-cell .workspace-tab:first-child:not(.drop-target-right)::before {
+  left: 7px;
+}
 .pane-cell .workspace-tab:not(.active):is(:hover, :focus-within):not(.drop-target-right)::before {
   background: var(--mx-hover);
 }

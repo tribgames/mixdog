@@ -261,10 +261,6 @@ test('mutations go through the runtime facade with validated input', async () =>
       calls.push(['installBuiltinFeature', name]);
       return { [name]: { enabled: true, installed: true } };
     },
-    async setBridgeFirstUseApproval(name, enabled) {
-      calls.push(['setBridgeFirstUseApproval', name, enabled]);
-      return { name, firstUseApproval: enabled };
-    },
     setCompactionSettings(next) {
       calls.push(['setCompactionSettings', next]);
       return next;
@@ -301,13 +297,6 @@ test('mutations go through the runtime facade with validated input', async () =>
 
   await run(executor, { action: 'set_disabled_skills', skills: [' a ', '', 'b'] });
   assert.deepEqual(calls[5], ['setDisabledSkills', ['a', 'b']]);
-
-  await run(executor, { action: 'set_first_use_approval', name: 'computer', enabled: false });
-  assert.deepEqual(calls[6], ['setBridgeFirstUseApproval', 'computer', false]);
-  await assert.rejects(
-    run(executor, { action: 'set_first_use_approval', name: 'office', enabled: false }),
-    /name must be one of browser, computer/
-  );
 
   await assert.rejects(run(executor, { action: 'set_route', route: {} }), /at least one of/);
   await assert.rejects(run(executor, { action: 'set_agent_route', route: { model: 'x' } }), /agent is required/);

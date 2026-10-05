@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 const realFetch = globalThis.fetch;
@@ -7,6 +10,8 @@ let nonce = 0;
 
 async function fresh(fetchImpl, env = {}) {
   for (const k of ENV_KEYS) delete process.env[k];
+  // Each case starts with no remembered version and never touches the operator's.
+  process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-client-version-'));
   Object.assign(process.env, env);
   const calls = [];
   globalThis.fetch = async (url, opts) => {

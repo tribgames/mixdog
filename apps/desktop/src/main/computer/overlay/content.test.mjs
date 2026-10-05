@@ -29,18 +29,12 @@ function fixture(t, locale = 'ko') {
 }
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
-test('a silent status mark follows the pause state the stylesheet rests it on', () => {
-  const dom = new JSDOM(overlayHtml('ko'), { runScripts: 'outside-only' });
-  try {
-    dom.window.eval(overlayScript('ko'));
-    const publish = dom.window.mixdogComputerOverlay;
-    assert.equal(dom.window.document.getElementById('mark').getAttribute('aria-hidden'), 'true');
-    for (const [index, paused] of [false, true, false].entries()) {
-      publish({ paused, generation: 1, renderRevision: index + 1 });
-      assert.equal(dom.window.document.body.dataset.paused, String(paused));
-    }
-  } finally {
-    dom.window.close();
+test('a silent status mark follows the pause state the stylesheet rests it on', (t) => {
+  const f = fixture(t);
+  assert.equal(f.document.getElementById('mark').getAttribute('aria-hidden'), 'true');
+  for (const [index, paused] of [false, true, false].entries()) {
+    f.publish({ paused, generation: 1, renderRevision: index + 1 });
+    assert.equal(f.document.body.dataset.paused, String(paused));
   }
 });
 
@@ -100,6 +94,20 @@ test('an undelivered Stop says so without private detail, stays pressable, and c
   f.publish({ paused: false, generation: 2, renderRevision: 2 });
   assert.equal(f.title(), '컴퓨터 사용 중');
   assert.equal(f.document.body.dataset.error, 'false');
+});
+
+test('the page starts with, and falls back to, the working title in each language', (t) => {
+  for (const [locale, working] of [
+    ['ko', '컴퓨터 사용 중'],
+    ['en', 'Computer in use'],
+  ]) {
+    const f = fixture(t, locale);
+    assert.equal(f.title(), working);
+    f.publish({ title: 'Other', paused: false, generation: 1, renderRevision: 1 });
+    assert.equal(f.title(), 'Other');
+    f.publish({ paused: false, generation: 1, renderRevision: 2 });
+    assert.equal(f.title(), working);
+  }
 });
 
 test('a rejected Stop remains visible even though Stop moves the generation', async (t) => {

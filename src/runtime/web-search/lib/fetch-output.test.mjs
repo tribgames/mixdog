@@ -34,6 +34,53 @@ test('search omits only snippets identical to already visible title or URL', () 
   assert.match(output, /Different details, kept intact\./);
 });
 
+test('query-labelled sources print as bare URLs, and not at all when the answer cites them', () => {
+  const cited = 'https://example.com/cited';
+  const extra = 'https://example.com/extra';
+  const titled = 'https://example.com/titled';
+  const output = formatResponse('web_search', {
+    response: {
+      answer: `Summary citing ${cited}.`,
+      results: [
+        { title: 'the query', url: cited, snippet: '', source: 'web_search_call' },
+        { title: 'the query', url: extra, snippet: '', source: 'web_search_call', publishedDate: '2026-09-21' },
+        { title: 'A page title', url: titled, snippet: '' },
+      ],
+    },
+  });
+  assert.equal(output, `Summary citing ${cited}.\n\n1. ${extra} — 2026-09-21\n\n2. A page title\n   ${titled}`);
+  // No adapter marker: one label over several URLs is still a search label.
+  assert.equal(
+    formatResponse('web_search', {
+      results: [
+        { title: 'shared label', url: cited },
+        { title: 'shared label', url: extra },
+      ],
+    }),
+    `1. ${cited}\n\n2. ${extra}`
+  );
+  // A cited URL that merely starts with the source's URL is another page.
+  assert.equal(
+    formatResponse('web_search', {
+      response: {
+        answer: `Guide: ${cited}/guide and ${extra}.`,
+        results: [
+          { title: 'q', url: cited, source: 'web_search_call' },
+          { title: 'q', url: extra, source: 'web_search_call' },
+        ],
+      },
+    }),
+    `Guide: ${cited}/guide and ${extra}.\n\n1. ${cited}`
+  );
+  // Every source already cited: the answer stands alone.
+  assert.equal(
+    formatResponse('web_search', {
+      response: { answer: `See ${cited}`, results: [{ title: cited, url: cited }] },
+    }),
+    `See ${cited}`
+  );
+});
+
 test('final paginated output reconstructs the exact source, including whitespace-only slices', async () => {
   const source = '    indented code\r\n\n        \n\n```js\n  const message = "한글";  \n```\n\n';
   const page = await runFetchPipeline(url, {

@@ -8,7 +8,7 @@ import { listManagedMemories, formatManagedMemories } from './core-memory-manage
 import { parseMemoryCoreRows } from '../../../tui/app/input-parsers.mjs';
 import { createMemoryActionHandlers } from './memory-action-handlers.mjs';
 
-test('standing memory lists only curated records; legacy history stays unchanged', async (t) => {
+test('standing memory lists curated records by scope, page and activity', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-project-memory-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const projectPaths = ['renamed-folder', 'other-folder', 'empty-folder'].map((name) => join(root, name));
@@ -20,16 +20,13 @@ test('standing memory lists only curated records; legacy history stays unchanged
   try {
     sqlite.exec(`
       CREATE TABLE core_entries (id INTEGER, project_id TEXT, element TEXT, summary TEXT, status TEXT);
-      CREATE TABLE entries (id INTEGER, project_id TEXT, core_summary TEXT, status TEXT, core_candidate_status TEXT);
       CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
       INSERT INTO core_entries VALUES
         (1, 'mixdog', 'Archived', 'Old rule', 'archived'),
         (2, NULL, 'Common', 'Common preference', NULL),
         (3, 'mixdog', 'Active', 'Project preference', 'active'),
         (4, 'other', 'Other', 'Other preference', 'active');
-      INSERT INTO entries VALUES (10, 'mixdog', 'Historical summary', 'active', 'promoted');
     `);
-    const originals = sqlite.prepare('SELECT * FROM entries').all();
     let indexReads = 0;
     const db = {
       query: async (sql, args = []) => {
@@ -116,31 +113,8 @@ test('standing memory lists only curated records; legacy history stays unchanged
       await assert.rejects(listManagedMemories(db, '*', { project_paths }), /project_paths requires/);
     }
     await assert.rejects(listManagedMemories(db, 'mixdog', { project_paths: projectPaths }), /all-project list/);
-    assert.deepEqual(sqlite.prepare('SELECT * FROM entries').all(), originals);
     await assert.rejects(listManagedMemories(db, '*', { include_inactive: 'false' }), /must be a boolean/);
   } finally {
     sqlite.close();
-  }
-});
-
-test('retired maintenance and candidate operations cannot mutate memory', async () => {
-  const { handleMemoryAction } = createMemoryActionHandlers({
-    getDb: () => ({
-      query() {
-        throw new Error('unexpected database access');
-      },
-    }),
-    readMainConfig: () => ({}),
-    dataDir: '/test',
-  });
-  for (const op of ['candidates', 'promote', 'dismiss', 'exclude']) {
-    const result = await handleMemoryAction({ action: 'core', op, id: 1 });
-    assert.equal(result.isError, true);
-    assert.match(result.text, /add \| edit \| delete \| list/);
-  }
-  for (const action of ['cycle3', 'retro_eval_active']) {
-    const result = await handleMemoryAction({ action });
-    assert.equal(result.isError, true);
-    assert.match(result.text, /unknown memory action/);
   }
 });

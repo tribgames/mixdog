@@ -1,4 +1,4 @@
-import { CYCLE1_OMITTED_COOLDOWN_MS } from '../cycle1/cycle1-plan.mjs';
+import { cycle1RowDueSql, cycle1UnchunkedSql } from '../cycle1/cycle1-rows.mjs';
 
 const BACKLOG_WARN_PENDING = 500;
 
@@ -27,17 +27,13 @@ export function createBacklogProbe({ getDb, ledger, log, flushRawEmbeddings }) {
   async function probe(now) {
     const db = getDb();
     try {
-      const unchunked = await countRows(
-        db,
-        `SELECT COUNT(*) c FROM entries WHERE chunk_root IS NULL AND NULLIF(btrim(session_id), '') IS NOT NULL`
-      );
+      const unchunked = await countRows(db, `SELECT COUNT(*) c FROM entries WHERE ${cycle1UnchunkedSql()}`);
       const unchunkedEligible = await countRows(
         db,
         `SELECT COUNT(*) c FROM entries
-         WHERE chunk_root IS NULL
-           AND NULLIF(btrim(session_id), '') IS NOT NULL
-           AND (reviewed_at IS NULL OR reviewed_at < $1)`,
-        [now - CYCLE1_OMITTED_COOLDOWN_MS]
+         WHERE ${cycle1UnchunkedSql()}
+           AND ${cycle1RowDueSql('$1')}`,
+        [now]
       );
       ledger.setBacklog({ unchunked, unchunked_eligible: unchunkedEligible, at: now });
       if (unchunked > BACKLOG_WARN_PENDING) {

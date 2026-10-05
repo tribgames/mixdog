@@ -32,7 +32,7 @@ export async function cleanupAbortedInput(
   restoreDesktop = true,
   sweep = false
 ): Promise<boolean> {
-  if (host.cleanupInput) return host.cleanupInput(recovery, restoreDesktop);
+  if (host.cleanupInput) return host.cleanupInput(recovery, restoreDesktop, sweep);
   if (!sweep && !recovery?.targetWindowId) return true;
   return await new Promise<boolean>((resolve) => {
     const abortEnvironment = {
@@ -76,6 +76,74 @@ export async function cleanupAbortedInput(
   });
 }
 
+/** The session's desktop restore, at turn end or release: the focus and pointer
+ *  of its restore point go back once, unless the user touched the desktop
+ *  since — the observer sequence the restore asserts is the one recorded then.
+ *  Needs the session's idle live worker; a failed restore never blocks release.
+ *  It moves the one focus and pointer, so it takes the foreground lane, and the
+ *  worker refuses when the foreground is no longer a window this session held.
+ *  `null` when there is nothing to restore, so the caller stays synchronous. */
+export function restoreSessionDesktop(
+  context: Pick<LifecycleContext, 'host' | 'coordinator' | 'execution'>,
+  lane: Pick<CommandQueue, 'runForegroundExclusive'>,
+  sessionId: string
+): Promise<void> | null {
+  const { host, coordinator, execution } = context;
+  const anchor = execution.sessionDesktopAnchor.get(sessionId);
+  if (!anchor) return null;
+  execution.sessionDesktopAnchor.delete(sessionId);
+  const heldWindowIds = [anchor.targetWindowId, anchor.heldWindowId, ...(anchor.handedWindowIds ?? [])].filter(
+    (id): id is string => Boolean(id)
+  );
+  // Another agent session still has the desktop: the last one to finish hands
+  // it back, and may take focus from the windows this session leaves in front.
+  const borrowing = [...execution.sessionDesktopAnchor.values()].filter((other) => !other.userOwned);
+  if (borrowing.length > 0) {
+    if (!anchor.userOwned) {
+      for (const other of borrowing) {
+        other.handedWindowIds = [...new Set([...(other.handedWindowIds ?? []), ...heldWindowIds])];
+      }
+    }
+    return null;
+  }
+  const child = host.powerShellBySession.get(sessionId);
+  if (
+    anchor.userOwned ||
+    !child ||
+    child.killed ||
+    execution.activeExecutionsBySession.has(sessionId) ||
+    coordinator.snapshot().userControlActive
+  ) {
+    return null;
+  }
+  const { recovery } = anchor;
+  return lane
+    .runForegroundExclusive(
+      sessionId,
+      () =>
+        host.callPowerShell({
+          action: 'restore_input_state',
+          window_id: anchor.targetWindowId,
+          held_window_ids: heldWindowIds,
+          restore_window_id: recovery.restoreWindowId,
+          restore_owner_window_id: recovery.restoreOwnerWindowId,
+          cursor_x: recovery.cursorX,
+          cursor_y: recovery.cursorY,
+          restore_focus: true,
+          expected_input_monitor_id: recovery.inputMonitorId,
+          expected_input_user_sequence: recovery.inputUserSequence,
+          session_id: sessionId,
+        }),
+      { requireFreshAfterWait: false }
+    )
+    .then(
+      () => undefined,
+      () => {
+        /* user input, another window in front, or a pause: the desktop is no longer ours to move */
+      }
+    );
+}
+
 /** Cleanup that cannot prove the input was released pauses the desktop for
  *  the user and fails the abort with the reason. */
 function unconfirmedCleanup(coordinator: ComputerUseCoordinator, sessionId: string, message: string): never {
@@ -93,8 +161,13 @@ export function createSessionAbort(
   async function runAbortCleanup(
     sessionId: string,
     restoreDesktop: boolean,
-    retiredChild?: RetiredChild
+    retiredChild?: RetiredChild,
+    sweep = false
   ): Promise<ComputerCommandResult> {
+    // Before the cleanup barrier: the restore is the session's last foreground
+    // work, and the lane refuses automation once a cleanup is pending.
+    const restore = restoreSessionDesktop(context, queue, sessionId);
+    if (restore) await restore;
     const finishCleanup = coordinator.beginCleanup(sessionId);
     let confirmed = false;
     try {
@@ -129,7 +202,7 @@ export function createSessionAbort(
       }
       const cleaned = await queue.runForegroundExclusive(
         sessionId,
-        () => cleanupAbortedInput(host, recovery, restoreDesktop),
+        () => cleanupAbortedInput(host, recovery, restoreDesktop, sweep),
         { requireFreshAfterWait: false, allowWhileUserControl: true }
       );
       if (!cleaned) {
@@ -155,12 +228,14 @@ export function createSessionAbort(
     }
   }
 
-  /** One cleanup job per session; concurrent aborts share it. */
+  /** One cleanup job per session; concurrent aborts share it. `sweep` releases
+   *  input the host still owns even without a recorded target. */
   async function abortComputerSession(
     command: ComputerCommand,
     restoreDesktop = false,
     retiredChild?: RetiredChild,
-    preserveQueued = false
+    preserveQueued = false,
+    sweep = false
   ): Promise<ComputerCommandResult> {
     assertSafeComputerSessionId(command);
     const sessionId = host.sessionIdFor(command);
@@ -168,7 +243,7 @@ export function createSessionAbort(
     if (!preserveQueued) queue.cancelSession(sessionId);
     const existing = cleanupJobs.get(sessionId);
     if (existing) return existing;
-    const job = runAbortCleanup(sessionId, restoreDesktop, retiredChild);
+    const job = runAbortCleanup(sessionId, restoreDesktop, retiredChild, sweep);
     cleanupJobs.set(sessionId, job);
     try {
       return await job;

@@ -278,49 +278,6 @@ export function liveAgentRows(snapshot: unknown, fallbackOwnerSessionId = ''): L
   });
 }
 
-interface LiveShellSummary {
-  key: string;
-  command: string;
-  cwd: string;
-  startedAt: number;
-}
-
-export function liveShellRows(snapshot: unknown): LiveShellSummary[] {
-  const shellJobs = record(record(snapshot).shellJobs);
-  const jobs = Array.isArray(shellJobs.jobs) ? shellJobs.jobs : [];
-  return jobs
-    .flatMap((value) => {
-      const entry = record(value);
-      const key = String(entry.taskId || entry.task_id || '').trim();
-      if (!key) return [];
-      return [
-        {
-          key,
-          // One popover row per job: a multi-line command turned the fixed-width
-          // popover into a wall of wrapped text.
-          command: String(entry.command || '')
-            .replace(/\s+/g, ' ')
-            .trim(),
-          cwd: String(entry.cwd || '').trim(),
-          startedAt: timeMs(entry.startedAt) || 0,
-        },
-      ];
-    })
-    .sort(
-      (left, right) =>
-        (left.startedAt || Number.MAX_SAFE_INTEGER) - (right.startedAt || Number.MAX_SAFE_INTEGER) ||
-        left.key.localeCompare(right.key)
-    );
-}
-
-export function liveShellCount(snapshot: unknown): number {
-  return Math.max(0, Number(record(record(snapshot).shellJobs).count) || 0);
-}
-
-export function liveTaskCount(snapshot: unknown): number {
-  return liveAgentRows(snapshot).length + liveShellCount(snapshot);
-}
-
 export function poolRowKey(agent: DesktopAgentPoolRow, index: number): string {
   return String(agent.sessionId || agent.tag || agent.taskId || index);
 }

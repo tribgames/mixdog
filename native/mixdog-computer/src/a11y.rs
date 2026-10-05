@@ -147,6 +147,8 @@ pub fn format_value(value: &str, maximum: usize) -> String {
 
 /// A menu label as a person reads it: no access-key ampersand, no localized
 /// "(V)" access key, no accelerator after a tab, no trailing ellipsis.
+// Only the Linux and macOS accessibility backends read menus.
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 pub fn normalize_menu_label(label: &str) -> String {
     let text = label.replace('&', "");
     let text = text.split('\t').next().unwrap_or("").to_string();

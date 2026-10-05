@@ -256,6 +256,7 @@ impl Host {
             "launch" => self.launch(req),
             "list_installed_apps" => self.list_installed_apps(req),
             "release_session" => self.release_session(),
+            "release_held_input" => self.release_held_input(),
             "release_cursor_theme" => {
                 Ok(obj! { "text" => "cursor theme released", "system_theme_restored" => false })
             }

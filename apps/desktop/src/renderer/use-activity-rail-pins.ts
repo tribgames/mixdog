@@ -7,6 +7,7 @@ import {
   type ActivityRailPinsState,
 } from '../shared/activity-rail-pins';
 import { showDesktopToast } from './desktop-toasts';
+import { isRemoteConnectionInterruptedError } from './remote-connection-state';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
 import { t } from './i18n';
 
@@ -32,7 +33,13 @@ function cachePins(pins: string[]): void {
 
 function reportSyncError(error: unknown): void {
   console.warn('Activity rail pin synchronization failed', error);
-  showDesktopToast(`${t('Sidebar')}: ${error instanceof Error ? error.message : String(error)}`, 'error', {
+  // An interrupted relay call carries no message; the change may not have reached the host.
+  const detail = isRemoteConnectionInterruptedError(error)
+    ? t('Check the connection, then try again.')
+    : error instanceof Error
+      ? error.message
+      : String(error);
+  showDesktopToast(`${t('Sidebar')}: ${detail}`, 'error', {
     scope: 'activity-rail-pins',
   });
 }
@@ -88,7 +95,8 @@ export function useActivityRailPins(api: PinsApi | undefined = window.mixdogDesk
         }
         if (live && id === readId && state) receive(state);
       } catch (error) {
-        if (live && id === readId) reportSyncError(error);
+        // An interrupted read repeats on the next connection-ready event.
+        if (live && id === readId && !isRemoteConnectionInterruptedError(error)) reportSyncError(error);
       }
     };
     const unsubscribe = api.subscribeActivityRailPins(receive);

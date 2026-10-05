@@ -153,6 +153,17 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
   if (command.delivery !== undefined && command.delivery !== 'background' && command.delivery !== 'foreground') {
     throw new Error('invalid_delivery: delivery must be background or foreground');
   }
+  assertSafePointerModifiers(command);
+  assertSafeScroll(command);
+  assertSafeWindowBounds(command);
+  assertSafeWindowState(command);
+  assertSafeKeyChord(command);
+  assertSafeTypedText(command);
+  assertSafeClipboardText(command);
+  assertSafeLaunchTarget(command);
+}
+
+function assertSafePointerModifiers(command: ComputerCommand): void {
   if (command.modifiers !== undefined && command.modifiers !== null) {
     if (typeof command.modifiers !== 'string') {
       throw new Error('invalid_modifiers: modifiers must be a string');
@@ -172,6 +183,9 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
       throw new Error('invalid_modifiers: alt pointer input requires foreground delivery');
     }
   }
+}
+
+function assertSafeScroll(command: ComputerCommand): void {
   if (command.action === 'scroll') {
     if (command.direction !== undefined && !['up', 'down', 'left', 'right'].includes(command.direction)) {
       throw new Error('invalid_scroll: direction must be up, down, left, or right');
@@ -183,6 +197,9 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
       throw new Error('invalid_scroll: amount must be an integer from 1 to 100');
     }
   }
+}
+
+function assertSafeWindowBounds(command: ComputerCommand): void {
   if (command.action === 'move_window') {
     for (const [field, value] of [
       ['x', command.x],
@@ -201,9 +218,15 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
       throw new Error('invalid_window_bounds: height must be positive');
     }
   }
+}
+
+function assertSafeWindowState(command: ComputerCommand): void {
   if (command.action === 'window_state' && !['minimize', 'maximize', 'restore'].includes(String(command.state || ''))) {
     throw new Error('invalid_window_state: state must be minimize, maximize, or restore');
   }
+}
+
+function assertSafeKeyChord(command: ComputerCommand): void {
   if (KEY_SEQUENCE_ACTIONS.has(String(command.action || ''))) {
     if (typeof command.keys !== 'string') {
       throw new Error('invalid_key_chord: keys must be a string');
@@ -217,6 +240,9 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
       throw new Error('blocked_input: destructive or session-ending key combination');
     }
   }
+}
+
+function assertSafeTypedText(command: ComputerCommand): void {
   if (command.action === 'type' || command.action === 'set_value') {
     if (typeof command.text !== 'string') {
       throw new Error(`invalid_input: ${command.action} text must be a string`);
@@ -238,6 +264,9 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
       throw new Error('blocked_input: dangerous shell payload in type text');
     }
   }
+}
+
+function assertSafeClipboardText(command: ComputerCommand): void {
   if (command.action === 'clipboard_write') {
     if (typeof command.text !== 'string') {
       throw new Error('invalid_input: clipboard text must be a string');
@@ -246,6 +275,9 @@ export function assertSafeComputerInput(command: ComputerCommand): void {
       throw new Error(`input_too_large: clipboard text exceeds ${MAX_COMPUTER_CLIPBOARD_TEXT_LENGTH} characters`);
     }
   }
+}
+
+function assertSafeLaunchTarget(command: ComputerCommand): void {
   if (command.action === 'launch') {
     const app = String(command.app || '').trim();
     const httpUrl = /^https?:\/\//i.test(app);

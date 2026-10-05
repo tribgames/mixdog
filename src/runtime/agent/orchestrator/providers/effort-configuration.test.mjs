@@ -107,6 +107,7 @@ test('only documented model/protocol combinations enable cache-preserving change
       'claude-mythos-5-1',
       'claude-opus-5',
       'claude-opus-5-5',
+      'claude-sonnet-5-5',
       'claude-fable-5.1-20260901',
     ]) {
       assert.equal(effortConfigurationMode(provider, model), 'anthropic');
@@ -118,7 +119,7 @@ test('only documented model/protocol combinations enable cache-preserving change
     assert.equal(effortConfigurationMode(provider, 'claude-opus-5', { baseURL: 'https://gateway.example/v1' }), null);
   }
   for (const provider of ['openai', 'openai-oauth']) {
-    for (const model of ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna']) {
+    for (const model of ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-6.1-sol']) {
       assert.equal(effortConfigurationMode(provider, model), 'responses');
     }
     assert.equal(effortConfigurationMode(provider, 'gpt-5.6-sol'), null);

@@ -61,14 +61,11 @@ test('all modes share Default while only active modes inject instructions and ag
   }
 });
 
-test('workflow frontmatter no longer controls delegation; agent availability remains independent', (t) => {
+test('a workflow delegates while agents are available and stops when none are', (t) => {
   const { dataDir, helpers } = fixture(t);
   const dir = join(dataDir, 'workflows', 'custom');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    join(dir, 'WORKFLOW.md'),
-    '---\nid: custom\nname: Custom\ndelegation: none\n---\nCustom approval rule.'
-  );
+  writeFileSync(join(dir, 'WORKFLOW.md'), '---\nid: custom\nname: Custom\n---\nCustom approval rule.');
   const config = { workflow: { active: 'custom' }, orchestrationMode: 'balanced' };
   const active = helpers.activeWorkflowContext(config, dataDir);
   assert.equal(active.summary.delegatesAgents, true);

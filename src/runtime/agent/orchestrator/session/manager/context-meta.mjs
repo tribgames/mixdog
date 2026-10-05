@@ -2,6 +2,7 @@
 // resolution.
 
 import { getModelMetadataSync } from '../../providers/model-catalog.mjs';
+import { contextWindowRange } from '../../../../shared/llm/default-context-window.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
 
 // Family-pattern fallback used only when the provider and external catalogs
@@ -96,11 +97,12 @@ function providerRawContextWindow(info, catalogInfo) {
   if (catalogWindow && fromCache !== catalogWindow) return catalogWindow;
   return fromCache || null;
 }
-export function resolveSessionContextMeta(provider, model, seed = {}) {
+// `wholeWindow` asks for everything the model can take in (the summary route
+// budgets its own input that way) instead of the window a session starts with.
+export function resolveSessionContextMeta(provider, model, seed = {}, { wholeWindow = false } = {}) {
   const info = typeof provider?.getCachedModelInfo === 'function' ? provider.getCachedModelInfo(model) : null;
   const catalogInfo = getModelMetadataSync(model, providerNameOf(provider));
-  const requestedContextWindow =
-    positiveInt(seed.selectedContextWindow) ||
+  const servedContextWindow =
     providerRawContextWindow(info, catalogInfo) ||
     positiveInt(catalogInfo?.contextWindow) ||
     positiveInt(catalogInfo?.maxContextWindow) ||
@@ -110,6 +112,16 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
     positiveInt(seed.raw_context_window) ||
     positiveInt(seed.contextWindow) ||
     guessContextWindow(model, providerNameOf(provider));
+  // A session that records no selection starts from the model's default
+  // window, the one the picker shows. A recorded percentage without its window
+  // (a session older than selectedContextWindow, a route saved before the
+  // catalog warmed) is still the user's choice and keeps the served window.
+  const recordsSelection = wholeWindow || boundedPercent(seed.contextPercent) !== null;
+  const requestedContextWindow =
+    positiveInt(seed.selectedContextWindow) ||
+    (recordsSelection
+      ? servedContextWindow
+      : contextWindowRange({ provider: providerNameOf(provider), contextWindow: servedContextWindow }).defaultWindow);
   // A managed runtime's allocated capacity also bounds restored selections
   // and catalog metadata; raising a slider cannot allocate server memory.
   const runtimeContextWindow = positiveInt(info?.runtimeContextWindow);

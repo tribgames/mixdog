@@ -12,11 +12,6 @@ import { recordCursorDiagnostic } from './cursor-diagnostics';
 import type { GlidePoint } from './cursor-glide';
 import { registerComputerUseInternalWindow } from './internal-windows';
 
-const CURSOR_WIDTH = CURSOR_SIZE;
-const CURSOR_HEIGHT = CURSOR_SIZE;
-const HOTSPOT_X = CURSOR_HOTSPOT;
-const HOTSPOT_Y = CURSOR_HOTSPOT;
-
 export interface CursorSurface {
   window: BrowserWindow | null;
   creating: Promise<BrowserWindow> | null;
@@ -37,10 +32,10 @@ export function dipPoint(point: { x: number; y: number }): { x: number; y: numbe
 
 export function cursorBoundsDip(dip: GlidePoint): Electron.Rectangle {
   return {
-    x: Math.round(dip.x - HOTSPOT_X),
-    y: Math.round(dip.y - HOTSPOT_Y),
-    width: CURSOR_WIDTH,
-    height: CURSOR_HEIGHT,
+    x: Math.round(dip.x - CURSOR_HOTSPOT),
+    y: Math.round(dip.y - CURSOR_HOTSPOT),
+    width: CURSOR_SIZE,
+    height: CURSOR_SIZE,
   };
 }
 
@@ -92,13 +87,11 @@ function cursorWindowOptions(position: { x: number; y: number }): Electron.Brows
   return { ...cursorBounds(position), ...overlayWindowOptions() };
 }
 
-/** Never focusable, never a target for input, never a window opener; a dead
- *  renderer retires the surface so a fresh event creates its replacement
- *  rather than replaying an old effect on the same crashed renderer. */
-export function hardenOverlayWindow(next: BrowserWindow): void {
+/** What every overlay window shares once created: untitled, hidden from screen
+ *  capture, on every workspace, and never a window opener. */
+export function hardenWindowSurface(next: BrowserWindow): void {
   next.setTitle('');
   next.setContentProtection(true);
-  next.setIgnoreMouseEvents(true, { forward: true });
   try {
     next.setVisibleOnAllWorkspaces(true, {
       skipTransformProcessType: true,
@@ -108,6 +101,14 @@ export function hardenOverlayWindow(next: BrowserWindow): void {
     // Best effort where workspace flags are unavailable.
   }
   next.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+}
+
+/** Never focusable, never a target for input, never a window opener; a dead
+ *  renderer retires the surface so a fresh event creates its replacement
+ *  rather than replaying an old effect on the same crashed renderer. */
+function hardenOverlayWindow(next: BrowserWindow): void {
+  hardenWindowSurface(next);
+  next.setIgnoreMouseEvents(true, { forward: true });
   const retireRenderer = (stage: string): void => {
     recordCursorDiagnostic(stage);
     if (!next.isDestroyed()) next.destroy();
@@ -156,7 +157,7 @@ async function openCursorWindow(surface: CursorSurface, isCurrent: () => boolean
 
 /** The surface's live window, opening it once; concurrent callers share the
  *  creation. */
-export async function ensureSurfaceWindow(
+async function ensureSurfaceWindow(
   surface: { window: BrowserWindow | null; creating: Promise<BrowserWindow> | null },
   open: () => Promise<BrowserWindow>
 ): Promise<BrowserWindow> {

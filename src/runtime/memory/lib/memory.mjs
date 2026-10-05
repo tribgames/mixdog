@@ -244,9 +244,74 @@ async function removeRuntimeNotificationRowsOnce(db) {
   }
 }
 
+// One-time cleanup: what the relationship-review and promotion cycles left in
+// a database they once ran on. Nothing reads any of it, and its indexes were
+// still maintained on every write:
+//   entries columns  the five below, with the indexes on them
+//   indexes          idx_entries_phase_sweep, idx_entries_reviewed_at, idx_roots_active
+//   relations        mv_hot_active, phase_merge_verdicts, and the v_cycle_state
+//                    view that every store created and nothing queried
+//   meta             both cycles' scheduling rows and last-run keys,
+//                    memory.generated.policy.*, memory.authority-review
+// The entry triggers are recreated first: such a database still lists
+// promoted_at in the score trigger's UPDATE OF columns, which would block
+// dropping that column. One transaction, gated by a meta flag like the
+// notification cleanup above; best-effort so a failure never blocks boot.
+const CYCLE_STATE_CLEANUP_META_KEY = 'cleanup.review_promotion_cycle_state_v1';
+const CYCLE_STATE_ENTRY_COLUMNS = [
+  'cycle2_reviewed_at',
+  'core_summary',
+  'promoted_at',
+  'core_candidate_status',
+  'core_candidate_at',
+];
+async function removeReviewAndPromotionCycleStateOnce(db) {
+  try {
+    const already = await db.query(`SELECT 1 FROM meta WHERE key = $1`, [CYCLE_STATE_CLEANUP_META_KEY]);
+    if (already?.rows?.length) return;
+    const columns = await db.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'entries' AND column_name = ANY($1::text[])`,
+      [CYCLE_STATE_ENTRY_COLUMNS]
+    );
+    let metaRows = 0;
+    await db.transaction(async (tx) => {
+      await ensureEntryTriggers(tx);
+      await tx.exec(`DROP MATERIALIZED VIEW IF EXISTS mv_hot_active`);
+      await tx.exec(`DROP VIEW IF EXISTS v_cycle_state`);
+      await tx.exec(
+        `ALTER TABLE entries ${CYCLE_STATE_ENTRY_COLUMNS.map((name) => `DROP COLUMN IF EXISTS ${name}`).join(', ')}`
+      );
+      await tx.exec(`DROP INDEX IF EXISTS idx_entries_phase_sweep, idx_entries_reviewed_at, idx_roots_active`);
+      await tx.exec(`DROP TABLE IF EXISTS phase_merge_verdicts`);
+      const deleted = await tx.query(
+        `DELETE FROM meta
+         WHERE key ~ '^cycle_(request|schedule)\\.cycle[23]\\.'
+            OR key LIKE 'memory.generated.policy.%'
+            OR key = 'memory.authority-review'`
+      );
+      metaRows = Number(deleted?.rowCount ?? 0);
+      await tx.exec(
+        `UPDATE meta SET value = value - ARRAY['cycle2', 'cycle2_last_error', 'cycle3', 'cycle3_last_error']
+         WHERE key = 'state.cycle_last_run' AND jsonb_typeof(value) = 'object'`
+      );
+      await setMetaValue(tx, CYCLE_STATE_CLEANUP_META_KEY, JSON.stringify('1'));
+    });
+    const dropped = (columns?.rows || []).map((row) => row.column_name);
+    if (dropped.length || metaRows > 0) {
+      __mixdogMemoryLog(
+        `[memory] ensureCurrentSchemaExtensions: removed review/promotion cycle state (columns=${dropped.join(',') || 'none'}, meta rows=${metaRows})\n`
+      );
+    }
+  } catch (err) {
+    __mixdogMemoryLog(`[memory] review/promotion cycle cleanup failed: ${err?.message || err}\n`);
+  }
+}
+
 export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity = null) {
   await removeAttachmentPlaceholderRows(db);
   await removeRuntimeNotificationRowsOnce(db);
+  await removeReviewAndPromotionCycleStateOnce(db);
   // User-curated entries retain their own embeddings for explicit retrieval.
   if (Number.isInteger(dims) && dims > 0) {
     await db.exec(`ALTER TABLE core_entries ADD COLUMN IF NOT EXISTS embedding halfvec(${dims})`);
@@ -265,8 +330,7 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
     );
   }
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS chunk_quality jsonb`);
-  // Existing retired review metadata is left untouched, but no longer created.
-  // Preserve the search relationships used by recall.
+  // The search relationships used by recall.
   await db.exec(
     `ALTER TABLE entries ADD COLUMN IF NOT EXISTS duplicate_of bigint REFERENCES entries(id) ON DELETE SET NULL`
   );

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { ComposerPalette } from './ComposerPalette';
 import { CapabilityIcon } from './CapabilityIcon';
+import { ErrorNotice } from './ErrorNotice';
 import { MxIcon } from './MxIcon';
 import { t } from './i18n';
 import { selectableComposerSkills, skillTitle, type ComposerSkill } from './composer-skill';
@@ -190,11 +191,7 @@ function renderComposerAddMenuPanel({
           <span>{t('Manage skills, plugins and MCP')}</span>
         </button>
       </div>
-      {error && (
-        <p role="alert" className="composer-add-error">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice error={error} className="composer-add-error" />}
     </ComposerPalette>
   );
 }

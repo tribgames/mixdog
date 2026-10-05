@@ -11,12 +11,17 @@ export interface IdleObservation {
   desktopLocked?: boolean;
 }
 
+/** Pauses the host may end by itself once the desktop has been quiet: the
+ *  user's own input, and a recovery that could not be verified, whose sessions
+ *  the takeover already stopped and whose input its confirmed cleanup released. */
+const IDLE_RESUME_REASONS = ['user_input_active', 'input_recovery_unconfirmed'];
+
 function isIdleResumePause(snapshot: ComputerUseSnapshot): boolean {
   return (
     snapshot.userControlActive &&
     snapshot.cleanupState === 'ready' &&
     !snapshot.attentionRequired &&
-    snapshot.takeoverReason === 'user_input_active'
+    IDLE_RESUME_REASONS.includes(snapshot.takeoverReason || '')
   );
 }
 

@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createSessionService,
-  SESSION_READ_ACTIONS,
   attachSession,
   createSession,
   probeSessionHealth,
@@ -128,7 +127,7 @@ test('session catalog has one explicit route and never rides session responses',
   }
 });
 
-test('canonical session.read returns raw agent messages without a deprecated action', async () => {
+test('canonical session.read returns raw agent messages', async () => {
   const messages = [
     { role: 'user', content: 'worker brief' },
     { role: 'assistant', content: 'worker handoff' },
@@ -149,10 +148,6 @@ test('canonical session.read returns raw agent messages without a deprecated act
     });
     assert.equal(result.messageCount, 2);
     assert.deepEqual(result.messages, [messages[1]]);
-    assert.equal(
-      SESSION_READ_ACTIONS.some((name) => /peek/i.test(name)),
-      false
-    );
   } finally {
     await service.stop('test end');
   }

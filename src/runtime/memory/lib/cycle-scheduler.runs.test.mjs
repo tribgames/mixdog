@@ -186,14 +186,12 @@ test('checkCycles snapshots the backlog, flushes raw embeddings once while in fl
 
 test('startCycles clears a stale running marker, hydrates health from the last-run meta, and stopCycles cancels retries', async (t) => {
   const h = makeHarness(t);
-  h.lastRun = { cycle1: 111, cycle2: 222 };
+  h.lastRun = { cycle1: 111 };
   h.scheduler.startCycles();
   h.scheduler.startCycles();
   assert.equal(h.readState().running, null);
   await sleep(0);
   assert.equal(h.scheduler.getCycleHealth().cycle1.last_success_at, 111);
-  assert.equal(h.scheduler.getCycleHealth().cycle2, undefined);
-  assert.equal(h.readState().cycles.cycle2, undefined);
   h.scheduler.stopCycles();
   assert.deepEqual(h.named('cancelRetries'), [['cancelRetries']]);
   h.scheduler.resetInFlight();

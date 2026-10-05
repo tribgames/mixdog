@@ -71,11 +71,14 @@ export interface CommandRouterHost
       ExecutionState,
       | 'executionContext'
       | 'sessionRecoveryBySession'
-      | 'sequenceCursorAnchor'
+      | 'sessionDesktopAnchor'
       | 'assertExecutionNotAborted'
       | 'invalidateObservationsForWindows'
     >,
-    Pick<SessionLifecycle, 'claimComputerTargets' | 'releaseComputerSession' | 'takeOverComputer'>,
+    Pick<
+      SessionLifecycle,
+      'claimComputerTargets' | 'releaseComputerSession' | 'endComputerExecution' | 'takeOverComputer'
+    >,
     Pick<Inspection, 'diagnoseComputer' | 'verifyWindowState'>,
     Pick<WindowTargeting, 'resolveAppWindowId' | 'resolveRecaptureWindowTarget' | 'listComputerApps'>,
     Pick<CaptureEngine, 'captureScreenshot' | 'captureZoom' | 'captureComputer' | 'captureAfterAction'>,

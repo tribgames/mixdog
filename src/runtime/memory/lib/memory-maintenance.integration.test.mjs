@@ -49,46 +49,29 @@ for (const stage of ['claim', 'commit', 'rollback']) {
 }
 
 function harness(overrides = {}) {
-  const calls = [];
   const db = {
     async query(sql) {
-      calls.push(sql);
       if (sql.includes('COUNT(*)')) return { rows: [{ c: 0 }] };
       return { rows: [], rowCount: 0 };
     },
     transaction: (run) => run(db),
   };
   return {
-    calls,
     ...createMemoryActionHandlers({
       getDb: () => db,
       dataDir: projectsRoot,
       log: () => {},
-      readMainConfig: () => ({ cycle2: { interval: '1ms' } }),
+      readMainConfig: () => ({}),
       awaitCycle1Run: async () => ({ chunks: 2, processed: 4 }),
       startCycle1Run: async () => ({ chunks: 2, processed: 4 }),
       getSchedulerCycle1InFlight: () => null,
       ingestTranscriptFile: async () => 0,
-      // Old callers cannot revive the retired reviewer through injected deps.
-      getCycle2CallLlm: () => {
-        throw new Error('retired reviewer invoked');
-      },
       ...overrides,
     }),
   };
 }
 
-test('retired actions are rejected without touching stored history', async () => {
-  const h = harness();
-  for (const action of ['cycle2', 'sleep']) {
-    const result = await h.handleMemoryAction({ action });
-    assert.equal(result.isError, true);
-    assert.match(result.text, /unknown memory action/);
-  }
-  assert.deepEqual(h.calls, []);
-});
-
-test('flush, rebuild and backfill still finish embeddings without a relationship reviewer', async () => {
+test('flush, rebuild and backfill finish embeddings', async () => {
   let embeddings = 0;
   flush = async () => {
     embeddings++;
@@ -133,7 +116,7 @@ test('summarization failures and cancellation still reach the caller', async () 
   await assert.rejects(h.handleMemoryAction({ action: 'flush' }, controller.signal), /stop maintenance/);
 });
 
-test('backfill preserves failures and partial progress without cycle2', async () => {
+test('backfill preserves failures and partial progress', async () => {
   const callbacks = {
     projectsRoot,
     ingestTranscriptFile: async () => 0,

@@ -72,7 +72,6 @@ test('TUI inspector navigates metadata, fetches on Enter, and bounds narrow prev
   await painted((frame) => frame !== '', 'first frame');
   assert.equal(calls.length, 0);
   assert.doesNotMatch(screen, /PRIVATE_PREVIEW/);
-  assert.doesNotMatch(screen, /Estimated usage by category/, 'the legacy grid must not duplicate the inspector');
   stdin.write('\r');
   await painted((frame) => /Instructions/.test(frame), 'metadata frame');
   assert.match(screen, /Instructions/);

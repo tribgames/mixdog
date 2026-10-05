@@ -11,7 +11,7 @@ import { app, BrowserWindow, type Display, screen } from 'electron';
 import { OVERLAY_HEIGHT, OVERLAY_WIDTH, overlayHtml, overlayScript } from './content';
 import type { createComputerOverlayController, ComputerUseOverlayControls } from './controls';
 import { recordCursorDiagnostic } from './cursor-diagnostics';
-import { overlayWindowOptions } from './cursor-surface';
+import { hardenWindowSurface, overlayWindowOptions } from './cursor-surface';
 import { registerComputerUseInternalWindow } from './internal-windows';
 import { bindComputerOverlayControls } from './ipc-controls';
 import type { computerUseOverlayPresentation } from './model';
@@ -85,18 +85,8 @@ export function createOverlayWindows(host: OverlayWindowsHost) {
   async function createWindow(display: Display): Promise<BrowserWindow> {
     const next = new BrowserWindow(pillWindowOptions(display));
     const unregisterInternalWindow = registerComputerUseInternalWindow(next);
-    next.setTitle('');
     next.setAlwaysOnTop(true, 'screen-saver');
-    next.setContentProtection(true);
-    try {
-      next.setVisibleOnAllWorkspaces(true, {
-        skipTransformProcessType: true,
-        visibleOnFullScreen: true,
-      });
-    } catch {
-      // Best effort on Electron/Windows combinations without workspace flags.
-    }
-    next.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    hardenWindowSurface(next);
     next.webContents.on('will-navigate', (event) => event.preventDefault());
     const retireUnavailableWindow = (): void => {
       if (host.isDisposed() || next.isDestroyed()) return;

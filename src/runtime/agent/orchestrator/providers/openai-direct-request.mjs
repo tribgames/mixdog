@@ -1,13 +1,27 @@
+import { getModelMetadataSync } from '../../../shared/llm/model-catalog.mjs';
+
 // Public Responses contracts are independent of the OAuth backend.
 // Match documented model IDs and dated snapshots, not unknown future families.
 // GPT-5.6 and later: prompt_cache_options caching and Fast mode.
-const GPT_56_PLUS_MODELS = /^(?:gpt-6-(?:astra|sol|luna)|gpt-5\.6-(?:sol|terra|luna))(?:-\d{4}-\d{2}-\d{2})?$/;
+const GPT_56_PLUS_MODELS =
+  /^(?:gpt-6-(?:astra|sol|luna)|gpt-6\.1-sol|gpt-5\.6-(?:sol|terra|luna))(?:-\d{4}-\d{2}-\d{2})?$/;
+
+// OpenAI bills prompt-cache writes from GPT-5.6 on, and exactly those models
+// take prompt_cache_options and Fast mode. The id pattern is the offline
+// floor; a published cache-write price admits a later model without an edit
+// here, and a family no catalog lists yet stays out.
+// https://developers.openai.com/api/docs/guides/prompt-caching
+function isGpt56PlusModel(model) {
+  const id = String(model || '').trim();
+  if (!id) return false;
+  return GPT_56_PLUS_MODELS.test(id) || getModelMetadataSync(id, 'openai')?.cacheWriteCostPerM > 0;
+}
 // Earlier models documented for Priority processing (now Fast mode).
 const EARLIER_FAST_MODELS = /^gpt-5\.(?:5|4|4-mini)(?:-\d{4}|$)/;
 
 export function openAiDirectSupportsFast(model) {
   const id = String(model?.id || model || '').trim();
-  return GPT_56_PLUS_MODELS.test(id) || EARLIER_FAST_MODELS.test(id);
+  return isGpt56PlusModel(id) || EARLIER_FAST_MODELS.test(id);
 }
 
 export function applyOpenAIDirectCachePolicy(body, model, storeResponses) {
@@ -17,7 +31,7 @@ export function applyOpenAIDirectCachePolicy(body, model, storeResponses) {
   // Preserve the existing opt-out: no explicit cache-retention hint when
   // response storage is disabled. The provider's default cache still applies.
   if (!storeResponses) return body;
-  if (GPT_56_PLUS_MODELS.test(String(model || '').trim())) {
+  if (isGpt56PlusModel(model)) {
     body.prompt_cache_options = { ttl: '30m' };
   } else {
     body.prompt_cache_retention = '24h';

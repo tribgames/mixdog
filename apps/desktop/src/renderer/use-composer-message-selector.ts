@@ -25,7 +25,7 @@ export function useComposerMessageSelector({
   setDraft: (value: string) => void;
   textarea: RefObject<HTMLTextAreaElement | null>;
   historyNavigation: MutableRefObject<{ index: number; seed: string }>;
-  showNotice: (message: string) => void;
+  showNotice: (message: string, tone?: 'info' | 'error') => void;
 }) {
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
@@ -54,7 +54,7 @@ export function useComposerMessageSelector({
       const value = asRecord(await invokeCapability<RecordValue>('rewindToItem', [messageId]));
       const text = String(value?.text || '');
       if (!text) {
-        showNotice(t('Could not restore that message.'));
+        showNotice(t('Could not restore that message.'), 'error');
         return;
       }
       historyNavigation.current = { index: -1, seed: '' };

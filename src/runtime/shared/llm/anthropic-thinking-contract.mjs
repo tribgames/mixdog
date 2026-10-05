@@ -19,7 +19,7 @@ export function isAnthropicAdaptiveOnlyModel(model) {
 // preambles) as progress-update thinking blocks instead of text blocks.
 export function emitsAnthropicProgressUpdates(model) {
   const id = normalizeClaudeModelId(model);
-  return /^claude-(?:opus-5-5|fable-5-1|mythos-5-1|fable-5)(?:-\d{8})?$/.test(id);
+  return /^claude-(?:opus-5-5|sonnet-5-5|fable-5-1|mythos-5-1|fable-5)(?:-\d{8})?$/.test(id);
 }
 
 export function assertAnthropicManualBudgetSupported(model) {

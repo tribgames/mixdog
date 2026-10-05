@@ -213,7 +213,7 @@ async function typeAndSubmit(client, text, { record }) {
   });
   await sleep(400);
   const after = await client.evaluate(`(() => { const t = document.querySelector('.composer textarea');
-    return { value: t?.value.length || 0, notice: [...document.querySelectorAll('[role="alert"], .composer-notice, .attachment-error, .inline-error')]
+    return { value: t?.value.length || 0, notice: [...document.querySelectorAll('[role="alert"], .mx-toast, .attachment-error, .inline-error')]
       .map((n) => n.textContent?.trim().slice(0, 80)).filter(Boolean).join(' | ') }; })()`);
   if (after.value === typed.value) {
     // Enter through CDP did not clear the draft: use the synthetic keydown

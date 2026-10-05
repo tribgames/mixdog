@@ -5,9 +5,10 @@ import { createComputerUseOverlay } from '../index';
 import { computerUseCoordinator as coordinator } from '../../session/coordinator';
 import { nativeOverlayClick } from './native-click';
 import { emit } from './process-output';
+import { requireEnv } from './require-env';
 
 if (process.env.OVERLAY_SOFTWARE_RENDERING === '1') app.disableHardwareAcceleration();
-app.setPath('userData', join(process.env.OVERLAY_TEST_DIRECTORY!, 'profile'));
+app.setPath('userData', join(requireEnv('OVERLAY_TEST_DIRECTORY'), 'profile'));
 // Retiring the frozen renderer leaves this fixture with zero windows until the replacement
 // exists. Without this listener Electron's default quit-on-last-window-close runs the whole
 // quit sequence right there, the process exits 0 before any result or diagnostic is written,

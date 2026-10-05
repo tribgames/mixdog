@@ -27,7 +27,6 @@ Read this when choosing a `setup` mutation.
 | Background memory cycles | `set_recap_enabled` |
 | Web Search tool exposure | `set_web_search_enabled` |
 | Git, Office, Code Tidy, Local Provider, Browser, Computer, or voice enabled state | `set_builtin_enabled` |
-| One approval per session before the first Browser Use or Computer Use call (`name`: browser or computer; on by default) | `set_first_use_approval` |
 | Git, Memory, Office, Code Tidy, Local Provider, Browser, Computer, or voice preparation | `install_builtin` |
 | Managed local model installation (use the local-provider skill) | `install_local_model` |
 | Start or resume a background runtime/model download | `start_local_installation` |
@@ -150,8 +149,7 @@ the Browser Use / Computer Use installed and enabled markers are read with
 - Browser Use, Computer Use, and voice installation/toggles use the same
   `install_builtin` and `set_builtin_enabled` actions through a live Desktop
   receipt. Computer Use runs on Windows, macOS, and Linux desktops. These
-  actions do not approve OS permission dialogs or first-use tool approval on
-  the user's behalf.
+  actions do not approve OS permission dialogs on the user's behalf.
 - Environment feature overrides are diagnostics for headless or benchmark
   environments, not ordinary user settings.
 

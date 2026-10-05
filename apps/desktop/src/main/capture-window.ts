@@ -579,7 +579,7 @@ async function runCaptureDictationSmoke(window: BrowserWindow): Promise<{
       return {
         transcriptApplied: (textarea.value || '').includes('dictation smoke transcript'),
         micIdle: !mic.className.includes('is-recording') && !mic.className.includes('is-transcribing'),
-        notice: (document.querySelector('.composer-notice')?.textContent || '').trim(),
+        notice: (document.querySelector('.mx-toast-region')?.textContent || '').trim(),
       };
     })()`),
     'Dictation smoke',

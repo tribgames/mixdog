@@ -1,7 +1,7 @@
 import type { ComputerUseCursorPresentation } from './model';
 
 /** A pointer that stopped moving fades after this idle period while its session stays alive. */
-const CURSOR_IDLE_HIDE_MS = 20_000;
+export const CURSOR_IDLE_HIDE_MS = 20_000;
 
 /** Visual-only grace period: never retains execution, targets, or input authority. */
 export function createCursorTail(
@@ -19,10 +19,13 @@ export function createCursorTail(
     if (timer) clearTimeout(timer);
     idle.delete(sessionId);
   };
-  const remove = (sessionId: string) => {
+  const clearExpiry = (sessionId: string) => {
     const timer = expiry.get(sessionId);
     if (timer) clearTimeout(timer);
     expiry.delete(sessionId);
+  };
+  const remove = (sessionId: string) => {
+    clearExpiry(sessionId);
     retained.delete(sessionId);
     clearIdle(sessionId);
   };
@@ -56,7 +59,7 @@ export function createCursorTail(
         return false;
       });
       for (const [id, cursor] of retained) {
-        if (modes && modes.get(id) !== cursor.mode) remove(id);
+        if ((modes && modes.get(id) !== cursor.mode) || idleFor(cursor) <= 0) remove(id);
       }
       const foreground = current.reduce<ComputerUseCursorPresentation | undefined>(
         (latest, cursor) =>
@@ -76,9 +79,7 @@ export function createCursorTail(
       );
       const live = new Set(current.map((cursor) => cursor.sessionId));
       for (const cursor of current) {
-        const timer = expiry.get(cursor.sessionId);
-        if (timer) clearTimeout(timer);
-        expiry.delete(cursor.sessionId);
+        clearExpiry(cursor.sessionId);
         const previous = retained.get(cursor.sessionId);
         retained.set(cursor.sessionId, cursor);
         if (previous?.eventId !== cursor.eventId || !idle.has(cursor.sessionId)) {
@@ -94,8 +95,14 @@ export function createCursorTail(
           }
         }
       }
-      for (const id of retained.keys()) {
-        if (live.has(id) || expiry.has(id)) continue;
+      for (const [id, held] of retained) {
+        if (live.has(id)) continue;
+        // A still-active foreground session keeps its last cursor until the idle hide.
+        if (modes && held.mode === 'foreground' && modes.get(id) === 'foreground') {
+          clearExpiry(id);
+          continue;
+        }
+        if (expiry.has(id)) continue;
         const timer = setTimeout(() => {
           expiry.delete(id);
           retained.delete(id);

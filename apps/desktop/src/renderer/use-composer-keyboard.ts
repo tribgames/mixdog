@@ -8,10 +8,8 @@ import {
 } from './renderer-logic.mjs';
 import type { ComposerAttachment, ComposerHistoryEntry } from './composer-support';
 import type { DesktopSlashCommand } from './slash-commands';
-import {
-  classifyPromptEscape,
-  PROMPT_ESCAPE_HINT_TIMEOUT_MS,
-} from '../../../../src/tui/components/prompt-input/escape-policy.mjs';
+import { t } from './i18n';
+import { classifyPromptEscape } from '../../../../src/tui/components/prompt-input/escape-policy.mjs';
 import { paletteOwnsPromptVerticalArrow } from '../../../../src/tui/components/prompt-input/restore-policy.mjs';
 
 type TextareaKeyEvent = KeyboardEvent<HTMLTextAreaElement>;
@@ -77,7 +75,7 @@ export function useComposerKeyboard({
     draftMode?: boolean;
     attachments: ComposerAttachment[];
     escapeClearAt: RefObject<number>;
-    showNotice(message: string, durationMs?: number): void;
+    showNotice(message: string): void;
   };
   ime: {
     composing: RefObject<boolean>;
@@ -286,7 +284,7 @@ export function useComposerKeyboard({
         queue.restore('escape');
       } else if (escapeIntent.action === 'arm-clear') {
         event.preventDefault();
-        runtime.showNotice('Esc again to clear', PROMPT_ESCAPE_HINT_TIMEOUT_MS);
+        runtime.showNotice(t('Esc again to clear'));
       } else if (escapeIntent.action === 'clear') {
         event.preventDefault();
         draft.set('');

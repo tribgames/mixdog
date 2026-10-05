@@ -93,9 +93,6 @@ test('remote browser controls admit only bounded navigation and document-bound h
     () => normalizeRemoteBrowserControl({ type: 'wheel', documentId, x: 0, y: 0, deltaX: 0, deltaY: 20_001 }),
     /deltaY is invalid/
   );
-  for (const retired of ['tap', 'swipe', 'scroll']) {
-    assert.throws(() => normalizeRemoteBrowserControl({ type: retired, x: 1, y: 1 }), /unknown remote browser control/);
-  }
   assert.throws(
     () => normalizeRemoteBrowserControl({ type: 'evaluate', script: 'document.cookie' }),
     /unknown remote browser control/

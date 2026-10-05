@@ -20,14 +20,13 @@ import {
 } from './_shared.mjs';
 
 test('shell execution policy matches sync-first background-task parity', () => {
-  assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 10_000);
+  assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 15_000);
   const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
   assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'timeout_ms', 'wait_ms']);
   assert.equal(shellTool.inputSchema.properties.timeout_ms.minimum, 0);
-  assert.equal(shellTool.inputSchema.properties.monitor_interval_ms, undefined);
   assert.match(
     shellTool.description,
-    /10s foreground window \(not a timeout.*continues under task_id.*task wait, not read polling/i
+    /15s foreground window \(not a timeout.*continues under task_id.*task wait, not read polling/i
   );
   const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
   assert.equal(taskTool.title, 'Task');
@@ -37,7 +36,7 @@ test('shell execution policy matches sync-first background-task parity', () => {
   );
   assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'read', 'wait', 'cancel']);
   assert.deepEqual(taskTool.inputSchema.required, ['action']);
-  assert.equal(taskTool.inputSchema.properties.monitor_interval_ms, undefined);
+  assert.deepEqual(Object.keys(taskTool.inputSchema.properties), ['task_id', 'action', 'timeout_ms', 'output']);
   assert.equal(taskTool.inputSchema.properties.timeout_ms.minimum, 0);
   assert.equal(
     taskTool.inputSchema.properties.action.description,

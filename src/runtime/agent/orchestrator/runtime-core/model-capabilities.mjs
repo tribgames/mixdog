@@ -5,6 +5,7 @@
 import { clean, hasOwn } from './session-text.mjs';
 import { modelSupportsServiceTier } from '../providers/model-service-tiers.mjs';
 import { openAiDirectSupportsFast } from '../providers/openai-direct-request.mjs';
+import { supportsAnthropicFastMode } from '../../../shared/llm/anthropic-betas.mjs';
 
 const FAST_CAPABLE_PROVIDERS = new Set([
   'anthropic',
@@ -52,14 +53,9 @@ function geminiModelSupportsHostedWebSearch(model) {
 function anthropicModelSupportsHostedWebSearch(model) {
   const id = clean(model?.id || model).toLowerCase();
   if (!id) return false;
-  const match = id.match(/^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?/);
+  const match = id.match(/^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?/);
   if (!match) return false;
   return (Number(match[2]) || 0) >= 4;
-}
-
-function anthropicModelMetaSupportsFast(model) {
-  const id = clean(model?.id || model).toLowerCase();
-  return /^claude-(opus|sonnet)/.test(id);
 }
 
 export function fastCapableFor(provider, model, effort = null, modelParameters = {}) {
@@ -82,7 +78,7 @@ export function fastCapableFor(provider, model, effort = null, modelParameters =
   }
   if (p === 'openai') return openAiDirectSupportsFast(model);
   if (p === 'openai-oauth') return modelSupportsServiceTier(model, 'priority');
-  if (p === 'anthropic' || p === 'anthropic-oauth') return anthropicModelMetaSupportsFast(model);
+  if (p === 'anthropic' || p === 'anthropic-oauth') return supportsAnthropicFastMode(clean(model?.id || model));
   return false;
 }
 
@@ -127,9 +123,15 @@ export function saveModelSettings(cfgMod, route, { fastCapable = true, baseConfi
   } else {
     delete nextSetting.modelParameters;
   }
-  const contextPercent = Number(route.contextPercent);
-  if (Number.isFinite(contextPercent) && contextPercent >= 10 && contextPercent <= 100) {
-    nextSetting.contextPercent = Math.round(contextPercent / 10) * 10;
+  // Only a window the user moved off the model's default is a setting. The
+  // pickers send the default stop with every selection; storing it froze each
+  // model at whatever its default was that day, so a later default never
+  // reached anyone who had already selected the model.
+  const requestedPercent = Number(route.contextPercent);
+  const contextPercent = Math.round(requestedPercent / 10) * 10;
+  const isDefault = contextPercent === Number(route.contextDefaultPercent);
+  if (requestedPercent >= 10 && requestedPercent <= 100 && !isDefault) {
+    nextSetting.contextPercent = contextPercent;
   } else {
     delete nextSetting.contextPercent;
   }

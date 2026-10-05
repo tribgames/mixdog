@@ -7,8 +7,8 @@ import { makeChunkQuality, assessChunkQuality } from './memory-chunk-quality.mjs
 import { collapseHistoryDuplicates } from './history-duplicates.mjs';
 import { searchRelevantHybrid, preferLatestConceptRows } from './memory-recall-store.mjs';
 
-// Persisted aliases are fixture data from a prior installation, not generated
-// by a reviewer. These tests ensure retirement does not remove recall support.
+// Persisted aliases are fixture data: recall reads these relationships, and
+// nothing generates new ones.
 function fixture(t) {
   const sqlite = new DatabaseSync(':memory:');
   t.after(() => sqlite.close());
@@ -16,8 +16,8 @@ function fixture(t) {
     PRAGMA foreign_keys = ON;
     CREATE TABLE entries (
       id INTEGER PRIMARY KEY, ts INTEGER, project_id TEXT, summary TEXT, content TEXT, element TEXT,
-      is_root INTEGER, chunk_root INTEGER, status TEXT, cycle2_reviewed_at INTEGER,
-      concept_id INTEGER, supersedes_id INTEGER, core_candidate_status TEXT,
+      is_root INTEGER, chunk_root INTEGER, status TEXT,
+      concept_id INTEGER, supersedes_id INTEGER,
       role TEXT, source_ref TEXT, session_id TEXT, source_turn INTEGER, time_source TEXT,
       category TEXT, score REAL, last_seen_at INTEGER,
       duplicate_of INTEGER REFERENCES entries(id) ON DELETE SET NULL, chunk_quality TEXT
@@ -73,7 +73,7 @@ function fixture(t) {
   return { sqlite, db, rows: () => sqlite.prepare('SELECT * FROM entries ORDER BY id').all() };
 }
 
-test('legacy promotion statuses remain searchable and stored aliases stay read-only', async (t) => {
+test('records of every status are searchable and stored aliases stay read-only', async (t) => {
   const f = fixture(t);
   const before = f.rows();
   const filter = buildRecallScopeFilter(1, { projectScope: 'project' });

@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
+import { makeTempEnvDir, writeBridgeDiscovery } from './bridge-env.test-support.mjs';
 import {
   executeComputerTool,
   deferComputerSessionRelease,
@@ -15,10 +13,8 @@ for (const outcome of ['released', 'cancelled', 'unconfirmed', 'cancelled_unconf
     const cancelled = outcome === 'cancelled' || outcome === 'cancelled_unconfirmed';
     const confirmed = outcome !== 'unconfirmed' && outcome !== 'cancelled_unconfirmed';
     const continued = !cancelled && confirmed;
-    const directory = await mkdtemp(join(tmpdir(), 'mixdog-release-race-'));
-    const previousDirectory = process.env.MIXDOG_DATA_DIR;
+    const { directory, cleanup } = await makeTempEnvDir('MIXDOG_DATA_DIR', 'mixdog-release-race-');
     const originalFetch = globalThis.fetch;
-    process.env.MIXDOG_DATA_DIR = directory;
     const calls = [];
     let acknowledge;
     let holdRelease = true;
@@ -37,14 +33,7 @@ for (const outcome of ['released', 'cancelled', 'unconfirmed', 'cancelled_unconf
       return reply();
     };
     try {
-      await writeFile(
-        join(directory, 'computer-bridge.json'),
-        JSON.stringify({
-          version: 1,
-          port: 12345,
-          token: 'fixture-token',
-        })
-      );
+      await writeBridgeDiscovery(directory, { port: 12345, token: 'fixture-token' });
       const args = { action: 'list', input: { kind: 'windows' } };
       const sessionId = `release-${outcome}`;
       await executeComputerTool(args, { sessionId });
@@ -94,9 +83,7 @@ for (const outcome of ['released', 'cancelled', 'unconfirmed', 'cancelled_unconf
       acknowledge?.(reply());
       await releaseAllComputerSessions(1_000);
       globalThis.fetch = originalFetch;
-      if (previousDirectory === undefined) delete process.env.MIXDOG_DATA_DIR;
-      else process.env.MIXDOG_DATA_DIR = previousDirectory;
-      await rm(directory, { recursive: true, force: true });
+      await cleanup();
     }
   });
 }

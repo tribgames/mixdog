@@ -21,7 +21,7 @@ import { CODEX_OAUTH_ORIGINATOR, codexModelsUrl } from './openai-codex-endpoints
 import { _normalizeCodexModel, _markLatestCodex } from './openai-codex-model.mjs';
 
 const CODEX_MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
-const CODEX_MODEL_CACHE_SCHEMA_VERSION = 5;
+const CODEX_MODEL_CACHE_SCHEMA_VERSION = 6;
 const CATALOG_FETCH_TIMEOUT_MS = 10_000;
 
 // In-memory mirror of the on-disk catalog, same pattern as anthropic-oauth.
@@ -57,6 +57,12 @@ export function findCachedCodexModel(id) {
 export function codexCatalogHas(id) {
   if (!id || !Array.isArray(_mirror)) return false;
   return _mirror.some((m) => m.id === id);
+}
+
+/** The catalog's own answer, or null when it has none for this model. */
+export function codexModelSupportsEffortUpdates(id) {
+  const supported = findCachedCodexModel(id)?.supportsReasoningEffortUpdates;
+  return typeof supported === 'boolean' ? supported : null;
 }
 
 export function codexModelSupportsServiceTier(id, serviceTier) {

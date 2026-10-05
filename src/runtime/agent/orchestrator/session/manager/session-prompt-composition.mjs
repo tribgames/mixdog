@@ -63,7 +63,11 @@ function buildShellEnvironmentContext(opts, ownerIsAgent, toolsForRouting) {
 // four system blocks; environmentTailContext is the persisted env tail.
 export function composeSessionSystem(opts, { profile, providerName, modelName, surface }) {
   const { ownerIsAgent, resolvedAgent, skills } = surface;
-  const skipAgentRules = opts.skipAgentRules === true;
+  // A tool-free hidden role (a one-shot classifier or title writer) carries
+  // only its own role rules: the shared tool policy and the worker conduct
+  // rules describe work it is offered no tool for.
+  const toolFreeRole = ownerIsAgent && surface.schemaAllowedTools?.length === 0;
+  const skipAgentRules = opts.skipAgentRules === true || toolFreeRole;
   const injectedRules = skipAgentRules
     ? ''
     : _buildBaseRules({

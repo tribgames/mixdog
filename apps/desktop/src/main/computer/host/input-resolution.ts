@@ -44,8 +44,8 @@ export function createInputResolution(host: InputResolutionHost) {
       inputRecovery: InputRecoveryState,
       timings: Record<string, number>,
       nativeResult: Record<string, unknown> = {},
-      holdCursor = false
-    ) => verifyInputRecovery(host, command, targetWindowId, inputRecovery, timings, nativeResult, holdCursor),
+      holdDesktop = false
+    ) => verifyInputRecovery(host, command, targetWindowId, inputRecovery, timings, nativeResult, holdDesktop),
     settleWindowTransition: (input: WindowSettleInput) => settleWindowTransition(host, input),
   };
 }

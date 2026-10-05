@@ -6,11 +6,12 @@ import { createComputerUseCursorOverlay } from '../cursor-overlay';
 import { prepareCursorFeedback } from '../cursor-readiness';
 import { CURSOR_HOTSPOT } from '../cursor-art';
 import { sleep } from '../../shared/common';
+import { requireEnv } from './require-env';
 
 app.disableHardwareAcceleration();
 // This fixture has no main app window; removing an effect must not end the test.
 app.on('window-all-closed', () => {});
-app.setPath('userData', join(process.env.CURSOR_TEST_DIRECTORY!, 'profile'));
+app.setPath('userData', join(requireEnv('CURSOR_TEST_DIRECTORY'), 'profile'));
 void app
   .whenReady()
   .then(async () => {
@@ -49,7 +50,15 @@ void app
         while (window.isVisible() && Date.now() < deadline) {
           await sleep(10);
         }
-        assert.equal(window.isVisible(), false, 'completed commands hide feedback while the session thinks');
+        // A foreground session's arrow stands in for the hidden real pointer
+        // while it thinks; a background one hides after its visual tail. This
+        // runs on the live desktop, where a mouse the user moved ends the hold.
+        const yielded = Boolean(coordinator.snapshot().releasedPointerSessionIds?.includes(sessionId));
+        assert.equal(
+          window.isVisible(),
+          mode === 'foreground' && !yielded,
+          'only a foreground session keeps its arrow while it thinks'
+        );
         assert.equal(coordinator.snapshot().activities[0]?.phase, 'thinking');
         coordinator.endExecution(sessionId);
         assert.equal(window.isDestroyed(), true);
@@ -119,7 +128,8 @@ void app
         x: 100,
         y: 100,
       });
-      const otherWindow = effectWindows().find((candidate) => candidate !== window)!;
+      const otherWindow = effectWindows().find((candidate) => candidate !== window);
+      assert.ok(otherWindow, 'background feedback opens its own effect window');
       await rendered(otherWindow);
       assert.equal(otherWindow.isAlwaysOnTop(), false);
       assert.equal(window.isVisible(), true, 'background feedback must not hide another active session');
@@ -139,7 +149,8 @@ void app
       await rendered(window);
       coordinator.beginCommand({ sessionId: 'next', action: 'move', mode: 'foreground' });
       await prepareCursorFeedback('next', 2000);
-      const nextWindow = effectWindows().find((candidate) => candidate !== window && candidate !== otherWindow)!;
+      const nextWindow = effectWindows().find((candidate) => candidate !== window && candidate !== otherWindow);
+      assert.ok(nextWindow, 'the next session opens its own effect window');
       coordinator.showCursor({ sessionId: 'next', action: 'move', mode: 'foreground', effect: 'move', x: 200, y: 100 });
       await rendered(nextWindow);
       assert.equal(window.isVisible(), false, 'new physical pointer owner hides the old halo');
@@ -149,7 +160,7 @@ void app
       nextWindow.webContents.forcefullyCrashRenderer();
       await crashed;
       assert.equal(await prepareCursorFeedback('next', 2000), 'ready');
-      const replacement = effectWindows().find((candidate) => candidate !== window && candidate !== otherWindow)!;
+      const replacement = effectWindows().find((candidate) => candidate !== window && candidate !== otherWindow);
       assert.ok(replacement && replacement !== nextWindow, 'readiness must use a live replacement');
       assert.equal(replacement.isVisible(), false, 'a crash must not replay the previous effect');
       coordinator.showCursor({ sessionId: 'next', action: 'move', mode: 'foreground', effect: 'move', x: 300, y: 100 });

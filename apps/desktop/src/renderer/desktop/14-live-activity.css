@@ -371,30 +371,89 @@
 .composer-approval-row {
   margin-bottom: 8px;
 }
+/* Approval card: one more member of the stack above the input, so it wears
+   the material the review bar, Goal capsule and queue already share — the
+   prompt card's fill, 12px corner and raised edge, no ring of its own. The
+   warning lives in the glyph only, as on a Goal task awaiting approval.
+   Grammar: a 32px header row (glyph column + title · tool), a body hung from
+   the title's left edge (reason, then the call itself), and right-aligned
+   chip buttons. */
 .approval-card {
+  --approval-inset: 10px;
+  --approval-indent: calc(var(--approval-inset) + var(--mx-icon-md) + 6px);
+  display: flex;
+  flex-direction: column;
   width: 100%;
-  padding: 16px;
+  padding: 0;
   border: 0;
-  /* The prompt card's corner: the approval sits in the same stack. */
-  border-radius: var(--mx-radius-sheet);
+  border-radius: var(--mx-radius-xl);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: 0 0 0 1px var(--mx-approval-ring);
+  background: var(--mx-composer-surface);
+  box-shadow: var(--mx-raised);
+  overflow: hidden;
+}
+.approval-card .approval-heading {
+  min-height: 32px;
+  gap: 6px;
+  padding: 6px var(--approval-inset);
+}
+.approval-card .approval-heading > span {
+  flex: none;
+  width: var(--mx-icon-md);
+  color: var(--mx-warning);
+}
+.approval-card .approval-heading > div {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
 .approval-heading b {
-  font-size: var(--mx-font-body);
-  font-weight: var(--mx-weight-semibold);
-}
-.approval-heading small,
-.approval-card p {
-  color: var(--mx-text-muted);
+  flex: none;
   font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-ui);
 }
+.approval-heading small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.approval-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 var(--approval-inset) 10px var(--approval-indent);
+}
+.approval-card p {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-ui);
+  overflow-wrap: anywhere;
+}
+/* Label over value, one pair per block: a long argument dump never squeezes
+   into a column beside its label. */
 .approval-card dl {
-  border-top-color: var(--mx-border-muted);
+  display: grid;
+  margin: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.approval-card dt {
+  color: var(--mx-text-faint);
+}
+.approval-card dd + dt {
+  margin-top: 8px;
+}
+.approval-card dd {
+  margin-top: 3px;
 }
 .office-approval-preview {
   display: grid;
@@ -446,6 +505,17 @@
 .diff-toggle:disabled {
   opacity: var(--mx-op-disabled);
   cursor: default;
+}
+/* Deny is a quiet ghost like the Goal footer's Cancel; Allow keeps the chip
+   plate, so the decision reads without a dialog-weight contrast slab. */
+.approval-actions button.deny {
+  color: var(--mx-text-muted);
+  background: transparent;
+  box-shadow: none;
+}
+.approval-actions button.deny:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
 }
 /* A transcript diff is the same class of object as a fenced code card, so it
    wears that card's chrome: the muted hairline and the shared card surface.

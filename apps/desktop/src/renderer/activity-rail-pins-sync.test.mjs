@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { DesktopSettingsStore } from '../main/settings-store.ts';
 import { useActivityRailPins } from './use-activity-rail-pins.ts';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts.tsx';
+import { remoteConnectionInterruptedError } from './remote-connection-state.ts';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 function hub() {
@@ -130,4 +131,34 @@ test('a rejected save restores the shared order and reports the error', async (t
   assert.deepEqual((await shared.store.readActivityRailPins()).pins, ['projects', 'sessions']);
   assert.equal(toasts.at(-1).tone, 'error');
   assert.match(toasts.at(-1).text, /pin config write rejected/);
+});
+
+test('an interrupted read stays quiet and the next connection reads the shared order', async (t) => {
+  const shared = hub();
+  await shared.store.updateActivityRailPins(['search', 'workflows']);
+  const web = shared.api('web');
+  const read = web.readActivityRailPins;
+  let interrupt;
+  web.readActivityRailPins = () => new Promise((_, reject) => { interrupt = () => reject(remoteConnectionInterruptedError()); });
+  const values = await mount(t, shared, { web });
+  const toasts = [];
+  window.addEventListener(DESKTOP_TOAST_EVENT, (event) => toasts.push(event.detail));
+  await act(async () => interrupt());
+  assert.deepEqual(toasts, []);
+  web.readActivityRailPins = read;
+  await act(async () => window.dispatchEvent(new window.Event('mixdog:remote-connection-ready')));
+  assert.deepEqual(values.web.pins, ['search', 'workflows']);
+});
+
+test('an interrupted save restores the shared order and asks to check the connection', async (t) => {
+  const shared = hub();
+  const web = shared.api('web');
+  web.updateActivityRailPins = async () => { throw remoteConnectionInterruptedError(); };
+  const values = await mount(t, shared, { web });
+  const toasts = [];
+  window.addEventListener(DESKTOP_TOAST_EVENT, (event) => toasts.push(event.detail));
+  await act(async () => values.web.savePins(['search']));
+  assert.deepEqual(values.web.pins, ['projects', 'sessions']);
+  assert.equal(toasts.at(-1).tone, 'error');
+  assert.equal(toasts.at(-1).text, 'Sidebar: Check the connection, then try again.');
 });

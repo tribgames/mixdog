@@ -25,12 +25,16 @@ export function LocalProviderOperations({ status, actions }: { status: RecordVal
         .filter((entry) => ['running', 'cancelling', 'paused', 'failed'].includes(String(entry.state)))
     : [];
   const error = actions.error || String(status.installationCommandError || status.lastUnloadError || '');
+  // A failure already shown on its installation row is not repeated on top.
+  const rowErrors = new Set(
+    operations.filter((operation) => operation.state === 'failed').map((operation) => String(operation.error || ''))
+  );
   // GPU memory and server state live in the feature's Info facts; the
   // request counters were operational noise and are gone (user: 불필요한
   // 표면 정리). Only live installations earn a section here.
   return (
     <>
-      {error && <ErrorNotice error={error} />}
+      {error && !rowErrors.has(error) && <ErrorNotice error={error} />}
       {operations.length > 0 && (
         <ExtensionSection title={t('Installation')}>
           <ExtensionItemList>
@@ -42,20 +46,16 @@ export function LocalProviderOperations({ status, actions }: { status: RecordVal
                   ? t('Runtime')
                   : String(models.find((model) => model.id === modelId)?.name || modelId);
               const running = installationActive(operation);
+              const progressLabel =
+                phase === 'verify' ? t('Verifying {{name}}…', { name }) : t('Installing {{name}}…', { name });
+              // The row says what is happening; the bar under it carries the
+              // percentage. A failure speaks only through its error line.
               let description = t('Paused · downloaded files are kept');
-              if (operation.state === 'failed') description = t('Failed');
+              if (operation.state === 'failed') description = '';
               else if (operation.state === 'cancelling') description = t('Stopping download…');
-              else if (running) description = '';
+              else if (running) description = progressLabel;
               return (
                 <div className="local-provider-installation" key={String(operation.jobId || `${phase}:${modelId}`)}>
-                  {running && (
-                    <SlotProgress
-                      percent={installationPercent(operation)}
-                      label={
-                        phase === 'verify' ? t('Verifying {{name}}…', { name }) : t('Installing {{name}}…', { name })
-                      }
-                    />
-                  )}
                   <ExtensionItemRow
                     title={name}
                     description={description}
@@ -74,6 +74,7 @@ export function LocalProviderOperations({ status, actions }: { status: RecordVal
                       )
                     }
                   />
+                  {running && <SlotProgress percent={installationPercent(operation)} label={progressLabel} />}
                   {operation.state === 'failed' && <ErrorNotice error={operation.error || t('Failed')} />}
                 </div>
               );

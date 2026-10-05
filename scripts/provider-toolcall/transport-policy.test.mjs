@@ -29,25 +29,6 @@ test('transport policy: default (no env) is auto WS-first / refs continuation ON
   assert.deepEqual(p.delta, { force: false, refs: true, optIn: true });
 });
 
-test('transport policy: default ignores the legacy MIXDOG_OAI_WS_DELTA env', () => {
-  // Legacy compatibility removed: delta is selected solely via ws-delta mode.
-  assert.deepEqual(resolveOpenAiTransportPolicy({ MIXDOG_OAI_WS_DELTA: '1' }).delta, {
-    force: false,
-    refs: true,
-    optIn: true,
-  });
-  assert.deepEqual(resolveOpenAiTransportPolicy({ MIXDOG_OAI_WS_DELTA: 'force' }).delta, {
-    force: false,
-    refs: true,
-    optIn: true,
-  });
-  assert.deepEqual(resolveOpenAiTransportPolicy({ MIXDOG_OAI_WS_DELTA: 'refs' }).delta, {
-    force: false,
-    refs: true,
-    optIn: true,
-  });
-});
-
 test('transport policy: ws-full forces full frames', () => {
   const p = resolveOpenAiTransportPolicy({ MIXDOG_OAI_TRANSPORT: 'ws-full' });
   assert.equal(p.transport, 'ws');

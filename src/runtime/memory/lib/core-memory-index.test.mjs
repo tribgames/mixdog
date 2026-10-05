@@ -10,7 +10,6 @@ function fixture() {
   const sql = new DatabaseSync(':memory:');
   sql.exec(`
     CREATE TABLE core_entries(id INTEGER PRIMARY KEY, project_id TEXT, status TEXT, element TEXT, summary TEXT);
-    CREATE TABLE entries(id INTEGER, project_id TEXT, status TEXT, is_root INTEGER, element TEXT, core_summary TEXT);
     CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
     INSERT INTO core_entries VALUES
       (81, NULL, 'active', 'Common', 'Common preference'),

@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { cursorHtml, cursorScript, CURSOR_HOTSPOT, CURSOR_SIZE } from '../cursor-art';
 import { emulateMotionPreference } from './pill-motion';
+import { requireEnv } from './require-env';
 
 app.disableHardwareAcceleration();
-app.setPath('userData', join(process.env.CURSOR_TEST_DIRECTORY!, 'profile'));
+app.setPath('userData', join(requireEnv('CURSOR_TEST_DIRECTORY'), 'profile'));
 void app
   .whenReady()
   .then(async () => {

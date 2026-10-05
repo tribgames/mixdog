@@ -6,7 +6,7 @@
  * barrier.
  */
 import { MAX_COMPUTER_WORKERS } from '../backend/worker-capacity';
-import type { RetiredChild, SessionAbort } from './lifecycle-abort';
+import { restoreSessionDesktop, type RetiredChild, type SessionAbort } from './lifecycle-abort';
 import type { LifecycleContext } from './session-lifecycle';
 
 // Resident workers remain warm longer than target leases. A window lease is
@@ -24,6 +24,7 @@ const WORKER_PRESSURE_COUNT = Math.ceil(MAX_COMPUTER_WORKERS * 0.75);
 
 export function createWorkerReclaim(
   context: LifecycleContext,
+  queue: Parameters<typeof restoreSessionDesktop>[1],
   abortComputerSession: SessionAbort['abortComputerSession']
 ) {
   const { host, coordinator, execution, cleanupJobs } = context;
@@ -75,9 +76,15 @@ export function createWorkerReclaim(
       // Routine reclaim: an idle session holds no input, so retiring its worker
       // must not raise the global barrier that guards a user takeover — that
       // barrier refuses every other session's next command until it clears.
-      host.retirePowerShell(child, new Error('computer_worker_reclaimed: idle session worker was released'));
-      host.releaseSessionState(sessionId, host.releaseCaptureSession);
-      coordinator.cancelSession(sessionId);
+      // The reclaimed session ends here, so its one desktop restore runs first.
+      const retire = () => {
+        host.retirePowerShell(child, new Error('computer_worker_reclaimed: idle session worker was released'));
+        host.releaseSessionState(sessionId, host.releaseCaptureSession);
+        coordinator.cancelSession(sessionId);
+      };
+      const restore = restoreSessionDesktop(context, queue, sessionId);
+      if (restore) void restore.finally(retire);
+      else retire();
     }
   }
 

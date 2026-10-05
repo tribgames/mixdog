@@ -245,10 +245,14 @@
      than the Google indigo they were meant to echo. Dark takes the 400 rung
      #669df6: the 300 rung #8ab4f8 read pastel at 9:1 on the sheet, where the
      reference dark themes hold their link blue at 6-7:1 (VS Code #4daafc,
-     Primer #4493f8). Paper takes the 800 rung (light block below).
+     Primer #4493f8). The 400 rung itself then read too saturated (user:
+     블루 색감이 좀 진해보이는데), and the 300/400 midpoint #78a8f7 still read
+     dim and a shade violet, so dark takes GitHub's dark link blue #79b8ff —
+     the sky blue inline code wore before it joined the accent (user: 79b8ff
+     로해볼까). Paper takes the 800 rung (light block below).
      It lives on the THEME, not on a surface attribute, so the web shell
      paints the same accent as the desktop window. */
-  --mx-text-accent: #669df6;
+  --mx-text-accent: #79b8ff;
   --mx-accent: var(--mx-text-accent);
   /* Markdown inline-code ink stays a SEPARATE token from the brand accent.
      Both are blue now, but code ink answers to "reads as code/reference"
@@ -315,8 +319,6 @@
   --mx-flat-press-contrast:
     linear-gradient(var(--mx-contrast-hover), var(--mx-contrast-hover)),
     linear-gradient(var(--mx-contrast-hover), var(--mx-contrast-hover)), var(--mx-bg-contrast);
-  /* Inline tool-approval highlight (amber warning border). */
-  --mx-approval-ring: color-mix(in srgb, var(--mx-amber-500) 50%, transparent);
 
   /* ── 5. Status ── */
   --mx-danger-bg: var(--mx-red-1200);
@@ -590,7 +592,6 @@
   --mx-scrim: rgba(20, 20, 22, 0.38);
   --mx-accent-bg: #1967d2;
   --mx-contrast-hover: rgba(255, 255, 255, 0.122);
-  --mx-approval-ring: color-mix(in srgb, var(--mx-amber-600) 45%, transparent);
 
   /* ── 5. Status ── */
   --mx-danger-bg: #fceceb;

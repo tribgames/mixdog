@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { DayRange } from './DateRangePicker';
+import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { OpenSelect } from './OpenSelect';
 import { modelDisplayName, providerDisplayName, ProviderIcon } from './provider-display';
@@ -689,11 +690,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
             seriesInk={seriesInk}
             loading={loading}
           />
-          {(error || historyError) && (
-            <p className="stats-error" role="alert">
-              {error || historyError}
-            </p>
-          )}
+          {(error || historyError) && <ErrorNotice error={error || historyError} className="stats-error" />}
           <QuotaTable
             provider={provider}
             totals={record(loaded.totals)}

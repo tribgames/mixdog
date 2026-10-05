@@ -42,12 +42,27 @@ test('Cursor backend windows remain authoritative below and above vendor limits'
           getCachedModelInfo: () => ({ contextWindow }),
         },
         'gpt-5.4',
-        {}
+        {},
+        { wholeWindow: true }
       );
       assert.equal(meta.contextWindow, contextWindow, name);
       assert.equal(meta.rawContextWindow, contextWindow, name);
     }
   }
+});
+
+test('a session without a selection starts from the default window of its range', () => {
+  const provider = { name: 'anthropic-oauth', getCachedModelInfo: () => ({ contextWindow: 1_000_000 }) };
+  const window = (seed, options) => resolveSessionContextMeta(provider, 'claude-opus-5-5', seed, options).contextWindow;
+  assert.equal(window({}), 500_000);
+  assert.equal(window({ selectedContextWindow: 1_000_000 }), 1_000_000);
+  assert.equal(window({ selectedContextWindow: 300_000 }), 300_000);
+  // A recorded percentage without its window is still the user's choice.
+  assert.equal(window({ contextPercent: 100 }), 1_000_000);
+  // The summary route budgets against everything its model takes in.
+  assert.equal(window({}, { wholeWindow: true }), 1_000_000);
+  const small = { name: 'openai-oauth', getCachedModelInfo: () => ({ contextWindow: 272_000 }) };
+  assert.equal(resolveSessionContextMeta(small, 'gpt-5.6-sol', {}).contextWindow, 272_000);
 });
 
 test('an explicitly selected context window survives a route update', () => {

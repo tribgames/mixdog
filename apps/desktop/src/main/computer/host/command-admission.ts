@@ -10,7 +10,6 @@ import { assertSafeComputerInput, assertSafeComputerSessionId, assertSafeCompute
 import { assertExactWindowCommandTarget } from '../input/targeting';
 import { assertCaptureAfterOptions } from '../observation/analysis';
 import { CHROME_SETUP_SESSION_ID } from '../shared/common';
-import { computerUseCoordinator } from '../session/coordinator';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { AUTO_CAPTURE_ACTIONS, READ_ACTIONS } from './action-sets';
 import type { CommandRouterHost } from './command-router';
@@ -25,6 +24,7 @@ export type CommandAdmissionHost = Pick<
   | 'lastCaptureBySession'
   | 'assertExecutionNotAborted'
   | 'releaseComputerSession'
+  | 'endComputerExecution'
   | 'diagnoseComputer'
   | 'resolveAppWindowId'
   | 'readComputerWindows'
@@ -107,10 +107,7 @@ export async function admitCommand(
   let command = initial;
   const action = String(command.action || '').trim();
   assertCommandPreconditions(command, action, host.isObserveOnly);
-  if (action === 'execution_end') {
-    computerUseCoordinator.endExecution(host.sessionIdFor(command));
-    return { reply: { text: 'computer execution ended' } };
-  }
+  if (action === 'execution_end') return { reply: host.endComputerExecution(command) };
   if (action === 'session_release') return { reply: await host.releaseComputerSession(command) };
   assertSafeComputerInput(command);
   await assertPolicyAdmits(host, policy, command, action);

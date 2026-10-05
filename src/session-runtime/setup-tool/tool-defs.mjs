@@ -78,7 +78,6 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   set_recap_enabled: 'enabled',
   set_web_search_enabled: 'enabled',
   set_builtin_enabled: 'name enabled',
-  set_first_use_approval: 'name enabled',
   install_builtin: 'name',
   install_local_model: 'modelId',
   start_local_installation: 'phase modelId?',
@@ -209,11 +208,11 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         enabled: {
           type: 'boolean',
           description:
-            'Boolean setters (set_*_enabled, set_first_use_approval, set_compaction, set_auto_update, set_mcp_enabled, set_plugin_enabled).',
+            'Boolean setters (set_*_enabled, set_compaction, set_auto_update, set_mcp_enabled, set_plugin_enabled).',
         },
         name: {
           type: 'string',
-          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. set_first_use_approval: browser|computer; revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; else MCP/plugin/provider id.`,
+          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; else MCP/plugin/provider id.`,
         },
         accountId: {
           type: 'string',

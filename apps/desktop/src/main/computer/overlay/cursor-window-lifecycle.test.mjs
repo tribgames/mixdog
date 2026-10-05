@@ -79,8 +79,10 @@ class WindowFixture extends EventEmitter {
     this.source = source;
   }
 }
+const realPointer = { x: 500, y: 500 };
 const screen = Object.assign(new EventEmitter(), {
   screenToDipPoint: (point) => point,
+  getCursorScreenPoint: () => ({ ...realPointer }),
   getAllDisplays: () => [{ bounds: { x: 0, y: 0, width: 1920, height: 1080 } }],
 });
 globalThis.cursorLifecycleElectron = { BrowserWindow: WindowFixture, screen };
@@ -131,6 +133,36 @@ test('completed commands hide feedback at 1500ms and only a new event brings it 
       t.mock.timers.tick(1499);
       assert.equal(window.isVisible(), true);
       t.mock.timers.tick(1);
+      if (mode === 'foreground') {
+        assert.equal(window.isVisible(), true, 'an active foreground session keeps its arrow between commands');
+        begin(sessionId, mode);
+        await settle();
+        assert.equal(window.isVisible(), true);
+        show(sessionId, 'hwnd:0xABC', mode);
+        await settle();
+        coordinator.finishCommand(sessionId);
+        t.mock.timers.tick(1500);
+        assert.equal(window.isVisible(), true);
+        // The real pointer moving while the session thinks is the user taking the mouse.
+        realPointer.x += 40;
+        await new Promise((resolve) => {
+          const poll = setInterval(() => {
+            clearInterval(poll);
+            resolve();
+          }, 250);
+        });
+        assert.equal(window.isVisible(), false, 'the arrow yields to the pointer the user moved');
+        assert.deepEqual(coordinator.snapshot().releasedPointerSessionIds, [sessionId]);
+        begin(sessionId, mode);
+        show(sessionId, 'hwnd:0xABC', mode);
+        await settle();
+        assert.equal(window.isVisible(), true, 'the next pointer event takes the arrow back');
+        assert.deepEqual(coordinator.snapshot().releasedPointerSessionIds, []);
+        coordinator.finishCommand(sessionId);
+        coordinator.endExecution(sessionId);
+        assert.equal(window.isDestroyed(), true);
+        continue;
+      }
       assert.equal(window.isVisible(), false, 'thinking must not keep the pointer for 20 seconds');
       assert.equal(window.isDestroyed(), false, 'the session may reuse its hidden surface');
       begin(sessionId, mode);

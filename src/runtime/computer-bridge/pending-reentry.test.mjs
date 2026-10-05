@@ -1,15 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
+import { makeTempEnvDir, writeBridgeDiscovery } from './bridge-env.test-support.mjs';
 import { executeComputerTool } from './client.mjs';
 
 test('a real bridge pause response during resumed capture returns to waiting and never repeats the mutation', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-pending-reentry-'));
-  const previous = process.env.MIXDOG_DATA_DIR;
-  process.env.MIXDOG_DATA_DIR = directory;
+  const { directory, cleanup } = await makeTempEnvDir('MIXDOG_DATA_DIR', 'mixdog-pending-reentry-');
   const calls = [];
   let captures = 0;
   const pendingWork = { completed_steps: 1, uncertain_step: 2, pending_steps: [3] };
@@ -53,10 +49,7 @@ test('a real bridge pause response during resumed capture returns to waiting and
   });
   try {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    await writeFile(
-      join(directory, 'computer-bridge.json'),
-      JSON.stringify({ version: 1, port: server.address().port, token: 'fixture-token' })
-    );
+    await writeBridgeDiscovery(directory, { port: server.address().port, token: 'fixture-token' });
     const result = await executeComputerTool({
       action: 'act',
       input: {
@@ -73,8 +66,6 @@ test('a real bridge pause response during resumed capture returns to waiting and
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
-    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
-    else process.env.MIXDOG_DATA_DIR = previous;
-    await rm(directory, { recursive: true, force: true });
+    await cleanup();
   }
 });

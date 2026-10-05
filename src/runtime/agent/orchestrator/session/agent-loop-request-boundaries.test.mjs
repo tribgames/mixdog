@@ -43,7 +43,7 @@ test('ordinary requests preserve the opening user message across tool continuati
   assert.ok(requests[1].some((message) => message.role === 'tool'));
 });
 
-test('productive work continues beyond 200 iterations even with a legacy session ceiling', async (t) => {
+test('productive work continues beyond 200 iterations', async (t) => {
   const completed = [];
   const tools = registerLookup(t, completed);
   let requests = 0;
@@ -67,7 +67,7 @@ test('productive work continues beyond 200 iterations even with a legacy session
     tools,
     null,
     process.cwd(),
-    { session: { owner: 'cli', maxLoopIterations: 1, compaction: { auto: false } } }
+    { session: { owner: 'cli', compaction: { auto: false } } }
   );
   assert.equal(result.content, 'All 205 items inspected.');
   assert.deepEqual(

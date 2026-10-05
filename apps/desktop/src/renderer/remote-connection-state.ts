@@ -129,6 +129,10 @@ export function remoteConnectionInterruptedError(): Error & { code: string } {
   return error;
 }
 
+export function isRemoteConnectionInterruptedError(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === REMOTE_CONNECTION_INTERRUPTED_CODE;
+}
+
 export function shouldRunRemoteHeartbeat(visibilityState: DocumentVisibilityState): boolean {
   return visibilityState === 'visible';
 }

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>탭 줄 구분선·각진 느낌 줄이기 시안</title>
+<style>
+  :root {
+    --frame: #202022;
+    --side: #1c1c1f;
+    --main: #1c1c1f;
+    --text: #e9e9e9;
+    --muted: #a8a8a8;
+    --faint: #9b9b9b;
+    --hair: rgba(255, 255, 255, 0.09);
+    --accent: #8ab4f8;
+    --page: #0e0e10;
+    --composer: #2a2a2e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px 32px 60px; background: var(--page); color: var(--text);
+    font: 13px/1.5 "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 12px; margin: 0 0 22px; }
+  .variant { margin-bottom: 30px; }
+  .variant h2 { font-size: 14px; margin: 0 0 2px; }
+  .variant h2 .tag { color: var(--accent); font-size: 12px; font-weight: 600; margin-left: 6px; }
+  .variant p { margin: 0 0 10px; color: var(--muted); font-size: 12px; max-width: 1100px; }
+
+  .win {
+    width: 1180px; height: 230px; background: var(--frame);
+    border: 1px solid rgba(255,255,255,.12); border-radius: 8px; overflow: hidden;
+    display: grid; grid-template-rows: 36px 1fr;
+  }
+  .titlebar { display: flex; justify-content: flex-end; }
+  .titlebar span { width: 46px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+  .below { display: grid; grid-template-columns: 48px 252px 1fr; min-height: 0; }
+  .rail { display: flex; flex-direction: column; align-items: center; padding-top: 4px; }
+  .rail i { width: 40px; height: 44px; display: grid; place-items: center; }
+  .rail i::before { content: ""; width: 18px; height: 18px; border: 1.6px solid var(--muted); border-radius: 5px; }
+  .side {
+    background: var(--side); border-top-left-radius: 8px;
+    box-shadow: inset 1px 1px 0 var(--hair); border-right: 1px solid var(--hair);
+  }
+  .side-head { height: 39px; display: flex; align-items: center; padding: 0 14px; font-weight: 700; font-size: 15px; }
+  .side-head .more { margin-left: auto; color: var(--muted); }
+  .side-row { padding: 6px 14px; font-size: 13px; }
+  .side-row small { display: block; color: var(--muted); font-size: 12px; }
+  .side-row.group { font-weight: 700; margin-top: 4px; }
+
+  .main { background: var(--main); box-shadow: inset 0 1px 0 var(--hair); display: grid; grid-template-columns: 1fr 1fr; }
+  .pane { display: flex; flex-direction: column; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--hair); }
+  .strip { height: 39px; flex: none; display: flex; align-items: stretch; position: relative; }
+  .tab {
+    position: relative; width: 160px; display: flex; align-items: center; gap: 6px; padding: 0 12px;
+    color: var(--faint); font-size: 13px;
+  }
+  .tab .ico { width: 14px; height: 14px; flex: none; }
+  .tab.active { color: var(--text); font-weight: 600; }
+  .tab.active .ind {
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: color-mix(in srgb, var(--text) 22%, transparent);
+  }
+  .pane.focused .tab.active .ind { background: var(--accent); }
+  .new { width: 30px; display: grid; place-items: center; color: var(--text); font-size: 17px; }
+  .actions { margin-left: auto; display: flex; gap: 14px; align-items: center; padding-right: 12px; }
+  .actions b { width: 13px; height: 13px; border: 1.4px solid var(--muted); border-radius: 3px; display: block; }
+  .pane .body { flex: 1; padding: 20px 28px; }
+  .pane .body div { height: 9px; border-radius: 5px; margin-bottom: 11px; background: color-mix(in srgb, var(--text) 7%, transparent); }
+
+  /* ---------- 현재: 아래 경계선 + 꽉 찬 칸 구분선 ---------- */
+  .v-now .strip { box-shadow: inset 0 -1px 0 var(--hair); }
+  .v-now .tab { box-shadow: inset -1px 0 0 var(--hair); }
+  .v-now .tab.active { background: var(--main); }
+
+  /* S1: 구분선 전부 없애기 */
+  /* (선 없음 — 위쪽 줄과 글자 밝기만) */
+
+  /* S2: 짧은 칸 구분선, 아래 경계선 없음 */
+  .v-s2 .tab:not(.active) + .tab:not(.active)::before {
+    content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 1px; background: var(--hair);
+  }
+
+  /* S3: 선택 탭만 은은한 둥근 바탕 + 위쪽 줄은 양끝 둥근 짧은 막대 */
+  .v-s3 .tab.active::before {
+    content: ""; position: absolute; inset: 4px 3px 0; border-radius: 8px 8px 0 0;
+    background: color-mix(in srgb, var(--text) 5%, transparent); z-index: -1;
+  }
+  .v-s3 .tab { isolation: isolate; }
+  .v-s3 .tab.active .ind { top: 4px; left: 14px; right: 14px; height: 2px; border-radius: 2px; }
+  .v-s3 .tab:not(.active) + .tab:not(.active)::before {
+    content: ""; position: absolute; left: 0; top: 13px; bottom: 13px; width: 1px; background: var(--hair);
+  }
+
+  /* S4: 아래 경계선은 옅게 남기고 칸 구분선만 제거 */
+  .v-s4 .strip { box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--text) 5%, transparent); }
+  .v-s4 .tab.active { background: var(--main); }
+</style>
+</head>
+<body>
+<h1>탭 줄 구분선·각진 느낌 줄이기 시안</h1>
+<p class="lead">지금 데브앱 상태(사이드 머리·탭 줄 39px, 작업 영역 = 사이드 패널 색, 탭 160px)를 그대로 옮겼습니다. 오른쪽 패널이 포커스 상태입니다.</p>
+<div id="list"></div>
+<script>
+  const variants = [
+    { cls: 'v-now', title: '현재', note: '탭 줄 아래 경계선 + 칸마다 위아래 꽉 찬 구분선. 선택 탭 밑에서만 경계선이 끊깁니다.' },
+    { cls: 'v-s1', title: 'S1. 구분선 전부 없애기', note: '경계선·칸 구분선 모두 제거. 선택 탭은 위쪽 줄과 밝은 글자로만 표시. 탭 줄과 내용이 완전히 한 몸이 됩니다.' },
+    { cls: 'v-s2', title: 'S2. 짧은 칸 구분선', tag: '추천', note: '아래 경계선 제거, 칸 구분선은 가운데 짧게(15px)만. 선택 탭 양옆에는 구분선을 생략합니다. (Chrome 계열)' },
+    { cls: 'v-s3', title: 'S3. 둥근 선택 탭', note: 'S2에 더해 선택 탭에 위쪽 모서리가 둥근 은은한 바탕, 위쪽 줄은 양끝이 둥근 짧은 막대로.' },
+    { cls: 'v-s4', title: 'S4. 칸 구분선만 제거', note: '아래 경계선은 아주 옅게 남기고 칸 구분선만 없앱니다. 선택 탭 밑에서 경계선이 끊기는 연결감은 유지.' },
+  ];
+  const icon = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z"/></svg>';
+  const pane = (focused, tabs) => `
+    <div class="pane${focused ? ' focused' : ''}">
+      <div class="strip">
+        ${tabs.map(([l, a]) => `<div class="tab${a ? ' active' : ''}">${a ? '<span class="ind"></span>' : ''}${icon}${l}</div>`).join('')}
+        <div class="new">+</div>
+        <div class="actions"><b></b><b></b></div>
+      </div>
+      <div class="body"><div style="width:68%"></div><div style="width:52%"></div><div style="width:60%"></div></div>
+    </div>`;
+  const list = document.getElementById('list');
+  for (const v of variants) {
+    const s = document.createElement('section');
+    s.className = 'variant';
+    s.innerHTML = `
+      <h2>${v.title}${v.tag ? `<span class="tag">${v.tag}</span>` : ''}</h2>
+      <p>${v.note}</p>
+      <div class="win ${v.cls}">
+        <div class="titlebar"><span>─</span><span>☐</span><span>✕</span></div>
+        <div class="below">
+          <div class="rail"><i></i><i></i><i></i></div>
+          <div class="side">
+            <div class="side-head">에이전트<span class="more">···</span></div>
+            <div class="side-row group">새 작업 ›</div>
+            <div class="side-row">Lead<small>GPT-6.1-Sol High</small></div>
+          </div>
+          <div class="main">
+            ${pane(false, [['새 작업', false], ['리뷰 정리', false], ['새 작업', true]])}
+            ${pane(true, [['새 작업', true], ['메모', false]])}
+          </div>
+        </div>
+      </div>`;
+    list.appendChild(s);
+  }
+</script>
+</body>
+</html>

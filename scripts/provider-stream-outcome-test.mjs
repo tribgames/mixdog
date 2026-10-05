@@ -1903,7 +1903,7 @@ test('midstream WS: response.failed picks buckets from typed codes and default-r
 
 test('anthropic SSE: error events take their status from the typed error type only', async () => {
   for (const [type, status, kind] of [
-    ['overloaded_error', 503, 'transient'],
+    ['overloaded_error', 529, 'transient'],
     ['rate_limit_error', 429, 'permanent'],
     ['authentication_error', 401, 'auth'],
     ['permission_error', 403, 'auth'],
@@ -2199,4 +2199,26 @@ test('isContextOverflowError: typed 413 and request_too_large/context codes', ()
   );
   assert.equal(isContextOverflowError(err('too big', { code: 'context_length_exceeded' })), true);
   assert.equal(isContextOverflowError(err('bad json', { httpStatus: 400 })), false);
+});
+
+test('isContextOverflowError: backend-specific overflow wordings, never a rate limit', () => {
+  for (const message of [
+    'Prompt too long',
+    'Prompt exceeds max length',
+    'Invalid request: Your request exceeded model token limit: 262144 (requested: 300000)',
+    'invalid params, context window exceeds limit (2013)',
+    'Range of input length should be [1, 983616]',
+    "This model's maximum prompt length is 256000 but the request contains 300000 tokens.",
+    'Input length 300000 exceeds the maximum allowed input length of 262144 tokens.',
+    "The input (300000 tokens) is longer than the model's context length (262144 tokens).",
+    'The input token count (1200000) exceeds the maximum number of tokens allowed (1048576).',
+  ]) {
+    assert.equal(isContextOverflowError(err(message, { httpStatus: 400 })), true, message);
+  }
+  for (const message of [
+    'Rate limit reached: too many tokens per minute',
+    'You exceeded your current quota, please check your plan and billing details.',
+  ]) {
+    assert.equal(isContextOverflowError(err(message, { httpStatus: 429 })), false, message);
+  }
 });

@@ -118,7 +118,7 @@ test('desktop and mobile tool groups share details and a static task icon', asyn
   }
 });
 
-test('desktop activity shows repeated tool counts as bare trailing numbers', async () => {
+test('desktop activity shows repeated tool counts in natural phrase summary', async () => {
   const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
   try {
     await act(async () => {
@@ -134,7 +134,7 @@ test('desktop activity shows repeated tool counts as bare trailing numbers', asy
     });
 
     const title = document.querySelector('.tool-activity-title')?.textContent?.trim() || '';
-    assert.equal(title, 'Read · Search 2');
+    assert.equal(title, 'Read file · Search 2 patterns');
     assert.doesNotMatch(title, /×/);
   } finally {
     await act(async () => dom.root.unmount());
@@ -446,7 +446,7 @@ test('desktop activity lists every call as one row under the summary, without ca
     const group = document.querySelector('.tool-activity');
     assert.equal(
       group?.querySelector('.tool-activity-title')?.textContent?.trim(),
-      'Search 2 · Run'
+      'Search 2 patterns · Run command'
     );
     assert.equal(group?.querySelector('.tool-activity-failed'), null);
 

@@ -8,7 +8,7 @@ test('semantic background feedback reports target points without replaying input
   skip: process.platform !== 'win32' && 'Windows only',
   timeout: 30000,
 }, async () => {
-  const sourcePath = fileURLToPath(new URL('./sources/input.ps1', import.meta.url));
+  const sourcePath = fileURLToPath(new URL('./sources/input-semantic.ps1', import.meta.url));
   const program = `
 $ErrorActionPreference = 'Stop'
 $source = [IO.File]::ReadAllText($env:FEEDBACK_SOURCE_PATH)

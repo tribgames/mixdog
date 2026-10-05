@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>포커스 패널 탭 표시 시안</title>
+<style>
+  :root {
+    --sheet: #1c1c1f;
+    --base: #222225;
+    --text: #e9e9e9;
+    --muted: #a8a8a8;
+    --faint: #9b9b9b;
+    --accent: #8ab4f8;
+    --hover: rgba(255, 255, 255, 0.06);
+    --line: rgba(255, 255, 255, 0.07);
+    --radius-md: 6px;
+    --radius-hair: 2px;
+    --page: #141416;
+  }
+  body.light {
+    --sheet: #f8f8fb;
+    --base: #ffffff;
+    --text: #242529;
+    --muted: #5c5c60;
+    --faint: #6a6a6e;
+    --accent: #1967d2;
+    --hover: rgba(0, 0, 0, 0.05);
+    --line: rgba(0, 0, 0, 0.08);
+    --page: #e9e9ee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px 32px 60px;
+    background: var(--page);
+    color: var(--text);
+    font: 13px/1.5 "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  }
+  header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+  h1 { font-size: 18px; margin: 0; }
+  button.toggle {
+    border: 1px solid var(--line); background: var(--base); color: var(--text);
+    border-radius: 6px; padding: 4px 12px; cursor: pointer; font: inherit;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 28px; }
+  .card { background: var(--base); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px 18px; }
+  .card h2 { margin: 0 0 2px; font-size: 14px; }
+  .card p { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
+  .card.current h2::after { content: "  (현재)"; color: var(--muted); font-weight: 400; }
+  .card.pick { outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+  .card.pick h2::after { content: "  추천"; color: var(--accent); font-weight: 600; font-size: 12px; }
+
+  /* ---------- 2x2 workspace mock ---------- */
+  .ws {
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+    gap: 1px; background: var(--line); border-radius: 6px; overflow: hidden;
+    height: 230px;
+  }
+  .pane { background: var(--sheet); position: relative; display: flex; flex-direction: column; }
+  .pane .body { flex: 1; display: grid; place-items: center; }
+  .pane .composer {
+    margin: 0 18px 12px; height: 28px; border-radius: 8px;
+    background: color-mix(in srgb, var(--text) 6%, transparent);
+  }
+  .strip { height: 30px; display: flex; align-items: stretch; flex: none; }
+  .tab {
+    position: relative; isolation: isolate;
+    width: 118px; padding: 0 12px; display: flex; align-items: center; gap: 6px;
+    color: var(--faint); font-size: 11.5px; font-weight: 600; white-space: nowrap;
+    --pl: 2px; --pr: 2px; --pt: 5px;
+  }
+  .tab:first-child { --pl: 6px; }
+  .tab::before {
+    content: ""; position: absolute; z-index: -1; pointer-events: none;
+    top: var(--pt); bottom: 5px; left: var(--pl); right: var(--pr);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--text) 3%, transparent);
+  }
+  .tab.active { color: var(--text); }
+  .tab.active::before {
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
+  }
+  body.light .tab.active::before {
+    background: var(--base);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent);
+  }
+  .tab svg { width: 12px; height: 12px; flex: none; }
+  .new { width: 26px; display: grid; place-items: center; color: var(--muted); font-size: 15px; }
+  .tab::after { content: ""; position: absolute; pointer-events: none; }
+
+  /* ---------- 확대 보기 ---------- */
+  .zoom { display: flex; gap: 18px; margin-top: 14px; }
+  .zoom figure { margin: 0; flex: 1; }
+  .zoom figcaption { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+  .zoom .zwrap {
+    background: var(--sheet); border-radius: 6px; height: 74px; overflow: hidden;
+    border: 1px solid var(--line); position: relative;
+  }
+  .zoom .pane { background: transparent; transform: scale(2); transform-origin: 0 0; width: 50%; }
+
+  /* ================= 변형 ================= */
+
+  /* 현재: 판 윗변 안쪽, 모서리만큼 잘린 2px 띠 */
+  .v-current .pane.focused .tab.active::after {
+    top: var(--pt); height: 2px;
+    left: calc(var(--pl) + var(--radius-md));
+    right: calc(var(--pr) + var(--radius-md));
+    border-radius: 0 0 var(--radius-hair) var(--radius-hair);
+    background: var(--accent);
+  }
+
+  /* A: 판 자체를 파란 테두리 + 옅은 파란 바탕으로 */
+  .v-a .pane.focused .tab.active::before,
+  body.light .v-a .pane.focused .tab.active::before {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  /* B: 아이콘·글자만 파란색 */
+  .v-b .pane.focused .tab.active { color: var(--accent); }
+
+  /* C: 포커스 안 된 패널의 탭 줄을 흐리게 + 포커스 패널 테두리 */
+  .v-c .pane:not(.focused) .strip { opacity: 0.5; }
+  .v-c .pane.focused::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  .v-c .zoom .pane.focused::after { box-shadow: none; }
+
+  /* D1: 띠를 판 윗변 곡선에 맞춰 감싸기 */
+  .v-d1 .pane.focused .tab.active::before,
+  body.light .v-d1 .pane.focused .tab.active::before {
+    box-shadow:
+      inset 0 2px 0 var(--accent),
+      inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
+  }
+
+  /* D2: 판 위쪽 가운데 짧은 점 */
+  .v-d2 .pane.focused .tab.active::after {
+    top: calc(var(--pt) + 3px); height: 3px; width: 14px;
+    left: calc((var(--pl) + 100% - var(--pr)) / 2 - 7px);
+    border-radius: 99px;
+    background: var(--accent);
+  }
+  .v-d2 .tab.active { padding-top: 4px; }
+
+  /* E1: 포커스 안 된 패널의 탭 줄만 흐리게 (Warp·Zed 계열, 탭 줄 한정) */
+  .v-e1 .pane:not(.focused) .strip { opacity: 0.45; }
+
+  /* E2: 포커스 안 된 패널 전체를 흐리게 (Zed inactive_opacity, Ghostty) */
+  .v-e2 .pane:not(.focused) > * { opacity: 0.55; }
+
+  /* F: 색 없이 포커스 패널의 선택 판만 더 밝게 (Chrome Split View 계열) */
+  .v-f .pane.focused .tab.active::before {
+    background: color-mix(in srgb, var(--text) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent);
+  }
+  .v-f .pane:not(.focused) .tab.active::before {
+    background: color-mix(in srgb, var(--text) 6%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 8%, transparent);
+  }
+  .v-f .pane:not(.focused) .tab.active { color: var(--muted); }
+  body.light .v-f .pane.focused .tab.active::before {
+    background: var(--base);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 26%, transparent);
+  }
+  body.light .v-f .pane:not(.focused) .tab.active::before {
+    background: color-mix(in srgb, var(--text) 4%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 8%, transparent);
+  }
+
+  /* G: F + E1 — 밝은 판 + 비포커스 탭 줄 흐림 */
+  .v-g .pane.focused .tab.active::before {
+    background: color-mix(in srgb, var(--text) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent);
+  }
+  body.light .v-g .pane.focused .tab.active::before {
+    background: var(--base);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 26%, transparent);
+  }
+  .v-g .pane:not(.focused) .strip { opacity: 0.6; }
+</style>
+</head>
+<body>
+<header>
+  <h1>포커스 패널 탭 표시 시안</h1>
+  <button class="toggle" onclick="document.body.classList.toggle('light')">다크 / 라이트 전환</button>
+  <span style="color:var(--muted);font-size:12px">오른쪽 위 패널이 포커스된 상태입니다. 아래쪽 확대 보기는 2배 크기입니다.</span>
+</header>
+
+<div class="grid" id="grid"></div>
+
+<template id="pane-tpl">
+  <div class="pane">
+    <div class="strip">
+      <div class="tab active">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z"/></svg>
+        새 작업
+      </div>
+      <div class="tab">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3.5h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5v-2.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z"/></svg>
+        리뷰
+      </div>
+      <div class="new">+</div>
+    </div>
+    <div class="body"></div>
+    <div class="composer"></div>
+  </div>
+</template>
+
+<script>
+  const variants = [
+    { cls: 'v-current', title: '현재', note: '판 윗변 안쪽에 양 끝이 잘린 2px 파란 띠가 따로 얹혀 있습니다.', extra: 'current' },
+    { cls: 'v-a', title: 'A. 판 테두리를 파란색으로', note: '데브앱에 들어간 상태입니다. 파란 1px 테두리 + 바탕 8%.' },
+    { cls: 'v-b', title: 'B. 아이콘·글자에만 색', note: '띠를 없애고 포커스 탭의 아이콘과 글자만 파란색으로 칠합니다.' },
+    { cls: 'v-c', title: 'C. 패널 단위로 표시', note: '포커스 안 된 패널의 탭 줄을 흐리게 하고, 포커스 패널에 옅은 파란 테두리를 둡니다.' },
+    { cls: 'v-d1', title: 'D1. 띠를 판 곡선에 맞추기', note: '띠는 유지하되 판 윗변 전체를 둥근 모서리까지 감싸서 판과 한 몸처럼 보이게 합니다.' },
+    { cls: 'v-d2', title: 'D2. 가운데 짧은 점', note: '띠 대신 판 위쪽 가운데에 짧은 파란 점(14×3px)을 둡니다.' },
+    { cls: 'v-e1', title: 'E1. 비포커스 탭 줄 흐리게', note: '탭은 회색 판 그대로, 포커스 안 된 패널의 탭 줄만 45%로 흐립니다. (Warp·Zed 계열)' },
+    { cls: 'v-e2', title: 'E2. 비포커스 패널 전체 흐리게', note: '포커스 안 된 패널 내용 전체를 55%로 흐립니다. (Zed inactive_opacity, Ghostty)' },
+    { cls: 'v-f', title: 'F. 색 없이 판 밝기로', note: '포커스 패널의 선택 판은 더 밝은 테두리, 나머지 패널의 선택 판은 한 단계 어둡게. (Chrome Split View 계열)' },
+    { cls: 'v-g', title: 'G. F + E1 섞기', note: '포커스 판은 밝게, 포커스 안 된 패널의 탭 줄은 60%로 살짝 흐립니다.', extra: 'pick' },
+  ];
+  const tpl = document.getElementById('pane-tpl');
+  const makePane = (focused) => {
+    const node = tpl.content.firstElementChild.cloneNode(true);
+    if (focused) node.classList.add('focused');
+    return node;
+  };
+  const grid = document.getElementById('grid');
+  for (const v of variants) {
+    const card = document.createElement('section');
+    card.className = `card ${v.cls} ${v.extra || ''}`;
+    card.innerHTML = `<h2>${v.title}</h2><p>${v.note}</p>`;
+    const ws = document.createElement('div');
+    ws.className = 'ws';
+    [false, true, false, false].forEach((f) => ws.appendChild(makePane(f)));
+    card.appendChild(ws);
+    const zoom = document.createElement('div');
+    zoom.className = 'zoom';
+    for (const [label, f] of [['포커스된 패널', true], ['포커스 안 된 패널', false]]) {
+      const fig = document.createElement('figure');
+      fig.innerHTML = `<figcaption>${label}</figcaption>`;
+      const wrap = document.createElement('div');
+      wrap.className = 'zwrap';
+      wrap.appendChild(makePane(f));
+      fig.appendChild(wrap);
+      zoom.appendChild(fig);
+    }
+    card.appendChild(zoom);
+    grid.appendChild(card);
+  }
+</script>
+</body>
+</html>

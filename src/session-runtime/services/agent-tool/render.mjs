@@ -17,13 +17,8 @@ export function abnormalEmptyFinishError(result, agent) {
   if (!reason) return null;
   const iterations = result?.iterations ?? 0;
   const toolCallsTotal = result?.toolCallsTotal ?? 0;
-  const maxLoopIterations = result?.maxLoopIterations ?? 0;
   const stopReason = result?.stopReason ?? result?.stop_reason ?? null;
   switch (reason) {
-    case 'iteration_cap':
-      // Preserve failure reporting for stored results from older runtimes.
-      // Current execution no longer applies a loop iteration ceiling.
-      return `agent '${agent}' hit the loop iteration ceiling (${maxLoopIterations} iterations, ${toolCallsTotal} tool calls) without producing a final answer`;
     case 'truncated':
       return `agent '${agent}' response was truncated (stopReason=${stopReason}) before a final answer (${iterations} iterations, ${toolCallsTotal} tool calls)`;
     case 'empty':

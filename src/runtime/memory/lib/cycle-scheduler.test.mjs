@@ -6,12 +6,11 @@ import test from 'node:test';
 import { createCycleScheduler } from './cycle-scheduler.mjs';
 import { createCycleLlmAdapters } from './cycle-llm-adapters.mjs';
 import { scheduledCycle1Signature } from './cycle-signatures.mjs';
-import { claimAndMarkScheduledCycle } from './memory-cycle-requests.mjs';
 
-test('old configuration cannot schedule a retired cycle or mutate CORE', async (t) => {
+test('a scheduled tick claims cycle1 and never touches CORE', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-cycle-scheduler-'));
   t.after(() => rmSync(dir, { recursive: true }));
-  let config = { cycle1: { interval: '10m' }, cycle2: { interval: '1h' }, cycle3: { interval: '1ms' } };
+  let config = { cycle1: { interval: '10m' } };
   const claimed = [];
   const scheduled = [];
   const db = { query: async () => ({ rows: [{ c: 0 }] }) };
@@ -44,11 +43,9 @@ test('old configuration cannot schedule a retired cycle or mutate CORE', async (
   assert.deepEqual(claimed, ['cycle1']);
   assert.deepEqual(scheduled, ['cycle1']);
   assert.deepEqual(Object.keys(scheduler.getCycleHealth()), ['cycle1']);
-  await assert.rejects(claimAndMarkScheduledCycle(db, 'cycle2', 1000), /invalid cycle/);
-  await assert.rejects(claimAndMarkScheduledCycle(db, 'cycle3', 1000), /invalid cycle/);
 });
 
-test('maintenance LLM adapters dispatch only summarization', async () => {
+test('maintenance LLM adapters dispatch summarization', async () => {
   const calls = [];
   const adapters = createCycleLlmAdapters({
     callAgentDispatch: async (request, prompt) => {

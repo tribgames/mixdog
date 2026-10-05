@@ -21,8 +21,6 @@ type State = {
   approval: boolean;
   context: boolean;
   goal: boolean;
-  progress: boolean;
-  notice: boolean;
   attachments: boolean;
   queue: boolean;
 };
@@ -81,7 +79,6 @@ function Harness({ state, session }: { state: State; session: string }) {
             id: 'height-goal', status: 'active', title: 'Height goal', tasks: [],
           } : null }} />
         }
-        runtimeProgress={state.progress ? <div className="runtime-progress">Connecting to the session…</div> : null}
         approval={state.approval ? <ApprovalCard approval={{
           id: 'approval', name: 'shell', reason: 'Review this request', args: { command: 'echo approved' },
         }} resolve={async () => true} /> : null}
@@ -93,9 +90,7 @@ function Harness({ state, session }: { state: State; session: string }) {
       >
         <QueueList queued={state.queue ? [{ id: 'queued', text: 'A queued follow-up' }] : []}
           restoring={false} onEdit={noop} onSteer={noop} onRemove={noop} />
-        <ComposerBanners attachmentError="" notice={state.notice ? 'Attachment could not be added' : ''}
-          draggingFiles={false} transitioning={false} dropTarget={null}
-          onDismissAttachmentError={noop} onDismissNotice={noop} />
+        <ComposerBanners draggingFiles={false} transitioning={false} dropTarget={null} />
         <form className="composer">
           {state.attachments && <AttachmentChips attachments={[{
             id: 1, name: 'notes.txt', kind: 'text', mimeType: 'text/plain', data: 'bm90ZXM=', bytes: 5,
@@ -131,7 +126,7 @@ export async function runHeightChangesProbe(root: Root) {
         const session = `height-${width}-${count}-${reading ? 'reader' : 'tail'}`;
         let state: State = {
           width, height: 680, count, prompt: '', approval: false, context: false, goal: false,
-          progress: false, notice: false, attachments: false, queue: false,
+          attachments: false, queue: false,
         };
         const render = () => flushSync(() => root.render(<Harness key={session} state={state} session={session} />));
         render();
@@ -157,10 +152,6 @@ export async function runHeightChangesProbe(root: Root) {
           ['attachment-remove', { attachments: false }],
           ['queue-add', { queue: true }],
           ['queue-remove', { queue: false }],
-          ['notice-open', { notice: true }],
-          ['notice-close', { notice: false }],
-          ['progress-open', { progress: true }],
-          ['progress-close', { progress: false }],
           ['goal-open', { goal: true }],
           ['goal-close', { goal: false }],
           ['keyboard-or-panel-open', { height: 420 }],

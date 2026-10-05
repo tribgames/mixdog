@@ -469,6 +469,22 @@ const CONTEXT_OVERFLOW_PATTERNS = [
   /context[_ ]length[_ ]exceeded/i,
   /prompt is too long/i,
   /reduce the length of (?:the )?(?:messages|input|prompt)/i,
+  // Wordings other backends use for the same refusal, each tied to a context
+  // or input-length noun so a tokens-per-minute rate limit never matches.
+  /prompt too long/i, // z.ai, Ollama
+  /prompt exceeds max length/i, // z.ai CN endpoint
+  /input is too long for requested model/i, // Amazon Bedrock
+  /input token count.*exceeds the maximum/i, // Google
+  /maximum prompt length is \d+/i, // xAI
+  /exceeds (?:the )?maximum allowed input length/i, // OpenRouter relays
+  /is longer than the model'?s context length/i, // Together AI
+  /exceeds the available context size/i, // llama.cpp server
+  /greater than the context length/i, // LM Studio
+  /context window exceeds limit/i, // MiniMax
+  /exceeded model token limit/i, // Kimi
+  /too large for model with \d+ maximum context length/i, // Mistral
+  /range of input length should be/i, // DashScope / Qwen
+  /model_context_window_exceeded/i, // z.ai finish reason surfaced as text
 ];
 
 /**

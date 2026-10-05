@@ -106,6 +106,7 @@
     "bench:office:quality:live": "node src/runtime/office/bench/quality-live-benchmark.mjs",
     "diag:sessions": "node scripts/session-diag.mjs",
     "diag:tools": "node scripts/tool-efficiency-diag.mjs",
+    "diag:efficiency": "node scripts/session-efficiency-diag.mjs",
     "diag:sweep": "node scripts/session-sweep.mjs",
     "bench:session": "node scripts/session-bench.mjs",
     "bench:task": "node scripts/task-bench.mjs",

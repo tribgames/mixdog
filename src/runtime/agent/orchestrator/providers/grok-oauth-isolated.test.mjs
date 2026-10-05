@@ -189,6 +189,8 @@ async function isolated() {
       getModelMetadataSync: (id) => s.metadata[id],
     },
     './model-list-sanitize.mjs': { sanitizeModelList: (models) => models },
+    // No remembered client version: the sandbox never reads the operator's disk.
+    './client-version-store.mjs': { readLastKnownVersion: () => null, rememberLastKnownVersion: () => {} },
     './lib/grok-tool-schema.mjs': {
       normalizeGrokToolSchemas: (tools) => {
         s.normalizedTools.push(tools);

@@ -12,7 +12,7 @@ import { AGENT_TOOL, createStandaloneAgent } from '../../src/standalone/agent-to
 import { createStandaloneChannelWorker } from '../../src/standalone/channel-worker.mjs';
 import { initProviders } from '../../src/runtime/agent/orchestrator/providers/registry.mjs';
 
-test('headless exec parser accepts exec form and rejects legacy shapes', () => {
+test('headless exec parser accepts the exec form and needs a message', () => {
   const command = parseHeadlessExecCommand([
     'exec',
     '--provider',
@@ -32,10 +32,6 @@ test('headless exec parser accepts exec form and rejects legacy shapes', () => {
   const tuiDefault = parseHeadlessExecCommand([]);
   if (tuiDefault !== null) {
     throw new Error(`empty argv must keep TUI default: ${JSON.stringify(tuiDefault)}`);
-  }
-  const legacyRole = parseHeadlessExecCommand(['reviewer', 'check', 'this']);
-  if (legacyRole !== null) {
-    throw new Error(`legacy role shorthand must not enter headless exec: ${JSON.stringify(legacyRole)}`);
   }
 });
 

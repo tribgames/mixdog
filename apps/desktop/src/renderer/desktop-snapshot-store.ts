@@ -196,17 +196,6 @@ export function desktopConversationShellSnapshotsEqual(left: Snapshot, right: Sn
   );
 }
 
-function runtimeProgressText(snapshot: Snapshot): string {
-  const progress = snapshot.progressHint;
-  return progress && typeof progress === 'object' ? String((progress as { text?: unknown }).text || '') : '';
-}
-
-export function desktopRuntimeProgressSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
-  if (left === right) return true;
-  if (!preservesInitialBoundary(left, right)) return false;
-  return left.sessionId === right.sessionId && runtimeProgressText(left) === runtimeProgressText(right);
-}
-
 export function desktopStreamingTailSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;

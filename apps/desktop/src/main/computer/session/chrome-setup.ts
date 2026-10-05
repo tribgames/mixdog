@@ -214,7 +214,7 @@ async function ensureChromeSetupPage(
   host: ChromeRemoteDebuggingHost,
   target: ChromeRemoteDebuggingTarget
 ): Promise<{
-  control: ReturnType<typeof chromeSetupControl>;
+  control: NonNullable<ReturnType<typeof chromeSetupControl>>;
   openedSetupPage: boolean;
 }> {
   const initial = await captureChromeSetup(host, target);
@@ -233,9 +233,6 @@ async function setChromeRemoteDebugging(
   changed: boolean;
 }> {
   const setupPage = await ensureChromeSetupPage(host, target);
-  if (!setupPage.control) {
-    throw new Error('Chrome remote-debugging setup control is unavailable.');
-  }
   if (setupPage.control.enabled === desiredEnabled) {
     return { openedSetupPage: setupPage.openedSetupPage, changed: false };
   }

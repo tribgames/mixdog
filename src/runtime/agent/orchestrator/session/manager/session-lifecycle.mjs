@@ -13,7 +13,12 @@ import { buildProviderCacheOpts, cacheCapabilityForProvider } from '../../agent-
 import { normalizeAutoClearConfig, resolveAutoClearIdleMs } from '../../runtime-core/config-helpers.mjs';
 import { _buildBaseRules } from './rules-cache.mjs';
 import { composeSessionSystem, seedSessionMessages } from './session-prompt-composition.mjs';
-import { _prepareResumeTools, delegationDisabled, resolveSessionToolSurface } from './session-tool-surface.mjs';
+import {
+  _prepareResumeTools,
+  delegationDisabled,
+  honoredSchemaAllowlist,
+  resolveSessionToolSurface,
+} from './session-tool-surface.mjs';
 import { _forgetPreparedResume, _preparedResumeMatches, _readPreparedResume } from './prepared-resume-cache.mjs';
 import {
   filterModelEditToolNames,
@@ -175,6 +180,7 @@ export function createSession(opts) {
   logSessionSurface(surface);
   const contextMeta = resolveSessionContextMeta(provider, modelName, {
     selectedContextWindow: opts.selectedContextWindow,
+    contextPercent: route.contextPercent,
   });
   const session = buildSessionRecord({
     opts,
@@ -215,7 +221,10 @@ export function _refreshSessionRuleVariantsForModel(session, previousModel, prev
     ...(getHiddenAgent(session?.agent || null) ? ['Skill'] : []),
     ...(delegationDisabled(session, isAgentOwner(session)) ? ['agent'] : []),
   ];
-  const allowTools = isAgentOwner(session) ? null : session?.schemaAllowedTools;
+  const allowTools = honoredSchemaAllowlist(session?.schemaAllowedTools, {
+    ownerIsAgent: isAgentOwner(session),
+    agent: session?.agent || null,
+  });
   const previousRules = _buildBaseRules({
     omitTools: [...deny, unusedModelEditToolName(previousModel)],
     allowTools,

@@ -1,16 +1,25 @@
-// Composer notices are transient helpers (mic errors, etc.): auto-dismiss
-// after a beat instead of pinning to the composer forever (user-flagged).
-import { useCallback, useEffect, useRef, useState } from 'react';
+// Composer notices (slash confirmations, mic errors, hints) ride the app's
+// toast lane instead of a banner stacked above the input (user: 되도록
+// 컴포저 위에 안 떴으면). A newer notice replaces this composer's previous
+// one; an empty message just clears it.
+import { useCallback, useEffect, useRef } from 'react';
+import { dismissDesktopToast, showDesktopToast } from './desktop-toasts';
+
+export type ComposerNoticeTone = 'info' | 'error';
 
 export function useComposerNotice() {
-  const [notice, setNotice] = useState('');
-  const timer = useRef(0);
-  const showNotice = useCallback((message: string, durationMs = 6_000) => {
-    window.clearTimeout(timer.current);
-    setNotice(message);
-    if (message) timer.current = window.setTimeout(() => setNotice(''), durationMs);
+  const current = useRef<string | undefined>(undefined);
+  const clearNotice = useCallback(() => {
+    dismissDesktopToast(current.current);
+    current.current = undefined;
   }, []);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-  const clearNotice = useCallback(() => setNotice(''), []);
-  return { notice, showNotice, clearNotice };
+  const showNotice = useCallback(
+    (message: string, tone: ComposerNoticeTone = 'info') => {
+      clearNotice();
+      if (message) current.current = showDesktopToast(message, tone, { scope: 'composer' });
+    },
+    [clearNotice]
+  );
+  useEffect(() => clearNotice, [clearNotice]);
+  return { showNotice, clearNotice };
 }

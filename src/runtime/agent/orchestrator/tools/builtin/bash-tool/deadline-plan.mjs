@@ -1,8 +1,12 @@
 // Commands start in the foreground. Only work still running after the
-// 10 s coordination budget is promoted to a tracked background task.
+// 15 s coordination budget is promoted to a tracked background task.
 // Short commands therefore complete in the original tool turn, while longer
 // work returns partial output plus task_id and finishes by notification.
-export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 10_000;
+// 15 s because a command promoted moments before it ends costs a whole
+// follow-up request on `task wait`. Session logs (2026-09-30..10-05), the 260
+// promoted commands with a recorded duration: 108 had ended within 10 s, 144
+// within 15 s and only 152 within 20 s.
+export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 15_000;
 
 // JS timers (setTimeout) and PS WaitForExit(ms) are 32-bit: a delay above
 // 2^31-1 wraps to a tiny/negative value and fires immediately. Clamp the
@@ -13,12 +17,17 @@ const TIMER_MAX_MS = 2_147_483_647;
 
 // Main-agent blocking budget. A timeout is the command's total deadline, not
 // permission to hold the conversation open for that whole duration: after
-// 10 s a still-running command becomes a tracked background task and
+// 15 s a still-running command becomes a tracked background task and
 // completion is pushed to the owner. MIXDOG_SHELL_AUTO_BACKGROUND_MS
 // overrides; an explicit 0 disables. Gated on backgroundOnTimeout so
 // disabled background tasks remain foreground.
-// A per-call wait_ms replaces that default for the call, capped by the
-// foreground maximum.
+// A per-call wait_ms extends that default for the call, capped by the
+// foreground maximum; it never shortens it. A shorter window promotes a
+// command that would have returned its result in the starting call and spends
+// a whole follow-up request on `task wait`. Session logs (2026-09-30..10-05,
+// 3062 shell calls): 329 passed a wait_ms under the default (53% of one model
+// family's calls), 256 of those were promoted, and 108 of the 192 with a
+// recorded duration had finished inside the default window (10 s then).
 function autoBackgroundBudget(backgroundOnTimeout, timeout, waitMs, maxForegroundMs) {
   const raw = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
   const parsed = Number(raw);
@@ -26,7 +35,7 @@ function autoBackgroundBudget(backgroundOnTimeout, timeout, waitMs, maxForegroun
     raw != null && String(raw).trim() !== '' && Number.isFinite(parsed) && parsed >= 0
       ? Math.floor(parsed)
       : DEFAULT_SHELL_AUTO_BACKGROUND_MS;
-  if (waitMs > 0) defaultMs = Math.min(waitMs, maxForegroundMs);
+  if (waitMs > 0) defaultMs = Math.max(defaultMs, Math.min(waitMs, maxForegroundMs));
   if (!backgroundOnTimeout || defaultMs <= 0) return 0;
   return timeout > 0 ? Math.min(defaultMs, timeout) : defaultMs;
 }

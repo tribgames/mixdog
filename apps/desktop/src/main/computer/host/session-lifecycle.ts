@@ -12,8 +12,9 @@ import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { isComputerLifecycleControl } from './action-sets';
 import { createComputerCommandQueue } from './command-queue';
 import type { ExecutionState, InputRecoveryState } from './execution-state';
-import { createSessionAbort } from './lifecycle-abort';
+import { createSessionAbort, restoreSessionDesktop } from './lifecycle-abort';
 import { createSessionStop } from './lifecycle-stop';
+import { createPointerHold } from './pointer-hold';
 import { claimComputerTargets } from './lifecycle-target-leases';
 import { isComputerRecoveryRead } from './recovery-reads';
 import { createWorkerReclaim } from './lifecycle-worker-reclaim';
@@ -40,7 +41,11 @@ export interface SessionLifecycleHost
   runCommand(command: ComputerCommand): Promise<ComputerCommandResult>;
   recaptureRequiredReply(command: ComputerCommand, error: unknown): Promise<ComputerCommandResult | null>;
   coordinator?: ComputerUseCoordinator;
-  cleanupInput?: (recovery: InputRecoveryState | undefined, restoreDesktop: boolean) => Promise<boolean>;
+  cleanupInput?: (
+    recovery: InputRecoveryState | undefined,
+    restoreDesktop: boolean,
+    sweep: boolean
+  ) => Promise<boolean>;
   hasUnconfirmedBackgroundInput?: WorkerPool['hasUnconfirmedBackgroundInput'];
   waitForResidentWorkersExit?: WorkerPool['waitForResidentWorkersExit'];
   clearUnconfirmedBackgroundInput?: WorkerPool['clearUnconfirmedBackgroundInput'];
@@ -61,7 +66,9 @@ export interface LifecycleContext {
 export function createSessionLifecycle(host: SessionLifecycleHost) {
   const coordinator = host.coordinator || defaultCoordinator;
   const context: LifecycleContext = { host, coordinator, execution: host.execution, cleanupJobs: new Map() };
+  const pointerHold = createPointerHold(context);
   const queue = createComputerCommandQueue({
+    pointerHold,
     coordinator,
     execution: host.execution,
     sessionIdFor: host.sessionIdFor,
@@ -73,8 +80,26 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
     pauseWaitMs: host.pauseWaitMs,
   });
   const abort = createSessionAbort(context, queue);
-  const reclaim = createWorkerReclaim(context, abort.abortComputerSession);
+  const reclaim = createWorkerReclaim(context, queue, abort.abortComputerSession);
   const stop = createSessionStop(context, queue, abort.abortComputerSession);
+
+  /** A key or button the agent left down acts on whatever the user does next,
+   *  so a turn's end lets it go while the worker stays warm. `false` when the
+   *  worker could not confirm the release. */
+  function releaseHeldInput(sessionId: string): Promise<boolean> | null {
+    const child = host.powerShellBySession.get(sessionId);
+    if (!child || child.killed) return null;
+    return queue
+      .runForegroundExclusive(
+        sessionId,
+        () => host.callPowerShell({ action: 'release_held_input', session_id: sessionId, read_only: false }),
+        { requireFreshAfterWait: false, allowWhileUserControl: true }
+      )
+      .then(
+        (response) => response.ok !== false,
+        () => false
+      );
+  }
 
   return {
     resumeAfterTakeover: stop.resumeAfterTakeover,
@@ -84,6 +109,28 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
     claimComputerTargets: (command: ComputerCommand, windowIds: Array<string | undefined>) =>
       claimComputerTargets(coordinator, host.sessionIdFor(command), windowIds),
     releaseComputerSession: abort.releaseComputerSession,
+    /** Turn settlement: the user gets the desktop back now, while the worker
+     *  and its observation refs stay warm for a follow-up until the deferred
+     *  release. Held keys and buttons go up first, while the target still has
+     *  focus. The reply cannot wait on the foreground lane, so the pointer
+     *  shows again once the restore has put it home. */
+    endComputerExecution(command: ComputerCommand): ComputerCommandResult {
+      const sessionId = host.sessionIdFor(command);
+      const released = releaseHeldInput(sessionId);
+      const restore = restoreSessionDesktop(context, queue, sessionId);
+      coordinator.endExecution(sessionId);
+      void Promise.all([released, restore]).then(async ([confirmed]) => {
+        await pointerHold.end(sessionId);
+        // An unconfirmed release ends the session instead: the abort's sweep
+        // releases whatever input the host still owns, or reports that it cannot.
+        if (confirmed === false) {
+          await abort
+            .abortComputerSession({ action: 'session_abort', session_id: sessionId }, false, undefined, false, true)
+            .catch(() => undefined);
+        }
+      });
+      return { text: 'computer execution ended' };
+    },
     abortComputerSession: abort.abortComputerSession,
     takeOverComputer: stop.takeOverComputer,
     stopAllComputerSessions: stop.stopAllComputerSessions,

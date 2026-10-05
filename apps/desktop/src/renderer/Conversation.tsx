@@ -91,7 +91,6 @@ export function Conversation({
   onOpenCommandSurface,
   onOpenFile,
   renderAssistantRow,
-  runtimeProgressSlot,
   goalIsland,
   contextIndicator,
   readOnly = false,
@@ -139,9 +138,6 @@ export function Conversation({
   onOpenFile?: (project: string, rel: string, line?: number, accessToken?: string) => void;
   /** Selector-driven rows retain their component identity through settlement. */
   renderAssistantRow?: (props: TranscriptAssistantRowProps) => ReactNode;
-  /** Selector-driven runtime status; progress publications do not rerender the
-   *  transcript/composer shell. */
-  runtimeProgressSlot?: ReactNode;
   /** Goal capsule routed to the composer unless the pane's visible DIFF owns
    *  it instead. */
   goalIsland?: ReactNode;
@@ -753,14 +749,6 @@ export function Conversation({
           onOpenFile={onOpenFile}
           goalIsland={goalIsland}
           goalSubmissionId={goalSubmissionId}
-          runtimeProgress={
-            runtimeProgressSlot ??
-            (asRecord(snapshot.progressHint)?.text ? (
-              <div className="runtime-progress" role="status">
-                {String(asRecord(snapshot.progressHint)?.text)}
-              </div>
-            ) : null)
-          }
           approval={
             snapshot.toolApproval ? (
               <ApprovalCard

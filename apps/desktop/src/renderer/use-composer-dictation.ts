@@ -144,7 +144,7 @@ export function useComposerDictation({
   textarea: MutableRefObject<HTMLTextAreaElement | null>;
   setDraft: Dispatch<SetStateAction<string>>;
   invokeResult<T>(action: () => T | Promise<T>): Promise<T | undefined>;
-  showNotice(message: string, durationMs?: number): void;
+  showNotice(message: string, tone?: 'info' | 'error'): void;
   requestVoiceInstall(): void;
   /** Fired when a take ended by `stopDictationAndSend` produced real text. */
   onTranscriptSubmit?(): void;
@@ -323,7 +323,7 @@ export function useComposerDictation({
     } catch (reason) {
       // A cancelled attempt already went idle; a newer take may own the state.
       if (attempt.cancelled) return;
-      showNotice(microphoneFailureText(reason));
+      showNotice(microphoneFailureText(reason), 'error');
       setDictationState('idle');
     } finally {
       if (dictationAttempt.current === attempt) dictationAttempt.current = null;

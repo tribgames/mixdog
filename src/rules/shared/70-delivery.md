@@ -5,8 +5,8 @@
   results in the conversation instead.
 - Reference files and folders in inline code by a Project-root-relative or
   absolute path, optionally `:line[:column]` (`deliverables/report.docx`,
-  `src/app.ts:42`); never a bare name, a path relative to another folder, or a
-  `file://` URI.
+  `src/app.ts:42`); files outside the Project always by absolute path; never a
+  bare name, a path relative to another folder, or a `file://` URI.
 - Deliver requested visual artifacts (SVG, diagrams, HTML pages) as saved files
   and give their path; never paste their source as the answer unless the user
   asks for the code.

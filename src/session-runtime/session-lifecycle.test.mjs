@@ -152,10 +152,24 @@ test('a placeholder model meta still resolves the selected window from the catal
     ),
     {
       contextPercent: 50,
-      contextDefaultPercent: 100,
+      contextDefaultPercent: 50,
       selectedContextWindow: 500_000,
     }
   );
+  // A window above the default ceiling starts at the ceiling; the whole
+  // window stays an explicit choice.
+  const opus = { provider: 'anthropic-oauth', model: 'claude-opus-5' };
+  const placeholder = { id: 'claude-opus-5', provider: 'anthropic-oauth' };
+  assert.deepEqual(resolveRouteContextState(opus, placeholder, windowLookup), {
+    contextPercent: 50,
+    contextDefaultPercent: 50,
+    selectedContextWindow: 500_000,
+  });
+  assert.deepEqual(resolveRouteContextState({ ...opus, contextPercent: 100 }, placeholder, windowLookup), {
+    contextPercent: 100,
+    contextDefaultPercent: 50,
+    selectedContextWindow: 1_000_000,
+  });
   // A cached row that knows both windows keeps the picker's own scale, so a
   // cold placeholder can never rescale a saved percentage downward.
   assert.deepEqual(

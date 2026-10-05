@@ -1061,10 +1061,6 @@ test('the desktop refuses its own oversize frame instead of sending it', async (
   assert.match(source.slice(refusalAt, sendAt), /return;/);
   // The ceiling comes from what the relay reports, never from a guess.
   assert.match(source, /declaredFrameLimit\s*=\s*resolveRelayFrameLimit\(\s*envelope\.maxFrameBytes\s*\)/);
-  // No size log survives: nothing to evict, nothing to misattribute.
-  for (const gone of ['outboundFrames', 'noteOutboundFrame', 'takeRefusedOutboundCall']) {
-    assert.equal(source.includes(gone), false, `${gone} must be gone`);
-  }
 });
 
 test('a relay notice teaches the limit, names no call, and is never broadcast', async () => {

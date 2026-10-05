@@ -48,7 +48,7 @@ function fallbackAnthropicMaxTokens(model) {
   if (MAX_TOKENS[model]) return MAX_TOKENS[model];
   const id = String(model || '').toLowerCase();
   if (id.includes('opus')) return 65536;
-  if (id.includes('fable')) return 65536;
+  if (id.includes('fable') || id.includes('mythos')) return 65536;
   const sonnetVersion = id.match(/^claude-sonnet-(\d+)/);
   if (sonnetVersion) return Number(sonnetVersion[1]) >= 5 ? 65536 : 16384;
   if (id.includes('sonnet')) return 16384;

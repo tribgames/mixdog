@@ -61,59 +61,23 @@ public sealed class MixCursorThemeLease : System.IDisposable
 
 public sealed class MixWindowsCursorThemeApi : MixCursorThemeApi
 {
-    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    struct ICONINFO
-    {
-        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] public bool icon;
-        public uint x; public uint y; public System.IntPtr mask; public System.IntPtr color;
-    }
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern System.IntPtr LoadCursor(System.IntPtr instance, System.IntPtr name);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern System.IntPtr CopyImage(System.IntPtr handle, uint type, int width, int height, uint flags);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool SetSystemCursor(System.IntPtr cursor, uint role);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool DestroyCursor(System.IntPtr cursor);
-    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool DestroyIcon(System.IntPtr icon);
-    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool GetIconInfo(System.IntPtr icon, out ICONINFO info);
-    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern System.IntPtr CreateIconIndirect(ref ICONINFO info);
-    [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern bool DeleteObject(System.IntPtr handle);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool SystemParametersInfo(uint action, uint parameter, System.IntPtr value, uint flags);
     public System.IntPtr Save(uint role)
     {
         return CopyImage(LoadCursor(System.IntPtr.Zero, new System.IntPtr((int)role)), 2, 0, 0, 0);
     }
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern System.IntPtr CreateCursor(System.IntPtr instance, int xHot, int yHot, int width, int height, byte[] andPlane, byte[] xorPlane);
+    /// Fully transparent cursor (AND all ones, XOR all zeros): the overlay arrow is the only visible pointer.
     static System.IntPtr Artwork()
     {
-        int size = System.Math.Min(96, System.Math.Max(40, GetSystemMetrics(13)));
-        using (var bitmap = new System.Drawing.Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
-        using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
-        using (var outline = new System.Drawing.Pen(System.Drawing.Color.White, 1.8f))
-        using (var fill = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 0, 155, 235)))
-        {
-            graphics.Clear(System.Drawing.Color.Transparent);
-            graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            graphics.ScaleTransform(size / 40f, size / 40f);
-            var points = new System.Drawing.PointF[] {
-        new System.Drawing.PointF(2,2), new System.Drawing.PointF(28,22),
-        new System.Drawing.PointF(16,23), new System.Drawing.PointF(22,35),
-        new System.Drawing.PointF(16,38), new System.Drawing.PointF(10,26),
-        new System.Drawing.PointF(3,34)
-      };
-            outline.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
-            graphics.FillPolygon(fill, points); graphics.DrawPolygon(outline, points);
-            System.IntPtr icon = bitmap.GetHicon();
-            ICONINFO info;
-            try
-            {
-                if (!GetIconInfo(icon, out info)) throw new System.Exception("cursor artwork unavailable");
-                try
-                {
-                    info.icon = false; info.x = (uint)System.Math.Round(2 * size / 40.0); info.y = info.x;
-                    return CreateIconIndirect(ref info);
-                }
-                finally { DeleteObject(info.mask); DeleteObject(info.color); }
-            }
-            finally { DestroyIcon(icon); }
-        }
+        var andPlane = new byte[128];
+        for (int i = 0; i < andPlane.Length; i++) andPlane[i] = 0xFF;
+        return CreateCursor(System.IntPtr.Zero, 0, 0, 32, 32, andPlane, new byte[128]);
     }
     public void Apply(uint role)
     {
@@ -172,6 +136,26 @@ public sealed class MixCursorTheme : System.IDisposable
     public void Activate(int milliseconds = 5000)
     {
         Activate(true, milliseconds);
+    }
+    /// The watchdog restores on its own when the user touches the input or its
+    /// time runs out. A lease it already ended decorates and guards nothing.
+    public bool Expired
+    {
+        get
+        {
+            if (disposed || restorationConfirmed) return true;
+            if (!activationRequested) return false;
+            try
+            {
+                if (pendingRead == null) pendingRead = reader.ReadLineAsync();
+                if (!pendingRead.IsCompleted) return false;
+                string result = pendingRead.Result;
+                pendingRead = null;
+                if (result == "RESTORED") restorationConfirmed = true;
+                return result != "ACTIVE";
+            }
+            catch { return true; }
+        }
     }
     /// A keystroke drives no pointer, so `decorate` false keeps the user's own
     /// cursor artwork while the watchdog still guards the input this session owns.
@@ -332,7 +316,10 @@ public sealed class MixCursorTheme : System.IDisposable
                         // user's cursor artwork alone.
                         if (decorate)
                         {
-                            lease = new MixCursorThemeLease(new MixWindowsCursorThemeApi(), new uint[] { 32512, 32513, 32515, 32649 });
+                            // Every standard role: a busy, resize or not-allowed cursor
+                            // left out would show the real pointer under the overlay arrow.
+                            lease = new MixCursorThemeLease(new MixWindowsCursorThemeApi(), new uint[] {
+                              32512, 32513, 32514, 32515, 32516, 32642, 32643, 32644, 32645, 32646, 32648, 32649, 32650, 32651 });
                             lease.Activate();
                         }
                         writer.WriteLine("ACTIVE");

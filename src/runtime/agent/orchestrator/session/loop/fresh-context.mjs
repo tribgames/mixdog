@@ -54,7 +54,7 @@ export async function resolveCompactionRoute({
   const contextWindow =
     sameModel && positiveInt(sessionRef?.contextWindow)
       ? positiveInt(sessionRef.contextWindow)
-      : resolveSessionContextMeta(selectedProvider, selectedModel).contextWindow;
+      : resolveSessionContextMeta(selectedProvider, selectedModel, {}, { wholeWindow: true }).contextWindow;
   return {
     provider: selectedProvider,
     providerName,

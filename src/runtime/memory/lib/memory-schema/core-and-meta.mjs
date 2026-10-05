@@ -1,7 +1,7 @@
 /**
- * core-and-meta.mjs — core_entries, the meta key/value table, the cycle
- * state view and the bootstrap stamps that record which embedding model and
- * dimension the schema was built for.
+ * core-and-meta.mjs — core_entries, the meta key/value table and the
+ * bootstrap stamps that record which embedding model and dimension the schema
+ * was built for.
  */
 import { ensureCoreKeyIndex } from '../core-memory-uniqueness.mjs';
 
@@ -34,20 +34,6 @@ export async function ensureMetaSchema(db) {
       key    TEXT PRIMARY KEY,
       value  JSONB NOT NULL
     )
-  `);
-
-  // Operational view — used by /health and dashboards. One round-trip,
-  // covers the metrics that previously needed 6+ COUNT queries.
-  await db.exec(`
-    CREATE OR REPLACE VIEW v_cycle_state AS
-    SELECT
-      COUNT(*) FILTER (WHERE is_root = 1) AS roots,
-      COUNT(*) FILTER (WHERE is_root = 1 AND status = 'pending')  AS pending,
-      COUNT(*) FILTER (WHERE is_root = 1 AND status = 'active')   AS active,
-      COUNT(*) FILTER (WHERE is_root = 1 AND status = 'archived') AS archived,
-      COUNT(*) FILTER (WHERE chunk_root IS NULL)                  AS unclassified,
-      COUNT(*) AS total
-    FROM entries
   `);
 }
 

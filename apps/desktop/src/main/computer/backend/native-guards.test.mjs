@@ -438,22 +438,21 @@ public static class MixWin32 {
 }
 '@
 . (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
-$script:state=@{OriginalFocus=[IntPtr]2;LastFocus=[IntPtr]1}
+$script:state=@{LastFocus=[IntPtr]1}
 $script:CurrentRequest=@{}
 function Get-CurrentSession { return $script:state }
 function Wait-UserInputIdle { return 0 }
-function Remember-FocusOrigin($state,$previous,$target) {}
 function Assert-ExecutionAuthorization($req,$target) {}
 $result=Invoke-ForegroundInput ([IntPtr]1) 'click' { [MixWin32]::X=30 }
-# The overlay pointer shows the action, so even a click leaves the user's own
-# cursor artwork untouched; only the physical travel is reported.
-if ($result.cursor_feedback.system_theme_applied -or $result.cursor_feedback.system_theme_restored -or
+# A pointer action blanks the system cursor so the overlay arrow is the only one.
+if (-not [MixCursorTheme]::LastDecorate -or -not $result.cursor_feedback.system_theme_applied -or
+    -not $result.cursor_feedback.system_theme_restored -or
     -not $result.cursor_feedback.pointer_moved) { throw 'feedback did not reflect completed action lifecycle' }
 try { Invoke-ForegroundInput ([IntPtr]1) 'click' { throw 'fixture failure' }; throw 'missing failure' } catch {
   if ($_.Exception.Message -ne 'fixture failure') { throw }
 }
 if ([MixCursorTheme]::Restores -ne 2 -or [MixInputObservation]::Depth -ne 0) { throw 'theme or intervention scope leaked' }
-# No delivery replaces the user's cursor artwork, while the watchdog still
+# Key/type never replace the user's cursor artwork, while the watchdog still
 # guards the input this session owns.
 $keyFeedback=(Invoke-ForegroundInput ([IntPtr]1) 'key' { }).cursor_feedback
 if ([MixCursorTheme]::LastDecorate -or $keyFeedback.system_theme_applied -or
@@ -477,6 +476,334 @@ if ([MixCursorThemeReservation]::Dropped -ne 0) { throw 'a consumed watchdog res
     { 'input.ps1': PS_INPUT }
   );
   assert.equal(output, 'FEEDBACK_RESTORED');
+});
+
+test('a foreground refusal before any input hands the blanked cursor straight back', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
+  const output = await isolatedProgram(
+    `
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;
+public static class MixInputObservation {
+  public static Action DispatchAuthorization;
+  public static void Begin() {}
+  public static void AssertContinue() { if (DispatchAuthorization != null) DispatchAuthorization(); }
+  public static void End() {}
+}
+public sealed class MixCursorThemeReservation : IDisposable { public void Dispose() {} }
+public sealed class MixCursorTheme : IDisposable {
+  public static int Restores;
+  public bool Expired;
+  public static MixCursorThemeReservation Reserve() { return new MixCursorThemeReservation(); }
+  public static MixCursorTheme Complete(MixCursorThemeReservation reservation, bool decorate) { return new MixCursorTheme(); }
+  public static MixCursorTheme Begin(bool decorate) { return new MixCursorTheme(); }
+  public void Dispose() { Restores++; }
+}
+public class PointValue { public int x,y; }
+public static class MixWin32 {
+  public static PointValue Cursor() { return new PointValue {x=10,y=20}; }
+  public static IntPtr Foreground() { return new IntPtr(1); }
+  public static bool Focus(IntPtr target) { return true; }
+  public static bool IsWindowHandle(IntPtr target) { return target != IntPtr.Zero; }
+  public static string WindowId(IntPtr target) { return "hwnd:0x1"; }
+  public static int LastInjectionTick { get { return 1; } }
+  public static void NoteInjection() {}
+}
+'@
+. (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
+$script:state=@{LastFocus=[IntPtr]1}
+$script:CurrentRequest=@{hold_pointer=$true}
+function Get-CurrentSession { return $script:state }
+function Wait-UserInputIdle { return 0 }
+function Assert-ExecutionAuthorization($req,$target) {}
+function Refuse { throw 'element e1 is covered by another window at its click point' }
+# Nothing held yet: the refused click leaves the user's own cursor on screen.
+try { Invoke-ForegroundInput ([IntPtr]1) 'click' { Refuse }; throw 'missing refusal' } catch {
+  if ($_.Exception.Message -notmatch 'covered') { throw }
+}
+if ($null -ne $script:state.CursorTheme -or [MixCursorTheme]::Restores -ne 1) { throw 'a refused click kept the cursor blanked' }
+# Input that ran keeps the hold for the session's next command.
+$null = Invoke-ForegroundInput ([IntPtr]1) 'click' { }
+if ($null -eq $script:state.CursorTheme -or [MixCursorTheme]::Restores -ne 1) { throw 'dispatched input did not hold the cursor' }
+# A later refusal neither ends nor replaces the hold an earlier action began.
+$held = $script:state.CursorTheme
+try { Invoke-ForegroundInput ([IntPtr]1) 'click' { Refuse }; throw 'missing refusal' } catch {
+  if ($_.Exception.Message -notmatch 'covered') { throw }
+}
+if (-not [object]::ReferenceEquals($held, $script:state.CursorTheme) -or [MixCursorTheme]::Restores -ne 1) {
+  throw 'a refusal disturbed the held cursor'
+}
+[Console]::WriteLine('REFUSAL_RESTORED')
+`,
+    { 'input.ps1': PS_INPUT }
+  );
+  assert.equal(output, 'REFUSAL_RESTORED');
+});
+
+test('session restore sends focus home only to a window the user can still see', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
+  const output = await isolatedProgram(
+    `
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;
+public class Evidence { public bool Ready = true; public string Generation = "monitor-a"; public long Sequence = 0; }
+public static class MixInputObservation {
+  public static Evidence Read() { return new Evidence(); }
+  public static void BeginExpected(string monitor, long sequence) {}
+  public static void End() {}
+}
+public class PointValue { public int x,y; }
+public class WindowState { public bool Visible; public bool Cloaked; public bool Minimized; }
+public static class MixWin32 {
+  public static bool HomeVisible;
+  public static int Focused;
+  public static int X, Y;
+  public static IntPtr ParseWindowId(string id) { return new IntPtr(Convert.ToInt64(id.Substring(7), 16)); }
+  public static bool IsWindowHandle(IntPtr h) { return h != IntPtr.Zero; }
+  public static IntPtr Foreground() { return new IntPtr(1); }
+  public static bool IsOwnedBy(IntPtr window, IntPtr owner) { return false; }
+  public static WindowState Info(IntPtr h) { return new WindowState { Visible = HomeVisible, Cloaked = !HomeVisible }; }
+  public static bool Focus(IntPtr h) { Focused++; return true; }
+  public static bool SetCursorPos(int x, int y) { X = x; Y = y; return true; }
+  public static PointValue Cursor() { return new PointValue { x = X, y = Y }; }
+  public static string WindowId(IntPtr h) { return "hwnd:0x" + h.ToInt64().ToString("x"); }
+  public static long InputTick() { return 0; }
+}
+'@
+function Get-PhysicalInputIdleMs { return 0 }
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+  (Join-Path $env:AUDIT_DIRECTORY 'runtime.ps1'), [ref]$tokens, [ref]$errors)
+foreach ($name in @('Restore-InputRecoveryState', 'Assert-RecoveryInputUnchanged', 'Test-VisibleFocusHome')) {
+  $function = $ast.Find({param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name}, $true)
+  . ([scriptblock]::Create($function.Extent.Text))
+}
+$request = @{
+  window_id = 'hwnd:0x1'; held_window_ids = @('hwnd:0x1'); restore_window_id = 'hwnd:0x2'; restore_owner_window_id = ''
+  cursor_x = 10; cursor_y = 20; restore_focus = $true
+  expected_input_monitor_id = 'monitor-a'; expected_input_user_sequence = 0
+}
+# The Start menu that held focus when the session began is hidden by now.
+$hidden = Restore-InputRecoveryState $request
+if ($hidden.restored_target -ne 'unavailable' -or [MixWin32]::Focused -ne 0) { throw 'focus went to a window nobody can see' }
+if ([MixWin32]::X -ne 10 -or [MixWin32]::Y -ne 20) { throw 'the pointer stayed away when focus had no home' }
+[MixWin32]::HomeVisible = $true
+$shown = Restore-InputRecoveryState $request
+if ($shown.restored_target -ne 'original' -or [MixWin32]::Focused -ne 1) { throw 'a visible home did not get focus back' }
+[Console]::WriteLine('HOME_CHECKED')
+`,
+    { 'runtime.ps1': PS_RUNTIME }
+  );
+  assert.equal(output, 'HOME_CHECKED');
+});
+
+test('a pointer action that must activate its target dispatches while the prior foreground holds it', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
+  const output = await isolatedProgram(
+    `
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;
+public static class MixInputObservation {
+  public static int Depth;
+  public static Action DispatchAuthorization;
+  public static void Begin() { Depth++; }
+  public static void AssertContinue() { if (DispatchAuthorization != null) DispatchAuthorization(); }
+  public static void End() { Depth--; }
+}
+public sealed class MixCursorThemeReservation : IDisposable { public void Dispose() {} }
+public sealed class MixCursorTheme : IDisposable {
+  public static MixCursorThemeReservation Reserve() { return new MixCursorThemeReservation(); }
+  public static MixCursorTheme Complete(MixCursorThemeReservation reservation, bool decorate) { return new MixCursorTheme(); }
+  public static MixCursorTheme Begin(bool decorate) { return new MixCursorTheme(); }
+  public void Dispose() {}
+}
+public class PointValue { public int x,y; }
+public static class MixWin32 {
+  public static IntPtr Front = new IntPtr(2);
+  static bool activating;
+  static IntPtr holder;
+  public static void BeginPointerActivation(IntPtr h) { activating = true; holder = h; }
+  public static void EndPointerActivation() { activating = false; holder = IntPtr.Zero; }
+  public static bool HoldsForActivation(IntPtr f) { return activating && f == holder; }
+  public static bool Activating { get { return activating; } }
+  public static PointValue Cursor() { return new PointValue {x=10,y=20}; }
+  public static IntPtr Foreground() { return Front; }
+  public static bool Focus(IntPtr target) { return false; }
+  public static bool IsWindowHandle(IntPtr target) { return target != IntPtr.Zero; }
+  public static string WindowId(IntPtr target) { return "hwnd:0x1"; }
+  public static int LastInjectionTick { get { return 1; } }
+  public static void NoteInjection() {}
+}
+'@
+. (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
+$script:state=@{}
+$script:CurrentRequest=@{}
+function Get-CurrentSession { return $script:state }
+function Get-ForegroundRefusal($action,$target,$req) { return $null }
+function Assert-ExecutionAuthorization($req,$target) {}
+# The click is the activation, so the window that kept the foreground may hold it until then.
+$result=Invoke-ForegroundInput ([IntPtr]1) 'click' { [MixInputObservation]::AssertContinue(); [MixWin32]::Front=[IntPtr]1 } $true
+if ($result.path -ne 'foreground_pointer_activation') { throw "unexpected path: $($result.path) $($result.code)" }
+# A third window taking the foreground still stops the dispatch.
+[MixWin32]::Front=[IntPtr]2
+$script:sent=$false
+try {
+  Invoke-ForegroundInput ([IntPtr]1) 'click' { [MixWin32]::Front=[IntPtr]3; [MixInputObservation]::AssertContinue(); $script:sent=$true } $true
+  throw 'missing refusal'
+} catch {
+  if ($_.Exception.ToString() -notmatch 'foreground_changed') { throw }
+}
+# Keys never activate by pointer, so a refused focus sends nothing.
+[MixWin32]::Front=[IntPtr]2
+$keys=Invoke-ForegroundInput ([IntPtr]1) 'key' { $script:sent=$true }
+if ($script:sent -or $keys.code -ne 'foreground_unavailable' -or [MixInputObservation]::Depth -ne 0 -or [MixWin32]::Activating) {
+  throw 'a refused focus dispatched input or leaked its scope'
+}
+[Console]::WriteLine('POINTER_ACTIVATION')
+`,
+    { 'input.ps1': PS_INPUT }
+  );
+  assert.equal(output, 'POINTER_ACTIVATION');
+});
+
+test('the pointer path accepts the window that kept the foreground only while an activation is pending', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
+  const members = MIXDOG_HOST_CSHARP.slice(
+    MIXDOG_HOST_CSHARP.indexOf('  static void AssertDragTarget('),
+    MIXDOG_HOST_CSHARP.indexOf('/// The foreground twin of BackgroundDragPath')
+  );
+  const output = await isolatedProgram(
+    `
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;
+public static class DragFixture {
+  public static IntPtr Front = new IntPtr(2);
+  static IntPtr Foreground() { return Front; }
+  static IntPtr WindowAtPoint(int x, int y) { return new IntPtr(1); }
+  static bool IsWindowHandle(IntPtr h) { return h != IntPtr.Zero; }
+  static bool IsContainedSameProcess(IntPtr a, IntPtr b) { return false; }
+${members}
+  public static string Check() {
+    try { AssertDragTarget(new IntPtr(1), 5, 5); return "ok"; }
+    catch (InvalidOperationException e) { return e.Message.Split('|')[0]; }
+  }
+}
+'@
+$plain = [DragFixture]::Check()
+[DragFixture]::BeginPointerActivation([IntPtr]2)
+$holding = [DragFixture]::Check()
+[DragFixture]::Front = [IntPtr]3
+$third = [DragFixture]::Check()
+[DragFixture]::Front = [IntPtr]1
+$landed = [DragFixture]::Check()
+[DragFixture]::EndPointerActivation()
+[DragFixture]::Front = [IntPtr]2
+$ended = [DragFixture]::Check()
+[Console]::WriteLine("$plain $holding $third $landed $ended")
+`
+  );
+  assert.equal(output, 'target_mismatch ok target_mismatch ok target_mismatch');
+});
+
+test('foreground admission names an elevated holder before waiting and refuses an unobservable origin at once', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
+  const output = await isolatedProgram(
+    `
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;
+public class IntegrityValue { public bool Known=true, Higher=true; public string TargetName="High", OwnName="Medium"; }
+public class InfoValue { public string Title="Administrator: Terminal"; }
+public static class MixWin32 {
+  public static IntPtr Front = new IntPtr(2);
+  public static IntPtr Foreground() { return Front; }
+  public static bool IsWindowHandle(IntPtr target) { return target != IntPtr.Zero; }
+  public static string WindowId(IntPtr target) { return "hwnd:0x1"; }
+  public static IntegrityValue WindowIntegrity(IntPtr target) { return new IntegrityValue(); }
+  public static InfoValue Info(IntPtr target) { return new InfoValue(); }
+  public static int PhysicalInputIdleMs(int known, bool hasKnown) { return -1; }
+}
+'@
+. (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
+$script:CurrentRequest=@{}
+function Assert-ExecutionAuthorization($req,$target) {}
+# The elevated holder is named before any wait, which could only end in the wrong reason.
+$elevated = Get-ForegroundRefusal 'click' ([IntPtr]1) @{}
+if ($elevated.code -ne 'foreground_unavailable') { throw "elevated holder: $($elevated.code)" }
+# An input origin that cannot be observed refuses at once instead of after the idle wait.
+[MixWin32]::Front=[IntPtr]1
+$clock=[Diagnostics.Stopwatch]::StartNew()
+try { $null = Wait-UserInputIdle; throw 'missing refusal' } catch {
+  if ($_.Exception.Message -notmatch '^input_observation_unavailable:') { throw }
+}
+if ($clock.ElapsedMilliseconds -gt 2000) { throw "unobservable origin waited $($clock.ElapsedMilliseconds)ms" }
+[Console]::WriteLine('ADMISSION')
+`,
+    { 'input.ps1': PS_INPUT }
+  );
+  assert.equal(output, 'ADMISSION');
+});
+
+test('focus_window passes the foreground admission and confirms only a settled foreground', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
+  const output = await isolatedProgram(
+    `
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;
+public class IntegrityValue { public bool Known=true, Higher=false; public string TargetName="Medium", OwnName="Medium"; }
+public static class MixInputObservation {
+  public static int Depth, Asserts;
+  public static Action DispatchAuthorization;
+  public static void Begin() { Depth++; }
+  public static void AssertContinue() { Asserts++; }
+  public static void End() { Depth--; }
+}
+public static class MixWin32 {
+  public static IntPtr Front = new IntPtr(2);
+  public static IntPtr Settled = new IntPtr(1);
+  public static int Focused;
+  public static IntPtr Foreground() { return Front; }
+  public static bool Focus(IntPtr target) { Focused++; Front = Settled; return true; }
+  public static bool IsWindowHandle(IntPtr target) { return target != IntPtr.Zero; }
+  public static string WindowId(IntPtr target) { return "hwnd:0x1"; }
+  public static IntegrityValue WindowIntegrity(IntPtr target) { return new IntegrityValue(); }
+}
+'@
+. (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
+$script:state=@{}
+function Resolve-WindowInfo($window,$id) { return @{ Handle=[IntPtr]1; Id='hwnd:0x1'; Title='Notepad' } }
+function Get-CurrentSession { return $script:state }
+function Assert-ExecutionAuthorization($req,$target) {}
+# Input during the wait refuses focus like any other foreground action.
+function Wait-UserInputIdle { return 800 }
+$busy = Do-Focus @{ window_id='hwnd:0x1' }
+if ($busy.code -ne 'user_input_active' -or [MixWin32]::Focused -ne 0) { throw 'focus was taken after user input' }
+function Wait-UserInputIdle { return 0 }
+# A window that does not keep the foreground was not focused.
+[MixWin32]::Settled=[IntPtr]3
+$moved = Do-Focus @{ window_id='hwnd:0x1' }
+if ($moved.code -ne 'foreground_changed' -or $null -ne $script:state.LastFocus) { throw "unsettled focus: $($moved.code)" }
+[MixWin32]::Front=[IntPtr]2
+[MixWin32]::Settled=[IntPtr]1
+$done = Do-Focus @{ window_id='hwnd:0x1' }
+if ($done.code -or $script:state.LastFocus -ne [IntPtr]1) { throw "focus failed: $($done.code)" }
+if ([MixInputObservation]::Depth -ne 0 -or [MixInputObservation]::Asserts -ne 2) { throw 'focus ran outside an observed input scope' }
+[Console]::WriteLine('FOCUS_GUARDED')
+`,
+    { 'input.ps1': PS_INPUT }
+  );
+  assert.equal(output, 'FOCUS_GUARDED');
 });
 
 test('detached watchdog launcher runs with a hidden console and no desktop input', {

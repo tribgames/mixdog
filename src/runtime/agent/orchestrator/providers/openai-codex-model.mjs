@@ -86,6 +86,10 @@ export function _normalizeCodexModel(m) {
     supportVerbosity: m?.support_verbosity === true,
     defaultVerbosity: m?.default_verbosity || null,
     supportsReasoningSummaries: m?.supports_reasoning_summaries === true,
+    // Absent on an older catalog: the caller then falls back to its own list.
+    ...(typeof m?.supports_reasoning_effort_updates === 'boolean'
+      ? { supportsReasoningEffortUpdates: m.supports_reasoning_effort_updates }
+      : {}),
     ...(typeof m?.supports_image_generation === 'boolean'
       ? { supportsImageGeneration: m.supports_image_generation }
       : {}),

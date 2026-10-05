@@ -21,11 +21,7 @@ function targetLabel(args) {
 const LIST_WINDOW_CODES = new Set(['ambiguous_window_target', 'window_stale', 'window_target_not_found']);
 const STALE_TARGET_CODES = new Set(['stale_frame', 'stale_target', 'target_mismatch']);
 const USER_YIELD_CODES = new Set(['computer_user_control_active', 'computer_user_takeover', 'user_input_active']);
-const DIAGNOSE_CODES = new Set([
-  'input_observation_unavailable',
-  'input_recovery_unconfirmed',
-  'computer_cursor_unavailable',
-]);
+const DIAGNOSE_CODES = new Set(['input_observation_unavailable', 'computer_cursor_unavailable']);
 const CLEANUP_CODES = new Set([
   'computer_cleanup_pending',
   'computer_abort_cleanup_unconfirmed',
@@ -45,6 +41,40 @@ function recaptureLeaseGuidance(code, target) {
     return `The foreground lane is now available. Capture ${target} again before issuing any input.`;
   }
   return `The target lease is now available. Capture ${target} again before issuing any input.`;
+}
+
+function timeoutRecovery(code, args, target) {
+  if (READ_ONLY_ACTIONS.has(String(args?.action || ''))) {
+    return {
+      code,
+      next: 'capture',
+      guidance: `The read exceeded its bounded budget and sent no input, so no cleanup or user-control guard applies. Capture ${target} with mode="state" or "som": pixels and OCR stay usable while that window's accessibility provider is slow.`,
+    };
+  }
+  return {
+    code,
+    next: 'diagnose',
+    guidance: `The command may have executed before timing out. Do not repeat it or switch delivery modes. Diagnose the host first; cleanup and user-control guards must clear through verified recovery. Then capture ${target} and inspect the effect before issuing any new input.`,
+  };
+}
+
+function foregroundRecovery(code, target) {
+  if (code === 'foreground_changed') {
+    return {
+      code,
+      next: 'user',
+      guidance:
+        'Focus changed during dispatch. Do not pull it back or retry input automatically. Check user control, then obtain fresh state when control is available.',
+    };
+  }
+  if (code === 'foreground_unavailable') {
+    return {
+      code,
+      next: 'user',
+      guidance: `Windows did not grant foreground focus. Ask the user to activate ${target}, then capture fresh state. Do not substitute background input or repeat the failed gesture.`,
+    };
+  }
+  return undefined;
 }
 
 function recoveryForCode(code, args) {
@@ -82,6 +112,14 @@ function recoveryForCode(code, args) {
         "Computer Use yielded to the user. Call wait_for_user for bounded waiting. The user's Resume on the overlay continues the pause, and ordinary physical input may also resume after the host-configured quiet interval (default 5 seconds); explicit stops and uncertain cleanup/observation require the user. Stop cancels the task. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input.",
     };
   }
+  if (code === 'input_recovery_unconfirmed') {
+    return {
+      code,
+      next: 'wait_for_user',
+      guidance:
+        'The desktop state after the action could not be verified, so Computer Use stopped the session and handed the desktop to the user. Do not repeat the mutation. Call wait_for_user: the host resumes by itself once the desktop has been quiet for its interval, or when the user presses Resume. After resumed, capture fresh state and inspect the effect before any new input.',
+    };
+  }
   if (DIAGNOSE_CODES.has(code)) {
     return {
       code,
@@ -105,20 +143,7 @@ function recoveryForCode(code, args) {
       guidance: `No input was sent. Foreground delivery needs an observation taken while the user's own input was idle. Let their input settle and capture ${target} again, or send this action through background delivery when it supports one.`,
     };
   }
-  if (code === 'computer_command_timeout') {
-    if (READ_ONLY_ACTIONS.has(String(args?.action || ''))) {
-      return {
-        code,
-        next: 'capture',
-        guidance: `The read exceeded its bounded budget and sent no input, so no cleanup or user-control guard applies. Capture ${target} with mode="state" or "som": pixels and OCR stay usable while that window's accessibility provider is slow.`,
-      };
-    }
-    return {
-      code,
-      next: 'diagnose',
-      guidance: `The command may have executed before timing out. Do not repeat it or switch delivery modes. Diagnose the host first; cleanup and user-control guards must clear through verified recovery. Then capture ${target} and inspect the effect before issuing any new input.`,
-    };
-  }
+  if (code === 'computer_command_timeout') return timeoutRecovery(code, args, target);
   if (code.startsWith('menu_')) {
     return {
       code,
@@ -126,21 +151,8 @@ function recoveryForCode(code, args) {
       guidance: `Capture ${target} again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged.`,
     };
   }
-  if (code === 'foreground_changed') {
-    return {
-      code,
-      next: 'user',
-      guidance:
-        'Focus changed during dispatch. Do not pull it back or retry input automatically. Check user control, then obtain fresh state when control is available.',
-    };
-  }
-  if (code === 'foreground_unavailable') {
-    return {
-      code,
-      next: 'user',
-      guidance: `Windows did not grant foreground focus. Ask the user to activate ${target}, then capture fresh state. Do not substitute background input or repeat the failed gesture.`,
-    };
-  }
+  const foreground = foregroundRecovery(code, target);
+  if (foreground) return foreground;
   if (code.startsWith('background_')) {
     return {
       code,

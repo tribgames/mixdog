@@ -522,11 +522,10 @@ test('container membership is the unified kind vocabulary plus `parent`, not a l
   );
 });
 
-test('retired kind tokens are not container kinds any more', async () => {
-  // 'object'/'record'/'contract'/'union'/'mixin' were per-language kinds the
-  // extractor no longer emits; nothing may treat them as containers, and a
-  // member that claims one as `parent` still nests only because the record
-  // says so.
+test('a kind outside the container set is not a container', async () => {
+  // Only the declared container kinds roll their members' call sites up. A
+  // record carrying any other kind keeps its own, and a member that claims it
+  // as `parent` nests only because the record says so.
   const text = [
     'const Legacy = {', // 1
     '  run() { return work(); },', // 2

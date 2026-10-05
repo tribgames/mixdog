@@ -20,9 +20,9 @@ export interface ComputerUseCursorPresentation extends ComputerUseCursor {
   context: string;
 }
 
-export const SESSION_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f778ba', '#39c5cf'];
+const SESSION_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f778ba', '#39c5cf'];
 
-export function sessionColor(sessionId: string): string {
+function sessionColor(sessionId: string): string {
   let hash = 0;
   for (const character of sessionId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
   return SESSION_COLORS[hash % SESSION_COLORS.length] || SESSION_COLORS[0];
@@ -54,12 +54,21 @@ function visibleTarget(target: string): string {
   return value.length > 24 ? `${value.slice(0, 23)}…` : value;
 }
 
+/** The pill's titles per state; the page starts with `working` and falls back to it. */
+export function overlayTitles(locale: string) {
+  const ko = locale.toLowerCase().startsWith('ko');
+  return {
+    working: ko ? '컴퓨터 사용 중' : 'Computer in use',
+    attention: ko ? '확인 필요' : 'Check',
+    paused: ko ? '대기 중' : 'Waiting',
+  };
+}
+
 export function computerUseOverlayPresentation(
   snapshot: ComputerUseSnapshot,
   locale = 'en',
   control: { error?: ComputerOverlayControlError | string } = {}
 ): ComputerUseOverlayPresentation {
-  const ko = locale.toLowerCase().startsWith('ko');
   const activity = primaryActivity(snapshot.activities);
   // Stop ends every session still in a turn that used the computer, including
   // one thinking between commands.
@@ -92,9 +101,10 @@ export function computerUseOverlayPresentation(
   const working = snapshot.activities.some((entry) => entry.phase !== 'thinking');
   const holding = (snapshot.targetLeases ?? []).length > 0;
   const waiting = paused && (snapshot.pausedSessionIds ?? []).length > 0;
-  let title = ko ? '컴퓨터 사용 중' : 'Computer in use';
-  if (attention) title = ko ? '확인 필요' : 'Check';
-  else if (paused) title = ko ? '대기 중' : 'Waiting';
+  const titles = overlayTitles(locale);
+  let title = titles.working;
+  if (attention) title = titles.attention;
+  else if (paused) title = titles.paused;
   return {
     visible: !stopInFlight && (working || holding || waiting || Boolean(snapshot.attentionRequired) || inputBlocked),
     sessionIds,
