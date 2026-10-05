@@ -50,6 +50,63 @@ async function streamingFileIdentity(path) {
   return { bytes, sha256: hash.digest('hex') };
 }
 
+const MACHO_64 = 0xfeedfacf;
+const FAT_MAGIC = 0xcafebabe;
+const LC_SEGMENT_64 = 0x19;
+
+// Developer ID signing rewrites every Mach-O binary's __LINKEDIT segment (it
+// holds the code signature) and the load commands that size it, so a signed
+// macOS package can never match the staged file byte for byte. The code and
+// data segments must still be identical, which is what "emitted unchanged"
+// guards. Returns null for non-Mach-O files so callers fall back to bytes.
+function machoSliceSegments(data, base, digest) {
+  if (data.readUInt32LE(base) !== MACHO_64) return false;
+  const commandCount = data.readUInt32LE(base + 16);
+  const commandBytes = data.readUInt32LE(base + 20);
+  const headerEnd = 32 + commandBytes;
+  let offset = base + 32;
+  for (let index = 0; index < commandCount; index += 1) {
+    const command = data.readUInt32LE(offset);
+    const size = data.readUInt32LE(offset + 4);
+    if (command === LC_SEGMENT_64) {
+      const name = data.toString('latin1', offset + 8, offset + 24).replace(/\0+$/, '');
+      const fileOffset = Number(data.readBigUInt64LE(offset + 40));
+      const fileSize = Number(data.readBigUInt64LE(offset + 48));
+      if (name !== '__LINKEDIT' && fileSize > 0) {
+        const start = base + Math.max(fileOffset, name === '__TEXT' ? headerEnd : 0);
+        digest.update(name);
+        digest.update(data.subarray(start, base + fileOffset + fileSize));
+      }
+    }
+    offset += size;
+  }
+  return true;
+}
+
+async function machoContentIdentity(path) {
+  const data = await readFile(path);
+  if (data.length < 32) return null;
+  const digest = createHash('sha256');
+  if (data.readUInt32BE(0) === FAT_MAGIC) {
+    const architectures = data.readUInt32BE(4);
+    for (let index = 0; index < architectures; index += 1) {
+      const sliceOffset = data.readUInt32BE(8 + index * 20 + 8);
+      if (!machoSliceSegments(data, sliceOffset, digest)) return null;
+    }
+  } else if (!machoSliceSegments(data, 0, digest)) {
+    return null;
+  }
+  return { segments: digest.digest('hex') };
+}
+
+async function emittedFileIdentity(path) {
+  if (process.platform === 'darwin') {
+    const macho = await machoContentIdentity(path);
+    if (macho) return macho;
+  }
+  return streamingFileIdentity(path);
+}
+
 test('electron-vite emitted the preload entry the main process loads', async () => {
   await access(new URL('../../out/preload/index.js', import.meta.url));
 });
@@ -152,8 +209,8 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
     const stagedNative = join(stagedSidecar, ...parts);
     const builtNative = join(builtResources, 'runtime.asar.unpacked', ...parts);
     assert.deepEqual(
-      await streamingFileIdentity(builtNative),
-      await streamingFileIdentity(stagedNative),
+      await emittedFileIdentity(builtNative),
+      await emittedFileIdentity(stagedNative),
       `${entry} was not emitted unchanged beside the built runtime.asar`
     );
   }
