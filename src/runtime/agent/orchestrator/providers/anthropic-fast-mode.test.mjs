@@ -9,6 +9,10 @@ import {
   fastModeDisabledReason,
   noteFastModeCapacityError,
 } from './anthropic-fast-mode.mjs';
+import { judgeInitialStatus } from './anthropic-oauth-request/initial-status.mjs';
+
+const CREDITS_BODY =
+  '{"type":"error","error":{"type":"rate_limit_error","message":"Usage credits are required for fast mode."}}';
 
 test.beforeEach(() => clearFastModeCooldown());
 test.after(() => clearFastModeCooldown());
@@ -84,4 +88,30 @@ test('plain-object headers resolve case-insensitively', () => {
     { fast: true }
   );
   assert.equal(fastModeDisabledReason(), 'billing');
+});
+
+test('a "usage credits required" body turns fast mode off for the process', () => {
+  const decision = noteFastModeCapacityError({ httpStatus: 429, message: CREDITS_BODY }, { fast: true });
+  assert.equal(decision, 'disabled');
+  assert.equal(fastModeAvailable(Date.now() + 86_400_000), false);
+});
+
+test('an initial fast-pool 429 drops speed and flags a standard-speed replay', async () => {
+  const requestBody = { speed: 'fast' };
+  const result = { response: { status: 429, headers: new Map(), text: async () => CREDITS_BODY } };
+  await assert.rejects(
+    judgeInitialStatus(result, requestBody, { provider: { scrubTokens: (s) => s }, cleanupCancelHandler: () => {} }),
+    (err) => err.fastDowngraded === true && err.httpStatus === 429
+  );
+  assert.equal(requestBody.speed, undefined);
+});
+
+test('a standard-speed 429 is not flagged for replay', async () => {
+  const requestBody = {};
+  const result = { response: { status: 429, headers: new Map(), text: async () => 'rate limited' } };
+  await assert.rejects(
+    judgeInitialStatus(result, requestBody, { provider: { scrubTokens: (s) => s }, cleanupCancelHandler: () => {} }),
+    (err) => err.fastDowngraded === false
+  );
+  assert.equal(fastModeAvailable(), true);
 });

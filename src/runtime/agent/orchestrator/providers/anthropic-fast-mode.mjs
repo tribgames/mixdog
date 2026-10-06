@@ -18,6 +18,10 @@ import { headerValue } from './retry-classification.mjs';
 // Server-declared reason header for a fast-mode rejection caused by missing
 // overage billing (matches the reference client's header name).
 const OVERAGE_DISABLED_HEADER = 'anthropic-ratelimit-unified-overage-disabled-reason';
+// Body-only form of the same rejection ("Usage credits are required for fast
+// mode."), sent as a 429 rate_limit_error without the header above.
+const CREDITS_REQUIRED_PATTERN = /usage credits are required for fast mode/i;
+const CREDITS_REQUIRED_REASON = 'usage_credits_required';
 
 // A Retry-After under this bound is short enough that waiting keeps fast mode
 // (and its cache prefix) worthwhile.
@@ -64,6 +68,12 @@ export function noteFastModeCapacityError(err, { fast = false, now = Date.now() 
   const overageReason = headerValue(headers, OVERAGE_DISABLED_HEADER);
   if (overageReason != null && String(overageReason) !== '') {
     _disabledReason = String(overageReason);
+    return 'disabled';
+  }
+  // Same terminal condition reported only in the error body: the account has
+  // no usage credits for fast mode, so no cooldown can make it succeed.
+  if (CREDITS_REQUIRED_PATTERN.test(String(err?.message || ''))) {
+    _disabledReason = CREDITS_REQUIRED_REASON;
     return 'disabled';
   }
 

@@ -119,7 +119,9 @@ function summarySendOpts(opts) {
     effort: 'low',
     effortConfiguration: undefined,
     effortConfigurationEnabled: false,
-    fast: opts.fast ?? opts.sendOpts?.fast ?? true,
+    // Fast mode is opt-in (it needs separate account credits); the summary
+    // follows the route/session choice and never enables it on its own.
+    fast: opts.fast ?? opts.sendOpts?.fast ?? false,
     maxOutputTokens: opts.maxOutputTokens || SUMMARY_OUTPUT_TOKENS,
     providerState: undefined,
     onToolCall: undefined,

@@ -97,7 +97,16 @@ export function createAnthropicOAuthRequest({
     withRetry(
       async ({ signal: attemptSignal }) => {
         const result = await doRequestImpl(accessToken, attemptSignal, requestBody);
-        await judgeInitialStatus(result, requestBody, { provider, cleanupCancelHandler });
+        try {
+          await judgeInitialStatus(result, requestBody, { provider, cleanupCancelHandler });
+        } catch (err) {
+          // Fast-pool 429 before any byte was sampled: `speed` is already
+          // dropped, so replay once at standard speed within this attempt.
+          if (err?.fastDowngraded !== true) throw err;
+          const replay = await doRequestImpl(accessToken, attemptSignal, requestBody);
+          await judgeInitialStatus(replay, requestBody, { provider, cleanupCancelHandler });
+          return replay;
+        }
         return result;
       },
       {

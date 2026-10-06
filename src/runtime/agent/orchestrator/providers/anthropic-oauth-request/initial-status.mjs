@@ -51,14 +51,18 @@ export async function judgeInitialStatus(result, requestBody, { provider, cleanu
     release();
     // Initial-response failure: nothing was sampled, so the typed retry
     // rules upstream own the decision. Subscription 429s never retry
-    // in-loop, so the cooldown is what keeps the NEXT turn off the drained
-    // fast pool.
-    noteFastModeCapacityError(
-      { httpStatus: status, headers: result?.response?.headers },
+    // in-loop; a drained or unavailable fast pool says nothing about
+    // standard-speed capacity, so `speed` is dropped and the error is
+    // flagged for a single standard-speed replay by the caller.
+    const fastDecision = noteFastModeCapacityError(
+      { httpStatus: status, headers: result?.response?.headers, message: quotaText },
       { fast: requestBody?.speed === 'fast' }
     );
+    const fastDowngraded = fastDecision === 'downgrade' || fastDecision === 'disabled';
+    if (fastDowngraded) delete requestBody.speed;
     throw Object.assign(anthropicQuotaError(status, result?.response?.headers, provider.scrubTokens(quotaText)), {
       initialResponseError: true,
+      fastDowngraded,
     });
   }
   const err = new Error(`Anthropic OAuth API ${status}`);
