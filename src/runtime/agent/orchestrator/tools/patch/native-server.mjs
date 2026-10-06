@@ -484,6 +484,13 @@ class NativePatchServer {
     this.#child.stdin.on('error', (err) => {
       this.failTransport(err);
     });
+    // A spawn that fails outright (an artifact without the execute bit, or one
+    // removed between the gate's read and the spawn) reports only through the
+    // child's own 'error' event; unheard, it crashed the host instead of
+    // failing the handshake closed.
+    this.#child.on('error', (err) => {
+      this.failTransport(err);
+    });
     this.#child.on('exit', (code, signal) => {
       this.exited = true;
       const err = new Error(`native patch server exited code=${code} signal=${signal} stderr=${this.stderr}`);

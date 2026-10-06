@@ -334,8 +334,9 @@ test('a genuine engine replacing a bad one at the same path/size/mtime is re-ver
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const engine = join(dir, `swapped-in-engine${EXE}`);
   const genuine = readFileSync(DEBUG_ENGINE);
-  // Bad artifact FIRST, with exactly the genuine artifact's size.
-  writeFileSync(engine, Buffer.alloc(genuine.length, 0x41));
+  // Bad artifact FIRST, with exactly the genuine artifact's size. Executable,
+  // as an installed engine is: the swap replaces bytes, not permissions.
+  writeFileSync(engine, Buffer.alloc(genuine.length, 0x41), { mode: 0o755 });
   const file = seedTarget(dir);
 
   await withEngine(engine, async () => {
@@ -380,7 +381,7 @@ test('a swap between read and spawn never poisons the original bytes', {
     Buffer.alloc(2048, 0x42),
     Buffer.from(NATIVE_PATCH_ENGINE_CONTRACT), // passes the pre-filter, cannot serve
   ]);
-  writeFileSync(engine, genuine);
+  writeFileSync(engine, genuine, { mode: 0o755 });
   const file = seedTarget(dir);
 
   await withEngine(engine, async () => {
@@ -430,7 +431,7 @@ test('a flapping artifact cannot drive an unbounded respawn loop, and the bound 
   });
   const engine = join(dir, `flapping-engine${EXE}`);
   const genuine = readFileSync(DEBUG_ENGINE);
-  writeFileSync(engine, genuine);
+  writeFileSync(engine, genuine, { mode: 0o755 });
   process.env.MIXDOG_PATCH_NATIVE_BIN = engine;
 
   // Every attempt runs bytes that differ from the ones read, so no verdict is
@@ -535,7 +536,7 @@ test('a swap-back before the verdict never poisons the restored artifact', {
   const stashA = join(dir, `stash-a${EXE}`);
   const stashB = join(dir, `stash-b${EXE}`);
   const genuine = readFileSync(DEBUG_ENGINE);
-  writeFileSync(live, genuine);
+  writeFileSync(live, genuine, { mode: 0o755 });
   // B is a REAL executable carrying the marker that cannot serve the
   // protocol, so the failing session is unambiguously B's.
   copyFileSync(process.execPath, stashB);
