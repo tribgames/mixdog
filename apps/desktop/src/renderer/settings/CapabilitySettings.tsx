@@ -13,6 +13,7 @@ import { showDesktopToast, useErrorToast } from '../notifications';
 import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
+import { subscribeSetupChanges } from '../setup-change-refresh';
 import { SettingsConfirmDialog } from './capability-controls';
 import {
   type CapabilitySettingsProps,
@@ -100,6 +101,9 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       loadSequence.current += 1;
     };
   }, [active, api, load, refreshNonce, revision]);
+  // A setup-tool change rewrites settings outside this panel: re-read now
+  // while visible; a hidden panel refreshes on its next opening.
+  useEffect(() => subscribeSetupChanges(() => setRevision((value) => value + 1)), []);
   useEffect(() => {
     let live = true;
     const receive = (snapshot: SessionSnapshot) => {

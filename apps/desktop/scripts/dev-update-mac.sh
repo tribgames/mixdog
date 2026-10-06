@@ -9,11 +9,12 @@
 # version-skew drain in session-client.mjs never fires and a relaunched app
 # would otherwise attach to the still-running old session daemon.
 #
-# The build is unsigned (no Developer ID key leaves CI), so there is no
-# -ViaUpdater equivalent: macOS auto-update only accepts a bundle signed by the
-# same identity as the running one. Replacing an installed Developer ID build
-# with this ad-hoc build also means macOS asks again for keychain access and
-# privacy permissions (microphone, accessibility, screen recording).
+# No Developer ID key leaves CI, so there is no -ViaUpdater equivalent: macOS
+# auto-update only accepts a bundle signed by the same identity as the running
+# one. The build is signed with the local identity from
+# setup-dev-signing-mac.sh when present, so privacy grants and keychain access
+# survive rebuilds; without it the build is ad-hoc and macOS asks again on
+# every install. Replacing an installed Developer ID build asks again either way.
 #
 # Options:
 #   --skip-build    install the existing dist/mac-*/Mixdog.app
@@ -77,6 +78,11 @@ daemon_field() {
 
 join_pids() { tr '\n' ' ' | sed 's/ *$//'; }
 
+dev_sign_identity="${MIXDOG_DEV_SIGN_IDENTITY:-Mixdog Local Dev}"
+dev_identity_ready() {
+  security find-identity -v -p codesigning | grep -qF "\"$dev_sign_identity\""
+}
+
 stop_app() {
   local pids
   pids="$(app_pids | join_pids)"
@@ -123,8 +129,16 @@ build() {
     cd "$desktop_dir"
     npm run build
     npm run prepare:runtime
-    # Unsigned by design: dev builds never see the Developer ID secrets.
-    CSC_IDENTITY_AUTO_DISCOVERY=false npx --no-install electron-builder --mac --dir "--$arch" --publish never
+    # Dev builds never see the Developer ID secrets.
+    if dev_identity_ready; then
+      # No secure timestamp: only notarization needs one, and fetching it from
+      # Apple's server once per bundled file dominated the signing time.
+      CSC_NAME="$dev_sign_identity" npx --no-install electron-builder --mac --dir "--$arch" --publish never \
+        -c.mac.timestamp=none
+    else
+      echo "    no '$dev_sign_identity' signing identity: building ad-hoc (run scripts/setup-dev-signing-mac.sh to keep privacy grants across rebuilds)" >&2
+      CSC_IDENTITY_AUTO_DISCOVERY=false npx --no-install electron-builder --mac --dir "--$arch" --publish never
+    fi
   )
 }
 
@@ -140,7 +154,7 @@ daemon_before="$(daemon_field pid)"
 
 if $dry_run; then
   echo "plan (dry run, nothing changes)"
-  echo "  build          : $($skip_build && echo "skip (use $dist_app)" || echo "npm run build + prepare:runtime + electron-builder --mac --dir --$arch (unsigned)")"
+  echo "  build          : $($skip_build && echo "skip (use $dist_app)" || echo "npm run build + prepare:runtime + electron-builder --mac --dir --$arch ($(dev_identity_ready && echo "signed: $dev_sign_identity" || echo ad-hoc))")"
   echo "  install        : $dist_app -> $install_app (previous bundle goes to the Trash)"
   echo "  stop app       : $(app_pids | join_pids || true)"
   echo "  stop daemon    : $($keep_daemon && echo 'no (--keep-daemon)' || echo "${daemon_before:-(none running)}")"

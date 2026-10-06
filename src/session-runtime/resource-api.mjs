@@ -8,7 +8,7 @@ import { createExtensionSync } from './resource-extension-sync.mjs';
 import { createScopeDecorators } from './resource-scope-decorate.mjs';
 import { createMcpResourceApi } from './resource-mcp-api.mjs';
 import { createSkillsResourceApi } from './resource-skills-api.mjs';
-import { createPluginsResourceApi } from './resource-plugins-api.mjs';
+import { createPluginsResourceApi, findRegisteredPlugin } from './resource-plugins-api.mjs';
 import { createRecallResourceApi } from './resource-recall-api.mjs';
 
 export function createResourceApi(deps) {
@@ -27,8 +27,14 @@ export function createResourceApi(deps) {
       if (!EXTENSION_SCOPE_KINDS.includes(scopeKind)) {
         throw new Error(`extension scope kind must be one of ${EXTENSION_SCOPE_KINDS.join(', ')}`);
       }
-      const key = clean(name);
+      let key = clean(name);
       if (!key) throw new Error('extension name is required');
+      // Plugin scopes are keyed by registry id; a name must resolve to it.
+      if (scopeKind === 'plugins') {
+        const plugin = findRegisteredPlugin(pluginsStatus, key);
+        if (!plugin) throw new Error(`plugin not registered: ${key}`);
+        key = clean(plugin.id || plugin.name);
+      }
       let list = [projects];
       if (Array.isArray(projects)) list = projects;
       else if (projects == null) list = [];

@@ -71,6 +71,7 @@ import { createLagProfiler } from './daemon-lag-profiler.mjs';
 import { createChannelsRuntimeLoader } from './daemon-channels-loader.mjs';
 import { createDesktopRuntime } from './daemon-desktop-runtime.mjs';
 import { createCanonicalAgentControl } from './daemon-agent-control.mjs';
+import { registerAutomationAgentTool } from '../session-runtime/automation-agents.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -666,6 +667,9 @@ async function main() {
     getSessionRuntimeHost: () => sessionRuntimeHost,
     cwd: CWD,
   });
+  // Schedules and webhooks run headless here; their sessions reach the same
+  // canonical agent control through the automation tool scope.
+  registerAutomationAgentTool(agentControl.execute);
   const requestedRuntimeMode = String(process.env.MIXDOG_SESSION_RUNTIME_MODE || '')
     .trim()
     .toLowerCase();

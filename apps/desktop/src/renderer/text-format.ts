@@ -101,7 +101,7 @@ export function formatElapsed(value: unknown): string {
   return remainder ? `${text} ${uiTimeUnit(remainder, 'second')}` : text;
 }
 
-export const TURN_LOCKED_SLASH_COMMANDS = new Set(['clear', 'resume', 'outputstyle', 'effort', 'fast']);
+export const TURN_LOCKED_SLASH_COMMANDS = new Set(['clear', 'resume', 'outputstyle', 'effort', 'fast', 'inherit']);
 
 export async function copyTextToClipboard(value: string) {
   if (navigator.clipboard?.writeText) {

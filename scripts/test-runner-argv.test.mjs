@@ -141,9 +141,12 @@ test('explicit runs keep exact paths/globs, slow/live files, heap flags and prel
     import assert from 'node:assert/strict';
     import { appendFileSync } from 'node:fs';
     import test from 'node:test';
+    import v8 from 'node:v8';
     test('selected case', () => {
       assert.equal(globalThis.directPreload, true);
-      assert.ok(process.execArgv.includes('--max-old-space-size=128'));
+      // The cap that applies, not the flag text: Node 24 rebuilds a test
+      // process's execArgv and drops V8 flags, and the runner forwards them.
+      assert.ok(v8.getHeapStatistics().heap_size_limit < 512 * 1024 * 1024);
       assert.ok(process.env.MIXDOG_TEST_OOXML_CACHE_DIR);
       appendFileSync('selected.jsonl', JSON.stringify(import.meta.url) + '\\n');
     });

@@ -1870,7 +1870,10 @@ test('computer errors return one deterministic recovery instead of permission gu
       actions: [{ type: 'key', keys: '{ENTER}' }],
     },
   });
-  assert.match(focus, /Windows did not grant foreground focus\. Ask the user to activate window hwnd:0x123/);
+  assert.match(
+    focus,
+    /The system did not grant foreground focus \(macOS refuses it while another app is active\)\. Ask the user to activate window hwnd:0x123/
+  );
   assert.doesNotMatch(focus, /permission/i);
   const stale = formatComputerToolError('stale_frame: unknown frame_id frame-1', {
     action: 'act',
@@ -1889,7 +1892,7 @@ test('computer errors return one deterministic recovery instead of permission gu
   );
   assert.match(
     formatComputerToolError('Error: foreground_unavailable: target remained covered'),
-    /Windows did not grant foreground focus/
+    /The system did not grant foreground focus/
   );
   assert.deepEqual(
     computerToolErrorRecovery('computer_target_available_recapture_required: lease acquired', {

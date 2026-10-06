@@ -107,6 +107,11 @@ test('inspection reports empty target semantics and bounds each provider call', 
     assertExecutionNotAborted: () => {},
     readComputerWindows: async () => [windowRecord('hwnd:0x1', { focused: true, title: 'Fixture' })],
     readDisplays: () => [{ index: 0, id: 'display-1', primary: true, scale_factor: 1, width: 1920, height: 1080 }],
+    readPermissions: () => ({
+      screen_capture: 'not_required_on_windows',
+      accessibility: 'not_required_on_windows',
+      input: 'target_integrity_dependent',
+    }),
     isObserveOnly: () => false,
   });
   const diagnosis = JSON.parse(
@@ -405,7 +410,8 @@ test('canonical key chords become IME-safe Windows key sequences', () => {
   assert.equal(normalizeComputerKeySequence('ctrl-alt-escape'), '^%{ESC}');
   assert.equal(normalizeComputerKeySequence('ctrl+alt-escape'), '^%{ESC}');
   assert.equal(normalizeComputerKeySequence('ctrl+{ESC}'), '^{ESC}');
-  assert.equal(normalizeComputerKeySequence('CmdOrCtrl+Shift+P'), '^+P');
+  // CmdOrCtrl is the app-shortcut modifier: Command on macOS, Ctrl elsewhere.
+  assert.equal(normalizeComputerKeySequence('CmdOrCtrl+Shift+P'), process.platform === 'darwin' ? '#+P' : '^+P');
   assert.equal(normalizeComputerKeySequence('ctrl+ctrl+p'), '^P');
   assert.equal(normalizeComputerKeySequence('ctrl+-'), '^{MINUS}');
   assert.equal(normalizeComputerKeySequence('ctrl++'), '^{PLUS}');
@@ -443,12 +449,14 @@ test('canonical key chords become IME-safe Windows key sequences', () => {
   assert.equal(normalizeComputerKeySequence('PrintScreen'), '{PRTSC}');
   assert.equal(normalizeComputerKeySequence('ContextMenu'), '{APPS}');
   // cmd names the macOS modifier; elsewhere the refusal names this platform's keys.
-  assert.throws(
-    () => normalizeComputerKeySequence('cmd-shift-p'),
-    process.platform === 'win32'
-      ? /invalid_key_chord: unsupported modifier 'cmd'; on Windows use ctrl/
-      : /invalid_key_chord: unsupported modifier 'cmd'; on Linux use ctrl/
-  );
+  if (process.platform === 'darwin') assert.equal(normalizeComputerKeySequence('cmd-shift-p'), '#+P');
+  else
+    assert.throws(
+      () => normalizeComputerKeySequence('cmd-shift-p'),
+      process.platform === 'win32'
+        ? /invalid_key_chord: unsupported modifier 'cmd'; on Windows use ctrl/
+        : /invalid_key_chord: unsupported modifier 'cmd'; on Linux use ctrl/
+    );
   assert.throws(() => assertSafeComputerInput({ action: 'key', keys: 'win+l' }), /blocked_input/);
   assert.throws(() => assertSafeComputerInput({ action: 'key', keys: 'win+shift+l' }), /blocked_input/);
   assert.doesNotThrow(() => assertSafeComputerInput({ action: 'key', keys: 'win+r' }));
@@ -540,6 +548,26 @@ test('canonical key chords become IME-safe Windows key sequences', () => {
     '{TAB}{DELETE}',
   ]) {
     assert.doesNotThrow(() => assertSafeComputerInput({ action: 'key', keys }), keys);
+  }
+  if (process.platform === 'darwin') {
+    // Command is '#' on macOS: its session-ending and destructive chords.
+    for (const keys of [
+      'cmd+q',
+      'cmd+shift+q',
+      'cmd+option+shift+q',
+      'ctrl+cmd+q',
+      'cmd+option+esc',
+      'cmd+option+backspace',
+      'cmd+shift+backspace',
+      'cmd+shift+option+backspace',
+      'cmd+option+delete',
+      '#%{ESC}',
+    ]) {
+      assert.throws(() => assertSafeComputerInput({ action: 'key', keys }), /blocked_input/, keys);
+    }
+    for (const keys of ['cmd+backspace', 'cmd+c', 'cmd+w', 'cmd+esc', 'option+backspace', 'q', 'shift+q']) {
+      assert.doesNotThrow(() => assertSafeComputerInput({ action: 'key', keys }), keys);
+    }
   }
 });
 

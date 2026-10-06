@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { DesktopRemoteAccessInfo } from '../../shared/contract';
 import { t, uiFormatLocale } from '../i18n';
+import { subscribeSetupChanges } from '../setup-change-refresh';
 import { ActionButton, Group, ResourceRow } from './capability-controls';
 import type { CapabilityApi } from './capability-data';
 import {
@@ -51,9 +52,11 @@ function useConnectionInfoUpdates({
     };
     refresh();
     const timer = window.setInterval(refresh, 10_000);
+    const unsubscribe = subscribeSetupChanges(refresh);
     return () => {
       live = false;
       window.clearInterval(timer);
+      unsubscribe();
     };
   }, [ready, api]);
 

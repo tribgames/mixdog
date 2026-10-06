@@ -7,6 +7,7 @@ import { nativeWindowSurface } from './capture-native-surface';
 import { attemptCapture, CaptureSourceError, RECOVERABLE_CAPTURE_CODES, type Surface } from './capture-source-attempt';
 import { buildCapturePlan, type CaptureSourceRequest } from './capture-source-plan';
 import { frameQualityIssue } from './frame-quality';
+import { SCREEN_RECORDING_GUIDANCE, screenCaptureBlocked } from '../shared/permissions';
 import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
 
 export { fitCaptureImage } from './capture-source-plan';
@@ -21,7 +22,15 @@ const HIDDEN_WINDOW_ADVICE: Record<string, string> = {
 };
 
 export function createCaptureSources(
-  host: Pick<CaptureEngineHost, 'callPowerShell' | 'sessionIdFor' | 'assertExecutionNotAborted' | 'authorizeCapture'>
+  host: Pick<
+    CaptureEngineHost,
+    | 'callPowerShell'
+    | 'sessionIdFor'
+    | 'assertExecutionNotAborted'
+    | 'authorizeCapture'
+    | 'nativeSurfaceBackends'
+    | 'readPermissions'
+  >
 ) {
   /** The first backend in the plan that yields a checked surface wins. A
    *  failure the next backend cannot recover from, or an unconfirmed native
@@ -54,6 +63,14 @@ export function createCaptureSources(
         const code = computerErrorCode(error) || 'capture_source_unavailable';
         const cleanup = error instanceof CaptureSourceError ? error.cleanup : undefined;
         const hidden = HIDDEN_WINDOW_ADVICE[code];
+        // Without Screen Recording macOS hands back no foreign window at all;
+        // no later backend can recover that, and the grant is the user's.
+        if (entry.backend === 'composited' && screenCaptureBlocked(host.readPermissions())) {
+          return {
+            unavailable: pixelUnavailable('capture_source_unavailable', `composited: ${SCREEN_RECORDING_GUIDANCE}`),
+            terminal: true,
+          };
+        }
         if (error instanceof CaptureSourceError && error.issue) unavailable = error.issue;
         else if (hidden) unavailable = pixelUnavailable('window_hidden', `${entry.backend}: ${code}; ${hidden}`);
         else {

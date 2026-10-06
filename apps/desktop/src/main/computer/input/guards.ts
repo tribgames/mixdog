@@ -25,7 +25,22 @@ export const BLOCKED_COMPUTER_KEY_PATTERN_SOURCE = [
   .map((source) => `(?:${source})`)
   .join('|');
 
-export const BLOCKED_COMPUTER_KEY_PATTERNS = [new RegExp(BLOCKED_COMPUTER_KEY_PATTERN_SOURCE, 'i')];
+// On macOS '#' is Command, which makes these chords session-ending or
+// destructive there: any Command+Q (Quit, Log Out, Lock Screen), Force Quit
+// (Command+Option+Esc), and Finder's Delete Immediately / Empty Trash
+// (Command with Option or Shift plus Delete or Backspace).
+const MACOS_BLOCKED_COMPUTER_KEY_PATTERN_SOURCE = [
+  String.raw`(?=[%+^#]*#)[%+^#]*(?:Q|\{Q\})`,
+  String.raw`(?=[%+^#]*#)(?=[%+^#]*%)[%+^#]*\{ESC(?:\s+\d{1,3})?\}`,
+  String.raw`(?=[%+^#]*#)(?=[%+^#]*[%+])[%+^#]*\{(?:BACKSPACE|DEL|DELETE)(?:\s+\d{1,3})?\}`,
+]
+  .map((source) => `(?:${source})`)
+  .join('|');
+
+export const BLOCKED_COMPUTER_KEY_PATTERNS = [
+  new RegExp(BLOCKED_COMPUTER_KEY_PATTERN_SOURCE, 'i'),
+  ...(process.platform === 'darwin' ? [new RegExp(MACOS_BLOCKED_COMPUTER_KEY_PATTERN_SOURCE, 'i')] : []),
+];
 
 export const BLOCKED_COMPUTER_TYPE_PATTERNS = [
   /\bcurl\b[^|\r\n]*\|\s*(?:bash|sh)\b/i,

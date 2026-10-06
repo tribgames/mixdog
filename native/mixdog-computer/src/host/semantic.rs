@@ -59,7 +59,7 @@ fn node_state(node: &Node) -> String {
 }
 
 impl Host {
-    fn accessibility(&self) -> Res<&dyn Accessibility> {
+    pub(super) fn accessibility(&self) -> Res<&dyn Accessibility> {
         let a11y = self.desktop.accessibility().ok_or_else(|| {
             format!(
                 "accessibility_unavailable: {} exposes no accessibility tree to this host",

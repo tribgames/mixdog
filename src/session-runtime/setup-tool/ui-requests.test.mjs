@@ -62,6 +62,7 @@ test('setup uses the Desktop receipt rather than treating notification delivery 
     getApi: () => ({}),
     getSessionId: () => 's',
     notifySessionUi: (_session, _content, meta) => {
+      if (meta.kind !== 'setup-ui') return true;
       queueMicrotask(() => {
         const claim = executor.claimSetupRequest(meta.id, 'local-desktop');
         assert.equal(claim.args.action, 'set_desktop_settings');
@@ -89,6 +90,7 @@ test('Git and Office installs run on a claiming Desktop; only an unclaimed reque
     }),
     getSessionId: () => 's',
     notifySessionUi: (_session, _content, meta) => {
+      if (meta.kind !== 'setup-ui') return true;
       if (desktop === 'absent') return false;
       queueMicrotask(() => {
         const claim = executor.claimSetupRequest(meta.id, 'local-desktop');

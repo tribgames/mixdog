@@ -315,7 +315,6 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .workspace-tabs-shell > .workspace-tab-new {
   position: relative;
   z-index: 3;
-  background: var(--mx-window-band);
 }
 .workspace-tabs[data-group-dragging="true"] {
   cursor: grabbing;

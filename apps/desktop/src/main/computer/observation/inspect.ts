@@ -6,6 +6,13 @@
 import { elapsedMs } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import type { ComputerWindowRecord } from '../shared/window-transition';
+import {
+  ACCESSIBILITY_GUIDANCE,
+  SCREEN_RECORDING_GUIDANCE,
+  accessibilityBlocked,
+  screenCaptureBlocked,
+  type ComputerPermissions,
+} from '../shared/permissions';
 import { assertOcrLanguageTag } from './analysis';
 import { type ProbeReport, probeAccessibility, probeInputObservation, probeOcr } from './diagnose-probes';
 import { verifyWindowState } from './verify-window';
@@ -23,6 +30,7 @@ export interface InspectHost {
   assertExecutionNotAborted(): void;
   readComputerWindows(command: ComputerCommand, includeApp?: boolean): Promise<ComputerWindowRecord[] | null>;
   readDisplays(): Array<Record<string, unknown>>;
+  readPermissions(): ComputerPermissions;
   isObserveOnly(): boolean;
   readInputState?(): { userControlActive: boolean; cleanupState?: string; takeoverReason?: string };
 }
@@ -40,6 +48,7 @@ interface Diagnosis {
   ocr: ProbeReport;
   inputObservation: ProbeReport;
   displays: Array<Record<string, unknown>>;
+  permissions: ComputerPermissions;
   inputState: InputState | undefined;
   inputBlocked: boolean;
   observeOnly: boolean;
@@ -58,12 +67,16 @@ function diagnoseIssues(diagnosis: Diagnosis): string[] {
         : String(inputObservation.error || 'foreground input observation is unavailable')
     );
   }
-  if (diagnosis.accessibility.available === false) {
+  // A missing OS grant is the cause of the probe's own failure: name the
+  // grant once instead of also repeating the probe's restatement of it.
+  if (accessibilityBlocked(diagnosis.permissions)) issues.push(ACCESSIBILITY_GUIDANCE);
+  else if (diagnosis.accessibility.available === false) {
     issues.push(String(diagnosis.accessibility.reason || 'accessibility unavailable'));
   }
   if (command.ocr_language && diagnosis.ocr.available !== true) {
-    issues.push(`Windows OCR language is unavailable: ${command.ocr_language}`);
+    issues.push(`OCR language is unavailable: ${command.ocr_language}`);
   }
+  if (screenCaptureBlocked(diagnosis.permissions)) issues.push(SCREEN_RECORDING_GUIDANCE);
   return issues;
 }
 
@@ -109,11 +122,7 @@ function diagnoseReport(diagnosis: Diagnosis): ComputerCommandResult {
         browser_content_route: 'preserve_selected_session',
         capture_probe: 'run capture against an exact target; diagnostics does not expose screen pixels',
       },
-      permissions: {
-        screen_capture: 'not_required_on_windows',
-        accessibility: 'not_required_on_windows',
-        input: 'target_integrity_dependent',
-      },
+      permissions: diagnosis.permissions,
       displays: diagnosis.displays,
       issues: diagnoseIssues(diagnosis),
       timings_ms: { total_ms: elapsedMs(diagnosis.startedAt) },
@@ -122,7 +131,7 @@ function diagnoseReport(diagnosis: Diagnosis): ComputerCommandResult {
 }
 
 export function createInspection(host: InspectHost) {
-  const { readComputerWindows, readDisplays, isObserveOnly } = host;
+  const { readComputerWindows, readDisplays, readPermissions, isObserveOnly } = host;
 
   async function diagnoseComputer(command: ComputerCommand): Promise<ComputerCommandResult> {
     assertOcrLanguageTag(command.ocr_language);
@@ -136,6 +145,7 @@ export function createInspection(host: InspectHost) {
     const ocr = await probeOcr(host, command);
     const inputObservation = await probeInputObservation(host, command);
     const displays = readDisplays();
+    const permissions = readPermissions();
     const inputState = host.readInputState?.();
     const inputBlocked = Boolean(
       inputState?.userControlActive || (inputState?.cleanupState && inputState.cleanupState !== 'ready')
@@ -150,6 +160,7 @@ export function createInspection(host: InspectHost) {
       ocr,
       inputObservation,
       displays,
+      permissions,
       inputState,
       inputBlocked,
       observeOnly: isObserveOnly(),

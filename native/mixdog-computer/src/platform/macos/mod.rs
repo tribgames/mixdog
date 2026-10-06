@@ -23,11 +23,49 @@ use core_foundation::boolean::CFBoolean;
 use core_foundation::dictionary::CFDictionary;
 use core_foundation::string::CFString;
 use ffi::*;
-use input::{button_events, flag, flags_of, keycode, Poster, ProcessKeys, Route};
+use input::{button_events, flag, flags_of, keycode, Dest, Poster, ProcessKeys, Route};
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// The pid of the application the system names active right now; `None`
+/// without accessibility trust.
+fn ax_focused_application_pid() -> Option<i32> {
+    if !trusted() {
+        return None;
+    }
+    // SAFETY: returns a +1 system-wide AX element.
+    let system = unsafe { CFType::wrap_under_create_rule(AXUIElementCreateSystemWide()) };
+    let app = ax_copy(system.as_CFTypeRef() as _, "AXFocusedApplication").ok()?;
+    let pid = ax_pid(app.as_CFTypeRef() as _);
+    (pid > 0).then_some(pid)
+}
+
+/// The window holding the element under a screen point, as accessibility hit
+/// testing reports it; `None` without trust or when the point names no window.
+fn ax_window_at(x: f32, y: f32) -> Option<Wid> {
+    if !trusted() {
+        return None;
+    }
+    // SAFETY: returns a +1 system-wide AX element.
+    let system = unsafe { CFType::wrap_under_create_rule(AXUIElementCreateSystemWide()) };
+    let mut raw: AXUIElementRef = std::ptr::null();
+    // SAFETY: system is live; raw is a valid out pointer.
+    let status =
+        unsafe { AXUIElementCopyElementAtPosition(system.as_CFTypeRef() as _, x, y, &mut raw) };
+    if status != kAXErrorSuccess || raw.is_null() {
+        return None;
+    }
+    // SAFETY: the element came back under the create rule.
+    let element = unsafe { CFType::wrap_under_create_rule(raw as _) };
+    let window = if ax_window_number(element.as_CFTypeRef() as _).is_some() {
+        element
+    } else {
+        ax_copy(element.as_CFTypeRef() as _, "AXWindow").ok()?
+    };
+    ax_window_number(window.as_CFTypeRef() as _).map(|number| number as Wid)
+}
 
 fn require_trust() -> Result<(), String> {
     if trusted() {
@@ -53,30 +91,29 @@ pub struct MacBackground {
 }
 
 impl MacBackground {
-    fn click(
-        &self,
-        pid: i32,
-        window: u32,
-        x: f64,
-        y: f64,
-        button: Button,
-        count: u32,
-        flags: u64,
-    ) -> Result<(), String> {
+    /// The pointer delivery for one background gesture on `handle`, with the
+    /// window made active inside its app so the gesture is not spent as a
+    /// first mouse.
+    fn target(&self, handle: Wid, flags: u64) -> Result<(i32, Dest), String> {
+        let window = windows::one(handle)
+            .filter(|window| window.pid > 0)
+            .ok_or_else(|| {
+                "stale_target|the target window no longer exists; no input sent".to_string()
+            })?;
+        skylight::activate_without_raise(window.pid, window.number);
+        Ok((
+            window.pid,
+            Dest::process(window.pid, window.number, window.bounds.origin, flags),
+        ))
+    }
+
+    /// A move first, as a real pointer arrives before it presses.
+    fn click(&self, dest: Dest, x: f64, y: f64, button: Button, count: u32) -> Result<(), String> {
         let (down, up, number) = button_events(button);
+        self.poster.mouse(kCGEventMouseMoved, x, y, 0, 1, dest)?;
         for press in 1..=count {
-            self.poster.mouse(
-                down,
-                x,
-                y,
-                number,
-                press,
-                Route::Process(pid),
-                window,
-                flags,
-            )?;
-            self.poster
-                .mouse(up, x, y, number, press, Route::Process(pid), window, flags)?;
+            self.poster.mouse(down, x, y, number, press, dest)?;
+            self.poster.mouse(up, x, y, number, press, dest)?;
         }
         Ok(())
     }
@@ -97,18 +134,17 @@ impl Background for MacBackground {
         modifiers: &[Mod],
     ) -> Result<String, String> {
         self.validate(window, kind)?;
-        let pid = window_pid(window)?;
-        let flags = flags_of(modifiers);
-        let (fx, fy, number) = (x as f64, y as f64, window as u32);
+        let (pid, dest) = self.target(window, flags_of(modifiers))?;
+        let (fx, fy) = (x as f64, y as f64);
         match kind {
-            "click" => self.click(pid, number, fx, fy, Button::Left, 1, flags)?,
-            "double" => self.click(pid, number, fx, fy, Button::Left, 2, flags)?,
-            "triple" => self.click(pid, number, fx, fy, Button::Left, 3, flags)?,
-            "right" => self.click(pid, number, fx, fy, Button::Right, 1, flags)?,
-            "middle" => self.click(pid, number, fx, fy, Button::Middle, 1, flags)?,
-            "move" => self.poster.mouse(kCGEventMouseMoved, fx, fy, 0, 1, Route::Process(pid), number, flags)?,
-            "press" => self.poster.mouse(kCGEventLeftMouseDown, fx, fy, 0, 1, Route::Process(pid), number, flags)?,
-            "release" => self.poster.mouse(kCGEventLeftMouseUp, fx, fy, 0, 1, Route::Process(pid), number, flags)?,
+            "click" => self.click(dest, fx, fy, Button::Left, 1)?,
+            "double" => self.click(dest, fx, fy, Button::Left, 2)?,
+            "triple" => self.click(dest, fx, fy, Button::Left, 3)?,
+            "right" => self.click(dest, fx, fy, Button::Right, 1)?,
+            "middle" => self.click(dest, fx, fy, Button::Middle, 1)?,
+            "move" => self.poster.mouse(kCGEventMouseMoved, fx, fy, 0, 1, dest)?,
+            "press" => self.poster.mouse(kCGEventLeftMouseDown, fx, fy, 0, 1, dest)?,
+            "release" => self.poster.mouse(kCGEventLeftMouseUp, fx, fy, 0, 1, dest)?,
             other => return Err(format!("background_unsupported|pointer kind {other} has no background route; no input sent")),
         }
         Ok(format!("pid {pid}"))
@@ -124,25 +160,17 @@ impl Background for MacBackground {
         modifiers: &[Mod],
     ) -> Result<String, String> {
         self.validate(window, "scroll")?;
-        let pid = window_pid(window)?;
+        let (pid, dest) = self.target(window, flags_of(modifiers))?;
         self.poster.mouse(
             kCGEventMouseMoved,
             x as f64,
             y as f64,
             0,
             1,
-            Route::Process(pid),
-            window as u32,
-            0,
+            Dest { flags: 0, ..dest },
         )?;
-        self.poster.wheel(
-            x as f64,
-            y as f64,
-            clicks,
-            horizontal,
-            Route::Process(pid),
-            flags_of(modifiers),
-        )?;
+        self.poster
+            .wheel(x as f64, y as f64, clicks, horizontal, dest)?;
         Ok(format!("pid {pid}"))
     }
 
@@ -153,52 +181,27 @@ impl Background for MacBackground {
         modifiers: &[Mod],
     ) -> Result<String, String> {
         self.validate(window, "drag")?;
-        let pid = window_pid(window)?;
-        let flags = flags_of(modifiers);
-        let number = window as u32;
+        let (pid, dest) = self.target(window, flags_of(modifiers))?;
         let (x0, y0) = points[0];
-        self.poster.mouse(
-            kCGEventLeftMouseDown,
-            x0 as f64,
-            y0 as f64,
-            0,
-            1,
-            Route::Process(pid),
-            number,
-            flags,
-        )?;
+        self.poster
+            .mouse(kCGEventLeftMouseDown, x0 as f64, y0 as f64, 0, 1, dest)?;
         let travel = (|| -> Result<(), String> {
             for pair in points.windows(2) {
                 let ((fx, fy), (tx, ty)) = (pair[0], pair[1]);
                 for step in 1..=12 {
                     let x = fx + (tx - fx) * step / 12;
                     let y = fy + (ty - fy) * step / 12;
-                    self.poster.mouse(
-                        kCGEventLeftMouseDragged,
-                        x as f64,
-                        y as f64,
-                        0,
-                        1,
-                        Route::Process(pid),
-                        number,
-                        flags,
-                    )?;
+                    self.poster
+                        .mouse(kCGEventLeftMouseDragged, x as f64, y as f64, 0, 1, dest)?;
                     std::thread::sleep(std::time::Duration::from_millis(12));
                 }
             }
             Ok(())
         })();
         let (lx, ly) = points[points.len() - 1];
-        let released = self.poster.mouse(
-            kCGEventLeftMouseUp,
-            lx as f64,
-            ly as f64,
-            0,
-            1,
-            Route::Process(pid),
-            number,
-            flags,
-        );
+        let released = self
+            .poster
+            .mouse(kCGEventLeftMouseUp, lx as f64, ly as f64, 0, 1, dest);
         travel?;
         released.map_err(|error| {
             format!("input_cleanup_unconfirmed: background drag release failed: {error}")
@@ -307,9 +310,7 @@ impl MacDesktop {
             y as f64,
             button,
             clicks,
-            Route::System,
-            0,
-            self.poster.flags.get(),
+            Dest::system(self.poster.flags.get()),
         )
     }
 }
@@ -352,10 +353,26 @@ impl Desktop for MacDesktop {
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
+        if appkit::frontmost_pid() != pid && appkit::activate_through_launch_services(pid) {
+            ax_perform(window.element.as_CFTypeRef(), "AXRaise");
+            ax_set(window.element.as_CFTypeRef(), "AXMain", &cf_bool(true));
+            for _ in 0..50 {
+                if windows::focused_window() == handle {
+                    return true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        }
         false
     }
 
     fn window_at_point(&self, x: i32, y: i32) -> Wid {
+        // The window server answers which window a click at the point reaches.
+        // The geometric stack below counts the Dock's full-screen layer-20
+        // window as covering every point, which refused every foreground click.
+        if let Some(hit) = ax_window_at(x as f32, y as f32) {
+            return hit;
+        }
         let (fx, fy) = (x as f64, y as f64);
         windows::onscreen()
             .into_iter()
@@ -507,8 +524,7 @@ impl Desktop for MacDesktop {
             y as f64,
             clicks,
             horizontal,
-            Route::System,
-            self.poster.flags.get(),
+            Dest::system(self.poster.flags.get()),
         )
     }
 
@@ -545,7 +561,7 @@ impl Desktop for MacDesktop {
         let session: CFDictionary<CFString, CFType> =
             unsafe { CFDictionary::wrap_under_create_rule(session) };
         let locked = session
-            .find(&CFString::new("CGSSessionScreenIsLocked"))
+            .find(CFString::new("CGSSessionScreenIsLocked"))
             .and_then(|value| value.downcast::<CFBoolean>())
             .is_some_and(bool::from);
         !locked

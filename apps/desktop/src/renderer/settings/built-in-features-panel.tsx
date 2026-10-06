@@ -12,6 +12,7 @@ import type {
 import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
+import { subscribeSetupChanges } from '../setup-change-refresh';
 import type { SidebarResourceTag } from '../sidebar-resource-row';
 import { CompactSwitch, Group } from './capability-controls';
 import { sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
@@ -73,15 +74,19 @@ function useDesktopFeatureStatus(api: PanelContext['api']) {
   const [officeDependency, setOfficeDependency] = useState<DesktopLibreOfficeStatus | null>(null);
   useEffect(() => {
     let live = true;
-    void api
-      .readSettings?.()
-      .then((next) => {
-        desktopSettingsCache.set(api as object, next);
-        if (live) setSettings(next);
-      })
-      .catch(() => {});
+    const read = () =>
+      void api
+        .readSettings?.()
+        .then((next) => {
+          desktopSettingsCache.set(api as object, next);
+          if (live) setSettings(next);
+        })
+        .catch(() => {});
+    read();
+    const unsubscribe = subscribeSetupChanges(read);
     return () => {
       live = false;
+      unsubscribe();
     };
   }, [api]);
   useEffect(() => {
@@ -112,6 +117,8 @@ type FeatureState = {
   installed: boolean;
   enabled: boolean;
   ready: boolean;
+  /** False only where this host has no build of the feature at all. */
+  supported: boolean;
   available: boolean;
   /** Any card's action (or a panel-wide pending) blocks every control, so the
    *  visible state always matches the panel's single-action guard. */
@@ -126,12 +133,14 @@ type FeatureState = {
 function featureStatus({
   ready,
   installed,
+  supported,
   available,
   action,
   progressPercent,
   enabled,
 }: FeatureState): SidebarResourceTag | null {
-  if (!available || !ready) return null;
+  if (!ready) return null;
+  if (!available) return supported ? null : { label: t('Unavailable'), tone: 'muted' };
   if (action?.status === 'installing') {
     const label = progressPercent === null ? t('Installing…') : `${t('Installing…')} ${progressPercent}%`;
     return { label, tone: 'muted' };
@@ -153,7 +162,7 @@ function FeatureControl({
   onInstall(): void;
   onToggle(enabled: boolean): void;
 }) {
-  const { feature, installed, enabled, ready, available, busy, action, progressPercent } = state;
+  const { feature, installed, enabled, ready, supported, available, busy, action, progressPercent } = state;
   const installing = action?.status === 'installing';
   const failed = action?.status === 'failed';
   let control = (
@@ -170,7 +179,7 @@ function FeatureControl({
   } else if (installing) {
     control = <SlotProgress percent={progressPercent} label={t('Installing {{name}}…', { name: t(feature.title) })} />;
   } else if (!installed && feature.id === 'localProvider') {
-    control = <span>{t('Install through chat')}</span>;
+    control = <span>{t(available || supported ? 'Install through chat' : 'Unavailable')}</span>;
   } else if (!installed) {
     control = (
       <button
@@ -293,7 +302,6 @@ export function BuiltInFeaturesPanel({
   );
   const voice = record(data.voice);
   const progress = voiceProgress(snapshot);
-  const windows = navigator.userAgent.includes('Windows');
   // Built-in skills ride their feature's Install and toggle, so the card names
   // them instead of the Skills panel listing them as loose entries.
   const bundledSkills = useMemo<Partial<Record<BuiltInFeatureId, RecordValue[]>>>(() => {
@@ -436,10 +444,10 @@ export function BuiltInFeaturesPanel({
     localProvider.installations.some((entry) => installationActive(record(entry)));
   const busy = Boolean(pending) || (action !== null && action.status !== 'failed') || localInstalling;
   const stateOf = (feature: BuiltInFeatureDefinition): FeatureState => {
-    const available =
-      feature.id === 'localProvider'
-        ? windows && localProvider.available !== false
-        : feature.platform !== 'windows' || windows;
+    // Local Provider runs where the runtime pins a llama.cpp build (Windows
+    // CUDA, Apple Silicon Metal); its catalog says so for this host.
+    const supported = feature.id !== 'localProvider' || localProvider.platformSupported !== false;
+    const available = feature.id !== 'localProvider' || (supported && localProvider.available !== false);
     // Every entry waits for its own status source before painting a control,
     // so an Install pill never flashes into a toggle (or back).
     let ready = sectionLoaded(data, 'toolModules');
@@ -460,6 +468,7 @@ export function BuiltInFeaturesPanel({
       installed: installed[feature.id],
       enabled: optimistic?.id === feature.id ? optimistic.value : enabled[feature.id],
       ready,
+      supported,
       available,
       busy,
       action: action?.id === feature.id ? action : null,

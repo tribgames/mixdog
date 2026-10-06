@@ -14,9 +14,11 @@ import { appendDocxBlock, docxBodyModel } from './portable-snapshot.mjs';
 import {
   OFFICE_RELATIONSHIP_BASE,
   XML_HEADER,
+  containerInner,
   paragraphTexts,
   replaceAcrossRuns,
   textNodes,
+  topLevelElements,
   upsertOrderedChild,
   xmlEncode,
 } from './portable-xml.mjs';
@@ -110,8 +112,33 @@ function bodyParagraphAt(model, ordinal) {
   return paragraph;
 }
 
+// The paragraphs inside the body's tables, with offsets into the body like a
+// top-level paragraph's, so one can be spliced back the same way.
+function tableCellParagraphs(model) {
+  const paragraphs = [];
+  const inside = (xml, tag, base, accepted, visit) => {
+    const container = containerInner(xml, tag);
+    if (!container) return;
+    for (const child of topLevelElements(container.inner, accepted)) visit(child, base + container.start + child.start);
+  };
+  for (const block of model.blocks.filter((entry) => entry.name === 'w:tbl')) {
+    inside(block.xml, 'w:tbl', block.start, ['w:tr'], (row, rowStart) =>
+      inside(row.xml, 'w:tr', rowStart, ['w:tc'], (cell, cellStart) =>
+        inside(cell.xml, 'w:tc', cellStart, ['w:p'], (paragraph, start) =>
+          paragraphs.push({ ...paragraph, start, end: start + paragraph.xml.length })
+        )
+      )
+    );
+  }
+  return paragraphs;
+}
+
+// A phrase the body does not hold may sit in a table cell, where Word anchors
+// a comment, hyperlink, or bookmark just as well; without Office this was the
+// only backend, and a Mac could not comment on any table text.
 function paragraphContaining(model, find) {
-  return bodyParagraphs(model).find((entry) => paragraphTexts(entry.xml, 'w:t').join('').includes(find));
+  const holds = (entry) => paragraphTexts(entry.xml, 'w:t').join('').includes(find);
+  return bodyParagraphs(model).find(holds) || tableCellParagraphs(model).find(holds);
 }
 
 // Splice one rewritten paragraph back into the document body.

@@ -2,7 +2,9 @@
 export const CURSOR_SIZE = 136;
 export const CURSOR_HOTSPOT = 60;
 
-/** Both modes draw their own pointer at the action point, so the user's own cursor is never restyled. */
+/** The overlay draws its own pointer at the action point, so the user's own cursor is never restyled.
+ *  Where the real pointer stays visible at that point (foreground input outside Windows), the overlay
+ *  draws only the effect around it rather than a second arrow. */
 export function cursorHtml(): string {
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'">
@@ -11,6 +13,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent
 #surface{width:100%;height:100%;opacity:0;transition:opacity 100ms linear;--accent:#58a6ff;--hotspot:${CURSOR_HOTSPOT}px;--soft:color-mix(in srgb,var(--accent) 22%,transparent);--glow:color-mix(in srgb,var(--accent) 40%,transparent)}
 #surface.visible{opacity:1}
 #arrow{position:absolute;left:var(--hotspot);top:var(--hotspot);width:38px;height:49px;fill:url(#arrow-fill);stroke:#fff;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round;filter:drop-shadow(0 1px 2px #0b1b2e77) drop-shadow(0 0 10px var(--glow))}
+#surface[data-pointer="system"] #arrow{display:none}
 #arrow .sheen{stop-color:color-mix(in srgb,var(--accent) 40%,white)}
 #arrow .core{stop-color:var(--accent)}
 #halo,#ring,#echo{position:absolute;left:calc(var(--hotspot) - 28px);top:calc(var(--hotspot) - 28px);width:56px;height:56px;box-sizing:border-box;border-radius:50%;opacity:0;transform-origin:center}
@@ -56,6 +59,7 @@ export function cursorScript(): string {
     window.mixdogAgentCursor = state => {
       surface.style.setProperty('--accent', state.accent || '#58a6ff');
       surface.dataset.mode = state.mode === 'background' ? 'background' : 'foreground';
+      surface.dataset.pointer = state.systemPointer ? 'system' : 'own';
       surface.className = 'visible';
       void surface.offsetWidth;
       surface.className = 'visible ' + (state.effect || 'move');

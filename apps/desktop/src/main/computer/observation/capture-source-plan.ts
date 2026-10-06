@@ -84,7 +84,7 @@ export function buildCapturePlan(host: NativeSurfaceHost, request: CaptureSource
   }
   plan.push({ backend: 'composited', acquire: () => compositedSurface(request) });
   if (windowId)
-    for (const backend of ['print_window', 'wgc'] as const) {
+    for (const backend of host.nativeSurfaceBackends) {
       plan.push({
         backend,
         acquire: () => nativeWindowSurface(host, command, windowId, backend, attempts, request.client),

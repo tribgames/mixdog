@@ -30,7 +30,9 @@ const scope = {
   observedAt: Date.now(),
   inputObservation: { ready: true, monitor: 'fixture', sequence: 0 },
 };
-const WINDOWS_ONLY = { skip: process.platform !== 'win32' && 'Windows only' };
+// Native coordinates equal DIPs on macOS; the fixture's screen has no Linux
+// scaling, so these host-level checks run where native points are known.
+const NATIVE_POINTS_KNOWN = { skip: !['win32', 'darwin'].includes(process.platform) && 'Windows and macOS only' };
 
 function fixture(replyFor) {
   const requests = [];
@@ -144,7 +146,7 @@ const command = {
 
 test(
   'background sequence batches native phases but retains per-step checkpoints and one capture',
-  WINDOWS_ONLY,
+  NATIVE_POINTS_KNOWN,
   async () => {
     const f = fixture();
     const reply = await f.router.runCommand(command);
@@ -174,33 +176,37 @@ test(
   }
 );
 
-test('foreground sequences keep recovery and ordinary non-sequence inputs are not batched', WINDOWS_ONLY, async () => {
-  const foreground = fixture();
-  assert.equal(
-    JSON.parse((await foreground.router.runCommand({ ...command, delivery: 'foreground' })).text).completed,
-    true
-  );
-  assert.deepEqual(
-    foreground.requests.map((request) => request.action),
-    ['key', 'type']
-  );
-  // The worker request is a field whitelist. A continuation flag that never
-  // reaches it costs nothing visible and silently reacquires the cursor theme
-  // for every step, so assert the flag on the wire rather than on the command.
-  assert.deepEqual(
-    foreground.requests.map((request) => request.input_continues),
-    [true, null]
-  );
-  assert.deepEqual(foreground.counters(), { separateReads: 2, separateSettles: 2, recoveries: 2 });
-  const ordinary = fixture();
-  await ordinary.router.runCommand({ action: 'key', window_id: 'hwnd:0x1', keys: '{TAB}' });
-  assert.deepEqual(
-    ordinary.requests.map((request) => request.action),
-    ['key']
-  );
-});
+test(
+  'foreground sequences keep recovery and ordinary non-sequence inputs are not batched',
+  NATIVE_POINTS_KNOWN,
+  async () => {
+    const foreground = fixture();
+    assert.equal(
+      JSON.parse((await foreground.router.runCommand({ ...command, delivery: 'foreground' })).text).completed,
+      true
+    );
+    assert.deepEqual(
+      foreground.requests.map((request) => request.action),
+      ['key', 'type']
+    );
+    // The worker request is a field whitelist. A continuation flag that never
+    // reaches it costs nothing visible and silently reacquires the cursor theme
+    // for every step, so assert the flag on the wire rather than on the command.
+    assert.deepEqual(
+      foreground.requests.map((request) => request.input_continues),
+      [true, null]
+    );
+    assert.deepEqual(foreground.counters(), { separateReads: 2, separateSettles: 2, recoveries: 2 });
+    const ordinary = fixture();
+    await ordinary.router.runCommand({ action: 'key', window_id: 'hwnd:0x1', keys: '{TAB}' });
+    assert.deepEqual(
+      ordinary.requests.map((request) => request.action),
+      ['key']
+    );
+  }
+);
 
-test('a later ref step keeps the observation refs alive only up to that step', WINDOWS_ONLY, async () => {
+test('a later ref step keeps the observation refs alive only up to that step', NATIVE_POINTS_KNOWN, async () => {
   const byRef = {
     action: 'sequence',
     window_id: 'hwnd:0x1',
@@ -237,7 +243,7 @@ test('a later ref step keeps the observation refs alive only up to that step', W
   assert.equal(forged.requests[0].retain_refs, undefined, 'only a vetted sequence step can keep refs');
 });
 
-test('a later step addresses elements by ref only', WINDOWS_ONLY, async () => {
+test('a later step addresses elements by ref only', NATIVE_POINTS_KNOWN, async () => {
   const f = fixture();
   for (const [step, pattern] of [
     [{ action: 'type', x: 4, y: 4, text: 'x' }, /by ref only/],
@@ -256,7 +262,7 @@ test('a later step addresses elements by ref only', WINDOWS_ONLY, async () => {
 
 test(
   'a native batch successor is claimed and captured without dispatching the old continuation',
-  WINDOWS_ONLY,
+  NATIVE_POINTS_KNOWN,
   async () => {
     const child = { ...windows[0], id: 'hwnd:0x2', owner_id: 'hwnd:0x1', focused: true };
     const f = fixture(() => ({
@@ -277,31 +283,39 @@ test(
   }
 );
 
-test('failed or incomplete native step replies are never retried or followed by more input', WINDOWS_ONLY, async () => {
-  for (const response of [
-    { id: 1, ok: false, error: 'computer_policy_expired: stopped before native dispatch' },
-    { id: 1, ok: true, result: { step_result: { action: 'key' } } },
-  ]) {
-    const f = fixture(() => response);
-    const payload = JSON.parse((await f.router.runCommand(command)).text);
-    assert.equal(payload.completed, false);
-    assert.equal(f.requests.length, 1);
-    assert.deepEqual(
-      payload.steps.map((step) => step.status),
-      ['failed', 'skipped']
-    );
+test(
+  'failed or incomplete native step replies are never retried or followed by more input',
+  NATIVE_POINTS_KNOWN,
+  async () => {
+    for (const response of [
+      { id: 1, ok: false, error: 'computer_policy_expired: stopped before native dispatch' },
+      { id: 1, ok: true, result: { step_result: { action: 'key' } } },
+    ]) {
+      const f = fixture(() => response);
+      const payload = JSON.parse((await f.router.runCommand(command)).text);
+      assert.equal(payload.completed, false);
+      assert.equal(f.requests.length, 1);
+      assert.deepEqual(
+        payload.steps.map((step) => step.status),
+        ['failed', 'skipped']
+      );
+    }
   }
-});
+);
 
-test('a pause or cancellation during the native batch cannot dispatch a continuation', WINDOWS_ONLY, async () => {
-  const paused = fixture(() => ({ id: 1, ok: false, error: 'user_input_active: native input interrupted' }));
-  await assert.rejects(paused.router.runCommand(command), /user_input_active/);
-  assert.equal(paused.requests.length, 1);
-  assert.deepEqual(paused.captures, []);
-  const stopped = fixture((_, __, abort) => {
-    abort();
-  });
-  await assert.rejects(stopped.router.runCommand(command), /computer_session_aborted/);
-  assert.equal(stopped.requests.length, 1);
-  assert.deepEqual(stopped.captures, []);
-});
+test(
+  'a pause or cancellation during the native batch cannot dispatch a continuation',
+  NATIVE_POINTS_KNOWN,
+  async () => {
+    const paused = fixture(() => ({ id: 1, ok: false, error: 'user_input_active: native input interrupted' }));
+    await assert.rejects(paused.router.runCommand(command), /user_input_active/);
+    assert.equal(paused.requests.length, 1);
+    assert.deepEqual(paused.captures, []);
+    const stopped = fixture((_, __, abort) => {
+      abort();
+    });
+    await assert.rejects(stopped.router.runCommand(command), /computer_session_aborted/);
+    assert.equal(stopped.requests.length, 1);
+    assert.deepEqual(stopped.captures, []);
+  }
+);

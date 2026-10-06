@@ -37,6 +37,7 @@ export type ConversationComposerActions = {
   onOpenSettings: (section?: SettingsSection | null) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
   onClearToNewTask?: (sessionId: string) => void;
+  onInherit: () => Promise<boolean>;
 };
 
 export function useConversationComposerActions({
@@ -165,12 +166,14 @@ export function useConversationComposerActions({
     (surface: CommandSurfaceName) => composerActions.current.onOpenCommandSurface(surface),
     []
   );
+  const composerOnInherit = useCallback(() => composerActions.current.onInherit(), []);
   return {
     composerAbort,
     composerApplySnapshot,
     composerInvokeResult,
     composerOnClearToNewTask,
     composerOnNewTask,
+    composerOnInherit,
     composerOnOpenCommandSurface,
     composerOnOpenProjects,
     composerOnOpenSessions,

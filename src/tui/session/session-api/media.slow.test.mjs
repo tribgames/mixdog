@@ -50,7 +50,16 @@ test('prepareTranscription reports a missing runtime, then warms the server the 
   t.mock.method(childProcess, 'spawn', (command, args, options) => {
     if (command === layout?.ffmpegPath) {
       ffmpegRuns.push(args);
-      const script = `require('fs').writeFileSync(${JSON.stringify(args.at(-1))}, 'first audio')`;
+      // A real 16 kHz mono s16le wav whose PCM bytes carry the fixture's marker.
+      const script = `
+        const pcm = Buffer.from('first audio!');
+        const header = Buffer.alloc(44);
+        header.write('RIFF', 0); header.writeUInt32LE(36 + pcm.length, 4); header.write('WAVE', 8);
+        header.write('fmt ', 12); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20);
+        header.writeUInt16LE(1, 22); header.writeUInt32LE(16000, 24); header.writeUInt32LE(32000, 28);
+        header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34);
+        header.write('data', 36); header.writeUInt32LE(pcm.length, 40);
+        require('fs').writeFileSync(${JSON.stringify(args.at(-1))}, Buffer.concat([header, pcm]));`;
       return spawn(process.execPath, ['-e', script], options);
     }
     assert.equal(command, layout?.serverCmd);
@@ -77,10 +86,9 @@ test('prepareTranscription reports a missing runtime, then warms the server the 
     assert.equal(text, 'first words');
     assert.equal(servers.length, 1, 'the dictation reused the warmed server');
     assert.equal(ffmpegRuns.length, 1);
-    const args = ffmpegRuns[0];
-    const filter = args.indexOf('-af');
-    assert.equal(filter, args.indexOf('-i') + 2, 'the onset filter follows the input');
-    assert.equal(args[filter + 1], 'adelay=300:all=1');
+    // The bundled ffmpeg has no adelay filter: the conversion asks for none,
+    // and the onset pad is spliced into the wav afterwards.
+    assert.equal(ffmpegRuns[0].includes('-af'), false);
   } finally {
     await stopVoiceWhisperServer();
     t.mock.restoreAll();

@@ -263,7 +263,7 @@ async function recognizeCaptureOcr(
       },
       5_000
     );
-    if (!ocr.ok) throw new Error(ocr.error || 'Windows OCR failed');
+    if (!ocr.ok) throw new Error(ocr.error || 'OCR failed');
     const { frameBounds, ocrWords: recognizedWords } = projectOcrWords(
       ocr,
       screenshot,

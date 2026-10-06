@@ -2725,7 +2725,9 @@ test('PDF secure either encrypts through qpdf or says plainly that qpdf is missi
       action: 'secure',
       security: 'encrypt',
       path: plain,
-      password: 'secret',
+      // Spaces and quotes reach qpdf verbatim: its response file takes one
+      // literal argument per line.
+      password: ' se cret "q" ',
       output: 'locked.pdf',
     },
     { cwd }
@@ -2740,13 +2742,23 @@ test('PDF secure either encrypts through qpdf or says plainly that qpdf is missi
   );
   assert.equal(locked.document.encrypted, true);
   assert.equal(locked.document.passwordRequired, true);
+  // qpdf keeps pdf-lib's object streams, so the page tree is ciphered: only the
+  // password-aware reader can count the pages.
+  const unlockedView = value(
+    await executeOfficeTool(
+      { action: 'open', path: join(cwd, 'locked.pdf'), mode: 'portable', password: ' se cret "q" ' },
+      { cwd }
+    )
+  );
+  assert.equal(unlockedView.document.pageCount, 1);
+  assert.equal(unlockedView.document.passwordRequired ?? false, false);
   value(
     await executeOfficeTool(
       {
         action: 'secure',
         security: 'decrypt',
         path: join(cwd, 'locked.pdf'),
-        password: 'secret',
+        password: ' se cret "q" ',
         output: 'unlocked.pdf',
       },
       { cwd }
@@ -2755,5 +2767,7 @@ test('PDF secure either encrypts through qpdf or says plainly that qpdf is missi
   const unlocked = value(
     await executeOfficeTool({ action: 'open', path: join(cwd, 'unlocked.pdf'), mode: 'portable' }, { cwd })
   );
-  assert.equal(unlocked.document.encrypted, false);
+  // The compact document view leaves out false flags.
+  assert.equal(unlocked.document.encrypted ?? false, false);
+  assert.equal(unlocked.document.pageCount, 1);
 });

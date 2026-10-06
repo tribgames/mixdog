@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate } from 'node:timers/promises';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { createResourceApi } from './resource-api.mjs';
 
@@ -28,6 +31,48 @@ function resourceApi(overrides = {}) {
     ...overrides,
   });
 }
+
+test('a plugin named only by its name toggles, removes, and scopes its registered MCP entries', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-plugin-name-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const row = { id: 'demo-plugin-1a2b3c4d', name: 'demo-plugin', root: join(dataDir, 'src'), managed: false };
+  mkdirSync(join(dataDir, 'plugins'), { recursive: true });
+  writeFileSync(join(dataDir, 'plugins', 'registry.json'), JSON.stringify({ version: 1, plugins: [{ ...row }] }));
+  let config = {
+    mcpServers: {
+      'plugin-demo-plugin': { command: 'demo' },
+      'plugin-demo-plugin--extra': { command: 'demo' },
+      unrelated: { command: 'other' },
+    },
+  };
+  let registered = [row];
+  const api = resourceApi({
+    getConfig: () => config,
+    saveConfigAndAdopt: (next) => {
+      config = structuredClone(next);
+    },
+    cfgMod: { getPluginData: () => dataDir },
+    pluginsStatus: () => ({ plugins: registered }),
+  });
+  t.after(() => api.disposeGlobalExtensionSubscription());
+
+  await api.setPluginEnabled('demo-plugin', false);
+  assert.equal(config.mcpServers['plugin-demo-plugin']._mixdogPluginDisabled, true);
+  assert.equal(config.mcpServers['plugin-demo-plugin--extra']._mixdogPluginDisabled, true);
+  assert.equal(config.mcpServers.unrelated._mixdogPluginDisabled, undefined);
+
+  // Scope is stored under the registry id, the key every reader matches.
+  await api.setExtensionScope('plugins', 'demo-plugin', [dataDir]);
+  assert.deepEqual(Object.keys(config.extensionScopes.plugins), [row.id]);
+  await assert.rejects(
+    api.setExtensionScope('plugins', 'missing-plugin', [dataDir]),
+    /plugin not registered: missing-plugin/
+  );
+
+  await api.removePlugin('demo-plugin');
+  registered = [];
+  assert.deepEqual(Object.keys(config.mcpServers), ['unrelated']);
+});
 
 test('a global MCP toggle reloads and reconnects peer session runtimes', async () => {
   let persisted = {

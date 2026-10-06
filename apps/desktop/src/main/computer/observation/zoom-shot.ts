@@ -4,7 +4,7 @@
  * through the worker, everything else through the compositor. Any drift from
  * the frame's geometry is a stale frame, never a silently mis-cropped zoom.
  */
-import { desktopCapturer, type NativeImage } from 'electron';
+import { desktopCapturer, screen, type NativeImage } from 'electron';
 
 import type { CaptureAttempt } from '../shared/capture-attempts';
 import { DESKTOP_CAPTURE_TIMEOUT_MS, OWNED_CAPTURE_TIMEOUT_MS, withTimeout } from '../shared/common';
@@ -45,10 +45,14 @@ export async function acquireZoomShot(
     }
     return { shot: surface.image, sourceId: frame.sourceId };
   }
+  // Native coordinates are physical pixels on Windows and Linux but points on
+  // macOS, where a Retina display holds scaleFactor pixels per point; a zoom
+  // asks for the backing pixels, or it only magnifies the downscaled frame.
+  const scale = process.platform === 'darwin' ? screen.getDisplayMatching(base).scaleFactor : 1;
   const candidates = await withTimeout(
     desktopCapturer.getSources({
       types: [frame.kind],
-      thumbnailSize: { width: base.width, height: base.height },
+      thumbnailSize: { width: Math.round(base.width * scale), height: Math.round(base.height * scale) },
     }),
     DESKTOP_CAPTURE_TIMEOUT_MS,
     'desktop zoom capture'

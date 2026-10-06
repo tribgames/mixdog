@@ -136,13 +136,14 @@ impl Host {
     }
 
     /// Integrity levels are a Windows boundary; these desktops have none, so
-    /// no window is ever above this host.
+    /// it is known that no window is ever above this host. Answering "unknown"
+    /// instead made the desktop refuse every foreground input here.
     pub(super) fn window_integrity(&self, req: &Req) -> Res<Obj> {
         let info = self.resolve_window(req)?;
         Ok(obj! {
             "text" => "window integrity: not applicable",
             "window_id" => info.id(),
-            "known" => false,
+            "known" => true,
             "higher" => false,
             "own_rid" => 0,
             "target_rid" => 0,

@@ -100,12 +100,14 @@ test('real Monaco shares a pane surface, retains undo and view state, and releas
   });
   t.after(() => browser.close());
   const page = await browser.newPage();
+  // CtrlCmd is Command on macOS, Control elsewhere.
+  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
   const saveShortcut = async () => {
-    await page.keyboard.down('Control');
+    await page.keyboard.down(modifier);
     try {
       await page.keyboard.press('s');
     } finally {
-      await page.keyboard.up('Control');
+      await page.keyboard.up(modifier);
     }
   };
   const errors = [];

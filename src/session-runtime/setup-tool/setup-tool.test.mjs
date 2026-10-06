@@ -95,6 +95,40 @@ test('TUI section targets open their surface or explain a Desktop-only one', () 
   assert.match(calls[2], /Desktop app: Settings → Connection/);
 });
 
+test('a saved mutation tells attached surfaces to re-read; reads and failures do not', async () => {
+  const sent = [];
+  const executor = createSetupToolExecutor({
+    getApi: () => ({
+      setMemoryToolsEnabled: (enabled) => ({ enabled }),
+      setRecapEnabled: () => {
+        throw new Error('recap store failed');
+      },
+    }),
+    getSessionId: () => 'sess-1',
+    notifySessionUi: (sessionId, content, meta) => {
+      sent.push({ sessionId, content, meta });
+      return true;
+    },
+  });
+  await run(executor, { action: 'set_memory_enabled', enabled: false });
+  await run(executor, { action: 'open', target: 'memory' });
+  await assert.rejects(executor.execute({ action: 'set_recap_enabled', enabled: true }), /recap store failed/);
+  assert.deepEqual(
+    sent.filter((entry) => entry.meta.kind === 'setup-changed'),
+    [
+      {
+        sessionId: 'sess-1',
+        content: 'Settings changed',
+        meta: { kind: 'setup-changed', action: 'set_memory_enabled' },
+      },
+    ]
+  );
+  assert.deepEqual(resolveTuiRuntimeNotificationDelivery({ meta: sent[0].meta }, sent[0].content), {
+    action: 'setup-changed',
+    setupAction: 'set_memory_enabled',
+  });
+});
+
 test('open: attached UI handles the request -> opened:true; headless -> guidance text', async () => {
   const sent = [];
   const attached = createSetupToolExecutor({

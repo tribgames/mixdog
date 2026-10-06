@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { writeProfilePoint } from './model-profile.mjs';
 import { createCompactVectorCache } from './compact-vector-cache.mjs';
 import { EMBED_KEEP_WARM_MS } from './embedding-idle-lease.mjs';
+import { workerExecArgv } from '../../shared/worker-exec-argv.mjs';
 import {
   getConfiguredEmbeddingModelId,
   getDefaultEmbeddingDtype,
@@ -47,11 +48,7 @@ const queryEmbeddingCache = createCompactVectorCache({
 const WORKER_PATH = join(fileURLToPath(import.meta.url), '..', 'embedding-worker.mjs');
 
 export function embeddingWorkerExecArgv(execArgv = process.execArgv) {
-  return (Array.isArray(execArgv) ? execArgv : []).filter((arg) => {
-    const value = String(arg);
-    if (value.startsWith('--input-type')) return false;
-    return !/^--(?:max-old-space-size|max-semi-space-size|initial-old-space-size)(?:=|$)/.test(value);
-  });
+  return workerExecArgv(execArgv);
 }
 
 function embeddingCacheKey(text, inputType, dtype = _configuredDtype) {

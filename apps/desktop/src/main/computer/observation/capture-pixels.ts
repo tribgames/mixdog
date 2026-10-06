@@ -27,6 +27,8 @@ export type PixelCaptureHost = Pick<
   | 'allocateFrameId'
   | 'authorizeCapture'
   | 'beginObservation'
+  | 'nativeSurfaceBackends'
+  | 'readPermissions'
 >;
 
 export function createPixelCapture(host: PixelCaptureHost) {

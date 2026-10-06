@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   appendFileSync,
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdtempSync,
@@ -216,6 +217,8 @@ test('an executable carrying the marker cannot serve the protocol, so it routes 
   // the session handshake — the wrapper/printer class.
   const fake = join(dir, `fake-engine${EXE}`);
   copyFileSync(process.execPath, fake);
+  // The copy keeps the source mode; Homebrew installs node read-only (0555).
+  chmodSync(fake, 0o755);
   appendFileSync(fake, NATIVE_PATCH_ENGINE_CONTRACT);
   const file = seedTarget(dir);
 
@@ -536,6 +539,7 @@ test('a swap-back before the verdict never poisons the restored artifact', {
   // B is a REAL executable carrying the marker that cannot serve the
   // protocol, so the failing session is unambiguously B's.
   copyFileSync(process.execPath, stashB);
+  chmodSync(stashB, 0o755);
   appendFileSync(stashB, NATIVE_PATCH_ENGINE_CONTRACT);
   const file = seedTarget(dir);
 

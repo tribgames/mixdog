@@ -138,6 +138,65 @@ pub enum Route {
     Process(i32),
 }
 
+/// One pointer event's delivery: its route, the window a process-routed
+/// event names (0 for none) with that window's top-left screen point, and
+/// the modifier flags it carries.
+#[derive(Clone, Copy)]
+pub struct Dest {
+    pub route: Route,
+    pub window: u32,
+    pub origin: CGPoint,
+    pub flags: u64,
+}
+
+impl Dest {
+    pub fn system(flags: u64) -> Dest {
+        Dest {
+            route: Route::System,
+            window: 0,
+            origin: CGPoint::default(),
+            flags,
+        }
+    }
+
+    pub fn process(pid: i32, window: u32, origin: CGPoint, flags: u64) -> Dest {
+        Dest {
+            route: Route::Process(pid),
+            window,
+            origin,
+            flags,
+        }
+    }
+}
+
+/// Names the target window on a process-routed pointer event the way the
+/// window server does on a real one: the window under the pointer, the
+/// window the event belongs to, and the point inside it. Without these the
+/// app has no window to hand the event to and drops it.
+///
+/// # Safety
+/// `event` must be a live CGEvent.
+unsafe fn route_to_window(event: CGEventRef, dest: Dest, x: f64, y: f64) {
+    if dest.window == 0 {
+        return;
+    }
+    let window = dest.window as i64;
+    CGEventSetIntegerValueField(event, kCGMouseEventWindowUnderMousePointer, window);
+    CGEventSetIntegerValueField(
+        event,
+        kCGMouseEventWindowUnderMousePointerThatCanHandleThisEvent,
+        window,
+    );
+    CGEventSetIntegerValueField(event, kCGEventWindowNumber, window);
+    super::skylight::set_window_location(
+        event,
+        CGPoint {
+            x: x - dest.origin.x,
+            y: y - dest.origin.y,
+        },
+    );
+}
+
 pub struct Poster {
     pub marker: i64,
     pub flags: Cell<u64>,
@@ -176,9 +235,7 @@ impl Poster {
         y: f64,
         button: u32,
         clicks: u32,
-        route: Route,
-        window: u32,
-        flags: u64,
+        dest: Dest,
     ) -> Result<(), String> {
         // SAFETY: creates a +1 mouse event that `post` releases.
         let event = unsafe {
@@ -188,21 +245,10 @@ impl Poster {
             // SAFETY: event is live.
             unsafe {
                 CGEventSetIntegerValueField(event, kCGMouseEventClickState, clicks.max(1) as i64);
-                if window != 0 {
-                    CGEventSetIntegerValueField(
-                        event,
-                        kCGMouseEventWindowUnderMousePointer,
-                        window as i64,
-                    );
-                    CGEventSetIntegerValueField(
-                        event,
-                        kCGMouseEventWindowUnderMousePointerThatCanHandleThisEvent,
-                        window as i64,
-                    );
-                }
+                route_to_window(event, dest, x, y);
             }
         }
-        self.post(event, route, flags)
+        self.post(event, dest.route, dest.flags)
     }
 
     pub fn key(&self, code: u16, down: bool, route: Route, flags: u64) -> Result<(), String> {
@@ -255,8 +301,7 @@ impl Poster {
         y: f64,
         clicks: i32,
         horizontal: bool,
-        route: Route,
-        flags: u64,
+        dest: Dest,
     ) -> Result<(), String> {
         // Three lines per wheel notch; positive clicks move content down/right.
         let lines = -clicks * 3;
@@ -274,9 +319,15 @@ impl Poster {
         };
         if !event.is_null() {
             // SAFETY: event is live.
-            unsafe { CGEventSetLocation(event, CGPoint { x, y }) };
+            unsafe {
+                CGEventSetLocation(event, CGPoint { x, y });
+                // A process that is not frontmost routes a posted wheel event
+                // by the window it names, as it does a click; without one the
+                // event reaches the app and scrolls nothing.
+                route_to_window(event, dest, x, y);
+            }
         }
-        self.post(event, route, flags)
+        self.post(event, dest.route, dest.flags)
     }
 }
 
@@ -365,7 +416,7 @@ pub fn release_held(marker: i64) -> Result<(), String> {
         let (_, up, number) = button_events(button);
         // SAFETY: HID state query.
         if unsafe { CGEventSourceButtonState(kCGEventSourceStateHIDSystemState, number) } {
-            poster.mouse(up, x, y, number, 1, Route::System, 0, 0)?;
+            poster.mouse(up, x, y, number, 1, Dest::system(0))?;
         }
     }
     Ok(())

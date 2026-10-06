@@ -116,9 +116,17 @@ pub fn one(number: Wid) -> Option<CgWindow> {
     if number == 0 || number > u32::MAX as u64 {
         return None;
     }
+    // The single-window query answers nothing for a window that is off screen
+    // (minimized, or on another Space), which left such a window unreachable
+    // for restore and focus; the full list still names it.
     read_windows(kCGWindowListOptionIncludingWindow, number as u32)
         .into_iter()
         .find(|window| window.number as u64 == number)
+        .or_else(|| {
+            all()
+                .into_iter()
+                .find(|window| window.number as u64 == number)
+        })
 }
 
 /// The accessibility view of one application window.

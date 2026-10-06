@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { localProviderDiskStatus, partialAssetBytes } from './asset-storage.mjs';
-import { localProviderHardwareStatus } from './hardware.mjs';
+import { localProviderHardwareStatus, localProviderPlatformKey } from './hardware.mjs';
 import { registeredLocalModels } from './registered-models.mjs';
 import { localModelState } from './model-state.mjs';
 import { localContextSettings } from './context-settings.mjs';
@@ -24,12 +24,8 @@ export function localProviderModelRoot(dataDir = resolvePluginData()) {
   return join(dataDir, 'local-provider', 'models');
 }
 
-function localProviderRuntimePlatformKey(platform = process.platform, arch = process.arch) {
-  return platform === 'win32' && arch === 'x64' ? 'win32-x64-nvidia' : '';
-}
-
 export function localProviderRuntimePlatformEntry(options = {}) {
-  const key = localProviderRuntimePlatformKey(options.platform, options.arch);
+  const key = localProviderPlatformKey(options.platform, options.arch);
   const entry = key ? LOCAL_PROVIDER_MANIFEST.runtime?.platforms?.[key] : null;
   return entry ? { key, ...entry } : null;
 }
@@ -109,7 +105,8 @@ export function localProviderCatalogStatus({
   const executable = localProviderRuntimeExecutable(dataDir, { platform, arch });
   const models = localProviderModelEntries(dataDir).map((entry) => publicModel(entry, dataDir, hardware));
   return {
-    available: Boolean(platformEntry && hardware?.gpu?.vendor === 'NVIDIA' && models.some((entry) => entry.compatible)),
+    platformSupported: Boolean(platformEntry),
+    available: Boolean(platformEntry && hardware?.supported && models.some((entry) => entry.compatible)),
     runtime: {
       installed: Boolean(executable && existsSync(executable)),
       version: LOCAL_PROVIDER_MANIFEST.runtime.version,

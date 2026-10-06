@@ -89,6 +89,10 @@ export function resolveTuiRuntimeNotificationDelivery(event, text) {
   if (meta.kind === 'setup-ui') {
     return meta.id ? { action: 'setup-ui', id: String(meta.id) } : { action: 'ignore' };
   }
+  if (meta.kind === 'setup-changed') {
+    const setupAction = String(meta.action || '').trim();
+    return setupAction ? { action: 'setup-changed', setupAction } : { action: 'ignore' };
+  }
   if (meta.kind === 'ui-open') {
     const command = String(meta.command || '')
       .trim()

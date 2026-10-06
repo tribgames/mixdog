@@ -6,6 +6,7 @@ import { requestOpenDoctor } from '../command-surface-doctor-event';
 import { t } from '../i18n';
 import { providerDisplayName } from '../provider-display';
 import { record } from '../record-utils';
+import { subscribeSetupChanges } from '../setup-change-refresh';
 import { AboutPanel } from './about-panel';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { ConnectionPanel } from './connection-panel';
@@ -309,16 +310,20 @@ function DesktopPowerGroup() {
   const [runInBackground, setRunInBackground] = useState(true);
   useEffect(() => {
     let live = true;
-    void api
-      ?.readSettings?.()
-      .then((settings) => {
-        if (!live) return;
-        setKeepAwake(settings.keepAwake !== false);
-        setRunInBackground(settings.runInBackground !== false);
-      })
-      .catch(() => {});
+    const read = () =>
+      void api
+        ?.readSettings?.()
+        .then((settings) => {
+          if (!live) return;
+          setKeepAwake(settings.keepAwake !== false);
+          setRunInBackground(settings.runInBackground !== false);
+        })
+        .catch(() => {});
+    read();
+    const unsubscribe = subscribeSetupChanges(read);
     return () => {
       live = false;
+      unsubscribe();
     };
   }, [api]);
   if (keepAwake === null || !api?.updateSetting) return null;

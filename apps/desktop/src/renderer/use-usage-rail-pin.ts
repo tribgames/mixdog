@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 're
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
 import { usagePinStackFits } from './rail-usage-pin-room';
 import type { UsageDashboardSnapshot } from './usage-dashboard-store';
+import { subscribeSetupChanges } from './setup-change-refresh';
 
 const USAGE_RAIL_PIN_KEY = 'mixdog.desktop.usage-rail-pin.v1';
 
@@ -55,26 +56,31 @@ export function useUsageRailPin(
   useEffect(() => {
     if (!enabled) return;
     let live = true;
-    const token = revision.current;
-    void Promise.resolve()
-      .then(() => window.mixdogDesktop?.readSettings?.())
-      .then((settings) => {
-        if (!live || token !== revision.current || typeof settings?.usagePinned !== 'boolean') return;
-        setUsagePinned(settings.usagePinned);
-        try {
-          window.localStorage.setItem(USAGE_RAIL_PIN_KEY, settings.usagePinned ? '1' : '0');
-        } catch {
-          /* seed only */
-        }
-      })
-      .catch(() => {
-        /* preserve the local seed */
-      })
-      .finally(() => {
-        if (live) setSettingsReady(true);
-      });
+    const read = () => {
+      const token = revision.current;
+      void Promise.resolve()
+        .then(() => window.mixdogDesktop?.readSettings?.())
+        .then((settings) => {
+          if (!live || token !== revision.current || typeof settings?.usagePinned !== 'boolean') return;
+          setUsagePinned(settings.usagePinned);
+          try {
+            window.localStorage.setItem(USAGE_RAIL_PIN_KEY, settings.usagePinned ? '1' : '0');
+          } catch {
+            /* seed only */
+          }
+        })
+        .catch(() => {
+          /* preserve the local seed */
+        })
+        .finally(() => {
+          if (live) setSettingsReady(true);
+        });
+    };
+    read();
+    const unsubscribe = subscribeSetupChanges(read);
     return () => {
       live = false;
+      unsubscribe();
     };
   }, [enabled]);
 

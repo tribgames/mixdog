@@ -399,12 +399,14 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
                 stdio: options.stdio,
                 // The whole parent environment is inherited; the runner only
                 // adds where this spawn records its failures and points the
-                // temp directory at a private root it removes after the run.
+                // temp and data directories at a private root it removes
+                // after the run.
                 inheritsEnvironment: Object.keys(process.env).every(
                   (key) =>
-                    ['MIXDOG_TEST_FAILURE_RECORDS', 'TEMP', 'TMP', 'TMPDIR'].includes(key) ||
+                    ['MIXDOG_TEST_FAILURE_RECORDS', 'TEMP', 'TMP', 'TMPDIR', 'MIXDOG_DATA_DIR'].includes(key) ||
                     options.env[key] === process.env[key]
                 ),
+                dataDir: options.env.MIXDOG_DATA_DIR,
                 failureRecords: options.env.MIXDOG_TEST_FAILURE_RECORDS,
                 scratch: [options.env.TEMP, options.env.TMP, options.env.TMPDIR],
                 event,
@@ -446,10 +448,12 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
     assert.ok(logPath?.startsWith(join(tmpdir(), 'mixdog-test-output-')));
     assert.ok(logPath.endsWith('full.log'));
     t.after(() => rm(dirname(logPath), { recursive: true, force: true }));
-    const { failureRecords, scratch, ...invariant } = invocation;
+    const { failureRecords, scratch, dataDir, ...invariant } = invocation;
     // Every temp variable names the same private per-run root.
     assert.ok(scratch[0].startsWith(join(tmpdir(), 'mixdog-test-scratch-')), scratch[0]);
     assert.deepEqual(scratch, [scratch[0], scratch[0], scratch[0]]);
+    // Tests never write the signed-in app's data: it lives under the scratch root.
+    assert.equal(dataDir, join(scratch[0], 'data'));
     assert.deepEqual(invariant, {
       executable: process.execPath,
       args: [

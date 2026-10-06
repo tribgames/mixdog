@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createInspection } from './inspect.ts';
 
+const WINDOWS_PERMISSIONS = {
+  screen_capture: 'not_required_on_windows',
+  accessibility: 'not_required_on_windows',
+  input: 'target_integrity_dependent',
+};
+
 function inspection(result) {
   return createInspection({
     callPowerShell: async () => ({ ok: true, result }),
@@ -121,6 +127,7 @@ test('diagnose reports blocked input even when window enumeration and accessibil
       assertExecutionNotAborted() {},
       readComputerWindows: async () => [{ id: 'hwnd:0x1', focused: true }],
       readDisplays: () => [],
+      readPermissions: () => WINDOWS_PERMISSIONS,
       isObserveOnly: () => false,
       readInputState: () => state,
     });
@@ -135,6 +142,56 @@ test('diagnose reports blocked input even when window enumeration and accessibil
       blocked
     );
   }
+});
+
+test('diagnose reports the macOS grants it runs under and names the missing one', async () => {
+  for (const [permissions, expected] of [
+    [{ screen_capture: 'granted', accessibility: 'granted', input: 'accessibility_dependent' }, []],
+    [
+      { screen_capture: 'denied', accessibility: 'granted', input: 'accessibility_dependent' },
+      [/Screen Recording is not granted.*quit and reopen Mixdog/],
+    ],
+    [
+      { screen_capture: 'granted', accessibility: 'denied', input: 'accessibility_dependent' },
+      [/Accessibility is not granted/],
+    ],
+  ]) {
+    const reader = createInspection({
+      callPowerShell: async () => ({
+        ok: true,
+        result: { elements: [{}], available: true, interactive: true, observer_ready: true, ready: true, held: false },
+      }),
+      sessionIdFor: () => 'diagnose-permissions',
+      assertExecutionNotAborted() {},
+      readComputerWindows: async () => [{ id: 'hwnd:0x1', focused: true }],
+      readDisplays: () => [],
+      readPermissions: () => permissions,
+      isObserveOnly: () => false,
+      readInputState: () => ({ userControlActive: false, cleanupState: 'ready' }),
+    });
+    const result = JSON.parse((await reader.diagnoseComputer({ action: 'diagnose' })).text);
+    assert.deepEqual(result.permissions, permissions);
+    assert.equal(result.issues.length, expected.length);
+    for (const [index, pattern] of expected.entries()) assert.match(result.issues[index], pattern);
+  }
+
+  // The native probe also fails for the same missing grant; the cause is named once.
+  const reader = createInspection({
+    callPowerShell: async (request) =>
+      request.action === 'accessibility_probe'
+        ? { ok: false, error: 'accessibility_permission_required: allow Mixdog under Accessibility' }
+        : { ok: true, result: { available: true, observer_ready: true, ready: true, held: false } },
+    sessionIdFor: () => 'diagnose-permissions',
+    assertExecutionNotAborted() {},
+    readComputerWindows: async () => [{ id: 'hwnd:0x1', focused: true }],
+    readDisplays: () => [],
+    readPermissions: () => ({ screen_capture: 'granted', accessibility: 'denied', input: 'accessibility_dependent' }),
+    isObserveOnly: () => false,
+    readInputState: () => ({ userControlActive: false, cleanupState: 'ready' }),
+  });
+  const result = JSON.parse((await reader.diagnoseComputer({ action: 'diagnose' })).text);
+  assert.equal(result.issues.length, 1);
+  assert.match(result.issues[0], /Accessibility is not granted/);
 });
 
 test('diagnose probes native input readiness instead of inferring it from usable accessibility', async () => {
@@ -157,6 +214,7 @@ test('diagnose probes native input readiness instead of inferring it from usable
       assertExecutionNotAborted() {},
       readComputerWindows: async () => [{ id: 'hwnd:0x1', focused: true }],
       readDisplays: () => [],
+      readPermissions: () => WINDOWS_PERMISSIONS,
       isObserveOnly: () => false,
       readInputState: () => ({ userControlActive: false, cleanupState: 'ready' }),
     });

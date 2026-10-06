@@ -213,3 +213,16 @@ test('forwardViewerSubmit takes the pipe when it accepts, otherwise spools with 
   assert.match(spooled[0], /^view-submit-42-\d+$/);
   assert.equal(forwardViewerSubmit({ text: '   ', share: refusing, spool: () => true }), false);
 });
+
+test('a socket path that would overrun sun_path is shortened the same way for owner and viewer', {
+  skip: process.platform === 'win32' && 'named pipes have no sun_path limit',
+}, () => {
+  const shortFile = join(tmpdir(), 's.json');
+  assert.equal(liveSharePipePath('s', shortFile), `${shortFile}.live.sock`);
+  const desktopId = `sess_desktop_${'a'.repeat(64)}`;
+  const longFile = join('/Users/someone/.mixdog/data/sessions', `${desktopId}.json`);
+  const path = liveSharePipePath(desktopId, longFile);
+  assert.ok(Buffer.byteLength(path) <= 103, `${path} fits sun_path on macOS`);
+  assert.equal(liveSharePipePath(desktopId, longFile), path);
+  assert.notEqual(liveSharePipePath(desktopId, `${longFile}x`), path);
+});

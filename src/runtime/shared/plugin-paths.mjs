@@ -10,7 +10,14 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const DEFAULT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+// Resolved on first use, not at load: the desktop service bundle (CJS) carries
+// this module through the model catalog, and import.meta is empty there, so
+// computing it at load crashed the whole bundle before any caller needed it.
+let defaultRoot = null;
+function packagedRoot() {
+  defaultRoot ??= join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  return defaultRoot;
+}
 
 // The defaults are joins over values that almost never change; they are hot
 // (every session path resolves the data dir), so each default join is reused
@@ -32,7 +39,7 @@ export function mixdogHome() {
 }
 
 export function mixdogRoot() {
-  return process.env.MIXDOG_ROOT || DEFAULT_ROOT;
+  return process.env.MIXDOG_ROOT || packagedRoot();
 }
 
 export function resolvePluginData() {

@@ -1,6 +1,6 @@
 /**
  * The readiness probes `diagnose` runs against the native side: whether the
- * target exposes semantic accessibility, whether Windows OCR has the requested
+ * target exposes semantic accessibility, whether the OS OCR has the requested
  * language, and whether the input observer sees an idle desktop. Each probe
  * answers in place — a failure is a finding, never an error out of diagnose.
  */

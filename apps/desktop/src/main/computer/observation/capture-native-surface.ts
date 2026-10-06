@@ -14,7 +14,7 @@ import { frameQualityIssue } from './frame-quality';
 
 export type NativeSurfaceHost = Pick<
   CaptureEngineHost,
-  'callPowerShell' | 'sessionIdFor' | 'assertExecutionNotAborted' | 'authorizeCapture'
+  'callPowerShell' | 'sessionIdFor' | 'assertExecutionNotAborted' | 'authorizeCapture' | 'nativeSurfaceBackends'
 >;
 
 type WorkerReply = Awaited<ReturnType<NativeSurfaceHost['callPowerShell']>>;

@@ -14,8 +14,16 @@ test('embedding worker keeps safe Node flags but drops inherited isolate heap fl
       '--trace-warnings',
       '--require',
       'loader.cjs',
+      // Node 24's test runner hands a child its whole option table.
+      '--use-system-ca',
+      '--stack-trace-limit=10',
+      '--tls-cipher-list=HIGH',
+      '--inspect-port=127.0.0.1:9229',
+      '--test-isolation=process',
+      '--import=tsx',
+      '--experimental-test-module-mocks',
     ]),
-    ['--trace-warnings', '--require', 'loader.cjs']
+    ['--trace-warnings', '--require', 'loader.cjs', '--import=tsx', '--experimental-test-module-mocks']
   );
 });
 

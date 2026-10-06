@@ -491,6 +491,13 @@ impl Host {
                 Err(result) => return Ok(result),
             };
             self.authorize(req, target)?;
+            if element.is_none() && modifiers.is_empty() {
+                if let Some(result) =
+                    self.scroll_area_at(target, x, y, clicks, horizontal, direction)?
+                {
+                    return Ok(result);
+                }
+            }
             let before = element.and_then(|element| self.observable_state(element, "scroll"));
             self.announce_background_target(x, y);
             return match background.wheel(target, x, y, clicks, horizontal, modifiers) {
@@ -512,6 +519,68 @@ impl Host {
         }
         let mut body = || self.fg_wheel(target, x, y, clicks, horizontal, modifiers);
         self.foreground_input(target, "scroll", true, &mut body)
+    }
+
+    /// macOS hands a posted wheel event only to the frontmost application, so
+    /// a background scroll at a point moved nothing in any other app. The
+    /// smallest scrollable element under the point is scrolled through
+    /// accessibility instead; `None` leaves the wheel route to try.
+    fn scroll_area_at(
+        &self,
+        target: Wid,
+        x: i32,
+        y: i32,
+        clicks: i32,
+        horizontal: bool,
+        direction: &str,
+    ) -> Res<Option<Obj>> {
+        if self.desktop.name() != "macos" {
+            return Ok(None);
+        }
+        let Some(info) = self.desktop.info(target) else {
+            return Ok(None);
+        };
+        let Ok(a11y) = self.accessibility() else {
+            return Ok(None);
+        };
+        let Ok(nodes) = a11y.snapshot(&info, false, 400) else {
+            return Ok(None);
+        };
+        let (px, py) = (x as f64, y as f64);
+        let mut under: Vec<_> = nodes
+            .into_iter()
+            .filter(|node| {
+                node.width > 0.0
+                    && node.height > 0.0
+                    && px >= node.x
+                    && px < node.x + node.width
+                    && py >= node.y
+                    && py < node.y + node.height
+            })
+            .collect();
+        under.sort_by(|a, b| (a.width * a.height).total_cmp(&(b.width * b.height)));
+        let increments = (clicks.abs() * 3).min(30) * clicks.signum();
+        for node in under {
+            if let Some((before, after)) = node.element.scroll(horizontal, increments)? {
+                let verified = before != after;
+                let message = format!(
+                    "scrolled {direction} {} increments through accessibility at the point",
+                    increments.abs()
+                );
+                self.report_pointer(x, y, false, "scroll");
+                return Ok(Some(self.action_result(
+                    "scroll",
+                    "a11y_scroll",
+                    crate::host::windows::effect(verified),
+                    verified,
+                    &message,
+                    None,
+                    "background",
+                    Some(window_id(target)),
+                )));
+            }
+        }
+        Ok(None)
     }
 
     fn fg_wheel(

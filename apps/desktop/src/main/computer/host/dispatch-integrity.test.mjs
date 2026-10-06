@@ -33,48 +33,54 @@ function stateAdapters() {
 }
 
 // The command router refuses every command off Windows before any routing runs.
-const WINDOWS_ONLY = { skip: process.platform !== 'win32' && 'Windows only' };
+// Native coordinates equal DIPs on macOS; the fixture's screen has no Linux
+// scaling, so these host-level checks run where native points are known.
+const NATIVE_POINTS_KNOWN = { skip: !['win32', 'darwin'].includes(process.platform) && 'Windows and macOS only' };
 
-test('semantic input does not move a duplicate display pointer before native dispatch', WINDOWS_ONLY, async () => {
-  let dispatched = 0;
-  computerUseCoordinator.beginCommand({ sessionId: 'test', action: 'invoke', mode: 'background' });
-  const router = createCommandRouter({
-    ...stateAdapters(),
-    isObserveOnly: () => false,
-    sessionIdFor: () => 'test',
-    framesBySession: new Map(),
-    elementTargetsBySession: new Map(),
-    observedWindowBySession: new Map(),
-    lastCaptureBySession: new Map(),
-    sessionRecoveryBySession: new Map(),
-    assertExecutionNotAborted() {},
-    resolveElementAliases: (command) => command,
-    resolveInputTarget: async () => ({
-      targetWindowId: 'hwnd:0x1',
-      allowedWindowIds: ['hwnd:0x1'],
-      cursorX: 3100,
-      cursorY: 1200,
-    }),
-    claimComputerTargets: async () => {},
-    readComputerWindows: async () => [],
-    callPowerShell: async () => {
-      dispatched++;
-      assert.equal(computerUseCoordinator.snapshot().cursors.length, 0);
-      throw new Error('fixture_native_dispatch');
-    },
-  });
-  try {
-    await assert.rejects(
-      router.runCommand({ action: 'invoke', window_id: 'hwnd:0x1', ref: 's1:e0' }),
-      /fixture_native_dispatch/
-    );
-    assert.equal(dispatched, 1);
-  } finally {
-    computerUseCoordinator.reset();
+test(
+  'semantic input does not move a duplicate display pointer before native dispatch',
+  NATIVE_POINTS_KNOWN,
+  async () => {
+    let dispatched = 0;
+    computerUseCoordinator.beginCommand({ sessionId: 'test', action: 'invoke', mode: 'background' });
+    const router = createCommandRouter({
+      ...stateAdapters(),
+      isObserveOnly: () => false,
+      sessionIdFor: () => 'test',
+      framesBySession: new Map(),
+      elementTargetsBySession: new Map(),
+      observedWindowBySession: new Map(),
+      lastCaptureBySession: new Map(),
+      sessionRecoveryBySession: new Map(),
+      assertExecutionNotAborted() {},
+      resolveElementAliases: (command) => command,
+      resolveInputTarget: async () => ({
+        targetWindowId: 'hwnd:0x1',
+        allowedWindowIds: ['hwnd:0x1'],
+        cursorX: 3100,
+        cursorY: 1200,
+      }),
+      claimComputerTargets: async () => {},
+      readComputerWindows: async () => [],
+      callPowerShell: async () => {
+        dispatched++;
+        assert.equal(computerUseCoordinator.snapshot().cursors.length, 0);
+        throw new Error('fixture_native_dispatch');
+      },
+    });
+    try {
+      await assert.rejects(
+        router.runCommand({ action: 'invoke', window_id: 'hwnd:0x1', ref: 's1:e0' }),
+        /fixture_native_dispatch/
+      );
+      assert.equal(dispatched, 1);
+    } finally {
+      computerUseCoordinator.reset();
+    }
   }
-});
+);
 
-test('observation-only routing refuses every input family before backend dispatch', WINDOWS_ONLY, async () => {
+test('observation-only routing refuses every input family before backend dispatch', NATIVE_POINTS_KNOWN, async () => {
   let dispatched = 0;
   const router = createCommandRouter({
     isObserveOnly: () => true,
@@ -96,7 +102,7 @@ test('observation-only routing refuses every input family before backend dispatc
   assert.equal(dispatched, 0);
 });
 
-test('switching observation-only on during preparation blocks the pending input', WINDOWS_ONLY, async () => {
+test('switching observation-only on during preparation blocks the pending input', NATIVE_POINTS_KNOWN, async () => {
   let observeOnly = false;
   let dispatched = 0;
   const router = createCommandRouter({
@@ -124,7 +130,7 @@ test('switching observation-only on during preparation blocks the pending input'
   assert.equal(dispatched, 0);
 });
 
-test('authority which expires during preparation never reaches the input backend', WINDOWS_ONLY, async () => {
+test('authority which expires during preparation never reaches the input backend', NATIVE_POINTS_KNOWN, async () => {
   let now = 0;
   let dispatched = 0;
   const policy = createComputerExecutionPolicy(
@@ -169,6 +175,8 @@ test('unavailable window compositor never falls back to pixels belonging to anot
     ...stateAdapters(),
     sessionIdFor: () => 'test',
     assertExecutionNotAborted() {},
+    nativeSurfaceBackends: ['print_window', 'wgc'],
+    readPermissions: () => ({ screen_capture: 'not_required_on_windows' }),
     callPowerShell: async (request) => {
       calls.push(request);
       return {

@@ -51,18 +51,49 @@ function metadataOf(structure) {
   };
 }
 
+// pdf-lib cannot decrypt. An encrypted file that keeps its page tree in
+// ciphered object streams — what qpdf and most current writers produce —
+// therefore reads as having no page tree at all; null says so.
+function structurePageCount(structure) {
+  try {
+    return structure.getPageCount();
+  } catch (error) {
+    if (!structure.isEncrypted) throw error;
+    return null;
+  }
+}
+
+// pdf.js decrypts: with the user password, or with none under an owner-only
+// lock. Null when the file is locked and no working password was given.
+async function decryptedPageCount(buffer, password) {
+  try {
+    return (await inspectPdfBuffer(buffer, { password })).pageCount;
+  } catch (error) {
+    if (!/password/i.test(String(error?.message || error?.name || ''))) throw error;
+    return null;
+  }
+}
+
 export async function snapshotPdf(path, options = {}) {
   const maxChars = Math.max(1_000, Number(options.maxChars) || 30_000);
   const buffer = await readFile(path);
   const structure = await loadPdf(buffer, { allowEncrypted: true });
-  const encrypted = structure.isEncrypted === true;
-  const pageCount = structure.getPageCount();
+  const encrypted = structure.isEncrypted;
+  const structurePages = structurePageCount(structure);
+  const pageCount = structurePages ?? (await decryptedPageCount(buffer, options.password || ''));
+  const knownPages = pageCount ?? 0;
   const offset = options.paged ? Math.max(0, Number(options.offset) || 0) : 0;
-  const limit = options.paged ? Math.max(1, Number(options.limit) || 20) : pageCount;
-  const selected =
-    Array.isArray(options.pages) && options.pages.length
-      ? options.pages.map(Number)
-      : Array.from({ length: Math.max(0, Math.min(limit, pageCount - offset)) }, (_, index) => offset + index + 1);
+  const limit = options.paged ? Math.max(1, Number(options.limit) || 20) : knownPages;
+  // A locked file whose pages could not be counted selects none.
+  let selected = [];
+  if (pageCount !== null && Array.isArray(options.pages) && options.pages.length) {
+    selected = options.pages.map(Number);
+  } else if (pageCount !== null) {
+    selected = Array.from(
+      { length: Math.max(0, Math.min(limit, pageCount - offset)) },
+      (_, index) => offset + index + 1
+    );
+  }
   for (const index of selected) {
     if (!Number.isInteger(index) || index < 1 || index > pageCount) throw new Error(`PDF page out of range: ${index}`);
   }
@@ -73,7 +104,7 @@ export async function snapshotPdf(path, options = {}) {
   try {
     result = await inspectPdfBuffer(buffer, {
       extractText: true,
-      maxPages: Math.max(500, pageCount),
+      maxPages: Math.max(500, knownPages),
       maxOutputBytes: maxChars,
       pageRange: { from, to },
       password: options.password || '',
@@ -94,7 +125,8 @@ export async function snapshotPdf(path, options = {}) {
       path: `/page[${index}]`,
       index,
       text: (texts.get(index) ?? '').replace(/ {2,}/g, ' '),
-      ...pageGeometry(structure, index),
+      // A ciphered page tree has no page boxes to read.
+      ...(structurePages === null ? {} : pageGeometry(structure, index)),
     }));
   // Strings and streams stay ciphered under ignoreEncryption, so the form and
   // attachment views of an encrypted file would be noise rather than data.
@@ -113,7 +145,10 @@ export async function snapshotPdf(path, options = {}) {
         path: `/outline[${index + 1}]`,
         ...entry,
       }));
-    } catch {}
+    } catch {
+      // The outline is a convenience view; an unreadable one leaves it empty
+      // rather than failing the snapshot of a readable document.
+    }
   }
   const likelyScannedPages = passwordRequired
     ? []
@@ -137,7 +172,7 @@ export async function snapshotPdf(path, options = {}) {
     ocrRequired: likelyScannedPages.length > 0,
     encrypted,
     ...(encrypted ? { passwordRequired, hint: PDF_ENCRYPTED_HINT } : {}),
-    ...(options.paged ? { pagination: pagePagination(options, offset, limit, pages.length, pageCount) } : {}),
+    ...(options.paged ? { pagination: pagePagination(options, offset, limit, pages.length, knownPages) } : {}),
   };
 }
 
@@ -188,12 +223,13 @@ export async function applyPdfBatch(path, operations, context = {}) {
 }
 
 export async function validatePdf(path) {
-  const document = await loadPdf(await readFile(path), { allowEncrypted: true });
-  const encrypted = document.isEncrypted === true;
+  const buffer = await readFile(path);
+  const document = await loadPdf(buffer, { allowEncrypted: true });
+  const encrypted = document.isEncrypted;
   return {
     ok: true,
     format: 'pdf',
-    pages: document.getPageCount(),
+    pages: structurePageCount(document) ?? (await decryptedPageCount(buffer, '')),
     validation: 'pdf-parse',
     encrypted,
     ...(encrypted ? { warning: PDF_ENCRYPTED_HINT } : {}),

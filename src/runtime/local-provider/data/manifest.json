@@ -23,6 +23,19 @@
             "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
           }
         ]
+      },
+      "darwin-arm64-metal": {
+        "executable": "llama-b10621/llama-server",
+        "backend": "Metal",
+        "downloadBytes": 10954823,
+        "assets": [
+          {
+            "name": "llama-b10621-bin-macos-arm64.tar.gz",
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10621/llama-b10621-bin-macos-arm64.tar.gz",
+            "size": 10954823,
+            "sha256": "429c8270608600188035e5e92f7d78dffb7900904fe7dd7e6a84f48068cd13cf"
+          }
+        ]
       }
     }
   },
@@ -30,7 +43,7 @@
     {
       "id": "qwen3.8-27b-q4-k-m",
       "name": "Qwen3.8 27B Q4_K_M",
-      "description": "Recommended coding and tool-use model for NVIDIA RTX GPUs with 24 GB VRAM.",
+      "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
       "filename": "Qwen3.8-27B-Q4_K_M.gguf",
       "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
       "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",

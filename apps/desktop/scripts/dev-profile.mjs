@@ -73,6 +73,25 @@ async function isolatedEnvFor(profile, parent) {
   return env;
 }
 
+// macOS and Linux drive the desktop through the native mixdog-computer
+// backend, which the dev app runs from native/mixdog-computer/target/release
+// (src/main/index.ts). Windows drives it through PowerShell and needs none.
+// Cargo rebuilds only what changed, so an up-to-date backend costs nothing.
+async function buildComputerBackend() {
+  if (process.platform === 'win32') return;
+  const manifest = join(desktopDir, '..', '..', 'native', 'mixdog-computer', 'Cargo.toml');
+  const code = await new Promise((resolve) => {
+    const child = spawn('cargo', ['build', '--locked', '--release', '--manifest-path', manifest], {
+      stdio: 'inherit',
+    });
+    child.once('error', () => resolve(null));
+    child.once('exit', resolve);
+  });
+  if (code !== 0) {
+    console.warn('Computer Use backend was not built (cargo failed or Rust is not installed); it stays unavailable.');
+  }
+}
+
 async function main() {
   const { values } = parseArgs({
     options: {
@@ -105,6 +124,7 @@ async function main() {
   }
   console.log(`${profile ? 'Dev profile (kept)' : 'Test profile (fresh)'}: ${env.MIXDOG_DESKTOP_USER_DATA}`);
   console.log(`Test debug port: ${port}`);
+  await buildComputerBackend();
   // Never remove a profile here: a kept profile is the user's dev workspace,
   // and a fresh one is retained for diagnosis while Electron or an isolated
   // daemon may still be shutting down.

@@ -118,11 +118,11 @@ const captureProperties = {
   include_ocr: {
     type: 'boolean',
     description:
-      'State/SOM automatically use offline Windows OCR when semantic targets are absent; true always runs OCR even when semantic targets exist. OCR shares max_elements. Zoom recognizes the crop itself, which is how enlarged text becomes readable.',
+      'State/SOM automatically use offline OS OCR when semantic targets are absent; true always runs OCR even when semantic targets exist. OCR shares max_elements. Zoom recognizes the crop itself, which is how enlarged text becomes readable.',
   },
   ocr_language: {
     ...ocrLanguage,
-    description: 'Installed Windows OCR language tag, e.g. ko or en-US.',
+    description: 'Installed OS OCR language tag, e.g. ko or en-US.',
   },
   // Image encoding (JPEG quality, downscale width) and the OCR word cap are
   // host defaults: the element budget already bounds OCR, and a frame the
@@ -213,7 +213,7 @@ export const COMPUTER_INPUT_SCHEMA = {
         ...windowTarget,
         ocr_language: {
           ...ocrLanguage,
-          description: 'Optional Windows OCR language tag to verify, e.g. ko or en-US.',
+          description: 'Optional OS OCR language tag to verify, e.g. ko or en-US.',
         },
       }),
       false

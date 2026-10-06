@@ -586,6 +586,10 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
       const result = await execute(args, options);
       if (READ_ONLY_SETUP_ACTIONS.has(args.action)) return JSON.stringify(result ?? {}, null, 2);
       await flushSettings?.();
+      // Attached surfaces re-read what changed instead of waiting for their
+      // next open or cache expiry.
+      const sessionId = clean(getSessionId?.());
+      if (sessionId) notifySessionUi?.(sessionId, 'Settings changed', { kind: 'setup-changed', action: args.action });
       return setupMutationReceipt(args.action, result);
     },
   };

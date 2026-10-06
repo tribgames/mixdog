@@ -15,8 +15,15 @@ export function createNotificationRouter({
   modelNotification,
 }) {
   let uiOpenSeq = 0;
+  let setupChangeSeq = 0;
   const uiActions = {
     'setup-ui': (delivery) => set({ setupUiRequest: { id: delivery.id, at: Date.now() } }),
+    'setup-changed': (delivery) => {
+      // Monotonic like ui-open: consecutive changes by the same action must
+      // each refresh the attached surfaces.
+      setupChangeSeq += 1;
+      set({ setupChanged: { action: delivery.setupAction, seq: setupChangeSeq, at: Date.now() } });
+    },
     'ui-open': (delivery) => {
       // Monotonic seq: the same command requested twice must fire twice, and
       // the consuming App effect keys on the object identity + seq.

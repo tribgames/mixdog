@@ -14,8 +14,9 @@ import {
   workbookSheets,
   writeCachedValues,
 } from './portable-cells.mjs';
-import { xmlDecode } from './portable-xml.mjs';
+import { xmlDecode, xmlEncode } from './portable-xml.mjs';
 import { refreshChartCaches } from './portable-xlsx-charts.mjs';
+import { macOfficeFontDirectory } from './font-provisioner.mjs';
 
 const SOFFICE_PROBE_TIMEOUT_MS = 20_000;
 const SOFFICE_RENDER_TIMEOUT_MS = 120_000;
@@ -38,7 +39,9 @@ const SOFFICE_QUIET_ARGS = [
 function killQuietly(child) {
   try {
     child.kill();
-  } catch {}
+  } catch {
+    // Already exited: nothing left to stop.
+  }
 }
 
 // A detection probe must always answer. soffice.exe is a GUI launcher that can
@@ -141,7 +144,9 @@ function sharedProfileDir() {
         for (const profile of createdProfiles) {
           try {
             rmSync(profile, { recursive: true, force: true });
-          } catch {}
+          } catch {
+            // The process is exiting; a profile left behind lives in the temp directory.
+          }
         }
       });
     }
@@ -168,12 +173,16 @@ function queueConversion(work) {
 // stderr is kept up to this many characters, which is plenty to say why it failed.
 export const MAX_SOFFICE_STDERR_CHARS = 64 * 1024;
 
-export function runSoffice(program, args, { signal, timeoutMs, timeoutMessage, cancelMessage }) {
+export function runSoffice(program, args, { signal, timeoutMs, timeoutMessage, cancelMessage, env }) {
   return new Promise((resolve) => {
     let settled = false;
     let timer = null;
     let stderr = '';
-    const child = spawn(program, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(program, args, {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...(env ? { env: { ...process.env, ...env } } : {}),
+    });
     const finish = (value) => {
       if (settled) return;
       settled = true;
@@ -218,6 +227,7 @@ function convertWithLibreOffice(program, input, { to, outDir, signal = null, tim
   // one discards it, and the path it used is gone by the time this one runs.
   return queueConversion(async () => {
     const profile = await sharedProfileDir();
+    const env = await headlessFontEnvironment(profile);
     const result = await runSoffice(
       program,
       [
@@ -229,11 +239,38 @@ function convertWithLibreOffice(program, input, { to, outDir, signal = null, tim
         outDir,
         input,
       ],
-      { signal, timeoutMs, timeoutMessage: messages.timeout, cancelMessage: messages.cancelled }
+      { signal, timeoutMs, timeoutMessage: messages.timeout, cancelMessage: messages.cancelled, env }
     );
     if (!result.ok) await discardProfileDir();
     return result;
   });
+}
+
+// Headless LibreOffice on macOS finds fonts through its bundled fontconfig,
+// which names none of the Mac's font folders: every face but the few it ships
+// was missing, and a Hangul, CJK, or Thai run rendered as nothing at all — a
+// Korean header came out of the preview as "( )". The config names the system,
+// local, and user folders, and the Office for Mac bundle where Excel keeps
+// Calibri and Malgun Gothic, so the preview draws a workbook in Excel's faces.
+export function macFontConfig(cacheDir, officeFontDir = macOfficeFontDirectory()) {
+  const directories = ['/System/Library/Fonts', '/Library/Fonts', join(homedir(), 'Library', 'Fonts')];
+  if (officeFontDir) directories.push(officeFontDir);
+  return [
+    '<?xml version="1.0"?>',
+    '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">',
+    '<fontconfig>',
+    ...directories.map((directory) => `  <dir>${xmlEncode(directory)}</dir>`),
+    `  <cachedir>${xmlEncode(cacheDir)}</cachedir>`,
+    '</fontconfig>',
+    '',
+  ].join('\n');
+}
+
+async function headlessFontEnvironment(profile) {
+  if (process.platform !== 'darwin') return undefined;
+  const file = join(profile, 'mixdog-fonts.conf');
+  await writeFile(file, macFontConfig(join(profile, 'fontconfig-cache')));
+  return { FONTCONFIG_FILE: file };
 }
 
 // LibreOffice names what it writes after the source it read, minus the
@@ -396,7 +433,7 @@ export async function recalculateLibreOfficeWorkbook(path, { force = false, sign
   // reopened answered with the numbers from before the edit — and an error a
   // guard had swallowed stayed swallowed. The edit path marks the workbook for
   // a full calculation, and that mark is what staleness looks like on disk.
-  const stale = workbookCalculation(await zipText(zip, 'xl/workbook.xml')).fullCalcOnLoad === true;
+  const stale = workbookCalculation(await zipText(zip, 'xl/workbook.xml')).fullCalcOnLoad;
   const needed = counts.formulaCount > 0 && (force || stale || counts.missingCachedValues > 0);
   if (!needed) return { needed: false, recalculated: false, ...counts };
   const unavailable = (reason) => ({

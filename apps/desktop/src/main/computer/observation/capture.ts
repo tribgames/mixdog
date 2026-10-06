@@ -27,6 +27,8 @@ import {
 import type { CaptureBaseline } from './capture-baseline';
 
 import { DEFAULT_CAPTURE_MAX_ELEMENTS, elapsedMs } from '../shared/common';
+import type { NativeCaptureBackend } from '../shared/capture-attempts';
+import type { ComputerPermissions } from '../shared/permissions';
 import { createOcrCapturePreferenceStore } from '../input/capability-policy';
 import {
   actionableAccessibilityElements,
@@ -76,6 +78,10 @@ export interface CaptureEngineHost {
   lastCaptureBySession: Map<string, CaptureBaseline>;
   allocateFrameId(): number;
   authorizeCapture?(command: ComputerCommand, windowId: string): Promise<void>;
+  /** Window-owned surfaces this platform's worker renders after the
+   *  composited capture, in order. */
+  nativeSurfaceBackends: readonly NativeCaptureBackend[];
+  readPermissions(): ComputerPermissions;
 }
 
 export function createCaptureEngine(host: CaptureEngineHost) {

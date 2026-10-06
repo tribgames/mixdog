@@ -1282,10 +1282,14 @@ export function createGitCommitPaths(gitStatus: (cwd: string) => Promise<GitStat
     );
     if (!requested.length) throw new TypeError('Select at least one file to commit.');
     for (const path of requested) assertCommitPath(path);
+    // git reports the worktree by its real path (macOS: /var → /private/var),
+    // so the selection is resolved from the real cwd too; a symlinked spelling
+    // would otherwise place every selected file outside the repository.
+    const realCwd = await realpath(resolve(cwd)).catch(() => resolve(cwd));
     // Identity, not spelling: a nested cwd or a symlinked path is the same
     // repository and must queue behind the same in-flight sequence.
-    const repository = await repositoryIdentity(cwd);
-    return withRepositorySequence(repository.gitDir, () => commitPaths(cwd, repository, raw, requested));
+    const repository = await repositoryIdentity(realCwd);
+    return withRepositorySequence(repository.gitDir, () => commitPaths(realCwd, repository, raw, requested));
   }
 
   async function commitPaths(

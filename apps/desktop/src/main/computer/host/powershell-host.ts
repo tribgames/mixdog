@@ -43,6 +43,8 @@ import { computerUseCoordinator } from '../session/coordinator';
 import { createExecutionState } from './execution-state';
 import { createWindowReads } from './window-reads';
 import { readDisplays } from './display-reads';
+import { readComputerPermissions } from './permission-reads';
+import { WINDOWS_NATIVE_SURFACE_BACKENDS } from '../shared/capture-attempts';
 import { publishPointerProgress } from './pointer-cursor';
 import { createSessionLifecycle } from './session-lifecycle';
 import { createInputResolution } from './input-resolution';
@@ -161,12 +163,15 @@ export function createPowerShellComputerHost(
     readComputerWindows,
     readInputState: () => computerUseCoordinator.snapshot(),
     readDisplays,
+    readPermissions: readComputerPermissions,
     isObserveOnly: () => observeOnly,
   });
   const captureEngine = createCaptureEngine({
     ...sessionState,
     callPowerShell,
     assertExecutionNotAborted,
+    nativeSurfaceBackends: process.platform === 'win32' ? WINDOWS_NATIVE_SURFACE_BACKENDS : [],
+    readPermissions: readComputerPermissions,
     beginObservation: execution.beginObservation,
     resolveAppWindowId: targeting.resolveAppWindowId,
     resolveForegroundWindowId: targeting.resolveForegroundWindowId,

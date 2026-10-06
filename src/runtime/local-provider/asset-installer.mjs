@@ -143,18 +143,26 @@ export async function downloadVerifiedLocalAsset(
   return destination;
 }
 
-async function extractZip(zipPath, destination, signal) {
-  signal?.throwIfAborted();
+// The Windows builds ship as zips (PowerShell's Expand-Archive); the macOS
+// build is a gzipped tarball, which the system tar unpacks.
+function extractCommand(archive, destination) {
+  if (!archive.endsWith('.zip')) return ['tar', ['-xzf', archive, '-C', destination], process.env];
   const command = [
     "$ErrorActionPreference = 'Stop'",
     'Expand-Archive -LiteralPath $env:MIXDOG_LOCAL_ARCHIVE -DestinationPath $env:MIXDOG_LOCAL_DESTINATION -Force',
   ].join('; ');
-  const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', command], {
-    env: {
-      ...process.env,
-      MIXDOG_LOCAL_ARCHIVE: zipPath,
-      MIXDOG_LOCAL_DESTINATION: destination,
-    },
+  return [
+    'powershell',
+    ['-NoProfile', '-NonInteractive', '-Command', command],
+    { ...process.env, MIXDOG_LOCAL_ARCHIVE: archive, MIXDOG_LOCAL_DESTINATION: destination },
+  ];
+}
+
+async function extractArchive(archive, destination, signal) {
+  signal?.throwIfAborted();
+  const [command, args, env] = extractCommand(archive, destination);
+  const child = spawn(command, args, {
+    env,
     windowsHide: true,
     signal,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -184,7 +192,9 @@ async function installRuntimeInternal({ dataDir, onProgress, fetchFn, signal }) 
   signal?.throwIfAborted();
   const entry = localProviderRuntimePlatformEntry();
   if (!entry || !localProviderCatalogStatus({ dataDir, hardware }).available) {
-    throw new Error('[local-provider] Windows x64 with a compatible NVIDIA RTX GPU is required');
+    throw new Error(
+      '[local-provider] Windows x64 with a compatible NVIDIA RTX GPU, or an Apple Silicon Mac with enough memory, is required'
+    );
   }
   const target = localProviderRuntimeDirectory(dataDir);
   const executable = join(target, entry.executable);
@@ -217,7 +227,7 @@ async function installRuntimeInternal({ dataDir, onProgress, fetchFn, signal }) 
         totalBytes: entry.downloadBytes,
         percent: Math.min(99, Math.round(((completedBytes + asset.size) / entry.downloadBytes) * 100)),
       });
-      await extractZip(archive, staging, signal);
+      await extractArchive(archive, staging, signal);
       completedBytes += asset.size;
     }
     if (!existsSync(join(staging, entry.executable))) {

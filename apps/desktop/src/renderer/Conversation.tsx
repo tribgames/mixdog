@@ -29,6 +29,7 @@ import { BrandTile } from './WorkspaceEmptyState';
 import { EMPTY_TRANSCRIPT_ITEMS, type RecordValue, type Snapshot, type TranscriptItem } from './desktop-types';
 import { ComposerDock } from './ComposerDock';
 import { asRecord } from './text-format';
+import { inheritSessionDirectly, sessionModelSelection } from './session-inheritance';
 import { TranscriptList } from './TranscriptList';
 import type { TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 import { MarkdownOpenFileContext, MarkdownProjectContext } from './MarkdownLink';
@@ -89,6 +90,7 @@ export function Conversation({
   onDraftWorkflow,
   onDraftOrchestrationMode,
   onOpenCommandSurface,
+  onInheritSession,
   onOpenFile,
   renderAssistantRow,
   goalIsland,
@@ -135,6 +137,10 @@ export function Conversation({
   onDraftWorkflow?: (workflow: DesktopWorkflowState) => void;
   onDraftOrchestrationMode?: (mode: DesktopOrchestrationMode) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
+  /** Context card → Inherit session and /inherit, run in place (user: 팝업 안
+   *  뜨고 바로 진행되게). The pane holds the source session and its route; the
+   *  host creates the heir and opens its tab. */
+  onInheritSession?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
   onOpenFile?: (project: string, rel: string, line?: number, accessToken?: string) => void;
   /** Selector-driven rows retain their component identity through settlement. */
   renderAssistantRow?: (props: TranscriptAssistantRowProps) => ReactNode;
@@ -229,6 +235,14 @@ export function Conversation({
     onOpenSettings,
     onOpenCommandSurface,
     onClearToNewTask,
+    onInherit: async () => {
+      const sourceSessionId = String(sessionAddress || routeSnapshot.sessionId || '');
+      const route = sessionModelSelection(routeSnapshot);
+      if (!onInheritSession || !sourceSessionId || !route) {
+        throw new Error(t('Inheritance is unavailable on this surface.'));
+      }
+      return inheritSessionDirectly(sourceSessionId, route, onInheritSession);
+    },
   };
   const composerActions = useRef(latestComposerActions);
   composerActions.current = latestComposerActions;
@@ -566,6 +580,7 @@ export function Conversation({
     composerInvokeResult,
     composerOnClearToNewTask,
     composerOnNewTask,
+    composerOnInherit,
     composerOnOpenCommandSurface,
     composerOnOpenProjects,
     composerOnOpenSessions,
@@ -839,6 +854,7 @@ export function Conversation({
             onOpenProjects={composerOnOpenProjects}
             onOpenSettings={composerOnOpenSettings}
             onOpenCommandSurface={composerOnOpenCommandSurface}
+            onInherit={onInheritSession ? composerOnInherit : undefined}
             paneActive={reviewActive}
             dropTargetRef={conversation}
           />

@@ -13,6 +13,8 @@ const SUMMARY_REPORTER = new URL('./test-summary-reporter.mjs', import.meta.url)
 // instead of dying with spawn ENAMETOOLONG before any test runs.
 export const ARG_BUDGET = process.platform === 'win32' ? 30_000 : 1_000_000;
 
+const HEAP_FLAG = /^--(?:max-old-space-size|max-semi-space-size)=\d+$/;
+
 // An argument costs its own characters plus the separator and its quotes.
 const argCost = (arg) => arg.length + 3;
 
@@ -145,6 +147,12 @@ export async function runNodeTests(
     argCost('.999'); // the per-batch log suffix
   const batches = chunkFileArgs(fileArgs, Math.max(argBudget - fixedCost, 1));
   const coverageDir = coverage ? await mkdtemp(join(tmpdir(), 'mixdog-v8-coverage-')) : '';
+  // Node 24's test runner rebuilds each test process's execArgv from its option
+  // table and drops V8 flags on the way, so a heap cap passed to the runner no
+  // longer reached a test (a 128 MB cap ran with the default 4 GB). The
+  // environment still reaches every test process.
+  const heapOptions = nodeArgs.filter((arg) => HEAP_FLAG.test(arg));
+  const nodeOptions = [process.env.NODE_OPTIONS, ...heapOptions].filter(Boolean).join(' ');
   // Failure records travel by environment, not argv: the command line is
   // already budgeted, and a third reporter would warn about listeners.
   const childEnv = (recordsPath) => ({
@@ -152,11 +160,16 @@ export async function runNodeTests(
     TEMP: scratchDir,
     TMP: scratchDir,
     TMPDIR: scratchDir,
+    // A fixture must never write into the signed-in app's data (~/.mixdog):
+    // schedule/webhook logs, design-library bindings and the like resolve the
+    // default data dir. The desktop preload already does this per process.
+    MIXDOG_DATA_DIR: join(scratchDir, 'data'),
     // Only the immutable validator binary is shared; fixture data stays private.
     // A gate supplies one directory across lanes; a standalone run owns its own.
     MIXDOG_TEST_OOXML_CACHE_DIR: process.env.MIXDOG_TEST_OOXML_CACHE_DIR || join(scratchDir, 'ooxml-cache'),
     [FAILURE_RECORDS_ENV]: recordsPath,
     ...(coverageDir ? { NODE_V8_COVERAGE: coverageDir } : {}),
+    ...(nodeOptions ? { NODE_OPTIONS: nodeOptions } : {}),
   });
   let status = 0;
   const failures = [];

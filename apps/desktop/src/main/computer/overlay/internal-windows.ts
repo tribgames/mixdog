@@ -1,4 +1,4 @@
-import type { BrowserWindow } from 'electron';
+import { nativeWindowNumber, type NativeWindowSource } from '../observation/native-window-id';
 
 const internalWindowIds = new Set<string>();
 
@@ -8,14 +8,12 @@ function normalizedWindowId(value: unknown): string {
     .toLowerCase();
 }
 
-function nativeWindowId(window: Pick<BrowserWindow, 'getNativeWindowHandle'>): string {
-  const handle = window.getNativeWindowHandle();
-  if (!Buffer.isBuffer(handle) || handle.length < 4) return '';
-  const value = handle.length >= 8 ? handle.readBigUInt64LE(0) : BigInt(handle.readUInt32LE(0));
+function nativeWindowId(window: NativeWindowSource): string {
+  const value = nativeWindowNumber(window);
   return value > 0n ? `hwnd:0x${value.toString(16).toUpperCase()}` : '';
 }
 
-export function registerComputerUseInternalWindow(window: Pick<BrowserWindow, 'getNativeWindowHandle'>): () => void {
+export function registerComputerUseInternalWindow(window: NativeWindowSource): () => void {
   const id = normalizedWindowId(nativeWindowId(window));
   if (!id) return () => {};
   internalWindowIds.add(id);

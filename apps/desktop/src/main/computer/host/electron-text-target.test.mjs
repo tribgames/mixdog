@@ -43,6 +43,9 @@ test('typing requires an editable focus and refuses a different editable target,
 test('typing readiness converts physical coordinates and zoom and stops on cancellation', async () => {
   let checks = 0;
   const field = { tagName: 'TEXTAREA' };
+  // Native points are DIPs on macOS; elsewhere the screen scale (2) applies
+  // first. Both then subtract the content origin and divide by the zoom.
+  const [pageX, pageY] = process.platform === 'darwin' ? [100, 45] : [25, 10];
   const window = {
     isDestroyed: () => false,
     getContentBounds: () => ({ x: 100, y: 50 }),
@@ -54,7 +57,7 @@ test('typing readiness converts physical coordinates and zoom and stops on cance
         return runInNewContext(script, {
           document: {
             activeElement: field,
-            elementFromPoint: (x, y) => (x === 25 && y === 10 ? field : null),
+            elementFromPoint: (x, y) => (x === pageX && y === pageY ? field : null),
           },
         });
       },
@@ -93,6 +96,7 @@ test('observation-only enabled during focus confirmation prevents text after the
     {
       isDestroyed: () => false,
       getNativeWindowHandle: () => Buffer.from([1, 0, 0, 0]),
+      getMediaSourceId: () => 'window:1:0',
       getContentBounds: () => ({ x: 0, y: 0 }),
       webContents: {
         isDestroyed: () => false,
@@ -144,6 +148,7 @@ test('a failed preparatory click retains uncertainty and never sends app-owned t
       {
         isDestroyed: () => false,
         getNativeWindowHandle: () => Buffer.from([1, 0, 0, 0]),
+        getMediaSourceId: () => 'window:1:0',
         webContents: {
           isDestroyed: () => false,
           insertText: async () => {

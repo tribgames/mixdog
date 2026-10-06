@@ -1,9 +1,36 @@
 import { execFile } from 'node:child_process';
+import { cpus, totalmem } from 'node:os';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const GPU_FIELDS = 'index,uuid,name,memory.total,memory.free';
 const CACHE_MS = 5_000;
+
+/** The manifest runtime this host runs: CUDA on Windows x64, Metal on Apple
+ *  Silicon; '' where no llama.cpp build is pinned. */
+export function localProviderPlatformKey(platform = process.platform, arch = process.arch) {
+  if (platform === 'win32' && arch === 'x64') return 'win32-x64-nvidia';
+  if (platform === 'darwin' && arch === 'arm64') return 'darwin-arm64-metal';
+  return '';
+}
+
+/** Apple Silicon has one GPU on unified memory. Metal caps what it wires for
+ *  the GPU: the `iogpu.wired_limit_mb` override when set, else two thirds of
+ *  RAM — exactly what llama.cpp's Metal backend reports on a 16 GB M4; larger
+ *  Macs may allow more, which this leaves unused. Metal reports that whole
+ *  working set as free, so free equals total here as it does in llama.cpp. */
+export function appleSiliconGpu({ name, totalBytes, wiredLimitMb }) {
+  const memoryBytes = wiredLimitMb > 0 ? wiredLimitMb * 1024 ** 2 : Math.floor((totalBytes * 2) / 3);
+  return { index: 0, uuid: 'MTL0', vendor: 'Apple', name, memoryBytes, freeMemoryBytes: memoryBytes };
+}
+
+async function queryAppleSilicon() {
+  const limit = await execFileAsync('/usr/sbin/sysctl', ['-n', 'iogpu.wired_limit_mb'], {
+    encoding: 'utf8',
+    timeout: 5_000,
+  }).catch(() => ({ stdout: '0' })); // macOS before 14 has no such key
+  return { name: cpus()[0]?.model || 'Apple Silicon', totalBytes: totalmem(), wiredLimitMb: Number(limit.stdout) || 0 };
+}
 
 export function parseNvidiaGpus(output) {
   return String(output || '')
@@ -40,12 +67,14 @@ export function createHardwareProbe({
         maxBuffer: 64 * 1024,
       })
     ).stdout,
+  appleQueryFn = queryAppleSilicon,
   platform = process.platform,
   arch = process.arch,
   now = Date.now,
   cacheMs = CACHE_MS,
 } = {}) {
-  const platformSupported = platform === 'win32' && arch === 'x64';
+  const platformSupported = Boolean(localProviderPlatformKey(platform, arch));
+  const apple = platform === 'darwin';
   let value = {
     platform,
     arch,
@@ -70,12 +99,14 @@ export function createHardwareProbe({
       return value;
     };
     pending = Promise.resolve()
-      .then(queryFn)
+      .then(apple ? appleQueryFn : queryFn)
       .then(
         (output) => {
-          const gpus = parseNvidiaGpus(output).sort(
-            (a, b) => b.memoryBytes - a.memoryBytes || b.freeMemoryBytes - a.freeMemoryBytes || a.index - b.index
-          );
+          const gpus = apple
+            ? [appleSiliconGpu(output)]
+            : parseNvidiaGpus(output).sort(
+                (a, b) => b.memoryBytes - a.memoryBytes || b.freeMemoryBytes - a.freeMemoryBytes || a.index - b.index
+              );
           return settle({
             gpu: gpus[0] || null,
             gpus,

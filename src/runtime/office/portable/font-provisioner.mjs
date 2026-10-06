@@ -217,7 +217,35 @@ async function installFont(fontDef) {
   return { installed: true, skipped: false, path: targetPath };
 }
 
+// Office for Mac keeps its faces (Calibri, Cambria, Aptos, Malgun Gothic, Yu
+// Gothic, ...) inside each app bundle and never registers them with the system,
+// so a Mac with Excel installed measured Calibri in a fallback face — its digit
+// read 9 px where Excel lays out 7, and every fitted column came out wide. The
+// apps share one copy; the first bundle found is the one Excel draws with.
+const MAC_OFFICE_FONT_DIRECTORIES = Object.freeze(
+  ['Microsoft Excel', 'Microsoft Word', 'Microsoft PowerPoint', 'Microsoft Outlook'].map(
+    (app) => `/Applications/${app}.app/Contents/Resources/DFonts`
+  )
+);
+
+/** The font folder of the installed Office for Mac, or '' elsewhere or without Office. */
+export function macOfficeFontDirectory() {
+  if (platform() !== 'darwin') return '';
+  return MAC_OFFICE_FONT_DIRECTORIES.find((candidate) => existsSync(candidate)) || '';
+}
+
+function registerMacOfficeFonts() {
+  const directory = macOfficeFontDirectory();
+  if (!directory) return;
+  try {
+    GlobalFonts.loadFontsFromDir(directory);
+  } catch {
+    // non-fatal: measurement falls back to the installed faces
+  }
+}
+
 export function warmupInstalledOfficeFonts() {
+  registerMacOfficeFonts();
   for (const fontDef of NOTO_FONT_DEFINITIONS) {
     const status = isFontInstalled(fontDef);
     if (status.installed) {

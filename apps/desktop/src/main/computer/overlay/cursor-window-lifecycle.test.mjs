@@ -33,6 +33,9 @@ class WindowFixture extends EventEmitter {
     handle.writeBigUInt64LE(BigInt(windows.indexOf(this) + 1));
     return handle;
   }
+  getMediaSourceId() {
+    return `window:${windows.indexOf(this) + 1}:0`;
+  }
   setTitle() {
     if (fault === 'setup') throw new Error('fixture setup failure');
   }

@@ -10,6 +10,15 @@ import { pluginMcpServerName, pluginServerMatcher } from '../runtime/agent/orche
 
 const pluginKey = (plugin) => clean(plugin.id || plugin.name || plugin);
 
+/** The registered status row a caller means by `plugin` (row, id, name, or
+ *  title), or null. Callers such as the setup tool pass only a name, while
+ *  MCP entry names and scope keys come from the registered record. */
+export function findRegisteredPlugin(pluginsStatus, plugin) {
+  const key = pluginKey(plugin);
+  if (!key) return null;
+  return (pluginsStatus()?.plugins || []).find((row) => [row.id, row.name, row.title].map(clean).includes(key)) || null;
+}
+
 export function createPluginsResourceApi({ deps, sync, decorate }) {
   const {
     getConfig,
@@ -52,8 +61,9 @@ export function createPluginsResourceApi({ deps, sync, decorate }) {
       return { plugin: updated, status: pluginsStatus() };
     },
     async setPluginEnabled(plugin = {}, enabled = true) {
+      const owner = findRegisteredPlugin(pluginsStatus, plugin) || plugin;
       const updated = registrySetPluginEnabled(pluginKey(plugin), enabled, { dataDir: pluginData() });
-      await rewritePluginServers(plugin, (servers, owned) => {
+      await rewritePluginServers(owner, (servers, owned) => {
         const next = {};
         for (const [name, value] of Object.entries(servers)) {
           const config = value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : value;
@@ -69,8 +79,10 @@ export function createPluginsResourceApi({ deps, sync, decorate }) {
       return { plugin: updated, status: pluginsStatus() };
     },
     async removePlugin(plugin = {}) {
+      // Resolve before the registry forgets the plugin and its manifest name.
+      const owner = findRegisteredPlugin(pluginsStatus, plugin) || plugin;
       const removed = registryRemovePlugin(pluginKey(plugin), { dataDir: pluginData() });
-      await rewritePluginServers(plugin, (servers, owned) => {
+      await rewritePluginServers(owner, (servers, owned) => {
         const next = { ...servers };
         for (const name of Object.keys(next)) {
           if (owned(name)) delete next[name];

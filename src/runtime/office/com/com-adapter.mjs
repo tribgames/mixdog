@@ -331,6 +331,9 @@ export async function callMicrosoftOffice(payload, { timeoutMs = DEFAULT_TIMEOUT
 }
 
 export async function detectMicrosoftOffice({ format = '', path = '' } = {}) {
+  // Off Windows there is no COM to probe; spawning powershell.exe only reported
+  // "spawn powershell.exe ENOENT" as if Office were broken on a Mac.
+  if (!microsoftOfficeComSupported()) return unsupportedPlatformResult();
   return await callMicrosoftOfficeOnce({ action: 'detect', format, path }, { timeoutMs: 20_000 });
 }
 

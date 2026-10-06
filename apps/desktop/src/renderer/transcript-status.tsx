@@ -8,7 +8,7 @@ import { t, uiFormatLocale } from './i18n';
 import { uiCurrency } from './ui-format';
 import { MxIcon } from './MxIcon';
 import { showDesktopToast } from './notifications';
-import { inheritancePreflight, sessionModelSelection, shouldOfferSessionInheritance } from './session-inheritance';
+import { inheritSessionDirectly, sessionModelSelection, shouldOfferSessionInheritance } from './session-inheritance';
 import { asRecord, formatElapsed, publicThinkingSummary } from './text-format';
 import { completionTone, formatTokenCount, TextShimmer } from './transcript-primitives';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
@@ -114,18 +114,7 @@ export function ContextUsageIndicator({
   const inherit = async () => {
     if (!sessionId || !onInherit || !inheritRoute || actionBusy || actionInFlight.current) return;
     await runContextAction(async () => {
-      const fit = await inheritancePreflight(sessionId, inheritRoute);
-      if (fit?.known && !fit.fits) {
-        if (!fit.willCompact) {
-          showDesktopToast(t('This conversation no longer fits the model context. Run /compact first.'), 'warn');
-          return;
-        }
-        // The carry takes a summarization pass first. Say so: the handover is
-        // about to take a while, and this session keeps its full transcript.
-        showDesktopToast(t('This conversation is compacted for the new model before it carries over.'), 'info');
-      }
-      await onInherit(sessionId, inheritRoute);
-      popover.close();
+      if (await inheritSessionDirectly(sessionId, inheritRoute, onInherit)) popover.close();
     });
   };
   const compact = async () => {

@@ -171,6 +171,29 @@ test('the composer offers only frequent commands and preserves direct command ex
     assert.deepEqual(calls.pop(), ['surface', 'inherit']);
     assert.equal(document.activeElement, input);
 
+    // With an inheritance host the command carries in place, like the
+    // context card's button: no confirmation surface opens.
+    const inheritProps = {
+      ...props,
+      onInherit: async () => {
+        calls.push(['inherit']);
+        return true;
+      },
+    };
+    await act(async () => root.render(React.createElement(Composer, inheritProps)));
+    await type('/inherit');
+    await key('Enter');
+    assert.deepEqual(calls, [['inherit']]);
+    calls.pop();
+    assert.equal(input.value, '');
+    await act(async () => root.render(React.createElement(Composer, { ...inheritProps, turnBusy: true })));
+    await type('/inherit');
+    await key('Enter');
+    assert.equal(input.value, '/inherit');
+    assert.match(toastText(), /Wait for the current turn to finish before \/inherit/);
+    assert.deepEqual(calls, []);
+    await act(async () => root.render(React.createElement(Composer, props)));
+
     await type('/doc');
     assert.deepEqual(usages(), ['/doctor']);
     await key('Enter');

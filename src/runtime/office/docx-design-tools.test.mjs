@@ -238,3 +238,33 @@ test('a separator numbers pages against the total', async (t) => {
   ]);
   assert.doesNotMatch(await alone.package.text(footerOf(alone.package)), /NUMPAGES/);
 });
+
+// Without Office (always, on a Mac) this backend is the only one, and a phrase
+// in a table cell could take no comment, hyperlink, or bookmark.
+test('a comment anchors to a phrase in a table cell when the body does not hold it', async (t) => {
+  const cwd = await workspace(t);
+  const { package: docx, created } = await create(cwd, 'cell-comment.docx', [
+    { op: 'append_text', text: '본문 문단' },
+    {
+      op: 'add_table',
+      values: [
+        ['항목', '값'],
+        ['처리량', '1,200'],
+      ],
+    },
+    { op: 'append_text', text: '처리량은 위 표에 있습니다.' },
+    { op: 'add_comment', find: '1,200', text: '출처 확인', author: '검토자' },
+  ]);
+  assert.equal(created.batch.results.at(-1).anchor, 'phrase');
+  const document = await docx.text('word/document.xml');
+  const table = /<w:tbl>[\s\S]*<\/w:tbl>/.exec(document)?.[0] || '';
+  assert.match(table, /<w:commentRangeStart w:id="1"\/>[\s\S]*1,200[\s\S]*<w:commentRangeEnd w:id="1"\/>/);
+  // The body is searched first: a phrase in both lands on the body paragraph.
+  const both = await create(cwd, 'body-first.docx', [
+    { op: 'add_table', values: [['처리량', '1']] },
+    { op: 'append_text', text: '처리량 설명' },
+    { op: 'add_comment', find: '처리량', text: '본문 우선' },
+  ]);
+  const bodyFirst = await both.package.text('word/document.xml');
+  assert.doesNotMatch(/<w:tbl>[\s\S]*<\/w:tbl>/.exec(bodyFirst)?.[0] || '', /commentRangeStart/);
+});

@@ -113,6 +113,8 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   deleteAgentDefinition: ['agents'],
   setAgentRoute: ['agents'],
   setWebSearchRoute: ['webSearchRoute'],
+  addProject: ['projects'],
+  removeProject: ['projects'],
   // Provider/auth mutation owners (settings + onboarding capability runners).
   saveProviderApiKey: PROVIDER_KEYS,
   forgetProviderAuth: PROVIDER_KEYS,

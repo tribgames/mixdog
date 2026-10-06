@@ -8,6 +8,7 @@ import { requestOpenModelPicker } from '../model-picker-event';
 import { useAppUiOpenRequest, type SetupLaneSource } from '../app-shell-ui-open-request';
 import { defaultSessionLaneStore } from '../session-lane-store';
 import { useSetupDesktopRequest } from '../use-setup-desktop-request';
+import { useSetupChangeAnnouncer } from '../setup-change-refresh';
 import { useProviderModelsSync } from '../sidebar-reference-cache';
 import type { Snapshot } from '../desktop-types';
 import type { useAppShellPanels } from '../use-app-shell-panels';
@@ -30,6 +31,7 @@ export interface UseAppSettingsRouterOptions {
   sessionId: Snapshot['sessionId'];
   openConversationCommandSurface: ReturnType<typeof useAppShellPanels>['openConversationCommandSurface'];
   setupUiRequest: Snapshot['setupUiRequest'];
+  setupChanged?: Snapshot['setupChanged'];
 }
 
 export function useAppSettingsRouter({
@@ -48,6 +50,7 @@ export function useAppSettingsRouter({
   sessionId,
   openConversationCommandSurface,
   setupUiRequest,
+  setupChanged,
 }: UseAppSettingsRouterOptions) {
   const openSettings = useCallback(
     (section: SlashSettingsSection | null = null) => {
@@ -124,6 +127,7 @@ export function useAppSettingsRouter({
   });
 
   useSetupDesktopRequest(setupUiRequest, sessionId, window.mixdogDesktop, subscribeSessionLanes);
+  useSetupChangeAnnouncer(setupChanged, sessionId, subscribeSessionLanes);
   useProviderModelsSync(window.mixdogDesktop);
 
   return {

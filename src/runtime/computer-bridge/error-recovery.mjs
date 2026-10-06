@@ -71,7 +71,7 @@ function foregroundRecovery(code, target) {
     return {
       code,
       next: 'user',
-      guidance: `Windows did not grant foreground focus. Ask the user to activate ${target}, then capture fresh state. Do not substitute background input or repeat the failed gesture.`,
+      guidance: `The system did not grant foreground focus (macOS refuses it while another app is active). Ask the user to activate ${target}, or use a foreground click on the window, which activates it; then capture fresh state. Do not substitute background input or repeat the failed gesture.`,
     };
   }
   return undefined;

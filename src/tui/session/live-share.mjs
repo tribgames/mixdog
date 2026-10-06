@@ -13,8 +13,16 @@
  * pipe is down. Ownership/promotion semantics are unchanged — the pipe is a
  * transport, never a second writer.
  */
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 import { createOwnerLeg } from './live-share/owner.mjs';
 import { createViewerLeg } from './live-share/viewer.mjs';
+
+// A unix socket path is a fixed sun_path buffer: 104 bytes on macOS and the
+// BSDs, 108 on Linux, NUL included. A desktop session id alone is 64 hex, so
+// the path beside its session file runs past the macOS limit and listen()
+// failed there for every desktop session.
+const UNIX_SOCKET_PATH_MAX_BYTES = 103;
 
 // Session entry is latency-sensitive: the owner pipe can be a few event-loop
 // turns behind the viewer resume. Retry locally instead of waiting for the
@@ -23,7 +31,14 @@ const LIVE_CONNECT_RETRY_MIN_MS = 10;
 const LIVE_CONNECT_RETRY_MAX_MS = 160;
 
 export function liveSharePipePath(sessionId, sessionFilePath) {
-  return process.platform === 'win32' ? `\\\\.\\pipe\\mixdog-live-${sessionId}` : `${sessionFilePath}.live.sock`;
+  if (process.platform === 'win32') return `\\\\.\\pipe\\mixdog-live-${sessionId}`;
+  const beside = `${sessionFilePath}.live.sock`;
+  if (Buffer.byteLength(beside) <= UNIX_SOCKET_PATH_MAX_BYTES) return beside;
+  // Owner and viewer derive the same short name from the same session file.
+  // /tmp, not os.tmpdir(): TMPDIR is itself long on macOS and may differ
+  // between the desktop daemon and a terminal, which would split the pair.
+  const digest = createHash('sha256').update(beside).digest('hex').slice(0, 24);
+  return join('/tmp', `mixdog-live-${process.getuid()}-${digest}.sock`);
 }
 
 export function createLiveShare({

@@ -17,11 +17,23 @@ function cacheKeyUrl(request) {
 export function memoryCache() {
   const entries = new Map();
   return {
+    // Cache.put reads the whole body and stores its bytes, as a real Cache
+    // does. Holding the live Response instead let Node cancel its stream once
+    // the clone it was cut from was collected, and a later match failed.
+    // The entry is claimed at once, so a caller that does not await put still
+    // finds it; reads wait for the bytes.
     async put(request, response) {
-      entries.set(cacheKeyUrl(request), response);
+      const stored = response
+        .arrayBuffer()
+        .then(
+          (body) =>
+            new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers })
+        );
+      entries.set(cacheKeyUrl(request), stored);
+      await stored;
     },
     async match(request) {
-      const stored = entries.get(cacheKeyUrl(request));
+      const stored = await entries.get(cacheKeyUrl(request));
       return stored ? stored.clone() : undefined;
     },
     async keys() {

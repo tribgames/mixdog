@@ -31,7 +31,14 @@ fn string_of(object: *mut AnyObject) -> String {
     unsafe { (*(object as *const NSString)).to_string() }
 }
 
+/// The active application. NSWorkspace refreshes its answer from notifications
+/// delivered on the main run loop, which this command-line host never runs, so
+/// it kept naming the app that was frontmost at launch: every later activation
+/// read as refused. Accessibility asks the window server each time.
 pub fn frontmost_pid() -> i32 {
+    if let Some(pid) = super::ax_focused_application_pid() {
+        return pid;
+    }
     // SAFETY: plain AppKit queries on shared singletons.
     unsafe {
         let workspace: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
@@ -57,6 +64,36 @@ pub fn activate(pid: i32) -> bool {
     // NSApplicationActivateIgnoringOtherApps.
     // SAFETY: app is a live NSRunningApplication.
     unsafe { msg_send![app, activateWithOptions: 2usize] }
+}
+
+/// macOS 14 activation is cooperative: a process that is not frontmost (this
+/// helper never is) cannot bring another app forward, and activateWithOptions
+/// is silently ignored. Launch Services may: asking it to open the running
+/// app's bundle has that app activate itself, as a Dock click does.
+pub fn activate_through_launch_services(pid: i32) -> bool {
+    let app = running_application(pid);
+    if app.is_null() {
+        return false;
+    }
+    // SAFETY: app is a live NSRunningApplication; bundleURL may be nil.
+    let path = unsafe {
+        let url: *mut AnyObject = msg_send![app, bundleURL];
+        if url.is_null() {
+            return false;
+        }
+        string_of(msg_send![url, path])
+    };
+    if path.is_empty() {
+        return false;
+    }
+    std::process::Command::new("/usr/bin/open")
+        .arg("-a")
+        .arg(&path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
 }
 
 /// The pid of a running application whose bundle lives at `path`.

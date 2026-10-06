@@ -10,9 +10,9 @@ registerHooks({
             'data:text/javascript,' +
             encodeURIComponent(`
         export const BrowserWindow = { getAllWindows: () => globalThis.captureFixture?.windows || [] };
-        export const desktopCapturer = { getSources: async () => globalThis.captureFixture.sources() };
+        export const desktopCapturer = { getSources: async (options) => globalThis.captureFixture.sources(options) };
         export const nativeImage = { createFromBuffer: (buffer) => globalThis.captureFixture.decode(buffer) };
-        export const screen = {};
+        export const screen = { getDisplayMatching: () => ({ scaleFactor: globalThis.captureFixture?.scaleFactor ?? 1 }) };
       `),
           shortCircuit: true,
         }
@@ -27,6 +27,12 @@ const { createComputerExecutionPolicy } = await import('../host/execution-policy
 const { createCommandRouter } = await import('../host/command-router.ts');
 const { createWindowReads } = await import('../host/window-reads.ts');
 const { createWindowTargeting } = await import('../input/targeting.ts');
+
+const WINDOWS_PERMISSIONS = {
+  screen_capture: 'not_required_on_windows',
+  accessibility: 'not_required_on_windows',
+  input: 'target_integrity_dependent',
+};
 
 function image(width, height, crops = []) {
   return {
@@ -80,7 +86,14 @@ function fixture(overrides = {}) {
   const execution = createExecutionState();
   const active = { sessionId: 'a', aborted: false };
   execution.activeExecutionsBySession.set('a', active);
-  const host = { ...state, ...execution, callPowerShell, ...overrides.host };
+  const host = {
+    ...state,
+    ...execution,
+    callPowerShell,
+    nativeSurfaceBackends: ['print_window', 'wgc'],
+    readPermissions: () => WINDOWS_PERMISSIONS,
+    ...overrides.host,
+  };
   const capture = createCaptureEngine(host);
   globalThis.captureFixture = {
     sources: async () => [{ id: 'window:1:0', name: 'fixture', thumbnail: image(800, 600) }],
@@ -422,6 +435,53 @@ test('native capture denial, geometry changes and minimized targets do not switc
   }
 });
 
+test('macOS captures through the per-window composited source and names a missing Screen Recording grant', async () => {
+  for (const [screen_capture, expected] of [
+    ['denied', /composited: macOS Screen Recording is not granted/],
+    ['granted', /exact window capture unavailable; composited: capture_source_unavailable/],
+  ]) {
+    const f = fixture({
+      host: {
+        nativeSurfaceBackends: [],
+        readPermissions: () => ({ screen_capture, accessibility: 'granted', input: 'accessibility_dependent' }),
+      },
+    });
+    globalThis.captureFixture.sources = async () => [];
+    const shot = await f.run(() =>
+      f.capture.captureScreenshot({ action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a' })
+    );
+    assert.equal(shot.image, undefined);
+    assert.equal(shot.pixelUnavailable.reason, 'capture_source_unavailable');
+    assert.match(shot.pixelUnavailable.message, expected);
+    assert.doesNotMatch(shot.pixelUnavailable.message, /wgc|print_window/);
+    // No Windows-only surface is requested from the macOS worker.
+    assert.equal(
+      f.requests.some((request) => request.action === 'window_capture'),
+      false
+    );
+  }
+
+  const f = fixture({
+    host: {
+      nativeSurfaceBackends: [],
+      readPermissions: () => ({
+        screen_capture: 'granted',
+        accessibility: 'granted',
+        input: 'accessibility_dependent',
+      }),
+    },
+  });
+  const shot = await f.run(() =>
+    f.capture.captureScreenshot({ action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a' })
+  );
+  assert.ok(shot.image);
+  assert.equal(shot.frame.nativeBackend, undefined);
+  assert.deepEqual(
+    shot.captureAttempts.map(({ backend, status }) => [backend, status]),
+    [['composited', 'captured']]
+  );
+});
+
 test('cancellation after PrintWindow failure prevents WGC capture', async () => {
   const f = fixture({
     native: (request) => {
@@ -529,6 +589,7 @@ test('client origin zero and app-owned zoom retain the observed surface coordina
     isDestroyed: () => false,
     webContents: { isDestroyed: () => false },
     getNativeWindowHandle: () => Buffer.from([1, 0, 0, 0]),
+    getMediaSourceId: () => 'window:1:0',
     capturePage: async () => image(800, 600, crops),
   };
   globalThis.captureFixture.windows = [owned];
@@ -552,6 +613,45 @@ test('client origin zero and app-owned zoom retain the observed surface coordina
   assert.deepEqual(crops, [{ x: 10, y: 20, width: 100, height: 100 }]);
   const frame = f.state.framesBySession.get('a').get(zoom.frameId);
   assert.deepEqual([frame.originX, frame.originY, frame.physicalWidth, frame.physicalHeight], [10, 20, 100, 100]);
+});
+
+test('a composited zoom on a macOS Retina display cuts from the backing pixels, not the point-sized frame', async () => {
+  const f = fixture({ host: { nativeSurfaceBackends: [] } });
+  const crops = [];
+  const requested = [];
+  globalThis.captureFixture.scaleFactor = 2;
+  globalThis.captureFixture.sources = async (options) => {
+    requested.push(options.thumbnailSize);
+    return [
+      {
+        id: 'window:1:0',
+        name: 'fixture',
+        thumbnail: image(options.thumbnailSize.width, options.thumbnailSize.height, crops),
+      },
+    ];
+  };
+  try {
+    const shot = await f.run(() =>
+      f.capture.captureScreenshot({ action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a' })
+    );
+    const parent = f.state.framesBySession.get('a').get(shot.frameId);
+    crops.length = 0;
+    const zoom = await f.run(() =>
+      f.capture.captureZoom({ action: 'zoom', frame_id: shot.frameId, region: [10, 20, 110, 120], session_id: 'a' })
+    );
+    assert.ok(zoom.image);
+    // Native points are backing pixels / scale on macOS only; elsewhere they are pixels already.
+    const scale = process.platform === 'darwin' ? 2 : 1;
+    assert.deepEqual(requested.at(-1), {
+      width: Math.round(parent.windowWidth * scale),
+      height: Math.round(parent.windowHeight * scale),
+    });
+    const frame = f.state.framesBySession.get('a').get(zoom.frameId);
+    assert.equal(crops.at(-1).width, Math.round(frame.physicalWidth * scale));
+    assert.equal(crops.at(-1).height, Math.round(frame.physicalHeight * scale));
+  } finally {
+    delete globalThis.captureFixture.scaleFactor;
+  }
 });
 
 test('cancelled or cross-session-invalidated captures never republish input targets', async () => {
@@ -714,7 +814,7 @@ test('failed accessibility workers permit fresh pixels and OCR without replaying
 });
 
 test('another session changing a resolved target during preparation still prevents dispatch', {
-  skip: process.platform !== 'win32' && 'Windows only',
+  skip: !['win32', 'darwin'].includes(process.platform) && 'Windows and macOS only',
 }, async () => {
   const f = fixture();
   const command = { action: 'key', keys: '{TAB}', window_id: 'hwnd:0x1', session_id: 'a' };
@@ -747,7 +847,7 @@ test('another session changing a resolved target during preparation still preven
 });
 
 test('bounded zoom derives authorization from its original frame, not an extra window selector', {
-  skip: process.platform !== 'win32' && 'Windows only',
+  skip: !['win32', 'darwin'].includes(process.platform) && 'Windows and macOS only',
 }, async () => {
   const f = fixture();
   const shot = await f.run(() =>

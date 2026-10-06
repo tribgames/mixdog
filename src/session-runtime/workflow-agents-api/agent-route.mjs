@@ -73,6 +73,11 @@ export function createAgentRouteApi(deps) {
     const keepOff = requested.disabled === true;
     if (keepOff && !(clean(requested.provider) && clean(requested.model))) {
       saveDisabled(id, true);
+      // An explicitly empty provider still asks to drop the override, as it
+      // does for an agent that stays on: off and inheriting Main.
+      if (hasOwn(requested, 'provider') && !clean(requested.provider)) {
+        return { ...clearOverride(id), id, disabled: true };
+      }
       return { ...stored, id, disabled: true };
     }
     if (requested.disabled === false && Object.keys(requested).length === 1) {

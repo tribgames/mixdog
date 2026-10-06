@@ -149,10 +149,6 @@ type PaneConversationProps = Omit<
   hidden: boolean;
   transcriptPending?: boolean;
   reconcileOnMount?: boolean;
-  /** Context card → Inherit session, run in place (user: 팝업 안 뜨고 바로
-   *  진행되게). The pane holds the source session and its route; the host
-   *  creates the heir and opens its tab. */
-  onInheritSession?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
 };
 
 export const PaneConversation = memo(function PaneConversation({
@@ -332,6 +328,7 @@ export const PaneConversation = memo(function PaneConversation({
         onEntryRevealed={onEntryRevealed}
         renderAssistantRow={(row) => <PaneAssistantRow {...row} sessionId={sessionId} hidden={hidden} />}
         {...props}
+        onInheritSession={onInheritSession}
         submit={submit}
         goalIsland={<PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />}
         contextIndicator={contextIndicator}

@@ -42,6 +42,32 @@ test('Maintainer Fast off survives save and route reload', async () => {
   assert.equal(reloaded.fast, false);
 });
 
+test('turning an agent off with an empty provider also drops its route override', async () => {
+  const main = { provider: 'anthropic-oauth', model: 'claude-opus-5-5', effort: 'high' };
+  let config = {
+    agents: { worker: { provider: 'anthropic-oauth', model: 'claude-sonnet-5-5', effort: 'low' } },
+  };
+  const helpers = createWorkflowRouteHelpers({ findPreset: () => null });
+  const api = createWorkflowAgentsApi({
+    getConfig: () => config,
+    resolveRoute: (_config, requested) => ({ ...main, ...requested }),
+    lookupModelMeta: async () => ({}),
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
+    ensureProvidersReady: async () => {},
+    agentRouteFromConfig: helpers.agentRouteFromConfig,
+  });
+
+  const saved = await api.setAgentRoute('worker', { provider: '', disabled: true });
+
+  assert.equal(saved.disabled, true);
+  assert.equal(saved.inherited, true);
+  assert.equal(saved.model, main.model);
+  assert.equal(Object.hasOwn(config.agents || {}, 'worker'), false);
+  assert.equal(helpers.agentRouteFromConfig(config, 'worker'), null);
+});
+
 test('Web Search Fast off survives save and route reload', async () => {
   let config = {};
   let webSearchRoute = null;

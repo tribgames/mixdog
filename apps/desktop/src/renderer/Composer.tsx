@@ -252,6 +252,8 @@ export type ComposerProps = {
   onOpenProjects: () => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
+  /** /inherit carries this session into a new one in place. */
+  onInherit?: () => Promise<boolean>;
   dropTargetRef: React.RefObject<HTMLElement | null>;
   /** This pane is the focused, visible one. A payload shared into the app from
    *  outside (share sheet) may only land in a composer the user can see. */
@@ -496,6 +498,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onOpenProjects: props.onOpenProjects,
     onOpenSettings,
     onOpenCommandSurface: props.onOpenCommandSurface,
+    onInherit: props.onInherit,
   });
 
   const { send, stop } = useComposerSubmission({

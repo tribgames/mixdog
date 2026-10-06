@@ -154,7 +154,13 @@ function openAIOAuthState() {
 }
 
 function grokOAuthState() {
-  const paths = [process.env.GROK_OAUTH_CREDENTIALS_PATH, join(resolvePluginData(), 'grok-oauth.json')];
+  // Same account/path precedence as the token store (getOwnTokenPath): a login
+  // lands in the selected account's pool file, never the legacy root file.
+  const paths = [
+    boundProviderAuthPath('grok-oauth') ||
+      process.env.GROK_OAUTH_CREDENTIALS_PATH ||
+      join(resolvePluginData(), 'grok-oauth.json'),
+  ];
   return memoProbe('grok-oauth', paths, () =>
     resolveProbeState(paths, (docs) => docs.some((own) => !!(own?.access_token && own?.refresh_token)))
   );

@@ -1,5 +1,7 @@
 import type { DesktopModelSelection } from '../shared/contract';
 import type { Snapshot } from './desktop-types';
+import { t } from './i18n';
+import { showDesktopToast } from './notifications';
 import { record } from './record-utils';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
 import { displayModelName } from '../../../../src/ui/model-display.mjs';
@@ -117,4 +119,29 @@ export async function inheritancePreflight(
   } catch {
     return null;
   }
+}
+
+/**
+ * The carry itself, shared by the context card's Inherit button and /inherit:
+ * no confirmation dialog — inheritance is a mechanical copy into a fresh
+ * session and the source stays untouched. A transcript the heir cannot hold
+ * even after compaction is refused before any session is created; one that
+ * must be compacted first is announced, since the handover then takes a
+ * while. Resolves true once the heir exists.
+ */
+export async function inheritSessionDirectly(
+  sessionId: string,
+  route: DesktopModelSelection,
+  inherit: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>
+): Promise<boolean> {
+  const fit = await inheritancePreflight(sessionId, route);
+  if (fit?.known && !fit.fits) {
+    if (!fit.willCompact) {
+      showDesktopToast(t('This conversation no longer fits the model context. Run /compact first.'), 'warn');
+      return false;
+    }
+    showDesktopToast(t('This conversation is compacted for the new model before it carries over.'), 'info');
+  }
+  await inherit(sessionId, route);
+  return true;
 }

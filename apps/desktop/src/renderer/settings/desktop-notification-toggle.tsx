@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
 import { isRemoteBrowserRenderer } from '../remote-ui-projection';
+import { subscribeSetupChanges } from '../setup-change-refresh';
 import { Group, ToggleRow } from './capability-controls';
 
 export function DesktopNotificationToggle() {
@@ -16,14 +17,18 @@ export function DesktopNotificationToggle() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   useEffect(() => {
     let live = true;
-    void api
-      ?.readSettings?.()
-      .then((settings) => {
-        if (live) setEnabled(settings.turnNotifications !== false);
-      })
-      .catch(() => {});
+    const read = () =>
+      void api
+        ?.readSettings?.()
+        .then((settings) => {
+          if (live) setEnabled(settings.turnNotifications !== false);
+        })
+        .catch(() => {});
+    read();
+    const unsubscribe = subscribeSetupChanges(read);
     return () => {
       live = false;
+      unsubscribe();
     };
   }, [api]);
   if (enabled === null || !api?.updateSetting) return null;

@@ -4,6 +4,7 @@
  * without pulling Electron into a plain Node test.
  */
 import { BrowserWindow } from 'electron';
+import { nativeWindowNumber } from './native-window-id';
 
 export function electronWindowForNativeId(windowId: string | undefined): BrowserWindow | null {
   const raw = String(windowId || '')
@@ -14,15 +15,9 @@ export function electronWindowForNativeId(windowId: string | undefined): Browser
   const expected = BigInt(`0x${raw}`);
   try {
     return (
-      BrowserWindow.getAllWindows().find((candidate) => {
-        if (candidate.isDestroyed()) return false;
-        const handle = candidate.getNativeWindowHandle();
-        let value = 0n;
-        for (let index = handle.length - 1; index >= 0; index -= 1) {
-          value = (value << 8n) | BigInt(handle[index] ?? 0);
-        }
-        return value === expected;
-      }) ?? null
+      BrowserWindow.getAllWindows().find(
+        (candidate) => !candidate.isDestroyed() && nativeWindowNumber(candidate) === expected
+      ) ?? null
     );
   } catch {
     return null;

@@ -38,7 +38,10 @@ async function applyCursorEffect(
   cursor: ComputerUseCursorPresentation,
   effect: string
 ): Promise<void> {
-  const serialized = JSON.stringify({ ...cursor, effect }).replaceAll('<', '\\u003c');
+  // Only Windows hides the real pointer during foreground input; elsewhere it
+  // stands at the action point itself and a drawn arrow would double it.
+  const systemPointer = cursor.mode === 'foreground' && process.platform !== 'win32';
+  const serialized = JSON.stringify({ ...cursor, effect, systemPointer }).replaceAll('<', '\\u003c');
   const evidence = await window.webContents.executeJavaScript(
     `(() => {
         if (typeof window.mixdogAgentCursor !== 'function') return { handler: false };

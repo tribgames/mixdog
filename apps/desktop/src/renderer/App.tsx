@@ -412,6 +412,7 @@ export function App() {
     uiOpenRequest: snapshot.uiOpenRequest,
     sessionId: snapshot.sessionId,
     setupUiRequest: snapshot.setupUiRequest,
+    setupChanged: snapshot.setupChanged,
   });
 
   useLaunchTabMeasurements();

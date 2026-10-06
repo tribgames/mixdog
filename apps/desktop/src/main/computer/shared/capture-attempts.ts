@@ -1,6 +1,10 @@
 import { diagnosticCategory } from './diagnostic-category';
 
 export type NativeCaptureBackend = 'print_window' | 'wgc';
+/** The window-owned surfaces only the Windows worker renders (PrintWindow and
+ *  Windows Graphics Capture). On macOS the composited capture is already
+ *  per-window (ScreenCaptureKit), so there is no separate surface to try. */
+export const WINDOWS_NATIVE_SURFACE_BACKENDS: readonly NativeCaptureBackend[] = ['print_window', 'wgc'];
 export type CaptureBackend = 'app_owned' | 'composited' | NativeCaptureBackend;
 export interface CaptureCleanup {
   status: 'confirmed' | 'failed' | 'unconfirmed' | 'unknown';

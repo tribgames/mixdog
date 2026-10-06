@@ -12,12 +12,15 @@ import { resolveSessionContextMeta } from '../agent/orchestrator/session/manager
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 
 test('Local Provider manifest pins complete HTTPS assets with matching aggregate sizes', () => {
-  const platform = LOCAL_PROVIDER_MANIFEST.runtime.platforms['win32-x64-nvidia'];
-  assert.equal(
-    platform.downloadBytes,
-    platform.assets.reduce((total, asset) => total + asset.size, 0)
-  );
-  for (const asset of [...platform.assets, ...LOCAL_PROVIDER_MANIFEST.models]) {
+  const platforms = Object.values(LOCAL_PROVIDER_MANIFEST.runtime.platforms);
+  assert.deepEqual(Object.keys(LOCAL_PROVIDER_MANIFEST.runtime.platforms), ['win32-x64-nvidia', 'darwin-arm64-metal']);
+  for (const platform of platforms) {
+    assert.equal(
+      platform.downloadBytes,
+      platform.assets.reduce((total, asset) => total + asset.size, 0)
+    );
+  }
+  for (const asset of [...platforms.flatMap((platform) => platform.assets), ...LOCAL_PROVIDER_MANIFEST.models]) {
     assert.equal(new URL(asset.url).protocol, 'https:');
     assert.match(asset.sha256, /^[a-f0-9]{64}$/);
     assert.ok(Number.isSafeInteger(asset.size) && asset.size > 0);
@@ -57,6 +60,26 @@ test('catalog exposes the compatible RTX recommendation before anything is insta
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+test('Apple Silicon resolves the Metal runtime; hosts without a pinned build are unsupported', () => {
+  const metal = localProviderCatalogStatus({
+    platform: 'darwin',
+    arch: 'arm64',
+    hardware: { supported: true, gpu: { vendor: 'Apple', name: 'Apple M4', memoryBytes: 32 * 1024 ** 3 } },
+  });
+  assert.equal(metal.platformSupported, true);
+  assert.equal(metal.available, true);
+  assert.equal(metal.runtime.backend, 'Metal');
+  assert.equal(metal.runtime.downloadBytes, 10_954_823);
+  const intel = localProviderCatalogStatus({
+    platform: 'darwin',
+    arch: 'x64',
+    hardware: { supported: false, gpu: null },
+  });
+  assert.equal(intel.platformSupported, false);
+  assert.equal(intel.available, false);
+  assert.equal(intel.runtime.backend, '');
 });
 
 test('catalog does not recommend or install-enable a model that exceeds available VRAM', () => {

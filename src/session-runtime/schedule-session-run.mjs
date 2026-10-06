@@ -11,6 +11,7 @@ import { createSession } from '../runtime/agent/orchestrator/session/manager/ses
 import { askSession } from '../runtime/agent/orchestrator/session/manager/ask-session.mjs';
 import { modelRouteFields, parseScheduleModelRef } from '../runtime/shared/schedule-model-ref.mjs';
 import { automationWorkflowOpts } from './automation-workflow.mjs';
+import { runAutomationTurns } from './automation-agents.mjs';
 import { automationPromptContent } from '../runtime/shared/automation-attachments.mjs';
 
 /** Resolve schedule.model into a {provider,model,effort?,fast?} route. */
@@ -58,6 +59,11 @@ export async function runScheduleSession(schedule, { config = null, prompt: prom
   // title/preview derive from it, so no "[Scheduled task: …]" header noise.
   // Stored attachments ride along as composer-style content parts.
   const content = automationPromptContent(prompt, schedule.attachments);
-  const result = await askSession(session.id, content, null, null, cwd || undefined);
+  // Agents the run delegates to report back; each result is the next turn.
+  const result = await runAutomationTurns(
+    session.id,
+    () => askSession(session.id, content, null, null, cwd || undefined),
+    (completions) => askSession(session.id, completions, null, null, cwd || undefined)
+  );
   return { sessionId: session.id, result: String(result?.content || '') };
 }

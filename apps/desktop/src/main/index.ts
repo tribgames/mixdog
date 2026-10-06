@@ -17,7 +17,6 @@ import {
   screen,
   session,
   shell,
-  systemPreferences,
 } from 'electron';
 
 import type { DesktopService } from './desktop-service-contract';
@@ -48,6 +47,7 @@ import {
 import { registerDesktopIpc } from './ipc';
 import { createBrowserHost, type BrowserHost } from './browser/host';
 import { createComputerHost, type ComputerHost } from './computer';
+import { requestComputerPermissions } from './computer/host/permission-reads';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
@@ -462,6 +462,8 @@ let browserControlEnabled = false;
 let computerHost: ComputerHost | null = null;
 let computerUseOverlay: ComputerUseOverlay | null = null;
 let computerControlEnabled = false;
+// The first application is the stored state at launch, not a user's toggle.
+let computerControlApplied = false;
 // Observation-only opt-in travels with the host the same way, so a toggle made
 // before the window exists still reaches the bridge when it starts.
 let computerObserveOnly = false;
@@ -570,10 +572,14 @@ const applyDesktopSettings = (settings: DesktopSettings): void => {
 // `computer` tool) exists only while the setting is on. Toggling it starts or
 // tears down the host live.
 function applyComputerControlSetting(enabled: boolean): void {
-  computerControlEnabled = enabled;
   // macOS withholds input and the accessibility tree until the user grants
-  // Accessibility; asking here shows the system's own prompt once.
-  if (enabled && process.platform === 'darwin') systemPreferences.isTrustedAccessibilityClient(true);
+  // Accessibility, and every foreign window's pixels until it grants Screen
+  // Recording. Ask only when the user turns Computer Use on: launching the
+  // app or changing an unrelated setting re-applies every setting, and a
+  // grant missing later is named by diagnose and the capture error instead.
+  if (enabled && !computerControlEnabled && computerControlApplied) requestComputerPermissions();
+  computerControlApplied = true;
+  computerControlEnabled = enabled;
   computerHost?.setBridgeEnabled(computerControlEnabled);
 }
 // Observation only: the bridge keeps serving reads while every input action is

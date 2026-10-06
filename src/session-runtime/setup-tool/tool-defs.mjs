@@ -212,7 +212,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         },
         name: {
           type: 'string',
-          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; else MCP/plugin/provider id.`,
+          description: `set_builtin_enabled: ${SETUP_BUILTIN_TOGGLE_FEATURES.join('|')}; install_builtin also accepts memory. Memory toggles use set_memory_enabled. revoke_linked_device: client id from status connection, not its display name; set_developer_option: option id from status developer; read_definition/delete_definition: the definition id; else MCP/plugin/provider id.`,
         },
         accountId: {
           type: 'string',

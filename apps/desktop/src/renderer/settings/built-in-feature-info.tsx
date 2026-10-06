@@ -9,7 +9,8 @@ import { localProviderFileSize as fileSize } from './local-provider-models';
 export function featureRequirement(id: BuiltInFeatureId): string {
   if (id === 'git') return 'Git CLI · GitHub CLI';
   if (id === 'office') return 'LibreOffice';
-  if (id === 'localProvider') return t('NVIDIA RTX GPU · 24 GB VRAM');
+  if (id === 'localProvider')
+    return navigator.userAgent.includes('Mac') ? 'Apple Silicon · Metal' : t('NVIDIA RTX GPU · 24 GB VRAM');
   return '';
 }
 
@@ -37,6 +38,26 @@ function localProviderFacts(status: RecordValue): Array<readonly [string, string
     ['Server', serverStateLabel(status.starting, status.running)],
     ['Source', String(runtime.source || '')],
     ['License', String(runtime.license || '')],
+  ];
+}
+
+/** Each desktop runs its own Computer Use backend: the PowerShell UIA host on
+ *  Windows, the native mixdog-computer binary on macOS and Linux. */
+function computerPlatformFacts(): Array<readonly [string, string]> {
+  const agent = navigator.userAgent;
+  if (agent.includes('Windows'))
+    return [
+      ['Engine', 'Windows UI Automation · Win32'],
+      ['Platform', 'Windows'],
+    ];
+  if (agent.includes('Mac'))
+    return [
+      ['Engine', 'macOS Accessibility · Quartz Events'],
+      ['Platform', 'macOS'],
+    ];
+  return [
+    ['Engine', 'AT-SPI · X11 / Wayland'],
+    ['Platform', 'Linux'],
   ];
 }
 
@@ -97,11 +118,7 @@ export function BuiltInFeatureInfo({
       ['Browser profile', t('Shared sign-ins, cookies, and site data across sessions')]
     );
   if (feature.id === 'computer')
-    facts.push(
-      ['Engine', 'Windows UI Automation · Win32'],
-      ['Platform', 'Windows'],
-      ['Input', t('Mouse, keyboard, and accessibility controls')]
-    );
+    facts.push(...computerPlatformFacts(), ['Input', t('Mouse, keyboard, and accessibility controls')]);
   if (feature.id === 'office') facts.push(['Supported formats', 'Word · Excel · PowerPoint · PDF · CSV · TSV']);
   if (feature.id === 'git' || feature.id === 'office') {
     facts.push([feature.id === 'git' ? 'Git CLI' : 'LibreOffice', dependencyStateLabel(dependency)]);

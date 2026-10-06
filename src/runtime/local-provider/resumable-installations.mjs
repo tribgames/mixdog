@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { LOCAL_PROVIDER_MANIFEST, exactLocalProviderFile, localProviderRuntimeRoot } from './catalog.mjs';
+import { exactLocalProviderFile, localProviderRuntimePlatformEntry, localProviderRuntimeRoot } from './catalog.mjs';
 import { partialAssetBytes } from './asset-storage.mjs';
 
 // Partial files are durable evidence after a process restart. They do not
@@ -27,7 +27,7 @@ export function resumableLocalInstallations(catalog, live, dataDir) {
     entries.push(pausedEntry('model', model.id, receivedBytes, model.sizeBytes));
   }
   if (!catalog.runtime.installed && !entries.some((entry) => entry.phase === 'runtime')) {
-    const assets = LOCAL_PROVIDER_MANIFEST.runtime.platforms['win32-x64-nvidia'].assets;
+    const assets = localProviderRuntimePlatformEntry()?.assets || [];
     const receivedBytes = assets.reduce((sum, asset) => {
       const path = join(localProviderRuntimeRoot(dataDir), '.downloads', asset.name);
       return sum + (exactLocalProviderFile(path, asset.size) ? asset.size : partialAssetBytes(path, asset.size));

@@ -12,8 +12,6 @@ use core_foundation::base::{CFType, TCFType};
 use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
 use serde_json::json;
-use std::cell::RefCell;
-use std::collections::HashSet;
 use std::rc::Rc;
 
 extern "C" {
@@ -117,12 +115,34 @@ impl AxElement {
             .map(|name| name.to_string())
             .collect()
     }
+    /// The bar that scrolls this element: its own, or that of the nearest
+    /// enclosing scroll area — a text area or table names none itself; the
+    /// AXScrollArea around it holds the bars.
     fn scroll_bar(&self, horizontal: bool) -> Option<CFType> {
-        self.attribute(if horizontal {
+        let name = if horizontal {
             "AXHorizontalScrollBar"
         } else {
             "AXVerticalScrollBar"
-        })
+        };
+        if let Some(bar) = self.attribute(name) {
+            return Some(bar);
+        }
+        let mut current = self.attribute("AXParent");
+        for _ in 0..4 {
+            let parent = current?;
+            if let Ok(bar) = ax_copy(parent.as_CFTypeRef(), name) {
+                return Some(bar);
+            }
+            let role = ax_copy(parent.as_CFTypeRef(), "AXRole")
+                .ok()
+                .and_then(|value| as_string(&value))
+                .unwrap_or_default();
+            if role == "AXWindow" || role == "AXApplication" {
+                return None;
+            }
+            current = ax_copy(parent.as_CFTypeRef(), "AXParent").ok();
+        }
+        None
     }
 }
 
@@ -320,23 +340,25 @@ impl Element for AxElement {
     }
 }
 
-pub struct MacAccessibility {
-    /// Applications already asked to expose their web content tree.
-    enabled_pids: RefCell<HashSet<i32>>,
-}
+pub struct MacAccessibility;
 
 impl MacAccessibility {
     pub fn new() -> MacAccessibility {
-        MacAccessibility {
-            enabled_pids: RefCell::new(HashSet::new()),
-        }
+        MacAccessibility
     }
 
     /// Chromium and Electron build their accessibility tree only for a client
-    /// that asks; setting the manual flag is that request.
+    /// that asks; setting the manual flag is that request. Chromium clears the
+    /// flag again after a stretch without accessibility traffic, and a
+    /// background window's tree then reads empty, so every read re-asserts it
+    /// instead of asking once per process.
     fn enable_app(&self, pid: i32) {
-        if self.enabled_pids.borrow_mut().insert(pid) {
-            let app = application(pid);
+        let app = application(pid);
+        let enabled = ax_copy(app.as_CFTypeRef() as _, "AXManualAccessibility")
+            .ok()
+            .and_then(|value| as_bool(&value))
+            .unwrap_or(false);
+        if !enabled {
             ax_set(app.as_CFTypeRef(), "AXManualAccessibility", &cf_bool(true));
         }
     }

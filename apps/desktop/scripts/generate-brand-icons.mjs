@@ -210,8 +210,48 @@ for (const [index, entry] of pngEntries.entries()) {
   offset += entry.png.length;
 }
 
+// macOS lays app icons on a 1024 grid with the tile inset to 824 (Big Sur
+// template). A full-bleed tile looks oversized next to every other Dock icon.
+function renderMacIcon(size) {
+  const body = Math.round((size * 824) / 1024);
+  const inset = Math.floor((size - body) / 2);
+  const tileRgba = renderIcon(body);
+  const rgba = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < body; y += 1) {
+    tileRgba.copy(rgba, ((y + inset) * size + inset) * 4, y * body * 4, (y + 1) * body * 4);
+  }
+  return rgba;
+}
+
+// ICNS: 'icns' + total length, then one PNG per OSType (@2x types share the
+// pixel size of the next 1x type).
+const macPngs = new Map([16, 32, 64, 128, 256, 512, 1024].map((size) => [size, encodePng(size, renderMacIcon(size))]));
+const icnsEntries = [
+  ['icp4', 16],
+  ['icp5', 32],
+  ['ic11', 32],
+  ['ic12', 64],
+  ['ic07', 128],
+  ['ic13', 256],
+  ['ic08', 256],
+  ['ic14', 512],
+  ['ic09', 512],
+  ['ic10', 1024],
+].map(([type, size]) => {
+  const png = macPngs.get(size);
+  const header = Buffer.alloc(8);
+  header.write(type, 0, 'ascii');
+  header.writeUInt32BE(png.length + 8, 4);
+  return Buffer.concat([header, png]);
+});
+const icnsBody = Buffer.concat(icnsEntries);
+const icnsHeader = Buffer.alloc(8);
+icnsHeader.write('icns', 0, 'ascii');
+icnsHeader.writeUInt32BE(icnsBody.length + 8, 4);
+
 const buildDir = fileURLToPath(new URL('../build/', import.meta.url));
 await mkdir(buildDir, { recursive: true });
 await writeFile(`${buildDir}/mixdog.ico`, Buffer.concat([ico, ...pngEntries.map(({ png }) => png)]));
 await writeFile(`${buildDir}/mixdog.png`, pngEntries.at(-1).png);
-console.log(`BRAND_ICONS=Mixdog; ICO_BYTES=${offset}`);
+await writeFile(`${buildDir}/icon.icns`, Buffer.concat([icnsHeader, icnsBody]));
+console.log(`BRAND_ICONS=Mixdog; ICO_BYTES=${offset}; ICNS_BYTES=${icnsBody.length + 8}`);

@@ -83,7 +83,7 @@ export async function ensureLocalProviderServer(modelId, { dataDir = resolvePlug
         const hardware = await detectLocalProviderHardware({ refresh: true });
         startupSignal?.throwIfAborted();
         const gpu = selectLocalProviderGpu(hardware, entry);
-        return { gpu, env: { CUDA_VISIBLE_DEVICES: gpu.uuid } };
+        return { gpu, env: gpu.vendor === 'NVIDIA' ? { CUDA_VISIBLE_DEVICES: gpu.uuid } : {} };
       },
       onReady: async ({ baseURL, apiKey, loadTimeMs }, startupSignal) => {
         let props = {};

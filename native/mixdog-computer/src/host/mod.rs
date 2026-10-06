@@ -621,8 +621,13 @@ impl Host {
 
     fn assert_drag_target(&self, target: Wid, x: i32, y: i32) -> Res<()> {
         let hit = self.desktop.window_at_point(x, y);
+        // A target the system refused to activate (macOS grants activation to
+        // the frontmost app only, never to this helper) is reached by the
+        // pointer gesture itself: the hit test alone proves the press lands on
+        // it, and the press is what brings it forward.
+        let activated = self.dispatch.get().is_none_or(|dispatch| dispatch.ready);
         if !self.is_window(target)
-            || self.desktop.foreground() != target
+            || (activated && self.desktop.foreground() != target)
             || (hit != target && !self.is_contained(hit, target))
         {
             return Err(
@@ -658,11 +663,23 @@ impl Host {
         self.assert_cursor_at(x, y)
     }
 
+    /// Each press is announced, shown held, and shown released, so the overlay
+    /// plays the press and ripple at the point instead of keeping the travel
+    /// ring it last drew.
     fn fg_button(&self, button: Button, down: bool, x: i32, y: i32, clicks: u32) -> Res<()> {
+        if down && self.feedback_enabled() {
+            self.report_pointer(x, y, false, "prepare");
+            sleep_ms(120);
+            self.assert_continue()?;
+        }
         self.mark_own();
         self.desktop
             .button(button, down, x, y, clicks)
-            .map_err(|error| format!("input_delivery_failed: pointer button was rejected: {error}"))
+            .map_err(|error| {
+                format!("input_delivery_failed: pointer button was rejected: {error}")
+            })?;
+        self.report_pointer(x, y, down, if down { "press" } else { "release" });
+        Ok(())
     }
 
     /// Presses and releases `button` `count` times at the point.
@@ -831,9 +848,13 @@ impl Host {
                 id,
             ));
         }
+        // Held to the foreground only once it has it. A pointer gesture that
+        // activates its own target (macOS refuses activation to a process that
+        // is not frontmost, so the click is the only way forward there) was
+        // otherwise refused before the click that would have activated it.
         self.dispatch.set(Some(Dispatch {
             target,
-            ready: true,
+            ready: focused,
         }));
         mark("activation_ms", &mut phases);
         self.assert_continue()?;

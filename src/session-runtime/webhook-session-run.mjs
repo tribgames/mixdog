@@ -10,12 +10,16 @@ import { createSession } from '../runtime/agent/orchestrator/session/manager/ses
 import { askSession } from '../runtime/agent/orchestrator/session/manager/ask-session.mjs';
 import { modelRouteFields, parseScheduleModelRef } from '../runtime/shared/schedule-model-ref.mjs';
 import { automationWorkflowOpts } from './automation-workflow.mjs';
+import { runAutomationTurns } from './automation-agents.mjs';
 import { automationPromptContent } from '../runtime/shared/automation-attachments.mjs';
 
 // Webhook payloads are authenticated transport data, not trusted user intent.
 // Keep their sessions on the deterministic read-only bundle even when a
-// preset or workflow would otherwise resolve to full tools.
-export const WEBHOOK_SESSION_TOOLS = Object.freeze(['tools:readonly']);
+// preset or workflow would otherwise resolve to full tools. `tools:mcp` adds
+// only the automation scope's internal tools — the agent tool, offered when the
+// user's orchestration mode allows delegation (user decision: automations may
+// delegate); the scope connects no MCP servers.
+export const WEBHOOK_SESSION_TOOLS = Object.freeze(['tools:readonly', 'tools:mcp']);
 
 /** Endpoint model ref wins; the maintenance.webhook route is the fallback. */
 function webhookRoute(modelRef) {
@@ -66,14 +70,9 @@ export async function runWebhookSession({
   // askOpts.signal is the parent-abort link: it is cascaded onto the turn
   // controller, so aborting it stops the in-flight provider/tool work instead
   // of leaving a timed-out delivery's session running with live side effects.
-  const result = await askSession(
-    session.id,
-    content,
-    null,
-    null,
-    projectCwd || undefined,
-    undefined,
-    signal ? { signal } : {}
-  );
+  const ask = (turnContent) =>
+    askSession(session.id, turnContent, null, null, projectCwd || undefined, undefined, signal ? { signal } : {});
+  // Agents the run delegates to report back; each result is the next turn.
+  const result = await runAutomationTurns(session.id, () => ask(content), ask);
   return { sessionId: session.id, result: String(result?.content || '') };
 }

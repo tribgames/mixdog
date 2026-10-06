@@ -4,6 +4,7 @@ import { isMainThread, parentPort, Worker, workerData } from 'node:worker_thread
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { pdfjsStandardFontDataUrl, resolvedPdfJs } from '../../attachments/pdfjs-runtime.mjs';
 import { installPdfGlobals } from './pdf-document.mjs';
+import { workerExecArgv } from '../../shared/worker-exec-argv.mjs';
 
 const PAGE_NUMBER_PATTERN = /^\s*(?:(?:page\s*)?\d+\s*(?:of|\/)\s*\d+|페이지\s*\d+|\d+\s*페이지)\s*$/i;
 
@@ -110,12 +111,7 @@ async function renderPdfPageDirect(path, pageNumber, targetWidth, minimumScale =
 
 async function runPdfRenderWorker(data, signal = null) {
   const worker = new Worker(new URL(import.meta.url), {
-    execArgv: process.execArgv.filter(
-      (argument) =>
-        !/^--(?:input-type|max-old-space-size|max-semi-space-size|stack-size|heapsnapshot-near-heap-limit)(?:=|$)/.test(
-          argument
-        )
-    ),
+    execArgv: workerExecArgv(),
     workerData: data,
   });
   return await new Promise((resolve, reject) => {

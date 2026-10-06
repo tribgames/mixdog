@@ -35,6 +35,8 @@ test('Computer Use overlay windows never become automation transition targets', 
   handle.writeBigUInt64LE(0xb305can);
   const unregister = registerComputerUseInternalWindow({
     getNativeWindowHandle: () => handle,
+    // macOS names windows by CGWindowID, which the media source id carries.
+    getMediaSourceId: () => `window:${0xb305ca}:0`,
   });
   try {
     const target = windowRecord('hwnd:0x2F1B18', { pid: 44224 });

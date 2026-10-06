@@ -4,6 +4,7 @@ import type { Snapshot } from './desktop-types';
 import { isMobileRemoteSurface } from './MobileTabOverview';
 import { createProjectCatalogRequests } from './project-catalog-requests';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
+import { subscribeSetupChanges } from './setup-change-refresh';
 import {
   acceptedProjectCatalog,
   readCachedProjectCatalog,
@@ -112,8 +113,10 @@ export function useAppProjectCatalog(snapshot: Snapshot) {
     });
     window.addEventListener('mixdog:remote-state-gap', retry);
     window.addEventListener('mixdog:remote-reconnected', revalidate);
+    const unsubscribeSetup = subscribeSetupChanges(revalidate);
     return () => {
       unsubscribe();
+      unsubscribeSetup();
       window.removeEventListener('mixdog:remote-state-gap', retry);
       window.removeEventListener('mixdog:remote-reconnected', revalidate);
     };

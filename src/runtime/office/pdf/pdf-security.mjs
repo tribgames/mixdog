@@ -74,15 +74,21 @@ export async function securePdf({ input, output, mode, password = '', ownerPassw
       'PDF encryption/decryption requires qpdf on PATH (or MIXDOG_QPDF_PATH) and it is not installed (Windows: winget install qpdf; macOS: brew install qpdf; Debian/Ubuntu: apt install qpdf); tell the user the file was left as is'
     );
   }
+  // Passwords travel in a response file, never on the command line where other
+  // processes can read them. qpdf takes each line of it as one literal
+  // argument — spaces and quotes included, no unquoting — so a line break is
+  // the one character a password cannot carry.
+  if (/[\r\n]/.test(`${password}${ownerPassword}`)) {
+    throw new Error('PDF passwords cannot contain line breaks; the file was left as is');
+  }
   const samePath = input.toLowerCase() === output.toLowerCase();
   const target = samePath ? join(dirname(output), `.mixdog-qpdf-${randomUUID()}.pdf`) : output;
   const responsePath = join(dirname(target), `.mixdog-qpdf-${randomUUID()}.args`);
-  const quote = (value) => `"${String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
   const args =
     mode === 'encrypt'
       ? ['--encrypt', password, ownerPassword || password, '256', '--', input, target]
       : [`--password=${password}`, '--decrypt', input, target];
-  await writeFile(responsePath, `${args.map(quote).join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
+  await writeFile(responsePath, `${args.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
   try {
     await run(QPDF, [`@${responsePath}`]);
     if (samePath) await rename(target, output);

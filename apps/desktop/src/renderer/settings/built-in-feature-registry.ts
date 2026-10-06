@@ -12,7 +12,6 @@ export interface BuiltInFeatureDefinition {
   id: BuiltInFeatureId;
   title: string;
   description: string;
-  platform?: 'windows';
 }
 
 export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
@@ -35,7 +34,6 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
     id: 'computer',
     title: 'Computer Use',
     description: 'See your screen and use the mouse and keyboard to complete computer tasks.',
-    platform: 'windows',
   },
   {
     id: 'office',
@@ -51,7 +49,6 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
     id: 'localProvider',
     title: 'Local Provider',
     description: 'Download AI models and run them directly in Mixdog.',
-    platform: 'windows',
   },
   {
     id: 'voice',

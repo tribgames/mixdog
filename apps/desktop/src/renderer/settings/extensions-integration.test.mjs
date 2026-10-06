@@ -249,8 +249,14 @@ test('built-in details show their engines and supplied model metadata instead of
     memory: ['custom/embedding', 'q4', '1024', 'cuda', 'ONNX Runtime'],
     localProvider: ['llama.cpp', 'b-test', 'CUDA 12.4', 'Custom Q4_K_M', '8192'],
     browser: ['Chromium', 'Chrome DevTools Protocol', 'cookies'],
-    computer: ['Windows UI Automation', 'Win32'],
+    computer: ['macOS Accessibility', 'macOS'],
   };
+  // Computer Use names the backend of the desktop it runs on.
+  const originalUserAgent = navigator.userAgent;
+  Object.defineProperty(navigator, 'userAgent', {
+    configurable: true,
+    value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+  });
   const rendered = await renderPanel('plugins', context);
   try {
     const ids = [...document.querySelectorAll('[data-built-in-feature]')].map((row) =>
@@ -269,6 +275,7 @@ test('built-in details show their engines and supplied model metadata instead of
       await act(async () => dialog.querySelector('header button[aria-label="Close"]').click());
     }
   } finally {
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: originalUserAgent });
     await rendered.cleanup();
   }
 });

@@ -87,7 +87,8 @@ available before Local Provider is installed or enabled.
 - For startup failure, use `starting`, `lastError`, and `lastExit` diagnostics.
   Do not print authentication keys or attempt unmanaged server commands.
 - Hardware status may initially be `checking`; inspect again after detection
-  completes. All NVIDIA GPUs are checked without blocking the app. Loading
+  completes. All NVIDIA GPUs on Windows, or the Apple Silicon GPU on a Mac
+  (Metal, on unified memory), are checked without blocking the app. Loading
   chooses a compatible GPU with enough free memory for the catalog's estimate;
   that estimate is a guard, not a guarantee against driver/runtime allocation
   failure. Never bypass a failed resource check.

@@ -104,6 +104,8 @@ export type Snapshot = RecordValue & {
    *  still fires. */
   uiOpenRequest?: { command: string; seq: number; at?: number } | null;
   setupUiRequest?: { id: string; at: number } | null;
+  /** Setup tool mutation: settings readers re-read; `seq` increases per change. */
+  setupChanged?: { action: string; seq: number; at?: number } | null;
   failedTurnKeys?: string[];
   sessionId?: string;
   provider?: string;

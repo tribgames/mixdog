@@ -98,6 +98,35 @@ async function probeAudioDurationSec(filePath) {
   }
 }
 
+// Leading silence so a clipped onset still decodes as the first word. The
+// bundled ffmpeg carries only aformat/anull/aresample
+// (scripts/build-ffmpeg-runtime.sh), so the pad is spliced into the converted
+// wav here: zero samples in front of its PCM data.
+const ONSET_SILENCE_SECONDS = 0.3;
+
+export function prependWavSilence(wavPath, seconds = ONSET_SILENCE_SECONDS) {
+  const wav = fs.readFileSync(wavPath);
+  let sampleRate = 0;
+  let blockAlign = 0;
+  for (let offset = 12; offset + 8 <= wav.length; ) {
+    const id = wav.toString('ascii', offset, offset + 4);
+    const size = wav.readUInt32LE(offset + 4);
+    if (id === 'fmt ') {
+      sampleRate = wav.readUInt32LE(offset + 12);
+      blockAlign = wav.readUInt16LE(offset + 20);
+    } else if (id === 'data') {
+      const silence = Buffer.alloc(Math.round(sampleRate * seconds) * blockAlign);
+      const out = Buffer.concat([wav.subarray(0, offset + 8), silence, wav.subarray(offset + 8)]);
+      out.writeUInt32LE(size + silence.length, offset + 4);
+      out.writeUInt32LE(out.length - 8, 4);
+      fs.writeFileSync(wavPath, out);
+      return;
+    }
+    offset += 8 + size + (size % 2);
+  }
+  throw new Error(`no PCM data chunk in ${wavPath}`);
+}
+
 // One whisper-ready wav per attachment: a cached conversion is reused while its
 // file still exists, and parallel callers for the same key share a single
 // ffmpeg spawn instead of racing two conversions onto the same output path.
@@ -126,9 +155,6 @@ function createVoiceWavCache() {
           const _ffmpegPromise = runCmd(ffmpegPath, [
             '-i',
             audioPath,
-            // Leading silence so a clipped onset still decodes as the first word.
-            '-af',
-            'adelay=300:all=1',
             '-ar',
             String(sampleRate),
             '-ac',
@@ -137,7 +163,7 @@ function createVoiceWavCache() {
             String(threadCount),
             '-y',
             wavPath,
-          ]);
+          ]).then(() => prependWavSilence(wavPath));
           ffmpegInflight.set(_ffmpegKey, _ffmpegPromise);
           try {
             await _ffmpegPromise;

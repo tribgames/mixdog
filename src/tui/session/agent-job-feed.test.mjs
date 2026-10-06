@@ -166,6 +166,17 @@ test('UI-only notification kinds update the store or raise a notice without touc
   assert.equal(h.notify({ content: 'open', meta: { kind: 'setup-ui', id: 'providers' } }), true);
   assert.equal(h.sets.at(-1).setupUiRequest.id, 'providers');
 
+  h.notify({ content: 'changed', meta: { kind: 'setup-changed', action: 'save_project' } });
+  h.notify({ content: 'changed', meta: { kind: 'setup-changed', action: 'save_project' } });
+  const changes = h.sets.filter((patch) => patch.setupChanged).map((patch) => patch.setupChanged);
+  assert.deepEqual(
+    changes.map(({ action, seq }) => ({ action, seq })),
+    [
+      { action: 'save_project', seq: 1 },
+      { action: 'save_project', seq: 2 },
+    ]
+  );
+
   h.notify({ content: 'open', meta: { kind: 'ui-open', command: '/Settings' } });
   h.notify({ content: 'open', meta: { kind: 'ui-open', command: 'settings' } });
   const opens = h.sets.filter((patch) => patch.uiOpenRequest).map((patch) => patch.uiOpenRequest);

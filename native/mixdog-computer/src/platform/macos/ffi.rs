@@ -69,6 +69,9 @@ pub const kCGEventTapOptionListenOnly: u32 = 1;
 pub const kCGMouseEventClickState: u32 = 1;
 pub const kCGKeyboardEventKeycode: u32 = 9;
 pub const kCGEventSourceUserData: u32 = 42;
+/// The window an event belongs to, as AppKit reads it to route the event
+/// inside its process; undocumented, but what NSEvent itself fills in.
+pub const kCGEventWindowNumber: u32 = 51;
 pub const kCGMouseEventWindowUnderMousePointer: u32 = 91;
 pub const kCGMouseEventWindowUnderMousePointerThatCanHandleThisEvent: u32 = 92;
 
@@ -165,6 +168,12 @@ extern "C" {
     pub fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
     pub fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
     pub fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    pub fn AXUIElementCopyElementAtPosition(
+        application: AXUIElementRef,
+        x: f32,
+        y: f32,
+        element: *mut AXUIElementRef,
+    ) -> i32;
     pub fn AXUIElementCopyAttributeValue(
         element: AXUIElementRef,
         attribute: CFStringRef,
