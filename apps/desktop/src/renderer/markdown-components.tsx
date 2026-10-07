@@ -1,8 +1,40 @@
 // One markdown element grammar for both pipelines: the lazy react-markdown
 // chunk (MarkdownBody) and the worker AST renderer (MarkdownAstBody) build
 // their overrides here so links, tables, and code cards never diverge.
-import React, { type ComponentType, type ReactNode } from 'react';
-import { childrenText, MarkdownLink } from './MarkdownLink';
+import React, { useContext, useSyncExternalStore, type ComponentType, type ReactNode } from 'react';
+import { Play } from 'lucide-react';
+import { t } from './i18n';
+import { childrenText, MarkdownLink, MarkdownSessionContext } from './MarkdownLink';
+import {
+  onTerminalCommandAvailabilityChanged,
+  requestTerminalCommand,
+  terminalCommandRequestsAvailable,
+} from './terminal-command-request';
+
+// Code blocks in these languages are shell commands a Run control enters in
+// the conversation's terminal.
+const SHELL_LANGUAGES = new Set(['bash', 'sh', 'shell', 'zsh', 'powershell', 'pwsh', 'ps1', 'cmd', 'bat']);
+
+function RunInTerminal({ code }: { code: string }) {
+  const sessionId = useContext(MarkdownSessionContext);
+  const available = useSyncExternalStore(
+    onTerminalCommandAvailabilityChanged,
+    terminalCommandRequestsAvailable,
+    terminalCommandRequestsAvailable
+  );
+  if (!sessionId || !available) return null;
+  return (
+    <button
+      type="button"
+      className="markdown-code-run"
+      aria-label={t('Run in terminal')}
+      data-tooltip={t('Run in terminal')}
+      onClick={() => requestTerminalCommand(sessionId, code)}
+    >
+      <Play size={14} aria-hidden="true" />
+    </button>
+  );
+}
 
 export type MarkdownCopyControl = ComponentType<{
   value: string;
@@ -47,7 +79,10 @@ function createMarkdownComponents(CopyControl: MarkdownCopyControl) {
           {/* No language, no label — a bare "code" caption named nothing. */}
           <header>
             <span>{language}</span>
-            <CopyControl value={code} label="Copy code" className="markdown-code-copy" />
+            <span className="markdown-code-actions">
+              {SHELL_LANGUAGES.has(language.toLowerCase()) && <RunInTerminal code={code} />}
+              <CopyControl value={code} label="Copy code" className="markdown-code-copy" />
+            </span>
           </header>
           <pre data-scrollable>
             <code className={props.className}>{props.children}</code>

@@ -2,6 +2,7 @@ import { loadConfig } from '../config.mjs';
 import { getProvider, initProviders } from '../providers/registry.mjs';
 import { resolveMaintenanceRoute } from './maintenance-route.mjs';
 import { resultText } from './completion-text.mjs';
+import { roleProviderCacheOpts } from './cache-strategy.mjs';
 
 const TITLE_SYSTEM_PROMPT =
   'Create a concise, natural session title of 3-7 words that captures the main topic or goal of the provided message or conversation. Output only one title on one line, at most 32 characters; no quotes, markdown, or trailing period.';
@@ -62,6 +63,8 @@ function createTitleCompletion(deps = {}) {
         // Background call: an overloaded provider is not retried (nobody is
         // waiting on a title, and every retry adds load during a cascade).
         retry529: false,
+        // One-shot role: shared system-prefix cache, no message-tail write.
+        ...roleProviderCacheOpts(providerName, 'title-agent'),
       }
     );
     return resultText(response).trim();

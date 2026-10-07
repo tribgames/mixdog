@@ -171,6 +171,17 @@ export function createBrowserPageClient(options: {
     };
     const recovery = browserInputImmediate(action);
     const release = action.type === 'pointer' && action.phase === 'mouseReleased';
+    // While the page shows its own dialog the page itself takes no input, as
+    // in an ordinary browser: the prompt card answers it. Nothing is queued
+    // or reported; a release still goes out so no press stays held.
+    if (
+      current?.dialog &&
+      !release &&
+      (action.type === 'pointer' || action.type === 'wheel' || browserTypingInput(action))
+    ) {
+      clearPending();
+      return Promise.resolve();
+    }
     if (disposed || !current || !options.api.browserPageControl) {
       clearPending();
       // Pane chrome (zoom, geometry, navigation) and hover motion run before

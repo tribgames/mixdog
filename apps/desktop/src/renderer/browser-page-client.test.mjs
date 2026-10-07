@@ -529,3 +529,33 @@ test('a pending display sample does not delay motion, resize, or the keystroke b
     client.dispose();
   }
 });
+
+test('a page dialog takes the page input silently while its answer and a release still go out', async () => {
+  const failures = [];
+  const preserved = [];
+  const sent = [];
+  const client = createBrowserPageClient({
+    sessionId: 's',
+    update() {},
+    failure: (error) => failures.push(error),
+    unconfirmedText: (text) => preserved.push(text),
+    api: {
+      browserPageFrame: async () => ({ ...frame(), dialog: { id: 'd1', type: 'alert', message: 'Done' } }),
+      browserPageControl: async (_session, input) => {
+        sent.push(input.type === 'pointer' ? input.phase : input.type);
+      },
+    },
+  });
+  await client.poll();
+  const pointer = { type: 'pointer', x: 1, y: 1, button: 'left', buttons: 1, modifiers: 0, clickCount: 1 };
+  await client.control({ ...pointer, phase: 'mousePressed' });
+  await client.control({ type: 'wheel', x: 1, y: 1, deltaX: 0, deltaY: 40 });
+  await client.control({ type: 'text', text: 'typed under the dialog' });
+  await client.control({ ...pointer, phase: 'mouseReleased', buttons: 0 });
+  await client.control({ type: 'answer-dialog', requestId: 'd1', accept: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent, ['mouseReleased', 'answer-dialog']);
+  assert.deepEqual(failures, []);
+  assert.deepEqual(preserved, []);
+  client.dispose();
+});

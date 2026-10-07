@@ -132,6 +132,52 @@ test('a revisit after the last cold view left keeps its baseline until the files
   }
 });
 
+test('a cold session answers its review reads from disk without loading a runtime', async () => {
+  const reviews = [];
+  const service = createSessionService({
+    createSessionRuntime: async () => {
+      throw new Error('a review read never materializes a cold session');
+    },
+    sessionExists: async () => true,
+    readStoredSession: async () => null,
+    readStoredReview: async (sessionId, action, args) => {
+      reviews.push([sessionId, action, args]);
+      return sessionId === 'sess_cold_absent' ? null : { supported: true, files: [], patch: '', reason: 'recorded' };
+    },
+    idleEvictMs: 60_000,
+    evictSweepMs: 60_000,
+  });
+  try {
+    const turn = await service.readSession({
+      sessionId: 'sess_cold_review',
+      action: 'getTurnReviewDiff',
+      args: [{ refresh: true, summary: true }],
+      baseRevision: 7,
+    });
+    assert.equal(turn.value.reason, 'recorded');
+    assert.equal(turn.revision, 7, 'the caller keeps the projection it holds');
+    assert.equal(turn.unchanged, true);
+    assert.equal(Object.hasOwn(turn, 'full'), false);
+    const session = await service.readSession({ sessionId: 'sess_cold_review', action: 'getSessionReviewDiff' });
+    assert.equal(session.value.supported, true);
+    assert.deepEqual(reviews, [
+      ['sess_cold_review', 'getTurnReviewDiff', [{ refresh: true, summary: true }]],
+      ['sess_cold_review', 'getSessionReviewDiff', []],
+    ]);
+    await assert.rejects(
+      service.readSession({ sessionId: 'sess_cold_absent', action: 'getTurnReviewDiff' }),
+      /not available/
+    );
+    await assert.rejects(
+      service.readSession({ sessionId: 'sess_cold_review', action: 'getSessionUsage' }),
+      /never materializes/,
+      'other reads still load the session'
+    );
+  } finally {
+    await service.stop('test complete');
+  }
+});
+
 test('the stored transcript stamp is settled, and covers the record and its checkpoint', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mixdog-cold-stamp-'));
   const previous = process.env.MIXDOG_DATA_DIR;

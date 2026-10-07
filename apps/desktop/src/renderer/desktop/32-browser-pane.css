@@ -558,9 +558,9 @@ html[data-mixdog-mobile-tabs] .browser-zoom-range {
   align-items: center;
   justify-content: center;
   padding: 0 10px;
-  border: 1px solid var(--mx-border-muted);
+  border: 1px solid transparent;
   border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-base);
+  background: var(--mx-action-bg);
   color: var(--mx-text);
 }
 
@@ -679,9 +679,9 @@ html[data-mixdog-mobile-tabs] .browser-zoom-range {
   gap: 6px;
   margin-top: 4px;
   padding: 0 12px;
-  border: 1px solid var(--mx-border-muted);
+  border: 1px solid transparent;
   border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-base);
+  background: var(--mx-action-bg);
   color: var(--mx-text);
   cursor: pointer;
 }
@@ -891,14 +891,14 @@ html[data-mixdog-mobile-tabs] .browser-zoom-range {
   justify-content: center;
   gap: 6px;
   padding: 0 14px;
-  border: 1px solid var(--mx-border-muted);
+  border: 1px solid transparent;
   border-radius: var(--mx-radius-md);
   cursor: pointer;
   flex: 1;
 }
 
 .browser-import-secondary {
-  background: var(--mx-bg-layer-1);
+  background: var(--mx-action-bg);
   color: var(--mx-text);
 }
 

@@ -27,6 +27,7 @@ import {
 } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
 import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
+import { launchFile } from './file-launch';
 
 type ServiceOperation = (...args: unknown[]) => Promise<unknown>;
 
@@ -324,13 +325,12 @@ function registerRepositoryFileIpc({
         : resolveInsideProject(cwd, path);
     shell.showItemInFolder(absolute);
   });
-  handle(DESKTOP_IPC.openFilePath, async (_event, cwd, path, accessToken) => {
+  handle(DESKTOP_IPC.openFilePath, async (_event, cwd, path, accessToken, confirmedPath) => {
     const absolute =
       typeof accessToken === 'string' && accessToken
         ? (await grantedFile(accessToken, cwd, path)).absolute
         : resolveInsideProject(cwd, path);
-    const failure = await shell.openPath(absolute);
-    if (failure) throw new Error(`Unable to open file: ${failure}`);
+    return launchFile(absolute, (file) => shell.openPath(file), confirmedPath);
   });
   handle(DESKTOP_IPC.openAttachmentImage, async (_event, dataUrl, name) => {
     const image = requiredAttachmentImage(dataUrl);

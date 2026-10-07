@@ -17,6 +17,7 @@ import { TerminalWritePump } from './terminal-write-pump';
 import { applyTerminalActivity, StableTerminalFitScheduler } from './terminal-fit';
 import { dataTransferHasLocalFiles, droppedLocalPaths, terminalPathText } from './file-drag';
 import { remoteSurface } from './shell-viewport';
+import { onTerminalCommandRequested } from './terminal-command-request';
 
 type ShellProfile = { id: string; label: string; path: string; default?: boolean };
 
@@ -428,6 +429,7 @@ export default function TerminalPane({
     if (!container) return undefined;
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
+    let stopCommands: (() => void) | undefined;
     let observer: ResizeObserver | undefined;
     let dataDisposable: { dispose(): void } | undefined;
     let scrollDisposable: { dispose(): void } | undefined;
@@ -557,6 +559,11 @@ export default function TerminalPane({
       });
       if (replayWrite) await replayWrite;
       if (disposed) return;
+      // A command a chat code block sent to this terminal is entered once the
+      // PTY is attached, including one sent before the pane existed.
+      stopCommands ??= onTerminalCommandRequested(key, (input) => {
+        if (view.id) window.mixdogDesktop.termWrite?.(view.id, input);
+      });
       // Restored split ratios settle in the commit before this frame. Fitting
       // earlier leaves xterm with the startup pane's stale row count and a
       // malformed viewport scrollbar.
@@ -644,6 +651,7 @@ export default function TerminalPane({
       if (retryTimer) window.clearTimeout(retryTimer);
       writeTerminalViewState(key, view);
       unsubscribe?.();
+      stopCommands?.();
       observer?.disconnect();
       dataDisposable?.dispose();
       scrollDisposable?.dispose();

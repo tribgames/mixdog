@@ -73,7 +73,10 @@ const api: DesktopApi = {
   openMediaAsset: (assetId) => ipcRenderer.invoke(DESKTOP_IPC.openMediaAsset, assetId),
   openMediaFolder: (assetId) => ipcRenderer.invoke(DESKTOP_IPC.openMediaFolder, assetId),
   openExternal: (url) => ipcRenderer.invoke(DESKTOP_IPC.openExternal, url),
-  openLocalFileLink: (projectPath, href) => ipcRenderer.invoke(DESKTOP_IPC.openLocalFileLink, projectPath, href),
+  openLocalFileLink: (projectPath, href, confirmedPath) =>
+    ipcRenderer.invoke(DESKTOP_IPC.openLocalFileLink, projectPath, href, confirmedPath),
+  localPageUrl: (projectPath, relPath, accessToken) =>
+    ipcRenderer.invoke(DESKTOP_IPC.localPageUrl, projectPath, relPath, accessToken),
   githubStarStatus: () => ipcRenderer.invoke(DESKTOP_IPC.githubStarStatus),
   starGithub: () => ipcRenderer.invoke(DESKTOP_IPC.starGithub),
   gitCliStatus: () => ipcRenderer.invoke(DESKTOP_IPC.gitCliStatus),
@@ -411,7 +414,8 @@ const api: DesktopApi = {
   gitReview: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitReview, cwd),
   gitReviewDiff: (cwd, path, untracked) => ipcRenderer.invoke(DESKTOP_IPC.gitReviewDiff, cwd, path, untracked === true),
   revealFile: (cwd, path, accessToken) => ipcRenderer.invoke(DESKTOP_IPC.revealFile, cwd, path, accessToken),
-  openFilePath: (cwd, path, accessToken) => ipcRenderer.invoke(DESKTOP_IPC.openFilePath, cwd, path, accessToken),
+  openFilePath: (cwd, path, accessToken, confirmedPath) =>
+    ipcRenderer.invoke(DESKTOP_IPC.openFilePath, cwd, path, accessToken, confirmedPath),
   openAttachmentImage: (dataUrl, name) => ipcRenderer.invoke(DESKTOP_IPC.openAttachmentImage, dataUrl, name),
   getUpdaterState: () => ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState),
   subscribeUpdaterState: (listener) => subscribeIpc(DESKTOP_IPC.updaterState, listener),

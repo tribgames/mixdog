@@ -1110,15 +1110,15 @@ test('Korean Agents pane shows unread completion and idle after reading, regardl
     await i18n.changeLanguage('ko');
     await renderPane(new Set(['lead-shell', 'worker-shell']));
     // A folded child's shell job is not agent work: the parent is complete.
-    assertStatus('lead-shell', 'done', '작업 완료');
+    assertStatus('lead-shell', 'done', '완료');
     assertStatus('unrelated', 'idle', '대기 중');
     await expandAllAgentGroups();
-    assertStatus('worker-shell', 'done', '작업 완료');
+    assertStatus('worker-shell', 'done', '완료');
     await setShellCounts(1, 0);
-    assertStatus('lead-shell', 'done', '작업 완료');
-    assertStatus('worker-shell', 'done', '작업 완료');
+    assertStatus('lead-shell', 'done', '완료');
+    assertStatus('worker-shell', 'done', '완료');
     await setShellCounts(0, 0);
-    assertStatus('lead-shell', 'done', '작업 완료');
+    assertStatus('lead-shell', 'done', '완료');
     await renderPane(new Set());
     assertStatus('lead-shell', 'idle', '대기 중');
     assertStatus('worker-shell', 'idle', '대기 중');
@@ -1216,15 +1216,15 @@ for (const outcome of ['idle', 'cancelled']) {
         assertStatus('lead-a', 'waiting', 'Waiting for tasks');
       }
       await setWorkerStatus(outcome);
-      assertStatus('lead-a', 'done', 'Task complete');
+      assertStatus('lead-a', 'done', 'Completed');
       await arrow('lead-a', 'ArrowRight');
       await arrow('lead-a', 'ArrowRight');
-      assertStatus('parent-a', 'done', 'Task complete');
+      assertStatus('parent-a', 'done', 'Completed');
       await arrow('parent-a', 'ArrowRight');
       assertStatus(
         'worker-a',
         outcome === 'idle' ? 'done' : 'cancelled',
-        outcome === 'idle' ? 'Task complete' : 'Cancelled'
+        outcome === 'idle' ? 'Completed' : 'Cancelled'
       );
       await renderPane(new Set());
       assertStatus('lead-a', 'idle', 'Idle');
@@ -1289,7 +1289,7 @@ test('Agents order sessions by last idle moment and flag unseen completions', as
       .querySelector('[data-agent-session-id="newest-idle"]')
       .querySelector('.agent-activity-elapsed');
     assert.equal(done.getAttribute('data-state'), 'done');
-    assert.equal(done.textContent, 'Task complete');
+    assert.equal(done.textContent, 'Completed');
     const idle = document
       .querySelector('[data-agent-session-id="older-idle"]')
       .querySelector('.agent-activity-elapsed');
@@ -2113,7 +2113,7 @@ test('the Agent window renders the Parent-Child tree and folds every generation'
     assert.match(rowAt('grand-a').querySelector('.agent-activity-elapsed').textContent, /^\d/);
     const unreadIdle = rowAt('great-a').querySelector('.agent-activity-elapsed');
     assert.equal(unreadIdle.getAttribute('data-state'), 'done');
-    assert.equal(unreadIdle.textContent, 'Task complete');
+    assert.equal(unreadIdle.textContent, 'Completed');
 
     const heading = document.querySelector('[data-lead-session-id="lead-a"]');
     await act(async () => heading.click());

@@ -35,8 +35,8 @@
   align-self: center;
   padding: 3px;
   border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
+  background: var(--mx-hover);
+  box-shadow: none;
 }
 .extensions-mcp-transport button {
   min-height: 26px;
@@ -66,9 +66,9 @@
    (pressed wash + the -active hairline) with its check in text ink. */
 .extensions-mcp-transport button.active,
 .extensions-mcp-transport button[aria-pressed="true"] {
-  color: var(--mx-text);
-  background: var(--mx-pressed);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-rail-item-outline-active);
+  color: var(--mx-bg-base);
+  background: var(--mx-text);
+  box-shadow: none;
   font-weight: var(--mx-weight-semibold);
 }
 .extensions-mcp-transport button.active > svg,

@@ -10,6 +10,7 @@ import { ReadyTerminalPane } from './app-shell-components';
 import { disposeTerminalPane } from './lazy-widgets';
 import { useSlotRemeasure } from './surface-slot-remeasure';
 import { preferredSurfaceSlot } from './surface-slots';
+import { sessionTerminalId } from './terminal-command-request';
 
 type TerminalSurfaceSlot = {
   active: boolean;
@@ -35,7 +36,7 @@ type SessionTerminalSurfaceRenderProps = {
 
 type SessionTerminalSurfaceRenderer = (props: SessionTerminalSurfaceRenderProps) => ReactNode;
 
-export const sessionTerminalId = (sessionId: string): string => `session-terminal:${sessionId}`;
+export { sessionTerminalId };
 
 type SessionTerminalSurfaceDisposer = (terminalId: string) => void;
 

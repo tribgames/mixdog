@@ -40,7 +40,7 @@ test('an unchanged turn review answers with its tag instead of the whole patch',
     unchanged: true,
     etag: summary.etag,
   });
-  assert.equal(Object.hasOwn(seen.at(-1), 'summary'), false, 'the summary flag never reaches the runtime');
+  assert.equal(seen.at(-1).summary, true, 'a recorded review skips the patch it would only drop');
   // A review counted from its patch (a contended worktree) sends the counts
   // as files instead of the patch.
   review.current = {

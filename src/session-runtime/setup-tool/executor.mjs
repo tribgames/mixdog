@@ -316,7 +316,17 @@ const DESKTOP_HOSTED_FEATURES = ['browser', 'computer', 'voice'];
 // through the Desktop's guided installers, the same steps as the Built-in card.
 // A request no Desktop window takes keeps the runtime-only install.
 const DESKTOP_PREPARED_FEATURES = ['git', 'office'];
-const SETUP_INSTALLABLE_FEATURES = ['git', 'memory', 'office', 'tidy', 'localProvider', 'browser', 'computer', 'voice'];
+const SETUP_INSTALLABLE_FEATURES = [
+  'git',
+  'memory',
+  'office',
+  'tidy',
+  'localProvider',
+  'autoEffort',
+  'browser',
+  'computer',
+  'voice',
+];
 
 // Action handlers: (rt, args, { requestDesktop, readStatus, openSurface }).
 // `rt` is null for `status` and `open`, which never touch the facade.

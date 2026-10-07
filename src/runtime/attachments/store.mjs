@@ -163,6 +163,35 @@ export function isAttachmentReference(value) {
   return Boolean(value && typeof value === 'object' && ATTACHMENT_REF_RE.test(String(value.attachmentRef || '')));
 }
 
+/**
+ * Stored-history form of an inline base64 image part (`{ type:'image', data }`
+ * or `{ type:'image', source:{ type:'base64' } }`): the same part as a
+ * content-addressed reference. Provider lowering resolves the reference to
+ * the identical base64 block, so a session reloaded from disk replays the
+ * exact prompt prefix the provider cached. Returns null when the payload
+ * would not re-encode to the same base64 string.
+ */
+export function storeInlineImagePart(part) {
+  if (!part || typeof part !== 'object' || part.type !== 'image' || isAttachmentReference(part)) return null;
+  let data;
+  let metadata;
+  if (typeof part.data === 'string' && part.data) {
+    const { data: inline, ...rest } = part;
+    data = inline;
+    metadata = rest;
+  } else if (part.source?.type === 'base64' && typeof part.source.data === 'string' && part.source.data) {
+    const { source, mimeType: _mimeType, mediaType: _mediaType, ...rest } = part;
+    data = source.data;
+    const sourceMime = source.media_type || source.mediaType;
+    metadata = sourceMime ? { ...rest, mimeType: sourceMime } : rest;
+  } else {
+    return null;
+  }
+  const buffer = Buffer.from(data, 'base64');
+  if (buffer.length === 0 || buffer.toString('base64') !== data) return null;
+  return { ...metadata, ...saveBuffer(buffer) };
+}
+
 export function readAttachmentBuffer(value) {
   const ref = typeof value === 'string' ? value : value?.attachmentRef;
   const path = attachmentPath(ref);

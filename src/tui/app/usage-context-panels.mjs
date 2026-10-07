@@ -31,12 +31,13 @@ export function createUsageContextPanels({
     // paint, so Esc during the pending open must leave the surface (picker AND
     // context panel) untouched.
     const own = surface.claim();
-    const [toolsStatus, mcpStatus, skillsStatus, pluginsStatus, contextStatus] = await Promise.all([
+    const [toolsStatus, mcpStatus, skillsStatus, pluginsStatus, contextStatus, sessionUsage] = await Promise.all([
       Promise.resolve(store.toolsStatus?.()).catch(() => null),
       Promise.resolve(store.mcpStatus?.()).catch(() => null),
       Promise.resolve(store.skillsStatus?.()).catch(() => null),
       Promise.resolve(store.pluginsStatus?.()).catch(() => null),
       Promise.resolve(store.contextStatus?.({ inspect: true })).catch(() => null),
+      Promise.resolve(store.getSessionUsage?.()).catch(() => null),
     ]);
     const { rows, detail } = buildContextPanelModel({
       toolsStatus,
@@ -44,6 +45,7 @@ export function createUsageContextPanels({
       skillsStatus,
       pluginsStatus,
       contextStatus,
+      sessionUsage,
       state,
     });
     if (!own.owns()) return;

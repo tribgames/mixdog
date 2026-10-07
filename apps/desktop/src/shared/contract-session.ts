@@ -288,6 +288,9 @@ export interface DesktopModelOption {
   savedFast?: boolean;
   defaultEffort?: string;
   defaultFast?: boolean;
+  /** Effort can change per turn without breaking the prompt cache, so the
+   *  Auto effort switch applies to this model. */
+  autoEffortCapable?: boolean;
   modelParameterOptions?: DesktopModelParameterOption[];
   parameterVariants?: Array<Record<string, string>>;
   defaultModelParameters?: Record<string, string>;

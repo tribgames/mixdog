@@ -88,6 +88,7 @@ export function createSessionEntries({
     getOrCreateSessionEntry: loads.getOrCreateSessionEntry,
     loadSessionRuntime: loads.loadSessionRuntime,
     bindExternalSessionView,
+    hostedEntryForSession: loads.hostedEntryForSession,
     entryForSession: loads.entryForSession,
     liveEntryForView: loads.liveEntryForView,
     destroy: lifecycle.destroy,

@@ -5,6 +5,8 @@
 import { effortItemsFor } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { fastCapableFor, fastPreferenceFor } from '../../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
 import { modelSettingsFor } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
+import { effortConfigurationMode } from '../../runtime/agent/orchestrator/providers/effort-configuration.mjs';
+import { getProvider } from '../../runtime/agent/orchestrator/providers/registry.mjs';
 
 export function hydrateProviderModelRow(cfg, row) {
   const saved = modelSettingsFor(cfg, row.provider, row.id);
@@ -20,6 +22,13 @@ export function hydrateProviderModelRow(cfg, row) {
     fastPreferred: Object.hasOwn(saved, 'fast')
       ? saved.fast === true
       : row.defaultFast === true || fastPreferenceFor(cfg, row.provider, row.id),
+    // Auto effort only changes effort where that keeps the prompt cache.
+    autoEffortCapable: Boolean(
+      effortConfigurationMode(row.provider, row.id, {
+        ...(getProvider(row.provider)?.config || {}),
+        modelParameters: saved.modelParameters || {},
+      })
+    ),
     savedEffort: saved.effort || null,
     savedFast: Object.hasOwn(saved, 'fast') ? saved.fast === true : undefined,
     savedModelParameters: saved.modelParameters || {},

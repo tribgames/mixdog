@@ -78,16 +78,35 @@ test('model-scoped Claude quota never includes another family or a different acc
   assert.equal(listed.windows[0].costUsd, 2);
 });
 
+test('subscription usage reports each model output speed over its timed requests only', async (t) => {
+  const ledger = store(t);
+  ledger.record([
+    request(at(0, 10), 'model-a', { outputTokens: 300, durationMs: 2000 }),
+    request(at(0, 20), 'model-a', { outputTokens: 100, durationMs: 2000 }),
+    request(at(0, 30), 'model-a', { outputTokens: 900 }),
+    request(at(0, 40), 'model-b', { outputTokens: 50 }),
+  ]);
+  ledger.recordQuota([reading(opened, 0), reading(at(1), 10)]);
+  const history = await ledger.quotaHistoryAsync({ now: at(2) });
+  const speed = Object.fromEntries(history.models.map((row) => [row.model, row.outputTokensPerSecond]));
+  assert.deepEqual(speed, { 'model-a': 100, 'model-b': null });
+  assert.equal(history.totals.outputTokensPerSecond, 100);
+});
+
 test('exact request timestamps stay on their own side of a quota reading', async (t) => {
   const ledger = store(t);
   ledger.record([
-    { ...request(opened + 30_000, 'model-priced'), costUsd: 1, costSource: 'subscription' },
-    { ...request(opened + 70_000, 'model-priced'), costUsd: 100, costSource: 'subscription' },
+    { ...request(opened + 30_000, 'model-before'), costUsd: 1, costSource: 'subscription' },
+    { ...request(opened + 70_000, 'model-after'), costUsd: 100, costSource: 'subscription' },
   ]);
   ledger.recordQuota([reading(opened, 0), reading(opened + MINUTE, 1)]);
   const history = await ledger.quotaHistoryAsync({ now: at(0, 2) });
   assert.equal(history.summary.costUsd, 101);
-  assert.equal(history.summary.costPerPercent, 1, 'the $100 request after the reading cannot price the earlier rise');
+  assert.deepEqual(
+    byModel(history),
+    { 'model-before': 1, 'model-after': 0 },
+    'the $100 request after the reading takes no share of the earlier rise'
+  );
   assert.equal(history.outside, 0, 'the request thirty seconds after the baseline is not lost to minute rounding');
 });
 
@@ -145,7 +164,7 @@ test('the five-hour meter keeps outside use out of the weekly calibration', asyn
     for (const [index, spends] of [
       [0, [10, 10, 10, 10]],
       [1, [10, 10, 10, 10]],
-      [2, [10, 10, 2]],
+      [2, [10, 10, 10, 2]],
     ]) {
       const start = opened + index * 5 * HOUR;
       let five = 0;
@@ -233,7 +252,9 @@ test('each week judges outside use by its own five-hour windows, so a new plan i
   assert.equal(history.outside, 0);
 });
 
-test('sparse weekly history keeps the existing full-limit projection and values known outside usage', async (t) => {
+test('a first window with only a few priced rises shows no dollar value yet', async (t) => {
+  // A light Mixdog spend that lands on heavy use elsewhere reads as a tiny
+  // rate; with no earlier window to anchor it, dollars wait for evidence.
   const ledger = store(t);
   ledger.record([
     { ...request(at(0, 10), 'model-priced'), costUsd: 20, costSource: 'subscription' },
@@ -241,12 +262,13 @@ test('sparse weekly history keeps the existing full-limit projection and values 
   ]);
   ledger.recordQuota([reading(at(0, 30), 2), reading(at(1, 30), 5), reading(at(2, 30), 6)]);
   const history = await ledger.quotaHistoryAsync({ now: at(3) });
-  assert.equal(history.summary.costPerPercent, 10, 'large reading gaps do not erase historical value');
-  assert.equal(history.summary.costUsd, 50);
-  assert.equal(history.summary.outsideCostUsd, 10);
-  assert.equal(history.summary.estimatedTotalCostUsd, 60);
+  assert.equal(history.summary.costUsd, 50, 'recorded money is still shown');
+  assert.equal(history.summary.costPerPercent, null);
+  assert.equal(history.summary.outsideCostUsd, null);
+  assert.equal(history.summary.estimatedTotalCostUsd, null);
+  assert.ok(history.summary.outside > 0, 'outside use is still measured in points');
   const listed = await ledger.quotaWindowsAsync({ now: at(3) });
-  assert.equal(listed.windows[0].costPerPercent, 10);
+  assert.equal(listed.windows[0].costPerPercent, null);
 });
 
 test('sparse, unpriced, saturated and unobserved intervals do not invent a conversion rate', async (t) => {

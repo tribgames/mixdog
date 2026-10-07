@@ -43,15 +43,24 @@ export function xaiCacheRouting(opts, params, rawTools, model) {
   const providerKey = resolveProviderCacheKey(opts, 'xai');
   const prefixSeed = xaiPrefixSeed({ opts, params, rawTools, model });
   const prefixHash = traceHash(prefixSeed);
-  const routingSeed = stableTraceStringify({
-    scope: 'xai-chat-session-v1',
-    providerKey: String(providerKey),
-    model: model || null,
-    sessionId: sessionId || `ephemeral:${process.pid}`,
-  });
+  // A one-shot role (promptCacheScope 'shared') opens a new session per call,
+  // so its conversation lane is the shared prefix rather than the session.
+  const sharedScope = opts?.promptCacheScope === 'shared';
+  const routingSeed = stableTraceStringify(
+    sharedScope
+      ? { scope: 'xai-chat-prefix-v1', providerKey: String(providerKey), model: model || null, prefixHash }
+      : {
+          scope: 'xai-chat-session-v1',
+          providerKey: String(providerKey),
+          model: model || null,
+          sessionId: sessionId || `ephemeral:${process.pid}`,
+        }
+  );
+  let mode = sessionId ? 'session' : 'ephemeral';
+  if (sharedScope) mode = 'prefix';
   return {
     key: deterministicUuidFromKey(routingSeed),
-    mode: sessionId ? 'session' : 'ephemeral',
+    mode,
     seedHash: traceHash(routingSeed),
     prefixHash,
     ownerSessionHash: sessionId ? traceHash(sessionId) : null,
@@ -68,8 +77,14 @@ export function xaiResponsesCacheRouting(opts, params, rawTools, model) {
   // warm in-session misses that read no cache at all. A session-less
   // one-shot call has no conversation to pin, so it keeps automatic routing.
   // 'none' stays an explicit opt-out and 'prefix' an opt-in for controlled
-  // cross-session probes.
-  const scope = String(opts?.xaiResponsesCacheScope || process.env.MIXDOG_XAI_RESPONSES_CACHE_SCOPE || 'session')
+  // cross-session probes. A one-shot role (promptCacheScope 'shared') opens a
+  // new session per call, so it routes by prefix unless explicitly overridden.
+  const scope = String(
+    opts?.xaiResponsesCacheScope ||
+      (opts?.promptCacheScope === 'shared' ? 'prefix' : '') ||
+      process.env.MIXDOG_XAI_RESPONSES_CACHE_SCOPE ||
+      'session'
+  )
     .trim()
     .toLowerCase();
   const sessionId = String(opts?.sessionId || opts?.session?.id || '').trim();

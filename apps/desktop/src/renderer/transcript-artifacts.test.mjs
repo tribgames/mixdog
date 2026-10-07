@@ -93,6 +93,10 @@ test('collapsed activity exposes image, playable video, a document that opens in
     expose: ['navigator'],
   });
   const opened = [];
+  // jsdom has no modal dialogs; the card only needs the dialog to open.
+  dom.window.HTMLDialogElement.prototype.showModal = function showModal() {
+    this.open = true;
+  };
   dom.window.mixdogDesktop = {
     mediaUrl: (id, variant) => `http://localhost/media/${id}/${variant}`,
     openLocalFileLink: async (...args) => {
@@ -134,13 +138,19 @@ test('collapsed activity exposes image, playable video, a document that opens in
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     const gone = dom.window.document.querySelector('.transcript-artifact-file[aria-disabled="true"]');
     assert.equal(gone.tagName, 'SPAN');
-    assert.equal(gone.querySelector('span').textContent, 'gone.xlsx');
+    assert.equal(gone.querySelector('.transcript-artifact-badge').textContent, 'XLSX');
+    assert.equal(gone.querySelector('.transcript-artifact-caption > span').textContent, 'gone.xlsx');
     assert.equal(gone.querySelector('small').textContent, 'Deleted');
     assert.equal(dom.window.document.querySelector('.tool-activity-header').getAttribute('aria-expanded'), 'false');
     assert.ok(dom.window.document.querySelector('.transcript-artifacts img'));
     // A written SVG renders as an image through the file preview lane, never inline markup.
     const svg = dom.window.document.querySelector('img[src="mixdog-media://preview/token/chart.svg"]');
-    assert.equal(svg?.closest('figure')?.querySelector('figcaption > span')?.textContent, 'chart.svg');    const video = dom.window.document.querySelector('video');
+    assert.equal(svg?.closest('figure')?.querySelector('figcaption > span')?.textContent, 'chart.svg');
+    // A video card shows its thumbnail; playback exists only in the dialog the user opens.
+    assert.equal(dom.window.document.querySelector('.transcript-artifacts video'), null);
+    const videoCard = dom.window.document.querySelector('.transcript-artifact-frame[aria-label="b.mp4"]');
+    await act(async () => videoCard.click());
+    const video = dom.window.document.querySelector('.transcript-artifact-preview video');
     assert.equal(video.controls, true);
     assert.equal(video.autoplay, false);
     assert.equal(video.preload, 'none');

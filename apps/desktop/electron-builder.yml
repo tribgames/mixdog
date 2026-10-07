@@ -10,6 +10,9 @@ asarUnpack:
   # daemon.cjs resolves this lazy native dependency relative to its unpacked
   # location, so keep the package's JS, workers, and native bindings together.
   - node_modules/@homebridge/node-pty-prebuilt-multiarch/**
+  # Keep the Win32 FFI loader and its platform-native binding on disk.
+  - node_modules/koffi/**
+  - node_modules/@koromix/koffi-*/**
 # Native modules ship as prebuilt binaries mirrored into runtime.asar.unpacked
 # by prepare-runtime.mjs; never rebuild them against Electron headers here.
 npmRebuild: false

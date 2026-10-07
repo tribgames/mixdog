@@ -255,25 +255,28 @@ function fitQuotaValue(intervals, prior, ownValueLowerBound) {
  * Spans where a finer meter rose beyond what Mixdog's own spending explains.
  * Each finer window restarts from an exact zero, so a whole-percent reading v
  * proves more than v - 1 points of use since its start, whatever the rounding.
- * Its dollars per point come from the median window (true use ≈ v - 0.5): the
- * median ignores the few windows that outside use made cheap. Spending up to
- * `lagMs` after a reading counts, since requests are recorded on completion.
- * Thirty percent of the expected use plus a quarter point is ordinary weight
- * noise; a rise with no spending at all is outside use outright. After outside
- * use, only further growth of the unexplained excess marks another span.
+ * Its dollars per point come from the median window (true use ≈ v - 0.5).
+ * Outside use only makes a window cheaper, so when it fills many windows the
+ * median sinks with them; windows shown to hold outside use therefore never
+ * calibrate, and the median is retaken over the rest until none drops out.
+ * Spending up to `lagMs` after a reading counts, since requests are recorded
+ * on completion. Thirty percent of the expected use plus a quarter point is
+ * ordinary weight noise; a rise with no spending at all is outside use
+ * outright. After outside use, only further growth of the unexplained excess
+ * marks another span.
  */
 export function outsideSpans(windows, costBetween, { lagMs = 5 * 60_000 } = {}) {
-  const rates = windows
-    .filter((window) => window.readings.at(-1).usedPct >= 4)
-    .map((window) => {
-      const last = window.readings.at(-1);
-      return costBetween(window.startMs, last.ts + lagMs) / (last.usedPct - 0.5);
-    })
-    .sort((a, b) => a - b);
-  const rate = rates[Math.floor(rates.length / 2)];
-  if (!(rate > 0)) return [];
-  const spans = [];
-  for (const window of windows) {
+  const medianRate = (rated) => {
+    const rates = rated
+      .map((window) => {
+        const last = window.readings.at(-1);
+        return costBetween(window.startMs, last.ts + lagMs) / (last.usedPct - 0.5);
+      })
+      .sort((a, b) => a - b);
+    return rates[Math.floor(rates.length / 2)];
+  };
+  const spansIn = (window, rate) => {
+    const spans = [];
     let fromMs = window.startMs;
     let previous = 0;
     let excess = 0;
@@ -290,8 +293,20 @@ export function outsideSpans(windows, costBetween, { lagMs = 5 * 60_000 } = {}) 
       fromMs = reading.ts;
       previous = reading.usedPct;
     }
+    return spans;
+  };
+  let calibrating = windows.filter((window) => window.readings.at(-1).usedPct >= 4);
+  let rate = medianRate(calibrating);
+  if (!(rate > 0)) return [];
+  for (;;) {
+    const found = new Map(windows.map((window) => [window, spansIn(window, rate)]));
+    // A window kept here has no unexplained rise, so it carries spending and
+    // the retaken median stays positive.
+    const kept = calibrating.filter((window) => !found.get(window).length);
+    if (!kept.length || kept.length === calibrating.length) return [...found.values()].flat();
+    calibrating = kept;
+    rate = medianRate(calibrating);
   }
-  return spans;
 }
 
 /** Expected outside percentage points, bounded by the actual meter rise. */

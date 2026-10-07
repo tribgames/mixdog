@@ -459,11 +459,23 @@ export function CompletionStatus({ item }: { item: TranscriptItem }) {
     completionLabel = translateStatusLabel(label) || label || t('Complete');
   }
   const displayDetail = translateStatusDetail(item.detail);
+  const autoEffort = item.kind === 'turndone' ? autoEffortLabel(item.autoEffort) : '';
   return (
     <div className="turn-status complete" role="status">
       <MxIcon name="check" className="turn-status-icon" size={16} />
       <span>{completionLabel}</span>
       {item.kind === 'statusdone' && displayDetail && <small>· {displayDetail}</small>}
+      {autoEffort && (
+        <small>
+          {t('Auto')} {autoEffort}
+        </small>
+      )}
     </div>
   );
+}
+
+const AUTO_EFFORT_LABELS: Record<string, string> = { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'XHigh' };
+
+function autoEffortLabel(effort: unknown): string {
+  return typeof effort === 'string' ? AUTO_EFFORT_LABELS[effort] || '' : '';
 }

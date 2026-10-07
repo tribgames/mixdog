@@ -4,9 +4,10 @@ import { renameWithRetrySync } from '../../../../shared/atomic-file.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../lifecycle-scan.mjs';
 
-// Inline legacy media is replaced with placeholders on disk. New prompt media
-// already arrives as durable content-addressed refs, so session JSON stays small
-// while provider lowering can still resolve it across turns.
+// Inline base64 images (tool screenshots included) are written as
+// content-addressed refs, like prompt media, so session JSON stays small while
+// provider lowering resolves them to the same bytes across turns and reloads.
+// Other inline media is replaced with placeholders on disk.
 // Per-message disk projection shared by _sessionForDisk and the save-worker
 // delta path (tail-only projection). Returns the SAME array reference when no
 // message changed. Idempotent: already-sanitized content passes through

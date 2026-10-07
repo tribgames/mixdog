@@ -273,6 +273,9 @@ html[data-mixdog-mobile-tabs] .conversation {
   background: var(--mx-workspace-sheet);
   overflow: clip;
 }
+.transcript-virtual-row:has([data-transcript-pending]) {
+  min-height: var(--transcript-measured-height, 0px);
+}
 /* Within a turn, parts use a compact measured step. Turn boundaries are their
    own rows, so no flex gap or negative margin can disagree with geometry. */
 .transcript-virtual-row-content[data-tag="UserMessage"],
@@ -287,11 +290,10 @@ html[data-mixdog-mobile-tabs] .conversation {
      transcript and typed text share one reading column. */
   padding-left: calc(var(--pane-inset) + var(--transcript-text-inset));
   padding-right: calc(var(--pane-inset) + var(--transcript-text-inset) - var(--mx-scrollbar-gutter));
-  padding-bottom: 12px;
+  padding-bottom: 8px;
 }
-/* The hover meta line (top:100% overlay, 24px) must fit INSIDE the clipped
-   row box — user rows reserve its height as padding instead of lifting the
-   clip (user: 차라리 유저 행 아래 패딩을 조금 더 주는 게 낫다). */
+/* Questions get a full line of breathing room before the answer; parts
+   within the same answer use the smaller 8px step above. */
 .transcript-virtual-row-content[data-tag="UserMessage"] {
   padding-bottom: 24px;
 }
@@ -613,7 +615,7 @@ html[data-mixdog-mobile-tabs] .conversation {
      inset well. The base size here is the CHROME mono; .detail-block keeps it
      (tool output lives in 13px chrome), .markdown steps up to the prose mono
      right below. */
-  background: var(--mx-bg-base);
+  background: transparent;
   box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);

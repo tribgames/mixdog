@@ -388,10 +388,17 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   const capabilityRequestInFlight = useRef(false);
   // The read issued in the current synchronous pass (one commit's effects),
   // cleared at the next microtask.
-  const sameCommitRequest = useRef<{ scopeKey: string; boundaryKey: string; refreshWorktree: boolean } | null>(null);
+  const sameCommitRequest = useRef<{
+    scopeKey: string;
+    boundaryKey: string;
+    refreshWorktree: boolean;
+    summary: boolean;
+  } | null>(null);
   const pendingCapabilityRefresh = useRef<{
     scopeKey: string;
+    boundaryKey: string;
     refreshWorktree: boolean;
+    summary: boolean;
   } | null>(null);
   const refreshAgentReviewsRef = useRef<(refreshWorktree?: boolean) => Promise<void>>(async () => undefined);
   const lastAgentReviewSignature = useRef<string | null>(null);
@@ -461,6 +468,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
       const requestedCheckpoint = reviewScope.key;
       if (!sessionId || !api?.invokeCapability) return;
       if (document.visibilityState === 'hidden') return;
+      const summary = !detailShown.current;
       if (capabilityRequestInFlight.current) {
         // The boundary effect and the busy poll both ask when one commit moves
         // a boundary: the read already sent for it answers both, so a queued
@@ -469,6 +477,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         if (
           issued?.scopeKey === requestedScope &&
           issued.boundaryKey === reviewBoundaryKey &&
+          (!issued.summary || summary) &&
           (issued.refreshWorktree || !refreshWorktree)
         ) {
           return;
@@ -476,12 +485,15 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         const pending = pendingCapabilityRefresh.current;
         pendingCapabilityRefresh.current = {
           scopeKey: requestedScope,
+          boundaryKey: reviewBoundaryKey,
           refreshWorktree: refreshWorktree || (pending?.scopeKey === requestedScope && pending.refreshWorktree),
+          summary,
         };
         return;
       }
       capabilityRequestInFlight.current = true;
-      const issued = { scopeKey: requestedScope, boundaryKey: reviewBoundaryKey, refreshWorktree };
+      const issued = { scopeKey: requestedScope, boundaryKey: reviewBoundaryKey, refreshWorktree, summary };
+      let recorded = false;
       sameCommitRequest.current = issued;
       queueMicrotask(() => {
         if (sameCommitRequest.current === issued) sameCommitRequest.current = null;
@@ -496,9 +508,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         // a later mount to show as its own review.
         const cacheable = requestedCheckpoint !== 'none';
         const known = cacheable ? (reviewTagCache.get(requestedScope) ?? '') : '';
-        // Over the relay the patch text is most of each re-read; the collapsed
-        // bar never draws it. The desktop's local IPC keeps full reads.
-        const summary = isMobileRemoteSurface() && !detailShown.current;
+        // The collapsed bar draws files and counts only. Its patch text is
+        // most of each read (and, for a large change, most of its cost), so
+        // it is read once the bar is opened.
         const result = await api.invokeCapability({
           capability: TURN_REVIEW_CAPABILITY,
           args: [{ refresh: refreshWorktree, ...(known ? { known } : {}), ...(summary ? { summary } : {}) }],
@@ -506,6 +518,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         });
         const value = (result?.value ?? null) as TurnReviewCapabilityValue;
         if (value?.unchanged === true) return;
+        recorded = value?.reason === 'recorded';
         const decoded = decodeTurnReviewCapabilityValue(value);
         if (!decoded) {
           return;
@@ -547,7 +560,16 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         capabilityRequestInFlight.current = false;
         const pending = pendingCapabilityRefresh.current;
         pendingCapabilityRefresh.current = null;
-        if (pending && activeScope.current === pending.scopeKey) {
+        // A recorded review already reflects the current worktree: the
+        // refreshing read queued behind it for the same boundary (an idle
+        // entry asks twice) would only compute it again. A summary cannot
+        // satisfy an expansion that asked for the actual patch while it ran.
+        const repeatsRecorded =
+          recorded &&
+          pending?.scopeKey === requestedScope &&
+          pending.boundaryKey === issued.boundaryKey &&
+          (!issued.summary || pending.summary);
+        if (pending && !repeatsRecorded && activeScope.current === pending.scopeKey) {
           void refreshAgentReviewsRef.current(pending.refreshWorktree);
         }
       }

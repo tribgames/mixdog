@@ -3,7 +3,7 @@ import { nonNegativeNumber, resolveContextDisplayUsage } from './context-usage';
 import { t } from './i18n';
 import { record } from './record-utils';
 import { ContextInspector, type ContextInspection, type ContextRequest } from './ContextInspector';
-import { statsCount, statsMoney, statsNumber, statsPercent, statsTokens } from './usage-stats-model';
+import { statsCount, statsMoney, statsNumber, statsPercent, statsSpeed, statsTokens } from './usage-stats-model';
 // @ts-expect-error Shared presentation contract has no separate declaration file.
 import { contextMeasurementStats, contextMeasurementLabel } from '../../../../src/ui/context-measurement.mjs';
 
@@ -68,13 +68,16 @@ function SessionUsageFooter({ usage, compactions }: { usage: unknown; compaction
   const totals = record(usage);
   if (!(statsNumber(totals.turns) > 0)) return null;
   const figures: [string, string][] = [
-    [t('List-price value'), statsMoney(totals)],
+    [t('Est. value'), statsMoney(totals)],
     [t('Cache hit rate'), statsPercent(totals.cacheHitRate)],
     [t('Input'), statsTokens(totals.input)],
     [t('Output'), statsTokens(totals.output)],
     [t('Cache read'), statsTokens(totals.cacheRead)],
     [t('Cache write'), statsTokens(totals.cacheWrite)],
   ];
+  // Only once a timed request produced output: an unknown speed is no figure.
+  if (totals.outputTokensPerSecond != null)
+    figures.push([t('Speed'), `${statsSpeed(totals.outputTokensPerSecond)} tok/s`]);
   return (
     <footer className="context-session-usage" aria-label={t('Session usage')}>
       {figures.map(([label, value]) => (

@@ -76,6 +76,70 @@
 .mx-dialog {
   width: min(480px, calc(100vw - 32px));
 }
+/* Native <dialog> has its own padding. Reset it for the compact launch card
+   so it does not double the shared header/body/footer gutters. */
+.mx-dialog.file-launch-dialog {
+  width: min(400px, calc(100vw - 32px));
+  padding: 0;
+}
+.mx-dialog.file-launch-dialog:not([open]) {
+  display: none;
+}
+.file-launch-dialog::backdrop {
+  background: var(--mx-scrim);
+  backdrop-filter: blur(2px);
+}
+.mx-dialog.file-launch-dialog > header {
+  padding: 20px 20px 14px;
+}
+.file-launch-dialog > .mx-dialog-body {
+  padding: 0 20px;
+  overflow-y: auto;
+}
+.file-launch-target {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+}
+:root .file-launch-target {
+  background: var(--mx-item-surface);
+  box-shadow: var(--mx-item-outline);
+}
+.file-launch-target > .seti-icon {
+  margin-top: 1px;
+  font-size: 24px;
+  line-height: 24px;
+}
+.file-launch-details {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.file-launch-details > strong {
+  display: block;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-minor);
+}
+.file-launch-details > p {
+  margin: 4px 0 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.file-launch-dialog #file-launch-warning {
+  margin: 12px 0 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-minor);
+}
+.mx-dialog.file-launch-dialog > footer {
+  padding: 16px 20px 20px;
+}
 /* The primitive shares the editors' axis and continuous card plate. */
 .mx-dialog > header,
 .mx-dialog > footer {
@@ -108,6 +172,29 @@
   --mx-rail-item-surface: color-mix(in srgb, var(--mx-text) 4.5%, transparent);
   --mx-rail-item-outline: color-mix(in srgb, var(--mx-text) 6%, transparent);
   --mx-rail-item-outline-active: color-mix(in srgb, var(--mx-text) 18%, transparent);
+}
+/* Cards drop their plate and keep only their hairline, so settings groups,
+   usage tables/charts, dialog lists, tool output and notices all read as
+   framed cards on whichever surface holds them. */
+:root :is(
+    .settings-group-body,
+    .core-memory-list,
+    .projects-memory-viewport,
+    .extensions-dialog-facts,
+    .extensions-item-list,
+    .usage-table-shell,
+    .stats-card,
+    .stats-mix,
+    .stats-trend,
+    .tool-panel,
+    .notice,
+    .approval-detail,
+    .approval-card dd code,
+    .turn-review-diff,
+    .studio-detail-block,
+    .studio-detail-block--prompt
+  ) {
+  background: var(--mx-item-surface);
 }
 .sidebar-loading-dialog {
   --mx-editor-width: 520px;
@@ -332,7 +419,7 @@
 .settings-oauth-dialog > footer button:active:not(:disabled),
 .onboarding-dialog > footer button:active:not(:disabled),
 .mx-dialog > footer button:active:not(:disabled) {
-  background: var(--mx-flat-press);
+  background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-action-bg);
   box-shadow: var(--mx-popup-action-ring);
 }
 /* Submit IS the primary action of the panel editors. */
@@ -391,7 +478,7 @@
 .mx-dialog > footer button.danger {
   color: var(--mx-danger);
   background: var(--mx-danger-bg);
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 28%, transparent);
+  box-shadow: none;
 }
 .schedules-dialog footer button.danger:hover:not(:disabled),
 .settings-confirm-dialog > footer button.danger:hover:not(:disabled),
@@ -400,7 +487,7 @@
 .mx-dialog > footer button.danger:hover:not(:disabled) {
   color: var(--mx-danger);
   background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-danger-bg);
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 28%, transparent);
+  box-shadow: none;
 }
 /* The solid pressed plate carries the danger read — drop the resting ring. */
 .schedules-dialog footer button.danger:active:not(:disabled),
@@ -540,9 +627,9 @@
   --mx-rail-gutter: 12px;
   --mx-rail-gap: 8px;
   /* Flat rows sit close; the hover wash is their only boundary. */
-  --mx-rail-list-gap: 2px;
+  --mx-rail-list-gap: 4px;
   --mx-rail-trailing-center: 20px;
-  --mx-rail-row-padding: 10px;
+  --mx-rail-row-padding: 8px;
 }
 /* Desktop left rail: the trailing glyph CENTER sits on the card's inner text
    line (12px in from the box line), the axis the Agents dock's "…" already

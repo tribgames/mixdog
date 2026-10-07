@@ -13,14 +13,6 @@ import { automationWorkflowOpts } from './automation-workflow.mjs';
 import { runAutomationTurns } from './automation-agents.mjs';
 import { automationPromptContent } from '../runtime/shared/automation-attachments.mjs';
 
-// Webhook payloads are authenticated transport data, not trusted user intent.
-// Keep their sessions on the deterministic read-only bundle even when a
-// preset or workflow would otherwise resolve to full tools. `tools:mcp` adds
-// only the automation scope's internal tools — the agent tool, offered when the
-// user's orchestration mode allows delegation (user decision: automations may
-// delegate); the scope connects no MCP servers.
-export const WEBHOOK_SESSION_TOOLS = Object.freeze(['tools:readonly', 'tools:mcp']);
-
 /** Endpoint model ref wins; the maintenance.webhook route is the fallback. */
 function webhookRoute(modelRef) {
   if (modelRef) {
@@ -56,7 +48,6 @@ export async function runWebhookSession({
     owner: 'user',
     sourceType: 'webhook',
     sourceName: endpoint,
-    tools: WEBHOOK_SESSION_TOOLS,
     ...(projectCwd ? { cwd: projectCwd } : {}),
     desktopSession: projectCwd
       ? { classification: 'project', projectPath: projectCwd }

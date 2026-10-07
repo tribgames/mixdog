@@ -4,38 +4,8 @@
  * dashboards, turn review diffs, onboarding, channel setup, and the
  * webhook / schedule automation entries.
  */
-import { createHash } from 'node:crypto';
+import { turnReviewReply } from '../../../runtime/shared/turn-review-reply.mjs';
 import { createApiHelpers } from './shared.mjs';
-
-/** Per-file line counts of a unified diff, shaped like a Git snapshot's
- *  files (the turn review bar renders either the same way). */
-function filesFromPatch(patch) {
-  const files = [];
-  let current = null;
-  for (const line of String(patch || '').split('\n')) {
-    const header = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
-    if (header) {
-      current = {
-        path: header[2],
-        oldPath: header[1] === header[2] ? null : header[1],
-        status: 'M',
-        additions: 0,
-        deletions: 0,
-        binary: false,
-      };
-      files.push(current);
-      continue;
-    }
-    if (!current) continue;
-    if (line.startsWith('new file mode')) current.status = 'A';
-    else if (line.startsWith('deleted file mode')) current.status = 'D';
-    else if (line.startsWith('rename from')) current.status = 'R';
-    else if (line.startsWith('Binary files')) current.binary = true;
-    else if (line.startsWith('+') && !line.startsWith('+++')) current.additions += 1;
-    else if (line.startsWith('-') && !line.startsWith('---')) current.deletions += 1;
-  }
-  return files;
-}
 
 export function createSessionIntegrationsApi(bag, { oauthFlows }) {
   const { runtime, getState, set, pushNotice, routeState, resetStatsAndSyncContext } = bag;
@@ -77,34 +47,7 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       // though the session runtime implements it.
       return await requireRuntimeMethod('consumeCodexRateLimitResetCredit', 'Codex reset is unavailable')(options);
     },
-    getTurnReviewDiff: async (options = {}) => {
-      const { known, summary, ...reviewOptions } = options || {};
-      let review = (await runtime.getTurnReviewDiff?.(reviewOptions)) ?? {
-        supported: false,
-        files: [],
-        patch: '',
-      };
-      // A collapsed bar shows files and line counts only. A Git-backed review
-      // carries those per file, so its patch text (tens of KB mid-turn) is
-      // left out until the bar is opened; other kinds count from the patch.
-      if (
-        summary === true &&
-        (review.snapshotKind === 'worktree' || review.snapshotKind === 'scoped') &&
-        review.patch
-      ) {
-        review = { ...review, patch: '', patchOmitted: true };
-      } else if (summary === true && review.snapshotKind === 'tool' && review.patch && !review.files?.length) {
-        // A contended worktree (several sessions on one repo) reviews this
-        // session's own tool edits and counts lines from the patch; the counts
-        // travel as files instead.
-        review = { ...review, files: filesFromPatch(review.patch), patch: '', patchOmitted: true };
-      }
-      // The review bar re-reads every few seconds during a turn; an unchanged
-      // review answers with its tag instead of re-sending every patch. The tag
-      // covers what is sent, so a summary and a full review never share one.
-      const etag = createHash('sha256').update(JSON.stringify(review)).digest('hex').slice(0, 32);
-      return known === etag ? { unchanged: true, etag } : { ...review, etag };
-    },
+    getTurnReviewDiff: (options = {}) => turnReviewReply((reviewOptions) => runtime.getTurnReviewDiff?.(reviewOptions), options),
     getSessionReviewDiff: async () => {
       return (await runtime.getSessionReviewDiff?.()) ?? { supported: false, files: [], patch: '' };
     },

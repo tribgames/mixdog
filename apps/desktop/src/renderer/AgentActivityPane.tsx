@@ -106,9 +106,8 @@ function AgentPoolRow({
   else if (running) elapsed = workMeta;
   else if (state === 'cancel-unconfirmed') elapsed = t('Cancel unconfirmed');
   else if (state === 'cancelled') elapsed = t('Cancelled');
-  // A finished turn, not a generic success: the row says WORK is done (user:
-  // 완료보다 작업 완료), and the toast keeps 'Completed'.
-  else if (done) elapsed = t('Task complete');
+  // A finished turn reads as a plain completion (user: 태스크 없애고 컴플리트만).
+  else if (done) elapsed = t('Completed');
   else if (state === 'waiting') elapsed = t('Waiting for tasks');
   else if (state === 'unknown') elapsed = t('Unknown');
   const modelLabel = modelDisplayName(String(agent.model || ''), String(agent.provider || ''));

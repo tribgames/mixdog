@@ -179,10 +179,10 @@
   font-size: var(--mx-font-micro);
   line-height: var(--mx-line-minor);
 }
-/* Turn-review bar: attached above the input in the bottom stack (user
-   decision). A late worker result grows the composer region upward and the
-   transcript's bottom anchor absorbs that single layout change. */
+/* Reserve the closed header only. The disclosure opens upward over the
+   transcript, just like Goal, without moving the text being read. */
 .turn-review-slot {
+  --turn-review-head-height: 32px;
   position: relative;
   z-index: 6;
   width: 100%;
@@ -199,7 +199,12 @@
    (TurnReviewBar); one already there when a session is entered lands at full
    height. */
 .turn-review-slot:has(.turn-review-bar) {
+  height: var(--turn-review-head-height);
   margin-bottom: 8px;
+}
+.turn-review-slot > .turn-review-bar {
+  position: absolute;
+  bottom: 0;
 }
 .turn-review-slot > * {
   pointer-events: auto;
@@ -271,7 +276,7 @@
 /* One header grammar: disclosure on the left, a single ordered controls group
    on the right (view mode first, destructive action last). */
 .turn-review-head {
-  min-height: 32px;
+  min-height: var(--turn-review-head-height, 32px);
   display: flex;
   align-items: center;
   border-radius: var(--mx-radius-md);
@@ -346,7 +351,7 @@
 .turn-review-files li {
   min-height: 24px;
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) 30px 30px auto;
+  grid-template-columns: 14px minmax(0, 1fr) minmax(30px, max-content) minmax(30px, max-content) auto;
   align-items: center;
   column-gap: 8px;
   padding: 0 4px;

@@ -36,7 +36,7 @@ test('the context dialog closes on the session spend, in the statistics terms', 
     span.querySelector('strong').textContent,
   ]);
   assert.deepEqual(figures, [
-    [t('List-price value'), statsMoney(sessionUsage)],
+    [t('Est. value'), statsMoney(sessionUsage)],
     [t('Cache hit rate'), statsPercent(0.89)],
     [t('Input'), statsTokens(182_000)],
     [t('Output'), statsTokens(58_300)],
@@ -46,6 +46,12 @@ test('the context dialog closes on the session spend, in the statistics terms', 
   const end = node.querySelector('.context-session-usage-end').textContent;
   assert.ok(end.includes(t('Turns')) && end.includes('42'));
   assert.ok(end.includes(t('Compactions')) && end.includes('2'));
+});
+
+test('a timed session also reports its output speed', () => {
+  const node = footer({ sessionUsage: { ...sessionUsage, outputTokensPerSecond: 61.2 } });
+  const speed = [...node.querySelectorAll(':scope > span')].find((span) => span.firstChild.textContent.trim() === t('Speed'));
+  assert.equal(speed.querySelector('strong').textContent, '61 tok/s');
 });
 
 test('no session spend yet, or none readable, leaves the footer out', () => {

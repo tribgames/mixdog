@@ -36,7 +36,7 @@ function bridgePresent(file) {
   }
 }
 
-export const INSTALLABLE_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office', 'tidy', 'localProvider']);
+export const INSTALLABLE_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office', 'tidy', 'localProvider', 'autoEffort']);
 const GRANDFATHERED_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office']);
 
 /** Model-facing activation for one gated feature: an explicit MIXDOG_FEATURE_*
@@ -77,6 +77,14 @@ export function builtinFeatureActive(configLike, id) {
   }
   if (id === 'localProvider') {
     return builtinInstalled(configLike, 'localProvider') && moduleEnabled(configLike, 'localProvider', true);
+  }
+  // Auto effort adds no tools: it picks each turn's reasoning effort from the
+  // local effort judge. Installing verifies the judge model is on disk.
+  if (id === 'autoEffort') {
+    return (
+      featureEnvOverride('MIXDOG_FEATURE_AUTO_EFFORT') ??
+      (builtinInstalled(configLike, 'autoEffort') && moduleEnabled(configLike, 'autoEffort', true))
+    );
   }
   // Media Studio is a hidden built-in like setup: no Settings card, no install
   // step, always on. The lane catalog ships with the runtime and sign-in happens

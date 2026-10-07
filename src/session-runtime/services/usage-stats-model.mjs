@@ -162,6 +162,8 @@ function addUsage(target, usage) {
   target.costBilled = (target.costBilled || 0) + (usage.costBilled || 0);
   target.costEstimated = (target.costEstimated || 0) + (usage.costEstimated || 0);
   target.unmeasuredTurns = (target.unmeasuredTurns || 0) + (usage.unmeasuredTurns || 0);
+  target.speedOutput = (target.speedOutput || 0) + (usage.speedOutput || 0);
+  target.speedMs = (target.speedMs || 0) + (usage.speedMs || 0);
 }
 
 function foldRoute(state, providerId, modelId, kind, usage) {
@@ -249,6 +251,9 @@ function foldRollupDay(state, key, day, conversationOnly) {
       sessions: route.sessions,
       sessionsComplete: route.sessionsComplete,
       unmeasuredTurns: num(route.unmeasuredTurns),
+      // Speed is the model's, whoever sent the request: read off the full route.
+      speedOutput: num(raw?.speedOutput),
+      speedMs: num(raw?.speedMs),
     };
     foldRoute(state, providerId, modelId, text(raw?.kind), usage);
     addDaily(state, key, usage, providerId);
@@ -285,12 +290,15 @@ function foldEvent(state, key, event, conversationOnly) {
   const costSource = text(event?.costSource);
   const priced =
     event?.costUsd != null && Number.isFinite(Number(event.costUsd)) && !['', 'none', 'unpriced'].includes(costSource);
+  const output = num(event?.outputTokens);
+  const durationMs = num(event?.durationMs);
+  const timed = durationMs > 0 && output > 0;
   const usage = {
     turns: 1,
     // Same normalization the rollup applies: a provider that reports the whole
     // prompt as input would otherwise have its cache counted twice.
     input: billableInputTokensForProvider(providerId, num(event?.inputTokens), cacheRead, cacheWrite),
-    output: num(event?.outputTokens),
+    output,
     cacheRead,
     cacheWrite,
     costUsd: num(event?.costUsd),
@@ -299,11 +307,12 @@ function foldEvent(state, key, event, conversationOnly) {
     costEstimated: priced && costSource !== 'provider' ? num(event.costUsd) : 0,
     sessions: sessionId ? { [sessionId]: 1 } : {},
     sessionsComplete: !conversation || Boolean(sessionId),
+    speedOutput: timed ? output : 0,
+    speedMs: timed ? durationMs : 0,
   };
   foldRoute(state, providerId, modelId, text(event?.providerKind), usage);
   addDaily(state, key, usage, providerId);
 
-  const durationMs = num(event?.durationMs);
   if (durationMs > 0) {
     state.durationMs += durationMs;
     state.durationTurns += 1;
@@ -425,9 +434,16 @@ function tokensOf(bucket) {
   return bucket.input + bucket.output + bucket.cacheRead + bucket.cacheWrite;
 }
 
+/** Output tokens per second of request wall time over the timed requests; null when none was timed. */
+function outputSpeed(bucket) {
+  const ms = num(bucket.speedMs);
+  return ms > 0 ? round((num(bucket.speedOutput) * 1000) / ms, 1) : null;
+}
+
 /** One session's lifetime totals (the /context footer), in a statistics route's terms. */
 export function sessionUsageSnapshot(bucket) {
   return {
+    outputTokensPerSecond: outputSpeed(bucket),
     turns: bucket.turns,
     input: bucket.input,
     output: bucket.output,
@@ -484,6 +500,7 @@ function exportRoute(bucket, totalTokens) {
     // Answer length, which is what separates a terse route from a verbose one
     // at the same price.
     outputPerTurn: bucket.turns > 0 ? Math.round(bucket.output / bucket.turns) : 0,
+    outputTokensPerSecond: outputSpeed(bucket),
   };
 }
 

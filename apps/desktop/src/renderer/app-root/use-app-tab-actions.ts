@@ -1,4 +1,5 @@
 import type React from 'react';
+import { useEffect } from 'react';
 import type { PullRequestOpenHandler } from '../PullRequestsPane';
 import type { SourceControlDiffRequest } from '../SourceControlDock';
 import type { WorkspaceSelection, WorkspaceTab } from '../navigation';
@@ -9,6 +10,8 @@ import { beginStudioLoad, reportStudioLoadStage } from '../renderer-load-metrics
 import { loadStudioViewModule } from '../studio-loader';
 import { prefetchBrowserPane, prefetchDiffView, prefetchEditorPane, prefetchTerminalPane } from '../lazy-widgets';
 import { useAgentBrowserSurfaceRequests } from '../use-agent-browser-surface-requests';
+import { browserSurfaceRevealPlan } from '../session-browser-policy';
+import { onTerminalRevealRequested } from '../terminal-command-request';
 import { useStableEvent } from '../use-stable-event';
 import { desktopFeatureEnabled } from '../desktop-feature-config';
 import type { useAppSideDocks } from '../use-app-side-docks';
@@ -78,20 +81,32 @@ export function useAppTabActions({
     paneSideDocks.select(leafId, 'terminal');
   };
 
+  const sessionOwners = paneWorkspace.leaves.map((leaf) => {
+    const selection = paneActiveSelection(leaf);
+    return {
+      leafId: leaf.id,
+      sessionId: selection?.kind === 'session' ? selection.id : null,
+    };
+  });
+
   useAgentBrowserSurfaceRequests({
-    owners: paneWorkspace.leaves.map((leaf) => {
-      const selection = paneActiveSelection(leaf);
-      return {
-        leafId: leaf.id,
-        sessionId: selection?.kind === 'session' ? selection.id : null,
-      };
-    }),
+    owners: sessionOwners,
     focusedLeafId: paneWorkspace.focusedLeafId,
     surfaces: sessionPaneSurfaces,
     prefetch: prefetchBrowserPane,
     select: paneSideDocks.select,
     temporarySelect: paneSideDocks.temporarySelect,
   });
+
+  // A chat code block's Run: the session's terminal opens beside the pane
+  // showing that session (the focused one when several do).
+  const revealSessionTerminal = useStableEvent((sessionId: string) => {
+    void prefetchTerminalPane().catch(() => {});
+    setSessionSideSurface(sessionId, 'terminal');
+    const { leafId } = browserSurfaceRevealPlan(sessionOwners, sessionId, paneWorkspace.focusedLeafId);
+    if (leafId) paneSideDocks.select(leafId, 'terminal');
+  });
+  useEffect(() => onTerminalRevealRequested(revealSessionTerminal), [revealSessionTerminal]);
 
   const openDiffTab = (project: string, rel: string, request: SourceControlDiffRequest) => {
     const target = cleanDiffTarget(project, rel);

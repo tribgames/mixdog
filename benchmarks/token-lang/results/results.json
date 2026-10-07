@@ -1,0 +1,229 @@
+{
+  "sentences": 200,
+  "results": [
+    {
+      "name": "GPT 6.1",
+      "baseline": 17,
+      "raw": {
+        "English": 5486,
+        "Chinese": 7008,
+        "Japanese": 9211,
+        "Korean": 8130,
+        "Spanish": 7229,
+        "French": 7550,
+        "German": 7259,
+        "Russian": 8030,
+        "Arabic": 7641,
+        "Hindi": 8681
+      },
+      "net": {
+        "English": 5469,
+        "Chinese": 6991,
+        "Japanese": 9194,
+        "Korean": 8113,
+        "Spanish": 7212,
+        "French": 7533,
+        "German": 7242,
+        "Russian": 8013,
+        "Arabic": 7624,
+        "Hindi": 8664
+      }
+    },
+    {
+      "name": "Opus 5.5",
+      "baseline": 33,
+      "raw": {
+        "English": 9056,
+        "Chinese": 10200,
+        "Japanese": 11223,
+        "Korean": 14036,
+        "Spanish": 12808,
+        "French": 12964,
+        "German": 15098,
+        "Russian": 11902,
+        "Arabic": 15852,
+        "Hindi": 18924
+      },
+      "net": {
+        "English": 9023,
+        "Chinese": 10167,
+        "Japanese": 11190,
+        "Korean": 14003,
+        "Spanish": 12775,
+        "French": 12931,
+        "German": 15065,
+        "Russian": 11869,
+        "Arabic": 15819,
+        "Hindi": 18891
+      }
+    },
+    {
+      "name": "Gemini 3.8 Flash",
+      "baseline": 2,
+      "raw": {
+        "English": 5793,
+        "Chinese": 6461,
+        "Japanese": 7158,
+        "Korean": 7949,
+        "Spanish": 7441,
+        "French": 8064,
+        "German": 7679,
+        "Russian": 8012,
+        "Arabic": 8453,
+        "Hindi": 7550
+      },
+      "net": {
+        "English": 5791,
+        "Chinese": 6459,
+        "Japanese": 7156,
+        "Korean": 7947,
+        "Spanish": 7439,
+        "French": 8062,
+        "German": 7677,
+        "Russian": 8010,
+        "Arabic": 8451,
+        "Hindi": 7548
+      }
+    },
+    {
+      "name": "DeepSeek V4.1 Flash",
+      "baseline": 31,
+      "raw": {
+        "English": 5549,
+        "Chinese": 5460,
+        "Japanese": 8046,
+        "Korean": 9206,
+        "Spanish": 8286,
+        "French": 8591,
+        "German": 8485,
+        "Russian": 9155,
+        "Arabic": 9100,
+        "Hindi": 15450
+      },
+      "net": {
+        "English": 5518,
+        "Chinese": 5429,
+        "Japanese": 8015,
+        "Korean": 9175,
+        "Spanish": 8255,
+        "French": 8560,
+        "German": 8454,
+        "Russian": 9124,
+        "Arabic": 9069,
+        "Hindi": 15419
+      }
+    },
+    {
+      "name": "Kimi K3",
+      "baseline": 86,
+      "raw": {
+        "English": 5619,
+        "Chinese": 5165,
+        "Japanese": 9228,
+        "Korean": 11111,
+        "Spanish": 9331,
+        "French": 9646,
+        "German": 9682,
+        "Russian": 11532,
+        "Arabic": 11461,
+        "Hindi": 15289
+      },
+      "net": {
+        "English": 5533,
+        "Chinese": 5079,
+        "Japanese": 9142,
+        "Korean": 11025,
+        "Spanish": 9245,
+        "French": 9560,
+        "German": 9596,
+        "Russian": 11446,
+        "Arabic": 11375,
+        "Hindi": 15203
+      }
+    },
+    {
+      "name": "GLM 5.3 Flash",
+      "baseline": 13,
+      "raw": {
+        "English": 5538,
+        "Chinese": 5521,
+        "Japanese": 8467,
+        "Korean": 10675,
+        "Spanish": 7979,
+        "French": 8385,
+        "German": 8130,
+        "Russian": 8150,
+        "Arabic": 9797,
+        "Hindi": 23740
+      },
+      "net": {
+        "English": 5525,
+        "Chinese": 5508,
+        "Japanese": 8454,
+        "Korean": 10662,
+        "Spanish": 7966,
+        "French": 8372,
+        "German": 8117,
+        "Russian": 8137,
+        "Arabic": 9784,
+        "Hindi": 23727
+      }
+    },
+    {
+      "name": "Muse Spark 1.3",
+      "baseline": 8,
+      "raw": {
+        "English": 5514,
+        "Chinese": 6133,
+        "Japanese": 7287,
+        "Korean": 6979,
+        "Spanish": 7150,
+        "French": 7548,
+        "German": 7211,
+        "Russian": 6921,
+        "Arabic": 8797,
+        "Hindi": 9200
+      },
+      "net": {
+        "English": 5506,
+        "Chinese": 6125,
+        "Japanese": 7279,
+        "Korean": 6971,
+        "Spanish": 7142,
+        "French": 7540,
+        "German": 7203,
+        "Russian": 6913,
+        "Arabic": 8789,
+        "Hindi": 9192
+      }
+    },
+    {
+      "name": "Grok 4.7",
+      "baseline": 1243,
+      "raw": {
+        "English": 6750,
+        "Chinese": 7400,
+        "Japanese": 7975,
+        "Korean": 10379,
+        "Spanish": 8609,
+        "French": 9039,
+        "German": 8544,
+        "Russian": 9036,
+        "Arabic": 8735,
+        "Hindi": 10337
+      },
+      "net": {
+        "English": 5507,
+        "Chinese": 6157,
+        "Japanese": 6732,
+        "Korean": 9136,
+        "Spanish": 7366,
+        "French": 7796,
+        "German": 7301,
+        "Russian": 7793,
+        "Arabic": 7492,
+        "Hindi": 9094
+      }
+    }
+  ]
+}

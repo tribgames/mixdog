@@ -53,11 +53,32 @@ export function localFileMimeTypeForPath(path: string): string {
   return Object.hasOwn(MIME_TYPES, extension) ? MIME_TYPES[extension] : 'application/octet-stream';
 }
 
-// Documents and media that chat links open in an OS-associated app. Chat
-// output is untrusted, so this is the ONLY set that may launch another
-// program; everything else (source, markdown, data files) opens in Mixdog's
-// own editor, which never executes anything.
+// Documents/media/archives open directly; executable packages require an
+// explicit Mixdog confirmation before main hands them to the OS. OS launch
+// prompts are not a security boundary (locally created EXEs may show none).
+const EXECUTABLE_PACKAGE_EXTENSIONS = [
+  'exe', 'msi', 'msix', 'msixbundle', 'appx', 'appxbundle', 'dmg', 'pkg', 'app',
+];
+const FILE_LAUNCH_EXTENSIONS = new Set([
+  ...EXECUTABLE_PACKAGE_EXTENSIONS,
+  'com', 'scr', 'bat', 'cmd', 'ps1', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh',
+  'hta', 'lnk', 'url', 'appref-ms', 'scf', 'sh', 'command', 'desktop', 'appimage',
+]);
+
+export type FileLaunchConfirmation = { confirmationPath: string };
+
+/** Also applies to the editor's explicit "open externally" action. */
+export function requiresFileLaunchConfirmation(path: string): boolean {
+  return FILE_LAUNCH_EXTENSIONS.has(fileExtension(path));
+}
+
+// Scripts and shortcuts still default to the editor, never to execution.
 const OS_DOCUMENT_EXTENSIONS = new Set([
+  ...EXECUTABLE_PACKAGE_EXTENSIONS,
+  'zip',
+  '7z',
+  'rar',
+  'iso',
   'pptx',
   'ppt',
   'pdf',
@@ -106,6 +127,14 @@ export function isOsDocumentExtension(extension: string): boolean {
       .replace(/^\./, '')
       .toLocaleLowerCase()
   );
+}
+
+// Web pages a chat link shows in the session's browser pane (served over
+// loopback by main), rather than as source in the editor.
+const WEB_PAGE_EXTENSIONS = new Set(['html', 'htm']);
+
+export function isLocalWebPage(path: string): boolean {
+  return WEB_PAGE_EXTENSIONS.has(fileExtension(path));
 }
 
 /** Which surface a chat file link opens: Mixdog's editor or the OS default app. */

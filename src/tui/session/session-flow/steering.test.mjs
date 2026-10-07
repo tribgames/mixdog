@@ -6,11 +6,82 @@ import { createQueueOps, createSubmissionMemory } from './queue.mjs';
 import { createSteeringOps } from './steering.mjs';
 import { createSubmissionIntake } from '../session-api/intake/submission.mjs';
 import {
+  beginInterruptibleTaskWait,
+  interruptTaskWaitForSession,
+  registerTaskWaitSteeringCheck,
+} from '../../../runtime/agent/orchestrator/session/task-wait-control.mjs';
+import {
   acknowledgeBackgroundTaskCompletion,
   cleanupBackgroundTasks,
   completeBackgroundTask,
   registerBackgroundTask,
 } from '../../../runtime/shared/background-tasks.mjs';
+
+test('a prompt submitted before task wait releases it and drains exactly once', () => {
+  const sessionId = 'prewait-steering';
+  const pending = [];
+  const state = { busy: true, commandBusy: false, queued: [] };
+  let nextId = 0;
+  const bag = {
+    runtime: {
+      id: sessionId,
+      interruptTaskWait: (reason) => interruptTaskWaitForSession(sessionId, reason),
+    },
+    flags: {},
+    pending,
+    pendingNotificationKeys: new Set(),
+    getState: () => state,
+    set: (patch) => Object.assign(state, patch),
+    nextId: () => `prewait-${++nextId}`,
+    autoClearBeforeSubmit: async () => {},
+  };
+  const queue = createQueueOps(bag, { kickDrain() {} });
+  bag.enqueue = (text, options) => {
+    const entry = queue.makeQueueEntry(text, { ...options, steeringPersistRestored: true });
+    pending.push(entry);
+    state.queued.push(entry);
+    return true;
+  };
+  const steering = createSteeringOps(bag, { queue, submissions: createSubmissionMemory() });
+  const intake = createSubmissionIntake(bag);
+  const stop = registerTaskWaitSteeringCheck(
+    (id) => id === sessionId && steering.hasPendingSteering()
+  );
+  const waits = [];
+  const begin = () => {
+    const wait = beginInterruptibleTaskWait(sessionId);
+    waits.push(wait);
+    return wait;
+  };
+  try {
+    assert.equal(intake.submit('새 지시'), true);
+    assert.equal(begin().signal.aborted, true);
+    assert.equal(pending.length, 1, 'checking wait entry must not consume steering');
+    const messages = steering.drainPendingSteering();
+    assert.deepEqual(messages.map((message) => message.content), ['새 지시']);
+    assert.deepEqual(state.queued, []);
+    assert.deepEqual(steering.drainPendingSteering(), []);
+    assert.equal(begin().signal.aborted, false, 'delivered steering must not interrupt a later wait');
+
+    assert.equal(intake.submit('회수할 지시'), true);
+    queue.restoreQueued();
+    assert.equal(begin().signal.aborted, false, 'reclaimed steering must not interrupt a later wait');
+
+    for (const [text, options] of [
+      ['/help', {}],
+      ['나중에', { priority: 'later' }],
+      ['notification', { mode: 'task-notification' }],
+      ['goal', { mode: 'goal-closeout' }],
+    ]) {
+      assert.equal(intake.submit(text, options), true);
+      assert.equal(steering.hasPendingSteering(), false, 'only deliverable steering should skip wait');
+    }
+    assert.equal(begin().signal.aborted, false);
+  } finally {
+    stop();
+    for (const wait of waits) wait.dispose();
+  }
+});
 
 for (const status of ['done', 'failed', 'cancelled']) {
   test(`a steered submitAndWait receives its owning turn's ${status} result exactly once`, async () => {

@@ -173,12 +173,14 @@ function ContextUsageView({ detail, columns, panelRows, onInspect, onRefresh }) 
     compaction.pressureTokens ? `pressure ${formatTokens(compaction.pressureTokens)}` : '',
     compaction.reserveTokens ? `reserve ${formatTokens(compaction.reserveTokens)}` : '',
   ]);
+  const speed = detail?.speed?.outputTokensPerSecond;
   const sourceLine = metricValue([
     contextMeasurementLabel(usage.measurementSource),
     usage.effective ? `effective ${formatTokens(windowTokens)}` : `window ${formatTokens(windowTokens)}`,
     usage.rawWindowTokens && usage.rawWindowTokens !== usage.windowTokens
       ? `raw ${formatTokens(usage.rawWindowTokens)}`
       : '',
+    speed == null ? '' : `${speed < 10 ? speed.toFixed(1) : Math.round(speed)} tok/s`,
   ]);
   const apiLine = metricValue([
     `last ctx ${formatTokens(lastApi.contextTokens)}`,

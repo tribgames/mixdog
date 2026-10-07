@@ -5,7 +5,8 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import MarkdownBody from './MarkdownBody';
 import MarkdownAstBody from './MarkdownAstBody';
 import { parseMarkdownToHast } from './markdown-ast';
-import { MarkdownOpenFileContext, MarkdownProjectContext } from './MarkdownLink';
+import { MarkdownOpenFileContext, MarkdownProjectContext, MarkdownSessionContext } from './MarkdownLink';
+import { onBrowserPageAddressRequested, onBrowserPageRevealRequested } from './browser-page-request';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts';
 import { healStreamingMarkdownTail } from './streaming-markdown';
 import StreamingMarkdownBody from './StreamingMarkdownBody';
@@ -1020,5 +1021,26 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
     }
     await f.click();
     assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', undefined]]);
+  });
+
+  test(`${pipeline}: web pages open in the session browser pane, or the system browser without one`, async (t) => {
+    const inSession = (text) => React.createElement(MarkdownSessionContext.Provider, { value: 'sess-page' }, render(text));
+    const f = await mount(t, inSession, '[page](site/index.html) and [draft](site/draft.htm)', PROJECT, (f) => {
+      installProjectFiles(f, { [PROJECT]: ['site/index.html', 'site/draft.htm'] });
+      f.dom.window.mixdogDesktop.localPageUrl = async (project, rel) => `http://127.0.0.1:9/token/${rel}`;
+    });
+    // No pane to reveal: the system browser takes the loopback address.
+    await f.click(1);
+    assert.deepEqual(f.external, [['http://127.0.0.1:9/token/site/draft.htm']]);
+    const stopReveal = onBrowserPageRevealRequested(() => {});
+    t.after(stopReveal);
+    await f.click(0);
+    const loaded = [];
+    onBrowserPageAddressRequested('sess-page', (url) => loaded.push(url))();
+    assert.deepEqual(loaded, ['http://127.0.0.1:9/token/site/index.html']);
+    assert.equal(f.external.length, 1);
+    assert.deepEqual(f.opened, []);
+    assert.deepEqual(f.local, []);
+    assert.equal(f.toasts.length, 0);
   });
 }

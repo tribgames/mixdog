@@ -122,7 +122,7 @@ export function CodeDiff({ patch }: { patch: string }) {
                 {file.renderable ? (
                   <Suspense
                     fallback={
-                      <div className="diff-loading" role="status" aria-label={t('Rendering diff…')}>
+                      <div className="diff-loading" data-transcript-pending role="status" aria-label={t('Rendering diff…')}>
                         <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />
                       </div>
                     }

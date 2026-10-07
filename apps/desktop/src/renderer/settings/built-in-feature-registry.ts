@@ -6,6 +6,7 @@ export type BuiltInFeatureId =
   | 'office'
   | 'tidy'
   | 'localProvider'
+  | 'autoEffort'
   | 'voice';
 
 export interface BuiltInFeatureDefinition {
@@ -49,6 +50,12 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
     id: 'localProvider',
     title: 'Local Provider',
     description: 'Download AI models and run them directly in Mixdog.',
+  },
+  {
+    id: 'autoEffort',
+    title: 'Auto reasoning',
+    description:
+      'Adjust the reasoning effort of each turn to how hard the request is, on models that can change it without breaking the prompt cache.',
   },
   {
     id: 'voice',

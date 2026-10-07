@@ -175,6 +175,31 @@ test('PDF intake keeps native documents and extracts page text for compat provid
   assert.doesNotMatch(JSON.stringify(compat), new RegExp(data.slice(0, 40)));
 });
 
+test('stored history keeps tool-result images as refs that lower to the same provider bytes', () => {
+  const screenshot = Buffer.from('tool screenshot bytes').toString('base64');
+  const downloaded = Buffer.from('downloaded image bytes').toString('base64');
+  const live = {
+    content: [
+      { type: 'text', text: 'Screenshot captured.' },
+      { type: 'image', data: screenshot, mimeType: 'image/jpeg' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/webp', data: downloaded } },
+    ],
+  };
+
+  const stored = sanitizeContentForStoredHistory(live);
+  const reloaded = JSON.parse(JSON.stringify(stored));
+
+  assert.doesNotMatch(JSON.stringify(stored), new RegExp(`${screenshot}|${downloaded}`));
+  assert.deepEqual(normalizeContentForAnthropic(reloaded), normalizeContentForAnthropic(live));
+  assert.deepEqual(normalizeContentForOpenAIResponses(reloaded), normalizeContentForOpenAIResponses(live));
+  assert.equal(sanitizeContentForStoredHistory(live).content[1], stored.content[1], 'repeat projections reuse the part');
+
+  const nonCanonical = { type: 'image', data: `${screenshot.slice(0, 8)}\n${screenshot.slice(8)}`, mimeType: 'image/png' };
+  assert.deepEqual(sanitizeContentForStoredHistory([nonCanonical]), [
+    { type: 'text', text: '[Image omitted from stored history: image/png]' },
+  ]);
+});
+
 test('attachment GC preserves durable refs and the safety window while deleting stale orphans', async () => {
   const makeFile = (text) =>
     materializePromptSubmission([

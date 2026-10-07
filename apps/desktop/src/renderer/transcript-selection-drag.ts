@@ -88,6 +88,8 @@ function isTextFieldElement(element: Element | null): boolean {
 interface TranscriptSelectionDragOptions {
   /** The scrolling viewport that contains the virtual rows. */
   root: HTMLElement;
+  /** Floating composer clearance; selection must stop at the visible edge. */
+  getBottomInset?(): number;
   /** Row key at a live index; undefined when the index is out of range. */
   rowKeyAt(index: number): unknown;
   /** Rows the virtualizer must keep mounted while the range spans them. */
@@ -136,7 +138,12 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
    *  밖으로 드래그한 커서가 나가면 커서포인트를 잃어 드래그가 뒤집혀). */
   const contentBox = (): DOMRect => {
     const rect = root.getBoundingClientRect();
-    return new DOMRect(rect.left + root.clientLeft, rect.top + root.clientTop, root.clientWidth, root.clientHeight);
+    return new DOMRect(
+      rect.left + root.clientLeft,
+      rect.top + root.clientTop,
+      root.clientWidth,
+      Math.max(0, root.clientHeight - (options.getBottomInset?.() ?? 0))
+    );
   };
   const pointerRegion = (view: DOMRect) =>
     transcriptSelectionPointerRegion(lastPointer.x, lastPointer.y, view.left, view.top, view.right, view.bottom);

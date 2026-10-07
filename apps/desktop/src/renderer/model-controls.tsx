@@ -19,6 +19,7 @@ import {
 import { filterConfiguredModels } from './model-catalog';
 import { EFFORT_FALLBACK_ORDER, preferredModelParameters } from './model-route-utils';
 import { RouteEditor } from './RouteEditor';
+import { refreshAutoEffort, setAutoEffortEnabled, useAutoEffort } from './auto-effort-store';
 import { OpenSelect } from './OpenSelect';
 import { InitialSurface } from './InitialSurface';
 import { modelContextWindow, modelDisplayName, modelFastAvailable, modelMaxContextWindow } from './provider-display';
@@ -331,6 +332,17 @@ export const ModelSelector = memo(function ModelSelector({
   const [catalogLoaded, setCatalogLoaded] = useState(cachedCatalog.models.length > 0);
   const [startupCatalogSettled, setStartupCatalogSettled] = useState(cachedCatalog.models.length > 0);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
+  const [autoEffortPending, setAutoEffortPending] = useState(false);
+  const changeAutoEffort = async (enabled: boolean) => {
+    setAutoEffortPending(true);
+    try {
+      await setAutoEffortEnabled(enabled);
+    } catch {
+      await refreshAutoEffort();
+    } finally {
+      setAutoEffortPending(false);
+    }
+  };
   const { selection, begin, settle } = useModelSelection(sessionId || '', {
     provider: sourceProvider,
     model: sourceModel,
@@ -373,6 +385,7 @@ export const ModelSelector = memo(function ModelSelector({
   // 모델이 그대로 표기되게). The RAW catalog answers those cases.
   const known = selected || models.find((option) => option.provider === provider && option.model === model);
   const awaitingRoute = !known && !startupCatalogSettled;
+  const autoEffort = useAutoEffort(known?.autoEffortCapable === true);
   useEffect(() => {
     reportBootSurfaceStage('model-controls', modelBootKey, 'module');
     if (!awaitingRoute) reportBootSurfaceReady('model-controls', modelBootKey, 'shell');
@@ -740,6 +753,15 @@ export const ModelSelector = memo(function ModelSelector({
         onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
         onOpenProviders={() => onOpenSettings('providers')}
         onOpenModelPane={() => void loadCatalog()}
+        autoEffort={
+          known?.autoEffortCapable && autoEffort?.installed
+            ? { enabled: autoEffort.enabled, pending: autoEffortPending }
+            : null
+        }
+        onChangeAutoEffort={(enabled) => void changeAutoEffort(enabled)}
+        onOpenSheet={() => {
+          if (known?.autoEffortCapable) void refreshAutoEffort();
+        }}
         answersModelPickerRequests={answersModelPickerRequests}
       />
     </div>

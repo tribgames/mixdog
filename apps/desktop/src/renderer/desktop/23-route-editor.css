@@ -289,6 +289,13 @@
   color: currentColor;
   stroke-width: 1.25px;
 }
+/* Auto effort switch, the sheet's last row, set off by a hairline. */
+.route-sheet-row.route-sheet-toggle {
+  display: flex;
+  justify-content: space-between;
+  border-top: var(--mx-hairline) solid var(--mx-border-muted);
+  border-radius: 0 0 var(--mx-radius-md) var(--mx-radius-md);
+}
 /* Codex-style submenu header + two-line speed options. */
 .route-sheet-flyout-title {
   flex: 0 0 auto;
@@ -819,7 +826,7 @@
   gap: 12px;
   padding: 6px 10px;
   border-radius: var(--mx-radius-md);
-  background: color-mix(in srgb, var(--mx-bg-layer-1) 72%, transparent);
+  background: transparent;
   box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-border-muted) 76%, transparent);
 }
 .command-surface-facts dt {
@@ -921,8 +928,8 @@
 /* Dismissal stays quiet next to the committing action. */
 .inherit-surface-actions > button.inherit-surface-cancel {
   color: var(--mx-text);
-  background: transparent;
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-strong);
+  background: var(--mx-action-bg);
+  box-shadow: none;
   font-weight: var(--mx-weight-regular);
 }
 .inherit-surface-actions > button.inherit-surface-cancel:hover:not(:disabled) {
@@ -1076,8 +1083,8 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: transparent;
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-strong);
+  background: var(--mx-action-bg);
+  box-shadow: none;
   font-size: var(--mx-font-minor);
   cursor: pointer;
 }

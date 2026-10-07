@@ -8,6 +8,7 @@ import {
   isQueuedEntryEditable,
   isQueuedEntryVisible,
   isSlashQueuedEntry,
+  queuePriorityValue,
   callCommitCallbacks,
   STEERING_SUPPRESSED_DISPLAY,
 } from '../queue-helpers.mjs';
@@ -111,6 +112,20 @@ export function createSteeringOps(bag, { queue, submissions }) {
     if (mirrored.length > 0) dropTuiSteeringPersist(leadSessionId(), mirrored);
   }
 
+  function canDeliverSteeringEntry(entry) {
+    return !isGoalQueuedEntry(entry) || bag.shouldRunGoalContinuation?.(entry) === true;
+  }
+
+  function hasPendingSteering() {
+    return pending.some(
+      (entry) =>
+        isSteerableEntry(entry) &&
+        queuePriorityValue(entry.priority) <= queuePriorityValue('next') &&
+        canDeliverSteeringEntry(entry) &&
+        steeringMessageFromEntry(entry) !== null
+    );
+  }
+
   // `later` notifications (scheduled tasks) are skipped unless the runtime
   // explicitly asks for a later flush.
   function drainPendingSteering(_sessionIdOrOptions = null, maybeOptions = null) {
@@ -122,9 +137,7 @@ export function createSteeringOps(bag, { queue, submissions }) {
     for (;;) {
       const batch = queue.dequeueQueueBatch(maxPriority, { predicate: isSteerableEntry });
       if (batch.length === 0) break;
-      const accepted = batch.filter(
-        (entry) => !isGoalQueuedEntry(entry) || bag.shouldRunGoalContinuation?.(entry) === true
-      );
+      const accepted = batch.filter(canDeliverSteeringEntry);
       for (const entry of accepted) {
         const message = steeringMessageFromEntry(entry);
         if (message) {
@@ -194,6 +207,7 @@ export function createSteeringOps(bag, { queue, submissions }) {
     shouldMirrorSteeringEntry,
     commitSteeringQueueEntries,
     settleSteeredSubmissions,
+    hasPendingSteering,
     drainPendingSteering,
     restoreLeadSteeringFromDisk,
   };

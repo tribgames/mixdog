@@ -378,6 +378,62 @@ export async function resizeImageBuffer(
   }
 }
 
+// Metadata line for an image whose display size changed after an earlier
+// annotation was already written next to it.
+export function supersedingImageMetadataText(dims) {
+  return `${imageMetadataText(dims)} These display dimensions supersede any earlier display-size annotation for the following image.`;
+}
+
+// A tool-result image rides every later request of its session, so its wire
+// bytes are paid again on each send and count toward the request-media
+// compaction trigger. It is re-encoded once, when the result enters the
+// transcript: a JPEG inside the profile's display box, stepping quality down
+// toward this budget. The box is the one per-send preparation resizes to, so
+// that pass finds nothing left to change and the cached prefix keeps its bytes.
+export const TOOL_IMAGE_TARGET_BASE64_SIZE = 256 * 1024;
+const TOOL_IMAGE_JPEG_QUALITIES = [85, 70, 50];
+const TOOL_IMAGE_SOURCE_FORMATS = new Set(['png', 'jpeg', 'webp']);
+
+// Returns { data, mimeType, dimensions } or null when the image is already
+// within budget, not a re-encodable still, undecodable, or would not shrink.
+export async function compactToolResultImage(base64, mimeType) {
+  if (typeof base64 !== 'string' || base64.length <= TOOL_IMAGE_TARGET_BASE64_SIZE) return null;
+  const format = normalizeFmt(String(mimeType || '').split('/')[1]);
+  if (!TOOL_IMAGE_SOURCE_FORMATS.has(format)) return null;
+  const sharp = await loadSharp();
+  if (!sharp) return null;
+  try {
+    const buffer = Buffer.from(base64, 'base64');
+    const meta = await decodedImageMeta(sharp, buffer);
+    if (!meta.width || !meta.height) return null;
+    const { width, height, allowEnlargement } = targetDimensions(meta.width, meta.height, 'anthropic');
+    let encoded = null;
+    for (const quality of TOOL_IMAGE_JPEG_QUALITIES) {
+      encoded = await sharp(buffer)
+        .resize(width, height, { fit: 'inside', withoutEnlargement: !allowEnlargement })
+        .flatten({ background: '#ffffff' })
+        .jpeg({ quality })
+        .toBuffer({ resolveWithObject: true });
+      if (Math.ceil(encoded.data.length / 3) * 4 <= TOOL_IMAGE_TARGET_BASE64_SIZE) break;
+    }
+    const data = encoded.data.toString('base64');
+    if (data.length >= base64.length) return null;
+    return {
+      data,
+      mimeType: 'image/jpeg',
+      dimensions: {
+        originalWidth: meta.width,
+        originalHeight: meta.height,
+        displayWidth: encoded.info.width,
+        displayHeight: encoded.info.height,
+      },
+    };
+  } catch {
+    // The original stays; per-send preparation still validates it.
+    return null;
+  }
+}
+
 // Build an image content block (+ optional metadata text) from a raw buffer.
 // Returns { textBlock, imageBlock } on success, or null on fallback. Used by
 // the notebook reader to embed cell-output images.

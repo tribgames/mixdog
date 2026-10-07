@@ -292,19 +292,19 @@ html[data-window-material="mica"] .session-sidebar {
   box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-rail-item-outline);
   transition: background-color var(--mx-motion-ink);
 }
-/* In-row ramp: NAME leads at 13/400 full ink, then description/meta at 12. */
+/* Two-line rows share a 20px title, 2px gap, and 18px supporting line. */
 .session-sidebar-panels .schedules-row-copy b {
   font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
-  line-height: 18px;
+  line-height: 20px;
 }
 .session-sidebar-panels .schedules-row-copy {
-  gap: 4px;
+  gap: 2px;
 }
 .session-sidebar-panels .schedules-row-copy small {
   color: var(--mx-text-faint);
   font-size: var(--mx-font-supporting);
-  line-height: 16px;
+  line-height: 18px;
 }
 /* Hover is a background wash only — bumping the inset ring to the -active
    tint made an outline flash in/out on every pass (user: 호버하면 불필요한
@@ -344,10 +344,10 @@ html[data-window-material="mica"] .session-sidebar {
 /* Settings-style resources use one functional glyph, one title/status line,
    one supporting line, then one trailing chevron. */
 .session-sidebar-panels .utilities-row-copy {
-  gap: 4px;
+  gap: 2px;
 }
 .session-sidebar-panels .utilities-row .schedules-row-copy b {
-  line-height: 18px;
+  line-height: 20px;
 }
 .session-sidebar-panels .sidebar-resource-title {
   min-width: 0;
@@ -380,8 +380,8 @@ html[data-window-material="mica"] .session-sidebar {
   padding: 0 6px;
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  background: var(--mx-hover);
+  box-shadow: none;
   font-size: var(--mx-font-micro);
   font-weight: var(--mx-weight-regular);
   line-height: 1;
@@ -391,19 +391,19 @@ html[data-window-material="mica"] .session-sidebar {
 .extensions-dialog .sidebar-resource-tag[data-tone="warn"] {
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-warning) 35%, transparent);
+  box-shadow: none;
 }
 .session-sidebar-panels .sidebar-resource-tag[data-tone="danger"],
 .extensions-dialog .sidebar-resource-tag[data-tone="danger"] {
   color: var(--mx-danger);
   background: color-mix(in srgb, var(--mx-danger) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 35%, transparent);
+  box-shadow: none;
 }
 .session-sidebar-panels .sidebar-resource-tag[data-tone="ok"],
 .extensions-dialog .sidebar-resource-tag[data-tone="ok"] {
   color: var(--mx-success);
   background: color-mix(in srgb, var(--mx-success) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-success) 35%, transparent);
+  box-shadow: none;
 }
 .session-sidebar-panels .sidebar-resource-row {
   border: 0;
@@ -505,6 +505,17 @@ html[data-window-material="mica"] .session-sidebar {
   width: 24px;
   height: 24px;
 }
+/* Secondary group actions reveal without shifting the title. Touch keeps
+   them visible; keyboard focus and an open menu always keep their anchor. */
+@media (hover: hover) {
+  .utility-dock .agent-activity-page .workflows-section-head .row-overflow-trigger {
+    opacity: 0;
+  }
+  .utility-dock .agent-activity-page .workflows-section-head:is(:hover, :focus-within) .row-overflow-trigger,
+  .utility-dock .agent-activity-page .workflows-section-head .row-overflow-trigger[aria-expanded="true"] {
+    opacity: 1;
+  }
+}
 .utility-dock .agent-session-heading {
   width: 100%;
   max-width: 100%;
@@ -573,6 +584,7 @@ html[data-window-material="mica"] .session-sidebar {
      card's state word lands on the same right axis. */
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
+  align-self: flex-start;
   gap: 6px;
   color: var(--mx-icon-muted);
 }
@@ -588,21 +600,20 @@ html[data-window-material="mica"] .session-sidebar {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Every clock and state word reads bold (user: 에이전트창 오른쪽 상태 볼드좀주자);
-   states differ by hue and word, never by weight. */
+/* Keep the clock on the name's first line, quieter than the name itself.
+   Warning, failure and unread completion still retain their semantic hues. */
 .utility-dock .agent-activity-elapsed {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-supporting);
-  font-weight: var(--mx-weight-semibold);
+  font-weight: var(--mx-weight-medium);
+  line-height: 20px;
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
 }
-/* Live work is the most important state in the column, so its clock takes
-   full ink; a finished notice only needs to be noticed (user: 중요도에 따라
-   위계 — 작업 완료가 진행 중보다 튀었다). */
+/* A ticking clock need not be another blue accent in the surrounding chrome. */
 .utility-dock .agent-activity-elapsed[data-state="running"] {
-  color: var(--mx-text-accent);
+  color: var(--mx-text-soft);
 }
 /* Waiting on child work has its own hue so it never reads like live work
    (user: 작업중 작업대기는 다른색). */
@@ -689,6 +700,7 @@ html[data-window-material="mica"] .session-sidebar {
 .utility-dock .agent-activity-page .schedules-row-copy b {
   font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
+  line-height: 20px;
 }
 .utility-dock .agent-activity-page .schedules-row-copy small {
   display: block;
@@ -696,17 +708,11 @@ html[data-window-material="mica"] .session-sidebar {
   overflow: hidden;
   color: var(--mx-text-faint);
   font-size: var(--mx-font-supporting);
+  line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Agent rows share the rail pages' two-line row: 8px padding, the model
-   line 2px under the name, 4px between rows. */
-.utility-dock .agent-activity-page .schedules-list {
-  gap: 4px;
-}
-.utility-dock .agent-activity-page .schedules-row.schedules-row.agent-pool-row {
-  padding-block: 8px;
-}
+/* Agent rows inherit the same padding and list gap as the other rail pages. */
 .utility-dock .agent-activity-page .schedules-row-copy {
   gap: 2px;
 }
@@ -793,7 +799,7 @@ html[data-window-material="mica"] .session-sidebar {
   min-height: 36px;
   gap: 8px;
   padding: 0 var(--mx-rail-gutter);
-  border-radius: var(--mx-radius-md);
+  border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
   background: transparent;
   transition: background-color var(--mx-motion-ink);

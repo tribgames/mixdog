@@ -383,6 +383,17 @@ test('a ledger failure is logged and never fails the generation', async (t) => {
   assert.match(written.join(''), /\[usage-ledger\] RECORD NOT SAVED: disk full/);
 });
 
+test('a generation is recorded without a request duration, so it never reports an output speed', async () => {
+  const rows = [];
+  await recordMediaUsage(
+    { lane: 'gemini', model: 'gemini-3-pro-image', usage: { outputTokens: 1200, images: 1 } },
+    () => ({ recordQueued: async (row) => rows.push(row) })
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].output, 1200);
+  assert.equal(rows[0].durationMs, 0);
+});
+
 test('media rows roll up into provider/model/day totals and per-session tokens', () => {
   const rows = eventRows();
   const stats = usageStatsSnapshot({ rollup: ledger.rollup(), now: Date.now(), source: 'all', days: null });

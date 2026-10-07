@@ -31,6 +31,14 @@ export function statsCount(value: unknown): string {
   return count === null ? '—' : count.toLocaleString(uiFormatLocale());
 }
 
+/** Output tokens per second of request wall time, the bare figure (the unit
+ *  rides the column header or label); `—` while no request was timed. */
+export function statsSpeed(value: unknown): string {
+  const speed = usageNumber(value);
+  if (speed === null) return '—';
+  return speed.toLocaleString(uiFormatLocale(), { maximumFractionDigits: speed < 10 ? 1 : 0 });
+}
+
 export function statsPercent(value: unknown): string {
   if (usageNumber(value) === null) return '—';
   return `${(statsNumber(value) * 100).toFixed(1)}%`;
@@ -64,7 +72,7 @@ export function statsPlan(provider: string, kind: string): 'api' | 'subscription
 }
 
 export function statsPlanLabel(plan: ReturnType<typeof statsPlan>): string {
-  if (plan === 'subscription') return t('Subscription');
+  if (plan === 'subscription') return t('OAuth');
   if (plan === 'local') return t('Local');
   return plan === 'api' ? 'API' : '';
 }

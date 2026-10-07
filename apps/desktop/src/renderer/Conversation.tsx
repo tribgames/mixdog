@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   useConversationComposerActions,
   conversationKeyDownCapture,
@@ -32,7 +32,7 @@ import { asRecord } from './text-format';
 import { inheritSessionDirectly, sessionModelSelection } from './session-inheritance';
 import { TranscriptList } from './TranscriptList';
 import type { TranscriptAssistantRowProps } from './TranscriptAssistantRow';
-import { MarkdownOpenFileContext, MarkdownProjectContext } from './MarkdownLink';
+import { MarkdownOpenFileContext, MarkdownProjectContext, MarkdownSessionContext } from './MarkdownLink';
 import {
   appendLiveTranscriptRows,
   projectSettledTranscriptRows,
@@ -51,6 +51,7 @@ import { commandShowsActivity } from './transcript-status';
 import { resetToolDisclosureScope } from './transcript-tool-ui';
 import { useTranscriptFollow } from './use-transcript-follow';
 import { useTranscriptReveal } from './use-transcript-reveal';
+import { useComposerDockHeight } from './use-composer-dock-height';
 import {
   pendingPromptTranscriptItems,
   promptWaitsBehindActiveTurn,
@@ -171,6 +172,8 @@ export function Conversation({
   const conversation = useRef<HTMLElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const composerDock = useRef<HTMLDivElement>(null);
+  const composerDockHeight = useComposerDockHeight(composerDock, !readOnly);
   const scrollToEndRef = useRef<(behavior?: ScrollBehavior) => void>(() => {});
   // Reader intent must reach the virtual timeline's anchor in the same task it
   // is decided in; React state gets there a render later.
@@ -633,6 +636,7 @@ export function Conversation({
     <section
       className={`conversation${readOnly ? ' conversation-read-only' : ''}`}
       ref={conversation}
+      style={{ '--composer-dock-height': `${composerDockHeight}px` } as CSSProperties}
       data-transcript-entering={transcriptRevealed ? undefined : 'true'}
       onKeyDownCapture={(event) =>
         conversationKeyDownCapture(event, { readOnly, viewport, onTranscriptKey: handleTranscriptKeyDown })
@@ -713,6 +717,7 @@ export function Conversation({
               against an empty list and again on the 0 -> N row swap — the
               visible up/down bounce on entering a session. */}
             <MarkdownProjectContext.Provider value={routeProject}>
+              <MarkdownSessionContext.Provider value={draftMode ? '' : String(routeSnapshot.sessionId || '')}>
               <MarkdownOpenFileContext.Provider value={onOpenFile ?? null}>
                 {showTranscriptTimeline && (
                   <TranscriptList
@@ -721,6 +726,7 @@ export function Conversation({
                     rows={transcriptRows}
                     viewport={viewport}
                     content={content}
+                    bottomInset={composerDockHeight}
                     shouldAnchorBottom={shouldAnchorTranscriptBottom}
                     markProgrammaticScroll={markTranscriptProgrammaticScroll}
                     hasScrollGesture={hasTranscriptScrollGesture}
@@ -731,6 +737,7 @@ export function Conversation({
                   />
                 )}
               </MarkdownOpenFileContext.Provider>
+              </MarkdownSessionContext.Provider>
             </MarkdownProjectContext.Provider>
           </div>
         </div>
@@ -756,11 +763,11 @@ export function Conversation({
           </button>
         )}
       </div>
-      {/* Everything above the input (Goal, progress, approval, context bar,
-          review) lives in the dock, which owns how each slot's geometry
-          commits against the transcript viewport. */}
+      {/* The measured dock overlays the viewport. Its clearance belongs to
+          the same virtual geometry as the rows, not a second scroll writer. */}
       {!readOnly && (
         <ComposerDock
+          dockRef={composerDock}
           onOpenFile={onOpenFile}
           goalIsland={goalIsland}
           goalSubmissionId={goalSubmissionId}

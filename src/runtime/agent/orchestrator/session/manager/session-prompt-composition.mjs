@@ -88,7 +88,11 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
   // Lead-only response language; closes the environment block so no English
   // system text (session/shell/git lines) follows it.
   const languageContext = leadOnly ? _buildLeadLanguageContext() : '';
-  const shellEnvironmentContext = buildShellEnvironmentContext(opts, ownerIsAgent, surface.toolsForRouting);
+  // Cwd, shell and repository facts only serve tool calls; a tool-free role
+  // gets none, which also keeps its prompt identical across projects.
+  const shellEnvironmentContext = toolFreeRole
+    ? ''
+    : buildShellEnvironmentContext(opts, ownerIsAgent, surface.toolsForRouting);
   // Persisted env tail: refreshSessionBp3Environment rebuilds the env block
   // as [session, bp3EnvironmentContext], so the language block must
   // already sit at the end of this string to stay last after a refresh.

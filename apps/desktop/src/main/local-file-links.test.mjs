@@ -55,7 +55,7 @@ async function fixture(t) {
     handler,
     event,
     handlers,
-    invoke: (href, root = project) => handler(event, root, href),
+    invoke: (href, root = project, confirmedPath) => handler(event, root, href, confirmedPath),
     fail: (message) => {
       failure = message;
     },
@@ -143,10 +143,55 @@ test('chat file IPC rejects traversal, network paths, schemes and malformed path
   assert.equal(f.opened.length, 0);
 });
 
-test('chat file IPC never launches executables, shortcuts, macro-enabled or text files; it hands them to the editor', async (t) => {
+test('chat file IPC requires confirmation for executables and installers but not archives', async (t) => {
+  const f = await fixture(t);
+  for (const name of ['setup.exe', 'installer.msi', 'archive.zip', 'disk.iso']) {
+    const file = join(f.project, 'output', name);
+    await writeFile(file, 'sample');
+    const canonical = await realpath(file);
+    if (name.endsWith('.exe') || name.endsWith('.msi')) {
+      const before = f.opened.length;
+      assert.deepEqual(await f.invoke(`output/${name}`), { confirmationPath: canonical });
+      assert.equal(f.opened.length, before, 'a request alone never launches');
+      assert.deepEqual(await f.invoke(`output/${name}`, f.project, 'wrong-path'), { confirmationPath: canonical });
+      assert.equal(await f.invoke(`output/${name}`, f.project, canonical), 'file');
+    } else {
+      assert.equal(await f.invoke(`output/${name}`), 'file', name);
+    }
+    assert.equal(f.opened.at(-1), await realpath(file), name);
+  }
+});
+
+test('external selected executables need the same confirmation through editor IPC', async (t) => {
+  const f = await fixture(t);
+  const file = join(f.directory, 'external.exe');
+  await writeFile(file, 'sample');
+  const [target] = await f.handlers.get(DESKTOP_IPC.resolveLocalPaths)(f.event, [file]);
+  const open = (confirmedPath) =>
+    f.handlers.get(DESKTOP_IPC.openFilePath)(
+      f.event, target.projectPath, target.relPath, target.accessToken, confirmedPath
+    );
+  const canonical = await realpath(file);
+  assert.deepEqual(await open(), { confirmationPath: canonical });
+  assert.deepEqual(f.opened, []);
+  await open(canonical);
+  assert.deepEqual(f.opened, [canonical]);
+});
+
+test('application directories request confirmation instead of launching as ordinary folders', async (t) => {
+  const f = await fixture(t);
+  const app = join(f.project, 'Tool.app');
+  await mkdir(app);
+  const canonical = await realpath(app);
+  assert.deepEqual(await f.invoke('Tool.app'), { confirmationPath: canonical });
+  assert.deepEqual(f.opened, []);
+  assert.equal(await f.invoke('Tool.app', f.project, canonical), 'folder');
+  assert.deepEqual(f.opened, [canonical]);
+});
+
+test('chat file IPC never launches scripts, shortcuts, macro-enabled or text files; it hands them to the editor', async (t) => {
   const f = await fixture(t);
   for (const name of [
-    'exe',
     'cmd',
     'bat',
     'ps1',

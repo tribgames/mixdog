@@ -64,8 +64,8 @@ const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'mo
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh']);
 const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
-const TOGGLEABLE_BUILTIN_TOOLS = new Set(['git', 'office', 'localProvider', 'tidy']);
-const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy']);
+const TOGGLEABLE_BUILTIN_TOOLS = new Set(['git', 'office', 'localProvider', 'tidy', 'autoEffort']);
+const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy', 'autoEffort']);
 
 const CAPABILITY_ARITY = {
   prioritizeQueued: [1, 1],

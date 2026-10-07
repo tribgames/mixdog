@@ -7,6 +7,7 @@
 import { getProvider } from '../../providers/registry.mjs';
 import { prepareExplicitSkills } from '../explicit-skills.mjs';
 import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
+import { resolveTurnAutoEffort } from './ask-turn-auto-effort.mjs';
 import { saveSessionAsync } from '../store.mjs';
 import { hasUserConversationMessage, refreshSessionBp3Environment } from './prompt-utils.mjs';
 import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
@@ -26,8 +27,13 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   // Register the live session object for synchronous close snapshots.
   runtime.session = session;
   if (!provider) throw new Error(`Provider "${session.provider}" not available`);
-  const turnEffort = session.effort || null;
-  const effortConfiguration = prepareTurnEffortConfiguration(session, provider);
+  const autoEffort = await resolveTurnAutoEffort({ sessionId, session, provider, input });
+  const turnEffort = autoEffort?.applied ? autoEffort.effort : session.effort || null;
+  const effortConfiguration = prepareTurnEffortConfiguration(
+    session,
+    provider,
+    autoEffort?.applied ? autoEffort.effort : undefined
+  );
   applyTurnContextMeta(session, provider);
   const effectiveCwd = cwdOverride || session.cwd;
   // A failed-turn retry resubmits the prompt the failure left unanswered;
@@ -113,6 +119,8 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
     effectiveCwd,
     turnEffort,
     effortConfiguration,
+    // The effort Auto picked for this turn, shown next to the turn's result.
+    autoEffort: autoEffort ? autoEffort.effort : null,
     outgoing,
     beforeCount: historyMessages.length + 1,
     deferredToolDelta: userTurn.deferredToolDelta,

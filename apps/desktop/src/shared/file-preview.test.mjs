@@ -68,9 +68,30 @@ test('SVG links open externally while image previews remain available for thumbn
   }
 });
 
-test('executable, macro-enabled and unknown files never auto-launch', () => {
+test('installers, application packages and archives open with the OS like a double-click', () => {
   for (const name of [
-    'payload.exe',
+    'setup.exe',
+    'C:\\Downloads\\Setup.EXE',
+    'installer.msi',
+    'app.msix',
+    'app.msixbundle',
+    'app.appx',
+    'app.appxbundle',
+    'image.dmg',
+    'installer.pkg',
+    '/Applications/Tool.app',
+    'archive.zip',
+    'archive.7z',
+    'archive.rar',
+    'disk.iso',
+  ]) {
+    assert.equal(localFileOpener(name), 'os', name);
+    assert.equal(editorFileOpener(name), 'os', name);
+  }
+});
+
+test('scripts, shortcuts, macro-enabled and unknown files never auto-launch', () => {
+  for (const name of [
     'run.bat',
     'run.cmd',
     'run.ps1',
@@ -83,10 +104,8 @@ test('executable, macro-enabled and unknown files never auto-launch', () => {
     'deck.pptm',
     'report.docm',
     'budget.xlsm',
-    'archive.zip',
     'data.bin',
     'Dockerfile',
-    'deck.pptx.exe',
   ]) {
     assert.equal(editorFileOpener(name), 'editor', name);
   }

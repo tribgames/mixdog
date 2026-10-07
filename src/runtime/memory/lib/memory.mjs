@@ -229,20 +229,24 @@ async function removeRuntimeNotificationRowsOnce(db) {
   }
 }
 
-// One-time cleanup: what the relationship-review and promotion cycles left in
-// a database they once ran on. Nothing reads any of it, and its indexes were
+// Cleanup of what the relationship-review and promotion cycles left in a
+// database they once ran on. Nothing reads any of it, and its indexes were
 // still maintained on every write:
 //   entries columns  the five below, with the indexes on them
-//   indexes          idx_entries_phase_sweep, idx_entries_reviewed_at, idx_roots_active
-//   relations        mv_hot_active, phase_merge_verdicts, and the v_cycle_state
-//                    view that every store created and nothing queried
+//   relations        the six below: three indexes, mv_hot_active,
+//                    phase_merge_verdicts, and the v_cycle_state view that
+//                    every earlier store created and nothing queried
 //   meta             both cycles' scheduling rows and last-run keys,
 //                    memory.generated.policy.*, memory.authority-review
+// The step keeps no marker of its own. It runs only while one of those columns
+// or relations still exists, so a store created without them never runs it and
+// a cleaned one never runs it again. A store that never gets it only carries
+// unused columns and indexes, so the step can be deleted once installations
+// that predate it are no longer upgraded.
 // The entry triggers are recreated first: such a database still lists
 // promoted_at in the score trigger's UPDATE OF columns, which would block
-// dropping that column. One transaction, gated by a meta flag like the
-// notification cleanup above; best-effort so a failure never blocks boot.
-const CYCLE_STATE_CLEANUP_META_KEY = 'cleanup.review_promotion_cycle_state_v1';
+// dropping that column. One transaction; best-effort so a failure never blocks
+// boot.
 const CYCLE_STATE_ENTRY_COLUMNS = [
   'cycle2_reviewed_at',
   'core_summary',
@@ -250,15 +254,26 @@ const CYCLE_STATE_ENTRY_COLUMNS = [
   'core_candidate_status',
   'core_candidate_at',
 ];
-async function removeReviewAndPromotionCycleStateOnce(db) {
+const CYCLE_STATE_RELATIONS = [
+  'mv_hot_active',
+  'phase_merge_verdicts',
+  'v_cycle_state',
+  'idx_entries_phase_sweep',
+  'idx_entries_reviewed_at',
+  'idx_roots_active',
+];
+async function removeReviewAndPromotionCycleState(db) {
   try {
-    const already = await db.query(`SELECT 1 FROM meta WHERE key = $1`, [CYCLE_STATE_CLEANUP_META_KEY]);
-    if (already?.rows?.length) return;
-    const columns = await db.query(
-      `SELECT column_name FROM information_schema.columns
-       WHERE table_schema = current_schema() AND table_name = 'entries' AND column_name = ANY($1::text[])`,
-      [CYCLE_STATE_ENTRY_COLUMNS]
+    const found = await db.query(
+      `SELECT ARRAY(SELECT column_name::text FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'entries'
+                      AND column_name = ANY($1::text[])) AS columns,
+              ARRAY(SELECT name FROM unnest($2::text[]) AS name WHERE to_regclass(name) IS NOT NULL) AS relations`,
+      [CYCLE_STATE_ENTRY_COLUMNS, CYCLE_STATE_RELATIONS]
     );
+    const columns = found?.rows?.[0]?.columns || [];
+    const relations = found?.rows?.[0]?.relations || [];
+    if (!columns.length && !relations.length) return;
     let metaRows = 0;
     await db.transaction(async (tx) => {
       await ensureEntryTriggers(tx);
@@ -280,14 +295,10 @@ async function removeReviewAndPromotionCycleStateOnce(db) {
         `UPDATE meta SET value = value - ARRAY['cycle2', 'cycle2_last_error', 'cycle3', 'cycle3_last_error']
          WHERE key = 'state.cycle_last_run' AND jsonb_typeof(value) = 'object'`
       );
-      await setMetaValue(tx, CYCLE_STATE_CLEANUP_META_KEY, JSON.stringify('1'));
     });
-    const dropped = (columns?.rows || []).map((row) => row.column_name);
-    if (dropped.length || metaRows > 0) {
-      __mixdogMemoryLog(
-        `[memory] ensureCurrentSchemaExtensions: removed review/promotion cycle state (columns=${dropped.join(',') || 'none'}, meta rows=${metaRows})\n`
-      );
-    }
+    __mixdogMemoryLog(
+      `[memory] ensureCurrentSchemaExtensions: removed review/promotion cycle state (columns=${columns.join(',') || 'none'}, relations=${relations.join(',') || 'none'}, meta rows=${metaRows})\n`
+    );
   } catch (err) {
     __mixdogMemoryLog(`[memory] review/promotion cycle cleanup failed: ${err?.message || err}\n`);
   }
@@ -296,7 +307,7 @@ async function removeReviewAndPromotionCycleStateOnce(db) {
 export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity = null) {
   await removeAttachmentPlaceholderRows(db);
   await removeRuntimeNotificationRowsOnce(db);
-  await removeReviewAndPromotionCycleStateOnce(db);
+  await removeReviewAndPromotionCycleState(db);
   // User-curated entries are injected verbatim and recalled by term match;
   // drop the vector column (and its index) older versions maintained.
   await db.exec(`ALTER TABLE core_entries DROP COLUMN IF EXISTS embedding`);

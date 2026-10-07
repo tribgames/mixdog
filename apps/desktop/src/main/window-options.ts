@@ -4,11 +4,12 @@ import { release } from 'node:os';
 import * as electron from 'electron';
 import type { BrowserWindow, BrowserWindowConstructorOptions, NativeTheme } from 'electron';
 import { DESKTOP_WINDOW_DEFAULT_WIDTH, DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
+import { installMicaActiveAppearance } from './window-mica';
 
 /* Dark window band — must track --mx-window-band in desktop.css :root. */
 export const DESKTOP_BACKGROUND_COLOR = '#18181b';
 /* Light window band (neutral set) — must track --mx-window-band on light. */
-export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#efeff2';
+export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#f7f7f7';
 export const DESKTOP_TITLEBAR_HEIGHT = 35;
 
 /* Windows 11 22H2+ (build 22621) draws the Mica system backdrop behind a
@@ -145,6 +146,7 @@ export function initialTitleBarWindowOverrides(): Partial<BrowserWindowConstruct
 export function installDesktopWindowMaterial(window: BrowserWindow): void {
   if (!DESKTOP_WINDOW_MICA) return;
   micaWindows.add(window);
+  installMicaActiveAppearance(window);
   window.webContents.on('dom-ready', () => {
     void window.webContents.executeJavaScript("document.documentElement.dataset.windowMaterial = 'mica'");
   });

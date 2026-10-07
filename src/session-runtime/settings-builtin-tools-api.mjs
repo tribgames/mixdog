@@ -1,5 +1,6 @@
 // Built-in tool modules: the enable/install toggles (web search, memory, git,
-// office, tidy, local provider), the recap switch and the Code Tidy card.
+// office, tidy, local provider, auto effort), the recap switch and the Code
+// Tidy card.
 import {
   INSTALLABLE_BUILTIN_IDS,
   builtinFeatureActive,
@@ -8,6 +9,21 @@ import {
 } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
 import { getEmbeddingInfo } from '../runtime/memory/lib/embedding-provider.mjs';
+import {
+  effortJudgeAvailable,
+  effortJudgeInfo,
+  effortJudgeReady,
+  shutdownEffortJudge,
+  warmEffortJudge,
+} from '../runtime/effort-judge/judge-client.mjs';
+
+const TOGGLEABLE_BUILTINS = ['git', 'office', 'tidy', 'localProvider', 'autoEffort'];
+
+// The judge stays resident only while the feature is on.
+async function syncEffortJudge(active) {
+  if (active) warmEffortJudge();
+  else await shutdownEffortJudge();
+}
 
 function setLocalProviderEnabledInConfig(configLike, enabled) {
   const next = { ...(configLike || {}) };
@@ -85,6 +101,12 @@ export function createBuiltinToolSettings(
           enabled: localProviderEnabledFn(),
           installed: builtinInstalled(config, 'localProvider') && localProviderRuntimeInstalled,
         },
+        autoEffort: {
+          enabled: builtinFeatureActive(config, 'autoEffort'),
+          installed: builtinInstalled(config, 'autoEffort') && effortJudgeAvailable(),
+          ready: effortJudgeReady(),
+          info: effortJudgeInfo(),
+        },
       };
     },
     async setWebSearchEnabled(enabled) {
@@ -113,12 +135,13 @@ export function createBuiltinToolSettings(
       return this.getToolModuleSettings();
     },
     async setBuiltinToolEnabled(name, enabled) {
-      if (name !== 'git' && name !== 'office' && name !== 'tidy' && name !== 'localProvider') {
-        throw new TypeError('Built-in tool must be git, office, tidy, or localProvider.');
+      if (!TOGGLEABLE_BUILTINS.includes(name)) {
+        throw new TypeError('Built-in tool must be git, office, tidy, localProvider, or autoEffort.');
       }
       if (name === 'localProvider' && enabled !== false && getLocalProviderStatus?.()?.runtime?.installed !== true) {
         await prepareBuiltinFeature?.(name);
       }
+      if (name === 'autoEffort' && enabled !== false) await prepareBuiltinFeature?.(name);
       const config = getConfig();
       let nextConfig = setModuleEnabledInConfig({ ...config }, name, enabled !== false);
       if (name === 'localProvider') {
@@ -133,6 +156,7 @@ export function createBuiltinToolSettings(
       if (name === 'localProvider') {
         await syncLocalProviderRegistry?.(enabled !== false);
       }
+      if (name === 'autoEffort') await syncEffortJudge(enabled !== false);
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },
@@ -141,7 +165,7 @@ export function createBuiltinToolSettings(
      *  and enabled in one step. New sessions pick up the tool surface. */
     async installBuiltinFeature(name) {
       if (!INSTALLABLE_BUILTIN_IDS.includes(name)) {
-        throw new TypeError('Built-in feature must be git, memory, office, tidy, or localProvider.');
+        throw new TypeError('Built-in feature must be git, memory, office, tidy, localProvider, or autoEffort.');
       }
       await prepareBuiltinFeature?.(name);
       const config = getConfig();
@@ -157,6 +181,7 @@ export function createBuiltinToolSettings(
       if (name === 'localProvider') {
         await syncLocalProviderRegistry?.(true);
       }
+      if (name === 'autoEffort') await syncEffortJudge(true);
       if (name === 'memory') invalidateContextStatusCache();
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();

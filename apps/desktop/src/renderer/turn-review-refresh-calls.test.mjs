@@ -34,7 +34,7 @@ function mount(t, sessionId = 'sess-review-calls') {
     );
   const bar = () => dom.window.document.querySelector('.turn-review-bar');
   const entryPending = () => Boolean(dom.window.document.querySelector('[data-entry-pending]'));
-  return { render, answer, bar, entryPending, pending, requests };
+  return { dom, render, answer, bar, entryPending, pending, requests };
 }
 
 const prompt = { kind: 'user', id: 'prompt', text: 'Change a file' };
@@ -102,6 +102,45 @@ test('entering an idle session shows no estimated bar before its first read answ
   assert.equal(requests.length, 2);
   assert.equal(requests[1].args[0].refresh, true, 'the fresh worktree read follows');
   await answer();
+});
+
+test('entering a session answered from its turn record reads once, collapsed as a summary', async (t) => {
+  const { render, answer, bar, entryPending, pending, requests } = mount(t, 'sess-review-entry-recorded');
+  await render([prompt, edit('recorded')], false);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].args[0].summary, true, 'the collapsed bar asks for files and counts only');
+  await answer({
+    snapshotKind: 'scoped',
+    reason: 'recorded',
+    patchOmitted: true,
+    files: [{ path: 'a.txt', status: 'M', additions: 2, deletions: 0 }],
+  });
+  assert.ok(bar());
+  assert.equal(entryPending(), false);
+  assert.equal(pending.length, 0);
+  assert.equal(requests.length, 1, 'the refreshing read would compute the same recorded review again');
+});
+
+test('expanding during a recorded summary requests the full patch immediately after it', async (t) => {
+  const { dom, render, answer, pending, requests } = mount(t, 'sess-recorded-expansion');
+  const patch = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-before\n+after';
+  const items = [prompt, { ...edit('first'), uiDiff: patch }];
+  await render(items, false, false);
+  await render(items, false, true);
+  assert.equal(requests[0].args[0].summary, true);
+  await act(async () => dom.window.document.querySelector('.turn-review-summary').click());
+  assert.equal(requests.length, 1, 'the full read waits for the summary, not a second concurrent Git diff');
+  await answer({
+    snapshotKind: 'scoped',
+    reason: 'recorded',
+    patchOmitted: true,
+    files: [{ path: 'a.txt', status: 'M', additions: 1, deletions: 1 }],
+  });
+  assert.equal(requests.length, 2, 'expansion is not discarded as a duplicate summary');
+  assert.equal(requests[1].args[0].summary, undefined);
+  await answer({ snapshotKind: 'scoped', reason: 'recorded', patch });
+  assert.equal(pending.length, 0);
+  assert.equal(requests.length, 2);
 });
 
 test('an entered session with real changes shows its bar once the first read answers', async (t) => {

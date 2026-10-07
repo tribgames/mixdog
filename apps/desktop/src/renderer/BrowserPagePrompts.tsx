@@ -26,77 +26,80 @@ export function BrowserPagePrompts({
   const dialog = frame.dialog;
   const chooser = frame.fileChooser;
   if (!dialog && !chooser) return null;
+  // Like an ordinary browser's page dialog: an opaque card naming the site,
+  // focused on arrival so Enter accepts and Escape dismisses it.
+  const accept = () => {
+    if (dialog) void answer({ type: 'answer-dialog', requestId: dialog.id, accept: true, promptText: text });
+  };
+  const dismiss = () => {
+    if (dialog) void answer({ type: 'answer-dialog', requestId: dialog.id, accept: dialog.type === 'alert' });
+    else if (chooser) void answer({ type: 'choose-files', requestId: chooser.id, cancel: true });
+  };
   return (
-    <div
-      className="browser-page-prompt"
-      role="dialog"
-      aria-label={dialog?.type ?? t('Choose files')}
-      onKeyDown={(event) => event.stopPropagation()}
+    <section
+      className="browser-page-prompt mx-dialog"
+      role={dialog ? 'alertdialog' : 'dialog'}
+      aria-label={dialog ? pageHost(frame.url) : t('Choose files')}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === 'Escape') dismiss();
+      }}
     >
       {dialog ? (
         <>
-          <p>{dialog.message}</p>
-          {dialog.type === 'prompt' && (
-            <input
-              aria-label={t('Response')}
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              maxLength={2000}
-              disabled={busy}
-            />
-          )}
-          <div>
-            {dialog.type !== 'alert' && (
-              <button
-                type="button"
+          <header>
+            <h3>{pageHost(frame.url)}</h3>
+          </header>
+          <div className="mx-dialog-body">
+            <p>{dialog.message}</p>
+            {dialog.type === 'prompt' && (
+              <input
+                aria-label={t('Response')}
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') accept();
+                }}
+                maxLength={2000}
                 disabled={busy}
-                onClick={() =>
-                  void answer({
-                    type: 'answer-dialog',
-                    requestId: dialog.id,
-                    accept: false,
-                  })
-                }
-              >
+                autoFocus
+              />
+            )}
+          </div>
+          <footer>
+            {dialog.type !== 'alert' && (
+              <button type="button" disabled={busy} onClick={dismiss}>
                 {t('Cancel')}
               </button>
             )}
             <button
               type="button"
+              className="primary"
               disabled={busy}
-              onClick={() =>
-                void answer({
-                  type: 'answer-dialog',
-                  requestId: dialog.id,
-                  accept: true,
-                  promptText: text,
-                })
-              }
+              onClick={accept}
+              autoFocus={dialog.type !== 'prompt'}
             >
               {t('OK')}
             </button>
-          </div>
+          </footer>
         </>
       ) : (
         chooser && (
           <>
-            <p>{t('Choose files')}</p>
-            <div>
+            <header>
+              <h3>{t('Choose files')}</h3>
+            </header>
+            <footer>
               <button
                 type="button"
                 disabled={busy}
-                onClick={() =>
-                  void answer({
-                    type: 'choose-files',
-                    requestId: chooser.id,
-                    cancel: true,
-                  })
-                }
+                onClick={dismiss}
               >
                 {t('Cancel')}
               </button>
               <button
                 type="button"
+                className="primary"
                 disabled={busy}
                 onClick={() =>
                   void answer({
@@ -104,13 +107,23 @@ export function BrowserPagePrompts({
                     requestId: chooser.id,
                   })
                 }
+                autoFocus
               >
                 {t('Choose files')}
               </button>
-            </div>
+            </footer>
           </>
         )
       )}
-    </div>
+    </section>
   );
+}
+
+/** The site asking, as an ordinary browser titles its page dialogs. */
+function pageHost(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
 }

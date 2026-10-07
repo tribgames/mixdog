@@ -2,6 +2,7 @@ import type { App, Shell } from 'electron';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import { registerFilePreview } from './file-preview';
+import { localPageUrl } from './local-page-server';
 import { projectEntryPathIn } from './project-files';
 import {
   requiredLspDocumentInput,
@@ -69,6 +70,10 @@ export function registerProjectFileIpc({
       return invokeDesktopOperation('readProjectTextFileIn', [granted.root, granted.rel]);
     }
     return host.readProjectTextFile(requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath'));
+  });
+  handle(DESKTOP_IPC.localPageUrl, async (_event, projectPath, relPath, accessToken) => {
+    const { root, rel } = await editorFileTarget(projectPath, relPath, accessToken);
+    return localPageUrl(root, rel);
   });
   handle(DESKTOP_IPC.previewProjectFile, async (_event, projectPath, relPath, accessToken) => {
     let file: string;

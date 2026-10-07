@@ -5,7 +5,7 @@ import type { WebContents } from 'electron';
 import type { DesktopBrowserPageControl } from '../../shared/contract';
 import { createBrowserInputDriver } from './input';
 import { normalizePageUrl } from './url-policy';
-import { browserInputRecovery } from '../../shared/browser-input-policy';
+import { BROWSER_DIALOG_BLOCKING, browserInputRecovery } from '../../shared/browser-input-policy';
 import type { BrowserPageSurfaceHost } from './page-surface';
 import type { PageSurfaceState } from './page-surface-state';
 
@@ -25,7 +25,7 @@ export function createPageInputDispatcher(
   ): Promise<void> {
     const assertDispatch = () => {
       assertCurrent();
-      if (host.state.for(guest).pendingDialog) throw new Error('Browser dialog is blocking input.');
+      if (host.state.for(guest).pendingDialog) throw new Error(BROWSER_DIALOG_BLOCKING);
     };
     await host.cdp.waitForIdle(guest, signal);
     assertDispatch();

@@ -2,131 +2,243 @@
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
 /* Tool / diff / approval surfaces use the same v2 layers. */
+/* Turn outputs. Every card is a fixed 160px plate, so the turn's height never
+   depends on decoding: one to three media sit on a row that never wraps and
+   only their widths follow the source ratio, four or more become same-size
+   squares, and files without a captured thumbnail wear a format tile. The
+   cards take their content's width, never a full-width panel. */
 .transcript-artifacts {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 10px;
   padding: 8px 0;
 }
-.transcript-artifact-media {
-  width: min(100%, 420px);
+.transcript-artifact-row {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+.transcript-artifact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 160px);
+  gap: 10px;
+}
+.transcript-artifact-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.transcript-artifact-media,
+.transcript-artifact-file {
+  position: relative;
+  height: 160px;
   min-width: 0;
   margin: 0;
-}
-.transcript-artifact-frame {
-  /* Reserve the existing 420x360 preview envelope before decoding. Neither
-     intrinsic media dimensions nor a failed preview may resize the timeline. */
-  position: relative;
-  width: 100%;
-  aspect-ratio: 7 / 6;
-  display: grid;
-  place-items: center;
   overflow: hidden;
-  color: var(--mx-text-muted);
+  isolation: isolate;
   border-radius: var(--mx-radius-lg);
   background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
-.transcript-artifact-frame > .transcript-artifact-image,
-.transcript-artifact-frame > video {
+/* The ring sits above the picture so a bright image never erases the edge. */
+.transcript-artifact-media::after,
+.transcript-artifact-file::after {
+  content: "";
   position: absolute;
   inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  pointer-events: none;
+  transition: box-shadow var(--mx-motion-ink);
+}
+.transcript-artifact-media:hover::after,
+.transcript-artifact-file:not([aria-disabled="true"]):hover::after {
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-strong);
+}
+.transcript-artifact-media:has(.transcript-artifact-frame:focus-visible)::after,
+.transcript-artifact-file:focus-visible::after {
+  box-shadow: inset 0 0 0 2px var(--mx-focus);
+}
+.transcript-artifact-media {
+  flex: 0 1 var(--artifact-width, 160px);
+  width: var(--artifact-width, 160px);
+}
+.transcript-artifact-frame {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
   width: 100%;
   height: 100%;
-}
-.transcript-artifact-image {
-  display: block;
-  width: 100%;
-  padding: 0;
+  padding: 0 0 40px;
   border: 0;
+  overflow: hidden;
+  color: var(--mx-icon-muted);
   background: transparent;
   cursor: zoom-in;
 }
-/* Generated media shares the attachment-chip grammar (22-markdown
-   .message-image-chip): layer-1 fill + 1px ring + md radius, so a produced
-   image reads as the same kind of object as an attached one. */
-.transcript-artifact-image img,
-.transcript-artifact-media video {
+.transcript-artifact-media[data-preview="ready"] .transcript-artifact-frame {
+  padding: 0;
+}
+.transcript-artifact-frame:disabled {
+  cursor: default;
+}
+.transcript-artifact-frame:focus-visible {
+  outline: none;
+}
+.transcript-artifact-frame img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
-/* Caption row: name on the left, icon-only actions (03-titlebar .icon-button)
-   on the right — the same transparent icon + tooltip grammar as the response
-   copy control, never a native grey text button. */
-.transcript-artifact-media figcaption {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  min-height: 28px;
-  padding-top: 4px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
+.transcript-artifact-media[data-fit="cover"] img,
+.transcript-artifact-media[data-fit="center"] img {
+  object-fit: cover;
 }
-.transcript-artifact-media figcaption > span {
-  flex: 1;
-  min-width: 0;
-  margin-right: 6px;
+.transcript-artifact-media[data-fit="top"] img {
+  object-fit: cover;
+  object-position: top;
+}
+/* A source smaller than the card is never upscaled into a blur. */
+.transcript-artifact-media[data-fit="native"] img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+}
+.transcript-artifact-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: #fff;
+  background: rgb(0 0 0 / 45%);
+  translate: -50% -50%;
+  pointer-events: none;
+}
+.transcript-artifact-media[data-preview="none"] .transcript-artifact-play {
+  top: calc(50% - 20px);
+  color: var(--mx-icon);
+  background: var(--mx-bg-layer-2);
+}
+/* Name and format live inside the card, over a shade that keeps white text
+   readable on any picture; without a picture they fall back to plain ink. */
+.transcript-artifact-media figcaption,
+.transcript-artifact-caption {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  display: grid;
+  padding: 26px 10px 8px;
+  color: rgb(255 255 255 / 78%);
+  background: linear-gradient(to bottom, transparent, rgb(0 0 0 / 40%) 42%, rgb(0 0 0 / 68%));
+  font-size: 12px;
+  line-height: 16px;
+  pointer-events: none;
+}
+.transcript-artifact-media figcaption > span,
+.transcript-artifact-caption > span {
   overflow: hidden;
+  color: #fff;
+  font-size: var(--mx-font-meta);
+  font-weight: 500;
+  line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.transcript-artifact-media figcaption > .icon-button {
-  flex-shrink: 0;
+.transcript-artifact-media figcaption > small,
+.transcript-artifact-caption > small {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transcript-artifact-media[data-preview="none"] figcaption,
+.transcript-artifact-caption {
+  color: var(--mx-text-faint);
+  background: none;
+}
+.transcript-artifact-media[data-preview="none"] figcaption > span,
+.transcript-artifact-caption > span {
+  color: var(--mx-text);
+}
+/* Open file / folder: the transparent icon-button grammar (03-titlebar),
+   on a small plate that appears with the pointer or keyboard focus. */
+.transcript-artifact-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-popup-bg);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  opacity: 0;
+  transition: opacity var(--mx-motion-ink);
+}
+.transcript-artifact-media:hover .transcript-artifact-actions,
+.transcript-artifact-media:focus-within .transcript-artifact-actions {
+  opacity: 1;
+}
+@media (hover: none) {
+  .transcript-artifact-actions {
+    opacity: 1;
+  }
+}
+.transcript-artifact-actions .icon-button {
   color: var(--mx-icon-muted);
 }
-.transcript-artifact-media figcaption > .icon-button:hover,
-.transcript-artifact-media figcaption > .icon-button:focus-visible {
+.transcript-artifact-actions .icon-button:hover,
+.transcript-artifact-actions .icon-button:focus-visible {
   color: var(--mx-icon);
 }
-/* Non-media artifact: one chip-toned row (icon · name · action hint), the
-   whole row is the link. */
+/* A file with no captured thumbnail: its format badge, the whole tile opens it. */
 .transcript-artifact-file {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  min-height: 36px;
-  padding: 6px 12px;
-  border-radius: var(--mx-radius-md);
+  flex: 0 0 160px;
+  width: 160px;
+  display: grid;
+  place-items: center;
+  padding-bottom: 40px;
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   text-decoration: none;
-  font-size: var(--mx-font-minor);
-  line-height: var(--mx-line-meta);
   transition: background var(--mx-motion-ink);
 }
 .transcript-artifact-file:hover {
   background: var(--mx-hover);
 }
 .transcript-artifact-file:focus-visible {
-  outline: 2px solid var(--mx-focus);
-  outline-offset: 2px;
+  outline: none;
 }
-.transcript-artifact-file > svg {
-  flex-shrink: 0;
-  color: var(--mx-icon);
-}
-.transcript-artifact-file > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.transcript-artifact-file > small {
-  flex-shrink: 0;
-  color: var(--mx-text-faint);
+.transcript-artifact-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-2);
+  font-family: var(--mx-font-sans);
   font-size: var(--mx-font-meta);
+  font-weight: 600;
+  line-height: 18px;
+  letter-spacing: 0.4px;
 }
 .transcript-artifact-file[aria-disabled="true"] {
   cursor: default;
-  color: var(--mx-text-faint);
 }
 .transcript-artifact-file[aria-disabled="true"]:hover {
   background: var(--mx-bg-layer-1);
+}
+.transcript-artifact-file[aria-disabled="true"] .transcript-artifact-badge,
+.transcript-artifact-file[aria-disabled="true"] .transcript-artifact-caption > span {
+  color: var(--mx-text-faint);
 }
 .transcript-artifact-preview {
   max-width: 95vw;
@@ -144,7 +256,8 @@
   top: 6px;
   right: 6px;
 }
-.transcript-artifact-preview > img {
+.transcript-artifact-preview > img,
+.transcript-artifact-preview > video {
   display: block;
   max-width: 90vw;
   max-height: 85vh;
@@ -163,8 +276,8 @@
   padding: 8px 8px 8px 12px;
   border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  background: transparent;
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .transcript-browser-page-icon {
   flex: 0 0 auto;
@@ -202,8 +315,8 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  background: var(--mx-action-bg);
+  box-shadow: none;
   font-size: var(--mx-font-ui);
   cursor: pointer;
   transition: background var(--mx-motion-ink);
@@ -292,8 +405,8 @@
   /* A real card: its own surface and a full 1px frame. On the bare sheet with
      a 0.5px 10% hairline the list had no edge at all on a 1x display, and
      grey text on the grey sheet washed out (user: 하나도 안 보인다). */
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  background: transparent;
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .tool-activity-details > .tool-activity-item + .tool-activity-item {
   border-top: var(--mx-hairline) solid var(--mx-border-muted);
@@ -639,6 +752,11 @@
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
+}
+/* The tool card is a frame on the canvas, so its sticky header takes the
+   canvas tone (the solid copy under Mica) instead of a grey band. */
+:root .tool-section-header {
+  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
 }
 .tool-section-title {
   min-width: 0;

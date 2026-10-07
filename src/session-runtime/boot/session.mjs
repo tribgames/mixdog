@@ -5,6 +5,8 @@ import { createSessionLifecycle } from '../session-lifecycle.mjs';
 import { createNewSessionConfig } from '../new-session-config.mjs';
 import { modelToolSchemaAllowlist } from '../../runtime/agent/orchestrator/runtime-core/tool-profile.mjs';
 import { bootProfile } from '../boot-profile.mjs';
+import { builtinFeatureActive } from '../../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
+import { warmEffortJudge } from '../../runtime/effort-judge/judge-client.mjs';
 import { resolveRoute, workflowHelpers } from './shared.mjs';
 
 export function wireSessionLifecycle(boot) {
@@ -121,4 +123,7 @@ export function wireSessionLifecycle(boot) {
   scheduleModelCatalogWarmup();
   scheduleStatuslineUsageWarmup();
   scheduleAutomationAutostart(tunables.remoteAutoStartDelayMs);
+  // Auto effort keeps its judge resident, so it loads now rather than on the
+  // first turn (the worker thread does not hold the process open).
+  if (builtinFeatureActive(rt.config, 'autoEffort')) warmEffortJudge();
 }

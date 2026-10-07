@@ -5,6 +5,14 @@
 // and then flow through the normal post-tool steering boundary. The background
 // task itself keeps running.
 const waitersBySession = new Map();
+const steeringChecks = new Set();
+
+// Scoped to an active turn. Read the live queue at wait entry rather than
+// retaining a wake signal that could outlive a consumed or reclaimed prompt.
+export function registerTaskWaitSteeringCheck(check) {
+  steeringChecks.add(check);
+  return () => steeringChecks.delete(check);
+}
 
 function sessionKey(sessionId) {
   return String(sessionId || '').trim();
@@ -43,6 +51,11 @@ export function beginInterruptibleTaskWait(sessionId, parentSignal = null) {
         parentSignal.addEventListener('abort', onParentAbort, { once: true });
       } catch {}
     }
+  }
+
+  if (!controller.signal.aborted && [...steeringChecks].some((check) => check(key))) {
+    waiter.interruptedByUser = true;
+    controller.abort('user-message');
   }
 
   return {

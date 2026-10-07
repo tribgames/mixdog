@@ -132,6 +132,7 @@ test('re-sent, abandoned and failed attempts each reach the ledger exactly once'
   await send('audit-abandoned', async () => {
     noteAbandonedUsage(usage(20), model);
     noteAbandonedUsage({ inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0 }, model);
+    await new Promise((resolve) => setTimeout(resolve, 5));
     return { model, usage: usage(30) };
   });
   // A cut-off stream surfaces its partial usage on the error through both sends.
@@ -154,6 +155,17 @@ test('re-sent, abandoned and failed attempts each reach the ledger exactly once'
   assert.deepEqual(inputs('audit-resend'), [10]);
   assert.deepEqual(inputs('audit-abandoned'), [20, 30]);
   assert.deepEqual(inputs('audit-failed'), [40]);
+  // Only the completed result owns the request's wall time.
+  const timed = (sessionId) =>
+    ledger.db
+      .prepare('SELECT input,duration_ms FROM events WHERE session_id=? ORDER BY input')
+      .all(sessionId)
+      .map((row) => [row.input, row.duration_ms > 0]);
+  assert.deepEqual(timed('audit-abandoned'), [
+    [20, false],
+    [30, true],
+  ]);
+  assert.deepEqual(timed('audit-failed'), [[40, false]]);
 });
 
 test('trace import prices the 1-hour cache-write share from the raw usage', () => {

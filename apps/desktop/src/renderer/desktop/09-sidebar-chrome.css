@@ -52,7 +52,7 @@
   width: 26px;
   height: 3px;
   border-radius: var(--mx-radius-pill);
-  background: color-mix(in srgb, var(--mx-text) 16%, transparent);
+  background: var(--mx-meter-track);
 }
 .rail-usage-pin-brand > i > i {
   position: absolute;
@@ -60,13 +60,13 @@
   border-radius: inherit;
   /* Calm resting fill (user: 파란색 너무 눈에 띔): quiet ink until the
      warning/danger tones below take over. */
-  background: color-mix(in srgb, var(--mx-text) 52%, transparent);
+  background: var(--mx-meter-fill);
 }
 .rail-usage-pin-brand.tone-warning > i > i {
-  background: var(--mx-warning);
+  background: var(--mx-meter-warning);
 }
 .rail-usage-pin-brand.tone-danger > i > i {
-  background: var(--mx-danger);
+  background: var(--mx-meter-danger);
 }
 .rail-usage-pin-brand > small {
   color: var(--mx-text);

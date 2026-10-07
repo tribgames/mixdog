@@ -88,11 +88,13 @@ function validSnapshot(value, provider, model, mode) {
   );
 }
 
-export function prepareTurnEffortConfiguration(session, provider) {
+// `turnEffort` overrides the session's saved effort for this turn only (auto
+// effort); the saved default itself is never changed here.
+export function prepareTurnEffortConfiguration(session, provider, turnEffort) {
   const config = provider?.config || {};
   const opts = { ...config, modelParameters: session.modelParameters || {} };
   const mode = effortConfigurationMode(session.provider, session.model, opts);
-  const effort = normalizedEffort(session.provider, session.model, session.effort);
+  const effort = normalizedEffort(session.provider, session.model, turnEffort ?? session.effort);
   if (!mode || !EFFORTS.has(effort)) return null;
   const first = (session.messages || []).find((message) =>
     validSnapshot(message?.meta?.[META_KEY], session.provider, session.model, mode)

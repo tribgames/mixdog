@@ -258,7 +258,8 @@
   align-items: center;
   gap: 5px;
   padding: 0 6px;
-  border: var(--mx-hairline) solid var(--mx-border);
+  /* Badges are tinted fills only, like chips: no outline. */
+  border: var(--mx-hairline) solid transparent;
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
   background: var(--mx-hover);
@@ -282,12 +283,10 @@
   background: var(--mx-success);
 }
 .settings-status--warning {
-  border-color: color-mix(in srgb, var(--mx-warning) 35%, transparent);
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 10%, transparent);
 }
 .settings-status--danger {
-  border-color: color-mix(in srgb, var(--mx-danger) 35%, transparent);
   color: var(--mx-danger);
   background: color-mix(in srgb, var(--mx-danger) 10%, transparent);
 }
@@ -424,8 +423,8 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
+  background: var(--mx-action-bg);
+  box-shadow: var(--mx-action-ring);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
@@ -434,7 +433,7 @@
 .settings-provider-secret button:hover:not(:disabled),
 .core-memory-edit button:hover:not(:disabled) {
   color: var(--mx-text);
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-action-bg);
 }
 /* Destructive actions rest neutral and turn red on intent: a red label on
    every account row put five alarms on one page (user: 색감 점검). The
@@ -445,8 +444,8 @@
 }
 .settings-action:active:not(:disabled) {
   color: var(--mx-text);
-  background: var(--mx-flat-press);
-  box-shadow: var(--mx-button);
+  background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-action-bg);
+  box-shadow: var(--mx-action-ring);
 }
 /* The pressed danger plate carries the read on its own — drop the ring. */
 .settings-action.danger:active:not(:disabled) {

@@ -118,7 +118,7 @@
   background: var(--mx-bg-layer-2);
 }
 .usage-plan[data-plan="api"] {
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-strong);
+  background: var(--mx-hover);
 }
 .usage-row-values {
   display: flex;
@@ -235,7 +235,7 @@
 }
 
 /* Token usage (ℹ️ in the usage flyout): what was SPENT, opposite /usage's what
-   is LEFT. Seven numeric columns need more room than the quota table, and the
+   is LEFT. Eight numeric columns need more room than the quota table, and the
    provider rows expand in place into their models. */
 .mixdog-settings-layer:has(> .command-surface[data-surface="stats"]) {
   /* The layer's insets on every window size: the caption bar above stays
@@ -245,7 +245,7 @@
   place-items: center;
 }
 .command-surface[data-surface="stats"] {
-  width: min(980px, calc(100vw - 32px));
+  width: min(1040px, calc(100vw - 32px));
   /* Stops at 760 on a tall window (user: 팝업 상하 최대 크기); the body scrolls. */
   height: min(760px, var(--settings-panel-height));
   max-height: 100%;
@@ -350,6 +350,32 @@
   color: var(--mx-text);
   background: var(--mx-hover);
 }
+/* Chips are flat pills without an outline, and the chosen chip inverts to
+   the ink colour. The limit-window switch uses the same chips, so one row
+   never shows two selection styles. */
+:root :is(.stats-range, .stats-period-arrow, .quota-window) {
+  border-color: transparent;
+  background: var(--mx-hover);
+}
+:root :is(.stats-range:not(.is-active), .stats-period-arrow, .quota-window:not([aria-pressed="true"])):hover:not(:disabled) {
+  background: var(--mx-pressed);
+}
+:root :is(.stats-range.is-active, .quota-window[aria-pressed="true"]) {
+  border-color: transparent;
+  color: var(--mx-bg-base);
+  background: var(--mx-text);
+  box-shadow: none;
+}
+:root .quota-windows {
+  gap: 6px;
+  padding: 0;
+  background: transparent;
+}
+:root .quota-window {
+  height: 26px;
+  padding: 0 12px;
+  font-weight: var(--mx-weight-regular);
+}
 .stats-range.is-active {
   color: var(--mx-text);
   background: var(--mx-bg-layer-2);
@@ -432,18 +458,15 @@
 .stats-table {
   min-width: 760px;
   table-layout: auto;
-  /* Where a label starts inside the first column: chevron (10px) + gap (8px)
-     + provider icon + gap (8px). The header, the nested model names and the
-     share bar all read from here so the label column keeps one left edge. */
-  --stats-label-indent: calc(26px + var(--mx-icon-sm));
 }
 /* Numeric columns: the header sits on the same right edge as its values. */
 .stats-table th {
   text-align: right;
 }
+/* The provider name opens its cell and the chevron follows it, so the header,
+   provider names, model names and share bar all share the cell's own edge. */
 .stats-table th:first-child {
   text-align: left;
-  padding-left: calc(12px + var(--stats-label-indent));
 }
 .stats-table th:first-child,
 .stats-table td:first-child {
@@ -501,6 +524,20 @@
   background: var(--mx-bg-layer-1);
   border-top: var(--mx-hairline) solid var(--mx-border);
 }
+/* Tables inside a framed card carry no banded fills: the sticky header takes
+   the dialog's own surface and group rows read by their seams. */
+:root .usage-table th {
+  background: var(--mx-bg-base);
+}
+/* The opaque sticky header and rows paint over an inset ring, so the table
+   card draws its frame as a real border, outside its children. */
+:root .usage-table-shell {
+  border: var(--mx-hairline) solid var(--mx-border-muted);
+  box-shadow: none;
+}
+:root :is(.stats-provider-row td, .quota-history-pager, .quota-history-table tr[data-active="true"] td) {
+  background: transparent;
+}
 .stats-provider:first-of-type .stats-provider-row td {
   border-top: 0;
 }
@@ -550,12 +587,11 @@
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-minor);
 }
-/* Share of total tokens: aligned under the provider name (after chevron + icon),
-   constrained to a neat compact bar width. */
+/* Share of total tokens: aligned under the provider name, constrained to a
+   neat compact bar width. */
 .stats-provider-share {
   display: flex;
   align-items: center;
-  margin-inline-start: var(--stats-label-indent);
   margin-top: 5px;
 }
 .stats-share {
@@ -594,8 +630,6 @@
   font-weight: var(--mx-weight-regular);
 }
 .stats-model-cell {
-  /* Model names start on the provider name's left edge, not on the chevron. */
-  padding-left: calc(12px + var(--stats-label-indent)) !important;
   color: var(--mx-text);
   overflow-wrap: anywhere;
   white-space: normal;
@@ -955,6 +989,11 @@
   flex: 0 0 auto;
   min-height: 140px;
 }
+/* The history card holds only its own rows; the loading floor above left a
+   blank band under a single in-progress window. */
+.stats-surface > .usage-table-shell.quota-history {
+  min-height: 0;
+}
 /* Usage dialog header: its two questions are tabs standing in for the title
    (the heading stays for assistive technology), and the header shares the
    body's left edge. */
@@ -1294,7 +1333,10 @@
 .quota-chart-marker {
   color: var(--quota-line);
   font-weight: var(--mx-weight-semibold);
-  transform: translate(-50%, calc(-100% - 6px));
+  transform: translate(0, calc(-100% - 6px));
+}
+.quota-chart-marker[data-side="end"] {
+  transform: translate(-100%, calc(-100% - 6px));
 }
 .quota-chart-peak {
   color: var(--mx-text-muted);
@@ -1389,9 +1431,6 @@ button.quota-chart-slot[aria-expanded="true"] {
 .quota-history-table {
   min-width: 560px;
 }
-.stats-table.quota-history-table th:first-child {
-  padding-left: 12px;
-}
 .quota-history-estimate {
   margin-inline-start: 6px;
   color: var(--mx-text-faint);
@@ -1422,9 +1461,9 @@ button.quota-chart-slot[aria-expanded="true"] {
   text-decoration: underline;
 }
 
-/* Narrow shells — the web build on a phone, or a split window. Eight columns
+/* Narrow shells — the web build on a phone, or a split window. Ten columns
    cannot fit, so they fold in two stages. The raw input/output/cache split goes
-   first; the hit rate folds only on the narrowest screens. Numeric columns
+   first; the hit rate and speed fold only on the narrowest screens. Numeric columns
    retain their intrinsic width, including currency signs and partial markers. */
 @media (max-width: 900px) {
   .stats-table {

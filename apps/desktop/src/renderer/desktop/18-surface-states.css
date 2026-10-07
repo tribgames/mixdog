@@ -187,10 +187,10 @@
 .desktop-recovery-actions button {
   min-height: 32px;
   padding: 0 13px;
-  border: 1px solid var(--mx-border);
+  border: 1px solid transparent;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
+  background: var(--mx-action-bg);
   cursor: pointer;
 }
 .desktop-recovery-actions button.primary {

@@ -1,0 +1,194 @@
+// Effort-judge client. The judge is preloaded at boot (and when the feature is
+// turned on) and stays resident. A turn waits for a still-loading judge only
+// briefly; when the model is missing, still loading, slow, or failing,
+// `judgeTurn` returns a `skipped` reason and the turn keeps its default
+// effort. Decisions are logged locally (lengths and probabilities only, never
+// the request text).
+import { Worker } from 'node:worker_threads';
+import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { resolvePluginData } from '../shared/plugin-paths.mjs';
+
+const WORKER_PATH = fileURLToPath(new URL('./judge-worker.mjs', import.meta.url));
+const MODEL_FILES = ['model.onnx', 'tokenizer.json'];
+// The worker runs one judgment at a time, so requests are sent one by one:
+// each answer's deadline starts when it is sent, and the wait for earlier
+// requests is bounded separately so a burst of turns queues instead of
+// timing out behind each other.
+const WARM_TIMEOUT_MS = 400;
+const QUEUE_WAIT_MS = 1000;
+let queueTail = Promise.resolve();
+// A turn that arrives while the judge is still loading (boot, re-enable)
+// waits at most this long; loading takes about 2 s on a desktop CPU.
+const COLD_WAIT_MS = 3000;
+
+let worker = null;
+let workerDir = '';
+let ready = false;
+let lastLoadError = '';
+let lastLoadErrorAt = 0;
+// After a failed load the judge is not retried (and turns do not wait on it)
+// for this long, so a broken model cannot add the cold wait to every turn.
+const LOAD_RETRY_MS = 60_000;
+let msgId = 0;
+const pending = new Map();
+let readyWaiters = [];
+
+function notifyReady(value) {
+  const waiters = readyWaiters;
+  readyWaiters = [];
+  for (const wake of waiters) wake(value);
+}
+
+function waitReady(ms) {
+  if (ready) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const wake = (value) => {
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      readyWaiters = readyWaiters.filter((entry) => entry !== wake);
+      resolve(false);
+    }, ms);
+    readyWaiters.push(wake);
+  });
+}
+
+export function effortJudgeModelDir() {
+  return process.env.MIXDOG_EFFORT_JUDGE_DIR || join(resolvePluginData(), 'models', 'effort-judge');
+}
+
+export function effortJudgeAvailable(dir = effortJudgeModelDir()) {
+  return MODEL_FILES.every((file) => existsSync(join(dir, file)));
+}
+
+function settle(id, fn) {
+  const entry = pending.get(id);
+  if (!entry) return;
+  pending.delete(id);
+  clearTimeout(entry.timer);
+  fn(entry);
+}
+
+function ensureWorker(dir) {
+  if (worker && workerDir === dir) return worker;
+  if (worker) void worker.terminate().catch(() => {});
+  const created = new Worker(WORKER_PATH, { workerData: { dir } });
+  created.unref();
+  worker = created;
+  workerDir = dir;
+  ready = false;
+  created.on('message', (msg) => {
+    if (msg.type === 'ready') {
+      ready = true;
+      lastLoadError = '';
+      notifyReady(true);
+    } else if (msg.type === 'load-error') {
+      lastLoadError = msg.message;
+      lastLoadErrorAt = Date.now();
+      notifyReady(false);
+    } else if (msg.type === 'result') {
+      settle(msg.id, (entry) => entry.resolve(msg.probs));
+    } else if (msg.type === 'error') {
+      settle(msg.id, (entry) => entry.reject(new Error(msg.message)));
+    }
+  });
+  const retire = () => {
+    if (worker === created) {
+      worker = null;
+      ready = false;
+      notifyReady(false);
+    }
+    for (const id of [...pending.keys()]) settle(id, (entry) => entry.reject(new Error('effort judge exited')));
+  };
+  created.on('error', (error) => {
+    lastLoadError = String(error?.message || error);
+    lastLoadErrorAt = Date.now();
+    retire();
+  });
+  created.on('exit', retire);
+  return created;
+}
+
+function request(target, { request: text, prev }) {
+  const id = ++msgId;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => settle(id, (entry) => entry.reject(new Error('timeout'))), WARM_TIMEOUT_MS);
+    pending.set(id, { resolve, reject, timer });
+    // The worker formats the text the way its model was trained.
+    target.postMessage({ action: 'judge', id, request: String(text || ''), prev: String(prev || '') });
+  });
+}
+
+/** Start loading the judge (idempotent). False when the model is not installed. */
+export function warmEffortJudge() {
+  const dir = effortJudgeModelDir();
+  if (!effortJudgeAvailable(dir)) return false;
+  ensureWorker(dir);
+  return true;
+}
+
+export function effortJudgeReady() {
+  return ready;
+}
+
+/** What the settings card shows about the judge. */
+export function effortJudgeInfo(dir = effortJudgeModelDir()) {
+  let modelBytes = 0;
+  try {
+    modelBytes = statSync(join(dir, 'model.onnx')).size;
+  } catch {
+    /* not installed */
+  }
+  return { model: 'mmBERT-small', quantization: '4-bit', engine: 'ONNX Runtime', device: 'CPU', modelBytes, ready };
+}
+
+/**
+ * Probabilities over the four levels (easy, normal, hard, very hard) for this turn, or `{ skipped }` when the
+ * judge cannot answer in time. A judge that is still loading gets a short
+ * grace period; a crashed one is restarted here.
+ */
+export async function judgeTurn(input) {
+  const dir = effortJudgeModelDir();
+  if (!effortJudgeAvailable(dir)) return { skipped: 'model-missing' };
+  if (!worker && lastLoadError && Date.now() - lastLoadErrorAt < LOAD_RETRY_MS) {
+    return { skipped: `load-error: ${lastLoadError}` };
+  }
+  const target = ensureWorker(dir);
+  if (!ready && !(await waitReady(COLD_WAIT_MS))) {
+    return { skipped: lastLoadError ? `load-error: ${lastLoadError}` : 'warming' };
+  }
+  const queuedAt = Date.now();
+  const run = queueTail.then(async () => {
+    if (worker !== target || !ready) return { skipped: 'effort judge exited' };
+    if (Date.now() - queuedAt > QUEUE_WAIT_MS) return { skipped: 'busy' };
+    const startedAt = Date.now();
+    try {
+      return { probs: await request(target, input), ms: Date.now() - startedAt };
+    } catch (error) {
+      return { skipped: String(error?.message || error) };
+    }
+  });
+  queueTail = run;
+  return run;
+}
+
+export function recordEffortDecision(entry) {
+  try {
+    const dir = join(resolvePluginData(), 'effort-judge');
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, 'decisions.jsonl'), `${JSON.stringify(entry)}\n`);
+  } catch {
+    /* the log is diagnostic only */
+  }
+}
+
+export async function shutdownEffortJudge() {
+  const current = worker;
+  worker = null;
+  ready = false;
+  notifyReady(false);
+  if (current) await current.terminate().catch(() => {});
+}

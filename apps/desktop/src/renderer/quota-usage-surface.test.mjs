@@ -151,7 +151,7 @@ test('the usage dialog header switches to subscription usage and opens there nex
   assert.equal(tab('Token usage').getAttribute('aria-selected'), 'true');
   assert.equal(document.querySelector('.mixdog-settings__header [role="tablist"]'), tab('Token usage').parentElement);
   assert.equal(calls.length, 0, 'token usage never asks for quota history');
-  await act(async () => tab('Subscription usage').click());
+  await act(async () => tab('OAuth usage').click());
   assert.deepEqual(calls[0], { provider: '', account: '', window: '', view: 'window' });
   assert.equal(window.localStorage.getItem('mixdog.desktop.usage-surface-mode.v1'), 'quota');
   assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog.desktop.usage-quota-subscription.v1')), {
@@ -177,7 +177,7 @@ test('the usage dialog header switches to subscription usage and opens there nex
   assert.deepEqual(texts('.stats-card small'), [
     t('Used'),
     t('Allowance to reset'),
-    t('List-price value'),
+    t('Est. value'),
     t('Per 1%'),
   ]);
   assert.equal(document.querySelectorAll('.stats-card > b')[0].textContent, '30%');
@@ -191,13 +191,14 @@ test('the usage dialog header switches to subscription usage and opens there nex
     t('{{time}} left', { time: '3h 30m' })
   );
   const { summary } = responses.at(-1);
-  assert.ok(
-    summary.costPerPercent > 0.1 && summary.costPerPercent <= 0.12,
-    'existing history supplies a value immediately, weighted toward the newer $2.4 / 20-point observation'
-  );
-  assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, usageMoney(summary.costPerPercent * 100));
-  assert.equal(document.querySelectorAll('.stats-card')[2].querySelector('em'), null);
-  assert.equal(document.querySelectorAll('.stats-card > b')[3].textContent, usageMoney(summary.costPerPercent));
+  // Two priced rises and no earlier window: too little to value the limit
+  // in dollars yet, and both value cards say why.
+  assert.equal(summary.costPerPercent, null);
+  const notEnough = t('Not enough measured usage to estimate.');
+  for (const index of [2, 3]) {
+    assert.equal(document.querySelectorAll('.stats-card > b')[index].textContent, '—');
+    assert.equal(document.querySelectorAll('.stats-card')[index].querySelector('em').textContent, notEnough);
+  }
   // 30 % in the first hour runs out 2 h 20 m later, before the 18:00 reset.
   assert.equal(document.querySelectorAll('.stats-card')[0].dataset.tone, 'danger');
   assert.deepEqual(texts('.quota-mix li > b'), ['20%', '10%', '70%']);
@@ -232,10 +233,10 @@ test('the usage dialog header switches to subscription usage and opens there nex
   assert.equal(document.querySelectorAll('.quota-history-table tbody tr').length, 1);
   assert.equal(document.querySelector('.quota-history-pager'), null, 'one page needs no pager');
   assert.match(document.querySelector('.quota-history-table').textContent, new RegExp(t('In progress')));
-  // A window's list-price value: in all, per percent of the limit, and the whole limit at that rate.
+  // A window's list-price value: the recorded money, and no rate-based figures before the rate is known.
   assert.deepEqual(
     [...document.querySelector('.quota-history-table tbody tr').cells].slice(-3).map((cell) => cell.textContent),
-    [usageMoney(3), usageMoney(summary.costPerPercent), usageMoney(summary.costPerPercent * 100)]
+    [usageMoney(3), '—', '—']
   );
 
   await act(async () => button('Last 24 hours').click());
@@ -243,7 +244,7 @@ test('the usage dialog header switches to subscription usage and opens there nex
   assert.deepEqual(texts('.stats-card small'), [
     t('Times maxed out'),
     t('Period usage'),
-    t('List-price value'),
+    t('Est. value'),
     t('Per 1%'),
   ]);
   // The day holds the whole five-hour window, which rose from 0 to 30 %.
@@ -251,7 +252,7 @@ test('the usage dialog header switches to subscription usage and opens there nex
 
   await render({ ...props, open: false });
   await render(props);
-  assert.equal(tab('Subscription usage').getAttribute('aria-selected'), 'true', 'the last choice reopens');
+  assert.equal(tab('OAuth usage').getAttribute('aria-selected'), 'true', 'the last choice reopens');
 });
 
 test('subscription values distinguish recorded money, inferred outside use and their total', async (context) => {
@@ -480,7 +481,7 @@ test('a provider meter opens its own subscription window', async (context) => {
   focusQuotaUsage({ provider: 'anthropic-oauth', window: '7D' });
   await render({ surface: 'stats', open: true, onClose() {}, api });
   assert.equal(peekQuotaFocus(), null, 'the request is consumed by the opening it asked for');
-  assert.equal(tab('Subscription usage').getAttribute('aria-selected'), 'true');
+  assert.equal(tab('OAuth usage').getAttribute('aria-selected'), 'true');
   assert.deepEqual(calls[0], { provider: 'anthropic-oauth', account: '', window: '7D', view: 'window' });
   assert.equal(document.querySelector('.quota-window[aria-pressed="true"]').textContent, '7D');
   assert.equal(document.querySelectorAll('.stats-card > b')[0].textContent, '12%');

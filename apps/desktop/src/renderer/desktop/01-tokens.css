@@ -77,6 +77,11 @@
   --mx-bg-contrast: #5c5c61;
   /* Surface-base: translucent plate used by chat bubbles. */
   --mx-surface-plate: rgba(255, 255, 255, 0.035);
+  /* Container grammar, every theme: cards (settings groups, usage groups,
+     code blocks, tables, charts) have no fill of their own — one hairline
+     frame on whatever surface holds them. Controls and chips are flat fills. */
+  --mx-item-surface: transparent;
+  --mx-item-outline: var(--mx-card-outline);
   /* Prompt card and user bubble: one step above the sheet, so the composer
      and the bubble read as the same raised plate; the card also carries a
      soft drop under the shell's raised edge. The drop's negative spread keeps
@@ -295,6 +300,12 @@
      their own pair from the TUI palette. */
   --mx-scrollbar-thumb: color-mix(in srgb, var(--mx-text) 24%, transparent);
   --mx-scrollbar-thumb-hover: color-mix(in srgb, var(--mx-text) 42%, transparent);
+  /* Meter graphics have their own contrast target; status text keeps its
+     readable ink even when a theme uses brighter warning/danger fills. */
+  --mx-meter-track: color-mix(in srgb, var(--mx-text) 13%, transparent);
+  --mx-meter-fill: color-mix(in srgb, var(--mx-text) 52%, transparent);
+  --mx-meter-warning: var(--mx-warning);
+  --mx-meter-danger: var(--mx-danger);
   /* The v2 token sheet says alpha-light-30 for the dark scrim, but the
      the desktop shell dims dialogs DARK; a white haze over a dark
      shell reads as washed out. Dim with black in both themes. */
@@ -393,7 +404,7 @@
   --mx-popup-radius: var(--mx-radius-xl);
   --mx-popup-radius-card: var(--mx-radius-sheet);
   --mx-menu-inset: 6px;
-  --mx-menu-row-height: 32px;
+  --mx-menu-row-height: 30px;
   /* Body-level stacking scale (fixed or portaled layers): modal scrims sit
      under toasts, every transient menu, picker and sheet rides the menu layer
      above both, and tooltips top it so a control inside a menu still shows
@@ -408,18 +419,21 @@
      a 4% ink tint under a muted hairline, so it reads as a button on the same
      base plate without a filled block. */
   --mx-popup-action-bg: color-mix(in srgb, var(--mx-text) 4%, transparent);
-  /* Card and plate steps shared by the flat shell: a grouped card's whisper
-     edge (Settings groups, dialog lists, usage cards), and the hover and
-     selected plates a flat item wears (workspace tabs). */
-  --mx-card-outline: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-text) 6%, transparent);
+  /* Secondary action buttons (settings rows, dialog bodies): a flat hover
+     fill with no ring, like the chips. */
+  --mx-action-bg: var(--mx-hover);
+  --mx-action-ring: none;
+  /* The one card frame: the muted structure hairline. */
+  --mx-card-outline: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   /* The app's one hover wash: at 4% a hovered tab sat at 1.09:1 on the sheet,
      half the step every other hover takes. */
   --mx-plate-hover: var(--mx-hover);
   /* Selected rides the app's pressed fill (a selected session row's too), a
      clear step over the hover wash. */
   --mx-plate-selected: var(--mx-pressed);
-  --mx-popup-action-ring: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
-  --mx-popup-action-ring-hover: inset 0 0 0 var(--mx-hairline) var(--mx-border-strong);
+  /* Dialog footer buttons are flat fills like every other button. */
+  --mx-popup-action-ring: none;
+  --mx-popup-action-ring-hover: none;
   /* Hover bridge geometry — the transparent frame that JOINS a card to the
      control it hangs off (user: 투명으로 중간에 이어주는 프레임). Reach clears
      the card's 6px offset and still overlaps the control, so no hairline of
@@ -528,45 +542,32 @@
 }
 
 :root[data-mixdog-theme="light"] {
-  /* NEUTRAL paper (user: 웹으로 볼 때 갈색빛이 많이 돈다): the warm
-     re-tint used to be corrected by a desktop-only surface override, so the
-     browser/APK shell — which never carried that attribute — rendered the
-     raw brown set. The neutral values live on the theme itself now, so
-     light and dark share one temperature everywhere. */
+  /* Neutral paper: equal RGB channels keep the chrome free of a violet
+     cast. Shared by desktop, browser and APK surfaces. */
 
   /* ── 2. Surfaces (back → front) ──
-     The dark ramp mirrored onto paper (user: 다크랑 통일감): the same depth
-     order deep < band < sheet < base, the same +3 blue offset on every grey,
-     and steps wide enough to read on white — the old set ran 2-5 steps apart
-     and put deep ABOVE the band, so the shell read as one flat grey sheet. */
-  --mx-bg-deep: #e8e8eb;
-  --mx-window-band: #efeff2;
-  /* Chat canvas one clear step under white so white cards (code, tables,
-     composer field) float on it, as base floats on the dark sheet. */
-  --mx-workspace-sheet: #f8f8fb;
+     Grok Bot's light ladder: subtle grey sidebar (#f7f7f7), near-white
+     reading canvas (#fcfcfc), white popups and prompt card. Controls, chips,
+     bubbles and selections are flat grey fills; items carry no outlines. */
+  --mx-bg-deep: #e8e8e8;
+  --mx-window-band: #f7f7f7;
+  --mx-workspace-sheet: #fcfcfc;
   --mx-bg-base: #ffffff;
-  --mx-bg-layer-1: #f4f4f7;
-  --mx-bg-layer-2: #ececef;
-  --mx-bg-layer-3: #e3e3e6;
-  --mx-bg-contrast: #242427;
-  --mx-surface-plate: rgba(23, 24, 26, 0.045);
-  /* Paper: the prompt card stays white on the sheet, the bubble one grey step. */
+  --mx-bg-layer-1: #f3f3f3;
+  --mx-bg-layer-2: #eeeeee;
+  --mx-bg-layer-3: #e8e8e8;
+  --mx-bg-contrast: #141414;
+  --mx-surface-plate: rgba(119, 119, 119, 0.09);
+  /* Paper: the prompt card stays white; the bubble is Grok's grey fill. */
   --mx-composer-surface: var(--mx-bg-base);
-  --mx-composer-lift: 0 10px 20px -4px rgb(0 0 0 / 6%);
+  --mx-composer-lift: 0 2px 8px -2px rgb(0 0 0 / 4%);
   --mx-user-bubble: var(--mx-bg-layer-2);
 
   /* ── 3. Ink ── */
-  /* Deep ink, one step off black — the paper mirror of dark's #e9e9e9 (not
-     pure white), matching the ink reference light themes use. It still sits
-     at ≥13:1, so prose never reads grey (user-flagged twice). Muted/faint carry
-     the surfaces' +3 offset instead of their own stronger blue cast. */
-  --mx-text: #242529;
-  /* Muted stays at the reference light themes' secondary-ink level (6.3:1 on
-     the sheet; Primer 6.1, VS Code 6.2), keeping a 2.3x gap under the body
-     ink — a darker muted flattened the hierarchy. Faint is the same ink (see the
-     dark set): the lighter greys tried under it fell below AA on the plates
-     (#6a6a6e reached 4.2:1 on layer-3). */
-  --mx-text-muted: #5c5c60;
+  /* Strong prose, quieter metadata; both remain AA-readable even on the
+     deepest regular plate, layer-3. Status and link colors stay semantic. */
+  --mx-text: #141414;
+  --mx-text-muted: #606060;
   --mx-text-faint: var(--mx-text-muted);
   /* Google Blue 800 for INK: the 700 rung #1967d2 fell to 4.2:1 on the grey
      plates. The filled accent surface (--mx-accent-bg) keeps 700. */
@@ -575,21 +576,22 @@
   --mx-md-code: var(--mx-text-accent);
   --mx-icon: var(--mx-text);
   --mx-icon-muted: var(--mx-text-muted);
-  /* Neutral hairlines: the warm alpha set pulled every seam brown. */
-  --mx-border-muted: rgba(23, 24, 26, 0.1);
-  --mx-border: rgba(23, 24, 26, 0.14);
+  /* Grok's weak / default / strong hairlines. */
+  --mx-border-muted: rgba(20, 20, 20, 0.1);
+  --mx-border: rgba(20, 20, 20, 0.15);
   --mx-border-structure: var(--mx-border-muted);
-  --mx-border-strong: rgba(23, 24, 26, 0.26);
+  --mx-border-strong: rgba(20, 20, 20, 0.3);
 
   /* ── 4. Interaction ── */
   --mx-focus: var(--mx-border-strong);
-  /* Same 6 / 10 steps as dark: at 5% a hovered row barely lifted off paper. */
-  --mx-hover: rgba(0, 0, 0, 0.06);
-  --mx-pressed: rgba(0, 0, 0, 0.1);
-  /* Opaque sidebar-row tones (hover/selected under opaque action gradients). */
-  --mx-hover-opaque: #e8e8eb;
-  --mx-pressed-opaque: #e1e1e4;
-  --mx-scrim: rgba(20, 20, 22, 0.38);
+  /* Grok's ghost hover / selected fills. */
+  --mx-hover: rgba(119, 119, 119, 0.09);
+  --mx-pressed: rgba(119, 119, 119, 0.17);
+  /* The same two fills flattened over the #fcfcfc navigation panel, for rows
+     that stack opaque action gradients on top. */
+  --mx-hover-opaque: #f0f0f0;
+  --mx-pressed-opaque: #e6e6e6;
+  --mx-scrim: rgba(20, 20, 20, 0.5);
   --mx-accent-bg: #1967d2;
   --mx-contrast-hover: rgba(255, 255, 255, 0.122);
 
@@ -602,6 +604,10 @@
      band and raised plates; #8f6000 still dipped to 4.3 on layer-3, so one
      more rung keeps the warm hue legible on every plate. */
   --mx-warning: #855900;
+  --mx-meter-track: #ededed;
+  --mx-meter-fill: #737373;
+  --mx-meter-warning: #b77900;
+  --mx-meter-danger: #cf4249;
   --mx-success-bg: #e7f9ea;
   /* Google Green 800: #198b43 read 3.7-4.4:1 on the paper plates. */
   --mx-success: #137333;
@@ -615,14 +621,13 @@
   --mx-switch-on:
     inset 0 2px 2px rgba(0, 0, 0, 0.102), inset 0 1px 1px rgba(0, 0, 0, 0.102), inset 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.2);
   --mx-switch-thumb-shadow: 0 0.5px 0.5px rgba(0, 0, 0, 0.4);
-  --mx-switch-thumb-border: rgba(23, 24, 26, 0.25);
-  /* Same two-drop + hairline build as the dark set; the drops are strong
-     enough to lift a white card off the paper sheet (the old 4%/8% pair did
-     not register, so cards leaned on the hairline alone). */
-  --mx-raised: 0 2px 4px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.12);
+  --mx-switch-thumb-border: rgba(0, 0, 0, 0.25);
+  /* Resting cards stay nearly flat; floating menus retain their elevation. */
+  --mx-raised: 0 1px 2px rgba(0, 0, 0, 0.03), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.1);
   --mx-floating: 0 8px 16px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.06), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.12);
   --mx-overlay: 0 16px 32px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.08), 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.12);
   --mx-shadow-tint: rgba(0, 0, 0, 0.22);
+  --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 12%), 0 2px 6px rgb(0 0 0 / 6%);
   --mx-chart-purple: #8066b0;
   --mx-chart-teal: #398e82;
   --mx-chart-gold: #a88435;
@@ -634,7 +639,7 @@
   --mx-chart-sky: #5a95b1;
   --mx-chart-violet: #ab7cbb;
   --mx-chart-grey: #7b8088;
-  --mx-chip-bg: rgba(23, 24, 26, 0.05);
+  --mx-chip-bg: rgba(0, 0, 0, 0.05);
   --mx-button: 0 0 0 var(--mx-hairline) rgba(0, 0, 0, 0.141);
   --mx-button-contrast: 0 0 0 var(--mx-hairline) #3a3a3a;
 }

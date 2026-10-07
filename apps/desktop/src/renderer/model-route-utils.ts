@@ -102,6 +102,7 @@ export function routeOption(value: UnknownRecord): DesktopModelOption {
     ...(value.supportsVision === true ? { supportsVision: true } : {}),
     ...(value.defaultEffort ? { defaultEffort: String(value.defaultEffort) } : {}),
     ...(value.defaultFast === true ? { defaultFast: true } : {}),
+    ...(value.autoEffortCapable === true ? { autoEffortCapable: true } : {}),
     modelParameterOptions,
     parameterVariants: Array.isArray(value.parameterVariants)
       ? (value.parameterVariants as Array<Record<string, string>>)

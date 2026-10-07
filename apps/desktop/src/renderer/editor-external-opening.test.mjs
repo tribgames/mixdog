@@ -56,18 +56,18 @@ async function mountNavigation(t, api) {
   return { current, tabs, opened };
 }
 
-test('desktop document clicks launch the default app without tabs, reads or navigation history', async (t) => {
+test('desktop documents, installers and archives launch the default app without tabs, reads or navigation history', async (t) => {
   const external = [];
   const reads = [];
   const view = await mountNavigation(t, {
     openFilePath: async (...args) => external.push(args),
     readProjectFile: async (...args) => reads.push(args),
   });
-  for (const rel of ['deck.pptx', 'legacy.ppt', 'report.docx', 'sheet.xlsx', 'image.tiff', 'movie.mkv', 'chart.svg', 'Chart.SVG']) {
+  for (const rel of ['deck.pptx', 'legacy.ppt', 'report.docx', 'sheet.xlsx', 'image.tiff', 'movie.mkv', 'chart.svg', 'Chart.SVG', 'run.exe', 'setup.msi', 'archive.zip']) {
     await act(async () => view.current.value.openFileTab(' C:/Project/demo ', `docs\\${rel}`, undefined, 'grant'));
     assert.deepEqual(external.at(-1), ['C:/Project/demo', `docs/${rel}`, 'grant']);
   }
-  assert.equal(external.length, 8);
+  assert.equal(external.length, 11);
   assert.deepEqual(reads, []);
   assert.deepEqual(view.tabs, []);
   assert.deepEqual(view.opened, []);
@@ -95,7 +95,7 @@ test('a failed external launch reports the error without opening a blank editor'
 test('native previews, text and unsafe files retain editor routing without launching apps', async (t) => {
   const external = [];
   const view = await mountNavigation(t, { openFilePath: async (...args) => external.push(args) });
-  const names = ['image.png', 'report.pdf', 'audio.mp3', 'movie.mp4', 'note.md', 'run.exe', 'deck.pptm', 'data.bin'];
+  const names = ['image.png', 'report.pdf', 'audio.mp3', 'movie.mp4', 'note.md', 'run.ps1', 'deck.pptm', 'data.bin'];
   for (const rel of names) {
     await act(async () => view.current.value.openFileTab('C:/Project/demo', rel));
     assert.equal(view.opened.at(-1)[0].rel, rel);

@@ -1532,6 +1532,7 @@
 .thread-welcome-task {
   position: absolute;
   inset: 0;
+  bottom: var(--composer-dock-height, 0px);
   width: auto;
   display: grid;
   place-content: center;
@@ -1776,7 +1777,7 @@
   align-items: center;
   gap: 7px;
   padding: 0 7px;
-  border: 1px solid var(--mx-border-muted);
+  border: 1px solid transparent;
   border-radius: var(--mx-radius-sm);
   color: var(--mx-text);
   font-size: var(--mx-font-minor);
@@ -1807,10 +1808,10 @@
   justify-content: center;
   gap: 5px;
   padding: 0 10px;
-  border: 1px solid var(--mx-border-muted);
+  border: 1px solid transparent;
   border-radius: var(--mx-radius-sm);
   color: var(--mx-text);
-  background: transparent;
+  background: var(--mx-action-bg);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-minor);
@@ -2020,10 +2021,10 @@
   min-height: 25px;
   margin-top: 4px;
   padding: 0 9px;
-  border: 1px solid var(--mx-border-muted);
+  border: 1px solid transparent;
   border-radius: var(--mx-radius-sm);
   color: var(--mx-text);
-  background: transparent;
+  background: var(--mx-action-bg);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-minor);
@@ -2331,10 +2332,10 @@ i.dock-pr-row-checks[data-checks="pending"] {
   align-items: center;
   gap: 5px;
   padding: 0 10px;
-  border: 1px solid var(--mx-border-muted);
+  border: 1px solid transparent;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: transparent;
+  background: var(--mx-action-bg);
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
@@ -2382,10 +2383,10 @@ i.dock-pr-row-checks[data-checks="pending"] {
   max-width: 100%;
   padding: 1px 7px;
   overflow: hidden;
-  border: 1px solid var(--mx-border-muted);
+  border: 1px solid transparent;
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
-  background: var(--mx-pressed);
+  background: var(--mx-hover);
   font-size: var(--mx-font-micro);
   line-height: var(--mx-line-minor);
   text-overflow: ellipsis;
@@ -2484,7 +2485,7 @@ i.dock-pr-row-checks[data-checks="pending"] {
   align-items: center;
   gap: 7px;
   padding: 6px 8px;
-  border: 1px solid var(--mx-border-muted);
+  border: 1px solid transparent;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);

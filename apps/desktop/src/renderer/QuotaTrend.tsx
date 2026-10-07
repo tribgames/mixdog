@@ -453,7 +453,13 @@ export function QuotaTrend({
               </span>
             ))}
             {marker && (
-              <span className="quota-chart-marker" style={{ left: left(marker.time), top: `${y(100)}%` }}>
+              // The label grows toward the chart's middle from its dot, so a
+              // run-out near either edge never spills past the plot.
+              <span
+                className="quota-chart-marker"
+                data-side={x(marker.time) > WIDTH / 2 ? 'end' : 'start'}
+                style={{ left: left(marker.time), top: `${y(100)}%` }}
+              >
                 {marker.label}
               </span>
             )}
@@ -531,7 +537,7 @@ export function QuotaTrend({
                   <dd>{statsTokens(active.tokens)}</dd>
                 </div>
                 <div>
-                  <dt>{t('List-price value')}</dt>
+                  <dt>{t('Est. value')}</dt>
                   <dd title={`${quotaValueBreakdown(active)}\n${quotaValueCaution()}`}>{quotaValue(active)}</dd>
                 </div>
               </dl>

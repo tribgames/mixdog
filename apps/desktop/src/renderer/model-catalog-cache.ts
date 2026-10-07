@@ -103,6 +103,7 @@ function modelOption(value: unknown): DesktopModelOption | null {
       : {}),
     ...(typeof option.defaultEffort === 'string' ? { defaultEffort: option.defaultEffort } : {}),
     ...(typeof option.defaultFast === 'boolean' ? { defaultFast: option.defaultFast } : {}),
+    ...(option.autoEffortCapable === true ? { autoEffortCapable: true } : {}),
     modelParameterOptions: parameterOptions(option.modelParameterOptions),
     parameterVariants: parameterVariants(option.parameterVariants),
     defaultModelParameters: stringRecord(option.defaultModelParameters),

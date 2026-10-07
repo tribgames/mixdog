@@ -15,6 +15,7 @@ import { preserveGoalStateAfterTurn } from './goal-turn-state.mjs';
 export { preserveGoalStateAfterTurn } from './goal-turn-state.mjs';
 export { transcriptToolCallDisplayMode } from './turn-tool-cards.mjs';
 import { safeErrorDetails } from '../../runtime/shared/error-presentation.mjs';
+import { registerTaskWaitSteeringCheck } from '../../runtime/agent/orchestrator/session/task-wait-control.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { yieldToRenderer } from './render-timing.mjs';
 import {
@@ -417,6 +418,7 @@ function turnDoneItem({ turn, stream, cards, getState, nextId }) {
     thinkingElapsedMs: stream.thinkingStartedAt ? stream.accumulatedThinkingMs : 0,
     toolCount: cards.toolCards.length,
     verb: turn.completionVerb,
+    ...(typeof turn.askResult?.autoEffort === 'string' ? { autoEffort: turn.askResult.autoEffort } : {}),
     at: Date.now(),
     ...(turn.failureDetail ? { detail: turn.failureDetail } : {}),
     ...(turn.failureDiagnostic ? { errorDetails: turn.failureDiagnostic } : {}),
@@ -572,6 +574,9 @@ export function createRunTurn(bag) {
       isCurrentTurn,
       markPromptCommitted: () => commitPromptRestore(flags, turn),
     };
+    const stopTaskWaitSteeringCheck = registerTaskWaitSteeringCheck(
+      (sessionId) => isCurrentTurn() && runtime.id === sessionId && bag.hasPendingSteering()
+    );
     try {
       const { result, session } = await runtime.ask(userText, {
         id: turn.submittedIds[0],
@@ -590,6 +595,7 @@ export function createRunTurn(bag) {
       if (!isCurrentTurn()) turn.cancelled = true;
       else failTurn(ctx, error);
     } finally {
+      stopTaskWaitSteeringCheck();
       closeTurn(ctx, stopLiveTail);
     }
     return settleTurn(ctx);

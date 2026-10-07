@@ -176,7 +176,7 @@ if (mixdogInstalledApp) {
   // the color the settled app keeps, so releasing it never changes the backdrop.
   mixdogGate.textContent =
     'html[data-mixdog-booting]{background:' +
-    (mixdogLight ? '#efeff2' : '#151518') +
+    (mixdogLight ? '#f7f7f7' : '#151518') +
     '}' +
     'html[data-mixdog-booting] #root{opacity:0}' +
     '#root{transition:opacity 160ms ease-out}';

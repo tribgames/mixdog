@@ -25,6 +25,8 @@ export type TranscriptItem = RecordValue & {
   status?: string;
   tone?: string;
   verb?: string;
+  /** Effort Auto reasoning picked for this turn (turndone rows). */
+  autoEffort?: string;
   elapsedMs?: number;
   startedAt?: number;
   completedAt?: number;

@@ -171,7 +171,7 @@ function QuotaTable({
     <div className="usage-table-shell">
       <table
         className="usage-table stats-table quota-table"
-        aria-label={t('Subscription usage')}
+        aria-label={t('OAuth usage')}
         inert={loading ? true : undefined}
       >
         <thead>
@@ -185,6 +185,9 @@ function QuotaTable({
               {t('Share')}
             </th>
             <th scope="col">{t('Requests')}</th>
+            <th scope="col" className="stats-optional" title={t('Speed')}>
+              tok/s
+            </th>
             <th scope="col" className="stats-breakdown" title={t('Fresh input plus cache writes')}>
               {t('Input')}
             </th>
@@ -200,8 +203,8 @@ function QuotaTable({
             <th scope="col" className="stats-total-cell">
               {t('Tokens')}
             </th>
-            <th scope="col" className="stats-cost-cell">
-              {t('List-price value')}
+            <th scope="col" className="stats-cost-cell" title={t('List-price value')}>
+              {t('Est. value')}
             </th>
           </tr>
         </thead>
@@ -215,9 +218,8 @@ function QuotaTable({
                   aria-expanded={open}
                   onClick={() => setOpen((current) => !current)}
                 >
-                  <ChevronDown className="stats-provider-chevron" aria-hidden="true" />
-                  <ProviderIcon provider={provider} />
                   <b>{subscriptionLabel(provider) ?? usageProviderLabel(providerDisplayName(provider))}</b>
+                  <ChevronDown className="stats-provider-chevron" aria-hidden="true" />
                 </button>
                 <div className="stats-provider-share" aria-hidden="true">
                   <i className="stats-share">
@@ -226,7 +228,7 @@ function QuotaTable({
                 </div>
               </td>
               <td className="stats-share-cell">{quotaPercent(consumed)}</td>
-              <RouteCells route={totals} costValue={quotaValue(summary)} />
+              <RouteCells route={totals} costValue={quotaValue(summary)} speed />
             </tr>
             {open &&
               models.map((row) => {
@@ -237,7 +239,7 @@ function QuotaTable({
                       {name}
                     </td>
                     <td className="stats-share-cell">{quotaPercent(row.consumed)}</td>
-                    <RouteCells route={row} />
+                    <RouteCells route={row} speed />
                   </tr>
                 );
               })}
@@ -245,7 +247,7 @@ function QuotaTable({
               <tr className="stats-model-row">
                 <td className="stats-model-cell">{t('Outside Mixdog')}</td>
                 <td className="stats-share-cell">{quotaPercent(outside)}</td>
-                <td colSpan={6} />
+                <td colSpan={7} />
                 <td className="stats-cost-cell" title={quotaValueCaution()}>
                   {summary.outsideCostUsd == null ? '—' : usageMoney(summary.outsideCostUsd)}
                 </td>
@@ -257,7 +259,7 @@ function QuotaTable({
           <tbody aria-hidden="true">
             {[0, 1, 2].map((index) => (
               <tr className="usage-skeleton-row" key={index}>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <span className="usage-skeleton" style={{ width: '35%' }} />
                 </td>
               </tr>
@@ -267,7 +269,7 @@ function QuotaTable({
         {!loading && !models.length && !(outside > 0) && (
           <tbody>
             <tr>
-              <td className="usage-empty" colSpan={9}>
+              <td className="usage-empty" colSpan={10}>
                 {t('No usage in this period.')}
               </td>
             </tr>
@@ -312,7 +314,9 @@ function QuotaHistory({
             <th scope="col">{t('Period')}</th>
             <th scope="col">{t('Used')}</th>
             <th scope="col">{t('Maxed out')}</th>
-            <th scope="col">{t('List-price value')}</th>
+            <th scope="col" title={t('List-price value')}>
+              {t('Est. value')}
+            </th>
             <th scope="col">{t('Per 1%')}</th>
             <th scope="col">{t('At 100%')}</th>
           </tr>
@@ -534,9 +538,11 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
   // A limit window: the whole limit at Mixdog's own rate, outside use excluded.
   const perPercent = summary.costPerPercent == null ? null : statsNumber(summary.costPerPercent);
   const valueCard: CardSpec = {
-    label: t('List-price value'),
+    label: t('Est. value'),
     value: quotaValue(summary, windowView),
-    detail: `${quotaValueBreakdown(summary)}\n${quotaValueCaution()}\n${t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')}`,
+    // A window is valued over its whole limit, which needs Mixdog's rate.
+    note: windowView && perPercent === null ? t('Not enough measured usage to estimate.') : '',
+    detail: `${quotaValueBreakdown(summary)}\n${quotaValueCaution()}\n${t('OAuth values use list prices. API costs may be estimates; neither is an invoice.')}`,
   };
   const perPercentCard: CardSpec = {
     label: t('Per 1%'),
@@ -592,7 +598,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
       {subscriptionOptions.length > 0 && (
         <OpenSelect
           className="quota-subscription"
-          ariaLabel={t('Subscription')}
+          ariaLabel={t('OAuth')}
           options={subscriptionOptions}
           value={provider}
           localizeLabels={false}
@@ -650,7 +656,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
       )}
       {empty ? (
         <p className="quota-empty">
-          <b>{t('No subscription usage recorded yet.')}</b>
+          <b>{t('No OAuth usage recorded yet.')}</b>
           <span>{t('Mixdog records it from now on whenever it checks provider usage.')}</span>
         </p>
       ) : (

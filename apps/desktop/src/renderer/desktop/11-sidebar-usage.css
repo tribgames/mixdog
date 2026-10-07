@@ -117,8 +117,9 @@
   z-index: -1;
   inset: 0 -8px;
   border-radius: var(--mx-radius-md);
-  /* 2.5%: at 4% the plates read as boxes (user: 좀 더 옅게). */
-  background: color-mix(in srgb, var(--mx-text) 2.5%, transparent);
+  /* The shared item container: a hairline frame, no plate. */
+  background: var(--mx-item-surface);
+  box-shadow: var(--mx-item-outline);
   pointer-events: none;
 }
 .sidebar-usage-provider-icon {
@@ -232,20 +233,20 @@
   min-width: 0;
   height: 5px;
   border-radius: var(--mx-radius-pill);
-  background: color-mix(in srgb, var(--mx-text) 13%, transparent);
+  background: var(--mx-meter-track);
 }
 .sidebar-usage-meter > i > i {
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: inherit;
   /* Same quiet/default → warning → danger ladder as the pinned rail meter. */
-  background: color-mix(in srgb, var(--mx-text) 52%, transparent);
+  background: var(--mx-meter-fill);
 }
 .sidebar-usage-meter.tone-warning > i > i {
-  background: var(--mx-warning);
+  background: var(--mx-meter-warning);
 }
 .sidebar-usage-meter.tone-danger > i > i {
-  background: var(--mx-danger);
+  background: var(--mx-meter-danger);
 }
 .sidebar-usage-meter > b {
   color: var(--mx-text);
@@ -292,7 +293,8 @@
   padding: 8px;
   border: 0;
   border-radius: var(--mx-radius-md);
-  background: color-mix(in srgb, var(--mx-text) 2.5%, transparent);
+  background: var(--mx-item-surface);
+  box-shadow: var(--mx-item-outline);
 }
 .sidebar-usage-reset-heading {
   min-width: 0;
@@ -369,10 +371,10 @@
 .sidebar-usage-reset-actions button {
   min-height: 26px;
   padding: 0 10px;
-  border: 1px solid var(--mx-border-muted);
+  border: 1px solid transparent;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-hover);
+  background: var(--mx-action-bg);
   font-size: var(--mx-font-meta);
 }
 .sidebar-usage-reset-row > button {

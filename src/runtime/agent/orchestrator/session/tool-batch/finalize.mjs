@@ -15,6 +15,7 @@ import { crossTurnSignature, isEditProgressTool } from '../loop/completion-guard
 import { isEagerDispatchable, isToolCallDedupEligible, parseNativeToolSearchPayload } from '../loop/tool-helpers.mjs';
 import { restoreToolCallBodyForId } from '../loop/stored-tool-args.mjs';
 import { stageToolResult } from './state.mjs';
+import { compactToolResultImage, supersedingImageMetadataText } from '../../tools/builtin/read-image-resize.mjs';
 
 // Tools that publish the per-call mutation UI diff side channel (see
 // takeApplyPatchUiDiff): apply_patch plus the edit dialect and its foreign
@@ -31,10 +32,45 @@ const MUTATION_UI_DIFF_TOOLS = new Set([
 export async function finalizeBatchResults(batch) {
   for (const completed of batch.completed) parseNativeToolSearch(completed);
   const offloadStates = await offloadResults(batch);
+  for (const state of offloadStates) {
+    if (state?.result && typeof state.result === 'object') state.result = await compactResultImages(state.result);
+  }
   for (let index = 0; index < batch.completed.length; index += 1) {
     postProcessCompleted(batch, batch.completed[index], offloadStates[index]);
     batch.throwIfAborted();
   }
+}
+
+// Inline tool-result images are re-encoded here, once, before the result
+// reaches the read cache or the transcript; stored history is never revisited.
+export async function compactResultImages(result) {
+  const parts = Array.isArray(result) ? result : Array.isArray(result?.content) ? result.content : null;
+  if (!parts) return result;
+  let changed = false;
+  const next = [];
+  for (const part of parts) {
+    const compacted =
+      part?.type === 'image' && typeof part.data === 'string'
+        ? await compactToolResultImage(part.data, part.mimeType || part.mediaType)
+        : null;
+    if (!compacted) {
+      next.push(part);
+      continue;
+    }
+    changed = true;
+    const dims = compacted.dimensions;
+    if (dims.originalWidth !== dims.displayWidth || dims.originalHeight !== dims.displayHeight) {
+      next.push({ type: 'text', text: supersedingImageMetadataText(dims) });
+    }
+    next.push({
+      ...part,
+      data: compacted.data,
+      mimeType: compacted.mimeType,
+      ...(part.mediaType ? { mediaType: compacted.mimeType } : {}),
+    });
+  }
+  if (!changed) return result;
+  return Array.isArray(result) ? next : { ...result, content: next };
 }
 
 function parseNativeToolSearch(completed) {

@@ -12,6 +12,7 @@ import {
 
 import type { DesktopRemoteBrowserControl, DesktopRemoteBrowserStreamFrame } from '../shared/contract';
 import { remoteBrowserImagePoint } from '../shared/remote-browser';
+import { browserInputNotice } from '../shared/browser-input-policy';
 import { normalizeAddressInput } from './browser-address';
 import { createRemoteBrowserInputQueue } from './remote-browser-input';
 import { createRemoteBrowserInputClient, type RemoteInputFrame } from './remote-browser-input-client';
@@ -35,10 +36,6 @@ export const STREAM_RENEW_MS = 2_000;
 /** Same value as REMOTE_CONNECTION_READY_EVENT (remote-shim-state), which the
  * pane must not import: it would pull the whole shim into this chunk. */
 const REMOTE_CONNECTION_READY_EVENT = 'mixdog:remote-connection-ready';
-/** A control rejected because the page moved on is not an error to show: the
- * next frame carries the new document. */
-const PAGE_CHANGED = /\b(stale|changed)\b/i;
-const reportable = (message: string) => (PAGE_CHANGED.test(message) ? '' : message);
 const TOUCH_INDICATOR_MS = 450;
 const FALLBACK_STREAM_BOX = { maxWidth: 1280, maxHeight: 720 };
 
@@ -74,7 +71,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
         send: async (input) => {
           await api?.remoteBrowserControl?.(ownerSessionId, input);
         },
-        failure: (message) => setActionFailure(reportable(message)),
+        failure: (message) => setActionFailure(browserInputNotice(message)),
         settled: () => {},
       }),
     [api, ownerSessionId]
@@ -118,7 +115,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
           setActionFailure('');
           return inputQueue.enqueue(input);
         },
-        failure: (message) => setActionFailure(reportable(message)),
+        failure: (message) => setActionFailure(browserInputNotice(message)),
         shortcut: (name) => shortcutRef.current(name),
       }),
     [inputQueue]

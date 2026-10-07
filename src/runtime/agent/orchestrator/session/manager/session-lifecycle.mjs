@@ -9,7 +9,11 @@ import { _isActivelyOwnedElsewhere, _recoverTurnCheckpointDurably } from './sess
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
 import { loadConfig } from '../../config.mjs';
-import { buildProviderCacheOpts, cacheCapabilityForProvider } from '../../agent-runtime/cache-strategy.mjs';
+import {
+  buildProviderCacheOpts,
+  cacheCapabilityForProvider,
+  roleProviderCacheOpts,
+} from '../../agent-runtime/cache-strategy.mjs';
 import { normalizeAutoClearConfig, resolveAutoClearIdleMs } from '../../runtime-core/config-helpers.mjs';
 import { _buildBaseRules } from './rules-cache.mjs';
 import { composeSessionSystem, seedSessionMessages } from './session-prompt-composition.mjs';
@@ -43,8 +47,11 @@ export { prefetchSession, prepareSessionProjection } from './prepared-resume-cac
 function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
   // Keep this in sync with createSession's provider-cache policy: only
   // explicit-breakpoint providers get BP cache opts here; OpenAI/key-prefix
-  // providers use promptCacheKey and request-time strategy instead.
-  if (cacheCapabilityForProvider(providerName) !== 'explicit-breakpoint') return null;
+  // providers use promptCacheKey and request-time strategy instead, plus the
+  // shared prompt-cache scope of a one-shot role.
+  if (cacheCapabilityForProvider(providerName) !== 'explicit-breakpoint') {
+    return roleProviderCacheOpts(providerName, agent);
+  }
   try {
     let autoClear = null;
     if (!agent || agent === 'lead') {

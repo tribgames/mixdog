@@ -357,6 +357,15 @@
 .pane-split .workspace-tabs-shell[data-focused="false"] .workspace-tab.active {
   color: color-mix(in srgb, var(--mx-text) 83%, transparent);
 }
+/* Paper chrome stays subordinate to the conversation. Selection uses a
+   neutral fill instead of a second outline; keyboard focus keeps its ring. */
+:root[data-mixdog-theme="light"] .pane-cell .workspace-tab.active:not(.drop-target-right)::before {
+  background: color-mix(in srgb, var(--mx-text) 10%, transparent);
+  box-shadow: none;
+}
+:root[data-mixdog-theme="light"] .pane-split .workspace-tabs-shell[data-focused="false"] .workspace-tab.active:not(.drop-target-right)::before {
+  background: color-mix(in srgb, var(--mx-text) 6%, transparent);
+}
 /* Every tab — the selected one too — shows its X only under the pointer or
    keyboard, keeping its slot so the label never shifts; unsaved work keeps
    its dot visible. */

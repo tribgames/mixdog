@@ -1,7 +1,7 @@
 /* Desktop layer 15 — Prompt dock, model/effort selects, dictation.
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
-/* Prompt input: 96px raised surface and 28px controls. The composer keeps a
+/* Prompt input: 76px resting surface and 28px controls. The composer keeps a
    real floor gap (user: 채팅창 아래 여백이 부족하다) instead of hugging the
    window edge. */
 .composer-region {
@@ -10,6 +10,23 @@
   margin: 0 auto;
   /* Same reading frame as the rows above it — both read the pane ladder. */
   padding: 0 var(--pane-inset) 16px;
+}
+.conversation > .composer-region {
+  position: absolute;
+  z-index: 10;
+  inset-inline: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+.conversation > .composer-region::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -16px 0 0;
+  background: linear-gradient(to bottom, transparent, var(--mx-workspace-sheet) 16px);
+}
+.conversation > .composer-region > :not(.session-goal-host):not(.turn-review-slot) {
+  pointer-events: auto;
 }
 .composer-context-bar {
   min-height: 28px;
@@ -97,7 +114,7 @@
 /* The prompt card: a rounder, one-step-raised plate with no outline — the
    shell's raised edge plus a soft drop lift it off the sheet. */
 .composer {
-  min-height: 84px;
+  min-height: 76px;
   padding: 0;
   border: 0;
   border-radius: var(--mx-radius-sheet);
@@ -119,7 +136,7 @@
   box-shadow: none;
 }
 .composer textarea {
-  min-height: 52px;
+  min-height: 40px;
   /* A keystroke must not invalidate the virtual transcript paint, while
      sibling palettes remain free to paint outside the composer card. */
   contain: paint;
@@ -127,7 +144,7 @@
   field-sizing: content;
   max-height: 180px;
   overflow-y: auto;
-  padding: 16px var(--composer-text-inset) 8px;
+  padding: 8px var(--composer-text-inset);
   color: var(--mx-text);
   /* Same single-face rule as .message-body: typed Korean+Latin must not mix
      Geist/Pretendard ink densities inside one sentence. */
@@ -143,7 +160,7 @@
   color: var(--mx-text-faint);
 }
 .composer-footer {
-  height: 44px;
+  height: 36px;
   gap: 0;
   padding: 0 8px;
 }
@@ -733,10 +750,8 @@
   border: 0;
   border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 65%), var(--mx-bg-layer-1);
-  box-shadow:
-    inset 0 0 0 var(--mx-hairline) var(--mx-border-muted),
-    0 1px 2px color-mix(in srgb, var(--mx-shadow-tint) 34%, transparent);
+  background: transparent;
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
@@ -751,16 +766,12 @@
 .model-option-row[data-active="true"] {
   outline: 0;
   color: var(--mx-text);
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-1);
-  box-shadow:
-    inset 0 0 0 var(--mx-hairline) var(--mx-border),
-    0 2px 5px color-mix(in srgb, var(--mx-shadow-tint) 42%, transparent);
+  background: var(--mx-hover);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
 }
 .model-option-row[aria-selected="true"] {
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 65%), var(--mx-bg-layer-2);
-  box-shadow:
-    inset 0 0 0 1px var(--mx-border-strong),
-    0 2px 5px color-mix(in srgb, var(--mx-shadow-tint) 42%, transparent);
+  box-shadow: inset 0 0 0 1px var(--mx-border-strong);
 }
 .model-option-row[aria-selected="true"]:hover,
 .model-option-row[aria-selected="true"]:focus-visible,
@@ -820,7 +831,7 @@
   justify-content: center;
   border-radius: var(--mx-radius-lg);
   color: var(--mx-text-muted);
-  background: var(--mx-bg-layer-1);
+  background: transparent;
   box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-minor);
@@ -996,13 +1007,13 @@
   max-width: 240px;
   gap: 6px;
   padding: 3px 4px 3px 6px;
-  background: var(--mx-bg-layer-1);
-  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border);
+  background: var(--mx-hover);
+  box-shadow: none;
 }
 .composer-attachments > div:hover,
 .composer-attachments > div:focus-within {
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-1);
-  box-shadow: 0 0 0 1px var(--mx-border-strong);
+  background: var(--mx-pressed);
+  box-shadow: none;
 }
 .composer-attachments > div.image {
   height: 64px;

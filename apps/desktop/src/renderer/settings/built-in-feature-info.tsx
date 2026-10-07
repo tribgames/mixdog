@@ -132,6 +132,13 @@ export function BuiltInFeatureInfo({
     ]);
   }
   if (feature.id === 'localProvider') facts.push(...localProviderFacts(state.localProvider));
+  if (feature.id === 'autoEffort') {
+    facts.push(
+      ['Model', String(info.model || '')],
+      ['Engine', String(info.engine || '')],
+      ['Supported models', 'Claude Opus · Sonnet · Fable · GPT-6 · GPT-6.1']
+    );
+  }
   if (!facts.some(([, value]) => value)) return null;
   return (
     <ExtensionSection title={t('Info')}>

@@ -87,6 +87,13 @@ test('a hidden role keeps the schema profile it declares; a worker ignores a cal
   assert.deepEqual(toolNames(cycle), []);
   assert.match(systemText(cycle), /# Role: cycle1-agent/);
   assert.doesNotMatch(systemText(cycle), /available-skills|# Tool Workflow|# Agent\n|`read`|`shell`/);
+  // Its fixed compression rules are system text shared by every call; the
+  // tool-only environment (cwd, shell, repository) is not sent at all.
+  assert.match(systemText(cycle), /`FIRST_LAYER`: compress the conversation into task-state notes/);
+  assert.equal(
+    cycle.messages.some((message) => message.cacheTier === 'env'),
+    false
+  );
   // The schema now agrees with the dispatch gate, which already refused them.
   assert.match(preDispatchDenyForSession(cycle, { name: 'read', arguments: {} }), /schema allowlist/);
 

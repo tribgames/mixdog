@@ -264,7 +264,8 @@
   align-items: center;
   gap: 5px;
   padding: 0 6px;
-  border: var(--mx-hairline) solid var(--mx-border);
+  /* Badges are tinted fills only, like chips: no outline. */
+  border: var(--mx-hairline) solid transparent;
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
   background: var(--mx-hover);
@@ -282,19 +283,16 @@
 }
 .extensions-item[data-tone="ok"] .extensions-item-status,
 .extensions-dialog-title-status[data-tone="ok"] {
-  border-color: color-mix(in srgb, var(--mx-success) 35%, transparent);
   color: var(--mx-success);
   background: color-mix(in srgb, var(--mx-success) 10%, transparent);
 }
 .extensions-item[data-tone="warn"] .extensions-item-status,
 .extensions-dialog-title-status[data-tone="warn"] {
-  border-color: color-mix(in srgb, var(--mx-warning) 35%, transparent);
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 10%, transparent);
 }
 .extensions-item[data-tone="danger"] .extensions-item-status,
 .extensions-dialog-title-status[data-tone="danger"] {
-  border-color: color-mix(in srgb, var(--mx-danger) 35%, transparent);
   color: var(--mx-danger);
   background: color-mix(in srgb, var(--mx-danger) 10%, transparent);
 }
@@ -327,8 +325,8 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
+  background: var(--mx-action-bg);
+  box-shadow: var(--mx-action-ring);
   font: inherit;
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
@@ -340,11 +338,11 @@
 }
 .extensions-action:hover:not(:disabled) {
   color: var(--mx-text);
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-action-bg);
 }
 .extensions-action:active:not(:disabled) {
-  background: var(--mx-flat-press);
-  box-shadow: var(--mx-button);
+  background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-action-bg);
+  box-shadow: var(--mx-action-ring);
 }
 .extensions-action:focus-visible {
   outline: 1px solid var(--mx-focus);
@@ -373,8 +371,8 @@
   padding: 0 8px;
   border-radius: var(--mx-radius-sm);
   color: var(--mx-text-muted);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  background: var(--mx-hover);
+  box-shadow: none;
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
   line-height: 1;
@@ -383,17 +381,17 @@
 .extensions-item-badge[data-tone="warn"] {
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-warning) 35%, transparent);
+  box-shadow: none;
 }
 .extensions-item-badge[data-tone="danger"] {
   color: var(--mx-danger);
   background: color-mix(in srgb, var(--mx-danger) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 35%, transparent);
+  box-shadow: none;
 }
 .extensions-item-badge[data-tone="ok"] {
   color: var(--mx-success);
   background: color-mix(in srgb, var(--mx-success) 8%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-success) 35%, transparent);
+  box-shadow: none;
 }
 
 /* ── Facts ────────────────────────────────────────────────────────────── */

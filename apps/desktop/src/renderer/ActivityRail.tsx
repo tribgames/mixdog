@@ -239,7 +239,7 @@ export function ActivityRail({
         <div
           className="rail-usage-popup"
           role="dialog"
-          aria-label={t('Subscription usage')}
+          aria-label={t('OAuth usage')}
           style={
             {
               '--rail-usage-popup-bottom': `${usageAnchorBottom}px`,

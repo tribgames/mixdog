@@ -14,7 +14,7 @@ import { useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
-import { modelDisplayName, providerDisplayName, ProviderIcon } from './provider-display';
+import { modelDisplayName, providerDisplayName } from './provider-display';
 import { record, rows } from './record-utils';
 import { usageNumber, usageProviderLabel } from './usage-format';
 import {
@@ -29,6 +29,7 @@ import {
   statsPercent,
   statsPlan,
   statsPlanLabel,
+  statsSpeed,
   statsTokens,
   unpricedTurns,
 } from './usage-stats-model';
@@ -119,11 +120,12 @@ function TokenMix({ totals, loading }: { totals: Row; loading: boolean }) {
   );
 }
 
-export function RouteCells({ route, costValue }: { route: Row; costValue?: string }) {
+export function RouteCells({ route, costValue, speed }: { route: Row; costValue?: string; speed?: boolean }) {
   const incomplete = statsNumber(route.unmeasuredTurns) > 0;
   return (
     <>
       <td>{statsCount(route.turns)}</td>
+      {speed && <td className="stats-optional">{statsSpeed(route.outputTokensPerSecond)}</td>}
       <td className="stats-breakdown" title={promptDetail(route, incomplete)}>
         {statsTokens(promptTokens(route), incomplete)}
       </td>
@@ -281,15 +283,15 @@ export function UsageStatsBody({
       />
       <div className="stats-cards">
         <StatCard
-          label={t('List-price value')}
+          label={t('Est. value')}
           value={moneyFor(subscriptionRows)}
-          detail={t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')}
+          detail={t('OAuth values use list prices. API costs may be estimates; neither is an invoice.')}
           loading={loading}
         />
         <StatCard
           label={t('API cost')}
           value={moneyFor(apiRows)}
-          detail={t('Subscription values use list prices. API costs may be estimates; neither is an invoice.')}
+          detail={t('OAuth values use list prices. API costs may be estimates; neither is an invoice.')}
           loading={loading}
         />
         <StatCard label={t('Tokens')} value={statsTokens(tokens, incomplete)} detail={tokenInfo} loading={loading} />
@@ -317,6 +319,9 @@ export function UsageStatsBody({
                 {t('Share')}
               </th>
               <SortHeader label={t('Requests')} column="turns" sort={sort} onSort={setSort} />
+              <th scope="col" className="stats-optional" title={t('Speed')}>
+                tok/s
+              </th>
               <th scope="col" className="stats-breakdown" title={t('Fresh input plus cache writes')}>
                 {t('Input')}
               </th>
@@ -361,9 +366,8 @@ export function UsageStatsBody({
                       disabled={!models.length}
                       onClick={() => toggleExpanded(id)}
                     >
-                      <ChevronDown className="stats-provider-chevron" aria-hidden="true" />
-                      <ProviderIcon provider={id} />
                       <b>{usageProviderLabel(providerDisplayName(id))}</b>
+                      <ChevronDown className="stats-provider-chevron" aria-hidden="true" />
                       {plan && (
                         <span className="usage-plan" data-plan={plan}>
                           {statsPlanLabel(plan)}
@@ -377,7 +381,7 @@ export function UsageStatsBody({
                     </div>
                   </td>
                   <td className="stats-share-cell">{share === null ? '—' : `${share}%`}</td>
-                  <RouteCells route={provider} />
+                  <RouteCells route={provider} speed />
                 </tr>
                 {open &&
                   models.map((model) => {
@@ -388,7 +392,7 @@ export function UsageStatsBody({
                           {modelDisplayName(name, id)}
                         </td>
                         <td className="stats-share-cell" />
-                        <RouteCells route={model} />
+                        <RouteCells route={model} speed />
                       </tr>
                     );
                   })}
@@ -399,7 +403,7 @@ export function UsageStatsBody({
             <tbody aria-hidden="true">
               {[0, 1, 2].map((row) => (
                 <tr className="usage-skeleton-row" key={row}>
-                  <td colSpan={9}>
+                  <td colSpan={10}>
                     <span className="usage-skeleton" style={{ width: '35%' }} />
                   </td>
                 </tr>
@@ -409,7 +413,7 @@ export function UsageStatsBody({
           {!loading && !providers.length && (
             <tbody>
               <tr>
-                <td className="usage-empty" colSpan={9}>
+                <td className="usage-empty" colSpan={10}>
                   {t('No usage recorded yet.')}
                 </td>
               </tr>

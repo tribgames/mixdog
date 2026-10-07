@@ -146,6 +146,7 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
         ...(row.catalogComplete === true ? { catalogComplete: true as const } : {}),
         ...(typeof row.defaultEffort === 'string' && row.defaultEffort ? { defaultEffort: row.defaultEffort } : {}),
         ...(row.defaultFast === true ? { defaultFast: true } : {}),
+        ...(row.autoEffortCapable === true ? { autoEffortCapable: true } : {}),
         modelParameterOptions,
         parameterVariants,
         defaultModelParameters,

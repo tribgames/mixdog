@@ -34,6 +34,41 @@ test('finer-meter outside spans come only from rises that Mixdog spending cannot
   assert.deepEqual(outsideSpans([window(0, [[10, 3]])], costBetween), [], 'no rate without a window past 4%');
 });
 
+test('finer-meter outside use in most windows does not lower the own rate it is judged by', () => {
+  const MINUTE = 60_000;
+  const HOUR = 60 * MINUTE;
+  const spend = [];
+  const costBetween = (from, to) => spend.reduce((sum, [ts, usd]) => (ts > from && ts <= to ? sum + usd : sum), 0);
+  const window = (startMs, steps) => ({
+    startMs,
+    readings: steps.map(([minutes, usedPct]) => ({ ts: startMs + minutes * MINUTE, usedPct })),
+  });
+  // Two clean windows: $40 reads 16%.
+  const clean = [0, 5 * HOUR].map((start) => {
+    for (const minutes of [5, 15, 25, 35]) spend.push([start + minutes * MINUTE, 10]);
+    return window(start, [
+      [10, 4],
+      [20, 8],
+      [30, 12],
+      [40, 16],
+    ]);
+  });
+  // Three windows where $10 of Mixdog use sits beside 20, 10 and 6 points
+  // from elsewhere: their median alone would explain the smallest of them.
+  const mixed = [24, 14, 10].map((peak, index) => {
+    const start = (10 + 5 * index) * HOUR;
+    spend.push([start + 5 * MINUTE, 10]);
+    return window(start, [
+      [10, 4],
+      [20, peak],
+    ]);
+  });
+  assert.deepEqual(
+    outsideSpans([...clean, ...mixed], costBetween),
+    mixed.map(({ startMs }) => ({ fromMs: startMs + 10 * MINUTE, toMs: startMs + 20 * MINUTE }))
+  );
+});
+
 function observations(capacity, mixedEvery, extra) {
   return Array.from({ length: 120 }, (_, index) => {
     const costUsd = 0.5 + (index % 11) / 5;

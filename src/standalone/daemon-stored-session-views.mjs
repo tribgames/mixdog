@@ -25,6 +25,21 @@ export function createStoredSessionViews({ desktopRuntime, dataDir }) {
       if (typeof store.readStoredSessionTranscript !== 'function') return null;
       return (await store.readStoredSessionTranscript(sessionId, options)) ?? null;
     },
+    // A cold session's review diff, from its durable turn record and stored
+    // cwd: exactly what a runtime loaded only to answer would compute.
+    readStoredReview: async (sessionId, action, args = []) => {
+      const store = await desktopRuntime.loadSessionStore();
+      const metadata = await store.readStoredSessionTranscript?.(sessionId, { metadataOnly: true });
+      if (!metadata) return null;
+      const [{ createRuntimeReviewApi }, { turnReviewReply }] = await Promise.all([
+        import('../session-runtime/runtime-review-api.mjs'),
+        import('../runtime/shared/turn-review-reply.mjs'),
+      ]);
+      const review = createRuntimeReviewApi({ getCwd: () => metadata.cwd || '', getSessionId: () => sessionId });
+      return action === 'getSessionReviewDiff'
+        ? review.getSessionReviewDiff()
+        : turnReviewReply(review.getTurnReviewDiff, args[0]);
+    },
     forgetStoredSession: async (sessionId) => {
       const store = await desktopRuntime.loadSessionStore();
       store.forgetStoredSessionTranscript?.(sessionId);

@@ -5,6 +5,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { copyTextToClipboard } from './text-format';
 import type { DesktopBrowserPageFrame } from '../shared/contract';
+import { browserInputNotice } from '../shared/browser-input-policy';
 import { browserPageTransition } from './browser-page-recovery';
 import { createBrowserDisplayHealth } from './browser-display-health';
 import { createBrowserPresentationLoop } from './browser-presentation-loop';
@@ -67,7 +68,7 @@ export const IsolatedBrowserView = forwardRef<
         metadataOnly: () => nativeShownRef.current,
         prepare: presentation.prepare,
         update: presentation.update,
-        failure: setActionFailure,
+        failure: (message) => setActionFailure(browserInputNotice(message)),
         unconfirmedText: setUnconfirmedText,
         // Only a new deliberate input, begun after the failure, proves recovery.
         recovered: () => setActionFailure(''),

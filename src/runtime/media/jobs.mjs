@@ -161,7 +161,6 @@ async function runJob(job, resolved, { requestModel, options, references, sessio
       usage,
       sessionId,
       sourceType,
-      durationMs: Date.now() - job.startedAt,
     });
   try {
     const result = await runAdapter({

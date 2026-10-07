@@ -181,22 +181,49 @@ test('media preview frames survive decoding, metadata and fallback failures', as
   await act(async () => root.render(React.createElement(TranscriptArtifacts, { items })));
   const frames = [...document.querySelectorAll('.transcript-artifact-frame')];
   assert.equal(frames.length, 2);
-  const image = document.querySelector('.transcript-artifact-image img');
-  const video = document.querySelector('video');
+  const [image, poster] = document.querySelectorAll('.transcript-artifact-frame img');
   await act(async () => {
     image.dispatchEvent(new window.Event('load'));
-    video.dispatchEvent(new window.Event('loadedmetadata'));
+    poster.dispatchEvent(new window.Event('load'));
   });
   assert.deepEqual([...document.querySelectorAll('.transcript-artifact-frame')], frames);
   await act(async () => image.dispatchEvent(new window.Event('error')));
   assert.match(image.src, /\/original$/);
   await act(async () => {
     image.dispatchEvent(new window.Event('error'));
-    video.dispatchEvent(new window.Event('error'));
+    poster.dispatchEvent(new window.Event('error'));
   });
   assert.deepEqual([...document.querySelectorAll('.transcript-artifact-frame')], frames);
-  assert.equal(document.querySelector('.transcript-artifact-image img, video'), null);
+  assert.equal(document.querySelector('.transcript-artifact-frame img'), null);
   assert.equal(document.querySelectorAll('.transcript-artifact-media figcaption').length, 2);
+  // A failed thumbnail leaves the video playable from its dialog.
+  assert.equal(frames[1].disabled, false);
+  assert.equal(frames[0].disabled, true);
+});
+
+test('media cards keep the requested ratio until decoded and turn four or more into squares', async (t) => {
+  const { root, document, window } = mount(t);
+  window.mixdogDesktop.mediaUrl = (id, variant) => `https://mixdog.test/media/${id}/${variant}`;
+  const generated = (id, aspect) => ({
+    kind: 'tool',
+    name: 'media',
+    args: { action: 'generate', kind: 'image', aspect },
+    result: { ok: true, status: 'done', kind: 'image', assetId: id },
+  });
+  const width = (figure) => figure.style.getPropertyValue('--artifact-width');
+  await act(async () =>
+    root.render(React.createElement(TranscriptArtifacts, { items: [generated('wide', '16:9'), generated('tall', '9:16')] }))
+  );
+  assert.ok(document.querySelector('.transcript-artifact-row'));
+  const [wide, tall] = document.querySelectorAll('.transcript-artifact-media');
+  assert.deepEqual([width(wide), wide.dataset.fit], ['284px', 'contain']);
+  assert.deepEqual([width(tall), tall.dataset.fit], ['120px', 'top']);
+  const items = ['a', 'b', 'c', 'd'].map((id) => generated(id, '16:9'));
+  await act(async () => root.render(React.createElement(TranscriptArtifacts, { items })));
+  assert.equal(document.querySelector('.transcript-artifact-row'), null);
+  const cards = [...document.querySelectorAll('.transcript-artifact-grid > .transcript-artifact-media')];
+  assert.equal(cards.length, 4);
+  assert.ok(cards.every((card) => width(card) === '160px' && card.dataset.fit === 'cover'));
 });
 
 test('inline image markers preserve user text and attachment chips', async (t) => {

@@ -48,11 +48,10 @@ import { cleanString } from '../../../shared/clean.mjs';
 import { nonNegativeInt, positiveInt } from '../../../shared/numbers.mjs';
 
 /**
- * One-shot, tool-free maintenance hidden roles (cycle1-agent):
- * a fresh stateless session is created per call, asked exactly once, and
- * closed (agent-dispatch.mjs) — the per-batch user prompt can NEVER be reused.
- * Writing a message-tail cache breakpoint on it just pays the 1.25x write
- * premium for content read back 0 times. Identified by the declarative
+ * One-shot, tool-free maintenance hidden roles (cycle1-agent, title-agent):
+ * every call is a fresh stateless session (or a session-less send), asked
+ * exactly once — the per-call user prompt is NEVER reused, while the role's
+ * system prompt is identical across calls. Identified by the declarative
  * (kind:'maintenance' + toolSchemaProfile:'none') pair rather than
  * hardcoded names, so new roles sharing the pattern are covered for free.
  */
@@ -112,15 +111,16 @@ export function resolveLeadMessagesTtl(autoClear) {
  * elsewhere.)
  *
  * Exception: one-shot LLM-only maintenance roles are asked once on a fresh
- * session and closed, so their volatile per-call message tail is never read
- * back — and trace data (2026-06) shows the 1h system/tools prefix never
- * gets read back either: cycle1's prompt sits below Anthropic's minimum
- * cacheable length (0 writes). All layers go 'none' for
- * these roles — single-iteration calls pay the write premium with no reuse.
+ * session and closed, so their per-call message tail is never read back and
+ * stays unmarked. Their system prompt is shared by every call: replaying the
+ * ledger's call times (memory-cycle, title) priced that prefix at 11-19% of
+ * uncached input with a 1h breakpoint versus 34-59% with 5m. A prefix below
+ * Anthropic's minimum cacheable length is simply not written, so the marker
+ * costs nothing there.
  */
 export function resolveCacheStrategy(agent, { autoClear } = {}) {
   if (isOneShotMaintenanceAgent(agent)) {
-    return { tools: 'none', system: 'none', tier3: 'none', messages: 'none' };
+    return { tools: 'none', system: '1h', tier3: '1h', messages: 'none' };
   }
   // Operator override for the BP4 (messages-tail) TTL. Short-lived
   // rapid-turn deployments (bench-style: session dies in <15min) never
@@ -262,8 +262,10 @@ function summarizePromptCacheTools(tools) {
  */
 export function buildStableProviderPromptCacheKey(provider, opts, prefix = {}) {
   const namespace = normalizePromptCacheNamespace(resolveProviderCacheKey(opts, provider));
+  const sharedScope = opts?.promptCacheScope === 'shared';
   if (
     provider === 'openai-oauth' &&
+    !sharedScope &&
     process.env.MIXDOG_OAI_CODEX_THREAD_CACHE_KEY !== '0' &&
     String(process.env.MIXDOG_OAI_CODEX_THREAD_CACHE_KEY || '').toLowerCase() !== 'false'
   ) {
@@ -288,8 +290,10 @@ export function buildStableProviderPromptCacheKey(provider, opts, prefix = {}) {
     // uncached tokens each. Mixing sessionId in costs only the small static
     // prefix hit (~2-4k tokens) on a session's FIRST call — every later
     // call's body cache is protected. Opt out: MIXDOG_OAI_CACHE_KEY_SHARED=1.
+    // A one-shot role (promptCacheScope 'shared') has no later call to
+    // protect: every call is a new session, so it keys on the prefix alone.
     session:
-      process.env.MIXDOG_OAI_CACHE_KEY_SHARED === '1'
+      sharedScope || process.env.MIXDOG_OAI_CACHE_KEY_SHARED === '1'
         ? null
         : cleanString(opts?.sessionId || opts?.session?.id || '') || null,
   };
@@ -453,6 +457,26 @@ export function resolveProviderPromptCacheLane(provider, opts = {}, config = {})
   };
 }
 
+/**
+ * A one-shot role's calls are each a new session, so routing their prompt
+ * cache by session scatters an identical system prefix across a fresh
+ * server-side lane per call. `promptCacheScope: 'shared'` tells every
+ * key-prefix provider to key the cache on the prefix instead.
+ */
+export function oneShotPromptCacheOpts(agent) {
+  return isOneShotMaintenanceAgent(agent) ? { promptCacheScope: 'shared' } : null;
+}
+
+/**
+ * Cache send options for a role's requests on `provider`: the breakpoint
+ * strategy on explicit-breakpoint providers plus the one-shot shared scope.
+ * Session and session-less callers use this one resolution.
+ */
+export function roleProviderCacheOpts(provider, agent, options = {}) {
+  if (cacheCapabilityForProvider(provider) !== 'explicit-breakpoint') return oneShotPromptCacheOpts(agent);
+  return buildProviderCacheOpts(provider, null, agent, options);
+}
+
 export function buildProviderCacheOpts(provider, _sessionId, agent, options = {}) {
   const ttls = resolveCacheStrategy(agent, options);
   const capability = cacheCapabilityForProvider(provider);
@@ -460,7 +484,7 @@ export function buildProviderCacheOpts(provider, _sessionId, agent, options = {}
     // 2026-03-06 Anthropic dropped default TTL 1h→5m. We send
     // extended-cache-ttl-2025-04-11 header to retain 1h.
     // Verified 2026-04-17 (ephemeral_1h_input_tokens=4722).
-    return { cacheStrategy: ttls };
+    return { cacheStrategy: ttls, ...oneShotPromptCacheOpts(agent) };
   }
   // NOTE: createSession's direct-call site (manager.mjs) only invokes this
   // for explicit-breakpoint (Anthropic-family) providers, so this branch

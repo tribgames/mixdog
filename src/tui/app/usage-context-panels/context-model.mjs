@@ -278,5 +278,8 @@ function contextDetail(m) {
 
 export function buildContextPanelModel(input) {
   const metrics = contextMetrics(input);
-  return { rows: contextRows(metrics), detail: contextDetail(metrics) };
+  const detail = contextDetail(metrics);
+  // The session's output speed from the usage ledger; null until a timed request produced output.
+  detail.speed = { outputTokensPerSecond: input.sessionUsage?.outputTokensPerSecond ?? null };
+  return { rows: contextRows(metrics), detail };
 }

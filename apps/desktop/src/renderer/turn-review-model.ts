@@ -273,6 +273,9 @@ export type TurnReviewCapabilityValue = {
   snapshotKind?: unknown;
   revertMode?: unknown;
   checkpointId?: unknown;
+  /** `recorded`: rebuilt from the session's durable turn record against the
+   *  current worktree, so a refreshing re-read answers the same. */
+  reason?: unknown;
   patch?: unknown;
   files?: Array<{
     path?: unknown;

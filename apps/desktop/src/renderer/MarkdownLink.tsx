@@ -7,7 +7,9 @@ import { localPathMentionHref, PATH_LINK_CLASS } from './markdown-plugins';
 import { isLocalMarkdownLink, projectRelativeFilePath } from './markdown-url';
 import { prefetchEditorPane, scheduleEditorPanePrefetch } from './lazy-widgets';
 import { resolveLocalLink, verifyLocalLink, type ResolvedLocalLink } from './local-link-resolver';
-import { localFileOpener, localLinkKind, parseLocalFileLocation } from '../shared/local-files';
+import { isLocalWebPage, localFileOpener, localLinkKind, parseLocalFileLocation } from '../shared/local-files';
+import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
+import { openConfirmedFile } from './file-launch-confirmation';
 
 /** Plain text of rendered children: highlighted code and link captions are
  *  hast-derived spans, so a String() cast would not yield their source. */
@@ -21,6 +23,9 @@ export function childrenText(node: ReactNode): string {
 
 // The owning conversation supplies its Project, not the globally active pane.
 export const MarkdownProjectContext = createContext('');
+/** The owning conversation's session ('' for a draft): web pages open in its
+ *  browser pane and code blocks run in its terminal. */
+export const MarkdownSessionContext = createContext('');
 /** Opens a Project file in Mixdog's editor at a line; the conversation host
  *  supplies it. Binary documents/media never come here — they go to the OS. */
 type MarkdownOpenFile = (project: string, rel: string, line?: number, accessToken?: string) => void;
@@ -97,6 +102,7 @@ export function createLinkPressIntent() {
  *  which may differ from the conversation's current Project. */
 function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const projectPath = useContext(MarkdownProjectContext);
+  const sessionId = useContext(MarkdownSessionContext);
   const openFile = useContext(MarkdownOpenFileContext);
   const [resolved, setResolved] = useState<{ key: string; title: string; target: ResolvedLocalLink | null }>({
     key: '',
@@ -171,7 +177,8 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   // Chat links deserve the file tree's treatment: start Monaco's chunk on the
   // open intent, rather than paying its whole fetch + evaluate after the
   // click, behind the path resolution.
-  const editorTarget = local && kind === 'file' && localFileOpener(location.path) === 'editor';
+  const editorTarget =
+    local && kind === 'file' && localFileOpener(location.path) === 'editor' && !isLocalWebPage(location.path);
   const warmEditor = () => {
     if (editorTarget) void prefetchEditorPane().catch(() => {});
   };
@@ -179,6 +186,16 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
     warmEditor();
     try {
       const { project, path: file, accessToken, directory } = await resolveTarget();
+      // A web page opens in the session's browser pane from a loopback address
+      // main serves; with no pane to reveal (a draft) the system browser takes
+      // the same address. Without the server (a paired phone) it stays source.
+      const pageUrl = window.mixdogDesktop?.localPageUrl;
+      if (!directory && isLocalWebPage(file) && pageUrl) {
+        const url = await pageUrl(project, file, accessToken);
+        if (sessionId && browserPageRequestsAvailable()) requestBrowserPage(sessionId, url);
+        else await window.mixdogDesktop.openExternal(url);
+        return;
+      }
       // A text file with an extension opens in the editor directly. Documents,
       // folders and extension-less names go through main, which launches the
       // OS app or file manager and hands text files back as 'editor'.
@@ -190,7 +207,12 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         // Main reads the href as a URL path: `report #1.docx` must travel as
         // `report%20%231.docx` or the `#` would start a fragment.
         const href = file.split('/').map(encodeURIComponent).join('/');
-        if ((await api.openLocalFileLink(project, href)) !== 'editor') return;
+        const opened = await openConfirmedFile((confirmedPath) =>
+          confirmedPath
+            ? api.openLocalFileLink!(project, href, confirmedPath)
+            : api.openLocalFileLink!(project, href)
+        );
+        if (opened !== 'editor') return;
       }
       if (!openFile) throw new Error(t('Local file links can only be opened in the desktop app.'));
       if (accessToken) openFile(project, file, location.line, accessToken);

@@ -2,8 +2,8 @@ import {
   API_IMAGE_MAX_BASE64_SIZE,
   IMAGE_MAX_WIDTH,
   IMAGE_MAX_HEIGHT,
-  imageMetadataText,
   resizeImageBuffer,
+  supersedingImageMetadataText,
 } from '../../tools/builtin/read-image-resize.mjs';
 
 const MAX_INPUT_BASE64_SIZE = Math.ceil((64 * 1024 * 1024) / 3) * 4;
@@ -89,10 +89,7 @@ export async function prepareAnthropicImages(messages, { signal } = {}) {
       }
       changed = true;
       if (dims.originalWidth !== dims.displayWidth || dims.originalHeight !== dims.displayHeight) {
-        next.push({
-          type: 'text',
-          text: `${imageMetadataText(dims)} These display dimensions supersede any earlier display-size annotation for the following image.`,
-        });
+        next.push({ type: 'text', text: supersedingImageMetadataText(dims) });
       }
       // Cache markers stay attached to the same logical block. No
       // sanitizer or reordering runs after this byte-preparation pass.

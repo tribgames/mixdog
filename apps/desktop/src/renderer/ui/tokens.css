@@ -116,6 +116,18 @@
 .mx-select:focus {
   border-color: var(--mx-focus);
 }
+/* Controls are flat fills without a resting outline; inputs regain an edge
+   only while focused. */
+:root :is(.mx-button:not(.is-primary, .is-ghost, .is-danger), .mx-icon-button, .mx-input, .mx-select) {
+  border-color: transparent;
+  background: var(--mx-hover);
+}
+:root :is(.mx-button:not(.is-primary, .is-ghost, .is-danger), .mx-icon-button):hover:not(:disabled) {
+  background: var(--mx-pressed);
+}
+:root :is(.mx-input, .mx-select):focus {
+  border-color: var(--mx-focus);
+}
 .mx-toolbar {
   display: flex;
   align-items: center;

@@ -49,6 +49,8 @@ function expected(included) {
   const prompt = sum('input') + sum('cacheRead') + sum('cacheWrite');
   return {
     sessionId: 'session-a',
+    // None of these rows carries a request duration, so no speed is known.
+    outputTokensPerSecond: null,
     turns: included.length,
     input: sum('input'),
     output: sum('output'),

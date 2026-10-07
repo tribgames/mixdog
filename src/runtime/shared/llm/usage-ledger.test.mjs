@@ -7,10 +7,10 @@ import { tmpdir } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { UsageLedger, makeUsageRecord, getUsageLedger, closeUsageLedgers } from './usage-ledger.mjs';
 import { priceUsage } from './cost.mjs';
-import { rollupUsage } from './usage-ledger-rollup.mjs';
+import { readSessionUsage, rollupUsage } from './usage-ledger-rollup.mjs';
 import { accountProviderSend } from './usage-accounting.mjs';
 import { importUsageHistory, importTraceRow } from './usage-ledger-import.mjs';
-import { usageStatsSnapshot } from '../../../session-runtime/services/usage-stats-model.mjs';
+import { sessionUsageSnapshot, usageStatsSnapshot } from '../../../session-runtime/services/usage-stats-model.mjs';
 import { createUsageStatsApi } from '../../../session-runtime/usage-stats-api.mjs';
 
 const now = new Date(2026, 8, 12, 12).getTime();
@@ -50,6 +50,30 @@ test('tokens, list value, price snapshot and day totals commit exactly once', (t
   assert.equal(stats.totals.cacheHitRate, 0.7937);
   assert.equal(stats.totals.sessions, 1);
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 1);
+});
+
+test('output speed counts only timed requests with output, per model and per session', (t) => {
+  const ledger = store(t);
+  ledger.record([
+    row({ responseId: 'a', outputTokens: 300, durationMs: 2000 }),
+    row({ responseId: 'b', outputTokens: 100, durationMs: 2000 }),
+    // Untimed (imported) output must not dilute the figure.
+    row({ responseId: 'c', outputTokens: 900 }),
+    row({ responseId: 'd', model: 'claude-sonnet-4-6', outputTokens: 50, durationMs: 1000 }),
+  ]);
+  const stats = usageStatsSnapshot({ rollup: ledger.rollup(), now, source: 'all' });
+  const models = Object.fromEntries(stats.providers[0].models.map((model) => [model.model, model]));
+  assert.equal(models['claude-opus-4-8'].outputTokensPerSecond, 100);
+  assert.equal(models['claude-sonnet-4-6'].outputTokensPerSecond, 50);
+  assert.equal(stats.providers[0].outputTokensPerSecond, 90);
+  const hourly = usageStatsSnapshot({
+    rollup: ledger.rollup({ fromMs: now - 1000, toMs: now + 1000 }),
+    now,
+    source: 'all',
+  });
+  assert.equal(hourly.providers[0].outputTokensPerSecond, 90);
+  const session = sessionUsageSnapshot(readSessionUsage(ledger.db, ['session']));
+  assert.equal(session.outputTokensPerSecond, 90);
 });
 
 test('zero provider price is known, missing price is unknown, subscriptions never become bills', () => {

@@ -59,7 +59,12 @@ function attachAssistantTranscriptCompletion(messages, completion, turnStartedAt
         ...meta,
         transcript: {
           ...transcript,
-          completion: { status, verb, elapsedMs },
+          completion: {
+            status,
+            verb,
+            elapsedMs,
+            ...(typeof completion.autoEffort === 'string' && completion.autoEffort ? { autoEffort: completion.autoEffort } : {}),
+          },
         },
       },
     };
@@ -122,6 +127,7 @@ export async function commitAskTurn({ sessionId, opened, prepared, result, rawTr
     ...result,
     trimmed: messagesDropped > 0,
     messagesDropped,
+    ...(prepared.autoEffort ? { autoEffort: prepared.autoEffort } : {}),
   };
 }
 
@@ -144,6 +150,7 @@ export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOp
         status: 'done',
         verb: rawTranscriptMeta?.completionVerb,
         elapsedMs: Date.now() - turnStartedAt,
+        autoEffort: terminalResultPreview?.autoEffort,
       },
       turnStartedAt
     );

@@ -40,6 +40,14 @@ on:
         required: false
       APPLE_API_ISSUER:
         required: false
+      # Azure Artifact Signing service principal for the Windows installer.
+      # Only the win32 caller passes them; without the full set it stays unsigned.
+      AZURE_TENANT_ID:
+        required: false
+      AZURE_CLIENT_ID:
+        required: false
+      AZURE_CLIENT_SECRET:
+        required: false
 
 permissions:
   contents: write
@@ -169,12 +177,51 @@ jobs:
           name: desktop-out
           path: apps/desktop/out
       - name: Build Windows installer
+        id: windows-package
         if: inputs.platform == 'win32'
         shell: pwsh
         working-directory: apps/desktop
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: |
+          # Sign through Azure Artifact Signing only with the complete service
+          # principal set; electron-builder's TrustedSigning module reads it
+          # from the environment. A partial set fails instead of silently
+          # shipping an unsigned installer.
+          $names = 'AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET'
+          $present = @($names | Where-Object { [Environment]::GetEnvironmentVariable($_) }).Count
+          $signArgs = @()
+          $signed = 'false'
+          if ($present -eq $names.Count) {
+            $signArgs = @(
+              '-c.win.azureSignOptions.endpoint=https://krc.codesigning.azure.net/',
+              '-c.win.azureSignOptions.codeSigningAccountName=tribgamessigning',
+              '-c.win.azureSignOptions.certificateProfileName=mixdog-public'
+            )
+            $signed = 'true'
+          } elseif ($present -eq 0) {
+            Write-Output '::warning title=Unsigned Windows installer::Artifact Signing secrets are not configured; packaging an unsigned installer.'
+          } else {
+            Write-Output '::error title=Incomplete Windows signing secrets::Configure all three AZURE_* secrets or none.'
+            exit 1
+          }
+          "signed=$signed" >> $env:GITHUB_OUTPUT
           npm run brand:win
-          npx --no-install electron-builder --win --x64 --publish never
+          npx --no-install electron-builder --win --x64 --publish never @signArgs
+      - name: Verify Windows signatures
+        if: inputs.platform == 'win32' && steps.windows-package.outputs.signed == 'true'
+        shell: pwsh
+        working-directory: apps/desktop
+        run: |
+          foreach ($file in 'dist/win-unpacked/Mixdog.exe', 'dist/mixdog-desktop-win-x64.exe') {
+            $signature = Get-AuthenticodeSignature -FilePath $file
+            if ($signature.Status -ne 'Valid') {
+              throw "$file signature is $($signature.Status): $($signature.StatusMessage)"
+            }
+            Write-Output "$file signed by $($signature.SignerCertificate.Subject)"
+          }
       - name: Build Unix desktop package
         id: unix-package
         if: inputs.platform != 'win32'

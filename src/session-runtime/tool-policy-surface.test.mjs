@@ -96,7 +96,7 @@ test('shared tool rules omit disabled web search and memory routes', () => {
   const pluginRoot = join(process.cwd(), 'src');
   const full = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot });
   // Shared policy is tool policy only; precedence rules live with each role (Lead / agent common).
-  assert.match(full, /^# Tool Calls\s+- Order on files/);
+  assert.match(full, /^# Tool Calls\s+- Every independent call in the same response/);
   assert.doesNotMatch(full, /# General|latest explicit request|Author model-facing/);
   assert.match(full, /`web_search`/);
   assert.match(full, /`memory`/);
@@ -182,7 +182,7 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Tool names are not shell commands/i);
   assert.doesNotMatch(full, /`shell` only runs/i);
   assert.match(full, /Every independent call in the same response, never one per round/i);
-  assert.match(full, /A tool that takes an array gets one call with the array whenever there are\s+several targets/i);
+  assert.match(full, /A tool that takes an array \(`read`, `grep`, `glob`, `git`, `code_graph`\) gets\s+one call with the array whenever there are\s+several targets/i);
   assert.match(
     full,
     /`shell` only for evidence or artifacts that require execution: computation,\s+data transformation, generated output, unsupported-format decoding/i
@@ -190,7 +190,7 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /An open\s+shell is never a routing reason/i);
   // Git routing lives in the shell tool description, not the shared rules.
   assert.doesNotMatch(full, /Git→`git`/i);
-  assert.match(full, /no read\/list\/diff to confirm writes/i);
+  assert.match(full, /no read\/list\/diff to confirm your own\s+writes/i);
   assert.doesNotMatch(full, /Verify once after all edits/i);
   assert.match(full, /Generated data is not evidence/i);
   assert.match(

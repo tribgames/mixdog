@@ -307,11 +307,12 @@ test('unmeasured Cursor usage is not displayed as zero cache, zero hit rate or a
   assert.equal(row.cells[1].textContent, '—');
   assert.equal(row.cells[2].textContent, '1');
   assert.equal(row.cells[3].textContent, '—');
-  assert.equal(row.cells[4].textContent, '200');
-  assert.equal(row.cells[5].textContent, '—');
+  assert.equal(row.cells[4].textContent, '—');
+  assert.equal(row.cells[5].textContent, '200');
   assert.equal(row.cells[6].textContent, '—');
-  assert.equal(row.cells[7].textContent, '200');
-  assert.equal(row.cells[8].textContent, '—');
+  assert.equal(row.cells[7].textContent, '—');
+  assert.equal(row.cells[8].textContent, '200');
+  assert.equal(row.cells[9].textContent, '—');
   assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '200');
   assert.equal(
     document
@@ -390,7 +391,7 @@ test('statistics open with the last 24 hours, four cards, and no sessions or inf
   );
   assert.deepEqual(
     [...document.querySelectorAll('.stats-card small')].map((node) => node.textContent),
-    ['List-price value', 'API cost', 'Tokens', 'Requests'].map((label) => t(label))
+    ['Est. value', 'API cost', 'Tokens', 'Requests'].map((label) => t(label))
   );
   assert.equal(document.querySelector('.stats-controls [role="img"]'), null);
   assert.equal(button('Sessions'), undefined);
@@ -402,17 +403,18 @@ test('models start expanded, request counts lead numeric columns, and cache hits
   const render = harness(context);
   const stats = snapshot();
   stats.providers[0].models = [
-    { ...stats.providers[0], model: 'audit-model-one' },
+    { ...stats.providers[0], model: 'audit-model-one', outputTokensPerSecond: 42.4 },
     { ...stats.providers[0], model: 'audit-model-two', sessions: null, costCoverage: 0, costUsd: 0 },
   ];
   await render({ data: { getUsageStats: stats }, request: async () => stats });
   assert.deepEqual(
     [...document.querySelectorAll('thead th')].map((th) => th.textContent),
-    ['Provider', 'Share', 'Requests', 'Input', 'Output', 'Cache hits', 'Hit rate', 'Tokens', 'Cost'].map(
+    ['Provider', 'Share', 'Requests', 'tok/s', 'Input', 'Output', 'Cache hits', 'Hit rate', 'Tokens', 'Cost'].map(
       (key) => t(key)
     )
   );
   assert.equal(document.querySelectorAll('.stats-model-row').length, 2);
+  assert.equal(document.querySelectorAll('.stats-model-row')[0].cells[3].textContent, '42');
   const providerRow = document.querySelector('.stats-provider tr');
   assert.deepEqual(
     [...document.querySelectorAll('.stats-trend footer span')].map((node) => node.textContent),
@@ -420,17 +422,18 @@ test('models start expanded, request counts lead numeric columns, and cache hits
   );
   assert.equal(providerRow.cells[2].textContent, '1');
   // Input = 1,000 fresh + 800 written to cache; the split lives in the tooltip.
-  assert.equal(providerRow.cells[3].textContent, '1.8K');
-  assert.match(providerRow.cells[3].title, /1K.*800/);
-  assert.equal(providerRow.cells[5].textContent, '500');
-  assert.equal(providerRow.cells[5].title, '');
+  assert.equal(providerRow.cells[4].textContent, '1.8K');
+  assert.match(providerRow.cells[4].title, /1K.*800/);
+  assert.equal(providerRow.cells[6].textContent, '500');
+  assert.equal(providerRow.cells[6].title, '');
   assert.deepEqual(
     [...document.querySelectorAll('.stats-mix li b')].map((node) => node.textContent),
     ['1.8K', '200', '500']
   );
   const unknown = document.querySelectorAll('.stats-model-row')[1];
   assert.equal(unknown.cells[2].textContent, '1');
-  assert.equal(unknown.cells[8].textContent, '—');
+  assert.equal(unknown.cells[3].textContent, '—');
+  assert.equal(unknown.cells[9].textContent, '—');
   for (const note of ['Not billed', 'Not an invoice', 'Cache excluded', 'per day']) {
     assert.equal(document.querySelector('.stats-surface').textContent.includes(t(note)), false);
   }
@@ -455,9 +458,9 @@ test('cache hit rates show one decimal in the summary, provider and model rows',
   ];
   await render({ data: { getUsageStats: stats }, request: async () => stats });
   assert.equal(document.querySelector('.stats-mix header span').textContent, `${t('Cache hit rate')} 98.3%`);
-  assert.equal(document.querySelector('.stats-provider tr').cells[6].textContent, '85.5%');
+  assert.equal(document.querySelector('.stats-provider tr').cells[7].textContent, '85.5%');
   assert.deepEqual(
-    [...document.querySelectorAll('.stats-model-row')].map((row) => row.cells[6].textContent),
+    [...document.querySelectorAll('.stats-model-row')].map((row) => row.cells[7].textContent),
     ['98.4%', '0.0%', '100.0%', '—']
   );
 });
@@ -478,7 +481,7 @@ test('incomplete session metadata is not exposed and an empty period says so', a
     false
   );
   const providerRow = document.querySelector('.stats-provider tr');
-  assert.equal(providerRow.cells.length, 9);
+  assert.equal(providerRow.cells.length, 10);
   assert.equal(providerRow.cells[2].textContent, '1');
   assert.equal(document.querySelector('.stats-model-row').cells[2].textContent, '1');
   assert.equal(document.querySelector('.stats-trend-bars'), null);
@@ -512,7 +515,7 @@ test('period arrows update cards and models, block future navigation, and need n
   assert.deepEqual(calls.at(-1), { view: 'day', anchor: '2026-08-14' });
   assert.equal(named('Next period').disabled, false);
   assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '600');
-  assert.equal(document.querySelector('.stats-model-row').cells[7].textContent, '600');
+  assert.equal(document.querySelector('.stats-model-row').cells[8].textContent, '600');
   assert.equal(button('Current period'), undefined);
   await act(async () => named('Next period').click());
   assert.deepEqual(calls.at(-1), { view: 'day', anchor: '2026-09-13' });
@@ -602,9 +605,9 @@ test('partial totals keep their amounts and price tooltip without trailing plus 
   ];
   await render({ data: { getUsageStats: stats }, request: async () => stats });
   assert.equal(document.querySelectorAll('.stats-card > b')[0].textContent, '$1.04');
-  assert.equal(document.querySelector('.stats-provider tr').cells[8].textContent, '$1.04');
-  assert.equal(document.querySelector('.stats-model-row').cells[8].textContent, '$1.04');
-  assert.equal(document.querySelector('.stats-provider tr').cells[8].title, t('Partial cost'));
+  assert.equal(document.querySelector('.stats-provider tr').cells[9].textContent, '$1.04');
+  assert.equal(document.querySelector('.stats-model-row').cells[9].textContent, '$1.04');
+  assert.equal(document.querySelector('.stats-provider tr').cells[9].title, t('Partial cost'));
   assert.equal(
     document
       .querySelector('.stats-surface')
@@ -620,7 +623,7 @@ test('partial totals keep their amounts and price tooltip without trailing plus 
     `${t('Peak per {{interval}}', { interval: '1 hour' })} $1.04`
   );
   assert.equal(document.querySelector('.stats-surface').textContent.includes('+'), false);
-  assert.equal(document.querySelector('.stats-trend-legend').textContent.includes(`Grok · ${t('Subscription')}`), true);
+  assert.equal(document.querySelector('.stats-trend-legend').textContent.includes(`Grok · ${t('OAuth')}`), true);
 });
 
 test('seven-day and custom controls submit explicit date bounds without pagination on a custom range', async (context) => {

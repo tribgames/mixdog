@@ -26,6 +26,10 @@ export const QUOTA_SCHEMA = `
 `;
 
 const MINUTE = 60_000;
+// Clean, priced meter rises a window needs before its value is shown in
+// dollars when no earlier window anchors it.
+const MIN_VALUE_SAMPLES = 10;
+const valueEvidence = (interval) => interval.priced && interval.costUsd > 0 && interval.points > 0;
 const HOUR = 60 * MINUTE;
 // Codex reports its reset as a countdown, so one window's reset drifts by the
 // request latency between readings. A later reset, or a meter that fell,
@@ -399,7 +403,9 @@ function readQuotaEvents(db, { provider, account, label = '', fromMs, toMs }) {
       )
       SELECT e.ts,e.day,r.model,r.rank,COUNT(*) AS turns,
           SUM(e.input) AS input,SUM(e.output) AS output,SUM(e.cache_read) AS cacheRead,
-          SUM(e.cache_write) AS cacheWrite,SUM(e.cost_usd) AS costUsd,COUNT(e.cost_usd) AS priced
+          SUM(e.cache_write) AS cacheWrite,SUM(e.cost_usd) AS costUsd,COUNT(e.cost_usd) AS priced,
+          SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.output ELSE 0 END) AS speedOutput,
+          SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.duration_ms ELSE 0 END) AS speedMs
       FROM usage_events e JOIN routes r ON r.id=e.route
       WHERE e.ts>=? AND e.ts<=?
       GROUP BY e.ts,e.day,r.model,r.rank
@@ -436,6 +442,9 @@ function readQuotaEvents(db, { provider, account, label = '', fromMs, toMs }) {
       costUsd: usage.costUsd || 0,
       costKnownTurns: usage.costKnownTurns || 0,
       unmeasuredTurns: usage.unmeasuredTurns || 0,
+      // Output over the wall time of the timed requests that produced it.
+      speedOutput: row.speedOutput,
+      speedMs: row.speedMs,
     };
     event.tokens = event.input + event.output + event.cacheRead + event.cacheWrite;
     return [event];
@@ -555,10 +564,17 @@ function allocateQuota(instances, events, mixed = [], listed = []) {
     instance.outsideCostUsd = 0;
     instance.outsideUnpriced = 0;
     instance.intervals = windowIntervals(instance, events, mixed);
-    instance.estimate = estimateQuotaValue(
-      instance.intervals.filter((interval) => !interval.mixed),
-      earlierWindows(listed, instance).flatMap(calibrationOf)
-    );
+    const own = instance.intervals.filter((interval) => !interval.mixed);
+    const prior = earlierWindows(listed, instance).flatMap(calibrationOf);
+    instance.estimate = estimateQuotaValue(own, prior);
+    // The estimate still splits the meter, but it is shown in dollars only
+    // once it rests on more than a few coincidences: a light Mixdog spend
+    // landing on heavy use elsewhere reads as a tiny rate. An earlier
+    // window's evidence anchors it; without one, the window's own clean,
+    // priced rises must first number MIN_VALUE_SAMPLES.
+    const ownSamples = own.filter((interval) => interval.measured && valueEvidence(interval)).length;
+    instance.value =
+      instance.estimate && (prior.some(valueEvidence) || ownSamples >= MIN_VALUE_SAMPLES) ? instance.estimate : null;
     for (const interval of instance.intervals) {
       const { start, end, total, weight, points } = interval;
       let external = points;
@@ -577,7 +593,7 @@ function allocateQuota(instances, events, mixed = [], listed = []) {
         }
       }
       if (external > 0) {
-        const costUsd = instance.estimate ? external * instance.estimate.costPerPercent : null;
+        const costUsd = instance.value ? external * instance.value.costPerPercent : null;
         outside.push({ fromMs: interval.fromMs, toMs: interval.toMs, points: external, costUsd });
         instance.outside += external;
         if (costUsd === null) instance.outsideUnpriced += external;
@@ -629,8 +645,8 @@ function periodQuotaRate(instances, fromMs, toMs) {
     for (const interval of instance.intervals) {
       const part = interval.points * intervalShare(interval, fromMs, toMs);
       if (!(part > 0)) continue;
-      if (!instance.estimate) return null;
-      value += part * instance.estimate.costPerPercent;
+      if (!instance.value) return null;
+      value += part * instance.value.costPerPercent;
       points += part;
     }
   }
@@ -656,6 +672,8 @@ const USAGE_FIELDS = [
   'costUsd',
   'costKnownTurns',
   'unmeasuredTurns',
+  'speedOutput',
+  'speedMs',
 ];
 
 function emptyUsage() {
@@ -686,6 +704,7 @@ function exportUsage(usage) {
     costUsd: round(usage.costUsd, 6),
     costUnpricedTurns: Math.max(0, usage.turns - usage.costKnownTurns),
     cacheHitRate: unknown || prompt <= 0 ? null : round(usage.cacheRead / prompt, 4),
+    outputTokensPerSecond: usage.speedMs > 0 ? round((usage.speedOutput * 1000) / usage.speedMs, 1) : null,
   };
 }
 
@@ -807,10 +826,10 @@ function historyRow(instance, events) {
     turns,
     ...quotaCostFields(
       costUsd,
-      instance.estimate && !instance.outsideUnpriced ? instance.outsideCostUsd : null,
+      instance.value && !instance.outsideUnpriced ? instance.outsideCostUsd : null,
       unpriced > 0
     ),
-    costPerPercent: instance.estimate ? round(instance.estimate.costPerPercent, 6) : null,
+    costPerPercent: instance.value ? round(instance.value.costPerPercent, 6) : null,
     estimateSamples: instance.estimate?.samples ?? 0,
     outside: round(instance.outside),
   };

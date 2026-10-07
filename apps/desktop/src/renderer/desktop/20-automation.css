@@ -43,9 +43,9 @@
   cursor: pointer;
 }
 .schedules-filters button.active {
-  color: var(--mx-text);
-  background: var(--mx-pressed);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  color: var(--mx-bg-base);
+  background: var(--mx-text);
+  box-shadow: none;
 }
 /* Schedules interact states stay flat (user: no hover wash). */
 .schedules-page .settings-action:hover:not(:disabled) {
@@ -255,7 +255,7 @@
   /* ONE grouping box in the dialog system: the card's base plate under a
      muted hairline — the memory viewport and the skill preview wear the
      same — instead of a lighter layer-1 slab with no edge. */
-  background: var(--mx-bg-base);
+  background: transparent;
   box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .webhook-connection-row {
@@ -334,7 +334,7 @@
   gap: 12px;
   padding: 12px 16px;
   border-radius: var(--mx-radius-lg);
-  background: var(--mx-bg-layer-1);
+  background: transparent;
   box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .compact-switch {
@@ -786,8 +786,8 @@
   padding: 0 8px;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  background: var(--mx-hover);
+  box-shadow: none;
   font-size: var(--mx-font-minor);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -795,8 +795,8 @@
 .settings-metric-grid > div {
   border: 0;
   border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-deep);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  background: transparent;
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .settings-metric-grid span {
   color: var(--mx-text-faint);
@@ -882,8 +882,8 @@
   gap: 12px;
   padding: 0 12px;
   border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-deep);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  background: transparent;
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   font-size: var(--mx-font-minor);
 }
 .settings-oauth-status span {
@@ -937,8 +937,8 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
+  background: var(--mx-action-bg);
+  box-shadow: none;
   cursor: pointer;
 }
 .settings-oauth-verify-actions button.primary {
@@ -1005,8 +1005,8 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
+  background: var(--mx-action-bg);
+  box-shadow: none;
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
@@ -1034,7 +1034,7 @@
 }
 .settings-oauth-dialog > footer button:active:not(:disabled),
 .settings-oauth-code button:active:not(:disabled) {
-  background: var(--mx-flat-press);
+  background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-action-bg);
 }
 .settings-oauth-code button.primary:hover:not(:disabled) {
   background: var(--mx-flat-hover-contrast);
@@ -1122,14 +1122,14 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
+  background: var(--mx-action-bg);
+  box-shadow: none;
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
 }
 .settings-confirm-dialog > footer button:hover:not(:disabled) {
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-action-bg);
 }
 .settings-confirm-dialog > footer button.primary {
   color: var(--mx-grey-100);
@@ -1140,12 +1140,12 @@
 .settings-confirm-dialog > footer button.danger {
   color: var(--mx-danger);
   background: var(--mx-danger-bg);
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-danger) 28%, transparent);
+  box-shadow: none;
 }
 /* Each variant owns its feedback: the neutral hover above cannot reach
    .primary or .danger (both outrank it). */
 .settings-confirm-dialog > footer button:active:not(:disabled) {
-  background: var(--mx-flat-press);
+  background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-action-bg);
 }
 .settings-confirm-dialog > footer button.primary:hover:not(:disabled) {
   background: var(--mx-flat-hover-contrast);

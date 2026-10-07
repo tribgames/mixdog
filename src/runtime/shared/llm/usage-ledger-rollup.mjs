@@ -188,6 +188,39 @@ function readSessionAttribution(db, { fromDay, toDay, fromTs, toTs }) {
     .all(fromTs, toTs, fromDay, toDay);
 }
 
+// Output speed: output tokens over the wall time of the requests that produced
+// them. Only timed requests with output count — imported history carries no
+// duration — so untimed output never dilutes a route's figure.
+function readOutputSpeed(db, { fromDay, toDay, fromTs, toTs }) {
+  const ts = fromTs > 0 || toTs < Number.MAX_SAFE_INTEGER ? 'ts' : '+ts';
+  return db
+    .prepare(`
+            WITH timed AS (
+                SELECT day,route,SUM(output) AS output,SUM(duration_ms) AS duration_ms
+                FROM usage_events WHERE ${ts}>=? AND ${ts}<? AND duration_ms>0 AND output>0
+                GROUP BY day,route
+            ), attributed AS (
+                SELECT printf('%04d-%02d-%02d',t.day/10000,(t.day/100)%100,t.day%100) AS day,
+                    json_extract(r.signature,'$[0]') AS provider,
+                    json_extract(r.signature,'$[1]') AS model,
+                    json_extract(r.signature,'$[7]') AS rank,
+                    t.output,t.duration_ms
+                FROM timed t JOIN usage_routes r ON r.id=t.route
+            )
+            SELECT a.* FROM attributed a JOIN (${best}) b USING(day,provider,model,rank)
+        `)
+    .all(fromTs, toTs, fromDay, toDay);
+}
+
+function foldOutputSpeed(days, rows) {
+  for (const row of rows) {
+    const route = days[row.day]?.models[`${row.provider}/${row.model}`];
+    if (!route) continue;
+    route.speedOutput = (route.speedOutput || 0) + row.output;
+    route.speedMs = (route.speedMs || 0) + row.duration_ms;
+  }
+}
+
 function foldSessionAttribution(days, sessions) {
   for (const row of sessions) {
     const classified = row.origin !== 'trace' || Boolean(row.source_type);
@@ -266,7 +299,9 @@ export function readSessionUsage(db, sessionIds) {
             WITH mine AS (
                 SELECT day,route,COUNT(*) AS turns,SUM(input) AS input,SUM(output) AS output,
                     SUM(cache_read) AS cache_read,SUM(cache_write) AS cache_write,
-                    SUM(cost_usd) AS cost_usd,SUM(duration_ms) AS duration_ms
+                    SUM(cost_usd) AS cost_usd,SUM(duration_ms) AS duration_ms,
+                    SUM(CASE WHEN duration_ms>0 AND output>0 THEN output ELSE 0 END) AS speed_output,
+                    SUM(CASE WHEN duration_ms>0 AND output>0 THEN duration_ms ELSE 0 END) AS speed_ms
                 FROM usage_events WHERE session IN (
                     SELECT id FROM usage_sessions WHERE value IN (SELECT value FROM json_each(?)))
                 GROUP BY day,route
@@ -276,15 +311,22 @@ export function readSessionUsage(db, sessionIds) {
                     json_extract(r.signature,'$[1]') AS model,
                     json_extract(r.signature,'$[4]') AS cost_source,
                     json_extract(r.signature,'$[7]') AS rank,
-                    m.turns,m.input,m.output,m.cache_read,m.cache_write,m.cost_usd,m.duration_ms
+                    m.turns,m.input,m.output,m.cache_read,m.cache_write,m.cost_usd,m.duration_ms,
+                    m.speed_output,m.speed_ms
                 FROM mine m JOIN usage_routes r ON r.id=m.route
             )
             SELECT a.* FROM attributed a JOIN (${best}) b USING(day,provider,model,rank)
         `)
     .all(JSON.stringify(sessionIds), '0000-01-01', '9999-12-31');
-  for (const row of rows) add(total, row);
+  let speedOutput = 0;
+  let speedMs = 0;
+  for (const row of rows) {
+    add(total, row);
+    speedOutput += row.speed_output;
+    speedMs += row.speed_ms;
+  }
   const { sessions, sessionsComplete, ...usage } = total;
-  return usage;
+  return { ...usage, speedOutput, speedMs };
 }
 
 /** Read cached amounts; group retained attribution separately for distinct sessions. */
@@ -299,6 +341,7 @@ export function rollupUsage(
     hourly.rows = readHourlyRows(db, { hourlyDay, fromDay, toDay, fromMs, toMs, fromTs, toTs });
   }
   foldDailyAmounts(days, readDailyAmounts(db, { fromDay, toDay, fromMs, fromTs, toTs }));
+  foldOutputSpeed(days, readOutputSpeed(db, { fromDay, toDay, fromTs, toTs }));
   foldSessionAttribution(days, readSessionAttribution(db, { fromDay, toDay, fromTs, toTs }));
   // Timeless legacy totals cannot establish membership in a 24-hour window.
   // They remain available in the calendar/history views.

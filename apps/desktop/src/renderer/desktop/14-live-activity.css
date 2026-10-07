@@ -226,7 +226,7 @@
 }
 .turn-status.complete,
 .turn-status.success {
-  color: var(--mx-text-soft);
+  color: var(--mx-text-muted);
   /* A settled turn is history, not news: regular weight, so "Response
      complete" stops reading as loud as the answer above it (user: 코덱스보다
      안 이쁘네 → A안). The running band keeps its medium weight. */
@@ -488,8 +488,8 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-chip-bg);
-  box-shadow: var(--mx-button);
+  background: var(--mx-action-bg);
+  box-shadow: none;
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
@@ -526,7 +526,7 @@
    never painted, because no border-style was ever set. */
 .code-diff {
   border-radius: var(--mx-radius-lg);
-  background: var(--mx-bg-base);
+  background: transparent;
   box-shadow: 0 0 0 var(--mx-hairline) var(--mx-border-muted);
 }
 .diff-file > header {

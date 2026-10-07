@@ -117,7 +117,8 @@ export async function recordMediaUsage(args, getLedger = getUsageLedger) {
         resolution: usage.resolution,
       },
       account: ACCOUNT_PROVIDERS.includes(args.lane) ? currentProviderAccountId(args.lane) : '',
-      durationMs: args.durationMs,
+      // No durationMs: a generation's wall time is render time, not token
+      // streaming, and a timed row would report it as the model's output speed.
     });
     await getLedger()?.recordQueued(row);
   } catch (error) {

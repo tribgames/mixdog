@@ -120,6 +120,10 @@ export function moveRouteFocus(
 // What a route pane SHOWS, given the current route. Where that pane sits,
 // when it opens and which surface hosts it stays with the component.
 
+/** The Auto effort switch below the effort row; null hides it (feature not
+ *  installed or the model cannot change effort per turn). */
+export type RouteAutoEffort = { enabled: boolean; pending: boolean } | null;
+
 export function routeEffortPane({
   effort,
   effortOptions,

@@ -4,6 +4,9 @@
 import { SESSION_CONFIGURE_ACTION_SET, SESSION_READ_ACTION_SET } from '../../session-protocol.mjs';
 import { sanitizeForWire } from '../../session-wire-values.mjs';
 
+/** Reads a session without a live runtime answers from disk (readStoredReview). */
+const STORED_REVIEW_ACTIONS = new Set(['getTurnReviewDiff', 'getSessionReviewDiff']);
+
 /** One compact description of an action result for the daemon log, never the payload itself. */
 function resultSummary(value) {
   if (value === null || value === undefined) return String(value);
@@ -19,10 +22,29 @@ function requireSessionAction(action, allowed) {
 }
 
 export function createSessionActionCalls(ctx) {
-  const { isClosed, log, listSessions, getRemoteSessionState, loadProjectStore, advanceForCaller } = ctx;
+  const { isClosed, log, listSessions, getRemoteSessionState, loadProjectStore, advanceForCaller, readStoredReview } =
+    ctx;
   const { bodyForClient } = ctx.projection;
   const { retainUnwatched } = ctx.retention;
-  const { assertAvailable, entryForSession } = ctx.entries;
+  const { assertAvailable, hostedEntryForSession, entryForSession } = ctx.entries;
+
+  /** A cold session's review, read from its durable turn record (the same
+   *  source a runtime loaded only to answer it would read). Bodiless: the
+   *  caller keeps the projection it holds. */
+  async function storedReviewResult(id, name, args, baseRevision) {
+    const value = await readStoredReview(id, name, Array.isArray(args) ? args : []);
+    assertAvailable();
+    if (value === null) throw new Error(`session ${id} is not available`);
+    log(`session action ${name} session=${id} result=${resultSummary(value)} (stored)`);
+    return {
+      value: sanitizeForWire(value) ?? null,
+      sessionId: id,
+      reservedOnly: false,
+      projection: true,
+      unchanged: true,
+      ...(Number.isInteger(baseRevision) ? { revision: baseRevision } : {}),
+    };
+  }
 
   async function runSessionAction(
     { sessionId, action, args = [], open: openHints = {}, baseRevision = null } = {},
@@ -32,7 +54,13 @@ export function createSessionActionCalls(ctx) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
     const name = requireSessionAction(action, allowedActions);
-    const entry = await entryForSession(id, openHints || {});
+    // Opening an earlier session asks for its review right away; loading the
+    // whole runtime for that held the review bar (and the pane's reveal) for
+    // seconds.
+    const storedReview = STORED_REVIEW_ACTIONS.has(name) && typeof readStoredReview === 'function';
+    const hosted = storedReview ? await hostedEntryForSession(id) : null;
+    if (storedReview && !hosted) return storedReviewResult(id, name, args, baseRevision);
+    const entry = hosted || (await entryForSession(id, openHints || {}));
     assertAvailable(entry);
     const target = entry.runtime[name];
     if (typeof target !== 'function') throw new TypeError(`session action ${name} is unavailable`);

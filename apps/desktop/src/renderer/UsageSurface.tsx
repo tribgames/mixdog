@@ -21,7 +21,7 @@ export function UsageModeTabs({ mode, onChange }: { mode: UsageSurfaceMode; onCh
       onChange={onChange}
       items={[
         { id: 'tokens', label: t('Token usage') },
-        { id: 'quota', label: t('Subscription usage') },
+        { id: 'quota', label: t('OAuth usage') },
       ]}
     />
   );

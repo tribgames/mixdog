@@ -193,6 +193,11 @@
   color: var(--mx-text);
   background: var(--mx-window-band);
 }
+/* Paper: the navigation panel shares the reading canvas tone; only the
+   titlebar and rail keep the darker frame band. */
+:root[data-mixdog-theme="light"] .workbench-side-panel[data-side="left"] {
+  background: var(--mx-workspace-sheet);
+}
 .workbench-side-panel-content {
   position: relative;
   min-width: 0;

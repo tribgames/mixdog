@@ -39,7 +39,10 @@ export async function accountProviderSend(provider, instance, send, model, opts 
     sourceType,
     inputTokensInclusive,
   };
-  const record = async (result, id, owner) => {
+  // `timed`: only a send's completed result owns the request's wall time. An
+  // abandoned attempt or a failure shares that clock with the final attempt,
+  // so timing it too would count the same seconds twice and understate speed.
+  const record = async (result, id, owner, timed) => {
     if (!result?.usage) return;
     // A nested send (e.g. a fallback model re-send) already stamped its own
     // final attempt's tier; the outer context only saw the abandoned attempt.
@@ -72,16 +75,16 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       // The account this send is bound to, so quota history can tell one
       // connected subscription's records from another's.
       account: ACCOUNT_PROVIDERS.includes(provider) ? currentProviderAccountId(provider) : '',
-      durationMs: Date.now() - startedAt,
+      durationMs: timed ? Date.now() - startedAt : 0,
     });
     // Committed by the ledger worker (batched with concurrent sends); the
     // send still settles only once its row is durable, as before, but the
     // SQLite write no longer runs on the event loop.
     await ledger.recordQueued(row);
   };
-  const save = async (result, id = requestId, owner = result) => {
+  const save = async (result, id = requestId, owner = result, timed = false) => {
     try {
-      await record(result, id, owner);
+      await record(result, id, owner, timed);
     } catch (error) {
       result.usageAccountingError = String(error?.message || error);
       process.stderr.write(`[usage-ledger] RECORD NOT SAVED: ${result.usageAccountingError}\n`);
@@ -105,6 +108,6 @@ export async function accountProviderSend(provider, instance, send, model, opts 
     throw error;
   }
   await saveAbandoned();
-  await save(result);
+  await save(result, requestId, result, true);
   return result;
 }

@@ -45,6 +45,7 @@ import {
   routeSpeedPane,
   routeContextPane,
   routeParameterPane,
+  type RouteAutoEffort,
 } from './route-editor-panes';
 
 export { routeSheetRows } from './route-editor-logic';
@@ -81,6 +82,9 @@ export function RouteEditor({
   onChangeModelParameter,
   onOpenProviders,
   onOpenModelPane,
+  autoEffort = null,
+  onChangeAutoEffort = () => {},
+  onOpenSheet,
   answersModelPickerRequests = false,
 }: {
   /** Only the focused conversation's composer sets this; it is the single
@@ -119,6 +123,10 @@ export function RouteEditor({
   /** Opening the catalog is also the user's retry gesture: the owner may
    *  re-request a catalog whose previous fetch failed. */
   onOpenModelPane?: () => void;
+  autoEffort?: RouteAutoEffort;
+  onChangeAutoEffort?(enabled: boolean): void;
+  /** Opening the sheet lets the owner re-read the Auto effort switch. */
+  onOpenSheet?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -170,7 +178,8 @@ export function RouteEditor({
     });
   }, [modelCatalogReady, models.length, sheetId]);
   const selectedEffort = effortOptions.find((option) => option.value === effort);
-  const effortLabel = selectedEffort?.label || '';
+  const autoEffortOn = autoEffort?.enabled === true;
+  const effortLabel = autoEffortOn ? t('Auto') : selectedEffort?.label || '';
   const speedLabel = fast ? t('Fast') : t('Standard');
   // The slider row IS the context control (TUI parity): a provider's own
   // context-window parameter (Cursor 272K/1M) must never duplicate it.
@@ -184,7 +193,8 @@ export function RouteEditor({
     fastVisible,
     parameterIds: parameterRows.map((parameter) => parameter.id),
   });
-  const sheetHeight = rows.length * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
+  const autoEffortRow = Boolean(autoEffort) && rows.includes('effort');
+  const sheetHeight = (rows.length + (autoEffortRow ? 1 : 0)) * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
   const visible = open && surfaceActive;
   const mounted = (open || closing) && surfaceActive;
   const shownContextPercent = contextDraft ?? contextPercent;
@@ -343,6 +353,7 @@ export function RouteEditor({
   const layout = useCallback(() => layoutFor(pane), [layoutFor, pane]);
 
   const show = (focusRow: 'first' | 'last' | null = null) => {
+    onOpenSheet?.();
     const triggerRect = trigger.current?.getBoundingClientRect();
     if (closeTimer.current !== null) {
       window.clearTimeout(closeTimer.current);
@@ -720,7 +731,12 @@ export function RouteEditor({
         onPointerCancel={clickGuard.clearPointerActivation}
       >
         <span className="route-trigger-copy">
-          <ModelRouteLabel model={triggerModel} effort={effort} fast={fast} effortLabel={effortLabel} />
+          <ModelRouteLabel
+            model={triggerModel}
+            effort={autoEffortOn ? '' : effort}
+            fast={fast}
+            effortLabel={effortLabel}
+          />
         </span>
         <ChevronDown size={14} aria-hidden="true" />
       </button>
@@ -778,6 +794,21 @@ export function RouteEditor({
                   )
                 )}
                 {rows.includes('speed') && row('speed', t('Speed'), speedLabel, tuningDisabled)}
+                {autoEffortRow && autoEffort && (
+                  <label className="route-sheet-row route-sheet-toggle">
+                    <span className="route-sheet-label">{t('Auto reasoning')}</span>
+                    <span className="mixdog-settings__switch compact-switch">
+                      <input
+                        type="checkbox"
+                        aria-label={t('Auto reasoning')}
+                        checked={autoEffort.enabled}
+                        disabled={tuningDisabled || autoEffort.pending}
+                        onChange={(event) => onChangeAutoEffort(event.target.checked)}
+                      />
+                      <span aria-hidden="true" />
+                    </span>
+                  </label>
+                )}
               </div>
             )}
           </div>,

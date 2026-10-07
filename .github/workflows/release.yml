@@ -5,7 +5,8 @@
 # four-platform asset set succeeds. Deploy is the only release entry point;
 # there is no direct tag-push trigger.
 # Requires the NPM_TOKEN repo secret (npm automation token). The optional
-# MAC_CERTIFICATE_* and APPLE_API_* secrets sign and notarize the macOS app.
+# MAC_CERTIFICATE_* and APPLE_API_* secrets sign and notarize the macOS app;
+# the optional AZURE_* secrets sign the Windows installer.
 
 name: Release
 
@@ -43,6 +44,14 @@ on:
       APPLE_API_KEY_ID:
         required: false
       APPLE_API_ISSUER:
+        required: false
+      # Azure Artifact Signing for the Windows installer; without them it is
+      # packaged unsigned.
+      AZURE_TENANT_ID:
+        required: false
+      AZURE_CLIENT_ID:
+        required: false
+      AZURE_CLIENT_SECRET:
         required: false
 
 permissions:
@@ -279,6 +288,10 @@ jobs:
       arch: x64
       artifact_arch: x64
       target: win
+    secrets:
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
 
   desktop-darwin-arm64:
     needs: [desktop-build, prepare-github-release]

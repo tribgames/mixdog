@@ -869,7 +869,7 @@ try {
       );
     };
     assertShellTopEdge(metadata.shellTopEdges.dark, { band: '#151518', sheet: '#1c1c1f' });
-    assertShellTopEdge(metadata.shellTopEdges.light, { band: '#efeff2', sheet: '#f8f8fb' });
+    assertShellTopEdge(metadata.shellTopEdges.light, { band: '#f7f7f7', sheet: '#fcfcfc' });
     assert.equal(metadata.pixelSamples.titlebar.color, '#151518');
     assert.equal(metadata.pixelSamples.base.color, '#1c1c1f');
     assert.equal(metadata.pixelSamples.sidebar.color, '#151518');

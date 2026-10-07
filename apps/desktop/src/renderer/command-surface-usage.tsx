@@ -164,7 +164,7 @@ export function UsageBody({ data }: { data: Record<string, unknown> }) {
             </td>
             <td className="usage-plan-cell">
               <span className="usage-plan" data-plan={plan}>
-                {plan === 'subscription' ? t('Subscription') : 'API'}
+                {plan === 'subscription' ? t('OAuth') : 'API'}
               </span>
             </td>
             <td>

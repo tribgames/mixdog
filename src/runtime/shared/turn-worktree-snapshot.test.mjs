@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import childProcess, { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -34,6 +34,8 @@ test('turn worktree snapshots spawn git off the event loop and keep their conten
   const repo = join(root, 'repo');
   mkdirSync(repo, { recursive: true });
   git(repo, 'init', '-q');
+  // Exact LF bytes regardless of the machine's global line-ending config.
+  git(repo, 'config', 'core.autocrlf', 'false');
   writeFileSync(join(repo, 'a.txt'), 'original a\n');
   writeFileSync(join(repo, 'b.txt'), 'original b\n');
   git(repo, 'add', '-A');
@@ -76,6 +78,36 @@ test('turn worktree snapshots spawn git off the event loop and keep their conten
   assert.deepEqual(snapshot.files, []);
 
   assert.deepEqual(mainThreadSpawns, [], 'git was spawned on the event loop thread');
+});
+
+test('an autocrlf checkout touched without edits is not a diff', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const repo = join(root, 'crlf-repo');
+  mkdirSync(repo, { recursive: true });
+  git(repo, 'init', '-q');
+  git(repo, 'config', 'core.autocrlf', 'true');
+  writeFileSync(join(repo, 'a.txt'), 'one\r\ntwo\r\nthree\r\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'seed');
+
+  const snapshot = await createTurnWorktreeSnapshot(repo);
+  // Same CRLF bytes, new mtime: the shadow index sees a stat-dirty entry.
+  writeFileSync(join(repo, 'a.txt'), 'one\r\ntwo\r\nthree\r\n');
+  const later = new Date(Date.now() + 60_000);
+  utimesSync(join(repo, 'a.txt'), later, later);
+  await refreshTurnWorktreeSnapshot(snapshot);
+  assert.deepEqual(snapshot.files, []);
+
+  writeFileSync(join(repo, 'a.txt'), 'one\r\nTWO\r\nthree\r\n');
+  await refreshTurnWorktreeSnapshot(snapshot);
+  assert.deepEqual(
+    snapshot.files.map(({ path, additions, deletions }) => ({ path, additions, deletions })),
+    [{ path: 'a.txt', additions: 1, deletions: 1 }]
+  );
+
+  await revertTurnWorktreeSnapshot(snapshot);
+  assert.equal(readFileSync(join(repo, 'a.txt'), 'utf8'), 'one\r\ntwo\r\nthree\r\n');
 });
 
 test('a directory outside any repository yields no snapshot', {

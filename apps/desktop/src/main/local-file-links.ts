@@ -3,7 +3,8 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requiredRepositoryCwd } from './git-contract.mjs';
 import { requiredString } from './ipc-validation';
-import { localFileOpener, type LocalLinkOpened } from '../shared/local-files';
+import { localFileOpener, type FileLaunchConfirmation, type LocalLinkOpened } from '../shared/local-files';
+import { launchFile } from './file-launch';
 
 function assertInsideProject(root: string, target: string): void {
   const rel = relative(root, target);
@@ -51,16 +52,17 @@ function localLinkPath(href: unknown): string {
   return target;
 }
 
-// Chat output is untrusted. A folder opens in the file manager and only
-// allowlisted document/media types may launch an associated app; every other
-// file (source, text, data — and executables, scripts, shortcuts or
-// macro-enabled formats) is handed back for Mixdog's editor, which never
-// launches anything.
+// A folder opens in the file manager and only allowlisted documents, media,
+// installers, application packages and archives go to the OS default handler.
+// Executable targets first ask for Mixdog confirmation. Every
+// other file (source, text, data — and scripts, shortcuts or macro-enabled
+// formats) is handed back for Mixdog's editor, which never launches anything.
 export async function openLocalFileLink(
   projectPath: unknown,
   href: unknown,
-  openPath: (path: string) => Promise<string>
-): Promise<LocalLinkOpened> {
+  openPath: (path: string) => Promise<string>,
+  confirmedPath?: unknown
+): Promise<LocalLinkOpened | FileLaunchConfirmation> {
   const root = resolve(requiredRepositoryCwd(projectPath));
   const absolute = resolve(root, localLinkPath(href));
   assertInsideProject(root, absolute);
@@ -78,16 +80,9 @@ export async function openLocalFileLink(
   assertInsideProject(realRoot, realTarget);
   const info = await stat(realTarget);
   if (info.isDirectory()) {
-    const failure = await openPath(realTarget);
-    if (failure) throw new Error(`Unable to open folder: ${failure}`);
-    return 'folder';
+    return (await launchFile(realTarget, openPath, confirmedPath)) ?? 'folder';
   }
   if (!info.isFile()) throw new TypeError('The link must point to a file or folder.');
   if (localFileOpener(realTarget) !== 'os') return 'editor';
-  if (process.platform !== 'win32' && (info.mode & 0o111) !== 0) {
-    throw new TypeError('The link must point to a non-executable file.');
-  }
-  const failure = await openPath(realTarget);
-  if (failure) throw new Error(`Unable to open file: ${failure}`);
-  return 'file';
+  return (await launchFile(realTarget, openPath, confirmedPath)) ?? 'file';
 }

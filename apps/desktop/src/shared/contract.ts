@@ -1,4 +1,5 @@
 import type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
+import type { FileLaunchConfirmation, LocalLinkOpened } from './local-files';
 import type {
   DesktopAbortOptions,
   DesktopAgentPoolRow,
@@ -130,7 +131,14 @@ export interface DesktopApi {
   /** Desktop-only chat link opener, confined to the conversation's Project:
    *  documents launch their OS app, folders open in the file manager, and
    *  text files come back as 'editor' for the renderer to open itself. */
-  openLocalFileLink?(projectPath: string, href: string): Promise<'file' | 'folder' | 'editor'>;
+  openLocalFileLink?(
+    projectPath: string,
+    href: string,
+    confirmedPath?: string
+  ): Promise<LocalLinkOpened | FileLaunchConfirmation>;
+  /** Desktop-only: a loopback http address that serves a local web page (and
+   *  the web assets beside it) for the session browser pane. */
+  localPageUrl?(projectPath: string, relPath: string, accessToken?: string): Promise<string>;
   /** Settings → About: gh-CLI star state for the mixdog repo. Desktop-only;
    *  the remote shim omits both and the Star button falls back to the repo
    *  link. */
@@ -428,7 +436,12 @@ export interface DesktopApi {
   gitReviewDiff?(cwd: string, path: string, untracked?: boolean): Promise<string>;
   /** Review file context menu: OS-level reveal/open for a project-relative file. */
   revealFile?(cwd: string, path: string, accessToken?: string): Promise<void>;
-  openFilePath?(cwd: string, path: string, accessToken?: string): Promise<void>;
+  openFilePath?(
+    cwd: string,
+    path: string,
+    accessToken?: string,
+    confirmedPath?: string
+  ): Promise<void | FileLaunchConfirmation>;
   /** Transcript attachment chip: hand a submitted image to the OS viewer. The
    *  renderer holds those bytes only as a session-lifetime preview data URL, so
    *  they travel here and the main process owns the temp file. */

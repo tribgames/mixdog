@@ -11,7 +11,13 @@ mock.module('../internal-agents.mjs', {
   },
 });
 
-const { resolveCacheStrategy, resolveProviderPromptCacheLane } = await import('./cache-strategy.mjs');
+const {
+  buildStableProviderPromptCacheKey,
+  resolveCacheStrategy,
+  resolveProviderPromptCacheLane,
+  roleProviderCacheOpts,
+} = await import('./cache-strategy.mjs');
+const { xaiCacheRouting, xaiResponsesCacheRouting } = await import('../providers/openai-compat-xai.mjs');
 
 function setEnv(t, name, value) {
   const previous = process.env[name];
@@ -27,8 +33,8 @@ test('cache tiers distinguish one-shot, other agents, and Lead idle policy', (t)
   setEnv(t, 'MIXDOG_CACHE_MESSAGES_TTL', undefined);
   assert.deepEqual(resolveCacheStrategy('one-shot'), {
     tools: 'none',
-    system: 'none',
-    tier3: 'none',
+    system: '1h',
+    tier3: '1h',
     messages: 'none',
   });
   for (const agent of ['hidden-tool', 'worker']) {
@@ -48,6 +54,41 @@ test('cache tiers distinguish one-shot, other agents, and Lead idle policy', (t)
     });
     assert.equal(resolveCacheStrategy(agent, { autoClear: { enabled: false } }).messages, '1h');
     assert.equal(resolveCacheStrategy(agent, { autoClear: { idleMs: 3_600_000 } }).messages, '1h');
+  }
+});
+
+test('one-shot roles share one prompt-cache lane per prefix on every key-prefix provider', (t) => {
+  setEnv(t, 'MIXDOG_OAI_CACHE_KEY_SHARED', undefined);
+  setEnv(t, 'MIXDOG_OAI_CODEX_THREAD_CACHE_KEY', undefined);
+  setEnv(t, 'MIXDOG_XAI_RESPONSES_CACHE_SCOPE', undefined);
+  assert.deepEqual(roleProviderCacheOpts('grok-oauth', 'one-shot'), { promptCacheScope: 'shared' });
+  assert.equal(roleProviderCacheOpts('openai-oauth', 'worker'), null);
+  assert.deepEqual(roleProviderCacheOpts('anthropic-oauth', 'one-shot'), {
+    cacheStrategy: { tools: 'none', system: '1h', tier3: '1h', messages: 'none' },
+    promptCacheScope: 'shared',
+  });
+
+  const prefix = { model: 'm', instructions: 'role rules', tools: [] };
+  const call = (sessionId, scope) => ({ sessionId, ...(scope ? { promptCacheScope: scope } : {}) });
+  for (const provider of ['openai', 'openai-oauth']) {
+    const sharedA = buildStableProviderPromptCacheKey(provider, call('sess_a', 'shared'), prefix);
+    assert.equal(buildStableProviderPromptCacheKey(provider, call('sess_b', 'shared'), prefix), sharedA);
+    assert.notEqual(
+      buildStableProviderPromptCacheKey(provider, call('sess_b', 'shared'), { ...prefix, instructions: 'other' }),
+      sharedA
+    );
+    assert.notEqual(
+      buildStableProviderPromptCacheKey(provider, call('sess_a'), prefix),
+      buildStableProviderPromptCacheKey(provider, call('sess_b'), prefix)
+    );
+  }
+
+  const params = { messages: [{ role: 'system', content: 'role rules' }] };
+  for (const route of [xaiCacheRouting, xaiResponsesCacheRouting]) {
+    const sharedA = route(call('sess_a', 'shared'), params, [], 'grok');
+    assert.equal(sharedA.mode, 'prefix');
+    assert.equal(route(call('sess_b', 'shared'), params, [], 'grok').key, sharedA.key);
+    assert.notEqual(route(call('sess_a'), params, [], 'grok').key, route(call('sess_b'), params, [], 'grok').key);
   }
 });
 

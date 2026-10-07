@@ -281,14 +281,14 @@
 .onboarding-provider-list button.ghost,
 .onboarding-card-actions button.ghost {
   color: var(--mx-text-muted);
-  background: transparent;
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  background: var(--mx-action-bg);
+  box-shadow: none;
 }
 .onboarding-provider-list button.ghost:hover:not(:disabled),
 .onboarding-card-actions button.ghost:hover:not(:disabled) {
   color: var(--mx-text);
-  background: var(--mx-hover);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  background: var(--mx-pressed);
+  box-shadow: none;
 }
 /* Separated row cards instead of one tall sheet: the stack keeps an even
    rhythm and no half-cut hairline at the fold. The rows are FLAT (user:
@@ -474,7 +474,7 @@
   padding: 1px 6px;
   border-radius: var(--mx-radius-sm);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-2);
+  background: transparent;
   box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
   font-weight: var(--mx-weight-semibold);
   letter-spacing: var(--mx-tracking-wide);
@@ -605,7 +605,7 @@
 .onboarding-card-actions button.starred:disabled {
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 10%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-warning) 45%, transparent);
+  box-shadow: none;
   opacity: 1;
   cursor: default;
 }
@@ -681,12 +681,12 @@
 .onboarding-pill.warn {
   color: var(--mx-warning);
   background: var(--mx-warning-bg);
-  box-shadow: inset 0 0 0 var(--mx-hairline) color-mix(in srgb, var(--mx-warning) 45%, transparent);
+  box-shadow: none;
 }
 .onboarding-pill.neutral {
   color: var(--mx-text-muted);
-  background: var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
+  background: var(--mx-hover);
+  box-shadow: none;
 }
 .onboarding-dialog > footer {
   flex: none;

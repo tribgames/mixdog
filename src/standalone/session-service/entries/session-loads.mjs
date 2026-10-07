@@ -71,8 +71,9 @@ export function createSessionLoads({
     return entry;
   }
 
-  /** The runtime hosting sessionId: the existing owner, or a fresh load. */
-  async function entryForSession(sessionId, hints = {}) {
+  /** The runtime already hosting sessionId (owner, external view or a load in
+   *  flight), or null where answering would take a fresh load. */
+  async function hostedEntryForSession(sessionId) {
     assertAvailable();
     const owner = sessionOwner(sessionId);
     if (owner) return owner;
@@ -80,6 +81,13 @@ export function createSessionLoads({
     const acquiredOwner = sessionOwner(sessionId);
     if (acquiredOwner) return acquiredOwner;
     if (external?.runtime?.externalAction === true) return external;
+    return sessionLoads.get(sessionId) || null;
+  }
+
+  /** The runtime hosting sessionId: the existing owner, or a fresh load. */
+  async function entryForSession(sessionId, hints = {}) {
+    const hosted = await hostedEntryForSession(sessionId);
+    if (hosted) return hosted;
     return getOrCreateSessionEntry(sessionId, async () => {
       if (typeof sessionExists === 'function' && (await sessionExists(sessionId)) !== true) {
         // A session may have been created while the durable check was in
@@ -105,5 +113,5 @@ export function createSessionLoads({
     return sessionOwner(sessionId) || null;
   }
 
-  return { getOrCreateSessionEntry, loadSessionRuntime, entryForSession, liveEntryForView };
+  return { getOrCreateSessionEntry, loadSessionRuntime, hostedEntryForSession, entryForSession, liveEntryForView };
 }

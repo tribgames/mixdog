@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode, type Ref } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { SessionGoalHost } from './session-goal-submission';
 
@@ -12,13 +12,13 @@ let reviewModulePromise: Promise<TurnReviewModule> | null = null;
  * The chrome stacked ABOVE the prompt input: Goal capsule, tool approval, the draft-only context bar, and the turn-review slot, with
  * the composer itself as the last child.
  *
- * Slots take space only while their content renders. Their geometry commits
- * once, with no retained closing card or height animation: each animation
- * step used to resize and scroll the entire transcript above the input.
- * The timeline applies the resulting viewport change before paint.
+ * The dock overlays the transcript. Visible slots contribute measured bottom
+ * clearance, while Goal and review disclosures expand above their fixed
+ * footprints without changing the scroller's height or reading position.
  */
 
 export function ComposerDock({
+  dockRef,
   goalIsland,
   goalSubmissionId,
   approval,
@@ -32,6 +32,7 @@ export function ComposerDock({
   onOpenFile,
   children,
 }: {
+  dockRef?: Ref<HTMLDivElement>;
   goalIsland?: ReactNode;
   /** Closes previous-turn Goal chrome with the optimistic row (see
    *  session-goal-submission). */
@@ -69,7 +70,7 @@ export function ComposerDock({
   const TurnReviewBar = reviewModule?.TurnReviewBar;
 
   return (
-    <div className="composer-region">
+    <div className="composer-region" ref={dockRef}>
       <SessionGoalHost placement="composer" submissionId={goalSubmissionId}>
         {goalIsland}
       </SessionGoalHost>

@@ -53,7 +53,13 @@
 }
 .github-panel button:hover:not(:disabled),
 .github-action-form button:hover:not(:disabled) {
-  background: var(--mx-bg-layer-1);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-action-bg);
+}
+/* Buttons share the app's flat fill; inputs and selects keep their frame. */
+.github-panel button,
+.github-action-form button {
+  border-color: transparent;
+  background: var(--mx-action-bg);
 }
 .github-actions {
   display: flex;

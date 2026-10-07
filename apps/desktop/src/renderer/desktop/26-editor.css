@@ -308,8 +308,8 @@
   flex: 1;
 }
 .editor-pane-recovery button {
-  border: var(--mx-hairline) solid var(--mx-border-muted);
-  background: var(--mx-workspace-sheet);
+  border: var(--mx-hairline) solid transparent;
+  background: var(--mx-action-bg);
   font-size: var(--mx-font-minor);
   padding: 2px 8px;
   border-radius: var(--mx-radius-md);
@@ -668,8 +668,8 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: var(--mx-hairline) solid var(--mx-border-muted);
-  background: none;
+  border: var(--mx-hairline) solid transparent;
+  background: var(--mx-action-bg);
   color: var(--mx-text);
   font-size: var(--mx-font-minor);
   padding: 4px 10px;
@@ -719,8 +719,8 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  border: var(--mx-hairline) solid var(--mx-border-muted);
-  background: none;
+  border: var(--mx-hairline) solid transparent;
+  background: var(--mx-action-bg);
   color: var(--mx-text);
   font-size: var(--mx-font-minor);
   padding: 4px 10px;

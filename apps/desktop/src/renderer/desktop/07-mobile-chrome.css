@@ -1151,6 +1151,7 @@ html[data-mixdog-mobile-tabs] .composer-attachments .attachment-remove {
 html[data-mixdog-mobile-tabs] .message .message-actions,
 html[data-mixdog-mobile-tabs] .tool-detail-copy,
 html[data-mixdog-mobile-tabs] .markdown-code-copy,
+html[data-mixdog-mobile-tabs] .markdown-code-run,
 html[data-mixdog-mobile-tabs] .turn-review-open,
 html[data-mixdog-mobile-tabs] .turn-review-revert,
 html[data-mixdog-mobile-tabs] .queue-remove {

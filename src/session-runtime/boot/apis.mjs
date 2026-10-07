@@ -135,6 +135,11 @@ function builtinFeatureAdapters(boot) {
         await installTidyCoreEngines({ pluginData: dataDirOf(cfgMod) });
       } else if (name === 'localProvider') {
         await installLocalProviderRuntime();
+      } else if (name === 'autoEffort') {
+        const { effortJudgeAvailable, effortJudgeModelDir } = await import('../../runtime/effort-judge/judge-client.mjs');
+        if (!effortJudgeAvailable()) {
+          throw new Error(`The Auto reasoning model is not installed (expected in ${effortJudgeModelDir()}).`);
+        }
       }
     },
     tidyEngineStatus: async () => {

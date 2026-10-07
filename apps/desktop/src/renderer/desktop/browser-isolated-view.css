@@ -58,29 +58,22 @@
   flex: 1;
 }
 
-.browser-page-prompt {
+/* The page's own alert/confirm/prompt: the app's opaque dialog card, centred
+   at the top of the page as an ordinary browser places it (the old
+   translucent plate let page text show through the message). */
+.browser-page-prompt.mx-dialog {
   position: absolute;
-  inset: 12px 12px auto;
-  padding: 16px;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: var(--mx-radius-lg);
-  background: var(--mx-surface-plate);
-  color: var(--mx-text);
-  box-shadow: var(--mx-floating);
-  overflow-wrap: anywhere;
+  z-index: 2;
+  inset: 12px 0 auto;
+  width: min(420px, calc(100% - 24px));
+  margin: 0 auto;
 }
-
-.browser-page-prompt > div {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+.browser-page-prompt .mx-dialog-body p {
+  margin: 0;
+  white-space: pre-wrap;
 }
-.browser-page-prompt input {
+.browser-page-prompt .mx-dialog-body input {
   width: 100%;
   box-sizing: border-box;
-  margin-bottom: 12px;
-}
-.browser-page-prompt button {
-  padding: 6px 12px;
-  cursor: pointer;
+  margin-top: 12px;
 }

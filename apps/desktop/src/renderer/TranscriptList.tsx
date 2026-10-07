@@ -50,6 +50,15 @@ type CoreScrollState = {
 
 const coreScrollState = (instance: TranscriptVirtualizer) => instance as unknown as CoreScrollState;
 
+function rememberRowHeight(element: HTMLElement, height: number): number {
+  // A pending parser/chunk is not a new measurement of the resolved content.
+  // CSS holds the last real box until the pending marker leaves the row.
+  if (!element.querySelector('[data-transcript-pending]')) {
+    element.style.setProperty('--transcript-measured-height', `${height}px`);
+  }
+  return height;
+}
+
 /** Row sizes come from the ResizeObserver's border box only. Every other call
  *  (ref registration, a detached node, a headless layout reporting no box)
  *  keeps the size the timeline already holds: a synchronous rect read per
@@ -60,7 +69,9 @@ function measureTranscriptRow(
   instance: TranscriptVirtualizer
 ): number {
   const observed = Number(entry?.borderBoxSize?.[0]?.blockSize);
-  if (Number.isFinite(observed) && observed > 0) return Math.round(observed);
+  if (Number.isFinite(observed) && observed > 0) {
+    return rememberRowHeight(element as HTMLElement, Math.round(observed));
+  }
   const index = instance.indexFromElement(element as HTMLDivElement);
   const key = instance.options.getItemKey(index);
   return instance.itemSizeCache.get(key) ?? instance.measurementsCache[index]?.size ?? TRANSCRIPT_ROW_ESTIMATE;
@@ -166,6 +177,7 @@ export function TranscriptList({
   rows,
   viewport,
   content,
+  bottomInset = 0,
   shouldAnchorBottom: anchorBottomProp,
   scrollToEndRef,
   setAnchorBottomRef,
@@ -178,6 +190,8 @@ export function TranscriptList({
   rows: readonly TranscriptRowModel[];
   viewport: RefObject<HTMLDivElement | null>;
   content: MutableRefObject<HTMLDivElement | null>;
+  /** Measured overlay footprint, not a reduction of the scroll viewport. */
+  bottomInset?: number;
   shouldAnchorBottom: boolean;
   scrollToEndRef: MutableRefObject<(behavior?: ScrollBehavior) => void>;
   /** The follow hook flips the anchor here the instant it decides, without
@@ -193,6 +207,8 @@ export function TranscriptList({
   onSelectionAutoScroll(delta: number): void;
 }) {
   const spacer = useRef<HTMLDivElement>(null);
+  const bottomInsetRef = useRef(bottomInset);
+  bottomInsetRef.current = bottomInset;
   // The viewport's scrollTop as last observed in a scroll event or written by
   // this list: every other consumer reads this instead of the DOM.
   const domTop = useRef<number | null>(null);
@@ -297,7 +313,7 @@ export function TranscriptList({
     // end pin. An 80px band lost tall rows in a short split and invited a
     // second scrollToEnd writer. Reader release flips followOnAppend off.
     scrollEndThreshold: SCROLL_END_THRESHOLD_PX,
-    paddingEnd: TRANSCRIPT_BOTTOM_SPACER,
+    paddingEnd: bottomInset + TRANSCRIPT_BOTTOM_SPACER,
     // The virtual core commits its state to the DOM in the same task as every
     // notify. React's default async rerender let the core
     // move scrollTop pre-paint while rows still painted at their previous
@@ -496,6 +512,12 @@ export function TranscriptList({
     [maxScrollTop, viewport]
   );
   useLayoutEffect(() => () => endPin.cancel(), [endPin]);
+  useLayoutEffect(() => {
+    // Padding changes do not move any row. Publish the new extent for readers
+    // too; only a following timeline is allowed to move to the new end.
+    if (spacer.current) spacer.current.style.height = `${virtualizerRef.current.getTotalSize()}px`;
+    endPin.request();
+  }, [bottomInset, endPin]);
   // One pre-paint write of a corrected reading offset. The spacer grows FIRST:
   // virtualizer.scrollToOffset clamped the target against the previous
   // scrollHeight, and older pages then dropped the reader a whole page.
@@ -645,7 +667,9 @@ export function TranscriptList({
       // changed (a group that gained its head, a reply that took its
       // completion) both land here; the observer's later delivery of the same
       // box is then a no-op, so each size still lands exactly once.
-      const sizes = mounted.map((row) => Math.round(row.getBoundingClientRect().height));
+      const sizes = mounted.map((row) =>
+        rememberRowHeight(row, Math.round(row.getBoundingClientRect().height))
+      );
       let measured = false;
       mounted.forEach((row, position) => {
         const size = sizes[position] ?? 0;
@@ -797,7 +821,13 @@ export function TranscriptList({
   const measureRow = useCallback((element: HTMLDivElement | null) => {
     // Registration only: the row's ResizeObserver delivers its box after this
     // frame's layout and before its paint, so no layout is read here.
-    if (element?.isConnected) virtualizerRef.current.measureElement(element);
+    if (element?.isConnected) {
+      const instance = virtualizerRef.current;
+      const key = instance.options.getItemKey(instance.indexFromElement(element));
+      const cached = instance.itemSizeCache.get(key);
+      if (cached !== undefined) element.style.setProperty('--transcript-measured-height', `${cached}px`);
+      instance.measureElement(element);
+    }
   }, []);
   const bindSpacer = useCallback(
     (element: HTMLDivElement | null) => {
@@ -903,6 +933,7 @@ export function TranscriptList({
     if (!root) return undefined;
     return attachTranscriptSelectionDrag({
       root,
+      getBottomInset: () => bottomInsetRef.current,
       rowKeyAt: (index) => rowsRef.current[index]?.key,
       setPin: setSelectionPin,
       onAutoScroll: onSelectionAutoScroll,

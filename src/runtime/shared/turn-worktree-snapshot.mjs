@@ -82,6 +82,7 @@ function stateForRoot(root) {
     sourceIndexPath: null,
     sourceIndexIdentity: null,
     sourceTracked: new Set(),
+    lineEndingArgs: [],
     lock: Promise.resolve(),
   };
   states.set(key, state);
@@ -97,10 +98,29 @@ function withStateLock(state, task) {
   return next;
 }
 
+// The shadow index starts as a copy of the source index, so it must hash the
+// worktree with the source repository's own line-ending conversion. Forcing
+// `core.autocrlf=false` hashed a CRLF checkout of an LF index as raw CRLF:
+// every stat-touched file then diffed as fully rewritten.
+async function sourceLineEndingArgs(root) {
+  const result = await runGit(['config', '--get-regexp', '^core\\.(autocrlf|eol)$'], {
+    cwd: root,
+    allowFailure: true,
+  });
+  const values = new Map();
+  for (const line of String(result.stdout || '').split(/\r?\n/)) {
+    const match = /^(core\.(?:autocrlf|eol))\s+(\S+)/i.exec(line.trim());
+    if (match) values.set(match[1].toLowerCase(), match[2]);
+  }
+  return [...values].flatMap(([key, value]) => ['-c', `${key}=${value}`]);
+}
+
 function shadowArgs(state, args) {
   return [
+    ...state.lineEndingArgs,
+    // A conversion warning must never fail the snapshot `add`.
     '-c',
-    'core.autocrlf=false',
+    'core.safecrlf=false',
     '-c',
     'core.quotepath=false',
     '--git-dir',
@@ -189,7 +209,6 @@ async function ensureState(state) {
         '[core]',
         '\trepositoryformatversion = 0',
         '\tbare = false',
-        '\tautocrlf = false',
         '\tlongpaths = true',
         '\tsymlinks = true',
         '\tfsmonitor = false',
@@ -204,7 +223,12 @@ async function ensureState(state) {
       'utf8'
     );
   }
-  await Promise.all([syncSourceExclude(state), syncAlternates(state)]);
+  const [lineEndingArgs] = await Promise.all([
+    sourceLineEndingArgs(state.root),
+    syncSourceExclude(state),
+    syncAlternates(state),
+  ]);
+  state.lineEndingArgs = lineEndingArgs;
   // Seed once per process, then keep this index synchronized with the live
   // worktree. The temp repository survives process restarts, so re-seeding
   // here also removes stale untracked entries left by a prior process without
@@ -335,7 +359,7 @@ async function applyBaselineFilesUnlocked(state, tree, entries) {
       if (entry.content !== undefined && entry.content !== null) {
         oid = clean(
           (
-            await runGit(shadowArgs(state, ['hash-object', '-w', '--stdin']), {
+            await runGit(shadowArgs(state, ['hash-object', '-w', '--stdin', '--path', path]), {
               cwd: state.root,
               input: entry.content,
             })
@@ -450,7 +474,7 @@ function parseNumstat(text) {
   return out;
 }
 
-async function diffTreesUnlocked(state, baselineTree, currentTree, paths = null) {
+async function diffTreesUnlocked(state, baselineTree, currentTree, paths = null, { omitPatch = false } = {}) {
   if (!baselineTree || !currentTree || baselineTree === currentTree) {
     return { patch: '', files: [], patchTruncated: false, currentTree };
   }
@@ -464,16 +488,20 @@ async function diffTreesUnlocked(state, baselineTree, currentTree, paths = null)
   ]);
   let patch = '';
   let patchTruncated = false;
-  try {
-    const result = await runGit(shadowArgs(state, ['diff', '--no-ext-diff', '--unified=3', ...rangeArgs]), {
-      cwd: state.root,
-      maxBytes: PATCH_MAX_BYTES + 256 * 1024,
-    });
-    patch = result.stdout.length <= PATCH_MAX_BYTES ? result.stdout : result.stdout.slice(0, PATCH_MAX_BYTES);
-    patchTruncated = result.stdout.length > PATCH_MAX_BYTES;
-  } catch (error) {
-    if (error?.code !== 'EMAXBUFFER') throw error;
-    patchTruncated = true;
+  // A files-and-counts read skips the patch text, the one part whose cost
+  // grows with the size of the change.
+  if (!omitPatch) {
+    try {
+      const result = await runGit(shadowArgs(state, ['diff', '--no-ext-diff', '--unified=3', ...rangeArgs]), {
+        cwd: state.root,
+        maxBytes: PATCH_MAX_BYTES + 256 * 1024,
+      });
+      patch = result.stdout.length <= PATCH_MAX_BYTES ? result.stdout : result.stdout.slice(0, PATCH_MAX_BYTES);
+      patchTruncated = result.stdout.length > PATCH_MAX_BYTES;
+    } catch (error) {
+      if (error?.code !== 'EMAXBUFFER') throw error;
+      patchTruncated = true;
+    }
   }
   const statuses = parseNameStatus(nameStatus.stdout);
   const stats = parseNumstat(numstat.stdout);
@@ -492,7 +520,7 @@ async function diffTreesUnlocked(state, baselineTree, currentTree, paths = null)
       };
     })
     .sort((left, right) => left.path.localeCompare(right.path));
-  return { patch, files, patchTruncated, currentTree };
+  return { patch, files, patchTruncated, currentTree, ...(omitPatch ? { patchOmitted: true } : {}) };
 }
 
 // One maintenance pass per shadow repository per process, off the turn's
@@ -541,8 +569,14 @@ export async function createTurnWorktreeSnapshot(worktree) {
 
 /** Re-open a recorded baseline after the runtime lost its in-memory tracker.
  *  The tree object is the durable half of a review; `paths` scopes both this
- *  diff and any later revert to what the recording session actually owns. */
-export async function resumeTurnWorktreeSnapshot(worktree, baselineTree, { paths = null, baselineFiles = [] } = {}) {
+ *  diff and any later revert to what the recording session actually owns.
+ *  `omitPatch` leaves out the patch text: only a snapshot read once and then
+ *  discarded may ask for that, never one a later refresh keeps updating. */
+export async function resumeTurnWorktreeSnapshot(
+  worktree,
+  baselineTree,
+  { paths = null, baselineFiles = [], omitPatch = false } = {}
+) {
   const tree = clean(baselineTree);
   if (!tree) return null;
   const root = await repositoryRoot(worktree).catch(() => null);
@@ -573,7 +607,10 @@ export async function resumeTurnWorktreeSnapshot(worktree, baselineTree, { paths
       baselineFiles: new Map(applied.files.map((entry) => [pathKey(entry.path), entry])),
     };
     const currentTree = await captureTreeUnlocked(state, snapshot.toolPaths);
-    Object.assign(snapshot, await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths));
+    Object.assign(
+      snapshot,
+      await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths, { omitPatch })
+    );
     return snapshot;
   });
 }

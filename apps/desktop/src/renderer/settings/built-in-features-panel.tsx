@@ -13,6 +13,7 @@ import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
 import { subscribeSetupChanges } from '../setup-change-refresh';
+import { publishAutoEffort } from '../auto-effort-store';
 import type { SidebarResourceTag } from '../sidebar-resource-row';
 import { CompactSwitch, Group } from './capability-controls';
 import { sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
@@ -330,6 +331,7 @@ export function BuiltInFeaturesPanel({
       office: record(toolModules.office).installed === true,
       tidy: record(toolModules.tidy).installed === true,
       localProvider: localProvider.installed === true,
+      autoEffort: record(toolModules.autoEffort).installed === true,
       voice: voiceInstalled || voice.installed === true,
     }),
     [gitStatus?.installed, settings, toolModules, localProvider, voice.installed, voiceInstalled]
@@ -343,6 +345,7 @@ export function BuiltInFeaturesPanel({
       office: record(toolModules.office).enabled !== false,
       tidy: record(toolModules.tidy).enabled !== false,
       localProvider: localProvider.enabled === true,
+      autoEffort: record(toolModules.autoEffort).enabled === true,
       voice: voice.enabled === true && installed.voice,
     }),
     [installed.voice, settings, toolModules, localProvider, voice.enabled]
@@ -367,8 +370,9 @@ export function BuiltInFeaturesPanel({
       const result = record(await run('setMemoryToolsEnabled', [next], `built-in-${id}`));
       return record(result.memory).enabled === next;
     }
-    if (id === 'git' || id === 'office' || id === 'localProvider' || id === 'tidy') {
+    if (id === 'git' || id === 'office' || id === 'localProvider' || id === 'tidy' || id === 'autoEffort') {
       const result = record(await run('setBuiltinToolEnabled', [id, next], `built-in-${id}`));
+      if (id === 'autoEffort') publishAutoEffort(result);
       return record(result[id]).enabled === next;
     }
     // Voice OFF preserves the managed runtime, so the authoritative installed
@@ -408,7 +412,7 @@ export function BuiltInFeaturesPanel({
         }
         setVoiceInstalled(true);
         window.dispatchEvent(new Event('mixdog:voice-runtime-changed'));
-      } else if (id === 'memory' || id === 'office' || id === 'tidy') {
+      } else if (id === 'memory' || id === 'office' || id === 'tidy' || id === 'autoEffort') {
         // Office leans on LibreOffice for rendering and recalculation, so its
         // Install step brings the dependency in first (winget/brew) — the same
         // guided pattern the Git card uses for system Git.
@@ -424,6 +428,7 @@ export function BuiltInFeaturesPanel({
         if (entry.installed !== true || entry.enabled !== true) {
           throw new Error(t('Installation did not complete.'));
         }
+        if (id === 'autoEffort') publishAutoEffort(result);
         if (id === 'tidy') {
           await tidy.refresh();
         }

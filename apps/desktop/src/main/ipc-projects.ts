@@ -66,8 +66,8 @@ export function registerProjectIpc({
     shell.showItemInFolder(await resolvedMediaAssetPath(assetId));
   });
   handle(DESKTOP_IPC.openExternal, (_event, url) => shell.openExternal(requiredExternalUrl(url)));
-  handle(DESKTOP_IPC.openLocalFileLink, (_event, projectPath, href) =>
-    openLocalFileLink(projectPath, href, (file) => shell.openPath(file))
+  handle(DESKTOP_IPC.openLocalFileLink, (_event, projectPath, href, confirmedPath) =>
+    openLocalFileLink(projectPath, href, (file) => shell.openPath(file), confirmedPath)
   );
   handle(DESKTOP_IPC.githubStarStatus, () => operations.githubStarStatus());
   handle(DESKTOP_IPC.starGithub, () => operations.starGithub());

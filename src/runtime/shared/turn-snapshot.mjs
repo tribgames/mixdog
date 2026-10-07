@@ -714,7 +714,7 @@ function recordedPathMatchesFile(owned, root, file) {
 
 /** Re-open the recorded baseline for a session whose tracker is gone. Returns
  *  null when the record is missing or its tree object has been collected. */
-async function resumeRecordedSnapshot(ownerSessionId) {
+async function resumeRecordedSnapshot(ownerSessionId, { omitPatch = false } = {}) {
   if (!ownerSessionId) return null;
   let record = null;
   try {
@@ -726,6 +726,7 @@ async function resumeRecordedSnapshot(ownerSessionId) {
   const snapshot = await resumeTurnWorktreeSnapshot(record.root, record.baselineTree, {
     paths: record.toolFiles,
     baselineFiles: record.baselineFiles,
+    omitPatch,
   }).catch(() => null);
   if (!snapshot) return null;
   return { record, snapshot };
@@ -734,13 +735,14 @@ async function resumeRecordedSnapshot(ownerSessionId) {
 /** A review rebuilt from the durable record. Same shape as the live one, but
  *  scoped to the recording session's own paths so a worktree shared with other
  *  sessions stays attributable instead of losing its revert entirely. */
-async function scopedReviewFromRecord(ownerSessionId) {
-  const resumed = await resumeRecordedSnapshot(ownerSessionId);
+async function scopedReviewFromRecord(ownerSessionId, { omitPatch = false } = {}) {
+  const resumed = await resumeRecordedSnapshot(ownerSessionId, { omitPatch });
   if (!resumed) return null;
   return {
     supported: true,
     files: resumed.snapshot.files || [],
     patch: resumed.snapshot.patch || '',
+    ...(resumed.snapshot.patchOmitted ? { patchOmitted: true } : {}),
     snapshotKind: 'scoped',
     revertMode: 'scoped',
     checkpointId: clean(resumed.record.checkpointId),
@@ -795,8 +797,9 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
   if (!snapshot && !trackedRevertAvailable) {
     // Both in-memory sources are gone: the next turn replaced the tracker, the
     // turn cache evicted it, or the runtime restarted. The recorded baseline is
-    // still on disk and still exact.
-    const recorded = await scopedReviewFromRecord(ownerSessionId);
+    // still on disk and still exact. Rebuilt per read and then discarded, so a
+    // summary read skips its patch text instead of dropping it afterwards.
+    const recorded = await scopedReviewFromRecord(ownerSessionId, { omitPatch: options.summary === true });
     if (recorded) return recorded;
   }
   let revertMode = '';

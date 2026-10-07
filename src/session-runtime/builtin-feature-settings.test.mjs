@@ -108,7 +108,10 @@ test('enabling a built-in tool marks it installed; install runs the adapter', as
   const installed = await state.api.installBuiltinFeature('git');
   assert.deepEqual(installed.git, { enabled: true, installed: true });
   assert.equal(state.config().modules.git.enabled, true);
-  await assert.rejects(state.api.installBuiltinFeature('shell'), /git, memory, office, tidy, or localProvider/);
+  await assert.rejects(
+    state.api.installBuiltinFeature('shell'),
+    /git, memory, office, tidy, localProvider, or autoEffort/
+  );
 
   // Code tidy installs and toggles through the same path as office.
   const tidy = await state.api.installBuiltinFeature('tidy');
@@ -200,7 +203,10 @@ test('Code Tidy status reads answer with null before any install adapter is wire
 
 test('built-in tool setting rejects names outside the first-party registry', async () => {
   const state = fixture();
-  await assert.rejects(state.api.setBuiltinToolEnabled('shell', false), /git, office, tidy, or localProvider/);
+  await assert.rejects(
+    state.api.setBuiltinToolEnabled('shell', false),
+    /git, office, tidy, localProvider, or autoEffort/
+  );
   assert.deepEqual(state.config(), {});
 });
 

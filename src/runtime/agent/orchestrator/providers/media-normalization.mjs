@@ -4,6 +4,7 @@ import {
   isAttachmentReference,
   isMissingAttachmentError,
   readAttachmentBase64,
+  storeInlineImagePart,
 } from '../../../attachments/store.mjs';
 import { base64ByteLength, inlineFileKind } from '../../../shared/inline-file-kind.mjs';
 
@@ -370,10 +371,24 @@ function storedHistoryImagePlaceholder(part) {
   return `[Image omitted from stored history${mimeType ? `: ${mimeType}` : ''}]`;
 }
 
+// Live parts keep their identity across saves, so each inline image is hashed
+// and written once and every projection returns the same stored part.
+const storedImageParts = new WeakMap();
+
+function storedImagePart(part) {
+  if (!storedImageParts.has(part)) storedImageParts.set(part, storeInlineImagePart(part));
+  return storedImageParts.get(part);
+}
+
 function sanitizePartForStoredHistory(part) {
   if (typeof part === 'string') return part;
   if (!part || typeof part !== 'object') return part;
   if (isAttachmentReference(part)) return part;
+  // An inline base64 image persists as a content-addressed reference: the
+  // reloaded transcript lowers to the same provider bytes, so evicting or
+  // reloading the session keeps the provider prompt cache intact.
+  const storedImage = part.type === 'image' ? storedImagePart(part) : null;
+  if (storedImage) return storedImage;
   if (
     part.type === 'image' ||
     part.type === 'image_url' ||
