@@ -15,7 +15,7 @@ mkdirSync(join(root, 'sessions'));
 
 const { saveSessionAsync, loadSession, bumpSessionGeneration } = await import('../store.mjs');
 const { _sessionWriteAuthorityRefusal, _shouldDrop } = await import('./write-admission.mjs');
-const { statSessionStamp, sameSessionStamp } = await import('./canonical-reader.mjs');
+const { statSessionStamp, sameSessionStamp, ownCommittedLifecycle } = await import('./canonical-reader.mjs');
 const { settleSessionSummaryIndex } = await import('./listing.mjs');
 
 test.after(async () => {
@@ -52,8 +52,10 @@ function countReads(t, path) {
 const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 // Block this thread (no event-loop turn, so no worker reply can be processed)
-// until the worker has renamed a new file over `path`, then give it a moment
-// to publish its commit stamp.
+// until the worker has renamed a new file over `path` and published its commit
+// stamp on the peer port. The lookup absorbs that port synchronously and only
+// stats the file, so waiting never counts as a read; a fixed pause instead lost
+// the race whenever a loaded runner stalled the worker between rename and post.
 function waitForWorkerCommit(path, previous) {
   const deadline = Date.now() + 15_000;
   for (;;) {
@@ -63,11 +65,10 @@ function waitForWorkerCommit(path, previous) {
     } catch {
       /* mid-rename */
     }
-    if (current && !sameSessionStamp(current, previous)) break;
-    if (Date.now() > deadline) throw new Error('the save worker never committed');
+    if (current && !sameSessionStamp(current, previous) && ownCommittedLifecycle(path, current)) return;
+    if (Date.now() > deadline) throw new Error('the save worker never published its commit');
     sleepSync(1);
   }
-  sleepSync(50);
 }
 
 test('pipelined saves answer every in-flight ownership check from the worker commit stamp', async (t) => {
