@@ -396,6 +396,7 @@ async function createHeadlessSessionRuntime(boundary, { provider, model, cwd, we
   const createRuntime = runtimeFactory || (await import('./mixdog-session-runtime.mjs')).createMixdogSessionRuntime;
   process.env.MIXDOG_FEATURE_WEB_SEARCH = webSearch === true ? '1' : '0';
   process.env.MIXDOG_FEATURE_MEMORY = '0';
+  process.env.MIXDOG_BOOT_CORE_MEMORY = '0';
   return createRuntime({
     provider,
     model,

@@ -71,7 +71,6 @@ export function createToolPolicyRefresh({
   getDataDir,
   modelStandaloneTools,
   featureDisallowedTools,
-  memoryToolsEnabled,
   loadCoreMemoryContext,
   activeWorkflowContext,
   invalidatePreSessionToolSurface,
@@ -94,7 +93,6 @@ export function createToolPolicyRefresh({
   }
 
   async function leadCoreMemoryContext() {
-    if (!memoryToolsEnabled()) return '';
     try {
       return await loadCoreMemoryContext();
     } catch {

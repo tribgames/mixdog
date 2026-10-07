@@ -3,13 +3,15 @@ import { DatabaseSync } from 'node:sqlite';
 import test, { mock } from 'node:test';
 
 let database;
-mock.module('./memory.mjs', {
+mock.module('./memory.mjs', { namedExports: { getDatabase: () => database } });
+// Saving must never reach the embedding model.
+mock.module('./memory-embed.mjs', {
   namedExports: {
-    getDatabase: () => database,
-    embeddingToSql: (value) => JSON.stringify(value),
+    cachedEmbedTextBatch: async () => {
+      throw new Error('core memory writes must not embed');
+    },
   },
 });
-mock.module('./memory-embed.mjs', { namedExports: { cachedEmbedTextBatch: async () => [[1, 0]] } });
 mock.module('./pg/adapter.mjs', { namedExports: { checkedConnect: (pool) => pool.connect() } });
 const { addCore, editCore, deleteCore } = await import('./core-memory-store.mjs');
 
@@ -18,7 +20,7 @@ test('direct CORE add/edit/delete preserve other entries and never require an LL
   sqlite.exec(`
     CREATE TABLE core_entries (
       id INTEGER PRIMARY KEY, element TEXT, summary TEXT, category TEXT, project_id TEXT,
-      embedding TEXT, created_at INTEGER, updated_at INTEGER, status TEXT, archived_at INTEGER
+      created_at INTEGER, updated_at INTEGER, status TEXT, archived_at INTEGER
     );
   `);
   database = {

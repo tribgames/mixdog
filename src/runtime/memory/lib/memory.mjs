@@ -35,7 +35,7 @@ export async function init(db, dims, embeddingIdentity = null) {
   await ensureScoreSchema(db);
   await ensureEntriesSchema(db, dimCount);
   await ensureEntryTriggers(db);
-  await ensureCoreEntriesSchema(db, dimCount);
+  await ensureCoreEntriesSchema(db);
   await ensureMetaSchema(db);
   await stampBootstrapMeta(db, dimCount, embeddingIdentity);
 }
@@ -61,7 +61,6 @@ async function getEmbeddingColumnDims(db, tableName) {
 
 export async function resetEmbeddingColumnsForModel(db, dimCount, embeddingIdentity = null) {
   const entriesDims = await getEmbeddingColumnDims(db, 'entries');
-  const coreDims = await getEmbeddingColumnDims(db, 'core_entries');
   const normalizedIdentity = embeddingIdentity == null ? null : JSON.stringify(embeddingIdentity);
   let identityChanged = false;
   if (normalizedIdentity != null) {
@@ -72,39 +71,25 @@ export async function resetEmbeddingColumnsForModel(db, dimCount, embeddingIdent
     identityChanged = identity.rows.length === 0 || identity.rows[0].matches !== true;
   }
   const needsEntriesReset = entriesDims != null && (entriesDims !== dimCount || identityChanged);
-  const needsCoreReset = coreDims != null && (coreDims !== dimCount || identityChanged);
-  if (!needsEntriesReset && !needsCoreReset) return false;
+  if (!needsEntriesReset) return false;
 
   __mixdogMemoryLog(
-    `[memory] embedding model changed; resetting vectors for halfvec(${dimCount}) ` +
-      `(entries=${entriesDims ?? 'missing'}, core_entries=${coreDims ?? 'missing'})\n`
+    `[memory] embedding model changed; resetting vectors for halfvec(${dimCount}) (entries=${entriesDims})\n`
   );
 
   // Old installations may still have a derived view depending on embedding.
   // Release that dependency only during a model migration; never recreate it.
   await db.exec(`DROP MATERIALIZED VIEW IF EXISTS mv_hot_active CASCADE`);
   await db.exec(`DROP INDEX IF EXISTS idx_entries_embedding_hnsw`);
-  await db.exec(`DROP INDEX IF EXISTS core_entries_embedding_hnsw`);
 
-  if (needsEntriesReset) {
-    if (entriesDims !== dimCount) {
-      await db.exec(
-        `ALTER TABLE entries ALTER COLUMN embedding TYPE halfvec(${dimCount}) USING NULL::halfvec(${dimCount})`
-      );
-    } else {
-      await db.exec(`UPDATE entries SET embedding = NULL WHERE embedding IS NOT NULL`);
-    }
-    await db.exec(`UPDATE entries SET summary_hash = NULL WHERE summary_hash IS NOT NULL`);
+  if (entriesDims !== dimCount) {
+    await db.exec(
+      `ALTER TABLE entries ALTER COLUMN embedding TYPE halfvec(${dimCount}) USING NULL::halfvec(${dimCount})`
+    );
+  } else {
+    await db.exec(`UPDATE entries SET embedding = NULL WHERE embedding IS NOT NULL`);
   }
-  if (needsCoreReset) {
-    if (coreDims !== dimCount) {
-      await db.exec(
-        `ALTER TABLE core_entries ALTER COLUMN embedding TYPE halfvec(${dimCount}) USING NULL::halfvec(${dimCount})`
-      );
-    } else {
-      await db.exec(`UPDATE core_entries SET embedding = NULL WHERE embedding IS NOT NULL`);
-    }
-  }
+  await db.exec(`UPDATE entries SET summary_hash = NULL WHERE summary_hash IS NOT NULL`);
 
   await db.exec(`DROP TABLE IF EXISTS memory.embedding_cache`);
   await setMetaValue(db, 'embedding.current_dims', JSON.stringify(dimCount));
@@ -312,9 +297,10 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
   await removeAttachmentPlaceholderRows(db);
   await removeRuntimeNotificationRowsOnce(db);
   await removeReviewAndPromotionCycleStateOnce(db);
-  // User-curated entries retain their own embeddings for explicit retrieval.
+  // User-curated entries are injected verbatim and recalled by term match;
+  // drop the vector column (and its index) older versions maintained.
+  await db.exec(`ALTER TABLE core_entries DROP COLUMN IF EXISTS embedding`);
   if (Number.isInteger(dims) && dims > 0) {
-    await db.exec(`ALTER TABLE core_entries ADD COLUMN IF NOT EXISTS embedding halfvec(${dims})`);
     // One-time migration for EXISTING deployments (bootstrap-complete DBs never
     // re-run init(), so the broadened index definitions there would otherwise
     // never reach them). This path runs on EVERY boot, so we must NOT
@@ -324,9 +310,6 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
     await _migrateRecallIndexesIfStale(db);
     await db.exec(
       `CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`
-    );
-    await db.exec(
-      `CREATE INDEX IF NOT EXISTS core_entries_embedding_hnsw ON core_entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`
     );
   }
   await db.exec(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS chunk_quality jsonb`);

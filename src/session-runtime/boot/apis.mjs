@@ -107,7 +107,6 @@ function wireToolPolicyRefresh(boot) {
     getDataDir: () => dataDirOf(cfgMod),
     modelStandaloneTools: boot.modelStandaloneTools,
     featureDisallowedTools: boot.featureDisallowedTools,
-    memoryToolsEnabled: boot.memoryToolsEnabledFn,
     loadCoreMemoryContext: boot.loadCoreMemoryContext,
     activeWorkflowContext: workflowHelpers.activeWorkflowContext,
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,

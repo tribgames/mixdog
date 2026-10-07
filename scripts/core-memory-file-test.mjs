@@ -48,8 +48,8 @@ test('refresh migrates PG rows and session reads common plus project scope from 
   const payload = readSessionCoreMemoryPayload(root, project);
 
   assert.equal(migrated.written, true);
-  assert.match(payload.userLines[0], /^\[project=common id=1 index_revision=\S+\] common rule$/);
-  assert.match(payload.userLines[1], /^\[project=alpha id=1 index_revision=\S+\] alpha rule$/);
+  assert.equal(payload.userLines[0], 'common rule');
+  assert.equal(payload.userLines[1], 'alpha rule');
   assert.deepEqual(payload.dbLines, []);
   assert.equal(readCoreMemoryFile(root).generated, undefined);
 });

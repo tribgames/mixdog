@@ -32,7 +32,7 @@ export function createMaintenanceActions({ getDb, entryStats, getCycleLastRun })
       `entries: total=${stats.total} roots=${stats.roots} cycle1_raw=${stats.unchunked_leaves} (unchunked leaves)`,
       `status: ${stats.byStatus.map((r) => `${r.status ?? '?'}:${r.c}`).join(', ') || 'empty'}`,
       `categories: ${stats.byCategory.map((r) => `${r.category ?? 'NULL'}:${r.c}`).join(', ') || 'empty'}`,
-      `core_memory: user=${stats.core_entries} embed_null=${stats.core_embed_null}`,
+      `core_memory: user=${stats.core_entries}`,
       `embedding_index: ready dims=${dims}${dimsErr ? ` (meta_read_error: ${dimsErr})` : ''}`,
       `bootstrap: ${bootstrapComplete ? 'complete' : 'incomplete'}`,
       `last_cycle1: ${agoText(last.cycle1)}`,

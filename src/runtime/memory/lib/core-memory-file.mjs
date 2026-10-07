@@ -30,15 +30,10 @@ function normalizeSummary(value) {
     .trim();
 }
 
+// The prompt carries the user's text only; the memory tool addresses entries
+// through its own list results, not through injected ids.
 export function formatCuratedCoreMemoryLine(row) {
-  const summary = normalizeSummary(row?.summary);
-  if (!summary) return '';
-  const id = Number(row?.id);
-  const scope = row?.project_id ?? row?.projectId ?? 'common';
-  const version = row?.index_revision ?? row?.indexRevision;
-  return Number.isInteger(id) && id > 0 && version
-    ? `[project=${scope} id=${id} index_revision=${version}] ${summary}`
-    : summary;
+  return normalizeSummary(row?.summary);
 }
 
 function normalizeCuratedEntry(row) {

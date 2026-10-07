@@ -59,7 +59,6 @@ import {
   resolveCoalesceMaxRetries,
   scheduleCoalescedCycleRetry,
 } from './lib/memory-cycle-requests.mjs';
-import { backfillCoreEmbeddings } from './lib/core-memory-store.mjs';
 import { drainEmbeddingReindex } from './lib/embedding-reindex.mjs';
 import { refreshCoreMemoryFile } from './lib/core-memory-file.mjs';
 import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs';
@@ -420,14 +419,13 @@ function _startEmbeddingReindex() {
   _embeddingReindexController = controller;
   const promise = drainEmbeddingReindex({
     flushEntries: ({ signal }) => flushEmbeddingDirty(db, { signal }),
-    backfillCore: ({ signal }) => backfillCoreEmbeddings(DATA_DIR, { signal }),
     signal: controller.signal,
   })
     .then((summary) => {
-      if (summary.attempted > 0 || summary.coreFilled > 0) {
+      if (summary.attempted > 0) {
         __mixdogMemoryLog(
           `[memory-service] embedding reindex passes=${summary.passes} attempted=${summary.attempted} ` +
-            `ok=${summary.succeeded} failed=${summary.failed} core=${summary.coreFilled}\n`
+            `ok=${summary.succeeded} failed=${summary.failed}\n`
         );
       }
     })

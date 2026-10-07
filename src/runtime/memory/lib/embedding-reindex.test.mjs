@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { drainEmbeddingReindex } from './embedding-reindex.mjs';
 
-test('embedding reindex resumes timed-out entry passes and then fills core memory', async () => {
+test('embedding reindex resumes timed-out entry passes', async () => {
   const results = [
     { attempted: 32, succeeded: 32, failed: [], timedOut: true },
     { attempted: 4, succeeded: 4, failed: [], timedOut: false },
@@ -11,7 +11,6 @@ test('embedding reindex resumes timed-out entry passes and then fills core memor
   let waits = 0;
   const summary = await drainEmbeddingReindex({
     flushEntries: async () => results.shift(),
-    backfillCore: async () => 3,
     wait: async () => {
       waits += 1;
     },
@@ -21,7 +20,6 @@ test('embedding reindex resumes timed-out entry passes and then fills core memor
     attempted: 36,
     succeeded: 36,
     failed: 0,
-    coreFilled: 3,
   });
   assert.equal(waits, 1);
 });

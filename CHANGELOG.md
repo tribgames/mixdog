@@ -5,6 +5,12 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Common and project instructions reach every new conversation even when
+  the Memory extension is not installed or is turned off; that switch now
+  covers only the memory and recall tools. Saving an instruction no longer
+  waits several seconds on the embedding model, instructions go in as
+  written without internal ids, and they can total up to 32 KB.
+
 - Signing in to GitHub from Settings, and every other feature that starts a
   terminal process, works again in the installed desktop app instead of
   failing with "posix_spawnp failed". A stale extra GitHub account stored by

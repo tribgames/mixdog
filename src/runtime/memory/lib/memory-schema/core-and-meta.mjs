@@ -8,7 +8,7 @@ import { ensureCoreKeyIndex } from '../core-memory-uniqueness.mjs';
 const UPSERT_META = `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
      ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`;
 
-export async function ensureCoreEntriesSchema(db, dimCount) {
+export async function ensureCoreEntriesSchema(db) {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS core_entries (
       id          BIGSERIAL PRIMARY KEY,
@@ -16,16 +16,12 @@ export async function ensureCoreEntriesSchema(db, dimCount) {
       summary     TEXT NOT NULL,
       category    TEXT NOT NULL,
       project_id  TEXT,
-      embedding   halfvec(${dimCount}),
       created_at  BIGINT NOT NULL,
       updated_at  BIGINT NOT NULL
     )
   `);
   await db.exec(`CREATE INDEX IF NOT EXISTS core_entries_project_idx ON core_entries(project_id)`);
   await ensureCoreKeyIndex(db);
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS core_entries_embedding_hnsw ON core_entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`
-  );
 }
 
 export async function ensureMetaSchema(db) {

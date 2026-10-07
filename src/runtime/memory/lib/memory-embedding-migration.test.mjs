@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { resetEmbeddingColumnsForModel } from './memory.mjs';
 
-function mockDb({ entriesDims = 384, coreDims = 384, identityMatches = true } = {}) {
+function mockDb({ entriesDims = 384, identityMatches = true } = {}) {
   const execs = [];
   const queries = [];
   return {
@@ -15,7 +15,8 @@ function mockDb({ entriesDims = 384, coreDims = 384, identityMatches = true } = 
     async query(sql, params = []) {
       queries.push({ sql, params });
       if (sql.includes('FROM pg_attribute')) {
-        return { rows: [{ atttypmod: params[0] === 'entries' ? entriesDims : coreDims }] };
+        assert.equal(params[0], 'entries');
+        return { rows: [{ atttypmod: entriesDims }] };
       }
       if (sql.includes('SELECT value = $2::jsonb')) {
         return { rows: identityMatches ? [{ matches: true }] : [] };
@@ -37,14 +38,16 @@ test('a model identity change invalidates vectors even at the same dimensions', 
   const db = mockDb({ identityMatches: false });
   assert.equal(await resetEmbeddingColumnsForModel(db, 384, identity), true);
   assert.ok(db.execs.some((sql) => sql.includes('UPDATE entries SET embedding = NULL')));
-  assert.ok(db.execs.some((sql) => sql.includes('UPDATE core_entries SET embedding = NULL')));
+  assert.equal(
+    db.execs.some((sql) => sql.includes('core_entries')),
+    false
+  );
   assert.ok(db.execs.some((sql) => sql.includes('DROP TABLE IF EXISTS memory.embedding_cache')));
   assert.ok(db.queries.some(({ params }) => params[0] === 'embedding.current_model'));
 });
 
-test('a dimension change rebuilds both halfvec columns', async () => {
-  const db = mockDb({ entriesDims: 640, coreDims: 640 });
+test('a dimension change rebuilds the entries halfvec column', async () => {
+  const db = mockDb({ entriesDims: 640 });
   assert.equal(await resetEmbeddingColumnsForModel(db, 384, identity), true);
   assert.ok(db.execs.some((sql) => sql.includes('ALTER TABLE entries ALTER COLUMN embedding TYPE halfvec(384)')));
-  assert.ok(db.execs.some((sql) => sql.includes('ALTER TABLE core_entries ALTER COLUMN embedding TYPE halfvec(384)')));
 });

@@ -20,7 +20,6 @@ function waitForNextPass(ms, signal) {
 
 export async function drainEmbeddingReindex({
   flushEntries,
-  backfillCore = async () => 0,
   signal,
   pauseMs = DEFAULT_PASS_PAUSE_MS,
   wait = waitForNextPass,
@@ -45,8 +44,5 @@ export async function drainEmbeddingReindex({
     await wait(pauseMs, signal);
   }
 
-  throwIfAborted(signal);
-  const coreFilled = Number((await backfillCore({ signal })) ?? 0);
-  throwIfAborted(signal);
-  return { passes, attempted, succeeded, failed, coreFilled };
+  return { passes, attempted, succeeded, failed };
 }

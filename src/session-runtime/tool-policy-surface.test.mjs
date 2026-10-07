@@ -497,8 +497,7 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
     getDataDir: () => '',
     modelStandaloneTools: () => [{ name: 'read' }],
     featureDisallowedTools: () => ['web_search', 'web_fetch', 'memory', 'recall'],
-    memoryToolsEnabled: () => false,
-    loadCoreMemoryContext: async () => '# should not inject',
+    loadCoreMemoryContext: async () => '- Keep honorific speech.',
     activeWorkflowContext: () => ({
       summary: {
         id: 'solo',
@@ -527,7 +526,8 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
   assert.notEqual(session.messages[0], bp1BeforeRefresh);
   assert.notEqual(session.messages[2], bp3BeforeRefresh);
   assert.match(session.messages[2].content, /# Active Workflow: Solo/);
-  assert.equal(session.messages[2].content.includes('# Core Memory'), false);
+  // Denying the memory tools leaves user-curated core memory in the prompt.
+  assert.match(session.messages[2].content, /# Core Memory[\s\S]*- Keep honorific speech\./);
 });
 
 test('refresh leaves a conversation session frozen', async () => {
@@ -548,7 +548,6 @@ test('refresh leaves a conversation session frozen', async () => {
     getDataDir: () => '',
     modelStandaloneTools: () => [{ name: 'read' }],
     featureDisallowedTools: () => ['web_search'],
-    memoryToolsEnabled: () => false,
     loadCoreMemoryContext: async () => '',
     activeWorkflowContext: () => ({
       summary: { id: 'solo', delegatesAgents: false },

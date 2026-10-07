@@ -151,7 +151,6 @@ export function createQueryMaintenanceHandlers({ getDb }) {
       ).rows[0].c;
       const unchunked_leaves = (await tx.query(`SELECT COUNT(*) c FROM entries WHERE chunk_root IS NULL`)).rows[0].c;
       const core_entries = (await tx.query(`SELECT COUNT(*) c FROM core_entries`)).rows[0].c;
-      const core_embed_null = (await tx.query(`SELECT COUNT(*) c FROM core_entries WHERE embedding IS NULL`)).rows[0].c;
       const byStatus = (await tx.query(`SELECT status, COUNT(*) c FROM entries WHERE is_root = 1 GROUP BY status`))
         .rows;
       const byCategory = (
@@ -164,7 +163,6 @@ export function createQueryMaintenanceHandlers({ getDb }) {
         archived_roots,
         unchunked_leaves,
         core_entries,
-        core_embed_null,
         byStatus,
         byCategory,
       };

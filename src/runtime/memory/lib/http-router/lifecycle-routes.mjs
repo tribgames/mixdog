@@ -61,7 +61,6 @@ export function createLifecycleRoutes({
         archived_roots: stats.archived_roots,
         unchunked_leaves: stats.unchunked_leaves,
         core_entries: stats.core_entries,
-        core_embed_null: stats.core_embed_null,
         cycle_running: cycleScheduler.getCycleRunning(),
         cycle_health: cycleScheduler.getCycleHealth(),
         cycle_backlog: cycleScheduler.getCycleBacklogSnapshot(),

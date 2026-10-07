@@ -14,7 +14,6 @@ test('status reports the summarization backlog and the last cycle1 run', async (
       byStatus: [],
       byCategory: [],
       core_entries: 1,
-      core_embed_null: 0,
     }),
     getCycleLastRun: async () => ({ cycle1: Date.now() }),
   });

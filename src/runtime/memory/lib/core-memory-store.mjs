@@ -1,15 +1,14 @@
-import { __mixdogMemoryLog } from './memory-log.mjs';
 
 // User-curated core memory store — native PG-backed via core_entries table.
 // Per-project entries distinguished by project_id column (NULL = COMMON).
 // Explicit add/edit/delete operations affect only the requested entry.
 // Generated conversation history never enters this store automatically.
 
-import { getDatabase, embeddingToSql } from './memory.mjs';
+// Entries are injected verbatim and recalled by term match, so no write here
+// embeds: saving never waits on the embedding model.
+import { getDatabase } from './memory.mjs';
 import { VALID_CATEGORY } from './memory-categories.mjs';
-import { cachedEmbedTextBatch } from './memory-embed.mjs';
 import { checkedConnect } from './pg/adapter.mjs';
-import { throwIfAborted } from './memory-cycle-shared.mjs';
 import { findCoreKeyRows } from './core-memory-uniqueness.mjs';
 
 const CORE_ELEMENT_DERIVE_LENGTH = 40;
@@ -75,46 +74,6 @@ function _getDb(dataDir) {
   return db;
 }
 
-async function _embedFor(db, element, summary) {
-  const text = `${element}\n${summary || ''}`.trim();
-  if (!text) return null;
-  const [vec] = await cachedEmbedTextBatch(db, [text]);
-  return Array.isArray(vec) ? vec : null;
-}
-
-// Lazy repair of NULL embeddings on existing rows. Runs once per boot or
-// whenever a NULL slips back in via direct SQL. SELECT WHERE embedding IS NULL
-// returns 0 rows on a fully-populated table, so this is a fast no-op.
-async function _backfillNullEmbeddings(db, options = {}) {
-  const signal = options?.signal;
-  throwIfAborted(signal);
-  // Only refill live cores; legacy archived entries stay inactive.
-  const r = await db.query(
-    `SELECT id, element, summary FROM core_entries WHERE embedding IS NULL AND (status IS NULL OR status = 'active')`
-  );
-  if (r.rows.length === 0) return 0;
-  let filled = 0;
-  for (const row of r.rows) {
-    throwIfAborted(signal);
-    const vec = await _embedFor(db, row.element, row.summary);
-    throwIfAborted(signal);
-    if (!vec) continue;
-    await db.query(`UPDATE core_entries SET embedding = $1::halfvec WHERE id = $2 AND embedding IS NULL`, [
-      embeddingToSql(vec),
-      row.id,
-    ]);
-    filled++;
-  }
-  if (filled > 0) {
-    __mixdogMemoryLog(`[core-memory] backfilled ${filled} NULL embedding(s) on core_entries\n`);
-  }
-  return filled;
-}
-
-export async function backfillCoreEmbeddings(dataDir, options = {}) {
-  const db = _getDb(dataDir);
-  return await _backfillNullEmbeddings(db, options);
-}
 
 // NOTE: boot-time core id compaction was REMOVED. Resequencing core_entries.id
 // to 1..N rewrote primary keys that are handed out as stable `core:N`
@@ -177,8 +136,6 @@ async function _addCoreImpl(dataDir, input, projectId) {
   if (errors.length) throw new Error(errors.join('; '));
   const db = _getDb(dataDir);
   const now = Date.now();
-  await _backfillNullEmbeddings(db);
-  const embedding = await _embedFor(db, el, sm);
 
   const client = await checkedConnect(db._pool, 'memory');
   try {
@@ -194,20 +151,20 @@ async function _addCoreImpl(dataDir, input, projectId) {
         );
       }
       const revived = await client.query(
-        `UPDATE core_entries SET summary = $1, category = $2, embedding = $3::halfvec,
-           status = 'active', archived_at = NULL, updated_at = $4
-         WHERE id = $5
+        `UPDATE core_entries SET summary = $1, category = $2,
+           status = 'active', archived_at = NULL, updated_at = $3
+         WHERE id = $4
          RETURNING id, element, summary, category, project_id, created_at, updated_at`,
-        [sm, cat, embedding ? embeddingToSql(embedding) : null, now, collisions[0].id]
+        [sm, cat, now, collisions[0].id]
       );
       await client.query('COMMIT');
       return { ...revived.rows[0], revived_from_archived: true };
     }
     const r = await client.query(
-      `INSERT INTO core_entries(element, summary, category, project_id, embedding, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5::halfvec, $6, $7)
+      `INSERT INTO core_entries(element, summary, category, project_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, element, summary, category, project_id, created_at, updated_at`,
-      [el, sm, cat, projectId, embedding ? embeddingToSql(embedding) : null, now, now]
+      [el, sm, cat, projectId, now, now]
     );
     await client.query('COMMIT');
     return r.rows[0];
@@ -276,8 +233,6 @@ async function _editCoreImpl(dataDir, id, patch) {
     return { ...cur, element: newElement, summary: newSummary, category: newCategory, updated_at: now };
   }
 
-  await _backfillNullEmbeddings(db);
-  const embedding = await _embedFor(db, newElement, newSummary);
   const client = await checkedConnect(db._pool, 'memory');
   try {
     await client.query('BEGIN');
@@ -289,8 +244,7 @@ async function _editCoreImpl(dataDir, id, patch) {
     for (const poolKey of new Set(poolKeys)) {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [poolKey]);
     }
-    // Revalidate under the lock. `cur` (and the embedding derived from it) was
-    // read before any locking, so without this check two concurrent edits both
+    // Revalidate under the lock. `cur` was read before any locking, so without this check two concurrent edits both
     // computed a patch from the same snapshot and the slower one silently
     // overwrote the newer content.
     const fresh = (await client.query(`SELECT * FROM core_entries WHERE id = $1 FOR UPDATE`, [numId])).rows[0];
@@ -313,10 +267,9 @@ async function _editCoreImpl(dataDir, id, patch) {
     }
     await client.query(
       `UPDATE core_entries
-       SET element = $1, summary = $2, category = $3, project_id = $4,
-           embedding = $5::halfvec, updated_at = $6
-       WHERE id = $7`,
-      [newElement, newSummary, newCategory, newProjectId, embedding ? embeddingToSql(embedding) : null, now, numId]
+       SET element = $1, summary = $2, category = $3, project_id = $4, updated_at = $5
+       WHERE id = $6`,
+      [newElement, newSummary, newCategory, newProjectId, now, numId]
     );
     await client.query('COMMIT');
     return {
