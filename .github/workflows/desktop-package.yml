@@ -50,7 +50,9 @@ jobs:
     runs-on: ${{ inputs.runner }}
     env:
       ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
-      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
+      # Outside the checkout: electron-builder runs CommonJS helpers (icon-tool.js)
+      # from this cache, and the repo's "type": "module" would load them as ESM.
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/../electron-builder-cache
       MIXDOG_RUNTIME_DEPENDENCY_CACHE: >-
         ${{ github.workspace }}/.cache/runtime-dependencies/${{ inputs.platform }}-${{ inputs.arch }}
     steps:
