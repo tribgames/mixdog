@@ -564,9 +564,10 @@
   --mx-user-bubble: var(--mx-bg-layer-2);
 
   /* ── 3. Ink ── */
-  /* Strong prose, quieter metadata; both remain AA-readable even on the
-     deepest regular plate, layer-3. Status and link colors stay semantic. */
-  --mx-text: #141414;
+  /* Body ink matches dark's prose contrast on the reading canvas (15.5:1,
+     #e9e9e9 on #111113), so switching themes keeps the same text weight.
+     Muted stays AA on layer-3; status and link colors stay semantic. */
+  --mx-text: #222222;
   --mx-text-muted: #606060;
   --mx-text-faint: var(--mx-text-muted);
   /* Google Blue 800 for INK: the 700 rung #1967d2 fell to 4.2:1 on the grey

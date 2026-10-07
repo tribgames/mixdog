@@ -89,7 +89,7 @@ test('a hidden role keeps the schema profile it declares; a worker ignores a cal
   assert.doesNotMatch(systemText(cycle), /available-skills|# Tool Workflow|# Agent\n|`read`|`shell`/);
   // Its fixed compression rules are system text shared by every call; the
   // tool-only environment (cwd, shell, repository) is not sent at all.
-  assert.match(systemText(cycle), /`FIRST_LAYER`: compress the conversation into task-state notes/);
+  assert.match(systemText(cycle), /Output only `idx_csv\|element\|category\|summary` lines/);
   assert.equal(
     cycle.messages.some((message) => message.cacheTier === 'env'),
     false

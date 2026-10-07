@@ -5,10 +5,16 @@ import { VALID_CATEGORY } from './memory-categories.mjs';
 const CHUNK_QUALITY_VERSION = 1;
 export const CYCLE1_INPUT_TOKEN_BUDGET = 16000;
 
-// The FIRST_LAYER / SECOND_LAYER rules are the cycle1-agent role rules
+// The compression rules are the cycle1-agent role rules
 // (rules/agent/40-cycle1-agent.md): they ride the role's system prompt, which
-// every call shares and providers cache, so a request carries only its mode,
-// its own length target and the rows.
+// every call shares and providers cache, so a request carries only its own
+// length target and the rows.
+
+// A window whose rows estimate below this is left RAW without an AI call. Its
+// summary must be shorter than the rows, which such sources almost never allow
+// (ledger 2026-09-23..10-07: 9 of 2,745 committed chunks), while these windows
+// made up most of the calls that returned nothing.
+const CYCLE1_MIN_SOURCE_TOKENS = 30;
 
 // Writing guides only; acceptance stays "shorter than the source" so the ratio
 // can be measured before it is tightened.
@@ -50,16 +56,8 @@ export function cycle1SourceBudget(inputTokenBudget = CYCLE1_INPUT_TOKEN_BUDGET)
   return Math.floor(budget - 2048);
 }
 
-export function buildCycle1ChunkPrompt(rows, { layer = 1, targetTokens, targetChars, rewrite = false } = {}) {
-  if (layer === 2 && (!Number.isSafeInteger(targetTokens) || targetTokens < 1)) {
-    throw new RangeError('second-layer prompt requires a positive targetTokens');
-  }
-  const charsNote = Number.isSafeInteger(targetChars) && targetChars > 0 ? ` (roughly ${targetChars} characters)` : '';
-  const target =
-    layer === 2
-      ? `Writing target: about ${targetTokens} runtime-estimated tokens${charsNote}. Keep the main narrative and reduce secondary detail; modest variation from this target is acceptable.`
-      : cycle1LengthRule(rows, rewrite);
-  return [layer === 2 ? 'SECOND_LAYER' : 'FIRST_LAYER', target, '', chunkSourceText(rows)].join('\n');
+export function buildCycle1ChunkPrompt(rows, { rewrite = false } = {}) {
+  return [cycle1LengthRule(rows, rewrite), '', chunkSourceText(rows)].join('\n');
 }
 
 export function partitionCycle1Rows(rows, sourceBudget, maxRows = 50) {
@@ -101,21 +99,6 @@ export function parseCycle1LineFormat(raw) {
     });
   }
   return chunks;
-}
-
-function parseChunkResponse(raw, layer, rows) {
-  if (layer === 1) return parseCycle1LineFormat(raw);
-  const summary = String(raw ?? '').trim();
-  return summary
-    ? [
-        {
-          _idxList: rows.map((_, index) => index + 1),
-          element: 'conversation',
-          category: 'fact',
-          summary,
-        },
-      ]
-    : null;
 }
 
 export function validateCycle1Grouping(chunks, rows) {
@@ -260,17 +243,7 @@ export function splitCycle1Row(row, sourceBudget) {
  * from the ones that came back longer than their rows. `stats` and
  * `failures` are the caller's own accumulators.
  */
-function createCycle1PacketGenerator({
-  callLlm,
-  request,
-  signal,
-  inputTokenBudget,
-  layer,
-  targetTokens,
-  sourceTokens,
-  stats,
-  failures,
-}) {
+function createCycle1PacketGenerator({ callLlm, request, signal, inputTokenBudget, stats, failures }) {
   const call = async (prompt) => {
     signal?.throwIfAborted();
     if (estimateTokens(prompt) > inputTokenBudget) throw new Error('cycle1 prompt exceeds input token budget');
@@ -287,23 +260,7 @@ function createCycle1PacketGenerator({
   };
 
   async function generatePacket(packet, { rewrite = false } = {}) {
-    const packetTarget =
-      layer === 2
-        ? Math.floor((targetTokens * chunkCompression('', packet).sourceTokens) / Math.max(1, sourceTokens))
-        : undefined;
-    if (layer === 2 && packetTarget < 1) return [];
-    // Prompt headroom is a writing guide, not a half-size acceptance threshold.
-    const promptTarget = layer === 2 ? Math.max(1, Math.floor(packetTarget * 0.9)) : undefined;
-    const packetText = layer === 2 ? packet.map((row) => String(row.content ?? '')).join('\n') : '';
-    const targetChars =
-      layer === 2
-        ? Math.max(1, Math.floor((packetText.length * promptTarget) / Math.max(1, estimateTokens(packetText))))
-        : undefined;
-    const parsed = parseChunkResponse(
-      await call(buildCycle1ChunkPrompt(packet, { layer, targetTokens: promptTarget, targetChars, rewrite })),
-      layer,
-      packet
-    );
+    const parsed = parseCycle1LineFormat(await call(buildCycle1ChunkPrompt(packet, { rewrite })));
     const validity = validateCycle1Grouping(parsed, packet);
     failures.push(...validity.invalid);
     if (!parsed) failures.push({ reason: 'unparseable_response', member_ids: packet.map((row) => Number(row.id)) });
@@ -324,7 +281,7 @@ function createCycle1PacketGenerator({
   // the hourly retry. A rewrite that is still longer leaves the rows RAW.
   async function generateWithRewrite(packet) {
     const generated = await generatePacket(packet);
-    if (layer !== 1 || !generated.expanded.length) return generated.chunks;
+    if (!generated.expanded.length) return generated.chunks;
     stats.retries += 1;
     const subset = generated.expanded
       .flatMap((chunk) => chunk._idxList)
@@ -351,53 +308,24 @@ export async function generateCycle1Chunks(
     request = {},
     inputTokenBudget = CYCLE1_INPUT_TOKEN_BUDGET,
     signal = request.signal,
-    layer = 1,
-    summaryTokenBudget,
   } = {}
 ) {
-  if (layer !== 1 && layer !== 2) throw new RangeError('chunk layer must be 1 or 2');
-  if (summaryTokenBudget != null && (!Number.isSafeInteger(summaryTokenBudget) || summaryTokenBudget < 0)) {
-    throw new RangeError('summaryTokenBudget must be a nonnegative integer');
-  }
   const startedAt = Date.now();
   const stats = { groupingCalls: 0, verificationCalls: 0, llmMs: 0, verificationMs: 0, retries: 0, fragments: 0 };
   const sourceBudget = cycle1SourceBudget(inputTokenBudget);
-  const sourceTokens = chunkCompression('', rows).sourceTokens;
-  const targetTokens = layer === 2 ? Math.min(Math.floor(sourceTokens / 2), summaryTokenBudget ?? Infinity) : null;
   const failures = [];
-  const result = (candidates) =>
-    projectCycle1Result({
-      candidates,
-      rows,
-      layer,
-      sourceTokens,
-      targetTokens,
-      summaryTokenBudget,
-      failures,
-      stats,
-      startedAt,
-    });
+  const result = (candidates) => projectCycle1Result({ candidates, rows, failures, stats, startedAt });
   const { generatePacket, generateWithRewrite } = createCycle1PacketGenerator({
     callLlm,
     request,
     signal,
     inputTokenBudget,
-    layer,
-    targetTokens,
-    sourceTokens,
     stats,
     failures,
   });
 
   let chunks = [];
-  if (!rows.length || (layer === 2 && targetTokens < 1)) return result([]);
-  if (layer === 2 && estimateTokens(chunkSourceText(rows)) > sourceBudget) {
-    failures.push({
-      reason: 'single_call_input_too_large',
-      member_ids: rows.map((row) => Number(row.id)),
-    });
-    return result([]);
-  }
+  if (!rows.length || chunkCompression('', rows).sourceTokens < CYCLE1_MIN_SOURCE_TOKENS) return result([]);
   try {
     if (estimateTokens(chunkSourceText(rows)) > sourceBudget) {
       if (rows.length !== 1) {
@@ -446,56 +374,10 @@ export async function generateCycle1Chunks(
 }
 
 /**
- * What one cycle-1/2 pass reports: for layer 2 the compression verdict that
- * decides whether the candidate summaries are used at all (target met, context
- * budget, net shrink), then the accepted chunks with their members and quality,
- * the rows left raw, the recorded failures and the call stats.
+ * What one cycle1 pass reports: the accepted chunks with their members and
+ * quality, the rows left raw, the recorded failures and the call stats.
  */
-function projectCycle1Result({
-  candidates,
-  rows,
-  layer,
-  sourceTokens,
-  targetTokens,
-  summaryTokenBudget,
-  failures,
-  stats,
-  startedAt,
-}) {
-  let compression;
-  if (layer === 2) {
-    const coveredIndexes = new Set(candidates.flatMap((chunk) => chunk._idxList));
-    const units = [
-      ...candidates.map((chunk) => ({ index: Math.min(...chunk._idxList), text: chunk.summary })),
-      ...rows.flatMap((row, i) =>
-        coveredIndexes.has(i + 1) ? [] : [{ index: i + 1, text: String(row.content ?? '') }]
-      ),
-    ].sort((a, b) => a.index - b.index);
-    const candidateTokens = estimateTokens(units.map((unit) => unit.text).join('\n'));
-    const targetMet = candidates.length > 0 && candidateTokens <= targetTokens;
-    const fitsContext = summaryTokenBudget == null || candidateTokens <= summaryTokenBudget;
-    const used = candidates.length > 0 && candidateTokens < sourceTokens && fitsContext;
-    compression = {
-      layer,
-      sourceTokens,
-      candidateTokens,
-      targetTokens,
-      targetMet,
-      used,
-      outputTokens: used ? candidateTokens : sourceTokens,
-    };
-    if (!used) {
-      if (candidates.length && !fitsContext) {
-        failures.push({
-          reason: 'context_budget_exceeded',
-          member_ids: rows.map((row) => Number(row.id)),
-          candidateTokens,
-          availableTokens: summaryTokenBudget,
-        });
-      }
-      candidates = [];
-    }
-  }
+function projectCycle1Result({ candidates, rows, failures, stats, startedAt }) {
   const covered = new Set();
   const accepted = candidates
     .map((chunk) => {
@@ -504,7 +386,7 @@ function projectCycle1Result({
         .sort((a, b) => a - b)
         .map((n) => rows[n - 1]);
       for (const member of members) covered.add(String(member.id));
-      return { ...chunk, members, quality: { ...makeChunkQuality(chunk.summary, members), layer } };
+      return { ...chunk, members, quality: makeChunkQuality(chunk.summary, members) };
     })
     .sort((a, b) => Math.min(...a._idxList) - Math.min(...b._idxList));
   return {
@@ -512,49 +394,5 @@ function projectCycle1Result({
     rawRowIds: rows.filter((row) => !covered.has(String(row.id))).map((row) => Number(row.id)),
     invalidChunks: failures,
     stats: { ...stats, totalMs: Date.now() - startedAt },
-    ...(compression ? { compression } : {}),
-  };
-}
-
-// Call only with the selected OLD chunk bodies; recent conversation and fixed
-// instructions belong to the protected context outside this selection. The
-// caller supplies its safe input budget after the first-layer pass has settled.
-// This function returns session-local replacements, never DB writes.
-export async function generateSecondLayerChunks(
-  rows,
-  { firstLayerComplete = false, contextTokens, contextBudgetTokens, ...options } = {}
-) {
-  if (
-    !Number.isSafeInteger(contextTokens) ||
-    contextTokens < 0 ||
-    !Number.isSafeInteger(contextBudgetTokens) ||
-    contextBudgetTokens < 1
-  ) {
-    throw new RangeError('second-layer context sizes must be nonnegative integer tokens and a positive budget');
-  }
-  const signal = options.signal ?? options.request?.signal;
-  signal?.throwIfAborted();
-  if (!firstLayerComplete) return { applied: false, reason: 'first_layer_incomplete', result: null };
-  if (contextTokens <= contextBudgetTokens) return { applied: false, reason: 'within_budget', result: null };
-  const sourceTokens = chunkCompression('', rows).sourceTokens;
-  if (sourceTokens > contextTokens) throw new RangeError('selected chunks exceed the declared total context');
-  const protectedTokens = contextTokens - sourceTokens;
-  const availableTokens = contextBudgetTokens - protectedTokens;
-  if (availableTokens < 1) return { applied: false, reason: 'protected_context_exceeds_budget', result: null };
-  const result = await generateCycle1Chunks(rows, {
-    ...options,
-    layer: 2,
-    summaryTokenBudget: availableTokens,
-  });
-  const afterContextTokens = protectedTokens + result.compression.outputTokens;
-  const applied = result.compression.used && afterContextTokens <= contextBudgetTokens;
-  return {
-    applied,
-    reason: applied ? 'compressed' : 'unchanged',
-    result,
-    beforeContextTokens: contextTokens,
-    afterContextTokens,
-    contextBudgetTokens,
-    protectedTokens,
   };
 }
