@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.0.9 - 2026-10-07
+
 - Common and project instructions reach every new conversation even when
   the Memory extension is not installed or is turned off; that switch now
   covers only the memory and recall tools. Saving an instruction no longer
