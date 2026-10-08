@@ -1,6 +1,7 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "Install downloads the Auto reasoning model (about 160 MB).": "설치 시 자동 추론 모델(약 160MB)을 다운로드합니다.",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "—는 가격 미확인, +는 가격 미확인 사용량을 제외한 부분 합계입니다. 구독 환산액은 API 청구액이 아닙니다.",
   ", Col": ", 열",

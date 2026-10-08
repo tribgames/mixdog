@@ -136,10 +136,9 @@ function builtinFeatureAdapters(boot) {
       } else if (name === 'localProvider') {
         await installLocalProviderRuntime();
       } else if (name === 'autoEffort') {
-        const { effortJudgeAvailable, effortJudgeModelDir } = await import('../../runtime/effort-judge/judge-client.mjs');
-        if (!effortJudgeAvailable()) {
-          throw new Error(`The Auto reasoning model is not installed (expected in ${effortJudgeModelDir()}).`);
-        }
+        // Downloads the judge model (verified per file) unless it is current.
+        const { installEffortJudge } = await import('../../runtime/effort-judge/judge-client.mjs');
+        await installEffortJudge();
       }
     },
     tidyEngineStatus: async () => {

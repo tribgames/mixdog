@@ -113,6 +113,26 @@ The Apache-2.0 terms require this notice to travel with any redistribution of
 the derived files. Full license text: `LICENSES/Apache-2.0.txt`
 (<https://www.apache.org/licenses/LICENSE-2.0>).
 
+### EmbeddingGemma 2 — Copyright (c) Google
+
+<https://huggingface.co/google/embeddinggemma-2>
+
+The effort-judge model of the Auto reasoning built-in is derived from
+EmbeddingGemma 2. It is not part of the package: installing the built-in
+downloads it from this repository's `effort-judge-v*` GitHub releases, as
+listed in `src/runtime/effort-judge/model-manifest.json`.
+
+Statement of changes (Apache-2.0 section 4(b)): only the text encoder is kept,
+reduced to 12 of its layers; a four-level classification head is added and the
+model is fine-tuned to rate the reasoning effort a request needs; the weights
+are exported to ONNX and quantized to 4 bits. Full license text:
+`LICENSES/Apache-2.0.txt`.
+
+Its training data includes requests from SWE-chat
+(<https://huggingface.co/datasets/cfahlgren1/SWE-chat>), made available under
+the Open Data Commons Attribution License 1.0, and from DataClaw exports that
+their authors published on the Hugging Face Hub under the MIT License.
+
 ## GPL-3.0-only
 
 ### Chrome password import sidecar

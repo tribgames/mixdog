@@ -1,6 +1,7 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "Install downloads the Auto reasoning model (about 160 MB).": "A instalação baixa o modelo de raciocínio automático (cerca de 160 MB).",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "— indica preço indisponível; + marca um subtotal que exclui o uso sem preço conhecido. O valor da assinatura não é uma cobrança de API.",
   ", Col": ", Col",

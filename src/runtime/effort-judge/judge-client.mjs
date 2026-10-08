@@ -9,6 +9,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'n
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
+import { effortJudgeInstallCurrent, installEffortJudgeModel } from './model-install.mjs';
 
 const WORKER_PATH = fileURLToPath(new URL('./judge-worker.mjs', import.meta.url));
 const MODEL_FILES = ['model.onnx', 'tokenizer.json'];
@@ -147,6 +148,42 @@ function request(target, { request: text, prev, prevRequest, step }) {
       ...(step ? { step } : {}),
     });
   });
+}
+
+// One install at a time (the settings install and the boot refresh can overlap).
+let installing = null;
+
+/**
+ * Installs or updates the judge model from the release the bundled manifest
+ * names; files that already match are kept. A worker running on replaced
+ * files is stopped so the next warm loads the new model. An explicit
+ * MIXDOG_EFFORT_JUDGE_DIR (benchmarks, experiments) is used as it is.
+ */
+export function installEffortJudge() {
+  installing ??= (async () => {
+    const dir = effortJudgeModelDir();
+    if (process.env.MIXDOG_EFFORT_JUDGE_DIR || (effortJudgeAvailable(dir) && effortJudgeInstallCurrent(dir))) {
+      if (!effortJudgeAvailable(dir)) throw new Error(`The Auto reasoning model is not installed (expected in ${dir}).`);
+      return;
+    }
+    await installEffortJudgeModel(dir);
+    if (worker) await shutdownEffortJudge();
+  })().finally(() => {
+    installing = null;
+  });
+  return installing;
+}
+
+/** Boot: bring an outdated install up to date in the background, then load the judge. */
+export function refreshEffortJudge() {
+  installEffortJudge().then(
+    () => warmEffortJudge(),
+    (error) => {
+      process.stderr.write(`[effort-judge] model update failed: ${error?.message || error}\n`);
+      // An older complete install still works.
+      warmEffortJudge();
+    }
+  );
 }
 
 /** Start loading the judge (idempotent). False when the model is not installed. */

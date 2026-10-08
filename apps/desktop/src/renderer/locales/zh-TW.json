@@ -1,6 +1,7 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "Install downloads the Auto reasoning model (about 160 MB).": "安裝時會下載自動推理模型（約 160 MB）。",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "— 表示價格不明；+ 表示不含價格不明用量的部分合計。訂閱換算金額並非 API 帳單金額。",
   ", Col": ", 上校",

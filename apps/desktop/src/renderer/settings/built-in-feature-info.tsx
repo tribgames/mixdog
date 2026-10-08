@@ -136,7 +136,8 @@ export function BuiltInFeatureInfo({
     facts.push(
       ['Model', String(info.model || '')],
       ['Engine', String(info.engine || '')],
-      ['Supported models', 'Claude Opus · Sonnet · Fable · GPT-6 · GPT-6.1']
+      ['Supported models', 'Claude Opus · Sonnet · Fable · GPT-6 · GPT-6.1'],
+      ['Install', t('Install downloads the Auto reasoning model (about 160 MB).')]
     );
   }
   if (!facts.some(([, value]) => value)) return null;

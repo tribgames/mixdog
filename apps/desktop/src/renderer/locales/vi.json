@@ -1,6 +1,7 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "Install downloads the Auto reasoning model (about 160 MB).": "Khi cài đặt sẽ tải xuống mô hình suy luận tự động (khoảng 160 MB).",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "— nghĩa là chưa có giá; + đánh dấu tổng một phần, không bao gồm mức sử dụng chưa có giá. Giá trị quy đổi của gói đăng ký không phải là hóa đơn API.",
   ", Col": ", Col",
