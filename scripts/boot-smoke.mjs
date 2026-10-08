@@ -134,7 +134,10 @@ const rows = [
   `,
     ],
     {
-      env: FAST_BACKGROUND_ENV,
+      // A fresh profile starts with no built-in features installed; the
+      // headless overrides stand in for the Git and Memory installs whose
+      // deferred tools (github, recall) this case expects in the catalog.
+      env: { ...FAST_BACKGROUND_ENV, MIXDOG_FEATURE_GIT: '1', MIXDOG_FEATURE_MEMORY: '1' },
       expectStdout: 'runtime_tools active=',
     }
   ),

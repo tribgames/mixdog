@@ -63,7 +63,7 @@
     "test": "node scripts/test.mjs",
     "test:slow": "node scripts/test.mjs --lane slow",
     "gate:local": "node scripts/gate-local.mjs",
-    "test:live": "node scripts/test.mjs --lane live",
+    "test:live": "npm run build:spawn:test && node scripts/test.mjs --lane live",
     "smoke": "node scripts/smoke.mjs",
     "smoke:all": "npm run smoke && npm run smoke:boot && npm run smoke:patch && npm run smoke:compact",
     "smoke:boot": "node scripts/boot-smoke.mjs",
