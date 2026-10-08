@@ -8,6 +8,9 @@ import { randomUUID } from 'node:crypto';
 const root = mkdtempSync(join(tmpdir(), 'mixdog-tool-result-reuse-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
+// This cache harness injects tool execution; a native patch server is unused
+// and would keep its executable locked during Windows fixture cleanup.
+process.env.MIXDOG_PATCH_NATIVE_PREWARM = '0';
 const { processToolBatch } = await import('../tool-batch.mjs');
 const { createEagerDispatcher } = await import('../eager-dispatch.mjs');
 const { clearReadDedupSession, setReadCached } = await import('./read-cache.mjs');
