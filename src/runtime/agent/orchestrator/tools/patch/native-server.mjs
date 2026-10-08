@@ -439,6 +439,8 @@ class NativePatchServer {
 
   #contractPromise = null;
 
+  #contractPending = false;
+
   constructor(binPath) {
     this.binPath = binPath;
     // windowsHide: mixdog-patch.exe is a console binary; without this each spawn
@@ -544,15 +546,23 @@ class NativePatchServer {
   // the caller may respawn and retry without any risk of double-applying.
   // Contract handshake on THIS session, memoized per instance: N concurrent
   // callers await one exchange, and a respawned session proves itself again.
+  /** True while the handshake runs: between its exchanges no waiter is queued, yet the handles must stay referenced. */
+  get contractPending() {
+    return this.#contractPending;
+  }
+
   contract() {
     if (!this.#contractPromise) {
+      this.#contractPending = true;
       this.#contractPromise = verifyContractOverSession(this.#handshakeView()).then(
         (ok) => {
+          this.#contractPending = false;
           this.#contractVerified = ok === true;
           if (!ok) this.markContractFailed();
           return ok;
         },
         () => {
+          this.#contractPending = false;
           this.#contractVerified = false;
           this.markContractFailed();
           return false;
@@ -884,7 +894,11 @@ export function scheduleNativePatchPrewarm() {
           }
         }
         await getNativePatchServer().ping();
-        if (!nativePatchPersistent() && (_nativePatchServer?.waiters?.length || 0) === 0) {
+        if (
+          !nativePatchPersistent() &&
+          (_nativePatchServer?.waiters?.length || 0) === 0 &&
+          !_nativePatchServer?.contractPending
+        ) {
           _nativePatchServer?.unref();
         }
         if (nativePatchTraceEnabled()) {
