@@ -49,6 +49,14 @@ export function mergeStoredProviders({ raw, defaults, includeSecrets }) {
       }
     }
   }
+  // Custom providers: the keychain account is the generated custom-<uuid> id.
+  if (includeSecrets) {
+    for (const [name, val] of Object.entries(mergedProviders)) {
+      if (val?.type !== 'custom' || !name.startsWith('custom-')) continue;
+      const kc = getAgentApiKey(name);
+      if (kc) mergedProviders[name] = { ...val, apiKey: kc, enabled: raw.providers?.[name]?.enabled !== false };
+    }
+  }
   // Cursor account access is OAuth-only. The dashboard's "API"
   // meter is a quota bucket on that account, not a separate provider.
   delete mergedProviders['cursor-api'];

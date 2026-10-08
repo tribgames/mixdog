@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   AGENT_PROVIDER_ENV,
   SECRET_ACCOUNTS,
@@ -156,9 +157,14 @@ function availableOAuthProvider(id) {
   return oauth && isOAuthProviderAvailable(id) ? oauth : null;
 }
 
-export function isKnownProvider(provider) {
+export function isKnownProvider(provider, config = {}) {
   const id = String(provider || '').trim();
-  return id !== '' && (API_PROVIDER_IDS.has(id) || BUILTIN_PROVIDER_IDS.has(id) || !!availableOAuthProvider(id));
+  return id !== '' && (
+    API_PROVIDER_IDS.has(id) ||
+    BUILTIN_PROVIDER_IDS.has(id) ||
+    !!availableOAuthProvider(id) ||
+    (isCustomProviderId(id) && isCustomProviderConfig(config.providers?.[id]) && config.providers[id].enabled !== false)
+  );
 }
 
 function updateConfigProvider(cfgMod, providerId, patch) {
@@ -275,11 +281,57 @@ function oauthProviderSetup(p, providers, checkSecrets) {
   };
 }
 
+const CUSTOM_ID_RE = /^custom-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CUSTOM_TEST_TIMEOUT_MS = 20_000;
+const CUSTOM_DISCOVERY_TIMEOUT_MS = 15_000;
+
+export function isCustomProviderConfig(entry) {
+  return Boolean(entry) && typeof entry === 'object' && entry.type === 'custom';
+}
+
+export function isCustomProviderId(id) {
+  return CUSTOM_ID_RE.test(String(id || ''));
+}
+
+const loadCustomProviderModule = () => import('../../runtime/agent/orchestrator/providers/custom-provider.mjs');
+
+// Secret-free public view of a custom provider. Never carries an API key.
+function customProviderRow(id, entry, checkSecrets = true) {
+  const configuredEnabled = entry.enabled !== false;
+  const stored = checkSecrets ? hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(id)) : false;
+  return {
+    id,
+    name: entry.name,
+    protocol: entry.protocol,
+    baseURL: entry.baseURL,
+    models: Array.isArray(entry.models) ? entry.models.map((m) => ({ ...m })) : [],
+    custom: true,
+    group: 'api',
+    type: 'api-key',
+    enabled: configuredEnabled,
+    authenticated: checkSecrets ? stored : configuredEnabled,
+    stored,
+    env: false,
+    envName: null,
+    status: stored ? 'Set' : configuredEnabled ? 'No Key' : 'Off',
+    detail: stored ? 'stored in keychain' : 'custom endpoint',
+  };
+}
+
+function customProviderRows(providers, checkSecrets) {
+  return Object.entries(providers)
+    .filter(([id, entry]) => isCustomProviderId(id) && isCustomProviderConfig(entry))
+    .map(([id, entry]) => customProviderRow(id, entry, checkSecrets));
+}
+
 export async function providerSetup(config = {}, options = {}) {
   const providers = config.providers || {};
   const checkSecrets = options?.checkSecrets !== false;
   return {
-    api: API_PROVIDERS.map((p) => apiProviderSetup(p, providers, checkSecrets)),
+    api: [
+      ...API_PROVIDERS.map((p) => apiProviderSetup(p, providers, checkSecrets)),
+      ...customProviderRows(providers, checkSecrets),
+    ],
     oauth: availableOAuthProviders().map((p) => oauthProviderSetup(p, providers, checkSecrets)),
     local: [builtInLocalProviderSetup(config, options)],
   };
@@ -322,6 +374,16 @@ function oauthProviderStatusRow(p, config) {
 export function providerStatus(config = {}) {
   return [
     ...API_PROVIDERS.map((p) => apiProviderStatusRow(p, config)),
+    ...customProviderRows(config.providers || {}, true).map((row) => ({
+      id: row.id,
+      type: 'api-key',
+      enabled: row.enabled,
+      authenticated: row.authenticated,
+      stored: row.stored,
+      env: false,
+      envName: null,
+      label: row.name,
+    })),
     ...availableOAuthProviders().map((p) => oauthProviderStatusRow(p, config)),
   ];
 }
@@ -523,6 +585,142 @@ export function saveProviderApiKey(cfgMod, provider, secret) {
   saveSecret(SECRET_ACCOUNTS.agentApiKey(id), value);
   updateConfigProvider(cfgMod, id, { enabled: true });
   return { provider: id, type: 'api-key', authenticated: true };
+}
+
+function sanitizeCustomError(error, secrets = []) {
+  let text = String(error?.message || error || 'request failed');
+  for (const secret of secrets) if (secret) text = text.split(secret).join('[redacted]');
+  text = text
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+    .replace(/\b(?:sk|key|tok)[-_][A-Za-z0-9_-]{8,}/gi, '[redacted]')
+    .replace(/(api[-_]?key|authorization|token)(["']?\s*[:=]\s*["']?)[^\s"',}]+/gi, '$1$2[redacted]')
+    .replace(/[\r\n]+/g, ' ')
+    .trim();
+  if (text.length > 300) text = `${text.slice(0, 300)}…`;
+  return new Error(text || 'request failed');
+}
+
+async function withTimeout(run, ms, label) {
+  const controller = new AbortController();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([run(controller.signal), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function existingCustomEntry(cfgMod, id) {
+  const entry = cfgMod.loadConfig().providers?.[id];
+  if (!isCustomProviderId(id) || !isCustomProviderConfig(entry)) throw new Error(`unknown custom provider "${id}"`);
+  return entry;
+}
+
+function inputObject(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new TypeError('custom provider is invalid');
+  return input;
+}
+
+// Validated, secret-free config for `input`; the key (typed, else stored for an
+// existing provider) is resolved separately and never enters the config.
+async function resolveCustomInput(cfgMod, rawInput, options) {
+  const input = inputObject(rawInput);
+  const id = input.id === undefined || input.id === null || input.id === '' ? null : String(input.id);
+  if (id) existingCustomEntry(cfgMod, id);
+  const { normalizeCustomProviderConfig } = await loadCustomProviderModule();
+  const config = normalizeCustomProviderConfig(input, options);
+  const typed = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
+  const apiKey = typed || (id ? getAgentApiKey(id) || '' : '');
+  return { id, config, typed, apiKey };
+}
+
+export async function saveCustomProvider(cfgMod, rawInput) {
+  const { id: existingId, config, typed, apiKey } = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
+  if (!apiKey) throw new Error('API key is required');
+  const id = existingId || `custom-${randomUUID()}`;
+  const entry = {
+    type: 'custom',
+    name: config.name,
+    protocol: config.protocol,
+    baseURL: config.baseURL,
+    models: config.models,
+    enabled: true,
+  };
+  const account = SECRET_ACCOUNTS.agentApiKey(id);
+  const previousKey = typed && existingId ? getAgentApiKey(id) : null;
+  if (typed) saveSecret(account, typed);
+  try {
+    const current = cfgMod.loadConfig();
+    cfgMod.saveConfig({ ...current, providers: { ...(current.providers || {}), [id]: entry } }, { baseConfig: current });
+  } catch (error) {
+    if (typed) {
+      if (previousKey) saveSecret(account, previousKey);
+      else deleteSecret(account);
+    }
+    throw error;
+  }
+  return customProviderRow(id, entry);
+}
+
+export function removeCustomProvider(cfgMod, rawId) {
+  const id = String(rawId || '').trim();
+  existingCustomEntry(cfgMod, id);
+  const current = cfgMod.loadConfig();
+  const { [id]: _removed, ...providers } = current.providers || {};
+  cfgMod.saveConfig({ ...current, providers }, { baseConfig: current });
+  deleteSecret(SECRET_ACCOUNTS.agentApiKey(id));
+  return { provider: id, type: 'custom', removed: true };
+}
+
+export async function testCustomProvider(cfgMod, rawInput) {
+  const { id, config, apiKey } = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
+  try {
+    const models = config.models.length ? config.models : (await discoverCustomProviderModels(cfgMod, rawInput)).models;
+    const model = models[0]?.id;
+    if (!model) throw new Error('No models were found for this provider');
+    const { createCustomProvider } = await loadCustomProviderModule();
+    const provider = await createCustomProvider(id || 'custom-test', { ...config, apiKey });
+    await withTimeout(
+      (signal) => provider.send([{ role: 'user', content: 'Reply with OK.' }], model, [], { signal, maxTokens: 16 }),
+      CUSTOM_TEST_TIMEOUT_MS,
+      'connection test'
+    );
+    return { ok: true };
+  } catch (error) {
+    throw sanitizeCustomError(error, [apiKey]);
+  }
+}
+
+export async function discoverCustomProviderModels(cfgMod, rawInput) {
+  const { id, config, apiKey } = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
+  try {
+    const { createCustomProvider } = await loadCustomProviderModule();
+    const provider = await createCustomProvider(id || 'custom-discovery', { ...config, models: [], apiKey });
+    const listed = await withTimeout(() => provider.listModels(), CUSTOM_DISCOVERY_TIMEOUT_MS, 'model discovery');
+    const seen = new Set();
+    const models = [];
+    for (const item of Array.isArray(listed) ? listed : []) {
+      const modelId = String(item?.id || '').trim();
+      if (!modelId || seen.has(modelId)) continue;
+      seen.add(modelId);
+      const model = { id: modelId };
+      const name = String(item.name || item.display || '').trim();
+      if (name && name !== modelId) model.name = name;
+      if (Number(item.contextWindow) > 0) model.contextWindow = Math.floor(Number(item.contextWindow));
+      const out = Number(item.maxOutputTokens ?? item.outputTokens);
+      if (out > 0) model.maxOutputTokens = Math.floor(out);
+      models.push(model);
+    }
+    return { models };
+  } catch (error) {
+    throw sanitizeCustomError(error, [apiKey]);
+  }
 }
 
 export function saveOpenAIUsageSessionKey(cfgMod, secret) {

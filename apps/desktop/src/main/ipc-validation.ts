@@ -190,6 +190,10 @@ const CAPABILITY_ARITY = {
   completeOAuthProviderLogin: [2, 2],
   cancelOAuthProviderLogin: [1, 1],
   saveProviderApiKey: [2, 2],
+  saveCustomProvider: [1, 1],
+  removeCustomProvider: [1, 1],
+  testCustomProvider: [1, 1],
+  discoverCustomProviderModels: [1, 1],
   saveOpenCodeGoUsageAuth: [1, 1],
   saveOpenAIUsageSessionKey: [1, 1],
   authenticateProvider: [2, 2],
@@ -228,6 +232,44 @@ export function requiredString(value: unknown, name: string, maximum = 32_768): 
   const text = value.trim();
   if (!text || text.length > maximum) throw new TypeError(`${name} is invalid.`);
   return text;
+}
+
+const CUSTOM_PROVIDER_KEYS = new Set(['id', 'name', 'protocol', 'baseURL', 'apiKey', 'models']);
+const CUSTOM_MODEL_KEYS = new Set(['id', 'name', 'contextWindow', 'maxOutputTokens']);
+const CUSTOM_PROTOCOLS = new Set(['openai-chat', 'openai-responses', 'anthropic']);
+
+function plainRecord(value: unknown, name: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${name} is invalid.`);
+  return value as Record<string, unknown>;
+}
+
+/** Shape check only; semantic validation (URL, model rules) is the runtime's. */
+export function requiredCustomProviderInput(value: unknown, modelsOptional = false): Record<string, unknown> {
+  const input = plainRecord(value, 'custom provider');
+  requireAllowedKeys(input, CUSTOM_PROVIDER_KEYS, 'custom provider');
+  if (input.id !== undefined) requiredString(input.id, 'custom provider id', 128);
+  requiredString(input.name, 'custom provider name', 200);
+  if (typeof input.protocol !== 'string' || !CUSTOM_PROTOCOLS.has(input.protocol)) {
+    throw new TypeError('custom provider protocol is invalid.');
+  }
+  requiredString(input.baseURL, 'custom provider baseURL', 2048);
+  if (input.apiKey !== undefined && (typeof input.apiKey !== 'string' || input.apiKey.length > 65_536)) {
+    throw new TypeError('custom provider apiKey is invalid.');
+  }
+  if (input.models === undefined && modelsOptional) return input;
+  if (!Array.isArray(input.models) || input.models.length > 500) throw new TypeError('custom provider models are invalid.');
+  for (const model of input.models) {
+    const row = plainRecord(model, 'custom provider model');
+    requireAllowedKeys(row, CUSTOM_MODEL_KEYS, 'custom provider model');
+    requiredString(row.id, 'custom provider model id', 512);
+    if (row.name !== undefined) requiredString(row.name, 'custom provider model name', 512);
+    for (const key of ['contextWindow', 'maxOutputTokens']) {
+      if (row[key] !== undefined && (!Number.isSafeInteger(row[key]) || Number(row[key]) <= 0)) {
+        throw new TypeError(`custom provider model ${key} is invalid.`);
+      }
+    }
+  }
+  return input;
 }
 
 export function requiredGitGlobalConfigKey(value: unknown): DesktopGitGlobalConfigKey {
@@ -553,6 +595,14 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   if (capability === 'saveProviderApiKey' || capability === 'authenticateProvider') {
     validateSecret(args[1], 'provider secret');
   }
+  if (
+    capability === 'saveCustomProvider' ||
+    capability === 'testCustomProvider' ||
+    capability === 'discoverCustomProviderModels'
+  ) {
+    requiredCustomProviderInput(args[0], capability === 'discoverCustomProviderModels');
+  }
+  if (capability === 'removeCustomProvider') requiredString(args[0], 'custom provider id', 128);
   if (capability === 'saveOpenAIUsageSessionKey') {
     validateSecret(args[0], 'secret');
   }

@@ -102,6 +102,18 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       pushNotice(`provider api key saved: ${result.provider}`, 'info');
       return true;
     },
+    saveCustomProvider: announced(
+      (input) => runtime.saveCustomProvider(input),
+      (result) => `custom provider saved: ${result.id}`
+    ),
+    removeCustomProvider: async (id) => {
+      const result = await runtime.removeCustomProvider(id);
+      refreshRouteStats();
+      pushNotice(`custom provider removed: ${result.provider}`, 'info');
+      return result;
+    },
+    testCustomProvider: (input) => runtime.testCustomProvider(input),
+    discoverCustomProviderModels: (input) => runtime.discoverCustomProviderModels(input),
     saveOpenCodeGoUsageAuth: (opts) => {
       runtime.saveOpenCodeGoUsageAuth(opts);
       pushNotice('OpenCode Go usage auth saved', 'info');

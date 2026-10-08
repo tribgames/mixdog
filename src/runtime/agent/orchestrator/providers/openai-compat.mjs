@@ -4,6 +4,7 @@ import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs
 import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
 import { appendAgentTrace } from '../agent-trace.mjs';
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
+import { assertSafeBaseURL } from './provider-base-url.mjs';
 import { resolveResponsesTransportPolicy, RESPONSES_TRANSPORT_CAPABILITIES } from './openai-transport-policy.mjs';
 import { toResponsesTools, toXaiResponsesInput } from './openai-compat-wire.mjs';
 import {
@@ -73,34 +74,6 @@ export { applyCompatProviderChatOptions } from './openai-compat-options.mjs';
 export { compatReportedCostUsd } from './openai-compat-response-normalization.mjs';
 
 const PRESETS = OPENAI_COMPAT_PRESETS;
-
-// SSRF guard for provider baseURL. config.baseURL comes from user JSON;
-// reject non-http(s) schemes (file:/data:/ftp:/etc.) and require https for
-// any non-localhost host. The managed Local Provider and other loopback hosts
-// may use http. Throws a clear config error — no silent
-// fallback — so misconfig surfaces immediately instead of leaking apiKey.
-function assertSafeBaseURL(rawURL, providerName) {
-  let parsed;
-  try {
-    parsed = new URL(String(rawURL));
-  } catch {
-    throw new Error(`[provider:${providerName}] invalid baseURL: ${rawURL}`);
-  }
-  const scheme = parsed.protocol.toLowerCase();
-  if (scheme !== 'https:' && scheme !== 'http:') {
-    throw new Error(`[provider:${providerName}] baseURL scheme not allowed: ${parsed.protocol} (only http/https)`);
-  }
-  if (scheme === 'http:') {
-    const host = parsed.hostname.toLowerCase();
-    const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
-    if (!isLocal) {
-      throw new Error(
-        `[provider:${providerName}] baseURL must use https for non-localhost host (got ${parsed.protocol}//${parsed.hostname})`
-      );
-    }
-  }
-  return rawURL;
-}
 
 export class OpenAICompatProvider {
   // Chat Completions prompt_tokens is already the total (includes cached).

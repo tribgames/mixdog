@@ -8,9 +8,13 @@ import {
   saveOpenAIUsageSessionKey,
   saveOpenCodeGoUsageAuth,
   saveProviderApiKey,
+  saveCustomProvider,
+  removeCustomProvider,
+  testCustomProvider,
+  discoverCustomProviderModels,
 } from '../services/provider-admin.mjs';
 
-export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig }, refresh) {
+export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig, onCustomProviderRemoved }, refresh) {
   async function completeOAuthLogin(login) {
     return {
       ...login,
@@ -68,6 +72,27 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig 
       const result = saveOpenCodeGoUsageAuth(cfgMod, opts);
       refresh.afterUsageAuthChange();
       return result;
+    },
+    async saveCustomProvider(input) {
+      await awaitKeychainPrewarm();
+      const result = await saveCustomProvider(cfgMod, input);
+      refresh.afterCredentialChange();
+      return result;
+    },
+    async removeCustomProvider(providerId) {
+      await awaitKeychainPrewarm();
+      const result = removeCustomProvider(cfgMod, providerId);
+      onCustomProviderRemoved?.(result.provider);
+      refresh.afterCredentialChange();
+      return result;
+    },
+    async testCustomProvider(input) {
+      await awaitKeychainPrewarm();
+      return await testCustomProvider(cfgMod, input);
+    },
+    async discoverCustomProviderModels(input) {
+      await awaitKeychainPrewarm();
+      return await discoverCustomProviderModels(cfgMod, input);
     },
     forgetProviderAuth(providerId, accountId) {
       const result = forgetProviderAuth(cfgMod, providerId, accountId);

@@ -46,7 +46,7 @@ export function createQuickProviderRows({
     const addRoute = (routeLike = {}) => {
       const provider = clean(routeLike.provider);
       const model = clean(routeLike.model);
-      if (!provider || !model) return;
+      if (!provider || !model || isDeletedCustom(provider)) return;
       const meta = metadataFor(provider, model);
       addModel(provider, {
         id: model,
@@ -64,8 +64,23 @@ export function createQuickProviderRows({
       });
     };
 
-    for (const [provider, providerConfig] of Object.entries(pickerConfig.providers || {})) {
+    // A custom-* id with no live custom config entry was deleted: stale
+    // routes must not bring it back into the picker.
+    const customProviders = pickerConfig.providers || {};
+    const isDeletedCustom = (provider) =>
+      provider.startsWith('custom-') &&
+      !(customProviders[provider]?.type === 'custom' && customProviders[provider].enabled !== false);
+    for (const [provider, providerConfig] of Object.entries(customProviders)) {
       if (!providerConfig?.enabled) continue;
+      if (providerConfig.type === 'custom') {
+        // Configured models are listed at once, before any catalog refresh.
+        for (const model of providerConfig.models || []) {
+          addModel(provider, {
+            ...model,
+            outputTokens: model.maxOutputTokens || null,
+          });
+        }
+      }
       for (const model of providerCachedModelsSync(provider)) addModel(provider, model);
     }
     addRoute(route);

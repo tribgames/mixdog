@@ -10,13 +10,16 @@ import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cach
 import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
 import { ProviderAccountsList, PROVIDER_ACCOUNTS_CHANGED } from '../ProviderAccountsList';
 import { ActionButton, Group, ListEmpty, ResourceRow, settingsStatus } from './capability-controls';
+import { CustomProvidersSection, isCustomProvider } from './custom-provider-section';
 import { providerLabel, rows, sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
 
 export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContext) {
   const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
   const openKeyConsole = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
   const setup = record(data.providerSetup);
-  const apiProviders = rows(setup.api);
+  const allApiProviders = rows(setup.api);
+  const customProviders = allApiProviders.filter(isCustomProvider);
+  const apiProviders = allApiProviders.filter((provider) => !isCustomProvider(provider));
   const openCodeGoProvider = apiProviders.find((provider) => String(provider.id) === 'opencode-go');
   const otherApiProviders = apiProviders.filter((provider) => provider !== openCodeGoProvider);
   const oauthProviders = rows(setup.oauth);
@@ -148,6 +151,13 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
           <ListEmpty text={loading ? 'Loading providers…' : 'No API-key providers available.'} />
         )}
       </Group>
+      <CustomProvidersSection
+        providers={customProviders}
+        loading={loading}
+        run={run}
+        confirm={confirm}
+        busy={busy}
+      />
     </>
   );
 }

@@ -23,6 +23,10 @@ const admin = {
   saveOpenAIUsageSessionKey: (_cfg, secret) => calls.push(['saveUsageKey', secret]) && 'saved-usage',
   saveOpenCodeGoUsageAuth: (_cfg, opts) => calls.push(['saveGoUsage', opts]) && 'saved-go',
   saveProviderApiKey: (_cfg, providerId, secret) => calls.push(['saveKey', providerId, secret]) && 'saved-key',
+  saveCustomProvider: async (_cfg, input) => calls.push(['saveCustom', input]) && { id: 'custom-1' },
+  removeCustomProvider: (_cfg, id) => calls.push(['removeCustom', id]) && { provider: id },
+  testCustomProvider: async (_cfg, input) => calls.push(['testCustom', input]) && { ok: true },
+  discoverCustomProviderModels: async (_cfg, input) => calls.push(['discoverCustom', input]) && { models: [] },
   listProviderAccounts: (providerId) => ({
     providerId,
     accounts: [{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }, { id: 'a4' }, { id: 'a5' }],
@@ -105,6 +109,24 @@ test('authenticateProvider saves a secret when given one and otherwise runs the 
   assert.equal(await api.authenticateProvider('oauth', 'sk-2'), 'saved-key');
   assert.ok(calls.some(([name, , secret]) => name === 'saveKey' && secret === 'sk-2'));
   assert.equal(await api.forgetProviderAuth('oauth', 'a1'), 'forgot');
+});
+
+test('custom provider save/remove refresh like credential changes; removal drops the live route', async () => {
+  const removed = [];
+  const api = fixture({ onCustomProviderRemoved: (id) => removed.push(id) });
+  assert.deepEqual(await api.saveCustomProvider({ name: 'x' }), { id: 'custom-1' });
+  await setImmediate();
+  assert.deepEqual(calls.slice(0, 2), [['keychain'], ['saveCustom', { name: 'x' }]]);
+  assert.deepEqual(calls.slice(2, 2 + CREDENTIAL_CHANGE.length), CREDENTIAL_CHANGE);
+  calls.length = 0;
+  await api.removeCustomProvider('custom-1');
+  assert.deepEqual(removed, ['custom-1']);
+  assert.deepEqual(calls.slice(0, 2), [['keychain'], ['removeCustom', 'custom-1']]);
+  assert.ok(calls.some(([name]) => name === 'invalidate'));
+  calls.length = 0;
+  assert.deepEqual(await api.testCustomProvider({ a: 1 }), { ok: true });
+  assert.deepEqual(await api.discoverCustomProviderModels({ b: 2 }), { models: [] });
+  assert.equal(calls.some(([name]) => name === 'reload'), false);
 });
 
 test('usage-only credentials reload and invalidate without touching admission cooldowns', async () => {
