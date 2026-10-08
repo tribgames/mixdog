@@ -11,6 +11,7 @@
 // a filtered + deduped subset of the SAME row objects (never mutated).
 
 import { getModelsDevProviderModelsSync, getModelsDevRowSync } from './model-catalog.mjs';
+import { isRollingModelAlias } from '../../../shared/model-alias.mjs';
 
 // Id-level fallback for coding-unfit SKUs when the catalog row is missing.
 // search-preview (grounded-search) and audio/realtime preview SKUs are
@@ -213,6 +214,14 @@ function _stalenessFamily(row, id) {
   return family || null;
 }
 
+// Explicit preview/experimental markers in the id. A stable
+// model is not superseded by these; the catalog carries no structured status.
+const PREVIEW_VARIANT_RE = /(^|[-_.:/\s])(preview|exp|experimental)([-_.:/\s]|$)/i;
+
+function _isPreviewVariant(id) {
+  return PREVIEW_VARIANT_RE.test(String(id || ''));
+}
+
 function _staleMonths() {
   const raw = process.env.MIXDOG_MODEL_STALE_MONTHS;
   if (raw == null || raw === '') return 9;
@@ -246,19 +255,28 @@ function _applyAutoStaleness(kept, provider, testCatalog) {
   // ANY model (kept or not) in the same family with a strictly newer date.
   // Compute the newest release_date per family from the FULL catalog so a
   // superseding model that isn't in this list still counts.
+  // Rolling aliases never count. Preview/experimental entries count only
+  // against other preview/experimental rows, never against a stable one.
   const familyNewest = new Map();
+  const familyNewestStable = new Map();
+  const bump = (map, fam, ep) => {
+    const prev = map.get(fam);
+    if (prev == null || ep > prev) map.set(fam, ep);
+  };
   for (const [id, cr] of Object.entries(catModels)) {
     const fam = _stalenessFamily(cr, id);
     const ep = _releaseEpoch(cr);
-    if (!fam || ep == null) continue;
-    const prev = familyNewest.get(fam);
-    if (prev == null || ep > prev) familyNewest.set(fam, ep);
+    if (!fam || ep == null || isRollingModelAlias(id)) continue;
+    bump(familyNewest, fam, ep);
+    if (!_isPreviewVariant(id)) bump(familyNewestStable, fam, ep);
   }
 
   const dropped = new Set();
   for (const m of meta) {
     if (!m.cat || m.family == null || m.epoch == null) continue; // fallback: keep
-    const newest = familyNewest.get(m.family);
+    if (isRollingModelAlias(m.row.id)) continue;
+    const newestByFamily = _isPreviewVariant(m.row.id) ? familyNewest : familyNewestStable;
+    const newest = newestByFamily.get(m.family);
     if (newest != null && newest > m.epoch) dropped.add(m.row);
   }
   // Never empty a family the user relies on: if supersession removed every
@@ -286,6 +304,7 @@ function _applyAutoStaleness(kept, provider, testCatalog) {
     for (const m of meta) {
       if (dropped.has(m.row)) continue;
       if (!m.cat || m.epoch == null) continue; // fallback: keep
+      if (isRollingModelAlias(m.row.id)) continue;
       if (m.epoch < cutoff) cutDropped.add(m.row);
     }
     // If applying the absolute cut would empty the entire provider list, skip

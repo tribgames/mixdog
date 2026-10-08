@@ -7,6 +7,7 @@
  */
 import { theme } from '../theme.mjs';
 import { displayModelName } from '../../runtime/shared/model-display.mjs';
+import { isRollingModelAlias } from '../../runtime/shared/model-alias.mjs';
 
 export const parsedModelVersion = (id) => {
   const text = String(id || '').toLowerCase();
@@ -147,7 +148,15 @@ export const normalizeModelOptions = (models) => {
     const providerModels = [];
     for (const [family, group] of families.entries()) {
       const limit = modelFamilyLimit(provider, family);
-      providerModels.push(...group.slice().sort(compareModelRecency).slice(0, limit));
+      // Version limits must not hide rolling routes, even when several
+      // vendors' "~..." IDs share the fallback family.
+      let versions = 0;
+      providerModels.push(
+        ...group
+          .slice()
+          .sort(compareModelRecency)
+          .filter((model) => isRollingModelAlias(model.id) || versions++ < limit)
+      );
     }
     normalized.push(...providerModels.sort(compareModelRecency));
   }
