@@ -4,6 +4,7 @@ import { codexModelSupportsEffortUpdates } from './openai-oauth-catalog.mjs';
 export const EFFORT_CONFIGURATION_BETA = 'mid-conversation-output-config-2026-07-01';
 const ANTHROPIC_MODELS = new Set([
   'claude-fable-5-1',
+  'claude-haiku-5-5',
   'claude-mythos-5-1',
   'claude-opus-5',
   'claude-opus-5-5',
