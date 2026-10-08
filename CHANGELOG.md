@@ -15,6 +15,9 @@ the Unreleased section is empty, and stamps it with the released version.
   agents. Latest aliases and stable models are no longer incorrectly hidden
   by catalog age, newer previews, or the model picker's family limits.
 
+- Native patch initialization keeps its process alive while verification is
+  pending, preventing an early exit when prewarming and verification overlap.
+
 ## v1.0.9 - 2026-10-07
 
 - Common and project instructions reach every new conversation even when
