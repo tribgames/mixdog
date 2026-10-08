@@ -5,6 +5,16 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Custom API providers can be registered in Settings with provider-specific
+  connection adapters.
+
+- Remote connection QR codes appear only after the relay is ready, and stale
+  pairing cards are cleared.
+
+- OpenRouter rolling model aliases can be selected and saved for Main and
+  agents. Latest aliases and stable models are no longer incorrectly hidden
+  by catalog age, newer previews, or the model picker's family limits.
+
 ## v1.0.9 - 2026-10-07
 
 - Common and project instructions reach every new conversation even when
