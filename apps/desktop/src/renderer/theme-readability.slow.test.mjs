@@ -420,7 +420,7 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
       );
       return {
         elements,
-        tones: Object.fromEntries(['bg-base', 'window-band', 'workspace-sheet', 'hover', 'text', 'border-muted']
+        tones: Object.fromEntries(['bg-base', 'window-band', 'workspace-sheet', 'hover', 'text', 'border-muted', 'surface-plate']
           .map((name) => [name, tone(name)])),
       };
     }, theme);
@@ -439,9 +439,11 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
       assert.equal(paper['paper-table'].border, `1px ${tones['border-muted']}`, theme);
       // Tables: no banded fills; the sticky header takes the dialog surface.
       assert.equal(paper['paper-th'].bg, tones['bg-base'], theme);
-      for (const id of ['paper-group-row', 'paper-pager', 'paper-md-th']) {
+      for (const id of ['paper-group-row', 'paper-pager']) {
         assert.equal(paper[id].bg, clear, `${theme}: ${id}`);
       }
+      // Markdown table headers share the code block's neutral header band.
+      assert.equal(paper['paper-md-th'].bg, tones['surface-plate'], theme);
       // Settings nav: one band step plus one hairline.
       assert.equal(paper['paper-rail'].bg, tones['window-band'], theme);
       assert.equal(paper['paper-rail'].right, `1px ${tones['border-muted']}`, theme);

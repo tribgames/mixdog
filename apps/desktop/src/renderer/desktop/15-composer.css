@@ -1,7 +1,7 @@
 /* Desktop layer 15 — Prompt dock, model/effort selects, dictation.
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
-/* Prompt input: 76px resting surface and 28px controls. The composer keeps a
+/* Prompt input: 96px resting surface and 28px controls. The composer keeps a
    real floor gap (user: 채팅창 아래 여백이 부족하다) instead of hugging the
    window edge. */
 .composer-region {

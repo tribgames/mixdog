@@ -19,6 +19,9 @@ test('compact chrome preserves input growth, readable rows and accessible action
   const browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
     headless: true,
+    // Headless Linux Chrome reports no mouse (hover: none); declare one so the
+    // hover-gated rules under test are evaluated the same on every runner.
+    args: ['--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4'],
   });
   t.after(() => browser.close());
   const page = await browser.newPage();
@@ -91,9 +94,9 @@ test('compact chrome preserves input growth, readable rows and accessible action
             }),
           };
         });
-        assert.equal(resting.height, 76);
-        assert.equal(resting.inputHeight, 40);
-        assert.equal(resting.footerHeight, 36);
+        assert.equal(resting.height, 96);
+        assert.equal(resting.inputHeight, 56);
+        assert.equal(resting.footerHeight, 40);
         assert.equal(resting.overflow, false);
         assert.equal(resting.controlsFit, true);
         await page.evaluate(() => { document.querySelector('textarea').value = '한글 English\n'.repeat(20); });
@@ -104,7 +107,7 @@ test('compact chrome preserves input growth, readable rows and accessible action
           scrolls: document.querySelector('textarea').scrollHeight > document.querySelector('textarea').clientHeight,
         }));
         assert.equal(expanded.input, 180);
-        assert.equal(expanded.form, 216);
+        assert.equal(expanded.form, 220);
         assert.equal(expanded.scrolls, true);
       }
     });
@@ -113,11 +116,11 @@ test('compact chrome preserves input growth, readable rows and accessible action
   await t.test('row metadata aligns with the title and long labels cannot widen the sidebar', async () => {
     const row = await page.evaluate(() => {
       const element = document.querySelector('.agent-pool-row');
-      const name = element.querySelector('b').getBoundingClientRect();
+      const name = element.querySelector('.schedules-row-copy').getBoundingClientRect();
       const clock = element.querySelector('.agent-activity-elapsed').getBoundingClientRect();
       const pane = document.querySelector('.utility-dock').getBoundingClientRect();
       return {
-        topDifference: Math.abs(name.top - clock.top),
+        topDifference: Math.abs((name.top + name.bottom) / 2 - (clock.top + clock.bottom) / 2),
         right: clock.right,
         paneRight: pane.right,
         radius: getComputedStyle(element).borderRadius,
