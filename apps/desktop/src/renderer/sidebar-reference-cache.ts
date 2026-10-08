@@ -118,6 +118,8 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   // Provider/auth mutation owners (settings + onboarding capability runners).
   saveProviderApiKey: PROVIDER_KEYS,
   forgetProviderAuth: PROVIDER_KEYS,
+  saveCustomProvider: PROVIDER_KEYS,
+  removeCustomProvider: PROVIDER_KEYS,
   updateProviderAccounts: PROVIDER_KEYS,
   completeOAuthProviderLogin: PROVIDER_KEYS,
   installBuiltinFeature: PROVIDER_KEYS,

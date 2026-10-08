@@ -273,6 +273,12 @@ function providerAuthApiFor(boot) {
     getUsageDashboard: boot.getUsageDashboard,
     consumeCodexRateLimitResetCredit: boot.consumeCodexRateLimitResetCredit,
     collectProviderModels: boot.collectProviderModels,
+    // A deleted custom provider must not stay reachable through the live route
+    // or the registry; stored routes naming it are filtered by the picker.
+    onCustomProviderRemoved: (id) => {
+      reg.disableProvider?.(id);
+      if (rt.route?.provider === id) rt.route = { ...rt.route, provider: '', model: '', preset: null };
+    },
   });
 }
 

@@ -150,7 +150,16 @@ const PROVIDER_MODULES = {
   'opencode-go': ['./opencode-go.mjs', 'OpenCodeGoProvider'],
 };
 
-async function loadProviderCtor(name, signal = null) {
+// User-defined providers (cfg.type === 'custom') are keyed by a generated
+// `custom-<uuid>` id and never collide with the built-in names.
+function isCustomProviderConfig(name, cfg) {
+  return cfg?.type === 'custom' && String(name).startsWith('custom-');
+}
+
+async function loadProviderCtor(name, signal = null, cfg = null) {
+  if (isCustomProviderConfig(name, cfg)) {
+    return loadProviderExport('custom-provider', './custom-provider.mjs', 'createCustomProvider', signal);
+  }
   if (Object.hasOwn(PROVIDER_MODULES, name)) {
     const [spec, exportName] = PROVIDER_MODULES[name];
     return loadProviderExport(name, spec, exportName, signal);
@@ -161,7 +170,8 @@ async function loadProviderCtor(name, signal = null) {
   throw new Error(`unknown enabled provider: ${name}`);
 }
 
-function instantiateProvider(name, Ctor, cfg) {
+async function instantiateProvider(name, Ctor, cfg) {
+  if (isCustomProviderConfig(name, cfg)) return wrapProviderAdmission(await Ctor(name, cfg), name);
   if (Object.hasOwn(OPENAI_COMPAT_PRESETS, name) && name !== 'opencode-go') {
     return wrapProviderAdmission(new Ctor(name, cfg), name);
   }
@@ -239,9 +249,9 @@ async function _initProvidersUnsynchronized(config, signal = null) {
         return { name, inst: providers.get(name), sig };
       }
       try {
-        const Ctor = await loadProviderCtor(name, signal);
+        const Ctor = await loadProviderCtor(name, signal, cfg);
         throwIfAborted(signal);
-        const inst = instantiateProvider(name, Ctor, cfg);
+        const inst = await instantiateProvider(name, Ctor, cfg);
         return { name, inst, sig };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

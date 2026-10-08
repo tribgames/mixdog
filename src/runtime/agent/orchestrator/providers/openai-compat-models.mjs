@@ -28,7 +28,7 @@ export async function fetchCompatModelItems(provider) {
   }
 }
 
-export async function listCompatModels(provider) {
+export async function listCompatModels(provider, { throwOnError = false } = {}) {
   try {
     const list = await provider._fetchModelItems();
     const models = [];
@@ -56,7 +56,8 @@ export async function listCompatModels(provider) {
     const enriched = sanitizeModelList(await enrichModels(filtered), { provider: provider.name });
     provider._enrichedModels = enriched;
     return enriched;
-  } catch {
+  } catch (error) {
+    if (throwOnError) throw error;
     return [];
   }
 }

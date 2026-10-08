@@ -14,7 +14,7 @@ export function makeResolveDefaultProvider(isKnownProvider) {
   return function resolveDefaultProvider(config) {
     const selectedMain = findPreset(config, config?.default);
     const configured = clean(selectedMain?.provider);
-    if (configured && isKnownProvider(configured)) return configured;
+    if (configured && isKnownProvider(configured, config)) return configured;
     return DEFAULT_PROVIDER;
   };
 }

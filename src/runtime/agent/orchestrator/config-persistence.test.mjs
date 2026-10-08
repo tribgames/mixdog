@@ -142,6 +142,38 @@ test('sync and async config writes preserve user fields without persisting secre
   );
 });
 
+test('custom providers persist, reload, edit and delete without writing API keys', () => {
+  runIsolatedConfigTest(
+    'mixdog-custom-persistence-',
+    `
+    import assert from 'node:assert/strict';
+    import { readFileSync } from 'node:fs';
+    import { join } from 'node:path';
+    import { loadConfig, saveConfig } from './src/runtime/agent/orchestrator/config.mjs';
+
+    const id = 'custom-84a2a4a1-30f6-43de-8813-c215de6046b6';
+    const entry = {
+      type: 'custom', name: 'Hive', protocol: 'openai-chat',
+      baseURL: 'https://api-cdn.thehive.ai/api/v3',
+      models: [{ id: 'vendor/model', contextWindow: 8000, maxOutputTokens: 1000 }],
+      enabled: true,
+    };
+    const initial = loadConfig({ secrets: false });
+    saveConfig({ ...initial, providers: { ...initial.providers, [id]: { ...entry, apiKey: 'never-save-custom-secret' } } }, { baseConfig: initial });
+    const stored = loadConfig({ secrets: false });
+    assert.deepEqual(stored.providers[id], entry);
+    assert.equal(readFileSync(join(process.env.MIXDOG_DATA_DIR, 'mixdog-config.json'), 'utf8').includes('never-save-custom-secret'), false);
+    const edited = { ...entry, name: 'Edited', protocol: 'anthropic', models: [{ id: 'replacement' }] };
+    saveConfig({ ...stored, providers: { ...stored.providers, [id]: edited } }, { baseConfig: stored });
+    const reloaded = loadConfig({ secrets: false });
+    assert.deepEqual(reloaded.providers[id], edited);
+    const { [id]: removed, ...providers } = reloaded.providers;
+    saveConfig({ ...reloaded, providers }, { baseConfig: reloaded });
+    assert.equal(loadConfig({ secrets: false }).providers[id], undefined);
+    `
+  );
+});
+
 test('read-time canonicalization cannot restore settings removed by a newer writer', () => {
   runIsolatedConfigTest(
     'mixdog-config-rebase-',

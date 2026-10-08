@@ -384,6 +384,8 @@
 .settings-form-controls input,
 .core-memory-edit input,
 .settings-provider-secret input,
+.settings-custom-provider-form input,
+.settings-custom-provider-form select,
 .settings-oauth-code input,
 .settings-oauth-url textarea {
   box-sizing: border-box;
@@ -405,12 +407,24 @@
   padding-block: 8px;
   line-height: var(--mx-line-ui);
 }
+.settings-custom-provider-form > label {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+}
+.settings-oauth-dialog.settings-custom-provider-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+.settings-custom-provider-form > label:not(:first-child) {
+  margin-top: 6px;
+}
 .settings-form-controls input:hover,
 .settings-provider-secret input:hover {
   background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
 }
 .settings-form-controls input:focus,
 .core-memory-edit input:focus,
+.settings-custom-provider-form input:focus,
+.settings-custom-provider-form select:focus,
 .settings-provider-secret input:focus {
   outline-color: var(--mx-focus);
   box-shadow: none;

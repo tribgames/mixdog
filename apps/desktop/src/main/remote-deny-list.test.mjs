@@ -59,6 +59,14 @@ test('every secret- or OAuth-bearing capability on the desktop surface is denied
   }
 });
 
+test('custom provider administration stays desktop-local', () => {
+  for (const capability of ['saveCustomProvider', 'removeCustomProvider', 'testCustomProvider', 'discoverCustomProviderModels']) {
+    assert.equal(DESKTOP_CAPABILITIES.includes(capability), true);
+    assert.equal(REMOTE_BLOCKED_CAPABILITIES.has(capability), true);
+    assert.throws(() => assertRemoteCapability(capability), /is not available over remote access/);
+  }
+});
+
 test('the media resolver stays desktop-local for its own documented reason', () => {
   // Not secret-bearing: a phone reaches media through the media HTTP route and
   // never needs host filesystem paths.

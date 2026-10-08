@@ -67,6 +67,12 @@ import {
 // open a browser on the desktop machine where the phone cannot complete them.
 export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
   'saveProviderApiKey',
+  // Custom endpoints take an API key and make outbound requests to an
+  // arbitrary URL from this machine.
+  'saveCustomProvider',
+  'removeCustomProvider',
+  'testCustomProvider',
+  'discoverCustomProviderModels',
   'authenticateProvider',
   'saveOpenAIUsageSessionKey',
   'saveOpenCodeGoUsageAuth',

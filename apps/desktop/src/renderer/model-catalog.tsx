@@ -41,6 +41,7 @@ export function filterConfiguredModels(
   return models.filter((model) => {
     const provider = entries.find((entry) => String(entry.id || entry.provider || '') === model.provider);
     if (!provider) return false;
+    if (provider.custom === true) return provider.enabled !== false && provider.authenticated !== false;
     return provider.group === 'local'
       ? provider.detected === true && provider.enabled === true
       : provider.authenticated === true;

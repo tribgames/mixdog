@@ -415,11 +415,12 @@ test('settings isolate OpenCode Go between OAuth and API providers while preserv
       })
     );
   await show(provider);
-  const [oauth, go, api] = document.querySelectorAll('main > section');
-  assert.equal(document.querySelectorAll('main > section').length, 3);
+  const [oauth, go, api, custom] = document.querySelectorAll('main > section');
+  assert.equal(document.querySelectorAll('main > section').length, 4);
   assert.equal(oauth.querySelector('h3').textContent, 'OAuth providers');
   assert.equal(go.querySelector('.settings-resource-title b').textContent, 'OpenCode Go API');
   assert.equal(api.querySelector('h3').textContent, 'API-key providers');
+  assert.equal(custom.querySelector('h3').textContent, 'Custom providers');
   assert.doesNotMatch(oauth.textContent, /OpenCode Go/);
   assert.deepEqual(
     [...api.querySelectorAll('.settings-resource-title b')].map((name) => name.textContent),
@@ -474,7 +475,7 @@ test('settings omit the separate OpenCode Go card when the provider is unavailab
   const sections = [...document.querySelectorAll('main > section')];
   assert.deepEqual(
     sections.map((section) => section.querySelector('h3').textContent),
-    ['OAuth providers', 'API-key providers']
+    ['OAuth providers', 'API-key providers', 'Custom providers']
   );
   assert.doesNotMatch(document.querySelector('main').textContent, /OpenCode Go|Usage sign-in/);
 });
