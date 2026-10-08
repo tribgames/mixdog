@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getCachedConnectionInfo, preloadConnectionInfo } from './connection-info.ts';
+import { getCachedConnectionInfo, preloadConnectionInfo, setCachedConnectionInfo } from './connection-info.ts';
 
 const readyInfo = (url) => ({
   relayBrowserUrl: url,
@@ -75,4 +75,24 @@ test('a late timed-out response cannot replace a newer connection result', async
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(getCachedConnectionInfo(api), current);
+});
+
+test('disconnect invalidation prevents a late ready response from restoring the old QR', async () => {
+  const oldReply = Promise.withResolvers();
+  const fresh = readyInfo('https://relay.example/reconnected');
+  let calls = 0;
+  const api = {
+    getRemoteAccessInfo() {
+      calls += 1;
+      return calls === 1 ? oldReply.promise : Promise.resolve(fresh);
+    },
+  };
+
+  assert.equal(await preloadConnectionInfo(api, 10), null);
+  setCachedConnectionInfo(api, readyInfo('https://relay.example/old'));
+  setCachedConnectionInfo(api, null);
+  oldReply.resolve(readyInfo('https://relay.example/old'));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(getCachedConnectionInfo(api), null);
+  assert.deepEqual(await preloadConnectionInfo(api), fresh);
 });

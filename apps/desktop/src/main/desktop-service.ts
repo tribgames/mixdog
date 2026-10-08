@@ -1,9 +1,4 @@
-import type {
-  DesktopRemoteBrowserStreamFrame,
-  DesktopRemoteClientInfo,
-  DesktopSessionStateUpdate,
-  SessionSnapshot,
-} from '../shared/contract';
+import type { DesktopRemoteBrowserStreamFrame, DesktopSessionStateUpdate, SessionSnapshot } from '../shared/contract';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT } from '../shared/remote-browser';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { MixdogProjectsModule, MixdogSessionStoreModule, StatuslineSegmentsModule } from './desktop-support';
@@ -26,6 +21,7 @@ import {
 } from './state-delta';
 import { createDesktopOperations } from './desktop-operations';
 import { rotatePairingToken } from './remote-pairing-token';
+import { remoteAccessDescriptor } from './remote-access-descriptor';
 import {
   resolveRelayUrl,
   rotateRemoteDevice,
@@ -327,22 +323,7 @@ export async function createDesktopService({
   const browserRemoteRequests = createBrowserRemoteRequests((request) =>
     publishDesktopEvent('browser-remote-request', request)
   );
-  const remoteDescriptor = async () => {
-    if (!remoteRelay) return null;
-    let clients: DesktopRemoteClientInfo[] = [];
-    try {
-      clients = await remoteRelay.listClients();
-    } catch {
-      /* relay may still be connecting */
-    }
-    return {
-      relay: {
-        clientUrl: remoteRelay.clientUrl,
-        token: remoteRelay.token,
-        clients,
-      },
-    };
-  };
+  const remoteDescriptor = () => remoteAccessDescriptor(remoteRelay);
   const remoteOptions = {
     host: remoteHost,
     settingsStore,

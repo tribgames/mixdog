@@ -43,8 +43,8 @@ function useConnectionInfoUpdates({
       void api
         .getRemoteAccessInfo?.()
         .then((value) => {
-          if (!live || !value) return;
-          applyInfo(value);
+          if (!live) return;
+          applyInfo(value ?? null);
         })
         .catch(() => {
           /* retain the current card */
