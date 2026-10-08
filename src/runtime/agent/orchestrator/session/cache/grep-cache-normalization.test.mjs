@@ -67,6 +67,8 @@ test('grep context alias precedence and numeric coercion match the execution gua
   assertSharedKey({ '-B': 0, before_context: '4' }, { '-B': 4 });
   assertSharedKey({ mode: 'content', context: 0 }, { output_mode: 'content' });
   assertSharedKey({ mode: 'files', context: 2 }, { output_mode: 'files_with_matches' });
+  // The executor clamps context counts rather than rejecting negative values.
+  assertSharedKey({ mode: 'files', context: -1 }, { output_mode: 'files_with_matches' });
 });
 
 test('grep aliases and explicit mode precedence retain caller-owned arguments', () => {
@@ -113,11 +115,11 @@ test('invalid modes and context arguments cannot hit or populate a successful gr
     }
     for (const extra of [
       { mode: 'invalid' }, { output_mode: 'invalid' }, { output_mode: 7 },
-      { mode: 'files', context: -1 }, { mode: 'count', context: 'bad' },
+      { mode: 'files', context: 'bad' }, { mode: 'count', context: 'bad' },
     ]) {
       const args = argsFor(extra);
       const before = structuredClone(args);
-      assert.match(validateBuiltinArgs('grep', structuredClone(args)), /^Error:/);
+      assert.match(validateBuiltinArgs('grep', structuredClone(args)), /^Error:/, JSON.stringify(extra));
       assert.equal(tryScopedToolCached(specFor(sessionId, args)), null);
       setScopedToolCached({ ...specFor(sessionId, args), content: 'must-not-be-stored' });
       assert.equal(tryScopedToolCached(specFor(sessionId, args)), null);
