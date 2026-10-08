@@ -7,6 +7,7 @@ import { _argShapeSig, _repeatFailureSig, _repeatFailurePatternWouldContinue } f
 import { preDispatchDenyForSession } from '../loop/pre-dispatch-deny.mjs';
 import { crossTurnSignature, crossTurnDedupStub } from '../loop/completion-guards.mjs';
 import { isToolCallDedupEligible } from '../loop/tool-helpers.mjs';
+import { lookupToolResultReuse } from '../cache/tool-result-reuse.mjs';
 
 export function preDispatchSkip(batch, call) {
   const { plan, sessionRef, tools } = batch;
@@ -52,15 +53,18 @@ export function preDispatchSkip(batch, call) {
   return { skip: repeatFailureSkip(batch, call, sigs), ctSig, sigs };
 }
 
-// Cross-turn identical-call stub: a SUCCESSFUL read-only dedup-eligible
-// call whose (name,args) signature already ran in an EARLIER turn is not
-// re-executed — its result is unchanged and already in context. Warn at
-// the 2nd occurrence; append the "stuck" escalation tail once the session
-// has emitted 5+ dedup stubs total. Never applies to write/bash/MCP/skill
-// tools (not eager-dispatchable).
+// A cross-turn record is only an in-context receipt, not a freshness proof.
+// Reference it only while the same cache entry remains reusable under the
+// policy shared with eager admission and serial execution. A miss (including
+// eviction/expiry) or a different source must deliver a result again.
 function crossTurnStub(batch, call, ctSig) {
   const prior = batch.crossTurnCalls.get(ctSig);
   if (!prior || prior.firstIteration >= batch.iterations) return null;
+  const cached = lookupToolResultReuse({ sessionId: batch.sessionId, call, cwd: batch.cwd, touch: false });
+  if (!cached || !prior.toolUseId || cached.entry.firstToolUseId !== prior.toolUseId) {
+    batch.crossTurnCalls.delete(ctSig);
+    return null;
+  }
   prior.count += 1;
   batch.dedupStubTotal += 1;
   const stub = crossTurnDedupStub(call.name, prior.firstIteration, batch.dedupStubTotal >= 5);

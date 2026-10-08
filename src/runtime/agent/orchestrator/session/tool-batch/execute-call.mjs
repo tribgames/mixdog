@@ -4,9 +4,10 @@
 import { markSessionToolCall } from '../manager/runtime-liveness.mjs';
 import { classifyResultKind } from '../result-classification.mjs';
 import { normalizeToolEnvelope } from '../tool-envelope.mjs';
-import { captureReadCacheState, tryReadCached, tryScopedToolCached } from '../read-dedup.mjs';
+import { captureReadCacheState } from '../read-dedup.mjs';
+import { lookupToolResultReuse } from '../cache/tool-result-reuse.mjs';
 import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../../providers/openai-compat-stream.mjs';
-import { _stripMcpPrefix, _isReadTool, _isScopedCacheableTool } from '../loop/tool-classify.mjs';
+import { _isReadTool } from '../loop/tool-classify.mjs';
 import { preDispatchDenyForSession } from '../loop/pre-dispatch-deny.mjs';
 import { getToolKind, isEagerDispatchable, isParallelDispatchable } from '../loop/tool-helpers.mjs';
 import { scopedCacheGeneration } from '../cache/scoped-cache.mjs';
@@ -73,24 +74,13 @@ export async function executeBatchCall(batch, call, callIndex) {
   return exec;
 }
 
-// Cross-turn read dedup: an unchanged stat tuple (mtime/ctime/size/ino/dev)
-// since a prior read in THIS session returns the cached body instead of
-// executing. Scoped-tool cache (grep/glob/list + graph lookups): keyed by
-// (toolName, canonical args) without per-file stat, since these tools scan
-// many files; write-class tools evict entries whose registered dependency
-// root contains the touched path.
+// Use the same freshness policy as eager admission and cross-turn references.
+// Read entries are stat-validated; scoped entries retain dependency
+// invalidation and their bounded TTL. A miss proceeds to execution.
 function lookupCaches(batch, call, exec) {
-  const { sessionId, cwd } = batch;
-  if (sessionId && _isReadTool(call.name)) {
-    exec.readCacheHit = tryReadCached({ sessionId, args: call.arguments, cwd });
-  } else if (sessionId && _isScopedCacheableTool(call.name)) {
-    exec.scopedCacheHit = tryScopedToolCached({
-      sessionId,
-      toolName: _stripMcpPrefix(call.name),
-      args: call.arguments,
-      cwd,
-    });
-  }
+  const cached = lookupToolResultReuse({ sessionId: batch.sessionId, call, cwd: batch.cwd });
+  if (cached?.kind === 'read') exec.readCacheHit = cached.entry;
+  else if (cached?.kind === 'scoped') exec.scopedCacheHit = cached.entry;
 }
 
 function markInstant(exec) {

@@ -180,3 +180,18 @@ for (const outcome of [
     assert.match(out, /verified:one[\s\S]*verified:two/);
   });
 }
+
+for (const cacheSafe of [false, true]) {
+  test(`combined path fanout preserves watcher cache safety (${cacheSafe})`, async (t) => {
+    const root = fixture(t);
+    const outcome = { complete: true, cacheSafe: true };
+    await runGrepPathFanout(input(root, null, {
+      options: {
+        scopedCacheOutcome: outcome,
+        __runRgWindowedLines: async () => ({ ...empty(), cacheSafe }),
+      },
+    }));
+    assert.equal(outcome.cacheSafe, cacheSafe);
+    assert.equal(outcome.complete, true);
+  });
+}

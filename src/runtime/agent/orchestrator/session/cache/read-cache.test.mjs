@@ -9,6 +9,9 @@ import { syncBuiltinESMExports } from 'node:module';
 const root = mkdtempSync(join(tmpdir(), 'mixdog-session-read-cache-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
+// These read/cache tests never execute patches. Avoid an unrelated server
+// holding its executable open when the Windows fixture is removed at exit.
+process.env.MIXDOG_PATCH_NATIVE_PREWARM = '0';
 const { captureReadCacheState, tryReadCached, setReadCached, invalidatePathForSession } = await import(
   './read-cache.mjs'
 );

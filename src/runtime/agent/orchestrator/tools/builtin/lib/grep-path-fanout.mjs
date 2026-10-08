@@ -15,7 +15,7 @@ import { buildGrepRgArgs } from '../search-builders.mjs';
 import { runRgWindowedLines } from '../native-search-runner.mjs';
 import { statReachable } from '../fs-reachability.mjs';
 import { runSharedNativeScan } from './shared-native-scan.mjs';
-import { markScopedCacheIncomplete } from '../../../session/cache/scoped-cache-outcome.mjs';
+import { markScopedCacheIncomplete, markScopedCacheUnsafe } from '../../../session/cache/scoped-cache-outcome.mjs';
 import { GREP_CONTEXT_MAX, hasUnsupportedRipgrepRegex } from '../arg-guard.mjs';
 import { resolveSearchWindow } from './search-input-helpers.mjs';
 import { formatGrepFanoutSections, formatGrepOutput, grepNoMatchesBody } from './grep-output.mjs';
@@ -220,6 +220,7 @@ async function runCombinedPathFanout({ args, list, workDir, options, callContext
     return null;
   }
   if (!streamed.complete || streamed.partial) return null;
+  if (streamed.cacheSafe === false) markScopedCacheUnsafe(options?.scopedCacheOutcome);
   const wdFwd = normalizeOutputPath(workDir).replace(/\/+$/, '');
   const byRoot = attributeLinesToRoots(streamed.lines, roots, wdFwd);
   const perBudget = Math.max(512, Math.floor(callContextCharBudget / roots.length));
