@@ -5,6 +5,42 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- The built-in browser shows pages again on Windows displays scaled above
+  100%, instead of failing with "Browser display did not recover after the
+  page changed" (#8). Pages also follow display scale changes, including
+  tabs that were not on screen at the time.
+
+- Word, PowerPoint and Excel files (.docx, .pptx, .xlsx, .xlsm) can be
+  attached to messages and automations, and their text reaches every model.
+  File types that cannot be attached now say so and insert the file path
+  instead, and empty files or files that are not real PDFs are rejected with
+  a clear message.
+
+- PDFs and images from earlier in a conversation are still sent to the model
+  after the app restarts. Models without native PDF support receive the
+  PDF's text. Reading a PDF over 100 pages returns its first pages as text,
+  and password-protected or invalid PDFs return a clear error instead of
+  breaking later requests.
+
+- Images and files returned by MCP tools reach the model as images and files
+  instead of raw encoded text; unsupported or oversized media is described.
+
+- Summaries made when a long conversation is compacted now include long
+  messages and note attached images and files.
+
+- Local text-only models keep the text of attached documents, and earlier
+  images become a short note instead of stopping the conversation.
+
+- Feedback, with optional screenshots, can be sent from Settings > About,
+  and the changelog can be read there too.
+
+- Recent conversation messages can be found by meaning in memory recall
+  right after they are saved.
+
+- Search results are reused only while they are still fresh (#7), and a
+  file-list search after a content search returns file names instead of the
+  earlier content (#9).
+
 ## v1.0.10 - 2026-10-08
 
 - Custom API providers can be registered in Settings with provider-specific
