@@ -14,6 +14,7 @@
  */
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { buildRequestBody } from './openai-responses-payload.mjs';
+import { withEffortConfigurationFallback } from './effort-configuration.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { sendViaHttpSse, _envFlag } from './openai-oauth-http-sse.mjs';
@@ -108,7 +109,13 @@ export class OpenAIDirectProvider {
     }
     return null;
   }
-  async send(messages, model, tools, sendOpts) {
+  send(messages, model, tools, sendOpts) {
+    return withEffortConfigurationFallback('openai', model, sendOpts || {}, (opts) =>
+      this._sendOnce(messages, model, tools, opts)
+    );
+  }
+
+  async _sendOnce(messages, model, tools, sendOpts) {
     const opts = sendOpts || {};
     const { onStageChange, onStreamDelta, onToolCall, onTextDelta } = streamCallbacks(opts);
     const externalSignal = opts.signal || null;

@@ -18,6 +18,7 @@
 import { createHash } from 'node:crypto';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
+import { withEffortConfigurationFallback } from './effort-configuration.mjs';
 import { acquireWebSocket, releaseWebSocket, hasPooledWebSocket } from './openai-ws-pool.mjs';
 import {
   armStartupPrewarmReservation,
@@ -169,7 +170,13 @@ export class OpenAIOAuthProvider {
     return claimStartupPrewarmReservation(this._startupPrewarmReadyByPoolKey, identity);
   }
 
-  async send(messages, model, tools, sendOpts) {
+  send(messages, model, tools, sendOpts) {
+    return withEffortConfigurationFallback('openai-oauth', model, sendOpts || {}, (opts) =>
+      this._sendOnce(messages, model, tools, opts)
+    );
+  }
+
+  async _sendOnce(messages, model, tools, sendOpts) {
     // Re-warm a kept-alive socket before the turn (TTL-gated no-op while
     // hot). After an idle gap it re-opens one in parallel with auth/body
     // build so the HTTP/SSE path skips the cold TLS handshake.

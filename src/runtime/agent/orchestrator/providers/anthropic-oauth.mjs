@@ -62,6 +62,8 @@ import {
 } from './lib/anthropic-request-utils.mjs';
 import {
   EFFORT_CONFIGURATION_BETA,
+  isEffortConfigurationRejection,
+  markEffortConfigurationUnsupported,
   projectEffortConfiguration,
   lowerAnthropicEffortHistory,
   markAnthropicEffortBody,
@@ -606,6 +608,19 @@ export class AnthropicOAuthProvider {
 
     if (response.status === 429) {
       throw anthropicQuotaError(response.status, response.headers, safeText);
+    }
+
+    // A newer model that rejects the mid-conversation effort update: switch
+    // the updates off for it in this process and replay the turn once
+    // without them (the request keeps its turn effort).
+    if (isEffortConfigurationRejection(response.status, scrubbedText) && !opts._effortConfigurationRetry) {
+      markEffortConfigurationUnsupported('anthropic-oauth', useModel);
+      process.stderr.write(`[anthropic-oauth] ${useModel} rejected the mid-conversation effort update; retrying once without it\n`);
+      return this.send(messages, useModel, tools, {
+        ...opts,
+        effortConfigurationEnabled: false,
+        _effortConfigurationRetry: true,
+      });
     }
 
     // Anthropic can gate a newly launched model on a newer Claude
