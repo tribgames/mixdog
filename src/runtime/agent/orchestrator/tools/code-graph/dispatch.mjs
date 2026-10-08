@@ -12,7 +12,7 @@
 import { resolve as pathResolve, isAbsolute, relative as pathRelative, dirname as pathDirname } from 'node:path';
 
 import { normalizeInputPath } from '../builtin/path-utils.mjs';
-import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
+import { markScopedCacheIncomplete, recordScopedCacheDependency } from '../../session/cache/scoped-cache-outcome.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../code-graph-tool-defs.mjs';
 import { CODE_GRAPH_OUTPUT_MAX_BYTES, capLineOrientedToolOutput } from '../builtin/tool-output-limit.mjs';
 import { _graphRel, _appendSameBasenameHint, _isExistingFile } from './source-access.mjs';
@@ -326,6 +326,12 @@ async function executeCodeGraphToolRaw(name, rawArgs, cwd, signal = null, option
   const explicitCwdArg = hasExplicitCwdArg(args);
   const baseProjectRoot = _findDirProjectRoot(baseCwd, { stopAtUserBoundary: !explicitCwdArg });
   const plan = planFederation(args, baseCwd, { baseProjectRoot, fileArg, hasAggregateFileArgs });
+  // The parent scope matters only when the answer's routing hangs off it:
+  // federation membership or sentinel-free aggregate anchor resolution. A
+  // single project answer depends on its graph root and file anchors alone.
+  if (plan.active || (hasAggregateFileArgs && !baseProjectRoot)) {
+    recordScopedCacheDependency(options.scopedCacheOutcome, baseCwd);
+  }
   if (plan.active) {
     const federated = runFederation(name, args, plan, baseCwd, signal, options, executeCodeGraphTool);
     if (federated !== null) return federated;
@@ -343,6 +349,12 @@ async function executeCodeGraphToolRaw(name, rawArgs, cwd, signal = null, option
   }
   if (!fileArg && !explicitCwdArg) {
     effectiveCwd = resolveDirectoryRoot(name, effectiveCwd, { filesystemRootCwd: plan.filesystemRootCwd });
+  }
+  // The roots this query actually executes against: the effective graph root
+  // and each absolute file anchor (a loose anchor may sit outside that root).
+  recordScopedCacheDependency(options.scopedCacheOutcome, effectiveCwd);
+  for (const file of _collectGraphFileList(args)) {
+    recordScopedCacheDependency(options.scopedCacheOutcome, _absFrom(baseCwd, file));
   }
   if (signal?.aborted) throw new Error('aborted');
   const work = runCodeGraphWork(

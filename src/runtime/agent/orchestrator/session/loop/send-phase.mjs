@@ -64,6 +64,7 @@ export async function beginIteration(state) {
     providerState: state.providerState,
     reactiveOverflowRetryPending: state.reactiveOverflowRetryPending,
     fixedProviderToolSurface: state.fixedProviderToolSurface,
+    crossTurnCalls: state.crossTurnCalls,
     loopUsageMetricsTurnId: state.usageMetricsTurnId,
     loopUsageMetricsEpoch: state.usageMetricsEpoch,
   });

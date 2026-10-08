@@ -2,8 +2,9 @@ import { readdir } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import { hasGlobMagic, normalizeInputPath, normalizeOutputPath, resolveAgainstCwd } from './path-utils.mjs';
 import { buildListCacheKey, DEFAULT_IGNORE_GLOBS } from './search-builders.mjs';
-import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
-import { cacheGet, cacheSet, runResultCacheInFlight, lstatPathsForMtime } from './cache-layers.mjs';
+import { markScopedCacheIncomplete, markScopedCacheUnsafe } from '../../session/cache/scoped-cache-outcome.mjs';
+import { cacheGet, cacheSet, lstatPathsForMtime } from './cache-layers.mjs';
+import { runScopedSearchInFlight } from './lib/scoped-search-flight.mjs';
 import { NOISE_DIR_NAMES, walkDir } from './glob-walk.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 import { runRgWindowedLines } from './native-search-runner.mjs';
@@ -129,6 +130,7 @@ function nativeListRow(path, item) {
     // (both the native and the lstat fallback shape); reading
     // item.mode made every recursive meta:true row print `?`.
     mode: Number(item.stat?.mode ?? item.mode) || 0,
+    metaMissing: !item.stat,
     fullPath: path,
   };
 }
@@ -143,7 +145,7 @@ async function tryNativeDeepListRows({ fullPath, workDir, depth, hidden, include
   }
   rgArgs.push('--', fullPath);
   try {
-    const served = await runRgWindowedLines(
+    const served = await (options?.__runRgWindowedLines || runRgWindowedLines)(
       rgArgs,
       { cwd: workDir, timeout: LIST_WALK_TIMEOUT_MS, signal },
       { offset: 0, limit: LIST_ABSOLUTE_CAP, nativeInventory: true }
@@ -159,6 +161,7 @@ async function tryNativeDeepListRows({ fullPath, workDir, depth, hidden, include
     const rows = paths.map((path, index) => nativeListRow(path, metadata[index] || {}));
     return {
       rows,
+      cacheSafe: served.cacheSafe !== false,
       walkResult: {
         entriesVisited: rows.length,
         directoriesVisited: rows.filter((row) => row.type === 'dir').length,
@@ -265,12 +268,24 @@ async function collectListRows(request, workDir, options) {
     options,
   });
   if (nativeDeep) {
+    // Native rows take their entry type from the metadata record, so a
+    // missing record taints the type (and any type filter) for every request,
+    // even when the row itself is filtered out below.
+    const nativeMetaMissing = nativeDeep.rows.some((row) => row.metaMissing);
     for (const row of nativeDeep.rows) {
       if (typeFilter === 'file' && row.type !== 'file') continue;
       if (typeFilter === 'dir' && row.type !== 'dir') continue;
       rows.push(row);
     }
-    return { rows, walkResult: nativeDeep.walkResult, walkWarnings, truncatedByCap: false, nativeDeep: true };
+    return {
+      rows,
+      walkResult: nativeDeep.walkResult,
+      walkWarnings,
+      truncatedByCap: false,
+      nativeDeep: true,
+      cacheSafe: nativeDeep.cacheSafe,
+      nativeMetaMissing,
+    };
   }
   let truncatedByCap = false;
   const walkDeadline = Date.now() + LIST_WALK_TIMEOUT_MS;
@@ -299,7 +314,7 @@ async function collectListRows(request, workDir, options) {
       }
     },
   });
-  return { rows, walkResult, walkWarnings, truncatedByCap, nativeDeep: false };
+  return { rows, walkResult, walkWarnings, truncatedByCap, nativeDeep: false, cacheSafe: true };
 }
 
 // lstat: symlinks should report own metadata, not the target's. The rows
@@ -314,6 +329,7 @@ async function fillRowMetadata(rows, workDir, options) {
   );
   for (let i = 0; i < rows.length; i++) {
     const item = stats[i];
+    rows[i].metaMissing = !item?.stat;
     if (!item?.stat) continue;
     rows[i].size = item.size;
     rows[i].mtimeMs = item.mtimeMs;
@@ -355,20 +371,21 @@ export async function executeListTool(args, workDir, options = {}) {
   }
   const request = listRequest(args, workDir);
   if (request.error) return request.error;
-  const { inputPath, fullPath, sort, needsGlobalStat, meta } = request;
+  const { fullPath } = request;
   const cacheKey = listCacheKey(request);
   const cached = cacheGet(cacheKey);
   if (cached !== null) return cached;
-  if (options?._listSingleFlightKey !== cacheKey) {
-    return await runResultCacheInFlight(
-      cacheKey,
-      ({ signal }) => executeListTool({ ...args }, workDir, { ...options, signal, _listSingleFlightKey: cacheKey }),
-      {
-        signal: options?.signal || options?.abortSignal || null,
-        scopes: [fullPath],
-      }
-    );
-  }
+  return await runScopedSearchInFlight(
+    cacheKey,
+    ({ signal, scopedCacheOutcome }) =>
+      scanList(request, cacheKey, workDir, { ...options, signal, scopedCacheOutcome }),
+    { signal: options?.signal || options?.abortSignal || null, scopes: [fullPath] },
+    options?.scopedCacheOutcome
+  );
+}
+
+async function scanList(request, cacheKey, workDir, options) {
+  const { inputPath, fullPath, sort, needsGlobalStat, meta } = request;
   const root = await statWalkRoot(fullPath, workDir, inputPath);
   if (root.error) return root.error;
   if (!root.stat.isDirectory()) {
@@ -377,7 +394,7 @@ export async function executeListTool(args, workDir, options = {}) {
     cacheSet(cacheKey, out, { scopes: [fullPath] });
     return out;
   }
-  const { rows, walkResult, walkWarnings, truncatedByCap, nativeDeep } = await collectListRows(
+  const { rows, walkResult, walkWarnings, truncatedByCap, nativeDeep, cacheSafe, nativeMetaMissing } = await collectListRows(
     request,
     workDir,
     options
@@ -393,10 +410,14 @@ export async function executeListTool(args, workDir, options = {}) {
     walkResult,
     walkWarnings.length
   );
-  if (options?.scopedCacheOutcome && (truncatedByCap || page.paged || walkWarnings.length > 0)) {
-    markScopedCacheIncomplete(options.scopedCacheOutcome);
-  }
-  if (walkWarnings.length === 0) cacheSet(cacheKey, page.out, { scopes: [fullPath] });
+  // A requested page is still an exact answer for its keyed offset/limit;
+  // only a capped/timed-out walk or skipped directories are incomplete.
+  // Rows whose metadata read failed carry placeholder zeros that the sort or
+  // meta columns just used, so that answer must not be reused.
+  const incomplete = truncatedByCap || walkWarnings.length > 0 || page.metaMissing || nativeMetaMissing === true;
+  if (incomplete) markScopedCacheIncomplete(options.scopedCacheOutcome);
+  if (!cacheSafe) markScopedCacheUnsafe(options.scopedCacheOutcome);
+  if (!incomplete && cacheSafe) cacheSet(cacheKey, page.out, { scopes: [fullPath] });
   reportToolProgress(options, `${page.shown} entries`);
   return page.out;
 }
@@ -423,7 +444,8 @@ async function renderListPage({ request, rows, walkWarnings, truncatedByCap, nat
   }
   for (const warning of walkWarnings) lines.push(directoryReadFailureLine(warning, true));
   const out = lines.length ? lines.join('\n') : await listEmptyMessage(request, rows.length);
-  return { out, paged, shown: windowed.length };
+  const metaMissing = (needsGlobalStat ? rows : meta ? sliced : []).some((row) => row.metaMissing);
+  return { out, paged, shown: windowed.length, metaMissing };
 }
 
 const TREE_BRANCH_LINE_CAP = 500;
@@ -496,7 +518,7 @@ function renderTreeOutput(lines, walkWarnings, { headLimit, offset }) {
       out.slice(0, TOOL_OUTPUT_MAX_BYTES) +
       `\n... [output truncated at ${Math.round(TOOL_OUTPUT_MAX_BYTES / 1024)} KB; narrow path or lower depth]`;
   }
-  return { out, incomplete: paged || outputCharTruncated };
+  return { out, outputCharTruncated };
 }
 
 export async function executeTreeTool(args, workDir, options = {}) {
@@ -531,11 +553,12 @@ export async function executeTreeTool(args, workDir, options = {}) {
   const { lines, walkResult, walkWarnings } = await walkTreeLines(fullPath, request, options);
   const rootFailure = walkRootFailureLine(options, walkResult, walkWarnings, 'tree walk');
   if (rootFailure) return rootFailure;
-  const { out, incomplete } = renderTreeOutput(lines, walkWarnings, request);
+  const { out, outputCharTruncated } = renderTreeOutput(lines, walkWarnings, request);
   recordDirectoryWalkTelemetry(options, walkOutcome(walkResult, walkWarnings.length), walkResult, walkWarnings.length);
-  if (options?.scopedCacheOutcome && (incomplete || walkWarnings.length > 0)) {
-    markScopedCacheIncomplete(options.scopedCacheOutcome);
-  }
-  if (walkWarnings.length === 0) cacheSet(cacheKey, out, { scopes: [fullPath] });
+  // A requested page is exact; skipped directories or a byte-truncated
+  // render are the genuinely incomplete cases.
+  const incomplete = outputCharTruncated || walkWarnings.length > 0;
+  if (incomplete) markScopedCacheIncomplete(options.scopedCacheOutcome);
+  else cacheSet(cacheKey, out, { scopes: [fullPath] });
   return out;
 }

@@ -360,7 +360,7 @@ function findInventoryArgs({ hidden, depth, includeNoise, fullPath, namePattern 
 async function enumerateFindInventory(request, nameIsGlob, options) {
   const { fullPath } = request;
   try {
-    const inventory = await runRg(findInventoryArgs(request, nameIsGlob), {
+    const inventory = await (options.__runRg || runRg)(findInventoryArgs(request, nameIsGlob), {
       cwd: fullPath,
       signal: options.signal,
       timeout: FIND_FILES_TIMEOUT_MS,
@@ -498,9 +498,9 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
   const inventory = await enumerateFindInventory(request, matcher.isGlob, options);
   if (inventory.error) return inventory.error;
   const collected = await collectFindMatches(request, inventory.relPaths, matcher.matches, workDir);
-  const { text, paged } = renderFindResult(request, { ...collected, ...inventory });
+  const { text } = renderFindResult(request, { ...collected, ...inventory });
   const incomplete = collected.truncatedByCap || inventory.walkIncomplete || collected.unstatted > 0;
-  if (options?.scopedCacheOutcome && (incomplete || paged)) markScopedCacheIncomplete(options.scopedCacheOutcome);
+  if (incomplete) markScopedCacheIncomplete(options?.scopedCacheOutcome);
   // A bounded page is still an exact result because offset/limit are keyed
   // and watcher invalidation covers the scope. Only the absolute safety cap
   // or a known-incomplete walk makes the computation incomplete.

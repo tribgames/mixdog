@@ -2,6 +2,7 @@
  * work.mjs — the code_graph call itself once its root is settled: the mode
  * router with symbols[] / files[] batch fan-out.
  */
+import { markScopedCacheIncompleteIfError } from '../../../session/cache/scoped-cache-outcome.mjs';
 import { _stripEmptyArgs } from '../project-root.mjs';
 import { _collectGraphFileList } from '../aggregate-roots.mjs';
 import { collectGraphSymbolList } from '../modes/shared.mjs';
@@ -34,7 +35,7 @@ async function _mapWithConcurrency(values, mapper) {
 }
 
 /** `run` over every item with bounded concurrency; each answer is a `# header` section, a failure inline. */
-async function _fanoutSections(items, header, run) {
+async function _fanoutSections(items, header, run, scopedCacheOutcome) {
   const sections = await _mapWithConcurrency(items, async (item) => {
     let body;
     try {
@@ -42,6 +43,7 @@ async function _fanoutSections(items, header, run) {
     } catch (e) {
       body = `Error: ${e?.message || String(e)}`;
     }
+    markScopedCacheIncompleteIfError(scopedCacheOutcome, body);
     return `# ${header(item)}\n${body}`;
   });
   return sections.join('\n\n');
@@ -67,7 +69,7 @@ function promoteSymbolsWithBody(args) {
  * Apply the scope here: a single entry becomes the `file` anchor, several
  * entries fan out per file.
  */
-function scopedDispatch(dispatchRaw, args, batchMode) {
+function scopedDispatch(dispatchRaw, args, batchMode, scopedCacheOutcome) {
   const symbolScopeFiles =
     CODE_GRAPH_BATCHABLE_MODES.has(batchMode) && !(typeof args?.file === 'string' && args.file.trim())
       ? _collectGraphFileList(args)
@@ -80,7 +82,8 @@ function scopedDispatch(dispatchRaw, args, batchMode) {
       _fanoutSections(
         symbolScopeFiles,
         (f) => `file ${f}`,
-        (f) => dispatchRaw({ ...a, file: f, files: undefined })
+        (f) => dispatchRaw({ ...a, file: f, files: undefined }),
+        scopedCacheOutcome
       );
   }
   return dispatchRaw;
@@ -95,14 +98,15 @@ export function runCodeGraphWork(name, rawArgs, effectiveCwd, signal, options, {
     DECLARATION_MODES.has(rawMode)
       ? findSymbolTool(_stripEmptyArgs(a), effectiveCwd, signal, options)
       : codeGraph(a, effectiveCwd, signal, options);
-  const dispatchOne = scopedDispatch(dispatchRaw, args, batchMode);
+  const dispatchOne = scopedDispatch(dispatchRaw, args, batchMode, options?.scopedCacheOutcome);
   if (CODE_GRAPH_BATCHABLE_MODES.has(batchMode)) {
     const symbolList = collectGraphSymbolList(args);
     if (symbolList.length > 1) {
       return _fanoutSections(
         symbolList,
         (sym) => `${batchMode} ${sym}`,
-        (sym) => dispatchOne({ ...args, symbol: sym, symbols: undefined })
+        (sym) => dispatchOne({ ...args, symbol: sym, symbols: undefined }),
+        options?.scopedCacheOutcome
       );
     }
     if (symbolList.length === 1 && args?.symbol !== symbolList[0]) {
@@ -115,7 +119,8 @@ export function runCodeGraphWork(name, rawArgs, effectiveCwd, signal, options, {
       return _fanoutSections(
         fileList,
         (f) => `${batchMode} ${f}`,
-        (f) => dispatchOne({ ...args, file: f, files: undefined })
+        (f) => dispatchOne({ ...args, file: f, files: undefined }),
+        options?.scopedCacheOutcome
       );
     }
     if (fileList.length === 1 && args?.file !== fileList[0]) {

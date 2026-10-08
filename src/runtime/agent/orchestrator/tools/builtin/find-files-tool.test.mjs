@@ -44,3 +44,32 @@ test('find_files rejects an unparseable modified window instead of dropping the 
     assert.match(out, /^Error: invalid modified_after "yesterday-ish"/);
   });
 });
+
+import { executeFuzzyFindTool } from './find-files-tool.mjs';
+
+test('find_files treats a paged complete result as complete and reuses it', async () => {
+  await withFixture(async (root) => {
+    const args = { path: root, name: 'entry', head_limit: 1 };
+    const first = { complete: true, cacheSafe: true };
+    const out = await executeFindFilesTool({ ...args }, process.cwd(), { scopedCacheOutcome: first });
+    assert.match(out, /pass offset:1 to continue/);
+    assert.equal(first.complete, true);
+    assert.equal(await executeFindFilesTool({ ...args }, process.cwd()), out);
+  });
+});
+
+test('fuzzy find does not cache a complete but not cache-safe scan', async () => {
+  await withFixture(async (root) => {
+    let calls = 0;
+    const options = {
+      __tryServeFuzzySearch: async () => {
+        calls++;
+        return { complete: true, cacheSafe: false, matches: ['x.txt'], hasMore: false };
+      },
+    };
+    const args = { path: root, query: 'unsafe-complete' };
+    await executeFuzzyFindTool({ ...args }, process.cwd(), options);
+    await executeFuzzyFindTool({ ...args }, process.cwd(), options);
+    assert.equal(calls, 2);
+  });
+});

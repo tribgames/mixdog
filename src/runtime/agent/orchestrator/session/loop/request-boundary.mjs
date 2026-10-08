@@ -48,6 +48,7 @@ export async function prepareProviderRequest(state) {
     cwd,
     opts,
     signal,
+    crossTurnCalls,
     loopUsageMetricsTurnId,
     loopUsageMetricsEpoch,
   } = state;
@@ -101,6 +102,7 @@ export async function prepareProviderRequest(state) {
         firstTurnUsage,
         providerState,
         reactiveOverflowRetryPending,
+        crossTurnCalls,
         loopUsageMetricsTurnId,
         loopUsageMetricsEpoch,
         skipProactiveCompact: compactAttempted,

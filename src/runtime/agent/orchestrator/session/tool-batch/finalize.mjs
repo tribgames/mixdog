@@ -204,6 +204,7 @@ function writeCaches(batch, completed, result) {
         toolUseId: call.id,
         complete: outcome ? outcome.complete : true,
         cacheSafe: outcome?.cacheSafe !== false,
+        dependencyRoots: outcome?.dependencyRoots,
         generation: completed.scopedGeneration,
       });
     }

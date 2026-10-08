@@ -20,6 +20,7 @@ import {
   _collectGraphFileList,
   _runCodeGraphFederation,
 } from '../aggregate-roots.mjs';
+import { markScopedCacheIncompleteIfError } from '../../../session/cache/scoped-cache-outcome.mjs';
 import { raceAbort } from './abort-race.mjs';
 
 /** `input` resolved against `base`; an absolute input stands on its own. */
@@ -111,6 +112,7 @@ async function federateFileAnchors(name, args, plan, baseCwd, signal, options, e
       } catch (err) {
         body = `Error: ${err?.message || String(err)}`;
       }
+      markScopedCacheIncompleteIfError(options.scopedCacheOutcome, body);
       return `# ${rawMode} ${file}\n# project ${formatFederatedProjectLabel(root)}\n${body}`;
     })
   );
@@ -127,7 +129,7 @@ function federateRoots(name, args, plan, signal, options, execute) {
   }
   const runOne = async (root, nextArgs) =>
     execute(name, nextArgs, root, signal, { ...options, excludedProjectRoots: excludedRootsFor(root, roots) });
-  const work = _runCodeGraphFederation(roots, runOne, projectArgs).then((sections) => sections.join('\n\n'));
+  const work = _runCodeGraphFederation(roots, runOne, projectArgs, options.scopedCacheOutcome).then((sections) => sections.join('\n\n'));
   return raceAbort(work, signal);
 }
 

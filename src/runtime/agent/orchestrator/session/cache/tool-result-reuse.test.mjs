@@ -17,10 +17,12 @@ const { clearReadDedupSession, setReadCached } = await import('./read-cache.mjs'
 const { SCOPED_CACHE_TTL_MS, clearScopedToolsForSessionPaths } = await import('./scoped-cache.mjs');
 const { createScopedCacheOutcome } = await import('./scoped-cache-outcome.mjs');
 const { executeGlobTool } = await import('../../tools/builtin/search-glob-tool.mjs');
+const { executeCodeGraphTool } = await import('../../tools/code-graph/dispatch.mjs');
+const { invalidateBuiltinResultCache } = await import('../../tools/builtin/cache-layers.mjs');
 // Remove the isolated data directory after imported modules' exit flushes.
 process.once('exit', () => rmSync(root, { recursive: true, force: true }));
 
-const tools = ['read', 'grep', 'glob', 'mcp__remote__status'].map((name) => ({
+const tools = ['read', 'grep', 'glob', 'code_graph', 'mcp__remote__status'].map((name) => ({
   name,
   annotations: { readOnlyHint: true },
 }));
@@ -52,6 +54,12 @@ async function round(fx, name, args, { beforeBatch, afterRead } = {}) {
   fx.iterations += 1;
   const executeToolFn = async (toolName, input, cwd, _sessionId, sessionRef, options) => {
     fx.executions += 1;
+    if (toolName === 'code_graph') {
+      const outcome = createScopedCacheOutcome();
+      sessionRef._scopedCacheOutcomeByCallId ??= new Map();
+      sessionRef._scopedCacheOutcomeByCallId.set(options.toolCallId, outcome);
+      return executeCodeGraphTool('code_graph', input, cwd, null, { scopedCacheOutcome: outcome });
+    }
     if (toolName === 'glob') {
       const outcome = createScopedCacheOutcome();
       sessionRef._scopedCacheOutcomeByCallId ??= new Map();
@@ -233,6 +241,26 @@ for (const mode of ['serial', 'fallback', 'streaming']) {
     clearScopedToolsForSessionPaths(fx.sessionId, [fx.file], fx.cwd);
     assert.equal((await round(fx, 'grep', args)).content, 'snapshot-3');
     assert.equal(fx.executions, 3);
+  });
+
+  test(`graph dependencies survive finalization and refresh an external project (${mode})`, async () => {
+    const fx = fixture(mode);
+    const target = mkdtempSync(join(root, 'graph-project-'));
+    const file = join(target, 'target.mjs');
+    writeFileSync(join(target, 'package.json'), '{}');
+    writeFileSync(file, 'export function beforeChange() { return 1; }\n');
+    const args = { mode: 'symbols', files: ['target.mjs'], cwd: target };
+    assert.match((await round(fx, 'code_graph', args)).content, /beforeChange/);
+    assert.equal((await round(fx, 'code_graph', args)).toolKind, 'skipped');
+    assert.equal(fx.executions, 1);
+    writeFileSync(file, 'export function afterChange() { return 2; }\n');
+    invalidateBuiltinResultCache([file]);
+    const refreshed = await round(fx, 'code_graph', args);
+    assert.notEqual(refreshed.toolKind, 'skipped');
+    assert.match(refreshed.content, /afterChange/);
+    assert.doesNotMatch(refreshed.content, /beforeChange/);
+    assert.equal(fx.executions, 2);
+    assert.equal((await round(fx, 'code_graph', args)).toolKind, 'skipped');
   });
 
   test(`authorization still precedes cache reuse and cross-turn references (${mode})`, async () => {

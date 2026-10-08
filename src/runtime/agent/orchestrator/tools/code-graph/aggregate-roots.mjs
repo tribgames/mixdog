@@ -6,6 +6,7 @@ import { resolve as pathResolve, isAbsolute, relative as pathRelative, dirname a
 import { homedir as osHomedir } from 'node:os';
 import { existsSync, statSync } from 'node:fs';
 import { _resolveFileProjectRoot, _findDirProjectRoot, _childProjectRoots } from './project-root.mjs';
+import { markScopedCacheIncompleteIfError } from '../../session/cache/scoped-cache-outcome.mjs';
 import { _isFilesystemRootPath, _pathIsWithin, formatFederatedProjectLabel } from './trusted-roots.mjs';
 
 export const _AGGREGATE_FILE_WILDCARD_RE = /[*?[\]{}]/;
@@ -29,7 +30,7 @@ export const CODE_GRAPH_DISCOVERED_FEDERATION_CAP = (() => {
   return Number.isFinite(raw) && raw > 0 ? raw : 8;
 })();
 
-export async function _runCodeGraphFederation(roots, runOne, projectArgs) {
+export async function _runCodeGraphFederation(roots, runOne, projectArgs, scopedCacheOutcome = null) {
   return Promise.all(
     (roots || []).map(async (root) => {
       let body;
@@ -38,6 +39,7 @@ export async function _runCodeGraphFederation(roots, runOne, projectArgs) {
       } catch (err) {
         body = `Error: ${err?.message || String(err)}`;
       }
+      markScopedCacheIncompleteIfError(scopedCacheOutcome, body);
       return `# project ${formatFederatedProjectLabel(root)}\n${body}`;
     })
   );

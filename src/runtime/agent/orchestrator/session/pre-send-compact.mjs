@@ -369,11 +369,17 @@ function throwCompactFailure(ctx, run, compactErr) {
 // Replaces the live transcript with the compacted one and resets everything
 // keyed to the old transcript shape.
 function adoptCompactedTranscript(ctx, run) {
-  const { messages, sessionRef, sessionId, opts } = ctx.state;
+  const { state } = ctx;
+  const { messages, sessionRef, sessionId, opts } = state;
   messages.length = 0;
   messages.push(...run.compacted);
   acknowledgeGoalReminder(sessionRef, run);
   resetReadStateAfterCompaction(sessionId);
+  // Cross-turn receipts reference tool results that compaction just removed
+  // from context; a stub for them would point at nothing. Clear in place so
+  // the eager dispatcher sharing this map observes it. Cached bodies stay
+  // reusable and are re-delivered (and re-recorded) on the next identical call.
+  state.crossTurnCalls?.clear();
   // This attempt's provider-tool scope was keyed to the old transcript
   // shape. Invalidate it synchronously before any post-compact callback or
   // subsequent async continuation.

@@ -191,12 +191,17 @@ function _collectPathValues(value, out) {
   }
 }
 
-function _scopedDependencyRoots(toolName, args, cwd) {
+function _scopedDependencyRoots(toolName, args, cwd, dependencyRoots) {
   const roots = new Set();
   const add = (value) => {
     const abs = _normalizeScopedAbs(value, cwd);
     if (abs) roots.add(abs);
   };
+  if (dependencyRoots) {
+    // Roots recorded by the tool as it executed; path args are not re-guessed.
+    for (const root of dependencyRoots) add(root);
+    return [...roots];
+  }
   const canonicalArgs = _canonicalToolArgs(toolName, args);
   const rawPaths = [];
   if (canonicalArgs && typeof canonicalArgs === 'object') {
@@ -277,18 +282,23 @@ export function setScopedToolCached({
   complete = true,
   cacheSafe = true,
   generation = mutationGeneration,
+  dependencyRoots,
 }) {
   if (!sessionId || !toolName) return;
   if (generation !== mutationGeneration) return;
   if (complete === false || cacheSafe === false) return;
   if (typeof content !== 'string' || content.length === 0) return;
+  // code_graph resolves its own roots; without recorded evidence the entry
+  // could not be invalidated precisely, so it is not cached.
+  const recorded = dependencyRoots ? [...dependencyRoots] : null;
+  if (toolName === 'code_graph' && !recorded?.length) return;
   const key = _scopedKey(toolName, args, cwd);
   let map = _scopedBySession.get(sessionId);
   if (!map) {
     map = new Map();
     _scopedBySession.set(sessionId, map);
   }
-  const depRoots = _scopedDependencyRoots(toolName, args, cwd);
+  const depRoots = _scopedDependencyRoots(toolName, args, cwd, recorded?.length ? recorded : null);
   setBoundedTextCacheEntry(
     map,
     key,
