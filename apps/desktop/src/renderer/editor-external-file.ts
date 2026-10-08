@@ -10,7 +10,7 @@ export async function openEditorFileExternally(
 ): Promise<void> {
   try {
     const open = window.mixdogDesktop?.openFilePath;
-    if (!open) throw new Error('Desktop file access is unavailable.');
+    if (!open) throw new Error(t('Desktop file access is unavailable.'));
     await openConfirmedFile((confirmedPath) =>
       confirmedPath ? open(projectPath, relPath, accessToken, confirmedPath) : open(projectPath, relPath, accessToken)
     );

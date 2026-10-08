@@ -838,11 +838,11 @@ function DesktopBrowserPane({
           setAddress,
           setAddressHasFocus,
         })}
-        <div className="browser-pane-viewport-picker" data-tooltip={t(viewportPreset.label)}>
+        <div className="browser-pane-viewport-picker" data-tooltip={viewportPreset.label}>
           <OpenSelect
             className="browser-pane-viewport-control"
             value={viewportPresetId}
-            ariaLabel={t('Browser viewport size: {{label}}', { label: t(viewportPreset.label) })}
+            ariaLabel={t('Browser viewport size: {{label}}', { label: viewportPreset.label })}
             leading={<Smartphone size={16} aria-hidden="true" />}
             menuMinWidth={236}
             options={BROWSER_VIEWPORT_PRESETS.map((preset) => ({

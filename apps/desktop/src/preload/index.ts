@@ -73,6 +73,7 @@ const api: DesktopApi = {
   openMediaAsset: (assetId) => ipcRenderer.invoke(DESKTOP_IPC.openMediaAsset, assetId),
   openMediaFolder: (assetId) => ipcRenderer.invoke(DESKTOP_IPC.openMediaFolder, assetId),
   openExternal: (url) => ipcRenderer.invoke(DESKTOP_IPC.openExternal, url),
+  submitFeedback: (input) => ipcRenderer.invoke(DESKTOP_IPC.submitFeedback, input),
   openLocalFileLink: (projectPath, href, confirmedPath) =>
     ipcRenderer.invoke(DESKTOP_IPC.openLocalFileLink, projectPath, href, confirmedPath),
   localPageUrl: (projectPath, relPath, accessToken) =>

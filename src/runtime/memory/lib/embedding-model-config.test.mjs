@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import {
   getConfiguredEmbeddingModelId,
-  getEmbeddingModelLoadOptions,
+  getEmbeddingModelGraphFile,
   getEmbeddingOutputName,
   getEmbeddingPooling,
   getKnownEmbeddingDims,
@@ -26,7 +26,7 @@ test('multilingual E5-small is the fixed production default', () => {
   assert.equal(getKnownEmbeddingDims(E5_SMALL), 384);
   assert.equal(normalizeEmbeddingDtype(E5_SMALL, ''), 'q8');
   assert.equal(normalizeEmbeddingDtype(E5_SMALL, 'q4'), 'q8');
-  assert.deepEqual(getEmbeddingModelLoadOptions(E5_SMALL), { session_options: { enableMemPattern: false } });
+  assert.equal(getEmbeddingModelGraphFile(E5_SMALL, ''), 'onnx/model_quantized.onnx');
   assert.equal(getEmbeddingOutputName(E5_SMALL), '');
   assert.equal(getEmbeddingPooling(E5_SMALL), 'mean');
 });
@@ -41,15 +41,15 @@ test('multilingual E5-small applies asymmetric retrieval prefixes', () => {
 
 test('Granite fallback keeps its official CLS pooling contract', () => {
   assert.equal(getEmbeddingPooling('ibm-granite/granite-embedding-97m-multilingual-r2'), 'cls');
-  assert.deepEqual(getEmbeddingModelLoadOptions('ibm-granite/granite-embedding-97m-multilingual-r2'), {
-    model_file_name: 'model_quint8_avx2',
-  });
+  assert.equal(
+    getEmbeddingModelGraphFile('ibm-granite/granite-embedding-97m-multilingual-r2', ''),
+    'onnx/model_quint8_avx2.onnx'
+  );
 });
 
-test('E5 memory options are fresh per load and do not change other models', () => {
-  const options = getEmbeddingModelLoadOptions(E5_SMALL);
-  options.session_options.enableMemPattern = true;
-  assert.equal(getEmbeddingModelLoadOptions(E5_SMALL).session_options.enableMemPattern, false);
-  assert.deepEqual(getEmbeddingModelLoadOptions('Xenova/bge-m3'), {});
-  assert.deepEqual(getEmbeddingModelLoadOptions('custom/embedding'), {});
+test('graph file names follow the transformers.js dtype suffixes', () => {
+  assert.equal(getEmbeddingModelGraphFile('Xenova/bge-m3', 'q4'), 'onnx/model_q4.onnx');
+  assert.equal(getEmbeddingModelGraphFile('Xenova/bge-m3', 'fp16'), 'onnx/model_fp16.onnx');
+  assert.equal(getEmbeddingModelGraphFile('Xenova/bge-m3', 'fp32'), 'onnx/model.onnx');
+  assert.equal(getEmbeddingModelGraphFile('custom/embedding', 'q8'), 'onnx/model_quantized.onnx');
 });

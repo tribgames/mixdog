@@ -9,7 +9,7 @@ import type {
 } from '../../shared/contract';
 import { providerDisplayName } from '../provider-display';
 import { fetchProviderModels } from '../model-catalog-cache';
-import { uiFormatLocale } from '../i18n';
+import { t, uiFormatLocale } from '../i18n';
 import { uiTimeUnit } from '../ui-format';
 import { record } from '../record-utils';
 import type { SettingsCategory } from './settings-items';
@@ -265,7 +265,7 @@ async function readAllCapabilitySettings(
           });
           chunk.forEach((entry, position) => {
             const result = results[position];
-            const failure = result && 'error' in result ? result.error : 'Capability read did not return a result.';
+            const failure = result && 'error' in result ? result.error : t('Capability read did not return a result.');
             publish(entry.key, result?.ok ? result.value : { error: failure }, result?.ok === true);
           });
         })
@@ -366,12 +366,12 @@ export function bool(value: unknown, fallback = true): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-export function label(value: unknown, fallback = 'Unknown'): string {
+export function label(value: unknown, fallback = t('Unknown')): string {
   const item = record(value);
   return String(item.label || item.title || item.name || item.display || item.id || fallback);
 }
 
-export function providerLabel(value: unknown, fallback = 'Unknown provider'): string {
+export function providerLabel(value: unknown, fallback = t('Unknown provider')): string {
   const item = record(value);
   if (item.name || item.label) return String(item.name || item.label);
   const provider = String(item.id || item.provider || '');

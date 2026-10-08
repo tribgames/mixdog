@@ -114,7 +114,7 @@ async function discoverAnthropicModels(provider) {
     signal: AbortSignal.timeout(10_000),
     headers: { 'x-api-key': provider.apiKey || '', 'anthropic-version': ANTHROPIC_VERSION },
   });
-  if (!res.ok) throw new Error(`${provider.name} models ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(`${provider.name} models ${res.status}`), { status: res.status });
   const data = await res.json();
   const items = Array.isArray(data?.data) ? data.data : [];
   return items
@@ -143,6 +143,8 @@ export async function createCustomProvider(id, config) {
     const Custom = withConfiguredModels(AnthropicProvider, discoverAnthropicModels);
     // The Anthropic SDK appends /v1/messages itself; accept a /v1 base URL.
     provider = new Custom({ ...engine, name: providerId, baseURL: cfg.baseURL.replace(/\/v1$/i, '') });
+    // An unknown third-party gateway behind the Anthropic wire: PDFs lower to text.
+    provider.nativePdf = false;
   } else {
     const { OpenAICompatProvider } = await import('./openai-compat.mjs');
     const Base =

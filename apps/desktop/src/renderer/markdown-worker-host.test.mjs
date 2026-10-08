@@ -29,40 +29,29 @@ class FakeWorker {
   }
 }
 
-test('idle reclaim waits for pending parses and a retired worker cannot break its replacement', async () => {
+test('the parser starts on demand, then stays resident across idle time', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const workers = [];
   const host = new MarkdownWorkerHost(() => {
     const worker = new FakeWorker();
     workers.push(worker);
     return worker;
   });
-  const pending = host.parse('first');
-  host.reclaim();
-  assert.equal(workers[0].terminated, 0);
-  workers[0].reply();
-  assert.equal((await pending).children[0].value, 'first');
-  assert.equal(workers[0].terminated, 1);
-  const next = host.parse('second');
-  workers[0].emit('error', { message: 'late retired error', preventDefault() {} });
-  workers[1].reply();
-  assert.equal((await next).children[0].value, 'second');
-  assert.equal(workers[1].terminated, 0);
-  host.reclaim();
-  assert.equal(workers[1].terminated, 1);
-});
-
-test('new work cancels a pending idle reclaim instead of repeatedly restarting the parser', async () => {
-  const worker = new FakeWorker();
-  const host = new MarkdownWorkerHost(() => worker);
+  t.mock.timers.tick(120_000);
+  assert.equal(workers.length, 0);
+  host.prewarm();
+  host.prewarm();
+  assert.equal(workers.length, 1);
+  t.mock.timers.tick(600_000);
   const first = host.parse('one');
-  host.reclaim();
+  workers[0].reply(0);
+  assert.equal((await first).children[0].value, 'one');
+  t.mock.timers.tick(600_000);
   const second = host.parse('two');
-  worker.reply(0);
-  worker.reply(1);
-  await Promise.all([first, second]);
-  assert.equal(worker.terminated, 0);
-  host.reclaim();
-  assert.equal(worker.terminated, 1);
+  workers[0].reply(1);
+  assert.equal((await second).children[0].value, 'two');
+  assert.equal(workers.length, 1, 'the prewarmed parser serves every later parse');
+  assert.equal(workers[0].terminated, 0);
 });
 
 for (const type of ['error', 'messageerror']) {
@@ -94,42 +83,24 @@ for (const type of ['error', 'messageerror']) {
   });
 }
 
-test('a failed post does not strand pending work during idle reclaim', async () => {
+test('a failed post rejects only its own parse and keeps the parser', async () => {
   const worker = new FakeWorker();
-  worker.postMessage = () => {
-    throw new Error('clone failed');
+  const post = worker.postMessage.bind(worker);
+  let failPost = true;
+  worker.postMessage = (value) => {
+    if (failPost) throw new Error('clone failed');
+    post(value);
   };
   const host = new MarkdownWorkerHost(() => worker);
   await assert.rejects(host.parse('bad'), /clone failed/);
-  host.reclaim();
-  assert.equal(worker.terminated, 1);
+  failPost = false;
+  const next = host.parse('good');
+  worker.reply(0);
+  assert.equal((await next).children[0].value, 'good');
+  assert.equal(worker.terminated, 0);
 });
 
-test('unused parsers are never started and settled parsers retire without losing delivered ASTs', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const workers = [];
-  const host = new MarkdownWorkerHost(() => {
-    const worker = new FakeWorker();
-    workers.push(worker);
-    return worker;
-  });
-  t.mock.timers.tick(120_000);
-  assert.equal(workers.length, 0);
-  const first = host.parse('retained output');
-  t.mock.timers.tick(120_000);
-  assert.equal(workers[0].terminated, 0, 'pending work must survive idle time');
-  workers[0].reply();
-  const root = await first;
-  t.mock.timers.tick(60_000);
-  assert.equal(workers[0].terminated, 1);
-  assert.equal(root.children[0].value, 'retained output');
-  const next = host.parse('next');
-  workers[1].reply();
-  await next;
-  host.reclaim();
-});
-
-test('client shares concurrent parses, releases idle workers and preserves fallback recovery', async () => {
+test('client boots one resident parser, shares concurrent parses and preserves fallback recovery', async () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'Worker');
   const workers = [];
   Object.defineProperty(globalThis, 'Worker', {
@@ -144,24 +115,25 @@ test('client shares concurrent parses, releases idle workers and preserves fallb
   const { parseStreamingMarkdownAst } = await import('./markdown-worker-client.ts');
   const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
   try {
+    assert.equal(workers.length, 1, 'the parser boots with the client, before any parse');
     const requests = Array.from({ length: 50 }, () => parseStreamingMarkdownAst('shared'));
     assert.equal(workers[0].sent.length, 1);
-    workers[0].reply();
+    workers[0].reply(0);
     const roots = await Promise.all(requests);
     assert.ok(roots.every((root) => root === roots[0]));
     _runIdleReclaimForTest();
-    assert.equal(workers[0].terminated, 1);
+    assert.equal(workers[0].terminated, 0, 'idle reclaim keeps the resident parser');
     const next = parseStreamingMarkdownAst('shared');
-    assert.equal(workers.length, 2, 'settled promises cannot retain an evicted AST');
-    workers[1].reply();
+    assert.equal(workers[0].sent.length, 2, 'idle reclaim drops the AST cache');
+    workers[0].reply(1);
     await next;
     const recovered = [parseStreamingMarkdownAst('**recovered**'), parseStreamingMarkdownAst('**recovered**')];
-    workers[1].emit('error', { message: 'bootstrap failed', preventDefault() {} });
+    workers[0].emit('error', { message: 'bootstrap failed', preventDefault() {} });
     const fallback = await Promise.all(recovered);
     assert.equal(fallback[0], fallback[1]);
     assert.equal(fallback[0].children[0].children[0].tagName, 'strong');
     await parseStreamingMarkdownAst('after failure');
-    assert.equal(workers.length, 2);
+    assert.equal(workers.length, 1);
   } finally {
     _runIdleReclaimForTest();
     if (original) Object.defineProperty(globalThis, 'Worker', original);

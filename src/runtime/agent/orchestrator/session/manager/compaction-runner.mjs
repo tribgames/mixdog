@@ -23,6 +23,7 @@ import { isSessionCompactionBlocked } from './runtime-liveness.mjs';
 import { resetReadStateAfterCompaction } from '../read-dedup.mjs';
 import {
   compactTargetBudget as compactTargetBudgetForPolicy,
+  compactDisplayBeforeTokens,
   currentContextEstimateTokens,
   invalidateProviderContextBaseline,
   recordContextUsageSnapshot,
@@ -233,10 +234,12 @@ function compactionPlanNumbers({ session, messages, boundary, alignedPolicy, for
     (boundary ? bufferTokens / boundary : resolveCompactBufferRatio(session.compaction || {}));
   const budget = alignedPolicy ? compactTargetBudgetForPolicy({ ...alignedPolicy, force }) || boundary : boundary;
   const pressureTokens = estimateTranscriptContextUsage(messages, session.tools || [], { provider: session.provider });
-  const beforeTokens =
+  const beforeTokens = compactDisplayBeforeTokens(
+    session,
     (alignedPolicy
       ? resolveGaugeContextTokens(beforeMessageTokens, alignedPolicy, { messages, sessionRef: session })
-      : 0) || pressureTokens;
+      : 0) || pressureTokens
+  );
   return { beforeMessageTokens, triggerTokens, bufferTokens, bufferRatio, budget, pressureTokens, beforeTokens };
 }
 
@@ -689,7 +692,7 @@ export async function runSessionCompaction(session, opts = {}) {
     });
   }
   plan.requireReduction =
-    (plan.mode === 'auto' || opts.requireReduction === true) && !shouldCompactForRequestMedia(plan.messages);
+    (plan.mode === 'auto' || opts.requireReduction === true) && !shouldCompactForRequestMedia(plan.messages, session.provider);
   const skipped = () =>
     compactionResult(plan, { changed: false, skipped: true, reason: 'no_token_reduction' }, unchangedAfter(plan), {
       freshContext: false,

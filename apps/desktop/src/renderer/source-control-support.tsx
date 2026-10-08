@@ -2,6 +2,7 @@ import type React from 'react';
 import { useLayoutEffect, useMemo, useState } from 'react';
 import type { DesktopGitFile } from '../shared/contract';
 import { anchoredPanelGeometry, intersectRects, rectFrom, viewportRect } from './anchored-panel';
+import { t } from './i18n';
 import { scmStatusKind, type ScmStatusKind } from './ScmStatusIcon';
 
 export interface SourceControlDiffRequest {
@@ -77,12 +78,16 @@ export const SCM_SORT_KEY = 'mixdog.desktop.scm-sort-key.v1';
 export type ScmSortKey = 'path' | 'name' | 'status';
 
 export function changedFilesLabel(total: number, visible: number): string {
-  const prefix = visible !== total ? `${visible} of ` : '';
-  return `${prefix}${total} changed file${total === 1 ? '' : 's'}`;
+  if (visible !== total) {
+    return total === 1
+      ? t('{{visible}} of {{total}} changed file', { visible, total })
+      : t('{{visible}} of {{total}} changed files', { visible, total });
+  }
+  return total === 1 ? t('{{count}} changed file', { count: total }) : t('{{count}} changed files', { count: total });
 }
 
-export const EMPTY_SUMMARY = 'Empty commit message';
-export const UNKNOWN_AUTHOR = 'Unknown author';
+export const emptySummary = () => t('Empty commit message');
+export const unknownAuthor = () => t('Unknown author');
 
 export function useAnchoredPanel(
   open: boolean,

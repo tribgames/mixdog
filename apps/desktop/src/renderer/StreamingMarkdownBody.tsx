@@ -132,7 +132,16 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
     return <MarkdownAstBody root={usable.root} copyControl={copyControl} />;
   }
   if (showFencedSourceFallback) {
-    return <MarkdownSourceFallback text={text} copyControl={copyControl} />;
+    // The projection only reserves geometry. Entry still waits for the parse:
+    // revealing the projection and then swapping in the AST re-wrapped prose
+    // and recoloured code in front of the reader (user: 세션 불러올 때 문자가
+    // 재배열되는 느낌).
+    return (
+      <>
+        <MarkdownSourceFallback text={text} copyControl={copyControl} />
+        {parse && <span hidden data-transcript-pending />}
+      </>
+    );
   }
   // A capped live tail has no pending parse to wait for.
   return parse ? <span hidden data-transcript-pending /> : null;

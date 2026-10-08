@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { Plus, X } from 'lucide-react';
+import { ChevronDown, Plus, X } from 'lucide-react';
 
 import { t } from '../i18n';
+import { OpenSelect } from '../OpenSelect';
 import { ActionButton, ResourceRow } from './capability-controls';
 import { providerLabel, type PanelContext, type RecordValue } from './capability-data';
 import { record, rows } from '../record-utils';
@@ -40,6 +41,30 @@ function failure(reason: unknown): string {
 
 type Run = PanelContext['run'];
 
+// Guidance comes only from the backend's explicit discovery error kind.
+function discoveryFailure(error: RecordValue): string {
+  switch (error.kind) {
+    case 'unavailable':
+      return t(
+        'The model list could not be loaded (HTTP {{status}}). Check the URL or add model IDs manually; a model request is needed to verify the connection.',
+        { status: String(error.status ?? '') }
+      );
+    case 'authentication':
+      return t(
+        'Model discovery was refused (authentication or access error). Check the API key and its access permissions.'
+      );
+    case 'empty':
+      return t('Automatic discovery returned no models. Add model IDs manually.');
+    default:
+      return t('Model discovery failed: {{message}}. Check your connection and retry.', {
+        message: String(error.message || ''),
+      });
+  }
+}
+
+// Only these outcomes make manual entry the next step.
+const needsManualEntry = (error: RecordValue) => error.kind === 'unavailable' || error.kind === 'empty';
+
 function CustomProviderForm({
   provider,
   run,
@@ -55,13 +80,18 @@ function CustomProviderForm({
   const existing = provider ? customModels(provider) : [];
   const [name, setName] = useState(provider ? String(provider.name || '') : '');
   const [protocol, setProtocol] = useState<Protocol>(
-    CUSTOM_PROTOCOLS.some((item) => item.value === provider?.protocol) ? (provider?.protocol as Protocol) : 'openai-chat'
+    CUSTOM_PROTOCOLS.some((item) => item.value === provider?.protocol)
+      ? (provider?.protocol as Protocol)
+      : 'openai-chat'
   );
   const [baseURL, setBaseURL] = useState(provider ? String(provider.baseURL || '') : '');
   const [apiKey, setApiKey] = useState('');
   const [working, setWorking] = useState<'' | 'test' | 'save'>('');
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [saveError, setSaveError] = useState('');
+  const [models, setModels] = useState<CustomModel[]>(existing);
+  const [manualOpen, setManualOpen] = useState(existing.length > 0);
+  const [modelDraft, setModelDraft] = useState('');
   const disabled = busy || working !== '';
   const close = () => {
     if (!disabled) onClose();
@@ -80,10 +110,11 @@ function CustomProviderForm({
     if (!url || (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))) {
       throw new Error(t('Base URL must use HTTPS (HTTP is allowed only for localhost).'));
     }
-    // An empty model list uses the existing post-save provider catalog loader.
-    // Preserve older explicit model configurations when editing that endpoint.
-    const models = provider?.protocol === protocol && provider?.baseURL === baseURL.trim() ? existing : [];
-    const input: RecordValue = { name: name.trim(), protocol, baseURL: baseURL.trim(), models };
+    // Every visible explicit model is submitted (the user can remove any);
+    // an empty list means automatic discovery.
+    const draft = modelDraft.trim();
+    const withDraft = draft && !models.some((model) => model.id === draft) ? [...models, { id: draft }] : models;
+    const input: RecordValue = { name: name.trim(), protocol, baseURL: baseURL.trim(), models: withDraft };
     if (provider) input.id = provider.id;
     if (apiKey.trim()) input.apiKey = apiKey;
     return input;
@@ -94,11 +125,39 @@ function CustomProviderForm({
     setSaveError('');
   };
 
+  const addModel = () => {
+    const id = modelDraft.trim();
+    if (id && !models.some((model) => model.id === id)) setModels([...models, { id }]);
+    setModelDraft('');
+    changed();
+  };
+
+  // Automatic discovery for an empty catalog during registration. Returns true
+  // when models were found; otherwise reports guidance and opens manual entry.
+  const discover = async (input: RecordValue): Promise<boolean> => {
+    const found = record(
+      await run('discoverCustomProviderModels', [input], `custom-discover-${uid}`, false, true, 'throw')
+    );
+    const error = found.error ? record(found.error) : customModels(found).length ? null : { kind: 'empty' };
+    if (!error) return true;
+    setSaveError(discoveryFailure(error));
+    if (needsManualEntry(error)) setManualOpen(true);
+    return false;
+  };
+
   const test = async () => {
     setWorking('test');
     setTestResult(null);
     try {
-      const result = record(await run('testCustomProvider', [buildInput()], `custom-test-${uid}`, false, true, 'throw'));
+      const result = record(
+        await run('testCustomProvider', [buildInput()], `custom-test-${uid}`, false, true, 'throw')
+      );
+      if (result.ok !== true && result.phase === 'discovery') {
+        const error = record(result.error);
+        if (needsManualEntry(error)) setManualOpen(true);
+        setTestResult({ ok: false, message: discoveryFailure(error) });
+        return;
+      }
       setTestResult(
         result.ok === true
           ? { ok: true, message: t('Connection successful.') }
@@ -117,7 +176,14 @@ function CustomProviderForm({
     setSaveError('');
     try {
       if (!provider && !apiKey.trim()) throw new Error(t('No API key'));
-      const saved = await run('saveCustomProvider', [buildInput()], `custom-save-${uid}`, true, true, 'throw');
+      const input = buildInput();
+      if (!(input.models as CustomModel[]).length) {
+        if (!(await discover(input))) {
+          setWorking('');
+          return;
+        }
+      }
+      const saved = await run('saveCustomProvider', [input], `custom-save-${uid}`, true, true, 'throw');
       if (!saved) throw new Error(t('Could not save the custom provider.'));
       onClose();
     } catch (reason) {
@@ -127,7 +193,6 @@ function CustomProviderForm({
   };
 
   const nameId = `${uid}-name`;
-  const protocolId = `${uid}-protocol`;
   const urlId = `${uid}-url`;
   const keyId = `${uid}-key`;
   const formId = `${uid}-form`;
@@ -153,82 +218,139 @@ function CustomProviderForm({
             <X size={16} aria-hidden="true" />
           </button>
         </header>
-    <form
-      id={formId}
-      className="settings-custom-provider-form"
-      aria-label={provider ? t('Edit custom provider') : t('Add custom provider')}
-      onSubmit={(event) => void save(event)}
-    >
-      <label htmlFor={nameId}>{t('Display name')}</label>
-      <input
-        id={nameId}
-        value={name}
-        disabled={disabled}
-        required
-        autoFocus
-        autoComplete="off"
-        onChange={(event) => {
-          setName(event.target.value);
-          setSaveError('');
-        }}
-      />
-      <label htmlFor={protocolId}>{t('API format')}</label>
-      <select
-        id={protocolId}
-        value={protocol}
-        disabled={disabled}
-        onChange={(event) => {
-          setProtocol(event.target.value as Protocol);
-          changed();
-        }}
-      >
-        {CUSTOM_PROTOCOLS.map((item) => (
-          <option key={item.value} value={item.value}>
-            {item.label}
-          </option>
-        ))}
-      </select>
-      <label htmlFor={urlId}>{t('Base URL')}</label>
-      <input
-        id={urlId}
-        type="url"
-        value={baseURL}
-        disabled={disabled}
-        required
-        autoComplete="off"
-        placeholder="https://api.example.com/v1"
-        onChange={(event) => {
-          setBaseURL(event.target.value);
-          changed();
-        }}
-      />
-      <label htmlFor={keyId}>{t('API key')}</label>
-      <input
-        id={keyId}
-        type="password"
-        value={apiKey}
-        disabled={disabled}
-        required={!provider}
-        autoComplete="new-password"
-        placeholder={provider ? t('Leave blank to keep the saved key') : t('API key')}
-        onChange={(event) => {
-          setApiKey(event.target.value);
-          changed();
-        }}
-      />
-      <div aria-live="polite">
-        {testResult && (
-          <p className={testResult.ok ? 'settings-success' : 'settings-error'} role={testResult.ok ? 'status' : 'alert'}>
-            {testResult.message}
-          </p>
-        )}
-        {saveError && (
-          <p className="settings-error" role="alert">
-            {saveError}
-          </p>
-        )}
-      </div>
-    </form>
+        <form
+          id={formId}
+          className="settings-custom-provider-form"
+          aria-label={provider ? t('Edit custom provider') : t('Add custom provider')}
+          onSubmit={(event) => void save(event)}
+        >
+          <label htmlFor={nameId}>{t('Display name')}</label>
+          <input
+            id={nameId}
+            value={name}
+            disabled={disabled}
+            required
+            autoFocus
+            autoComplete="off"
+            onChange={(event) => {
+              setName(event.target.value);
+              setSaveError('');
+            }}
+          />
+          <label>{t('API format')}</label>
+          <OpenSelect
+            className="settings-select"
+            ariaLabel={t('API format')}
+            value={protocol}
+            disabled={disabled}
+            options={CUSTOM_PROTOCOLS}
+            onChange={(value) => {
+              setProtocol(value as Protocol);
+              changed();
+            }}
+          />
+          <label htmlFor={urlId}>{t('Base URL')}</label>
+          <input
+            id={urlId}
+            type="url"
+            value={baseURL}
+            disabled={disabled}
+            required
+            autoComplete="off"
+            placeholder="https://api.example.com/v1"
+            onChange={(event) => {
+              setBaseURL(event.target.value);
+              changed();
+            }}
+          />
+          <label htmlFor={keyId}>{t('API key')}</label>
+          <input
+            id={keyId}
+            type="password"
+            value={apiKey}
+            disabled={disabled}
+            required={!provider}
+            autoComplete="new-password"
+            placeholder={provider ? t('Leave blank to keep the saved key') : t('API key')}
+            onChange={(event) => {
+              setApiKey(event.target.value);
+              changed();
+            }}
+          />
+          <details
+            className="settings-custom-models"
+            open={manualOpen}
+            onToggle={(event) => setManualOpen(event.currentTarget.open)}
+          >
+            <summary>
+              <span>{t('Add models manually')}</span>
+              <ChevronDown size={14} aria-hidden="true" />
+            </summary>
+            <p>{t('Optional. Leave empty to discover models automatically.')}</p>
+            <div className="settings-custom-models-add">
+              <input
+                value={modelDraft}
+                disabled={disabled}
+                autoComplete="off"
+                aria-label={t('Model ID')}
+                placeholder={t('Model ID')}
+                onChange={(event) => {
+                  setModelDraft(event.target.value);
+                  changed();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addModel();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="provider-account-add-button"
+                aria-label={t('Add model')}
+                title={t('Add model')}
+                disabled={disabled || !modelDraft.trim()}
+                onClick={addModel}
+              >
+                <Plus size={16} aria-hidden="true" />
+              </button>
+            </div>
+            <ul>
+              {models.map((model) => (
+                <li className="extensions-mcp-list-row" key={model.id}>
+                  <span title={model.id}>{model.id}</span>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    aria-label={t('Remove {{name}}', { name: model.id })}
+                    onClick={() => {
+                      setModels(models.filter((item) => item !== model));
+                      changed();
+                    }}
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+          <div aria-live="polite">
+            {testResult && (
+              <p
+                className={testResult.ok ? 'settings-success' : 'settings-error'}
+                role={testResult.ok ? 'status' : 'alert'}
+              >
+                {testResult.message}
+              </p>
+            )}
+            {saveError && (
+              <p className="settings-error" role="alert">
+                {saveError}
+              </p>
+            )}
+          </div>
+        </form>
         <footer>
           <button type="button" disabled={disabled || !connectionReady} onClick={() => void test()}>
             {t(working === 'test' ? 'Testing…' : 'Test connection')}
@@ -268,7 +390,8 @@ export function CustomProvidersSection({
     if (editing === null) triggerRef.current?.focus();
   }, [editing]);
   const status = (provider: RecordValue) =>
-    provider.enabled === false ? t('Disabled') : provider.authenticated === false ? t('No API key') : t('Connected');
+    // Raw status words: ResourceRow classifies them, then translates the label.
+    provider.enabled === false ? 'Disabled' : provider.authenticated === false ? 'No API key' : 'Connected';
   return (
     <section className="settings-group settings-custom-providers">
       <header>
@@ -296,42 +419,45 @@ export function CustomProvidersSection({
         const total = customModels(provider).length;
         return (
           <div className="settings-group-body" key={id}>
-              <ResourceRow
-                title={providerLabel(provider)}
-                description={`${protocolLabel(provider.protocol)} · ${String(provider.baseURL || '')} · ${t('Models: {{total}}', { total })}`}
-                status={status(provider)}
-                actions={
-                  <>
-                    <ActionButton disabled={busy || editing !== null} onClick={() => openEditor(id)}>
-                      Edit
-                    </ActionButton>
-                    <ActionButton
-                      danger
-                      disabled={busy}
-                      onClick={() =>
-                        confirm({
-                          title: 'Delete custom provider?',
-                          description: t('Remove {{name}} and its saved API key. Its models will no longer be available.', {
+            <ResourceRow
+              title={providerLabel(provider)}
+              description={`${protocolLabel(provider.protocol)} · ${String(provider.baseURL || '')} · ${t('Models: {{total}}', { total })}`}
+              status={status(provider)}
+              actions={
+                <>
+                  <ActionButton disabled={busy || editing !== null} onClick={() => openEditor(id)}>
+                    {t('Edit')}
+                  </ActionButton>
+                  <ActionButton
+                    danger
+                    disabled={busy}
+                    onClick={() =>
+                      confirm({
+                        title: t('Delete custom provider?'),
+                        description: t(
+                          'Remove {{name}} and its saved API key. Its models will no longer be available.',
+                          {
                             name: providerLabel(provider),
-                          }),
-                          confirmLabel: 'Delete',
-                          danger: true,
-                          onConfirm: () => void run('removeCustomProvider', [provider.id]),
-                        })
-                      }
-                    >
-                      Delete
-                    </ActionButton>
-                  </>
-                }
-              />
+                          }
+                        ),
+                        confirmLabel: t('Delete'),
+                        danger: true,
+                        onConfirm: () => void run('removeCustomProvider', [provider.id]),
+                      })
+                    }
+                  >
+                    {t('Delete')}
+                  </ActionButton>
+                </>
+              }
+            />
           </div>
         );
       })}
       {editing !== null && (
         <CustomProviderForm
           key={editing}
-          provider={editing === 'new' ? undefined : providers.find(provider => String(provider.id) === editing)}
+          provider={editing === 'new' ? undefined : providers.find((provider) => String(provider.id) === editing)}
           run={run}
           busy={busy}
           onClose={() => setEditing(null)}

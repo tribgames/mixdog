@@ -39,14 +39,15 @@ export function nativeWebSearchUserLocation(locale) {
   return Object.keys(location).length > 1 ? location : null;
 }
 
-export function nativeWebSearchTool(args = {}, toolType = 'web_search', providerName = '') {
+// `family` is the provider's hosted web-search family (webSearchProviderFamily).
+export function nativeWebSearchTool(args = {}, toolType = 'web_search', family = '') {
   const domains = normalizeWebSearchAllowedDomains(args.site);
   const type = clean(toolType) || 'web_search';
   const location = nativeWebSearchUserLocation(args.locale);
-  if (providerName === 'gemini') {
+  if (family === 'gemini') {
     return { type };
   }
-  if (providerName === 'anthropic' || providerName === 'anthropic-oauth') {
+  if (family === 'anthropic') {
     const tool = {
       type: 'web_search_20250305',
       name: 'web_search',
@@ -56,7 +57,7 @@ export function nativeWebSearchTool(args = {}, toolType = 'web_search', provider
     if (location) tool.user_location = location;
     return tool;
   }
-  if (providerName === 'grok-oauth' || providerName === 'xai') {
+  if (family === 'xai') {
     const tool = { type };
     if (domains.length) tool.filters = { allowed_domains: domains };
     return tool;
@@ -70,14 +71,13 @@ export function nativeWebSearchTool(args = {}, toolType = 'web_search', provider
   return tool;
 }
 
-export function nativeWebSearchToolTypes(routeLike = {}, providerName = '') {
+export function nativeWebSearchToolTypes(routeLike = {}, family = '') {
   const envToolType = clean(process.env.MIXDOG_NATIVE_WEB_SEARCH_TOOL_TYPE);
   if (envToolType) return [envToolType];
   const configured = clean(routeLike.toolType);
   if (configured) return [configured];
-  if (providerName === 'gemini') return ['google_search'];
-  if (providerName === 'anthropic' || providerName === 'anthropic-oauth') return ['web_search'];
-  if (providerName === 'grok-oauth' || providerName === 'xai') return ['web_search'];
+  if (family === 'gemini') return ['google_search'];
+  if (family === 'anthropic' || family === 'xai') return ['web_search'];
   return ['web_search', 'web_search_preview'];
 }
 

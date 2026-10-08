@@ -113,6 +113,7 @@ export function runRestoreQueuedToPrompt(options, deps) {
     } else {
       clearPromptHint();
     }
+    if (restored.notice) showPromptHint(restored.notice, 'error');
     return true;
   };
   // Paint the published local-queue projection before

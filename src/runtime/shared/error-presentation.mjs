@@ -67,9 +67,15 @@ function unwrap(value) {
   return { raw, message, status, code };
 }
 
+/** A 429 the provider sent without quota headers: a refusal, not an exhausted limit. */
+export function isRejected429(value) {
+  return /\bAPI 429 request rejected\b/.test(messageOf(value));
+}
+
 /** Presentation only: never changes retry policy or the underlying failure. */
 export function describeError(value) {
   const { raw, message, status, code } = unwrap(value);
+  const rejected429 = isRejected429(value);
   const details = safeErrorDetails(raw);
   const clean = safeErrorDetails(message)
     .replace(/^(?:Error invoking remote method ['"][^'"]+['"]:\s*)?(?:Error:\s*)?/i, '')
@@ -102,8 +108,9 @@ export function describeError(value) {
     summary = 'The request exceeds the size limit.';
     recovery = 'Reduce the attachments or request size, then try again.';
   } else if (
-    status === 429 ||
-    /rate[_ -]?limit|quota.*(?:hit|exceed)|too many requests|The provider usage limit was reached/i.test(clean)
+    !rejected429 &&
+    (status === 429 ||
+      /rate[_ -]?limit|quota.*(?:hit|exceed)|too many requests|The provider usage limit was reached/i.test(clean))
   ) {
     kind = 'rate-limit';
     summary = 'The provider usage limit was reached.';
@@ -113,6 +120,7 @@ export function describeError(value) {
     summary = transport.replace(/\.$/, '');
     recovery = 'Check the connection, then try again.';
   } else if (
+    rejected429 ||
     status === 400 ||
     status === 422 ||
     code === 'invalid_request_error' ||

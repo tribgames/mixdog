@@ -21,16 +21,14 @@ import { mkdir, readdir, readFile as readFileAsync, rename, stat, unlink, writeF
 import { dirname, join } from 'node:path';
 
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
+import { MAX_ATTACHMENT_BLOB_BYTES, MAX_PDF_BYTES, MAX_PDF_PAGES, isPdfBuffer } from './limits.mjs';
 import { inspectPdfBuffer } from './pdf-extract.mjs';
 
 const ATTACHMENT_REF_RE = /^[a-f0-9]{64}$/;
 const TEXT_TOKEN_RE = /\[(?:Pasted text|File) #(\d+)[^\]\r\n]*\]/g;
 const TEXT_REFERENCE_THRESHOLD_BYTES = 800;
 const MAX_PROMPT_TEXT_BYTES = 1024 * 1024;
-const MAX_PROMPT_PDF_BYTES = 20 * 1024 * 1024;
-const MAX_PROMPT_PDF_PAGES = 100;
 const ATTACHMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
-const MAX_ATTACHMENT_BLOB_BYTES = 64 * 1024 * 1024;
 const ATTACHMENT_GC_MIN_AGE_MS = Math.max(
   60_000,
   Number(process.env.MIXDOG_ATTACHMENT_GC_MIN_AGE_MS) || 7 * 24 * 60 * 60 * 1000
@@ -103,6 +101,11 @@ function rememberBuffer(path, buffer) {
   }
 }
 
+/** Content address of a blob: the ref under which the store keeps these bytes. */
+export function attachmentRefForBuffer(buffer) {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
 function saveBuffer(buffer) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
     throw new TypeError('prompt attachment is empty');
@@ -110,14 +113,14 @@ function saveBuffer(buffer) {
   if (buffer.length > MAX_ATTACHMENT_BLOB_BYTES) {
     throw new RangeError('prompt attachment exceeds the 64 MiB input limit');
   }
-  const attachmentRef = createHash('sha256').update(buffer).digest('hex');
+  const attachmentRef = attachmentRefForBuffer(buffer);
   const target = attachmentPath(attachmentRef);
   // The file already at this content address is only usable when it really is
   // this content; an unreadable or mismatched blob counts as absent.
   const storedMatches = () => {
     try {
       const current = readFileSync(target);
-      return current.length === buffer.length && createHash('sha256').update(current).digest('hex') === attachmentRef;
+      return current.length === buffer.length && attachmentRefForBuffer(current) === attachmentRef;
     } catch {
       return false;
     }
@@ -134,8 +137,8 @@ function saveBuffer(buffer) {
   if (!existingValid) {
     mkdirSync(join(attachmentsDir(), attachmentRef.slice(0, 2)), { recursive: true, mode: 0o700 });
     const temp = `${target}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
-    writeFileSync(temp, buffer, { mode: 0o600 });
     try {
+      writeFileSync(temp, buffer, { mode: 0o600 });
       renameSync(temp, target);
     } catch (error) {
       // A concurrent writer may have published the same content first.
@@ -192,6 +195,43 @@ export function storeInlineImagePart(part) {
   return { ...metadata, ...saveBuffer(buffer) };
 }
 
+/**
+ * Stored-history form of an inline base64 document (`{ type:'document',
+ * source:{ type:'base64' } }`) or inline `{ type:'file', data }` part: a
+ * `file` reference part that lowers to the identical provider block. Returns
+ * null when the payload is empty or would not re-encode to the same base64.
+ */
+export function storeInlineDocumentPart(part) {
+  if (!part || typeof part !== 'object' || isAttachmentReference(part)) return null;
+  let data;
+  let metadata;
+  if (part.type === 'document') {
+    const source = part.source;
+    if (source?.type !== 'base64' || typeof source.data !== 'string') return null;
+    data = source.data;
+    const { source: _source, type: _type, mimeType: _mimeType, mediaType: _mediaType, ...rest } = part;
+    const mimeType = String(source.media_type || source.mediaType || part.mimeType || part.mediaType || 'application/pdf')
+      .trim()
+      .toLowerCase() || 'application/pdf';
+    metadata = { ...rest, type: 'file', mimeType };
+    const filename = (typeof part.title === 'string' && part.title) || (typeof part.filename === 'string' && part.filename) || '';
+    if (filename) metadata.filename = filename;
+  } else if (part.type === 'file' && typeof part.data === 'string') {
+    const { data: inline, ...rest } = part;
+    data = inline;
+    metadata = rest;
+  } else {
+    return null;
+  }
+  const buffer = Buffer.from(data, 'base64');
+  if (buffer.length === 0 || buffer.toString('base64') !== data) return null;
+  // The magic header decides the kind before the label does (inlineFileKind),
+  // so a mislabelled PDF is stored under its real type: the reloaded part then
+  // estimates and lowers exactly like the live one.
+  if (isPdfBuffer(buffer)) metadata = { ...metadata, mimeType: 'application/pdf' };
+  return { ...metadata, ...saveBuffer(buffer) };
+}
+
 export function readAttachmentBuffer(value) {
   const ref = typeof value === 'string' ? value : value?.attachmentRef;
   const path = attachmentPath(ref);
@@ -201,7 +241,7 @@ export function readAttachmentBuffer(value) {
     // mutated an earlier read would poison every later reader with content that
     // no longer matches the content address. Re-verify the digest on each hit
     // instead of trusting the instance.
-    if (createHash('sha256').update(cached).digest('hex') === ref) {
+    if (attachmentRefForBuffer(cached) === ref) {
       cacheHits += 1;
       bufferCache.delete(path);
       bufferCache.set(path, cached);
@@ -213,15 +253,20 @@ export function readAttachmentBuffer(value) {
   cacheMisses += 1;
   const info = statSync(path);
   if (!info.isFile() || info.size <= 0 || info.size > MAX_ATTACHMENT_BLOB_BYTES) {
-    throw new Error('prompt attachment blob is invalid');
+    throw Object.assign(new Error('prompt attachment blob is invalid'), { code: ATTACHMENT_INVALID });
   }
   const buffer = readFileSync(path);
-  if (createHash('sha256').update(buffer).digest('hex') !== ref) {
-    throw new Error('prompt attachment integrity check failed');
+  if (attachmentRefForBuffer(buffer) !== ref) {
+    throw Object.assign(new Error('prompt attachment integrity check failed'), { code: ATTACHMENT_INTEGRITY });
   }
   rememberBuffer(path, buffer);
   return buffer;
 }
+
+// Codes of the store's own permanent read failures (a system error keeps its
+// errno code, so transient EBUSY/EPERM/... never matches these).
+const ATTACHMENT_INVALID = 'ATTACHMENT_INVALID';
+const ATTACHMENT_INTEGRITY = 'ATTACHMENT_INTEGRITY';
 
 // A referenced blob that is gone from disk (retention, manual cleanup, a
 // copied session) surfaces from readAttachmentBuffer as the stat ENOENT.
@@ -229,8 +274,29 @@ export function isMissingAttachmentError(error) {
   return error?.code === 'ENOENT';
 }
 
+// A blob that is gone, fails its content check or has an impossible size will
+// never become readable. EBUSY/EPERM/EACCES/EMFILE and friends are transient:
+// callers must let them propagate rather than rewrite history around them.
+export function isPermanentAttachmentError(error) {
+  return (
+    isMissingAttachmentError(error) || error?.code === ATTACHMENT_INVALID || error?.code === ATTACHMENT_INTEGRITY
+  );
+}
+
 export function readAttachmentBase64(value) {
   return readAttachmentBuffer(value).toString('base64');
+}
+
+// Real on-disk size of a referenced blob. Caps must never trust the client's
+// claimed sizeBytes; a blob that is not on disk cannot be read later either, so
+// only then does the claimed size stand.
+function attachmentBlobSize(value, claimed = 0) {
+  try {
+    return statSync(attachmentPath(typeof value === 'string' ? value : value?.attachmentRef)).size;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return Number(claimed) || 0;
+    throw error;
+  }
 }
 
 function readAttachmentText(value) {
@@ -269,7 +335,7 @@ function materializePastedTexts(pastedTexts) {
       refPart = {
         type: 'text',
         attachmentRef: raw.attachmentRef,
-        sizeBytes: Number(raw.sizeBytes) || 0,
+        sizeBytes: attachmentBlobSize(raw, raw.sizeBytes),
         ...(raw.source === 'file' ? { textKind: 'file' } : {}),
         ...(raw.filename ? { filename: raw.filename } : {}),
         ...(raw.mimeType ? { mimeType: raw.mimeType } : {}),
@@ -315,7 +381,13 @@ function materializeInlinePart(part) {
   if (!part || typeof part !== 'object' || isAttachmentReference(part)) return part;
   if ((part.type === 'image' || part.type === 'file') && typeof part.data === 'string' && part.data) {
     const { data, ...metadata } = part;
-    return { ...metadata, ...saveBuffer(Buffer.from(data, 'base64')) };
+    const buffer = Buffer.from(data, 'base64');
+    // The magic header outranks the transport label: a mislabelled PDF must
+    // meet the PDF limits and conversion at intake like any other PDF.
+    if (part.type === 'file' && isPdfBuffer(buffer)) {
+      return { ...metadata, mimeType: 'application/pdf', ...saveBuffer(buffer) };
+    }
+    return { ...metadata, ...saveBuffer(buffer) };
   }
   if (
     part.type === 'text' &&
@@ -356,7 +428,7 @@ function promptTextBytes(content) {
   if (!Array.isArray(content)) return 0;
   return content.reduce((sum, part) => {
     if (part?.type !== 'text') return sum;
-    if (isAttachmentReference(part)) return sum + (Number(part.sizeBytes) || 0);
+    if (isAttachmentReference(part)) return sum + attachmentBlobSize(part, part.sizeBytes);
     return sum + Buffer.byteLength(String(part?.text || ''), 'utf8');
   }, 0);
 }
@@ -364,22 +436,40 @@ function promptTextBytes(content) {
 function materializePastedImages(pastedImages, imageParts) {
   if (!pastedImages || typeof pastedImages !== 'object') return null;
   const out = {};
-  let imageIndex = 0;
+  // Entries that already carry bytes or a reference claim their own blob; an
+  // entry with neither pairs to an image part by the paste id the part carries
+  // (`pasteId`), else to the next part no other entry has claimed. Position in
+  // the entry list never decides: restored attachments keep lower ids.
+  const resolved = new Map();
   for (const [key, raw] of Object.entries(pastedImages)) {
     if (!raw || typeof raw !== 'object') continue;
     let ref = isAttachmentReference(raw) ? raw : null;
     if (!ref && typeof raw.content === 'string' && raw.content) {
       ref = saveBuffer(Buffer.from(raw.content, 'base64'));
     }
-    if (!ref) ref = imageParts[imageIndex] || null;
-    imageIndex += 1;
+    resolved.set(key, ref);
+  }
+  const claimed = new Set([...resolved.values()].filter(Boolean).map((ref) => ref.attachmentRef));
+  for (const [key, ref] of resolved) {
+    if (ref) continue;
+    const id = String(pastedImages[key].id ?? key);
+    const part =
+      imageParts.find((candidate) => !claimed.has(candidate.attachmentRef) && String(candidate.pasteId ?? '') === id) ||
+      imageParts.find((candidate) => !claimed.has(candidate.attachmentRef) && candidate.pasteId == null) ||
+      null;
+    if (part) claimed.add(part.attachmentRef);
+    resolved.set(key, part);
+  }
+  for (const [key, raw] of Object.entries(pastedImages)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const ref = resolved.get(key);
     const { content: _content, ...meta } = raw;
     out[key] = {
       ...meta,
       ...(ref
         ? {
             attachmentRef: ref.attachmentRef,
-            sizeBytes: Number(ref.sizeBytes) || Number(raw.sizeBytes) || 0,
+            sizeBytes: attachmentBlobSize(ref, ref.sizeBytes || raw.sizeBytes),
           }
         : {}),
     };
@@ -406,27 +496,28 @@ export function materializePromptSubmission(prompt, options = {}) {
   };
 }
 
-const NATIVE_PDF_PROVIDERS = new Set(['anthropic', 'anthropic-oauth', 'gemini', 'openai', 'openai-oauth']);
-
-function providerSupportsNativePdf(provider) {
-  return NATIVE_PDF_PROVIDERS.has(
-    String(provider || '')
-      .trim()
-      .toLowerCase()
-  );
+/**
+ * Whether a provider takes a PDF as a native document block. Decided by the
+ * provider's wire protocol: each adapter class declares `nativePdf`; a provider
+ * that does not say (or is unknown) is treated as native. Intake, provider
+ * lowering and the media estimates all ask this one question.
+ */
+export function providerTakesNativePdf(provider) {
+  return provider?.nativePdf !== false;
 }
 
 /**
- * Provider-aware PDF intake. Native document providers retain the original
- * content-addressed PDF after validating its page count. Providers whose
- * OpenAI-compatible wire contract has no portable file block receive bounded,
- * page-labelled text instead.
+ * PDF intake validation. Every PDF keeps its content-addressed reference — the
+ * one conversion to text happens at provider lowering — so this only checks what
+ * would make the PDF unusable later: the real blob size, readability, and (for a
+ * provider that sends the PDF natively) the page count. A provider that takes the
+ * PDF as text reads its first MAX_PDF_PAGES pages, so a longer PDF is accepted.
+ * The page count is recorded on the part for estimates.
  */
 export async function preparePromptSubmissionForProvider(intake, provider) {
   const prompt = intake?.prompt;
   if (!Array.isArray(prompt)) return intake;
-  const nativePdf = providerSupportsNativePdf(provider);
-  let remainingTextBytes = Math.max(0, MAX_PROMPT_TEXT_BYTES - promptTextBytes(prompt));
+  const nativePdf = providerTakesNativePdf(provider);
   let changed = false;
   const prepared = [];
   for (const part of prompt) {
@@ -435,55 +526,76 @@ export async function preparePromptSubmissionForProvider(intake, provider) {
       prepared.push(part);
       continue;
     }
-    const bytes = Number(part.sizeBytes) || readAttachmentBuffer(part).length;
-    if (bytes > MAX_PROMPT_PDF_BYTES) {
-      throw new RangeError(`PDF exceeds the ${MAX_PROMPT_PDF_BYTES / 1024 / 1024} MiB input limit`);
-    }
-    if (!nativePdf && remainingTextBytes < 256) {
-      throw new RangeError('PDF text cannot fit within the 1 MiB prompt text limit');
+    const bytes = attachmentBlobSize(part, part.sizeBytes);
+    if (bytes > MAX_PDF_BYTES) {
+      throw new RangeError(`PDF exceeds the ${MAX_PDF_BYTES / 1024 / 1024} MiB input limit`);
     }
     const inspected = await inspectPdfBuffer(readAttachmentBuffer(part), {
-      extractText: !nativePdf,
-      maxPages: MAX_PROMPT_PDF_PAGES,
-      maxOutputBytes: Math.max(256, remainingTextBytes),
+      maxPages: nativePdf ? MAX_PDF_PAGES : Infinity,
     });
     changed = true;
-    if (nativePdf) {
-      prepared.push({ ...part, pageCount: inspected.pageCount });
-      continue;
-    }
-    const textPart = materializeText(inspected.text, {
-      textKind: 'file',
-      filename: part.filename || 'attachment.pdf',
-      mimeType: 'text/plain',
-    });
-    remainingTextBytes = Math.max(0, remainingTextBytes - textPart.sizeBytes);
-    prepared.push({ ...textPart, sourceMimeType: 'application/pdf', pageCount: inspected.pageCount });
+    prepared.push({ ...part, pageCount: inspected.pageCount });
   }
   if (!changed) return intake;
   return { ...intake, prompt: prepared };
 }
 
-export function hydratePastedAttachments(pastedImages, pastedTexts) {
-  const images =
-    pastedImages && typeof pastedImages === 'object'
-      ? Object.fromEntries(
-          Object.entries(pastedImages).map(([key, raw]) => {
-            if (!raw || typeof raw !== 'object' || !isAttachmentReference(raw)) return [key, raw];
-            return [key, { ...raw, content: readAttachmentBase64(raw) }];
-          })
-        )
-      : null;
-  const texts =
-    pastedTexts && typeof pastedTexts === 'object'
-      ? Object.fromEntries(
-          Object.entries(pastedTexts).map(([key, raw]) => {
-            if (!raw || typeof raw !== 'object' || !isAttachmentReference(raw)) return [key, raw];
-            return [key, { ...raw, text: readAttachmentText(raw) }];
-          })
-        )
-      : null;
-  return { pastedImages: images, pastedTexts: texts };
+/**
+ * Inline the bytes of reference-only pasted attachments. By default an
+ * unreadable blob throws. With `onUnreadable`, an attachment whose blob is
+ * missing or corrupt is dropped alone and reported as
+ * `onUnreadable(kind, key, raw)`, so the rest (and the prompt) survive.
+ */
+export function hydratePastedAttachments(pastedImages, pastedTexts, { onUnreadable = null } = {}) {
+  const hydrate = (entries, kind, read) => {
+    if (!entries || typeof entries !== 'object') return null;
+    const out = {};
+    for (const [key, raw] of Object.entries(entries)) {
+      if (!raw || typeof raw !== 'object' || !isAttachmentReference(raw)) {
+        out[key] = raw;
+        continue;
+      }
+      try {
+        out[key] = read(raw);
+      } catch (error) {
+        if (!onUnreadable || !isPermanentAttachmentError(error)) throw error;
+        onUnreadable(kind, key, raw);
+      }
+    }
+    return out;
+  };
+  return {
+    pastedImages: hydrate(pastedImages, 'image', (raw) => ({ ...raw, content: readAttachmentBase64(raw) })),
+    pastedTexts: hydrate(pastedTexts, 'text', (raw) => ({ ...raw, text: readAttachmentText(raw) })),
+  };
+}
+
+/**
+ * File parts (PDF/Office/other documents) of a prompt as restorable
+ * `{ type:'file', data, mimeType, filename }` parts, with referenced bytes
+ * inlined as base64 — the shape the desktop composer restores from
+ * `record.content`. With `onUnreadable`, a part whose blob is permanently gone
+ * is dropped alone and reported as `onUnreadable('file', filename, part)`.
+ */
+export function hydrateRestorableFileParts(content, { onUnreadable = null } = {}) {
+  if (!Array.isArray(content)) return [];
+  const out = [];
+  for (const part of content) {
+    if (part?.type !== 'file') continue;
+    const mimeType = String(part.mimeType || part.mediaType || '');
+    const filename = typeof part.filename === 'string' ? part.filename : '';
+    if (!isAttachmentReference(part)) {
+      if (typeof part.data === 'string' && part.data) out.push({ type: 'file', data: part.data, mimeType, filename });
+      continue;
+    }
+    try {
+      out.push({ type: 'file', data: readAttachmentBase64(part), mimeType, filename });
+    } catch (error) {
+      if (!onUnreadable || !isPermanentAttachmentError(error)) throw error;
+      onUnreadable('file', filename, part);
+    }
+  }
+  return out;
 }
 
 export function attachmentStoreCacheStats() {
@@ -494,6 +606,12 @@ export function attachmentStoreCacheStats() {
     hits: cacheHits,
     misses: cacheMisses,
   };
+}
+
+/** Forget every cached blob buffer (reads go back to disk). */
+export function clearAttachmentBufferCache() {
+  bufferCache.clear();
+  bufferCacheBytes = 0;
 }
 
 function dropCachedAttachment(path) {
@@ -516,7 +634,12 @@ async function persistedAttachmentReferencePaths() {
       throw error;
     }
     for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith('.json')) paths.push(join(dir, entry.name));
+      if (!entry.isFile()) continue;
+      // The turn-checkpoint journal appends `<session>.jsonl` records that
+      // carry attachment refs of in-flight turns.
+      if (entry.name.endsWith('.json') || (dirname === 'turn-checkpoints' && entry.name.endsWith('.jsonl'))) {
+        paths.push(join(dir, entry.name));
+      }
     }
   }
   // Pre-sharding global spool, until its one-time migration has renamed it.
@@ -647,6 +770,14 @@ export async function collectPromptAttachments({ now = Date.now(), minAgeMs = AT
       continue;
     }
     for (const entry of entries) {
+      // A writer that died between create and rename leaves `<ref>.<pid>.<rand>.tmp`.
+      if (entry.isFile() && /^[a-f0-9]{64}\..+\.tmp$/.test(entry.name)) {
+        const tempPath = join(dir, entry.name);
+        try {
+          if ((await stat(tempPath)).mtimeMs <= cutoff) await unlink(tempPath);
+        } catch {}
+        continue;
+      }
       if (!entry.isFile() || !ATTACHMENT_REF_RE.test(entry.name)) continue;
       scanned += 1;
       if (referenced.has(entry.name)) continue;

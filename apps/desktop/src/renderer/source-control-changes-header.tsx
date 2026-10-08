@@ -64,7 +64,7 @@ export function RemoteActionButtons({
                 three-digit count would stretch the badge across its own
                 button's label, so it caps instead. */}
             {badged && (
-              <span className="dock-scm-ahead-behind" data-i18n-skip data-direction={direction} aria-hidden="true">
+              <span className="dock-scm-ahead-behind" data-direction={direction} aria-hidden="true">
                 {entry.key === 'push' ? (
                   <ArrowUp size={8} aria-hidden="true" />
                 ) : (
@@ -125,11 +125,11 @@ export type SortKey = ScmSortKey;
 // deleted menu's View & Sort group).
 export function viewSortMenuItems(sortKey: string, chooseSortKey: (key: SortKey) => void): ScmContextMenuItem[] {
   return [
-    { id: 'sort-path', label: 'Sort by Path', checked: sortKey === 'path', onSelect: () => chooseSortKey('path') },
-    { id: 'sort-name', label: 'Sort by Name', checked: sortKey === 'name', onSelect: () => chooseSortKey('name') },
+    { id: 'sort-path', label: t('Sort by Path'), checked: sortKey === 'path', onSelect: () => chooseSortKey('path') },
+    { id: 'sort-name', label: t('Sort by Name'), checked: sortKey === 'name', onSelect: () => chooseSortKey('name') },
     {
       id: 'sort-status',
-      label: 'Sort by Status',
+      label: t('Sort by Status'),
       checked: sortKey === 'status',
       onSelect: () => chooseSortKey('status'),
     },
@@ -236,7 +236,7 @@ export function ChangedFilesHeader({
           </IconAction>
           <IconAction
             label={t('Stash Changes')}
-            title={stashReason ? t(stashReason) : t('Stash Changes')}
+            title={stashReason || t('Stash Changes')}
             disabled={Boolean(stashReason)}
             onClick={onStash}
           >
@@ -244,7 +244,7 @@ export function ChangedFilesHeader({
           </IconAction>
           <IconAction
             label={t('Pop Stash')}
-            title={popStashReason ? t(popStashReason) : t('Pop Stash')}
+            title={popStashReason || t('Pop Stash')}
             disabled={Boolean(popStashReason)}
             onClick={onPopStash}
           >

@@ -2265,6 +2265,7 @@ i.dock-pr-row-checks[data-checks="pending"] {
   padding: 0 11px;
   border-bottom: 1px solid var(--mx-border-muted);
   color: var(--mx-text-muted);
+  background: var(--mx-surface-plate);
   font-size: var(--mx-font-meta);
 }
 .dock-pr-description > header b,
@@ -2408,6 +2409,7 @@ i.dock-pr-row-checks[data-checks="pending"] {
   gap: 10px;
   padding: 0 13px;
   border-bottom: 1px solid var(--mx-border-muted);
+  background: var(--mx-surface-plate);
 }
 .dock-pr-check-card > header > div {
   min-width: 0;
@@ -2851,7 +2853,7 @@ i.dock-pr-row-checks[data-checks="pending"] {
   gap: 8px;
   padding: 0 5px 0 9px;
   border-bottom: 1px solid var(--mx-border-muted);
-  background: var(--mx-bg-base);
+  background: var(--mx-surface-plate);
 }
 .workspace-git-diff-hunk > header code {
   min-width: 0;

@@ -268,7 +268,7 @@ export async function executeTaskTool(args, options = {}) {
     if (action === 'wait' && latest.status === 'running') {
       if (waitInterruptedByUser) {
         rendered +=
-          '\n\nWait interrupted by new user input; task still running. Handle the new message now and call task wait again only when its result is needed.';
+          '\n\nWait interrupted by new user input; task still running. Handle the new message now and reply to it before waiting on this task again.';
       } else {
         // In-band report cue: the static "periodic reports" rule does not
         // survive a long tool loop, so a ceiling-hit wait carries the

@@ -3,6 +3,7 @@ import type { NavigationSelection, WorkspaceSelection } from './navigation';
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import type { useWorkbenchWorkspace } from './workbench-workspace';
+import { t } from './i18n';
 import { navigationKey } from './text-format';
 import { DeferredPersistentSurface, PersistentPanePortal } from './PaneSurfaceGate';
 import {
@@ -38,11 +39,12 @@ const UTILITY_STARTUP_DELAY_MS: Partial<Record<string, number>> = {
   diff: DIFF_STARTUP_DELAY_MS,
   terminal: TERMINAL_STARTUP_DELAY_MS,
 };
-const UTILITY_STARTUP_LABELS: Partial<Record<string, string>> = {
-  studio: 'Preparing Studio…',
-  diff: 'Loading diff…',
-  terminal: 'Loading terminal…',
-};
+function utilityStartupLabel(kind: string): string {
+  if (kind === 'studio') return t('Preparing Studio…');
+  if (kind === 'diff') return t('Loading diff…');
+  if (kind === 'terminal') return t('Loading terminal…');
+  return t('Loading pull request…');
+}
 
 /** Tabs that own a persistent utility surface (one mounted pane each). */
 function isUtilitySelection(selection: WorkspaceSelection): selection is UtilitySelection {
@@ -140,7 +142,7 @@ export function useAppPersistentPaneSurfaces({
             <DeferredPersistentSurface
               active={fileActive || activatedFileKeys.current.has(key)}
               startupDelayMs={EDITOR_STARTUP_DELAY_MS + (focused ? 0 : BACKGROUND_PANE_STARTUP_DELAY_MS)}
-              fallback={<DesktopLoadingSurface label="Loading editor…" />}
+              fallback={<DesktopLoadingSurface label={t('Loading editor…')} />}
             >
               <ReadyEditorPane
                 surfaceKey={leaf.id}
@@ -255,7 +257,7 @@ export function useAppPersistentPaneSurfaces({
     const utilityActive = descriptor.active;
     const baseStartupDelayMs = UTILITY_STARTUP_DELAY_MS[utilitySelection.kind] ?? 0;
     const startupDelayMs = baseStartupDelayMs + (descriptor.focused ? 0 : BACKGROUND_PANE_STARTUP_DELAY_MS);
-    const startupLabel = UTILITY_STARTUP_LABELS[utilitySelection.kind] ?? 'Loading pull request…';
+    const startupLabel = utilityStartupLabel(utilitySelection.kind);
     let surface: ReactNode;
     if (utilitySelection.kind === 'studio') {
       surface = <ReadyStudioPane active={utilityActive} sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />;

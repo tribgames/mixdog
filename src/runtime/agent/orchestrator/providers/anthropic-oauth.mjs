@@ -78,9 +78,8 @@ const _oauthRefreshes = new Map();
 // This picks up cross-process refresh_token rotation rather than replaying
 // a stale single-use token.
 
-// Anthropic OAuth contract for first-party OAuth clients: Opus/Sonnet
-// requests are gated on this exact system-prompt prefix. Haiku is not
-// gated and ignores this prefix.
+// Anthropic OAuth contract for first-party OAuth clients: Claude requests
+// are gated on this exact system-prompt prefix (Haiku 5.5 included).
 const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
 const OAUTH_BETA_HEADERS =
   'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11';
@@ -90,11 +89,9 @@ function logQuiet(line) {
 }
 
 function requiresSystemPrefix(model) {
-  // High-tier Claude OAuth models require the first-party system prefix for
-  // OAuth pool routing. Haiku does not; keep every other Claude family (Opus,
-  // Sonnet, Fable, and future non-Haiku families) on the prefixed path.
-  const id = String(model || '').toLowerCase();
-  return /^claude-/.test(id) && !/^claude-haiku(?:-|$)/.test(id);
+  // Every Claude OAuth model needs the first-party system prefix for OAuth
+  // pool routing; without it the server answers 429 rate_limit_error "Error".
+  return /^claude-/.test(String(model || '').toLowerCase());
 }
 
 function buildOAuthBetaHeaders(body, { fastMode = false, toolSearch = false, model, opts = {} } = {}) {
@@ -272,6 +269,8 @@ export function _buildRequestBodyForCacheSmoke(messages, model, tools = [], send
 // --- Provider ---
 
 export class AnthropicOAuthProvider {
+  // Takes a PDF as a native document block (decided by this adapter's wire protocol).
+  nativePdf = true;
   // input_tokens EXCLUDES cache_read_input_tokens (separate field) — add the
   // cache back for the real context footprint. See registry.mjs.
   static inputExcludesCache = true;

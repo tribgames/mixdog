@@ -1,5 +1,6 @@
 import type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
 import type { FileLaunchConfirmation, LocalLinkOpened } from './local-files';
+import type { DesktopFeedbackInput, DesktopFeedbackReceipt } from './contract-feedback';
 import type {
   DesktopAbortOptions,
   DesktopAgentPoolRow,
@@ -92,6 +93,7 @@ import type {
 } from './contract-workspace';
 
 export * from './contract-ipc';
+export * from './contract-feedback';
 export * from './contract-session';
 export * from './contract-capabilities';
 export * from './contract-settings';
@@ -128,6 +130,7 @@ export interface DesktopApi {
   openMediaAsset?(assetId: string): Promise<void>;
   openMediaFolder?(assetId: string): Promise<void>;
   openExternal(url: string): Promise<void>;
+  submitFeedback?(input: DesktopFeedbackInput): Promise<DesktopFeedbackReceipt>;
   /** Desktop-only chat link opener, confined to the conversation's Project:
    *  documents launch their OS app, folders open in the file manager, and
    *  text files come back as 'editor' for the renderer to open itself. */

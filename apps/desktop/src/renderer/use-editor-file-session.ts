@@ -265,7 +265,7 @@ export function useEditorFileSession({
           if (formatDocument) await formatDocument();
           else await editor?.getAction('editor.action.formatDocument')?.run();
         } catch (reason) {
-          setSaveError(`Format on save failed: ${reason instanceof Error ? reason.message : String(reason)}`);
+          setSaveError(t('Format on save failed: {{value0}}', { value0: reason instanceof Error ? reason.message : String(reason) }));
           return false;
         }
       }
@@ -380,7 +380,7 @@ export function useEditorFileSession({
     try {
       const result = await reader(projectPath, relPath, accessToken);
       if (result.binary || result.tooLarge) {
-        throw new Error('The disk version can no longer be safely edited as text.');
+        throw new Error(t('The disk version can no longer be safely edited as text.'));
       }
       const content = normalizeEditorModelText(result.content);
       savedMtime.current = result.mtimeMs;
@@ -428,7 +428,7 @@ export function useEditorFileSession({
     void reader(projectPath, relPath, accessToken)
       .then((result) => {
         if (result.binary || result.tooLarge) {
-          throw new Error('The disk version can no longer be safely edited as text.');
+          throw new Error(t('The disk version can no longer be safely edited as text.'));
         }
         const savedContent = normalizeEditorModelText(result.content);
         const currentContent = model.getValue();
@@ -495,7 +495,7 @@ export function useEditorFileSession({
 
   const failPreview = useCallback(() => {
     setPreviewLoaded(true);
-    setPreviewError('This file could not be displayed in the built-in viewer.');
+    setPreviewError(t('This file could not be displayed in the built-in viewer.'));
     notifyReady();
   }, [notifyReady]);
 

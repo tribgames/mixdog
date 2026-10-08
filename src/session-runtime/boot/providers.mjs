@@ -15,6 +15,7 @@ import { ensureProviderEnabled, normalizeSystemShellConfig } from '../../runtime
 import {
   workflowPresetId,
   normalizeWebSearchProviderId,
+  webSearchProviderFamily,
   isDefaultWebSearchRouteConfig,
   isWebSearchCapableProvider,
   normalizeWebSearchRouteConfig,
@@ -133,6 +134,7 @@ function wireNativeWebSearch(boot) {
     ensureProvidersReady,
     ensureProviderEnabled,
     normalizeWebSearchProviderId,
+    webSearchProviderFamily,
     isDefaultWebSearchRouteConfig,
     isWebSearchCapableProvider,
     webSearchCapableFor,

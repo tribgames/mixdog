@@ -423,7 +423,6 @@
 .settings-form-controls input:focus,
 .core-memory-edit input:focus,
 .settings-custom-provider-form input:focus,
-.settings-custom-provider-form select:focus,
 .settings-provider-secret input:focus {
   outline-color: var(--mx-focus);
   box-shadow: none;

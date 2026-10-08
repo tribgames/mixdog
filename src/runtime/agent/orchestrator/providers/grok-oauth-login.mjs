@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
+import { OAUTH_PAGE_CONTENT_TYPE, oauthSuccessHtml } from './lib/oauth-page.mjs';
 import {
   CLIENT_ID,
   SCOPE,
@@ -119,8 +120,8 @@ export async function beginOAuthLogin() {
         res.end('Invalid');
         return;
       }
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end('<html><body><h2>Grok login successful! You can close this tab.</h2></body></html>');
+      res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
+      res.end(oauthSuccessHtml('Grok'));
       try {
         const tokens = await exchangeAuthorizationCode({ discovery, pkce, code });
         finish(tokens);

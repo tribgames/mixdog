@@ -11,6 +11,7 @@ import { BROWSER_OBSERVATION_ACTIONS, validateBrowserToolArgs } from './action-s
 import { bridgeDiscoveryChanged, readBridgeDiscovery, readBridgeDiscoveryDetail } from '../bridge-discovery.mjs';
 import { traceBrowserTiming } from './timing.mjs';
 import { base64ByteLength, inlineFileKind } from '../shared/inline-file-kind.mjs';
+import { MAX_IMAGE_BYTES, SUPPORTED_IMAGE_MIME_TYPES } from '../attachments/limits.mjs';
 
 const DISCOVERY_FILE = 'browser-bridge.json';
 /** Ceiling above the bridge's own per-action timeouts (navigation settle,
@@ -19,9 +20,8 @@ const REQUEST_TIMEOUT_MS = 45_000;
 const MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_RESPONSE_BYTES = 150 * 1024 * 1024;
 const MAX_TEXT_CHARS = 250_000;
-const MAX_IMAGE_BASE64_CHARS = Math.ceil((100 * 1024 * 1024 * 4) / 3) + 4;
+const MAX_IMAGE_BASE64_CHARS = Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 4;
 const MAX_FILE_BASE64_CHARS = Math.ceil((8 * 1024 * 1024 * 4) / 3) + 4;
-const SAFE_RASTER_IMAGE_TYPES = new Set(['image/gif', 'image/jpeg', 'image/png', 'image/webp']);
 const RETRYABLE_ACTIONS = new Set(BROWSER_OBSERVATION_ACTIONS);
 const browserTurns = new Map();
 
@@ -99,7 +99,7 @@ function attachBrowserMedia(content, value) {
     ) {
       return browserToolError('browser bridge returned an invalid file');
     }
-    if (SAFE_RASTER_IMAGE_TYPES.has(mimeType.toLowerCase())) {
+    if (SUPPORTED_IMAGE_MIME_TYPES.has(mimeType.toLowerCase())) {
       content.push({
         type: 'image',
         source: { type: 'base64', media_type: mimeType, data },

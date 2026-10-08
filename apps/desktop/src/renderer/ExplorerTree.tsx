@@ -759,7 +759,6 @@ export const FilesRootPane = memo(function FilesRootPane({
         type="button"
         key={row.rel}
         role="treeitem"
-        data-i18n-skip
         aria-level={row.level + 1}
         aria-expanded={row.dir ? row.expanded : undefined}
         aria-selected={isSelected}
@@ -915,9 +914,7 @@ export const FilesRootPane = memo(function FilesRootPane({
               <span className={`explorer-twistie${rootExpanded ? '' : ' collapsed'}`} aria-hidden="true">
                 <ChevronDown size={14} />
               </span>
-              <span title={projectPath} data-i18n-skip>
-                {rootLabel || rootName}
-              </span>
+              <span title={projectPath}>{rootLabel || rootName}</span>
             </button>
           </div>
         )}

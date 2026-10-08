@@ -793,3 +793,58 @@ test('a Cursor abort does not replay a tool dispatched by the failing send', asy
     (error) => error === abort
   );
 });
+
+function xaiStreamCrash() {
+  const err = new Error('xAI Responses stream error: Internal error during token generation');
+  err.providerWireError = true;
+  err.providerErrorCode = 'invalid_request_error';
+  err.providerError = { type: 'invalid_request_error', message: 'Internal error during token generation' };
+  return err;
+}
+
+async function recoverWithLatestImage(providerName, error) {
+  const messages = [
+    { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image', mimeType: 'image/png', data: 'AAAA' }] },
+  ];
+  const { opts } = recordingOpts();
+  return await sendWithRecovery({
+    ...baseCtx,
+    messages,
+    provider: { send: async () => { throw error; } },
+    opts,
+    sessionRef: { id: 'sess-image-strip-scope', provider: providerName, contextWindow: 200_000 },
+    transportRetriesUsed: 0,
+  });
+}
+
+test('a bare retryable stream error strips images only for Grok; others take normal transport retry', async () => {
+  const grok = await recoverWithLatestImage('grok-oauth', xaiStreamCrash());
+  assert.equal(grok.action, 'retry_image_strip');
+  // Not an image-strip: the error is surfaced (or retried as transport), never stripped.
+  const other = await recoverWithLatestImage('anthropic', xaiStreamCrash()).catch((error) => ({ action: 'threw', error }));
+  assert.notEqual(other.action, 'retry_image_strip');
+});
+
+test('a confirmed image rejection still strips the image for any provider', async () => {
+  const rejection = Object.assign(new Error('Could not process image'), { status: 400 });
+  const result = await recoverWithLatestImage('anthropic', rejection);
+  assert.equal(result.action, 'retry_image_strip');
+});
+
+test('an Anthropic image preparation failure is a confirmed rejection that strips and persists the image', async () => {
+  const { AnthropicImagePreparationError } = await import('../providers/lib/anthropic-image-input.mjs');
+  const result = await recoverWithLatestImage(
+    'anthropic',
+    new AnthropicImagePreparationError('messages.0', 'cannot decode', undefined, 'AAAA')
+  );
+  assert.equal(result.action, 'retry_image_strip');
+  assert.equal(result.persist, true);
+});
+
+test('a sharp-unavailable runtime error never strips an image', async () => {
+  const { AnthropicImageRuntimeError } = await import('../providers/lib/anthropic-image-input.mjs');
+  const result = await recoverWithLatestImage('anthropic', new AnthropicImageRuntimeError('messages.0')).catch(
+    (error) => ({ action: 'threw', error })
+  );
+  assert.notEqual(result.action, 'retry_image_strip');
+});

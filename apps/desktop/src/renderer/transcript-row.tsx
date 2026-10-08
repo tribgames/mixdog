@@ -354,7 +354,7 @@ export const TranscriptRow = memo(
               <CompletionStatus item={completion} />
               {metadata.shortTime && <time className="message-time">{metadata.shortTime}</time>}
               {text && (
-                <CopyControl value={text} label={t('Copy response')} className="message-actions response-copy" />
+                <CopyControl value={text} label="Copy response" className="message-actions response-copy" />
               )}
             </footer>
           )}

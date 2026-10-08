@@ -146,7 +146,7 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
   };
   const closeEditor = () => setEditor(null);
   return (
-    <Group title="MCP">
+    <Group title={t('MCP')}>
       {createOpen && (
         <McpEditorDialog
           key="new-mcp"
@@ -160,7 +160,7 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
         />
       )}
       {servers.length === 0 && (
-        <ListEmpty text={sectionLoaded(data, 'mcp') ? 'No MCP servers configured.' : 'Loading MCP servers…'} />
+        <ListEmpty text={sectionLoaded(data, 'mcp') ? t('No MCP servers configured.') : t('Loading MCP servers…')} />
       )}
       {servers.map((server) => {
         const name = String(server.name);
@@ -213,9 +213,9 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
           }}
           onRemove={() =>
             confirm({
-              title: 'Remove MCP server?',
+              title: t('Remove MCP server?'),
               description: t('{{name}} will be removed from Mixdog.', { name: openName }),
-              confirmLabel: 'Remove',
+              confirmLabel: t('Remove'),
               danger: true,
               onConfirm: () => {
                 const name = openName;
@@ -257,10 +257,10 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
     if (value === undefined) return;
     setDetail(null);
     closeCreate?.();
-    showDesktopToast(`Saved "${String(payload.name || '')}".`, 'success');
+    showDesktopToast(t('Saved "{{name}}".', { name: String(payload.name || '') }), 'success');
   };
   return (
-    <Group title="Skills">
+    <Group title={t('Skills')}>
       {createOpen && (
         <SkillEditorDialog
           skill={null}
@@ -273,7 +273,7 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
         />
       )}
       {skills.length === 0 && (
-        <ListEmpty text={sectionLoaded(data, 'skills') ? 'No skills found.' : 'Loading skills…'} />
+        <ListEmpty text={sectionLoaded(data, 'skills') ? t('No skills found.') : t('Loading skills…')} />
       )}
       {skills.map((skill) => {
         const name = String(skill.name);
@@ -385,9 +385,9 @@ function PluginDetailDialog({
             disabled={busy}
             onClick={() =>
               confirm({
-                title: 'Remove plugin?',
+                title: t('Remove plugin?'),
                 description: t('{{name}} will be removed from Mixdog.', { name: label(open) }),
-                confirmLabel: 'Remove',
+                confirmLabel: t('Remove'),
                 danger: true,
                 onConfirm: () => {
                   onClose();
@@ -508,7 +508,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
   const [openId, setOpenId] = useState('');
   const open = openId ? plugins.find((plugin) => String(plugin.id || plugin.name) === openId) : undefined;
   return (
-    <Group title="Plugins">
+    <Group title={t('Plugins')}>
       {skillToolsDialog}
       {createOpen && (
         <PluginInstallDialog
@@ -518,7 +518,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
         />
       )}
       {plugins.length === 0 && (
-        <ListEmpty text={sectionLoaded(data, 'plugins') ? 'No plugins installed.' : 'Loading plugins…'} />
+        <ListEmpty text={sectionLoaded(data, 'plugins') ? t('No plugins installed.') : t('Loading plugins…')} />
       )}
       {plugins.map((plugin) => {
         const id = String(plugin.id || plugin.name);

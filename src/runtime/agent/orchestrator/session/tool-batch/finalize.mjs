@@ -15,7 +15,13 @@ import { crossTurnSignature, isEditProgressTool } from '../loop/completion-guard
 import { isEagerDispatchable, isToolCallDedupEligible, parseNativeToolSearchPayload } from '../loop/tool-helpers.mjs';
 import { restoreToolCallBodyForId } from '../loop/stored-tool-args.mjs';
 import { stageToolResult } from './state.mjs';
-import { compactToolResultImage, supersedingImageMetadataText } from '../../tools/builtin/read-image-resize.mjs';
+import {
+  compactToolResultImage,
+  resizeImageBuffer,
+  supersedingImageMetadataText,
+} from '../../tools/builtin/read-image-resize.mjs';
+import { SUPPORTED_IMAGE_MIME_TYPES } from '../../../../attachments/limits.mjs';
+import { isEnvironmentError } from '../../../../shared/environment-error.mjs';
 
 // Tools that publish the per-call mutation UI diff side channel (see
 // takeApplyPatchUiDiff): apply_patch plus the edit dialect and its foreign
@@ -41,20 +47,52 @@ export async function finalizeBatchResults(batch) {
   }
 }
 
-// Inline tool-result images are re-encoded here, once, before the result
-// reaches the read cache or the transcript; stored history is never revisited.
+// An image no provider can take is replaced by fixed text here, before it can
+// reach the transcript and fail every later send.
+const unsupportedImageText = (mimeType) => `[image omitted: ${mimeType} is not a supported image type]`;
+const UNDECODABLE_IMAGE_TEXT = '[image omitted: could not be decoded]';
+
+// Returns fixed placeholder text when the image is unusable, else null. Every
+// inline image is fully decoded (not only large ones); with no decoder
+// installed the image is kept as is.
+async function rejectedImageText(base64, rawMime) {
+  const mimeType = String(rawMime || 'image/png').split(';')[0].trim().toLowerCase();
+  if (!SUPPORTED_IMAGE_MIME_TYPES.has(mimeType)) return unsupportedImageText(mimeType);
+  try {
+    await resizeImageBuffer(Buffer.from(base64, 'base64'), mimeType.split('/')[1]);
+  } catch (error) {
+    // Only a deterministic decode failure of these bytes drops the image; an
+    // environment failure leaves it for a later retry.
+    return isEnvironmentError(error) ? null : UNDECODABLE_IMAGE_TEXT;
+  }
+  return null;
+}
+
+// Inline tool-result images are validated and re-encoded here, once, before
+// the result reaches the read cache or the transcript; stored history is never
+// revisited.
 export async function compactResultImages(result) {
   const parts = Array.isArray(result) ? result : Array.isArray(result?.content) ? result.content : null;
   if (!parts) return result;
   let changed = false;
   const next = [];
   for (const part of parts) {
-    const compacted =
-      part?.type === 'image' && typeof part.data === 'string'
-        ? await compactToolResultImage(part.data, part.mimeType || part.mediaType)
-        : null;
-    if (!compacted) {
+    const source = part?.type === 'image' && part.source?.type === 'base64' ? part.source : null;
+    const inlineData = part?.type === 'image' && typeof part.data === 'string' ? part.data : source?.data;
+    if (typeof inlineData !== 'string') {
       next.push(part);
+      continue;
+    }
+    const rawMime = source ? source.media_type : part.mimeType || part.mediaType;
+    const compacted = await compactToolResultImage(inlineData, rawMime);
+    if (!compacted) {
+      const rejected = await rejectedImageText(inlineData, rawMime);
+      if (rejected) {
+        changed = true;
+        next.push({ type: 'text', text: rejected });
+      } else {
+        next.push(part);
+      }
       continue;
     }
     changed = true;
@@ -62,12 +100,16 @@ export async function compactResultImages(result) {
     if (dims.originalWidth !== dims.displayWidth || dims.originalHeight !== dims.displayHeight) {
       next.push({ type: 'text', text: supersedingImageMetadataText(dims) });
     }
-    next.push({
-      ...part,
-      data: compacted.data,
-      mimeType: compacted.mimeType,
-      ...(part.mediaType ? { mediaType: compacted.mimeType } : {}),
-    });
+    next.push(
+      source
+        ? { ...part, source: { ...source, data: compacted.data, media_type: compacted.mimeType } }
+        : {
+            ...part,
+            data: compacted.data,
+            mimeType: compacted.mimeType,
+            ...(part.mediaType ? { mediaType: compacted.mimeType } : {}),
+          }
+    );
   }
   if (!changed) return result;
   return Array.isArray(result) ? next : { ...result, content: next };

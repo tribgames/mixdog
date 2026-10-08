@@ -310,3 +310,24 @@ test('a star confirmed while earlier steps are open shows Starred at once on the
   assert.ok(button('Starred').disabled);
   assert.equal(probes, 1);
 });
+
+test('API provider detail from the backend is shown literally even when it matches a catalog key', async (t) => {
+  const { default: i18next } = await import('../i18n.ts');
+  i18next.addResourceBundle('ko', 'translation', { History: 'HISTORY-KO', 'API key required': 'KEY-KO' });
+  await i18next.changeLanguage('ko');
+  t.after(() => i18next.changeLanguage('en'));
+  await mount(t, {
+    step: 1,
+    reads: {
+      getProviderSetup: {
+        api: [
+          { id: 'custom:a', name: 'A', detail: 'History', authenticated: false },
+          { id: 'custom:b', name: 'B', authenticated: false },
+        ],
+        oauth: [],
+      },
+    },
+  });
+  const states = [...document.querySelectorAll('.onboarding-provider-state')].map((entry) => entry.textContent);
+  assert.deepEqual(states, ['History', 'KEY-KO']);
+});

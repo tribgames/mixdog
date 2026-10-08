@@ -520,16 +520,12 @@ export function ProjectListSection({
   const projectPathsKey = JSON.stringify(projects.map((project) => project.path));
   const readMemories = async (path: string | null, refresh = false): Promise<CoreMemoryEntry[]> => {
     if (!onMemoryControl) return [];
-    try {
-      const catalog = await memoriesCache.read(
-        projectPathsKey,
-        () => readProjectMemories(JSON.parse(projectPathsKey), onMemoryControl),
-        refresh
-      );
-      return catalog.get(path) ?? [];
-    } catch (reason) {
-      throw new Error(t(reason instanceof Error ? reason.message : String(reason)));
-    }
+    const catalog = await memoriesCache.read(
+      projectPathsKey,
+      () => readProjectMemories(JSON.parse(projectPathsKey), onMemoryControl),
+      refresh
+    );
+    return catalog.get(path) ?? [];
   };
   const refreshMemories = async (path: string | null) => {
     const requestId = editOpenRequestRef.current;

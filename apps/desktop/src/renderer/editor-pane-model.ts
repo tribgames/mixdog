@@ -5,6 +5,7 @@ import type { DesktopFilePreviewKind } from '../shared/file-preview';
 import type { EditorOutlineItem } from './editor-language-store';
 import { CALL_HIERARCHY_LAYOUT_KEY } from './editor-monaco-providers';
 import { recordOf } from './editor-lsp-conversion';
+import { t } from './i18n';
 
 export interface FilePreview {
   url: string;
@@ -134,7 +135,7 @@ export function editorLanguageLabel(languageId: string): string {
     case 'javascript':
       return 'JavaScript';
     case 'plaintext':
-      return 'Plain Text';
+      return t('Plain Text');
     case 'json':
       return 'JSON';
     case 'html':
@@ -144,7 +145,7 @@ export function editorLanguageLabel(languageId: string): string {
     case 'cpp':
       return 'C++';
     default:
-      return languageId ? languageId[0].toLocaleUpperCase() + languageId.slice(1) : 'Plain Text';
+      return languageId ? languageId[0].toLocaleUpperCase() + languageId.slice(1) : t('Plain Text');
   }
 }
 

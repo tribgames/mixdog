@@ -89,6 +89,8 @@ export {
 export { codexModelSupportsServiceTier } from './openai-oauth-catalog.mjs';
 
 export class OpenAIOAuthProvider {
+  // Takes a PDF as a native document block (decided by this adapter's wire protocol).
+  nativePdf = true;
   // OpenAI input_tokens already INCLUDES cached_tokens (cached is a subset),
   // so input alone is the context footprint. See registry.mjs.
   static inputExcludesCache = false;

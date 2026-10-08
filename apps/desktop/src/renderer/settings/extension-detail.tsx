@@ -468,7 +468,6 @@ export function ExtensionScopeField({
         value={value}
         disabled={busy || (references.loading && !projects.length)}
         options={options}
-        localizeLabels={false}
         onChange={(next) => {
           void run('setExtensionScope', [kind, name, next ? [next] : []]);
         }}

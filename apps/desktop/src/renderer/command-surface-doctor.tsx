@@ -153,14 +153,8 @@ export function DoctorBody({
                   <LevelIcon level={check.level} />
                   <div className="doctor-check-text">
                     <span className="doctor-check-label">{checkLabel(check)}</span>
-                    <span className="doctor-check-detail" data-i18n-skip="">
-                      {check.detail}
-                    </span>
-                    {hint && (
-                      <span className="doctor-check-hint" data-i18n-skip="">
-                        {hint}
-                      </span>
-                    )}
+                    <span className="doctor-check-detail">{check.detail}</span>
+                    {hint && <span className="doctor-check-hint">{hint}</span>}
                   </div>
                   {section && onOpenSettings && (
                     <button type="button" className="doctor-check-fix" onClick={() => onOpenSettings(section)}>

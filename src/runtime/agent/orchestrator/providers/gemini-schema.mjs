@@ -593,6 +593,13 @@ export function toGeminiNativeTools(nativeTools) {
   return out;
 }
 
+// The request `tools` array: hosted tools first, then one function-declaration
+// entry when function tools are present. Empty when neither is present.
+export function toGeminiRequestTools(tools, nativeTools) {
+  const functionTools = tools?.length ? [toGeminiTools(tools)] : [];
+  return [...toGeminiNativeTools(nativeTools), ...functionTools];
+}
+
 export function collectGeminiGroundingSources(candidate) {
   const out = [];
   const seen = new Set();

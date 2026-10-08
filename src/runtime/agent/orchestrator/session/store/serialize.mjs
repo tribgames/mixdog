@@ -7,7 +7,9 @@ import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../lifecycle
 // Inline base64 images (tool screenshots included) are written as
 // content-addressed refs, like prompt media, so session JSON stays small while
 // provider lowering resolves them to the same bytes across turns and reloads.
-// Other inline media is replaced with placeholders on disk.
+// Inline documents (PDF, Office, text) are stored the same way as `file` refs.
+// Only media the store refuses (over the size cap, disk error) or that has no
+// inline bytes (URL/file-id images) is replaced with a placeholder on disk.
 // Per-message disk projection shared by _sessionForDisk and the save-worker
 // delta path (tail-only projection). Returns the SAME array reference when no
 // message changed. Idempotent: already-sanitized content passes through

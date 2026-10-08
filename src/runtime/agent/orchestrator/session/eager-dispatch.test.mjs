@@ -205,13 +205,17 @@ test('Computer Use batch returns an error result for every blocked extra call', 
   assert.match(results[1].content, /computer-call-cardinality/);
 });
 
+// A decodable image: tool-result images are decoded before they enter the transcript.
+const ONE_PIXEL_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVQImWMwTptpnDaTAUIBAB/uBMm6iK1UAAAAAElFTkSuQmCC';
+
 test('structured explicit failure reaches the transcript as an error with media intact', async () => {
   const calls = [{ id: 'computer-1', name: 'computer', arguments: { value: 1 } }];
   const results = [];
   const structured = {
     content: [
       { type: 'text', text: '{"ok":false,"action":"act"}' },
-      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: ONE_PIXEL_PNG } },
     ],
   };
   await processToolBatch({

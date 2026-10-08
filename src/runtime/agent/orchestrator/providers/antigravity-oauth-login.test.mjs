@@ -597,8 +597,8 @@ test('browser and manual callbacks share one exchange and show success only for 
   const [firstResponse, secondResponse, tokens, outcome] = await Promise.all([first, second, manual, fixture.outcome]);
   assert.equal(firstResponse.status, 200);
   assert.equal(secondResponse.status, 200);
-  assert.match(await firstResponse.text(), /Antigravity connected/);
-  assert.match(await secondResponse.text(), /Antigravity connected/);
+  assert.match(await firstResponse.text(), /Signed in to Antigravity\./);
+  assert.match(await secondResponse.text(), /Signed in to Antigravity\./);
   assert.equal(tokens, outcome.value);
   assert.equal(tokens.project_id, 'current-project');
   assert.equal(api.calls[0].init.body.get('code'), 'browser-code');
@@ -636,7 +636,7 @@ test('failed eligibility produces a failure page, never premature browser succes
   assert.equal(response.status, 500);
   const html = await response.text();
   assert.match(html, /sign-in was not completed/);
-  assert.doesNotMatch(html, /login successful|Antigravity connected/);
+  assert.doesNotMatch(html, /Authentication successful|Signed in to Antigravity/);
   assert.match((await fixture.outcome).error.message, /Account eligibility denied/);
   assert.equal(existsSync(fixture.tokenPath), false);
 });

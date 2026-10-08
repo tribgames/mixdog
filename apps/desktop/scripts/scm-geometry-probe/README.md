@@ -45,8 +45,7 @@ The rules the overlays must keep:
   and stays inside the dock panel; the old band under the toolbar must not come
   back. Below the 300px floor only gaps and side padding tighten — action
   icons stay 14px, nothing hides and nothing overlaps,
-- the toolbar is marked `data-i18n-skip`, so branch names and the fixed
-  `Push`/`Fetch` Git action labels remain unchanged in every UI language,
+- the fixed Git action labels read exactly `Push` and `Fetch`,
 - the branch panel keeps ONE box across frames: its first frame (open, loading
   row visible) and its settled frame (branches listed) have the same height and
   the same position, on a fresh open AND on a cached reopen, and both reopen

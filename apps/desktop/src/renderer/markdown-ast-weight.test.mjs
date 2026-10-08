@@ -46,7 +46,6 @@ test('the real parser worker carries an accurate weight through the host reply',
       assert.ok(root.children.length > 0);
     }
   } finally {
-    host.reclaim();
     if (previous) Object.defineProperty(globalThis, 'self', previous);
     else delete globalThis.self;
   }

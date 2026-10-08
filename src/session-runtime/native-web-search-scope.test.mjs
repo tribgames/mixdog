@@ -49,6 +49,7 @@ function createSearchRuntime(t, id, model) {
     ensureProvidersReady: readiness.ensureProvidersReady,
     ensureProviderEnabled: (config) => config.providers,
     normalizeWebSearchProviderId: (value) => value,
+    webSearchProviderFamily: () => 'xai',
     normalizeWebSearchRouteConfig: (value) => value,
     isDefaultWebSearchRouteConfig: () => false,
     isWebSearchCapableProvider: () => true,

@@ -149,10 +149,47 @@
     padding: 16px 20px;
   }
   .settings-custom-provider-form > input,
-  .settings-custom-provider-form > select {
+  .settings-custom-provider-form > .mx-select-root {
     width: 100%;
     min-width: 0;
     max-width: 100%;
+  }
+  .settings-custom-models {
+    margin-top: 6px;
+    font-size: var(--mx-font-ui);
+    color: var(--mx-text);
+  }
+  .settings-custom-models > p {
+    margin: 6px 0 8px;
+    color: var(--mx-text-muted);
+    font-size: var(--mx-font-meta);
+    line-height: var(--mx-line-meta);
+  }
+  .settings-custom-models-add {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .settings-custom-models-add input {
+    flex: 1;
+    min-width: 0;
+  }
+  .settings-custom-models ul {
+    display: grid;
+    gap: 6px;
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .settings-custom-models li {
+    align-items: center;
+    min-width: 0;
+  }
+  .settings-custom-models li span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .settings-custom-provider-dialog > form {
     min-height: 0;
@@ -762,11 +799,7 @@
   justify-items: center;
   padding: 14px 10px;
   border-radius: var(--mx-radius-lg);
-  background: var(--mx-bg-layer-1);
-}
-:root .settings-connection-card {
-  background: var(--mx-item-surface);
-  box-shadow: var(--mx-item-outline);
+  background: transparent;
 }
 .settings-connection-card svg {
   width: 168px;

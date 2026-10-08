@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -14,8 +15,12 @@ const {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
 } = await import('./store.mjs');
-const { normalizeContentForAnthropic, normalizeContentForOpenAIResponses, sanitizeContentForStoredHistory } =
-  await import('../agent/orchestrator/providers/media-normalization.mjs');
+const {
+  normalizeContentForAnthropic,
+  normalizeContentForOpenAIChat,
+  normalizeContentForOpenAIResponses,
+  sanitizeContentForStoredHistory,
+} = await import('../agent/orchestrator/providers/media-normalization.mjs');
 const { imageResizeCacheStats, openAIImagePatchCount, resizeImageBuffer } = await import(
   '../agent/orchestrator/tools/builtin/read-image-resize.mjs'
 );
@@ -158,21 +163,48 @@ test('OpenAI image profile respects the 2048px and 1536-patch budget', async () 
   assert.ok(openAIImagePatchCount(openai.dimensions.displayWidth, openai.dimensions.displayHeight) <= 1536);
 });
 
-test('PDF intake keeps native documents and extracts page text for compat providers', async () => {
+function pagedPdf(pageCount) {
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>'];
+  objects.push(`<< /Type /Pages /Kids [${Array.from({ length: pageCount }, (_, i) => `${3 + i} 0 R`).join(' ')}] /Count ${pageCount} >>`);
+  for (let i = 0; i < pageCount; i += 1) objects.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>');
+  let body = '%PDF-1.4\n';
+  const offsets = [];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(body, 'latin1'));
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xref = Buffer.byteLength(body, 'latin1');
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  body += offsets.map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(body, 'latin1');
+}
+
+test('PDF intake only validates: every provider keeps the PDF reference', async () => {
   const data = minimalPdf('Provider parity').toString('base64');
-  const native = await preparePromptSubmissionForProvider(
-    materializePromptSubmission([{ type: 'file', data, mimeType: 'application/pdf', filename: 'native.pdf' }]),
-    'anthropic'
-  );
-  assert.equal(native.prompt[0].type, 'file');
-  assert.equal(native.prompt[0].pageCount, 1);
-  const compat = await preparePromptSubmissionForProvider(
-    materializePromptSubmission([{ type: 'file', data, mimeType: 'application/pdf', filename: 'compat.pdf' }]),
-    'xai'
-  );
-  assert.equal(compat.prompt[0].type, 'text');
-  assert.match(normalizeContentForAnthropic(compat.prompt)[0].text, /Provider parity/);
-  assert.doesNotMatch(JSON.stringify(compat), new RegExp(data.slice(0, 40)));
+  const intake = () =>
+    materializePromptSubmission([{ type: 'file', data, mimeType: 'application/pdf', filename: 'a.pdf' }]);
+  for (const provider of [{ nativePdf: true }, { nativePdf: false }, undefined]) {
+    const prepared = await preparePromptSubmissionForProvider(intake(), provider);
+    assert.equal(prepared.prompt[0].type, 'file');
+    assert.equal(prepared.prompt[0].pageCount, 1);
+    assert.ok(prepared.prompt[0].attachmentRef);
+    assert.equal(JSON.stringify(prepared).includes('Provider parity'), false, 'no text conversion at intake');
+  }
+});
+
+test('a PDF over the page cap is refused for a native provider and accepted for one that reads text', async () => {
+  const data = pagedPdf(101).toString('base64');
+  const intake = () => materializePromptSubmission([{ type: 'file', data, mimeType: 'application/pdf', filename: 'long.pdf' }]);
+  await assert.rejects(preparePromptSubmissionForProvider(intake(), { nativePdf: true }), /101 pages/);
+  const accepted = await preparePromptSubmissionForProvider(intake(), { nativePdf: false });
+  assert.equal(accepted.prompt[0].pageCount, 101);
+});
+
+test('an unreadable PDF is refused at intake for every provider', async () => {
+  const data = Buffer.from('%PDF-1.4 nonsense').toString('base64');
+  const intake = materializePromptSubmission([{ type: 'file', data, mimeType: 'application/pdf', filename: 'bad.pdf' }]);
+  await assert.rejects(preparePromptSubmissionForProvider(intake, { nativePdf: false }));
 });
 
 test('stored history keeps tool-result images as refs that lower to the same provider bytes', () => {
@@ -198,6 +230,33 @@ test('stored history keeps tool-result images as refs that lower to the same pro
   assert.deepEqual(sanitizeContentForStoredHistory([nonCanonical]), [
     { type: 'text', text: '[Image omitted from stored history: image/png]' },
   ]);
+});
+
+test('stored history keeps inline PDFs as refs that lower to the same provider bytes', () => {
+  const pdf = minimalPdf('Stored PDF').toString('base64');
+  const other = minimalPdf('Other PDF').toString('base64');
+  const live = {
+    content: [
+      { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdf } },
+      { type: 'document', title: 'Titled.pdf', source: { type: 'base64', media_type: 'application/pdf', data: other } },
+      { type: 'file', data: pdf, mimeType: 'application/pdf', filename: 'inline.pdf' },
+    ],
+  };
+
+  const stored = sanitizeContentForStoredHistory(live);
+  const reloaded = JSON.parse(JSON.stringify(stored));
+
+  assert.doesNotMatch(JSON.stringify(stored), /omitted/);
+  for (const part of stored.content) {
+    assert.equal(part.type, 'file');
+    assert.ok(part.attachmentRef);
+  }
+  assert.doesNotMatch(JSON.stringify(stored), new RegExp(`${pdf}|${other}`));
+  assert.deepEqual(normalizeContentForAnthropic(reloaded), normalizeContentForAnthropic(live));
+  assert.deepEqual(normalizeContentForOpenAIResponses(reloaded), normalizeContentForOpenAIResponses(live));
+  assert.deepEqual(normalizeContentForOpenAIChat(reloaded), normalizeContentForOpenAIChat(live));
+  const again = sanitizeContentForStoredHistory(live);
+  stored.content.forEach((part, i) => assert.equal(again.content[i], part));
 });
 
 test('attachment GC preserves durable refs and the safety window while deleting stale orphans', async () => {
@@ -230,6 +289,113 @@ test('attachment GC preserves durable refs and the safety window while deleting 
   assert.equal(existsSync(blobPath(fresh)), true);
   assert.equal(existsSync(blobPath(orphan)), false);
   assert.equal(result.deleted, 1);
+});
+
+const blobDir = (ref) => join(dataDir, 'prompt-attachments', 'sha256', ref.slice(0, 2));
+const blobFile = (ref) => join(blobDir(ref), ref);
+const sha256 = (buffer) => createHash('sha256').update(buffer).digest('hex');
+
+test('GC keeps blobs referenced only by a turn-checkpoint journal and sweeps stale temp files', async () => {
+  const journaled = materializePromptSubmission([
+    { type: 'file', data: Buffer.from('journal only attachment').toString('base64'), mimeType: 'application/octet-stream' },
+  ]).prompt[0];
+  mkdirSync(join(dataDir, 'turn-checkpoints'), { recursive: true });
+  writeFileSync(
+    join(dataDir, 'turn-checkpoints', 'sess_journal.jsonl'),
+    `${JSON.stringify({ kind: 'user', content: [journaled] })}\n`
+  );
+  const old = new Date(Date.now() - 120_000);
+  utimesSync(blobFile(journaled.attachmentRef), old, old);
+  const staleTemp = `${blobFile(journaled.attachmentRef)}.123.abcdef.tmp`;
+  const freshTemp = `${blobFile(journaled.attachmentRef)}.456.fedcba.tmp`;
+  writeFileSync(staleTemp, 'partial');
+  writeFileSync(freshTemp, 'partial');
+  utimesSync(staleTemp, old, old);
+
+  await collectPromptAttachments({ now: Date.now(), minAgeMs: 60_000 });
+  assert.equal(existsSync(blobFile(journaled.attachmentRef)), true, 'journal reference protects the blob');
+  assert.equal(existsSync(staleTemp), false, 'stale temp file is swept');
+  assert.equal(existsSync(freshTemp), true, 'a temp file inside the safety window may still be in flight');
+});
+
+test('a failed publish leaves no temp file behind', () => {
+  const bytes = Buffer.from('publish will fail');
+  const ref = sha256(bytes);
+  // A directory at the content address makes the final rename fail.
+  mkdirSync(blobFile(ref), { recursive: true });
+  assert.throws(() =>
+    materializePromptSubmission([{ type: 'file', data: bytes.toString('base64'), mimeType: 'application/octet-stream' }])
+  );
+  assert.deepEqual(
+    readdirSync(blobDir(ref)).filter((name) => name.endsWith('.tmp')),
+    []
+  );
+});
+
+test('caps use the real blob size, not the client-claimed sizeBytes', async () => {
+  const pdf = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(21 * 1024 * 1024, 0x20)]);
+  const intake = materializePromptSubmission([
+    { type: 'file', data: pdf.toString('base64'), mimeType: 'application/pdf', filename: 'huge.pdf' },
+  ]);
+  intake.prompt[0].sizeBytes = 1;
+  await assert.rejects(preparePromptSubmissionForProvider(intake, 'anthropic'), /PDF exceeds/);
+
+  const big = Buffer.from('x'.repeat(1024 * 1024 + 10));
+  try {
+    materializePromptSubmission(big.toString('utf8'));
+  } catch {}
+  assert.throws(
+    () =>
+      materializePromptSubmission('[Pasted text #1 +1 lines]', {
+        pastedTexts: { 1: { id: 1, attachmentRef: sha256(big), sizeBytes: 1 } },
+      }),
+    /1 MiB/
+  );
+});
+
+test('pasted image metadata pairs to parts by identity, not by position', () => {
+  const restored = materializePromptSubmission([
+    { type: 'image', data: Buffer.from('restored image').toString('base64'), mimeType: 'image/png' },
+  ]).prompt[0];
+  const fresh = Buffer.from('fresh image').toString('base64');
+  const intake = materializePromptSubmission(
+    [
+      { type: 'image', data: fresh, mimeType: 'image/png' },
+      { type: 'image', attachmentRef: restored.attachmentRef, sizeBytes: restored.sizeBytes, mimeType: 'image/png' },
+    ],
+    {
+      pastedImages: {
+        1: { id: 1, type: 'image', attachmentRef: restored.attachmentRef, sizeBytes: restored.sizeBytes },
+        2: { id: 2, type: 'image', mediaType: 'image/png' },
+      },
+    }
+  );
+  assert.equal(intake.options.pastedImages[1].attachmentRef, restored.attachmentRef);
+  assert.equal(intake.options.pastedImages[2].attachmentRef, intake.prompt[0].attachmentRef);
+  assert.notEqual(intake.options.pastedImages[2].attachmentRef, restored.attachmentRef);
+
+  const tagged = materializePromptSubmission(
+    [
+      { type: 'image', data: fresh, mimeType: 'image/png', pasteId: 3 },
+      { type: 'image', data: Buffer.from('other image').toString('base64'), mimeType: 'image/png', pasteId: 4 },
+    ],
+    { pastedImages: { 4: { id: 4, type: 'image' }, 3: { id: 3, type: 'image' } } }
+  );
+  assert.equal(tagged.options.pastedImages[3].attachmentRef, tagged.prompt[0].attachmentRef);
+  assert.equal(tagged.options.pastedImages[4].attachmentRef, tagged.prompt[1].attachmentRef);
+});
+
+test('hydration can drop an unreadable attachment alone', () => {
+  const kept = materializePromptSubmission([
+    { type: 'image', data: Buffer.from('kept image').toString('base64'), mimeType: 'image/png' },
+  ]).prompt[0];
+  const gone = { attachmentRef: sha256(Buffer.from('never stored')), sizeBytes: 12 };
+  const images = { 1: { id: 1, ...kept }, 2: { id: 2, ...gone } };
+  assert.throws(() => hydratePastedAttachments(images, null), { code: 'ENOENT' });
+  const dropped = [];
+  const out = hydratePastedAttachments(images, null, { onUnreadable: (kind, key) => dropped.push(`${kind}:${key}`) });
+  assert.deepEqual(Object.keys(out.pastedImages), ['1']);
+  assert.deepEqual(dropped, ['image:2']);
 });
 
 test.after(() => {

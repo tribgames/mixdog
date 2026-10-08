@@ -8,13 +8,12 @@ import { outputStyleStatus as outputStyleStatusRaw } from '../output-styles.mjs'
 import {
   createWorkflowHelpers,
   createWorkflowRouteHelpers,
-  normalizeWebSearchProviderId,
-  isWebSearchCapableProvider,
+  webSearchProviderFamily,
 } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { STANDALONE_ROOT, STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
 
 export const resolveRoute = makeResolveRoute(makeResolveDefaultProvider(isKnownProvider));
-export const webSearchCapableFor = makeWebSearchCapableFor(normalizeWebSearchProviderId, isWebSearchCapableProvider);
+export const webSearchCapableFor = makeWebSearchCapableFor(webSearchProviderFamily);
 
 export const outputStyleStatus = (dataDir = STANDALONE_DATA_DIR, opts = {}) =>
   outputStyleStatusRaw(STANDALONE_ROOT, dataDir || STANDALONE_DATA_DIR, opts);

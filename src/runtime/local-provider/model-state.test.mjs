@@ -28,8 +28,24 @@ test('runtime observations distinguish queue, first semantic response and genera
 test('unsupported media and known-unsupported tools are refused, while unknown tool support is not invented', () => {
   const model = { name: 'Text model', supportsFunctionCalling: null };
   for (const type of ['image', 'image_url', 'audio', 'document', 'video']) {
-    assert.throws(() => assertLocalModelInput(model, [{ content: [{ type }] }], []), /text-only/);
+    assert.throws(() => assertLocalModelInput(model, [{ role: 'user', content: [{ type }] }], []), /text-only/);
   }
+  const history = [
+    { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image', data: 'AAAA', mimeType: 'image/png' }] },
+    { role: 'tool', content: [{ type: 'tool_result', tool_use_id: 'c', content: [{ type: 'file', data: 'AAAA', mimeType: 'application/zip' }] }] },
+    { role: 'user', content: [{ type: 'document', source: {} }] },
+    { role: 'user', content: [{ type: 'text', text: 'now' }, { type: 'image_url', image_url: { url: 'x' } }] },
+  ];
+  const degraded = assertLocalModelInput(model, history, []);
+  assert.equal(degraded[0].content[1].text, '[image omitted: local model is text-only]');
+  assert.equal(
+    degraded[1].content[0].content[0].text,
+    '[file not sent inline: (application/zip, 3 bytes) — this type has no inline form; open it from disk with read]'
+  );
+  assert.equal(degraded[2].content[0].text, '[document omitted: local model is text-only]');
+  assert.equal(degraded[3].content[1].text, '[image omitted: local model is text-only]');
+  assert.equal(history[0].content[1].type, 'image');
+  assert.deepEqual(assertLocalModelInput(model, history, []), degraded);
   assert.doesNotThrow(() => assertLocalModelInput(model, [{ content: 'hello' }], [{ name: 'test' }]));
   assert.throws(
     () => assertLocalModelInput(model, [{ content: 'hello' }], [{ name: 'test' }], {}, { tools: false }),

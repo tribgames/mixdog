@@ -1,11 +1,20 @@
 import { setMaxListeners } from 'node:events';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
+import {
+  MAX_ATTACHMENT_BLOB_BYTES,
+  MAX_IMAGE_BYTES,
+  MAX_PDF_BYTES,
+  MAX_PDF_PAGES,
+  SUPPORTED_IMAGE_MIME_TYPES,
+} from '../../../attachments/limits.mjs';
+import { inspectPdfBuffer } from '../../../attachments/pdf-extract.mjs';
+import { inlineFileKind } from '../../../shared/inline-file-kind.mjs';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
-import { smartReadTruncate } from '../tools/builtin/read-formatting.mjs';
+import { createHash, randomUUID } from 'node:crypto';
+import { buildSmartReadTruncationMarker, smartReadTruncate } from '../tools/builtin/read-formatting.mjs';
 import { shutdownStdioChild, killStdioChildTreeFast } from './child-tree.mjs';
 import { makeToolEnvelope, normalizeToolEnvelope } from '../session/tool-envelope.mjs';
 import { classifyResultKind } from '../session/result-classification.mjs';
@@ -391,8 +400,8 @@ export async function executeMcpTool(name, args, options = {}) {
           throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
         }
       }
-      const normalized = normalizeToolEnvelope(normalizeMcpToolResult(result));
-      const text = capMcpOutput(normalized.result);
+      const normalized = normalizeToolEnvelope(await normalizeMcpToolResult(result));
+      const text = capMcpResult(normalized.result);
       return normalized.explicitSuccess ? makeToolEnvelope(text, [], { explicitSuccess: true }) : text;
     },
     {
@@ -466,21 +475,177 @@ function mcpCallTimeout(server, timeoutMs, message, errorFields = {}) {
   return { promise, clear: () => clearTimeout(timer) };
 }
 
+function mcpResourceFilename(uri) {
+  const tail = String(uri || '')
+    .split(/[?#]/)[0]
+    .split('/')
+    .filter(Boolean)
+    .pop();
+  let name = tail || 'resource';
+  try {
+    name = decodeURIComponent(name);
+  } catch {
+    /* keep the raw segment */
+  }
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: strips control characters and separators from a server-supplied name
+  name = name.replace(/[\u0000-\u001f/\\]/g, '_').slice(0, 255);
+  return name || 'resource';
+}
+
+// Canonical base64 (decode → re-encode) so the attachment store accepts the
+// payload and live/saved forms lower identically. Returns null when empty.
+function mcpCanonicalBase64(data, maxBytes) {
+  // Reject by encoded length before decoding so huge payloads are never copied.
+  if (data.length > Math.ceil((maxBytes * 4) / 3) * 2) return { tooLarge: true };
+  const buffer = Buffer.from(data, 'base64');
+  if (buffer.length === 0) return null;
+  if (buffer.length > maxBytes) return { tooLarge: true };
+  return { data: buffer.toString('base64'), buffer };
+}
+
+const mcpMiB = (bytes) => `${bytes / 1024 / 1024} MiB`;
+
+function mcpImagePart(data, rawMime) {
+  const mimeType = String(rawMime || 'image/png').split(';')[0].trim().toLowerCase() || 'image/png';
+  if (!SUPPORTED_IMAGE_MIME_TYPES.has(mimeType)) {
+    return { type: 'text', text: `[MCP image omitted: ${mimeType} is not a supported image type]` };
+  }
+  const canon = mcpCanonicalBase64(data, MAX_IMAGE_BYTES);
+  if (!canon) return { type: 'text', text: '[MCP image omitted: empty image data]' };
+  if (canon.tooLarge) {
+    return { type: 'text', text: `[MCP image omitted: ${mimeType} image exceeds the ${mcpMiB(MAX_IMAGE_BYTES)} limit]` };
+  }
+  return { type: 'image', data: canon.data, mimeType };
+}
+
+// Media with no inline form is written once, named by its content hash, next
+// to the oversized-text spill so the model can open it from disk with read.
+function spillMcpBinary(buffer, extension) {
+  const hash = createHash('sha256').update(buffer).digest('hex');
+  const dir = join(tmpdir(), 'mixdog-mcp-output');
+  const path = join(dir, `mcp-${hash}.${extension}`);
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path, buffer, { flag: 'wx' });
+  } catch (err) {
+    if (err?.code !== 'EEXIST') return null;
+  }
+  return path;
+}
+
+const mcpExtension = (name) => /\.([a-z0-9]{1,8})$/i.exec(name)?.[1]?.toLowerCase() || 'bin';
+
+async function mcpFilePart(data, rawMime, uri) {
+  const mimeType = String(rawMime || 'application/octet-stream').trim() || 'application/octet-stream';
+  const filename = mcpResourceFilename(uri);
+  const canon = mcpCanonicalBase64(data, MAX_ATTACHMENT_BLOB_BYTES);
+  if (!canon) return { type: 'text', text: `[MCP resource omitted: ${filename} has no data]` };
+  if (canon.tooLarge) {
+    return {
+      type: 'text',
+      text: `[MCP resource omitted: ${filename} (${mimeType}) exceeds the ${mcpMiB(MAX_ATTACHMENT_BLOB_BYTES)} limit]`,
+    };
+  }
+  // The bytes decide the kind; the declared MIME type only labels the part.
+  const kind = inlineFileKind(mimeType, canon.data, filename);
+  if (kind === 'pdf') {
+    if (canon.buffer.length > MAX_PDF_BYTES) {
+      return {
+        type: 'text',
+        text: `[MCP resource omitted: ${filename} (${mimeType}) exceeds the ${mcpMiB(MAX_PDF_BYTES)} PDF limit]`,
+      };
+    }
+    let pageCount;
+    try {
+      ({ pageCount } = await inspectPdfBuffer(canon.buffer, { maxPages: Infinity }));
+    } catch {
+      return { type: 'text', text: `[MCP resource omitted: ${filename} is password-protected or not a valid PDF]` };
+    }
+    if (pageCount > MAX_PDF_PAGES) {
+      return {
+        type: 'text',
+        text: `[MCP resource omitted: ${filename} has ${pageCount} pages, too many to attach (max ${MAX_PDF_PAGES})]`,
+      };
+    }
+  } else if (kind === 'binary') {
+    const path = spillMcpBinary(canon.buffer, mcpExtension(filename));
+    return {
+      type: 'text',
+      text: path
+        ? `[MCP resource ${filename} (${mimeType}, ${canon.buffer.length} bytes) saved to ${path}; open it from disk with read.]`
+        : `[MCP resource omitted: ${filename} (${mimeType}, ${canon.buffer.length} bytes) could not be saved]`,
+    };
+  }
+  return { type: 'file', data: canon.data, mimeType, filename };
+}
+
+function mcpAudioPart(data, rawMime) {
+  const mimeType = String(rawMime || 'audio').trim() || 'audio';
+  const canon = typeof data === 'string' && data ? mcpCanonicalBase64(data, MAX_ATTACHMENT_BLOB_BYTES) : null;
+  if (!canon) return { type: 'text', text: `[MCP audio content: ${mimeType}]` };
+  if (canon.tooLarge) {
+    return { type: 'text', text: `[MCP audio omitted: ${mimeType} exceeds the ${mcpMiB(MAX_ATTACHMENT_BLOB_BYTES)} limit]` };
+  }
+  const subtype = mimeType.split(';')[0].split('/')[1] || '';
+  const path = spillMcpBinary(canon.buffer, subtype.replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase() || 'bin');
+  return {
+    type: 'text',
+    text: path
+      ? `[MCP audio content: ${mimeType} (${canon.buffer.length} bytes) saved to ${path}; open it from disk with read.]`
+      : `[MCP audio content: ${mimeType}]`,
+  };
+}
+
+// Deterministic mapping of one MCP content item to a runtime part. Binary data
+// stays in structured media parts (never in a text string); the shared media
+// lowering decides how each provider receives it.
+async function mcpContentPart(c) {
+  if (!c || typeof c !== 'object') return { type: 'text', text: String(c ?? '') };
+  if (c.type === 'text') return { type: 'text', text: c.text || '' };
+  if (c.type === 'image' && typeof c.data === 'string' && c.data) {
+    return mcpImagePart(c.data, c.mimeType);
+  }
+  if (c.type === 'audio') return mcpAudioPart(c.data, c.mimeType);
+  if (c.type === 'resource' && c.resource && typeof c.resource === 'object') {
+    const r = c.resource;
+    if (typeof r.text === 'string') return { type: 'text', text: r.text };
+    if (typeof r.blob === 'string' && r.blob) {
+      if (/^image\//i.test(String(r.mimeType || '').trim())) return mcpImagePart(r.blob, r.mimeType);
+      return await mcpFilePart(r.blob, r.mimeType, r.uri);
+    }
+  }
+  return { type: 'text', text: JSON.stringify(c) };
+}
+
+const isMcpMediaPart = (p) => p.type === 'image' || p.type === 'file';
+
 // Preserve MCP failure metadata across the object→string boundary. The
 // session loop classifies the canonical Error: prefix as toolKind:error.
-function normalizeMcpToolResult(result) {
+export async function normalizeMcpToolResult(result) {
   const content = result.content;
+  let parts = null;
   let text;
   if (Array.isArray(content)) {
-    text = content.map((c) => (c.type === 'text' ? c.text || '' : JSON.stringify(c))).join('\n');
+    parts = await Promise.all(content.map(mcpContentPart));
+    text = parts
+      .filter((p) => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n');
+    if (!parts.some(isMcpMediaPart)) parts = null;
   } else {
     text = typeof content === 'string' ? content : JSON.stringify(content);
   }
-  if (result.isError === true) return !text.startsWith('Error:') ? `Error: ${text}` : text;
-  if (result.isError === false && classifyResultKind(text) === 'error') {
-    return makeToolEnvelope(text, [], { explicitSuccess: true });
+  if (result.isError === true) {
+    if (!parts) return text.startsWith('Error:') ? text : `Error: ${text}`;
+    const first = parts[0];
+    if (first.type !== 'text') return { content: [{ type: 'text', text: 'Error:' }, ...parts] };
+    if (first.text.startsWith('Error:')) return { content: parts };
+    return { content: [{ ...first, text: `Error: ${first.text}` }, ...parts.slice(1)] };
   }
-  return text;
+  if (result.isError === false && classifyResultKind(text) === 'error') {
+    return makeToolEnvelope(parts ? { content: parts } : text, [], { explicitSuccess: true });
+  }
+  return parts ? { content: parts } : text;
 }
 
 function isMcpToolCallTimeoutError(err) {
@@ -593,12 +758,60 @@ function countTextLines(text) {
   return lines;
 }
 
+// Structured results cap the TOTAL text across parts (one budget, as for a
+// plain string); media parts pass through intact and every part keeps its
+// position. The joined text is truncated exactly like a plain string (head
+// lines, one marker, tail lines); each text part keeps only the slice of its
+// own text that survives, and the marker plus spill note land on the part
+// where the elision starts. Cuts are on line boundaries of the joined text.
+export function capMcpResult(result) {
+  if (!result || typeof result !== 'object' || !Array.isArray(result.content)) return capMcpOutput(result);
+  const joined = result.content
+    .filter((p) => p.type === 'text')
+    .map((p) => p.text)
+    .join('\n');
+  const capped = capMcpOutputParts(joined);
+  if (!capped.truncated) return result;
+  const headEnd = capped.head.length;
+  const tailStart = joined.length - capped.tail.length;
+  const textParts = result.content.filter((p) => p.type === 'text');
+  let offset = 0;
+  const spans = new Map();
+  for (const p of textParts) {
+    spans.set(p, offset);
+    offset += p.text.length + 1;
+  }
+  const owner = textParts.filter((p) => spans.get(p) <= headEnd).pop();
+  return {
+    ...result,
+    content: result.content.flatMap((p) => {
+      if (p.type !== 'text') return [p];
+      const start = spans.get(p);
+      const end = start + p.text.length;
+      if (p === owner) {
+        const pre = p.text.slice(0, Math.max(0, headEnd - start));
+        const suf = end > tailStart ? p.text.slice(Math.max(0, tailStart - start)) : '';
+        const text = `${pre}\n${capped.marker}${suf ? `\n${suf}` : ''}${capped.spillNote}`;
+        return [{ ...p, text }];
+      }
+      if (end <= headEnd || start >= tailStart) return [p];
+      if (start < headEnd) return [{ ...p, text: p.text.slice(0, headEnd - start) }];
+      if (end > tailStart) return [{ ...p, text: p.text.slice(tailStart - start) }];
+      return [];
+    }),
+  };
+}
 function capMcpOutput(content) {
+  const { text, spillNote } = capMcpOutputParts(content);
+  return `${text}${spillNote}`;
+}
+
+function capMcpOutputParts(content) {
   const s = typeof content === 'string' ? content : String(content ?? '');
   const bodyBytes = Buffer.byteLength(s, 'utf8');
   const bodyLines = countTextLines(s);
   const { text, truncated } = smartReadTruncate(s, bodyLines, bodyBytes);
-  if (!truncated) return text;
+  if (!truncated) return { text, spillNote: '', truncated: false };
   // Spill the full body to a tmp file so the caller can recover content
   // elided by the head/tail cap.
   let spillPath = null;
@@ -616,7 +829,16 @@ function capMcpOutput(content) {
     /* spill best-effort */
   }
   const spillNote = spillPath ? `\n\n... [full output spilled to ${spillPath}] ...` : '';
-  return `${text}${spillNote}`;
+  const marker = buildSmartReadTruncationMarker(bodyLines, bodyBytes);
+  const split = text.indexOf(`\n${marker}\n`);
+  return {
+    text,
+    spillNote,
+    truncated: true,
+    marker,
+    head: text.slice(0, split),
+    tail: text.slice(split + marker.length + 2),
+  };
 }
 /**
  * Check if a tool name is an MCP tool.

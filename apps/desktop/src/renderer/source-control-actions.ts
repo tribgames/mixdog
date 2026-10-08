@@ -4,7 +4,7 @@
 import type { DesktopGitBranch, DesktopGitFile, DesktopGitLogEntry, DesktopGitStatus } from '../shared/contract';
 import { t } from './i18n';
 import { resetModePrompt } from './source-control-confirmations';
-import { EMPTY_SUMMARY, gitRemoteWebUrl, isDirtyResetRefusal, reasonText } from './source-control-support';
+import { emptySummary, gitRemoteWebUrl, isDirtyResetRefusal, reasonText } from './source-control-support';
 import type { GitActionRunner } from './use-source-control-runner';
 
 type SourceControlActionContext = {
@@ -17,20 +17,22 @@ type SourceControlActionContext = {
 /** Channels this build does not carry yet: the item stays VISIBLE (nothing
  *  becomes unreachable) but says why it cannot run. */
 export function missingChannel(what: string): string {
-  return `${what} is not available yet: this build has no Git channel for it.`;
+  return t('{{what}} is not available yet: this build has no Git channel for it.', { what });
 }
 
 /** Every history/stash action is refused while another Git action runs or
  *  while the repository is mid-operation — the reason the disabled item
  *  carries. */
 export function repositoryBusyReason(busy: string, status: DesktopGitStatus | null | undefined): string {
-  if (busy) return 'Another Git action is running';
+  if (busy) return t('Another Git action is running');
   return operationInProgressReason(status);
 }
 
 /** Why a repository mid-operation (merge, rebase, …) refuses new actions. */
 export function operationInProgressReason(status: DesktopGitStatus | null | undefined): string {
-  return status?.operation ? `Finish the in-progress ${status.operation.replace('-', ' ')} first` : '';
+  return status?.operation
+    ? t('Finish the in-progress {{value0}} first', { value0: status.operation.replace('-', ' ') })
+    : '';
 }
 
 export function stashReasons({
@@ -45,18 +47,22 @@ export function stashReasons({
   fileCount: number;
 }) {
   let stash = repositoryBusyReason(busy, status);
-  if (!stash && !api?.gitStash) stash = missingChannel('Stashing changes');
-  else if (!stash && fileCount === 0) stash = 'There are no changes to stash';
+  if (!stash && !api?.gitStash) stash = missingChannel(t('Stashing changes'));
+  else if (!stash && fileCount === 0) stash = t('There are no changes to stash');
   let pop = repositoryBusyReason(busy, status);
-  if (!pop && !api?.gitStashPop) pop = missingChannel('Popping a stash');
+  if (!pop && !api?.gitStashPop) pop = missingChannel(t('Popping a stash'));
   return { stash, pop };
 }
 
 export function pullRequestCreateHint(status: DesktopGitStatus | null, ahead: number): string {
-  if (!status?.upstream) return 'Publish the branch to a remote before opening a pull request.';
-  if (ahead > 0) return `Push ${ahead} local commit${ahead === 1 ? '' : 's'} before opening a pull request.`;
-  if (status?.operation) return 'Finish the in-progress Git operation first.';
-  return 'Pull requests need a pushed upstream branch.';
+  if (!status?.upstream) return t('Publish the branch to a remote before opening a pull request.');
+  if (ahead > 0) {
+    return ahead === 1
+      ? t('Push 1 local commit before opening a pull request.')
+      : t('Push {{count}} local commits before opening a pull request.', { count: ahead });
+  }
+  if (status?.operation) return t('Finish the in-progress Git operation first.');
+  return t('Pull requests need a pushed upstream branch.');
 }
 
 /** `Copy file path` copies the ABSOLUTE path (the reference's file context
@@ -79,14 +85,14 @@ export function commitWebUrl(remoteUrl: string, hash: string): string {
 export async function copyText(ctx: SourceControlActionContext, text: string, what: string) {
   const clipboard = window.navigator?.clipboard;
   if (!clipboard?.writeText) {
-    ctx.setError(`Could not copy the ${what}: this environment has no clipboard access.`);
+    ctx.setError(t('Could not copy the {{value0}}: this environment has no clipboard access.', { value0: what }));
     return;
   }
   try {
     await clipboard.writeText(text);
     ctx.setError('');
   } catch (reason) {
-    ctx.setError(`Could not copy the ${what}: ${reasonText(reason)}`);
+    ctx.setError(t('Could not copy the {{value0}}: {{value1}}', { value0: what, value1: reasonText(reason) }));
   }
 }
 
@@ -164,7 +170,7 @@ export function branchActions(
 }
 
 function commitTitle(entry: DesktopGitLogEntry): string {
-  return (entry.subject ?? '').trim() || EMPTY_SUMMARY;
+  return (entry.subject ?? '').trim() || emptySummary();
 }
 
 /** Every destructive history action confirms first, and the prompt NAMES the
@@ -173,8 +179,8 @@ function confirmCommit(entry: DesktopGitLogEntry, question: string): boolean {
   return window.confirm(`${question}\n\n${entry.shortHash}  ${commitTitle(entry)}`);
 }
 
-function namedPrompt(entry: DesktopGitLogEntry, label: string): string | null {
-  return window.prompt(t(label, { hash: entry.shortHash, subject: commitTitle(entry) }), '');
+function namedPrompt(message: string): string | null {
+  return window.prompt(message, '');
 }
 
 /** Ask for the reset mode before confirmation; `hard` states what it
@@ -186,7 +192,7 @@ function resetToCommit(ctx: SourceControlActionContext, entry: DesktopGitLogEntr
   const modes = ['soft', 'mixed', 'hard'] as const;
   const mode = modes.find((candidate) => candidate === answer.trim().toLowerCase());
   if (!mode) {
-    setError(`"${answer.trim()}" is not a reset mode — choose soft, mixed or hard.`);
+    setError(t('"{{value0}}" is not a reset mode — choose soft, mixed or hard.', { value0: answer.trim() }));
     return;
   }
   const question =
@@ -240,7 +246,9 @@ export function historyCommitActions(
       void run(`checkout-commit:${entry.hash}`, () => api?.gitCheckoutCommit?.(projectPath, entry.hash));
     },
     createTagAt: (entry: DesktopGitLogEntry) => {
-      const name = namedPrompt(entry, 'Create a tag at {{hash}} ({{subject}})');
+      const name = namedPrompt(
+        t('Create a tag at {{hash}} ({{subject}})', { hash: entry.shortHash, subject: commitTitle(entry) })
+      );
       if (name === null) return;
       if (!name.trim()) {
         setError(t('A tag name is required to create a tag.'));
@@ -269,7 +277,9 @@ export function historyCommitActions(
     },
     /** `branch-` prefix so run() reloads the branch list too. */
     createBranchAtCommit: (entry: DesktopGitLogEntry) => {
-      const name = namedPrompt(entry, 'Create a branch at {{hash}} ({{subject}})');
+      const name = namedPrompt(
+        t('Create a branch at {{hash}} ({{subject}})', { hash: entry.shortHash, subject: commitTitle(entry) })
+      );
       if (name === null) return;
       if (!name.trim()) {
         setError(t('A branch name is required to create a branch.'));

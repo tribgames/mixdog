@@ -447,9 +447,9 @@ export function StarterGuide({
         createPortal(
           <SettingsConfirmDialog
             options={{
-              title: 'Close the getting started guide?',
-              description: 'It will not appear again.',
-              confirmLabel: 'Close',
+              title: t('Close the getting started guide?'),
+              description: t('It will not appear again.'),
+              confirmLabel: t('Close'),
               onConfirm: () => update((current) => ({ ...current, closed: true })),
             }}
             onClose={() => setConfirmClose(false)}

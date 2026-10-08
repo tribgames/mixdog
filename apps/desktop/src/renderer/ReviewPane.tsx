@@ -332,7 +332,11 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
               type="button"
               className="dock-git-sync"
               disabled={busy}
-              title={`Push ${status.ahead} commit${status.ahead === 1 ? '' : 's'}`}
+              title={
+                status.ahead === 1
+                  ? t('Push {{count}} commit', { count: status.ahead })
+                  : t('Push {{count}} commits', { count: status.ahead })
+              }
               onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}
             >
               ↑{status.ahead}

@@ -137,8 +137,8 @@ export function ComposerGoalDialog({
               value={timeMode}
               disabled={busy}
               options={[
-                { value: 'max', label: 'Maximum time — finish early when verified' },
-                { value: 'duration', label: 'Sustained work — continue for the full duration' },
+                { value: 'max', label: t('Maximum time — finish early when verified') },
+                { value: 'duration', label: t('Sustained work — continue for the full duration') },
               ]}
               onChange={(value) => setTimeMode(value as 'max' | 'duration')}
             />

@@ -6,6 +6,7 @@ import type { NavigationSelection, WorkspaceTab } from '../navigation';
 import { canSplitPaneSize, type PaneLeaf } from '../pane-layout';
 import type { usePaneWorkspace } from '../pane-workspace-state';
 import { defaultSessionLaneStore } from '../session-lane-store';
+import { t } from '../i18n';
 import { asRecord, displayProject, navigationKey, newDraftSelection } from '../text-format';
 import type { ConversationHandoff } from '../use-pane-tab-close';
 import {
@@ -184,7 +185,7 @@ export function useAppTaskLifecycle({
       const size = paneSize(paneWorkspace.focusedLeafId);
       if (size && !canSplitPaneSize(direction, size.width, size.height)) return;
       splitFocusedPane(direction, fresh, size);
-      activateSelection(fresh, 'New task');
+      activateSelection(fresh, t('New task'));
     };
     window.addEventListener('keydown', onPaneSplitKey);
     return () => window.removeEventListener('keydown', onPaneSplitKey);
@@ -205,7 +206,7 @@ export function useAppTaskLifecycle({
       const alreadyActive = selectionRef.current.kind === 'new';
       const revisit = draft?.kind === 'new';
       const nextSelection = revisit && draft ? draft : newDraftSelection();
-      activateSelection(nextSelection, 'New task');
+      activateSelection(nextSelection, t('New task'));
       if (requestComposerFocus) setComposerFocusRequest((value) => value + 1);
       if (revisit || alreadyActive) return;
       if (newTaskDeferred && tabs.some((tab) => tab.selection.kind === 'new')) return;
@@ -263,10 +264,10 @@ export function useAppTaskLifecycle({
       finishPendingConversationHandoff();
       if (ownerLeaf && ownerLeaf.id !== focusedLeafIdRef.current) {
         promoteSelectionInLeaf(ownerLeaf.id, draftSelection, sessionKey);
-        registerWorkspaceSelection(draftSelection, 'New task', sessionKey);
+        registerWorkspaceSelection(draftSelection, t('New task'), sessionKey);
         return;
       }
-      activateSelection(draftSelection, 'New task', ownerLeaf ? sessionKey : '');
+      activateSelection(draftSelection, t('New task'), ownerLeaf ? sessionKey : '');
       setComposerFocusRequest((value) => value + 1);
     },
     [
@@ -296,7 +297,7 @@ export function useAppTaskLifecycle({
     const actualSessionId = String(state?.sessionId || '');
     const actualSession = actualSessionId ? sessions.find((session) => session?.id === actualSessionId) : undefined;
     if (actualSession) {
-      activateSelection({ kind: 'session', id: actualSessionId }, sessionSummaryTitle(actualSession));
+      activateSelection({ kind: 'session', id: actualSessionId }, sessionSummaryTitle(actualSession, t('Untitled session')));
     } else if (actualProject) {
       const project = projects.find((item) => item.path === actualProject);
       activateSelection(
@@ -304,10 +305,10 @@ export function useAppTaskLifecycle({
         project?.alias?.trim() || project?.name?.trim() || displayProject(actualProject).name || 'Project'
       );
     } else if (actualSessionId) {
-      activateSelection({ kind: 'new' }, 'New task');
+      activateSelection({ kind: 'new' }, t('New task'));
       clearNewTaskPreferences();
     } else {
-      activateSelection({ kind: 'new' }, 'New task');
+      activateSelection({ kind: 'new' }, t('New task'));
     }
   }, [activateSelection, applySnapshot, clearNewTaskPreferences, projects, sessions]);
 
@@ -338,7 +339,7 @@ export function useAppTaskLifecycle({
       sourceTitle: () => {
         const row = sessions.find((entry) => entry?.id === sourceSessionId);
         return row
-          ? sessionSummaryTitle(row)
+          ? sessionSummaryTitle(row, t('Untitled session'))
           : tabs.find((tab) => tab.key === `session:${sourceSessionId}`)?.title || '';
       },
       refreshSessions,

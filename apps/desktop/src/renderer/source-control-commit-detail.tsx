@@ -4,7 +4,7 @@ import type { DesktopGitCommitDetails, DesktopGitCommitFile } from '../shared/co
 import { GitFileDiff } from './ReviewPane';
 import { ScmPathText } from './ScmPathText';
 import { ScmStatusIcon, scmStatusKind } from './ScmStatusIcon';
-import { EMPTY_SUMMARY, UNKNOWN_AUTHOR, type SourceControlDiffRequest } from './source-control-support';
+import { emptySummary, unknownAuthor, type SourceControlDiffRequest } from './source-control-support';
 import { fileBaseName } from './text-format';
 
 /** Compact `YYYY-MM-DD HH:mm` for the byline; the full locale string stays
@@ -21,7 +21,7 @@ function formatCommitDate(iso: string): string {
 
 function copyStatusText(copyState: { ok: boolean } | null | undefined): string {
   if (!copyState) return '';
-  return copyState.ok ? 'Full SHA copied to the clipboard' : 'Could not copy the SHA to the clipboard';
+  return copyState.ok ? t('Full SHA copied to the clipboard') : t('Could not copy the SHA to the clipboard');
 }
 
 function copyButtonTitle(copyState: { ok: boolean } | null | undefined): string {
@@ -61,7 +61,7 @@ export function SourceControlCommitDetail({
 }) {
   const detailFiles = detail?.files ?? [];
   const detailSummary = (detail?.subject ?? '').trim();
-  const headline = detail ? detailSummary || EMPTY_SUMMARY : 'Loading commit…';
+  const headline = detail ? detailSummary || emptySummary() : t('Loading commit…');
   const detailAuthor = (detail?.author ?? '').trim();
   const copyState = detail && shaCopy?.hash === detail.hash ? shaCopy : null;
 
@@ -79,7 +79,7 @@ export function SourceControlCommitDetail({
           {detail && (
             <div className="dock-scm-commit-meta">
               <span className="dock-scm-commit-author" title={detail.email}>
-                <span>{detailAuthor || UNKNOWN_AUTHOR}</span>
+                <span>{detailAuthor || unknownAuthor()}</span>
               </span>
               <time dateTime={detail.authoredAt} title={new Date(detail.authoredAt).toLocaleString(uiFormatLocale())}>
                 {formatCommitDate(detail.authoredAt)}

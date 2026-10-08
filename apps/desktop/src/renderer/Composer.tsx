@@ -27,7 +27,7 @@ import { pastedTextLineCount, shouldFoldPastedText } from '../../../../src/tui/p
 
 // Project-context pill, attachment budget, prompt history and the queued
 // follow-up list live in composer-support.tsx.
-import { COMPOSER_PLACEHOLDERS, QueueList } from './composer-support';
+import { ATTACHMENT_ACCEPT, COMPOSER_PLACEHOLDERS, QueueList } from './composer-support';
 import {
   composerDraftAfterScopeChange,
   composerScopeOpensFreshDraft,
@@ -60,9 +60,6 @@ import { ComposerBanners } from './ComposerBanners';
 import { ComposerFooter } from './ComposerFooter';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
-
-const ATTACHMENT_ACCEPT =
-  'image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql';
 
 // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency, logged
 // only when a frame is actually slow.

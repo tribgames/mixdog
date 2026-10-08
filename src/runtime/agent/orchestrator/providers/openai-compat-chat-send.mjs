@@ -20,6 +20,7 @@ import { normalizeCompatChatResponse } from './openai-compat-response-normalizat
 import { applyCompatToolChoice, compatStreamRetryReporter } from './compat-request-policy.mjs';
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { xaiCacheRouting } from './openai-compat-xai.mjs';
+import { preparePdfTextForProvider } from './media-normalization.mjs';
 
 export async function sendCompatChat(provider, messages, useModel, tools, opts) {
   const signal = opts.signal || null;
@@ -34,12 +35,13 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
   const replaysReasoningContent =
     modelInfo?.reasoningContentField === 'reasoning_content' ||
     (provider.name === 'deepseek' && deepseekReplaysReasoningContent(useModel));
+  messages = await preparePdfTextForProvider(messages, provider);
   const params = {
     model: useModel,
     // Wire-level pairing guard: a call whose result never committed
     // (cancel/abort) is hard-rejected unpaired, so synthesize the
     // missing tool messages here.
-    messages: ensureChatToolPairs(toOpenAIMessages(messages, provider.name, { replaysReasoningContent })),
+    messages: ensureChatToolPairs(toOpenAIMessages(messages, provider.name, { replaysReasoningContent, nativePdf: provider.nativePdf })),
   };
   const maxOutputTokens = resolveCompatMaxOutputTokens(opts);
   if (maxOutputTokens) params.max_tokens = maxOutputTokens;

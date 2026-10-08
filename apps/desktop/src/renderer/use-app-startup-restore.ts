@@ -2,6 +2,7 @@ import { type Dispatch, type MutableRefObject, type SetStateAction, useEffect, u
 
 import type { DesktopSessionSummary } from '../shared/contract';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { t } from './i18n';
 import { markBootStage } from './boot-metrics';
 import type { Snapshot } from './desktop-types';
 import { isMobileRemoteSurface } from './mobile-surface';
@@ -154,7 +155,9 @@ export function useAppStartupRestore({
       const current = sessions.find((session) => session.id === plan.sessionId);
       activateSelection(
         { kind: 'session', id: plan.sessionId },
-        current ? sessionSummaryTitle(current) : String(snapshot.desktopSessionTitle || 'New task')
+        current
+          ? sessionSummaryTitle(current, t('Untitled session'))
+          : String(snapshot.desktopSessionTitle || t('New task'))
       );
       settleStartup();
       return;
@@ -179,7 +182,7 @@ export function useAppStartupRestore({
       return;
     }
     resetNewTaskDraft(cachedDraftProject);
-    activateSelection({ kind: 'new' }, 'New task');
+    activateSelection({ kind: 'new' }, t('New task'));
     settleStartup();
   }, [
     activateSelection,

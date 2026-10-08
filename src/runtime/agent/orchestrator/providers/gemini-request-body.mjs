@@ -9,7 +9,7 @@
  * gemini-schema.mjs.
  */
 import { geminiThinkingConfig } from './gemini-thinking.mjs';
-import { toGeminiContents, toGeminiNativeTools, toGeminiToolConfig, toGeminiTools } from './gemini-schema.mjs';
+import { toGeminiContents, toGeminiRequestTools, toGeminiToolConfig } from './gemini-schema.mjs';
 
 // Request pieces shared by the cached REST path and the SDK path.
 export function buildGeminiRequest(messages, useModel, tools, opts) {
@@ -29,11 +29,9 @@ export function buildGeminiRequest(messages, useModel, tools, opts) {
   const contents = toGeminiContents(chatMsgs, useModel);
   if (!contents.length) throw new Error('No messages to send');
 
-  const nativeGeminiTools = toGeminiNativeTools(opts.nativeTools);
-  const functionGeminiTools = tools?.length ? [toGeminiTools(tools)] : [];
-  const geminiTools =
-    nativeGeminiTools.length || functionGeminiTools.length ? [...nativeGeminiTools, ...functionGeminiTools] : undefined;
-  const toolConfig = functionGeminiTools.length ? toGeminiToolConfig(opts.toolChoice) : undefined;
+  const requestTools = toGeminiRequestTools(tools, opts.nativeTools);
+  const geminiTools = requestTools.length ? requestTools : undefined;
+  const toolConfig = tools?.length ? toGeminiToolConfig(opts.toolChoice) : undefined;
   return { generationConfig, systemInstruction, contents, geminiTools, toolConfig };
 }
 

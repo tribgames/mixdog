@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import type { PullRequestOpenHandler } from '../PullRequestsPane';
 import type { SourceControlDiffRequest } from '../SourceControlDock';
 import type { WorkspaceSelection, WorkspaceTab } from '../navigation';
+import { t } from '../i18n';
 import { navigationKey, newStudioSelection } from '../text-format';
 import { canSplitPaneSize, paneActiveSelection } from '../pane-layout';
 import type { usePaneWorkspace } from '../pane-workspace-state';
@@ -69,7 +70,7 @@ export function useAppTabActions({
     void loadStudioViewModule()
       .then(() => reportStudioLoadStage('module', '', false, metricToken))
       .catch(() => {});
-    openUtilityTab(newStudioSelection(), 'Studio', leafId);
+    openUtilityTab(newStudioSelection(), t('Studio'), leafId);
   };
 
   const openTerminalTab = (leafId = paneWorkspace.focusedLeafId) => {
@@ -126,7 +127,7 @@ export function useAppTabActions({
             ...current,
             {
               key,
-              title: `${cleanRel.split('/').at(-1) || cleanRel} (Diff)`,
+              title: t('{{name}} (Diff)', { name: cleanRel.split('/').at(-1) || cleanRel }),
               selection: diffSelection,
             },
           ]
@@ -150,8 +151,8 @@ export function useAppTabActions({
     const key = navigationKey(pullRequestSelection);
     const title =
       mode === 'changes'
-        ? `Changes in Pull Request #${pullRequest.number}`
-        : pullRequest.title || `Pull Request #${pullRequest.number}`;
+        ? t('Changes in Pull Request #{{number}}', { number: pullRequest.number })
+        : pullRequest.title || t('Pull Request #{{number}}', { number: pullRequest.number });
     setTabs((current) => {
       const existing = current.findIndex((tab) => tab.key === key);
       if (existing < 0) return [...current, { key, title, selection: pullRequestSelection }];

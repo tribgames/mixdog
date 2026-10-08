@@ -16,6 +16,17 @@ const messages = [
 const toolConfig = (opts) =>
   buildAntigravityRequest(messages, 'gemini-3.8-flash', tools, opts, 'proj').request.toolConfig;
 
+test('hosted google_search rides in request.tools ahead of function declarations', () => {
+  const nativeTools = [{ type: 'google_search' }];
+  const searchOnly = buildAntigravityRequest(messages, 'gemini-3.8-flash', undefined, { nativeTools }, 'proj').request;
+  assert.deepEqual(searchOnly.tools, [{ googleSearch: {} }]);
+  assert.equal(searchOnly.toolConfig, undefined);
+  const both = buildAntigravityRequest(messages, 'gemini-3.8-flash', tools, { nativeTools }, 'proj').request;
+  assert.deepEqual(both.tools[0], { googleSearch: {} });
+  assert.equal(both.tools[1].functionDeclarations[0].name, 'read');
+  assert.equal(buildAntigravityRequest(messages, 'gemini-3.8-flash', undefined, {}, 'proj').request.tools, undefined);
+});
+
 test('function-calling mode defaults to VALIDATED; the env override and toolChoice take precedence', () => {
   assert.equal(antigravityFunctionCallingMode({}), 'VALIDATED');
   assert.equal(antigravityFunctionCallingMode({ MIXDOG_ANTIGRAVITY_FC_MODE: 'auto' }), 'AUTO');

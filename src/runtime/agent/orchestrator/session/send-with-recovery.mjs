@@ -25,6 +25,8 @@ import {
   persistsConfirmedImageRejection,
   promptHasInlineImages,
   shouldStripImagesForRetry,
+  isImagePreparationFailed,
+  stripFailingImage,
   stripInlineImagesFromLatestTurn,
 } from './image-strip-recovery.mjs';
 import {
@@ -375,7 +377,13 @@ async function recoverFromSendError(sendErr, state) {
   // only when no tool was dispatched. Text exposure must be retracted first;
   // reasoning-only high-effort streams can retry without a text reset.
   if (
-    imageStripEligible(sendErr, outcome, { recoveryMessages, imageStripUsed, transportRetriesUsed, relayWitness }) &&
+    imageStripEligible(sendErr, outcome, {
+      recoveryMessages,
+      imageStripUsed,
+      transportRetriesUsed,
+      relayWitness,
+      isGrok: (sessionRef?.provider || state.provider?.name) === 'grok-oauth',
+    }) &&
     (outcome.replaySafe === true || (await retract()))
   ) {
     const stripped = retryWithImageStrip(sendErr, recoveryMessages, state);
@@ -684,7 +692,7 @@ function repairThinkingReplay(recoveryMessages, state) {
 function imageStripEligible(
   sendErr,
   outcome,
-  { recoveryMessages, imageStripUsed, transportRetriesUsed, relayWitness }
+  { recoveryMessages, imageStripUsed, transportRetriesUsed, relayWitness, isGrok }
 ) {
   return (
     transportRetriesUsed < TRANSPORT_RETRY_MAX &&
@@ -692,7 +700,13 @@ function imageStripEligible(
       hasImages: promptHasInlineImages(recoveryMessages),
       alreadyStripped: imageStripUsed === true,
     }) ||
-      (imageStripUsed !== true && promptHasInlineImages(recoveryMessages) && isRetryableStreamErrorEvent(sendErr))) &&
+      // Grok Build RetryWithImageStrip only: a bare stream error on a Grok
+      // upload may be the image body being rejected. Other providers' transient
+      // stream errors are not evidence about images and use normal transport retry.
+      (isGrok &&
+        imageStripUsed !== true &&
+        promptHasInlineImages(recoveryMessages) &&
+        isRetryableStreamErrorEvent(sendErr))) &&
     outcome.sideEffectDispatched !== true &&
     Number(outcome.toolCallsDispatched) === 0 &&
     Number(outcome.toolCallsComplete) === 0 &&
@@ -702,7 +716,9 @@ function imageStripEligible(
 
 function retryWithImageStrip(sendErr, recoveryMessages, state) {
   const { opts, transportRetriesUsed = 0 } = state;
-  const stripped = stripInlineImagesFromLatestTurn(recoveryMessages);
+  const stripped = isImagePreparationFailed(sendErr)
+    ? stripFailingImage(recoveryMessages, sendErr)
+    : stripInlineImagesFromLatestTurn(recoveryMessages);
   if (!(stripped.stripped > 0)) return null;
   const attempt = transportRetriesUsed + 1;
   logLoop(

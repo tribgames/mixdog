@@ -269,7 +269,7 @@ const SessionRow = React.memo(function SessionRow({
         inert={editing ? true : undefined}
         aria-hidden={editing ? true : undefined}
       >
-        <span className="session-row-copy" data-i18n-skip>
+        <span className="session-row-copy">
           <b>{label}</b>
         </span>
         <span className="session-row-status" data-working={working || undefined}>

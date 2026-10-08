@@ -1,0 +1,184 @@
+/* Feedback popup: rides the shared settings-confirm layer/dialog skin; only the
+   form body is styled here. */
+.settings-feedback-dialog {
+  width: min(480px, 100%);
+  --mx-dialog-max-height: 640px;
+}
+/* Dialog form grammar (schedules-field): 16px between fields, 8px from a
+   field title to its control; title 15/600 > control 14 > note 13. */
+.settings-feedback-form {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 16px;
+  padding: 4px var(--mx-dialog-inset) 0;
+  overflow-y: auto;
+}
+/* An empty status region must not open a trailing 16px row gap. */
+.settings-feedback-form > [aria-live]:empty {
+  margin-top: -16px;
+}
+.settings-feedback-field {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+.settings-feedback-field > label,
+.settings-feedback-field-head > .settings-feedback-label,
+.settings-feedback-kinds > legend {
+  color: var(--mx-text);
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
+}
+.settings-feedback-kinds {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.settings-feedback-kinds > legend {
+  margin-bottom: 8px;
+  padding: 0;
+}
+.settings-feedback-kinds > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  cursor: pointer;
+}
+.settings-feedback-kinds input[type="radio"] {
+  margin: 0;
+  accent-color: var(--mx-accent);
+}
+/* The shared dialog field plate: hairline at rest, one-pixel focus ring. */
+.settings-feedback-field > textarea,
+.settings-feedback-field > input {
+  box-sizing: border-box;
+  width: 100%;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  outline-offset: 0;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-family: inherit;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
+.settings-feedback-field > input {
+  height: 32px;
+  padding: 0 8px;
+}
+.settings-feedback-field > textarea {
+  min-height: 120px;
+  padding: 8px;
+  resize: vertical;
+}
+.settings-feedback-field > textarea:hover:not(:disabled),
+.settings-feedback-field > input:hover:not(:disabled) {
+  box-shadow: var(--mx-button-contrast);
+}
+.settings-feedback-field > textarea:focus,
+.settings-feedback-field > input:focus {
+  outline-color: var(--mx-focus);
+  box-shadow: var(--mx-button);
+}
+.settings-feedback-field > [aria-invalid="true"] {
+  outline-color: var(--mx-danger);
+}
+.settings-feedback-field > textarea::placeholder,
+.settings-feedback-field > input::placeholder {
+  color: var(--mx-text-faint);
+}
+/* Attachment area only: title row with a trailing icon-only add control. */
+.settings-feedback-field-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.settings-feedback-attachments {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.settings-feedback-attachments > li {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-feedback-attachments img {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: var(--mx-radius-md);
+  box-shadow: var(--mx-button);
+}
+.settings-feedback-attachment-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+.settings-feedback-attach,
+.settings-feedback-attachments button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  display: inline-grid;
+  place-items: center;
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.settings-feedback-attach:hover:not(:disabled),
+.settings-feedback-attachments button:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.settings-feedback-attach:focus-visible,
+.settings-feedback-attachments button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+}
+.settings-feedback-attach:disabled,
+.settings-feedback-attachments button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.settings-feedback-form .settings-feedback-field-error,
+.settings-feedback-form .settings-feedback-status {
+  margin: 0;
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-minor);
+}
+.settings-feedback-field-error,
+.settings-feedback-status[data-tone="error"] {
+  color: var(--mx-danger);
+}
+.settings-feedback-status[data-tone="success"] {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+}

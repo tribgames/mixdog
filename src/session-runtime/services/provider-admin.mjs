@@ -681,9 +681,15 @@ export function removeCustomProvider(cfgMod, rawId) {
 export async function testCustomProvider(cfgMod, rawInput) {
   const { id, config, apiKey } = await resolveCustomInput(cfgMod, rawInput, { requireModels: false });
   try {
-    const models = config.models.length ? config.models : (await discoverCustomProviderModels(cfgMod, rawInput)).models;
+    const discovery = config.models.length ? { models: config.models } : await discoverCustomProviderModels(cfgMod, rawInput);
+    if (discovery.error) return { ok: false, phase: 'discovery', error: discovery.error };
+    const models = discovery.models;
     const model = models[0]?.id;
-    if (!model) throw new Error('No models were found for this provider');
+    if (!model) return {
+      ok: false,
+      phase: 'discovery',
+      error: { kind: 'empty', message: 'No models were found for this provider' },
+    };
     const { createCustomProvider } = await loadCustomProviderModule();
     const provider = await createCustomProvider(id || 'custom-test', { ...config, apiKey });
     await withTimeout(
@@ -719,7 +725,15 @@ export async function discoverCustomProviderModels(cfgMod, rawInput) {
     }
     return { models };
   } catch (error) {
-    throw sanitizeCustomError(error, [apiKey]);
+    const status = Number.isInteger(error?.status) ? error.status : undefined;
+    return {
+      models: [],
+      error: {
+        kind: status === 404 || status === 405 ? 'unavailable' : status === 401 || status === 403 ? 'authentication' : 'request',
+        ...(status === undefined ? {} : { status }),
+        message: sanitizeCustomError(error, [apiKey]).message,
+      },
+    };
   }
 }
 

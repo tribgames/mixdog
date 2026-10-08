@@ -1,0 +1,73 @@
+/* Changelog popup: rides the shared settings-confirm layer/dialog skin; only
+   the release list is styled here. */
+.settings-changelog-dialog {
+  width: min(560px, 100%);
+  --mx-dialog-max-height: 720px;
+}
+.settings-changelog-list {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 4px;
+  padding: 4px var(--mx-dialog-inset) 20px;
+  overflow-y: auto;
+  outline: none;
+}
+.settings-changelog-release {
+  min-width: 0;
+}
+.settings-changelog-release > h4 {
+  margin: 0;
+}
+.settings-changelog-release > h4 > button {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--mx-text);
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
+  text-align: left;
+  cursor: pointer;
+}
+.settings-changelog-release > h4 > button:hover {
+  background: var(--mx-hover);
+}
+.settings-changelog-release > h4 > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+}
+.settings-changelog-chevron {
+  flex: none;
+  color: var(--mx-text-muted);
+  transition: transform var(--mx-motion-chrome);
+}
+.settings-changelog-release > h4 > button[aria-expanded="true"] .settings-changelog-chevron {
+  transform: rotate(90deg);
+}
+.settings-changelog-release > .markdown {
+  padding: 4px 8px 12px 30px;
+}
+.settings-changelog-date {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+}
+.settings-changelog-current {
+  padding: 0 6px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-accent);
+  box-shadow: inset 0 0 0 1px currentColor;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+}

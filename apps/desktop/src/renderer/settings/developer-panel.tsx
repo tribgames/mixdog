@@ -16,7 +16,7 @@ export function DeveloperPanel({ api, data, pending, run, confirm }: PanelContex
   if (!sections.length) {
     return (
       <ListEmpty
-        text={sectionLoaded(data, 'developer') ? 'No developer options available.' : 'Loading developer options…'}
+        text={sectionLoaded(data, 'developer') ? t('No developer options available.') : t('Loading developer options…')}
       />
     );
   }
@@ -25,8 +25,8 @@ export function DeveloperPanel({ api, data, pending, run, confirm }: PanelContex
       {sections.map((section) => (
         <Group
           key={String(section.id)}
-          title={String(section.label || section.id)}
-          description={String(section.description || '')}
+          title={t(String(section.label || section.id))}
+          description={section.description ? t(String(section.description)) : undefined}
         >
           {rows(section, 'options').map((option) => {
             const id = String(option.id);
@@ -42,8 +42,8 @@ export function DeveloperPanel({ api, data, pending, run, confirm }: PanelContex
             return (
               <ToggleRow
                 key={id}
-                title={label}
-                description={String(option.description || '')}
+                title={t(label)}
+                description={option.description ? t(String(option.description)) : undefined}
                 checked={option.enabled === true}
                 disabled={Boolean(pending)}
                 optimistic={!warning}
@@ -54,8 +54,8 @@ export function DeveloperPanel({ api, data, pending, run, confirm }: PanelContex
                   }
                   confirm({
                     title: t('Turn on {{name}}', { name: t(label) }),
-                    description: warning,
-                    confirmLabel: 'Accept risk and turn on',
+                    description: t(warning),
+                    confirmLabel: t('Accept risk and turn on'),
                     danger: true,
                     onConfirm: () => set(true),
                   });

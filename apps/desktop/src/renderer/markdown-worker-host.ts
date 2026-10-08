@@ -1,8 +1,6 @@
 import type { MarkdownAstRoot } from './markdown-ast';
 import { rememberMarkdownAstWeight } from './markdown-ast-weight';
 
-const PARSER_IDLE_MS = 60_000;
-
 interface MarkdownWorkerResponse {
   id: number;
   root?: MarkdownAstRoot;
@@ -16,14 +14,14 @@ interface PendingMarkdownRequest {
 }
 
 /** Owns only worker lifetime and delivery. Cache/fallback policy stays in the
- * client, so reclaiming an idle parser cannot discard a visible result. */
+ * client. The parser stays resident (~8 MB heap): retiring it when idle made
+ * the next session open pay a ~100ms bootstrap, during which fenced messages
+ * showed their source projection and were then swapped for the AST. */
 export class MarkdownWorkerHost {
   private worker: Worker | null = null;
   private failure: Error | null = null;
   private sequence = 0;
   private readonly pending = new Map<number, PendingMarkdownRequest>();
-  private reclaimWhenIdle = false;
-  private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly createWorker: () => Worker = () => {
@@ -36,8 +34,6 @@ export class MarkdownWorkerHost {
   ) {}
 
   parse(text: string): Promise<MarkdownAstRoot> {
-    this.cancelIdleRelease();
-    this.reclaimWhenIdle = false;
     return new Promise((resolve, reject) => {
       const worker = this.getWorker();
       const id = ++this.sequence;
@@ -47,46 +43,29 @@ export class MarkdownWorkerHost {
       } catch (error) {
         this.pending.delete(id);
         reject(error instanceof Error ? error : new Error(String(error)));
-        this.scheduleIdleRelease();
       }
     });
   }
 
-  reclaim(): void {
-    this.cancelIdleRelease();
-    this.reclaimWhenIdle = true;
-    this.releaseIfIdle();
-  }
-
-  private releaseIfIdle(): void {
-    if (!this.reclaimWhenIdle || this.pending.size > 0) return;
-    this.worker?.terminate();
-    this.worker = null;
-    this.reclaimWhenIdle = false;
-  }
-
-  private cancelIdleRelease(): void {
-    if (this.idleTimer !== null) clearTimeout(this.idleTimer);
-    this.idleTimer = null;
-  }
-
-  private scheduleIdleRelease(): void {
-    this.cancelIdleRelease();
-    if (this.worker && this.pending.size === 0) {
-      this.idleTimer = setTimeout(() => this.reclaim(), PARSER_IDLE_MS);
+  /** Boot the parser before the first session opens, so its first AST costs
+   *  one parse instead of a worker bootstrap. */
+  prewarm(): void {
+    if (this.worker || this.failure) return;
+    try {
+      this.getWorker();
+    } catch {
+      // No Worker support: parse() rejects into the renderer fallback.
     }
   }
 
   private fail(worker: Worker, error: Error): void {
-    // Events already queued by a retired worker cannot poison its replacement.
+    // Events already queued by a failed worker are ignored after it retires.
     if (this.worker !== worker) return;
-    this.cancelIdleRelease();
     this.failure = error;
     this.worker = null;
     worker.terminate();
     for (const request of this.pending.values()) request.reject(error);
     this.pending.clear();
-    this.reclaimWhenIdle = false;
   }
 
   private getWorker(): Worker {
@@ -106,8 +85,6 @@ export class MarkdownWorkerHost {
         rememberMarkdownAstWeight(event.data.root, event.data.retainedChars);
         request.resolve(event.data.root);
       }
-      this.releaseIfIdle();
-      this.scheduleIdleRelease();
     });
     worker.addEventListener('error', (event) => {
       // Suppress the duplicate window error; the client recovers via its

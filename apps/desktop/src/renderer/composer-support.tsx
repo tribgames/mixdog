@@ -5,6 +5,12 @@
 import { Folder, X } from 'lucide-react';
 
 import type { DesktopProjectSummary } from '../shared/contract';
+import {
+  MAX_PROMPT_FILE_BASE64_TOTAL,
+  MAX_PROMPT_FILE_BYTES,
+  MAX_PROMPT_IMAGE_BASE64_TOTAL,
+  OFFICE_MIME_TYPES,
+} from '../shared/prompt-limits';
 import { MIXDOG_PROJECT_PATHS_MIME } from './file-drag';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
@@ -14,7 +20,8 @@ import { asRecord, displayProject, queueText } from './text-format';
 export type ComposerAttachment = {
   id: number;
   name: string;
-  kind: 'image' | 'text' | 'pdf';
+  /** `pdf` and `office` both travel as `file` prompt parts. */
+  kind: 'image' | 'text' | 'pdf' | 'office';
   mimeType: string;
   data: string;
   token: string;
@@ -36,9 +43,17 @@ export type ComposerHistoryEntry = {
 export const MAX_COMPOSER_ATTACHMENTS = 8;
 export const MAX_INLINE_FILE_BYTES = 750_000;
 export const MAX_INLINE_TEXT_TOTAL = 850_000;
-export const MAX_INLINE_IMAGE_BASE64_TOTAL = 30_000_000;
-// PDFs attach as provider document blocks, 20 MiB per file.
-export const MAX_PDF_FILE_BYTES = 20 * 1024 * 1024;
+export const MAX_INLINE_IMAGE_BASE64_TOTAL = MAX_PROMPT_IMAGE_BASE64_TOTAL;
+// PDFs and Office files attach as file parts, 20 MiB per file; the combined
+// base64 size matches what the IPC prompt validator accepts.
+export const MAX_PDF_FILE_BYTES = MAX_PROMPT_FILE_BYTES;
+export const MAX_OFFICE_FILE_BYTES = MAX_PROMPT_FILE_BYTES;
+export const MAX_INLINE_FILE_BASE64_TOTAL = MAX_PROMPT_FILE_BASE64_TOTAL;
+export const MAX_IMAGE_FILE_BYTES = 12_000_000;
+export const ATTACHMENT_ACCEPT =
+  'image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,.docx,.pptx,.xlsx,.xlsm,.doc,.xls,.ppt,' +
+  `${OFFICE_MIME_TYPES.join(',')},` +
+  'text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql';
 export const MAX_SUBMIT_TEXT_LENGTH = 950_000;
 export const MAX_PERSISTED_PROMPT_HISTORY = 100;
 export const COMPOSER_PROJECT_PATHS_MIME = MIXDOG_PROJECT_PATHS_MIME;
@@ -147,13 +162,13 @@ export function ProjectContextSelector({
   const activeProject = projects.find(
     (project) => project.path.replace(/[\\/]+/g, '/').toLocaleLowerCase() === normalized
   );
-  const fallbackActiveLabel = activePath ? activeLabel.trim() || displayProject(activePath).name || 'Project' : '';
+  const fallbackActiveLabel = activePath ? activeLabel.trim() || displayProject(activePath).name || t('Project') : '';
   const options = [
-    { value: PROJECT_CONTEXT_LOCAL, label: 'No project' },
+    { value: PROJECT_CONTEXT_LOCAL, label: t('No project') },
     ...(activePath && !activeProject ? [{ value: activePath, label: fallbackActiveLabel }] : []),
     ...projects.map((project) => ({
       value: project.path,
-      label: project.alias?.trim() || project.name?.trim() || displayProject(project.path).name || 'Project',
+      label: project.alias?.trim() || project.name?.trim() || displayProject(project.path).name || t('Project'),
     })),
   ];
   const value = activeProject?.path || activePath || PROJECT_CONTEXT_LOCAL;
@@ -165,7 +180,7 @@ export function ProjectContextSelector({
         ariaLabel={t('Project context')}
         tooltip={t('Select project')}
         value={value}
-        displayValue={activeProject ? activeLabel || 'Project' : fallbackActiveLabel || 'Project'}
+        displayValue={activeProject ? activeLabel || t('Project') : fallbackActiveLabel || t('Project')}
         disabled={disabled}
         options={options}
         onChange={(next) => {
@@ -203,7 +218,7 @@ export function QueueList({
           const imageCount = queuedImageCount(entry);
           return (
             <div className="queue-item" role="listitem" key={id || index}>
-              <span className="queue-item-text" data-i18n-skip title={text}>
+              <span className="queue-item-text" title={text}>
                 {text}
               </span>
               {imageCount > 0 && (
@@ -224,7 +239,7 @@ export function QueueList({
                 onClick={() => onEdit(id)}
                 aria-label={t('Edit queued follow-up: {{text}}', { text })}
               >
-                {restoring ? 'Editing…' : 'Edit'}
+                {restoring ? t('Editing…') : t('Edit')}
               </button>
               <button
                 type="button"
@@ -243,7 +258,7 @@ export function QueueList({
                 disabled={restoring || !id}
                 onClick={() => onRemove(id)}
                 aria-label={t('Remove queued follow-up: {{text}}', { text })}
-                data-tooltip="Remove"
+                data-tooltip={t('Remove')}
               >
                 <X size={14} />
               </button>

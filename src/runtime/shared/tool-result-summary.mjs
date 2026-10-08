@@ -16,6 +16,63 @@ import {
 import { parseTaskNotification } from './task-notification-envelope.mjs';
 import { gitResultError, gitResultExitCode } from './tool-card-model/git-result.mjs';
 
+const keepOriginal = (_key, original) => original;
+
+// Catalog keys (shared with the desktop renderer) for phrases authored here.
+const COUNT_KEYS = new Map(
+  [
+    'lines',
+    'matches',
+    'files',
+    'entries',
+    'candidates',
+    'results',
+    'skills',
+    'memories',
+    'messages',
+    'agents',
+    'tasks',
+    'references',
+    'definitions',
+    'symbols',
+    'callers',
+    'callees',
+  ].map((noun) => [noun, `{{count}} ${noun}`])
+);
+
+const STATUS_KEYS = new Map(
+  ['Completed', 'Failed', 'Cancelled', 'Finished'].map((status) => [status.toLowerCase(), status])
+);
+
+// Explicit source ownership for catalogs: these keys describe UI authored by
+// this module, never tool output or interpolated identifiers.
+export const TOOL_RESULT_UI_KEYS = Object.freeze([
+  ...COUNT_KEYS.values(),
+  ...STATUS_KEYS.values(),
+  'Image',
+  'No output',
+  'No results',
+  'No agents or tasks',
+  'Exit {{code}}',
+  'Loaded {{name}}',
+  'Used {{name}}',
+]);
+
+function countLabel(translate, n, singular, plural) {
+  const noun = pluralize(n, singular, plural);
+  const original = `${n} ${noun}`;
+  const key = COUNT_KEYS.get(pluralize(2, singular, plural).toLowerCase());
+  return key ? translate(key, original, { count: n }) : original;
+}
+
+function exitLabel(translate, code) {
+  return translate('Exit {{code}}', `Exit ${code}`, { code });
+}
+
+function noOutput(translate) {
+  return translate('No output', '(No Output)');
+}
+
 function countNonEmptyLines(text) {
   return String(text ?? '')
     .split('\n')
@@ -205,7 +262,7 @@ function firstAgentResultLine(text) {
   return '';
 }
 
-function summarizeGenericResult(text) {
+function summarizeGenericResult(text, translate = keepOriginal) {
   const trimmed = String(text ?? '').trim();
   if (!trimmed) return null;
   if (/^(?:undefined|null)$/i.test(trimmed)) return null;
@@ -213,10 +270,10 @@ function summarizeGenericResult(text) {
   if (/^[[{]/.test(trimmed)) {
     try {
       const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return `${parsed.length} ${pluralize(parsed.length, 'item')}`;
+      if (Array.isArray(parsed)) return countLabel(translate, parsed.length, 'item');
       if (parsed && typeof parsed === 'object') {
         if (parsed.cwd) return truncateSingleLine(parsed.cwd, AGENT_SURFACE_BRIEF_MAX);
-        if (typeof parsed.ok === 'boolean') return parsed.ok ? 'Ok' : 'Failed';
+        if (typeof parsed.ok === 'boolean') return parsed.ok ? 'Ok' : translate('Failed', 'Failed');
         for (const key of [
           'items',
           'results',
@@ -228,7 +285,7 @@ function summarizeGenericResult(text) {
           'tools',
         ]) {
           if (Array.isArray(parsed[key]))
-            return `${parsed[key].length} ${pluralize(parsed[key].length, (key.slice(0, -1) || 'item').toLowerCase())}`;
+            return countLabel(translate, parsed[key].length, (key.slice(0, -1) || 'item').toLowerCase());
         }
         // A status/state object is a transport envelope, not a successful
         // result body. Leave it to the card's terminal-status rendering.
@@ -301,20 +358,20 @@ export function extractErrorCause(resultText) {
 // Each receives { text, trimmed, args, normalized } and returns a one-liner or
 // null when nothing reliable can be derived.
 
-function summarizeLineCount({ text, trimmed }, { zero, singular, plural }) {
+function summarizeLineCount({ text, trimmed, translate }, { singular, plural }) {
   if (!trimmed || !looksLineOriented(text)) return null;
-  if (looksLikeZeroResultText(text)) return zero;
+  if (looksLikeZeroResultText(text)) return countLabel(translate, 0, singular, plural);
   const n = countNonEmptyLines(text);
   if (n === 0) return null;
-  return `${n} ${pluralize(n, singular, plural)}`;
+  return countLabel(translate, n, singular, plural);
 }
 
-function summarizeReadResult({ text, trimmed }) {
-  if (/^\[image:/i.test(trimmed)) return 'Image';
+function summarizeReadResult({ text, trimmed, translate }) {
+  if (/^\[image:/i.test(trimmed)) return translate('Image', 'Image');
   if (!trimmed) return null;
-  if (trimmed.startsWith('(no lines in range')) return '0 lines';
+  if (trimmed.startsWith('(no lines in range')) return countLabel(translate, 0, 'line');
   const n = text.split('\n').length;
-  return `${n} ${pluralize(n, 'line')}`;
+  return countLabel(translate, n, 'line');
 }
 
 function summarizePatchResult({ text, args }) {
@@ -340,13 +397,19 @@ function summarizePatchResult({ text, args }) {
   return null;
 }
 
-function summarizeShellResult({ text, trimmed }) {
-  if (!trimmed) return '(No Output)';
+function summarizeShellResult({ text, trimmed, translate }) {
+  if (!trimmed) return noOutput(translate);
   const job = /^\[(?:task_id|job):\s*([^\]]+)\]/im.exec(text);
   const status = /^\[status:\s*([^\]]+)\]/im.exec(text);
   const exit = /^\[exit(?:\s+code)?:\s*([^\]]+)\]/im.exec(text);
   if (job || status || exit) {
-    return compactParts([job ? job[1] : '', status ? titleStatus(status[1]) : '', exit ? `Exit ${exit[1]}` : '']);
+    let statusText = '';
+    if (status) {
+      statusText = titleStatus(status[1]);
+      const statusKey = STATUS_KEYS.get(statusText.toLowerCase());
+      if (statusKey) statusText = translate(statusKey, statusText);
+    }
+    return compactParts([job ? job[1] : '', statusText, exit ? exitLabel(translate, exit[1]) : '']);
   }
   const firstLine =
     trimmed
@@ -356,31 +419,34 @@ function summarizeShellResult({ text, trimmed }) {
   return truncateSingleLine(firstLine, AGENT_SURFACE_BRIEF_MAX);
 }
 
-function summarizeGitResult({ text, trimmed }) {
+function summarizeGitResult({ text, trimmed, translate }) {
   const exit = gitResultExitCode(text);
-  if (exit !== null) return `Exit ${exit}`;
+  if (exit !== null) return exitLabel(translate, exit);
   const error = gitResultError(text);
   if (error) return truncateSingleLine(error, AGENT_SURFACE_BRIEF_MAX);
-  if (!trimmed) return '(No Output)';
+  if (!trimmed) return noOutput(translate);
   // Old transcript rows may still contain the previous result envelope.
   if (trimmed.startsWith('{')) {
     try {
       const stored = JSON.parse(trimmed);
-      if (typeof stored.ok === 'boolean') return summarizeGenericResult(text);
+      if (typeof stored.ok === 'boolean') return summarizeGenericResult(text, translate);
     } catch {}
   }
   const firstLine = text.split('\n').find((line) => line.trim() && !/^## .*git(?:\.exe)?(?:\s|$)/i.test(line));
-  return firstLine ? truncateSingleLine(firstLine, AGENT_SURFACE_BRIEF_MAX) : '(No Output)';
+  return firstLine ? truncateSingleLine(firstLine, AGENT_SURFACE_BRIEF_MAX) : noOutput(translate);
 }
 
-function summarizeCodeGraphResult({ text }) {
+function summarizeCodeGraphResult({ text, translate }) {
   const match = /(\d+)\s+(references|definitions|symbols|callers|callees|results|matches)/i.exec(text);
-  if (match) return `${match[1]} ${String(match[2]).toLowerCase()}`;
-  if (looksLikeZeroResultText(text)) return 'No results';
+  if (match) {
+    const noun = String(match[2]).toLowerCase();
+    return translate(COUNT_KEYS.get(noun), `${match[1]} ${noun}`, { count: Number(match[1]) });
+  }
+  if (looksLikeZeroResultText(text)) return translate('No results', 'No results');
   return null;
 }
 
-function summarizeFetchResult({ text, trimmed, args, normalized }) {
+function summarizeFetchResult({ text, trimmed, args, normalized, translate }) {
   // Channel `fetch` (Discord message fetch — args carry channel/messageId/limit,
   // never url/uri) is not a WEB fetch: the status/size probes would miss and
   // the result fall to raw JSON, so it takes the generic JSON/text summarizer.
@@ -390,8 +456,8 @@ function summarizeFetchResult({ text, trimmed, args, normalized }) {
       !firstText(a.url, a.uri) && Boolean(firstText(a.channel, a.channelId, a.chatId, a.messageId) || a.limit != null);
     if (isChannelFetch) {
       const n = countNonEmptyLines(text);
-      if (trimmed && looksLineOriented(text) && n > 0) return `${n} ${pluralize(n, 'message')}`;
-      return summarizeGenericResult(text);
+      if (trimmed && looksLineOriented(text) && n > 0) return countLabel(translate, n, 'message');
+      return summarizeGenericResult(text, translate);
     }
   }
   // Status: require a status-like context (HTTP NNN, "Status: NNN",
@@ -408,37 +474,37 @@ function summarizeFetchResult({ text, trimmed, args, normalized }) {
   return null;
 }
 
-function summarizeSearchResult({ text, trimmed }) {
+function summarizeSearchResult({ text, trimmed, translate }) {
   const match = /(\d+)\s+results?/i.exec(text);
-  if (match) {
-    const n = Number(match[1]);
-    return `${n} ${pluralize(n, 'result')}`;
-  }
+  if (match) return countLabel(translate, Number(match[1]), 'result');
   return trimmed ? firstAgentResultLine(text) || null : null;
 }
 
-function summarizeMemoryResult({ text, trimmed }) {
-  if (!trimmed || trimmed === '(no results)' || looksLikeZeroResultText(text)) return 'No Results';
+function summarizeMemoryResult({ text, trimmed, translate }) {
+  if (!trimmed || trimmed === '(no results)' || looksLikeZeroResultText(text)) {
+    return translate('No results', 'No Results');
+  }
   let n = 0;
   for (const line of text.split('\n')) {
     if (/#\d+\s*$/.test(line)) n += 1;
   }
-  if (n > 0) return `${n} ${pluralize(n, 'Memory', 'Memories')}`;
-  return summarizeGenericResult(text);
+  if (n > 0) return countLabel(translate, n, 'Memory', 'Memories');
+  return summarizeGenericResult(text, translate);
 }
 
-function summarizeSkillResult({ text, trimmed, args, normalized }) {
+function summarizeSkillResult({ text, trimmed, args, normalized, translate }) {
   const parsedArgs = parseToolArgs(args);
   const target = firstText(parsedArgs.name, parsedArgs.skill, parsedArgs.skill_name);
   if (normalized === 'skills_list') {
     const count = /(\d+)\s+skills?/i.exec(text);
-    if (count) return `${Number(count[1]) || count[1]} ${pluralize(Number(count[1]) || 0, 'skill')}`;
+    if (count) return countLabel(translate, Number(count[1]) || 0, 'skill');
     const lines = countNonEmptyLines(text);
-    return lines > 0 ? `${lines} ${pluralize(lines, 'skill')}` : null;
+    return lines > 0 ? countLabel(translate, lines, 'skill') : null;
   }
   if (target) {
     const verb = normalized === 'skill' || normalized === 'skill_view' ? 'Loaded' : 'Used';
-    return `${verb} ${truncateToolText(target, 80)}`;
+    const name = truncateToolText(target, 80);
+    return translate(`${verb} {{name}}`, `${verb} ${name}`, { name });
   }
   return trimmed ? firstAgentResultLine(text) || null : null;
 }
@@ -446,21 +512,22 @@ function summarizeSkillResult({ text, trimmed, args, normalized }) {
 // Status-check (list/status) envelopes start with "agents: N" / "tasks: M" (or
 // "(no agents or tasks)") and collapse to a tight count summary instead of
 // leaking the raw "agents: 3 …" worker dump into the card.
-function summarizeAgentCounts(text) {
-  if (/^\(no agents or tasks\)$/im.test(text)) return 'No agents or tasks';
+function summarizeAgentCounts(text, translate = keepOriginal) {
+  const none = () => translate('No agents or tasks', 'No agents or tasks');
+  if (/^\(no agents or tasks\)$/im.test(text)) return none();
   const agentsCount = /^agents:\s*(\d+)/im.exec(text);
   const tasksCount = /^tasks:\s*(\d+)/im.exec(text);
   if (!agentsCount && !tasksCount) return null;
   const a = agentsCount ? Number(agentsCount[1]) : 0;
   const t = tasksCount ? Number(tasksCount[1]) : 0;
   const parts = [];
-  if (agentsCount) parts.push(`${a} ${pluralize(a, 'agent')}`);
-  if (tasksCount && t > 0) parts.push(`${t} ${pluralize(t, 'task')}`);
-  return compactParts(parts) || 'No agents or tasks';
+  if (agentsCount) parts.push(countLabel(translate, a, 'agent'));
+  if (tasksCount && t > 0) parts.push(countLabel(translate, t, 'task'));
+  return compactParts(parts) || none();
 }
 
-function summarizeAgentResult({ text }) {
-  const counts = summarizeAgentCounts(text);
+function summarizeAgentResult({ text, translate }) {
+  const counts = summarizeAgentCounts(text, translate);
   if (counts) return counts;
   const answerLine = firstAgentResultLine(text);
   // Agent/task result cards show only a one-liner; full report via ctrl+o.
@@ -468,22 +535,16 @@ function summarizeAgentResult({ text }) {
   return null;
 }
 
-const summarizeGeneric = ({ text }) => summarizeGenericResult(text);
+const summarizeGeneric = ({ text, translate }) => summarizeGenericResult(text, translate);
 
 const TOOL_RESULT_SUMMARIZERS = new Map(
   [
     [['read', 'view_image', 'read_mcp_resource'], summarizeReadResult],
     [['apply_patch'], summarizePatchResult],
-    [['grep'], (result) => summarizeLineCount(result, { zero: '0 matches', singular: 'match', plural: 'matches' })],
-    [['glob'], (result) => summarizeLineCount(result, { zero: '0 files', singular: 'file', plural: 'files' })],
-    [
-      ['find'],
-      (result) => summarizeLineCount(result, { zero: '0 candidates', singular: 'candidate', plural: 'candidates' }),
-    ],
-    [
-      ['list', 'ls'],
-      (result) => summarizeLineCount(result, { zero: '0 entries', singular: 'entry', plural: 'entries' }),
-    ],
+    [['grep'], (result) => summarizeLineCount(result, { singular: 'match', plural: 'matches' })],
+    [['glob'], (result) => summarizeLineCount(result, { singular: 'file', plural: 'files' })],
+    [['find'], (result) => summarizeLineCount(result, { singular: 'candidate', plural: 'candidates' })],
+    [['list', 'ls'], (result) => summarizeLineCount(result, { singular: 'entry', plural: 'entries' })],
     [['shell', 'bash', 'bash_session', 'shell_command', 'job_wait'], summarizeShellResult],
     [['git'], summarizeGitResult],
     [['code_graph'], summarizeCodeGraphResult],
@@ -513,12 +574,12 @@ const TOOL_RESULT_SUMMARIZERS = new Map(
  * tool name, parsed args, and the raw result text. Returns null when nothing
  * reliable can be derived, so the caller falls back to the raw result block.
  */
-export function summarizeToolResult(name, args, resultText, isError = false) {
+export function summarizeToolResult(name, args, resultText, isError = false, translate = keepOriginal) {
   const notification = parseTaskNotification(resultText);
   if (notification) {
     if (isError) return notification.error || notification.summary;
     if (notification.surface === 'shell') return notification.summary;
-    return summarizeToolResult(name, args, notification.result, false);
+    return summarizeToolResult(name, args, notification.result, false, translate);
   }
   if (isError) {
     // Errors surface the extracted cause so the collapsed card answers "why"
@@ -531,7 +592,7 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
   if (isMcpToolName(name)) return trimmed ? firstAgentResultLine(text) || null : null;
   const normalized = normalizeToolName(name);
   const summarize = TOOL_RESULT_SUMMARIZERS.get(normalized);
-  return summarize ? summarize({ text, trimmed, args, normalized }) : null;
+  return summarize ? summarize({ text, trimmed, args, normalized, translate }) : null;
 }
 
 function truncateAgentSurfaceBrief(value, max = AGENT_SURFACE_BRIEF_MAX) {

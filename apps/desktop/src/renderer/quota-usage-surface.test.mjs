@@ -202,6 +202,11 @@ test('the usage dialog header switches to subscription usage and opens there nex
   // 30 % in the first hour runs out 2 h 20 m later, before the 18:00 reset.
   assert.equal(document.querySelectorAll('.stats-card')[0].dataset.tone, 'danger');
   assert.deepEqual(texts('.quota-mix li > b'), ['20%', '10%', '70%']);
+  assert.equal(
+    [...document.querySelectorAll('.quota-trend header *')].some((node) => node.textContent === t('Trend')),
+    false,
+    'only the visible Trend heading is gone'
+  );
   // 13:00→13:30 had no reading; 13:30→14:00 was read every quarter hour.
   assert.ok(document.querySelector('.quota-chart-unmeasured').getAttribute('d'));
   assert.ok(document.querySelector('.quota-chart-line').getAttribute('d'));

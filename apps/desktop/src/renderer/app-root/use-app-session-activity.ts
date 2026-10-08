@@ -4,6 +4,7 @@ import type { useAppSessionActions } from '../use-app-session-actions';
 import { isMobileRemoteSurface } from '../mobile-surface';
 import { useShellUpdateReload } from '../use-shell-update-reload';
 import { currentVisibleSessionIds } from '../use-visible-sessions';
+import { t } from '../i18n';
 
 type SessionActivityOptions = Pick<
   Parameters<typeof useAppSessionActions>[0],
@@ -50,7 +51,9 @@ export function useAppSessionActivity({
     return { schedule, webhook };
   }, [sessions]);
   useEffect(() => {
-    const catalogTitles = new Map(sessions.map((session) => [session.id, sessionSummaryTitle(session)] as const));
+    const catalogTitles = new Map(
+      sessions.map((session) => [session.id, sessionSummaryTitle(session, t('Untitled session'))] as const)
+    );
     if (!catalogTitles.size) return;
     setTabs((current) => {
       let changed = false;

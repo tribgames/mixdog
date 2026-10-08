@@ -1,4 +1,5 @@
-import { open, readFile, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { MAX_PDF_BYTES, MAX_PDF_PAGES, isPdfBuffer } from '../../../../attachments/limits.mjs';
 import { READ_MAX_SIZE_BYTES } from './read-constants.mjs';
 import { imageBlocksFromBuffer } from './read-image-resize.mjs';
 import { inspectPdfBuffer } from '../../../../attachments/pdf-extract.mjs';
@@ -9,37 +10,13 @@ const DEFAULT_READ_MAX_OUTPUT_BYTES = 100 * 1024;
 // document block (providers convert it to their native file shape): 20MB raw → ~27MB
 // base64, which stays under the 32MB request cap.
 // Larger PDFs fall back to bounded PDF.js text extraction.
-const PDF_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
-
-// %PDF- magic bytes (0x25 0x50 0x44 0x46 0x2D). A document block must only be
-// emitted for a real PDF — sending a non-PDF blob as application/pdf would
-// poison the conversation history (the API/model rejects the malformed block).
-const PDF_MAGIC = Buffer.from('%PDF-', 'latin1');
+// (MAX_PDF_BYTES / MAX_PDF_PAGES come from the shared attachment limits.)
+const PDF_TEXT_FALLBACK_PAGES = 20;
 
 // Per-output text ceiling inside a notebook. A single cell output larger than
 // this is replaced with a jq hint (large-notebook guidance) so a
 // runaway stdout / data dump can't blow the read budget.
 const IPYNB_OUTPUT_MAX_CHARS = 10_000;
-
-// Read the leading bytes and confirm the %PDF- magic header. Returns false on
-// any IO error (caller treats a non-PDF as text-fallback).
-async function fileStartsWithPdfMagic(fullPath) {
-  let fh;
-  try {
-    fh = await open(fullPath, 'r');
-    const head = Buffer.alloc(PDF_MAGIC.length);
-    const { bytesRead } = await fh.read(head, 0, PDF_MAGIC.length, 0);
-    return bytesRead === PDF_MAGIC.length && head.equals(PDF_MAGIC);
-  } catch {
-    return false;
-  } finally {
-    if (fh) {
-      try {
-        await fh.close();
-      } catch {}
-    }
-  }
-}
 
 // Validate / parse a pages arg ("N" or "N-M", 1-based, span <=20). Returns
 // { filter } on success, { error } (a string) on rejection, or { filter: null }
@@ -104,9 +81,35 @@ export async function extractPdfText(
     // tables) instead of lossy pdf-parse text. The magic-byte guard prevents
     // a non-PDF (mislabelled extension) from poisoning history.
     // textOnly (batch context) skips the block and always emits text.
-    if (!textOnly && !pages.filter && pdfStat.size <= PDF_DOCUMENT_MAX_BYTES) {
-      if (await fileStartsWithPdfMagic(fullPath)) {
-        const buf = await readFile(fullPath);
+    if (!textOnly && !pages.filter && pdfStat.size <= MAX_PDF_BYTES) {
+      const buf = await readFile(fullPath);
+      if (isPdfBuffer(buf)) {
+        // A password-protected or invalid PDF is rejected by every provider
+        // and would wedge the session if it entered history as a block.
+        let pageCount;
+        try {
+          ({ pageCount } = await inspectPdfBuffer(buf, { maxPages: Infinity }));
+        } catch (inspectErr) {
+          const label = fullPath.split(/[\\/]/).pop();
+          const protectedPdf =
+            inspectErr?.name === 'PasswordException' || /password/i.test(String(inspectErr?.message || ''));
+          return protectedPdf
+            ? `Error: this PDF is password-protected and cannot be read (${label}).`
+            : `Error: ${label} is not a valid PDF (${inspectErr instanceof Error ? inspectErr.message : String(inspectErr)}).`;
+        }
+        if (pageCount > MAX_PDF_PAGES) {
+          const head = await inspectPdfBuffer(buf, {
+            extractText: true,
+            maxPages: Infinity,
+            maxOutputBytes,
+            pageRange: { from: 1, to: PDF_TEXT_FALLBACK_PAGES },
+          });
+          return (
+            `[PDF has ${pageCount} pages, too many to attach natively (max ${MAX_PDF_PAGES});` +
+            `showing extracted text of pages 1-${PDF_TEXT_FALLBACK_PAGES}. Pass \`pages\` (e.g. "21-40", max 20 per request) to read others.]\n` +
+            (head.text || '(no text content extracted from PDF)')
+          );
+        }
         return {
           content: [
             {
@@ -116,6 +119,7 @@ export async function extractPdfText(
                 media_type: 'application/pdf',
                 data: buf.toString('base64'),
               },
+              pageCount,
             },
           ],
         };

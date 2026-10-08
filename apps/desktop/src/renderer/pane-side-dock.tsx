@@ -883,7 +883,7 @@ export function PaneSideDock({
         <header className="pane-side-dock-header">
           {activeDescriptor && (
             <div className="pane-side-dock-title">
-              <span>{t(activeDescriptor.title ?? activeDescriptor.label)}</span>
+              <span>{activeDescriptor.title ?? activeDescriptor.label}</span>
             </div>
           )}
           <button

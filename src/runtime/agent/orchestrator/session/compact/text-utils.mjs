@@ -1,6 +1,8 @@
 // Text/token/message helpers and secret redaction for compaction.
 import { createHash } from 'node:crypto';
+import { attachmentTextForPart, isAttachmentReference, isPermanentAttachmentError } from '../../../../attachments/store.mjs';
 import { estimateMessagesTokens } from '../context-utils.mjs';
+import { inlineFileKind } from '../../../../shared/inline-file-kind.mjs';
 
 const TOOL_ARG_STRING_MAX_CHARS = 360;
 const TOOL_ARG_ARRAY_MAX_ITEMS = 8;
@@ -91,20 +93,60 @@ export function roleCounts(messages) {
   return [...counts.entries()].map(([role, count]) => `${role}:${count}`).join(', ');
 }
 
+const ATTACHMENT_TEXT_MAX_CHARS = 24_000;
+
+// A long user message is stored as a text attachment reference; the summarizer
+// must see its words, bounded, and a gone blob must not fail compaction.
+function referencedText(item) {
+  try {
+    return truncateMiddle(attachmentTextForPart(item), ATTACHMENT_TEXT_MAX_CHARS);
+  } catch (error) {
+    // Only a blob that is permanently gone or corrupt reads as unavailable; a
+    // transient error (EBUSY, EPERM, …) must fail the compaction, not shrink it.
+    if (!isPermanentAttachmentError(error)) throw error;
+    return '[attachment unavailable]';
+  }
+}
+
+// Media has no text, but the summarizer should know it existed.
+function mediaMarker(item) {
+  const name = String(item.filename || item.title || '').trim();
+  if (item.type === 'image' || item.type === 'image_url' || item.type === 'input_image') return '[image]';
+  // Kind by the same rule lowering uses (bytes, then label, then name), with
+  // the same default type a part without one gets there.
+  const mime = String(item.mimeType || item.mediaType || item.source?.media_type || 'application/pdf').toLowerCase();
+  if (item.type === 'file' || item.type === 'document' || item.type === 'input_file') {
+    if (inlineFileKind(mime, item.data || item.source?.data || '', name) === 'pdf') {
+      return `[PDF: ${name || 'document.pdf'}]`;
+    }
+    return `[file: ${name || mime || 'attachment'}]`;
+  }
+  return '';
+}
+
+function partText(item) {
+  if (typeof item === 'string') return item;
+  if (!item || typeof item !== 'object') return '';
+  if (item.type === 'text' && isAttachmentReference(item)) return referencedText(item);
+  if (typeof item.text === 'string') return item.text;
+  if (typeof item.content === 'string') return item.content;
+  return mediaMarker(item);
+}
+
+/**
+ * The text of a message content as the compaction summarizer reads it: text
+ * parts, stored text attachments resolved (bounded), and a fixed marker per
+ * media part. The one such projection — both summary paths use it.
+ */
+export function contentText(content) {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map(partText).filter(Boolean).join('\n');
+}
+
 export function extractText(m) {
   if (!m || typeof m !== 'object') return '';
-  if (typeof m.content === 'string') return m.content;
-  if (Array.isArray(m.content)) {
-    return m.content
-      .map((item) => {
-        if (!item || typeof item !== 'object') return '';
-        if (typeof item.text === 'string') return item.text;
-        if (typeof item.content === 'string') return item.content;
-        return '';
-      })
-      .filter(Boolean)
-      .join('\n');
-  }
+  if (typeof m.content === 'string' || Array.isArray(m.content)) return contentText(m.content);
   try {
     return JSON.stringify(m.content ?? '');
   } catch {

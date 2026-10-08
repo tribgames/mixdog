@@ -104,7 +104,7 @@ export function PullRequestEditor({
       <header className="workspace-pr-editor-header">
         <div className="workspace-pr-editor-title-row">
           <h1>
-            {detail?.title || `Pull Request #${number}`}
+            {detail?.title || t('Pull Request #{{number}}', { number })}
             {detail && <small>#{detail.number}</small>}
           </h1>
           <span className="workspace-pr-editor-header-actions">

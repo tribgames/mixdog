@@ -551,7 +551,7 @@ export function StudioRouteMenu({
         data-morph={triggerWidth !== null ? '' : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Generation model"
+        aria-label={t('Generation model')}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           clickGuard.markPointerActivation();

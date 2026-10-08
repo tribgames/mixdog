@@ -151,7 +151,8 @@
   line-height: var(--mx-line-meta);
 }
 /* An advanced section folds behind its head; the chevron is the only cue. */
-.extensions-section > summary {
+.extensions-section > summary,
+.settings-custom-models > summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -159,18 +160,22 @@
   list-style: none;
   cursor: pointer;
 }
-.extensions-section > summary::-webkit-details-marker {
+.extensions-section > summary::-webkit-details-marker,
+.settings-custom-models > summary::-webkit-details-marker {
   display: none;
 }
-.extensions-section > summary > svg {
+.extensions-section > summary > svg,
+.settings-custom-models > summary > svg {
   flex: 0 0 auto;
   color: var(--mx-icon-muted);
   transition: transform var(--mx-motion-ink);
 }
-.extensions-section[open] > summary > svg {
+.extensions-section[open] > summary > svg,
+.settings-custom-models[open] > summary > svg {
   transform: rotate(180deg);
 }
-.extensions-section > summary:focus-visible {
+.extensions-section > summary:focus-visible,
+.settings-custom-models > summary:focus-visible {
   outline: 1px solid var(--mx-focus);
   outline-offset: 2px;
   border-radius: var(--mx-radius-sm);

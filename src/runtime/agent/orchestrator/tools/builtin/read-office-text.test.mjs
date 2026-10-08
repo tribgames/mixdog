@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import JSZip from 'jszip';
-import { extractOoxmlText } from './read-office-files.mjs';
+import { extractOoxmlText, extractOoxmlTextFromBuffer, tryExtractOoxmlTextFromBuffer } from '../../../../attachments/office-extract.mjs';
 
 const WORD_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const DRAWING_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
@@ -465,4 +465,123 @@ test('speaker notes are read with their slide, without the thumbnail placeholder
     '야간 운영 전환 결과',
     '[notes] 증원 승인을 요청합니다.',
   ]);
+});
+
+test('a zip bomb is refused with a clear error instead of exhausting memory', async (t) => {
+  const root = await fs.mkdtemp(join(tmpdir(), 'mixdog-read-office-bomb-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const path = join(root, 'bomb.docx');
+  const zip = new JSZip();
+  zip.file(
+    'word/document.xml',
+    `<w:document xmlns:w="${WORD_NS}"><w:body><w:p><w:r><w:t>${'a'.repeat(40 * 1024 * 1024)}</w:t></w:r></w:p></w:body></w:document>`
+  );
+  await fs.writeFile(path, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
+  const out = await extractOoxmlText(path);
+  assert.match(out, /^Error: .*too large when decompressed/);
+});
+
+test('the buffer extractor reads a package from memory and sniffs the format without an extension', async () => {
+  const zip = new JSZip();
+  zip.file(
+    'word/document.xml',
+    `<w:document xmlns:w="${WORD_NS}"><w:body><w:p><w:r><w:t>from memory</w:t></w:r></w:p></w:body></w:document>`
+  );
+  const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+  assert.equal(extractOoxmlTextFromBuffer(buffer, 'plan.docx'), 'from memory');
+  assert.equal(extractOoxmlTextFromBuffer(buffer, 'attachment'), 'from memory');
+  assert.match(extractOoxmlTextFromBuffer(Buffer.from('not a zip at all, just text bytes'), 'x.docx'), /^Error:/);
+});
+
+// Crafted parts of ~4 MiB (a few KB deflated) full of unclosed tags, tags with
+// no `>`, and long blank runs. Every one of these used to make a lazy
+// `[\s\S]*?` / `[^>]*` pattern rescan the rest of the part from each start
+// position (minutes of CPU); extraction must stay linear.
+const MIB = 1024 * 1024;
+const rep = (unit, bytes) => unit.repeat(Math.ceil(bytes / unit.length));
+
+async function packageBuffer(files) {
+  const zip = new JSZip();
+  for (const [name, content] of Object.entries(files)) zip.file(name, content);
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+const HOSTILE = {
+  'unclosed runs under a hidden marker': () => ({
+    'word/document.xml': `<w:document xmlns:w="${WORD_NS}"><w:body><w:vanish/>${rep('<w:r><w:rPr><w:vanish/></w:rPr>', 4 * MIB)}`,
+  }),
+  'unclosed text runs': () => ({
+    'word/document.xml': `<w:document xmlns:w="${WORD_NS}"><w:body>${rep('<w:p><w:t>x', 4 * MIB)}`,
+  }),
+  'tags without a closing bracket': () => ({
+    'word/document.xml': `<w:document xmlns:w="${WORD_NS}"><w:body>${rep('<w:tab <w:br <w:footnoteReference <w:r ', 4 * MIB)}`,
+  }),
+  'unclosed figures': () => ({
+    'word/document.xml': `<w:document xmlns:w="${WORD_NS}"><w:body>${rep('<w:drawing><w:p>', 4 * MIB)}`,
+  }),
+  'a long blank run': () => ({
+    'word/document.xml': `<w:document xmlns:w="${WORD_NS}"><w:body><w:p><w:r><w:t>a${' '.repeat(4 * MIB)}b</w:t></w:r></w:p>`,
+  }),
+  'a long tab run before a cell end': () => ({
+    'word/document.xml': `<w:document xmlns:w="${WORD_NS}"><w:body><w:tbl><w:tr><w:tc><w:p><w:r><w:t>${'&#9;'.repeat(MIB / 2)}x</w:t></w:r></w:p></w:tc>${rep('<w:tc>', 3 * MIB)}`,
+  }),
+  'unclosed rows and cells': () => ({
+    'xl/workbook.xml': `<workbook xmlns="${SHEET_NS}" xmlns:r="${RELATIONSHIP_NS}"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels':
+      '<Relationships><Relationship Id="rId1" Type="worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml': `<worksheet><cols>${rep('<col hidden="1" ', MIB)}<sheetData>${rep('<row><c><v>1', 3 * MIB)}`,
+    'xl/sharedStrings.xml': `<sst>${rep('<si><t>', 3 * MIB)}`,
+    'xl/styles.xml': `<styleSheet><numFmts>${rep('<numFmt numFmtId="1" ', MIB)}<cellXfs>${rep('<xf ', 3 * MIB)}`,
+  }),
+  'unclosed slide shapes': () => ({
+    'ppt/slides/slide1.xml': `<p:sld xmlns:p="${PRESENTATION_NS}" xmlns:a="${DRAWING_NS}"><p:cNvPr hidden="1"/>${rep('<p:sp><p:pic><p:graphicFrame>', 4 * MIB)}`,
+    'ppt/slides/_rels/slide1.xml.rels': `<Relationships>${rep('<Relationship Target="x" ', MIB)}`,
+  }),
+};
+
+for (const [label, build] of Object.entries(HOSTILE)) {
+  test(`extraction stays linear on ${label}`, async () => {
+    const buffer = await packageBuffer(build());
+    const name = 'xl/workbook.xml' in build() ? 'a.xlsx' : 'ppt/slides/slide1.xml' in build() ? 'a.pptx' : 'a.docx';
+    const started = performance.now();
+    const text = extractOoxmlTextFromBuffer(buffer, name);
+    const elapsed = performance.now() - started;
+    assert.equal(typeof text, 'string');
+    assert.ok(elapsed < 1000, `${label}: ${Math.round(elapsed)} ms for a ~4 MiB part`);
+  });
+}
+
+test('the lowering path refuses a part inflating past its cap and returns null', async () => {
+  const big = await packageBuffer({
+    'word/document.xml': `<w:document xmlns:w="${WORD_NS}"><w:body><w:p><w:r><w:t>${'a'.repeat(9 * MIB)}</w:t></w:r></w:p></w:body></w:document>`,
+  });
+  assert.equal(tryExtractOoxmlTextFromBuffer(big, 'a.docx', { maxPartBytes: 8 * MIB }), null);
+  assert.equal(tryExtractOoxmlTextFromBuffer(big, 'a.docx', { maxPartBytes: 16 * MIB }).length > 0, true);
+});
+
+test('a ~100 KB workbook of far-right cells on thousands of rows stops at the output cap', async () => {
+  // 5000 rows, each with a cell in the last column (XFD): padded, the grid would
+  // be ~80 MB of tabs. The build stops once the text outgrows the cap.
+  const rows = Array.from(
+    { length: 5000 },
+    (_, i) => `<row r="${i + 1}"><c r="XFD${i + 1}" t="inlineStr"><is><t>v${i}</t></is></c></row>`
+  ).join('');
+  const buffer = await packageBuffer({
+    'xl/workbook.xml': `<workbook xmlns="${SHEET_NS}" xmlns:r="${RELATIONSHIP_NS}"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels':
+      '<Relationships><Relationship Id="rId1" Type="worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml': `<worksheet><sheetData>${rows}</sheetData></worksheet>`,
+  });
+  assert.ok(buffer.length < 100 * 1024, `fixture is ${buffer.length} bytes`);
+  const started = performance.now();
+  const text = extractOoxmlTextFromBuffer(buffer, 'wide.xlsx', { maxOutputBytes: 100 * 1024 });
+  const elapsed = performance.now() - started;
+  assert.ok(elapsed < 1000, `${Math.round(elapsed)} ms`);
+  assert.ok(Buffer.byteLength(text) <= 100 * 1024 + 80, 'output is capped');
+  assert.match(text, /^--- sheet S ---\n\t+v0\n/);
+  assert.match(text, /\[office text truncated at 102400 bytes\]$/);
+  // The cut text is the prefix the uncapped build would have produced.
+  const larger = extractOoxmlTextFromBuffer(buffer, 'wide.xlsx', { maxOutputBytes: 200 * 1024 });
+  const prefix = text.slice(0, text.indexOf('\n... [office text truncated'));
+  assert.equal(larger.startsWith(prefix.slice(0, prefix.length - 4)), true);
 });

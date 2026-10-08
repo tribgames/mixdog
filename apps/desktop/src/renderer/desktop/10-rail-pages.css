@@ -584,7 +584,6 @@ html[data-window-material="mica"] .session-sidebar {
      card's state word lands on the same right axis. */
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  align-self: flex-start;
   gap: 6px;
   color: var(--mx-icon-muted);
 }
@@ -600,20 +599,19 @@ html[data-window-material="mica"] .session-sidebar {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Keep the clock on the name's first line, quieter than the name itself.
-   Warning, failure and unread completion still retain their semantic hues. */
+/* Keep clocks and state words at the live app's shared weight.
+   The row centers this column across the name and model lines. */
 .utility-dock .agent-activity-elapsed {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-supporting);
-  font-weight: var(--mx-weight-medium);
-  line-height: 20px;
+  font-weight: var(--mx-weight-semibold);
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
 }
-/* A ticking clock need not be another blue accent in the surrounding chrome. */
+/* Match the live app's accent for work in progress. */
 .utility-dock .agent-activity-elapsed[data-state="running"] {
-  color: var(--mx-text-soft);
+  color: var(--mx-text-accent);
 }
 /* Waiting on child work has its own hue so it never reads like live work
    (user: 작업중 작업대기는 다른색). */

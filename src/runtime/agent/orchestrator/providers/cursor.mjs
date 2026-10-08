@@ -7,6 +7,7 @@ import {
   toOpenAIMessages,
   toOpenAITools,
 } from './openai-compat-wire.mjs';
+import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { consumeCompatChatCompletionStream } from './openai-compat-stream.mjs';
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { cursorTokenExpiry, exchangeCursorToken, resolveCursorOAuthAccessToken } from './cursor-auth.mjs';
@@ -28,10 +29,10 @@ async function loadCursorRuntime() {
   return runtimePromise;
 }
 
-function toCursorMessages(messages, providerName) {
+function toCursorMessages(messages, providerName, { nativePdf } = {}) {
   const output = [];
   for (const message of messages || []) {
-    const converted = toOpenAIMessages([message], providerName);
+    const converted = toOpenAIMessages([message], providerName, { nativePdf });
     if (message?.role !== 'tool') {
       output.push(...converted);
       continue;
@@ -544,6 +545,9 @@ function selectCursorVariant(group, { effort = null, fast = false } = {}) {
 }
 
 class CursorProviderBase {
+  // Cursor's chat wire has no document block: PDFs lower to text.
+  nativePdf = false;
+
   static inputExcludesCache = false;
   name;
   config;
@@ -614,7 +618,7 @@ class CursorProviderBase {
       // Wire-level pairing guard: a call whose result never committed
       // (cancel/abort) is hard-rejected unpaired, so synthesize the
       // missing tool messages on the assembled array.
-      messages: ensureChatToolPairs(toCursorMessages(messages, this.name)),
+      messages: ensureChatToolPairs(toCursorMessages(messages, this.name, { nativePdf: this.nativePdf })),
       mixdog_session_id: sessionScope,
       stream: true,
       stream_options: { include_usage: true },
@@ -690,10 +694,12 @@ class CursorProviderBase {
       sendOpts.sessionId || sendOpts.providerCacheKey || sendOpts.promptCacheKey || `cursor-call:${randomUUID()}`
     );
     const openAiTools = tools?.length ? toOpenAITools(tools) : undefined;
-    const dispatch = () => {
+    const dispatch = async () => {
       noteRequestServiceTier(cursorSelectionIsFast(cursorSelection) ? 'fast' : '');
+      // Every attempt (retries included) prepares right before it lowers.
+      const prepared = await preparePdfTextForProvider(messages, this);
       return this._dispatchChat(
-        this._chatBody(messages, { cursorSelection, sessionScope, openAiTools, toolChoice: sendOpts.toolChoice }),
+        this._chatBody(prepared, { cursorSelection, sessionScope, openAiTools, toolChoice: sendOpts.toolChoice }),
         { runtime, accessToken, signal, sendOpts, openAiTools }
       );
     };

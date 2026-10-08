@@ -2,6 +2,7 @@
 // re-read at execution time, and the reload that follows a landed action.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesktopGitStatus } from '../shared/contract';
+import { t } from './i18n';
 import { leavesStateBehind } from './source-control-support';
 
 export type GitActionRunner = (
@@ -30,9 +31,9 @@ export function useSourceControlRunner({
     statusRef.current = status;
   }, [status]);
   const guardReason = useCallback((): string => {
-    if (busyRef.current) return 'Another Git action is running';
+    if (busyRef.current) return t('Another Git action is running');
     const operation = statusRef.current?.operation;
-    return operation ? `Finish the in-progress ${operation.replace('-', ' ')} first` : '';
+    return operation ? t('Finish the in-progress {{value0}} first', { value0: operation.replace('-', ' ') }) : '';
   }, []);
   /** Runs a menu action only if the guards STILL allow it; a stale entry
    *  reports the reason instead of acting on a repository that moved. */

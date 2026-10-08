@@ -1,4 +1,4 @@
-import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
+import { contentCarriesLiveMedia } from '../../providers/media-normalization.mjs';
 
 const _lastSaveError = new Map(); // id -> { message, at }
 
@@ -153,10 +153,11 @@ export function _clearLiveSession(id) {
   if (id) _liveSessions.delete(id);
 }
 
-// Live snapshots that still carry raw media bytes (images are placeholder'd
-// in the persisted JSON) stay resident for this long after their last use so
-// multi-turn image recognition keeps working across an idle gap. Beyond the
-// TTL the memory cost wins and the snapshot is reclaimed like any other.
+// Live snapshots that still carry inline media bytes (the persisted JSON holds
+// content-addressed refs, or a placeholder for media the store refused) stay
+// resident for this long after their last use so multi-turn image recognition
+// keeps working across an idle gap. Beyond the TTL the memory cost wins and the
+// snapshot is reclaimed like any other.
 export const LIVE_MEDIA_RETENTION_MS = Math.max(
   60_000,
   Number(process.env.MIXDOG_LIVE_MEDIA_RETENTION_MS) || 10 * 60 * 1000
@@ -166,7 +167,7 @@ export function _messagesCarryLiveMedia(messages) {
   if (!Array.isArray(messages)) return false;
   for (const m of messages) {
     if (!m || typeof m !== 'object') continue;
-    if (sanitizeContentForStoredHistory(m.content) !== m.content) return true;
+    if (contentCarriesLiveMedia(m.content)) return true;
   }
   return false;
 }

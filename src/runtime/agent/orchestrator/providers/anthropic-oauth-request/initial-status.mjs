@@ -3,7 +3,23 @@
 // retryable error; both drain the response and release its abort wiring so
 // re-issuing the POST is safe.
 import { noteFastModeCapacityError } from '../anthropic-fast-mode.mjs';
+import { headerValue } from '../retry-classification.mjs';
 import { classifyError, retryAfterMsFromError } from '../retry-classifier.mjs';
+
+// A subscription-window refusal carries these unified quota headers. A 429
+// without them is an entitlement/routing refusal or a capacity blip — the
+// account's quota is not exhausted, so it must not be reported as one.
+const QUOTA_HEADERS = [
+  'anthropic-ratelimit-unified-representative-claim',
+  'anthropic-ratelimit-unified-overage-status',
+];
+
+function hasQuotaHeaders(headers) {
+  return QUOTA_HEADERS.some((name) => {
+    const value = headerValue(headers, name);
+    return value != null && value !== '';
+  });
+}
 
 function formatRetryAfter(ms) {
   if (ms == null) return '';
@@ -19,16 +35,17 @@ export function anthropicQuotaError(status, headers, bodyText = '') {
   const retryAfter = formatRetryAfter(retryAfterMs);
   const detail = bodyText ? `: ${String(bodyText).slice(0, 200)}` : '';
   const retry = retryAfter ? ` retryAfter=${retryAfter}` : '';
-  const err = new Error(`Anthropic OAuth API ${status} quota/rate limit${retry}${detail}`);
-  err.name = 'ProviderQuotaError';
-  err.code = 'PROVIDER_QUOTA';
+  const quota = hasQuotaHeaders(headers);
+  const err = new Error(`Anthropic OAuth API ${status} ${quota ? 'quota/rate limit' : 'request rejected'}${retry}${detail}`);
+  err.name = quota ? 'ProviderQuotaError' : 'ProviderRequestRejectedError';
+  err.code = quota ? 'PROVIDER_QUOTA' : 'PROVIDER_REQUEST_REJECTED';
   err.httpStatus = status;
   err.status = status;
   err.headers = headers;
   err.response = { status, headers };
   err.retryAfterMs = retryAfterMs;
-  err.providerQuota = true;
-  err.quotaExceeded = true;
+  err.providerQuota = quota;
+  err.quotaExceeded = quota;
   // This error is constructed only from the initial HTTP response, before
   // SSE parsing can expose text or a tool call. It is therefore safe for the
   // request-local withRetry loop. Mid-stream paths stamp unsafeToRetry when

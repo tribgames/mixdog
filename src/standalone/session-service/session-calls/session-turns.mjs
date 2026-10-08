@@ -8,6 +8,7 @@ import {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
 } from '../../../runtime/attachments/store.mjs';
+import { providerNativePdf } from '../../../runtime/agent/orchestrator/providers/registry.mjs';
 import { cancelBackgroundTasks } from '../../../runtime/shared/background-tasks.mjs';
 
 /** Whether an abort on this session is an Agent cancelling its own turn: the
@@ -53,7 +54,7 @@ export function createSessionTurnCalls(ctx) {
     if (typeof target !== 'function') throw new TypeError('session runtime must implement submitAsync');
     const intake = await preparePromptSubmissionForProvider(
       materializePromptSubmission(prompt, options || {}),
-      entry.runtime.provider || entry.runtime.session?.provider || ''
+      { nativePdf: providerNativePdf(entry.runtime.provider || entry.runtime.session?.provider || '') }
     );
     // Await intake only: submitAsync resolves once the prompt is represented by
     // the queue/user row, while provider execution remains daemon-owned and

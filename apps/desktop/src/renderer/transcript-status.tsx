@@ -11,6 +11,7 @@ import { showDesktopToast } from './notifications';
 import { inheritSessionDirectly, sessionModelSelection, shouldOfferSessionInheritance } from './session-inheritance';
 import { asRecord, formatElapsed, publicThinkingSummary } from './text-format';
 import { completionTone, formatTokenCount, TextShimmer } from './transcript-primitives';
+import { localizedTurnFailureReason } from './transcript-failure-text';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from '../../../../src/tui/spinner-verbs.mjs';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
@@ -382,7 +383,7 @@ function translateStatusLabel(label: string): string {
     case 'Session inherited':
       return t('Session inherited');
     default:
-      return label ? t(label) : '';
+      return label;
   }
 }
 
@@ -391,7 +392,7 @@ function translateStatusDetail(detail: unknown): string {
   if (!text) return '';
   if (text.startsWith('conversation kept · ')) {
     const reason = text.slice('conversation kept · '.length);
-    return t('Conversation kept · {{reason}}', { reason: t(reason) || reason });
+    return t('Conversation kept · {{reason}}', { reason: localizedTurnFailureReason(reason) });
   }
   if (text === 'Continuing with the previous context.') {
     return t('Continuing with the previous context.');
@@ -399,7 +400,7 @@ function translateStatusDetail(detail: unknown): string {
   if (text === 'no active session') {
     return t('No active session');
   }
-  return t(text) || text;
+  return localizedTurnFailureReason(text);
 }
 
 // A completion is durable history, not an entrance event. Focus, history

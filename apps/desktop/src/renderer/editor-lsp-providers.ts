@@ -17,6 +17,7 @@ import {
   recordOf,
 } from './editor-lsp-conversion';
 import { graphContextsByModel, preparePeekModels } from './editor-graph-context';
+import { t } from './i18n';
 
 const lspProviderFeaturesByLanguage = new Map<string, Set<string>>();
 let lspWorkspaceEditCommandInstalled = false;
@@ -440,14 +441,14 @@ function registerLspEditProviders(languageId: string, capabilities: LspCapabilit
       async provideRenameEdits(model, position, newName) {
         const context = graphContextsByModel.get(model.uri.toString())?.current;
         if (!context?.requestLsp || !context.applyWorkspaceEdit) {
-          return { edits: [], rejectReason: 'Language server is unavailable.' };
+          return { edits: [], rejectReason: t('Language server is unavailable.') };
         }
         const edit = await context.requestLsp('textDocument/rename', {
           position: lspPosition(position),
           newName,
         });
-        if (!edit || !(await context.applyWorkspaceEdit(edit, 'Rename'))) {
-          return { edits: [], rejectReason: 'Rename was canceled or could not be applied safely.' };
+        if (!edit || !(await context.applyWorkspaceEdit(edit, t('Rename')))) {
+          return { edits: [], rejectReason: t('Rename was canceled or could not be applied safely.') };
         }
         return { edits: [] };
       },
@@ -845,7 +846,7 @@ export function ensureLspCommands(): void {
         if (
           action.edit &&
           context.applyWorkspaceEdit &&
-          !(await context.applyWorkspaceEdit(action.edit, String(action.title || 'Code action')))
+          !(await context.applyWorkspaceEdit(action.edit, String(action.title || t('Code action'))))
         )
           return;
         const nested = recordOf(action.command);

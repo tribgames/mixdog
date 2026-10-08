@@ -279,15 +279,13 @@ export function ContextInspector({
           <button type="button" className="context-detail-icon" onClick={closePreview} aria-label={t('Close preview')}>
             <ChevronLeft size={16} />
           </button>
-          {/* The name is content — a tool name, a prompt heading — so the DOM
-              translation pass must not swap it for a catalog phrase. */}
-          <h3 data-i18n-skip>{previewEntry ? entryLabel(previewEntry) : ''}</h3>
+          <h3>{previewEntry ? entryLabel(previewEntry) : ''}</h3>
           <span>{previewEntry ? `≈${previewEntry.tokens.toLocaleString()}` : ''}</span>
         </header>
         {preview.truncated ? (
           <p className="context-inspector-note context-detail-note">{t('Preview limited to 32,000 characters.')}</p>
         ) : null}
-        <div className="context-preview-content markdown" data-scrollable data-i18n-skip tabIndex={0}>
+        <div className="context-preview-content markdown" data-scrollable tabIndex={0}>
           <MarkdownBody
             key={preview.id}
             text={contextPreviewMarkdown(preview.text, previewEntry?.kind)}
@@ -354,7 +352,7 @@ export function ContextInspector({
             <X size={16} />
           </button>
         </header>
-        <div className="context-entry-list" data-i18n-skip>
+        <div className="context-entry-list">
           {!grouped && entries.map(row)}
           {grouped &&
             ordered.map(([key, rows]) => {

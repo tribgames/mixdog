@@ -548,7 +548,7 @@
   /* ── 2. Surfaces (back → front) ──
      Grok Bot's light ladder: subtle grey sidebar (#f7f7f7), near-white
      reading canvas (#fcfcfc), white popups and prompt card. Controls, chips,
-     bubbles and selections are flat grey fills; items carry no outlines. */
+     bubbles and selections are flat grey fills; cards keep one hairline. */
   --mx-bg-deep: #e8e8e8;
   --mx-window-band: #f7f7f7;
   --mx-workspace-sheet: #fcfcfc;

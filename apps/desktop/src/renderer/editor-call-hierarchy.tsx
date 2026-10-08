@@ -33,6 +33,7 @@ import {
 } from './editor-monaco-providers';
 import { readCallHierarchyLayout, type CallHierarchyPreview } from './editor-pane-model';
 import { monaco } from './monaco-setup';
+import { t } from './i18n';
 
 type EditorInstance = import('monaco-editor').editor.IStandaloneCodeEditor;
 type RequestLsp = (
@@ -175,7 +176,7 @@ export function useEditorCallHierarchy({
     try {
       const result = await requestLsp('textDocument/prepareCallHierarchy', { position: lspPosition(position) });
       const root = lspCallHierarchyItem(Array.isArray(result) ? result[0] : result, graphContextRef.current);
-      if (!root) throw new Error('No call hierarchy is available at the cursor.');
+      if (!root) throw new Error(t('No call hierarchy is available at the cursor.'));
       await load(root, direction, []);
     } catch (reason) {
       setState(hierarchyFailure(null, 'incoming', [], reason));
@@ -243,7 +244,7 @@ export function useEditorCallHierarchy({
       .then((result) => {
         if (generation !== previewGeneration.current) return;
         if (result.binary || result.tooLarge) {
-          throw new Error('Preview is unavailable for this file.');
+          throw new Error(t('Preview is unavailable for this file.'));
         }
         setPreview(callHierarchyPreview(item, target, { content: result.content }));
       })

@@ -5,6 +5,7 @@ import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { WorkspaceTabStrip, type NavigationSelection, type WorkspaceSelection, type WorkspaceTab } from './navigation';
 import type { PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
+import { t } from './i18n';
 import { displayProject, navigationKey } from './text-format';
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
@@ -55,23 +56,23 @@ export function useAppPaneChrome({
     switch (selection.kind) {
       case 'session': {
         const row = sessions.find((session) => session.id === selection.id);
-        return row ? sessionSummaryTitle(row) : selection.title || 'Session';
+        return row ? sessionSummaryTitle(row, t('Untitled session')) : selection.title || t('Session');
       }
       case 'file':
         return selection.rel.split('/').at(-1) || selection.rel;
       case 'diff':
-        return `${selection.rel.split('/').at(-1) || selection.rel} (Diff)`;
+        return t('{{name}} (Diff)', { name: selection.rel.split('/').at(-1) || selection.rel });
       case 'pull-request':
-        if (selection.mode === 'changes') return `Changes in Pull Request #${selection.number}`;
-        return selection.title || `Pull Request #${selection.number}`;
+        if (selection.mode === 'changes') return t('Changes in Pull Request #{{number}}', { number: selection.number });
+        return selection.title || t('Pull Request #{{number}}', { number: selection.number });
       case 'studio':
-        return 'Studio';
+        return t('Studio');
       case 'terminal':
-        return 'Terminal';
+        return t('Terminal');
       case 'project':
         return displayProject(selection.path).name;
       default:
-        return 'New task';
+        return t('New task');
     }
   };
   const stripTitleFor = (key: string, selection: WorkspaceSelection): string => {
@@ -99,7 +100,7 @@ export function useAppPaneChrome({
       setSelection(paneSelection);
     } else if (paneSelection.kind === 'new') {
       if (paneSelection.draftId) startTask(paneSelection, false);
-      else activateSelection(paneSelection, 'New task');
+      else activateSelection(paneSelection, t('New task'));
     } else if (paneSelection.kind === 'file') {
       openFileTab(paneSelection.project, paneSelection.rel, undefined, paneSelection.accessToken);
     } else {

@@ -6,10 +6,12 @@ import {
   supersedingImageMetadataText,
 } from '../../tools/builtin/read-image-resize.mjs';
 
+import { isEnvironmentError } from '../../../../shared/environment-error.mjs';
+
 const MAX_INPUT_BASE64_SIZE = Math.ceil((64 * 1024 * 1024) / 3) * 4;
 
 export class AnthropicImagePreparationError extends Error {
-  constructor(path, detail, cause) {
+  constructor(path, detail, cause, failingImageData) {
     super(
       `Anthropic image preparation failed at ${path}: ${detail}. The original image and conversation were not changed.`,
       { cause }
@@ -17,12 +19,28 @@ export class AnthropicImagePreparationError extends Error {
     this.name = 'AnthropicImagePreparationError';
     this.code = 'ANTHROPIC_IMAGE_PREPARATION_FAILED';
     this.status = 400;
+    // Identifies the rejected image for recovery; never part of the message.
+    Object.defineProperty(this, 'failingImageData', { value: failingImageData, enumerable: false });
+  }
+}
+
+// The image may be fine; this machine cannot resize it (broken sharp runtime,
+// out of memory...). Not an image rejection: recovery must not strip anything.
+export class AnthropicImageRuntimeError extends Error {
+  constructor(path, cause) {
+    super(
+      `Anthropic image preparation unavailable at ${path}: image resizing is unavailable; repair the sharp runtime. The original image and conversation were not changed.`,
+      { cause }
+    );
+    this.name = 'AnthropicImageRuntimeError';
+    this.code = 'ANTHROPIC_IMAGE_RUNTIME_UNAVAILABLE';
+    this.status = 400;
   }
 }
 
 // Work on the lowered request, not stored history: this covers attachments,
-// tool results, replayed images, and provider switches alike. Keep the 2000px
-// ceiling independent of image count so crossing 20 images never invalidates
+// tool results, replayed images, and provider switches alike. Keep the
+// IMAGE_MAX_WIDTH x IMAGE_MAX_HEIGHT display box (1568px) independent of image count so crossing 20 images never invalidates
 // an earlier image or changes its cached rendition.
 export async function prepareAnthropicImages(messages, { signal } = {}) {
   if (!Array.isArray(messages)) return messages;
@@ -64,12 +82,16 @@ export async function prepareAnthropicImages(messages, { signal } = {}) {
           { profile: 'anthropic' }
         );
       } catch (error) {
-        throw new AnthropicImagePreparationError(partPath, 'image could not be decoded; reattach a valid image', error);
+        if (isEnvironmentError(error)) throw new AnthropicImageRuntimeError(partPath, error);
+        throw new AnthropicImagePreparationError(
+          partPath,
+          'image could not be decoded; reattach a valid image',
+          error,
+          source.data
+        );
       }
       signal?.throwIfAborted();
-      if (!resized) {
-        throw new AnthropicImagePreparationError(partPath, 'image resizing is unavailable; repair the sharp runtime');
-      }
+      if (!resized) throw new AnthropicImageRuntimeError(partPath);
       const dims = resized.dimensions;
       if (
         !dims?.displayWidth ||
@@ -80,7 +102,9 @@ export async function prepareAnthropicImages(messages, { signal } = {}) {
       ) {
         throw new AnthropicImagePreparationError(
           partPath,
-          'image still exceeds the supported size; use a smaller image'
+          'image still exceeds the supported size; use a smaller image',
+          undefined,
+          source.data
         );
       }
       if (resized.data === source.data && resized.mimeType === source.media_type) {

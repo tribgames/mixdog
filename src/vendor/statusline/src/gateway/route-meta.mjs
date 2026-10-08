@@ -793,6 +793,8 @@ export function recordGatewayUsageEvent(summary) {
     contextUsedPct: Number.isFinite(Number(summary?.contextUsedPct)) ? round(summary.contextUsedPct, 2) : null,
     durationMs: Number.isFinite(Number(summary?.durationMs)) ? Math.max(0, Math.round(summary.durationMs)) : null,
     requestKind: cleanString(summary?.requestKind) || null,
+    // Effort this request actually ran at (auto effort may differ from the route's saved effort).
+    effort: cleanString(summary?.effort) || null,
     sessionId: cleanString(summary?.sessionId) || null,
     sourceType: cleanString(summary?.sourceType) || null,
     sourceName: cleanString(summary?.sourceName) || null,

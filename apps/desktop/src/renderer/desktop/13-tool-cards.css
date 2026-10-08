@@ -655,6 +655,8 @@
   padding: 0 36px 0 12px;
   border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
   color: var(--mx-text-faint);
+  /* Same header band as the code block's language row. */
+  background: var(--mx-surface-plate);
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
@@ -753,10 +755,13 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-/* The tool card is a frame on the canvas, so its sticky header takes the
-   canvas tone (the solid copy under Mica) instead of a grey band. */
+/* The tool card is a frame on the canvas: its sticky header lays the shared
+   header-band tint over the opaque canvas tone (the solid copy under Mica),
+   so scrolled rows never show through it. */
 :root .tool-section-header {
-  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
+  background:
+    linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)),
+    var(--mx-sheet-ink, var(--mx-workspace-sheet));
 }
 .tool-section-title {
   min-width: 0;

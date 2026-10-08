@@ -290,3 +290,27 @@ test('streaming fenced scripts keep final card geometry while their first AST is
     restore();
   }
 });
+
+test('a fenced source projection holds the transcript entry until its AST lands', async () => {
+  const { dom, restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' } });
+  const host = dom.window.document.getElementById('root');
+  const root = createRoot(host);
+  const text = 'Run this:\n\n```ts\nconst held = true;\n```';
+  try {
+    act(() => {
+      root.render(React.createElement(StreamingMarkdownBody, { text, copyControl: () => null }));
+    });
+    assert.ok(host.querySelector('.markdown-code-fallback'));
+    assert.ok(host.querySelector('[data-transcript-pending]'), 'the projection is not settled content');
+    await act(async () => {
+      await parseStreamingMarkdownAst(text);
+    });
+    await act(async () => {});
+    assert.equal(host.querySelector('.markdown-code-fallback'), null);
+    assert.equal(host.querySelector('[data-transcript-pending]'), null);
+    assert.match(host.textContent, /const held = true;/);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});

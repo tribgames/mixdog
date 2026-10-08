@@ -81,6 +81,8 @@ function opencodeGoReasoningLevels(model, current = null) {
 }
 
 export class OpenCodeGoProvider {
+  // No document block on this wire: a PDF is lowered to text before the request is built.
+  nativePdf = false;
   static inputExcludesCache = false;
   name = 'opencode-go';
   config;
@@ -101,6 +103,8 @@ export class OpenCodeGoProvider {
       baseURL: bases.anthropic,
       disableBetaHeaders: true,
     });
+    // The Anthropic route answers for this provider: PDFs lower to text.
+    this.anthropic.nativePdf = this.nativePdf;
   }
 
   async send(messages, model, tools, sendOpts) {

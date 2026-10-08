@@ -48,70 +48,70 @@ export function changedFileMenuItems({
   return [
     {
       id: 'discard',
-      label: 'Discard changes…',
+      label: t('Discard changes…'),
       danger: true,
       disabled: busy || file.conflicted || !canRevert,
       title: actionTitle(
-        file.conflicted ? 'Resolve the conflict before discarding this file' : undefined,
+        file.conflicted ? t('Resolve the conflict before discarding this file') : undefined,
         canRevert,
-        () => missingChannel('Discarding changes')
+        () => missingChannel(t('Discarding changes'))
       ),
       onSelect: () => guarded(onDiscard),
     },
     {
       id: 'ignore-file',
-      label: 'Ignore file (add to .gitignore)',
+      label: t('Ignore file (add to .gitignore)'),
       separatorBefore: true,
       disabled: busy || !canIgnore,
-      title: canIgnore ? undefined : missingChannel('Ignoring a file'),
+      title: canIgnore ? undefined : missingChannel(t('Ignoring a file')),
       onSelect: () => guarded(() => onIgnore(file.path)),
     },
     {
       id: 'ignore-folder',
-      label: 'Ignore folder (add to .gitignore)',
+      label: t('Ignore folder (add to .gitignore)'),
       disabled: busy || !canIgnore || !folder,
       title: actionTitle(
-        folder ? undefined : 'This file sits at the repository root, so it has no folder to ignore',
+        folder ? undefined : t('This file sits at the repository root, so it has no folder to ignore'),
         canIgnore,
-        () => missingChannel('Ignoring a folder')
+        () => missingChannel(t('Ignoring a folder'))
       ),
       onSelect: () => guarded(() => onIgnore(folder)),
     },
     {
       id: 'ignore-extension',
-      label: `Ignore all ${extension || 'extensionless'} files (add to .gitignore)`,
+      label: t('Ignore all {{value0}} files (add to .gitignore)', { value0: extension || t('extensionless') }),
       disabled: busy || !canIgnore || !extension,
       title: actionTitle(
-        extension ? undefined : 'This file has no extension, so there is no file type to ignore',
+        extension ? undefined : t('This file has no extension, so there is no file type to ignore'),
         canIgnore,
-        () => missingChannel('Ignoring a file type')
+        () => missingChannel(t('Ignoring a file type'))
       ),
       onSelect: () => guarded(() => onIgnore(file.path, 'extension')),
     },
     {
       id: 'copy-file-path',
-      label: 'Copy file path',
+      label: t('Copy file path'),
       separatorBefore: true,
       onSelect: onCopyFilePath,
     },
     {
       id: 'copy-relative-path',
-      label: 'Copy relative file path',
+      label: t('Copy relative file path'),
       onSelect: onCopyRelativePath,
     },
     {
       id: 'reveal',
-      label: 'Show in Explorer',
+      label: t('Show in Explorer'),
       separatorBefore: true,
       disabled: !canReveal,
-      title: canReveal ? undefined : missingChannel('Showing a file in Explorer'),
+      title: canReveal ? undefined : missingChannel(t('Showing a file in Explorer')),
       onSelect: onReveal,
     },
     {
       id: 'open-default',
-      label: 'Open with default program',
+      label: t('Open with default program'),
       disabled: !canOpenDefault,
-      title: canOpenDefault ? undefined : missingChannel('Opening a file'),
+      title: canOpenDefault ? undefined : missingChannel(t('Opening a file')),
       onSelect: onOpenDefault,
     },
   ];
@@ -159,14 +159,13 @@ export function SourceControlFileRow({
         className="dock-scm-file-check"
         checked={included}
         disabled={file.conflicted || busy}
-        aria-label={`Include ${file.path} in the commit`}
+        aria-label={t('Include {{value0}} in the commit', { value0: file.path })}
         onChange={(event) => onSetIncluded(event.currentTarget.checked)}
       />
       <button
         type="button"
         className="dock-scm-file-main"
         title={file.path}
-        data-i18n-skip
         data-status={kind}
         aria-label={t('Open changes {{value0}}', { value0: file.path })}
         onClick={(event) => {
@@ -179,15 +178,25 @@ export function SourceControlFileRow({
       </button>
       <ScmStatusIcon kind={kind} className="dock-scm-file-state" />
       <div className="dock-scm-file-actions">
-        <button type="button" aria-label={`Open file ${file.path}`} onClick={onOpenFile}>
+        <button type="button" aria-label={t('Open file {{value0}}', { value0: file.path })} onClick={onOpenFile}>
           <FileText size={14} aria-hidden="true" />
         </button>
         {file.conflicted ? (
-          <button type="button" aria-label={`Mark resolved ${file.path}`} disabled={busy} onClick={onResolve}>
+          <button
+            type="button"
+            aria-label={t('Mark resolved {{value0}}', { value0: file.path })}
+            disabled={busy}
+            onClick={onResolve}
+          >
             <Check size={14} aria-hidden="true" />
           </button>
         ) : (
-          <button type="button" aria-label={`Discard changes ${file.path}`} disabled={busy} onClick={onDiscard}>
+          <button
+            type="button"
+            aria-label={t('Discard changes {{value0}}', { value0: file.path })}
+            disabled={busy}
+            onClick={onDiscard}
+          >
             <Undo2 size={14} aria-hidden="true" />
           </button>
         )}

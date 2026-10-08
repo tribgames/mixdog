@@ -302,6 +302,13 @@ test('published variant multiples and vendor-served relay ids price from their b
   });
   assert.equal(thinking.costUsd, 5);
   assert.equal(thinking.rates.pricingModel, 'claude-opus-4-6');
+  const dotted = priceUsage({ provider: 'antigravity-oauth', model: 'claude-opus-5.5', inputTokens: 1_000_000 });
+  assert.equal(dotted.costUsd, 4);
+  assert.equal(
+    priceUsage({ provider: 'opencode-go', model: 'kimi-k3', inputTokens: 1_000_000 }).costUsd,
+    3,
+    'a gateway id its own catalog no longer lists is priced at the vendor list rate'
+  );
 });
 
 test('unknown prices retain both request and pricing identity instead of losing them', () => {

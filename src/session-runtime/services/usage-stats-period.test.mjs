@@ -175,6 +175,83 @@ test('cards, providers, models and chart data share the trailing range and never
   assert.equal(hours[23].future, false);
 });
 
+test('unpriced models are only those actually used in the selected period, never catalog-only', async (t) => {
+  const ledger = store(t);
+  t.mock.method(Date, 'now', () => now);
+  const used = (id, date, provider, model, extra = {}) =>
+    ledger.record([
+      makeUsageRecord({
+        id,
+        ts: new Date(date).getTime(),
+        provider,
+        model,
+        inputTokens: 40,
+        outputTokens: 2,
+        sourceType: 'lead',
+        sessionId: id,
+        ...extra,
+      }),
+    ]);
+  // Unknown provider/model with no supplied cost: makeUsageRecord yields costUsd null ('unpriced').
+  used('in-a', '2026-09-12T18:00:00', 'ghost-a', 'no-such-model');
+  used('in-b', '2026-09-12T19:00:00', 'ghost-a', 'no-such-model');
+  // Same provider, second unpriced model whose only request is a real zero-token one.
+  used('in-zero', '2026-09-12T19:30:00', 'ghost-a', 'zero-model', { inputTokens: 0, outputTokens: 0 });
+  // Same model name under another provider is a separate row.
+  used('in-c', '2026-09-12T20:00:00', 'ghost-b', 'no-such-model');
+  // A provider-reported cost of 0 is a legitimate price, not a missing one.
+  used('free', '2026-09-12T20:30:00', 'ghost-b', 'free-model', { costUsd: 0 });
+  // Background-only model: excluded under source='conversation'.
+  used('bg', '2026-09-12T20:45:00', 'ghost-b', 'bg-model', { sourceType: 'schedule' });
+  used('bg-only', '2026-09-12T20:50:00', 'ghost-d', 'bg-only-model', { sourceType: 'schedule' });
+  used('out', '2025-01-01T00:00:00', 'ghost-c', 'old-model');
+  record(ledger, 'priced', '2026-09-12T21:00:00');
+  const api = createUsageStatsApi({ ledger: () => ledger, importHistory: async () => {} });
+  const row = (result, provider, model) =>
+    result.providers.find((p) => p.provider === provider)?.models.find((m) => m.model === model);
+
+  const result = await api.getUsageStats({ view: 'hour', source: 'all', modelLimit: 1 });
+  assert.deepEqual(result.unpricedModels, [
+    { provider: 'ghost-a', model: 'no-such-model' },
+    { provider: 'ghost-a', model: 'zero-model' },
+    { provider: 'ghost-b', model: 'bg-model' },
+    { provider: 'ghost-b', model: 'no-such-model' },
+    { provider: 'ghost-d', model: 'bg-only-model' },
+  ]);
+  assert.equal(result.providers.find((p) => p.provider === 'ghost-a').models.length, 1, 'modelLimit truncates rows');
+  const full = await api.getUsageStats({ view: 'hour', source: 'all' });
+  assert.deepEqual(
+    [row(full, 'ghost-a', 'no-such-model').turns, row(full, 'ghost-a', 'no-such-model').tokens],
+    [2, 84]
+  );
+  const zero = row(full, 'ghost-a', 'zero-model');
+  assert.deepEqual([zero.turns, zero.tokens, zero.costUnpricedTurns], [1, 0, 1]);
+  assert.equal(row(full, 'ghost-b', 'free-model').costUnpricedTurns, 0);
+  assert.equal(row(full, 'ghost-b', 'free-model').costUsd, 0);
+  assert.equal(row(full, 'openai', 'period-fixture').costCoverage, 1, 'priced rows unaffected');
+  assert.equal(row(full, 'ghost-c', 'old-model'), undefined);
+
+  const byDefault = await api.getUsageStats({ view: 'hour', modelLimit: 1 });
+  assert.deepEqual(byDefault.unpricedModels, result.unpricedModels, 'the API default source is all');
+  const conversation = await api.getUsageStats({ view: 'hour', source: 'conversation' });
+  assert.deepEqual(
+    conversation.unpricedModels.map((m) => `${m.provider}/${m.model}`),
+    ['ghost-a/no-such-model', 'ghost-a/zero-model', 'ghost-b/no-such-model']
+  );
+  assert.equal(row(conversation, 'ghost-b', 'bg-model'), undefined);
+  assert.equal(
+    conversation.providers.some((p) => p.provider === 'ghost-d'),
+    false,
+    'a provider with only background calls has no conversation row'
+  );
+  assert.ok(full.providers.some((p) => p.provider === 'ghost-d'));
+
+  const all = await api.getUsageStats({ view: 'all', source: 'all' });
+  assert.ok(all.unpricedModels.some((m) => m.provider === 'ghost-c' && m.model === 'old-model'));
+  const empty = createUsageStatsApi({ ledger: () => store(t), importHistory: async () => {} });
+  assert.deepEqual((await empty.getUsageStats({ view: 'hour' })).unpricedModels, []);
+});
+
 test('custom ranges validate explicit calendar dates and include both selected endpoints through the API', async (t) => {
   const ledger = store(t);
   t.mock.method(Date, 'now', () => now);

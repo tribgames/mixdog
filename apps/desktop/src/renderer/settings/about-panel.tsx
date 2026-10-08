@@ -1,24 +1,30 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import type { DesktopApi } from '../../shared/contract';
-import { copyTextToClipboard } from '../text-format';
+import { t } from '../i18n';
 import { ActionButton, Group, ResourceRow } from './capability-controls';
+import { FeedbackDialog } from './feedback-dialog';
 import { readGithubStarred, rememberGithubStarred } from './github-star-storage';
 
 const MIXDOG_REPO_URL = 'https://github.com/tribgames/mixdog';
 const MIXDOG_ISSUES_URL = 'https://github.com/tribgames/mixdog/issues';
-const MIXDOG_SUPPORT_EMAIL = 'support@tribgames.com';
+type ChangelogDialogComponent = ComponentType<{ onClose(): void }>;
 
 export function AboutPanel() {
   const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
   const [ghReady, setGhReady] = useState(false);
   const [starred, setStarred] = useState(readGithubStarred);
   const [busy, setBusy] = useState(false);
-  const [emailCopied, setEmailCopied] = useState(false);
-  useEffect(() => {
-    if (!emailCopied) return;
-    const timer = setTimeout(() => setEmailCopied(false), 1500);
-    return () => clearTimeout(timer);
-  }, [emailCopied]);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  // The dialog bundles CHANGELOG.md and the Markdown renderer: load it on
+  // demand and mount it only once its first release is rendered-ready.
+  const [ChangelogDialog, setChangelogDialog] = useState<ChangelogDialogComponent | null>(null);
+  const openChangelog = () =>
+    void import('./changelog-dialog')
+      .then(async (module) => {
+        await module.prepareChangelog();
+        setChangelogDialog(() => module.default);
+      })
+      .catch(() => undefined);
   useEffect(() => {
     if (readGithubStarred()) return;
     let live = true;
@@ -51,57 +57,64 @@ export function AboutPanel() {
       .catch(() => open(MIXDOG_REPO_URL))
       .finally(() => setBusy(false));
   };
-  let starLabel = 'Star on GitHub ↗';
-  if (starred) starLabel = 'Starred ★';
-  else if (busy) starLabel = 'Starring…';
-  else if (ghReady) starLabel = 'Star ☆';
+  let starLabel = t('Star on GitHub ↗');
+  if (starred) starLabel = t('Starred ★');
+  else if (busy) starLabel = t('Starring…');
+  else if (ghReady) starLabel = t('Star ☆');
   return (
-    <Group title="Community">
+    <Group title={t('Community')}>
       <ResourceRow
-        title="GitHub"
+        title={t('GitHub')}
         className="settings-about-row"
-        description="Source, releases, and discussions — a star helps mixdog grow."
+        description={t('Source, releases, and discussions — a star helps mixdog grow.')}
         actions={
           <>
             <ActionButton disabled={busy || starred} onClick={star}>
               {starLabel}
             </ActionButton>
             <ActionButton disabled={busy} onClick={() => open(MIXDOG_REPO_URL)}>
-              Open ↗
+              {t('Open ↗')}
             </ActionButton>
           </>
         }
       />
       <ResourceRow
-        title="Report an issue"
+        title={t('Report an issue')}
         className="settings-about-row"
-        description="Bug reports and feature requests."
+        description={t('Bug reports and feature requests.')}
         actions={
           <ActionButton disabled={busy} onClick={() => open(MIXDOG_ISSUES_URL)}>
-            Issues ↗
+            {t('Issues ↗')}
           </ActionButton>
         }
       />
       <ResourceRow
-        title="Contact support"
+        title={t('Feedback')}
         className="settings-about-row"
+        description={t('Send a bug report or suggestion to the Mixdog team.')}
         actions={
-          <>
-            <ActionButton
-              onClick={() =>
-                void copyTextToClipboard(MIXDOG_SUPPORT_EMAIL)
-                  .then(() => setEmailCopied(true))
-                  .catch(() => undefined)
-              }
-            >
-              {emailCopied ? 'Copied' : 'Copy'}
-            </ActionButton>
-            <ActionButton disabled={busy} onClick={() => open(`mailto:${MIXDOG_SUPPORT_EMAIL}`)}>
-              Email ↗
-            </ActionButton>
-          </>
+          <ActionButton disabled={busy} onClick={() => setFeedbackOpen(true)}>
+            {t('Give feedback')}
+          </ActionButton>
         }
       />
+      <ResourceRow
+        title={t('Changelog')}
+        className="settings-about-row"
+        description={t('See what changed in each version.')}
+        actions={
+          <ActionButton disabled={busy} onClick={openChangelog}>
+            {t('View changelog')}
+          </ActionButton>
+        }
+      />
+      {ChangelogDialog && <ChangelogDialog onClose={() => setChangelogDialog(null)} />}
+      {feedbackOpen && (
+        <FeedbackDialog
+          submit={host?.submitFeedback ? (input) => host.submitFeedback!(input) : undefined}
+          onClose={() => setFeedbackOpen(false)}
+        />
+      )}
     </Group>
   );
 }

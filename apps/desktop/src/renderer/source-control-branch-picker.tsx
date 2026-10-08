@@ -27,8 +27,8 @@ interface PointerClickGuard {
 }
 
 function deleteBlockedReason(branch: DesktopGitBranch): string | undefined {
-  if (branch.current) return 'The checked-out branch cannot be deleted';
-  if (branch.remote) return 'A remote branch cannot be deleted from here';
+  if (branch.current) return t('The checked-out branch cannot be deleted');
+  if (branch.remote) return t('A remote branch cannot be deleted from here');
   return undefined;
 }
 
@@ -95,37 +95,37 @@ export function SourceControlBranchPicker({
   const branchMenuItems = (branch: DesktopGitBranch): ScmContextMenuItem[] => [
     {
       id: 'checkout',
-      label: 'Checkout',
+      label: t('Checkout'),
       disabled: Boolean(busy) || branch.current || Boolean(status.operation) || !capabilities.checkout,
       title: actionTitle(
-        branch.current ? 'This branch is already checked out' : operationReason,
+        branch.current ? t('This branch is already checked out') : operationReason,
         capabilities.checkout,
-        () => missingChannel('Checkout')
+        () => missingChannel(t('Checkout'))
       ),
       onSelect: () => guarded(() => onCheckout(branch)),
     },
     {
       id: 'rename',
-      label: 'Rename…',
+      label: t('Rename…'),
       disabled: Boolean(busy) || branch.remote || !capabilities.rename,
       title: actionTitle(
-        branch.remote ? 'A remote branch cannot be renamed from here' : undefined,
+        branch.remote ? t('A remote branch cannot be renamed from here') : undefined,
         capabilities.rename,
-        () => missingChannel('Renaming a branch')
+        () => missingChannel(t('Renaming a branch'))
       ),
       onSelect: () => guarded(() => onRename(branch)),
     },
     {
       id: 'delete',
-      label: 'Delete…',
+      label: t('Delete…'),
       danger: true,
       disabled: Boolean(busy) || branch.remote || branch.current || !capabilities.delete,
-      title: actionTitle(deleteBlockedReason(branch), capabilities.delete, () => missingChannel('Deleting a branch')),
+      title: actionTitle(deleteBlockedReason(branch), capabilities.delete, () => missingChannel(t('Deleting a branch'))),
       onSelect: () => guarded(() => onDelete(branch)),
     },
     {
       id: 'merge',
-      label: `Merge into ${status.branch}`,
+      label: t('Merge into {{value0}}', { value0: status.branch }),
       separatorBefore: true,
       disabled:
         Boolean(busy) ||
@@ -134,7 +134,7 @@ export function SourceControlBranchPicker({
         !capabilities.merge ||
         !status.branch ||
         status.detached,
-      title: actionTitle(operationReason, capabilities.merge, () => missingChannel('Merging a branch')),
+      title: actionTitle(operationReason, capabilities.merge, () => missingChannel(t('Merging a branch'))),
       onSelect: () => guarded(() => onMerge(branch)),
     },
   ];
@@ -169,7 +169,7 @@ export function SourceControlBranchPicker({
           <div
             className="dock-scm-branch-picker"
             role="dialog"
-            aria-label="Git branches"
+            aria-label={t('Git branches')}
             ref={panelRef}
             style={panelStyle}
           >
@@ -200,8 +200,8 @@ export function SourceControlBranchPicker({
               {!loading && visibleBranches.length === 0 && <p>{t('No matching branches.')}</p>}
               {(
                 [
-                  ['Default branch', defaultBranch ? [defaultBranch] : []],
-                  ['Other branches', otherBranches],
+                  [t('Default branch'), defaultBranch ? [defaultBranch] : []],
+                  [t('Other branches'), otherBranches],
                 ] as Array<[string, DesktopGitBranch[]]>
               ).map(
                 ([label, rows]) =>
@@ -213,7 +213,7 @@ export function SourceControlBranchPicker({
                           className="dock-scm-branch-row"
                           data-current={branch.current || undefined}
                           key={`${branch.remote}:${branch.name}`}
-                          {...rowContextMenu(`Actions for branch ${branch.name}`, () => branchMenuItems(branch))}
+                          {...rowContextMenu(t('Actions for branch {{value0}}', { value0: branch.name }), () => branchMenuItems(branch))}
                         >
                           <button
                             type="button"
@@ -237,7 +237,7 @@ export function SourceControlBranchPicker({
                               <button
                                 type="button"
                                 className="dock-scm-branch-action"
-                                aria-label={`Rename branch ${branch.name}`}
+                                aria-label={t('Rename branch {{value0}}', { value0: branch.name })}
                                 disabled={Boolean(busy)}
                                 onClick={() => onRename(branch)}
                               >
@@ -247,7 +247,7 @@ export function SourceControlBranchPicker({
                                 <button
                                   type="button"
                                   className="dock-scm-branch-action danger"
-                                  aria-label={`Delete branch ${branch.name}`}
+                                  aria-label={t('Delete branch {{value0}}', { value0: branch.name })}
                                   disabled={Boolean(busy)}
                                   onClick={() => onDelete(branch)}
                                 >

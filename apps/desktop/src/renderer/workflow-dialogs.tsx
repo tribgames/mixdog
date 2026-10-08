@@ -137,7 +137,6 @@ export function WorkflowEditorDialog({
             <small>{t('Shown in workflow lists and included in the prompt.')}</small>
             <input
               name="workflow-description"
-              data-i18n-skip
               defaultValue={String(pack?.description || '')}
               placeholder={t('What this workflow does')}
               disabled={busy}
@@ -145,7 +144,7 @@ export function WorkflowEditorDialog({
             />
           </label>
           <label className="schedules-field workflows-md-field">
-            <span data-i18n-skip>WORKFLOW.md</span>
+            <span>WORKFLOW.md</span>
             <small>{t('Instructions that define how this workflow works.')}</small>
             <textarea
               name="workflow-body"
@@ -262,7 +261,6 @@ export function AgentEditorDialog({
             <small>{t('When Mixdog should delegate to this agent.')}</small>
             <input
               name="agent-description"
-              data-i18n-skip
               defaultValue={String(agent?.description || '')}
               placeholder={t('When Mixdog should use this')}
               disabled={busy}
@@ -286,7 +284,7 @@ export function AgentEditorDialog({
             )}
           </div>
           <label className="schedules-field workflows-md-field">
-            <span data-i18n-skip>AGENT.md</span>
+            <span>AGENT.md</span>
             <small>{t('Instructions that define how this agent works.')}</small>
             <textarea
               name="agent-body"
@@ -343,7 +341,7 @@ export function RouteEditorDialog({
         aria-labelledby="route-dialog-title"
       >
         <header>
-          <h2 id="route-dialog-title">{t('Edit {{name}}', { name: t(target.label) })}</h2>
+          <h2 id="route-dialog-title">{t('Edit {{name}}', { name: target.label })}</h2>
           <div className="schedules-dialog-header-actions">
             {usageEditable && (
               <CompactSwitch
@@ -373,7 +371,7 @@ export function RouteEditorDialog({
           {target.readOnlyDefinition && (
             <div className="schedules-field">
               <span>{t('When to use')}</span>
-              <p className="workflows-route-usage">{t(target.description)}</p>
+              <p className="workflows-route-usage">{target.description}</p>
             </div>
           )}
           <div className="schedules-field">
@@ -381,7 +379,7 @@ export function RouteEditorDialog({
             <small>{t('Model used when this built-in agent runs.')}</small>
             <div className="workflows-dialog-route">
               <RouteControls
-                label={`${target.label} model`}
+                label={t('{{name}} model', { name: target.label })}
                 route={route}
                 models={models}
                 disabled={busy}

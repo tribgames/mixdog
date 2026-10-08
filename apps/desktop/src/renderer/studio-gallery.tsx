@@ -306,7 +306,7 @@ export function StudioGallery({
                       className="studio-tile-open"
                       onClick={() => (selecting ? onToggleChecked(asset) : onOpen(asset))}
                       aria-pressed={selecting ? checked : undefined}
-                      aria-label={`Open ${asset.kind}: ${asset.prompt}`}
+                      aria-label={t('Open {{kind}}: {{prompt}}', { kind: t(asset.kind), prompt: asset.prompt })}
                       onMouseEnter={hoverPreview ? () => onHoverStart(asset) : undefined}
                       onMouseLeave={hoverPreview ? onHoverEnd : undefined}
                     >

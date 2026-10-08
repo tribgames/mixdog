@@ -122,3 +122,76 @@ test('status envelopes do not become successful agent or JSON result bodies', ()
   assert.equal(summarizeToolResult('request_user_input', {}, '{"status":"completed","message":"ok"}'), null);
   assert.equal(summarizeToolResult('web_search', {}, 'background task\ntask_id: t1\nstatus: running'), null);
 });
+
+test('translate callback is invoked only for module-authored phrases', () => {
+  const calls = [];
+  const tr = (key, original, options) => {
+    calls.push([key, original, options]);
+    return `T(${key})`;
+  };
+  const keys = () => calls.splice(0).map(([key, , options]) => [key, options]);
+
+  assert.equal(summarizeToolResult('read', {}, 'a\nb', false, tr), 'T({{count}} lines)');
+  assert.deepEqual(keys(), [['{{count}} lines', { count: 2 }]]);
+  assert.equal(summarizeToolResult('read', {}, '[image: x.png]', false, tr), 'T(Image)');
+  assert.equal(summarizeToolResult('grep', {}, '(no matches)', false, tr), 'T({{count}} matches)');
+  assert.deepEqual(keys().slice(-1), [['{{count}} matches', { count: 0 }]]);
+  assert.equal(summarizeToolResult('shell', {}, '', false, tr), 'T(No output)');
+  assert.equal(calls.pop()[1], '(No Output)');
+  assert.equal(summarizeToolResult('code_graph', {}, '3 references', false, tr), 'T({{count}} references)');
+  assert.deepEqual(keys().slice(-1), [['{{count}} references', { count: 3 }]]);
+  assert.equal(summarizeToolResult('skill', { name: 'Image' }, 'ok', false, tr), 'T(Loaded {{name}})');
+  assert.deepEqual(keys(), [['Loaded {{name}}', { name: 'Image' }]]);
+  assert.equal(
+    summarizeToolResult('agent', {}, 'agents: 2\ntasks: 1', false, tr),
+    'T({{count}} agents) · T({{count}} tasks)'
+  );
+  assert.equal(summarizeToolResult('recall', {}, '(no results)', false, tr), 'T(No results)');
+  calls.length = 0;
+  assert.equal(
+    summarizeToolResult('shell', {}, '[task_id: Image]\n[status: completed]\n[exit: 3]', false, tr),
+    'Image · T(Finished) · T(Exit {{code}})'
+  );
+  assert.deepEqual(keys(), [
+    ['Finished', undefined],
+    ['Exit {{code}}', { code: '3' }],
+  ]);
+});
+
+test('translate callback never sees raw content as keys', () => {
+  const calls = [];
+  const tr = (key, original) => {
+    calls.push([key, original]);
+    return `T(${key})`;
+  };
+  assert.equal(summarizeToolResult('shell', {}, 'Image', false, tr), 'Image');
+  assert.equal(summarizeToolResult('shell', {}, '[status: weird]\n[task_id: 3 files]', false, tr), '3 files · Weird');
+  assert.equal(summarizeToolResult('agent', {}, 'Loaded Agent, 3 files', false, tr), 'Loaded Agent, 3 files');
+  assert.equal(summarizeToolResult('mcp__srv__ask', {}, 'No results', false, tr), 'No results');
+  assert.equal(summarizeToolResult('shell', {}, 'Failed: boom', true, tr), 'Failed: boom');
+  assert.equal(summarizeToolResult('cwd', {}, '{"cwd":"3 files"}', false, tr), '3 files');
+  assert.equal(summarizeToolResult('update_plan', {}, '{"message":"Image"}', false, tr), 'Image');
+  assert.deepEqual(calls, []);
+});
+
+test('default translate preserves English output', () => {
+  assert.equal(summarizeToolResult('read', {}, '[image: x.png]'), 'Image');
+  assert.equal(summarizeToolResult('skill', { name: 'x' }, 'ok'), 'Loaded x');
+  assert.equal(summarizeToolResult('agent', {}, '(no agents or tasks)'), 'No agents or tasks');
+});
+
+test('singular counts still translate through the canonical plural key', () => {
+  const calls = [];
+  const tr = (key, original, options) => {
+    calls.push([key, original, options]);
+    return `T(${key})`;
+  };
+  assert.equal(summarizeToolResult('read', {}, 'only', false, tr), 'T({{count}} lines)');
+  assert.equal(summarizeToolResult('grep', {}, 'a.js:1:x', false, tr), 'T({{count}} matches)');
+  assert.equal(summarizeToolResult('recall', {}, 'entry #1', false, tr), 'T({{count}} memories)');
+  assert.deepEqual(calls, [
+    ['{{count}} lines', '1 line', { count: 1 }],
+    ['{{count}} matches', '1 match', { count: 1 }],
+    ['{{count}} memories', '1 Memory', { count: 1 }],
+  ]);
+});

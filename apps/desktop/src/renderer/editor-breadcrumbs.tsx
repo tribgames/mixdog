@@ -288,7 +288,7 @@ export function EditorBreadcrumbs({
         ref={pickerRef}
         className="editor-breadcrumb-picker"
         role="dialog"
-        aria-label={picker.kind === 'files' ? 'File Breadcrumbs' : 'Symbol Breadcrumbs'}
+        aria-label={picker.kind === 'files' ? t('File Breadcrumbs') : t('Symbol Breadcrumbs')}
         style={{
           left: picker.anchor.x,
           top: picker.anchor.y,

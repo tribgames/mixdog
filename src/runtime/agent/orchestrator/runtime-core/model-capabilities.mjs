@@ -82,18 +82,20 @@ export function fastCapableFor(provider, model, effort = null, modelParameters =
   return false;
 }
 
-// webSearchCapableFor needs the web-search-route normalizers, which live in
-// workflow.mjs and themselves are pure. Wire them in via a factory to keep
-// this module free of a circular import at load time.
-export function makeWebSearchCapableFor(normalizeWebSearchProviderId, isWebSearchCapableProvider) {
+const HOSTED_WEB_SEARCH_BY_FAMILY = {
+  openai: openAiModelSupportsHostedWebSearch,
+  xai: grokModelSupportsHostedWebSearch,
+  gemini: geminiModelSupportsHostedWebSearch,
+  anthropic: anthropicModelSupportsHostedWebSearch,
+};
+
+// webSearchCapableFor needs the web-search family mapping, which lives in
+// workflow.mjs and is pure. Wire it in via a factory to keep this module free
+// of a circular import at load time.
+export function makeWebSearchCapableFor(webSearchProviderFamily) {
   return function webSearchCapableFor(provider, model) {
-    const p = normalizeWebSearchProviderId(provider);
-    if (!isWebSearchCapableProvider(p)) return false;
-    if (p === 'openai' || p === 'openai-oauth') return openAiModelSupportsHostedWebSearch(model);
-    if (p === 'grok-oauth' || p === 'xai') return grokModelSupportsHostedWebSearch(model);
-    if (p === 'gemini') return geminiModelSupportsHostedWebSearch(model);
-    if (p === 'anthropic' || p === 'anthropic-oauth') return anthropicModelSupportsHostedWebSearch(model);
-    return model?.supportsWebSearch === true;
+    const supports = HOSTED_WEB_SEARCH_BY_FAMILY[webSearchProviderFamily(provider)];
+    return supports ? supports(model) : false;
   };
 }
 

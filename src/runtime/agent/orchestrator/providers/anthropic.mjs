@@ -22,9 +22,12 @@ import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { loadAnthropic, _normalizeAnthropicModel, _setApiKeyCatalogMirror } from './anthropic-messages.mjs';
 import { ANTHROPIC_VERSION, MODELS } from './lib/anthropic-models.mjs';
 import { streamCallbacks } from './lib/send-callbacks.mjs';
+import { preparePdfTextForProvider } from './media-normalization.mjs';
 export { _test, _toAnthropicMessagesForTest } from './anthropic-messages.mjs';
 
 export class AnthropicProvider {
+  // Takes a PDF as a native document block (decided by this adapter's wire protocol).
+  nativePdf = true;
   // Anthropic reports usage.input_tokens EXCLUDING cache_read/cache_creation
   // (those are separate fields), so the live context-window footprint must
   // add cache_read back. See providerInputExcludesCache() in registry.mjs.
@@ -77,6 +80,9 @@ export class AnthropicProvider {
     // dispatch with an aborted-mid-flight tool_use would otherwise hit
     // the provider as a hard 400 (`tool_use ids ... without tool_result`).
     messages = sanitizeToolPairs(messages);
+    // The flag alone decides: an instance that takes no native PDF (a custom
+    // gateway, OpenCode Go's Anthropic route) gets the PDF as text.
+    messages = await preparePdfTextForProvider(messages, this);
     try {
       return await this._doSend(messages, model, tools, sendOpts);
     } catch (err) {

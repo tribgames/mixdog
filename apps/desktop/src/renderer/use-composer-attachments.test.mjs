@@ -9,8 +9,10 @@ import { useComposerAttachments } from './use-composer-attachments.ts';
 import { localFilesFromPaths, MIXDOG_ABSOLUTE_PATHS_MIME, MIXDOG_PROJECT_PATHS_MIME } from './file-drag.ts';
 import {
   MAX_COMPOSER_ATTACHMENTS,
+  MAX_INLINE_FILE_BASE64_TOTAL,
   MAX_INLINE_FILE_BYTES,
   MAX_INLINE_TEXT_TOTAL,
+  MAX_OFFICE_FILE_BYTES,
   MAX_PDF_FILE_BYTES,
 } from './composer-support.tsx';
 
@@ -139,7 +141,10 @@ test('unsupported native selections insert their real quoted path at the selecti
   assert.equal(harness.current.draftRef.current, harness.current.draft);
   assert.deepEqual(harness.current.historyNavigation.current, { index: -1, seed: '' });
   assert.equal(harness.current.attachments.length, 0);
-  assert.equal(harness.current.attachmentError, '');
+  assert.equal(
+    harness.current.attachmentError,
+    "pelican_bicycle.svg: this file type can't be attached; its path was inserted so the AI can open it."
+  );
 });
 
 test('native file-item drops fall back without needing a Files transfer entry', async (t) => {
@@ -153,7 +158,7 @@ test('native file-item drops fall back without needing a Files transfer entry', 
   });
   assert.equal(harness.current.draft, `${path} `);
   assert.equal(harness.current.attachments.length, 0);
-  assert.equal(harness.current.attachmentError, '');
+  assert.match(harness.current.attachmentError, /pelican\.svg: this file type can't be attached; its path was inserted/);
 });
 
 test('native directories insert only their path without reading or attaching them', async (t) => {
@@ -179,7 +184,8 @@ test('internal directory drops clear an earlier error and insert only the path',
     },
   });
   await harness.attach([new File(['<svg/>'], 'missing.svg', { type: 'image/svg+xml' })]);
-  assert.match(harness.current.attachmentError, /local file path is unavailable/);
+  assert.match(harness.current.attachmentError, /missing\.svg: this file type can't be attached\./);
+  assert.doesNotMatch(harness.current.attachmentError, /path was inserted|unavailable/);
   await harness.drop(pathTransfer([path]));
   assert.equal(harness.current.draft, `${path} `);
   assert.equal(harness.current.attachments.length, 0);
@@ -190,7 +196,7 @@ test('mixed files retain successful image, PDF and text attachments and every re
   const files = [
     new File(['png'], 'photo.png', { type: 'image/png' }),
     new File(['<svg/>'], 'vector.svg', { type: 'image/svg+xml' }),
-    new File(['%PDF'], 'report.pdf', { type: 'application/pdf' }),
+    new File(['%PDF-1.4'], 'report.pdf', { type: 'application/pdf' }),
     new File([new Uint8Array([0, 1, 2])], 'data.bin', { type: 'application/octet-stream' }),
     new File(['notes'], 'notes.txt', { type: 'text/plain' }),
   ];
@@ -202,14 +208,15 @@ test('mixed files retain successful image, PDF and text attachments and every re
     harness.current.attachments.map(({ name, kind, data }) => ({ name, kind, data })),
     [
       { name: 'photo.png', kind: 'image', data: Buffer.from('png').toString('base64') },
-      { name: 'report.pdf', kind: 'pdf', data: Buffer.from('%PDF').toString('base64') },
+      { name: 'report.pdf', kind: 'pdf', data: Buffer.from('%PDF-1.4').toString('base64') },
       { name: 'notes.txt', kind: 'text', data: 'notes' },
     ]
   );
   assert.equal(harness.current.draft.match(/C:\/files\/vector\.svg/g)?.length, 1);
   assert.equal(harness.current.draft.match(/C:\/files\/data\.bin/g)?.length, 1);
   assert.doesNotMatch(harness.current.draft, /C:\/files\/(?:photo\.png|report\.pdf|notes\.txt)/);
-  assert.equal(harness.current.attachmentError, '');
+  assert.match(harness.current.attachmentError, /vector\.svg: this file type can't be attached; its path was inserted/);
+  assert.match(harness.current.attachmentError, /data\.bin: this file type can't be attached; its path was inserted/);
 });
 
 test('files without an accessible local path show the limitation without inventing a path', async (t) => {
@@ -217,7 +224,98 @@ test('files without an accessible local path show the limitation without inventi
   await harness.attach([new File(['<svg/>'], 'pelican.svg', { type: 'image/svg+xml' })]);
   assert.equal(harness.current.draft, 'keep this');
   assert.equal(harness.current.attachments.length, 0);
-  assert.match(harness.current.attachmentError, /pelican\.svg: local file path is unavailable/);
+  assert.equal(harness.current.attachmentError, "pelican.svg: this file type can't be attached.");
+});
+
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const XLSM_MIME = 'application/vnd.ms-excel.sheet.macroEnabled.12';
+
+test('Office files attach as file attachments with OOXML MIME types and [File #n] tokens', async (t) => {
+  const harness = await mountComposer(t);
+  await harness.attach([
+    new File(['PK'], 'brief.docx', { type: '' }),
+    new File(['PK'], 'macro.xlsm', { type: 'application/octet-stream' }),
+  ]);
+  assert.deepEqual(
+    harness.current.attachments.map(({ name, kind, mimeType, token }) => ({ name, kind, mimeType, token })),
+    [
+      { name: 'brief.docx', kind: 'office', mimeType: DOCX_MIME, token: '[File #1: brief.docx]' },
+      { name: 'macro.xlsm', kind: 'office', mimeType: XLSM_MIME, token: '[File #2: macro.xlsm]' },
+    ]
+  );
+  assert.ok(harness.current.draft.includes('[File #1: brief.docx]'));
+  assert.ok(harness.current.draft.includes('[File #2: macro.xlsm]'));
+  assert.equal(harness.current.attachmentError, '');
+});
+
+test('an empty or octet-stream File.type is inferred from the extension and the filename is kept', async (t) => {
+  const harness = await mountComposer(t);
+  await harness.attach([
+    new File(['PK'], 'Q3 plan.pptx', { type: 'application/octet-stream' }),
+    new File(['%PDF-1.7'], 'scan.PDF', { type: '' }),
+    new File(['hello'], 'readme.md', { type: 'application/octet-stream' }),
+  ]);
+  assert.deepEqual(
+    harness.current.attachments.map(({ name, kind, mimeType }) => ({ name, kind, mimeType })),
+    [
+      {
+        name: 'Q3 plan.pptx',
+        kind: 'office',
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      },
+      { name: 'scan.PDF', kind: 'pdf', mimeType: 'application/pdf' },
+      { name: 'readme.md', kind: 'text', mimeType: 'text/plain' },
+    ]
+  );
+});
+
+test('Office files count toward the attachment limit and the combined file budget', async (t) => {
+  const harness = await mountComposer(t, { api: { folderPathForFile: (file) => `C:/o/${file.name}` } });
+  await act(async () =>
+    harness.current.replaceAttachments([
+      { id: 1, name: 'big.pdf', kind: 'pdf', mimeType: 'application/pdf', data: 'A'.repeat(MAX_INLINE_FILE_BASE64_TOTAL), token: '' },
+    ])
+  );
+  await harness.attach([new File(['PK'], 'more.pptx')]);
+  assert.equal(harness.current.attachments.length, 1);
+  assert.match(harness.current.attachmentError, /too large together/);
+  assert.match(harness.current.draft, /C:\/o\/more\.pptx/);
+
+  await act(async () =>
+    harness.current.replaceAttachments(
+      Array.from({ length: MAX_COMPOSER_ATTACHMENTS }, (_, index) => ({
+        id: index + 1,
+        name: `${index}.docx`,
+        kind: 'office',
+        mimeType: DOCX_MIME,
+        data: 'UEs=',
+        token: '',
+      }))
+    )
+  );
+  await harness.attach([new File(['PK'], 'extra.docx')]);
+  assert.equal(harness.current.attachments.length, MAX_COMPOSER_ATTACHMENTS);
+  assert.match(harness.current.attachmentError, /Attach up to 8 items/);
+});
+
+test('Office size cap, legacy formats, empty files and fake PDFs get clear rejections', async (t) => {
+  const harness = await mountComposer(t, { api: { folderPathForFile: (file) => `C:/r/${file.name}` } });
+  const cases = [
+    [{ name: 'huge.docx', type: '', size: MAX_OFFICE_FILE_BYTES + 1 }, /huge\.docx: Office files must be under 20 MB/, true],
+    [new File(['x'], 'old.doc'), /old\.doc: legacy Office files can't be attached\. Save it as \.docx/, false],
+    [new File(['x'], 'sheet.xls'), /sheet\.xls: legacy Office files can't be attached\. Save it as \.xlsx/, false],
+    [new File(['x'], 'deck.ppt'), /deck\.ppt: legacy Office files can't be attached\. Save it as \.pptx/, false],
+    [new File([], 'empty.txt', { type: 'text/plain' }), /empty\.txt: the file is empty\./, false],
+    [new File([], 'empty.docx'), /empty\.docx: the file is empty\./, false],
+    [new File(['<html>'], 'fake.pdf', { type: 'application/pdf' }), /fake\.pdf: this file is not a valid PDF\./, true],
+  ];
+  for (const [file, message, keepsPath] of cases) {
+    const before = harness.current.draft;
+    await harness.attach([file]);
+    assert.equal(harness.current.attachments.length, 0);
+    assert.match(harness.current.attachmentError, message);
+    assert.equal(harness.current.draft !== before, keepsPath, file.name);
+  }
 });
 
 test('oversized files fall back before reading their contents', async (t) => {
@@ -290,7 +388,7 @@ test('internal absolute drops preserve source paths even for files with identica
   await harness.drop(pathTransfer(paths));
   assert.equal(harness.current.draft, `${paths.join(' ')} `);
   assert.equal(harness.current.attachments.length, 0);
-  assert.equal(harness.current.attachmentError, '');
+  assert.match(harness.current.attachmentError, /pelican\.svg: this file type can't be attached; its path was inserted/);
 });
 
 test('project SVG drops retain their existing project mention behavior', async (t) => {

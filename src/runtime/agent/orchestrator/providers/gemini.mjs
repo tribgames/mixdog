@@ -131,6 +131,8 @@ function throwIfGeminiAborted(signal) {
 }
 
 export class GeminiProvider {
+  // Takes a PDF as a native document block (decided by this adapter's wire protocol).
+  nativePdf = true;
   // promptTokenCount is the total (cachedContentTokenCount is a subset), so
   // input already includes cache. See registry.mjs.
   static inputExcludesCache = false;

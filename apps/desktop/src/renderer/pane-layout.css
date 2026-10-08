@@ -578,6 +578,7 @@
   padding: 0 10px;
   border-bottom: 1px solid var(--mx-border-muted);
   color: var(--mx-text-muted);
+  background: var(--mx-surface-plate);
   font-size: var(--mx-font-meta);
 }
 .problem-table-row {

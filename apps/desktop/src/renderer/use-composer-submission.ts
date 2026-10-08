@@ -31,7 +31,7 @@ function base64Bytes(data: string): number {
 
 /** Expands chip-only tokens, keeps the attachments the text references and
  *  builds the wire content plus the pasted-item side tables. */
-function buildSubmissionContent(submittedDraft: string, submittedAttachments: ComposerAttachment[]) {
+export function buildSubmissionContent(submittedDraft: string, submittedAttachments: ComposerAttachment[]) {
   const chipOnlyTextTokens = submittedAttachments
     .filter(
       (attachment) => attachment.chipOnly === true && attachment.token && !submittedDraft.includes(attachment.token)
@@ -64,7 +64,7 @@ function buildSubmissionContent(submittedDraft: string, submittedAttachments: Co
     }
   }
   const imageAttachments = used.filter((attachment) => attachment.kind === 'image');
-  const pdfAttachments = used.filter((attachment) => attachment.kind === 'pdf');
+  const pdfAttachments = used.filter((attachment) => attachment.kind === 'pdf' || attachment.kind === 'office');
   const contentParts: Exclude<DesktopPromptContent, string> = [];
   if (expandedText) contentParts.push({ type: 'text', text: expandedText });
   for (const attachment of imageAttachments) {

@@ -20,6 +20,7 @@ import {
   collectCompatResponseSearchSources,
   toXaiResponsesInput,
 } from './openai-compat-wire.mjs';
+import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { normalizeOpencodeGoReasoningEffort } from './openai-compat-xai.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import {
@@ -134,10 +135,13 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
     throw reason instanceof Error ? reason : new Error(`${provider.name} Responses request aborted by session close`);
   }
   const label = `${provider.name}:responses`;
+  messages = await preparePdfTextForProvider(messages, provider);
   const { input, previousResponseId, continuationResetReason } = toXaiResponsesInput(messages, opts.providerState, {
     model: useModel,
     stateKey: COMPAT_RESPONSES_STATE_KEY,
     replayProvider,
+    providerName: provider.name,
+    nativePdf: provider.nativePdf,
   });
   const params = buildCompatResponsesParams({ provider, useModel, input, previousResponseId, tools, opts });
 

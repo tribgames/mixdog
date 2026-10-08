@@ -22,14 +22,18 @@ export {
 
 export const WORKFLOW_ROUTE_SLOTS = ['lead', 'agent', 'memory'];
 
-const WEB_SEARCH_CAPABLE_PROVIDERS = new Set([
-  'openai-oauth',
-  'openai',
-  'grok-oauth',
-  'xai',
-  'gemini',
-  'anthropic',
-  'anthropic-oauth',
+// Hosted web-search family per provider: providers that speak the same hosted
+// search tool share one family, and every capability/tool-shape decision keys
+// off the family rather than the provider id.
+const WEB_SEARCH_PROVIDER_FAMILIES = new Map([
+  ['openai-oauth', 'openai'],
+  ['openai', 'openai'],
+  ['grok-oauth', 'xai'],
+  ['xai', 'xai'],
+  ['gemini', 'gemini'],
+  ['antigravity-oauth', 'gemini'],
+  ['anthropic', 'anthropic'],
+  ['anthropic-oauth', 'anthropic'],
 ]);
 export const WEB_SEARCH_DEFAULT_PROVIDER = 'default';
 export const WEB_SEARCH_DEFAULT_MODEL = 'default';
@@ -127,8 +131,12 @@ export function isDefaultWebSearchRouteConfig(routeLike = {}) {
   );
 }
 
+export function webSearchProviderFamily(provider) {
+  return WEB_SEARCH_PROVIDER_FAMILIES.get(normalizeWebSearchProviderId(provider)) || '';
+}
+
 export function isWebSearchCapableProvider(provider) {
-  return WEB_SEARCH_CAPABLE_PROVIDERS.has(normalizeWebSearchProviderId(provider));
+  return webSearchProviderFamily(provider) !== '';
 }
 
 export function normalizeWebSearchRouteConfig(routeLike, fallback = {}) {

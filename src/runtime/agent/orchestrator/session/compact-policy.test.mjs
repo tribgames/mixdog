@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  compactDisplayBeforeTokens,
   compactionTelemetryPressureTokens,
   currentContextEstimateTokens,
   recordContextUsageSnapshot,
@@ -16,6 +17,17 @@ import {
   shouldCompactForSession,
 } from './loop/compact-policy.mjs';
 import { contextMessagesSignature, estimateMessagesTokens } from './context-utils.mjs';
+
+test('compaction rows report the last measured context, not a recomputed estimate', () => {
+  // Idle-resumed session: the provider last measured ~960k while the
+  // whole-transcript estimate inflated to ~1.76M.
+  assert.equal(compactDisplayBeforeTokens({ lastContextTokens: 959_921 }, 1_756_616), 959_921);
+  assert.equal(
+    compactDisplayBeforeTokens({ lastContextTokens: 959_921, lastContextTokensStaleAfterCompact: true }, 1_756_616),
+    1_756_616
+  );
+  assert.equal(compactDisplayBeforeTokens({ lastContextTokens: 0 }, 42_000), 42_000);
+});
 
 test('Cursor main sessions preserve the configured 200k compact boundary', () => {
   const session = {

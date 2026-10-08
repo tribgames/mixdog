@@ -465,7 +465,12 @@ function OnboardingSkipConfirmation({ onCancel, onConfirm }: { onCancel(): void;
   // by the same amount the DOM does.
   useEffect(() => acquireTitleBarDim(), []);
   return (
-    <div className="settings-confirm-layer">
+    <div
+      className="settings-confirm-layer"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
       <section
         className="settings-confirm-dialog"
         role="alertdialog"
@@ -580,7 +585,7 @@ function ProviderStep({
                   <small className={`onboarding-provider-state${provider.authenticated ? ' connected' : ''}`}>
                     {provider.authenticated
                       ? t('Connected')
-                      : t(String(provider.detail || provider.status || 'API key required'))}
+                      : String(provider.detail || provider.status || '') || t('API key required')}
                   </small>
                 </div>
                 {!provider.authenticated && typeof provider.url === 'string' && /^https:\/\//.test(provider.url) && (
@@ -601,7 +606,7 @@ function ProviderStep({
                   name="secret"
                   type="password"
                   autoComplete="off"
-                  aria-label={`${providerTitle(provider)} API key`}
+                  aria-label={t('{{value0}} API key', { value0: providerTitle(provider) })}
                   disabled={Boolean(pending)}
                   placeholder={provider.authenticated ? t('Replace API key') : t('API key')}
                   required

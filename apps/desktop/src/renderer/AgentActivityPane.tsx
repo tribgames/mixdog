@@ -449,7 +449,7 @@ function renderAgentActivityGroup({
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }) {
-  const title = sessionSummaryTitle(group.session);
+  const title = sessionSummaryTitle(group.session, t('Untitled session'));
   const expanded = expandedSessionIds.has(group.ownerId);
   // Any agent of the group still working — the Lead or a descendant — makes
   // the session name shimmer, so a folded group still reads as live.

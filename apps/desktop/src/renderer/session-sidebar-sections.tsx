@@ -185,11 +185,11 @@ export function automationsSection({
         </button>
         {!hasHeadingDot && (
           <RowOverflowMenu
-            label="Actions"
+            label={t('Actions')}
             items={[
               {
                 id: 'archive-all',
-                label: 'Archive all',
+                label: t('Archive all'),
                 disabled: archiveAllDisabled,
                 onSelect: onArchiveAll,
               },
@@ -293,11 +293,11 @@ export function recentSection({
         </button>
         {!hasHeadingDot && (
           <RowOverflowMenu
-            label="Actions"
+            label={t('Actions')}
             items={[
               {
                 id: 'archive-all',
-                label: 'Archive all',
+                label: t('Archive all'),
                 disabled: archiveAllDisabled,
                 onSelect: onArchiveAll,
               },
@@ -364,24 +364,24 @@ export function archivedSection({
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button>
         <RowOverflowMenu
-          label="Actions"
+          label={t('Actions')}
           items={[
             {
               id: 'restore-all',
-              label: 'Restore all',
+              label: t('Restore all'),
               disabled: actionsDisabled,
               onSelect: onRestoreAll,
             },
             {
               id: 'delete-all-archived',
-              label: 'Delete all archived sessions',
+              label: t('Delete all archived sessions'),
               danger: true,
               separatorBefore: true,
               disabled: actionsDisabled,
               children: [
                 {
                   id: 'confirm-delete-all-archived',
-                  label: 'Confirm delete',
+                  label: t('Confirm delete'),
                   danger: true,
                   onSelect: onDeleteAll,
                 },

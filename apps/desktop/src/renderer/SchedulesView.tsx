@@ -39,22 +39,22 @@ type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderM
 
 type FrequencyKind = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'once';
 
-const FREQUENCY_OPTIONS: Array<{ value: FrequencyKind; label: string }> = [
-  { value: 'hourly', label: 'Hourly' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekdays', label: 'Weekdays' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'once', label: 'One-shot' },
+const frequencyOptions = (): Array<{ value: FrequencyKind; label: string }> => [
+  { value: 'hourly', label: t('Hourly') },
+  { value: 'daily', label: t('Daily') },
+  { value: 'weekdays', label: t('Weekdays') },
+  { value: 'weekly', label: t('Weekly') },
+  { value: 'once', label: t('One-shot') },
 ];
 
-const WEEKDAY_OPTIONS = [
-  { value: '1', label: 'Monday' },
-  { value: '2', label: 'Tuesday' },
-  { value: '3', label: 'Wednesday' },
-  { value: '4', label: 'Thursday' },
-  { value: '5', label: 'Friday' },
-  { value: '6', label: 'Saturday' },
-  { value: '0', label: 'Sunday' },
+const weekdayOptions = () => [
+  { value: '1', label: t('Monday') },
+  { value: '2', label: t('Tuesday') },
+  { value: '3', label: t('Wednesday') },
+  { value: '4', label: t('Thursday') },
+  { value: '5', label: t('Friday') },
+  { value: '6', label: t('Saturday') },
+  { value: '0', label: t('Sunday') },
 ];
 
 // Announce that background sessions may have changed (App refreshes Recent).
@@ -152,8 +152,8 @@ function describeSchedule(schedule: RecordValue): string {
   if (parsed.kind === 'hourly') return t('Hourly at :{{minute}}', { minute: parsed.minute.padStart(2, '0') });
   if (parsed.kind === 'weekdays') return t('Weekdays at {{time}}', { time: parsed.clock });
   if (parsed.kind === 'weekly') {
-    const day = WEEKDAY_OPTIONS.find((option) => option.value === parsed.weekday)?.label || 'Weekly';
-    return t('Every {{day}} at {{time}}', { day: t(day), time: parsed.clock });
+    const day = weekdayOptions().find((option) => option.value === parsed.weekday)?.label || t('Weekly');
+    return t('Every {{day}} at {{time}}', { day, time: parsed.clock });
   }
   return t('Daily at {{time}}', { time: parsed.clock });
 }
@@ -402,10 +402,10 @@ function ScheduleEditor({
                 ariaLabel={t('Schedule frequency')}
                 value={frequency}
                 disabled={busy}
-                options={FREQUENCY_OPTIONS}
+                options={frequencyOptions()}
                 onChange={(value) =>
                   setFrequency(
-                    (FREQUENCY_OPTIONS.some((option) => option.value === value) ? value : 'daily') as FrequencyKind
+                    (frequencyOptions().some((option) => option.value === value) ? value : 'daily') as FrequencyKind
                   )
                 }
               />
@@ -434,10 +434,10 @@ function ScheduleEditor({
               {frequency === 'weekly' && (
                 <>
                   <OpenSelect
-                    ariaLabel="Weekday"
+                    ariaLabel={t('Weekday')}
                     value={weekday}
                     disabled={busy}
-                    options={WEEKDAY_OPTIONS}
+                    options={weekdayOptions()}
                     onChange={setWeekday}
                   />
                   <input
@@ -547,7 +547,7 @@ export function SchedulesPane({
     setError('');
     try {
       await api.invokeCapability({ capability: 'runScheduleNow', args: [name] });
-      showDesktopToast(`"${name}" ran — see Automations in the sidebar.`, 'success');
+      showDesktopToast(t('"{{name}}" ran — see Automations in the sidebar.', { name }), 'success');
       void completeMutation('runScheduleNow');
       notifySessionsRefresh();
     } catch (reason) {

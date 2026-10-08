@@ -235,17 +235,78 @@ function settleImageStrip(state, round, sent) {
   state.imageStrip = null;
 }
 
+const MESSAGES_CACHE_TTL_MS = { '5m': 5 * 60 * 1000, '1h': 60 * 60 * 1000 };
+const MISS_RATIO = 0.5;
+const MISS_MIN_DROP_TOKENS = 4096;
+
+/** Usage-based prompt-cache miss detection for Anthropic sessions. The
+ *  baseline (previous request's cache read + write) lives on the session
+ *  record so it survives a reload, unlike the in-memory prefix guard. */
+function traceActualCacheMiss(state, sent, response, { previousGuardState, previousSendAt, cacheBreakIntent }) {
+  const { sessionRef, sessionId, model } = state;
+  const providerName = sessionRef?.provider || state.provider?.name || null;
+  if (!sessionRef || (providerName !== 'anthropic' && providerName !== 'anthropic-oauth')) return;
+  const usage = response?.usage || {};
+  const cachedTokens = Number(usage.cachedTokens) || 0;
+  const cachePrefixTokens = cachedTokens + (Number(usage.cacheWriteTokens) || 0);
+  const baseline = Number(sessionRef.lastProviderCachedPrefixTokens);
+  const ttlMs = MESSAGES_CACHE_TTL_MS[sessionRef.providerCacheOpts?.cacheStrategy?.messages];
+  const idleMs = sent.sendStartedAt - previousSendAt;
+  const requestPrefixChanged =
+    !!previousGuardState &&
+    previousGuardState.requestPrefixHash !== sent.prefixGuardCandidate?.requestPrefixHash;
+  if (
+    baseline > 0 &&
+    ttlMs &&
+    Number.isFinite(idleMs) &&
+    idleMs >= 0 &&
+    idleMs < ttlMs &&
+    cachedTokens < baseline * MISS_RATIO &&
+    baseline - cachedTokens >= MISS_MIN_DROP_TOKENS &&
+    !cacheBreakIntent &&
+    !requestPrefixChanged
+  ) {
+    traceCacheBreak(
+      {
+        sessionId,
+        iteration: state.iterations + 1,
+        classification: 'unexpected',
+        reason: 'actual_cache_miss',
+        source: 'provider_usage',
+        provider: providerName,
+        model: model || null,
+        actualCacheMiss: true,
+        cachedTokens,
+        promptTokens: Number(usage.promptTokens) || null,
+        previousCachedPrefixTokens: baseline,
+        idleMs,
+        missingPrefixGuardBaseline: !previousGuardState,
+      },
+      state.cacheBreakTraceOptions
+    );
+  }
+  sessionRef.lastProviderCachedPrefixTokens = cachePrefixTokens;
+}
+
 /** Fold a completed send into the state: prefix guard, image-strip
  *  rebaseline, per-request budgets, provider state, usage and diagnostics. */
 export function settleSendResult(state, round, sent) {
   const { opts, sessionRef, sessionId, model, messages } = state;
   const response = sent.result.response;
   state.response = response;
+  const previousGuardState = state.prefixGuardState;
+  const previousSendAt = Number(sessionRef?.lastProviderSendAt);
+  const cacheBreakIntent = opts.cacheBreakIntent;
   state.prefixGuardState = sent.prefixGuardCandidate;
   if (sessionRef) sessionRef._providerPrefixGuardState = state.prefixGuardState;
   // The provider read and refreshed its prompt cache when this request was
   // sent; agent cache-expiry compaction measures idle time from here.
   if (sessionRef) sessionRef.lastProviderSendAt = sent.sendStartedAt;
+  traceActualCacheMiss(state, sent, response, {
+    previousGuardState,
+    previousSendAt,
+    cacheBreakIntent,
+  });
   if (state.imageStrip) settleImageStrip(state, round, sent);
   opts.onToolCall = undefined;
   delete opts.cacheBreakIntent;

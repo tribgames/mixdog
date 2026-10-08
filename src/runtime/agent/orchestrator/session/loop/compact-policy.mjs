@@ -16,8 +16,8 @@ import { HANDOFF_TIMEOUT_MAX_MS } from '../compact/constants.mjs';
 import { envFlag, envPositiveInt } from '../../../../shared/env.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
-import { providerInputExcludesCache } from '../../providers/registry.mjs';
-import { contentMediaBytes } from '../../providers/media-normalization.mjs';
+import { providerInputExcludesCache, providerNativePdf } from '../../providers/registry.mjs';
+import { contentMediaBytes, contentMediaCount } from '../../providers/media-normalization.mjs';
 
 // Unified context-share rule (compact/constants.mjs CONTEXT_SHARE_RATIO): the
 // post-compaction target is 25% of the boundary/context window. One
@@ -547,6 +547,17 @@ export function resolveGaugeContextTokens(messageTokensEst, policy, { messages, 
   return resolveContextTokens(messageTokensEst, policy, { messages, sessionRef });
 }
 
+/**
+ * The "before" number a compaction row shows: the context the provider last
+ * measured, as the gauge displayed it. Falls back to the pass's own value only
+ * when no live reading exists (none yet, or invalidated by a prior compaction).
+ */
+export function compactDisplayBeforeTokens(sessionRef, fallbackTokens) {
+  const lastContextTokens = positiveInt(sessionRef?.lastContextTokens);
+  if (lastContextTokens && sessionRef.lastContextTokensStaleAfterCompact !== true) return lastContextTokens;
+  return fallbackTokens;
+}
+
 export function resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
   return resolveContextTokens(messageTokensEst, policy, { messages, sessionRef });
 }
@@ -591,13 +602,20 @@ export function compactTargetBudget(policy) {
 // part compaction drops, so it alone arms this trigger; attachments the user
 // sent survive compaction and would only make it repeat.
 const REQUEST_MEDIA_COMPACT_BYTES = 24_000_000;
+// Providers also cap the number of images plus native documents one request
+// may carry (100 on Anthropic); the same tool-result media arms the trigger.
+const REQUEST_MEDIA_COMPACT_COUNT = 100;
 
-export function shouldCompactForRequestMedia(messages) {
+export function shouldCompactForRequestMedia(messages, provider = '') {
+  // A PDF that lowers to text is neither bytes nor a document on the wire.
+  const nativePdf = providerNativePdf(provider);
   let bytes = 0;
+  let count = 0;
   for (const message of messages) {
     if (message?.role !== 'tool') continue;
-    bytes += contentMediaBytes(message.content);
-    if (bytes >= REQUEST_MEDIA_COMPACT_BYTES) return true;
+    bytes += contentMediaBytes(message.content, { nativePdf });
+    count += contentMediaCount(message.content, { nativePdf });
+    if (bytes >= REQUEST_MEDIA_COMPACT_BYTES || count > REQUEST_MEDIA_COMPACT_COUNT) return true;
   }
   return false;
 }

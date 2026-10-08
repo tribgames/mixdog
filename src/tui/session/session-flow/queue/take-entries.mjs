@@ -10,7 +10,7 @@ import {
   mergePastedImages,
   mergePastedTexts,
 } from '../../queue-helpers.mjs';
-import { hydratePastedAttachments } from '../../../../runtime/attachments/store.mjs';
+import { hydratePastedAttachments, hydrateRestorableFileParts } from '../../../../runtime/attachments/store.mjs';
 
 export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQueuedEntries }) {
   function dequeueQueueBatch(maxPriority = 'later', options = {}) {
@@ -52,15 +52,20 @@ export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQ
 
   function restoreQueued(currentText = '', selectedId = '') {
     const targetId = String(selectedId || '').trim();
-    const queued = [];
-    for (let i = 0; i < pending.length; ) {
-      const entry = pending[i];
-      if (isQueuedEntryEditable(entry) && (!targetId || String(entry.id) === targetId)) {
-        queued.push(entry);
-        pending.splice(i, 1);
-      } else {
-        i += 1;
-      }
+    const queued = pending.filter(
+      (entry) => isQueuedEntryEditable(entry) && (!targetId || String(entry.id) === targetId)
+    );
+    // Hydrate before anything leaves the queue: an attachment whose blob is
+    // gone is dropped alone (and reported), never the prompt that carried it.
+    let unreadable = 0;
+    const onUnreadable = () => {
+      unreadable += 1;
+    };
+    const hydrated = hydratePastedAttachments(mergePastedImages(queued), mergePastedTexts(queued), { onUnreadable });
+    const files = queued.flatMap((entry) => hydrateRestorableFileParts(entry.content, { onUnreadable }));
+    const taken = new Set(queued);
+    for (let i = pending.length - 1; i >= 0; i -= 1) {
+      if (taken.has(pending[i])) pending.splice(i, 1);
     }
     removeQueuedEntries(queued);
     const queuedText = queued
@@ -68,13 +73,18 @@ export function createTakeEntriesOps({ pending, pendingNotificationKeys, removeQ
       .filter((text) => String(text || '').trim())
       .join('\n');
     const combinedText = [queuedText, String(currentText || '')].filter((text) => text.trim()).join('\n');
-    const hydrated = hydratePastedAttachments(mergePastedImages(queued), mergePastedTexts(queued));
     return {
+      ...(unreadable
+        ? { notice: `${unreadable} attachment${unreadable === 1 ? ' was' : 's were'} no longer available and dropped.` }
+        : {}),
       count: queued.length,
       ids: queued.map((item) => String(item.id || '')).filter(Boolean),
       text: combinedText,
       pastedImages: hydrated.pastedImages,
       pastedTexts: hydrated.pastedTexts,
+      // Hydrated PDF/Office parts, in the `record.content` shape the desktop
+      // composer restores files from.
+      ...(files.length ? { content: files } : {}),
     };
   }
 

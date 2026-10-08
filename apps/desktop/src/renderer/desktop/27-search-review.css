@@ -897,7 +897,11 @@ div.diff-tailwindcss-wrapper .diff-line {
   display: flex;
   align-items: center;
   border-radius: var(--mx-radius-md);
-  background: var(--mx-workspace-sheet);
+  /* Header-band tint over the opaque sheet: sticky, so rows must not show
+     through it. */
+  background:
+    linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)),
+    var(--mx-workspace-sheet);
 }
 .review-file[data-open] .review-file-header {
   border-radius: var(--mx-radius-md) var(--mx-radius-md) 0 0;

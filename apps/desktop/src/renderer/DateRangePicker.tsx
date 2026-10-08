@@ -144,7 +144,6 @@ export function DateRangePicker({
           options={hours}
           value={text.slice(0, 2)}
           disabled={disabled}
-          localizeLabels={false}
           onChange={(hour) => write(hour ? `${hour}:${text.slice(3, 5) || '00'}` : undefined)}
         />
         <OpenSelect
@@ -153,7 +152,6 @@ export function DateRangePicker({
           options={minutes}
           value={text.slice(3, 5) || '00'}
           disabled={disabled || !text}
-          localizeLabels={false}
           onChange={(minute) => write(`${text.slice(0, 2)}:${minute}`)}
         />
       </div>
@@ -173,7 +171,7 @@ export function DateRangePicker({
         >
           <ChevronLeft aria-hidden="true" />
         </button>
-        <strong data-i18n-skip="">{monthLabel}</strong>
+        <strong>{monthLabel}</strong>
         <button
           type="button"
           className="mx-daterange-step"
@@ -187,9 +185,7 @@ export function DateRangePicker({
       </header>
       <div className="mx-daterange-weekdays" aria-hidden="true">
         {cells.slice(0, 7).map((day) => (
-          <span key={day} data-i18n-skip="">
-            {weekdayFormat.format(parseDay(day))}
-          </span>
+          <span key={day}>{weekdayFormat.format(parseDay(day))}</span>
         ))}
       </div>
       <div

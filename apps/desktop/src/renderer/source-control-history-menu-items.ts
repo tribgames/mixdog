@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import type { DesktopGitLogEntry, DesktopGitStatus } from '../shared/contract';
 import { copyText, type historyCommitActions, missingChannel } from './source-control-actions';
 import { buildSourceControlCommitMenu } from './source-control-history-menu';
@@ -48,7 +49,7 @@ export function createHistoryMenuItems({
         checkout: () => guarded(() => commitActions.checkoutCommit(entry)),
         cherryPick: () => guarded(() => commitActions.cherryPickCommit(entry)),
         copySha: () => void copyText(ctx, entry.hash, 'SHA'),
-        copyTags: (values) => void copyText(ctx, values.join(' '), values.length > 1 ? 'tags' : 'tag'),
+        copyTags: (values) => void copyText(ctx, values.join(' '), values.length > 1 ? t('tags') : t('tag')),
         createBranch: () => guarded(() => commitActions.createBranchAtCommit(entry)),
         createTag: () => guarded(() => commitActions.createTagAt(entry)),
         deleteTag: (tag) => guarded(() => commitActions.deleteTagAt(entry, tag)),

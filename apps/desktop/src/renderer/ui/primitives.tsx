@@ -8,6 +8,7 @@ import {
   type SelectHTMLAttributes,
 } from 'react';
 
+import { t } from '../i18n';
 import { MxIcon } from '../MxIcon';
 import { acquireTitleBarDim } from '../titlebar-dim';
 
@@ -144,7 +145,7 @@ export function DialogFrame({
       <section className="mx-dialog" role="dialog" aria-modal="true" aria-label={title}>
         <header>
           <h2>{title}</h2>
-          <IconButton icon="close-small" label="Close" onClick={onClose} />
+          <IconButton icon="close-small" label={t('Close')} onClick={onClose} />
         </header>
         <div className="mx-dialog-body">{children}</div>
         {footer && <footer>{footer}</footer>}

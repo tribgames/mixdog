@@ -24,11 +24,20 @@ import {
   type DesktopWorkspaceTextWrite,
   type ToolApprovalDecision,
 } from '../shared/contract';
+import {
+  canonicalPromptFileMimeType,
+  MAX_PROMPT_FILE_BASE64_LENGTH,
+  MAX_PROMPT_FILE_BASE64_TOTAL,
+  MAX_PROMPT_FILE_MIME_LENGTH,
+  MAX_PROMPT_FILES,
+  MAX_PROMPT_IMAGE_BASE64_LENGTH,
+  MAX_PROMPT_IMAGE_BASE64_TOTAL,
+  PROMPT_IMAGE_MIME_PATTERN,
+  MAX_PROMPT_IMAGES,
+} from '../shared/prompt-limits';
 import { requiredSessionId } from './desktop-state';
 
 const MAX_PROMPT_LENGTH = 1_000_000;
-const MAX_IMAGE_BASE64_LENGTH = 16_000_000;
-const MAX_FILE_BASE64_LENGTH = 28_000_000;
 const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
 
 const CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
@@ -393,39 +402,41 @@ export function requiredPromptContent(value: unknown): DesktopPromptContent {
     }
     if (part.type === 'image') {
       imageCount += 1;
-      if (imageCount > 8) throw new TypeError('too many prompt images.');
+      if (imageCount > MAX_PROMPT_IMAGES) throw new TypeError('too many prompt images.');
       const mimeType = requiredString(part.mimeType, 'image mime type', 64).toLowerCase();
-      if (!/^image\/(?:png|jpe?g|gif|webp)$/.test(mimeType)) {
+      if (!PROMPT_IMAGE_MIME_PATTERN.test(mimeType)) {
         throw new TypeError('image type is unsupported.');
       }
       if (
         typeof part.data !== 'string' ||
         !part.data ||
-        part.data.length > MAX_IMAGE_BASE64_LENGTH ||
+        part.data.length > MAX_PROMPT_IMAGE_BASE64_LENGTH ||
         !/^[A-Za-z0-9+/]*={0,2}$/.test(part.data)
       ) {
         throw new TypeError('image data is invalid.');
       }
       imageLength += part.data.length;
-      if (imageLength > 48_000_000) throw new TypeError('prompt images are too large.');
+      if (imageLength > MAX_PROMPT_IMAGE_BASE64_TOTAL) throw new TypeError('prompt images are too large.');
       hasContent = true;
       return { type: 'image' as const, data: part.data, mimeType };
     }
     if (part.type === 'file') {
       fileCount += 1;
-      if (fileCount > 4) throw new TypeError('too many prompt files.');
-      const mimeType = requiredString(part.mimeType, 'file mime type', 64).toLowerCase();
-      if (mimeType !== 'application/pdf') throw new TypeError('file type is unsupported.');
+      if (fileCount > MAX_PROMPT_FILES) throw new TypeError('too many prompt files.');
+      const mimeType = canonicalPromptFileMimeType(
+        requiredString(part.mimeType, 'file mime type', MAX_PROMPT_FILE_MIME_LENGTH)
+      );
+      if (!mimeType) throw new TypeError('file type is unsupported.');
       if (
         typeof part.data !== 'string' ||
         !part.data ||
-        part.data.length > MAX_FILE_BASE64_LENGTH ||
+        part.data.length > MAX_PROMPT_FILE_BASE64_LENGTH ||
         !/^[A-Za-z0-9+/]*={0,2}$/.test(part.data)
       ) {
         throw new TypeError('file data is invalid.');
       }
       fileLength += part.data.length;
-      if (fileLength > MAX_FILE_BASE64_LENGTH) throw new TypeError('prompt files are too large.');
+      if (fileLength > MAX_PROMPT_FILE_BASE64_TOTAL) throw new TypeError('prompt files are too large.');
       hasContent = true;
       const filename = typeof part.filename === 'string' ? part.filename.slice(0, 160) : '';
       return { type: 'file' as const, data: part.data, mimeType, ...(filename ? { filename } : {}) };

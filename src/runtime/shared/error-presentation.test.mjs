@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { describeError, safeErrorDetails } from './error-presentation.mjs';
+import { anthropicQuotaError } from '../agent/orchestrator/providers/anthropic-oauth-request/initial-status.mjs';
 import { presentErrorText } from './err-text.mjs';
 
 const providerFailure = (index) =>
@@ -42,6 +43,25 @@ test('typed failures distinguish sign-in, rate, request and connection recovery'
       describeError(new Error('ordinary failure B')).fingerprint,
     false
   );
+});
+
+test('an Anthropic 429 is a usage limit only when the quota headers say so', () => {
+  const body = '{"type":"error","error":{"type":"rate_limit_error","message":"Error"}}';
+  const rejected = anthropicQuotaError(429, new Map(), body);
+  assert.equal(rejected.code, 'PROVIDER_REQUEST_REJECTED');
+  assert.equal(rejected.providerQuota, false);
+  assert.equal(describeError(rejected).kind, 'request');
+  assert.equal(describeError(rejected.message).kind, 'request');
+  assert.equal(presentErrorText(rejected), 'The provider rejected this request.');
+
+  const quota = anthropicQuotaError(
+    429,
+    new Map([['anthropic-ratelimit-unified-representative-claim', 'five_hour']]),
+    body
+  );
+  assert.equal(quota.code, 'PROVIDER_QUOTA');
+  assert.equal(quota.providerQuota, true);
+  assert.equal(describeError(quota).kind, 'rate-limit');
 });
 
 test('WebSocket disconnect notices wrap the summary and preserve the original diagnostic', () => {

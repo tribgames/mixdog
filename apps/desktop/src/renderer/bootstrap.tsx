@@ -20,14 +20,11 @@ import { installScrollbarMetrics } from './scrollbar-metrics';
 import { markBootStage } from './boot-metrics';
 import { scheduleFontWarmup } from './font-warmup';
 import { defaultSessionLaneStore } from './session-lane-store';
-import { installAutoDomI18n } from './auto-dom-i18n';
 
 markBootStage('renderer-entry');
 if (import.meta.env?.DEV) performance.mark('mixdog:startup:renderer-entry');
 const removeGlobalRendererDiagnostics = installGlobalRendererDiagnostics();
 window.addEventListener('beforeunload', removeGlobalRendererDiagnostics, { once: true });
-const removeAutoDomI18n = installAutoDomI18n();
-window.addEventListener('beforeunload', removeAutoDomI18n, { once: true });
 const removeShellViewport = installShellViewport();
 window.addEventListener('beforeunload', removeShellViewport, { once: true });
 // Focus rings are keyboard chrome: the root records whether the last

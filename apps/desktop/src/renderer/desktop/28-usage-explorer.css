@@ -524,10 +524,11 @@
   background: var(--mx-bg-layer-1);
   border-top: var(--mx-hairline) solid var(--mx-border);
 }
-/* Tables inside a framed card carry no banded fills: the sticky header takes
-   the dialog's own surface and group rows read by their seams. */
+/* The sticky header carries the same plate tint as every other header band
+   (user: 헤더에는 있는게 좋아보여 코덱스스타일로), layered over the dialog's
+   own opaque surface so scrolled rows never show through it. */
 :root .usage-table th {
-  background: var(--mx-bg-base);
+  background: linear-gradient(var(--mx-surface-plate), var(--mx-surface-plate)), var(--mx-bg-base);
 }
 /* The opaque sticky header and rows paint over an inset ring, so the table
    card draws its frame as a real border, outside its children. */

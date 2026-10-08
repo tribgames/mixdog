@@ -75,7 +75,7 @@ function compactSummary(details: string): string {
     .replace(/^(?:fatal|error|remote):\s*/i, '')
     .replace(/\s+/g, ' ')
     .trim();
-  if (!summary) return 'The action could not be completed.';
+  if (!summary) return t('The action could not be completed.');
   return summary.length > 220 ? `${summary.slice(0, 219).trimEnd()}…` : summary;
 }
 

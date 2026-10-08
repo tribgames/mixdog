@@ -101,7 +101,7 @@ function ShortcutsPanel() {
   return (
     <>
       {SHORTCUT_GROUPS.map(([title, shortcuts]) => (
-        <Group key={title} title={title}>
+        <Group key={title} title={t(title)}>
           <div className="settings-shortcut-list">
             {shortcuts.map(([keys, action]) => (
               <div className="settings-shortcut-row" key={keys}>
@@ -128,7 +128,7 @@ function ChoicePanel({
   values: RecordValue[];
   active: string;
   pending: string;
-  emptyText?: string;
+  emptyText: string;
   onChoose(id: string): void;
 }) {
   return (
@@ -146,7 +146,7 @@ function ChoicePanel({
                 id !== active &&
                 !entry.active && (
                   <ActionButton disabled={Boolean(pending)} onClick={() => onChoose(id)}>
-                    Choose
+                    {t('Choose')}
                   </ActionButton>
                 )
               }
@@ -154,7 +154,7 @@ function ChoicePanel({
           );
         })
       ) : (
-        <ListEmpty text={emptyText || `No ${title.toLowerCase()} available.`} />
+        <ListEmpty text={emptyText} />
       )}
     </Group>
   );
@@ -170,7 +170,7 @@ function OutputStylePanel({ data, pending, run }: PanelContext) {
       values={rows(output, 'styles')}
       active={String(record(output.current).id || output.configured || 'default')}
       pending={pending}
-      emptyText={sectionLoaded(data, 'outputStyles') ? 'No output styles available.' : 'Loading output styles…'}
+      emptyText={sectionLoaded(data, 'outputStyles') ? t('No output styles available.') : t('Loading output styles…')}
       onChoose={(id) => void run('setOutputStyle', [id])}
     />
   );
@@ -185,13 +185,13 @@ function updaterInstallLabel(state: PanelContext['updaterState']): string {
     case 'downloading':
       return t('Downloading v{{version}}…', { version: state.version });
     case 'checking':
-      return 'Checking for update…';
+      return t('Checking for update…');
     case 'up-to-date':
-      return 'Up to date';
+      return t('Up to date');
     case 'error':
-      return 'Update unavailable';
+      return t('Update unavailable');
     default:
-      return 'Check for update';
+      return t('Check for update');
   }
 }
 
@@ -205,29 +205,29 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
     updaterState.status === 'installing';
   const installLabel = updaterInstallLabel(updaterState);
   return (
-    <Group title="Update">
+    <Group title={t('Update')}>
       <ResourceRow
-        title="Current version"
-        description="Installed Mixdog Desktop version."
+        title={t('Current version')}
+        description={t('Installed Mixdog Desktop version.')}
         meta={String(update.currentVersion || t('unknown'))}
       />
       <ResourceRow
-        title="Latest version"
+        title={t('Latest version')}
         meta={version || t('unknown')}
         actions={
           <ActionButton disabled={busy} onClick={() => void checkDesktopUpdate()}>
-            Check now
+            {t('Check now')}
           </ActionButton>
         }
       />
       <ToggleRow
-        title="Auto-update"
+        title={t('Auto-update')}
         checked={update.autoUpdate === true}
         disabled={busy}
         onChange={(enabled) => void run('setAutoUpdate', [enabled])}
       />
       <ResourceRow
-        title="Install update"
+        title={t('Install update')}
         actions={
           <ActionButton disabled={busy || updaterState.status !== 'ready'} onClick={() => void installDesktopUpdate()}>
             {installLabel}
@@ -246,23 +246,27 @@ function ContextPanel({ data, pending, run }: PanelContext) {
   const providerDefaults = rows(autoClear.providerDefaults);
   const busy = Boolean(pending);
   return (
-    <Group title="Session lifecycle">
+    <Group title={t('Session lifecycle')}>
       <ToggleRow
-        title="Auto-compact"
-        description="Compact automatically as the active context reaches its limit."
+        title={t('Auto-compact')}
+        description={t('Compact automatically as the active context reaches its limit.')}
         checked={compaction.auto !== false}
         disabled={busy}
         onChange={(enabled) => void run('setCompactionSettings', [{ auto: enabled }])}
       />
       <ToggleRow
-        title="Auto-clear"
-        description={`Clear idle sessions after ${formatDuration(autoClear.idleMs) || 'the provider default'} (${
-          autoClear.providerCustom
-            ? `${String(autoClear.provider)} override`
-            : autoClear.custom
-              ? 'global duration'
-              : `${String(autoClear.provider || 'default')} default`
-        }). A provider idle window below overrides the global duration.`}
+        title={t('Auto-clear')}
+        description={t(
+          'Clear idle sessions after {{value0}} ({{value1}}). A provider idle window below overrides the global duration.',
+          {
+            value0: formatDuration(autoClear.idleMs) || t('the provider default'),
+            value1: autoClear.providerCustom
+              ? t('{{value0}} override', { value0: String(autoClear.provider) })
+              : autoClear.custom
+                ? t('global duration')
+                : t('{{value0}} default', { value0: String(autoClear.provider || 'default') }),
+          }
+        )}
         checked={autoClear.enabled !== false}
         disabled={busy}
         onChange={(enabled) => void run('setAutoClear', [{ enabled }])}
@@ -270,7 +274,7 @@ function ContextPanel({ data, pending, run }: PanelContext) {
       {providerDefaults.map((entry) => (
         <AutoSaveRow
           key={String(entry.provider)}
-          title={`${providerDisplayName(String(entry.provider || 'default'))} idle window`}
+          title={t('{{value0}} idle window', { value0: providerDisplayName(String(entry.provider || 'default')) })}
           name="duration"
           value={durationTextInput(entry.idleMs)}
           placeholder={durationTextInput(entry.builtInMs)}
@@ -291,7 +295,7 @@ function ContextPanel({ data, pending, run }: PanelContext) {
                   )
                 }
               >
-                Reset
+                {t('Reset')}
               </ActionButton>
             )
           }
@@ -329,11 +333,11 @@ function DesktopPowerGroup() {
   if (keepAwake === null || !api?.updateSetting) return null;
   return (
     <Group
-      title="Power"
-      description="Keep the computer awake while agents are working, so long runs never stall mid-turn."
+      title={t('Power')}
+      description={t('Keep the computer awake while agents are working, so long runs never stall mid-turn.')}
     >
       <ToggleRow
-        title="Keep system awake while working"
+        title={t('Keep system awake while working')}
         checked={keepAwake}
         onChange={(enabled) => {
           setKeepAwake(enabled);
@@ -341,11 +345,11 @@ function DesktopPowerGroup() {
         }}
       />
       <SelectRow
-        title="When closing the window"
+        title={t('When closing the window')}
         value={runInBackground ? 'tray' : 'quit'}
         options={[
-          { value: 'tray', label: 'Hide to tray' },
-          { value: 'quit', label: 'Quit completely' },
+          { value: 'tray', label: t('Hide to tray') },
+          { value: 'quit', label: t('Quit completely') },
         ]}
         onChange={(value) => {
           const enabled = value === 'tray';
@@ -362,11 +366,11 @@ function SystemPanel(context: PanelContext) {
     <>
       <UpdatePanel {...context} />
       <DesktopPowerGroup />
-      <Group title="Doctor">
+      <Group title={t('Doctor')}>
         <ResourceRow
-          title="Diagnostics"
-          description="Check the runtime, providers, integrations, and local installation."
-          actions={<ActionButton onClick={requestOpenDoctor}>Run doctor</ActionButton>}
+          title={t('Diagnostics')}
+          description={t('Check the runtime, providers, integrations, and local installation.')}
+          actions={<ActionButton onClick={requestOpenDoctor}>{t('Run doctor')}</ActionButton>}
         />
       </Group>
     </>

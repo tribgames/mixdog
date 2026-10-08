@@ -12,6 +12,7 @@ import {
   persistsConfirmedImageRejection,
   promptHasInlineImages,
   shouldStripImagesForRetry,
+  stripFailingImage,
   stripInlineImages,
   stripInlineImagesFromLatestTurn,
 } from './image-strip-recovery.mjs';
@@ -333,4 +334,46 @@ test('mid-stream xAI generation crash is retryable even as invalid_request_error
   quota.providerWireError = true;
   quota.providerErrorCode = 'insufficient_quota';
   assert.equal(isRetryableStreamErrorEvent(quota), false);
+});
+
+test('a failing image named by a preparation error: latest turn is stripped and persisted, an older one is not persisted, a runtime error strips nothing', async () => {
+  const { AnthropicImagePreparationError, AnthropicImageRuntimeError } = await import('../providers/lib/anthropic-image-input.mjs');
+  const oldImage = { type: 'image', data: 'old', mimeType: 'image/png' };
+  const newImage = { type: 'image', data: 'new', mimeType: 'image/png' };
+  const messages = [
+    { role: 'user', content: [oldImage] },
+    { role: 'assistant', content: 'seen' },
+    { role: 'user', content: [{ type: 'text', text: 'next' }, newImage] },
+  ];
+  const latest = new AnthropicImagePreparationError('messages.2.content.1', 'bad', undefined, 'new');
+  const strip = stripFailingImage(messages, latest);
+  assert.equal(strip.stripped, 1);
+  assert.equal(strip.messages[2].content[1].text, IMAGE_STRIP_PLACEHOLDER);
+  assert.equal(strip.messages[0].content[0].type, 'image');
+  assert.equal(persistsConfirmedImageRejection(latest, strip), true);
+
+  const older = new AnthropicImagePreparationError('messages.0.content.0', 'bad', undefined, 'old');
+  const olderStrip = stripFailingImage(messages, older);
+  assert.equal(olderStrip.stripped, 1);
+  assert.equal(olderStrip.messages[0].content[0].text, IMAGE_STRIP_PLACEHOLDER);
+  assert.equal(olderStrip.messages[2].content[1].type, 'image');
+  assert.equal(persistsConfirmedImageRejection(older, olderStrip), false);
+
+  // A reloaded history holds the store's content address instead of base64.
+  const { createHash } = await import('node:crypto');
+  const attachmentRef = createHash('sha256').update(Buffer.from('new', 'base64')).digest('hex');
+  const reloaded = [
+    messages[0],
+    messages[1],
+    { role: 'user', content: [{ type: 'text', text: 'next' }, { type: 'image', attachmentRef, mimeType: 'image/png' }] },
+  ];
+  const refStrip = stripFailingImage(reloaded, latest);
+  assert.equal(refStrip.stripped, 1);
+  assert.equal(refStrip.messages[2].content[1].text, IMAGE_STRIP_PLACEHOLDER);
+  assert.equal(persistsConfirmedImageRejection(latest, refStrip), true);
+
+  const runtime = new AnthropicImageRuntimeError('messages.2.content.1');
+  assert.equal(confirmedImageRejection(runtime), false);
+  assert.equal(isImageProcessingError(runtime), false);
+  assert.equal(stripFailingImage(messages, runtime).stripped, 0);
 });

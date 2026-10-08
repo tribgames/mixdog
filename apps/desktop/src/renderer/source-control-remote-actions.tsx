@@ -2,6 +2,7 @@ import { ArrowUp, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { DesktopGitStatus } from '../shared/contract';
+import { t } from './i18n';
 import { repositoryBusyReason } from './source-control-actions';
 
 interface SourceControlRemoteAction {
@@ -42,9 +43,9 @@ export function sourceControlRemoteActions({
     const busyReason = repositoryBusyReason(busy, status);
     if (busyReason) return busyReason;
     if (!capable) return missingChannel(action);
-    return status?.remote ? '' : `Add a remote before ${verb}`;
+    return status?.remote ? '' : t('Add a remote before {{value0}}', { value0: verb });
   };
-  const fetchReason = remoteGate(canFetch, 'Fetching', 'fetching');
+  const fetchReason = remoteGate(canFetch, t('Fetching'), t('fetching'));
   const fetchEntry: SourceControlRemoteAction = {
     key: 'fetch',
     runKey: 'fetch',
@@ -56,8 +57,8 @@ export function sourceControlRemoteActions({
     icon: <RefreshCw size={14} aria-hidden="true" />,
     perform: onFetch,
   };
-  let pushReason = remoteGate(canPush, 'Pushing', 'pushing');
-  if (!pushReason && status?.detached) pushReason = 'Cannot push a detached HEAD';
+  let pushReason = remoteGate(canPush, t('Pushing'), t('pushing'));
+  if (!pushReason && status?.detached) pushReason = t('Cannot push a detached HEAD');
   const pushEntry: SourceControlRemoteAction = {
     key: 'push',
     runKey: 'push',
@@ -70,7 +71,7 @@ export function sourceControlRemoteActions({
     perform: onPush,
   };
   let rowPushReason = pushReason;
-  if (!rowPushReason && !status?.upstream) rowPushReason = 'Publish the branch before pushing';
+  if (!rowPushReason && !status?.upstream) rowPushReason = t('Publish the branch before pushing');
 
   return {
     remoteName,

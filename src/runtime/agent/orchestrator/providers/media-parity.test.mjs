@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { toAnthropicMessages } from './anthropic-messages.mjs';
 import { toGeminiContents } from './gemini-schema.mjs';
@@ -6,6 +9,11 @@ import { toOpenAIMessages, toXaiResponsesInput } from './openai-compat-wire.mjs'
 import { convertMessagesToResponsesInput } from './openai-responses-payload.mjs';
 import { sanitizeContentForStoredHistory } from './media-normalization.mjs';
 import { estimateMessageTokens } from '../session/context-utils.mjs';
+
+// Stored history writes attachment blobs; keep them out of the real data dir.
+const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-media-parity-'));
+process.env.MIXDOG_DATA_DIR = dataDir;
+test.after(() => rmSync(dataDir, { recursive: true, force: true }));
 
 const IMAGE_DATA = 'AAECAw==';
 
@@ -113,8 +121,17 @@ test('read PDF document stays native media without base64 text, storage, or toke
   assert.equal(xaiOutput, '[tool result included document content unavailable to xAI Responses]');
 
   const stored = sanitizeContentForStoredHistory(content);
+  assert.equal(stored.content.length, 1);
+  assert.match(stored.content[0].attachmentRef, /^[a-f0-9]{64}$/);
   assert.deepEqual(stored, {
-    content: [{ type: 'text', text: '[File omitted from stored history: application/pdf]' }],
+    content: [
+      {
+        type: 'file',
+        mimeType: 'application/pdf',
+        attachmentRef: stored.content[0].attachmentRef,
+        sizeBytes: Buffer.from(pdfData, 'base64').length,
+      },
+    ],
   });
   assert.equal(JSON.stringify(stored).includes(pdfData), false);
 

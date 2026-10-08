@@ -397,6 +397,12 @@ test('statistics open with the last 24 hours, four cards, and no sessions or inf
   assert.equal(button('Sessions'), undefined);
   assert.equal(document.querySelector('.stats-period-arrow'), null);
   assert.equal(document.querySelectorAll('.stats-trend-bar').length, 24);
+  assert.ok(document.querySelector('.stats-trend .stats-grains'), 'metric switches stay');
+  assert.equal(document.querySelector('.stats-trend h4'), null, 'only the visible Trend heading is gone');
+  assert.equal(
+    [...document.querySelectorAll('.stats-trend header *')].some((node) => node.textContent === t('Trend')),
+    false
+  );
 });
 
 test('models start expanded, request counts lead numeric columns, and cache hits exclude writes', async (context) => {
@@ -993,6 +999,28 @@ test('only a confirmed empty response uses the compact empty state', async (cont
   assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '0');
   await render({ data: { getUsageStats: snapshot() }, request: async () => ({}), loading: false });
   assert.equal(document.querySelector('.stats-surface').dataset.empty, undefined);
+});
+
+test('unpriced models appear only as actual rows of the selected period, with real counts and no separate list', async (context) => {
+  const render = harness(context);
+  const stats = snapshot();
+  const route = stats.providers[0];
+  const priced = { ...route, turns: 2, costUsd: 3, costKnownTurns: 2, model: 'priced-model' };
+  const unpriced = { ...route, turns: 4, tokens: 900, input: 700, costUsd: 0, costKnownTurns: 0, model: 'custom-used-model' };
+  stats.providers = [{ ...route, turns: 6, tokens: 2100, costUsd: 3, costKnownTurns: 2, models: [priced, unpriced] }];
+  stats.totals = { ...stats.providers[0] };
+  stats.unpricedModels = [{ provider: 'openai', model: 'custom-used-model', missingRates: ['input'] }];
+  await render({ data: { getUsageStats: stats }, request: async () => stats });
+  assert.equal(document.querySelector('.stats-unpriced'), null);
+  const modelRows = [...document.querySelectorAll('.stats-model-row')];
+  assert.equal(modelRows.length, 2, 'only models used in the period are listed');
+  const row = modelRows[1];
+  assert.equal(row.cells[2].textContent, '4', 'request count is kept');
+  assert.equal(row.cells[8].textContent, '900', 'token count is kept');
+  assert.equal(row.cells[9].textContent, '—', 'unavailable price is not shown as zero');
+  assert.equal(row.cells[9].title, t('Price unavailable'));
+  assert.equal(modelRows[0].cells[9].textContent, '$3.00');
+  assert.equal(modelRows[0].cells[9].title, '');
 });
 
 test('wholly unpriced cost chart says price unavailable, while actual zero-cost usage remains zero', async (context) => {

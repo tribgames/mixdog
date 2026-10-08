@@ -226,7 +226,7 @@ function namedToolActivityUnit(
     const server = titleCaseMcpServer(mcp?.server || '');
     // Named units read as "<what> <which>" like every other unit: a bare
     // server or skill name in the summary line looked like a versioned token.
-    if (server) return { unitKey: `MCP|${mcp.server}`, label: `MCP ${server}` };
+    if (server) return { unitKey: `MCP|${mcp.server}`, label: t('MCP {{value0}}', { value0: server }) };
   }
   if (category === 'Skill') {
     const skills = toolLoadingTargets(modeledName, surface.args);

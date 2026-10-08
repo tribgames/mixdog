@@ -1,5 +1,6 @@
 import type { RecordValue } from './desktop-types';
 import type { ComposerAttachment } from './composer-support';
+import { canonicalPromptFileMimeType, PDF_MIME_TYPE } from '../shared/prompt-limits';
 import { asRecord } from './text-format';
 
 /** Ids for restored attachments: keep a stored id when it is free, otherwise
@@ -81,7 +82,90 @@ export function restoreAttachmentsFromRecord(
       source,
     });
   }
+  textValue = restoreFileAttachments(value, textValue, restored, uniqueId);
   return { attachments: restored, text: textValue };
+}
+
+type StoredFile = { id: number; name: string; mimeType: string; data: string };
+
+/** File parts a record carries: the `pastedFiles` table (keyed by id) and any
+ *  `file` parts of a structured `content` array (matched to a token by name). */
+function storedFiles(value: RecordValue): StoredFile[] {
+  const files: StoredFile[] = [];
+  for (const [key, raw] of Object.entries(asRecord(value.pastedFiles) || {})) {
+    const file = asRecord(raw);
+    if (!file || typeof file.data !== 'string' || !file.data) continue;
+    files.push({
+      id: Number(file.id || key) || 0,
+      name: String(file.filename || file.name || ''),
+      mimeType: String(file.mimeType || ''),
+      data: file.data,
+    });
+  }
+  if (Array.isArray(value.content)) {
+    for (const raw of value.content) {
+      const part = asRecord(raw);
+      if (part?.type !== 'file' || typeof part.data !== 'string' || !part.data) continue;
+      files.push({ id: 0, name: String(part.filename || ''), mimeType: String(part.mimeType || ''), data: part.data });
+    }
+  }
+  return files;
+}
+
+const FILE_TOKEN_SOURCE = String.raw`\[(PDF|File) #(\d+)(?:: [^\]\r\n]+)?\]`;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Restore PDF/Office file parts (pushed onto `restored`) and drop every
+ * `[PDF #n …]`/`[File #n …]` token whose bytes are not available, so a
+ * dangling token is never sent as literal text. Returns the cleaned text.
+ */
+function restoreFileAttachments(
+  value: RecordValue,
+  text: string,
+  restored: ComposerAttachment[],
+  uniqueId: (rawId: number) => number
+): string {
+  let textValue = text;
+  const keptTokens = new Set(restored.map((attachment) => attachment.token));
+  for (const file of storedFiles(value)) {
+    const mimeType = canonicalPromptFileMimeType(file.mimeType);
+    if (!mimeType || !file.name) continue;
+    const idPattern = file.id > 0 ? String(file.id) : String.raw`\d+`;
+    const match = new RegExp(`\\[(PDF|File) #(${idPattern}): ${escapeRegExp(file.name)}\\]`).exec(textValue);
+    if (!match || keptTokens.has(match[0])) continue;
+    const rawId = Number(match[2]);
+    const id = uniqueId(rawId);
+    const isPdf = mimeType === PDF_MIME_TYPE;
+    const token = `[${isPdf ? 'PDF' : 'File'} #${id}: ${file.name}]`;
+    if (token !== match[0]) textValue = textValue.replace(match[0], token);
+    keptTokens.add(token);
+    restored.push({
+      id,
+      name: file.name,
+      kind: isPdf ? 'pdf' : 'office',
+      mimeType,
+      data: file.data,
+      token,
+    });
+  }
+  let dropped = false;
+  const kept = textValue.replace(new RegExp(FILE_TOKEN_SOURCE, 'g'), (token) => {
+    if (keptTokens.has(token)) return token;
+    dropped = true;
+    return ' ';
+  });
+  return dropped
+    ? kept
+        .replace(/ {2,}/g, ' ')
+        .split('\n')
+        .map((line) => line.trim())
+        .join('\n')
+        .trim()
+    : textValue;
 }
 
 /** `@path` mentions for project-relative paths; drive letters and `..` are refused. */

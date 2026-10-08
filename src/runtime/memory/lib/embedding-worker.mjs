@@ -3,18 +3,20 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 import { parentPort, workerData } from 'node:worker_threads';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { compressEmbeddingModelCache } from './embedding-model-cache-compression.mjs';
 import { createIdleLease } from './embedding-idle-lease.mjs';
+import { ensureModelFile, ensureModelGraph } from './embedding-model-files.mjs';
+import { loadUnigramTokenizer, UnsupportedTokenizerError } from './embedding-tokenizer.mjs';
 import {
   getConfiguredEmbeddingModelId,
   getDefaultEmbeddingDevice,
   getDefaultEmbeddingDtype,
-  getEmbeddingModelLoadOptions,
+  getEmbeddingModelGraphFile,
   getEmbeddingOutputName,
   getEmbeddingPooling,
   normalizeEmbeddingDtype,
@@ -53,8 +55,8 @@ process.stdout.write = __forwardWorkerWrite;
 process.stderr.write = __forwardWorkerWrite;
 const DEFAULT_DEVICE = getDefaultEmbeddingDevice(MODEL_ID);
 const DEFAULT_DTYPE = getDefaultEmbeddingDtype(MODEL_ID);
-const MODEL_LOAD_OPTIONS = getEmbeddingModelLoadOptions(MODEL_ID);
 const MODEL_OUTPUT_NAME = getEmbeddingOutputName(MODEL_ID);
+const POOLING = getEmbeddingPooling(MODEL_ID);
 const INTRA_OP_THREADS = 1;
 const INTER_OP_THREADS = 1;
 // Session-create graph optimization. ORT defaults to 'all' (full node fusion),
@@ -91,11 +93,11 @@ const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0 ? _envIdl
 const _envWorkerMaxChars = Number(process.env.MIXDOG_EMBED_MAX_CHARS);
 const WORKER_MAX_CHARS =
   Number.isFinite(_envWorkerMaxChars) && _envWorkerMaxChars > 0 ? Math.floor(_envWorkerMaxChars) : 8000;
-const EXTRACT_OPTS = { pooling: getEmbeddingPooling(MODEL_ID), normalize: true, truncation: true };
-// Rows per ONNX call. One call pads every row to the longest text and the CPU
-// arena keeps that peak for the worker's lifetime: 320 long texts measured
-// 1175MB peak / 19.1s at 64 per call versus 610MB / 16.5s at 8.
-const INFERENCE_BATCH_SIZE = 8;
+// One row per ONNX call with the CPU arena and memory plans off: a padded
+// multi-row call's peak stayed resident for the worker's lifetime (128 real
+// records at 8 per call: +775MB held after the run), while per-row calls
+// return their buffers (+210MB flat) and reproduce the query-path vectors
+// exactly, since no row is ever padded.
 function capEmbedText(text) {
   if (typeof text !== 'string') return '';
   return text.length > WORKER_MAX_CHARS ? text.slice(0, WORKER_MAX_CHARS) : text;
@@ -113,7 +115,6 @@ const _idleLease = createIdleLease();
 let _embedInFlight = false;
 let _reclaiming = false;
 const _msgQueue = [];
-let ortPatched = false;
 // Control ops must never be overtaken by a priority embed: crossing a queued
 // configure/dispose/warmup would run inference against pre-configure or
 // post-dispose model state.
@@ -266,37 +267,83 @@ async function setSelfAffinity(mask) {
   }
 }
 
-function patchOrtThreads() {
-  if (ortPatched) return;
+// The onnxruntime-node build transformers resolves, the one the effort judge
+// also loads, so the app ships a single native binary.
+function loadOrt() {
+  const require = createRequire(import.meta.url);
   try {
-    const require = createRequire(import.meta.url);
-    let ort = null;
-    try {
-      const transformersEntry = require.resolve('@huggingface/transformers');
-      const transformersRequire = createRequire(transformersEntry);
-      ort = transformersRequire('onnxruntime-node');
-    } catch {
-      ort = require('onnxruntime-node');
-    }
-    if (!ort?.InferenceSession?.create) {
-      __mixdogMemoryLog('[embed-worker] ORT patch skipped: InferenceSession.create not found\n');
-      return;
-    }
-    const origCreate = ort.InferenceSession.create.bind(ort.InferenceSession);
-    ort.InferenceSession.create = async (pathOrBuffer, options = {}) => {
-      if (!options.intraOpNumThreads) options.intraOpNumThreads = INTRA_OP_THREADS;
-      if (!options.interOpNumThreads) options.interOpNumThreads = INTER_OP_THREADS;
-      if (!options.graphOptimizationLevel) options.graphOptimizationLevel = GRAPH_OPT_LEVEL;
-      if (options.logSeverityLevel === undefined) options.logSeverityLevel = 4;
-      return origCreate(pathOrBuffer, options);
-    };
-    ortPatched = true;
-    __mixdogMemoryLog(
-      `[embed-worker] ORT patched OK: intra=${INTRA_OP_THREADS} inter=${INTER_OP_THREADS} graphOpt=${GRAPH_OPT_LEVEL}\n`
-    );
-  } catch (err) {
-    __mixdogMemoryLog(`[embed-worker] ORT patch failed: ${err?.message || err}\n`);
+    return createRequire(require.resolve('@huggingface/transformers'))('onnxruntime-node');
+  } catch {
+    return require('onnxruntime-node');
   }
+}
+
+async function loadTokenizer() {
+  const tokenizerPath = await ensureModelFile(MODEL_CACHE_DIR, MODEL_ID, 'tokenizer.json');
+  const configPath = await ensureModelFile(MODEL_CACHE_DIR, MODEL_ID, 'tokenizer_config.json');
+  const maxLength = Number(JSON.parse(readFileSync(configPath, 'utf8')).model_max_length) || 512;
+  try {
+    return loadUnigramTokenizer(tokenizerPath, { maxLength }).encode;
+  } catch (error) {
+    if (!(error instanceof UnsupportedTokenizerError)) throw error;
+    // Other layouts (the Granite profile) keep the library tokenizer.
+    const { AutoTokenizer, env } = await import('@huggingface/transformers');
+    env.allowLocalModels = false;
+    env.cacheDir = MODEL_CACHE_DIR;
+    const tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID);
+    return (text) => Array.from(tokenizer(text, { truncation: true }).input_ids.data, Number);
+  }
+}
+
+// Pooled, L2-normalised vector of one text, matching the transformers.js
+// feature-extraction output the stored vectors were made with.
+async function createExtractor(device) {
+  const ort = loadOrt();
+  const encode = await loadTokenizer();
+  const graphPath = await ensureModelGraph(MODEL_CACHE_DIR, MODEL_ID, getEmbeddingModelGraphFile(MODEL_ID, configuredDtype));
+  const session = await ort.InferenceSession.create(graphPath, {
+    executionProviders: [device],
+    intraOpNumThreads: INTRA_OP_THREADS,
+    interOpNumThreads: INTER_OP_THREADS,
+    graphOptimizationLevel: GRAPH_OPT_LEVEL,
+    logSeverityLevel: 4,
+    enableCpuMemArena: false,
+    enableMemPattern: false,
+  });
+  const withTypeIds = session.inputNames.includes('token_type_ids');
+  const embed = async (text) => {
+    const ids = encode(text);
+    const n = ids.length;
+    const feeds = {
+      input_ids: new ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, n]),
+      attention_mask: new ort.Tensor('int64', new BigInt64Array(n).fill(1n), [1, n]),
+    };
+    if (withTypeIds) feeds.token_type_ids = new ort.Tensor('int64', new BigInt64Array(n), [1, n]);
+    const out = await session.run(feeds);
+    let vector;
+    if (MODEL_OUTPUT_NAME) {
+      if (!out[MODEL_OUTPUT_NAME]?.data?.length) {
+        throw new Error(`embedding output '${MODEL_OUTPUT_NAME}' missing (model=${MODEL_ID})`);
+      }
+      vector = Float32Array.from(out[MODEL_OUTPUT_NAME].data);
+    } else {
+      const hidden = out.last_hidden_state ?? out[session.outputNames[0]];
+      if (!hidden?.data?.length) throw new Error(`embedding output missing (model=${MODEL_ID})`);
+      const dims = hidden.dims[2];
+      vector = new Float32Array(dims);
+      if (POOLING === 'cls') vector.set(hidden.data.subarray(0, dims));
+      else {
+        for (let t = 0; t < n; t++) for (let k = 0; k < dims; k++) vector[k] += hidden.data[t * dims + k];
+        for (let k = 0; k < dims; k++) vector[k] /= n;
+      }
+    }
+    let norm = 0;
+    for (const v of vector) norm += v * v;
+    norm = Math.sqrt(norm) || 1;
+    for (let k = 0; k < vector.length; k++) vector[k] /= norm;
+    return vector;
+  };
+  return { embed, dispose: () => session.release() };
 }
 
 async function loadExtractor() {
@@ -306,24 +353,6 @@ async function loadExtractor() {
         type: 'profile',
         record: { phase: 'baseline', model: MODEL_ID, device: _device, dtype: configuredDtype, note: 'pre-load' },
       });
-      patchOrtThreads();
-      const { AutoModel, AutoTokenizer, pipeline, env } = await import('@huggingface/transformers');
-      try {
-        env.backends.onnx.logLevel = 'fatal';
-      } catch {}
-      env.allowLocalModels = false;
-      try {
-        mkdirSync(MODEL_CACHE_DIR, { recursive: true });
-      } catch {}
-      env.cacheDir = MODEL_CACHE_DIR;
-      try {
-        env.backends.onnx.wasm.numThreads = INTRA_OP_THREADS;
-      } catch {}
-      const opts = {};
-      Object.assign(opts, MODEL_LOAD_OPTIONS);
-      if (configuredDtype) {
-        opts.dtype = configuredDtype;
-      }
       const startMs = Date.now();
       let extractor;
       const requestedDevice = String(process.env.MIXDOG_MEMORY_EMBED_DEVICE || DEFAULT_DEVICE)
@@ -352,34 +381,9 @@ async function loadExtractor() {
         priorityLowered = true;
       } catch {}
       try {
-        if (MODEL_OUTPUT_NAME) {
-          const device = preferGpu ? 'dml' : 'cpu';
-          const [tokenizer, model] = await Promise.all([
-            AutoTokenizer.from_pretrained(MODEL_ID),
-            AutoModel.from_pretrained(MODEL_ID, { ...opts, device }),
-          ]);
-          extractor = async (input, extractOptions = {}) => {
-            const modelInputs = await tokenizer(input, {
-              padding: true,
-              truncation: extractOptions.truncation !== false,
-            });
-            const outputs = await model(modelInputs);
-            let result = outputs?.[MODEL_OUTPUT_NAME];
-            if (!result?.data?.length) {
-              throw new Error(`embedding output '${MODEL_OUTPUT_NAME}' missing (model=${MODEL_ID})`);
-            }
-            if (extractOptions.normalize) result = result.normalize(2, -1);
-            return result;
-          };
-          extractor.dispose = () => model.dispose();
-          _device = device;
-        } else if (preferGpu) {
-          extractor = await pipeline('feature-extraction', MODEL_ID, { ...opts, device: 'dml' });
-          _device = 'dml';
-        } else {
-          extractor = await pipeline('feature-extraction', MODEL_ID, { ...opts, device: 'cpu' });
-          _device = 'cpu';
-        }
+        const device = preferGpu ? 'dml' : 'cpu';
+        extractor = await createExtractor(device);
+        _device = device;
       } finally {
         if (priorityLowered) {
           // Restore is the invariant: never leave the worker pinned at
@@ -461,20 +465,12 @@ async function processMessage(msg) {
         }
         const t0 = Date.now();
         const inputType = normalizeEmbeddingInputType(msg.inputType);
-        const prepared = texts.map((text) => prepareWorkerText(text, inputType));
         const vectors = new Array(texts.length);
         let dims = 0;
-        for (let start = 0; start < prepared.length; start += INFERENCE_BATCH_SIZE) {
-          const slice = prepared.slice(start, start + INFERENCE_BATCH_SIZE);
-          const output = await extractor(slice, EXTRACT_OPTS);
-          if (!output.data?.length) throw new Error(`embed-batch output missing data (model=${MODEL_ID})`);
-          const total = output.data.length;
-          if (total % slice.length !== 0)
-            throw new Error(`embed-batch data length ${total} not divisible by texts ${slice.length}`);
-          dims = total / slice.length;
-          for (let i = 0; i < slice.length; i++) {
-            vectors[start + i] = Array.from(output.data.subarray(i * dims, (i + 1) * dims));
-          }
+        for (let i = 0; i < texts.length; i++) {
+          const vector = await extractor.embed(prepareWorkerText(texts[i], inputType));
+          dims = vector.length;
+          vectors[i] = Array.from(vector);
         }
         const wallMs = Date.now() - t0;
         parentPort.postMessage({ id, type: 'result', vectors, dims, wallMs, device: _device, dtype: configuredDtype });
@@ -491,11 +487,10 @@ async function processMessage(msg) {
         const extractor = await loadExtractor();
         const t0 = Date.now();
         const inputType = normalizeEmbeddingInputType(msg.inputType);
-        const output = await extractor(prepareWorkerText(msg.text, inputType), EXTRACT_OPTS);
+        const output = await extractor.embed(prepareWorkerText(msg.text, inputType));
         const wallMs = Date.now() - t0;
-        if (!output.data?.length) throw new Error(`embed output missing data (model=${MODEL_ID})`);
-        const dims = output.data.length;
-        const vector = Array.from(output.data);
+        const dims = output.length;
+        const vector = Array.from(output);
         parentPort.postMessage({ id, type: 'result', vector, dims, wallMs, device: _device, dtype: configuredDtype });
         break;
       }
@@ -508,10 +503,9 @@ async function processMessage(msg) {
         resetIdleTimer();
         const extractor = await loadExtractor();
         const t0 = Date.now();
-        const warmupOutput = await extractor('warmup', EXTRACT_OPTS);
+        const warmupOutput = await extractor.embed('warmup');
         const wallMs = Date.now() - t0;
-        if (!warmupOutput.data?.length) throw new Error(`warmup output missing data (model=${MODEL_ID})`);
-        const measuredDims = warmupOutput.data.length;
+        const measuredDims = warmupOutput.length;
         parentPort.postMessage({
           id,
           type: 'result',

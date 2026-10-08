@@ -358,12 +358,11 @@ export function QuotaTrend({
   return (
     <section
       className="stats-trend quota-trend"
+      aria-label={t('Trend')}
       data-usage-provider={provider}
       data-stacked={stacked ? 'true' : undefined}
     >
       <header>
-        {/* The chart names itself; the heading stays for assistive technology. */}
-        <h4 className="sr-only">{t('Trend')}</h4>
         {windowView && rate > 0 && <span>{t('Rate {{rate}} per hour', { rate: quotaPercent(rate) })}</span>}
       </header>
       {loading ? (

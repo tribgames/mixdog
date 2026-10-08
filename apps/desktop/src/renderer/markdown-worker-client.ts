@@ -31,11 +31,12 @@ function rememberStreamingMarkdownAst(text: string, root: MarkdownAstRoot): void
 }
 
 // Parsed markdown is pure derived state: an idle drop costs one reparse the
-// next time that exact text scrolls back into view.
+// next time that exact text scrolls back into view. The parser itself stays
+// resident, so that reparse never waits for a worker bootstrap.
 registerIdleReclaim(() => {
   astCache.clear();
-  workerHost.reclaim();
 });
+workerHost.prewarm();
 
 function parseMarkdownOnRenderer(text: string): Promise<MarkdownAstRoot> {
   rendererParserPromise ||= import('./markdown-ast');

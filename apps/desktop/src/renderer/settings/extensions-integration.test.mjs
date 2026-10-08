@@ -147,17 +147,20 @@ test('About keeps GitHub and issue links without a sponsorship option', async (t
   const buttons = [...panel.host.querySelectorAll('button')];
   assert.deepEqual(
     buttons.map((button) => button.textContent.trim()),
-    ['Star on GitHub ↗', 'Open ↗', 'Issues ↗', 'Copy', 'Email ↗']
+    ['Star on GitHub ↗', 'Open ↗', 'Issues ↗', 'Give feedback', 'View changelog']
   );
-  for (const button of buttons) {
+  assert.doesNotMatch(panel.host.textContent, /Contact support|Email ↗|Copy/);
+  for (const button of buttons.slice(0, 3)) {
     await act(async () => button.click());
   }
   assert.deepEqual(opened, [
     'https://github.com/tribgames/mixdog',
     'https://github.com/tribgames/mixdog',
     'https://github.com/tribgames/mixdog/issues',
-    'mailto:support@tribgames.com',
   ]);
+  await act(async () => buttons[3].click());
+  assert.ok(document.querySelector('[role="dialog"][data-settings-nested-dialog]'));
+  assert.equal(opened.length, 3);
 });
 
 test('extension settings routes collapse into Plugin and Skill', () => {

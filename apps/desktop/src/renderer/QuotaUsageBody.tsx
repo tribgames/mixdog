@@ -601,7 +601,6 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
           ariaLabel={t('OAuth')}
           options={subscriptionOptions}
           value={provider}
-          localizeLabels={false}
           disabled={busy}
           leading={<ProviderIcon provider={provider} />}
           onChange={(value) => {
@@ -616,7 +615,6 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
           ariaLabel={t('Account')}
           options={accountOptions}
           value={account}
-          localizeLabels={false}
           disabled={busy}
           onChange={(value) => {
             if (value !== account) change({ account: value });

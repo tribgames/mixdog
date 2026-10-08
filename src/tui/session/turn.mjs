@@ -14,7 +14,7 @@ import { errText, isCancelLikeError } from '../../runtime/shared/err-text.mjs';
 import { preserveGoalStateAfterTurn } from './goal-turn-state.mjs';
 export { preserveGoalStateAfterTurn } from './goal-turn-state.mjs';
 export { transcriptToolCallDisplayMode } from './turn-tool-cards.mjs';
-import { safeErrorDetails } from '../../runtime/shared/error-presentation.mjs';
+import { isRejected429, safeErrorDetails } from '../../runtime/shared/error-presentation.mjs';
 import { registerTaskWaitSteeringCheck } from '../../runtime/agent/orchestrator/session/task-wait-control.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { yieldToRenderer } from './render-timing.mjs';
@@ -47,7 +47,7 @@ import {
 } from './turn-tool-cards.mjs';
 
 function isUsageLimitError(error) {
-  if (!error) return false;
+  if (!error || isRejected429(error)) return false;
   const status = Number(error?.httpStatus || error?.status || error?.response?.status || 0);
   if (error?.providerQuota === true || error?.quotaExceeded === true || status === 429) return true;
   const text = String(error?.message || error);
@@ -142,9 +142,11 @@ function markTranscriptStart(turn, items) {
   turn.currentItemsStart = firstSubmittedIndex >= 0 ? firstSubmittedIndex : items.length;
 }
 
-function promptRestoreFor(displayText, options, submittedIds) {
+function promptRestoreFor(displayText, options, submittedIds, content = null) {
   return {
     text: String(displayText || '').trim(),
+    // Structured prompt parts, so Esc can hand file attachments back.
+    content: Array.isArray(content) ? content : null,
     pastedImages: options.pastedImages && typeof options.pastedImages === 'object' ? options.pastedImages : null,
     pastedTexts: options.pastedTexts && typeof options.pastedTexts === 'object' ? options.pastedTexts : null,
     onCommitted: typeof options.onCommitted === 'function' ? options.onCommitted : null,
@@ -173,6 +175,7 @@ function commitPromptRestore(flags, turn) {
   restore.requeueEntries = [];
   restore.pastedImages = null;
   restore.pastedTexts = null;
+  restore.content = null;
 }
 
 function steeringItemExtras(steeringMeta) {
@@ -532,7 +535,12 @@ export function createRunTurn(bag) {
   async function runTurn(userText, options = {}) {
     const turn = beginTurn(bag, options);
     const isCurrentTurn = () => !flags.disposed && flags.leadTurnEpoch === turn.epoch;
-    flags.activePromptRestore = promptRestoreFor(promptDisplayText(userText, options), options, turn.submittedIds);
+    flags.activePromptRestore = promptRestoreFor(
+      promptDisplayText(userText, options),
+      options,
+      turn.submittedIds,
+      userText
+    );
     set({
       busy: true,
       lastTurn: null,

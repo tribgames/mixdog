@@ -3,7 +3,12 @@
 // its independent threshold policy.
 import { estimateMessagesTokens, reconcileDedupStubs, sanitizeToolPairs } from '../context-utils.mjs';
 import { HANDOFF_TIMEOUT_MAX_MS, SUMMARY_OUTPUT_TOKENS, compactDebugLog } from './constants.mjs';
-import { redactToolCallSecretsInMessages, safeEstimateMessagesTokens, textByteLength } from './text-utils.mjs';
+import {
+  contentText,
+  redactToolCallSecretsInMessages,
+  safeEstimateMessagesTokens,
+  textByteLength,
+} from './text-utils.mjs';
 import {
   isSummaryMessage,
   latestActualUserInstructionIndex,
@@ -15,11 +20,7 @@ import { buildExecutionTail } from './execution-tail.mjs';
 import { latestSkillBodies } from '../../context/skill-state.mjs';
 import { effectiveBudget } from './budget.mjs';
 import { stripRuntimeUserContext, withRuntimeUserContext } from '../runtime-user-context.mjs';
-import {
-  allTextContent,
-  normalizeIngestRole,
-  shouldExcludeIngestMessage,
-} from '../../../../memory/lib/session-ingest.mjs';
+import { normalizeIngestRole, shouldExcludeIngestMessage } from '../../../../memory/lib/session-ingest.mjs';
 import { codexWireSendOpts } from '../manager/session-id.mjs';
 import { rebaseCompactedEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import {
@@ -88,7 +89,7 @@ function pureConversationForHandoff(messages) {
     if (!message || typeof message !== 'object') continue;
     const role = normalizeIngestRole(message.role);
     if (!role || shouldExcludeIngestMessage(message)) continue;
-    const content = allTextContent(message.content).trim();
+    const content = contentText(message.content).trim();
     if (!content) continue;
     out.push(...chunkConversationMessage(role, content, message));
   }

@@ -135,6 +135,22 @@
       "suite": "core",
       "routeProfile": "opus5-solo"
     },
+    "opus55-high": {
+      "suite": "core",
+      "routeProfile": "opus55-high"
+    },
+    "opus55-auto": {
+      "suite": "core",
+      "routeProfile": "opus55-auto"
+    },
+    "sol61-high": {
+      "suite": "core",
+      "routeProfile": "sol61-high"
+    },
+    "sol61-auto": {
+      "suite": "core",
+      "routeProfile": "sol61-auto"
+    },
     "fast8-2-opus5-solo": {
       "suite": "fast8-2",
       "routeProfile": "opus5-solo"

@@ -365,39 +365,39 @@ function workspaceTabContextMenu({
   const toRight = tabs.slice(menuIndex + 1);
   const fileTarget = menuFileTarget(menuTab.selection);
   const items: Array<{ label: string; disabled?: boolean; run: () => void }> = [
-    { label: 'Close', run: () => onCloseTab(menuTab) },
+    { label: t('Close'), run: () => onCloseTab(menuTab) },
     {
-      label: 'Close Others',
+      label: t('Close Others'),
       disabled: !others.length,
       run: () => {
         for (const row of others) onCloseTab(row);
       },
     },
     {
-      label: 'Close to the Right',
+      label: t('Close to the Right'),
       disabled: !toRight.length,
       run: () => {
         for (const row of toRight) onCloseTab(row);
       },
     },
-    ...(onPinTab && menuTab.preview ? [{ label: 'Keep Open', run: () => onPinTab(menuTab) }] : []),
+    ...(onPinTab && menuTab.preview ? [{ label: t('Keep Open'), run: () => onPinTab(menuTab) }] : []),
     ...(fileTarget
       ? [
           {
-            label: 'Copy Path',
+            label: t('Copy Path'),
             run: () => {
               const absolute = explorerAbsolutePath(fileTarget.project, fileTarget.rel);
               void navigator.clipboard?.writeText(absolute)?.then(undefined, () => {});
             },
           },
           {
-            label: 'Copy Relative Path',
+            label: t('Copy Relative Path'),
             run: () => {
               void navigator.clipboard?.writeText(fileTarget.rel)?.then(undefined, () => {});
             },
           },
           {
-            label: 'Reveal in Explorer',
+            label: t('Reveal in Explorer'),
             run: () => {
               void window.mixdogDesktop?.revealFile?.(fileTarget.project, fileTarget.rel, fileTarget.accessToken);
             },
@@ -424,7 +424,7 @@ function workspaceTabContextMenu({
             item.run();
           }}
         >
-          <span>{t(item.label)}</span>
+          <span>{item.label}</span>
         </button>
       ))}
     </div>,

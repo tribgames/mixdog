@@ -114,7 +114,7 @@
 /* The prompt card: a rounder, one-step-raised plate with no outline — the
    shell's raised edge plus a soft drop lift it off the sheet. */
 .composer {
-  min-height: 76px;
+  min-height: 96px;
   padding: 0;
   border: 0;
   border-radius: var(--mx-radius-sheet);
@@ -136,7 +136,7 @@
   box-shadow: none;
 }
 .composer textarea {
-  min-height: 40px;
+  min-height: 56px;
   /* A keystroke must not invalidate the virtual transcript paint, while
      sibling palettes remain free to paint outside the composer card. */
   contain: paint;
@@ -144,7 +144,7 @@
   field-sizing: content;
   max-height: 180px;
   overflow-y: auto;
-  padding: 8px var(--composer-text-inset);
+  padding: 12px var(--composer-text-inset) 8px;
   color: var(--mx-text);
   /* Same single-face rule as .message-body: typed Korean+Latin must not mix
      Geist/Pretendard ink densities inside one sentence. */
@@ -160,7 +160,7 @@
   color: var(--mx-text-faint);
 }
 .composer-footer {
-  height: 36px;
+  height: 40px;
   gap: 0;
   padding: 0 8px;
 }

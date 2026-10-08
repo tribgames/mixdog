@@ -54,10 +54,10 @@ import { useEditorModelBinding } from './use-editor-model-binding';
 import { useEditorMountSession } from './use-editor-mount-session';
 import { useEditorLspSession } from './use-editor-lsp-session';
 
-const QUICK_DIFF_TOOLTIPS: Record<keyof typeof QUICK_DIFF_COLOR_TOKENS, string> = {
-  add: 'Added line',
-  mod: 'Changed line',
-  del: 'Removed line',
+const QUICK_DIFF_TOOLTIPS: Record<keyof typeof QUICK_DIFF_COLOR_TOKENS, () => string> = {
+  add: () => t('Added line'),
+  mod: () => t('Changed line'),
+  del: () => t('Removed line'),
 };
 
 type EditorDecorations = { current: import('monaco-editor').editor.IEditorDecorationsCollection | null };
@@ -141,7 +141,7 @@ function startEditorQuickDiff({
           options: {
             isWholeLine: stripe.kind !== 'del',
             linesDecorationsClassName: `editor-dirty-diff editor-dirty-diff-${stripe.kind}`,
-            linesDecorationsTooltip: QUICK_DIFF_TOOLTIPS[stripe.kind],
+            linesDecorationsTooltip: QUICK_DIFF_TOOLTIPS[stripe.kind](),
             overviewRuler: {
               color: colorWithAlpha(color, '99'),
               position: monaco.editor.OverviewRulerLane.Left,

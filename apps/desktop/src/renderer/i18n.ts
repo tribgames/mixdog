@@ -161,16 +161,4 @@ export function tExisting(key: string, original: string, options?: Record<string
   return i18next.exists(key, options) ? String(i18next.t(key, options)) : original;
 }
 
-/** Active keyed catalog only: no second bundle or fragile numeric indices. */
-let activeCatalog: unknown;
-let activeKeys: string[] = [];
-export function activeUiTranslationKeys(): string[] {
-  const catalog = i18next.getResourceBundle(i18next.language, 'translation');
-  if (catalog !== activeCatalog) {
-    activeCatalog = catalog;
-    activeKeys = Object.keys(catalog || {});
-  }
-  return activeKeys;
-}
-
 export default i18next;

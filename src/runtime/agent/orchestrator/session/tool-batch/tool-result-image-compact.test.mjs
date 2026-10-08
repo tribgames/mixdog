@@ -50,6 +50,22 @@ test('a large tool-result screenshot is re-encoded once and survives per-send pr
   assert.equal(await prepareAnthropicImages(request), request);
 });
 
+test('a browser-bridge {source:{type:base64}} image is downsized deterministically', async () => {
+  const original = await noisyPngBase64(1800, 1200);
+  const make = () => ({
+    content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: original } }],
+  });
+  const a = await compactResultImages(make());
+  const b = await compactResultImages(make());
+  const image = a.content.find((part) => part.type === 'image');
+  assert.equal(image.source.type, 'base64');
+  assert.equal(image.source.media_type, 'image/jpeg');
+  assert.ok(image.source.data.length < original.length);
+  assert.deepEqual(a, b);
+  const meta = await sharp(Buffer.from(image.source.data, 'base64')).metadata();
+  assert.ok(meta.width <= IMAGE_MAX_WIDTH && meta.height <= IMAGE_MAX_HEIGHT);
+});
+
 test('a small tool-result image and non-image results are left untouched', async () => {
   const small = await sharp({ create: { width: 300, height: 300, channels: 3, background: '#336699' } })
     .png()
@@ -58,4 +74,40 @@ test('a small tool-result image and non-image results are left untouched', async
   assert.equal(await compactResultImages(result), result);
   const text = { content: [{ type: 'text', text: 'ok' }] };
   assert.equal(await compactResultImages(text), text);
+});
+
+test('undecodable, mislabelled-type, and unsupported-type images become fixed text; valid small images stay', async () => {
+  const small = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#336699' } }).png().toBuffer();
+  const good = small.toString('base64');
+  const garbage = Buffer.from('definitely not an image').toString('base64');
+  const make = () => ({
+    content: [
+      { type: 'image', data: garbage, mimeType: 'image/png' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: garbage } },
+      { type: 'image', data: good, mimeType: 'image/svg+xml' },
+      { type: 'image', data: good, mimeType: 'image/png' },
+    ],
+  });
+  const result = await compactResultImages(make());
+  assert.deepEqual(result.content[0], { type: 'text', text: '[image omitted: could not be decoded]' });
+  assert.deepEqual(result.content[1], { type: 'text', text: '[image omitted: could not be decoded]' });
+  assert.deepEqual(result.content[2], { type: 'text', text: '[image omitted: image/svg+xml is not a supported image type]' });
+  assert.equal(result.content[3].type, 'image');
+  assert.equal(result.content[3].data, good);
+  assert.deepEqual(await compactResultImages(make()), result);
+});
+
+test('a machine failure while resizing is a runtime error, not an image rejection; invalid bytes still are', async () => {
+  const { AnthropicImageRuntimeError } = await import('../../providers/lib/anthropic-image-input.mjs');
+  const { isEnvironmentError: isImageEnvironmentError } = await import('../../../../shared/environment-error.mjs');
+  // Zero decoded bytes: the resizer reports "unavailable" rather than invalid.
+  await assert.rejects(
+    prepareAnthropicImages([{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: '!!!!' } }] }]),
+    (error) => error instanceof AnthropicImageRuntimeError && error.code === 'ANTHROPIC_IMAGE_RUNTIME_UNAVAILABLE'
+  );
+  const wrapped = (cause) => Object.assign(new Error('invalid or corrupt image data', { cause }), { code: 'INVALID_IMAGE_DATA' });
+  assert.equal(isImageEnvironmentError(wrapped(new Error('Cannot allocate memory'))), true);
+  assert.equal(isImageEnvironmentError(wrapped(Object.assign(new Error('x'), { code: 'ERR_WORKER_OUT_OF_MEMORY' }))), true);
+  assert.equal(isImageEnvironmentError(wrapped(new Error('Input buffer contains unsupported image format'))), false);
+  assert.equal(isImageEnvironmentError(wrapped(null)), false);
 });

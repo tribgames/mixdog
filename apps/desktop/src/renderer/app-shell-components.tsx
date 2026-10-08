@@ -6,6 +6,7 @@ import { EditorPane, TerminalPane } from './lazy-widgets';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
 import { editorLoadKey, ensureEditorLoad } from './renderer-load-metrics';
 import { loadStudioViewModule } from './studio-loader';
+import { t } from './i18n';
 import { navigationKey } from './text-format';
 import { desktopFeatureEnabled } from './desktop-feature-config';
 
@@ -58,7 +59,7 @@ export function StableSessionTitle({
         aria-hidden={editing ? true : undefined}
         tabIndex={editing ? -1 : undefined}
         onClick={onOpen}
-        aria-label={`Rename ${title}`}
+        aria-label={t('Rename {{name}}', { name: title })}
       >
         {title}
       </button>
@@ -70,7 +71,7 @@ export function StableSessionTitle({
         disabled={!editing}
         tabIndex={editing ? undefined : -1}
         aria-hidden={editing ? undefined : true}
-        aria-label={`Rename ${title}`}
+        aria-label={t('Rename {{name}}', { name: title })}
         aria-invalid={invalid || undefined}
         onInput={(event) => onDraftChange(event.currentTarget.value)}
         onKeyDown={(event) => {
@@ -158,7 +159,7 @@ export function ReadyEditorPane(props: React.ComponentProps<typeof EditorPane>) 
     <PaneSurfaceGate
       ready={readyKey === metricKey || expiredKey === metricKey}
       transitionKey={metricKey}
-      label="Loading editor…"
+      label={t('Loading editor…')}
       onRevealedChange={setRevealed}
     >
       <Suspense fallback={<div className="editor-pane editor-pane-cold-shell" aria-hidden="true" />}>
@@ -195,7 +196,7 @@ export function ReadyStudioPane(props: React.ComponentProps<typeof StudioPane>) 
     return () => window.clearTimeout(timer);
   }, []);
   return (
-    <PaneSurfaceGate ready={ready || expired} transitionKey={metricKey} label="Preparing Studio…">
+    <PaneSurfaceGate ready={ready || expired} transitionKey={metricKey} label={t('Preparing Studio…')}>
       <Suspense fallback={null}>
         <StudioPane
           {...props}
@@ -230,7 +231,7 @@ export function ReadyTerminalPane(props: React.ComponentProps<typeof TerminalPan
     <PaneSurfaceGate
       ready={readyKey === metricKey || expiredKey === metricKey}
       transitionKey={metricKey}
-      label="Loading terminal…"
+      label={t('Loading terminal…')}
     >
       <Suspense fallback={null}>
         <TerminalPane

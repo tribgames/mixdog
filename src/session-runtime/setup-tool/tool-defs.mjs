@@ -115,7 +115,6 @@ export const SETUP_BUILTIN_TOGGLE_FEATURES = Object.freeze([
   'office',
   'tidy',
   'localProvider',
-  'autoEffort',
   'browser',
   'computer',
   'voice',

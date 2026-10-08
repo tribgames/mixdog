@@ -57,7 +57,7 @@ export function PaneDockToggles({
         const active =
           activeRoot !== null && (groups.find((group) => group[0] === root)?.includes(activeRoot) ?? false);
         const unavailable = !sessionBound && SESSION_BOUND_VIEWS.includes(root);
-        const label = t(descriptor.tooltip || descriptor.label);
+        const label = descriptor.tooltip || descriptor.label;
         return (
           <button
             key={root}

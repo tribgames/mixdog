@@ -12,7 +12,7 @@
  * rich block shapes.
  */
 import { extname } from 'node:path';
-import { extractOoxmlText } from './read-office-files.mjs';
+import { extractOoxmlText } from '../../../../attachments/office-extract.mjs';
 
 const OOXML_EXTENSIONS = new Set(['.docx', '.pptx', '.xlsx', '.xlsm']);
 

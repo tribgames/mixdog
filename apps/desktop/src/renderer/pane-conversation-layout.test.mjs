@@ -52,7 +52,7 @@ test('transcript content rows retain their shared width and turn spacing', async
         if (turnEnd) row.dataset.turnEnd = 'true';
         dom.window.document.querySelector('main').append(row);
         const style = dom.window.getComputedStyle(row);
-        let padding = tag === 'UserMessage' ? '24px' : '12px';
+        let padding = tag === 'UserMessage' ? '24px' : '8px';
         if (turnEnd) padding = '0px';
         assert.equal(style.width, '100%', `${tag}: shared reading width`);
         assert.equal(style.paddingBottom, padding, `${tag}: turnEnd=${turnEnd}`);

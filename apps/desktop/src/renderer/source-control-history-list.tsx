@@ -5,7 +5,7 @@ import type React from 'react';
 import type { DesktopGitLogEntry } from '../shared/contract';
 import { t } from './i18n';
 import { elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
-import { EMPTY_SUMMARY, RowSpacer, UNKNOWN_AUTHOR, type ScmRowWindow } from './source-control-support';
+import { emptySummary, RowSpacer, unknownAuthor, type ScmRowWindow } from './source-control-support';
 
 export type MenuPoint = { x: number; y: number };
 
@@ -33,10 +33,10 @@ function HistoryRow({ entry, remoteName, pushBlocked, pushReason, onOpen, onOpen
   // The row is the focusable element, so the truncated title, the hidden refs
   // and the unpushed glyph all live in ITS accessible name.
   const rowLabel = [
-    summary || EMPTY_SUMMARY,
-    `${author || UNKNOWN_AUTHOR}, ${entry.when}`,
-    refs.length ? `refs: ${refs.join(', ')}` : '',
-    entry.pushed ? '' : 'unpushed',
+    summary || emptySummary(),
+    `${author || unknownAuthor()}, ${entry.when}`,
+    refs.length ? t('refs: {{value0}}', { value0: refs.join(', ') }) : '',
+    entry.pushed ? '' : t('unpushed'),
   ]
     .filter(Boolean)
     .join(' · ');
@@ -56,7 +56,7 @@ function HistoryRow({ entry, remoteName, pushBlocked, pushReason, onOpen, onOpen
       role="button"
       tabIndex={0}
       className="dock-scm-commit-row"
-      title={summary || EMPTY_SUMMARY}
+      title={summary || emptySummary()}
       aria-label={rowLabel}
       onClick={onOpen}
       onContextMenu={(event) => {
@@ -67,9 +67,9 @@ function HistoryRow({ entry, remoteName, pushBlocked, pushReason, onOpen, onOpen
       onKeyDown={onKeyDown}
     >
       <span className="dock-scm-commit-info">
-        <b data-empty={summary ? undefined : true}>{summary || EMPTY_SUMMARY}</b>
+        <b data-empty={summary ? undefined : true}>{summary || emptySummary()}</b>
         <small>
-          {author || UNKNOWN_AUTHOR} · {entry.when}
+          {author || unknownAuthor()} · {entry.when}
         </small>
       </span>
       <span className="dock-scm-commit-indicators">
@@ -92,9 +92,9 @@ function HistoryRow({ entry, remoteName, pushBlocked, pushReason, onOpen, onOpen
           <button
             type="button"
             className="dock-scm-unpushed"
-            aria-label={`Push unpushed commits to ${remoteName}`}
+            aria-label={t('Push unpushed commits to {{value0}}', { value0: remoteName })}
             disabled={pushBlocked}
-            title={pushReason || `This commit has not been pushed — push to ${remoteName}`}
+            title={pushReason || t('This commit has not been pushed — push to {{value0}}', { value0: remoteName })}
             onClick={(event) => {
               event.stopPropagation();
               if (pushBlocked) return;

@@ -12,6 +12,10 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
     expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent'],
     actEnvironment: false,
   });
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  };
   globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
   globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
   dom.window.requestAnimationFrame = globalThis.requestAnimationFrame;

@@ -53,7 +53,7 @@ export function useSourceControlCommitDetail({
       history.setShaCopy({ hash, ok: true });
     } catch (reason) {
       history.setShaCopy({ hash, ok: false });
-      setError(`Could not copy the SHA: ${reasonText(reason)}`);
+      setError(t('Could not copy the SHA: {{value0}}', { value0: reasonText(reason) }));
     }
   };
   const toggleCommitFile = async (file: DesktopGitCommitFile) => {

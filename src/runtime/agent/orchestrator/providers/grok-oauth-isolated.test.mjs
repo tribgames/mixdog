@@ -224,6 +224,7 @@ async function isolated() {
     '../../../shared/llm/provider-model-identities.mjs',
     'lib/oauth-token-utils.mjs',
     'lib/oauth-pkce.mjs',
+    'lib/oauth-page.mjs',
   ]);
   const modules = new Map();
   function load(specifier) {
@@ -642,7 +643,8 @@ function registerTests() {
         } else {
           await server.handler({ url: `/callback?code=code&state=${url.searchParams.get('state')}` }, res);
           assert.equal(res.status, 200);
-          assert.equal(res.body, '<html><body><h2>Grok login successful! You can close this tab.</h2></body></html>');
+          assert.match(res.body, /Authentication successful/);
+          assert.match(res.body, /Signed in to Grok\./);
         }
         assert.equal((await started.waitForCallback).access_token, 'access');
         assert.equal(s.writes.length, 1);

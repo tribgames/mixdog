@@ -3,8 +3,6 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { installTestDom } from './test-support/test-dom.mjs';
 import React from 'react';
-import { createRoot } from 'react-dom/client';
-import { flushSync } from 'react-dom';
 import { renderToStaticMarkup } from 'react-dom/server';
 import i18n, {
   initUiLanguage,
@@ -14,7 +12,6 @@ import i18n, {
   tExisting,
   uiFormatLocale,
 } from './i18n';
-import { installAutoDomI18n } from './auto-dom-i18n';
 import { SourceControlViewControls } from './SourceControlViewControls';
 import { SourceControlCommitForm } from './SourceControlCommitForm';
 import { createAppSideViewDescriptors } from './app-side-view-descriptors';
@@ -42,7 +39,6 @@ const catalogs = new Map(
 );
 for (const [language, catalog] of catalogs) i18n.addResourceBundle(language, 'translation', catalog);
 const noop = () => {};
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 function browser() {
   return installTestDom(null, {
     html: '<!doctype html><body></body>',
@@ -113,7 +109,7 @@ test('all selectable languages render source control and slash labels without a 
   }
 });
 
-test('default workflow metadata is translated in every supported UI language', async () => {
+test('the bundled workflow description is translated in every supported UI language', async () => {
   const { name, description } = parseMarkdownFrontmatter(
     readFileSync(new URL('../../../../src/workflows/default/WORKFLOW.md', import.meta.url), 'utf8')
   );
@@ -122,11 +118,10 @@ test('default workflow metadata is translated in every supported UI language', a
   const previousLanguage = i18n.language;
   try {
     await i18n.changeLanguage('en');
-    assert.equal(t(name), name);
     assert.equal(t(description), description);
     for (const [language, catalog] of catalogs) {
       await i18n.changeLanguage(language);
-      for (const key of [name, description]) {
+      for (const key of [description]) {
         const translated = t(key);
         assert.equal(translated, catalog[key], `${language}: ${key}`);
         assert.ok(translated.trim(), `${language}: ${key} must not be empty`);
@@ -137,77 +132,6 @@ test('default workflow metadata is translated in every supported UI language', a
     assert.equal(t(description), '요청에 맞춰 작업을 진행합니다.');
   } finally {
     await i18n.changeLanguage(previousLanguage);
-  }
-});
-
-test('project names remain literal in lists and editor titles during automatic translation', async () => {
-  const close = browser();
-  let stop;
-  try {
-    await i18n.changeLanguage('ko');
-    document.body.innerHTML = `
-      <div class="projects-row-label"><b>Homepage</b><small>C:\\Project\\Homepage</small></div>
-      <section class="projects-edit-dialog"><h2>Homepage</h2><button>Save</button></section>
-      <label>Homepage</label>`;
-    stop = installAutoDomI18n();
-    assert.equal(document.querySelector('.projects-row-label b').textContent, 'Homepage');
-    assert.equal(document.querySelector('h2').textContent, 'Homepage');
-    assert.equal(document.querySelector('button').textContent, '저장');
-    assert.equal(document.querySelector('label').textContent, '홈페이지');
-    document.querySelector('.projects-row-label b').textContent = 'Settings';
-    document.querySelector('h2').textContent = 'Settings';
-    await tick();
-    assert.equal(document.querySelector('.projects-row-label b').textContent, 'Settings');
-    assert.equal(document.querySelector('h2').textContent, 'Settings');
-  } finally {
-    stop?.();
-    close();
-  }
-});
-
-test('legacy translation handles dynamic text and subsequent React changes without touching user content', async () => {
-  const close = browser();
-  let stop;
-  let root;
-  try {
-    await i18n.changeLanguage('ko');
-    document.body.innerHTML = '<div id=root></div>';
-    root = createRoot(document.querySelector('#root'));
-    stop = installAutoDomI18n();
-    const view = (line) =>
-      React.createElement(
-        React.Fragment,
-        null,
-        React.createElement('span', { id: 'line' }, `Ln ${line}`),
-        React.createElement('span', { id: 'partial' }, "Callers of ''"),
-        React.createElement('span', { id: 'template' }, 'Pull feature/Changes'),
-        React.createElement('code', { id: 'code' }, 'History'),
-        React.createElement('span', { 'data-i18n-skip': '', id: 'name', title: 'History' }, 'History'),
-        React.createElement('textarea', { placeholder: 'Description', defaultValue: 'Changes' }),
-        React.createElement('div', { className: 'transcript' }, 'History')
-      );
-    flushSync(() => root.render(view(42)));
-    await tick();
-    assert.equal(document.querySelector('#line').textContent, '42행');
-    assert.equal(document.querySelector('#template').textContent, 'feature/Changes Pull');
-    assert.equal(document.querySelector('#partial').textContent, "'' 호출자");
-    assert.equal(document.querySelector('#code').textContent, 'History');
-    assert.equal(document.querySelector('#name').textContent, 'History');
-    assert.equal(document.querySelector('#name').title, 'History');
-    assert.equal(document.querySelector('textarea').value, 'Changes');
-    assert.equal(document.querySelector('textarea').placeholder, '설명');
-    assert.equal(document.querySelector('.transcript').textContent, 'History');
-    flushSync(() => root.render(view(43)));
-    await tick();
-    assert.equal(document.querySelector('#line').textContent, '43행');
-  } finally {
-    stop?.();
-    if (root) flushSync(() => root.unmount());
-    // React's scheduler can finish cleanup after the synchronous unmount.
-    // Keep the isolated browser globals alive until that queue has drained.
-    await new Promise((resolve) => setImmediate(resolve));
-    await tick();
-    close();
   }
 });
 
@@ -355,27 +279,6 @@ test('counted UI text follows locale plural categories while preserving interpol
       }
     }
   } finally {
-    await i18n.changeLanguage('en');
-  }
-});
-
-test('legacy accessibility attributes translate but queued user text and tooltips stay untouched', async () => {
-  const close = browser();
-  let stop;
-  try {
-    await i18n.changeLanguage('ko');
-    document.body.innerHTML =
-      '<img alt="History" aria-description="History">' +
-      '<span class="queue-item-text" data-i18n-skip title="History">History</span>';
-    stop = installAutoDomI18n();
-    assert.equal(document.querySelector('img').alt, t('History'));
-    assert.equal(document.querySelector('img').getAttribute('aria-description'), t('History'));
-    const queued = document.querySelector('span');
-    assert.equal(queued.title, 'History');
-    assert.equal(queued.textContent, 'History');
-  } finally {
-    stop?.();
-    close();
     await i18n.changeLanguage('en');
   }
 });

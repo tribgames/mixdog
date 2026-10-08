@@ -11,6 +11,7 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
+import { OAUTH_PAGE_CONTENT_TYPE, oauthErrorHtml, oauthSuccessHtml } from './lib/oauth-page.mjs';
 import {
   AUTH_URL,
   CALLBACK_HOST,
@@ -34,9 +35,10 @@ import {
 } from './antigravity-oauth-tokens.mjs';
 
 const ONBOARD_INTERVAL_MS = 1_000;
-const CALLBACK_FAILURE_HTML =
-  '<html><body><h2>Antigravity sign-in was not completed.</h2>' +
-  '<p>Return to Mixdog for the error details and any account verification link.</p></body></html>';
+const CALLBACK_FAILURE_HTML = oauthErrorHtml(
+  'Antigravity sign-in was not completed.',
+  'Return to Mixdog for the error details and any account verification link.'
+);
 
 function extractProjectId(payload) {
   return typeof payload?.cloudaicompanionProject === 'string' ? payload.cloudaicompanionProject : '';
@@ -353,7 +355,7 @@ export async function beginOAuthLogin({
       const authorizationError = requestUrl.searchParams.get('error');
       if (authorizationError) {
         const detail = requestUrl.searchParams.get('error_description') || authorizationError;
-        res.writeHead(400, { 'Content-Type': 'text/html' });
+        res.writeHead(400, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
         res.end(CALLBACK_FAILURE_HTML);
         // A late denial must not cancel an already accepted code.
         if (!exchangePromise) {
@@ -369,12 +371,12 @@ export async function beginOAuthLogin({
       }
       try {
         await acceptCode(code);
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end('<html><body><h2>Antigravity connected.</h2><p>You can close this tab.</p></body></html>');
+        res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
+        res.end(oauthSuccessHtml('Antigravity'));
       } catch {
         // The shared exchange reports its error through waitForCallback.
         // Do not interpolate provider-controlled text into browser HTML.
-        res.writeHead(500, { 'Content-Type': 'text/html' });
+        res.writeHead(500, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
         res.end(CALLBACK_FAILURE_HTML);
       }
     });

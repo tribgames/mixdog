@@ -77,6 +77,8 @@ function directWebSocketTestSeams(value) {
 }
 
 export class OpenAIDirectProvider {
+  // Takes a PDF as a native document block (decided by this adapter's wire protocol).
+  nativePdf = true;
   // input_tokens INCLUDES cached tokens (OpenAI convention). See registry.mjs.
   static inputExcludesCache = false;
   name = 'openai';

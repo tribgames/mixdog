@@ -484,7 +484,7 @@ export function BuiltInFeaturesPanel({
   };
   const open = openId ? BUILT_IN_FEATURES.find((feature) => feature.id === openId) : undefined;
   return (
-    <Group title="Built-in">
+    <Group title={t('Built-in')}>
       {BUILT_IN_FEATURES.map((feature) => {
         const state = stateOf(feature);
         return (

@@ -5,9 +5,9 @@
  * OpenAI-compatible providers without a document contract receive page-ordered
  * text extracted here, so they never see an unsupported inline Base64 block.
  */
+import { MAX_PDF_PAGES } from './limits.mjs';
 import { resolvedPdfJs } from './pdfjs-runtime.mjs';
 
-const DEFAULT_MAX_PAGES = 100;
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
 
 function boundedUtf8(value, maxBytes) {
@@ -78,7 +78,7 @@ export async function inspectPdfBuffer(
   buffer,
   {
     extractText = false,
-    maxPages = DEFAULT_MAX_PAGES,
+    maxPages = MAX_PDF_PAGES,
     maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
     pageRange = null,
     password = '',

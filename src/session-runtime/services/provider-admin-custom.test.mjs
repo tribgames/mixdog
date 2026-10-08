@@ -125,7 +125,11 @@ test('registration needs no model IDs and connection tests discover a model auto
   assert.deepEqual(await admin.testCustomProvider(cfg, automatic), { ok: true });
   assert.equal(testedModel, 'discovered-model');
   behavior = { listModels: async () => [] };
-  await assert.rejects(admin.testCustomProvider(cfg, automatic), /No models were found/);
+  assert.deepEqual(await admin.testCustomProvider(cfg, automatic), {
+    ok: false,
+    phase: 'discovery',
+    error: { kind: 'empty', message: 'No models were found for this provider' },
+  });
 });
 
 test('test connection exercises the model and sanitizes failures', async () => {
@@ -176,12 +180,33 @@ test('discovery returns normalized models and errors truthfully', async () => {
   assert.deepEqual(created.at(-1).config.models, []);
   behavior = {
     listModels: async () => {
-      throw new Error(`404 not found for ${input.apiKey}`);
+      throw Object.assign(new Error(`404 not found for ${input.apiKey}`), { status: 404 });
     },
   };
-  await assert.rejects(admin.discoverCustomProviderModels(cfg, { ...input, models: [] }), (error) => {
-    assert.match(error.message, /404/);
-    assert.equal(error.message.includes(input.apiKey), false);
-    return true;
+  const result = await admin.discoverCustomProviderModels(cfg, { ...input, models: [] });
+  assert.deepEqual(result.models, []);
+  assert.equal(result.error.kind, 'unavailable');
+  assert.equal(result.error.status, 404);
+  assert.match(result.error.message, /404/);
+  assert.equal(result.error.message.includes(input.apiKey), false);
+  assert.deepEqual(await admin.testCustomProvider(cfg, { ...input, models: [] }), {
+    ok: false, phase: 'discovery', error: result.error,
   });
+});
+
+test('discovery failure categories use HTTP status, not error text', async () => {
+  const cfg = makeCfg();
+  for (const [status, kind] of [[404, 'unavailable'], [405, 'unavailable'], [401, 'authentication'], [403, 'authentication'], [429, 'request'], [500, 'request'], [undefined, 'request']]) {
+    behavior = {
+      listModels: async () => {
+        throw Object.assign(new Error('404 may appear in a URL or network error'), { status });
+      },
+      send: async () => { assert.fail('Discovery failure must not be reported as a successful model call'); },
+    };
+    const result = await admin.testCustomProvider(cfg, { ...input, models: [] });
+    assert.equal(result.ok, false);
+    assert.equal(result.phase, 'discovery');
+    assert.equal(result.error.kind, kind);
+    assert.equal(result.error.status, status);
+  }
 });

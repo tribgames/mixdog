@@ -63,7 +63,7 @@ function createMarkdownComponents(CopyControl: MarkdownCopyControl) {
     a: MarkdownLink,
     table({ children }: { children?: ReactNode }) {
       return (
-        <div className="markdown-table" role="region" aria-label="Scrollable table" data-scrollable tabIndex={0}>
+        <div className="markdown-table" role="region" aria-label={t('Scrollable table')} data-scrollable tabIndex={0}>
           <table>{children}</table>
         </div>
       );

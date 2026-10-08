@@ -232,7 +232,7 @@ export function WorkbenchSideIconBar({
       ref={barRef}
       className={`workbench-side-icon-bar is-${orientation}`}
       role="navigation"
-      aria-label={t(side === 'left' ? 'Sidebar' : 'Utility panel tabs')}
+      aria-label={side === 'left' ? t('Sidebar') : t('Utility panel tabs')}
       onDragOver={(event) => {
         if (!acceptsDrag(event)) return;
         event.preventDefault();
@@ -271,9 +271,9 @@ export function WorkbenchSideIconBar({
             type="button"
             className={active ? 'active selected' : ''}
             data-side-view={root}
-            aria-label={t(descriptor.label)}
+            aria-label={descriptor.label}
             aria-current={active ? 'page' : undefined}
-            data-tooltip={t(descriptor.tooltip || descriptor.label)}
+            data-tooltip={descriptor.tooltip || descriptor.label}
             data-drop-position={drop?.root === root ? drop.placement : undefined}
             draggable={movable}
             onPointerEnter={descriptor.onPrefetch}

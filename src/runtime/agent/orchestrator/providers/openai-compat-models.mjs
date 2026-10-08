@@ -18,7 +18,7 @@ export async function fetchCompatModelItems(provider) {
       },
       signal: timeout.signal,
     });
-    if (!res.ok) throw new Error(`${provider.name} models ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(`${provider.name} models ${res.status}`), { status: res.status });
     const data = await res.json();
     if (Array.isArray(data?.data)) return data.data;
     if (Array.isArray(data)) return data;

@@ -1,6 +1,7 @@
 import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { DesktopSessionSummary, SessionSnapshot } from '../shared/contract';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { t } from './i18n';
 import type { NavigationSelection, WorkspaceTab } from './navigation';
 import { navigationKey } from './text-format';
 
@@ -148,7 +149,7 @@ export function useAppSessionActions({
       );
       if (deletingCurrent && navigationEpoch.current === navigationToken) {
         navigationEpoch.current += 1;
-        activateSelection({ kind: 'new' }, 'New task');
+        activateSelection({ kind: 'new' }, t('New task'));
         setRequestedSessionId('');
       }
       try {

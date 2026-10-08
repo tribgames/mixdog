@@ -5,6 +5,7 @@
 import {
   resolveWorkerCompactPolicy,
   compactionTelemetryPressureTokens,
+  compactDisplayBeforeTokens,
   currentContextEstimateTokens,
   compactTargetBudget,
   shouldCompactForRequestMedia,
@@ -17,6 +18,8 @@ import {
 } from './loop/compact-policy.mjs';
 import { previewFreshContextCompaction, runFreshContextCompact } from './loop/fresh-context.mjs';
 import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
+import { textPdfAllowanceDiscount } from './context-utils.mjs';
+import { providerNativePdf } from '../providers/registry.mjs';
 import { messagesArrayChanged } from './loop/tool-helpers.mjs';
 import { normalizeUsage, addUsage } from './loop/usage.mjs';
 import { reasoningUsage } from '../../../shared/llm/reasoning-usage.mjs';
@@ -66,6 +69,13 @@ function transcriptPrefixHash(messages) {
   }
 }
 
+// The transcript estimate prices every PDF as a native document; a provider
+// that takes PDFs as text sends at most the extraction budget instead.
+function providerAwareTokens(tokens, messages, sessionRef) {
+  if (tokens == null || providerNativePdf(sessionRef?.provider)) return tokens;
+  return Math.max(0, tokens - textPdfAllowanceDiscount(messages));
+}
+
 // The compaction decision for this send. `pressureTokens` is the exact
 // canonical value the decision uses; reactive overflow recovery floors it at
 // the trigger so the gauge, telemetry, and forced compact still describe the
@@ -76,7 +86,7 @@ function transcriptPrefixHash(messages) {
 // proactive triggers still need a smaller predicted transcript.
 function preSendCompactDecision(state, compactPolicy) {
   const { messages, sessionRef } = state;
-  const messageTokensEst = estimateMessagesTokensSafe(messages);
+  const messageTokensEst = providerAwareTokens(estimateMessagesTokensSafe(messages), messages, sessionRef);
   const reactivePending = state.reactiveOverflowRetryPending === true;
   const pressureTokens = compactionTelemetryPressureTokens(messageTokensEst, compactPolicy, {
     reactivePending,
@@ -84,7 +94,7 @@ function preSendCompactDecision(state, compactPolicy) {
     sessionRef,
   });
   const cacheExpired = shouldCompactForExpiredAgentCache(sessionRef, state.opts);
-  const mediaPressure = shouldCompactForRequestMedia(messages);
+  const mediaPressure = shouldCompactForRequestMedia(messages, sessionRef?.provider);
   const requireReduction = !reactivePending && !mediaPressure;
   let shouldCompact =
     state.skipProactiveCompact !== true &&
@@ -209,7 +219,7 @@ function emitCompact(ctx, extra) {
     sessionId: state.sessionId,
     stage: 'pre_send',
     trigger: decision.compactTrigger,
-    beforeTokens: decision.pressureTokens,
+    beforeTokens: compactDisplayBeforeTokens(state.sessionRef, decision.pressureTokens),
     beforeMessages: before.count,
     afterMessages: state.messages.length,
     pressureTokens: decision.pressureTokens,
@@ -408,7 +418,7 @@ function reportCompactOutcome(ctx, run) {
   const { messages, sessionRef } = state;
   const changed = ctx.compactChanged || run.summaryChanged;
   const { freshContextResult } = run;
-  const afterMessageTokensEst = estimateMessagesTokensSafe(messages);
+  const afterMessageTokensEst = providerAwareTokens(estimateMessagesTokensSafe(messages), messages, sessionRef);
   // Same scale as the pre-compact gauge: compaction invalidated the provider
   // baseline, so the post-compact gauge number is the calibrated transcript
   // estimate plus the request reserve.

@@ -9,7 +9,7 @@ import { isBackgroundTaskResponseArgs, isBackgroundTaskTool, resolveBackgroundTa
 import { stripLeadingStatusMarkerFromText } from './terminal-status.mjs';
 import { readRowsForDisplay } from '../read-row-numbers.mjs';
 
-export function resolveDisplayedResult(base, { normalizedName, parsedArgs }) {
+export function resolveDisplayedResult(base, { normalizedName, parsedArgs }, translate) {
   const { name, args, rt, pending, isError } = base;
   const isBackgroundTool = isBackgroundTaskTool(normalizedName);
   const backgroundMeta = !pending && isBackgroundTool ? resolveBackgroundTaskMeta(parsedArgs, rt || '') : null;
@@ -26,6 +26,10 @@ export function resolveDisplayedResult(base, { normalizedName, parsedArgs }) {
   const isBackgroundResult = !pending && isBackgroundTool && Boolean(backgroundMeta);
   const isBackgroundResponse =
     isBackgroundResult && (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, parsedArgs));
+  const summarize = (localize) =>
+    !pending && (hasDisplayBody || normalizedName === 'git')
+      ? summarizeToolResult(name, args, displayedResultBodyText, isError, localize)
+      : null;
   return {
     backgroundMeta,
     displayedResultText,
@@ -33,10 +37,8 @@ export function resolveDisplayedResult(base, { normalizedName, parsedArgs }) {
     displayedResultBodyText,
     hasDisplayBody,
     totalLines: lines.length,
-    resultSummary:
-      !pending && (hasDisplayBody || normalizedName === 'git')
-        ? summarizeToolResult(name, args, displayedResultBodyText, isError)
-        : null,
+    resultSummary: summarize(),
+    ...(translate ? { resultSummaryDisplay: summarize(translate) } : {}),
     firstResultLine: hasDisplayResult ? String(lines[0] ?? '') : '',
     isBackgroundResult,
     isBackgroundResponse,

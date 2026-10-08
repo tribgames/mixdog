@@ -129,34 +129,34 @@ export const WorkbenchProblemsSeverityActions = memo(function WorkbenchProblemsS
       </button>
       {/* Low-frequency toggles live in one "…" menu. */}
       <RowOverflowMenu
-        label="More Problems actions"
+        label={t('More Problems actions')}
         items={[
           {
             id: 'active-file',
-            label: 'Active file only',
+            label: t('Active file only'),
             checked: filter.activeFileOnly,
             onSelect: () => update({ activeFileOnly: !filter.activeFileOnly }),
           },
           {
             id: 'sort-severity',
-            label: 'Sort by severity',
+            label: t('Sort by severity'),
             checked: filter.sort === 'severity',
             separatorBefore: true,
             onSelect: () => update({ sort: 'severity' }),
           },
           {
             id: 'sort-position',
-            label: 'Sort by position',
+            label: t('Sort by position'),
             checked: filter.sort === 'position',
             onSelect: () => update({ sort: 'position' }),
           },
           {
             id: 'view',
-            label: filter.view === 'tree' ? 'View as table' : 'View as tree',
+            label: filter.view === 'tree' ? t('View as table') : t('View as tree'),
             separatorBefore: true,
             onSelect: () => update({ view: filter.view === 'tree' ? 'table' : 'tree' }),
           },
-          { id: 'collapse-all', label: 'Collapse all', onSelect: onCollapseAll },
+          { id: 'collapse-all', label: t('Collapse all'), onSelect: onCollapseAll },
         ]}
       />
     </div>
@@ -346,7 +346,7 @@ export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
                       <small>{[problem.source, problem.code].filter(Boolean).join(' ')}</small>
                     </span>
                     <em>
-                      [Ln {problem.startLineNumber}, Col {problem.startColumn}]
+                      [{t('Ln {{line}}, Col {{column}}', { line: problem.startLineNumber, column: problem.startColumn })}]
                     </em>
                     {onQuickFix && (
                       <button

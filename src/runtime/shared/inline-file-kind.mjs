@@ -3,6 +3,7 @@
  *
  * - `pdf`    native document media on every provider that takes documents.
  * - `text`   readable as plain text, so it travels as text.
+ * - `office` .docx/.pptx/.xlsx/.xlsm: lowered to extracted text on every provider.
  * - `binary` archives, spreadsheets, unknown blobs: no API accepts them as an
  *            inline block, so they are described instead of sent.
  *
@@ -10,6 +11,8 @@
  * an unfamiliar extension arrives as application/octet-stream even when the
  * bytes are a real PDF — so the magic header decides before the label does.
  */
+
+import { isPdfBuffer } from '../attachments/limits.mjs';
 
 const TEXTUAL_MIME_TYPES = new Set([
   'application/json',
@@ -34,18 +37,41 @@ function hasPdfMagic(base64Data) {
   const head = String(base64Data || '').slice(0, 8);
   if (head.length < 8) return false;
   try {
-    return Buffer.from(head, 'base64').subarray(0, 5).toString('latin1') === '%PDF-';
+    return isPdfBuffer(Buffer.from(head, 'base64'));
   } catch {
     return false;
   }
 }
 
-export function inlineFileKind(mimeType, base64Data) {
+const OFFICE_MIME_TYPES = new Set([
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel.sheet.macroenabled.12',
+]);
+const OFFICE_EXTENSION_RE = /\.(?:docx|pptx|xlsx|xlsm)$/i;
+const GENERIC_CONTAINER_MIME_TYPES = new Set([
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/octet-stream',
+]);
+
+/**
+ * @param {string} mimeType
+ * @param {string} base64Data
+ * @param {string} [filename] only consulted to recognise an Office file that
+ *   arrived under a generic container MIME type.
+ */
+export function inlineFileKind(mimeType, base64Data, filename = '') {
   const mime = String(mimeType || '')
     .split(';')[0]
     .trim()
     .toLowerCase();
   if (mime === 'application/pdf' || hasPdfMagic(base64Data)) return 'pdf';
+  if (OFFICE_MIME_TYPES.has(mime)) return 'office';
+  if (GENERIC_CONTAINER_MIME_TYPES.has(mime) && OFFICE_EXTENSION_RE.test(String(filename || '').trim())) {
+    return 'office';
+  }
   if (mime.startsWith('text/')) return 'text';
   if (mime.startsWith('application/javascript') || mime.startsWith('application/ecmascript')) return 'text';
   if (mime.endsWith('+json') || mime.endsWith('+xml')) return 'text';

@@ -177,7 +177,7 @@ export function ScmContextMenu({
             undefined
           }
           disabled={item.disabled}
-          title={item.title ? t(item.title) : undefined}
+          title={item.title}
           onClick={() => {
             onClose();
             item.onSelect?.();
@@ -186,7 +186,7 @@ export function ScmContextMenu({
           <span className={`dock-scm-context-check${item.icon ? ' is-icon' : ''}`}>
             {item.icon ?? (item.checked && <Check size={12} aria-hidden="true" />)}
           </span>
-          <span className="dock-scm-context-label">{t(item.label)}</span>
+          <span className="dock-scm-context-label">{item.label}</span>
         </button>;
         if (!item.onTogglePin) return action;
         return (
@@ -198,8 +198,8 @@ export function ScmContextMenu({
               data-pin-id={item.id}
               role="menuitemcheckbox"
               aria-checked={item.pinned}
-              aria-label={`${t(item.pinned ? 'Unpin' : 'Pin')}: ${t(item.label)}`}
-              title={t(item.pinned ? 'Unpin' : 'Pin')}
+              aria-label={`${item.pinned ? t('Unpin') : t('Pin')}: ${item.label}`}
+              title={item.pinned ? t('Unpin') : t('Pin')}
               onClick={item.onTogglePin}
             >
               <RailPinIcon pinned={Boolean(item.pinned)} size={14} />

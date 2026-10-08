@@ -25,6 +25,8 @@ import { pathToFileURL } from 'node:url';
 
 import { WebSocketServer } from 'ws';
 
+import { handleFeedbackRequest } from './lib/feedback-http.mjs';
+import { createFeedbackService } from './lib/feedback.mjs';
 import { createRendererReadiness } from './lib/renderer-readiness.mjs';
 import { RateLimiter } from './lib/rate-limit.mjs';
 import { DeviceStore, readDeviceCredentials } from './lib/device-store.mjs';
@@ -198,7 +200,19 @@ export async function startRelay({
   // An upper CLAMP on what a desktop leg is taken to accept — never a value
   // that can raise a leg above what it declared about itself.
   uplinkCapacityBytes = MAX_UPLINK_CAPACITY_BYTES,
+  // Feedback mail. The environment is explicit (never process.env by default)
+  // so only the CLI entry below turns real SMTP on. `feedbackSender` and
+  // `feedbackOptions` (now/setTimer/clearTimer/limits) are test injection.
+  feedbackEnv = {},
+  feedbackSender = null,
+  feedbackOptions = {},
 } = {}) {
+  const feedback = await createFeedbackService({
+    dataDir: resolve(dataDir),
+    env: feedbackEnv,
+    sender: feedbackSender,
+    ...feedbackOptions,
+  });
   const relay = createRelayState({
     dataDir,
     rendererDir,
@@ -211,6 +225,7 @@ export async function startRelay({
     ingressWindowBytes,
     maxPayloadBytes,
   });
+  relay.feedback = feedback;
   const server = createListener(guardedHttpHandler(relay), tlsCert, tlsKey);
   relay.wss = new WebSocketServer({
     noServer: true,
@@ -231,6 +246,7 @@ export async function startRelay({
     store: relay.store,
     liveDesktops: relay.liveDesktops,
     liveHooks: relay.liveHooks,
+    feedback,
     port,
   });
 }
@@ -286,6 +302,10 @@ function routeRequest(relay, request, response) {
         'Cache-Control': 'no-store',
       })
       .end(request.method === 'HEAD' ? undefined : JSON.stringify(ready.body));
+    return;
+  }
+  if (url.split('?')[0] === '/feedback') {
+    handleFeedbackRequest(relay.feedback, request, response).catch(failRequest(request, response, 'feedback'));
     return;
   }
   // Public webhook ingress bypasses the pairing-token gate: callers are
@@ -590,8 +610,10 @@ function sweepLegs(wss) {
   }
 }
 
-async function closeRelay({ heartbeat, wss, server, store, liveDesktops, liveHooks }) {
+async function closeRelay({ heartbeat, wss, server, store, liveDesktops, liveHooks, feedback }) {
   clearInterval(heartbeat);
+  // Stop timers and let any in-flight send settle before the process exits.
+  await feedback.close();
   for (const entry of liveDesktops.values()) {
     if (entry.offlineTimer) clearTimeout(entry.offlineTimer);
     try {
@@ -623,14 +645,19 @@ async function closeRelay({ heartbeat, wss, server, store, liveDesktops, liveHoo
   await new Promise((resolveClose) => server.close(() => resolveClose()));
 }
 
-async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, port }) {
-  await new Promise((resolveListen, rejectListen) => {
-    server.once('error', rejectListen);
-    server.listen(port, '0.0.0.0', () => {
-      server.removeListener('error', rejectListen);
-      resolveListen();
+async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, feedback, port }) {
+  try {
+    await new Promise((resolveListen, rejectListen) => {
+      server.once('error', rejectListen);
+      server.listen(port, '0.0.0.0', () => {
+        server.removeListener('error', rejectListen);
+        resolveListen();
+      });
     });
-  });
+  } catch (error) {
+    await feedback.close();
+    throw error;
+  }
   const heartbeat = setInterval(() => sweepLegs(wss), 10_000);
   heartbeat.unref?.();
   const address = server.address();
@@ -639,7 +666,7 @@ async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, p
   const close = async () => {
     if (closed) return;
     closed = true;
-    await closeRelay({ heartbeat, wss, server, store, liveDesktops, liveHooks });
+    await closeRelay({ heartbeat, wss, server, store, liveDesktops, liveHooks, feedback });
   };
   return { port: boundPort, store, close };
 }
@@ -651,7 +678,7 @@ if (invokedDirectly) {
   const rendererDir = process.env.RENDERER_DIR || '';
   const tlsCert = process.env.TLS_CERT || '';
   const tlsKey = process.env.TLS_KEY || '';
-  startRelay({ port, dataDir, rendererDir, tlsCert, tlsKey })
+  startRelay({ port, dataDir, rendererDir, tlsCert, tlsKey, feedbackEnv: process.env })
     .then((relay) => {
       const scheme = tlsCert && tlsKey ? 'https' : 'http';
       console.log(`[relay] ${scheme} listening on :${relay.port} (renderer: ${rendererDir || 'none'})`);

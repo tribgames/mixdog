@@ -130,9 +130,8 @@ export function UsageTrend({
     { key: 'turns', label: t('Requests') },
   ];
   return (
-    <section className="stats-trend">
+    <section className="stats-trend" aria-label={t('Trend')}>
       <header>
-        <h4>{t('Trend')}</h4>
         <div className="stats-ranges stats-grains" role="group" aria-label={t('Metric')}>
           {metrics.map((option) => (
             <button

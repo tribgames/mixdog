@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -41,7 +42,8 @@ storeWorkflowOptions([
 const { ProjectContextSelector } = await import('./composer-support.tsx');
 const { OpenSelect } = await import('./OpenSelect.tsx');
 const { TooltipLayer } = await import('./TooltipLayer.tsx');
-const { initUiLanguage, setUiLanguagePreference } = await import('./i18n.ts');
+const { initUiLanguage, setUiLanguagePreference, SUPPORTED_UI_LANGUAGES } = await import('./i18n.ts');
+const { automationProjectOptions, automationWorkflowOptions } = await import('./automation-editor-support.ts');
 
 const common = { disabled: false, invokeResult: (work) => work(), applySnapshot() {} };
 const rect = (top = 600) => ({
@@ -205,6 +207,85 @@ test('a context menu near the top falls back below and Escape restores focus', a
   assert.equal(document.querySelector('[role="listbox"]'), null);
   assert.equal(document.activeElement, trigger);
 });
+
+for (const { value: language } of SUPPORTED_UI_LANGUAGES.filter(({ value }) => value !== 'en')) {
+  for (const kind of ['project', 'workflow', 'automation']) {
+    test(`${language}: ${kind} picker preserves catalog-colliding custom names in its trigger and menu`, async (ctx) => {
+      setUiLanguagePreference(language);
+      await initUiLanguage();
+      const catalog = JSON.parse(readFileSync(new URL(`./locales/${language}.json`, import.meta.url), 'utf8'));
+      const names = [
+        'Agent',
+        'Settings',
+        'History',
+        'Default',
+        'main',
+        'Rename Agent',
+        '3 tasks',
+        'Agent <&> {{name}}',
+      ];
+      const projects = names.map((alias, index) => ({ path: `/project/${index}`, name: `folder-${index}`, alias }));
+      const workflows = names.map((name, index) => ({ id: `workflow-${index}`, name }));
+      const changes = [];
+      storeWorkflowOptions(workflows.map((row) => ({ value: row.id, label: row.name })));
+      const elements = {
+        project: () =>
+          React.createElement(ProjectContextSelector, {
+            projects,
+            activePath: projects[0].path,
+            activeLabel: names[0],
+            disabled: false,
+            onClear() {},
+            onSelect: (value) => changes.push(value),
+          }),
+        workflow: () =>
+          React.createElement(WorkflowSelect, {
+            ...common,
+            workflow: workflows[0],
+            onDraftChange: (value) => changes.push(value),
+          }),
+        automation: () =>
+          React.createElement(OpenSelect, {
+            ariaLabel: catalog.Project,
+            value: projects[0].path,
+            tooltip: names[0],
+            options: automationProjectOptions(projects, projects[0].path).map((option) => ({
+              ...option,
+              description: 'History',
+            })),
+            onChange: (value) => changes.push(value),
+          }),
+      };
+      const trigger = await mount(elements[kind](), ctx);
+      assert.equal(trigger.querySelector('.mx-select-value').textContent, names[0]);
+      assert.equal(
+        trigger.getAttribute('data-tooltip'),
+        kind === 'automation' ? names[0] : catalog[kind === 'project' ? 'Select project' : 'Select workflow']
+      );
+      await act(async () => trigger.click());
+      const menu = document.querySelector('[role="listbox"]');
+      const options = [...menu.querySelectorAll('[role="option"]')];
+      const expected = kind === 'workflow' ? names : [catalog['No project'], ...names];
+      assert.deepEqual(
+        options.map((option) => option.textContent),
+        expected
+      );
+      if (kind === 'automation') {
+        assert.ok(options.every((option) => option.getAttribute('aria-description') === 'History'));
+        assert.deepEqual(
+          automationWorkflowOptions(workflows).map((option) => option.label),
+          names
+        );
+      }
+      await act(async () => options[kind === 'workflow' ? 1 : 2].click());
+      assert.deepEqual(changes, [kind === 'workflow' ? workflows[1] : projects[1].path]);
+      ctx.after(async () => {
+        setUiLanguagePreference('en');
+        await initUiLanguage();
+      });
+    });
+  }
+}
 
 test('ordinary selects keep downward placement and do not acquire composer-only content', async (t) => {
   const trigger = await mount(

@@ -52,12 +52,6 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
     description: 'Download AI models and run them directly in Mixdog.',
   },
   {
-    id: 'autoEffort',
-    title: 'Auto reasoning',
-    description:
-      'Adjust the reasoning effort of each turn to how hard the request is, on models that can change it without breaking the prompt cache.',
-  },
-  {
     id: 'voice',
     title: 'Voice transcription',
     description: 'Turn what you say into text and enter it right away.',

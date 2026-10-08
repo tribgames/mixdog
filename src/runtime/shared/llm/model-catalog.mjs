@@ -64,7 +64,7 @@ function _modelsDevProviderId(provider) {
 // OpenAI and xAI SKUs at once. No catalog lists them under the relay's own
 // name, so a provider-keyed lookup finds nothing and the route silently prices
 // at zero — indistinguishable from a genuinely free local model.
-const _RELAY_PROVIDERS = new Set(['cursor-oauth', 'cursor-api', 'antigravity-oauth']);
+const _RELAY_PROVIDERS = new Set(['cursor-oauth', 'cursor-api', 'antigravity-oauth', 'opencode-go']);
 
 // Which vendor actually served a relayed model, read off the model id. This is
 // a LAST resort: it runs only after the provider-keyed lookup has already
@@ -531,7 +531,10 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
   }
   const relayVendor = _relayPricingProvider(provider, id);
   if (relayVendor && !PRICING_RATE_KEYS.some((key) => meta?.[key] != null)) {
-    const relayed = lookupModelMetadata(id, relayVendor, catalog, modelsDevCatalog);
+    // Anthropic SKUs spell versions with hyphens (claude-opus-5-5); relays
+    // may list the same SKU with dots (claude-opus-5.5).
+    const vendorId = relayVendor === 'anthropic' ? id.replace(/(\d)\.(\d)/g, '$1-$2') : id;
+    const relayed = lookupModelMetadata(vendorId, relayVendor, catalog, modelsDevCatalog);
     if (relayed) meta = { ...relayed, contextWindow: null, outputTokens: null };
   }
   const variant = PRICED_VARIANTS[String(provider || '').toLowerCase()]?.[id];
@@ -753,6 +756,7 @@ export function pricingCatalogRevisionSync() {
 }
 
 let lastAuditedRevision = null;
+let lastAudit = null;
 function auditCachedModelPricing() {
   const revision = pricingCatalogRevisionSync();
   const rows = Object.entries(cachedProviderModelListsSync()).flatMap(([provider, models]) =>
@@ -767,7 +771,17 @@ function auditCachedModelPricing() {
     );
   }
   lastAuditedRevision = revision;
-  return { revision, rows, unpriced };
+  lastAudit = { revision, rows, unpriced };
+  return lastAudit;
+}
+
+/** Catalog routes without a complete list price, from the latest audit (run on demand when none is cached). */
+export function unpricedModelsSync() {
+  return (lastAudit ?? auditCachedModelPricing()).unpriced.map(({ provider, model, missingRates }) => ({
+    provider,
+    model,
+    missingRates: [...missingRates],
+  }));
 }
 
 /**

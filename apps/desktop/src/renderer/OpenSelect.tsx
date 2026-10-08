@@ -27,8 +27,6 @@ interface OpenSelectProps {
   tooltip?: string;
   leading?: React.ReactNode;
   onChange?: (value: string) => void;
-  /** Catalog labels (effort levels) stay in English; generic keys like Medium collide. */
-  localizeLabels?: boolean;
   /** Menu floor in px for icon-only triggers whose options are wider than
    *  the trigger (the browser viewport picker: a 44px button listing
    *  "iPhone 14 Pro Max · 430×932"). Default follows the trigger width. */
@@ -52,7 +50,6 @@ export function OpenSelect({
   leading,
   menuMinWidth = 160,
   onChange,
-  localizeLabels = true,
 }: OpenSelectProps) {
   const controlled = value !== undefined;
   const [internalValue, setInternalValue] = useState(defaultValue);
@@ -90,9 +87,7 @@ export function OpenSelect({
     classNames.includes('project-context-select') ||
     classNames.includes('workflow-context-select');
   const activeOption = options[active]?.disabled ? undefined : options[active];
-  const triggerLabel = displayValue || selected?.label || options[0]?.label || 'Select…';
-  const shownLabel = (label: string) => (localizeLabels ? t(label) : label);
-  const skipI18n = localizeLabels ? undefined : '';
+  const triggerLabel = displayValue || selected?.label || options[0]?.label || t('Select…');
 
   const readPosition = useCallback((): MenuPosition | null => {
     const rect = trigger.current?.getBoundingClientRect();
@@ -377,8 +372,8 @@ export function OpenSelect({
         className="mx-select-trigger"
         role="combobox"
         aria-label={ariaLabel}
-        aria-description={tooltip ? t(tooltip) : undefined}
-        data-tooltip={tooltip ? t(tooltip) : undefined}
+        aria-description={tooltip || undefined}
+        data-tooltip={tooltip || undefined}
         data-tooltip-side={contextPillStyle ? 'top' : undefined}
         aria-haspopup="listbox"
         aria-expanded={menuOpen}
@@ -401,9 +396,7 @@ export function OpenSelect({
         onKeyDown={onKeyDown}
       >
         {leading && <span className="mx-select-leading">{leading}</span>}
-        <span className="mx-select-value" data-i18n-skip={skipI18n}>
-          {shownLabel(triggerLabel)}
-        </span>
+        <span className="mx-select-value">{triggerLabel}</span>
         {chevron}
       </button>
       {menuOpen &&
@@ -414,7 +407,6 @@ export function OpenSelect({
             className="mx-menu"
             role="listbox"
             data-trigger-style={triggerStyle}
-            data-i18n-skip={skipI18n}
             aria-label={ariaLabel}
             style={position}
             onKeyDown={onKeyDown}
@@ -427,8 +419,8 @@ export function OpenSelect({
                 id={`${listboxId}-option-${index}`}
                 disabled={option.disabled}
                 aria-selected={option.value === current}
-                aria-description={option.description ? t(option.description) : undefined}
-                data-tooltip={option.description ? t(option.description) : undefined}
+                aria-description={option.description || undefined}
+                data-tooltip={option.description || undefined}
                 data-tooltip-side={option.description ? 'right' : undefined}
                 data-active={index === active}
                 tabIndex={index === active ? 0 : -1}
@@ -436,7 +428,7 @@ export function OpenSelect({
                 onMouseEnter={() => setActive(index)}
                 onClick={() => select(option.value)}
               >
-                <span>{shownLabel(option.label)}</span>
+                <span>{option.label}</span>
                 {option.value === current && <MxIcon name="check-small" size={16} />}
               </button>
             ))}

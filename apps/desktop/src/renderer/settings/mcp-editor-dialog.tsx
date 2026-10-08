@@ -52,9 +52,9 @@ function mcpPairRecord(values: McpPair[], field: string): Record<string, string>
     const key = row.key.trim();
     const value = row.value;
     if (!key && !value.trim()) continue;
-    if (!key) throw new Error(`${field} contains a value without a key.`);
+    if (!key) throw new Error(t('{{field}} contains a value without a key.', { field }));
     if (Object.hasOwn(result, key)) {
-      throw new Error(`${field} contains duplicate key "${key}".`);
+      throw new Error(t('{{field}} contains duplicate key "{{key}}".', { field, key }));
     }
     result[key] = value;
   }
@@ -79,8 +79,8 @@ function McpStringListEditor({
   const visible = values.length ? values : [''];
   return (
     <fieldset className="extensions-mcp-list">
-      <legend>{t(label)}</legend>
-      <small>{t(description)}</small>
+      <legend>{label}</legend>
+      <small>{description}</small>
       <div className="extensions-mcp-list-rows">
         {visible.map((value, index) => (
           <div className="extensions-mcp-list-row" key={`${label}-${index}`}>
@@ -138,8 +138,8 @@ function McpPairListEditor({
   const visible = values.length ? values : [{ key: '', value: '' }];
   return (
     <fieldset className="extensions-mcp-list">
-      <legend>{t(label)}</legend>
-      <small>{t(description)}</small>
+      <legend>{label}</legend>
+      <small>{description}</small>
       <div className="extensions-mcp-list-rows">
         {visible.map((row, index) => (
           <div className="extensions-mcp-list-row extensions-mcp-pair-row" key={`${label}-${index}`}>
@@ -255,14 +255,14 @@ export function McpEditorDialog({
           if (transport === 'stdio') {
             payload.command = String(data.get('mcp-command') || '').trim();
             payload.args = args.map((value) => value.trim()).filter(Boolean);
-            payload.env = mcpPairRecord(env, 'Environment');
+            payload.env = mcpPairRecord(env, t('Environment'));
             payload.env_vars = envVars.map((value) => value.trim()).filter(Boolean);
             payload.cwd = String(data.get('mcp-cwd') || '').trim();
           } else {
             payload.url = String(data.get('mcp-url') || '').trim();
-            payload.headers = mcpPairRecord(headers, 'Headers');
+            payload.headers = mcpPairRecord(headers, t('Headers'));
             payload.bearer_token_env_var = String(data.get('mcp-bearer-token-env') || '').trim();
-            payload.env_http_headers = mcpPairRecord(envHeaders, 'Environment-backed headers');
+            payload.env_http_headers = mcpPairRecord(envHeaders, t('Environment-backed headers'));
           }
           setFormError('');
           onSave(payload);
@@ -355,16 +355,16 @@ export function McpEditorDialog({
             />
           </ExtensionField>
           <McpStringListEditor
-            label="Arguments"
-            description="One command argument per row."
+            label={t('Arguments')}
+            description={t('One command argument per row.')}
             values={args}
             placeholder="--argument"
             busy={busy}
             onChange={setArgs}
           />
           <McpPairListEditor
-            label="Environment"
-            description="Environment variables passed to the server."
+            label={t('Environment')}
+            description={t('Environment variables passed to the server.')}
             values={env}
             keyPlaceholder={t('Key')}
             valuePlaceholder={t('Value')}
@@ -372,8 +372,8 @@ export function McpEditorDialog({
             onChange={setEnv}
           />
           <McpStringListEditor
-            label="Environment passthrough"
-            description="Environment variable names inherited by the server."
+            label={t('Environment passthrough')}
+            description={t('Environment variable names inherited by the server.')}
             values={envVars}
             placeholder="VARIABLE_NAME"
             busy={busy}
@@ -415,8 +415,8 @@ export function McpEditorDialog({
               />
             </ExtensionField>
             <McpPairListEditor
-              label="Headers"
-              description="HTTP request headers."
+              label={t('Headers')}
+              description={t('HTTP request headers.')}
               values={headers}
               keyPlaceholder={t('Key')}
               valuePlaceholder={t('Value')}
@@ -424,10 +424,10 @@ export function McpEditorDialog({
               onChange={setHeaders}
             />
             <McpPairListEditor
-              label="Environment-backed headers"
-              description="Map each HTTP header to an environment variable name."
+              label={t('Environment-backed headers')}
+              description={t('Map each HTTP header to an environment variable name.')}
               values={envHeaders}
-              keyPlaceholder="Header"
+              keyPlaceholder={t('Header')}
               valuePlaceholder="VARIABLE_NAME"
               busy={busy}
               onChange={setEnvHeaders}

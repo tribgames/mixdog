@@ -1,6 +1,7 @@
 import type React from 'react';
 import type { DesktopModelSelection } from '../../shared/contract';
 import { sessionSummaryTitle } from '../../shared/session-title.mjs';
+import { t } from '../i18n';
 import type { NavigationSelection } from '../navigation';
 import { AppConversationPaneSurface } from '../app-conversation-pane-surfaces';
 import { StableSessionTitle } from '../app-shell-components';
@@ -79,14 +80,14 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
       : prefs.projectPath || '';
     const paneProjectLabel = options.projectChromeLabel(paneProjectPath);
     const pinnedPaneTitle = presentedSelection.kind === 'session' ? String(presentedSelection.title || '').trim() : '';
-    let paneTitle = 'New task';
+    let paneTitle = t('New task');
     if (paneSessionId) {
       if (pinnedPaneTitle) {
         paneTitle = pinnedPaneTitle;
       } else if (sessionRow) {
-        paneTitle = sessionSummaryTitle(sessionRow);
+        paneTitle = sessionSummaryTitle(sessionRow, t('Untitled session'));
       } else {
-        paneTitle = 'Untitled session';
+        paneTitle = t('Untitled session');
       }
     }
     const focusedDraft = focused && Boolean(draftKey);

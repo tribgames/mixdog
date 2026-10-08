@@ -63,6 +63,8 @@ async function storedAuth(options) {
 }
 
 export class AntigravityOAuthProvider {
+  // Takes a PDF as a native document block (decided by this adapter's wire protocol).
+  nativePdf = true;
   // usageMetadata.promptTokenCount is the total, cached tokens included.
   static inputExcludesCache = false;
   name = 'antigravity-oauth';

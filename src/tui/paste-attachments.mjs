@@ -103,7 +103,8 @@ export function buildPromptContentWithImages(text, pastedImages = {}) {
     .flatMap((img) => {
       const parts = [];
       if (img.metadataText) parts.push({ type: 'text', text: img.metadataText });
-      parts.push({ type: 'image', data: img.content, mimeType: img.mediaType || 'image/png' });
+      // pasteId lets intake pair this part with its pastedImages entry by identity.
+      parts.push({ type: 'image', data: img.content, mimeType: img.mediaType || 'image/png', pasteId: img.id });
       return parts;
     });
   if (imageParts.length === 0) return value;

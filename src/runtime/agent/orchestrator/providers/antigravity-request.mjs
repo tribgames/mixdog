@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { createProviderReplay, providerReplayItems } from './lib/provider-replay.mjs';
-import { toGeminiContents, toGeminiTools, toGeminiToolConfig } from './gemini-schema.mjs';
+import { toGeminiContents, toGeminiRequestTools, toGeminiToolConfig } from './gemini-schema.mjs';
 import { geminiThinkingConfig } from './gemini-thinking.mjs';
 
 const THOUGHT_SIGNATURE_SENTINEL = 'skip_thought_signature_validator';
@@ -105,8 +105,9 @@ export function buildAntigravityRequest(messages, model, tools, opts = {}, proje
   };
   const request = { contents };
   if (systemText) request.systemInstruction = { role: 'user', parts: [{ text: systemText }] };
+  const requestTools = toGeminiRequestTools(tools, opts.nativeTools);
+  if (requestTools.length) request.tools = requestTools;
   if (tools?.length) {
-    request.tools = [toGeminiTools(tools)];
     request.toolConfig = toGeminiToolConfig(opts.toolChoice) || {
       functionCallingConfig: { mode: antigravityFunctionCallingMode() },
     };

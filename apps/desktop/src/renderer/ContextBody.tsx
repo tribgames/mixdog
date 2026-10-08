@@ -243,7 +243,7 @@ export function ContextBody({
                     key={category.key}
                     data-context-key={category.key}
                     style={{ width: `${(category.tokens / measuredCategoryTotal) * 100}%` }}
-                    title={`${t(category.label)} · ${t('Estimated share: {{percent}}%', {
+                    title={`${category.label} · ${t('Estimated share: {{percent}}%', {
                       percent: Math.round((category.tokens / measuredCategoryTotal) * 1000) / 10,
                     })}`}
                   />

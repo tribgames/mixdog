@@ -18,6 +18,8 @@ export interface WorkbenchCommand {
   id: string;
   category: string;
   label: string;
+  /** App-authored English `category: label`, kept so English queries match under any UI language. */
+  searchText?: string;
   shortcut?: string;
   enabled?: boolean;
   run(): void | Promise<void>;
@@ -283,13 +285,13 @@ export function WorkbenchQuickAccess({
     if (!commandMode) {
       return [...new Set(files)].map((path) => ({ key: `file:${path}`, kind: 'file', path }));
     }
-    // Rows render translated, so a query matches what the user reads; the
-    // English command names keep matching too.
+    // Rows render translated, so a query matches what the user reads; the app-authored English
+    // command text (searchText) keeps matching too.
     return commands
       .map((command) => {
         const scores = [
-          fuzzyScore(`${t(command.category)}: ${t(command.label)}`, commandQuery),
           fuzzyScore(`${command.category}: ${command.label}`, commandQuery),
+          command.searchText ? fuzzyScore(command.searchText, commandQuery) : null,
         ].filter((score): score is number => score !== null);
         return { command, score: scores.length ? Math.min(...scores) : null };
       })
@@ -447,7 +449,7 @@ export function WorkbenchQuickAccess({
                     <b>{row.item.name}</b>
                     {row.item.detail && <small>{row.item.detail}</small>}
                   </span>
-                  <kbd>{`Ln ${row.item.line}`}</kbd>
+                  <kbd>{t('Ln {{value0}}', { value0: row.item.line })}</kbd>
                 </button>
               );
             }

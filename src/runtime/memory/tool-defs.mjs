@@ -81,7 +81,8 @@ export const TOOL_DEFS = [
       properties: {
         query: {
           anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, maxItems: 5 }],
-          description: 'Query or independent fan-out array; shared scope/period.',
+          description:
+            "Query or independent fan-out array; shared scope/period. Write it in the conversation's language; history is stored in it.",
         },
         id: {
           anyOf: [

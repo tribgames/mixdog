@@ -4,12 +4,29 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { collectUiKeys, PLURAL_SUFFIX } from './source-keys.mjs';
+import { TOOL_RESULT_UI_KEYS } from '../../../../src/runtime/shared/tool-result-summary.mjs';
 
 export const rendererUrl = new URL('../../src/renderer/', import.meta.url);
 export const localesUrl = new URL('locales/', rendererUrl);
 export const bootTemplateUrl = new URL('./boot.template.js', import.meta.url);
 export function readJson(url) {
-  return JSON.parse(readFileSync(url, 'utf8'));
+  const text = readFileSync(url, 'utf8');
+  const value = JSON.parse(text);
+  const fileName = fileURLToPath(url);
+  const source = ts.parseJsonText(fileName, text);
+  const visit = (node) => {
+    if (ts.isObjectLiteralExpression(node)) {
+      const keys = new Set();
+      for (const property of node.properties) {
+        const key = property.name.text;
+        if (keys.has(key)) throw new Error(`Duplicate JSON key ${JSON.stringify(key)} in ${fileName}`);
+        keys.add(key);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return value;
 }
 
 // Both classic-script environments use generated code from the typed owner:
@@ -57,6 +74,7 @@ export function catalogState() {
       .map((name) => [name.slice(0, -5), readJson(new URL(name, localesUrl))])
   );
   const sources = collectUiKeys(fileURLToPath(rendererUrl));
+  for (const key of TOOL_RESULT_UI_KEYS) sources.set(key, 'src/runtime/shared/tool-result-summary.mjs');
   const nativeSources = collectUiKeys(fileURLToPath(new URL('../../src/main/', import.meta.url)), {
     explicitOnly: true,
   });

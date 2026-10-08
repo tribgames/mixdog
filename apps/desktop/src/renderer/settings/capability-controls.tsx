@@ -8,10 +8,8 @@ import { record } from '../record-utils';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error Shared presentation contract has no separate declaration file.
 import { contextMeasurementStats, measuredContextUsage, contextMeasurementLabel } from '../../../../../src/ui/context-measurement.mjs';
-// The primitives translate their OWN string props: every settings panel that
-// renders through Group/Rows/ActionButton gets localized titles without each
-// call site wrapping literals. Dynamic values (model names, provider labels)
-// simply miss the catalog and pass through unchanged.
+// The primitives render their string props literally. Call sites localize
+// app-authored copy with t(...); custom names and content stay untouched.
 import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { acquireTitleBarDim } from '../titlebar-dim';
@@ -23,8 +21,8 @@ export function Group({ title, description, children }: { title?: string; descri
     <section className="settings-group">
       {(title || description) && (
         <header>
-          {title && <h3>{t(title)}</h3>}
-          {description && <p>{t(description)}</p>}
+          {title && <h3>{title}</h3>}
+          {description && <p>{description}</p>}
         </header>
       )}
       <div className="settings-group-body">{children}</div>
@@ -47,7 +45,7 @@ export function ToggleRow({
   optimistic?: boolean;
   onChange(value: boolean): void;
 }) {
-  const displayTitle = t(title);
+  const displayTitle = title;
   return (
     <div className="mixdog-settings__row">
       <div className="mixdog-settings__copy">
@@ -131,7 +129,7 @@ export function SelectRow({
   const normalized = options.some((entry) => entry.value === value)
     ? options
     : [{ value, label: value || t('Select…') }, ...options];
-  const displayTitle = t(title);
+  const displayTitle = title;
   return (
     <div className="mixdog-settings__row">
       <div className="mixdog-settings__copy">
@@ -143,7 +141,7 @@ export function SelectRow({
           ariaLabel={displayTitle}
           value={value}
           disabled={disabled}
-          options={normalized.map((entry) => ({ ...entry, label: t(entry.label) }))}
+          options={normalized}
           onChange={onChange}
         />
       </div>
@@ -175,7 +173,7 @@ export function AutoSaveRow({
     if (required && !input.reportValidity()) return;
     onSave(input.value);
   };
-  const displayTitle = t(title);
+  const displayTitle = title;
   return (
     <div className="settings-form-row">
       <div>
@@ -187,7 +185,7 @@ export function AutoSaveRow({
           name={name}
           aria-label={displayTitle}
           defaultValue={value}
-          placeholder={placeholder === undefined ? undefined : t(placeholder)}
+          placeholder={placeholder}
           required={required}
           disabled={disabled}
           onBlur={(event) => commit(event.currentTarget)}
@@ -221,7 +219,7 @@ export function ActionButton({
 }) {
   return (
     <button type="button" className={`settings-action ${danger ? 'danger' : ''}`} disabled={disabled} onClick={onClick}>
-      {typeof children === 'string' ? t(children) : children}
+      {children}
     </button>
   );
 }
@@ -257,12 +255,12 @@ export function SettingsConfirmDialog({ options, onClose }: { options: SettingsC
         data-settings-nested-dialog
       >
         <header>
-          <h3 id="settings-confirm-title">{t(options.title)}</h3>
+          <h3 id="settings-confirm-title">{options.title}</h3>
           <button type="button" aria-label={t('Close confirmation')} data-settings-nested-close onClick={onClose}>
             <X aria-hidden="true" size={16} />
           </button>
         </header>
-        <p id="settings-confirm-description">{t(options.description)}</p>
+        <p id="settings-confirm-description">{options.description}</p>
         <footer>
           <button ref={cancelRef} type="button" onClick={onClose}>
             {t('Cancel')}
@@ -273,7 +271,7 @@ export function SettingsConfirmDialog({ options, onClose }: { options: SettingsC
             className={options.danger ? 'danger' : 'primary'}
             onClick={accept}
           >
-            {options.confirmLabel ? t(options.confirmLabel) : t('Continue')}
+            {options.confirmLabel ?? t('Continue')}
           </button>
         </footer>
       </section>
@@ -323,7 +321,7 @@ export function ResourceRow({
     <div className={`settings-resource ${className}`.trim()} aria-current={selected ? 'true' : undefined}>
       <div>
         <div className="settings-resource-title">
-          <b>{t(title)}</b>
+          <b>{title}</b>
           {state && (
             <span className={`settings-status settings-status--${state.tone}`}>
               <i aria-hidden="true" />
@@ -342,12 +340,12 @@ export function ResourceRow({
 
 function MetricGrid({ items }: { items: Array<{ label: string; value: unknown; tone?: string }> }) {
   const visible = items.filter((item) => item.value !== undefined && item.value !== null && item.value !== '');
-  if (!visible.length) return <Empty text="No status data available." />;
+  if (!visible.length) return <Empty text={t('No status data available.')} />;
   return (
     <div className="settings-metric-grid">
       {visible.map((item) => (
         <div key={item.label} className={item.tone ? `tone-${item.tone}` : ''}>
-          <span>{t(item.label)}</span>
+          <span>{item.label}</span>
           <b>{String(item.value)}</b>
         </div>
       ))}
@@ -370,10 +368,10 @@ export function ContextStatusView({ value }: { value: unknown }) {
     <div className="settings-status-stack">
       <ResourceRow
         title={`${
-          context.model ? modelDisplayName(String(context.model), String(context.provider || '')) : 'No model'
-        } · ${context.provider ? providerDisplayName(String(context.provider)) : 'No provider'}`}
-        description={String(context.cwd || 'No active project')}
-        meta={String(context.toolMode || 'default tools')}
+          context.model ? modelDisplayName(String(context.model), String(context.provider || '')) : t('No model')
+        } · ${context.provider ? providerDisplayName(String(context.provider)) : t('No provider')}`}
+        description={String(context.cwd || t('No active project'))}
+        meta={String(context.toolMode || t('default tools'))}
       />
       {window > 0 && (
         <div className="settings-context-meter" aria-label={t(contextMeasurementLabel(measured.source))}>
@@ -386,12 +384,12 @@ export function ContextStatusView({ value }: { value: unknown }) {
       )}
       <MetricGrid
         items={[
-          { label: 'Free tokens', value: used == null ? '—' : count(Math.max(0, window - used)) },
-          { label: 'Messages', value: count(messages.total ?? messages.count) },
-          { label: 'Tool schema', value: `${count(request.toolSchemaTokens)} tokens` },
-          { label: 'Request reserve', value: `${count(request.reserveTokens)} tokens` },
-          { label: 'Last input', value: `${count(usage.lastInputTokens)} tokens` },
-          { label: 'Last output', value: `${count(usage.lastOutputTokens)} tokens` },
+          { label: t('Free tokens'), value: used == null ? '—' : count(Math.max(0, window - used)) },
+          { label: t('Messages'), value: count(messages.total ?? messages.count) },
+          { label: t('Tool schema'), value: `${count(request.toolSchemaTokens)} ${t('tokens')}` },
+          { label: t('Request reserve'), value: `${count(request.reserveTokens)} ${t('tokens')}` },
+          { label: t('Last input'), value: `${count(usage.lastInputTokens)} ${t('tokens')}` },
+          { label: t('Last output'), value: `${count(usage.lastOutputTokens)} ${t('tokens')}` },
         ]}
       />
     </div>
@@ -399,9 +397,9 @@ export function ContextStatusView({ value }: { value: unknown }) {
 }
 
 export function Empty({ text }: { text: string }) {
-  return <p className="settings-empty">{t(text)}</p>;
+  return <p className="settings-empty">{text}</p>;
 }
 
 export function ListEmpty({ text }: { text: string }) {
-  return <p className="settings-empty settings-empty-list">{t(text)}</p>;
+  return <p className="settings-empty settings-empty-list">{text}</p>;
 }

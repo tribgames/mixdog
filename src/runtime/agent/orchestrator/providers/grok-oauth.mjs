@@ -259,6 +259,8 @@ async function ensureLatestGrokModel(provider) {
 let _modelRefreshInFlight = null;
 
 export class GrokOAuthProvider {
+  // No document block on this wire: a PDF is lowered to text before the request is built.
+  nativePdf = false;
   // OpenAI-compatible usage: prompt_tokens includes cached. See registry.mjs.
   static inputExcludesCache = false;
   name = 'grok-oauth';

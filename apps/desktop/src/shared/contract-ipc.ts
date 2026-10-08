@@ -16,6 +16,7 @@ export const DESKTOP_IPC = {
   openMediaAsset: 'mixdog:open-media-asset',
   openMediaFolder: 'mixdog:open-media-folder',
   openExternal: 'mixdog:open-external',
+  submitFeedback: 'mixdog:submit-feedback',
   openLocalFileLink: 'mixdog:open-local-file-link',
   localPageUrl: 'mixdog:local-page-url',
   renameProject: 'mixdog:rename-project',

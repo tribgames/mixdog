@@ -13,8 +13,10 @@ import { monaco, resolveThemeColor } from './monaco-setup';
 import { t } from './i18n';
 
 function hierarchyTitle(loading: boolean, direction: string, rootName: string): string {
-  if (loading) return 'Loading…';
-  return direction === 'incoming' ? `Callers of '${rootName}'` : `Calls from '${rootName}'`;
+  if (loading) return t('Loading…');
+  return direction === 'incoming'
+    ? t("Callers of '{{value0}}'", { value0: rootName })
+    : t("Calls from '{{value0}}'", { value0: rootName });
 }
 
 export function CallHierarchyPeek({
@@ -246,7 +248,7 @@ export function CallHierarchyPeek({
               <button
                 type="button"
                 className="editor-call-hierarchy-expand"
-                aria-label={`Show ${state.direction} calls for ${item.name}`}
+                aria-label={t('Show {{value0}} calls for {{value1}}', { value0: state.direction, value1: item.name })}
                 onClick={() => state.root && void load(item, state.direction, [...state.stack, state.root])}
               >
                 <ChevronRight size={14} />

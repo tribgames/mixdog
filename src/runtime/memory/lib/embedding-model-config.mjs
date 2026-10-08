@@ -65,13 +65,13 @@ export function getDefaultEmbeddingDevice(modelId = getConfiguredEmbeddingModelI
   return getEmbeddingModelProfile(modelId)?.defaultDevice || 'auto';
 }
 
-export function getEmbeddingModelLoadOptions(modelId = getConfiguredEmbeddingModelId()) {
+// transformers.js file naming: onnx/<file name><dtype suffix>.onnx.
+const DTYPE_SUFFIX = Object.freeze({ fp32: '', fp16: '_fp16', q8: '_quantized', q4: '_q4' });
+
+export function getEmbeddingModelGraphFile(modelId = getConfiguredEmbeddingModelId(), dtype) {
   const profile = getEmbeddingModelProfile(modelId);
-  const options = profile?.modelFileName ? { model_file_name: profile.modelFileName } : {};
-  // E5 sees variable-length queries and batches. Shape-specific ORT memory
-  // plans retain large native buffers; keep arena reuse without those plans.
-  if (clean(modelId) === DEFAULT_MODEL_ID) options.session_options = { enableMemPattern: false };
-  return options;
+  const resolved = normalizeEmbeddingDtype(modelId, dtype);
+  return `onnx/${profile?.modelFileName || 'model'}${DTYPE_SUFFIX[resolved] ?? ''}.onnx`;
 }
 
 export function getEmbeddingPooling(modelId = getConfiguredEmbeddingModelId()) {

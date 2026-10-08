@@ -86,7 +86,7 @@ export function SkillEditorDialog({
         const data = new FormData(event.currentTarget);
         const body = String(data.get('skill-instructions') || '').trim();
         if (!body) {
-          setFormError('SKILL.md instructions must not be empty.');
+          setFormError(t('SKILL.md instructions must not be empty.'));
           return;
         }
         setFormError('');

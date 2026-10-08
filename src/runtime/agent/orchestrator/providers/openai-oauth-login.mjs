@@ -11,6 +11,7 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
+import { OAUTH_PAGE_CONTENT_TYPE, oauthSuccessHtml } from './lib/oauth-page.mjs';
 
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize';
@@ -124,8 +125,8 @@ export function createOpenAIOAuthLogin(deps) {
           finish(null);
           return;
         }
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end('<html><body><h2>OpenAI OAuth login successful! You can close this tab.</h2></body></html>');
+        res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
+        res.end(oauthSuccessHtml('OpenAI'));
         try {
           const tokens = await exchangeAuthorizationCode({ pkce, code });
           finish(tokens);

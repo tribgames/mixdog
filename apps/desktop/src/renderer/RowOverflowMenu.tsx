@@ -144,7 +144,7 @@ function renderRowOverflowItem({
       {hasCheckItems && (
         <span className="row-overflow-check">{item.checked && <Check size={14} aria-hidden="true" />}</span>
       )}
-      <span className="row-overflow-label">{t(item.label)}</span>
+      <span className="row-overflow-label">{item.label}</span>
       {submenu && <ChevronRight className="row-overflow-submenu" size={14} aria-hidden="true" />}
     </button>
   );
@@ -176,7 +176,7 @@ function renderRowOverflowPanel({
       ref={panel}
       className="row-overflow-menu"
       role="menu"
-      aria-label={t('{{label}} menu', { label: t(label) })}
+      aria-label={t('{{label}} menu', { label })}
       onKeyDown={onKeyDown}
       style={placement}
     >
@@ -188,7 +188,7 @@ function renderRowOverflowPanel({
           onClick={() => setPath((current) => current.slice(0, -1))}
         >
           <ChevronLeft size={14} aria-hidden="true" />
-          <span>{path.length === 1 ? t(label) : t('Back')}</span>
+          <span>{path.length === 1 ? label : t('Back')}</span>
         </button>
       )}
       {menuItems.map((item, index) => renderRowOverflowItem({ item, index, hasCheckItems, setPath, setOpen }))}
@@ -251,7 +251,7 @@ export function RowOverflowMenu({ label, items }: { label: string; items: RowOve
         ref={trigger}
         type="button"
         className="row-overflow-trigger"
-        aria-label={t(label)}
+        aria-label={label}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         data-tooltip={t('Actions')}

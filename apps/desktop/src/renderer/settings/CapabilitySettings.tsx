@@ -11,6 +11,7 @@ import { PaneSurfaceGate } from '../PaneSurfaceGate';
 import { preferredModelEffort } from '../model-route-utils';
 import { showDesktopToast, useErrorToast } from '../notifications';
 import { ErrorNotice } from '../ErrorNotice';
+import { t } from '../i18n';
 import { record } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { subscribeSetupChanges } from '../setup-change-refresh';
@@ -330,7 +331,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
   );
 
   return (
-    <PaneSurfaceGate ready label="Loading settings…">
+    <PaneSurfaceGate ready label={t('Loading settings…')}>
       <div className="capability-settings-content">
         {loadError && <ErrorNotice error={loadError} role="status" onRetry={() => void load(true)} />}
         <CategoryPanel category={category} context={context} />

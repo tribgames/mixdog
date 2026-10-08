@@ -13,8 +13,10 @@ import {
   attachmentFromFile,
   attachmentPolicyError,
   isSupportedComposerImagePath,
+  RejectedComposerFileError,
   UnsupportedComposerFileError,
 } from './composer-attachments';
+import { t } from './i18n';
 import { MAX_COMPOSER_ATTACHMENTS, type ComposerAttachment } from './composer-support';
 import { insertComposerToken, takeRejectedComposerSubmissionRecoveries } from './composer-draft';
 import { absolutePathTokens, projectMentionTokens, restoreAttachmentsFromRecord } from './composer-attachment-restore';
@@ -157,8 +159,11 @@ export function useComposerAttachments({
       if (transitioningRef.current) return;
       setAttachmentError('');
       const fallbackPaths: string[] = [];
+      const appendError = (message: string) =>
+        setAttachmentError((current) => [current, message].filter(Boolean).join('\n'));
       for (const file of Array.from(files)) {
         if (transitioningRef.current) return;
+        let unsupported = false;
         try {
           if (attachmentsRef.current.length >= MAX_COMPOSER_ATTACHMENTS) {
             throw new Error(`Attach up to ${MAX_COMPOSER_ATTACHMENTS} items at a time.`);
@@ -171,17 +176,31 @@ export function useComposerAttachments({
           if (insertAttachment(attachment)) continue;
         } catch (reason) {
           if (transitioningRef.current) return;
-          if (!(reason instanceof UnsupportedComposerFileError)) {
+          if (reason instanceof RejectedComposerFileError) {
+            appendError(reason.message);
+            continue;
+          }
+          if (reason instanceof UnsupportedComposerFileError) {
+            unsupported = true;
+          } else {
             setAttachmentError(reason instanceof Error ? reason.message : String(reason));
           }
         }
+        const name = file.name || 'Pasted file';
         // Native selections retain their OS path; materialized internal drops
         // need the source path carried separately from their in-memory File.
         const path = sourcePaths?.get(file) || window.mixdogDesktop?.folderPathForFile?.(file);
         if (path) {
           fallbackPaths.push(path);
+          if (unsupported) {
+            appendError(
+              t("{{name}}: this file type can't be attached; its path was inserted so the AI can open it.", { name })
+            );
+          }
+        } else if (unsupported) {
+          appendError(t("{{name}}: this file type can't be attached.", { name }));
         } else {
-          setAttachmentError((current) => `${current} ${file.name || 'Pasted file'}: local file path is unavailable.`);
+          setAttachmentError((current) => `${current} ${name}: local file path is unavailable.`);
         }
       }
       insertAbsolutePaths(fallbackPaths);

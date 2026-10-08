@@ -2,6 +2,7 @@
 // automation shape (model route, project, workflow) in the same dialog grammar.
 import type { DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import type { RecordValue } from './desktop-types';
+import { t } from './i18n';
 import { parseModelRef } from './model-route-utils';
 import { modelDisplayName, modelFastAvailable } from './provider-display';
 
@@ -38,7 +39,7 @@ export function automationProjectOptions(
   cwd: string
 ): Array<{ value: string; label: string }> {
   const options = [
-    { value: '__none__', label: 'No project' },
+    { value: '__none__', label: t('No project') },
     ...projects.map((project) => ({
       value: project.path,
       label: project.alias?.trim() || project.name?.trim() || project.path,

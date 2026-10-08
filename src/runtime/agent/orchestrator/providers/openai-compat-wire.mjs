@@ -69,7 +69,7 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
   };
   for (const m of messages) {
     if (m.role === 'tool') {
-      const { output, mediaContent } = splitToolContentForOpenAIChat(m.content);
+      const { output, mediaContent } = splitToolContentForOpenAIChat(m.content, { nativePdf: options.nativePdf });
       out.push({
         role: 'tool',
         tool_call_id: m.toolCallId || '',
@@ -82,7 +82,7 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
     if (m.role === 'assistant' && m.toolCalls?.length) {
       const msg = {
         role: 'assistant',
-        content: normalizeContentForOpenAIChat(m.content, { role: 'assistant' }) || null,
+        content: normalizeContentForOpenAIChat(m.content, { role: 'assistant', nativePdf: options.nativePdf }) || null,
         tool_calls: m.toolCalls.map((tc) => ({
           id: tc.id,
           type: 'function',
@@ -92,7 +92,10 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
       out.push(attachAssistantReasoning(msg, m));
       continue;
     }
-    const msg = { role: m.role, content: normalizeContentForOpenAIChat(m.content, { role: m.role }) };
+    const msg = {
+      role: m.role,
+      content: normalizeContentForOpenAIChat(m.content, { role: m.role, nativePdf: options.nativePdf }),
+    };
     out.push(m.role === 'assistant' ? attachAssistantReasoning(msg, m) : msg);
   }
   flushToolMedia();
@@ -307,9 +310,9 @@ export function collectCompatResponseSearchSources(response) {
   return { citations, webSearchCalls };
 }
 
-function toResponsesInputMessage(m, pendingToolMedia = null) {
+function toResponsesInputMessage(m, pendingToolMedia = null, nativePdf = undefined) {
   if (m.role === 'tool') {
-    const { output, mediaContent } = splitToolContentForXaiResponses(m.content);
+    const { output, mediaContent } = splitToolContentForXaiResponses(m.content, { nativePdf });
     // xai path: never emit `custom_tool_call_output` (the `custom` variant
     // is rejected by grok). Replay prior tool outputs — including old
     // native tool_search outputs after /model switches — as the standard
@@ -325,7 +328,10 @@ function toResponsesInputMessage(m, pendingToolMedia = null) {
   if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length > 0) {
     const items = [];
     if (m.content)
-      items.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
+      items.push({
+        role: 'assistant',
+        content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant', nativePdf }),
+      });
     for (const tc of m.toolCalls) {
       // xAI/Grok rejects OpenAI-only Responses variants such as
       // `custom_tool_call` and `tool_search_call`, including when they
@@ -340,7 +346,7 @@ function toResponsesInputMessage(m, pendingToolMedia = null) {
     }
     return items;
   }
-  return { role: m.role, content: normalizeContentForOpenAIResponses(m.content || '', { role: m.role }) };
+  return { role: m.role, content: normalizeContentForOpenAIResponses(m.content || '', { role: m.role, nativePdf }) };
 }
 
 export function xaiSystemInstructions(messages) {
@@ -421,7 +427,7 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
     // A missing/reset server anchor requires the full tool trajectory.
     // The converter lowers foreign native calls to ordinary functions;
     // discarding their results here would turn completed work into stubs.
-    const converted = toResponsesInputMessage(m, pendingToolMedia);
+    const converted = toResponsesInputMessage(m, pendingToolMedia, options.nativePdf);
     if (Array.isArray(converted)) input.push(...converted);
     else input.push(converted);
   }

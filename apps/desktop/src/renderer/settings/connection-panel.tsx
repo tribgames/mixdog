@@ -17,8 +17,8 @@ const RELAY_CONNECTING_MESSAGE =
   'Connecting to the Mixdog relay… this card refreshes automatically. If this persists, check this PC’s internet connection.';
 
 function unpairLabel(busy: boolean, confirming: boolean): string {
-  if (busy) return 'Unpairing…';
-  return confirming ? 'Confirm unpair' : 'Unpair';
+  if (busy) return t('Unpairing…');
+  return confirming ? t('Confirm unpair') : t('Unpair');
 }
 
 /** Keeps the pairing card current: a ready card polls for device changes, and
@@ -99,7 +99,7 @@ function applyConnectionResult(
 
 function renderConnectionNote(message: string) {
   return (
-    <Group title="Web app">
+    <Group title={t('Web app')}>
       <p className="settings-connection-note">{message}</p>
     </Group>
   );
@@ -107,7 +107,7 @@ function renderConnectionNote(message: string) {
 
 function renderPairingPlaceholder() {
   return (
-    <Group title="Web app" description="Works on any network. Open the secure link in a browser.">
+    <Group title={t('Web app')} description={t('Works on any network. Open the secure link in a browser.')}>
       <div className="settings-connection-grid">
         <figure
           className="settings-connection-card settings-connection-card--loading"
@@ -162,7 +162,7 @@ function renderLinkedDevices({
           return (
             <ResourceRow
               key={client.id}
-              title={client.name || `${client.platform || 'Device'} · ${client.browser || 'Browser'}`}
+              title={client.name || `${client.platform || t('Device')} · ${client.browser || t('Browser')}`}
               meta={t('Added {{created}} · Last used {{lastSeen}}', {
                 created: new Date(client.createdAt).toLocaleDateString(uiFormatLocale()),
                 lastSeen,
@@ -193,8 +193,8 @@ function renderLinkedDevices({
         })}
       </div>
       <ResourceRow
-        title="Unpair every device"
-        description="Every device approved so far loses access and must be approved again."
+        title={t('Unpair every device')}
+        description={t('Every device approved so far loses access and must be approved again.')}
         actions={
           <ActionButton
             disabled={rotating}
@@ -251,7 +251,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
 
   return (
     <>
-      <Group title="Web app" description="Works on any network. Scan to install the app, then approve it here.">
+      <Group title={t('Web app')} description={t('Works on any network. Scan to install the app, then approve it here.')}>
         <div className="settings-connection-grid">
           <figure className="settings-connection-card">
             <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: info.relayBrowserQrSvg || '' }} />

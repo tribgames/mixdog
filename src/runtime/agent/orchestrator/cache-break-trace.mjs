@@ -41,6 +41,9 @@ export function buildCacheBreakPayload(record = {}) {
     uncached_tokens: finiteNumber(record.uncachedTokens),
     cache_ratio: finiteNumber(record.cacheRatio),
     actual_cache_miss: record.actualCacheMiss === true,
+    previous_cached_prefix_tokens: finiteNumber(record.previousCachedPrefixTokens),
+    idle_ms: finiteNumber(record.idleMs),
+    missing_prefix_guard_baseline: record.missingPrefixGuardBaseline === true ? true : null,
     input_prefix_mismatch_index: finiteNumber(record.inputPrefixMismatchIndex),
     input_prefix_mismatch_previous_count: finiteNumber(record.inputPrefixMismatchPreviousCount),
     input_prefix_mismatch_current_count: finiteNumber(record.inputPrefixMismatchCurrentCount),
@@ -71,6 +74,9 @@ function formatCacheBreakLine(record = {}) {
     ['intent', payload.intentional_transition],
     ['cachedTokens', payload.cached_tokens],
     ['promptTokens', payload.prompt_tokens],
+    ['previousCachedPrefixTokens', payload.previous_cached_prefix_tokens],
+    ['idleMs', payload.idle_ms],
+    ['noGuardBaseline', payload.missing_prefix_guard_baseline],
   ].filter(([, value]) => value !== null && value !== undefined);
   return `[cache-break] ${fields.map(([key, value]) => (typeof value === 'string' ? `${key}=${JSON.stringify(value)}` : `${key}=${value}`)).join(' ')}`;
 }

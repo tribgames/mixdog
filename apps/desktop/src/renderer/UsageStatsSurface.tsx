@@ -122,6 +122,11 @@ function TokenMix({ totals, loading }: { totals: Row; loading: boolean }) {
 
 export function RouteCells({ route, costValue, speed }: { route: Row; costValue?: string; speed?: boolean }) {
   const incomplete = statsNumber(route.unmeasuredTurns) > 0;
+  const priceMissing = unpricedTurns(route);
+  const priceUnavailable = priceMissing > 0 && priceMissing >= statsNumber(route.turns);
+  let priceTitle: string | undefined;
+  if (priceUnavailable) priceTitle = t('Price unavailable');
+  else if (priceMissing > 0) priceTitle = t('Partial cost');
   return (
     <>
       <td>{statsCount(route.turns)}</td>
@@ -133,7 +138,11 @@ export function RouteCells({ route, costValue, speed }: { route: Row; costValue?
       <td className="stats-breakdown">{statsTokens(route.cacheRead, incomplete)}</td>
       <td className="stats-optional">{statsPercent(route.cacheHitRate)}</td>
       <td className="stats-total-cell">{statsTokens(route.tokens, incomplete)}</td>
-      <td className="stats-cost-cell" title={unpricedTurns(route) > 0 ? t('Partial cost') : undefined}>
+      <td
+        className="stats-cost-cell"
+        data-price={priceUnavailable ? 'unavailable' : undefined}
+        title={priceTitle}
+      >
         {costValue ?? statsMoney(route)}
       </td>
     </>

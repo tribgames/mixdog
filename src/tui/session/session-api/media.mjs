@@ -71,7 +71,7 @@ export function createSessionMediaApi(bag) {
     },
     // Desktop composer image attach: run the SAME optional-sharp resize
     // pipeline the TUI paste path uses. The current provider selects the
-    // Anthropic 2000px/5MB profile or OpenAI 2048px/1536-patch profile.
+    // Anthropic 1568px (IMAGE_MAX_WIDTH)/5MB profile or OpenAI 2048px/1536-patch profile.
     resizeImage: async ({ data, mimeType = 'image/png', filename = '' } = {}) => {
       const base64 = String(data || '');
       if (!base64) throw new Error('resizeImage: image payload is required');

@@ -50,13 +50,13 @@ function selectionLabel(selection: WorkspaceSelection | null): string {
     case 'file':
       return selection.rel.split('/').at(-1) || selection.rel;
     case 'studio':
-      return 'Studio';
+      return t('Studio');
     case 'terminal':
-      return 'Terminal';
+      return t('Terminal');
     case 'pull-request':
-      return selection.title || `Pull Request #${selection.number}`;
+      return selection.title || t('Pull Request #{{number}}', { number: selection.number });
     case 'diff':
-      return `${selection.rel.split('/').at(-1) || selection.rel} (Diff)`;
+      return t('{{name}} (Diff)', { name: selection.rel.split('/').at(-1) || selection.rel });
   }
 }
 

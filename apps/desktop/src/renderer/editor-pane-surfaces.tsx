@@ -88,7 +88,7 @@ export function EditorPanePreviewSurface({
         )}
         {preview.kind === 'image' && <img src={preview.url} alt={name} onLoad={onComplete} onError={onFail} />}
         {preview.kind === 'pdf' && (
-          <iframe src={preview.url} title={`${name} PDF preview`} onLoad={onComplete} onError={onFail} />
+          <iframe src={preview.url} title={t('{{value0}} PDF preview', { value0: name })} onLoad={onComplete} onError={onFail} />
         )}
         {preview.kind === 'audio' && (
           <audio

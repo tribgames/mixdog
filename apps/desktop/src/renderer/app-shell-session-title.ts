@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { desktopUtilityDockTabEnabled } from './desktop-feature-config';
+import { t } from './i18n';
 import { agentActivitySessionIds } from './desktop-types';
 import type { NavigationSelection, WorkspaceTab } from './navigation';
 import { navigationKey } from './text-format';
@@ -23,7 +24,7 @@ export function useAppSessionTitle({ navigationSelection, sessions, tabs, rename
       ? sessions.find((session) => session.id === navigationSelection.id)
       : undefined;
 
-  const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession) : '';
+  const currentSessionTitle = selectedSession ? sessionSummaryTitle(selectedSession, t('Untitled session')) : '';
 
   const workingSessionIds = useMemo(
     () =>
@@ -41,7 +42,7 @@ export function useAppSessionTitle({ navigationSelection, sessions, tabs, rename
   );
 
   const visibleSessionTitle =
-    currentSessionTitle || tabs.find((tab) => tab.key === navigationKey(navigationSelection))?.title || 'New task';
+    currentSessionTitle || tabs.find((tab) => tab.key === navigationKey(navigationSelection))?.title || t('New task');
 
   const openHeaderTitleEditor = () => {
     if (!selectedSession) return;

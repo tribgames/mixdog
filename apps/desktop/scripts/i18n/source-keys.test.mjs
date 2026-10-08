@@ -15,6 +15,7 @@ test('UI extraction covers TS data, variable phrases, JSX, and direct translatio
     );
     writeFileSync(
       join(directory, 'screen.tsx'),
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: The fixture must contain an unevaluated TS template.
       'const summaryPlaceholder = "Summary (required)"; const title = `Commit ${count} files`;\n' +
         'const content = <><input placeholder={summaryPlaceholder}/><b>History</b>{t("Explicit label")}</>;'
     );

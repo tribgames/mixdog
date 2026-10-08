@@ -1,4 +1,5 @@
 import type { GithubRequest } from '../../shared/contract';
+import { t } from '../i18n';
 
 export type GithubSection = 'repositories' | 'issues' | 'actions' | 'workflows' | 'releases' | 'notifications';
 export const GITHUB_SECTIONS: ReadonlyArray<readonly [GithubSection, string]> = [
@@ -37,10 +38,10 @@ export function githubItemTitle(item: GithubRecord): string {
 export function githubItemState(item: GithubRecord): string {
   return [
     item.conclusion || item.status || item.state,
-    item.draft ? 'Draft' : '',
-    item.prerelease ? 'Pre-release' : '',
-    item.private === true ? 'Private' : '',
-    item.unread === true ? 'Unread' : '',
+    item.draft ? t('Draft') : '',
+    item.prerelease ? t('Pre-release') : '',
+    item.private === true ? t('Private') : '',
+    item.unread === true ? t('Unread') : '',
   ]
     .filter(Boolean)
     .join(' · ');

@@ -14,7 +14,7 @@
   overflow: hidden;
   border-radius: var(--mx-radius-lg);
   /* Frameless card (user: 프레임리스로 최대한): the plate step off the sheet
-     is the edge, and the language row runs on into the code with no seam. */
+     is the edge; the language row is told apart by its tint band, not a line. */
   background: var(--mx-bg-base);
   box-shadow: none;
 }
@@ -26,6 +26,9 @@
   padding: 0 6px 0 12px;
   border-bottom: 0;
   color: var(--mx-text-faint);
+  /* Header band (user: 헤더에는 있는게 좋아보여 코덱스스타일로): the same
+     neutral plate tint as table and diff headers; the code body stays clear. */
+  background: var(--mx-surface-plate);
   /* A language label is metadata, and the shell's caption tier is 13/16 — at
      14px it sat above the code it was describing. */
   font-size: var(--mx-font-meta);
@@ -675,10 +678,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .markdown th {
   color: var(--mx-text);
   font-weight: var(--mx-weight-strong);
-  background: var(--mx-bg-layer-1);
-}
-:root .markdown th {
-  background: transparent;
+  background: var(--mx-surface-plate);
 }
 .markdown tbody tr:last-child td {
   border-bottom: 0;

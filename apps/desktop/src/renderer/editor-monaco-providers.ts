@@ -131,7 +131,7 @@ type WorkspaceEditGroup = {
 function workspaceEditGroups(value: unknown): Map<string, WorkspaceEditGroup> {
   const edit = recordOf(value);
   // User-facing product noun is Project; the LSP wire name stays internal.
-  if (!edit) throw new Error('Language server returned an invalid project edit.');
+  if (!edit) throw new Error(t('Language server returned an invalid project edit.'));
   const groups = new Map<string, WorkspaceEditGroup>();
   const append = (uri: string, edits: unknown, version: number | null = null) => {
     if (!Array.isArray(edits)) return;
@@ -152,7 +152,7 @@ function workspaceEditGroups(value: unknown): Map<string, WorkspaceEditGroup> {
       const record = recordOf(change);
       if (!record) continue;
       if (record.kind || record.oldUri || record.newUri) {
-        throw new Error('Create, rename, and delete project edits require explicit file confirmation.');
+        throw new Error(t('Create, rename, and delete project edits require explicit file confirmation.'));
       }
       const document = recordOf(record.textDocument);
       if (typeof document?.uri === 'string') {
@@ -161,7 +161,7 @@ function workspaceEditGroups(value: unknown): Map<string, WorkspaceEditGroup> {
     }
   }
   if (groups.size > 100 || [...groups.values()].reduce((sum, group) => sum + group.edits.length, 0) > 10_000) {
-    throw new Error('Language server project edit is too large.');
+    throw new Error(t('Language server project edit is too large.'));
   }
   return groups;
 }
@@ -196,9 +196,9 @@ export async function applyLspWorkspaceEdit(
   for (const [uriValue, group] of groups) {
     const edits = group.edits;
     const uri = lspUriInProject(uriValue, context);
-    if (!uri) throw new Error('Language server edit escaped the project.');
+    if (!uri) throw new Error(t('Language server edit escaped the project.'));
     const relPath = projectRelativePath(uri.fsPath, context.projectPath);
-    if (!relPath) throw new Error('Language server targeted the project directory.');
+    if (!relPath) throw new Error(t('Language server targeted the project directory.'));
     const model = findOpenProjectModel(context, relPath);
     if (model) {
       // Stale-edit guard: the server computed these ranges against the
@@ -207,14 +207,14 @@ export async function applyLspWorkspaceEdit(
       // rewriting the file) interleaves lines and splits words — observed as
       // scrambled "restored" backups (user report).
       if (group.version !== null && model.getVersionId() !== group.version) {
-        throw new Error('The document changed while the language server prepared this edit. Try again.');
+        throw new Error(t('The document changed while the language server prepared this edit. Try again.'));
       }
       modelEdits.push({ model, edits });
       continue;
     }
     const loaded = await api.readProjectFile(context.projectPath, relPath);
     if (loaded.binary || loaded.tooLarge) {
-      throw new Error(`Project edit cannot safely change ${relPath}.`);
+      throw new Error(t('Project edit cannot safely change {{value0}}.', { value0: relPath }));
     }
     writes.push({
       relPath,
@@ -235,11 +235,11 @@ export async function applyLspWorkspaceEdit(
     const lineCount = entry.model.getLineCount();
     const operations = entry.edits.map((edit) => {
       const range = monacoRange(edit.range);
-      if (!range) throw new Error('Language server returned an invalid text range.');
+      if (!range) throw new Error(t('Language server returned an invalid text range.'));
       // Bounds sanity for version-less edits: a range beyond the current
       // document is certainly stale and must not scramble the model.
       if (range.startLineNumber > lineCount + 1 || range.endLineNumber > lineCount + 1) {
-        throw new Error('Language server edit targets a stale document position. Try again.');
+        throw new Error(t('Language server edit targets a stale document position. Try again.'));
       }
       return { range, text: String(edit.newText ?? ''), forceMoveMarkers: true };
     });

@@ -432,7 +432,6 @@ const measure = async (scenario: {
     headerRow: rectOf('.utility-dock-header'),
     headerTitle: rectOf('.utility-dock-header .utility-dock-title'),
     headerFetchCount: document.querySelectorAll('.dock-scm-header-fetch').length,
-    toolbarI18nSkip: document.querySelector('.dock-scm-toolbar')?.hasAttribute('data-i18n-skip') || false,
     toolbarActionLabels: [...document.querySelectorAll('.dock-scm-toolbar .dock-scm-remote-verb')].map(
       (node) => node.textContent || ''
     ),

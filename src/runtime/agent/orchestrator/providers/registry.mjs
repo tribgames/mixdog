@@ -5,6 +5,7 @@ import { wrapProviderAdmission } from './admission-scheduler.mjs';
 import { createAccountPoolProvider } from './account-pool.mjs';
 import { isInclusiveProvider } from '../../../shared/llm/cost.mjs';
 import { noEnabledProvidersError } from './registry-errors.mjs';
+import { providerTakesNativePdf } from '../../../attachments/store.mjs';
 // OpenAI-compat provider names are self-declared by openai-compat-presets.mjs via
 // OPENAI_COMPAT_PRESETS. No parallel list maintained here.
 const providers = new Map();
@@ -405,6 +406,15 @@ export function providerInputExcludesCache(name) {
   // Built-in usage semantics must also be correct before lazy construction
   // (including disabled providers in a fresh process).
   return normalized ? !isInclusiveProvider(normalized) : false;
+}
+/**
+ * Whether the named provider takes a PDF as a native document block (its
+ * adapter class declares `nativePdf`). A pure lookup, like
+ * providerInputExcludesCache: it never instantiates a provider, and an unknown
+ * provider is treated as native.
+ */
+export function providerNativePdf(name) {
+  return providerTakesNativePdf(providers.get(String(name || '').toLowerCase()));
 }
 export function getAllProviders() {
   // Defensive copy — callers must not mutate the live registry or retain

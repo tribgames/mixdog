@@ -1,10 +1,27 @@
-// OOXML (.docx / .pptx / .xlsx) text extraction for the read tool. Office
+// OOXML (.docx / .pptx / .xlsx) text extraction, shared by the read tool and
+// provider lowering. Office
 // files are ZIP containers holding XML parts; this module implements the
 // minimal ZIP central-directory reader (stored + deflate entries via
 // node:zlib) and a tag-level pass over the document, slide, and sheet XML.
 // No external dependencies.
 import { readFile, stat } from 'node:fs/promises';
 import { inflateRawSync } from 'node:zlib';
+
+// Longest run of attributes inside one tag that a pattern will cross. Bounded
+// so a tag with no closing bracket cannot make a pattern rescan the part.
+const ATTR_BOUND = 4096;
+const ATTRS = `[^<>]{0,${ATTR_BOUND}}`;
+const A = ATTRS;
+// A regex built from a raw template; the interpolations are pattern text.
+const re = (flags = '') => (strings, ...values) => new RegExp(String.raw(strings, ...values), flags);
+// The patterns the per-cell / per-run loops use are built once.
+const V_RE = re()`<v(?:\s${A})?>([^<]*)</v>`;
+const T_RUN_RE = re('g')`<t(?:\s${A})?>([^<]*)</t>`;
+const HIDDEN_RUN_RE = re()`<w:vanish\b(?!${A}\bw:val="(?:false|0)")`;
+const HIDDEN_SHAPE_RE = re()`<p:cNvPr\b${A}\bhidden="(?:1|true)"`;
+const HIDDEN_SLIDE_RE = re()`<p:sld\b${A}\bshow="0"`;
+const BODY_PLACEHOLDER_RE = re()`<p:ph\b${A}\btype="body"`;
+const GRAPHIC_FRAME_OPEN_RE = re()`^<p:graphicFrame\b${A}>`;
 
 // Whole-container read cap. Office decks with embedded media can be large;
 // the XML parts we extract are a tiny fraction, but the container must be
@@ -17,7 +34,7 @@ const LOCAL_SIG = 0x04034b50; // local file header
 
 // Parse the ZIP central directory. Returns Map<name, {method, start, end}>
 // where start/end bound the compressed data inside `buf`.
-function zipCentralDirectory(buf) {
+function zipCentralDirectory(buf, limits = {}) {
   // EOCD is at most 22 + 65535 (comment) bytes from the end.
   const scanFrom = Math.max(0, buf.length - 22 - 65535);
   let eocd = -1;
@@ -31,6 +48,8 @@ function zipCentralDirectory(buf) {
   const count = buf.readUInt16LE(eocd + 10);
   let off = buf.readUInt32LE(eocd + 16);
   const entries = new Map();
+  const budget = { remaining: Math.min(CONTAINER_MAX_INFLATED_BYTES, limits.maxContainerBytes || Infinity) };
+  const maxPartBytes = Math.min(PART_MAX_INFLATED_BYTES, limits.maxPartBytes || Infinity);
   for (let i = 0; i < count; i++) {
     if (off + 46 > buf.length || buf.readUInt32LE(off) !== CDIR_SIG) break;
     const method = buf.readUInt16LE(off + 10);
@@ -46,18 +65,74 @@ function zipCentralDirectory(buf) {
       const lNameLen = buf.readUInt16LE(localOff + 26);
       const lExtraLen = buf.readUInt16LE(localOff + 28);
       const start = localOff + 30 + lNameLen + lExtraLen;
-      entries.set(name, { method, start, end: start + compressedSize });
+      entries.set(name, { name, method, start, end: start + compressedSize, budget, maxPartBytes });
     }
     off += 46 + nameLen + extraLen + commentLen;
   }
   return entries;
 }
 
+// A crafted container can inflate a few KB into gigabytes. Every entry is
+// capped on its own, and all entries of one container share a total budget.
+const PART_MAX_INFLATED_BYTES = 32 * 1024 * 1024;
+const CONTAINER_MAX_INFLATED_BYTES = 128 * 1024 * 1024;
+
 function zipEntryContent(buf, entry) {
   const raw = buf.subarray(entry.start, entry.end);
-  if (entry.method === 0) return raw; // stored
-  if (entry.method === 8) return inflateRawSync(raw); // deflate
-  throw new Error(`unsupported ZIP compression method ${entry.method}`);
+  if (entry.method === 0) {
+    // stored
+    if (raw.length > entry.maxPartBytes) {
+      throw new Error(`zip entry ${entry.name} is too large when decompressed (limit ${entry.maxPartBytes} bytes)`);
+    }
+    return raw;
+  }
+  if (entry.method !== 8) throw new Error(`unsupported ZIP compression method ${entry.method}`);
+  const limit = Math.min(entry.maxPartBytes, entry.budget.remaining);
+  let out;
+  try {
+    out = inflateRawSync(raw, { maxOutputLength: Math.max(1, limit) });
+  } catch (err) {
+    if (err?.code === 'ERR_BUFFER_TOO_LARGE') {
+      throw new Error(`zip entry ${entry.name} is too large when decompressed (limit ${limit} bytes)`);
+    }
+    throw err;
+  }
+  entry.budget.remaining -= out.length;
+  return out;
+}
+
+// Every pattern below is linear in the size of the part, whatever the input.
+// A crafted part (unclosed tags, a tag with no `>`) must not make the engine
+// rescan the rest of the part from every start position:
+//  - attribute runs are bounded (ATTR_BOUND) and never cross a tag boundary;
+//  - text runs are `[^<]*` (markup never appears inside character data);
+//  - container elements are paired by scanElements, which finds each close tag
+//    with indexOf from the open tag's end and gives up on a name for good once
+//    its close tag is absent from the rest of the part.
+function* scanElements(xml, name) {
+  const open = new RegExp(`<${name}\\b(${ATTRS}?)(/?)>`, 'g');
+  const close = `</${name}>`;
+  let closeAbsent = false;
+  for (let m = open.exec(xml); m; m = open.exec(xml)) {
+    const innerStart = m.index + m[0].length;
+    if (m[2]) {
+      yield { index: m.index, attrs: m[1], inner: null, full: m[0], end: innerStart };
+      continue;
+    }
+    if (closeAbsent) continue;
+    const at = xml.indexOf(close, innerStart);
+    if (at < 0) {
+      closeAbsent = true;
+      continue;
+    }
+    const end = at + close.length;
+    open.lastIndex = end;
+    yield { index: m.index, attrs: m[1], inner: xml.slice(innerStart, at), full: xml.slice(m.index, end), end };
+  }
+}
+
+function firstElement(xml, name) {
+  return scanElements(xml, name).next().value || null;
 }
 
 function decodeXmlEntities(text) {
@@ -72,7 +147,27 @@ function decodeXmlEntities(text) {
 }
 
 // Collapses line breaks (and their surrounding blanks) into single spaces.
-const flattenLines = (text) => text.replace(/\s*\n+\s*/g, ' ').trim();
+// Every run of whitespace that contains a line break becomes one space. A scan,
+// not `/\s*\n+\s*/`: a long blank run without a newline would make that regex
+// quadratic.
+function collapseNewlineRuns(text) {
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const blank = /\s/.test(text[i]);
+    let j = i + 1;
+    let newline = text[i] === '\n';
+    while (j < text.length && /\s/.test(text[j]) === blank) {
+      if (text[j] === '\n') newline = true;
+      j += 1;
+    }
+    out += blank && newline ? ' ' : text.slice(i, j);
+    i = j;
+  }
+  return out;
+}
+
+const flattenLines = (text) => collapseNewlineRuns(text).trim();
 
 // A figure is content the page shows, but it carries no text runs: read as
 // plain text a picture or a chart vanished completely, so a figure-led report
@@ -83,7 +178,7 @@ function drawingMarker(xml) {
   if (/<c:chart\b|\bchart"|<cx:chart\b/.test(xml)) kind = 'chart';
   else if (/<dgm:relIds\b|diagramData/.test(xml)) kind = 'diagram';
   const descr = decodeXmlEntities(
-    /<(?:wp|pic|p|xdr):(?:docPr|cNvPr)\b[^>]*\bdescr="([^"]+)"/.exec(xml)?.[1] || ''
+    re()`<(?:wp|pic|p|xdr):(?:docPr|cNvPr)\b${A}\bdescr="([^"]+)"`.exec(xml)?.[1] || ''
   ).trim();
   return descr ? `[${kind}: ${descr}]` : `[${kind}]`;
 }
@@ -99,10 +194,11 @@ function markHiddenWordRuns(xml) {
   let out = '';
   let cursor = 0;
   let open = false;
-  for (const run of xml.matchAll(/<w:r\b(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)) {
-    const properties = /<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/.exec(run[0])?.[0] || '';
-    const hidden = /<w:vanish\b(?![^>]*\bw:val="(?:false|0)")/.test(properties) && /<w:t[\s>]/.test(run[0]);
-    const gap = xml.slice(cursor, run.index);
+  for (const found of scanElements(xml, 'w:r')) {
+    if (found.inner === null) continue;
+    const properties = firstElement(found.inner, 'w:rPr')?.full || '';
+    const hidden = HIDDEN_RUN_RE.test(properties) && /<w:t[\s>]/.test(found.full);
+    const gap = xml.slice(cursor, found.index);
     // A paragraph break ends the marked passage even when the next run hides too.
     if (open && (!hidden || gap.includes('</w:p>'))) {
       out += CLOSE;
@@ -113,8 +209,8 @@ function markHiddenWordRuns(xml) {
       out += OPEN;
       open = true;
     }
-    out += run[0];
-    cursor = run.index + run[0].length;
+    out += found.full;
+    cursor = found.end;
   }
   return `${out}${open ? CLOSE : ''}${xml.slice(cursor)}`;
 }
@@ -123,13 +219,44 @@ function markHiddenWordRuns(xml) {
 // does not show it — a superseded draft, a production note. Read as ordinary
 // slide text it is quoted back as what the page says.
 function markHiddenSlideShapes(xml) {
-  if (!/<p:cNvPr\b[^>]*\bhidden="(?:1|true)"/.test(xml)) return xml;
-  return xml.replace(/<p:(sp|pic|graphicFrame)\b[\s\S]*?<\/p:\1>/g, (block) => {
-    if (!/<p:cNvPr\b[^>]*\bhidden="(?:1|true)"/.test(block)) return block;
-    const inside = flattenLines(ooxmlPartText(block, { textTag: 'a:t', paraTag: 'a:p' }));
-    const label = (inside || drawingMarker(block).replace(/^\[|\]$/g, '')).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    return `<a:p><a:r><a:t>[hidden: ${label}]</a:t></a:r></a:p>`;
-  });
+  const hiddenShape = HIDDEN_SHAPE_RE;
+  if (!hiddenShape.test(xml)) return xml;
+  // Shapes are paired like scanElements does: a name whose close tag is absent
+  // from the rest of the part is given up for good.
+  const absent = new Set();
+  const shapeOpen = re('g')`<p:(sp|pic|graphicFrame)\b${A}>`;
+  let rewritten = '';
+  let cursor = 0;
+  for (let m = shapeOpen.exec(xml); m; m = shapeOpen.exec(xml)) {
+    if (absent.has(m[1])) continue;
+    const closeTag = `</p:${m[1]}>`;
+    const at = xml.indexOf(closeTag, m.index + m[0].length);
+    if (at < 0) {
+      absent.add(m[1]);
+      continue;
+    }
+    const end = at + closeTag.length;
+    shapeOpen.lastIndex = end;
+    rewritten += xml.slice(cursor, m.index) + hideShape(xml.slice(m.index, end), hiddenShape);
+    cursor = end;
+  }
+  return rewritten + xml.slice(cursor);
+}
+
+function hideShape(block, hiddenShape) {
+  if (!hiddenShape.test(block)) return block;
+  const inside = flattenLines(ooxmlPartText(block, { textTag: 'a:t', paraTag: 'a:p' }));
+  const label = (inside || drawingMarker(block).replace(/^\[|\]$/g, '')).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  return `<a:p><a:r><a:t>[hidden: ${label}]</a:t></a:r></a:p>`;
+}
+
+// Drops the tabs/newlines a table cell or row boundary replaces. A loop, not a
+// `[\t\n]+$` regex: a long tab run in the middle of the text would make that
+// quadratic.
+function trimTrailingBreaks(text) {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === '\t' || text[end - 1] === '\n')) end -= 1;
+  return end === text.length ? text : text.slice(0, end);
 }
 
 // Sequential pass over one XML part: text runs (<w:t>/<a:t>) are captured in
@@ -139,52 +266,66 @@ function markHiddenSlideShapes(xml) {
 // Everything else is markup and drops out.
 function ooxmlPartText(xml, { textTag, paraTag, notes = null }) {
   const pattern = new RegExp(
-    `<${textTag}(?:\\s[^>]*)?>([\\s\\S]*?)</${textTag}>` + // 1: text run
+    `<${textTag}(?:\\s${ATTRS})?>([^<]*)</${textTag}>` + // 1: text run
       `|</${paraTag}>` + // paragraph end
       '|</(?:w|a):tc>' + // table cell end
       '|</(?:w|a):tr>' + // table row end
-      '|<w:tab\\b[^>]*/>' +
-      '|<(?:w|a):br\\b[^>]*/>' +
-      '|<w:(?:foot|end)noteReference\\b[^>]*/>' + // a citation marker
-      '|<w:drawing\\b[\\s\\S]*?</w:drawing>' + // a Word figure
-      '|<p:pic\\b[\\s\\S]*?</p:pic>' + // a slide picture
-      '|<p:graphicFrame\\b[\\s\\S]*?</p:graphicFrame>', // a slide chart, table, or diagram
+      `|<w:tab\\b${ATTRS}/>` +
+      `|<(?:w|a):br\\b${ATTRS}/>` +
+      `|<w:(?:foot|end)noteReference\\b${ATTRS}/>` + // a citation marker
+      `|<(w:drawing|p:pic|p:graphicFrame)\\b${ATTRS}>`, // 2: a figure, frame or picture
     'g'
   );
   let out = '';
   // A figure already ends its own line, so the paragraph that holds it must
   // not add a second one and leave a blank line in the middle of the prose.
   let afterFigure = false;
-  for (const match of xml.matchAll(pattern)) {
-    if (match[1] !== undefined) {
-      out += decodeXmlEntities(match[1]);
+  const absentCloses = new Set();
+  for (let found = pattern.exec(xml); found; found = pattern.exec(xml)) {
+    let token = found[0];
+    if (found[2]) {
+      // Pair the container with its close tag; one whose close tag is absent
+      // from the rest of the part is plain markup.
+      if (absentCloses.has(found[2])) continue;
+      const closeTag = `</${found[2]}>`;
+      const at = xml.indexOf(closeTag, found.index + token.length);
+      if (at < 0) {
+        absentCloses.add(found[2]);
+        continue;
+      }
+      token = xml.slice(found.index, at + closeTag.length);
+      pattern.lastIndex = at + closeTag.length;
+    }
+    if (found[1] !== undefined) {
+      out += decodeXmlEntities(found[1]);
       afterFigure = false;
-    } else if (match[0].startsWith('<w:drawing') || match[0].startsWith('<p:pic')) {
+    } else if (token.startsWith('<w:drawing') || token.startsWith('<p:pic')) {
       if (out && !out.endsWith('\n')) out += '\n';
-      out += drawingMarker(match[0]);
+      out += drawingMarker(token);
       // A Word text box lives inside the drawing; its words stay readable.
-      const inside = [...match[0].matchAll(/<w:txbxContent\b[^>]*>([\s\S]*?)<\/w:txbxContent>/g)]
-        .map(([, box]) => ooxmlPartText(box, { textTag, paraTag }))
+      const inside = [...scanElements(token, 'w:txbxContent')]
+        .filter((box) => box.inner !== null)
+        .map((box) => ooxmlPartText(box.inner, { textTag, paraTag }))
         .filter(Boolean)
         .join(' ');
-      if (inside) out += ` ${inside.replace(/\s*\n+\s*/g, ' ')}`;
+      if (inside) out += ` ${collapseNewlineRuns(inside)}`;
       out += '\n';
       afterFigure = true;
-    } else if (match[0].startsWith('<w:footnoteReference') || match[0].startsWith('<w:endnoteReference')) {
+    } else if (token.startsWith('<w:footnoteReference') || token.startsWith('<w:endnoteReference')) {
       // The citation is where the sentence puts it; the note's own words
       // are collected under the body so the source survives the read.
       if (notes) {
         notes.push({
-          kind: match[0].startsWith('<w:endnoteReference') ? 'endnote' : 'footnote',
-          id: /\bw:id="(-?\d+)"/.exec(match[0])?.[1] || '',
+          kind: token.startsWith('<w:endnoteReference') ? 'endnote' : 'footnote',
+          id: /\bw:id="(-?\d+)"/.exec(token)?.[1] || '',
         });
         out += `[note ${notes.length}]`;
         afterFigure = false;
       }
-    } else if (match[0].startsWith('<p:graphicFrame')) {
+    } else if (token.startsWith('<p:graphicFrame')) {
       // The frame holds a table, a chart, or a diagram. A table is words
       // the reader needs; the other two carry none, so they are named.
-      const inner = match[0].replace(/^<p:graphicFrame\b[^>]*>/, '').replace(/<\/p:graphicFrame>$/, '');
+      const inner = token.replace(GRAPHIC_FRAME_OPEN_RE, '').replace(/<\/p:graphicFrame>$/, '');
       if (/<a:tbl\b/.test(inner)) {
         const rows = ooxmlPartText(inner, { textTag, paraTag });
         if (rows) {
@@ -194,16 +335,16 @@ function ooxmlPartText(xml, { textTag, paraTag, notes = null }) {
         afterFigure = Boolean(rows);
       } else {
         if (out && !out.endsWith('\n')) out += '\n';
-        out += `${drawingMarker(match[0])}\n`;
+        out += `${drawingMarker(token)}\n`;
         afterFigure = true;
       }
-    } else if (match[0].endsWith(':tc>')) {
-      out = `${out.replace(/[\t\n]+$/, '')}\t`;
+    } else if (token.endsWith(':tc>')) {
+      out = `${trimTrailingBreaks(out)}\t`;
       afterFigure = false;
-    } else if (match[0].endsWith(':tr>')) {
-      out = `${out.replace(/[\t\n]+$/, '')}\n`;
+    } else if (token.endsWith(':tr>')) {
+      out = `${trimTrailingBreaks(out)}\n`;
       afterFigure = false;
-    } else if (match[0].includes('tab')) {
+    } else if (token.includes('tab')) {
       out += '\t';
       afterFigure = false;
     } else {
@@ -214,7 +355,6 @@ function ooxmlPartText(xml, { textTag, paraTag, notes = null }) {
   // Collapse the trailing run of blank lines XML part endings produce.
   return out.replace(/\n{3,}/g, '\n\n').trim();
 }
-
 // A workbook's text is its grid: sheet by sheet, one row per line, cells
 // separated by tabs and empty columns kept so a value stays under its header.
 // A formula cell reads as the value Excel last cached for it, which is what
@@ -228,14 +368,32 @@ function columnIndex(reference) {
   const letters = /^[A-Z]+/.exec(String(reference).toUpperCase())?.[0] || '';
   let index = 0;
   for (const letter of letters) index = index * 26 + (letter.charCodeAt(0) - 64);
-  return Math.max(1, index);
+  // Excel's last column is XFD (16384); a larger reference is a malformed one.
+  return Math.min(16384, Math.max(1, index));
+}
+
+// Relationship entries of a .rels part, attribute order independent.
+function relationshipList(xml) {
+  return [...xml.matchAll(re('g')`<Relationship\b(${A}?)/?>`)]
+    .map(([, attributes]) => ({
+      id: /\bId="([^"<>]+)"/.exec(attributes)?.[1],
+      target: /\bTarget="([^"<>]+)"/.exec(attributes)?.[1],
+    }))
+    .filter((relationship) => relationship.target !== undefined);
 }
 
 function sharedStringTable(xml) {
   if (!xml) return [];
-  return [...xml.matchAll(/<si(?:\s[^>]*)?>([\s\S]*?)<\/si>/g)].map(([, inner]) =>
-    [...inner.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(([, text]) => decodeXmlEntities(text)).join('')
-  );
+  return [...scanElements(xml, 'si')]
+    .filter((item) => item.inner !== null)
+    .map((item) => textRuns(item.inner));
+}
+
+// Concatenated <t> character data of one fragment.
+function textRuns(fragment) {
+  return [...fragment.matchAll(T_RUN_RE)]
+    .map(([, text]) => decodeXmlEntities(text))
+    .join('');
 }
 
 // Excel stores a date as a day count and a percentage as a fraction, so a
@@ -262,13 +420,13 @@ const BUILTIN_NUMBER_FORMATS = new Map([
 function cellNumberFormats(xml) {
   if (!xml) return [];
   const custom = new Map(
-    [...xml.matchAll(/<numFmt\b[^>]*\bnumFmtId="(\d+)"[^>]*\bformatCode="([^"]*)"/g)].map(([, id, code]) => [
-      Number(id),
-      decodeXmlEntities(code),
-    ])
+    [...xml.matchAll(re('g')`<numFmt\b(${A}?)/?>`)]
+      .map(([, attributes]) => [/\bnumFmtId="(\d+)"/.exec(attributes)?.[1], /\bformatCode="([^"<>]*)"/.exec(attributes)?.[1]])
+      .filter(([id, code]) => id !== undefined && code !== undefined)
+      .map(([id, code]) => [Number(id), decodeXmlEntities(code)])
   );
-  const cellXfs = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(xml)?.[1] || '';
-  return [...cellXfs.matchAll(/<xf\b([^>]*?)\/?>/g)].map(([, attributes]) => {
+  const cellXfs = firstElement(xml, 'cellXfs')?.inner || '';
+  return [...cellXfs.matchAll(re('g')`<xf\b(${A}?)/?>`)].map(([, attributes]) => {
     const id = Number(/\bnumFmtId="(\d+)"/.exec(attributes)?.[1] || 0);
     return custom.get(id) || BUILTIN_NUMBER_FORMATS.get(id) || '';
   });
@@ -318,9 +476,9 @@ function columnName(index) {
 // working column. Read as ordinary cells they enter the answer as what the sheet
 // says, and an edit written into a hidden column lands where nobody looks.
 function hiddenColumnNumbers(xml) {
-  const declarations = /<cols\b[^>]*>([\s\S]*?)<\/cols>/.exec(xml)?.[1] || '';
+  const declarations = firstElement(xml, 'cols')?.inner || '';
   const hidden = [];
-  for (const [, attributes] of declarations.matchAll(/<col\b([^>]*?)\/?>/g)) {
+  for (const [, attributes] of declarations.matchAll(re('g')`<col\b(${A}?)/?>`)) {
     if (!/\bhidden="(?:1|true)"/.test(attributes)) continue;
     const first = Number(/\bmin="(\d+)"/.exec(attributes)?.[1] || 0);
     const last = Number(/\bmax="(\d+)"/.exec(attributes)?.[1] || first);
@@ -330,31 +488,41 @@ function hiddenColumnNumbers(xml) {
   return hidden;
 }
 
-function worksheetRows(xml, strings, formats = []) {
+function trimTrailingTabs(text) {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '\t') end -= 1;
+  return text.slice(0, end);
+}
+
+// `maxContentChars` stops the build once the grid alone is longer than the
+// caller can ever show (capOutput cuts the text anyway), so a sheet of far-right
+// cells on thousands of rows costs the output cap, not hundreds of megabytes.
+// The text built so far is a prefix of the full text, so the cut output is the same.
+function worksheetRows(xml, strings, formats = [], maxContentChars = Infinity) {
   const lines = [];
   let truncated = false;
-  for (const row of xml.matchAll(/<row(\s[^>]*)?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
-    const rowAttributes = row[1] || '';
-    const rowXml = row[2];
+  let chars = 0; // length of lines joined by newlines
+  let contentChars = 0; // the same, through the last non-empty line
+  for (const row of scanElements(xml, 'row')) {
+    const rowAttributes = row.attrs;
+    const rowXml = row.inner;
     if (lines.length >= SHEET_MAX_ROWS) {
       truncated = true;
       break;
     }
     const cells = [];
-    for (const cell of (rowXml || '').matchAll(/<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-      const attributes = cell[1] || '';
-      const inner = cell[2] || '';
+    for (const cell of scanElements(rowXml || '', 'c')) {
+      const attributes = cell.attrs;
+      const inner = cell.inner || '';
       const type = /\bt="([^"]+)"/.exec(attributes)?.[1] || 'n';
       let text = '';
       if (type === 's') {
-        const index = Number(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(inner)?.[1]);
+        const index = Number(V_RE.exec(inner)?.[1]);
         text = strings[index] ?? '';
       } else if (type === 'inlineStr') {
-        text = [...inner.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)]
-          .map(([, value]) => decodeXmlEntities(value))
-          .join('');
+        text = textRuns(inner);
       } else {
-        text = decodeXmlEntities(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(inner)?.[1] || '');
+        text = decodeXmlEntities(V_RE.exec(inner)?.[1] || '');
         const style = Number(/\bs="(\d+)"/.exec(attributes)?.[1] ?? NaN);
         if (text && Number.isInteger(style)) text = displayedNumber(text, formats[style] || '');
       }
@@ -362,8 +530,12 @@ function worksheetRows(xml, strings, formats = []) {
       while (cells.length < column - 1) cells.push('');
       cells[column - 1] = text;
     }
-    const line = cells.join('\t').replace(/\t+$/, '');
-    lines.push(line && /\bhidden="(?:1|true)"/.test(rowAttributes) ? `[hidden] ${line}` : line);
+    const line = trimTrailingTabs(cells.join('\t'));
+    const shown = line && /\bhidden="(?:1|true)"/.test(rowAttributes) ? `[hidden] ${line}` : line;
+    lines.push(shown);
+    chars += (lines.length > 1 ? 1 : 0) + shown.length;
+    if (shown) contentChars = chars;
+    if (contentChars > maxContentChars) break;
   }
   while (lines.length && !lines.at(-1)) lines.pop();
   const header = (lines[0] || '').replace(/^\[hidden\] /, '').split('\t');
@@ -381,14 +553,14 @@ function worksheetRows(xml, strings, formats = []) {
 function slideNotesText(buf, entries, slidePart) {
   const relsName = slidePart.replace(/^ppt\/slides\//, 'ppt/slides/_rels/').concat('.rels');
   const rels = partText(buf, entries, relsName);
-  const target = [...rels.matchAll(/<Relationship\b[^>]*\bTarget="([^"]+)"/g)]
-    .map(([, value]) => String(value))
+  const target = relationshipList(rels)
+    .map(({ target: value }) => String(value))
     .find((value) => /notesSlide\d+\.xml$/.test(value));
   if (!target) return '';
   const xml = partText(buf, entries, `ppt/${target.replace(/^\.\.\//, '')}`);
-  return [...xml.matchAll(/<p:sp>[\s\S]*?<\/p:sp>/g)]
-    .filter((shape) => /<p:ph\b[^>]*\btype="body"/.test(shape[0]))
-    .map((shape) => ooxmlPartText(shape[0], { textTag: 'a:t', paraTag: 'a:p' }))
+  return [...scanElements(xml, 'p:sp')]
+    .filter((shape) => shape.inner !== null && BODY_PLACEHOLDER_RE.test(shape.full))
+    .map((shape) => ooxmlPartText(shape.full, { textTag: 'a:t', paraTag: 'a:p' }))
     .filter(Boolean)
     .join('\n')
     .trim();
@@ -400,8 +572,8 @@ function noteBodies(buf, entries, part, tag) {
   const xml = partText(buf, entries, part);
   const bodies = new Map();
   if (!xml) return bodies;
-  const pattern = new RegExp(`<${tag}\\b([^>]*)>([\\s\\S]*?)</${tag}>`, 'g');
-  for (const [, attributes, inner] of xml.matchAll(pattern)) {
+  for (const { attrs: attributes, inner } of scanElements(xml, tag)) {
+    if (inner === null) continue;
     // The separator rules Word draws above the note area carry a type and
     // no words; they are not notes.
     if (/\bw:type="/.test(attributes)) continue;
@@ -465,8 +637,8 @@ function relatedPart(target, ownerPart) {
 // grid, with the chart's own title when it has one.
 function sheetFigures(buf, entries, sheetPart) {
   const sheetRels = partText(buf, entries, sheetPart.replace(/([^/]+)$/, '_rels/$1.rels'));
-  const drawingTarget = [...sheetRels.matchAll(/<Relationship\b[^>]*\bTarget="([^"]+)"/g)]
-    .map(([, value]) => String(value))
+  const drawingTarget = relationshipList(sheetRels)
+    .map(({ target: value }) => String(value))
     .find((value) => /drawings\/drawing\d+\.xml$/.test(value));
   if (!drawingTarget) return [];
   const drawingPart = relatedPart(drawingTarget, sheetPart);
@@ -474,20 +646,21 @@ function sheetFigures(buf, entries, sheetPart) {
   if (!drawing) return [];
   const drawingRels = partText(buf, entries, drawingPart.replace(/([^/]+)$/, '_rels/$1.rels'));
   const targets = new Map(
-    [...drawingRels.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"/g)].map(([, id, target]) => [
-      id,
-      relatedPart(target, drawingPart),
-    ])
+    relationshipList(drawingRels)
+      .filter((relationship) => relationship.id !== undefined)
+      .map(({ id, target }) => [id, relatedPart(target, drawingPart)])
   );
   const figures = [];
-  for (const [anchor] of drawing.matchAll(
-    /<xdr:(?:absoluteAnchor|twoCellAnchor|oneCellAnchor)\b[\s\S]*?<\/xdr:(?:absoluteAnchor|twoCellAnchor|oneCellAnchor)>/g
-  )) {
-    const chartId = /<c:chart\b[^>]*\br:id="([^"]+)"/.exec(anchor)?.[1];
+  const anchors = ['xdr:absoluteAnchor', 'xdr:twoCellAnchor', 'xdr:oneCellAnchor']
+    .flatMap((name) => [...scanElements(drawing, name)])
+    .filter((item) => item.inner !== null)
+    .sort((a, b) => a.index - b.index);
+  for (const { full: anchor } of anchors) {
+    const chartId = re()`<c:chart\b${A}?\br:id="([^"<>]+)"`.exec(anchor)?.[1];
     if (chartId) {
       const chartXml = partText(buf, entries, targets.get(chartId));
       const title = flattenLines(
-        ooxmlPartText(/<c:title\b[\s\S]*?<\/c:title>/.exec(chartXml)?.[0] || '', { textTag: 'a:t', paraTag: 'a:p' })
+        ooxmlPartText(firstElement(chartXml, 'c:title')?.full || '', { textTag: 'a:t', paraTag: 'a:p' })
       );
       figures.push(title ? `[chart: ${title}]` : '[chart]');
       continue;
@@ -500,15 +673,18 @@ function sheetFigures(buf, entries, sheetPart) {
 function capOutput(text, maxOutputBytes) {
   const buf = Buffer.from(text, 'utf8');
   if (buf.length <= maxOutputBytes) return text;
-  return `${buf
-    .subarray(0, maxOutputBytes)
-    .toString('utf8')
-    .replace(/\uFFFD+$/, '')}\n... [office text truncated at ${maxOutputBytes} bytes]`;
+  let cut = buf.subarray(0, maxOutputBytes).toString('utf8');
+  // Drop the replacement characters a split multi-byte sequence leaves (a loop:
+  // `/\uFFFD+$/` is quadratic on a long run of them).
+  let end = cut.length;
+  while (end > 0 && cut[end - 1] === '\uFFFD') end -= 1;
+  cut = cut.slice(0, end);
+  return `${cut}\n... [office text truncated at ${maxOutputBytes} bytes]`;
 }
 
 function docxText(buf, entries, maxOutputBytes) {
   const entry = entries.get('word/document.xml');
-  if (!entry) return 'Error: no word/document.xml part — not a DOCX document (or an encrypted one)';
+  if (!entry) throw new OfficeFormatError('no word/document.xml part — not a DOCX document (or an encrypted one)');
   const notes = [];
   const body = markHiddenWordRuns(zipEntryContent(buf, entry).toString('utf8'));
   const text = ooxmlPartText(body, { textTag: 'w:t', paraTag: 'w:p', notes });
@@ -519,11 +695,13 @@ function docxText(buf, entries, maxOutputBytes) {
 
 function workbookText(buf, entries, maxOutputBytes) {
   const workbookEntry = entries.get('xl/workbook.xml');
-  if (!workbookEntry) return 'Error: no xl/workbook.xml part — not an Excel workbook (or an encrypted one)';
+  if (!workbookEntry) {
+    throw new OfficeFormatError('no xl/workbook.xml part — not an Excel workbook (or an encrypted one)');
+  }
   const workbook = zipEntryContent(buf, workbookEntry).toString('utf8');
   const relationships = new Map();
   const rels = partText(buf, entries, 'xl/_rels/workbook.xml.rels');
-  for (const [, id, target] of rels.matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"/g)) {
+  for (const { id, target } of relationshipList(rels).filter((relationship) => relationship.id !== undefined)) {
     relationships.set(
       id,
       `xl/${String(target)
@@ -534,7 +712,8 @@ function workbookText(buf, entries, maxOutputBytes) {
   const strings = sharedStringTable(partText(buf, entries, 'xl/sharedStrings.xml'));
   const formats = cellNumberFormats(partText(buf, entries, 'xl/styles.xml'));
   const sections = [];
-  for (const [, attributes] of workbook.matchAll(/<sheet\b([^>]*)\/>/g)) {
+  let sectionChars = 0;
+  for (const [, attributes] of workbook.matchAll(re('g')`<sheet\b(${A}?)/>`)) {
     // A hidden sheet is content the workbook does not show; reading
     // it as an ordinary sheet presents withheld data as the answer.
     const state = (/\bstate="([^"]*)"/.exec(attributes)?.[1] || '').toLowerCase();
@@ -550,17 +729,21 @@ function workbookText(buf, entries, maxOutputBytes) {
     const { text, truncated, hiddenColumns } = worksheetRows(
       zipEntryContent(buf, entry).toString('utf8'),
       strings,
-      formats
+      formats,
+      maxOutputBytes
     );
     const figures = sheetFigures(buf, entries, part);
-    sections.push(
+    const section =
       `--- sheet ${name} ---\n${text || '(empty sheet)'}` +
-        `${truncated ? `\n... [sheet truncated at ${SHEET_MAX_ROWS} rows]` : ''}` +
-        `${hiddenColumns.length ? `\n[hidden columns: ${hiddenColumns.join(', ')}]` : ''}` +
-        `${figures.length ? `\n${figures.join('\n')}` : ''}`
-    );
+      `${truncated ? `\n... [sheet truncated at ${SHEET_MAX_ROWS} rows]` : ''}` +
+      `${hiddenColumns.length ? `\n[hidden columns: ${hiddenColumns.join(', ')}]` : ''}` +
+      `${figures.length ? `\n${figures.join('\n')}` : ''}`;
+    sections.push(section);
+    // Sheets past the output cap are cut by capOutput; do not build them.
+    sectionChars += section.length + 2;
+    if (sectionChars > maxOutputBytes) break;
   }
-  if (!sections.length) return 'Error: workbook declares no sheets';
+  if (!sections.length) throw new OfficeFormatError('workbook declares no sheets');
   return capOutput(sections.join('\n\n'), maxOutputBytes);
 }
 
@@ -573,14 +756,16 @@ function presentationText(buf, entries, maxOutputBytes) {
     })
     .filter(Boolean)
     .sort((a, b) => a.n - b.n);
-  if (slides.length === 0) return 'Error: no ppt/slides/*.xml parts — not a PPTX presentation (or an encrypted one)';
+  if (slides.length === 0) {
+    throw new OfficeFormatError('no ppt/slides/*.xml parts — not a PPTX presentation (or an encrypted one)');
+  }
   const sections = slides.map(({ name, n }) => {
     const xml = zipEntryContent(buf, entries.get(name)).toString('utf8');
     const text = ooxmlPartText(markHiddenSlideShapes(xml), { textTag: 'a:t', paraTag: 'a:p' });
     const notes = slideNotesText(buf, entries, name);
     // A hidden slide is not shown when the deck is presented; reading it
     // as an ordinary page puts a withdrawn page in the summary.
-    const hidden = /<p:sld\b[^>]*\bshow="0"/.test(xml) ? ' (hidden)' : '';
+    const hidden = HIDDEN_SLIDE_RE.test(xml) ? ' (hidden)' : '';
     return `--- slide ${n}${hidden} ---\n${text || '(no text)'}${notes ? `\n[notes] ${notes.replace(/\n/g, '\n        ')}` : ''}`;
   });
   return capOutput(sections.join('\n\n'), maxOutputBytes);
@@ -592,28 +777,74 @@ function presentationText(buf, entries, maxOutputBytes) {
  * extractPdfText.
  */
 export async function extractOoxmlText(fullPath, { maxOutputBytes = 100 * 1024 } = {}) {
-  const ext = String(fullPath).toLowerCase().slice(-5);
-  const spreadsheet = ext === '.xlsx' || ext === '.xlsm';
   try {
     const st = await stat(fullPath);
     if (st.size > OFFICE_MAX_BYTES) {
       return `Error: office file is ${st.size} bytes (max ${OFFICE_MAX_BYTES}); extract the part you need with a shell unzip instead`;
     }
-    const buf = await readFile(fullPath);
-    // A legacy .doc/.xls/.ppt is an OLE compound file, not a ZIP package —
-    // and it often arrives renamed to .docx. "Not a ZIP container" tells the
-    // reader nothing it can act on; the format and the way out do.
-    if (buf.subarray(0, 8).equals(OLE_COMPOUND_MAGIC)) {
-      return (
-        'Error: this is a legacy Office file (.doc/.xls/.ppt), not an Office Open XML package' +
-        ' — open it in Word, Excel, or PowerPoint and save a copy as .docx/.xlsx/.pptx, then read that copy'
-      );
-    }
-    const entries = zipCentralDirectory(buf);
-    if (ext === '.docx') return docxText(buf, entries, maxOutputBytes);
-    if (spreadsheet) return workbookText(buf, entries, maxOutputBytes);
-    return presentationText(buf, entries, maxOutputBytes);
+    return extractOoxmlTextFromBuffer(await readFile(fullPath), fullPath, { maxOutputBytes });
   } catch (err) {
     return `Error: office extraction failed — ${err instanceof Error ? err.message : String(err)}`;
   }
+}
+
+/**
+ * Buffer form of extractOoxmlText, shared by the read tool and provider
+ * lowering. Synchronous and pure in (buffer, filename extension, limit): the
+ * same bytes always yield the same text. The format comes from the filename
+ * extension, else from the package's own parts. Failures return "Error: …".
+ */
+export function extractOoxmlTextFromBuffer(buf, filename = '', { maxOutputBytes = 100 * 1024 } = {}) {
+  try {
+    return extractOoxmlCore(buf, filename, maxOutputBytes);
+  } catch (err) {
+    if (err instanceof OfficeFormatError) return `Error: ${err.message}`;
+    return `Error: office extraction failed — ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+/**
+ * Same extraction, but a file that cannot be read yields null instead of an
+ * "Error: …" string, so provider lowering never mistakes a document that
+ * happens to start with "Error:" for a failure (or the reverse).
+ */
+export function tryExtractOoxmlTextFromBuffer(
+  buf,
+  filename = '',
+  { maxOutputBytes = 100 * 1024, maxPartBytes = 0, maxContainerBytes = 0 } = {}
+) {
+  try {
+    return extractOoxmlCore(buf, filename, maxOutputBytes, { maxPartBytes, maxContainerBytes });
+  } catch {
+    return null;
+  }
+}
+
+// A structural refusal (as opposed to an unexpected failure).
+class OfficeFormatError extends Error {}
+
+function extractOoxmlCore(buf, filename, maxOutputBytes, limits = {}) {
+  let ext = String(filename).toLowerCase().slice(-5);
+  if (buf.length > OFFICE_MAX_BYTES) {
+    throw new OfficeFormatError(
+      `office file is ${buf.length} bytes (max ${OFFICE_MAX_BYTES}); extract the part you need with a shell unzip instead`
+    );
+  }
+  // A legacy .doc/.xls/.ppt is an OLE compound file, not a ZIP package —
+  // and it often arrives renamed to .docx. "Not a ZIP container" tells the
+  // reader nothing it can act on; the format and the way out do.
+  if (buf.subarray(0, 8).equals(OLE_COMPOUND_MAGIC)) {
+    throw new OfficeFormatError(
+      'this is a legacy Office file (.doc/.xls/.ppt), not an Office Open XML package' +
+        ' — open it in Word, Excel, or PowerPoint and save a copy as .docx/.xlsx/.pptx, then read that copy'
+    );
+  }
+  const entries = zipCentralDirectory(buf, limits);
+  if (!['.docx', '.xlsx', '.xlsm', '.pptx'].includes(ext)) {
+    if (entries.has('word/document.xml')) ext = '.docx';
+    else if (entries.has('xl/workbook.xml')) ext = '.xlsx';
+  }
+  if (ext === '.docx') return docxText(buf, entries, maxOutputBytes);
+  if (ext === '.xlsx' || ext === '.xlsm') return workbookText(buf, entries, maxOutputBytes);
+  return presentationText(buf, entries, maxOutputBytes);
 }

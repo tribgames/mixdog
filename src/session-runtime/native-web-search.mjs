@@ -23,15 +23,15 @@ export function createNativeWebSearch(deps) {
     getReg,
     ensureProvidersReady,
     ensureProviderEnabled,
-    normalizeWebSearchProviderId,
+    webSearchProviderFamily,
     isDefaultWebSearchRouteConfig,
   } = deps;
   const routes = createWebSearchRouteCandidates(deps);
 
   const toolFor = (args, toolType, providerId) =>
-    nativeWebSearchTool(args, toolType, normalizeWebSearchProviderId(providerId));
+    nativeWebSearchTool(args, toolType, webSearchProviderFamily(providerId));
   const toolTypesFor = (routeLike = {}) =>
-    nativeWebSearchToolTypes(routeLike, normalizeWebSearchProviderId(routeLike.provider));
+    nativeWebSearchToolTypes(routeLike, webSearchProviderFamily(routeLike.provider));
 
   function noCandidateError() {
     const route = getRoute();
@@ -56,6 +56,7 @@ export function createNativeWebSearch(deps) {
     if (!providerImpl || typeof providerImpl.send !== 'function') {
       throw new Error(`provider "${candidate.provider}" is not ready`);
     }
+    const family = webSearchProviderFamily(candidate.provider);
     const startedAt = Date.now();
     const result = await providerImpl.send(nativeWebSearchMessages(webSearchArgs), candidate.model, undefined, {
       signal,
@@ -64,11 +65,8 @@ export function createNativeWebSearch(deps) {
       sourceType: 'native-web-search',
       sourceName: 'web_search',
       nativeTools: [toolFor(webSearchArgs, toolType, candidate.provider)],
-      nativeInclude:
-        candidate.provider === 'openai' || candidate.provider === 'openai-oauth'
-          ? ['web_search_call.action.sources']
-          : [],
-      toolChoice: candidate.provider === 'gemini' ? 'auto' : 'required',
+      nativeInclude: family === 'openai' ? ['web_search_call.action.sources'] : [],
+      toolChoice: family === 'gemini' ? 'auto' : 'required',
       ...(candidate.effort ? { effort: candidate.effort } : {}),
       fast: candidate.fast === true,
       modelParameters: candidate.modelParameters || {},

@@ -11,6 +11,7 @@ import {
   parseResponsesToolCalls,
   responseOutputText,
 } from './openai-compat-wire.mjs';
+import { preparePdfTextForProvider } from './media-normalization.mjs';
 import {
   normalizeXaiReasoningEffort,
   xaiModelSupportsReasoningEffort,
@@ -53,12 +54,13 @@ export async function sendXaiResponses(provider, messages, useModel, tools, opts
     const reason = signal.reason;
     throw reason instanceof Error ? reason : new Error('xAI Responses request aborted by session close');
   }
-  const chatMessagesForTrace = toOpenAIMessages(messages, provider.name);
+  messages = await preparePdfTextForProvider(messages, provider);
+  const chatMessagesForTrace = toOpenAIMessages(messages, provider.name, { nativePdf: provider.nativePdf });
   const cacheRouting = xaiResponsesCacheRouting(opts, { messages: chatMessagesForTrace }, tools || [], useModel);
   const { input, previousResponseId, startIndex, continuationResetReason } = toXaiResponsesInput(
     messages,
     opts.providerState,
-    { model: useModel }
+    { model: useModel, providerName: provider.name, nativePdf: provider.nativePdf }
   );
   const params = {
     model: useModel,
@@ -159,12 +161,13 @@ export async function sendXaiResponsesWebSocket(provider, messages, useModel, to
   }
   const apiKey = provider.config?.apiKey || process.env.XAI_API_KEY;
   if (!apiKey) throw new Error('xAI API key not configured');
-  const chatMessagesForTrace = toOpenAIMessages(messages, provider.name);
+  messages = await preparePdfTextForProvider(messages, provider);
+  const chatMessagesForTrace = toOpenAIMessages(messages, provider.name, { nativePdf: provider.nativePdf });
   const cacheRouting = xaiResponsesCacheRouting(opts, { messages: chatMessagesForTrace }, tools || [], useModel);
   const { input, previousResponseId, startIndex, continuationResetReason } = toXaiResponsesInput(
     messages,
     opts.providerState,
-    { includeSystem: false, model: useModel }
+    { includeSystem: false, model: useModel, providerName: provider.name, nativePdf: provider.nativePdf }
   );
   const params = {
     model: useModel,

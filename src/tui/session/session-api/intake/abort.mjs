@@ -2,10 +2,27 @@
 // the draft; Esc during a turn cancels it and, unless a steering prompt is
 // already queued, reclaims the in-flight prompt, its history slot and its
 // requeue entries.
-import { hydratePastedAttachments } from '../../../../runtime/attachments/store.mjs';
+import { hydratePastedAttachments, hydrateRestorableFileParts } from '../../../../runtime/attachments/store.mjs';
 import { abortGoalTurn } from '../../goal-turn-state.mjs';
 import { promptHistoryWithout } from '../../prompt-history.mjs';
 import { isQueuedEntryEditable } from '../../queue-helpers.mjs';
+
+// An attachment whose blob is gone is dropped alone; the prompt is kept.
+function hydrateTolerantly(pastedImages, pastedTexts, content = null) {
+  let unreadable = 0;
+  const onUnreadable = () => {
+    unreadable += 1;
+  };
+  const hydrated = hydratePastedAttachments(pastedImages, pastedTexts, { onUnreadable });
+  const files = hydrateRestorableFileParts(content, { onUnreadable });
+  return {
+    ...hydrated,
+    ...(files.length ? { content: files } : {}),
+    notice: unreadable
+      ? `${unreadable} attachment${unreadable === 1 ? ' was' : 's were'} no longer available and dropped.`
+      : '',
+  };
+}
 
 export function createAbortAction(bag, { acceptingSubmissions }) {
   const {
@@ -30,13 +47,20 @@ export function createAbortAction(bag, { acceptingSubmissions }) {
     if (!restored || Number(restored.count) < 1) {
       const intake = acceptingSubmissions.get(submissionId);
       if (!intake) return false;
+      // Hydrate before cancelling: nothing is lost if an attachment is gone.
+      const attachments = hydrateTolerantly(
+        intake.queueOptions.pastedImages,
+        intake.queueOptions.pastedTexts,
+        intake.text
+      );
       intake.cancelled = true;
-      const attachments = hydratePastedAttachments(intake.queueOptions.pastedImages, intake.queueOptions.pastedTexts);
       return {
         aborted: false,
         restoreText: String(intake.queueOptions.displayText || '').trim(),
         pastedImages: attachments.pastedImages,
         pastedTexts: attachments.pastedTexts,
+        ...(attachments.content ? { content: attachments.content } : {}),
+        ...(attachments.notice ? { notice: attachments.notice } : {}),
         restoredSubmissionIds: [submissionId],
       };
     }
@@ -45,6 +69,8 @@ export function createAbortAction(bag, { acceptingSubmissions }) {
       restoreText: restored.text,
       pastedImages: restored.pastedImages,
       pastedTexts: restored.pastedTexts,
+      ...(restored.content ? { content: restored.content } : {}),
+      ...(restored.notice ? { notice: restored.notice } : {}),
       restoredSubmissionIds: restored.ids,
     };
   };
@@ -132,10 +158,16 @@ export function createAbortAction(bag, { acceptingSubmissions }) {
       restoreState.discardExecutionPendingResumeKeys = [];
     }
     kickDrainAfterAbort();
-    const restored = hydratePastedAttachments(restorePastedImages, restorePastedTexts);
+    const restored = hydrateTolerantly(
+      restorePastedImages,
+      restorePastedTexts,
+      canRestore ? restoreState?.content : null
+    );
     return {
       aborted,
       restoreText,
+      ...(restored.content ? { content: restored.content } : {}),
+      ...(restored.notice ? { notice: restored.notice } : {}),
       pastedImages: restored.pastedImages,
       discardPastedImages,
       pastedTexts: restored.pastedTexts,

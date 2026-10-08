@@ -1,6 +1,7 @@
 import type { NavigationSelection, WorkspaceTab } from './navigation';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
+import { t } from './i18n';
 import { defaultSessionLaneStore } from './session-lane-store';
 import { requestSessionRead } from './app-snapshot-views';
 
@@ -49,7 +50,7 @@ export function useAppSessionOpen({
         id: sessionId,
         ...(pinnedTitle ? { title: pinnedTitle } : {}),
       },
-      pinnedTitle || (session ? sessionSummaryTitle(session) : 'Untitled session')
+      pinnedTitle || (session ? sessionSummaryTitle(session, t('Untitled session')) : t('Untitled session'))
     );
   };
 

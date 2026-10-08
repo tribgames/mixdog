@@ -231,6 +231,9 @@ function foldRollupDay(state, key, day, conversationOnly) {
   for (const [routeKey, raw] of Object.entries(models)) {
     const route = conversationOnly ? raw?.conversation : raw;
     if (!route) continue;
+    // A route with only background traffic carries an empty conversation
+    // bucket; it is not a conversation route and must not become a row.
+    if (conversationOnly && num(route.turns) <= 0) continue;
     const slash = routeKey.indexOf('/');
     const providerId = text(raw?.provider) || (slash > 0 ? routeKey.slice(0, slash) : '');
     const modelId = text(raw?.model) || (slash > 0 ? routeKey.slice(slash + 1) : '');
@@ -524,6 +527,20 @@ function exportProviders(state, { totalTokens, modelLimit }) {
     .sort((a, b) => b.tokens - a.tokens || b.costUsd - a.costUsd);
 }
 
+/** Identity of routes used in the selected window with at least one request
+ *  lacking a real cost (a recorded zero cost is priced and excluded). Built
+ *  from the same period/source-filtered buckets as the provider rows and
+ *  independent of `modelLimit`; usage figures live in providers[].models. */
+function exportUnpricedModels(state) {
+  const rows = [];
+  for (const provider of state.providers.values()) {
+    for (const model of provider.models.values()) {
+      if (model.turns > 0 && model.costKnownTurns < model.turns) rows.push({ provider: provider.provider, model: model.model });
+    }
+  }
+  return rows.sort((a, b) => a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model));
+}
+
 /** One row per calendar day in the window, with its per-provider split.
  *  A day with no traffic is still a day. Only the days that HAD usage are
  *  collected upstream, so an idle stretch would otherwise vanish and pull the
@@ -691,6 +708,7 @@ export function usageStatsSnapshot({
       : null,
     daily,
     providers,
+    unpricedModels: exportUnpricedModels(state),
     coverage: exportCoverage(state, historyPending),
   };
 }

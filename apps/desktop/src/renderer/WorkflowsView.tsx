@@ -67,9 +67,7 @@ function AgentRowIcon({ route, fallback = 'agent' }: { route: RecordValue; fallb
 
 function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
   return (
-    // The model line is a value, not UI copy: "Default" and model names stay
-    // untranslated (user: 다국어 안 먹게).
-    <small className="agent-route-summary route-trigger-copy" data-i18n-skip>
+    <small className="agent-route-summary route-trigger-copy">
       <ModelRouteLabel
         model={summary.model}
         effort={summary.effort}
@@ -168,7 +166,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     const result = await run(editor?.pack ? 'saveWorkflowPack' : 'createWorkflow', [payload]);
     if (result !== undefined) {
       setEditor(null);
-      showDesktopToast(`Saved "${String(payload.name || payload.id)}".`, 'success');
+      showDesktopToast(t('Saved "{{name}}".', { name: String(payload.name || payload.id) }), 'success');
     }
   };
   const deleteWorkflowPack = async (id: string) => {
@@ -176,7 +174,9 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     if (result !== undefined) {
       setEditor(null);
       showDesktopToast(
-        record(result).revertedToBuiltIn === true ? `"${id}" reverted to the built-in pack.` : `Deleted "${id}".`,
+        record(result).revertedToBuiltIn === true
+          ? t('"{{id}}" reverted to the built-in pack.', { id })
+          : t('Deleted "{{id}}".', { id }),
         'success'
       );
     }
@@ -241,14 +241,14 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     const result = await run('saveAgentDefinition', [payload]);
     if (result !== undefined) {
       setAgentEditor(null);
-      showDesktopToast(`Saved agent "${String(payload.name || payload.id)}".`, 'success');
+      showDesktopToast(t('Saved agent "{{name}}".', { name: String(payload.name || payload.id) }), 'success');
     }
   };
   const deleteAgent = async (id: string) => {
     const result = await run('deleteAgentDefinition', [id]);
     if (result !== undefined) {
       setAgentEditor(null);
-      showDesktopToast(`Deleted agent "${id}".`, 'success');
+      showDesktopToast(t('Deleted agent "{{id}}".', { id }), 'success');
     }
   };
   const saveRoute = async (route: RecordValue) => {
@@ -257,7 +257,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
     const result = await run(routeEditor.capability, args);
     if (result !== undefined) {
       setRouteEditor(null);
-      showDesktopToast(`Saved "${routeEditor.label}" route.`, 'success');
+      showDesktopToast(t('Saved "{{name}}" route.', { name: routeEditor.label }), 'success');
     }
   };
   const setAgentEnabled = (id: string, enabled: boolean, route: RecordValue) => {
@@ -310,7 +310,8 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
             disabled,
             capability: 'setAgentRoute',
             modelKind: 'agent',
-            description: agent.description,
+            description:
+              agent.description && !agent.custom && !agent.userOverride ? t(agent.description) : agent.description,
             readOnlyDefinition: true,
           })
         }
@@ -413,6 +414,9 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                   const id = String(workflow.id || '');
                   const name = String(workflow.name || id);
                   const custom = String(workflow.source || '') === 'user';
+                  const description = String(workflow.description || '');
+                  const shownDescription =
+                    description && String(workflow.source || '') === 'built-in' ? t(description) : description;
                   return (
                     <button
                       type="button"
@@ -420,7 +424,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                       className="schedules-row utilities-row sidebar-resource-row"
                       disabled={busy}
                       aria-label={t('Edit workflow {{name}}', { name })}
-                      data-tooltip={workflow.description ? t(String(workflow.description)) : undefined}
+                      data-tooltip={shownDescription || undefined}
                       onClick={() => void openEditor(id, name, custom)}
                       {...workflowOrder.getReorderProps(id)}
                     >
@@ -429,11 +433,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                       </span>
                       <span className="schedules-row-copy utilities-row-copy">
                         <b>{name}</b>
-                        <small>
-                          {[workflow.description ? t(String(workflow.description)) : '', custom ? t('Custom') : '']
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </small>
+                        <small>{[shownDescription, custom ? t('Custom') : ''].filter(Boolean).join(' · ')}</small>
                       </span>
                       <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
                     </button>
@@ -475,7 +475,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                 <AgentRowIcon route={webSearchRoute} fallback="web" />
                 <span className="schedules-row-copy utilities-row-copy">
                   {/* Agent names stay as named, like every other row (user: 워커명이 왜 저거만 한글이야). */}
-                  <b data-i18n-skip>Web Search</b>
+                  <b>Web Search</b>
                   <AgentRouteSummaryView summary={agentRouteSummary(webSearchRoute, webSearchModels)} />
                 </span>
                 <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />

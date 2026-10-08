@@ -76,6 +76,8 @@ export { compatReportedCostUsd } from './openai-compat-response-normalization.mj
 const PRESETS = OPENAI_COMPAT_PRESETS;
 
 export class OpenAICompatProvider {
+  // No document block on this wire: a PDF is lowered to text before the request is built.
+  nativePdf = false;
   // Chat Completions prompt_tokens is already the total (includes cached).
   // Covers grok-oauth and all OPENAI_COMPAT_PRESETS. See registry.mjs.
   static inputExcludesCache = false;

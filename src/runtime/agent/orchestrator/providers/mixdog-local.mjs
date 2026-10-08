@@ -5,6 +5,7 @@ import {
 } from '../../../local-provider/managed-runtime.mjs';
 import { OpenAICompatProvider } from './openai-compat.mjs';
 import { toLocalProviderMessages } from './mixdog-local-wire.mjs';
+import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { runLocalProviderRequest } from '../../../local-provider/server.mjs';
 import { localProviderModelEntry } from '../../../local-provider/catalog.mjs';
 import { assertLocalModelInput } from '../../../local-provider/input-capabilities.mjs';
@@ -12,6 +13,8 @@ import { beginLocalInference, localModelState } from '../../../local-provider/mo
 
 export class MixdogLocalProvider {
   static inputExcludesCache = false;
+  // The managed local runtime is text-only: PDFs lower to text.
+  nativePdf = false;
 
   constructor(config = {}, { ensureServer = ensureLocalProviderServer, runRequest = runLocalProviderRequest } = {}) {
     this.name = 'mixdog-local';
@@ -42,8 +45,9 @@ export class MixdogLocalProvider {
     const signal = sendOpts?.signal;
     signal?.throwIfAborted();
     const entry = localProviderModelEntry(model) || { id: model, name: model };
-    assertLocalModelInput(entry, messages, tools, sendOpts, localModelState(model).capabilities);
-    const wireMessages = toLocalProviderMessages(messages);
+    const prepared = await preparePdfTextForProvider(messages, this);
+    const textMessages = assertLocalModelInput(entry, prepared, tools, sendOpts, localModelState(model).capabilities);
+    const wireMessages = toLocalProviderMessages(textMessages);
     const queuedAt = performance.now();
     return this._runRequest(
       async (requestSignal) => {
@@ -51,7 +55,9 @@ export class MixdogLocalProvider {
         try {
           const provider = await this._providerFor(model, requestSignal);
           requestSignal.throwIfAborted();
-          assertLocalModelInput(entry, messages, tools, sendOpts, localModelState(model).capabilities);
+          // The server's capabilities are known once it is up: check the
+          // already-converted messages against them.
+          assertLocalModelInput(entry, prepared, tools, sendOpts, localModelState(model).capabilities);
           const result = await provider.send(wireMessages, model, tools, {
             ...sendOpts,
             signal: requestSignal,

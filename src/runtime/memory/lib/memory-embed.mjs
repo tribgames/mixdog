@@ -48,8 +48,6 @@ const _rawTimeout = Number(process.env.MIXDOG_EMBED_FLUSH_TIMEOUT_MS);
 const EMBED_FLUSH_TIMEOUT_MS = Number.isFinite(_rawTimeout) && _rawTimeout > 0 ? _rawTimeout : 30_000;
 
 const BATCH_SIZE = 32;
-const RAW_EMBEDDING_ENABLED = process.env.MIXDOG_ENABLE_RAW_EMBEDDINGS === '1';
-let _rawEmbeddingDisabledLogged = false;
 
 // Conservative per-text length cap applied before any text reaches the
 // embedding provider. Raw transcript rows and tool-output content can be
@@ -358,13 +356,6 @@ export async function flushEmbeddingDirty(db, options = {}) {
 export async function flushRawEmbeddings(db, options = {}) {
   const { limit = 200, signal } = options ?? {};
   throwIfAborted(signal);
-  if (!RAW_EMBEDDING_ENABLED) {
-    if (!_rawEmbeddingDisabledLogged) {
-      __mixdogMemoryLog('[embed] raw transcript embedding disabled; only root/summary entries are embedded\n');
-      _rawEmbeddingDisabledLogged = true;
-    }
-    return { attempted: 0, embedded: 0, skipped: 'raw-embedding-disabled' };
-  }
   // Optional id allow-list: restrict the SKIP LOCKED claim to a specific set of
   // rows (e.g. exactly the rows a single ingest_session call inserted) so a
   // caller can flush ONLY its own rows instead of inheriting the whole raw

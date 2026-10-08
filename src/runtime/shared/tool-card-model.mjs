@@ -106,7 +106,7 @@ export function deriveToolCardModel(input = {}, options = {}) {
     isShellSurface: isShellTool(normalizedName, label),
     isSkillSurface: SKILL_SURFACE_NAMES.has(String(normalizedName || '').toLowerCase()),
   };
-  const display = resolveDisplayedResult(base, surface);
+  const display = resolveDisplayedResult(base, surface, options.translate);
   const status = deriveCardStatus(base, surface, display);
   const detail = deriveCardDetail(base, surface, display, status);
   const header = deriveCardHeader(base, surface, display, status, detail);
@@ -125,6 +125,7 @@ export function deriveToolCardModel(input = {}, options = {}) {
     firstResultLine: display.firstResultLine,
     totalLines: display.totalLines,
     resultSummary: display.resultSummary,
+    ...(options.translate ? { resultSummaryDisplay: display.resultSummaryDisplay } : {}),
     shellCollapsedSummary: detail.shellCollapsedSummary,
     agentSurfaceBrief: detail.agentSurfaceBrief,
     toolArgPath: String(detail.toolArgPath || ''),

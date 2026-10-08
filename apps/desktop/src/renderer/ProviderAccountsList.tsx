@@ -288,7 +288,7 @@ export function ProviderAccountsList({
           <span className="provider-accounts-icon">
             <ProviderIcon provider={provider} />
           </span>
-          <b>{t(title)}</b>
+          <b>{title}</b>
           {pool && pool.accounts.length > 0 && (
             <small>{t('{{count}} accounts', { count: pool.accounts.length })}</small>
           )}
@@ -335,7 +335,7 @@ export function ProviderAccountsList({
                   type="button"
                   className="provider-account-grip"
                   disabled={pending}
-                  aria-label={t('Reorder account {{name}}', { name: t(account.label) })}
+                  aria-label={t('Reorder account {{name}}', { name: account.label })}
                   title={t('Drag or use Alt + arrow keys to reorder')}
                   onPointerDown={(event) => beginDrag(event, index, account.id)}
                   onPointerMove={moveDrag}
@@ -358,7 +358,7 @@ export function ProviderAccountsList({
                     aria-pressed={selected}
                     onClick={() => void change({ selectedId: account.id })}
                   >
-                    <span>{t(account.label)}</span>
+                    <span>{account.label}</span>
                     {account.reauthRequired && <small>{t('Reauth required')}</small>}
                     {selected && <Check size={14} aria-label={t('Active')} />}
                   </button>
@@ -371,7 +371,7 @@ export function ProviderAccountsList({
                           type="button"
                           className="provider-account-select"
                           disabled={pending}
-                          aria-label={t('Use account {{name}}', { name: t(account.label) })}
+                          aria-label={t('Use account {{name}}', { name: account.label })}
                           onClick={() => void change({ selectedId: account.id })}
                         />
                       )}
@@ -405,14 +405,14 @@ export function ProviderAccountsList({
                               type="button"
                               className="provider-account-name"
                               disabled={pending}
-                              aria-label={t('Rename account {{name}}', { name: t(account.label) })}
+                              aria-label={t('Rename account {{name}}', { name: account.label })}
                               title={t('Rename account')}
                               onClick={() => {
                                 setEditing(account.id);
                                 setName(account.label);
                               }}
                             >
-                              <b>{t(account.label)}</b>
+                              <b>{account.label}</b>
                               <Pencil size={12} aria-hidden="true" />
                             </button>
                           )}
@@ -454,7 +454,7 @@ export function ProviderAccountsList({
           );
         })}
       </ol>
-      {error && <ErrorNotice error={t(error)} className="provider-accounts-error" />}
+      {error && <ErrorNotice error={error} className="provider-accounts-error" />}
     </section>
   );
 }

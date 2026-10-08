@@ -322,7 +322,6 @@ const SETUP_INSTALLABLE_FEATURES = [
   'office',
   'tidy',
   'localProvider',
-  'autoEffort',
   'browser',
   'computer',
   'voice',

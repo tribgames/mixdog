@@ -1,6 +1,7 @@
 import type { DesktopApi, DesktopEditorBackup, DesktopTextFileEncoding } from '../shared/contract';
 import { filePreviewTypeForPath } from '../shared/file-preview';
 import type { EditorRecovery } from './editor-pane-model';
+import { t } from './i18n';
 import { beginEditorLoad, editorLoadKey, ensureEditorLoad, reportEditorLoadStage } from './renderer-load-metrics';
 
 export interface EditorFileLoad {
@@ -102,7 +103,7 @@ async function readEditorFile(
   retryMissing: boolean
 ): Promise<EditorFileLoad> {
   const reader = api.readProjectFile;
-  if (!reader) throw new Error('Desktop file access is unavailable.');
+  if (!reader) throw new Error(t('Desktop file access is unavailable.'));
   const startedAt = now();
   let lastError: unknown;
   const delays = retryMissing ? NEW_FILE_READ_RETRY_DELAYS_MS : ([0] as const);

@@ -37,8 +37,8 @@ import type { RecordValue } from './desktop-types';
 
 type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
 
-const PARSER_OPTIONS = [
-  { value: 'generic', label: 'Generic JSON' },
+const parserOptions = () => [
+  { value: 'generic', label: t('Generic JSON') },
   { value: 'github', label: 'GitHub' },
   { value: 'stripe', label: 'Stripe' },
   { value: 'sentry', label: 'Sentry' },
@@ -83,7 +83,7 @@ function webhookMeta(webhook: RecordValue) {
   const route = automationRouteSummary(String(webhook.model || ''));
   return (
     <>
-      {parser} · session
+      {parser} {t('· session')}
       {route && (
         <>
           {' '}
@@ -368,7 +368,7 @@ function WebhookEditor({
                 ariaLabel={t('Webhook payload format')}
                 value={parser}
                 disabled={busy}
-                options={PARSER_OPTIONS}
+                options={parserOptions()}
                 onChange={setParser}
               />
             </div>

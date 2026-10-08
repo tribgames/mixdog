@@ -47,9 +47,9 @@ export function LocalProviderModelRow({
       .map((file) => String(file.path))
       .join('\n');
     setConfirmation({
-      title: 'Delete model?',
+      title: t('Delete model?'),
       danger: true,
-      confirmLabel: 'Delete',
+      confirmLabel: t('Delete'),
       description: `${name}\n${paths}\n${t('Permanently deletes these files. Recovery requires downloading the model again.')}`,
       onConfirm: () => actions.deleteModel(String(receipt.confirmationToken)),
     });

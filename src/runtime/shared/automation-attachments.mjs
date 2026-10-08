@@ -1,16 +1,17 @@
 /**
  * Stored automation attachments (schedule/webhook rows) → askSession content.
- * Attachment shape (persisted as jsonb): { kind: 'image'|'text'|'pdf', name,
+ * Attachment shape (persisted as jsonb): { kind: 'image'|'text'|'pdf'|'office', name,
  * mimeType, data } — image/pdf data is base64, text data is plain text.
  * Text files inline into the prompt body; images/PDFs become the same
  * content parts the desktop composer submits ({type:'image'} /
  * {type:'file'}), so provider media normalization treats them identically.
  */
 
-const AUTOMATION_ATTACHMENT_KINDS = ['image', 'text', 'pdf'];
+const AUTOMATION_ATTACHMENT_KINDS = ['image', 'text', 'pdf', 'office'];
 export const MAX_AUTOMATION_ATTACHMENTS = 8;
-// Base64 total across image/pdf items; text totals separately.
-const MAX_AUTOMATION_BINARY_TOTAL = 8_000_000;
+// Base64 total across image/pdf/office items (the desktop composer's combined
+// file limit, MAX_PROMPT_FILE_BASE64_TOTAL); text totals separately.
+const MAX_AUTOMATION_BINARY_TOTAL = 28_000_000;
 const MAX_AUTOMATION_TEXT_TOTAL = 200_000;
 
 /** Validate + strip a stored/list attachments value to the persisted shape (or null). */
@@ -32,12 +33,13 @@ export function normalizeAutomationAttachments(value) {
     } else {
       binaryTotal += data.length;
       if (binaryTotal > MAX_AUTOMATION_BINARY_TOTAL) {
-        throw new Error('image/PDF attachments are too large together (8 MB max)');
+        throw new Error('image/PDF/Office attachments are too large together (28 MB max)');
       }
     }
     let defaultMimeType = 'text/plain';
     if (kind === 'pdf') defaultMimeType = 'application/pdf';
     else if (kind === 'image') defaultMimeType = 'image/png';
+    else if (kind === 'office') defaultMimeType = 'application/octet-stream';
     out.push({
       kind,
       name: String(entry.name || '').slice(0, 200) || `attachment-${out.length + 1}`,
@@ -64,11 +66,11 @@ export function automationPromptContent(promptText, attachments) {
     if (!entry || typeof entry.data !== 'string' || !entry.data) continue;
     if (entry.kind === 'image') {
       parts.push({ type: 'image', data: entry.data, mimeType: entry.mimeType || 'image/png' });
-    } else if (entry.kind === 'pdf') {
+    } else if (entry.kind === 'pdf' || entry.kind === 'office') {
       parts.push({
         type: 'file',
         data: entry.data,
-        mimeType: entry.mimeType || 'application/pdf',
+        mimeType: entry.mimeType || (entry.kind === 'pdf' ? 'application/pdf' : 'application/octet-stream'),
         filename: entry.name,
       });
     }

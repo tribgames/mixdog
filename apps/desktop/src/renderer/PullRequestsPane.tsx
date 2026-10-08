@@ -238,7 +238,7 @@ export function PullRequestsPane({
   const renderHeaderActions = () => {
     let createButtonTitle = t('Create pull request');
     if (onDefaultBranch) createButtonTitle = t('Create or check out a feature branch first.');
-    else if (createHint) createButtonTitle = t(createHint);
+    else if (createHint) createButtonTitle = createHint;
     return (
       <>
         <button
@@ -306,7 +306,7 @@ export function PullRequestsPane({
     emptyTitle = t('No open pull requests');
     if (onDefaultBranch) emptyMessage = t('Create or check out a feature branch to open a pull request.');
     else if (prUrl) emptyMessage = t('Create a pull request from the current branch.');
-    else if (createHint) emptyMessage = t(createHint);
+    else if (createHint) emptyMessage = createHint;
     else emptyMessage = t('This repository has no open pull requests.');
   } else if (listView === 'mine') {
     emptyTitle = t('No pull requests from you');
@@ -418,7 +418,7 @@ export function PullRequestsPane({
               </label>
               {!prUrl && (
                 <p className="dock-pr-create-note">
-                  {createHint ? t(createHint) : t('The branch will be pushed before creation.')}
+                  {createHint || t('The branch will be pushed before creation.')}
                 </p>
               )}
               {createError && (

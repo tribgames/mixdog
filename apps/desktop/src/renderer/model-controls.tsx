@@ -160,7 +160,7 @@ export const WorkflowSelect = memo(function WorkflowSelect({
       <OpenSelect
         variant="route"
         className="workflow-context-select"
-        ariaLabel="Workflow"
+        ariaLabel={t('Workflow')}
         tooltip={t('Select workflow')}
         disabled={disabled || switching || !optionsSettled}
         value={selectedId}

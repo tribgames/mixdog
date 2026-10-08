@@ -3,15 +3,26 @@ import { fileLooksLikeText } from './file-content';
 import { asRecord } from './text-format';
 import {
   MAX_COMPOSER_ATTACHMENTS,
+  MAX_IMAGE_FILE_BYTES,
+  MAX_INLINE_FILE_BASE64_TOTAL,
   MAX_INLINE_FILE_BYTES,
   MAX_INLINE_IMAGE_BASE64_TOTAL,
   MAX_INLINE_TEXT_TOTAL,
+  MAX_OFFICE_FILE_BYTES,
   MAX_PDF_FILE_BYTES,
   type ComposerAttachment,
 } from './composer-support';
+import { t } from './i18n';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import {
+  LEGACY_OFFICE_REPLACEMENT,
+  MAX_PROMPT_IMAGE_BASE64_LENGTH,
+  OFFICE_MIME_BY_EXTENSION,
+  canonicalPromptFileMimeType,
+  PDF_MIME_TYPE,
+  PROMPT_IMAGE_MIME_PATTERN,
+} from '../shared/prompt-limits';
 
-const MAX_IMAGE_FILE_BYTES = 12_000_000;
 // Matches the runtime's vision ceiling: standard models downscale anything
 // past 1568px on the longest edge, so attaching more pixels than that only
 // inflates the upload and the context estimate.
@@ -20,8 +31,15 @@ const WEB_IMAGE_MAX_HEIGHT = 1_568;
 const WEB_IMAGE_TARGET_BYTES = 3_750_000;
 // Above this, re-encoding a lossless PNG pays for itself several times over.
 const WEB_IMAGE_PNG_REENCODE_BYTES = 300_000;
-const SUPPORTED_IMAGE_TYPES = /^image\/(?:png|jpe?g|gif|webp)$/i;
-const SUPPORTED_IMAGE_PATH = /\.(?:png|jpe?g|gif|webp)$/i;
+export const SUPPORTED_IMAGE_TYPES = PROMPT_IMAGE_MIME_PATTERN;
+export const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+};
+const SUPPORTED_IMAGE_PATH =/\.(?:png|jpe?g|gif|webp)$/i;
 const TEXT_LIKE_MIME = /^application\/(?:json|ld\+json|toml|x-toml|yaml|x-yaml|xml)$/;
 const TEXT_LIKE_EXTENSION =
   /\.(?:md|mdx|txt|json|jsonl|ya?ml|toml|xml|csv|tsv|[cm]?[jt]sx?|py|rb|rs|go|java|kt|swift|cs|cpp|cc|c|h|hh|hpp|sh|zsh|ps1|bat|cmd|sql|css|scss|sass|html|htm|vue|svelte|log|env|ini|conf|cfg|gql|graphql)$/i;
@@ -29,6 +47,30 @@ const TEXT_LIKE_EXTENSION =
 export function isSupportedComposerImagePath(path: string): boolean {
   return SUPPORTED_IMAGE_PATH.test(String(path || '').trim());
 }
+
+export function fileExtension(name: string): string {
+  const match = /\.([^./\\]+)$/.exec(String(name || '').trim());
+  return match ? match[1].toLowerCase() : '';
+}
+
+/** OOXML MIME type for a .docx/.pptx/.xlsx/.xlsm name, else ''. */
+export function officeMimeForName(name: string): string {
+  return OFFICE_MIME_BY_EXTENSION[fileExtension(name)] || '';
+}
+
+/** The OOXML extension to save a legacy .doc/.xls/.ppt as, else ''. */
+export function legacyOfficeReplacement(name: string): string {
+  return LEGACY_OFFICE_REPLACEMENT[fileExtension(name)] || '';
+}
+
+/** True when the file starts with the `%PDF-` signature. */
+export async function hasPdfHeader(file: Blob): Promise<boolean> {
+  const head = new Uint8Array(await file.slice(0, 5).arrayBuffer());
+  return head.length === 5 && String.fromCharCode(...head) === '%PDF-';
+}
+
+/** Rejection that must not fall back to inserting the file's path. */
+export class RejectedComposerFileError extends Error {}
 
 /** Empty when the attachment fits the per-turn budget, else the user message. */
 export function attachmentPolicyError(
@@ -44,13 +86,21 @@ export function attachmentPolicyError(
   if (textTotal > MAX_INLINE_TEXT_TOTAL) {
     return 'Inline text attachments are too large together. Keep the total under 850 KB.';
   }
+  if (attachment.kind === 'image' && attachment.data.length > MAX_PROMPT_IMAGE_BASE64_LENGTH) {
+    return `${attachment.name}: use PNG, JPEG, GIF, or WebP under 12 MB.`;
+  }
   const imageTotal =
-    currentAttachments.reduce(
-      (sum, item) => sum + (item.kind === 'image' || item.kind === 'pdf' ? item.data.length : 0),
-      0
-    ) + (attachment.kind === 'image' || attachment.kind === 'pdf' ? attachment.data.length : 0);
+    currentAttachments.reduce((sum, item) => sum + (item.kind === 'image' ? item.data.length : 0), 0) +
+    (attachment.kind === 'image' ? attachment.data.length : 0);
   if (imageTotal > MAX_INLINE_IMAGE_BASE64_TOTAL) {
-    return 'Attached images and PDFs are too large together. Remove one or use smaller files.';
+    return 'Attached images are too large together. Remove one or use smaller files.';
+  }
+  const isFilePart = (item: ComposerAttachment) => item.kind === 'pdf' || item.kind === 'office';
+  const fileTotal =
+    currentAttachments.reduce((sum, item) => sum + (isFilePart(item) ? item.data.length : 0), 0) +
+    (isFilePart(attachment) ? attachment.data.length : 0);
+  if (fileTotal > MAX_INLINE_FILE_BASE64_TOTAL) {
+    return t('Attached PDFs and Office files are too large together. Remove one or use smaller files.');
   }
   return '';
 }
@@ -246,6 +296,10 @@ async function pdfAttachment({
   cancelled,
 }: AttachmentInput): Promise<ComposerAttachment | null> {
   if (file.size > MAX_PDF_FILE_BYTES) throw new Error(`${displayName}: PDFs must be under 20 MB.`);
+  if (!(await hasPdfHeader(file))) {
+    throw new Error(t('{{name}}: this file is not a valid PDF.', { name: displayName }));
+  }
+  if (cancelled()) return null;
   const data = await base64Payload(file, `${displayName}: could not read PDF.`);
   if (cancelled()) return null;
   return {
@@ -255,6 +309,25 @@ async function pdfAttachment({
     mimeType: 'application/pdf',
     data,
     token: `[PDF #${id}: ${displayName}]`,
+  };
+}
+
+async function officeAttachment(
+  { file, id, displayName, cancelled }: AttachmentInput,
+  mimeType: string
+): Promise<ComposerAttachment | null> {
+  if (file.size > MAX_OFFICE_FILE_BYTES) {
+    throw new Error(t('{{name}}: Office files must be under 20 MB.', { name: displayName }));
+  }
+  const data = await base64Payload(file, `${displayName}: could not read file.`);
+  if (cancelled()) return null;
+  return {
+    id,
+    name: displayName,
+    kind: 'office',
+    mimeType,
+    data,
+    token: `[File #${id}: ${displayName}]`,
   };
 }
 
@@ -270,10 +343,10 @@ async function textAttachment(
     TEXT_LIKE_EXTENSION.test(displayName) ||
     (await fileLooksLikeText(file));
   if (!textLike) {
-    throw new UnsupportedComposerFileError(`${displayName}: attach images, PDFs, or text files under 750 KB.`);
+    throw new UnsupportedComposerFileError(`${displayName}: this file type can't be attached.`);
   }
   if (file.size > MAX_INLINE_FILE_BYTES) {
-    throw new Error(`${displayName}: attach images, PDFs, or text files under 750 KB.`);
+    throw new Error(`${displayName}: text files must be under 750 KB.`);
   }
   const text = await file.text();
   if (cancelled()) return null;
@@ -284,7 +357,7 @@ async function textAttachment(
     id,
     name: displayName,
     kind: 'text',
-    mimeType: file.type || 'text/plain',
+    mimeType: !file.type || file.type === 'application/octet-stream' ? 'text/plain' : file.type,
     data: text,
     token: `[File #${id}: ${displayName}]`,
     source: 'file',
@@ -304,8 +377,29 @@ export async function attachmentFromFile(
   const { id, cancelled = () => false } = options;
   const displayName = file.name || (file.type.startsWith('image/') ? 'Pasted image' : 'Pasted file');
   const input: AttachmentInput = { file, id, displayName, cancelled };
+  if (file.size === 0) {
+    throw new RejectedComposerFileError(t('{{name}}: the file is empty.', { name: displayName }));
+  }
+  const legacyFormat = legacyOfficeReplacement(displayName);
+  if (legacyFormat) {
+    throw new RejectedComposerFileError(
+      t("{{name}}: legacy Office files can't be attached. Save it as {{format}} and try again.", {
+        name: displayName,
+        format: legacyFormat,
+      })
+    );
+  }
+  // Windows often reports an empty or octet-stream type; the extension then
+  // decides the image type (PDF and Office are already decided by name).
+  const reportedType = (file.type || '').split(';', 1)[0].trim().toLowerCase();
+  const imageType = IMAGE_MIME_BY_EXTENSION[fileExtension(displayName)];
+  if (imageType && (!reportedType || reportedType === 'application/octet-stream')) {
+    return imageAttachment({ ...input, file: new File([file], displayName, { type: imageType }) });
+  }
   if (file.type.startsWith('image/')) return imageAttachment(input);
-  const mimeKind = (file.type || '').split(';', 1)[0].trim().toLowerCase();
-  if (mimeKind === 'application/pdf' || /\.pdf$/i.test(displayName)) return pdfAttachment(input);
+  const mimeKind = reportedType;
+  if (mimeKind === PDF_MIME_TYPE || /\.pdf$/i.test(displayName)) return pdfAttachment(input);
+  const officeMime = officeMimeForName(displayName) || canonicalPromptFileMimeType(mimeKind);
+  if (officeMime) return officeAttachment(input, officeMime);
   return textAttachment(input, mimeKind);
 }

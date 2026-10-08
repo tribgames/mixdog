@@ -165,7 +165,6 @@ function renderToolNameSuggestions({
       role="listbox"
       aria-label={ariaLabel}
       className="mx-menu"
-      data-i18n-skip=""
       style={position}
     >
       {matches.map((option, index) => (

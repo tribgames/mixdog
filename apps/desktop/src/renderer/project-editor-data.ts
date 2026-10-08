@@ -1,3 +1,5 @@
+import { t } from './i18n';
+
 /** Successful reads stay available while a panel refresh runs in the background. */
 export class ProjectEditorCache<T> {
   private entries = new Map<string | null, { value?: T; pending?: Promise<T> }>();
@@ -128,14 +130,14 @@ export async function readProjectMemories(
     if (failure) throw new Error(failure);
     const page = typeof value === 'string' ? JSON.parse(value) : value;
     if (!page || !Array.isArray(page.entries) || !Array.isArray(page.projectScopes)) {
-      throw new Error('Memory is temporarily unavailable.');
+      throw new Error(t('Memory is temporarily unavailable.'));
     }
     projectScopes = page.projectScopes;
     for (const entry of parseCoreMemoryEntries(page)) {
       const scope = entry.projectId ?? null;
       const entries = byScope.get(scope) ?? [];
       if (entries.length && entry.indexRevision !== entries[0].indexRevision) {
-        throw new Error('Memory changed. Refresh the list before editing.');
+        throw new Error(t('Memory changed. Refresh the list before editing.'));
       }
       entries.push(entry);
       byScope.set(scope, entries);

@@ -27,5 +27,5 @@ const copy = new Map<string, () => string>([
 ]);
 
 export function localizeErrorCopy(text: string): string {
-  return copy.get(text)?.() ?? localizedTurnFailureReason(t(text));
+  return copy.get(text)?.() ?? localizedTurnFailureReason(text);
 }

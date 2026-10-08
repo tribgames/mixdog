@@ -68,8 +68,6 @@ export {
   type SourceControlDiffRequest,
 } from './source-control-support';
 
-const VIEW_SORT_MENU = 'View & Sort';
-
 // Keys whose landed action rewrites the history the History view shows.
 const HISTORY_RELOAD_KEYS = new Set(['commit', 'push', 'pull', 'sync', 'amend', 'undo-commit']);
 
@@ -312,10 +310,10 @@ export function SourceControlDock({
           );
         },
         onCopyFilePath: () => {
-          void copyText(ctx, absoluteFilePath(projectPath, file.path), 'file path');
+          void copyText(ctx, absoluteFilePath(projectPath, file.path), t('file path'));
         },
         onCopyRelativePath: () => {
-          void copyText(ctx, file.path, 'relative file path');
+          void copyText(ctx, file.path, t('relative file path'));
         },
         onReveal: () => {
           void api?.revealFile?.(projectPath, file.path);
@@ -331,7 +329,7 @@ export function SourceControlDock({
         included={isIncluded(file)}
         selected={selected.has(file.path)}
         busy={Boolean(busy)}
-        contextMenuProps={rowContextMenu(`Actions for ${file.path}`, fileMenuItems)}
+        contextMenuProps={rowContextMenu(t('Actions for {{value0}}', { value0: file.path }), fileMenuItems)}
         onSetIncluded={(next) => setIncluded(file, next)}
         onToggleSelected={(additive) => toggleSelected(file, additive)}
         onOpenChange={openChange}
@@ -358,9 +356,9 @@ export function SourceControlDock({
   const toggleViewSortMenu = (point: MenuPoint) => {
     commitImmediateOverlay(() =>
       setContextMenu(
-        visibleContextMenu?.label === VIEW_SORT_MENU
+        visibleContextMenu?.label === t('View & Sort')
           ? null
-          : { label: VIEW_SORT_MENU, items: viewSortMenuItems(sortKey, chooseSortKey), ...point }
+          : { label: t('View & Sort'), items: viewSortMenuItems(sortKey, chooseSortKey), ...point }
       )
     );
   };
@@ -401,7 +399,7 @@ export function SourceControlDock({
       onOpen: () => void openCommit(entry),
       onOpenMenu: (point: MenuPoint) =>
         setContextMenu({
-          label: `Actions for commit ${entry.shortHash}`,
+          label: t('Actions for commit {{value0}}', { value0: entry.shortHash }),
           items: historyMenuItems(entry, entryIndex, hostedCommitUrl),
           ...point,
         }),
@@ -425,7 +423,7 @@ export function SourceControlDock({
       {/* Fixed toolbar: current branch, Push, and Fetch. Git action names and
         their supporting labels intentionally stay in English. */}
       {status && !prOnly && (
-        <div className="dock-scm-toolbar" data-i18n-skip>
+        <div className="dock-scm-toolbar">
           <SourceControlBranchPicker
             status={status}
             busy={busy}
@@ -519,7 +517,7 @@ export function SourceControlDock({
               checkAllLabel={checkAllLabel}
               stashReason={stashReason.stash}
               popStashReason={stashReason.pop}
-              viewSortOpen={visibleContextMenu?.label === VIEW_SORT_MENU}
+              viewSortOpen={visibleContextMenu?.label === t('View & Sort')}
               onSetAllIncluded={setAllIncluded}
               onDiscardAll={discardAllChanges}
               onStash={stashChanges}

@@ -104,15 +104,30 @@ test('custom section ends the list with a registration row, a popup and separate
 
 test('form offers the three formats and masks the API key', async (t) => {
   const calls = [];
-  const { render } = mount(t, { calls });
+  const { render } = mount(t, { calls, handlers: { testCustomProvider: () => ({ ok: true }) } });
   await render();
   await click(button('Add custom provider'));
-  const options = [...field('API format').options].map((o) => [o.value, o.textContent]);
+  const format = button('API format');
+  await click(format);
+  const options = [...document.querySelectorAll('[role=option]')].map((o) => o.textContent);
   assert.deepEqual(options, [
-    ['openai-chat', 'OpenAI Chat Completions'],
-    ['openai-responses', 'OpenAI Responses'],
-    ['anthropic', 'Anthropic Messages'],
+    'OpenAI Chat Completions',
+    'OpenAI Responses',
+    'Anthropic Messages',
   ]);
+  assert.equal(document.querySelector('[role=option][aria-selected=true]').textContent, 'OpenAI Chat Completions');
+  await click(button('OpenAI Responses'));
+  assert.equal(format.textContent, 'OpenAI Responses');
+  assert.equal(document.querySelector('[role=listbox]'), null);
+  await click(format);
+  await act(async () => document.querySelector('[role=listbox]').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'End', bubbles: true })));
+  await act(async () => document.querySelector('[role=listbox]').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  assert.equal(format.textContent, 'Anthropic Messages');
+  await type(field('Display name'), 'Manual');
+  await type(field('Base URL'), 'https://manual.test/v1');
+  await type(field('API key'), 'test-key');
+  await click(button('Test connection'));
+  assert.equal(calls.at(-1).args[0].protocol, 'anthropic');
   assert.equal(field('API key').type, 'password');
   assert.equal(field('API key').required, true);
   assert.equal(customForm().querySelector('textarea'), null);
@@ -127,11 +142,13 @@ test('registration saves without model IDs and relies on the shared catalog refr
   const { render } = mount(t, {
     calls,
     handlers: {
+      discoverCustomProviderModels: () => ({ models: [{ id: 'found-1' }] }),
       saveCustomProvider: (input) => ({ ...input, id: 'custom:new' }),
     },
   });
   await render();
   await click(button('Add custom provider'));
+  assert.equal(document.querySelector('details').open, false);
   await type(field('Display name'), 'New');
   await type(field('Base URL'), 'https://new.test/v1');
   await type(field('API key'), 'sk-secret');
@@ -144,8 +161,114 @@ test('registration saves without model IDs and relies on the shared catalog refr
     apiKey: 'sk-secret',
     models: [],
   });
-  assert.equal(calls.some(call => call.capability === 'discoverCustomProviderModels'), false);
+  assert.equal(calls.filter(call => call.capability === 'discoverCustomProviderModels').length, 1);
   assert.equal(customForm(), null);
+});
+
+const fillNew = async () => {
+  await click(button('Add custom provider'));
+  await type(field('Display name'), 'New');
+  await type(field('Base URL'), 'https://new.test/v1');
+  await type(field('API key'), 'sk-secret');
+};
+const alerts = () => [...document.querySelectorAll('[role=alert]')].map((el) => el.textContent).join('\n');
+
+test('discovery failure on save blocks save, opens manual entry and categorizes guidance', async (t) => {
+  let error;
+  const calls = [];
+  const { render } = mount(t, { calls, handlers: { discoverCustomProviderModels: () => ({ models: [], error }) } });
+  await render();
+  await fillNew();
+  for (const [next, pattern, open] of [
+    [{ kind: 'authentication', status: 401, message: 'x' }, /Check the API key/, false],
+    [{ kind: 'request', message: 'timeout' }, /Model discovery failed: timeout.*retry/, false],
+    [{ kind: 'unavailable', status: 404, message: 'x' }, /could not be loaded \(HTTP 404\).*add model IDs manually/, true],
+  ]) {
+    error = next;
+    await submit();
+    assert.match(alerts(), pattern);
+    assert.equal(document.querySelector('details').open, open);
+    assert.equal(calls.some((c) => c.capability === 'saveCustomProvider'), false);
+  }
+});
+
+test('empty discovery on save asks for manual models; manual models are saved without discovery', async (t) => {
+  const calls = [];
+  const { render } = mount(t, {
+    calls,
+    handlers: { discoverCustomProviderModels: () => ({ models: [] }), saveCustomProvider: (i) => i },
+  });
+  await render();
+  await fillNew();
+  await submit();
+  assert.match(alerts(), /returned no models/);
+  assert.equal(document.querySelector('details').open, true);
+  await type(document.querySelector('details input'), 'm-1');
+  await click(button('Add model'));
+  await type(document.querySelector('details input'), 'm-2');
+  await click(button('Add model'));
+  await click(button('Remove m-2'));
+  calls.length = 0;
+  await submit();
+  assert.equal(calls.some((c) => c.capability === 'discoverCustomProviderModels'), false);
+  assert.deepEqual(calls.find((c) => c.capability === 'saveCustomProvider').args[0].models, [{ id: 'm-1' }]);
+});
+
+test('connection test passes manual models and expands manual entry on discovery failure', async (t) => {
+  const calls = [];
+  const { render } = mount(t, {
+    calls,
+    handlers: {
+      testCustomProvider: (input) =>
+        input.models.length
+          ? { ok: true }
+          : { ok: false, phase: 'discovery', error: { kind: 'unavailable', status: 405, message: 'x' } },
+    },
+  });
+  await render();
+  await fillNew();
+  await click(button('Test connection'));
+  assert.match(alerts(), /could not be loaded \(HTTP 405\)/);
+  assert.doesNotMatch(alerts(), /key/i);
+  assert.equal(document.querySelector('details').open, true);
+  await type(document.querySelector('details input'), 'manual-1');
+  await click(button('Test connection'));
+  assert.deepEqual(calls.at(-1).args[0].models, [{ id: 'manual-1' }]);
+  assert.equal(document.querySelector('[role=status]').textContent, 'Connection successful.');
+});
+
+test('editing shows explicit models expanded and preserves metadata', async (t) => {
+  const calls = [];
+  const meta = { id: 'acme-1', name: 'Acme One', contextWindow: 1000 };
+  const { render } = mount(t, {
+    calls,
+    api: [{ ...CUSTOM, models: [meta] }],
+    handlers: { saveCustomProvider: (i) => i },
+  });
+  await render();
+  await click(button('Edit'));
+  assert.equal(document.querySelector('details').open, true);
+  await type(document.querySelector('details input'), 'extra');
+  await click(button('Add model'));
+  await submit();
+  assert.deepEqual(calls.find((c) => c.capability === 'saveCustomProvider').args[0].models, [meta, { id: 'extra' }]);
+  assert.equal(calls.some((c) => c.capability === 'discoverCustomProviderModels'), false);
+});
+
+test('visible explicit models are still submitted after the URL changes, and editing the draft clears errors', async (t) => {
+  const calls = [];
+  const { render } = mount(t, { calls, handlers: { saveCustomProvider: (i) => i, testCustomProvider: () => ({ ok: false, phase: 'discovery', error: { kind: 'empty' } }) } });
+  await render();
+  await click(button('Edit'));
+  await type(field('Base URL'), 'https://other.test/v1');
+  await click(button('Test connection'));
+  assert.deepEqual(calls.at(-1).args[0].models, CUSTOM.models);
+  await click(button('Test connection'));
+  assert.match(alerts(), /returned no models/);
+  await type(document.querySelector('details input'), 'z');
+  assert.equal(alerts(), '');
+  await submit();
+  assert.deepEqual(calls.find((c) => c.capability === 'saveCustomProvider').args[0].models, [...CUSTOM.models, { id: 'z' }]);
 });
 
 test('failed connection test and save show errors without reporting success', async (t) => {
@@ -153,6 +276,7 @@ test('failed connection test and save show errors without reporting success', as
   const { render } = mount(t, {
     calls,
     handlers: {
+      discoverCustomProviderModels: () => ({ models: [{ id: 'm' }] }),
       testCustomProvider: () => {
         throw new Error('bad key');
       },

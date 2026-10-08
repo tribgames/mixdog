@@ -1,4 +1,5 @@
 import type { DesktopBrowserViewportConfig } from '../shared/contract';
+import { t } from './i18n';
 
 /** Representative viewport sizes, not device names (user: 대표 해상도만, 폰
  *  이름 빼고): each phone size stands for its whole class of devices. */
@@ -43,7 +44,9 @@ const ANDROID_USER_AGENT =
 export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   {
     id: 'responsive',
-    label: 'Desktop · 100%',
+    get label() {
+      return t('Desktop · 100%');
+    },
     width: null,
     height: null,
     deviceScaleFactor: 1,
@@ -53,7 +56,9 @@ export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   },
   {
     id: 'fit',
-    label: 'Fit to pane',
+    get label() {
+      return t('Fit to pane');
+    },
     width: null,
     height: null,
     deviceScaleFactor: 1,
@@ -63,7 +68,9 @@ export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   },
   {
     id: 'phone-360',
-    label: 'Phone · 360×800',
+    get label() {
+      return t('Phone · 360×800');
+    },
     width: 360,
     height: 800,
     deviceScaleFactor: 3,
@@ -73,7 +80,9 @@ export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   },
   {
     id: 'phone-390',
-    label: 'Phone · 390×844',
+    get label() {
+      return t('Phone · 390×844');
+    },
     width: 390,
     height: 844,
     deviceScaleFactor: 3,
@@ -83,7 +92,9 @@ export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   },
   {
     id: 'phone-412',
-    label: 'Phone · 412×915',
+    get label() {
+      return t('Phone · 412×915');
+    },
     width: 412,
     height: 915,
     deviceScaleFactor: 2.625,
@@ -93,7 +104,9 @@ export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   },
   {
     id: 'phone-430',
-    label: 'Phone · 430×932',
+    get label() {
+      return t('Phone · 430×932');
+    },
     width: 430,
     height: 932,
     deviceScaleFactor: 3,
@@ -103,7 +116,9 @@ export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   },
   {
     id: 'tablet-768',
-    label: 'Tablet · 768×1024',
+    get label() {
+      return t('Tablet · 768×1024');
+    },
     width: 768,
     height: 1024,
     deviceScaleFactor: 2,
@@ -113,7 +128,9 @@ export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   },
   {
     id: 'tablet-1024',
-    label: 'Tablet · 1024×1366',
+    get label() {
+      return t('Tablet · 1024×1366');
+    },
     width: 1024,
     height: 1366,
     deviceScaleFactor: 2,
@@ -123,7 +140,9 @@ export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   },
   {
     id: 'laptop-1366',
-    label: 'Laptop · 1366×768',
+    get label() {
+      return t('Laptop · 1366×768');
+    },
     width: 1366,
     height: 768,
     deviceScaleFactor: 1,
@@ -133,7 +152,9 @@ export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   },
   {
     id: 'desktop-1920',
-    label: 'Desktop · 1920×1080',
+    get label() {
+      return t('Desktop · 1920×1080');
+    },
     width: 1920,
     height: 1080,
     deviceScaleFactor: 1,

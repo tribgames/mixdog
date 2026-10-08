@@ -157,11 +157,6 @@ for (const scenario of report) {
   check(scenario, scenario.headerFetchCount === 0, 'the duplicate header Fetch action still exists');
   check(
     scenario,
-    scenario.toolbarI18nSkip === true,
-    'the fixed Git toolbar is not excluded from automatic localization'
-  );
-  check(
-    scenario,
     JSON.stringify(scenario.toolbarActionLabels) === JSON.stringify(['Push', 'Fetch']),
     `the fixed Git actions are not Push | Fetch (${scenario.toolbarActionLabels?.join(' | ')})`
   );

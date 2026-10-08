@@ -6,6 +6,7 @@ import { hasPlainPrototype } from '../../../shared/object.mjs';
 import { createContextFingerprinter } from './context-fingerprint.mjs';
 import { estimateRequestReserveTokens } from './context-tool-schema.mjs';
 import {
+  PDF_TEXT_MAX_BYTES,
   contentFileDescriptors,
   contentImageDescriptors,
   contentToEstimateText,
@@ -263,11 +264,32 @@ function messageImageAllowance(m) {
 // jsonFallbackFromPart), so this allowance is the document's entire cost.
 const FILE_TOKEN_ALLOWANCE_FLOOR = 1_500;
 const FILE_MAX_TOKEN_ALLOWANCE = 300_000;
-function fileDescriptorAllowance(descriptor) {
-  return Math.min(
-    FILE_MAX_TOKEN_ALLOWANCE,
-    Math.max(FILE_TOKEN_ALLOWANCE_FLOOR, Math.ceil((descriptor.sizeBytes || 0) / 16))
-  );
+// A PDF that records its page count (intake and the read tool do) is priced per
+// page; the size-based figure stays as the floor, so a dense scan still costs
+// at least its bytes. Inline and stored parts carry the same count.
+const FILE_TOKENS_PER_PAGE = 2_500;
+// A PDF that lowers to text costs at most its extraction budget (~4 bytes/token).
+const PDF_TEXT_MAX_TOKENS = Math.ceil(PDF_TEXT_MAX_BYTES / 4);
+function fileDescriptorAllowance(descriptor, nativePdf = true) {
+  const bySize = Math.ceil((descriptor.sizeBytes || 0) / 16);
+  const byPage = (descriptor.pageCount || 0) * FILE_TOKENS_PER_PAGE;
+  const native = Math.min(FILE_MAX_TOKEN_ALLOWANCE, Math.max(FILE_TOKEN_ALLOWANCE_FLOOR, bySize, byPage));
+  return nativePdf ? native : Math.min(native, PDF_TEXT_MAX_TOKENS);
+}
+/**
+ * How many tokens the native-PDF meter overstates `messages` for a provider
+ * that takes PDFs as text (nativePdf === false); subtract it from the
+ * provider-agnostic transcript estimate. Inline and stored parts agree.
+ */
+export function textPdfAllowanceDiscount(messages) {
+  let discount = 0;
+  for (const m of messages) {
+    if (!m || typeof m !== 'object') continue;
+    for (const descriptor of contentFileDescriptors(m.content)) {
+      discount += fileDescriptorAllowance(descriptor) - fileDescriptorAllowance(descriptor, false);
+    }
+  }
+  return discount;
 }
 function messageFileAllowance(m) {
   if (!m || typeof m !== 'object') return 0;

@@ -41,12 +41,12 @@ function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>)
     setDesktopThemePreference(selected);
   };
   return (
-    <Group title="Theme">
+    <Group title={t('Theme')}>
       <SelectRow
-        title="Theme"
+        title={t('Theme')}
         value={preference}
         disabled={Boolean(pending)}
-        options={desktopThemeOptions()}
+        options={desktopThemeOptions().map((option) => ({ ...option, label: t(option.label) }))}
         onChange={choose}
       />
     </Group>
@@ -57,12 +57,12 @@ function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
   const [preference, setPreference] = useState<UiLanguagePreference>(() => getUiLanguagePreference());
   const [error, setError] = useState('');
   return (
-    <Group title="Display language">
+    <Group title={t('Display language')}>
       <SelectRow
-        title="Display language"
+        title={t('Display language')}
         value={preference}
         disabled={Boolean(pending)}
-        options={[{ value: 'system', label: 'System default' }, ...SUPPORTED_UI_LANGUAGES]}
+        options={[{ value: 'system', label: t('System default') }, ...SUPPORTED_UI_LANGUAGES]}
         onChange={(next) => {
           const selected = next as UiLanguagePreference;
           const previous = resolveUiLanguage();
@@ -85,16 +85,16 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
   const narrow = window.matchMedia?.(NARROW_SHELL_QUERY).matches === true;
   const mode = narrow ? 'close-both' : configuredMode;
   return (
-    <Group title="Side panels">
+    <Group title={t('Side panels')}>
       <SelectRow
-        title="Side panels"
+        title={t('Side panels')}
         value={mode}
         disabled={Boolean(pending) || narrow}
         options={[
-          { value: 'close-left', label: 'Left closed' },
-          { value: 'close-right', label: 'Right closed' },
-          { value: 'close-both', label: 'Both closed' },
-          { value: 'keep-open', label: 'Keep open' },
+          { value: 'close-left', label: t('Left closed') },
+          { value: 'close-right', label: t('Right closed') },
+          { value: 'close-both', label: t('Both closed') },
+          { value: 'keep-open', label: t('Keep open') },
         ]}
         onChange={(next) => setSidePanelMode(next as SidePanelMode)}
       />
@@ -107,42 +107,42 @@ export function GeneralPanel({ data, pending, run, api }: PanelContext) {
   const webSearchModule = record(record(data.toolModules).webSearch);
   const languageOptions = rows(profile.languages).map((entry) => ({
     value: String(entry.id || entry.value || 'system'),
-    label: label(entry),
+    label: t(label(entry)),
   }));
   const experienceLevelOptions = rows(profile.experienceLevels).map((entry) => ({
     value: String(entry.id || entry.value || ''),
-    label: label(entry),
+    label: t(label(entry)),
   }));
   const busy = Boolean(pending);
   return (
     <>
-      <Group title="Profile">
+      <Group title={t('Profile')}>
         <AutoSaveRow
-          title="Title"
+          title={t('Title')}
           name="title"
           value={String(profile.title || '')}
-          placeholder="Your name or role"
+          placeholder={t('Your name or role')}
           disabled={busy}
           onSave={(title) => void run('setProfile', [{ title }])}
         />
         <SelectRow
-          title="Language"
+          title={t('Language')}
           value={String(profile.language || 'system')}
           disabled={busy}
           options={languageOptions}
           onChange={(language) => void run('setProfile', [{ language }])}
         />
         <SelectRow
-          title="Experience level"
+          title={t('Experience level')}
           value={String(profile.experienceLevel || '')}
           disabled={busy}
           options={experienceLevelOptions}
           onChange={(experienceLevel) => void run('setProfile', [{ experienceLevel }])}
         />
       </Group>
-      <Group title="Features">
+      <Group title={t('Features')}>
         <ToggleRow
-          title="Web search"
+          title={t('Web search')}
           description={t('Expose web search and web fetch tools to new sessions.')}
           checked={webSearchModule.enabled !== false}
           disabled={busy}

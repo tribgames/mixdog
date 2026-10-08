@@ -184,7 +184,7 @@ export function AppShellOverlays({
       <Suspense
         fallback={
           !settingsOpen && (commandSurface || onboardingOpen) ? (
-            <DesktopLoadingSurface label="Loading view…" overlay />
+            <DesktopLoadingSurface label={t('Loading view…')} overlay />
           ) : null
         }
       >

@@ -3,6 +3,7 @@
 // generation faults with images still on the request.
 
 import { createHash } from 'node:crypto';
+import { attachmentRefForBuffer } from '../../../attachments/store.mjs';
 import { errorHttpStatus as errorStatus } from '../../../shared/err-text.mjs';
 
 export const IMAGE_STRIP_PLACEHOLDER =
@@ -96,6 +97,44 @@ export function stripInlineImagesFromLatestTurn(messages) {
   return stripInlineImages(messages, { startIndex });
 }
 
+function partInlineData(part) {
+  const data = part?.data ?? part?.source?.data ?? part?.inlineData?.data ?? part?.inline_data?.data;
+  return typeof data === 'string' ? data : '';
+}
+
+// Strip exactly the image prepareAnthropicImages rejected (its base64 rides on
+// the error as `failingImageData`). A match anywhere in history is stripped for
+// this request; `inLatestTurn` says whether it is safe to heal out of history.
+// Without a matching image nothing is stripped.
+export function stripFailingImage(messages, err) {
+  const none = { messages, stripped: 0, uniqueImages: 0, imageIds: [], inLatestTurn: false };
+  const data = err?.failingImageData;
+  if (!Array.isArray(messages) || typeof data !== 'string' || !data) return none;
+  let latestStart = 0;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role !== 'assistant') continue;
+    latestStart = index + 1;
+    break;
+  }
+  const ref = attachmentRefForBuffer(Buffer.from(data, 'base64'));
+  const ids = new Set();
+  let inLatestTurn = false;
+  messages.forEach((message, index) => {
+    if (!message || (message.role !== 'user' && message.role !== 'tool')) return;
+    const view = contentPartArray(message.content);
+    for (const part of view?.parts || []) {
+      if (!partLooksLikeImage(part)) continue;
+      // Stored history carries the store's content address (sha256 of the
+      // decoded bytes) instead of the base64.
+      if (partInlineData(part) !== data && part.attachmentRef !== ref) continue;
+      ids.add(imageIdentity(part));
+      if (index >= latestStart) inLatestTurn = true;
+    }
+  });
+  if (!ids.size) return none;
+  return { ...stripInlineImages(messages, { ids }), inLatestTurn };
+}
+
 export function confirmedImageRejection(err) {
   if (errorStatus(err) !== 400) return false;
   if (isInvalidImageCode(errorCode(err))) return true;
@@ -105,7 +144,18 @@ export function confirmedImageRejection(err) {
 // Only a confirmed rejection that one newly introduced image explains is
 // healed out of history; any other strip stays request-local.
 export function persistsConfirmedImageRejection(err, strip) {
-  return confirmedImageRejection(err) && strip.stripped > 0 && strip.uniqueImages === 1;
+  if (!confirmedImageRejection(err) || !(strip.stripped > 0)) return false;
+  // A local preparation failure names its image: persist only when that image
+  // is in the latest turn.
+  if (isImagePreparationFailed(err)) return strip.inLatestTurn === true;
+  return strip.uniqueImages === 1;
+}
+
+export const PREPARATION_FAILED_CODE = 'anthropic_image_preparation_failed';
+
+/** True for prepareAnthropicImages' local "this image is invalid" rejection. */
+export function isImagePreparationFailed(err) {
+  return errorCode(err) === PREPARATION_FAILED_CODE;
 }
 
 function providerErrorDetail(err) {
@@ -124,8 +174,11 @@ function errorMessage(err) {
   return String(providerErrorDetail(err)?.message || err?.message || '');
 }
 
+// ANTHROPIC_IMAGE_PREPARATION_FAILED is prepareAnthropicImages' local 400 for
+// an image it cannot decode or fit: a confirmed image rejection, raised before
+// any request is sent.
 function isInvalidImageCode(code) {
-  return code === 'invalid_image' || code === 'invalid-image';
+  return code === 'invalid_image' || code === 'invalid-image' || code === PREPARATION_FAILED_CODE;
 }
 
 /** Grok Build `is_image_processing_error` + 413. */

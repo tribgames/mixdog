@@ -8,6 +8,7 @@ import {
   FORMAT_DOCUMENT_WITH,
   HAS_CALL_HIERARCHY,
 } from './editor-monaco-providers';
+import { t } from './i18n';
 
 type Editor = monaco.editor.IStandaloneCodeEditor;
 type Disposable = { dispose(): void };
@@ -57,7 +58,7 @@ export function useEditorCommandWiring({
       languageDisposables.current.push(
         editor.addAction({
           id: 'editor.action.toggleWordWrap',
-          label: 'View: Toggle Word Wrap',
+          label: t('View: Toggle Word Wrap'),
           keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
           run: () => {
             const wrapped = editor.getOption(monaco.editor.EditorOption.wordWrap) !== 'off';

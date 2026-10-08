@@ -43,7 +43,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
         <>
           {!provider.authenticated && typeof provider.url === 'string' && /^https:\/\//.test(provider.url) && (
             <ActionButton disabled={busy} onClick={() => openKeyConsole(String(provider.url))}>
-              Get API key ↗
+              {t('Get API key ↗')}
             </ActionButton>
           )}
           {!provider.authenticated && (
@@ -61,8 +61,8 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
                 name="secret"
                 type="password"
                 autoComplete="off"
-                placeholder="API key"
-                aria-label={`${providerLabel(provider)} API key`}
+                placeholder={t('API key')}
+                aria-label={`${providerLabel(provider)} ${t('API key')}`}
                 required
               />
               <button type="submit" disabled={busy}>
@@ -76,15 +76,15 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
               disabled={busy}
               onClick={() => {
                 confirm({
-                  title: 'Forget provider authentication?',
+                  title: t('Forget provider authentication?'),
                   description: t('Remove the saved authentication for {{name}}.', { name: providerLabel(provider) }),
-                  confirmLabel: 'Forget',
+                  confirmLabel: t('Forget'),
                   danger: true,
                   onConfirm: () => void run('forgetProviderAuth', [provider.id]),
                 });
               }}
             >
-              Forget
+              {t('Forget')}
             </ActionButton>
           )}
         </>
@@ -119,9 +119,9 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
                       disabled={busy}
                       onClick={() => {
                         confirm({
-                          title: 'Disconnect account?',
-                          description: t('Remove the saved authentication for {{name}}.', { name: t(account.label) }),
-                          confirmLabel: 'Disconnect',
+                          title: t('Disconnect account?'),
+                          description: t('Remove the saved authentication for {{name}}.', { name: account.label }),
+                          confirmLabel: t('Disconnect'),
                           danger: true,
                           onConfirm: async () => {
                             await run('forgetProviderAuth', [provider.id, account.id]);
@@ -130,7 +130,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
                         });
                       }}
                     >
-                      Disconnect
+                      {t('Disconnect')}
                     </ActionButton>
                   </>
                 )}
@@ -140,15 +140,15 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
           ))}
         {oauthProviders.length === 0 && (
           <div className="settings-group-body">
-            <ListEmpty text={loading ? 'Loading providers…' : 'No OAuth providers available.'} />
+            <ListEmpty text={loading ? t('Loading providers…') : t('No OAuth providers available.')} />
           </div>
         )}
       </section>
       {openCodeGoProvider && <Group>{renderApiProvider(openCodeGoProvider)}</Group>}
-      <Group title="API-key providers">
+      <Group title={t('API-key providers')}>
         {otherApiProviders.length > 0 && otherApiProviders.map(renderApiProvider)}
         {otherApiProviders.length === 0 && (
-          <ListEmpty text={loading ? 'Loading providers…' : 'No API-key providers available.'} />
+          <ListEmpty text={loading ? t('Loading providers…') : t('No API-key providers available.')} />
         )}
       </Group>
       <CustomProvidersSection
@@ -307,7 +307,7 @@ export function OAuthControl({
       )}
       {!addAccount && (
         <ActionButton disabled={disabled} onClick={() => void start()}>
-          {accountId ? 'Reconnect' : 'Connect'}
+          {accountId ? t('Reconnect') : t('Connect')}
         </ActionButton>
       )}
       {!flow && error && <ErrorNotice error={error} />}

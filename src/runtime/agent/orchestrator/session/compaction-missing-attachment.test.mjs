@@ -1,5 +1,5 @@
 // A session whose referenced attachment blob is gone from disk must still
-// estimate and compact; provider sends keep failing on the missing blob.
+// estimate and compact; provider sends lower it to placeholder text.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -129,7 +129,7 @@ test('a session referencing deleted attachments estimates and compacts', async (
   assert.deepEqual(session.messages.find((message) => message.content === latest.content)?.content, latest.content);
 });
 
-test('provider sends still fail on a missing attachment blob', () => {
+test('provider sends lower a missing attachment blob to placeholder text', () => {
   const { blobs, content } = attachmentContent('send');
   for (const { path } of blobs) rmSync(path);
   const image = [content[1]];
@@ -140,8 +140,8 @@ test('provider sends still fail on a missing attachment blob', () => {
     media.normalizeContentForOpenAIResponses,
     media.normalizeContentForGeminiParts,
   ]) {
-    assert.throws(() => normalize(image), { code: 'ENOENT' });
-    assert.throws(() => normalize(file), { code: 'ENOENT' });
+    assert.match(JSON.stringify(normalize(image)), /\[attachment unavailable: image\/png\]/);
+    assert.match(JSON.stringify(normalize(file)), /\[attachment unavailable: notes\.txt\]/);
   }
-  assert.throws(() => media.contentToText(file), { code: 'ENOENT' });
+  assert.equal(media.contentToText(file), '[attachment unavailable: notes.txt]');
 });

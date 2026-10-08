@@ -32,6 +32,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // equivalents (remote-browser-fallbacks.ts); everything below forwards over
     // the relay socket.
     ...REMOTE_BROWSER_FALLBACKS,
+    submitFeedback: (input) => call('submitFeedback', [input]),
     // Web Push: the desktop mints the key, this browser subscribes with it and
     // sends the endpoint straight back through the encrypted socket, so the
     // relay never learns which device asked to be notified.

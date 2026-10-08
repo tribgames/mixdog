@@ -1,4 +1,5 @@
 import type { TranscriptItem } from './desktop-types';
+import { t, tExisting } from './i18n';
 import { normalizeApplyPatch } from './renderer-logic.mjs';
 import { asRecord, oneLine } from './text-format';
 import {
@@ -28,7 +29,6 @@ import {
   toolActivityFieldLabel,
   toolActivityFieldValue,
   toolActivityFirstText,
-  toolActivityLocalizedResult,
   toolActivityRedactInlineSecrets,
   toolActivityRepresentedKeys,
   toolActivitySubject,
@@ -152,7 +152,11 @@ function isCompletePatch(text: string): boolean {
       continue;
     }
     if (!oldLeft && !newLeft) {
-      if (hunks && line && !/^(?:diff --git |index |--- |\+\+\+ |new file|deleted file|similarity|rename|old mode|new mode|\\)/.test(line)) {
+      if (
+        hunks &&
+        line &&
+        !/^(?:diff --git |index |--- |\+\+\+ |new file|deleted file|similarity|rename|old mode|new mode|\\)/.test(line)
+      ) {
         return false;
       }
       continue;
@@ -207,23 +211,27 @@ export function desktopToolActivityItemPresentation(
   const normalizedName = surface.normalizedName;
   const args = asRecord(surface.args) ?? asRecord(item.args) ?? {};
   const done = toolItemDone(item);
-  const model = deriveToolCardModel({
-    name: modeledName,
-    args: item.args,
-    result: item.result,
-    rawResult: item.rawResult,
-    isError: item.isError,
-    errorCount: item.errorCount,
-    callErrorCount: item.callErrorCount,
-    exitErrorCount: item.exitErrorCount,
-    count: 1,
-    completedCount: done ? 1 : 0,
-    startedAt: item.startedAt,
-    completedAt: item.completedAt,
-    headerFinalized: item.headerFinalized,
-    nowMs,
-  }) as ToolCardModel & {
+  const model = deriveToolCardModel(
+    {
+      name: modeledName,
+      args: item.args,
+      result: item.result,
+      rawResult: item.rawResult,
+      isError: item.isError,
+      errorCount: item.errorCount,
+      callErrorCount: item.callErrorCount,
+      exitErrorCount: item.exitErrorCount,
+      count: 1,
+      completedCount: done ? 1 : 0,
+      startedAt: item.startedAt,
+      completedAt: item.completedAt,
+      headerFinalized: item.headerFinalized,
+      nowMs,
+    },
+    { translate: tExisting }
+  ) as ToolCardModel & {
     resultSummary?: string | null;
+    resultSummaryDisplay?: string | null;
     displayedResultBodyText?: string;
     terminalStatus?: string;
     isAgentResponse?: boolean;
@@ -289,8 +297,7 @@ export function desktopToolActivityItemPresentation(
   }
   // A written file that already has a diff shows the diff alone: the preview
   // would repeat every line of it.
-  const previewText =
-    !diffPatch && originalName === 'write' && typeof args.content === 'string' ? args.content : '';
+  const previewText = !diffPatch && originalName === 'write' && typeof args.content === 'string' ? args.content : '';
   const beforeText =
     !diffPatch && normalizedName === 'edit' ? toolActivityFirstText(args, 'old_string', 'oldString', 'old_str') : '';
   const afterText =
@@ -322,20 +329,29 @@ export function desktopToolActivityItemPresentation(
     outputText = '';
   }
   let resultLabel = '';
+  let localizeResultLabel = (text: string): string => text;
   if (!model.pending) {
     const semantic = oneLine(String(model.resultSummary || ''));
-    if (semantic && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(semantic)) resultLabel = semantic;
+    if (semantic && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(semantic)) {
+      resultLabel = semantic;
+      // The summary author knows which pieces are UI and which are tool/user
+      // content. Never infer that boundary from the rendered words.
+      localizeResultLabel = () => oneLine(String(model.resultSummaryDisplay ?? semantic));
+    }
     if (tone === 'neutral' && quietSuccessSurface) resultLabel = '';
     if (!resultLabel && tone === 'error') {
       const failure = oneLine(String(model.headerFailureText || model.detailLine || ''));
-      resultLabel =
+      const failureText =
         toolActivityErrorSummary(outputText) ||
-        (failure && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(failure) ? failure : 'Failed');
+        (failure && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(failure) ? failure : '');
+      resultLabel = failureText || 'Failed';
+      localizeResultLabel = failureText ? (text) => text : () => t('Failed');
     }
   }
   if (structured.rows.length) {
     const completed = structured.rows.filter((row) => toolActivityIsCompleted(row.status)).length;
     resultLabel = `${completed}/${structured.rows.length}`;
+    localizeResultLabel = (text) => text;
   }
   if (
     !resultLabel &&
@@ -343,6 +359,7 @@ export function desktopToolActivityItemPresentation(
     /^staged\b/i.test(outputText.trim())
   ) {
     resultLabel = 'Staged';
+    localizeResultLabel = () => t('Staged');
   }
   if (
     normalizedName !== 'git' &&
@@ -362,8 +379,11 @@ export function desktopToolActivityItemPresentation(
     category === 'Patch' && tone === 'neutral'
       ? /^(?:Updated|Created|Deleted|Changed) (.+?)(?: · (.+))?$/.exec(subject || resultLabel)
       : null;
-  if (patchSummary && (!subject || !resultLabel)) resultLabel = patchSummary[2] ?? '';
-  resultLabel = resultLabel ? toolActivityLocalizedResult(resultLabel) : '';
+  if (patchSummary && (!subject || !resultLabel)) {
+    resultLabel = patchSummary[2] ?? '';
+    localizeResultLabel = (text) => text;
+  }
+  resultLabel = resultLabel ? localizeResultLabel(resultLabel) : '';
   // Only text that parses is JSON: a log line opening with "[warn]" is not.
   const outputLanguage = outputText && !command && isJsonText(outputText) ? 'json' : '';
   // A clean exit is the default; only a failing code is worth a line.
@@ -400,8 +420,7 @@ export function desktopToolActivityItemPresentation(
     subjectKind = 'target';
   }
   if (subjectKind === 'text' && CODE_SUBJECT_TOOLS.test(normalizedName)) subjectKind = 'code';
-  const promptText =
-    normalizedName === 'agent' && !model.isAgentResponse ? toolActivityFirstText(args, 'prompt') : '';
+  const promptText = normalizedName === 'agent' && !model.isAgentResponse ? toolActivityFirstText(args, 'prompt') : '';
   const hasDetails = Boolean(
     command ||
       targets.length ||
@@ -440,7 +459,10 @@ export function desktopToolActivityItemPresentation(
     hideSubjectWhenOpen: Boolean(command),
     targetPath,
     ...(normalizedName === 'read' && Number(args.offset) > 0 ? { targetLine: Math.floor(Number(args.offset)) } : {}),
-    headerSubject: rowSubject(normalizedName, patchSummary?.[1].toLowerCase() ?? fileHeaderSubject(subject, targetPath)),
+    headerSubject: rowSubject(
+      normalizedName,
+      patchSummary?.[1].toLowerCase() ?? fileHeaderSubject(subject, targetPath)
+    ),
     subjectIsTarget: Boolean(targetPath) && subject.startsWith(targetPath),
     subjectKind: patchSummary ? 'target' : subjectKind,
     sections,
