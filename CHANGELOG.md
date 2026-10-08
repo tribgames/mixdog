@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.0.10 - 2026-10-08
+
 - Custom API providers can be registered in Settings with provider-specific
   connection adapters.
 
