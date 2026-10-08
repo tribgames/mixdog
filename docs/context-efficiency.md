@@ -39,6 +39,25 @@ returned text. Tool-result reduction is covered separately in section 9.
 Implementation: [read cache](../src/runtime/agent/orchestrator/session/cache/read-cache.mjs),
 [scoped cache](../src/runtime/agent/orchestrator/session/cache/scoped-cache.mjs).
 
+Repeated-call references use these same cache checks and must identify a
+result already delivered to the current loop. A matching call signature
+alone is not evidence that its result is current. Read entries validate
+file stat tuples; scoped entries retain path invalidation and a 30-second
+TTL. Native search watcher events invalidate affected results across
+sessions. If grep/glob reports `cacheSafe: false` (for example, an
+unwatchable search scope), neither its local result cache nor the session
+cache may retain that result, even when the scan is complete. Concurrent
+subscribers inherit the same cache-safety outcome. The single-file grep
+rescue also bypasses session caching because it establishes no watcher.
+
+Scoped caching remains eventually consistent: an unreported external
+change can remain invisible until an existing cache entry expires. The TTL
+is a fallback bound, not an instantaneous filesystem snapshot. Retaining
+watcher invalidation plus bounded expiry avoids recursively scanning the
+whole tree on every cache lookup; merely shortening the TTL would still
+leave a stale interval while adding repeated search work. Exact file
+contents should be obtained through the stat-validated read path.
+
 ## 3. Built-in ast-grep and AST-based code graphs
 
 The Rust-based `mixdog-graph` engine embeds tree-sitter and ast-grep. It

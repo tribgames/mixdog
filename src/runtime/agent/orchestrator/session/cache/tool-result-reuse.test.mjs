@@ -15,10 +15,12 @@ const { processToolBatch } = await import('../tool-batch.mjs');
 const { createEagerDispatcher } = await import('../eager-dispatch.mjs');
 const { clearReadDedupSession, setReadCached } = await import('./read-cache.mjs');
 const { SCOPED_CACHE_TTL_MS, clearScopedToolsForSessionPaths } = await import('./scoped-cache.mjs');
+const { createScopedCacheOutcome } = await import('./scoped-cache-outcome.mjs');
+const { executeGlobTool } = await import('../../tools/builtin/search-glob-tool.mjs');
 // Remove the isolated data directory after imported modules' exit flushes.
 process.once('exit', () => rmSync(root, { recursive: true, force: true }));
 
-const tools = ['read', 'grep', 'mcp__remote__status'].map((name) => ({
+const tools = ['read', 'grep', 'glob', 'mcp__remote__status'].map((name) => ({
   name,
   annotations: { readOnlyHint: true },
 }));
@@ -48,8 +50,21 @@ async function round(fx, name, args, { beforeBatch, afterRead } = {}) {
   const call = { id: randomUUID(), name, arguments: args };
   const results = [];
   fx.iterations += 1;
-  const executeToolFn = async (toolName, input, cwd) => {
+  const executeToolFn = async (toolName, input, cwd, _sessionId, sessionRef, options) => {
     fx.executions += 1;
+    if (toolName === 'glob') {
+      const outcome = createScopedCacheOutcome();
+      sessionRef._scopedCacheOutcomeByCallId ??= new Map();
+      sessionRef._scopedCacheOutcomeByCallId.set(options.toolCallId, outcome);
+      const result = await executeGlobTool(structuredClone(input), cwd, {
+        scopedCacheOutcome: outcome,
+        __runRgWindowedLines: async () => ({
+          lines: [`snapshot-${fx.executions}.txt`], complete: true, partial: false, cacheSafe: fx.cacheSafe,
+        }),
+      });
+      assert.equal(outcome.complete, true, 'an unwatchable result is still complete');
+      return result;
+    }
     if (toolName !== 'read') return `snapshot-${fx.executions}`;
     const paths = input.file_path ?? input.path;
     const content = (Array.isArray(paths) ? paths : [paths]).map((value) => {
@@ -88,6 +103,25 @@ async function round(fx, name, args, { beforeBatch, afterRead } = {}) {
 }
 
 for (const mode of ['serial', 'fallback', 'streaming']) {
+  test(`unwatchable complete glob results bypass both caches and cross-turn reuse (${mode})`, async () => {
+    const fx = fixture(mode);
+    fx.cacheSafe = false;
+    const args = { path: fx.cwd, pattern: '*.txt', sort: 'natural', limit: 25 };
+    assert.match((await round(fx, 'glob', args)).content, /snapshot-1\.txt/);
+    assert.match((await round(fx, 'glob', args)).content, /snapshot-2\.txt/);
+    assert.equal(fx.executions, 2);
+    assert.equal(fx.sessionRef._scopedCacheOutcomeByCallId.size, 0);
+  });
+
+  test(`watchable complete glob results still reuse the delivered result (${mode})`, async () => {
+    const fx = fixture(mode);
+    fx.cacheSafe = true;
+    const args = { path: fx.cwd, pattern: '*.txt', sort: 'natural', limit: 25 };
+    assert.match((await round(fx, 'glob', args)).content, /snapshot-1\.txt/);
+    assert.equal((await round(fx, 'glob', args)).toolKind, 'skipped');
+    assert.equal(fx.executions, 1);
+  });
+
   test(`unchanged reads reuse, external edits refresh, and references move to the new result (${mode})`, async () => {
     const fx = fixture(mode);
     const args = { file_path: fx.file };

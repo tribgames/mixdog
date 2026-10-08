@@ -167,6 +167,7 @@ function writeCaches(batch, completed, result) {
         content: result,
         toolUseId: call.id,
         complete: outcome ? outcome.complete : true,
+        cacheSafe: outcome?.cacheSafe !== false,
         generation: completed.scopedGeneration,
       });
     }

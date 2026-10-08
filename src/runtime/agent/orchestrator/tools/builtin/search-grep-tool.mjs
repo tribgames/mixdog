@@ -10,8 +10,9 @@ import {
 import { _suggestIndexedPaths, buildNotFoundHint, finalizeReadFamilyEnoentTail } from './search-path-diagnostics.mjs';
 import { buildGrepCacheKey, buildGrepRgArgs } from './search-builders.mjs';
 import { runRg, runRgWindowedLines } from './native-search-runner.mjs';
-import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
-import { cacheGet, cacheSet, runResultCacheInFlight, statPathsForMtime } from './cache-layers.mjs';
+import { markScopedCacheIncomplete, markScopedCacheUnsafe } from '../../session/cache/scoped-cache-outcome.mjs';
+import { cacheGet, cacheSet, statPathsForMtime } from './cache-layers.mjs';
+import { runScopedSearchInFlight } from './lib/scoped-search-flight.mjs';
 import { recordLocalSearchCacheHit } from './local-search-telemetry.mjs';
 import { parseGrepCountLine } from './lib/search-input-helpers.mjs';
 import { statReachable } from './fs-reachability.mjs';
@@ -130,10 +131,14 @@ async function runCachedGrepSearch(request) {
     return cached;
   }
 
-  return await runResultCacheInFlight(cacheKey, ({ signal }) => runGrepSearch({ ...request, cacheKey }, signal), {
-    signal: options?.signal || options?.abortSignal || null,
-    scopes: [grepResolvedPath],
-  });
+  return await runScopedSearchInFlight(
+    cacheKey,
+    ({ signal, scopedCacheOutcome }) => runGrepSearch({
+      ...request, cacheKey, options: { ...options, scopedCacheOutcome },
+    }, signal),
+    { signal: options?.signal || options?.abortSignal || null, scopes: [grepResolvedPath] },
+    options?.scopedCacheOutcome
+  );
 }
 
 // Fan-out prefilter scoping keys the cache on the candidate list a parent
@@ -382,6 +387,7 @@ function streamedOutcome(streamed, capWarning) {
 // bookkeeping, caching of a complete rendering, and the progress line.
 async function finishContextGrep(scope, rendered, { totalKnown, partialSuffix, cacheSafe }) {
   const { options, cacheKey, grepResolvedPath, patternCapNote } = scope;
+  if (cacheSafe === false) markScopedCacheUnsafe(options?.scopedCacheOutcome);
   const sourceComplete = rendered.sourceComplete !== false;
   const body = rendered.text || (await grepEmptyBody(scope, totalKnown, rendered.total === 0));
   const out = patternCapNote + body + partialSuffix;
@@ -504,6 +510,7 @@ async function runPlainGrep(scope, rgArgs, effectiveHeadLimit) {
   const out = scope.patternCapNote + body + window.partialSuffix;
   const shownLines = headLimit === Infinity ? windowed : windowed.slice(0, headLimit);
   const remaining = Math.max(0, window.totalWindowed - shownLines.length);
+  if (window.cacheSafe === false) markScopedCacheUnsafe(options?.scopedCacheOutcome);
   // Mirrors formatGrepOutput truncation / totalKnown semantics.
   if (options?.scopedCacheOutcome && (!window.totalKnown || remaining > 0)) {
     markScopedCacheIncomplete(options.scopedCacheOutcome);
@@ -611,7 +618,11 @@ async function grepFailureResult(scope, err) {
       workDir: scope.workDir,
       patternCapNote: scope.patternCapNote,
     });
-    if (rescued !== null) return rescued;
+    if (rescued !== null) {
+      // The JS rescue did not establish a native watcher for this source.
+      markScopedCacheUnsafe(scope.options?.scopedCacheOutcome);
+      return rescued;
+    }
   }
   const stderr = err?.stderr ? String(err.stderr).trim() : '';
   const msg = stderr || err?.message || String(err);
