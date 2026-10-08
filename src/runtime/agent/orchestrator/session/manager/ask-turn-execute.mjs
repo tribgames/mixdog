@@ -40,7 +40,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   const stepAutoEffort =
     autoEffort?.mode === 'on' &&
     effortConfiguration &&
-    autoEffortStepsEnabled(effortConfiguration.mode) &&
+    autoEffortStepsEnabled() &&
     effortJudgeSupportsSteps()
       ? { request: autoEffort.request, base: autoEffort.base }
       : null;

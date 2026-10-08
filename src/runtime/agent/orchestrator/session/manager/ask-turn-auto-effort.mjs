@@ -12,22 +12,14 @@ import { effortOptionsFor } from '../../runtime-core/effort.mjs';
 import { judgeTurn, recordEffortDecision } from '../../../../effort-judge/judge-client.mjs';
 import { promptContentText } from './prompt-utils.mjs';
 
-// Per-step auto effort applies where a lower step effort actually shortens
-// the model's reasoning. Measured with the step judge against fixed high
-// (same tasks, all runs passing): GPT-6.1 Sol output -46% on five hard tasks
-// and -26% on eight Terminal-Bench tasks; Claude Opus 5.5 unchanged (+-3%),
-// since it sizes its own thinking regardless of the requested effort. So the
-// OpenAI Responses route judges steps and the Anthropic route keeps the turn's
-// effort for the whole turn.
-const STEP_AUTO_MODES = new Set(['responses']);
-
+// Every cache-safe route judges its tool-result steps the same way. Measured
+// against fixed high (same tasks, all runs passing): GPT-6.1 Sol output -46% on
+// five hard tasks and -26% on eight Terminal-Bench tasks; Claude Opus 5.5 about
+// unchanged (+-3%), since it sizes its own thinking regardless of the effort.
 // MIXDOG_AUTO_EFFORT_STEPS=off keeps auto effort to the turn's first request
-// (no per-step judgment), e.g. to compare the two in a benchmark; `on` also
-// judges steps on routes outside STEP_AUTO_MODES (measurement only).
-export function autoEffortStepsEnabled(configurationMode) {
-  const env = String(process.env.MIXDOG_AUTO_EFFORT_STEPS || '').trim().toLowerCase();
-  if (env === 'off') return false;
-  return env === 'on' || STEP_AUTO_MODES.has(configurationMode);
+// (no per-step judgment), e.g. to compare the two in a benchmark.
+export function autoEffortStepsEnabled() {
+  return String(process.env.MIXDOG_AUTO_EFFORT_STEPS || '').trim().toLowerCase() !== 'off';
 }
 
 export function autoEffortMode() {

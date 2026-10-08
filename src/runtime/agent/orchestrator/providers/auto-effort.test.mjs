@@ -151,16 +151,13 @@ test('a step effort replaces the turn effort in the snapshot and projects after 
   assert.equal(projection.effort, 'low');
 });
 
-test('steps are judged on the OpenAI Responses route by default; the env forces them on or off', () => {
+test('steps are judged by default on every route; the env turns them off', () => {
   const saved = process.env.MIXDOG_AUTO_EFFORT_STEPS;
   try {
     delete process.env.MIXDOG_AUTO_EFFORT_STEPS;
-    assert.equal(autoEffortStepsEnabled('responses'), true);
-    assert.equal(autoEffortStepsEnabled('anthropic'), false);
-    process.env.MIXDOG_AUTO_EFFORT_STEPS = 'on';
-    assert.equal(autoEffortStepsEnabled('anthropic'), true);
+    assert.equal(autoEffortStepsEnabled(), true);
     process.env.MIXDOG_AUTO_EFFORT_STEPS = 'off';
-    assert.equal(autoEffortStepsEnabled('responses'), false);
+    assert.equal(autoEffortStepsEnabled(), false);
   } finally {
     if (saved === undefined) delete process.env.MIXDOG_AUTO_EFFORT_STEPS;
     else process.env.MIXDOG_AUTO_EFFORT_STEPS = saved;
