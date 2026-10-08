@@ -36,7 +36,7 @@ export async function executeBatchCall(batch, call, callIndex) {
     readCacheHit: null,
     readCacheState: null,
     scopedCacheHit: null,
-    scopedGeneration: scopedCacheGeneration(),
+    scopedGeneration: null,
     localSearchTelemetry: null,
     resultTelemetry: {},
     eagerExecution: null,
@@ -138,6 +138,9 @@ async function consumeEagerResult(call, eager, exec) {
   const settled = await eager.promise;
   if (!settled.ok) throw settled.error;
   exec.readCacheState = eager.readCacheState ?? null;
+  // Read after settlement: an entry may still be waiting to start when
+  // collection begins. Never replace missing evidence with the current epoch.
+  exec.scopedGeneration = eager.scopedGeneration ?? null;
   exec.result = settled.value;
   exec.toolEndedAt = eager.endedAt ?? Date.now();
   if (settled.skipped) {
@@ -167,6 +170,9 @@ async function executeSerially(batch, call, exec, suppressReadUnchangedStub = fa
   if (sessionId && _isReadTool(call.name)) {
     exec.readCacheState = captureReadCacheState({ args: call.arguments, cwd });
   }
+  // Match eager execution: time spent in beforeToolExecution is not part
+  // of the search, but invalidation during execution must reject its cache write.
+  exec.scopedGeneration = scopedCacheGeneration();
   exec.executionStartedAt = Date.now();
   exec.serialExecutionStartedAt = exec.executionStartedAt;
   exec.localSearchTelemetry = {};
