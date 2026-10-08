@@ -14,7 +14,7 @@ import { prepareTurnEffortConfiguration, projectEffortConfiguration, stepEffortC
 import { markStepEffort } from '../session/loop/step-auto-effort.mjs';
 import { stepJudgeText, stepResultWindow } from '../../../effort-judge/judge-input.mjs';
 import { builtinFeatureActive, INSTALLABLE_BUILTIN_IDS } from '../runtime-core/builtin-features.mjs';
-import { resolveTurnAutoEffort } from '../session/manager/ask-turn-auto-effort.mjs';
+import { autoEffortStepsEnabled, resolveTurnAutoEffort } from '../session/manager/ask-turn-auto-effort.mjs';
 
 const ANTHROPIC = ['low', 'medium', 'high', 'xhigh', 'max'];
 // One-hot distribution over the judge levels 0 easy .. 3 very hard.
@@ -151,6 +151,22 @@ test('a step effort replaces the turn effort in the snapshot and projects after 
   assert.equal(projection.effort, 'low');
 });
 
+test('steps are judged on the OpenAI Responses route by default; the env forces them on or off', () => {
+  const saved = process.env.MIXDOG_AUTO_EFFORT_STEPS;
+  try {
+    delete process.env.MIXDOG_AUTO_EFFORT_STEPS;
+    assert.equal(autoEffortStepsEnabled('responses'), true);
+    assert.equal(autoEffortStepsEnabled('anthropic'), false);
+    process.env.MIXDOG_AUTO_EFFORT_STEPS = 'on';
+    assert.equal(autoEffortStepsEnabled('anthropic'), true);
+    process.env.MIXDOG_AUTO_EFFORT_STEPS = 'off';
+    assert.equal(autoEffortStepsEnabled('responses'), false);
+  } finally {
+    if (saved === undefined) delete process.env.MIXDOG_AUTO_EFFORT_STEPS;
+    else process.env.MIXDOG_AUTO_EFFORT_STEPS = saved;
+  }
+});
+
 test('step wiring is off without a step context and leaves the step unmarked when the judge is missing', async (t) => {
   const data = mkdtempSync(join(tmpdir(), 'mixdog-step-effort-'));
   const saved = { dir: process.env.MIXDOG_EFFORT_JUDGE_DIR, data: process.env.MIXDOG_DATA_DIR };
@@ -187,7 +203,7 @@ test('step wiring is off without a step context and leaves the step unmarked whe
   assert.equal(on.autoEffortSteps, 2);
   assert.equal(tool.meta, undefined);
   const log = readFileSync(join(data, 'effort-judge', 'decisions.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.deepEqual(log.map((entry) => [entry.step, entry.skipped]), [[1, 'model-missing'], [2, 'model-missing']]);
+  assert.deepEqual(log.map((entry) => [entry.atStep, entry.skipped]), [[1, 'model-missing'], [2, 'model-missing']]);
   assert.equal('request' in log[0], false);
 });
 

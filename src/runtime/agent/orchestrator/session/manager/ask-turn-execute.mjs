@@ -38,7 +38,10 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   // Auto effort also judges every tool-result step of the turn when the
   // installed judge was trained on steps (session/loop/step-auto-effort.mjs).
   const stepAutoEffort =
-    autoEffort?.mode === 'on' && effortConfiguration && autoEffortStepsEnabled() && effortJudgeSupportsSteps()
+    autoEffort?.mode === 'on' &&
+    effortConfiguration &&
+    autoEffortStepsEnabled(effortConfiguration.mode) &&
+    effortJudgeSupportsSteps()
       ? { request: autoEffort.request, base: autoEffort.base }
       : null;
   applyTurnContextMeta(session, provider);
