@@ -124,7 +124,8 @@ export function isLikelyRawModelId(value) {
   const model = clean(value);
   if (!model || model.length > 160) return false;
   if (/\s/.test(model)) return false;
-  return /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/.test(model);
+  // OpenRouter's rolling model aliases start with a literal "~".
+  return /^~?[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/.test(model);
 }
 
 export function validateRequestedModelSelector(config, requested = {}) {

@@ -1,8 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { makeResolveRoute, resolveAutoClearIdleMs } from './config-helpers.mjs';
+import {
+  isLikelyRawModelId,
+  makeResolveRoute,
+  resolveAutoClearIdleMs,
+  validateRequestedModelSelector,
+} from './config-helpers.mjs';
 
 const resolveRoute = makeResolveRoute(() => 'fallback');
+
+test('model selectors accept rolling aliases without accepting prose or malformed IDs', () => {
+  for (const model of [
+    '~google/gemini-flash-latest',
+    '~deepseek/deepseek-flash-latest',
+    '~anthropic/claude-opus-latest',
+    'google/gemini-3.8-flash',
+    'openrouter/free',
+    'vendor/model:free',
+    'claude-sonnet-5-5',
+  ]) {
+    assert.equal(isLikelyRawModelId(model), true, model);
+    assert.doesNotThrow(() => validateRequestedModelSelector({}, { provider: 'openrouter', model }));
+  }
+  for (const model of ['~', '~~google/model', '~ google/model', 'google/~model', 'Google: Gemini Flash Latest', 'model?x=1', 'x'.repeat(161)]) {
+    assert.equal(isLikelyRawModelId(model), false, model);
+    assert.throws(() => validateRequestedModelSelector({}, { model }), /Invalid model selector/);
+  }
+  assert.equal(isLikelyRawModelId(''), false);
+  assert.equal(isLikelyRawModelId('   '), false);
+});
 
 test('named and default presets share explicit, saved, and preset setting precedence', () => {
   const preset = {
