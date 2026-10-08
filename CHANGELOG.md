@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.0.11 - 2026-10-08
+
 - The built-in browser shows pages again on Windows displays scaled above
   100%, instead of failing with "Browser display did not recover after the
   page changed" (#8). Pages also follow display scale changes, including
