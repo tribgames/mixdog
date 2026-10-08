@@ -8,7 +8,7 @@ export function createBrowserDisplayStream(
 ) {
   type Stream = {
     key: string;
-    viewport?: { width: number; height: number };
+    pixels?: { width: number; height: number };
     latest?: NativeImage;
     encoded?: BrowserScreenshotCapture;
     waiting?: { resolve(image: NativeImage): void; reject(error: Error): void; promise: Promise<NativeImage> };
@@ -19,13 +19,13 @@ export function createBrowserDisplayStream(
   return async function sample(
     guest: WebContents,
     key: string,
-    viewport?: { width: number; height: number }
+    pixels?: { width: number; height: number }
   ): Promise<BrowserScreenshotCapture> {
     let stream = streams.get(guest);
     if (!stream) {
       const entry: Stream = {
         key,
-        viewport,
+        pixels,
         close() {
           clearTimeout(entry.idle);
           guest.removeListener('paint', paint);
@@ -40,7 +40,7 @@ export function createBrowserDisplayStream(
       };
       const paint = (_event: unknown, _dirty: unknown, image: NativeImage) => {
         const size = image.getSize();
-        if (entry.viewport && (size.width !== entry.viewport.width || size.height !== entry.viewport.height)) {
+        if (entry.pixels && (size.width !== entry.pixels.width || size.height !== entry.pixels.height)) {
           // The compositor now paints another geometry (pane resize). A caller
           // waiting for the old size would otherwise wait until its deadline;
           // release it so the pane re-samples with the current geometry.
@@ -75,7 +75,7 @@ export function createBrowserDisplayStream(
     stream.idle.unref();
     if (stream.key !== key) {
       stream.key = key;
-      stream.viewport = viewport;
+      stream.pixels = pixels;
       stream.latest = undefined;
       stream.encoded = undefined;
     }
@@ -97,7 +97,7 @@ export function createBrowserDisplayStream(
     }
     if (stream.key !== key) throw new Error('Browser page changed during capture.');
     const size = image.getSize();
-    if (viewport && (size.width !== viewport.width || size.height !== viewport.height)) {
+    if (pixels && (size.width !== pixels.width || size.height !== pixels.height)) {
       throw new Error('Browser page changed during capture.');
     }
     const result = await encode(image);

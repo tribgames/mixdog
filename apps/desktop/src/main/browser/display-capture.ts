@@ -21,27 +21,29 @@ export function createBrowserDisplayCapture(sharedTextures = false) {
   };
   const encode = async (image: Electron.NativeImage) => png(await encodeBrowserDisplayPng(image));
   const stream = createBrowserDisplayStream(encode);
+  /** `pixels` is the exact frame size the guest composites at (frame-pixels);
+   *  a frame of any other size belongs to an older geometry. */
   return function capture(
     guest: WebContents,
     documentId = '',
-    viewport?: { width: number; height: number }
+    pixels?: { width: number; height: number }
   ): Promise<BrowserScreenshotCapture> {
-    const key = `${documentId}:${viewport?.width ?? ''}:${viewport?.height ?? ''}`;
+    const key = `${documentId}:${pixels?.width ?? ''}:${pixels?.height ?? ''}`;
     const existing = pending.get(guest);
     if (existing) {
       if (existing.documentId === key) return existing.work;
       // Wait out the old native request, but never label its pixels as the
       // document that navigated while that request was outstanding.
-      return existing.work.catch(() => undefined).then(() => capture(guest, documentId, viewport));
+      return existing.work.catch(() => undefined).then(() => capture(guest, documentId, pixels));
     }
     // Popups with native (non-offscreen) views do not emit paint events.
     // They retain the single-flight native path, not a silent stream fallback.
     const work =
       guest.isOffscreen?.() && !sharedTextures
-        ? stream(guest, key, viewport)
+        ? stream(guest, key, pixels)
         : guest.capturePage(undefined, { stayHidden: true }).then((image) => {
             const size = image.getSize();
-            if (viewport && (size.width !== viewport.width || size.height !== viewport.height)) {
+            if (pixels && (size.width !== pixels.width || size.height !== pixels.height)) {
               throw new Error('Browser page changed during capture.');
             }
             return encode(image);

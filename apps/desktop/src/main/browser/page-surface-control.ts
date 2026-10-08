@@ -120,7 +120,7 @@ export function createPageInputDispatcher(
 }
 
 export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: PageSurfaceState) {
-  const { paneSizes, invalidateGeometry, presenting } = state;
+  const { paneSizes, invalidateGeometry, resizeGuest, presenting } = state;
   const dispatchPageInput = createPageInputDispatcher(host);
 
   function controlTabs(sessionId: string, input: DesktopBrowserPageControl): boolean {
@@ -159,7 +159,7 @@ export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: Pa
       const size = { width: Math.round(input.width), height: Math.round(input.height) };
       paneSizes.set(sessionId, size);
       invalidateGeometry(guest);
-      host.resize(guest, size.width, size.height);
+      resizeGuest(guest, size);
       return;
     }
     // The pane re-applies its zoom on every attach, navigation and resize.

@@ -13,7 +13,7 @@ test('an initial blocking dialog is displayed without waiting for any renderer o
   const surface = createBrowserPageSurface({
     ensureGuest: async () => guest,
     state: { pageId: () => 'p1', for: () => ({ documentGeneration: 1, pendingDialog: {} }) },
-    viewport: () => ({ width: 800, height: 600, zoom: 1 }),
+    viewport: () => ({ width: 800, height: 600, zoom: 1, pixels: { width: 800, height: 600 } }),
     cdp: {
       guestDebugger: async () => {
         throw new Error('renderer is blocked');

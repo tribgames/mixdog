@@ -456,6 +456,7 @@ const settingsStore = new DesktopSettingsStore({
 });
 let mainWindow: BrowserWindow | null = null;
 let browserHost: BrowserHost | null = null;
+let browserHostDisposal: Promise<void> = Promise.resolve();
 // Last-known Browser Use opt-in: the host is created with the window, which
 // may happen before or after the initial settings read, so both sides apply.
 let browserControlEnabled = false;
@@ -866,6 +867,7 @@ function disposeDesktopResources(): Promise<void> {
     diagnostics?.write('desktop-stop');
     const browserAndComputerCleanup = (async () => {
       await browserHost?.dispose();
+      await browserHostDisposal;
       await computerHost?.dispose();
     })();
     const cleanup = Promise.all([
@@ -1315,7 +1317,7 @@ async function createWindow(): Promise<void> {
   // Browser pane host: registers this window's browser-pane webviews. The
   // agent bridge (the runtime's `browser` tool) is opt-in and only serves
   // while the Browser Use setting is on, mirroring Computer Use.
-  browserHost = createBrowserHost(window, {
+  const windowBrowserHost = (browserHost = createBrowserHost(window, {
     onDiagnostic: (event, data) => diagnostics?.write(event, data),
     // Live frames and explicit reveal/hide requests reach paired clients
     // through the service, which owns the relay and per-client pacing.
@@ -1325,7 +1327,7 @@ async function createWindow(): Promise<void> {
     onSurfaceRequest: (request) => {
       void serviceClient.invokeDesktopOperation('browserRemoteOpen', [request]).catch(() => {});
     },
-  });
+  }));
   browserHost.setBridgeEnabled(browserControlEnabled);
   // A dead capture/automation CDP client can leave the renderer frozen at a
   // synthetic viewport (observed 800x600) while the native window resizes —
@@ -1457,6 +1459,10 @@ async function createWindow(): Promise<void> {
     removeIpc = null;
     computerUseOverlay?.dispose();
     computerUseOverlay = null;
+    // This window's host dies with it (macOS 'activate' builds a new one);
+    // dispose is idempotent, so a later quit-time dispose is a no-op.
+    if (browserHost === windowBrowserHost) browserHost = null;
+    browserHostDisposal = Promise.all([browserHostDisposal, windowBrowserHost.dispose()]).then(() => undefined);
     mainWindow = null;
     turnAttention = null;
   });

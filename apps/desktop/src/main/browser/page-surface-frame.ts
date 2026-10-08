@@ -17,7 +17,17 @@ const STALE_FRAME_MS = 3000;
 type FrameMemory = WeakMap<WebContents, { frame: DesktopBrowserPageFrame; zoom: number }>;
 
 export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: PageSurfaceState) {
-  const { images, geometryRevisions, viewportChanges, paneSizes, presentedGuests, documentId, presenting } = state;
+  const {
+    images,
+    geometryRevisions,
+    viewportChanges,
+    paneSizes,
+    presentedGuests,
+    resizeGuest,
+    paneSurface,
+    documentId,
+    presenting,
+  } = state;
   const lastFrames: FrameMemory = new WeakMap();
   const lastTextureFrames: FrameMemory = new WeakMap();
   const captureFaults = new WeakMap<WebContents, number>();
@@ -48,6 +58,7 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
     surface: { width: number; height: number },
     texture?: BrowserDisplayTexture
   ) {
+    const pane = paneSurface(guest, surface);
     return {
       documentId: token,
       webContentsId: guest.id,
@@ -56,8 +67,8 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
       loading: guest.isLoadingMainFrame(),
       canGoBack: guest.navigationHistory.canGoBack(),
       canGoForward: guest.navigationHistory.canGoForward(),
-      surfaceWidth: surface.width,
-      surfaceHeight: surface.height,
+      surfaceWidth: pane.width,
+      surfaceHeight: pane.height,
       ...(texture ? { textureId: texture.id } : {}),
       ...(host.tabs ? { tabs: host.tabs.list(sessionId) } : {}),
       ...host.prompts?.describe(guest),
@@ -67,11 +78,11 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
   async function sample(
     guest: WebContents,
     geometryKey: string,
-    viewport: { width: number; height: number },
+    pixels: { width: number; height: number },
     signal?: AbortSignal
   ): Promise<BrowserScreenshotCapture> {
     try {
-      const shot = await host.capture(guest, geometryKey, viewport, signal);
+      const shot = await host.capture(guest, geometryKey, pixels, signal);
       captureFaults.delete(guest);
       return shot;
     } catch (error) {
@@ -98,14 +109,15 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
     const viewport = host.viewport(guest);
     const token = documentId(guest);
     const previous = previousFrames.get(guest);
+    const pane = paneSurface(guest, viewport);
     const cached =
       previous?.frame.documentId === token &&
       previous.zoom === viewport.zoom &&
-      previous.frame.surfaceWidth === viewport.width &&
-      previous.frame.surfaceHeight === viewport.height
+      previous.frame.surfaceWidth === pane.width &&
+      previous.frame.surfaceHeight === pane.height
         ? previous.frame
         : undefined;
-    const texture = useTexture ? host.captureTexture?.(guest, token, viewport) : undefined;
+    const texture = useTexture ? host.captureTexture?.(guest, token, viewport.pixels) : undefined;
     try {
       if (texture) await sendTexture(texture, sessionId, guest, token, signal);
       return {
@@ -157,8 +169,9 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
     const token = documentId(guest);
     const nativeViewport = host.viewport(guest);
     const revision = geometryRevisions.get(guest) ?? 0;
-    const geometryKey = `${token}:${revision}:${nativeViewport.width}:${nativeViewport.height}:${nativeViewport.zoom}:${useTexture}`;
-    const texture = useTexture ? host.captureTexture?.(guest, token, nativeViewport) : undefined;
+    const { pixels } = nativeViewport;
+    const geometryKey = `${token}:${revision}:${nativeViewport.width}:${nativeViewport.height}:${nativeViewport.zoom}:${pixels.width}:${pixels.height}:${useTexture}`;
+    const texture = useTexture ? host.captureTexture?.(guest, token, pixels) : undefined;
     try {
       const [shot, metrics] = await Promise.all([
         texture
@@ -169,7 +182,7 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
               mimeType: 'image/png',
               fullPage: false,
             })
-          : sample(guest, geometryKey, nativeViewport, signal),
+          : sample(guest, geometryKey, pixels, signal),
         layoutMetrics(guest, debuggerInstance, signal),
       ]);
       assertPresenting(sessionId, guest, token);
@@ -190,6 +203,8 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
         latestViewport.width !== nativeViewport.width ||
         latestViewport.height !== nativeViewport.height ||
         latestViewport.zoom !== nativeViewport.zoom ||
+        latestViewport.pixels.width !== pixels.width ||
+        latestViewport.pixels.height !== pixels.height ||
         viewportChanges.get(guest) ||
         (geometryRevisions.get(guest) ?? 0) !== revision
       ) {
@@ -265,7 +280,7 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
       // Give them the pane's geometry before asking for their first pixels;
       // the renderer cannot report a resize until that first frame arrives.
       const size = paneSizes.get(sessionId);
-      if (size) host.resize(guest, size.width, size.height);
+      if (size) resizeGuest(guest, size);
       presentedGuests.set(sessionId, guest);
     }
     if (host.state.for(guest).pendingDialog) {

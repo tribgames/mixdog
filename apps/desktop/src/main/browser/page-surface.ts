@@ -11,7 +11,7 @@ import type { BrowserScreenshotCapture } from './screenshot';
 import type { BrowserDisplayTexture } from './display-textures';
 import type { createBrowserInputDispatch } from './input-dispatch';
 import type { createBrowserLocalPrompts } from './local-prompts';
-import { createPageSurfaceState } from './page-surface-state';
+import { createPageSurfaceState, type Size } from './page-surface-state';
 import { createPageSurfaceFrame } from './page-surface-frame';
 import { createPageSurfaceControl } from './page-surface-control';
 
@@ -23,18 +23,28 @@ export interface BrowserPageSurfaceHost {
   prompts?: ReturnType<typeof createBrowserLocalPrompts>;
   urlPolicy: BrowserUrlPolicy;
   assertUrl(url: string, pageGenerated: boolean): Promise<void>;
-  resize(guest: WebContents, width: number, height: number): void;
-  viewport(guest: WebContents): { width: number; height: number; zoom: number };
+  /** Size the page window's content area; returns the DIP size it actually
+   *  took (fractional display scales cannot reach every DIP size), or null
+   *  when the page has no window. */
+  resize(guest: WebContents, width: number, height: number): Size | null;
+  /** Window size and zoom in DIPs, plus the exact pixel size of the frames the
+   *  window currently composites (see frame-pixels). */
+  viewport(guest: WebContents): {
+    width: number;
+    height: number;
+    zoom: number;
+    pixels: Size;
+  };
   capture(
     guest: WebContents,
     geometryKey: string,
-    viewport: { width: number; height: number },
+    pixels: Size,
     signal?: AbortSignal
   ): Promise<BrowserScreenshotCapture>;
   captureTexture?(
     guest: WebContents,
     documentId: string,
-    viewport: { width: number; height: number }
+    pixels: Size
   ): BrowserDisplayTexture | undefined;
   currentGuest?(sessionId: string): WebContents | null;
   tabs?: {
@@ -47,7 +57,7 @@ export interface BrowserPageSurfaceHost {
 
 export function createBrowserPageSurface(host: BrowserPageSurfaceHost) {
   const state = createPageSurfaceState(host);
-  const { viewportChanges, paneSizes, presentedGuests, invalidateGeometry } = state;
+  const { viewportChanges, paneSizes, presentedGuests, invalidateGeometry, resizeGuest, bumpScale } = state;
   const frame = createPageSurfaceFrame(host, state);
 
   return {
@@ -67,6 +77,19 @@ export function createBrowserPageSurface(host: BrowserPageSurfaceHost) {
     release(sessionId: string) {
       paneSizes.delete(sessionId);
       presentedGuests.delete(sessionId);
+    },
+    /** An offscreen page reads the display scale only when it resizes or
+     *  navigates. After the primary display's scale changes, move each
+     *  presented offscreen page off its pane size and back so its frames take
+     *  the new scale; native windows follow their display themselves. */
+    refreshScale(): void {
+      bumpScale();
+      for (const [sessionId, guest] of presentedGuests) {
+        const size = paneSizes.get(sessionId);
+        if (!size || guest.isDestroyed() || !guest.isOffscreen()) continue;
+        invalidateGeometry(guest);
+        resizeGuest(guest, size);
+      }
     },
   };
 }

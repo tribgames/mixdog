@@ -19,7 +19,7 @@
 import type { WebContents } from 'electron';
 import { join } from 'node:path';
 import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
-import { app, BrowserWindow, dialog, sharedTexture, webContents } from 'electron';
+import { app, BrowserWindow, dialog, screen, sharedTexture, webContents } from 'electron';
 
 import {
   DESKTOP_IPC,
@@ -82,6 +82,7 @@ import {
   browserTypingInput,
 } from '../../shared/browser-input-policy';
 import { createBrowserDisplayCapture } from './display-capture';
+import { browserFramePixels } from './frame-pixels';
 import { createBrowserDisplayTextures } from './display-textures';
 import { createBrowserPartition } from './partition';
 import { createBrowserPerformanceCommands } from './performance';
@@ -548,7 +549,10 @@ export function createBrowserHost(
     }),
     publishFrame: (frame) => options.publishRemoteFrame?.(frame) ?? Promise.resolve(),
   });
-  const displayCapture = createBrowserDisplayCapture(browserSharedTextureRendering());
+  // Fixed at startup: the live acceleration flag can flip after a GPU-crash
+  // fallback while the capture path and window options do not.
+  const sharedTextureRendering = browserSharedTextureRendering();
+  const displayCapture = createBrowserDisplayCapture(sharedTextureRendering);
   const pageSurface = createBrowserPageSurface({
     ensureGuest: lifecycle.ensureGuest,
     currentGuest: (sessionId) => browserSessions.currentGuest(sessionId),
@@ -578,20 +582,48 @@ export function createBrowserHost(
           })),
     }),
     assertUrl: urls.assertResolvedUrlAllowed,
-    capture: (guest, geometryKey, viewport, signal) =>
-      cdp.bounded(displayCapture(guest, geometryKey, viewport), 2000, 'Browser display capture', signal),
-    captureTexture: (guest, documentId, viewport) =>
-      displayTextures.acquire(guest, documentId, viewport.width, viewport.height),
-    resize: (guest, width, height) => BrowserWindow.fromWebContents(guest)?.setContentSize(width, height),
+    capture: (guest, geometryKey, pixels, signal) =>
+      cdp.bounded(displayCapture(guest, geometryKey, pixels), 2000, 'Browser display capture', signal),
+    captureTexture: (guest, documentId, pixels) =>
+      displayTextures.acquire(guest, documentId, pixels.width, pixels.height),
+    resize: (guest, width, height) => {
+      const owner = BrowserWindow.fromWebContents(guest);
+      if (!owner) return null;
+      owner.setContentSize(width, height);
+      const [landedWidth, landedHeight] = owner.getContentSize();
+      return { width: landedWidth, height: landedHeight };
+    },
     viewport: (guest) => {
       const owner = BrowserWindow.fromWebContents(guest);
       if (!owner || owner.isDestroyed() || guest.isDestroyed()) {
         throw new Error('Browser page changed during capture.');
       }
       const [width, height] = owner.getContentSize();
-      return { width, height, zoom: guest.getZoomFactor() };
+      const pixels = browserFramePixels(owner, guest.isOffscreen(), sharedTextureRendering, screen);
+      return { width, height, zoom: guest.getZoomFactor(), pixels };
     },
   });
+  let primaryScale = screen.getPrimaryDisplay().scaleFactor;
+  const followPrimaryScale = () => {
+    const scale = screen.getPrimaryDisplay().scaleFactor;
+    if (scale === primaryScale) return;
+    primaryScale = scale;
+    try {
+      pageSurface.refreshScale();
+    } catch (error) {
+      // A screen event must not become an uncaught main-process exception;
+      // report the first failure through diagnostics.
+      if (scaleRefreshFailureReported) return;
+      scaleRefreshFailureReported = true;
+      options.onDiagnostic?.('browser-scale-refresh-failed', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+  let scaleRefreshFailureReported = false;
+  screen.on('display-metrics-changed', followPrimaryScale);
+  screen.on('display-added', followPrimaryScale);
+  screen.on('display-removed', followPrimaryScale);
   const presentationReads = createBrowserPresentationReads({
     capture: (owner, signal, texture) => pageSurface.frame(owner, '', signal, texture),
     bounded: cdp.bounded,
@@ -875,6 +907,9 @@ export function createBrowserHost(
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;
+      screen.removeListener('display-metrics-changed', followPrimaryScale);
+      screen.removeListener('display-added', followPrimaryScale);
+      screen.removeListener('display-removed', followPrimaryScale);
       presentationReads.dispose();
       stopSessionAutosave();
       await sessionStore.save().catch(() => undefined);

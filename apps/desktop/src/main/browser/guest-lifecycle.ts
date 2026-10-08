@@ -61,6 +61,9 @@ function offscreenWindowOptions(nativeView = false): Electron.BrowserWindowConst
       ? {
           frame: false,
           thickFrame: false,
+          // Only the shell's panel handle may resize this surface. Frameless
+          // windows otherwise keep native edge grips that resize just the page.
+          resizable: false,
           roundedCorners: false,
           hasShadow: false,
           skipTaskbar: true,

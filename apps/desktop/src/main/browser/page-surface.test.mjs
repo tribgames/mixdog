@@ -27,7 +27,7 @@ test('GPU reads transfer exact frame identities, including a newly attached clie
       }),
       bounded: async (work) => work,
     },
-    viewport: () => ({ width: 800, height: 600, zoom: 1 }),
+    viewport: () => ({ width: 800, height: 600, zoom: 1, pixels: { width: 800, height: 600 } }),
     capture: async () => {
       throw new Error('GPU display must not encode a screenshot');
     },
@@ -73,7 +73,7 @@ test('viewport changes discard old captures and cached images instead of stretch
       guestDebugger: async () => ({ sendCommand: async () => ({ cssVisualViewport: { scale: 1 } }) }),
       bounded: async (work) => work,
     },
-    viewport: () => ({ width, height: 600, zoom: 1 }),
+    viewport: () => ({ width, height: 600, zoom: 1, pixels: { width, height: 600 } }),
     capture: (...args) => capture(...args),
   });
   const first = await surface.frame('owner');
@@ -273,7 +273,7 @@ test('a rejected display sample serves the last good frame until the outage outl
         }),
         bounded: async (work) => work,
       },
-      viewport: () => ({ width: 800, height: 600, zoom: 1 }),
+      viewport: () => ({ width: 800, height: 600, zoom: 1, pixels: { width: 800, height: 600 } }),
       capture: async () => {
         if (fail) throw new Error('UnknownVizError');
         return { data: 'pixels', width: 800, height: 600, mimeType: 'image/jpeg', fullPage: false };
@@ -352,7 +352,7 @@ test('display metadata remains available while page execution is fenced and neve
     isLoadingMainFrame: () => false,
     navigationHistory: { canGoBack: () => false, canGoForward: () => false },
   };
-  let nativeViewport = { width: 390, height: 844, zoom: 1 };
+  let nativeViewport = { width: 390, height: 844, zoom: 1, pixels: { width: 1170, height: 2532 } };
   let pageScale = 1;
   let targetReplaced = false;
   const surface = createBrowserPageSurface({
@@ -387,7 +387,7 @@ test('display metadata remains available while page execution is fenced and neve
     { width: 1366, height: 768, zoom: 1.25, pageScale: 1, expected: [1093, 615] },
     { width: 390, height: 844, zoom: 1, pageScale: 390 / 980, expected: [980, 2121] },
   ]) {
-    nativeViewport = sample;
+    nativeViewport = { ...sample, pixels: { width: sample.width, height: sample.height } };
     pageScale = sample.pageScale;
     const next = await surface.frame('owner');
     assert.deepEqual([next.viewportWidth, next.viewportHeight], sample.expected);
@@ -396,6 +396,203 @@ test('display metadata remains available while page execution is fenced and neve
   await assert.rejects(surface.frame('owner'), /Browser page changed during capture/);
   targetReplaced = false;
   assert.equal((await surface.frame('owner')).documentId, 'p1:1');
+});
+
+test('a scaled display samples at the window pixel size while input keeps CSS geometry', async () => {
+  const guest = {
+    id: 7,
+    isDestroyed: () => false,
+    getURL: () => 'https://a',
+    getTitle: () => 'A',
+    isLoadingMainFrame: () => false,
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+  };
+  const pixels = { width: 1602, height: 902 };
+  const requested = [];
+  const surface = createBrowserPageSurface({
+    ensureGuest: async () => guest,
+    state: { pageId: () => 'p1', for: () => ({ documentGeneration: 1 }) },
+    cdp: {
+      guestDebugger: async () => ({ sendCommand: async () => ({ cssVisualViewport: { scale: 1 } }) }),
+      bounded: async (work) => work,
+    },
+    viewport: () => ({ width: 1280, height: 720, zoom: 1, pixels }),
+    capture: async (_guest, _key, size) => {
+      requested.push(['bitmap', size]);
+      return { data: 'pixels', ...size, mimeType: 'image/png', fullPage: false };
+    },
+    captureTexture: (_guest, _document, size) => {
+      requested.push(['texture', size]);
+      return { id: 'gpu1', ...size, send: async () => {}, release: () => {} };
+    },
+  });
+  const bitmap = await surface.frame('owner');
+  const texture = await surface.frame('owner', '', undefined, true);
+  assert.deepEqual(requested, [
+    ['bitmap', pixels],
+    ['texture', pixels],
+  ]);
+  for (const frame of [bitmap, texture]) {
+    assert.deepEqual([frame.width, frame.height], [1602, 902]);
+    assert.deepEqual([frame.viewportWidth, frame.viewportHeight], [1280, 720]);
+    assert.deepEqual([frame.surfaceWidth, frame.surfaceHeight], [1280, 720]);
+  }
+});
+
+test('a pane resize that lands a DIP off at a fractional scale presents as the requested surface', async () => {
+  const record = { documentGeneration: 1 };
+  const guest = {
+    id: 7,
+    isDestroyed: () => false,
+    getURL: () => 'https://a',
+    getTitle: () => 'A',
+    isLoadingMainFrame: () => false,
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+  };
+  let content = { width: 800, height: 600 };
+  const pixelsOf = (size) => ({ width: Math.ceil(size.width * 1.25), height: Math.ceil(size.height * 1.25) });
+  const surface = createBrowserPageSurface({
+    ensureGuest: async () => guest,
+    state: { pageId: () => 'p1', for: () => record, invalidateInteraction() {} },
+    cdp: {
+      guestDebugger: async () => ({ sendCommand: async () => ({ cssVisualViewport: { scale: 1 } }) }),
+      bounded: async (work) => work,
+    },
+    viewport: () => ({ ...content, zoom: 1, pixels: pixelsOf(content) }),
+    resize: (_guest, width, height) => {
+      content = { width, height: height + 1 };
+      return content;
+    },
+    capture: async (_guest, _key, size) => ({ data: 'pixels', ...size, mimeType: 'image/png', fullPage: false }),
+  });
+  const first = await surface.frame('owner');
+  assert.deepEqual([first.surfaceWidth, first.surfaceHeight], [800, 600]);
+  await surface.control('owner', { type: 'resize', width: 900, height: 700, documentId: first.documentId });
+  const resized = await surface.frame('owner');
+  assert.deepEqual([resized.surfaceWidth, resized.surfaceHeight], [900, 700]);
+  assert.deepEqual([resized.width, resized.height], [1125, 877]);
+  content = { width: 905, height: 701 };
+  const external = await surface.frame('owner');
+  assert.deepEqual(
+    [external.surfaceWidth, external.surfaceHeight],
+    [905, 701],
+    'a window size no pane request produced is reported as it is'
+  );
+});
+
+test('a primary display scale change re-sizes presented offscreen pages and keeps the requested surface', async () => {
+  const record = { documentGeneration: 1 };
+  const page = (offscreen) => ({
+    id: offscreen ? 7 : 8,
+    isOffscreen: () => offscreen,
+    isDestroyed: () => false,
+    getURL: () => 'https://a',
+    getTitle: () => 'A',
+    isLoadingMainFrame: () => false,
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+  });
+  const guests = { offscreen: page(true), native: page(false) };
+  const contents = new Map();
+  let drift = 1;
+  const resizes = [];
+  const surface = createBrowserPageSurface({
+    ensureGuest: async (sessionId) => guests[sessionId],
+    state: { pageId: () => 'p1', for: () => record, invalidateInteraction() {} },
+    cdp: {
+      guestDebugger: async () => ({ sendCommand: async () => ({ cssVisualViewport: { scale: 1 } }) }),
+      bounded: async (work) => work,
+    },
+    viewport: (guest) => {
+      const content = contents.get(guest) ?? { width: 800, height: 600 };
+      return { ...content, zoom: 1, pixels: content };
+    },
+    resize: (guest, width, height) => {
+      resizes.push([guest.id, width, height]);
+      const landed = { width, height: height + drift };
+      contents.set(guest, landed);
+      return landed;
+    },
+    capture: async (_guest, _key, size) => ({ data: 'pixels', ...size, mimeType: 'image/png', fullPage: false }),
+  });
+  for (const sessionId of ['offscreen', 'native']) {
+    await surface.frame(sessionId);
+    await surface.control(sessionId, { type: 'resize', width: 900, height: 700, documentId: 'p1:1' });
+  }
+  resizes.length = 0;
+  drift = 2;
+  surface.refreshScale();
+  assert.deepEqual(
+    resizes,
+    [
+      [7, 900, 701],
+      [7, 900, 700],
+    ],
+    'only offscreen pages are moved off their pane size and back'
+  );
+  const after = await surface.frame('offscreen');
+  assert.deepEqual([after.surfaceWidth, after.surfaceHeight], [900, 700]);
+  assert.equal(after.height, 702, 'the frame follows the window size the page landed at after the change');
+});
+
+test('a page not presented during a scale change is re-scaled when it is shown again', async () => {
+  const record = { documentGeneration: 1 };
+  const page = (id) => ({
+    id,
+    isOffscreen: () => true,
+    isDestroyed: () => false,
+    getURL: () => 'https://a',
+    getTitle: () => 'A',
+    isLoadingMainFrame: () => false,
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+  });
+  const tabs = [page(1), page(2)];
+  let current = tabs[0];
+  const contents = new Map();
+  const resizes = [];
+  const surface = createBrowserPageSurface({
+    ensureGuest: async () => current,
+    currentGuest: () => current,
+    state: { pageId: () => 'p1', for: () => record, invalidateInteraction() {} },
+    cdp: {
+      guestDebugger: async () => ({ sendCommand: async () => ({ cssVisualViewport: { scale: 1 } }) }),
+      bounded: async (work) => work,
+    },
+    viewport: (guest) => {
+      const content = contents.get(guest) ?? { width: 800, height: 600 };
+      return { ...content, zoom: 1, pixels: content };
+    },
+    resize: (guest, width, height) => {
+      resizes.push([guest.id, width, height]);
+      const landed = { width, height };
+      contents.set(guest, landed);
+      return landed;
+    },
+    capture: async (_guest, _key, size) => ({ data: 'pixels', ...size, mimeType: 'image/png', fullPage: false }),
+  });
+  await surface.frame('s');
+  await surface.control('s', { type: 'resize', width: 900, height: 700, documentId: 'p1:1' });
+  current = tabs[1];
+  await surface.frame('s');
+  current = tabs[0];
+  await surface.frame('s');
+  surface.refreshScale();
+  resizes.length = 0;
+  current = tabs[1];
+  await surface.frame('s');
+  assert.deepEqual(
+    resizes,
+    [
+      [2, 900, 701],
+      [2, 900, 700],
+    ],
+    'the background page is moved off its size and back when shown'
+  );
+  resizes.length = 0;
+  current = tabs[0];
+  await surface.frame('s');
+  current = tabs[1];
+  await surface.frame('s');
+  assert.deepEqual(resizes.filter(([id]) => id === 2), [[2, 900, 700]], 'an already re-scaled page is only sized');
 });
 
 test('a GPU frame that lands after the session moved on is refused and released', async () => {
@@ -419,7 +616,7 @@ test('a GPU frame that lands after the session moved on is refused and released'
         guestDebugger: async () => ({ sendCommand: async () => ({ cssVisualViewport: { scale: 1 } }) }),
         bounded: async (work) => work,
       },
-      viewport: () => ({ width: 800, height: 600, zoom: 1 }),
+      viewport: () => ({ width: 800, height: 600, zoom: 1, pixels: { width: 800, height: 600 } }),
       capture: async () => {
         throw new Error('GPU display must not encode a screenshot');
       },

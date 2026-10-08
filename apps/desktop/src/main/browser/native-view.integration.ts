@@ -184,6 +184,29 @@ async function run(): Promise<void> {
       );
       throw error;
     }
+    assert.equal(owner.isResizable(), false, 'the page edge must not resize independently of the browser panel');
+    const initialBounds = owner.getBounds();
+    for (const width of [400, 560, 600]) {
+      // A right-docked panel changes its left edge while its right edge stays
+      // put. Disabling native edge grips must still allow panel-driven sizing.
+      await shell.executeJavaScript(`(() => {
+        const dock = document.getElementById('browser-dock');
+        dock.style.width = '${width}px';
+        dock.style.marginLeft = '${600 - width}px';
+      })()`);
+      await eventually(async () => {
+        const pane = paneOnScreen(await surfaceRect());
+        const actual = owner.getBounds();
+        return (['x', 'y', 'width', 'height'] as const).every((key) => Math.abs(actual[key] - pane[key]) <= 1);
+      }, Boolean);
+      const resized = owner.getBounds();
+      assert.ok(Math.abs(resized.width - width) <= 1, `page must follow the panel width ${width}`);
+      assert.ok(
+        Math.abs(resized.x + resized.width - initialBounds.x - initialBounds.width) <= 1,
+        'the page and panel must keep their right edge aligned during left-edge resizing'
+      );
+    }
+    log('native page edge resizing disabled; panel-driven shrink and leftward expansion stay aligned');
     const rect = await surfaceRect();
     const bounds = owner.getContentBounds();
     const pane = paneOnScreen(rect);
