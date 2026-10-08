@@ -70,3 +70,25 @@ test('filtered multi-path searches retain legacy results across scope and paging
     }
   }
 });
+
+for (const context of [0, 2, undefined]) {
+  test(`unwatchable single-file grep stays complete but cannot be cached (context=${context})`, async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-grep-unwatched-'));
+    const file = join(root, 'single.txt');
+    t.after(() => {
+      invalidateBuiltinResultCache();
+      rmSync(root, { recursive: true, force: true });
+    });
+    for (const value of ['needle original', 'needle externally updated']) {
+      writeFileSync(file, value + '\n');
+      const outcome = { complete: true, cacheSafe: true };
+      const result = await executeGrepTool(
+        { path: file, pattern: 'needle', output_mode: 'content', ...(context === undefined ? {} : { context }) },
+        root, undefined, null, { scopedCacheOutcome: outcome }
+      );
+      assert.ok(result.includes(value), result);
+      assert.equal(outcome.complete, true);
+      assert.equal(outcome.cacheSafe, false, 'the native engine deliberately does not watch exact-file operands');
+    }
+  });
+}

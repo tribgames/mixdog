@@ -167,6 +167,7 @@ function writeCaches(batch, completed, result) {
         content: result,
         toolUseId: call.id,
         complete: outcome ? outcome.complete : true,
+        cacheSafe: outcome?.cacheSafe !== false,
         generation: completed.scopedGeneration,
       });
     }
@@ -214,8 +215,11 @@ function recordCrossTurn(batch, completed) {
   const { tools, crossTurnCalls } = batch;
   if (isToolCallDedupEligible(call.name, tools)) {
     const sig = completed.crossTurnSig ?? crossTurnSignature(call.name, call.arguments);
-    if (!crossTurnCalls.has(sig)) {
-      crossTurnCalls.set(sig, { count: 1, firstIteration: batch.iterations });
+    // Tie the in-context receipt to the body actually delivered. A refreshed
+    // result replaces the old iteration; a cache hit retains its source id.
+    const toolUseId = completed.readCacheHit?.firstToolUseId ?? completed.scopedCacheHit?.firstToolUseId ?? call.id;
+    if (!crossTurnCalls.has(sig) || crossTurnCalls.get(sig).toolUseId !== toolUseId) {
+      crossTurnCalls.set(sig, { count: 1, firstIteration: batch.iterations, toolUseId });
       if (crossTurnCalls.size > batch.crossTurnCap) {
         crossTurnCalls.delete(crossTurnCalls.keys().next().value);
       }

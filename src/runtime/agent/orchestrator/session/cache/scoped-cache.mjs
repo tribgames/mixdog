@@ -275,11 +275,12 @@ export function setScopedToolCached({
   content,
   toolUseId,
   complete = true,
+  cacheSafe = true,
   generation = mutationGeneration,
 }) {
   if (!sessionId || !toolName) return;
   if (generation !== mutationGeneration) return;
-  if (complete === false) return;
+  if (complete === false || cacheSafe === false) return;
   if (typeof content !== 'string' || content.length === 0) return;
   const key = _scopedKey(toolName, args, cwd);
   let map = _scopedBySession.get(sessionId);

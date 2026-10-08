@@ -1,31 +1,19 @@
 // Eager admission gates. A call is eagerly dispatched only when the serial
 // for-body would execute it too: single-call reservation, parseable args,
 // pre-dispatch authorization, intra-turn dedup, the repeat-failure guards,
-// cross-turn dedup and the session cache short-circuit — in that order.
+// and the shared freshness-checked cache short-circuit — in that order.
 import { isInvalidToolArgsMarker } from '../../providers/openai-compat-stream.mjs';
-import { crossTurnSignature } from '../loop/completion-guards.mjs';
 import { preDispatchDenyForSession } from '../loop/pre-dispatch-deny.mjs';
 import {
   _argShapeSig,
   _intraTurnSig,
-  _isReadTool,
-  _isScopedCacheableTool,
   _repeatFailurePatternWouldContinue,
   _repeatFailureSig,
-  _stripMcpPrefix,
 } from '../loop/tool-classify.mjs';
 import { isSingleCallPerTurnTool, isToolCallDedupEligible } from '../loop/tool-helpers.mjs';
-import { tryReadCached, tryScopedToolCached } from '../read-dedup.mjs';
+import { lookupToolResultReuse } from '../cache/tool-result-reuse.mjs';
 
-export function createEagerAdmission({
-  tools,
-  cwd,
-  sessionId,
-  sessionRef,
-  crossTurnCalls,
-  getIterations,
-  repeatFailLimit,
-}) {
+export function createEagerAdmission({ tools, cwd, sessionId, sessionRef, repeatFailLimit }) {
   // Streaming-time intra-turn dedup. When the LLM emits two
   // tool_use blocks with identical (name, args) signatures in
   // sequence, the provider's onToolCall fires for both BEFORE
@@ -61,31 +49,6 @@ export function createEagerAdmission({
     return Boolean(_afg && _afg.sig === _argShapeSig(call.name, call.arguments) && _afg.count >= repeatFailLimit);
   }
 
-  // Cache short-circuit (mirrors the serial-body lookup at
-  // tool-batch.mjs). If this read / scoped-cacheable call would be
-  // served from the session cache in the serial for-body, do NOT
-  // execute it eagerly — the serial path returns the cached body
-  // (read cache is stat-validated; scoped cache is dep-root evicted).
-  // Skipping here avoids redundant IO under concurrent agents
-  // and, combined with the non-barrier `continue` in startEagerRun,
-  // never blocks a later independent eager read behind a cache stub.
-  // If the entry is invalidated before the serial body re-checks,
-  // that call simply executes serially — correctness is preserved.
-  function cacheWouldServe(call) {
-    if (!sessionId) return false;
-    if (_isReadTool(call.name)) return tryReadCached({ sessionId, args: call.arguments, cwd }) !== null;
-    if (!_isScopedCacheableTool(call.name)) return false;
-    return (
-      tryScopedToolCached({
-        sessionId,
-        toolName: _stripMcpPrefix(call.name),
-        args: call.arguments,
-        cwd,
-        touch: false,
-      }) !== null
-    );
-  }
-
   /** Returns { sig, dedupEligible } when the call may run eagerly, else null. */
   function admit(call) {
     if (isSingleCallPerTurnTool(call.name)) {
@@ -108,17 +71,11 @@ export function createEagerAdmission({
     // times before the serial for-body guard runs. Returning null here
     // lets the serial body push the [repeat-failure-guard] stub.
     if (repeatFailureBlocks(call)) return null;
-    // Cross-turn dedup also gates eager dispatch (mirror of the
-    // repeat-failure guard above): a read-only call whose (name,args)
-    // signature already ran in an EARLIER turn must NOT be eagerly
-    // re-executed — the serial for-body pushes the [cross-turn-dedup]
-    // stub instead. Without this gate startEagerRun/onToolCall would
-    // re-run the call before the serial dedup check ever sees it.
-    if (dedupEligible) {
-      const _prior = crossTurnCalls.get(crossTurnSignature(call.name, call.arguments));
-      if (_prior && _prior.firstIteration < getIterations()) return null;
-    }
-    if (cacheWouldServe(call)) return null;
+    // A signature-only cross-turn record must never suppress eager IO.
+    // The same cache policy authorizes both serial cache hits and short
+    // cross-turn references. Recheck there: an entry can expire or be
+    // invalidated between streaming admission and serial consumption.
+    if (lookupToolResultReuse({ sessionId, call, cwd, touch: false }) !== null) return null;
     return { sig, dedupEligible };
   }
 

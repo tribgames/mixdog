@@ -18,7 +18,7 @@ import {
   grepPartialWarning,
 } from './grep-output.mjs';
 import { expandGrepAnchorContextOutput, prepareGrepContextSources } from './grep-context-expander.mjs';
-import { markScopedCacheIncomplete } from '../../../session/cache/scoped-cache-outcome.mjs';
+import { markScopedCacheIncomplete, markScopedCacheUnsafe } from '../../../session/cache/scoped-cache-outcome.mjs';
 
 const GREP_FANOUT_PREFILTER_FILE_CAP = 400;
 
@@ -294,6 +294,7 @@ async function runCombinedFanout(request) {
   // fallback would rescan the same scope from scratch and usually time
   // out again, discarding everything the first pass already found.
   if (streamed.partial ? streamed.lines.length === 0 : !streamed.complete) return null;
+  if (streamed.cacheSafe === false) markScopedCacheUnsafe(options?.scopedCacheOutcome);
   const combinedPartial = streamed.partial === true;
   if (combinedPartial && options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
   const attributed = attributeCombinedLines(streamed.lines, jsRegexps);

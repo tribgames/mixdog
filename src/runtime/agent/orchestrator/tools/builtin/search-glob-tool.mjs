@@ -23,8 +23,9 @@ import {
 } from './search-path-diagnostics.mjs';
 import { buildGlobCacheKey, DEFAULT_IGNORE_GLOBS, rootScanIgnoreGlobs } from './search-builders.mjs';
 import { runRg, runRgWindowedLines } from './native-search-runner.mjs';
-import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
-import { cacheGet, cacheSet, runResultCacheInFlight, statPathsForMtime, visitPathsForMtime } from './cache-layers.mjs';
+import { markScopedCacheIncomplete, markScopedCacheUnsafe } from '../../session/cache/scoped-cache-outcome.mjs';
+import { cacheGet, cacheSet, statPathsForMtime, visitPathsForMtime } from './cache-layers.mjs';
+import { runScopedSearchInFlight } from './lib/scoped-search-flight.mjs';
 import { recordLocalSearchCacheHit } from './local-search-telemetry.mjs';
 import { capPatternList, globMtimeTiePath, resolveSearchWindow, uniqueStrings } from './lib/search-input-helpers.mjs';
 import { reportToolProgress } from './lib/tool-progress.mjs';
@@ -513,6 +514,7 @@ function settleGlobScanCache(scan, merged, out, remaining) {
   ) {
     markScopedCacheIncomplete(options.scopedCacheOutcome);
   }
+  if (rgCacheUnsafe) markScopedCacheUnsafe(options?.scopedCacheOutcome);
   const globComputationIncomplete = accumTruncated || rgStdoutTruncated || rgStdoutPartial || rgErrors.length > 0;
   if (!globComputationIncomplete && !rgCacheUnsafe) cacheSet(cacheKey, out, { scopes: scan.scopes });
 }
@@ -604,9 +606,12 @@ export async function executeGlobTool(args, workDir, options = {}) {
     canWindowNatural: sortMode === 'natural' && headLimit !== Infinity,
     canWindowMtime: sortMode === 'mtime' && headLimit !== Infinity,
   };
-  return await runResultCacheInFlight(
+  return await runScopedSearchInFlight(
     cacheKey,
-    ({ signal: sharedSignal }) => scanGlobGroups({ ...scan, sharedSignal }),
-    { signal: options?.signal || options?.abortSignal || null, scopes }
+    ({ signal: sharedSignal, scopedCacheOutcome }) => scanGlobGroups({
+      ...scan, sharedSignal, options: { ...options, scopedCacheOutcome },
+    }),
+    { signal: options?.signal || options?.abortSignal || null, scopes },
+    options?.scopedCacheOutcome
   );
 }
