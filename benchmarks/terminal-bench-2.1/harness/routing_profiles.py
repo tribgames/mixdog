@@ -24,7 +24,11 @@ PROFILE_ROLES = (
 EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 ROUTE_FIELDS = {"provider", "model", "effort", "fast"}
 PROFILE_REQUIRED_FIELDS = {"routes"}
-PROFILE_OPTIONAL_FIELDS = {"leadFallback"}
+# autoEffort: true turns the product's Auto effort on for the run (the effort
+# judge is installed into each trial container). autoEffortSteps: true also
+# judges every tool-result step (needs a step-trained judge); without it the
+# run judges only each turn's first request.
+PROFILE_OPTIONAL_FIELDS = {"leadFallback", "autoEffort", "autoEffortSteps"}
 AGENT_CONFIG_KEYS = {
     "worker": "worker",
     "heavy-worker": "heavy-worker",
@@ -92,7 +96,18 @@ def validate_profile_document(document: Any) -> dict[str, Any]:
             or profile_fields - PROFILE_REQUIRED_FIELDS - PROFILE_OPTIONAL_FIELDS
         ):
             raise RouteProfileError(
-                f"profile {profile_name!r} must contain routes and optionally leadFallback"
+                f"profile {profile_name!r} must contain routes and optionally "
+                "leadFallback, autoEffort and autoEffortSteps"
+            )
+        if "autoEffort" in profile and type(profile["autoEffort"]) is not bool:
+            raise RouteProfileError(
+                f"profile {profile_name!r} autoEffort must be boolean"
+            )
+        if "autoEffortSteps" in profile and (
+            type(profile["autoEffortSteps"]) is not bool or profile.get("autoEffort") is not True
+        ):
+            raise RouteProfileError(
+                f"profile {profile_name!r} autoEffortSteps must be boolean and needs autoEffort: true"
             )
         if "leadFallback" in profile:
             _validate_route(profile_name, "leadFallback", profile["leadFallback"])

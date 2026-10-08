@@ -12,6 +12,12 @@ import { effortOptionsFor } from '../../runtime-core/effort.mjs';
 import { judgeTurn, recordEffortDecision } from '../../../../effort-judge/judge-client.mjs';
 import { promptContentText } from './prompt-utils.mjs';
 
+// MIXDOG_AUTO_EFFORT_STEPS=off keeps auto effort to the turn's first request
+// (no per-step judgment), e.g. to compare the two in a benchmark.
+export function autoEffortStepsEnabled() {
+  return String(process.env.MIXDOG_AUTO_EFFORT_STEPS || '').trim().toLowerCase() !== 'off';
+}
+
 export function autoEffortMode() {
   if (process.env.MIXDOG_AUTO_EFFORT) return normalizeAutoEffortMode(process.env.MIXDOG_AUTO_EFFORT);
   try {
@@ -21,10 +27,10 @@ export function autoEffortMode() {
   }
 }
 
-function lastAssistantText(messages) {
+function lastText(messages, role) {
   for (let i = (messages?.length || 0) - 1; i >= 0; i--) {
     const message = messages[i];
-    if (message?.role !== 'assistant') continue;
+    if (message?.role !== role) continue;
     const text = promptContentText(message.content).trim();
     if (text) return text;
   }
@@ -32,9 +38,9 @@ function lastAssistantText(messages) {
 }
 
 /**
- * `{ base, effort, step, level, confidence, applied }` for this turn, or null
- * when auto effort does not apply. The judge never delays the turn: a missing,
- * warming, or slow model yields null and the default effort.
+ * `{ base, effort, step, level, confidence, applied, mode, request }` for this
+ * turn, or null when auto effort does not apply. The judge never delays the
+ * turn: a missing, warming, or slow model yields null and the default effort.
  */
 export async function resolveTurnAutoEffort({ sessionId, session, provider, input }) {
   const mode = autoEffortMode();
@@ -48,7 +54,12 @@ export async function resolveTurnAutoEffort({ sessionId, session, provider, inpu
   if (!effortConfigurationMode(session.provider, session.model, opts)) return null;
   const chosen = String(session.effort || '').toLowerCase();
   const base = autoEffortBase(chosen);
-  const judged = await judgeTurn({ request, prev: lastAssistantText(session.messages) });
+  // The previous user request shows the work a short follow-up continues.
+  const judged = await judgeTurn({
+    request,
+    prev: lastText(session.messages, 'assistant'),
+    prevRequest: lastText(session.messages, 'user'),
+  });
   const record = {
     at: new Date().toISOString(),
     sessionId,
@@ -75,5 +86,5 @@ export async function resolveTurnAutoEffort({ sessionId, session, provider, inpu
     probs: judged.probs.map((value) => Number(value.toFixed(3))),
   });
   if (!resolved) return null;
-  return { ...resolved, applied: mode === 'on' && resolved.effort !== chosen };
+  return { ...resolved, applied: mode === 'on' && resolved.effort !== chosen, mode, request };
 }

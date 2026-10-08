@@ -7,6 +7,7 @@ import { buildToolCallAssistantMessage, commitAssistantMessage } from './assista
 import { traceLoopPhaseTiming } from './diagnostics.mjs';
 import { processToolBatch } from '../tool-batch.mjs';
 import { CROSS_TURN_CAP, REPEAT_FAIL_LIMIT } from './loop-state.mjs';
+import { markStepEffort } from './step-auto-effort.mjs';
 
 function isSleepLikeToolCall(call) {
   const name = String(call?.name || call?.toolName || call?.function?.name || '').toLowerCase();
@@ -68,6 +69,7 @@ export async function runToolPhase(state, round, sent, onToolCall) {
   // carries a runtime notice for the model, delivered after its results.
   if (response.recoveryNotice) messages.push(response.recoveryNotice);
   const toolsEndedAt = Date.now();
+  await markStepEffort(state, assistantTurnMsg);
   try {
     opts.onToolPhaseCompleted?.({
       iteration: round.nextIteration,

@@ -5,8 +5,8 @@
 // effort. Decisions are logged locally (lengths and probabilities only, never
 // the request text).
 import { Worker } from 'node:worker_threads';
-import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 
@@ -16,12 +16,16 @@ const MODEL_FILES = ['model.onnx', 'tokenizer.json'];
 // each answer's deadline starts when it is sent, and the wait for earlier
 // requests is bounded separately so a burst of turns queues instead of
 // timing out behind each other.
-const WARM_TIMEOUT_MS = 400;
+// MIXDOG_EFFORT_JUDGE_TIMEOUT_MS raises it on a host whose CPUs are shared
+// with heavy work (parallel benchmark containers).
+const WARM_TIMEOUT_MS = Number(process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS) > 0 ? Number(process.env.MIXDOG_EFFORT_JUDGE_TIMEOUT_MS) : 400;
 const QUEUE_WAIT_MS = 1000;
 let queueTail = Promise.resolve();
 // A turn that arrives while the judge is still loading (boot, re-enable)
 // waits at most this long; loading takes about 2 s on a desktop CPU.
-const COLD_WAIT_MS = 3000;
+// MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS raises it where a cold load is certain and
+// a slower first turn is acceptable (one-shot headless runs on a busy host).
+const COLD_WAIT_MS = Number(process.env.MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS) > 0 ? Number(process.env.MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS) : 3000;
 
 let worker = null;
 let workerDir = '';
@@ -62,6 +66,22 @@ export function effortJudgeModelDir() {
 
 export function effortJudgeAvailable(dir = effortJudgeModelDir()) {
   return MODEL_FILES.every((file) => existsSync(join(dir, file)));
+}
+
+// Whether the installed model was also trained on tool-result steps
+// (calibration.json `steps: 1`). Read once per model directory.
+const stepSupport = new Map();
+export function effortJudgeSupportsSteps(dir = effortJudgeModelDir()) {
+  if (!stepSupport.has(dir)) {
+    let steps = false;
+    try {
+      steps = JSON.parse(readFileSync(join(dir, 'calibration.json'), 'utf8')).steps === 1;
+    } catch {
+      /* not installed */
+    }
+    stepSupport.set(dir, steps);
+  }
+  return stepSupport.get(dir);
 }
 
 function settle(id, fn) {
@@ -112,13 +132,20 @@ function ensureWorker(dir) {
   return created;
 }
 
-function request(target, { request: text, prev }) {
+function request(target, { request: text, prev, prevRequest, step }) {
   const id = ++msgId;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => settle(id, (entry) => entry.reject(new Error('timeout'))), WARM_TIMEOUT_MS);
     pending.set(id, { resolve, reject, timer });
     // The worker formats the text the way its model was trained.
-    target.postMessage({ action: 'judge', id, request: String(text || ''), prev: String(prev || '') });
+    target.postMessage({
+      action: 'judge',
+      id,
+      request: String(text || ''),
+      prev: String(prev || ''),
+      prevRequest: String(prevRequest || ''),
+      ...(step ? { step } : {}),
+    });
   });
 }
 
@@ -142,13 +169,21 @@ export function effortJudgeInfo(dir = effortJudgeModelDir()) {
   } catch {
     /* not installed */
   }
-  return { model: 'mmBERT-small', quantization: '4-bit', engine: 'ONNX Runtime', device: 'CPU', modelBytes, ready };
+  // The installed model names its backbone in calibration.json; older packs predate the field.
+  let backbone = 'mmBERT-small';
+  try {
+    backbone = JSON.parse(readFileSync(join(dir, 'calibration.json'), 'utf8')).backbone || backbone;
+  } catch {
+    /* not installed */
+  }
+  return { model: backbone, quantization: '4-bit', engine: 'ONNX Runtime', device: 'CPU', modelBytes, ready };
 }
 
 /**
- * Probabilities over the four levels (easy, normal, hard, very hard) for this turn, or `{ skipped }` when the
- * judge cannot answer in time. A judge that is still loading gets a short
- * grace period; a crashed one is restarted here.
+ * Probabilities over the four levels (easy, normal, hard, very hard) for this
+ * turn ({ request, prev, prevRequest }) or tool-result step ({ step }), or
+ * `{ skipped }` when the judge cannot answer in time. A judge that is still
+ * loading gets a short grace period; a crashed one is restarted here.
  */
 export async function judgeTurn(input) {
   const dir = effortJudgeModelDir();
@@ -175,11 +210,13 @@ export async function judgeTurn(input) {
   return run;
 }
 
+// MIXDOG_EFFORT_DECISIONS_LOG redirects the log, e.g. for benchmark runs whose
+// data directory is discarded when the run ends.
 export function recordEffortDecision(entry) {
   try {
-    const dir = join(resolvePluginData(), 'effort-judge');
-    mkdirSync(dir, { recursive: true });
-    appendFileSync(join(dir, 'decisions.jsonl'), `${JSON.stringify(entry)}\n`);
+    const file = process.env.MIXDOG_EFFORT_DECISIONS_LOG || join(resolvePluginData(), 'effort-judge', 'decisions.jsonl');
+    mkdirSync(dirname(file), { recursive: true });
+    appendFileSync(file, `${JSON.stringify(entry)}\n`);
   } catch {
     /* the log is diagnostic only */
   }

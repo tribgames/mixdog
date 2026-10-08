@@ -82,6 +82,16 @@ PRISTINE_CONTRACT = json.loads(
 )
 PRISTINE_GUARD_ENV = PRISTINE_CONTRACT["guardEnv"]
 CONTAINER_SRC_SNAPSHOT = f"{CONTAINER_DATA_DIR}/src-snapshot.tar"
+# Auto-effort profiles (route profile "autoEffort": true): the effort judge
+# model plus its ONNX Runtime (linux-x64) as one tar, built by
+# harness/build-effort-judge-bundle.ps1. The published package the prebake
+# installs predates that dependency, so each trial gets it here.
+EFFORT_JUDGE_BUNDLE_ENV = "MIXDOG_TB_EFFORT_JUDGE_BUNDLE"
+DEFAULT_EFFORT_JUDGE_BUNDLE = (
+    Path(__file__).resolve().parents[1] / "mixdog-prebake" / "effort-judge-bundle.tar"
+)
+CONTAINER_EFFORT_JUDGE_BUNDLE = "/opt/mixdog-effort-judge-bundle.tar"
+CONTAINER_EFFORT_JUDGE_DIR = "/opt/mixdog-effort-judge"
 # CC-prebaked parity for our own dependency shell: harness/prebake.ps1 bakes
 # node + the global mixdog install tree (bin links + /usr/lib/node_modules)
 # into this host tar ONCE; install() then uploads and extracts it in seconds
@@ -886,6 +896,10 @@ class MixdogAgent(BaseInstalledAgent):
         swap_started = time.monotonic()
         await self._inject_src_snapshot(environment, upload=False)
         timings["swap+warmup"] = time.monotonic() - swap_started
+        if self._route_profile.get("autoEffort"):
+            judge_started = time.monotonic()
+            await self._install_effort_judge(environment)
+            timings["effort-judge"] = time.monotonic() - judge_started
         # Own/secure the copied setup so the user mixdog can read it; OAuth
         # refresh is explicitly forbidden below. default_user None => root.
         user = getattr(environment, "default_user", None)
@@ -910,6 +924,63 @@ class MixdogAgent(BaseInstalledAgent):
             + " ".join(f"{k}={v:.1f}s" for k, v in timings.items()),
             flush=True,
         )
+
+    async def _install_effort_judge(self, environment: BaseEnvironment) -> None:
+        """Install the effort judge and prove it answers inside the container.
+
+        A judge that cannot load would silently leave every turn at the
+        default effort, so a failed check fails the trial instead.
+        """
+        bundle = Path(
+            os.environ.get(EFFORT_JUDGE_BUNDLE_ENV, "") or DEFAULT_EFFORT_JUDGE_BUNDLE
+        )
+        if not bundle.is_file():
+            raise RuntimeError(
+                f"route profile {self._route_profile_name!r} needs the effort-judge "
+                f"bundle at {bundle} (harness/build-effort-judge-bundle.ps1)"
+            )
+        await environment.upload_file(bundle, CONTAINER_EFFORT_JUDGE_BUNDLE)
+        judge = shlex.quote(CONTAINER_EFFORT_JUDGE_DIR)
+        await self.exec_as_root(
+            environment,
+            command=(
+                "set -eu; "
+                'MIXDOG_BIN="$(readlink -f "$(command -v mixdog)")"; '
+                'MODULES="$(dirname "$(dirname "$MIXDOG_BIN")")/node_modules"; '
+                f"rm -rf {judge}; mkdir -p {judge} \"$MODULES\"; "
+                f"tar -xf {CONTAINER_EFFORT_JUDGE_BUNDLE} -C {judge}; "
+                'rm -rf "$MODULES/onnxruntime-node" "$MODULES/onnxruntime-common"; '
+                f'mv {judge}/node_modules/onnxruntime-node {judge}/node_modules/onnxruntime-common "$MODULES/"; '
+                f"rm -rf {judge}/node_modules {CONTAINER_EFFORT_JUDGE_BUNDLE}; "
+                f'chmod -R a+rX {judge} "$MODULES/onnxruntime-node" "$MODULES/onnxruntime-common"'
+            ),
+        )
+        # A script file, not `node -e`: the judge's worker thread inherits the
+        # parent's execArgv, and --input-type would make it fail to start.
+        check = await environment.exec(
+            command=(
+                'MIXDOG_BIN="$(readlink -f "$(command -v mixdog)")"; '
+                'export MIXDOG_SRC="$(dirname "$(dirname "$MIXDOG_BIN")")/src"; '
+                f"export MIXDOG_EFFORT_JUDGE_DIR={judge}; "
+                "cat > /tmp/mixdog-effort-judge-check.mjs <<'EOF'\n"
+                'import { pathToFileURL } from "node:url";\n'
+                'const judge = await import(pathToFileURL(process.env.MIXDOG_SRC + "/runtime/effort-judge/judge-client.mjs"));\n'
+                "let r;\n"
+                "for (let i = 0; i < 40 && !r?.probs; i++) {\n"
+                '  r = await judge.judgeTurn({ request: "Fix the failing parser test", prev: "", prevRequest: "" });\n'
+                "  if (!r.probs) await new Promise((s) => setTimeout(s, 500));\n"
+                "}\n"
+                'console.log(r.probs ? "EFFORT_JUDGE_OK " + JSON.stringify(r.probs.map((v) => +v.toFixed(3))) : "EFFORT_JUDGE_FAIL " + JSON.stringify(r));\n'
+                "process.exit(0);\n"
+                "EOF\n"
+                "timeout 60s node /tmp/mixdog-effort-judge-check.mjs 2>&1; "
+                "rm -f /tmp/mixdog-effort-judge-check.mjs"
+            )
+        )
+        output = (getattr(check, "stdout", "") or "").strip()
+        if "EFFORT_JUDGE_OK" not in output:
+            raise RuntimeError(f"effort judge did not answer in the container: {output[-500:]}")
+        print(output.splitlines()[-1], flush=True)
 
     @staticmethod
     def _load_src_snapshot():
@@ -1017,6 +1088,20 @@ class MixdogAgent(BaseInstalledAgent):
             "MIXDOG_USAGE_LOG": "/logs/agent/usage.json",
             "MIXDOG_SESSION_TRANSCRIPT_LOG": "/logs/agent/session-transcript.json",
             "MIXDOG_AGENT_TRACE_PATH": "/logs/agent/agent-trace.jsonl",
+            **(
+                {
+                    "MIXDOG_AUTO_EFFORT": "on",
+                    "MIXDOG_AUTO_EFFORT_STEPS": "on" if (self._route_profile or {}).get("autoEffortSteps") else "off",
+                    "MIXDOG_EFFORT_JUDGE_DIR": CONTAINER_EFFORT_JUDGE_DIR,
+                    "MIXDOG_EFFORT_DECISIONS_LOG": "/logs/agent/effort-decisions.jsonl",
+                    # Each trial is one cold process sharing the host's CPUs
+                    # with seven others; let the first turn wait for the load.
+                    "MIXDOG_EFFORT_JUDGE_COLD_WAIT_MS": "30000",
+                    "MIXDOG_EFFORT_JUDGE_TIMEOUT_MS": "5000",
+                }
+                if (self._route_profile or {}).get("autoEffort")
+                else {}
+            ),
         }
         try:
             if self._mode == "worker":

@@ -4,14 +4,15 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  AUTO_EFFORT_MIN_CONFIDENCE,
   autoEffortBase,
   autoEffortLadder,
   judgedStep,
   normalizeAutoEffortMode,
   resolveAutoEffort,
 } from './auto-effort.mjs';
-import { prepareTurnEffortConfiguration } from './effort-configuration.mjs';
+import { prepareTurnEffortConfiguration, projectEffortConfiguration, stepEffortConfiguration } from './effort-configuration.mjs';
+import { markStepEffort } from '../session/loop/step-auto-effort.mjs';
+import { stepJudgeText, stepResultWindow } from '../../../effort-judge/judge-input.mjs';
 import { builtinFeatureActive, INSTALLABLE_BUILTIN_IDS } from '../runtime-core/builtin-features.mjs';
 import { resolveTurnAutoEffort } from '../session/manager/ask-turn-auto-effort.mjs';
 
@@ -42,9 +43,15 @@ test('judge levels map to steps: easy -1, normal 0, hard +1, very hard +2', () =
   assert.equal(judgedStep([0, 0.002, 0.169, 0.829]).step, 2);
 });
 
+test('a split judge avoids an opposite call instead of following the top level', () => {
+  // Top level "easy", but enough weight on "hard" that low risks an opposite call.
+  assert.equal(judgedStep([0.45, 0.2, 0.35, 0]).step, 0);
+  // Top level "hard", but enough weight on "easy" that high risks an opposite call.
+  assert.equal(judgedStep([0.38, 0.2, 0.42, 0]).step, 0);
+});
+
 test('an unsure judge keeps the default', () => {
   const flat = Array(4).fill(1 / 4);
-  assert.ok(Math.max(...flat) < AUTO_EFFORT_MIN_CONFIDENCE);
   assert.equal(judgedStep(flat).step, 0);
   assert.equal(judgedStep(null).step, 0);
   assert.equal(judgedStep([1, 2]).step, 0);
@@ -107,6 +114,81 @@ test('a per-turn effort override leaves the saved default untouched', () => {
   assert.equal(snapshot.initialEffort, 'low');
   assert.equal(session.effort, 'high');
   assert.equal(prepareTurnEffortConfiguration(session, { config: {} }).effort, 'high');
+});
+
+test('the step judge text keeps the request head, the round text and each call with its result ends', () => {
+  const text = stepJudgeText({
+    request: 'fix the failing test',
+    step: 3,
+    plan: 'Running the suite again.',
+    calls: [
+      { name: 'shell', args: '{"command":"npm test"}', result: `${'a'.repeat(600)}FAIL x.test.js` },
+      { name: 'read', args: '{}', result: 'ok' },
+      { name: 'grep', args: '{}', result: '' },
+      { name: 'list', args: '{}', result: 'dropped' },
+    ],
+  });
+  const lines = text.split('\n');
+  assert.deepEqual(lines.slice(0, 4), ['step 3', 'request: fix the failing test', 'plan: Running the suite again.', 'call: shell {"command":"npm test"}']);
+  assert.ok(lines[4].startsWith(`result: ${'a'.repeat(300)} … `) && lines[4].endsWith('FAIL x.test.js'));
+  assert.equal(lines.length, 9, 'three calls at most');
+  assert.equal(stepJudgeText({ request: '', step: 1, plan: '  ', calls: [] }), 'step 1\nrequest: ');
+  // The stored result window is stable under re-windowing.
+  const big = 'x'.repeat(5000);
+  assert.equal(stepResultWindow(stepResultWindow(big)), stepResultWindow(big));
+});
+
+test('a step effort replaces the turn effort in the snapshot and projects after its tool batch', () => {
+  const session = { provider: 'anthropic-oauth', model: 'claude-opus-5-5', effort: 'high', messages: [] };
+  const turn = prepareTurnEffortConfiguration(session, { config: {} }, 'medium');
+  assert.deepEqual(stepEffortConfiguration(turn, session.provider, session.model, 'low'), { ...turn, effort: 'low' });
+  assert.equal(stepEffortConfiguration(turn, session.provider, session.model, 'bogus'), null);
+  assert.equal(stepEffortConfiguration(null, session.provider, session.model, 'low'), null);
+  const tool = { role: 'tool', toolCallId: 'c1', content: 'ok', meta: { effortConfiguration: { ...turn, effort: 'low' } } };
+  const messages = [{ role: 'user', content: 'go', meta: { effortConfiguration: turn } }, { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'read', arguments: {} }] }, tool];
+  const projection = projectEffortConfiguration(messages, session.provider, session.model, {});
+  assert.equal(projection.updates.get(tool), 'low');
+  assert.equal(projection.effort, 'low');
+});
+
+test('step wiring is off without a step context and leaves the step unmarked when the judge is missing', async (t) => {
+  const data = mkdtempSync(join(tmpdir(), 'mixdog-step-effort-'));
+  const saved = { dir: process.env.MIXDOG_EFFORT_JUDGE_DIR, data: process.env.MIXDOG_DATA_DIR };
+  t.after(() => {
+    for (const [key, value] of [
+      ['MIXDOG_EFFORT_JUDGE_DIR', saved.dir],
+      ['MIXDOG_DATA_DIR', saved.data],
+    ]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(data, { recursive: true, force: true });
+  });
+  process.env.MIXDOG_DATA_DIR = data;
+  process.env.MIXDOG_EFFORT_JUDGE_DIR = join(data, 'no-model');
+  const turn = { version: 1, provider: 'anthropic-oauth', model: 'claude-opus-5-5', mode: 'anthropic', initialEffort: 'medium', effort: 'medium' };
+  const assistant = { role: 'assistant', content: 'Reading it.', toolCalls: [{ id: 'c1', name: 'read', arguments: { path: 'a' } }] };
+  const tool = { role: 'tool', toolCallId: 'c1', content: 'text' };
+  const state = (stepAutoEffort) => ({
+    opts: { stepAutoEffort, effortConfiguration: turn },
+    messages: [{ role: 'user', content: 'go' }, assistant, tool],
+    model: 'claude-opus-5-5',
+    sessionRef: { provider: 'anthropic-oauth' },
+    sessionId: 's1',
+  });
+
+  const off = state(null);
+  await markStepEffort(off, assistant);
+  assert.equal(off.autoEffortSteps, undefined);
+
+  const on = state({ request: 'go', base: 'medium' });
+  await markStepEffort(on, assistant);
+  await markStepEffort(on, assistant);
+  assert.equal(on.autoEffortSteps, 2);
+  assert.equal(tool.meta, undefined);
+  const log = readFileSync(join(data, 'effort-judge', 'decisions.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.deepEqual(log.map((entry) => [entry.step, entry.skipped]), [[1, 'model-missing'], [2, 'model-missing']]);
+  assert.equal('request' in log[0], false);
 });
 
 test('turn wiring skips off mode, runtime turns, agent sessions, tagged prompts, cache-unsafe models and a missing model', async (t) => {

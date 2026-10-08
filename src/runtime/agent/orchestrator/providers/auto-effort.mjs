@@ -25,17 +25,33 @@ export function autoEffortBase(chosen) {
 
 export const AUTO_EFFORT_MODES = Object.freeze(['off', 'observe', 'on']);
 
-// Below this top-class probability the judge is unsure and the default stays.
-export const AUTO_EFFORT_MIN_CONFIDENCE = 0.4;
-// xhigh costs far more than high, so "very hard" needs a firmer judge;
-// below this it is treated as "hard". 0.65 minimised the eval cost with a
-// false xhigh weighted three times a missed one.
-export const AUTO_EFFORT_VERY_HARD_CONFIDENCE = 0.65;
-
 // The judge rates four levels, each one ladder step from the base: easy -1
 // (low), normal 0 (medium), hard +1 (high), very hard +2 (xhigh).
 export const AUTO_EFFORT_LEVELS = Object.freeze(['easy', 'normal', 'hard', 'very hard']);
 const STEP_OF_LEVEL = [-1, 0, 1, 2];
+
+// The chosen level minimises the expected cost under the judge distribution.
+// A miss costs one per level, plus this much for an opposite call (easy
+// against hard or very hard, either way) and this much for a needless "very
+// hard" (xhigh). Fitted on the held-out validation split: fewer opposite calls
+// at nearly unchanged exact accuracy.
+export const AUTO_EFFORT_OPPOSITE_COST = 1;
+export const AUTO_EFFORT_FALSE_VERY_HARD_COST = 1;
+// Ties keep the default first, then the cheaper side.
+const TIE_ORDER = [1, 0, 2, 3];
+
+function expectedCost(values, level) {
+  let cost = 0;
+  values.forEach((p, actual) => {
+    const opposite = (level === 0 && actual >= 2) || (actual === 0 && level >= 2);
+    cost +=
+      p *
+      (Math.abs(level - actual) +
+        (opposite ? AUTO_EFFORT_OPPOSITE_COST : 0) +
+        (level === 3 && actual < 3 ? AUTO_EFFORT_FALSE_VERY_HARD_COST : 0));
+  });
+  return cost;
+}
 
 export function normalizeAutoEffortMode(value) {
   const mode = String(value ?? '')
@@ -57,9 +73,9 @@ export function judgedStep(probs) {
   const values = Array.isArray(probs) && probs.length === AUTO_EFFORT_LEVELS.length ? probs.map(Number) : null;
   if (!values || values.some((value) => !Number.isFinite(value))) return { step: 0, level: null, confidence: 0 };
   const confidence = Math.max(...values);
-  if (confidence < AUTO_EFFORT_MIN_CONFIDENCE) return { step: 0, level: null, confidence };
-  let level = values.indexOf(confidence);
-  if (level === 3 && confidence < AUTO_EFFORT_VERY_HARD_CONFIDENCE) level = 2;
+  let level = TIE_ORDER[0];
+  for (const candidate of TIE_ORDER)
+    if (expectedCost(values, candidate) < expectedCost(values, level) - 1e-12) level = candidate;
   return { step: STEP_OF_LEVEL[level], level, confidence };
 }
 

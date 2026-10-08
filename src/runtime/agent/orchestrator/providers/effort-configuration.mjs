@@ -113,11 +113,23 @@ export function prepareTurnEffortConfiguration(session, provider, turnEffort) {
   return snapshot;
 }
 
+// The turn's snapshot carrying a tool-result step's effort (auto effort per
+// step), or null when that effort is not valid for the model.
+export function stepEffortConfiguration(snapshot, provider, model, effort) {
+  const value = normalizedEffort(provider, model, effort);
+  if (!snapshot || !EFFORTS.has(value)) return null;
+  return { ...snapshot, effort: value };
+}
+
 export function projectEffortConfiguration(messages, provider, model, opts = {}) {
   const mode = effortConfigurationMode(provider, model, opts);
   if (!mode) return null;
+  // A user message carries a turn's effort; a tool result carries the effort
+  // of the step that follows its tool batch.
   const marked = (messages || []).filter(
-    (message) => message?.role === 'user' && validSnapshot(message?.meta?.[META_KEY], provider, model, mode)
+    (message) =>
+      (message?.role === 'user' || message?.role === 'tool') &&
+      validSnapshot(message?.meta?.[META_KEY], provider, model, mode)
   );
   const seed = marked[0]?.meta?.[META_KEY] || opts.effortConfiguration;
   if (!validSnapshot(seed, provider, model, mode)) return null;
@@ -140,9 +152,11 @@ export function projectEffortConfiguration(messages, provider, model, opts = {})
   return { mode, initialEffort: seed.initialEffort, effort: current, updates };
 }
 
-// Split only at real user-turn boundaries. Sanitizing each segment before
-// inserting the trusted empty system control avoids losing it as empty text,
-// and never separates a tool call from its result.
+// Split only before a user message or after a whole tool-result batch.
+// Sanitizing each segment before inserting the trusted empty system control
+// avoids losing it as empty text, and never separates a tool call from its
+// result. An update after a batch that a user message directly follows is
+// superseded by that message's own update.
 export function lowerAnthropicEffortHistory(messages, lower, projection) {
   if (!projection) return lower(messages);
   // Cache markers otherwise turn a string into a text-block array only on
@@ -154,15 +168,20 @@ export function lowerAnthropicEffortHistory(messages, lower, projection) {
   if (!projection.updates.size) return canonical(lower(messages));
   const result = [];
   let segment = [];
+  let afterBatch = null;
+  const control = (effort) => {
+    if (segment.length) result.push(...lower(segment));
+    result.push({ role: 'system', content: [], output_config: { effort } });
+    segment = [];
+  };
   for (const message of messages) {
     const effort = projection.updates.get(message);
-    if (effort) {
-      if (segment.length) result.push(...lower(segment));
-      result.push({ role: 'system', content: [], output_config: { effort } });
-      segment = [];
-    }
+    if (message.role !== 'tool' && (effort || afterBatch)) control(effort || afterBatch);
+    if (message.role !== 'tool') afterBatch = null;
+    else if (effort) afterBatch = effort;
     segment.push(message);
   }
+  if (afterBatch) control(afterBatch);
   if (segment.length) result.push(...lower(segment));
   return canonical(result);
 }

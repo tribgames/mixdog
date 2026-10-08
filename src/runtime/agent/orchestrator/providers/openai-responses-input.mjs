@@ -156,18 +156,21 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
     if (!pendingToolMedia.length) return;
     out.push(wireMessage('user', pendingToolMedia.splice(0)));
   };
+  // An update on a tool result applies after its whole batch; one on a user
+  // message before it. Adjacent updates are rejected, so a batch update that
+  // a user message directly follows yields to that message's own.
+  let afterBatch = null;
   for (const m of messages) {
     if (!m || m.role === 'system') continue;
     const changedEffort = opts.effortProjection?.updates.get(m);
-    if (changedEffort) {
-      flushToolMedia();
-      out.push({ type: 'configuration_update', reasoning: { effort: changedEffort } });
-    }
     if (m.role === 'tool') {
       pushToolResult(m, { out, pendingToolMedia, pendingToolLoads, customToolCallNameById, nativeSearchCalls, opts });
+      if (changedEffort) afterBatch = changedEffort;
       continue;
     }
     flushToolMedia();
+    if (changedEffort || afterBatch) out.push({ type: 'configuration_update', reasoning: { effort: changedEffort || afterBatch } });
+    afterBatch = null;
     // Preserve original assistant phases and item order even when encrypted
     // reasoning is explicitly disabled. Never replay another provider's data.
     const orderedReplay =
@@ -209,6 +212,7 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
     pushReasoningItems(m, 'after');
   }
   flushToolMedia();
+  if (afterBatch) out.push({ type: 'configuration_update', reasoning: { effort: afterBatch } });
   // Wire-level pairing guard: replay envelopes can carry a call whose
   // result never committed (cancel/abort). The provider hard-rejects the
   // unpaired call, so synthesize the missing outputs here.

@@ -501,7 +501,11 @@ export function applyAnthropicCacheMarkers(
     return sanitizedMessages;
   }
   if (messageTtl !== null && Number(messageSlots) > 0) {
-    const message = sanitizedMessages[sanitizedMessages.length - 1];
+    // A trailing effort control (empty system message) has no block to mark;
+    // the breakpoint goes on the message before it.
+    let index = sanitizedMessages.length - 1;
+    while (index > 0 && sanitizedMessages[index].role === 'system' && !sanitizedMessages[index].content?.length) index--;
+    const message = sanitizedMessages[index];
     message.content = appendAnthropicCacheControl(message.content, messageTtl);
   }
   return sanitizedMessages;
