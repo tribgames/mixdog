@@ -9,8 +9,7 @@ const root = mkdtempSync(join(tmpdir(), 'mixdog-grep-cache-normalization-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 process.env.MIXDOG_PATCH_NATIVE_PREWARM = '0';
-const { normalizeGrepArgs } = await import('../../tools/builtin/path-utils.mjs');
-const { validateBuiltinArgs } = await import('../../tools/builtin/arg-guard.mjs');
+const { prepareGrepArgs, validateBuiltinArgs } = await import('../../tools/builtin/arg-guard.mjs');
 const { resolveGrepRequest } = await import('../../tools/builtin/lib/grep-request.mjs');
 const { processToolBatch } = await import('../tool-batch.mjs');
 const { createEagerDispatcher } = await import('../eager-dispatch.mjs');
@@ -135,16 +134,13 @@ test('invalid modes and context arguments cannot hit or populate a successful gr
 // search contract as the leaf result. Admission, batch dispatch and cache
 // population/consumption remain the production implementations.
 async function resolvedGrep(args) {
-  const copy = structuredClone(args);
-  delete copy._clampNotices;
-  const error = validateBuiltinArgs('grep', copy);
-  if (error) return error;
-  normalizeGrepArgs(copy);
-  const resolved = await resolveGrepRequest(copy, root, {});
+  const prepared = prepareGrepArgs(args);
+  if (prepared.error) return prepared.error;
+  const resolved = await resolveGrepRequest(prepared.args, root, {});
   if (resolved.result !== undefined) return resolved.result;
   assert.ok(resolved.request, 'the fixture must resolve to a search');
-  const { outputMode, beforeN, afterN, contextN, headLimit, offset } = resolved.request;
-  return JSON.stringify({ outputMode, beforeN, afterN, contextN, headLimit, offset });
+  const { outputMode, beforeN, afterN, contextN, autoContext, headLimit, offset } = resolved.request;
+  return JSON.stringify({ outputMode, beforeN, afterN, contextN, autoContext, headLimit, offset });
 }
 
 const tools = [{ name: 'grep', annotations: { readOnlyHint: true } }];
@@ -184,6 +180,34 @@ async function round(fx, args) {
   assert.deepEqual(args, before);
   return results[0];
 }
+
+test('automatic context and explicit -B 8 -A 12 never share a cache entry', async () => {
+  const automatic = argsFor({});
+  const explicit = argsFor({ output_mode: 'content', '-B': 8, '-A': 12 });
+  const expectedAuto = await resolvedGrep(automatic);
+  const expectedExplicit = await resolvedGrep(explicit);
+  assert.notEqual(expectedAuto, expectedExplicit);
+  for (const [first, second, expectedFirst, expectedSecond] of [
+    [automatic, explicit, expectedAuto, expectedExplicit],
+    [explicit, automatic, expectedExplicit, expectedAuto],
+  ]) {
+    const fx = {
+      mode: 'serial', sessionId: randomUUID(), sessionRef: { schemaAllowedTools: null },
+      crossTurnCalls: new Map(), messages: [], iterations: 0, executions: 0,
+      dedupStubTotal: 0, editCount: 0,
+    };
+    try {
+      const initial = await round(fx, first);
+      assert.equal(initial.content, expectedFirst);
+      const other = await round(fx, second);
+      assert.equal(other.content, expectedSecond);
+      assert.equal(other.toolKind, 'normal');
+      assert.equal(fx.executions, 2);
+    } finally {
+      clearScopedToolsForSession(fx.sessionId);
+    }
+  }
+});
 
 for (const mode of ['serial', 'fallback', 'streaming']) {
   test(`cold and warm grep requests retain the same meaning through ${mode} dispatch`, async () => {

@@ -9,7 +9,7 @@
 // callers may pass either spelling (e.g. `glob` alias for grep, or
 // `file_path` alias for read.path).
 
-import { coerceReadFamilyPathArg, coerceShapeFlex, hasGlobMagic } from './path-utils.mjs';
+import { coerceReadFamilyPathArg, coerceShapeFlex, hasGlobMagic, normalizeGrepArgs } from './path-utils.mjs';
 import { hasOwn } from '../../../../shared/object.mjs';
 import { CODE_GRAPH_FILE_MODES, CODE_GRAPH_MODES } from '../code-graph-tool-defs.mjs';
 
@@ -1121,6 +1121,17 @@ export function validateBuiltinArgs(toolName, args) {
   } catch (err) {
     return `Error: ${toolName} argument validation failed: ${err?.message ? err.message : String(err)}`;
   }
+}
+
+// Single grep argument preparation: private copy, caller-supplied
+// _clampNotices dropped, guard, then alias/mode normalization. Returns
+// { args } on success or { error } for an invalid request.
+export function prepareGrepArgs(rawArgs) {
+  const args = structuredClone(rawArgs);
+  if (args && typeof args === 'object' && !Array.isArray(args)) delete args._clampNotices;
+  const error = validateBuiltinArgs('grep', args);
+  if (error) return { error };
+  return { args: normalizeGrepArgs(args) };
 }
 
 export default validateBuiltinArgs;

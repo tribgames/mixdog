@@ -120,8 +120,9 @@ function firstPresentArg(args, names) {
 // beyond any affordable radius, while callers that set `context` themselves
 // chose a median of 3.
 // GREP_AUTO_CONTEXT_LINES stays the scalar ceiling: rg fallbacks, the
-// expander's maximum window, and scoped-cache canonicalization import it so
-// omitted context and the equivalent explicit flags share one cache key.
+// expander's maximum window. Scoped-cache keys keep automatic context
+// distinct from an explicit -B/-A window of the same size: only the
+// automatic request uses the adaptive renderer.
 export const GREP_AUTO_CONTEXT_BEFORE = 8;
 export const GREP_AUTO_CONTEXT_AFTER = 12;
 export const GREP_AUTO_CONTEXT_LINES = GREP_AUTO_CONTEXT_AFTER;

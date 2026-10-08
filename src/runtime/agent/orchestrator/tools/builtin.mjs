@@ -26,7 +26,7 @@ import { extractIpynbText, extractPdfText } from './builtin/read-special-files.m
 import { tryExecuteExternalToolAdapter, isExternalAdapterTool } from './builtin/external-tool-adapters.mjs';
 import { formatToolStartProgress } from './progress-message.mjs';
 import { BUILTIN_TOOLS } from './builtin/builtin-tools.mjs';
-import { validateBuiltinArgs } from './builtin/arg-guard.mjs';
+import { prepareGrepArgs, validateBuiltinArgs } from './builtin/arg-guard.mjs';
 import {
   parseLineLimitArg,
   parseOffsetArg,
@@ -387,7 +387,14 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
       readOffsetBase: args && Object.hasOwn(args, 'file_path') ? 1 : (options.readOffsetBase ?? 0),
     };
   }
-  const argError = validateBuiltinArgs(toolName, args);
+  let argError;
+  if (toolName === 'grep') {
+    const prepared = prepareGrepArgs(args);
+    argError = prepared.error;
+    if (!argError) args = prepared.args;
+  } else {
+    argError = validateBuiltinArgs(toolName, args);
+  }
   if (argError) return toolName === 'shell' ? formatShellToolFailure(argError) : argError;
   // Fallback live-progress emit for direct callers (in-process toolExecutor
   // path). The MCP dispatch path already fired the central start message and

@@ -5,12 +5,9 @@
 import { join, resolve as _pathResolve, isAbsolute as _pathIsAbs, normalize as _pathNorm } from 'node:path';
 import { _normalizeCacheKey } from './util.mjs';
 import {
-  GREP_AUTO_CONTEXT_AFTER,
-  GREP_AUTO_CONTEXT_BEFORE,
   hasGlobMagic,
-  normalizeGrepArgs,
 } from '../../tools/builtin/path-utils.mjs';
-import { validateBuiltinArgs } from '../../tools/builtin/arg-guard.mjs';
+import { prepareGrepArgs } from '../../tools/builtin/arg-guard.mjs';
 import { registerCacheInvalidationListener } from '../../tools/builtin/cache-layers.mjs';
 import { setBoundedTextCacheEntry } from './text-cache-budget.mjs';
 
@@ -79,16 +76,16 @@ function _canonicalGrepArgs(next) {
   // output_mode:"content" is bare. The guard also owns context aliases,
   // numeric coercion and clamp notices. Invalid requests cannot hit a
   // successful cache entry and must reach the executor's error path.
-  const adopted = structuredClone(next);
-  if (adopted && typeof adopted === 'object') delete adopted._clampNotices;
-  if (validateBuiltinArgs('grep', adopted) !== null) return null;
-  normalizeGrepArgs(adopted);
+  const prepared = prepareGrepArgs(next);
+  if (prepared.error) return null;
+  const adopted = prepared.args;
   _adoptAliases(adopted, GREP_ARG_ALIASES);
   delete adopted.mode;
 
   // Canonicalize by execution semantics, not caller spelling:
-  // omitted/content_with_context => content + the automatic asymmetric
-  // window, spelled as the -B/-A pair it actually runs as;
+  // omitted/content_with_context without explicit context => automatic
+  // context, keyed as output_mode:"content_with_context" (it runs through the
+  // adaptive renderer, which an explicit -B/-A window of equal size does not);
   // context:0 => bare content; context flags are ignored in count/files.
   const requestedMode = typeof adopted.output_mode === 'string' ? adopted.output_mode.trim() : '';
   if (requestedMode === 'files_with_matches' || requestedMode === 'count') {
@@ -99,11 +96,8 @@ function _canonicalGrepArgs(next) {
     return adopted;
   }
   const hasExplicitContext = ['-A', '-B', 'context'].some((key) => Object.hasOwn(adopted, key));
-  adopted.output_mode = 'content';
-  if ((requestedMode === '' || requestedMode === 'content_with_context') && !hasExplicitContext) {
-    adopted['-B'] = GREP_AUTO_CONTEXT_BEFORE;
-    adopted['-A'] = GREP_AUTO_CONTEXT_AFTER;
-  }
+  const autoContext = (requestedMode === '' || requestedMode === 'content_with_context') && !hasExplicitContext;
+  adopted.output_mode = autoContext ? 'content_with_context' : 'content';
   if (adopted.context === 0 && !Object.hasOwn(adopted, '-A') && !Object.hasOwn(adopted, '-B')) {
     delete adopted.context;
   }
@@ -118,11 +112,9 @@ function _canonicalToolArgs(toolName, args) {
   return next;
 }
 
-function _scopedKey(toolName, args, cwd) {
+function _scopedKey(toolName, canonicalArgs, cwd) {
   // Include resolved cwd in the key so identical (toolName, args) pairs from
   // different working directories do not collide.
-  const canonicalArgs = _canonicalToolArgs(toolName, args);
-  if (toolName === 'grep' && canonicalArgs === null) return null;
   const cwdPart = typeof cwd === 'string' && cwd.length > 0 ? _normalizeCacheKey(cwd) : '';
   return `${toolName}|cwd=${cwdPart}|${_canonicalArgs(canonicalArgs)}`;
 }
@@ -154,7 +146,7 @@ function _collectPathValues(value, out) {
   }
 }
 
-function _scopedDependencyRoots(toolName, args, cwd, dependencyRoots) {
+function _scopedDependencyRoots(toolName, canonicalArgs, cwd, dependencyRoots) {
   const roots = new Set();
   const add = (value) => {
     const abs = _normalizeScopedAbs(value, cwd);
@@ -165,7 +157,6 @@ function _scopedDependencyRoots(toolName, args, cwd, dependencyRoots) {
     for (const root of dependencyRoots) add(root);
     return [...roots];
   }
-  const canonicalArgs = _canonicalToolArgs(toolName, args);
   const rawPaths = [];
   if (canonicalArgs && typeof canonicalArgs === 'object') {
     _collectPathValues(canonicalArgs.file, rawPaths);
@@ -217,8 +208,9 @@ export function tryScopedToolCached({ sessionId, toolName, args, cwd, touch = tr
   if (!sessionId || !toolName) return null;
   const map = _scopedBySession.get(sessionId);
   if (!map) return null;
-  const key = _scopedKey(toolName, args, cwd);
-  if (key === null) return null;
+  const canonicalArgs = _canonicalToolArgs(toolName, args);
+  if (toolName === 'grep' && canonicalArgs === null) return null;
+  const key = _scopedKey(toolName, canonicalArgs, cwd);
   const entry = map.get(key);
   if (!entry || Date.now() - entry.ts >= SCOPED_CACHE_TTL_MS) {
     if (entry) map.delete(key);
@@ -256,14 +248,15 @@ export function setScopedToolCached({
   // could not be invalidated precisely, so it is not cached.
   const recorded = dependencyRoots ? [...dependencyRoots] : null;
   if (toolName === 'code_graph' && !recorded?.length) return;
-  const key = _scopedKey(toolName, args, cwd);
-  if (key === null) return;
+  const canonicalArgs = _canonicalToolArgs(toolName, args);
+  if (toolName === 'grep' && canonicalArgs === null) return;
+  const key = _scopedKey(toolName, canonicalArgs, cwd);
   let map = _scopedBySession.get(sessionId);
   if (!map) {
     map = new Map();
     _scopedBySession.set(sessionId, map);
   }
-  const depRoots = _scopedDependencyRoots(toolName, args, cwd, recorded?.length ? recorded : null);
+  const depRoots = _scopedDependencyRoots(toolName, canonicalArgs, cwd, recorded?.length ? recorded : null);
   setBoundedTextCacheEntry(
     map,
     key,
