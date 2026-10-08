@@ -4,7 +4,13 @@
 // touched path; unknown paths still fall back to a full session clear.
 import { join, resolve as _pathResolve, isAbsolute as _pathIsAbs, normalize as _pathNorm } from 'node:path';
 import { _normalizeCacheKey } from './util.mjs';
-import { GREP_AUTO_CONTEXT_AFTER, GREP_AUTO_CONTEXT_BEFORE, hasGlobMagic } from '../../tools/builtin/path-utils.mjs';
+import {
+  GREP_AUTO_CONTEXT_AFTER,
+  GREP_AUTO_CONTEXT_BEFORE,
+  hasGlobMagic,
+  normalizeGrepArgs,
+} from '../../tools/builtin/path-utils.mjs';
+import { validateBuiltinArgs } from '../../tools/builtin/arg-guard.mjs';
 import { registerCacheInvalidationListener } from '../../tools/builtin/cache-layers.mjs';
 import { setBoundedTextCacheEntry } from './text-cache-budget.mjs';
 
@@ -45,51 +51,6 @@ function _firstArg(args, names) {
   return undefined;
 }
 
-const _GREP_CONTEXT_GROUPS = [
-  [
-    '-A',
-    [
-      '-A',
-      'A',
-      'after',
-      'after_context',
-      'afterContext',
-      '--after-context',
-      'after-context',
-      'afterLines',
-      'after_lines',
-    ],
-  ],
-  [
-    '-B',
-    [
-      '-B',
-      'B',
-      'before',
-      'before_context',
-      'beforeContext',
-      '--before-context',
-      'before-context',
-      'beforeLines',
-      'before_lines',
-    ],
-  ],
-  [
-    'context',
-    ['context', '-C', 'C', 'context_lines', 'contextLines', '--context', 'contextN', 'around', 'surrounding'],
-  ],
-];
-
-function _canonicalizeGrepContextArgs(args) {
-  for (const [canonical, aliases] of _GREP_CONTEXT_GROUPS) {
-    const value = _firstArg(args, aliases);
-    for (const alias of aliases) delete args[alias];
-    if (value === undefined) continue;
-    const numeric = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
-    args[canonical] = Number.isFinite(numeric) && Number.isInteger(numeric) ? numeric : value;
-  }
-}
-
 const GREP_ARG_ALIASES = {
   pattern: ['query', 'regex', 'regexp', 'needle', 'search', 'literal'],
   glob: ['file_pattern', 'filePattern', 'include', 'includes', 'files'],
@@ -113,16 +74,16 @@ function _adoptAliases(next, aliasesByKey) {
 }
 
 function _canonicalGrepArgs(next) {
-  const adopted = { ...next };
+  // Follow the builtin execution order on a private copy. In particular,
+  // public mode:"content" requests automatic context; legacy
+  // output_mode:"content" is bare. The guard also owns context aliases,
+  // numeric coercion and clamp notices. Invalid requests cannot hit a
+  // successful cache entry and must reach the executor's error path.
+  const adopted = structuredClone(next);
+  if (adopted && typeof adopted === 'object') delete adopted._clampNotices;
+  if (validateBuiltinArgs('grep', adopted) !== null) return null;
+  normalizeGrepArgs(adopted);
   _adoptAliases(adopted, GREP_ARG_ALIASES);
-  _canonicalizeGrepContextArgs(adopted);
-  if (
-    (adopted.output_mode === undefined || adopted.output_mode === null || adopted.output_mode === '') &&
-    typeof adopted.mode === 'string'
-  ) {
-    const mode = adopted.mode.trim();
-    if (['files_with_matches', 'content', 'content_with_context', 'count'].includes(mode)) adopted.output_mode = mode;
-  }
   delete adopted.mode;
 
   // Canonicalize by execution semantics, not caller spelling:
@@ -150,8 +111,8 @@ function _canonicalGrepArgs(next) {
 }
 
 function _canonicalToolArgs(toolName, args) {
-  if (!args || typeof args !== 'object') return args;
   if (toolName === 'grep') return _canonicalGrepArgs(args);
+  if (!args || typeof args !== 'object') return args;
   const next = { ...args };
   if (toolName === 'glob') _adoptAliases(next, GLOB_ARG_ALIASES);
   return next;
@@ -160,8 +121,10 @@ function _canonicalToolArgs(toolName, args) {
 function _scopedKey(toolName, args, cwd) {
   // Include resolved cwd in the key so identical (toolName, args) pairs from
   // different working directories do not collide.
+  const canonicalArgs = _canonicalToolArgs(toolName, args);
+  if (toolName === 'grep' && canonicalArgs === null) return null;
   const cwdPart = typeof cwd === 'string' && cwd.length > 0 ? _normalizeCacheKey(cwd) : '';
-  return `${toolName}|cwd=${cwdPart}|${_canonicalArgs(_canonicalToolArgs(toolName, args))}`;
+  return `${toolName}|cwd=${cwdPart}|${_canonicalArgs(canonicalArgs)}`;
 }
 
 function _extractGlobRoot(value) {
@@ -250,6 +213,7 @@ export function tryScopedToolCached({ sessionId, toolName, args, cwd, touch = tr
   const map = _scopedBySession.get(sessionId);
   if (!map) return null;
   const key = _scopedKey(toolName, args, cwd);
+  if (key === null) return null;
   const entry = map.get(key);
   if (!entry || Date.now() - entry.ts >= SCOPED_CACHE_TTL_MS) {
     if (entry) map.delete(key);
@@ -283,6 +247,7 @@ export function setScopedToolCached({
   if (complete === false || cacheSafe === false) return;
   if (typeof content !== 'string' || content.length === 0) return;
   const key = _scopedKey(toolName, args, cwd);
+  if (key === null) return;
   let map = _scopedBySession.get(sessionId);
   if (!map) {
     map = new Map();
