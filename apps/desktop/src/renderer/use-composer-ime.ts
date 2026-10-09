@@ -2,6 +2,7 @@
 // report `KeyboardEvent.isComposing` consistently across every IME event
 // ordering, so the explicit composition events are tracked too.
 import { useEffect, type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from 'react';
+import { isMobileRemoteSurface } from './mobile-surface';
 
 export function useComposerIme({
   textarea,
@@ -48,8 +49,13 @@ export function useComposerIme({
       // A composing Enter commits the IME candidate; it is not a request for a
       // line break. Electron can deliver the follow-up newline after
       // compositionend and a later task, using either browser input type.
+      // Phone keyboards are exempt: their Enter is the line-break key.
       const newline = event.inputType === 'insertLineBreak' || event.inputType === 'insertParagraph';
-      if (newline && (composingRef.current || event.isComposing || suppressImeLineBreakRef.current)) {
+      if (
+        newline &&
+        !isMobileRemoteSurface() &&
+        (composingRef.current || event.isComposing || suppressImeLineBreakRef.current)
+      ) {
         event.preventDefault();
         suppressImeLineBreakRef.current = false;
       }

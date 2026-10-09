@@ -241,6 +241,7 @@ test('submission hook commits accepted text and restores interrupted text', asyn
 
 test('keyboard hook restores history, inserts mentions, and scrolls only appended newlines', async () => {
   let current;
+  let sent = 0;
   function Harness() {
     const [draft, setDraft] = useState('');
     const draftRef = useRef(draft);
@@ -312,7 +313,9 @@ test('keyboard hook restores history, inserts mentions, and scrolls only appende
         },
         ime: { composing, suppressLineBreak, shiftLatch },
         actions: {
-          send: async () => {},
+          send: async () => {
+            sent += 1;
+          },
           stop: async () => {},
           clearAttachments() {},
         },
@@ -383,6 +386,40 @@ test('keyboard hook restores history, inserts mentions, and scrolls only appende
       assert.equal(textarea.selectionStart, caret + 1);
       assert.equal(textarea.selectionEnd, caret + 1);
       assert.equal(textarea.scrollTop, caret === 11 ? 480 : 20);
+    }
+
+    // Plain Enter sends on desktop but keeps its native line break on phones.
+    const plainEnter = () =>
+      current.onKeyDown({
+        key: 'Enter',
+        currentTarget: textarea,
+        nativeEvent: { isComposing: false, keyCode: 13 },
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        repeat: false,
+        preventDefault: () => {
+          prevented = true;
+        },
+        stopPropagation() {},
+      });
+    prevented = false;
+    await act(async () => plainEnter());
+    assert.equal(prevented, true);
+    assert.equal(sent, 1);
+
+    Object.defineProperty(navigator, 'userAgent', {
+      configurable: true,
+      get: () => 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Mobile',
+    });
+    try {
+      prevented = false;
+      await act(async () => plainEnter());
+      assert.equal(prevented, false);
+      assert.equal(sent, 1);
+    } finally {
+      delete navigator.userAgent;
     }
   } finally {
     await mounted.cleanup();

@@ -9,6 +9,7 @@ import {
 import type { ComposerAttachment, ComposerHistoryEntry } from './composer-support';
 import type { DesktopSlashCommand } from './slash-commands';
 import { t } from './i18n';
+import { isMobileRemoteSurface } from './mobile-surface';
 import { classifyPromptEscape } from '../../../../src/tui/components/prompt-input/escape-policy.mjs';
 import { paletteOwnsPromptVerticalArrow } from '../../../../src/tui/components/prompt-input/restore-policy.mjs';
 
@@ -334,12 +335,15 @@ export function useComposerKeyboard({
         altKey: event.altKey,
         shiftLatched,
       });
+      // Phone keyboards have no Shift+Enter, so Enter keeps its native line
+      // break there and the send button submits.
+      const mobile = isMobileRemoteSurface();
       const composing = event.nativeEvent.isComposing || ime.composing.current || event.nativeEvent.keyCode === 229;
       if (!composing) ime.suppressLineBreak.current = false;
-      if (composing && event.key === 'Enter') {
+      if (composing && event.key === 'Enter' && !mobile) {
         ime.suppressLineBreak.current = true;
       }
-      if (composing && newlineChord) {
+      if (composing && newlineChord && !mobile) {
         const element = event.currentTarget;
         window.setTimeout(() => {
           const caret = element.selectionStart;
@@ -425,6 +429,7 @@ export function useComposerKeyboard({
         return;
       }
       if (event.key === 'Enter') {
+        if (mobile) return;
         event.preventDefault();
         if (newlineChord) insertNewline(event.currentTarget);
         else void actions.send('', 'keyboard-enter');
