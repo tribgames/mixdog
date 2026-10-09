@@ -342,7 +342,7 @@
   "Additional verification required": "Verificação adicional necessária",
   "Address": "Endereço",
   "Address bar": "Barra de endereço",
-  "Adjust the reasoning effort of each turn to how hard the request is, on models that can change it without breaking the prompt cache.": "Ajusta o esforço de raciocínio de cada turno conforme a dificuldade do pedido, em modelos que podem mudá-lo sem invalidar o cache do prompt.",
+  "Adjust the reasoning effort of each turn and each step after tool results to how hard the work is, on models that can change it without breaking the prompt cache.": "Ajusta o esforço de raciocínio de cada turno e de cada etapa após os resultados de ferramentas conforme a dificuldade do trabalho, em modelos que podem mudá-lo sem invalidar o cache do prompt.",
   "Administrator approval required": "Aprovação de administrador necessária",
   "After": "Depois",
   "After {{hours}} hours": "Após {{hours}} horas",

@@ -270,7 +270,7 @@
   "Additional verification required": "需要额外验证",
   "Address": "地址",
   "Address bar": "地址栏",
-  "Adjust the reasoning effort of each turn to how hard the request is, on models that can change it without breaking the prompt cache.": "按请求的难度逐轮调整推理强度。适用于可在不破坏提示缓存的情况下更改强度的模型。",
+  "Adjust the reasoning effort of each turn and each step after tool results to how hard the work is, on models that can change it without breaking the prompt cache.": "按工作的难度，逐轮并在每次收到工具结果后的步骤中调整推理强度。适用于可在不破坏提示缓存的情况下更改强度的模型。",
   "Administrator approval required": "需要管理员批准",
   "After": "修改后",
   "After {{hours}} hours": "{{hours}} 小时后",

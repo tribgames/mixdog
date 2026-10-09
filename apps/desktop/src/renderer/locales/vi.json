@@ -270,7 +270,7 @@
   "Additional verification required": "Cần xác minh bổ sung",
   "Address": "Địa chỉ",
   "Address bar": "Thanh địa chỉ",
-  "Adjust the reasoning effort of each turn to how hard the request is, on models that can change it without breaking the prompt cache.": "Điều chỉnh mức suy luận của từng lượt theo độ khó của yêu cầu, trên các mô hình có thể đổi mức này mà không làm mất bộ nhớ đệm prompt.",
+  "Adjust the reasoning effort of each turn and each step after tool results to how hard the work is, on models that can change it without breaking the prompt cache.": "Điều chỉnh mức suy luận của từng lượt và từng bước sau kết quả công cụ theo độ khó của công việc, trên các mô hình có thể đổi mức này mà không làm mất bộ nhớ đệm prompt.",
   "Administrator approval required": "Cần sự chấp thuận của quản trị viên",
   "After": "Sau",
   "After {{hours}} hours": "Sau {{hours}} giờ",

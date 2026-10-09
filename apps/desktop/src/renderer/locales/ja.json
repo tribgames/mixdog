@@ -270,7 +270,7 @@
   "Additional verification required": "追加の確認が必要です",
   "Address": "アドレス",
   "Address bar": "アドレスバー",
-  "Adjust the reasoning effort of each turn to how hard the request is, on models that can change it without breaking the prompt cache.": "依頼の難しさに合わせて、ターンごとに推論の強さを調整します。プロンプトキャッシュを壊さずに強さを変えられるモデルで動作します。",
+  "Adjust the reasoning effort of each turn and each step after tool results to how hard the work is, on models that can change it without breaking the prompt cache.": "作業の難しさに合わせて、ターンごと、そしてツール結果を受け取ったステップごとに推論の強さを調整します。プロンプトキャッシュを壊さずに強さを変えられるモデルで動作します。",
   "Administrator approval required": "管理者承認が必要",
   "After": "変更後",
   "After {{hours}} hours": "{{hours}} 時間後",

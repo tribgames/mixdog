@@ -306,7 +306,7 @@
   "Additional verification required": "Zusätzliche Überprüfung erforderlich",
   "Address": "Adresse",
   "Address bar": "Adressleiste",
-  "Adjust the reasoning effort of each turn to how hard the request is, on models that can change it without breaking the prompt cache.": "Passt den Reasoning-Aufwand jedes Zugs an die Schwierigkeit der Anfrage an – bei Modellen, die ihn ändern können, ohne den Prompt-Cache zu verwerfen.",
+  "Adjust the reasoning effort of each turn and each step after tool results to how hard the work is, on models that can change it without breaking the prompt cache.": "Passt den Reasoning-Aufwand jedes Zugs und jedes Schritts nach Tool-Ergebnissen an die Schwierigkeit der Arbeit an – bei Modellen, die ihn ändern können, ohne den Prompt-Cache zu verwerfen.",
   "Administrator approval required": "Administratorgenehmigung erforderlich",
   "After": "Nachher",
   "After {{hours}} hours": "Nach {{hours}} Stunden",
