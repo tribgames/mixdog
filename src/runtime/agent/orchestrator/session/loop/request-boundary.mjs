@@ -67,8 +67,12 @@ export async function prepareProviderRequest(state) {
     // repair first, then take exactly one immutable tool snapshot.
     const messagesBeforeTranscriptRepair = messages.slice();
     repairTranscriptBeforeProviderSend(messages, sessionId);
-    if (!opts.cacheBreakIntent && messagesArrayChanged(messagesBeforeTranscriptRepair, messages)) {
-      opts.cacheBreakIntent = 'transcript_rebuild';
+    if (messagesArrayChanged(messagesBeforeTranscriptRepair, messages)) {
+      // Repair can drop a delivered result or replace it with a missing-body
+      // stub without compacting. Receipts belong to the old transcript;
+      // clear the shared map, not the still-valid cached result bodies.
+      crossTurnCalls?.clear();
+      if (!opts.cacheBreakIntent) opts.cacheBreakIntent = 'transcript_rebuild';
     }
     const candidateSendTools = snapshotProviderRequestTools({
       provider: sessionRef?.provider || provider?.name,

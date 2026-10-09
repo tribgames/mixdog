@@ -68,11 +68,13 @@ async function globRound(fx, args) {
       },
     });
   };
+  const assistantTurnMsg = { role: 'assistant', content: '', toolCalls: [call] };
+  fx.messages.push(assistantTurnMsg);
   const stats = await processToolBatch({
     calls: [call], messages: fx.messages, tools, cwd: fx.cwd,
     sessionId: fx.sessionId, sessionRef: fx.session, signal: null, opts: {},
     iterations: state.iterations,
-    assistantTurnMsg: { role: 'assistant', content: '', toolCalls: [call] },
+    assistantTurnMsg,
     pending: new Map(), epoch: { mutation: 0 }, startEagerRun: () => {},
     crossTurnCalls: state.crossTurnCalls, crossTurnCap: 100, sessionAgent: null,
     pushToolResultMessage: (m) => { results.push(m); fx.messages.push(m); },
@@ -90,10 +92,23 @@ async function compactThroughBeginIteration(fx, { reactive }) {
     { role: 'user', content: `large old request ${'context '.repeat(12_000)}` },
     { role: 'assistant', content: `large old answer ${'detail '.repeat(12_000)}` }
   );
+  // Compact keeps a bounded tail of valid execution groups. Put the tested
+  // result behind enough later evidence that its body really leaves context;
+  // a lone, recent small result is intentionally retained.
+  for (let i = 0; i < 12; i += 1) {
+    const call = { id: `later-${i}`, name: 'glob', arguments: { path: fx.cwd, pattern: `later-${i}-*.txt` } };
+    messages.push(
+      { role: 'assistant', content: '', toolCalls: [call] },
+      { role: 'tool', name: 'glob', toolCallId: call.id, content: `later-${i} ${'unchanged observation '.repeat(40)}` }
+    );
+  }
   state.reactiveOverflowRetryPending = reactive;
   const map = state.crossTurnCalls;
   assert.ok(map.size > 0, 'a receipt exists before compaction');
+  let receiptsBeforeCompact = 0;
+  state.opts.preCompactHook = () => { receiptsBeforeCompact = map.size; };
   const round = await beginIteration(state);
+  assert.ok(receiptsBeforeCompact > 0, 'healthy pairing repair must not mask the compaction reset');
   assert.equal(state.crossTurnCalls, map, 'the live map identity is preserved');
   assert.equal(state.iterations, 0, 'compaction reset the iteration counter');
   assert.equal(round.nextIteration, 1);
