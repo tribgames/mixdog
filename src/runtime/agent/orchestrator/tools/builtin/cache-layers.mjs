@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, sep } from 'node:path';
 import { canonicalCachePath, deleteReadRangeIndexForPath } from './read-range-index.mjs';
 import { resolveAgainstCwd } from './path-utils.mjs';
+import { fileVersion, sameFileVersion } from './file-version.mjs';
 
 const RESULT_CACHE = new Map(); // key → { ts, value, paths, scopes, readSnapshotMeta, contentPrefixHash, bytes }
 const RESULT_CACHE_INFLIGHT = new Map(); // key → { promise, controller, subscribers, settled }
@@ -45,8 +46,8 @@ function resultCacheDelete(key) {
 const STAT_CACHE = new Map(); // fullPath → { ts, stat }
 const STAT_CACHE_TTL_MS = 5_000;
 const STAT_CACHE_MAX_ENTRIES = 2_000;
-const RAW_CONTENT_CACHE = new Map(); // fullPath → { ts, mtimeMs, ctimeMs, size, rawBuf }
-const RAW_CONTENT_INFLIGHT = new Map(); // canonical path → { path, promise }
+const RAW_CONTENT_CACHE = new Map(); // fullPath → { ts, version, rawBuf }
+const RAW_CONTENT_INFLIGHT = new Map(); // path + observed version → { path, promise }
 const RAW_CONTENT_CACHE_TTL_MS = 30_000;
 // 64: a parallel read batch fanning out over a component directory easily
 // tops 16 files; at 16 the batch thrashed its own cache before re-reads hit.
@@ -232,9 +233,15 @@ async function runPathInFlight(inFlight, key, path, start) {
   return await promise;
 }
 
-export async function runRawContentInFlight(fullPath, loader = fsPromises.readFile) {
-  const key = canonicalCachePath(fullPath);
-  return await runPathInFlight(RAW_CONTENT_INFLIGHT, key, key, () => loader(fullPath));
+export async function runRawContentInFlight(fullPath, loader = fsPromises.readFile, stat = undefined) {
+  const path = canonicalCachePath(fullPath);
+  const version = fileVersion(stat);
+  // Buffered reads provide their observed version: a later read must not
+  // join older bytes merely because a watcher has not fired yet. Preserve
+  // the unversioned helper contract for callers that supply no stat.
+  if (stat !== undefined && !version) return await loader(fullPath);
+  const key = version ? JSON.stringify([path, version]) : path;
+  return await runPathInFlight(RAW_CONTENT_INFLIGHT, key, path, () => loader(fullPath));
 }
 
 export async function runReadOnlyStatInFlight(fullPath, loader = fsPromises.stat, kind = 'stat') {
@@ -262,11 +269,7 @@ export function rawContentCacheGet(fullPath, stat, now = Date.now()) {
     rawContentCacheDelete(key);
     return null;
   }
-  if (
-    entry.size !== stat.size ||
-    Math.abs(entry.mtimeMs - stat.mtimeMs) > 1 ||
-    Math.abs(entry.ctimeMs - stat.ctimeMs) > 1
-  ) {
+  if (!sameFileVersion(entry.version, stat)) {
     rawContentCacheDelete(key);
     return null;
   }
@@ -276,15 +279,14 @@ export function rawContentCacheGet(fullPath, stat, now = Date.now()) {
 }
 
 export function rawContentCacheSet(fullPath, stat, rawBuf, now = Date.now()) {
-  if (!fullPath || !stat || !Buffer.isBuffer(rawBuf)) return;
-  if (rawBuf.length > RAW_CONTENT_CACHE_MAX_BYTES) return;
+  if (!fullPath || !Buffer.isBuffer(rawBuf)) return;
+  const version = fileVersion(stat);
+  if (!version || rawBuf.length !== version.size || rawBuf.length > RAW_CONTENT_CACHE_MAX_BYTES) return;
   const key = canonicalCachePath(fullPath);
   rawContentCacheDelete(key);
   RAW_CONTENT_CACHE.set(key, {
     ts: now,
-    mtimeMs: stat.mtimeMs,
-    ctimeMs: stat.ctimeMs,
-    size: stat.size,
+    version,
     rawBuf,
   });
   RAW_CONTENT_CACHE_BYTES += rawBuf.length;

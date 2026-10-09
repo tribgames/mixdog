@@ -23,13 +23,13 @@ import { binaryPreviewResult, smartStreamResult, streamRangeResult } from './rea
 import { bufferedReadResult } from './read-single-render.mjs';
 
 // Buffered reads take the whole body up front: the raw-content cache first,
-// else one readFile shared with any in-flight read of the same path.
+// else one readFile shared with in-flight reads of the same path AND version.
 async function prefetchRawBody(fullPath, st, helpers) {
   const { _rawContentCacheGet, _runRawContentInFlight } = helpers;
   const cachedRaw = _rawContentCacheGet ? _rawContentCacheGet(fullPath, st) : null;
   if (cachedRaw) return { buf: cachedRaw, fromCache: true };
   try {
-    const buf = _runRawContentInFlight ? await _runRawContentInFlight(fullPath, readFile) : await readFile(fullPath);
+    const buf = _runRawContentInFlight ? await _runRawContentInFlight(fullPath, readFile, st) : await readFile(fullPath);
     return { buf, fromCache: false };
   } catch {
     return { buf: null, fromCache: false };
