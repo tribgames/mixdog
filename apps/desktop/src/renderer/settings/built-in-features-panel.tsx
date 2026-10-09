@@ -40,6 +40,7 @@ import { useLocalProviderActions } from './local-provider-actions';
 import type { LocalProviderActions } from './local-provider-operations';
 import { GitPanel } from './git-panel';
 import { useTidyEngineStatus } from './tidy-status';
+import { useAutoEffortStatus } from './auto-effort-status';
 import { TidyEngines } from './tidy-engines';
 
 type FeatureAction = {
@@ -301,6 +302,7 @@ export function BuiltInFeaturesPanel({
     openId === 'tidy' || action?.id === 'tidy',
     action?.id === 'tidy' && action?.status === 'installing'
   );
+  const autoEffort = useAutoEffortStatus(api, toolModules.autoEffort);
   const voice = record(data.voice);
   const progress = voiceProgress(snapshot);
   // Built-in skills ride their feature's Install and toggle, so the card names
@@ -331,10 +333,10 @@ export function BuiltInFeaturesPanel({
       office: record(toolModules.office).installed === true,
       tidy: record(toolModules.tidy).installed === true,
       localProvider: localProvider.installed === true,
-      autoEffort: record(toolModules.autoEffort).installed === true,
+      autoEffort: autoEffort.installed === true,
       voice: voiceInstalled || voice.installed === true,
     }),
-    [gitStatus?.installed, settings, toolModules, localProvider, voice.installed, voiceInstalled]
+    [gitStatus?.installed, settings, toolModules, localProvider, autoEffort, voice.installed, voiceInstalled]
   );
   const enabled = useMemo<Record<BuiltInFeatureId, boolean>>(
     () => ({
@@ -345,10 +347,10 @@ export function BuiltInFeaturesPanel({
       office: record(toolModules.office).enabled !== false,
       tidy: record(toolModules.tidy).enabled !== false,
       localProvider: localProvider.enabled === true,
-      autoEffort: record(toolModules.autoEffort).enabled === true,
+      autoEffort: autoEffort.enabled === true,
       voice: voice.enabled === true && installed.voice,
     }),
-    [installed.voice, settings, toolModules, localProvider, voice.enabled]
+    [installed.voice, settings, toolModules, localProvider, autoEffort, voice.enabled]
   );
 
   const updateDesktopSetting = async (
@@ -476,7 +478,14 @@ export function BuiltInFeaturesPanel({
       supported,
       available,
       busy,
-      action: action?.id === feature.id ? action : null,
+      // Auto reasoning also installs in the background (boot download), which
+      // the card shows as its own Install step.
+      action:
+        action?.id === feature.id
+          ? action
+          : feature.id === 'autoEffort' && autoEffort.installing === true
+            ? { id: feature.id, status: 'installing' }
+            : null,
       progressPercent,
       localProvider,
       info: record(feature.id === 'voice' ? voice.info : record(toolModules[feature.id]).info),

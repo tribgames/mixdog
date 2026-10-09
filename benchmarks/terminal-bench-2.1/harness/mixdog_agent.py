@@ -1100,7 +1100,9 @@ class MixdogAgent(BaseInstalledAgent):
                     "MIXDOG_EFFORT_JUDGE_TIMEOUT_MS": "5000",
                 }
                 if (self._route_profile or {}).get("autoEffort")
-                else {}
+                # Auto effort is on by default in the product; a fixed-effort
+                # profile keeps the effort it names.
+                else {"MIXDOG_AUTO_EFFORT": "off"}
             ),
         }
         try:

@@ -9,7 +9,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'n
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
-import { effortJudgeInstallCurrent, installEffortJudgeModel } from './model-install.mjs';
+import { effortJudgeInstallCurrent, effortJudgeInstallStamped, installEffortJudgeModel } from './model-install.mjs';
 
 const WORKER_PATH = fileURLToPath(new URL('./judge-worker.mjs', import.meta.url));
 const MODEL_FILES = ['model.onnx', 'tokenizer.json'];
@@ -65,8 +65,17 @@ export function effortJudgeModelDir() {
   return process.env.MIXDOG_EFFORT_JUDGE_DIR || join(resolvePluginData(), 'models', 'effort-judge');
 }
 
+// A release install is usable once stamped (model-install.mjs removes the
+// stamp before replacing files); an explicit MIXDOG_EFFORT_JUDGE_DIR is used as
+// it is. Unstamped leftovers (hand-copied packs) never load.
 export function effortJudgeAvailable(dir = effortJudgeModelDir()) {
-  return MODEL_FILES.every((file) => existsSync(join(dir, file)));
+  if (!MODEL_FILES.every((file) => existsSync(join(dir, file)))) return false;
+  return Boolean(process.env.MIXDOG_EFFORT_JUDGE_DIR) || effortJudgeInstallStamped(dir);
+}
+
+/** True while a download or update of the judge model is in flight. */
+export function effortJudgeInstalling() {
+  return installing !== null;
 }
 
 // Whether the installed model was also trained on tool-result steps
@@ -189,7 +198,8 @@ export function refreshEffortJudge() {
 /** Start loading the judge (idempotent). False when the model is not installed. */
 export function warmEffortJudge() {
   const dir = effortJudgeModelDir();
-  if (!effortJudgeAvailable(dir)) return false;
+  // Files may be replaced mid-install; the install warms the judge when done.
+  if (installing || !effortJudgeAvailable(dir)) return false;
   ensureWorker(dir);
   return true;
 }
@@ -224,6 +234,7 @@ export function effortJudgeInfo(dir = effortJudgeModelDir()) {
  */
 export async function judgeTurn(input) {
   const dir = effortJudgeModelDir();
+  if (installing) return { skipped: 'installing' };
   if (!effortJudgeAvailable(dir)) return { skipped: 'model-missing' };
   if (!worker && lastLoadError && Date.now() - lastLoadErrorAt < LOAD_RETRY_MS) {
     return { skipped: `load-error: ${lastLoadError}` };

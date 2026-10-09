@@ -78,13 +78,13 @@ export function builtinFeatureActive(configLike, id) {
   if (id === 'localProvider') {
     return builtinInstalled(configLike, 'localProvider') && moduleEnabled(configLike, 'localProvider', true);
   }
-  // Auto effort adds no tools: it picks each turn's reasoning effort from the
-  // local effort judge. Installing verifies the judge model is on disk.
+  // Auto effort adds no tools: it picks the reasoning effort of each turn and
+  // step from the local effort judge, only on models that can change it
+  // without breaking the prompt cache. It is on unless the user turns it off:
+  // the judge model downloads at boot, and until it is on disk every call keeps
+  // the user's effort.
   if (id === 'autoEffort') {
-    return (
-      featureEnvOverride('MIXDOG_FEATURE_AUTO_EFFORT') ??
-      (builtinInstalled(configLike, 'autoEffort') && moduleEnabled(configLike, 'autoEffort', true))
-    );
+    return featureEnvOverride('MIXDOG_FEATURE_AUTO_EFFORT') ?? moduleEnabled(configLike, 'autoEffort', true);
   }
   // Media Studio is a hidden built-in like setup: no Settings card, no install
   // step, always on. The lane catalog ships with the runtime and sign-in happens

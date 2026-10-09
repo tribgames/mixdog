@@ -28,6 +28,11 @@ export function effortJudgeManifest() {
   return manifest;
 }
 
+/** True when `dir` holds a complete install of some release (stamped). */
+export function effortJudgeInstallStamped(dir) {
+  return existsSync(join(dir, STAMP));
+}
+
 /** True when `dir` holds the release the manifest names. */
 export function effortJudgeInstallCurrent(dir, manifest = effortJudgeManifest()) {
   try {
@@ -54,6 +59,10 @@ export async function installEffortJudgeModel(dir, { fetchFn = globalThis.fetch,
       });
       const actual = await sha256File(partial);
       if (actual !== file.sha256) throw new Error(`effort judge ${name}: sha256 mismatch (expected ${file.sha256}, got ${actual})`);
+      // From the first replaced file until the new stamp, the folder is a mix of
+      // releases: without a stamp it reads as not installed, so an interrupted
+      // install is never loaded.
+      if (!replaced) rmSync(join(dir, STAMP), { force: true });
       renameSync(partial, target);
       replaced = true;
     } finally {

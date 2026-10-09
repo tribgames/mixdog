@@ -12,6 +12,7 @@ import { getEmbeddingInfo } from '../runtime/memory/lib/embedding-provider.mjs';
 import {
   effortJudgeAvailable,
   effortJudgeInfo,
+  effortJudgeInstalling,
   effortJudgeReady,
   shutdownEffortJudge,
   warmEffortJudge,
@@ -103,7 +104,10 @@ export function createBuiltinToolSettings(
         },
         autoEffort: {
           enabled: builtinFeatureActive(config, 'autoEffort'),
-          installed: builtinInstalled(config, 'autoEffort') && effortJudgeAvailable(),
+          // On by default: "installed" means the judge model is on disk;
+          // "installing" covers the boot download the settings did not start.
+          installed: effortJudgeAvailable(),
+          installing: effortJudgeInstalling(),
           ready: effortJudgeReady(),
           info: effortJudgeInfo(),
         },

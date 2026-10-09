@@ -79,13 +79,17 @@ test('moves are relative to the default and clamped to the ladder', () => {
   assert.equal(resolveAutoEffort({ base: '', options: ANTHROPIC, probs: at(1) }), null);
 });
 
-test('the Auto effort built-in is active only when installed and enabled', () => {
+test('the Auto effort built-in is on unless the user turns it off', () => {
   const saved = process.env.MIXDOG_FEATURE_AUTO_EFFORT;
   delete process.env.MIXDOG_FEATURE_AUTO_EFFORT;
   try {
     assert.ok(INSTALLABLE_BUILTIN_IDS.includes('autoEffort'));
-    assert.equal(builtinFeatureActive({}, 'autoEffort'), false);
-    assert.equal(builtinFeatureActive({ builtins: { autoEffort: { installed: true } } }, 'autoEffort'), true);
+    // Fresh and existing profiles alike: no install step gates it.
+    assert.equal(builtinFeatureActive({}, 'autoEffort'), true);
+    assert.equal(builtinFeatureActive({ builtins: {} }, 'autoEffort'), true);
+    assert.equal(builtinFeatureActive({ modules: { autoEffort: { enabled: true } } }, 'autoEffort'), true);
+    // The user's off switch persists, installed or not.
+    assert.equal(builtinFeatureActive({ modules: { autoEffort: { enabled: false } } }, 'autoEffort'), false);
     assert.equal(
       builtinFeatureActive(
         { builtins: { autoEffort: { installed: true } }, modules: { autoEffort: { enabled: false } } },
@@ -93,7 +97,9 @@ test('the Auto effort built-in is active only when installed and enabled', () =>
       ),
       false
     );
-    assert.equal(builtinFeatureActive({ modules: { autoEffort: { enabled: true } } }, 'autoEffort'), false);
+    // The env override (headless runs, benchmarks) wins either way.
+    process.env.MIXDOG_FEATURE_AUTO_EFFORT = '0';
+    assert.equal(builtinFeatureActive({}, 'autoEffort'), false);
   } finally {
     if (saved === undefined) delete process.env.MIXDOG_FEATURE_AUTO_EFFORT;
     else process.env.MIXDOG_FEATURE_AUTO_EFFORT = saved;

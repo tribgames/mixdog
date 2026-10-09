@@ -4,7 +4,12 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { effortJudgeInstallCurrent, effortJudgeManifest, installEffortJudgeModel } from './model-install.mjs';
+import {
+  effortJudgeInstallCurrent,
+  effortJudgeInstallStamped,
+  effortJudgeManifest,
+  installEffortJudgeModel,
+} from './model-install.mjs';
 
 const sha = (text) => createHash('sha256').update(text).digest('hex');
 const BODIES = { 'model.onnx': 'model-bytes', 'tokenizer.json': '{"t":1}', 'calibration.json': '{"temperature":2}' };
@@ -75,4 +80,21 @@ test('a corrupted download fails the install and leaves the previous file in pla
     (await import('node:fs')).readdirSync(dir).filter((name) => name.endsWith('.part')),
     []
   );
+});
+
+test('an update interrupted after replacing a file leaves the folder unstamped, never a stamped mix', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-judge-install-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  await installEffortJudgeModel(dir, { fetchFn: server().fetchFn, manifest: manifest('effort-judge-v1') });
+  assert.equal(effortJudgeInstallStamped(dir), true);
+  // The model is replaced, then the tokenizer download arrives corrupted.
+  const bodies2 = { ...BODIES, 'model.onnx': 'model-bytes-2', 'tokenizer.json': '{"t":2}' };
+  const v2 = manifest('effort-judge-v2', bodies2);
+  const bad = server({ ...bodies2, 'tokenizer.json': '{"t":X}' });
+  await assert.rejects(installEffortJudgeModel(dir, { fetchFn: bad.fetchFn, manifest: v2 }), /sha256 mismatch/);
+  assert.equal(readFileSync(join(dir, 'model.onnx'), 'utf8'), 'model-bytes-2');
+  assert.equal(effortJudgeInstallStamped(dir), false);
+  // The next install completes it and stamps again.
+  await installEffortJudgeModel(dir, { fetchFn: server(bodies2).fetchFn, manifest: v2 });
+  assert.equal(effortJudgeInstallCurrent(dir, v2), true);
 });
