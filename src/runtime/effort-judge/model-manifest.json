@@ -4,7 +4,7 @@
   "files": {
     "model.onnx": {
       "url": "https://github.com/tribgames/mixdog/releases/download/effort-judge-v1/model.onnx",
-      "sha256": "5c75869223958da2688740e9f12ec87f4bbcd1af597cc9450a55ad24f5e6ecd9",
+      "sha256": "18413e45ccc8fc87d3be12a93504f5480f3ca52a8e8efea6139acc03368019b6",
       "size": 130798686
     },
     "tokenizer.json": {
@@ -14,8 +14,8 @@
     },
     "calibration.json": {
       "url": "https://github.com/tribgames/mixdog/releases/download/effort-judge-v1/calibration.json",
-      "sha256": "6a776287d41781eb5925da66866ec0051ba9b47513eb8bc983e0a3fb2609f171",
-      "size": 139
+      "sha256": "d39baf65dde92fb69d4927cfcbccd6e17781cc69fdf94d959cab6fd7556163a5",
+      "size": 148
     }
   }
 }

@@ -32,6 +32,16 @@
         }
       }
     },
+    "sol61-xhigh": {
+      "routes": {
+        "lead": {
+          "provider": "openai-oauth",
+          "model": "gpt-6.1-sol",
+          "effort": "xhigh",
+          "fast": false
+        }
+      }
+    },
     "sol61-auto": {
       "autoEffort": true,
       "routes": {
@@ -51,6 +61,16 @@
           "provider": "openai-oauth",
           "model": "gpt-6.1-sol",
           "effort": "high",
+          "fast": false
+        }
+      }
+    },
+    "opus55-xhigh": {
+      "routes": {
+        "lead": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5-5",
+          "effort": "xhigh",
           "fast": false
         }
       }
