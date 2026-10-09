@@ -128,8 +128,10 @@ let daemonTelemetry = null;
 
 function registerMemoryRuntimeLazy() {
   // Register the shared proxy immediately so daemon shutdown owns its
-  // lifecycle, but keep the isolated process off the startup path. A real
-  // memory call or the post-connect idle warmup starts the exact singleton.
+  // lifecycle, but keep the isolated process off the startup path. The first
+  // real memory call (memory/recall tools, the Memory install) starts the
+  // singleton; nothing warms it at boot. The PG cluster itself usually starts
+  // earlier: the channels schedules/webhooks stores open it at boot.
   if (process.env.MIXDOG_DAEMON_SKIP_MEMORY === '1') {
     log('memory runtime skipped (MIXDOG_DAEMON_SKIP_MEMORY=1)');
     return;
