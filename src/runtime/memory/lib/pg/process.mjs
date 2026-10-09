@@ -8,7 +8,19 @@ import { sleep as delay } from '../../../shared/sleep.mjs';
 //   stopPg({ runtimeDir, pgdataDir })                   → void
 //   healthcheckPg({ port, host? })                      → boolean
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { createConnection, createServer } from 'node:net';
@@ -272,14 +284,54 @@ function freshClusterConfAppend() {
   );
 }
 
+/**
+ * Run `run(shareDir)` with an initdb `-L` input directory, or null for the default.
+ * On Windows initdb embeds its share path in bootstrap SQL as system-code-page
+ * bytes, which a UTF8 cluster rejects when the path is non-ASCII (e.g. a Korean
+ * user profile). Such a share dir is passed through an ASCII junction under
+ * %ProgramData% that is removed afterwards.
+ */
+export function withInitdbShareDir(runtimeDir, run) {
+  const shareDir = join(runtimeDir, 'share');
+  if (process.platform !== 'win32' || /^[\x20-\x7e]*$/.test(shareDir)) return run(null);
+  const linkRoot = mkdtempSync(join(process.env.ProgramData, 'mixdog-initdb-'));
+  const link = join(linkRoot, 'share');
+  try {
+    symlinkSync(shareDir, link, 'junction');
+    return run(link);
+  } finally {
+    // Cleanup must not replace initdb's own result or error. Both removals are
+    // non-recursive, so the junction target (the runtime share) is never touched.
+    for (const remove of [() => unlinkSync(link), () => rmdirSync(linkRoot)]) {
+      try {
+        remove();
+      } catch (e) {
+        __mixdogMemoryLog(`[pg-process] initdb share junction cleanup failed: ${e?.message}\n`);
+      }
+    }
+  }
+}
+
 /** initdb if pgdata is not yet initialised (no PG_VERSION file). */
 function initClusterIfNeeded({ runtimeDir, pgdataDir, env }) {
   if (existsSync(join(pgdataDir, 'PG_VERSION'))) return;
   __mixdogMemoryLog(`[pg-process] initdb → ${pgdataDir}\n`);
-  const r = spawnSync(
-    pgBin(runtimeDir, 'initdb'),
-    ['-D', pgdataDir, '--auth-local=trust', '--no-locale', '-E', 'UTF8', '-U', 'postgres'],
-    { env, stdio: 'pipe', windowsHide: true }
+  const r = withInitdbShareDir(runtimeDir, (shareDir) =>
+    spawnSync(
+      pgBin(runtimeDir, 'initdb'),
+      [
+        '-D',
+        pgdataDir,
+        ...(shareDir ? ['-L', shareDir] : []),
+        '--auth-local=trust',
+        '--no-locale',
+        '-E',
+        'UTF8',
+        '-U',
+        'postgres',
+      ],
+      { env, stdio: 'pipe', windowsHide: true }
+    )
   );
   if (r.status !== 0) {
     const detail =
