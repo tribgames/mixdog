@@ -68,11 +68,13 @@ async function globRound(fx, args) {
       },
     });
   };
+  const assistantTurnMsg = { role: 'assistant', content: '', toolCalls: [call] };
+  fx.messages.push(assistantTurnMsg);
   const stats = await processToolBatch({
     calls: [call], messages: fx.messages, tools, cwd: fx.cwd,
     sessionId: fx.sessionId, sessionRef: fx.session, signal: null, opts: {},
     iterations: state.iterations,
-    assistantTurnMsg: { role: 'assistant', content: '', toolCalls: [call] },
+    assistantTurnMsg,
     pending: new Map(), epoch: { mutation: 0 }, startEagerRun: () => {},
     crossTurnCalls: state.crossTurnCalls, crossTurnCap: 100, sessionAgent: null,
     pushToolResultMessage: (m) => { results.push(m); fx.messages.push(m); },
@@ -93,7 +95,10 @@ async function compactThroughBeginIteration(fx, { reactive }) {
   state.reactiveOverflowRetryPending = reactive;
   const map = state.crossTurnCalls;
   assert.ok(map.size > 0, 'a receipt exists before compaction');
+  let receiptsBeforeCompact = 0;
+  state.opts.preCompactHook = () => { receiptsBeforeCompact = map.size; };
   const round = await beginIteration(state);
+  assert.ok(receiptsBeforeCompact > 0, 'healthy pairing repair must not mask the compaction reset');
   assert.equal(state.crossTurnCalls, map, 'the live map identity is preserved');
   assert.equal(state.iterations, 0, 'compaction reset the iteration counter');
   assert.equal(round.nextIteration, 1);
