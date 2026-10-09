@@ -92,6 +92,16 @@ async function compactThroughBeginIteration(fx, { reactive }) {
     { role: 'user', content: `large old request ${'context '.repeat(12_000)}` },
     { role: 'assistant', content: `large old answer ${'detail '.repeat(12_000)}` }
   );
+  // Compact keeps a bounded tail of valid execution groups. Put the tested
+  // result behind enough later evidence that its body really leaves context;
+  // a lone, recent small result is intentionally retained.
+  for (let i = 0; i < 12; i += 1) {
+    const call = { id: `later-${i}`, name: 'glob', arguments: { path: fx.cwd, pattern: `later-${i}-*.txt` } };
+    messages.push(
+      { role: 'assistant', content: '', toolCalls: [call] },
+      { role: 'tool', name: 'glob', toolCallId: call.id, content: `later-${i} ${'unchanged observation '.repeat(40)}` }
+    );
+  }
   state.reactiveOverflowRetryPending = reactive;
   const map = state.crossTurnCalls;
   assert.ok(map.size > 0, 'a receipt exists before compaction');
