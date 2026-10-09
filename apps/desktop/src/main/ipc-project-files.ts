@@ -2,7 +2,7 @@ import type { App, Shell } from 'electron';
 import { DESKTOP_IPC } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import { registerFilePreview } from './file-preview';
-import { localPageUrl } from './local-page-server';
+import { localPageUrl, revokeLocalPagesFor } from './local-page-server';
 import { projectEntryPathIn } from './project-files';
 import {
   requiredLspDocumentInput,
@@ -59,6 +59,7 @@ export function registerProjectFileIpc({
       rel: requiredString(relPath, 'relPath', 4_096),
     };
   };
+  const previewOwners = new WeakSet<object>();
   const editorBackupRoot = typeof app.getPath === 'function' ? app.getPath('userData') : '';
 
   handle(DESKTOP_IPC.listProjectDir, (_event, projectPath, relDir) =>
@@ -71,9 +72,43 @@ export function registerProjectFileIpc({
     }
     return host.readProjectTextFile(requiredString(projectPath, 'projectPath'), requiredString(relPath, 'relPath'));
   });
-  handle(DESKTOP_IPC.localPageUrl, async (_event, projectPath, relPath, accessToken) => {
-    const { root, rel } = await editorFileTarget(projectPath, relPath, accessToken);
-    return localPageUrl(root, rel);
+  handle(DESKTOP_IPC.localPageUrl, async (event, projectPath, relPath, accessToken) => {
+    const project = requiredString(projectPath, 'projectPath');
+    const rel = requiredString(relPath, 'relPath', 4_096);
+    const owner = event.sender;
+    const requireOwner = (): void => {
+      if (owner.isDestroyed()) throw new Error('The preview owner is closed.');
+    };
+    requireOwner();
+    if (!previewOwners.has(owner)) {
+      previewOwners.add(owner);
+      owner.once('destroyed', () => revokeLocalPagesFor(owner));
+    }
+    // A supplied grant remains file-only even when its parent is also a
+    // registered project. Invalid/expired tokens never fall back to project.
+    if (accessToken !== undefined && accessToken !== '') {
+      const token = requiredString(accessToken, 'file access token', 128);
+      const granted = await grantedFile(token, project, rel);
+      return localPageUrl(granted.root, granted.rel, {
+        scope: 'file', owner,
+        async authorize() {
+          requireOwner();
+          const current = await grantedFile(token, project, rel);
+          requireOwner();
+          if (current.absolute !== granted.absolute) throw new Error('The selected-file permission changed.');
+        },
+      });
+    }
+    const root = await host.projectDirectory(project);
+    return localPageUrl(root, rel, {
+      scope: 'project', owner,
+      async authorize() {
+        requireOwner();
+        const current = await host.projectDirectory(project);
+        requireOwner();
+        if (current !== root) throw new Error('The project permission changed.');
+      },
+    });
   });
   handle(DESKTOP_IPC.previewProjectFile, async (_event, projectPath, relPath, accessToken) => {
     let file: string;

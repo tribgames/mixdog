@@ -1,9 +1,9 @@
 /**
  * Local web pages for the session browser pane. The pane admits http(s) only,
- * so a page a chat link names is served from a loopback server: every root
- * folder gets an unguessable path prefix, and only web assets under that root
- * are served (no dotfiles, no source or data files), so a page's own styles,
- * scripts, fonts and media load while the rest of the disk stays unreachable.
+ * so a page a chat link names is served from a loopback server. A selected-file
+ * grant serves exactly one HTML file; only an explicit project grant serves
+ * relative web assets (including JSON/CSV). Each URL has its own bounded lease
+ * and rechecks its originating permission before returning bytes.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
@@ -45,8 +45,29 @@ const PAGE_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
 });
 
 const LOOPBACK = '127.0.0.1';
-const tokenRoots = new Map<string, string>();
-const rootTokens = new Map<string, string>();
+// These are hard limits, not renewed by page traffic. Reopen the chat link to
+// obtain a fresh URL. Old pages must not keep permission closures indefinitely.
+export const LOCAL_PAGE_TTL_MS = 60 * 60_000;
+export const MAX_LOCAL_PAGE_LEASES = 128;
+
+export interface LocalPageAccess {
+  scope: 'file' | 'project';
+  /** Recheck the original grant/project registry; failure revokes this URL. */
+  authorize(): Promise<void>;
+  /** Desktop renderer that requested the preview, not the untrusted page. */
+  owner?: object;
+}
+
+interface PageLease {
+  root: string;
+  page: string;
+  scope: LocalPageAccess['scope'];
+  owner?: object;
+  authorize(): Promise<void>;
+  expiresAt: number;
+  timer: NodeJS.Timeout;
+}
+const leases = new Map<string, PageLease>();
 let listening: Promise<number> | null = null;
 
 function inside(root: string, target: string): boolean {
@@ -72,6 +93,41 @@ function pageAssetType(root: string, file: string): string {
   return Object.hasOwn(PAGE_ASSET_TYPES, extension) ? PAGE_ASSET_TYPES[extension] : '';
 }
 
+function revokeLease(token: string): void {
+  const lease = leases.get(token);
+  if (!lease) return;
+  leases.delete(token);
+  clearTimeout(lease.timer);
+}
+
+/** A closed desktop renderer must not leave behind usable preview URLs. */
+export function revokeLocalPagesFor(owner: object): void {
+  for (const [token, lease] of leases) {
+    if (lease.owner === owner) revokeLease(token);
+  }
+}
+
+function activeLease(token: string, lease: PageLease): boolean {
+  if (leases.get(token) !== lease) return false;
+  if (Date.now() < lease.expiresAt) return true;
+  revokeLease(token);
+  return false;
+}
+
+async function pageLocation(root: string, rel: string): Promise<{ root: string; page: string }> {
+  const realRoot = await realpath(root);
+  const requested = resolve(realRoot, rel.replace(/\\/g, '/'));
+  if (!pageAssetType(realRoot, requested)) {
+    throw new TypeError('The page must be a visible HTML file inside its folder.');
+  }
+  const page = await realpath(requested);
+  if (!pageAssetType(realRoot, page) || !['html', 'htm'].includes(fileExtension(page))
+    || !(await stat(page)).isFile()) {
+    throw new TypeError('The page must be a visible HTML file inside its folder.');
+  }
+  return { root: realRoot, page };
+}
+
 async function serve(request: IncomingMessage, response: ServerResponse, port: number): Promise<void> {
   if (request.method !== 'GET' && request.method !== 'HEAD') return reply(response, 405);
   // Only this loopback origin: a rebound DNS name never reaches the files.
@@ -80,8 +136,9 @@ async function serve(request: IncomingMessage, response: ServerResponse, port: n
     .split(/[?#]/, 1)[0]
     .split('/')
     .slice(1);
-  const root = tokenRoots.get(token);
-  if (!root) return reply(response, 404);
+  const lease = leases.get(token);
+  if (!lease || !activeLease(token, lease)) return reply(response, 404);
+  const { root } = lease;
   let segments: string[];
   try {
     segments = parts.map((part) => decodeURIComponent(part));
@@ -89,7 +146,9 @@ async function serve(request: IncomingMessage, response: ServerResponse, port: n
     return reply(response, 400);
   }
   const target = resolve(root, ...segments);
-  if (!pageAssetType(root, target)) return reply(response, 404);
+  if (!pageAssetType(root, target) || (lease.scope === 'file' && target !== lease.page)) {
+    return reply(response, 404);
+  }
   let file: string;
   let size: number;
   try {
@@ -103,13 +162,25 @@ async function serve(request: IncomingMessage, response: ServerResponse, port: n
   // A symlink or junction must obey the same boundary, hidden-path and
   // file-type restrictions as the requested path.
   const type = pageAssetType(root, file);
-  if (!type) return reply(response, 404);
+  if (!type || (lease.scope === 'file' && file !== lease.page)) return reply(response, 404);
+  try {
+    await lease.authorize();
+  } catch {
+    revokeLease(token);
+    return reply(response, 404);
+  }
+  // Expiry, capacity eviction or owner closure can happen while authorization
+  // awaits the daemon. A late success must not resurrect an old lease.
+  if (!activeLease(token, lease)) return reply(response, 404);
   response.writeHead(200, {
     'Content-Type': type,
     'Content-Length': size,
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
+    // Keep selected HTML scripts usable without sharing the project pages'
+    // origin/storage/window authority on this loopback server.
+    ...(lease.scope === 'file' ? { 'Content-Security-Policy': 'sandbox allow-scripts' } : {}),
   });
   if (request.method === 'HEAD') return void response.end();
   createReadStream(file)
@@ -136,20 +207,37 @@ function serverPort(): Promise<number> {
   return listening;
 }
 
-/** Loopback address of the page `rel` under `root` (a Project or granted
- *  folder). Its relative assets resolve under the same root. */
-export async function localPageUrl(root: string, rel: string): Promise<string> {
-  const realRoot = await realpath(root);
-  const page = await realpath(resolve(realRoot, rel));
-  if (!inside(realRoot, page) || !(await stat(page)).isFile()) {
-    throw new TypeError('The page must be a file inside its folder.');
+/** The caller must choose scope from verified authority, not renderer input.
+ * Single-file grants never inherit a project's wider lease for the same root. */
+export async function localPageUrl(root: string, rel: string, access: LocalPageAccess): Promise<string> {
+  if (!access || !['file', 'project'].includes(access.scope) || typeof access.authorize !== 'function') {
+    throw new TypeError('An explicit local-page permission is required.');
   }
-  let token = rootTokens.get(realRoot);
-  if (!token) {
-    token = randomBytes(24).toString('base64url');
-    rootTokens.set(realRoot, token);
-    tokenRoots.set(token, realRoot);
-  }
-  const path = relative(realRoot, page).split(sep).map(encodeURIComponent).join('/');
-  return `http://${LOOPBACK}:${await serverPort()}/${token}/${path}`;
+  // Copy policy fields; mutating the caller's options cannot widen a live URL.
+  const { scope, authorize, owner } = access;
+  await authorize();
+  const location = await pageLocation(root, rel);
+  const port = await serverPort();
+  await authorize();
+  for (const [token, lease] of leases) activeLease(token, lease);
+  while (leases.size >= MAX_LOCAL_PAGE_LEASES) revokeLease(leases.keys().next().value!);
+  const token = randomBytes(24).toString('base64url');
+  const lease: PageLease = {
+    ...location,
+    scope,
+    owner,
+    async authorize() {
+      await authorize();
+      const current = await pageLocation(root, rel);
+      if (current.root !== location.root || current.page !== location.page) {
+        throw new Error('The preview path no longer matches its permission.');
+      }
+    },
+    expiresAt: Date.now() + LOCAL_PAGE_TTL_MS,
+    timer: setTimeout(() => revokeLease(token), LOCAL_PAGE_TTL_MS),
+  };
+  lease.timer.unref();
+  leases.set(token, lease);
+  const path = relative(location.root, location.page).split(sep).map(encodeURIComponent).join('/');
+  return `http://${LOOPBACK}:${port}/${token}/${path}`;
 }
