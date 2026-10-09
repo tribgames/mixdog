@@ -3,6 +3,7 @@
 // later by the serial result loop).
 import { _isReadTool } from '../loop/tool-classify.mjs';
 import { captureReadCacheState } from '../read-dedup.mjs';
+import { scopedCacheGeneration } from '../cache/scoped-cache.mjs';
 import { normalizeToolEnvelope } from '../tool-envelope.mjs';
 
 // EARLY UI-ONLY NOTIFY (completion-order, NOT history).
@@ -67,6 +68,7 @@ export function createEagerEntry({ mutationEpoch }) {
     endedAt: null,
     mutationEpoch,
     readCacheState: null,
+    scopedGeneration: null,
     localSearchTelemetry: {},
     resultTelemetry: {},
   };
@@ -82,6 +84,9 @@ export function runEagerEntry({ call, entry, preceding, waitForPreceding, execut
       if (sessionId && _isReadTool(call.name)) {
         entry.readCacheState = captureReadCacheState({ args: call.arguments, cwd });
       }
+      // Pin the result to the generation it executes against, after all
+      // ordering/pre-execution waits. Collection may happen after invalidation.
+      entry.scopedGeneration = scopedCacheGeneration();
       entry.executionStartedAt = Date.now();
       return { ok: true, value: await execute(call, entry) };
     } catch (error) {
