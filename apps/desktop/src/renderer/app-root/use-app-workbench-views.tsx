@@ -26,6 +26,9 @@ import type { useAppShellPanels } from '../use-app-shell-panels';
 import type { useSessionCatalog } from '../app-session-catalog';
 import type { useSideViewReordering } from '../app-shell-side-views';
 import type { useEditorNavigation } from '../use-editor-navigation';
+import type { createSideFileGuard } from '../side-file-guard';
+import { WorkbenchProblemsPane } from '../WorkbenchProblems';
+import type { EditorSaveHandle } from '../use-pane-tab-close';
 import { cleanDiffTarget } from './workspace-targets';
 
 export interface UseAppWorkbenchViewsOptions {
@@ -82,6 +85,9 @@ export interface UseAppWorkbenchViewsOptions {
   moveWorkbenchSideGroup: ReturnType<typeof useSideViewReordering>['moveWorkbenchSideGroup'];
   moveWorkbenchSideView: ReturnType<typeof useSideViewReordering>['moveWorkbenchSideView'];
   openFileTab: (project: string, rel: string, line?: number) => void;
+  sideFileGuard: ReturnType<typeof createSideFileGuard>;
+  handleFileDirty: (key: string, dirty: boolean) => void;
+  registerEditorSaveHandle: (key: string, save: EditorSaveHandle | null, released?: EditorSaveHandle) => void;
 
   desktopBootReady: boolean;
 
@@ -134,6 +140,9 @@ export function useAppWorkbenchViews({
   moveWorkbenchSideGroup,
   moveWorkbenchSideView,
   openFileTab,
+  sideFileGuard,
+  handleFileDirty,
+  registerEditorSaveHandle,
   desktopBootReady,
   bottomPanel,
   problemsFilter,
@@ -295,6 +304,20 @@ export function useAppWorkbenchViews({
       moveWorkbenchSideGroup,
       moveWorkbenchSideView,
       openFileTab,
+      sideFileGuard,
+      renderFileProblems: (file) => (
+        <WorkbenchProblemsPane
+          projectPath={file.project}
+          active
+          activeFileRel={file.rel}
+          filter={{ ...problemsFilter, activeFileOnly: true }}
+          collapseNonce={problemsCollapseNonce}
+          onOpenFile={openFileTab}
+          onQuickFix={openProblemQuickFix}
+        />
+      ),
+      handleFileDirty,
+      registerEditorSaveHandle,
       paneProjectPathFor,
       renderRightView: (id, active, titleDragProps, pane) =>
         renderWorkbenchSideView('right', id, active, titleDragProps, pane),

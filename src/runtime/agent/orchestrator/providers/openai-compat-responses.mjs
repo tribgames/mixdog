@@ -1,6 +1,6 @@
 // Generic OpenAI Responses HTTP/SSE transport for OpenAI-compatible gateway
 // providers. The xAI Responses path in openai-compat.mjs carries xAI-only
-// cache-lane routing, warmup accounting, and trace context; gateway brands
+// cache-lane routing and trace context; gateway brands
 // that merely speak the Responses wire (OpenCode Go: Muse Spark, GPT, Grok)
 // need the plain request shape only. Stateless continuation (store:false +
 // encrypted reasoning replay) mirrors the reference OpenAI client so multi-
@@ -28,7 +28,11 @@ import {
   compatResponsesReplayProvider,
   compatStreamRetryReporter,
 } from './compat-request-policy.mjs';
-import { encryptedXaiReasoningItems, traceCompatResponseUsage } from './openai-compat-response-normalization.mjs';
+import {
+  encryptedXaiReasoningItems,
+  responsesUsage,
+  traceCompatResponseUsage,
+} from './openai-compat-response-normalization.mjs';
 
 // providerState slot + providerReplay tag. Distinct from the xAI slot so a
 // provider switch never replays foreign encrypted items into this gateway.
@@ -177,12 +181,7 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
     ...(reasoningItems.length ? [{ messageIndex, items: reasoningItems }] : []),
   ];
   const searchSources = collectCompatResponseSearchSources(response);
-  // Gateway `cost` is a decimal-string USD figure when present.
-  const gatewayCost = Number(usage?.cost);
-  const usageSummary = usage
-    ? { inputTokens, outputTokens, cachedTokens, promptTokens: inputTokens, raw: { ...usage } }
-    : undefined;
-  if (usageSummary && Number.isFinite(gatewayCost) && gatewayCost >= 0) usageSummary.costUsd = gatewayCost;
+  const usageSummary = usage ? responsesUsage(usage) : undefined;
   return {
     content: streamed.content,
     model: response?.model || useModel,

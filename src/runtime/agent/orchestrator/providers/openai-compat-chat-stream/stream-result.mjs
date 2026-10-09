@@ -12,7 +12,7 @@ import {
   markUnsafeRetryIfToolEmitted,
 } from '../openai-compat-stream-common.mjs';
 import { orderedToolCalls, toolCallsFromStreamAcc } from './tool-call-acc.mjs';
-import { attachPartial, stampCompatOutcome } from './stream-state.mjs';
+import { attachPartial, attachReportedUsage, stampCompatOutcome } from './stream-state.mjs';
 
 /** Rejection for a stream that ended without a terminal event. */
 export function incompleteStreamError(state, label) {
@@ -56,6 +56,7 @@ function parseAccumulatedToolCalls(state, { label, parseToolCalls }) {
       } catch {}
     }
     if (state.emittedText) markErrorLiveTextEmitted(err);
+    attachReportedUsage(state, err);
     throw stampCompatOutcome(state, markUnsafeRetryIfToolEmitted(err, state.streamEmitState));
   }
 }

@@ -181,3 +181,41 @@ test('a catalog that cannot place the stored project releases it, not clears it'
   t.after(() => recovered.unmount());
   assert.equal(recovered.project(), PROJECT);
 });
+
+const ASTRA = { provider: 'p', model: 'astra', effort: 'high' };
+
+async function mountWithNextTaskModel() {
+  window.localStorage.clear();
+  const drafts = await mountDrafts(PROJECT);
+  await act(async () => drafts.api().stageNewTaskModelSelection(ASTRA));
+  return drafts;
+}
+
+test('tuning another conversation leaves the next-task model unchanged, including persisted', async (t) => {
+  const first = await mountWithNextTaskModel();
+  await act(async () => first.api().rememberSessionRouteForNextTask({ provider: 'p', model: 'sol', effort: 'low' }));
+  assert.equal(first.api().lastNewTaskPrefs.current.modelSelection.model, 'astra');
+  assert.equal(first.api().newTaskModelSelection.model, 'astra');
+  await first.unmount();
+  const second = await mountDrafts(PROJECT);
+  t.after(() => second.unmount());
+  assert.equal(second.api().lastNewTaskPrefs.current.modelSelection.model, 'astra');
+});
+
+test('tuning the same model as the next-task model still merges', async (t) => {
+  const drafts = await mountWithNextTaskModel();
+  t.after(() => drafts.unmount());
+  await act(async () => drafts.api().rememberSessionRouteForNextTask({ provider: 'p', model: 'astra', effort: 'low' }));
+  const next = drafts.api().lastNewTaskPrefs.current.modelSelection;
+  assert.equal(next.model, 'astra');
+  assert.equal(next.effort, 'low');
+});
+
+test('an explicit model choice replaces the next-task model', async (t) => {
+  const drafts = await mountWithNextTaskModel();
+  t.after(() => drafts.unmount());
+  await act(async () =>
+    drafts.api().rememberSessionRouteForNextTask({ provider: 'p', model: 'sol', effort: 'low' }, { modelChoice: true })
+  );
+  assert.equal(drafts.api().lastNewTaskPrefs.current.modelSelection.model, 'sol');
+});

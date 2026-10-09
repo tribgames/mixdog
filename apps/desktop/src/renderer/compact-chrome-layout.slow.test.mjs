@@ -134,7 +134,8 @@ test('compact chrome preserves input growth, readable rows and accessible action
     const client = await page.createCDPSession();
     const opacity = () => page.$eval('.row-overflow-trigger', (element) => getComputedStyle(element).opacity);
     // Headless Linux Chrome has no hover-capable pointer and CDP cannot emulate
-    // one, so the hover-gated reveal is only observable on Windows and macOS.
+    // one, so the hover-gated reveal is only observable on Windows and macOS;
+    // the release gate's Windows leg runs this file so the reveal stays checked.
     if (await page.evaluate(() => matchMedia('(hover: hover)').matches)) {
       await page.mouse.move(1100, 850);
       assert.equal(await opacity(), '0');
@@ -150,6 +151,7 @@ test('compact chrome preserves input growth, readable rows and accessible action
       assert.equal(await opacity(), '1');
       await page.$eval('.row-overflow-trigger', (element) => element.setAttribute('aria-expanded', 'false'));
     } else {
+      assert.equal(process.platform, 'linux', 'only headless Linux Chrome may lack a hover-capable pointer');
       st.diagnostic('no hover-capable pointer on this runner: hover, focus and open-menu reveal not checked');
     }
     await client.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });

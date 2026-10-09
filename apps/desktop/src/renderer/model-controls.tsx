@@ -17,7 +17,13 @@ import {
   subscribeModelCatalogInvalidation,
 } from './model-catalog-cache';
 import { filterConfiguredModels } from './model-catalog';
-import { EFFORT_FALLBACK_ORDER, preferredModelParameters } from './model-route-utils';
+import {
+  EFFORT_FALLBACK_ORDER,
+  modelOffersUltrafast,
+  preferredModelParameters,
+  type RouteSpeed,
+  speedRouteFields,
+} from './model-route-utils';
 import { RouteEditor } from './RouteEditor';
 import { refreshAutoEffort, setAutoEffortEnabled, useAutoEffort } from './auto-effort-store';
 import { OpenSelect } from './OpenSelect';
@@ -322,7 +328,7 @@ export const ModelSelector = memo(function ModelSelector({
   applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
   onDraftSelection?: (selection: DesktopModelSelection) => void;
-  onRoutePreferenceApplied?: (selection: DesktopModelSelection) => void;
+  onRoutePreferenceApplied?: (selection: DesktopModelSelection, options?: { modelChoice?: boolean }) => void;
 }) {
   const [cachedCatalog] = useState(readCachedModelCatalog);
   const [models, setModels] = useState<DesktopModelOption[]>(cachedCatalog.models);
@@ -520,7 +526,7 @@ export const ModelSelector = memo(function ModelSelector({
     reportBootSurfaceStage('model-controls', modelBootKey, 'data');
   }, [model, modelBootKey, startupCatalogSettled]);
 
-  const route = async (selection: DesktopModelSelection) => {
+  const route = async (selection: DesktopModelSelection, modelChoice = false) => {
     if (modelUnavailable) return false;
     if (onDraftSelection) {
       onDraftSelection(selection);
@@ -536,7 +542,7 @@ export const ModelSelector = memo(function ModelSelector({
         settle(token, next);
         if (latestRouteToken.current === token) {
           applySnapshot(next);
-          if (applied) onRoutePreferenceApplied?.(selection);
+          if (applied) onRoutePreferenceApplied?.(selection, modelChoice ? { modelChoice: true } : undefined);
         }
       }
     } finally {
@@ -576,16 +582,19 @@ export const ModelSelector = memo(function ModelSelector({
       requestedFast === undefined
         ? undefined
         : modelFastAvailable(option, nextEffort, nextModelParameters) && requestedFast;
-    return route({
-      provider: option.provider,
-      model: option.model,
-      ...(nextEffort ? { effort: nextEffort } : {}),
-      ...(nextFast === undefined ? {} : { fast: nextFast }),
-      ...(option.modelParameterOptions?.length
-        ? { modelParameters: routeModelParameters(nextModelParameters, optionMaxWindow) }
-        : {}),
-      ...(optionMaxWindow > 0 ? { contextPercent: nextContextPercent } : {}),
-    });
+    return route(
+      {
+        provider: option.provider,
+        model: option.model,
+        ...(nextEffort ? { effort: nextEffort } : {}),
+        ...(nextFast === undefined ? {} : { fast: nextFast }),
+        ...(option.modelParameterOptions?.length
+          ? { modelParameters: routeModelParameters(nextModelParameters, optionMaxWindow) }
+          : {}),
+        ...(optionMaxWindow > 0 ? { contextPercent: nextContextPercent } : {}),
+      },
+      !sameModel
+    );
   };
   const changeFast = async (enabled: boolean) => {
     if (tuningUnavailable) return;
@@ -620,6 +629,22 @@ export const ModelSelector = memo(function ModelSelector({
     } finally {
       if (!accepted) settle(token);
     }
+  };
+  const changeSpeed = async (speed: RouteSpeed) => {
+    if (!known || !modelOffersUltrafast(known)) {
+      await changeFast(speed !== 'standard');
+      return;
+    }
+    if (tuningUnavailable) return;
+    const next = speedRouteFields(speed, selectedModelParameters, true);
+    await route({
+      provider,
+      model,
+      ...(effort ? { effort } : {}),
+      fast: next.fast,
+      modelParameters: routeModelParameters(next.modelParameters, maxContextWindow),
+      contextPercent: normalizedContextPercent,
+    });
   };
   const changeEffort = async (effort: string) => {
     if (tuningUnavailable) return;
@@ -748,7 +773,7 @@ export const ModelSelector = memo(function ModelSelector({
         }
         onSelectModel={chooseModel}
         onChangeEffort={(value) => void changeEffort(value)}
-        onChangeFast={(enabled) => void changeFast(enabled)}
+        onChangeSpeed={(speed) => void changeSpeed(speed)}
         onChangeContext={(value) => void changeContext(value)}
         onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
         onOpenProviders={() => onOpenSettings('providers')}

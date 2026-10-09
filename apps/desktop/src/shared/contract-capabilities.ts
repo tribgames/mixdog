@@ -36,6 +36,7 @@ export const DESKTOP_CAPABILITIES = [
   'installLocalProviderModel',
   'startLocalProviderInstallation',
   'cancelLocalProviderInstallation',
+  'discardLocalProviderInstallation',
   'setLocalProviderIdleTtl',
   'setLocalProviderContext',
   'getLocalProviderModelDetails',

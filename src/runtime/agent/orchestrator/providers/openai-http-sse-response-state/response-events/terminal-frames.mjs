@@ -53,12 +53,28 @@ export function createTerminalFrameEvents({ state, items, text, outcome, meaning
     if (typeof wireEndTurn === 'boolean') state.endTurn = wireEndTurn;
   };
 
-  const onCompleted = (event) => {
-    const resp = event.response || {};
+  // Every terminal frame (completed, done, incomplete) can carry the
+  // response's metadata and billed usage; read them before branching on status.
+  const absorbTerminalResponse = (resp) => {
     state.serviceTier = resp.service_tier || resp.serviceTier || state.serviceTier;
     if (!state.model && resp.model) state.model = resp.model;
     if (!state.responseId && resp.id) state.responseId = resp.id;
     if (resp.usage) state.usage = normalizeWsUsage(resp.usage, state.serviceTier);
+  };
+
+  // A failed frame's reported usage was still billed: carry it on the error.
+  const withFailedUsage = (err, event) => {
+    absorbTerminalResponse(event.response || {});
+    if (state.usage) {
+      err.partialUsage = state.usage;
+      err.partialModel = state.model || undefined;
+    }
+    return err;
+  };
+
+  const onCompleted = (event) => {
+    const resp = event.response || {};
+    absorbTerminalResponse(resp);
     if (!absorbCompletedOutput(resp.output || [])) meaningful('semantic');
     state.completed = true;
     setEndTurn(event);
@@ -70,14 +86,24 @@ export function createTerminalFrameEvents({ state, items, text, outcome, meaning
   // successful tool call. Throw a stream-stalled pendingToolUse error so the
   // loop gates/retries.
   const onIncomplete = (event, frame) => {
+    absorbTerminalResponse(event.response || {});
     const reason = incompleteReasonFromEvent(event);
-    if (!isMaxOutputIncompleteReason(reason)) throw new Error(`${LABEL} ${frame}: ${reason}`);
+    if (!isMaxOutputIncompleteReason(reason)) {
+      const err = new Error(`${LABEL} ${frame}: ${reason}`);
+      // Still billed: the provider-boundary accounting records reported usage.
+      if (state.usage) {
+        err.partialUsage = state.usage;
+        err.partialModel = state.model || undefined;
+      }
+      throw err;
+    }
     if (toolInputPending(state)) {
       const err = outcome.stampToolSafety(new Error(`${LABEL} ${frame} (max_output_tokens) with tool call in flight`));
       err.streamStalled = true;
       err.pendingToolUse = true;
       err.partialContent = state.content;
       err.partialModel = state.model || undefined;
+      if (state.usage) err.partialUsage = state.usage;
       throw err;
     }
     state.completed = true;
@@ -86,6 +112,7 @@ export function createTerminalFrameEvents({ state, items, text, outcome, meaning
 
   const onDone = (event) => {
     if (!event.response || event.response.status === 'completed') {
+      if (event.response) absorbTerminalResponse(event.response);
       state.completed = true;
       // Terminal success frame for streams that never emit a separate
       // response.completed — same optional end_turn.
@@ -95,18 +122,21 @@ export function createTerminalFrameEvents({ state, items, text, outcome, meaning
       const err = new Error(`${LABEL} response.done failed: ${msg}`);
       const typed = typedStatusFrom(event.response?.error, event.error, event);
       if (typed) err.httpStatus = typed;
-      throw err;
+      throw withFailedUsage(err, event);
     } else if (event.response.status === 'incomplete') {
       onIncomplete(event, 'response.done incomplete');
     }
   };
 
   const failedFrameError = (event) =>
-    wireFailureError(
-      `${LABEL} response.failed: ${event.response?.error?.message || event.error?.message || event.message || 'response.failed'}`,
-      event,
-      event.response?.error || event.error || null,
-      [event.response?.error, event.error, event]
+    withFailedUsage(
+      wireFailureError(
+        `${LABEL} response.failed: ${event.response?.error?.message || event.error?.message || event.message || 'response.failed'}`,
+        event,
+        event.response?.error || event.error || null,
+        [event.response?.error, event.error, event]
+      ),
+      event
     );
 
   // Same wire-error contract as response.failed.

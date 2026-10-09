@@ -1,25 +1,24 @@
 /** User-facing pages live in non-activating windows, never inside the shell's
  * focus tree. The renderer owns a display client, not the Chromium page. */
-import { BrowserWindow, type WebContents } from 'electron';
+import type { BaseWindow, WebContents } from 'electron';
 import type { BrowserSessionRegistry } from './session-registry';
 
 export function createBrowserPageOwner(host: {
   sessions: BrowserSessionRegistry;
-  windowOptions(): Electron.BrowserWindowConstructorOptions;
+  create(): { window: BaseWindow; guest: WebContents };
   initialize(guest: WebContents): void;
 }) {
-  const pages = new Map<string, { window: BrowserWindow; ready: Promise<void> }>();
+  const pages = new Map<string, { window: BaseWindow; guest: WebContents; ready: Promise<void> }>();
 
   async function ensure(sessionId: string): Promise<WebContents> {
     let entry = pages.get(sessionId);
     if (!entry || entry.window.isDestroyed()) {
-      const window = new BrowserWindow(host.windowOptions());
-      const guest = window.webContents;
+      const { window, guest } = host.create();
       host.sessions.registerVisibleGuest(guest);
       host.sessions.bindVisibleGuest(sessionId, guest.id, true);
       // Commit the initial document before eager debugger attachment. Both
       // owners otherwise try to load about:blank and cancel each other's load.
-      entry = { window, ready: window.loadURL('about:blank').then(() => host.initialize(guest)) };
+      entry = { window, guest, ready: guest.loadURL('about:blank').then(() => host.initialize(guest)) };
       pages.set(sessionId, entry);
       const owned = entry;
       entry.ready = entry.ready.catch((error) => {
@@ -33,7 +32,7 @@ export function createBrowserPageOwner(host: {
       });
     }
     await entry.ready;
-    return entry.window.webContents;
+    return entry.guest;
   }
 
   function release(sessionId: string): void {

@@ -552,25 +552,72 @@
   width: 32%;
   animation: voice-install-indeterminate 1.1s ease-in-out infinite;
 }
-/* One installation = its row, then a full-width bar (or its error line), as
-   one divided card row. */
-.local-provider-installation {
+/* Local models: the usage table (28-usage-explorer.css) sized to the card.
+   The model column takes the remaining width and truncates; the others hug
+   their content. Installing and failed work share the table, marked by the
+   status pill and a thin bar under the model name. */
+.extensions-dialog .usage-table-shell.local-provider-table-shell {
+  flex: none;
+}
+.local-provider-table.usage-table {
   min-width: 0;
-  display: grid;
-  gap: 8px;
-  padding: 12px 0;
-  border-bottom: var(--mx-hairline) solid var(--mx-border);
+  table-layout: auto;
 }
-.local-provider-installation > .built-in-feature-slot-progress {
+.local-provider-table :is(th, td) {
+  white-space: nowrap;
+}
+.local-provider-table :is(th, td):last-child {
+  text-align: right;
+}
+.local-provider-table td.usage-provider-cell {
   width: 100%;
+  max-width: 0;
 }
-.local-provider-installation:last-child {
-  border-bottom: 0;
+.local-provider-status[data-tone="ok"] {
+  color: var(--mx-success);
+  background: color-mix(in srgb, var(--mx-success) 10%, transparent);
 }
-.local-provider-installation > .extensions-item {
-  min-height: 0;
+.local-provider-status[data-tone="warn"] {
+  color: var(--mx-warning);
+  background: color-mix(in srgb, var(--mx-warning) 10%, transparent);
+}
+.local-provider-status[data-tone="danger"] {
+  color: var(--mx-danger);
+  background: color-mix(in srgb, var(--mx-danger) 10%, transparent);
+}
+.local-provider-progress {
+  height: 3px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-hover);
+}
+.local-provider-progress > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mx-accent);
+  transition: width 160ms ease-out;
+}
+.local-provider-progress[data-indeterminate="true"] > i {
+  width: 32%;
+  animation: voice-install-indeterminate 1.1s ease-in-out infinite;
+}
+.local-provider-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.local-provider-actions > .extensions-action {
+  width: 28px;
   padding: 0;
-  border-bottom: 0;
+}
+.local-provider-actions > .extensions-action > svg {
+  width: 15px;
+  height: 15px;
+}
+.local-provider-table .extensions-select.mx-select-root {
+  min-width: 84px;
 }
 
 /* ── Add-kind choices (Skill / MCP) ───────────────────────────────────── */
@@ -640,5 +687,49 @@
   .extensions-item-trailing {
     grid-column: 1 / -1;
     justify-content: flex-start;
+  }
+  /* A narrow card has no room for four columns: each model becomes a two-line
+     row — name and actions on top, status and context under them. */
+  .local-provider-table.usage-table,
+  .local-provider-table.usage-table > tbody {
+    display: block;
+  }
+  .local-provider-table.usage-table > thead {
+    display: none;
+  }
+  .local-provider-table.usage-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "model actions"
+      "status context";
+    align-items: center;
+    gap: 6px 8px;
+    padding: 10px 12px;
+    border-bottom: var(--mx-hairline) solid var(--mx-border);
+  }
+  .local-provider-table.usage-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .local-provider-table.usage-table td {
+    display: block;
+    padding: 0;
+    border-bottom: 0;
+  }
+  .local-provider-table.usage-table td.usage-provider-cell {
+    grid-area: model;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+  }
+  .local-provider-table.usage-table td:nth-child(2) {
+    grid-area: status;
+  }
+  .local-provider-table.usage-table td:nth-child(3) {
+    grid-area: context;
+    text-align: right;
+  }
+  .local-provider-table.usage-table td:nth-child(4) {
+    grid-area: actions;
   }
 }

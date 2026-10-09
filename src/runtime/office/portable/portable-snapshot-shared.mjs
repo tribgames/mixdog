@@ -12,10 +12,34 @@ export function docxRunFont(xml) {
   const sizes = [...String(xml).matchAll(/<w:sz\b[^>]*\bw:val="(\d+)"/g)]
     .map((match) => Number(match[1]) / 2)
     .filter((size) => size > 0);
+  // Automatic colour is the effective default, black. Caps and tracking are left out when unstated, and stated as
+  // false / 0 when the run switches them off, so an inheriting style can tell a reset from silence.
+  const color = /<w:color\b[^>]*\bw:val="([0-9A-Fa-f]{6}|auto)"/.exec(String(xml))?.[1];
+  const trackingValue = /<w:spacing\b[^>]*\bw:val="(-?\d+)"/.exec(String(xml))?.[1];
+  const capsTags = [...String(xml).matchAll(/<w:(?:caps|smallCaps)\b([^>]*)>/g)];
+  const caps = capsTags.some((tag) => !/\bw:val="(?:0|false)"/.test(tag[1]));
   return {
     size: sizes.length ? Math.max(...sizes) : 0,
     bold: /<w:b\b(?![^>]*\bw:val="(?:0|false)")/.test(String(xml)),
     name: xmlDecode(/<w:rFonts\b[^>]*\bw:ascii="([^"]*)"/.exec(String(xml))?.[1] || ''),
+    ...(color ? { color: color === 'auto' ? '000000' : color.toUpperCase() } : {}),
+    ...(capsTags.length ? { caps } : {}),
+    ...(trackingValue !== undefined ? { letterSpacing: Number(trackingValue) / 20 } : {}),
+  };
+}
+
+/** Paragraph spacing before/after in points, as the paragraph or style properties state it. */
+export function docxParagraphSpacing(xml) {
+  const spacing = /<w:pPr\b[^>]*>[\s\S]*?<\/w:pPr>/.exec(String(xml))?.[0] || String(xml);
+  const read = (name) => {
+    const value = new RegExp(`<w:spacing\\b[^>]*\\bw:${name}="(\\d+)"`).exec(spacing)?.[1];
+    return value === undefined ? undefined : Number(value) / 20;
+  };
+  const before = read('before');
+  const after = read('after');
+  return {
+    ...(before !== undefined ? { spacingBefore: before } : {}),
+    ...(after !== undefined ? { spacingAfter: after } : {}),
   };
 }
 
@@ -99,7 +123,9 @@ export function populatedCellPagination({ options, page, selectedSheets, sheets,
 
 export function statedRunFont(xml) {
   const direct = docxRunFont(xml);
-  return direct.size || direct.bold || direct.name ? { font: direct } : {};
+  return direct.size || direct.bold || direct.name || direct.color || direct.caps !== undefined || direct.letterSpacing !== undefined
+    ? { font: direct }
+    : {};
 }
 
 export function softBreakFacts(xml) {

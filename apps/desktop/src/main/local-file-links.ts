@@ -3,7 +3,8 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { requiredRepositoryCwd } from './git-contract.mjs';
 import { requiredString } from './ipc-validation';
-import { localFileOpener, type FileLaunchConfirmation, type LocalLinkOpened } from '../shared/local-files';
+import type { FileLaunchConfirmation, LocalLinkOpened } from '../shared/local-files';
+import { editorFileOpener } from '../shared/file-preview';
 import { launchFile } from './file-launch';
 
 function assertInsideProject(root: string, target: string): void {
@@ -83,6 +84,6 @@ export async function openLocalFileLink(
     return (await launchFile(realTarget, openPath, confirmedPath)) ?? 'folder';
   }
   if (!info.isFile()) throw new TypeError('The link must point to a file or folder.');
-  if (localFileOpener(realTarget) !== 'os') return 'editor';
+  if (editorFileOpener(realTarget) !== 'os') return 'editor';
   return (await launchFile(realTarget, openPath, confirmedPath)) ?? 'file';
 }

@@ -114,7 +114,6 @@ export function buildAgentLoopOptions({
           session,
           outgoing,
           {
-            mainUsageAvailable: d.contextUsageAvailable,
             inputTokens: d.contextInputTokens ?? d.deltaInput,
             outputTokens: d.contextOutputTokens ?? d.deltaOutput,
             promptTokens: d.contextPromptTokens ?? d.deltaPrompt,

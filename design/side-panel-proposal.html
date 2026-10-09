@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Side panel proposal</title>
+<style>
+  :root {
+    --bg: #0f0f11; --rail: #141417; --sidebar: #17171a; --pane: #121214;
+    --card: #16161a; --card-border: #2e2e34; --line: #26262b;
+    --text: #e7e7ea; --muted: #8b8b93; --faint: #5d5d66; --accent: #6aa7ff;
+    --add-bg: rgba(46, 160, 67, .16); --add-bar: #2ea043; --add-text: #56d364;
+    --del-bg: rgba(248, 81, 73, .14); --del-bar: #f85149; --del-text: #ff7b72;
+    --mono: "JetBrains Mono", Consolas, monospace;
+    --sans: "Pretendard", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0a0a0b; font: 13px/1.5 var(--sans); color: var(--text); overflow-x: hidden; }
+  body::-webkit-scrollbar { width: 8px; }
+  body::-webkit-scrollbar-track { background: transparent; }
+  body::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px;
+    background: rgba(255,255,255,.24); background-clip: padding-box; }
+  .scene { width: 1320px; height: 788px; margin: 0 0 24px; position: relative; overflow: hidden;
+    background: var(--bg); border: 1px solid #222; }
+  .scene-label { position: absolute; z-index: 9; left: 320px; top: 6px; padding: 4px 10px;
+    border-radius: 999px; background: #2b2b31; color: #cfcfd6; font-size: 12px; }
+  .titlebar { height: 36px; display: flex; justify-content: flex-end; align-items: center; gap: 22px;
+    padding-right: 18px; color: var(--muted); font-size: 12px; }
+  .body { position: absolute; top: 36px; left: 0; right: 0; bottom: 0; display: flex; }
+  .rail { width: 48px; background: var(--rail); display: flex; flex-direction: column; align-items: center;
+    gap: 14px; padding-top: 12px; }
+  .rail i { width: 20px; height: 20px; border-radius: 5px; background: #2a2a30; display: block; }
+  .sidebar { width: 252px; background: var(--sidebar); padding: 12px 14px; }
+  .sidebar h4 { margin: 0 0 12px; font-size: 14px; }
+  .sidebar .item { height: 30px; display: flex; align-items: center; padding: 0 8px; border-radius: 7px;
+    color: #c9c9cf; font-size: 13px; white-space: nowrap; overflow: hidden; }
+  .sidebar .item.on { background: #26262c; color: var(--text); }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  /* The pane tab strip has no rule under it, as in the app. */
+  .wtabs { height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 8px; }
+  .wtab { height: 30px; padding: 0 12px; border-radius: 8px; background: #1e1e22; color: #d6d6dc;
+    display: flex; align-items: center; font-size: 13px; max-width: 150px; white-space: nowrap; overflow: hidden; }
+  .wtab.on { background: #2a2a30; color: var(--text); }
+  .wtabs .spacer { flex: 1; }
+  .wtabs .tog { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; color: var(--muted); }
+  .wtabs .tog.on { background: #2a2a30; color: var(--text); }
+  .work { flex: 1; display: flex; min-height: 0; }
+  .chat { flex: 1; min-width: 0; padding: 18px 28px 0; position: relative; }
+  .chat p { margin: 0 0 12px; color: #d4d4da; font-size: 14px; line-height: 1.65; }
+  .chat .link { color: var(--accent); text-decoration: underline; }
+  .composer { position: absolute; left: 20px; right: 20px; bottom: 16px; height: 96px; border-radius: 16px;
+    background: #1d1d21; border: 1px solid #2a2a2f; }
+  .composer span { position: absolute; left: 18px; bottom: 14px; color: var(--muted); font-size: 13px; }
+
+  /* Proposed side panel: docked to the window's right edge beside the kept
+     conversation, full height under the title bar. One crisp divider and a
+     one-step lighter sheet separate it; its header row matches the pane tab
+     row's height (44px). Only the panel's chip row carries a rule under it. */
+  .scene { --side-w: 500px; }
+  .scene#term { --side-w: 280px; }
+  .main { position: relative; }
+  .wtabs { margin-right: var(--side-w); }
+  .work { padding-right: var(--side-w); }
+  .side { position: absolute; top: 0; right: 0; bottom: 0; width: var(--side-w);
+    background: var(--card); border-left: 1px solid var(--card-border);
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .shead { height: 44px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 6px 0 10px;
+    border-bottom: 1px solid var(--line); }
+
+  /* Variant (?inset): the docked column is kept, but the panel is drawn as a
+     rounded card inset 8px inside it. The card header is 36px so 8 + 36 ends
+     level with the pane tab row's 44px band. */
+  body.inset .side { top: 8px; right: 8px; bottom: 8px; width: calc(var(--side-w) - 16px);
+    border: 1px solid var(--card-border); border-radius: 12px; }
+  body.inset .shead { height: 36px; }
+  /* The left side tab panel follows the same card grammar as the right one;
+     the icon rail stays flat. */
+  body.inset .sidebar { margin: 8px 0 8px 8px; width: 244px; border: 1px solid var(--card-border);
+    border-radius: 12px; background: var(--card); }
+  .chip { height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 6px;
+    background: #26262c; font-size: 12.5px; white-space: nowrap; }
+  /* Monochrome line icons (lucide-style, currentColor) as in the app. */
+  .ic { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8;
+    stroke-linecap: round; stroke-linejoin: round; display: block; }
+  .chip .ic { width: 13px; height: 13px; color: var(--muted); }
+  .shead .title { font-size: 13px; font-weight: 600; padding: 0 2px; }
+  .shead .scope { color: var(--muted); font-size: 12.5px; }
+  .shead .sp { flex: 1; }
+  .btn { width: 26px; height: 26px; border-radius: 6px; display: grid; place-items: center; color: var(--muted);
+    font-size: 13px; }
+  .btn.seg { width: auto; padding: 0 8px; font-size: 12px; }
+  .btn.seg.on { background: #2a2a30; color: var(--text); }
+  .sbody { flex: 1; min-height: 0; overflow: hidden; }
+  .sfoot { height: 24px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 10px;
+    border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px; }
+  .sfoot .sp { flex: 1; }
+
+  /* Editor: 45px gutter, wrapped lines, no minimap/sticky overlay. */
+  .code { font: 12.5px/20px var(--mono); padding-top: 6px; }
+  .row { display: flex; }
+  .ln { width: 45px; flex: none; text-align: right; padding-right: 12px; color: var(--faint); }
+  .row.cur .ln { color: var(--text); }
+  .row.cur { background: rgba(255,255,255,.04); }
+  .src { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; padding-right: 14px; color: #d6d6dc; }
+  .k { color: #c792ea; } .f { color: #82aaff; } .s { color: #c3e88d; } .c { color: #6a737d; } .n { color: #f78c6c; }
+
+  /* Diff: file list with inline unified diff. */
+  .note { padding: 6px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); }
+  .frow { height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 13px;
+    border-bottom: 1px solid #202024; white-space: nowrap; overflow: hidden; }
+  .frow .car { color: var(--muted); width: 10px; }
+  .frow .path { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+  .frow .add { color: var(--add-text); } .frow .del { color: var(--del-text); }
+  .frow.open { background: #1f1f24; }
+  .frow .sp { flex: 1; }
+  .fold { height: 26px; display: flex; align-items: center; gap: 6px; padding-left: 12px; color: var(--muted);
+    font-size: 12px; background: #161619; }
+  .drow { display: flex; font: 12.5px/20px var(--mono); }
+  .drow .ln { width: 40px; padding-right: 8px; }
+  .drow .mk { width: 16px; flex: none; color: var(--faint); }
+  .drow.a { background: var(--add-bg); box-shadow: inset 2px 0 var(--add-bar); }
+  .drow.a .ln, .drow.a .mk { color: var(--add-text); }
+  .drow.d { background: var(--del-bg); box-shadow: inset 2px 0 var(--del-bar); }
+  .drow.d .ln, .drow.d .mk { color: var(--del-text); }
+
+  /* Browser: one header row (tabs + pane controls), one nav row. */
+  .navrow { height: 34px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px;
+    border-bottom: 1px solid var(--line); }
+  .url { flex: 1; min-width: 0; height: 24px; margin: 0 4px; padding: 0 10px; border-radius: 999px;
+    background: #222227; color: #c9c9cf; font-size: 12px; display: flex; align-items: center;
+    white-space: nowrap; overflow: hidden; }
+  .page { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; background: #fff; color: #222;
+    padding: 18px 22px; font-size: 13.5px; line-height: 1.6; }
+  .page h2 { margin: 0 0 8px; font-size: 20px; }
+  .page p { margin: 0 0 12px; color: #444; }
+  /* The shell scrollbar inside the page too: 8px, inset pill, no arrow buttons. */
+  .page::-webkit-scrollbar { width: 8px; }
+  .page::-webkit-scrollbar-track { background: transparent; }
+  .page::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px;
+    background: rgba(0,0,0,.28); background-clip: padding-box; }
+
+  /* Terminal. */
+  .tabs { display: flex; align-items: center; gap: 4px; }
+  .term-body { font: 12.5px/19px var(--mono); padding: 8px 12px; color: #d6d6dc; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<!-- Scene 1: file link opened beside the conversation -->
+<div class="scene" id="file">
+  <div class="titlebar"><span>—</span><span>☐</span><span>✕</span></div>
+  <div class="body">
+    <div class="rail"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="sidebar">
+      <h4>세션</h4>
+      <div class="item">＋ 새 작업</div>
+      <div class="item on">Link-format check for the…</div>
+      <div class="item">장바구니 할인과 세금 적용 순서</div>
+      <div class="item">OpenRouter 연결 및 에이전트</div>
+      <div class="item">npm 전역 설치 목록 확인</div>
+    </div>
+    <div class="main">
+      <div class="wtabs">
+        <div class="wtab on">Link-format c…</div><div class="wtab">장바구니 할인…</div>
+        <span class="spacer"></span><span class="tog">⧉</span><span class="tog">◎</span><span class="tog on">▣</span>
+      </div>
+      <div class="work">
+        <div class="chat">
+          <p><b>cart.total()은 할인만 적용합니다.</b> <span class="link">src/cart.js:19-22</span>에서 소계를 받아
+            쿠폰이 하드코딩된 문자열 'SAVE10'이면 10%를 뺍니다. 다른 쿠폰 코드는 조용히 무시되고, 결과는 센트 단위로
+            반올림되지 않은 실수입니다.</p>
+          <p><b>세금은 호출되지 않습니다.</b> <span class="link">src/tax.js:12</span>의 calculateTax는
+            src 어디에서도 가져다 쓰지 않습니다. <span class="link">test/tax.test.js</span>만 사용합니다.</p>
+          <p><b>올바른 할인 코드가 장바구니에 연결되어 있지 않습니다.</b> <span class="link">src/coupons.js</span>와
+            <span class="link">src/discounts.js</span>는 서로 연결되어 있지만 cart.js는 둘 다 가져오지 않습니다.</p>
+          <div class="composer"><span>무엇이든 물어보세요…</span></div>
+        </div>
+        <div class="side file">
+          <div class="shead">
+            <span class="chip" title="src/cart.js"><svg class="ic" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>cart.js</span>
+            <span class="sp"></span>
+            <span class="btn" title="저장"><svg class="ic" viewBox="0 0 24 24"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg></span>
+            <span class="btn" title="폴더에서 보기"><svg class="ic" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span>
+            <span class="btn" title="메인 탭으로 열기"><svg class="ic" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/></svg></span>
+            <span class="btn" title="닫기"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
+          </div>
+          <div class="sbody code">
+            <div class="row"><span class="ln">17</span><span class="src">  <span class="f">subtotal</span>() {</span></div>
+            <div class="row"><span class="ln">18</span><span class="src">    <span class="k">return</span> lines.<span class="f">reduce</span>((sum, l) =&gt; sum + l.price * l.qty, <span class="n">0</span>);</span></div>
+            <div class="row"><span class="ln">19</span><span class="src">  },</span></div>
+            <div class="row cur"><span class="ln">20</span><span class="src">  <span class="f">total</span>({ coupon } = {}) {</span></div>
+            <div class="row cur"><span class="ln">21</span><span class="src">    <span class="k">const</span> subtotal = <span class="k">this</span>.<span class="f">subtotal</span>();</span></div>
+            <div class="row cur"><span class="ln">22</span><span class="src">    <span class="k">if</span> (coupon === <span class="s">'SAVE10'</span>) <span class="k">return</span> subtotal - subtotal / <span class="n">10</span>; <span class="c">// hardcoded 10% — wraps instead of scrolling sideways</span></span></div>
+            <div class="row"><span class="ln">23</span><span class="src">    <span class="k">return</span> subtotal;</span></div>
+            <div class="row"><span class="ln">24</span><span class="src">  },</span></div>
+            <div class="row"><span class="ln">25</span><span class="src">};</span></div>
+            <div class="row"><span class="ln">26</span><span class="src">}</span></div>
+          </div>
+          <div class="sfoot"><span>× 0  △ 0</span><span class="sp"></span><span>20:3</span><span>JavaScript</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="scene-label">시안 1 · 파일 — 오른쪽 고정 500px · 1px 경계선 · 머리줄 한 줄(44px, pane 탭 줄과 같은 높이) · 코드 45px 시작 · 줄바꿈</div>
+</div>
+
+<!-- Scene 2: changes as a file list with inline unified diffs -->
+<div class="scene" id="diff">
+  <div class="titlebar"><span>—</span><span>☐</span><span>✕</span></div>
+  <div class="body">
+    <div class="rail"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="sidebar">
+      <h4>세션</h4>
+      <div class="item">＋ 새 작업</div>
+      <div class="item on">장바구니 할인과 세금 적용 순서</div>
+      <div class="item">Link-format check for the…</div>
+      <div class="item">OpenRouter 연결 및 에이전트</div>
+    </div>
+    <div class="main">
+      <div class="wtabs">
+        <div class="wtab on">장바구니 할인…</div>
+        <span class="spacer"></span><span class="tog on">⧉</span><span class="tog">◎</span><span class="tog">▣</span>
+      </div>
+      <div class="work">
+        <div class="chat">
+          <p>할인 적용 후 세금을 계산하도록 <span class="link">src/cart.js</span>를 고치고,
+            <span class="link">test/cart.test.js</span>에 할인+세금 케이스를 추가했습니다.</p>
+          <div class="composer"><span>무엇이든 물어보세요…</span></div>
+        </div>
+        <div class="side diff">
+          <div class="shead">
+            <span class="title">변경 사항</span><span class="scope">main → 작업 트리 ▾</span>
+            <span class="sp"></span>
+            <span class="btn seg on">통합</span><span class="btn seg">분할</span>
+            <span class="btn" title="검색">⌕</span><span class="btn" title="닫기">✕</span>
+          </div>
+          <div class="sbody">
+            <div class="frow open"><span class="car">⌄</span><b>cart.js</b><span class="path">src</span><span class="add">+6</span><span class="del">−2</span><span class="sp"></span><span class="btn" title="파일 열기">↗</span></div>
+            <div class="fold">⌃ 16 unmodified lines</div>
+            <div class="drow"><span class="ln">17</span><span class="mk"></span><span class="src">  subtotal() { … },</span></div>
+            <div class="drow"><span class="ln">20</span><span class="mk"></span><span class="src">  total({ coupon, region } = {}) {</span></div>
+            <div class="drow d"><span class="ln">21</span><span class="mk">−</span><span class="src">    const subtotal = this.subtotal();</span></div>
+            <div class="drow d"><span class="ln">22</span><span class="mk">−</span><span class="src">    if (coupon === 'SAVE10') return subtotal - subtotal / 10;</span></div>
+            <div class="drow a"><span class="ln">21</span><span class="mk">+</span><span class="src">    const discounted = applyCoupon(this.subtotal(), coupon);</span></div>
+            <div class="drow a"><span class="ln">22</span><span class="mk">+</span><span class="src">    const tax = calculateTax(discounted, region);</span></div>
+            <div class="drow a"><span class="ln">23</span><span class="mk">+</span><span class="src">    return roundCents(discounted + tax); // discount first, then tax on the discounted amount</span></div>
+            <div class="drow"><span class="ln">24</span><span class="mk"></span><span class="src">  },</span></div>
+            <div class="fold">⌄ 3 unmodified lines</div>
+            <div class="frow"><span class="car">›</span><b>cart.test.js</b><span class="path">test</span><span class="add">+24</span><span class="del">−0</span></div>
+            <div class="frow"><span class="car">›</span><b>discounts.js</b><span class="path">src</span><span class="add">+2</span><span class="del">−1</span></div>
+            <div class="frow"><span class="car">›</span><b>receipt.js</b><span class="path">src</span><span class="add">+3</span><span class="del">−3</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="scene-label">시안 2 · 변경 사항 — 파일 목록 안에서 펼치는 통합 diff · 줄번호 한 칸 · 바뀌지 않은 구간 접기</div>
+</div>
+
+<!-- Scene 4: browser with two chrome rows -->
+<div class="scene" id="browser">
+  <div class="titlebar"><span>—</span><span>☐</span><span>✕</span></div>
+  <div class="body">
+    <div class="rail"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="sidebar">
+      <h4>세션</h4>
+      <div class="item">＋ 새 작업</div>
+      <div class="item on">전체 변경사항 코드리뷰</div>
+      <div class="item">클로드 앱 UI 시안 점검</div>
+    </div>
+    <div class="main">
+      <div class="wtabs">
+        <div class="wtab on">전체 변경사항…</div>
+        <span class="spacer"></span><span class="tog">⧉</span><span class="tog on">◎</span><span class="tog">▣</span>
+      </div>
+      <div class="work">
+        <div class="chat">
+          <p>시안 파일은 <span class="link">design/side-panel-proposal.html</span>입니다. 링크를 누르면 오른쪽 브라우저에 열립니다.</p>
+          <p>브라우저 위쪽은 두 줄뿐입니다. 첫 줄에 탭과 화면 제어(⋯·확대·닫기)를 모으고, 둘째 줄은 페이지 이동만 맡습니다.</p>
+          <div class="composer"><span>무엇이든 물어보세요…</span></div>
+        </div>
+        <div class="side file">
+          <div class="shead">
+            <span class="chip"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 1 0-20"/><path d="M2 12h20"/></svg>Side panel proposal</span>
+            <span class="btn" title="새 탭">＋</span>
+            <span class="sp"></span>
+            <span class="btn" title="더보기 (기기 보기 · 링크 복사 · 기본 브라우저로 열기)">⋯</span>
+            <span class="btn" title="확대">⤢</span><span class="btn" title="닫기">✕</span>
+          </div>
+          <div class="navrow">
+            <span class="btn">←</span><span class="btn">→</span><span class="btn">↻</span>
+            <span class="url">127.0.0.1:54955/design/side-panel-proposal.html</span>
+            <span class="btn" title="요소 선택">⌖</span>
+          </div>
+          <div class="page">
+            <h2>Side panel proposal</h2>
+            <p>페이지 안의 스크롤 막대도 앱과 같은 8px 둥근 막대를 씁니다. 화살표 버튼이 없고 트랙은 투명합니다.</p>
+            <p>좁은 폭에서는 페이지 폭에 맞춰 축소하거나 줄바꿈해, 가로 스크롤이 생기지 않게 합니다.</p>
+            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer posuere erat a ante venenatis dapibus.</p>
+            <p>Donec ullamcorper nulla non metus auctor fringilla. Vestibulum id ligula porta felis euismod semper.</p>
+            <p>Cras mattis consectetur purus sit amet fermentum. Maecenas faucibus mollis interdum.</p>
+            <p>Nullam quis risus eget urna mollis ornare vel eu leo. Aenean lacinia bibendum nulla sed consectetur.</p>
+            <p>Curabitur blandit tempus porttitor. Etiam porta sem malesuada magna mollis euismod.</p>
+            <p>Morbi leo risus, porta ac consectetur ac, vestibulum at eros. Praesent commodo cursus magna.</p>
+            <p>Vivamus sagittis lacus vel augue laoreet rutrum faucibus dolor auctor.</p>
+            <p>Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="scene-label">시안 4 · 브라우저 — 오른쪽 고정 · 위쪽 두 줄(탭+화면 제어 / 페이지 이동) · 앱과 같은 얇은 스크롤</div>
+</div>
+
+<!-- Scene 3: terminal at its narrower default -->
+<div class="scene" id="term">
+  <div class="titlebar"><span>—</span><span>☐</span><span>✕</span></div>
+  <div class="body">
+    <div class="rail"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="sidebar">
+      <h4>세션</h4>
+      <div class="item">＋ 새 작업</div>
+      <div class="item on">장바구니 할인과 세금 적용 순서</div>
+      <div class="item">Link-format check for the…</div>
+    </div>
+    <div class="main">
+      <div class="wtabs">
+        <div class="wtab on">장바구니 할인…</div>
+        <span class="spacer"></span><span class="tog">⧉</span><span class="tog">◎</span><span class="tog on">▣</span>
+      </div>
+      <div class="work">
+        <div class="chat">
+          <p>터미널에서 <span class="link">npm test</span>를 실행했고 할인+세금 케이스 포함 12개가 모두 통과했습니다.
+            터미널은 대화를 가리지 않도록 더 좁게(280px) 열립니다.</p>
+          <div class="composer"><span>무엇이든 물어보세요…</span></div>
+        </div>
+        <div class="side term">
+          <div class="shead">
+            <span class="tabs"><span class="chip">pwsh</span><span class="btn" title="새 탭">＋</span></span>
+            <span class="sp"></span>
+            <span class="btn" title="더보기">⋯</span><span class="btn" title="닫기">✕</span>
+          </div>
+          <div class="sbody term-body">PowerShell 7.6.6
+PS C:\work\cart&gt; npm test
+
+&gt; cart@1.0.0 test
+&gt; node --test
+
+✔ discount then tax (2.1ms)
+✔ coupon ignored (0.4ms)
+ℹ tests 12
+ℹ pass 12
+ℹ fail 0
+PS C:\work\cart&gt; </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="scene-label">시안 3 · 터미널 — 280px · 머리줄에 탭과 ＋</div>
+</div>
+
+<script>
+  if (/[?&]inset\b/.test(location.search)) document.body.classList.add('inset');
+  // Fit every 1320px scene to the viewer's width, so a narrow viewer (a side
+  // browser) shows whole scenes without horizontal scrolling.
+  const fit = () => {
+    const scale = Math.min(1, (document.documentElement.clientWidth - 2) / 1322);
+    for (const scene of document.querySelectorAll('.scene')) {
+      scene.style.zoom = String(scale);
+    }
+  };
+  addEventListener('resize', fit);
+  fit();
+</script>
+</body>
+</html>

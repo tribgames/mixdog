@@ -1,5 +1,5 @@
 import { LoaderCircle, X } from 'lucide-react';
-import { useEffect, useId, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useId, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 import { ErrorNotice } from './ErrorNotice';
@@ -28,6 +28,25 @@ function dialogLayerPortal(className: string, host: HTMLElement, onClose: () => 
     </div>,
     host
   );
+}
+
+/** Keeps Tab / Shift+Tab cycling inside a modal card (its keydown handler). */
+export function containDialogTab(event: KeyboardEvent<HTMLElement>) {
+  if (event.key !== 'Tab') return;
+  const controls = [
+    ...event.currentTarget.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)'
+    ),
+  ];
+  const first = controls[0];
+  const last = controls.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last?.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first?.focus();
+  }
 }
 
 /** Shared lifecycle for dialogs launched from a sidebar destination.

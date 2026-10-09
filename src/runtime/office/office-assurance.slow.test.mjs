@@ -369,9 +369,39 @@ test('format-specific Office review catches orphan headings, chart totals, and s
   const flat = headingReview.find((entry) => entry.code === 'heading_not_distinct');
   assert.ok(flat, headingReview.map((entry) => entry.code).join(', '));
   assert.equal(flat.path, '/body/p[3]');
-  const level = headingReview.find((entry) => entry.code === 'heading_style_inconsistent');
+  // A level's first occurrence may be a lead-in variant: 24 then 11 is not an inconsistency.
+  assert.ok(!headingReview.some((entry) => entry.code === 'heading_style_inconsistent'));
+  const para = (index, style, text, font, extra = {}) => ({ path: `/body/p[${index}]`, index, style, text, font, ...extra });
+  const levelReview = reviewOfficeStructure({
+    format: 'docx',
+    document: {
+      paragraphs: [
+        para(1, 'Heading1', '운영 개선 보고', { size: 24, bold: true }),
+        para(2, 'Heading1', '배경', { size: 14, bold: true }),
+        para(3, 'Normal', '묶음 단위로 실어 대기가 길었다.', { size: 11 }),
+        para(4, 'Heading1', '결과', { size: 18, bold: true }),
+      ],
+    },
+  });
+  const level = levelReview.find((entry) => entry.code === 'heading_style_inconsistent');
   assert.ok(level);
-  assert.match(level.message, /Level 1 headings are set at 11 \/ 24 pt/);
+  assert.match(level.message, /Level 1 headings are set at 14 \/ 18 pt/);
+  // Distinction by colour, caps, or spacing is accepted; a heading differing in none is flagged.
+  const distinct = (font, extra) =>
+    reviewOfficeStructure({
+      format: 'docx',
+      document: {
+        paragraphs: [
+          para(1, 'Heading1', '배경', font, extra),
+          para(2, 'Normal', '본문 문장이다.', { size: 11, color: '222222' }),
+          para(3, 'Normal', '본문 문장이다.', { size: 11, color: '222222' }),
+        ],
+      },
+    }).some((entry) => entry.code === 'heading_not_distinct');
+  assert.equal(distinct({ size: 11, color: 'C0392B' }), false);
+  assert.equal(distinct({ size: 11, color: '222222', caps: true }), false);
+  assert.equal(distinct({ size: 11, color: '222222' }, { spaceBefore: 18 }), false);
+  assert.equal(distinct({ size: 11, color: '222222' }), true);
 
   // The opposite error renders just as cleanly: a series that stops one row
   // above the data draws a picture the sheet does not support. A total row left

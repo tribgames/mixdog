@@ -519,6 +519,7 @@ export class SessionHostLifecycle {
           {
             ...route,
             applyToCurrentSession: true,
+            keepMainModel: true,
           },
         ]);
       }

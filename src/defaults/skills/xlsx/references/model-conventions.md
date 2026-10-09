@@ -3,6 +3,8 @@
 The conventions a reader of a financial or decision model expects, unless the user says otherwise or the existing file already does something else — in which case the file wins. The runtime reads these back under `auditProfile:'financial-model'` (SKILL.md §6); this file says what to build so the audit has nothing to report.
 
 ## 1. Color — what a cell's ink says about where its number comes from
+These finance colour conventions apply to **financial models** (and sheets someone fills in, §6) only. Report, dashboard, and tracker surfaces use the author's palette, not this table or a required design concept. A mixed workbook preserves calculation and input conventions on its working sheets while designing its report sheets for the reader.
+
 | Cell | Font | Fill | `set_style` |
 |---|---|---|---|
 | hardcoded input, scenario lever | blue `0000FF` | — | `{ color:'0000FF' }` |

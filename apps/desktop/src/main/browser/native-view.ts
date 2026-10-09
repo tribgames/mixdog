@@ -1,17 +1,17 @@
 /** Opt-in native presentation (MIXDOG_BROWSER_NATIVE_VIEW): the Browser pane
- *  shows the page's own window over its surface, so a person scrolls, clicks
- *  and types on the real page instead of a sampled image.
+ *  shows the page itself over its surface, so a person scrolls, clicks and
+ *  types on the real page instead of a sampled image.
  *
- *  Every page keeps its frameless owner window (see guest-lifecycle). While
- *  the pane shows a page, that window is an owned window of the shell, placed
- *  over the pane without taking activation; otherwise it is parked off-screen
- *  (see park), where it keeps rendering for the agent and the pixel display.
- *  (Moving the page's view
- *  into the shell instead does not work: it stays composited by its hidden
- *  owner and never reaches the display.) Agent CDP input to a shown page
- *  leaves the shell's focused element and selection untouched. */
-import { BrowserWindow, type WebContents } from 'electron';
+ *  Every page is a view in its own frameless window (see page-window), parked
+ *  off-screen, where it keeps rendering for the agent and the pixel display.
+ *  While the pane shows a page, the shell adopts that view into its own
+ *  content: shell and page then compose in one window, so the page follows
+ *  panel resizing in the same frame instead of trailing it as a separate
+ *  window would. Agent CDP input to a shown page leaves the shell's focused
+ *  element and selection untouched. */
+import type { BrowserWindow, WebContents } from 'electron';
 import { agentInputInFlight } from './agent-input';
+import { browserPageView, browserPageWindow } from './page-window';
 
 /** Parked page windows sit here, outside every display. */
 const PARK_POSITION = -32_000;
@@ -46,40 +46,53 @@ export function createBrowserNativeViews(host: BrowserNativeViewHost) {
   const { shell } = host;
   /** Each session's shown page and where, in shell content DIPs. */
   const presented = new Map<string, { guest: WebContents; bounds: BrowserNativeRect }>();
+  const adopted = (guest: WebContents) => {
+    const view = browserPageView(guest);
+    return view && !shell.isDestroyed() && shell.contentView.children.includes(view) ? view : null;
+  };
 
-  /** Move a page off every display. A hidden native window commits a new
-   *  renderer (a cross-site navigation) without frames — in the app it then
-   *  drew once a second, stalling the agent and the pixel display. So a page
-   *  window is never hidden: from creation on it is shown, unowned (the shell
-   *  minimizing would hide an owned window) and unfocusable, far outside the
-   *  desktop, and as a tool window never listed in Alt+Tab or the taskbar. */
+  /** Return a page to its window, off every display. A hidden native window
+   *  commits a new renderer (a cross-site navigation) without frames — in the
+   *  app it then drew once a second, stalling the agent and the pixel
+   *  display. So a page window is never hidden: from creation on it is shown,
+   *  unfocusable, far outside the desktop, and as a tool window never listed
+   *  in Alt+Tab or the taskbar. */
   function park(guest: WebContents): void {
-    const owner = guest.isDestroyed() ? null : BrowserWindow.fromWebContents(guest);
-    if (!owner || owner.isDestroyed()) return;
-    // Keyboard focus must not stay with a page nobody can see.
-    if (owner.isFocused() && !shell.isDestroyed() && shell.isVisible() && !shell.isMinimized()) shell.focus();
-    if (owner.isFocusable()) owner.setFocusable(false);
-    if (owner.getParentWindow()) owner.setParentWindow(null);
+    const owner = guest.isDestroyed() ? null : browserPageWindow(guest);
+    const view = owner && browserPageView(guest);
+    if (!owner || !view) return;
+    if (adopted(guest)) {
+      // Keyboard focus must not stay with a page nobody can see.
+      if (guest.isFocused()) shell.webContents.focus();
+      const { width, height } = view.getBounds();
+      shell.contentView.removeChildView(view);
+      owner.contentView.addChildView(view);
+      owner.setContentSize(width, height);
+      view.setBounds({ x: 0, y: 0, width, height });
+    }
     const [width, height] = owner.getContentSize();
     owner.setBounds({ x: PARK_POSITION, y: PARK_POSITION, width, height });
     if (!owner.isVisible()) owner.showInactive();
   }
 
-  /** Put a presented page's window over the pane, or keep it parked while the
-   *  shell itself cannot be seen (it returns with the shell). */
+  /** Adopt a presented page into the shell over the pane, or keep it parked
+   *  while the shell itself cannot be seen (it returns with the shell). */
   function place({ guest, bounds }: { guest: WebContents; bounds: BrowserNativeRect }): boolean {
-    const owner = guest.isDestroyed() ? null : BrowserWindow.fromWebContents(guest);
-    if (!owner || owner.isDestroyed() || shell.isDestroyed()) return false;
+    const owner = guest.isDestroyed() ? null : browserPageWindow(guest);
+    const view = owner && browserPageView(guest);
+    if (!owner || !view || shell.isDestroyed()) return false;
     if (!shell.isVisible() || shell.isMinimized()) {
       park(guest);
       return true;
     }
-    const content = shell.getContentBounds();
-    if (owner.getParentWindow() !== shell) owner.setParentWindow(shell);
-    owner.setBounds({ x: content.x + bounds.x, y: content.y + bounds.y, width: bounds.width, height: bounds.height });
-    // A person types into the shown page; hidden pages never take activation.
-    if (!owner.isFocusable()) owner.setFocusable(true);
-    if (!owner.isVisible()) owner.showInactive();
+    if (!adopted(guest)) {
+      owner.contentView.removeChildView(view);
+      shell.contentView.addChildView(view);
+    }
+    view.setBounds(bounds);
+    // The page's window keeps its page size for display reads and restores.
+    const [width, height] = owner.getContentSize();
+    if (width !== bounds.width || height !== bounds.height) owner.setContentSize(bounds.width, bounds.height);
     return true;
   }
 
@@ -94,13 +107,13 @@ export function createBrowserNativeViews(host: BrowserNativeViewHost) {
     if (isMainFrame && !isInPlace) parkAll();
   });
   shell.webContents.on('render-process-gone', parkAll);
-  // Owned windows follow the shell: moved and resized with it, hidden while
-  // it is hidden or minimized, and shown again when it returns.
+  // An adopted page moves and resizes with the shell. A hidden or minimized
+  // shell would stop drawing it, so it is parked meanwhile and adopted again
+  // when the shell returns.
   const follow = () => {
     for (const entry of presented.values()) place(entry);
   };
-  for (const event of ['move', 'resize', 'show', 'restore', 'hide', 'minimize'] as const)
-    shell.on(event as 'move', follow);
+  for (const event of ['show', 'restore', 'hide', 'minimize'] as const) shell.on(event as 'show', follow);
 
   return {
     /** Show the session's current page at `rect` (shell CSS pixels), or park
@@ -133,10 +146,8 @@ export function createBrowserNativeViews(host: BrowserNativeViewHost) {
       park(guest);
       guest.once('destroyed', () => {
         for (const [sessionId, entry] of presented) if (entry.guest === guest) presented.delete(sessionId);
-      });
-      // Alt+F4 on a shown page would close its window and with it the page.
-      guest.on('before-input-event', (event, input) => {
-        if (input.type === 'keyDown' && input.alt && input.key === 'F4') event.preventDefault();
+        const view = adopted(guest);
+        if (view) shell.contentView.removeChildView(view);
       });
       guest.on('input-event', (_event, input) => {
         if (agentInputInFlight(guest)) return;

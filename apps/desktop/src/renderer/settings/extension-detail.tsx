@@ -309,12 +309,15 @@ export function ExtensionAction({
   danger = false,
   disabled,
   ariaLabel,
+  tooltip,
   onClick,
 }: {
   children: ReactNode;
   danger?: boolean;
   disabled?: boolean;
   ariaLabel?: string;
+  /** Hover label, for icon-only actions. */
+  tooltip?: string;
   onClick?(): void;
 }) {
   return (
@@ -322,6 +325,7 @@ export function ExtensionAction({
       type="button"
       className={`extensions-action${danger ? ' danger' : ''}`}
       aria-label={ariaLabel}
+      data-tooltip={tooltip}
       disabled={disabled}
       onClick={onClick}
     >

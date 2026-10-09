@@ -57,7 +57,7 @@ export function parseGeminiCandidate(response, textLeakGuard) {
 // paths for genuinely complete responses keep working. Newly-added
 // safety/image/tool/malformed reasons are incomplete by default instead of
 // silently accepting partial or empty output.
-export function geminiIncompleteError(response, parsed, useModel) {
+export function geminiIncompleteError(response, parsed, useModel, usage = null) {
   const promptBlockReason = response.promptFeedback?.blockReason || null;
   const finishReason = parsed.candidate?.finishReason || (promptBlockReason ? `PROMPT_${promptBlockReason}` : null);
   const normalizedFinishReason = String(finishReason || '').replace(/^FINISH_REASON_/, '');
@@ -73,23 +73,23 @@ export function geminiIncompleteError(response, parsed, useModel) {
     providerMetadata: parsed.providerMetadata,
     model: useModel,
     rawUsage: response.usageMetadata || null,
+    ...(usage ? { partialUsage: usage, partialModel: useModel } : {}),
   });
 }
 
-// Normalized usage from usageMetadata, recorded to the usage trace. cachedTokens
-// reuses the exact value the cache trace resolved (including the
-// cachedFallback when cachedContentTokenCount / total_cached_tokens
-// under-reports).
-export function resolveGeminiUsage(response, opts, cachedContent, useModel) {
-  const um = response.usageMetadata || null;
-  if (!um) return null;
-  const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
-  const { inputTokens, reportedCachedTokens, cachedFallbackTokens, cachedTokens, cacheTokenSource } =
-    _resolveGeminiCacheUsage({
-      usageMetadata: um,
-      cachedContent,
-      providerState: opts.providerState,
-    });
+// Normalized usage from usageMetadata. cachedTokens is only what this
+// response reported; the cache-size fallback stays a diagnostic of the
+// cache trace and never enters accounting.
+// Pure normalization shared by the success path and a failed stream's
+// partialUsage (no trace side effects).
+export function normalizeGeminiUsage(um, opts, cachedContent) {
+  const cache = _resolveGeminiCacheUsage({
+    usageMetadata: um,
+    cachedContent,
+    providerState: opts.providerState,
+  });
+  const { inputTokens, reportedCachedTokens } = cache;
+  const cachedTokens = inputTokens > 0 ? Math.min(reportedCachedTokens, inputTokens) : reportedCachedTokens;
   const outputTokens =
     (um.candidatesTokenCount || um.candidates_token_count || 0) +
     (um.thoughtsTokenCount || um.thoughts_token_count || 0);
@@ -102,6 +102,23 @@ export function resolveGeminiUsage(response, opts, cachedContent, useModel) {
     // subset). Alias the resolver's normalized total directly.
     promptTokens: inputTokens,
   };
+  return { resolvedUsage, cache };
+}
+
+/** failureUsage option for the Gemini stream consumers. */
+export function geminiFailureUsage(opts, cachedContent, useModel) {
+  return {
+    model: useModel,
+    normalize: (um) => normalizeGeminiUsage(um, opts || {}, cachedContent).resolvedUsage,
+  };
+}
+
+export function resolveGeminiUsage(response, opts, cachedContent, useModel) {
+  const um = response.usageMetadata || null;
+  if (!um) return null;
+  const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
+  const { resolvedUsage, cache } = normalizeGeminiUsage(um, opts, cachedContent);
+  const { inputTokens, reportedCachedTokens, cachedFallbackTokens, cachedTokens, cacheTokenSource } = cache;
   if (cachedContent && inputTokens > 0 && cachedTokens <= 0) {
     traceGeminiCache(opts, iteration, 'gemini_cache_anomaly', {
       reason: 'cached_content_attached_but_zero_cached_tokens',

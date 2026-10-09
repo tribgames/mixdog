@@ -53,11 +53,11 @@ export function modelFooter(selection, model = null) {
     fastLine = {
       glyph: fastOn ? '●' : '○',
       color: fastOn ? theme.fastMode : theme.inactive,
-      text: `${fastDisplayLabel(fastOn)} · Tab Toggle`,
+      text: `${selection.isUltrafast?.(model) ? 'Ultrafast' : fastDisplayLabel(fastOn)} · Tab Toggle`,
     };
   }
   const parameterLines = (model?.modelParameterOptions || [])
-    .filter((parameter) => parameter.id !== 'context')
+    .filter((parameter) => parameter.id !== 'context' && parameter.id !== 'serviceTier')
     .map((parameter) => {
       const value = selection.modelParametersFor(model)[parameter.id] || '';
       return {

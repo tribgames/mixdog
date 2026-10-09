@@ -7,7 +7,7 @@ import { retryAfterMsFromError } from '../retry-classifier.mjs';
 import { _sleepWithAbort, MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT, midstreamBackoffFor, tag } from './policy.mjs';
 
 export function createAttemptContext(deps) {
-  const { sendSpan, externalSignal, sleepFn, stampWarmup, safetyStamps } = deps;
+  const { sendSpan, externalSignal, sleepFn, safetyStamps } = deps;
   const state = {
     /** The error the user's turn actually tripped on, surfaced when the
      *  retries that followed it also fail. */
@@ -39,7 +39,7 @@ export function createAttemptContext(deps) {
     } catch (sleepErr) {
       sendSpan.retryBackoffMs += performance.now() - sleepStart;
       sendSpan.emit('error');
-      throw stampWarmup(sleepErr);
+      throw sleepErr;
     }
     sendSpan.retryBackoffMs += performance.now() - sleepStart;
   };

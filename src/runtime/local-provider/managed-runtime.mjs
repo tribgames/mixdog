@@ -17,7 +17,7 @@ import {
   configureLocalProviderIdleTtl,
 } from './server.mjs';
 import { localProviderInstallStatus, cancelLocalInstallation } from './install-progress.mjs';
-import { resumableLocalInstallations } from './resumable-installations.mjs';
+import { discardLocalInstallation, resumableLocalInstallations } from './resumable-installations.mjs';
 
 export function localProviderStatus(options = {}) {
   const catalog = localProviderCatalogStatus(options);
@@ -40,4 +40,5 @@ export {
   stopLocalProviderServer,
   configureLocalProviderIdleTtl,
   cancelLocalInstallation,
+  discardLocalInstallation,
 };

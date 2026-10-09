@@ -154,7 +154,7 @@ function projectLitellmRow(row) {
   // litellmPricing), not just the base price.
   for (const [field, value] of Object.entries(row)) {
     if (
-      (/^(?:input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|cache_creation_input_token_cost)(?:_above_\d+k_tokens)?(?:_priority)?$/.test(
+      (/^(?:input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|cache_creation_input_token_cost)(?:_above_\d+k_tokens)?(?:_priority|_ultrafast)?$/.test(
         field
       ) ||
         /^output_cost_per_second_\w+$/.test(field)) &&

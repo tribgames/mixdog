@@ -9,7 +9,8 @@ file is a Word document.
 - Document face: `set_document_font properties:{ name, nameEastAsia, size, color }`
   sets the body's face, size and ink as the document's own, so a paragraph
   added later — by `append_text` or by hand in Word — matches the body; a
-  Korean document names a Korean face (Malgun Gothic) so its digits and Hangul
+  Korean document names an installed face covering Hangul and digits
+  (for example Noto Sans KR, Malgun Gothic, or a Korean serif) so they
   share one.
 - Page: `set_page properties:{ pageSize, orientation, topMargin, bottomMargin,
   leftMargin, rightMargin, columns, columnSpacing }`. A new document is A4;
@@ -88,6 +89,11 @@ to author the requested document, then inspect the real pages.
 The carriers a report needs beyond running prose, each as the operations that draw it the same in Word
 and in the portable file. Distances are points; `properties` go on `append_text` (or `set_paragraph_format`
 for an existing paragraph). Use a carrier when the content has that job, never as decoration (`SKILL.md` §4).
+Colours are the author's palette roles — `<ink>`, `<muted>`, `<line>`, `<tint>`, `<accent>` — as six-digit hex.
+The optional concept examples are not required. The carriers below are the native route's (editing a
+document, a template, a small generated one); a new designed document draws the same jobs in HTML, with the concept's
+own forms (`references/html.md` §3). Where this list gives one form (a left-bar callout, a ruled table), it is one
+option: a boxed note, a tinted band, or no callout, and open or zebra tables, are equally native (`border`, `shading`, `borders`).
 
 - **Type ladder for a Korean report** (body 10.5 pt): `Title` 24-26 bold · `Heading 1` 15-16 bold,
   `spacingBefore:18, spacingAfter:6, keepWithNext:true` · `Heading 2` 12.5-13 bold, `spacingBefore:12,
@@ -95,23 +101,24 @@ for an existing paragraph). Use a carrier when the content has that job, never a
   (lineSpacing is a minimum in points: 1.7× for Hangul, never 1.15× — Korean lines set at Latin leading
   touch; the alignment is explicit because a Korean Word's Normal style justifies, and justified Hangul
   opens gaps between words that the portable file, set left, never shows) · caption
-  9 pt muted (`color:'6B7280'`). One Latin face and one East Asian face for the whole document
-  (`name` + `nameEastAsia` on a paragraph, `fontName` + `fontNameEastAsia` on `add_table` — the table names its
-  own type and refuses the paragraph's field names); an essay takes a serif pairing
-  (Cambria + 바탕/Noto Serif KR), a brief sets both faces in the Korean sans (`name` and `nameEastAsia` both
-  Malgun Gothic, or both Noto Sans KR): beside Calibri figures the Hangul prints larger and heavier, and
-  "184,200건" reads as two sizes. The ladder is written once, as the document's styles, before the first
-  paragraph: `{ op:'define_styles', styles:{ Title:{ name, nameEastAsia, size:24, bold:true, color:'111827',
+  9 pt `<muted>`. This is the one document scale, shared with flowing PDF. One Latin face and one East Asian face
+  for the whole document (`name` + `nameEastAsia` on a paragraph, `fontName` + `fontNameEastAsia` on `add_table` — the
+  table names its own type and refuses the paragraph's field names), chosen from the concept's face menu: an essay or
+  letter takes a serif pairing (Cambria + 바탕/Noto Serif KR), a brief sets both faces in a Korean sans (`name` and
+  `nameEastAsia` both Noto Sans KR, or both Malgun Gothic), an editorial piece mixes serif headings with a sans body:
+  beside Calibri figures the Hangul prints larger and heavier, and "184,200건" reads as two sizes. The ladder is
+  written once, as the document's styles, before the first
+  paragraph: `{ op:'define_styles', styles:{ Title:{ name, nameEastAsia, size:24, bold:true, color:<ink>,
   alignment:'left', lineSpacing:30, lineSpacingRule:'exact', spacingAfter:8 }, 'Heading 1':{ …, size:15, bold:true,
   spacingBefore:18, spacingAfter:6, keepWithNext:true }, 'Heading 2':{ … }, Normal:{ name, nameEastAsia, size:10.5,
-  lineSpacing:18, spacingAfter:8, alignment:'left' }, Caption:{ size:9, color:'6B7280', spacingBefore:4,
+  lineSpacing:18, spacingAfter:8, alignment:'left' }, Caption:{ size:9, color:<muted>, spacingBefore:4,
   spacingAfter:14 } } }`; then `append_text style:'Heading 1' text:'2. 근거'` carries nothing else, and a
   caption is `style:'Caption'`.
 - **Cover group**: eyebrow (`size:9.5, bold:true, color:<accent>, spacingAfter:4`) → `Title` with
   `alignment:'left'` (Word's own Title style centers it and the portable file does not; say which) and
   `lineSpacing:<1.25 × its size>, lineSpacingRule:'exact'` (30 for 24 pt) — a minimum can only widen a line, and on
   Malgun Gothic's own line the two lines of one wrapped title stood nearly twice the size apart → subtitle
-  (`size:13, color:'374151', spacingAfter:8`) → meta lines (`size:9.5, color:'6B7280'`) → a rule: an empty
+  (`size:13, color:<ink> or <muted>, spacingAfter:8`) → meta lines (`size:9.5, color:<muted>`) → a rule: an empty
   paragraph with `border:{ side:'bottom', size:8, color:<accent> }, spacingAfter:24`. The summary follows on
   the same page; `insert_break kind:'page'` only when the document is long enough to earn a cover page.
 - **Table of contents**: `insert_toc paragraph:<after the cover>` once every `Heading 1..3` exists
@@ -122,38 +129,41 @@ for an existing paragraph). Use a carrier when the content has that job, never a
   style — a heading lists itself as the first entry.
 - **Section header**: `Heading 1` with `keepWithNext:true`; a numbered section carries its number in the text
   ("2. 근거"), never a typed tab or a list marker.
-- **Callout** (the conclusion, a warning, the ask): one paragraph with `shading:'EEF2F7', border:{ side:'left',
+- **Callout** (the conclusion, a warning, the ask) — optional, and its form is the concept's: a tinted band
+  (`shading:<tint>` with indents, no border), a boxed note (`border` on all four sides in `<line>` or `<accent>`), a
+  left rule (below), or none — the conclusion as a larger first paragraph. The left-rule form: one paragraph with
+  `shading:<tint>, border:{ side:'left',
   size:12, color:<accent> }, indentLeft:12, indentRight:12, spacingBefore:6, spacingAfter:12`; a label
   paragraph above it in the same field (`bold:true, size:8.5, color:<accent>, spacingAfter:2, shading, indentLeft`)
   when the field needs a name. Every paragraph of one callout carries the same `shading` and indents so the
   field reads as one. Points inside it (a warning's items) are list items with those same properties plus
   `listKind`: on a list item `indentLeft` places the mark and the text hangs 18 pt after it, inside the field.
 - **Quote**: `indentLeft:16, border:{ side:'left', size:16, color:<accent> }, size:12.5, lineSpacing:20,
-  color:'1F2937', spacingBefore:10, keepTogether:true, keepWithNext:true`; the attribution a caption under it
-  (`size:9, color:'6B7280', indentLeft:16, spacingAfter:12`) beginning "— ". The two keeps hold the quote whole and on
+  color:<ink>, spacingBefore:10, keepTogether:true, keepWithNext:true`; the attribution a caption under it
+  (`size:9, color:<muted>, indentLeft:16, spacingAfter:12`) beginning "— ". The two keeps hold the quote whole and on
   the page of its attribution — without them a two-line quote ending a page left one line behind and carried the other
   over with its speaker. The space above sets it apart from what it follows: without it a quote under a list sat as
   close to the last item as the items to each other and read as one more of them.
 - **Stat strip** (two to four figures with one cause): `add_table` with one row of values and one row of labels,
   `properties:{ borders:{ top:{ enabled:false }, left:{ enabled:false }, right:{ enabled:false }, insideV:{ enabled:false },
-  insideH:{ enabled:false }, bottom:{ style:'single', size:4, color:'C9CED6' } }, repeatHeader:false,
-  columnAlignments:['left', …], rowStyles:[{ fontSize:22, color:<accent>, bold:true }, { fontSize:9, color:'6B7280' }] }`
+  insideH:{ enabled:false }, bottom:{ style:'single', size:4, color:<line> } }, repeatHeader:false,
+  columnAlignments:['left', …], rowStyles:[{ fontSize:22, color:<accent>, bold:true }, { fontSize:9, color:<muted> }] }`
   — one table, the figures at display size over their labels at caption size. A single `fontSize` sets the labels at
   22 pt too ("평균 대기 시간 단축" over three lines). → runtime `table_label_oversized`
 - **Chart**: `add_chart categories:[…] values:[…] chartType:'bar'|'column' unit highlight forecast accent` — one series
-  drawn as a picture in the document's accent (`accent:'1F5E4B'`, the hex the document's headings and callouts use;
+  drawn as a picture in the document's accent (`accent:<accent hex>`, the concept's accent that the document's headings and emphasis use;
   without it the writer's teal), every bar carrying its value and no grid; `bar` for a ranking (names on the
   left), `column` for periods, `highlight` the bar the paragraph is about, `forecast` the bars that are projections
   (a plan, an estimate: drawn pale in a dashed outline, never as counted figures). It lands like `add_image` (`width`,
   `properties:{ alignment:'center' }`) with a caption under it; its altText names each figure. The bars cannot be
   edited in Word — a chart the reader will edit belongs in a workbook.
-- **Caption**: the paragraph under a table or picture, `size:9, color:'6B7280', spacingBefore:4,
+- **Caption**: the paragraph under a table or picture, `size:9, color:<muted>, spacingBefore:4,
   spacingAfter:14`: what it shows and its source. The table above it takes `properties.keepWithNext:true`
   so the caption never starts the next page alone, and the paragraph that introduces a table or chart takes
   `keepWithNext:true` too — without it a heading and its lead-in closed one page and the table opened the next; a picture (`add_image`) keeps with its caption on its own,
   and `properties:{ alignment:'center' }` centres it.
 - **Running header**: `set_header_footer kind:'header'` with `properties:{ name, nameEastAsia, size:8.5,
-  color:'6B7280' }` — without them the line prints in the document default, louder than the eyebrow under it.
+  color:<muted> }` — a running head and folio are a choice of the concept (a letter or essay takes none) — without them the line prints in the document default, louder than the eyebrow under it.
   The cover page carries neither: after the default header and the page numbers (`add_page_numbers separator:' / '`
   prints "1 / 3"), `set_header_footer kind:'header' variant:'first' text:''` and the same for the footer give the
   first page empty ones.

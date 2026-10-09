@@ -4,7 +4,6 @@ import {
   PATCH_TOOL_DEFS,
   BUILTIN_TOOLS,
   sendViaHttpSse,
-  buildCodexStartupPrewarmBody,
   buildOpenAIOAuthRequestBody,
   _convertMessagesToResponsesInputForTest,
   httpSseResponse,
@@ -195,10 +194,6 @@ test('openai-oauth always builds the standard Responses payload', () => {
   // Turn identity rides request metadata, not the reusable input prefix.
   assert.deepEqual(body.input[0].internal_chat_message_metadata_passthrough, {});
   assert.deepEqual(body.input[1].internal_chat_message_metadata_passthrough, {});
-
-  const warmup = buildCodexStartupPrewarmBody(body);
-  assert.equal(warmup.generate, false);
-  assert.deepEqual(warmup.input, []);
 });
 
 test('openai-oauth HTTP/SSE stateless experiment omits conversation anchor headers', async () => {

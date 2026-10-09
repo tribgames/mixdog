@@ -3,7 +3,7 @@
  * the agent brief it is gated by.
  */
 import { AGENT_SURFACE_BRIEF_MAX, summarizeAgentSurfaceBrief } from '../tool-surface.mjs';
-import { hasAgentResponseResult, isAgentTool } from './agent-surface.mjs';
+import { isAgentResponseResult, isAgentTool } from './agent-surface.mjs';
 import { backgroundTaskDetail } from './background-task.mjs';
 import { genericCompletedDetail, shouldPrefixSyncElapsed } from './generic-detail.mjs';
 import { mergeTerminalDetail, prefixElapsed } from './terminal-status.mjs';
@@ -44,14 +44,19 @@ function nonShellDetail(base, surface, display, status, imageDetail) {
 }
 
 /** Agent cards only keep their detail row for failures; the brief replaces it. */
-function agentDetailLine(base, { collapsedDetail, pendingDetailPlaceholder, agentSurfaceBrief, agentHeaderFailure }) {
+function agentDetailLine(
+  base,
+  { collapsedDetail, pendingDetailPlaceholder, agentSurfaceBrief, agentHeaderFailure, terminalStatus }
+) {
   const { pending, isError, truncate, maxResultChars } = base;
   const agentDetailFallback = collapsedDetail || (pending ? pendingDetailPlaceholder || 'Running' : 'Finished');
   const line =
     agentSurfaceBrief || truncate(String(agentDetailFallback), Math.min(AGENT_SURFACE_BRIEF_MAX, maxResultChars));
   const agentFailureText = /\b(Cancelled|Canceled|Failed)\b/i.test(agentSurfaceBrief || collapsedDetail || '');
   const keepAgentDetail = (isError || agentFailureText) && !(agentHeaderFailure && !agentSurfaceBrief);
-  return keepAgentDetail ? line : '';
+  if (!keepAgentDetail) return '';
+  // A failed call's brief is its cause: say what failed before why.
+  return isError && agentSurfaceBrief ? mergeTerminalDetail(terminalStatus, line) : line;
 }
 
 export function deriveCardDetail(base, surface, display, status) {
@@ -79,7 +84,7 @@ export function deriveCardDetail(base, surface, display, status) {
   }
 
   const isAgentResult = !display.isBackgroundResult && !pending && isAgentTool(normalizedName) && hasDisplayResult;
-  const isAgentResponse = isAgentResult && hasAgentResponseResult(rt);
+  const isAgentResponse = isAgentResult && isAgentResponseResult(parsedArgs, rt);
   const isAgentSurfaceCard = isAgentTool(normalizedName);
   const agentSurfaceBriefRaw = isAgentSurfaceCard
     ? summarizeAgentSurfaceBrief(name, parsedArgs, displayedResultText || '', { isError, isResponse: isAgentResponse })
@@ -100,6 +105,7 @@ export function deriveCardDetail(base, surface, display, status) {
       pendingDetailPlaceholder,
       agentSurfaceBrief,
       agentHeaderFailure: status.agentHeaderFailure,
+      terminalStatus: status.terminalStatus,
     });
   }
 

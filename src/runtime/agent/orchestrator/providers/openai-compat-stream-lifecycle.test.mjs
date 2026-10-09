@@ -108,6 +108,32 @@ for (const { name, consume } of protocols) {
   });
 }
 
+test('Responses unresolved call followed by response.completed carries partialUsage', async () => {
+  const usage = { input_tokens: 11, output_tokens: 7, total_tokens: 18 };
+  const events = [
+    { type: 'response.function_call_arguments.done', item_id: 'item_1', arguments: '{}' },
+    { type: 'response.completed', response: { id: 'r1', status: 'completed', output: [], usage } },
+  ];
+  const stream = {
+    async *[Symbol.asyncIterator]() {
+      yield* events;
+    },
+  };
+  const err = await bounded(
+    consumeCompatResponsesStream(stream, {
+      label: 'fixture',
+      responseOutputText: () => '',
+      parseResponsesToolCalls: () => [],
+    }).then(
+      () => assert.fail('expected the stream to reject'),
+      (error) => error
+    )
+  );
+  assert.match(err.message, /salvage failed/);
+  assert.equal(err.partialUsage.outputTokens, 7);
+  assert.equal(err.partialUsage.inputTokens, 11);
+});
+
 for (const { name, consume, event } of protocols) {
   for (const interruption of ['cancel', 'idle']) {
     test(`${name} ${interruption} releases a pending SDK read and its signal listener`, async () => {

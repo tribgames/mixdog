@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mixdog · 띵킹 아이콘 6번 v4 · 부드러운 루프</title>
+<style>
+  .theme-dark {
+    color-scheme:dark;
+    --page:#111113; --band:#222225; --card:#2a2a2d;
+    --text:#e9e9e9; --muted:#a8a8a8; --accent:#79b8ff;
+    --border:rgba(255,255,255,.125); --line:rgba(255,255,255,.09); --hover:rgba(255,255,255,.08);
+    --n-head:#f4f4f5; --b-head:#8cc2ff; --a-head:url(#aurora-d); --ti-head:url(#ti-d);
+  }
+  .theme-light {
+    color-scheme:light;
+    --page:#f8f8fb; --band:#ffffff; --card:#f3f3f3;
+    --text:#222222; --muted:#606060; --accent:#185abc;
+    --border:rgba(23,24,26,.14); --line:rgba(23,24,26,.1); --hover:rgba(0,0,0,.06);
+    --n-head:#18181b; --b-head:#1a5fd0; --a-head:url(#aurora-l); --ti-head:url(#ti-l);
+  }
+  body[data-color="neutral"] .t, body[data-color="neutral"].t { --head:var(--n-head); }
+  body[data-color="blue"] .t, body[data-color="blue"].t { --head:var(--b-head); }
+  body[data-color="aurora"] .t, body[data-color="aurora"].t { --head:var(--a-head); }
+  body[data-color="titanium"] .t, body[data-color="titanium"].t { --head:var(--ti-head); }
+  :root { --k:1; --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","Segoe UI",sans-serif; }
+  body.paused *, body.paused *::after { animation-play-state:paused !important; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--text); font:14px/20px var(--sans); }
+  h1,h2,p { margin:0; }
+  button { font:inherit; color:var(--muted); cursor:pointer; border:0; border-radius:6px; background:transparent; padding:4px 12px; }
+  button:hover { background:var(--hover); }
+  button[aria-pressed="true"] { background:var(--card); color:var(--text); box-shadow:0 1px 4px #0002; }
+  svg { display:block; overflow:visible; }
+  .defs { position:absolute; width:0; height:0; }
+  .page { max-width:1200px; margin:auto; padding:30px 32px 60px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.3px; }
+  .intro { color:var(--muted); margin-top:4px; font-size:13px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:14px 18px; align-items:center; margin:20px 0 26px; }
+  .control { display:flex; align-items:center; gap:9px; }
+  .control-label { color:var(--muted); font-size:13px; white-space:nowrap; }
+  .segments { display:flex; flex-wrap:wrap; gap:3px; padding:3px; border-radius:8px; background:var(--band); border:1px solid var(--line); }
+  .swatch { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
+  .section-title { font-size:13px; font-weight:550; color:var(--muted); margin:0 0 10px; }
+  section { margin-bottom:30px; }
+
+  .variants { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr)); gap:16px; }
+  .card { border:1px solid var(--border); border-radius:12px; background:var(--band); overflow:hidden; }
+  .card.ref { opacity:.8; }
+  .card-head { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; }
+  .letter { width:22px; height:22px; display:grid; place-items:center; border:1px solid var(--accent); color:var(--accent); border-radius:6px; font-size:11px; flex:none; }
+  .card.ref .letter { border-color:var(--border); color:var(--muted); }
+  .card-head h2 { font-size:14px; font-weight:600; }
+  .tag { margin-left:auto; font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0 8px; }
+  .mini { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 16px; }
+  .tile { border-radius:10px; border:1px solid var(--line); background:var(--page); color:var(--text); }
+  .mini .tile { padding:14px 0 10px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .mini .tile > svg { width:64px; height:64px; }
+  .sizes { display:flex; align-items:end; gap:12px; }
+  .sizes figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .sizes figcaption { font-size:10px; color:var(--muted); }
+  .bands { display:grid; gap:8px; padding:10px 16px 0; }
+  .bands .tile { padding:6px 12px; }
+  .desc { padding:12px 16px 16px; font-size:13px; color:var(--muted); }
+  .desc b { color:var(--text); font-weight:550; }
+
+  /* Rhythm graph: arc length over one cycle. */
+  .graph { padding:10px 16px 0; }
+  .graph svg { width:100%; height:44px; }
+  .graph .axis { stroke:var(--line); stroke-width:1; }
+  .graph .curve { fill:none; stroke:var(--accent); stroke-width:1.5; }
+  .graph text { font-size:9px; fill:var(--muted); }
+
+  .frames { display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:8px; padding:14px; }
+  .frame { border:1px solid var(--line); border-radius:10px; padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .frame svg { width:44px; height:44px; }
+  .frame span { font-size:11px; color:var(--muted); }
+  .frame * { animation-play-state:paused !important; }
+
+  /* Live band, mirroring 14-live-activity.css + the 22-markdown.css comet. */
+  .live { width:max-content; max-width:100%; min-height:24px; display:flex; align-items:center; gap:7px; color:var(--muted); }
+  .live-icon { width:16px; height:20px; flex:0 0 16px; display:grid; place-items:center; line-height:0; }
+  .live-icon svg { width:14px; height:14px; }
+  .verb { position:relative; font-weight:500; --cells:8; }
+  .verb::after {
+    content:attr(data-text); position:absolute; inset:0; pointer-events:none; color:transparent;
+    background:linear-gradient(90deg,transparent 0%,color-mix(in oklch,var(--accent) 35%,transparent) 25%,color-mix(in oklch,var(--accent) 22%,white) 50%,color-mix(in oklch,var(--accent) 35%,transparent) 75%,transparent 100%) 0 0 / 4ch 100% no-repeat;
+    background-clip:text; -webkit-background-clip:text;
+    animation:comet calc((var(--cells) + 7) * 100ms * var(--k)) linear infinite;
+  }
+  @keyframes comet { from { background-position:-4ch 0; } to { background-position:calc(100% + 7ch) 0; } }
+  .meta { font-weight:400; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .meta::before { content:"\00B7"; margin-right:7px; }
+
+  @media (max-width:760px) { body .page { padding:20px 14px 40px; } }
+
+  .o { transform-box:view-box; transform-origin:12px 12px; }
+  .arc { fill:none; stroke:var(--head); stroke-width:3; stroke-linecap:round; stroke-dasharray:0 360; }
+  .star { fill:var(--head); }
+
+  /* v3 A, kept verbatim for comparison. */
+  .v3 .arc { animation:v3draw calc(var(--k) * 1800ms) infinite; }
+  @keyframes v3draw {
+    0% { stroke-dasharray:0 360; stroke-dashoffset:0; animation-timing-function:cubic-bezier(.6,0,.15,1); }
+    40% { stroke-dasharray:80 280; stroke-dashoffset:0; }
+    58% { stroke-dasharray:80 280; stroke-dashoffset:0; animation-timing-function:cubic-bezier(.55,0,.25,1); }
+    100% { stroke-dasharray:0 360; stroke-dashoffset:-120; }
+  }
+  .v3 .star { animation:v3star calc(var(--k) * 1800ms) infinite; }
+  @keyframes v3star {
+    0% { transform:rotate(0) scale(.8); animation-timing-function:cubic-bezier(.6,0,.15,1); }
+    40% { transform:rotate(90deg) scale(1.22); animation-timing-function:cubic-bezier(.3,0,.3,1); }
+    58% { transform:rotate(90deg) scale(1.04); animation-timing-function:cubic-bezier(.55,0,.25,1); }
+    100% { transform:rotate(90deg) scale(.8); }
+  }
+</style>
+<style id="generated"></style>
+</head>
+<body class="t theme-dark" data-color="aurora">
+<svg class="defs" aria-hidden="true">
+  <defs>
+    <linearGradient id="aurora-d" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7fc0ff"/><stop offset="1" stop-color="#c3a6ff"/></linearGradient>
+    <linearGradient id="aurora-l" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1d63e0"/><stop offset="1" stop-color="#7140d8"/></linearGradient>
+    <linearGradient id="ti-d" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".5" stop-color="#9fb0c8"/><stop offset="1" stop-color="#ffffff"/></linearGradient>
+    <linearGradient id="ti-l" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f172a"/><stop offset=".5" stop-color="#64748b"/><stop offset="1" stop-color="#0f172a"/></linearGradient>
+  </defs>
+</svg>
+<div class="page">
+  <h1>6번 로고 드로잉 · v4 부드러운 루프</h1>
+  <p class="intro">멈춤과 급가속을 없앴습니다. 원호는 한순간도 서지 않고 같은 방향으로 흐르고, 리듬은 원호 길이가 사인 곡선으로 숨 쉬는 것으로만 만듭니다. 꼬리가 절대 뒤로 밀리지 않도록 곡선을 계산해 키프레임으로 뽑았습니다.</p>
+
+  <div class="toolbar">
+    <div class="control"><span class="control-label">색감</span>
+      <div class="segments" data-group="color">
+        <button data-v="neutral"><span class="swatch" style="background:#f4f4f5;border:1px solid #888"></span>선명 뉴트럴</button>
+        <button data-v="blue"><span class="swatch" style="background:#8cc2ff"></span>블루</button>
+        <button data-v="aurora" aria-pressed="true"><span class="swatch" style="background:linear-gradient(135deg,#7fc0ff,#c3a6ff)"></span>오로라</button>
+        <button data-v="titanium"><span class="swatch" style="background:linear-gradient(135deg,#fff,#9fb0c8,#fff);border:1px solid #888"></span>타이타늄</button>
+      </div></div>
+    <div class="control"><span class="control-label">속도</span>
+      <div class="segments" data-group="speed"><button data-v="4">슬로모션 ¼</button><button data-v="1.5">느리게</button><button data-v="1" aria-pressed="true">기본</button><button data-v="0.7">빠르게</button></div></div>
+    <div class="control"><div class="segments" data-group="pause"><button data-v="pause">일시정지</button></div></div>
+  </div>
+
+  <section>
+    <p class="section-title">v4 시안 3종 + v3 비교</p>
+    <div class="variants" id="variants"></div>
+  </section>
+
+  <section>
+    <p class="section-title">한 주기 프레임 분해 (A · 머무는 숨)</p>
+    <div class="tile t theme-dark"><div class="frames" id="frames"></div></div>
+  </section>
+</div>
+
+<script>
+  const STAR = 'M12 8.2 13.19 10.81 15.8 12 13.19 13.19 12 15.8 10.81 13.19 8.2 12 10.81 10.81Z';
+  const TAU = Math.PI * 2;
+
+  // Each motion is three curves over one cycle t∈[0,1]:
+  //   C(t) arc centre (deg along the orbit), L(t) arc length (deg), R(t) star turn.
+  // Tail = C − L/2, head = C + L/2. The loop closes because every arc ends as a
+  // dot exactly where the next arc began (120° or 240° on, 3-fold symmetry).
+  // Every curve below keeps the tail's speed C' − L'/2 > 0: no part ever runs back.
+  // Arcs start at −120/0/120 and the star sits at a multiple of 90° at each
+  // peak, so the longest arc is the exact logo pose.
+  const motions = {
+    a: { // lingering breath: the centre slows while the arc is long
+      ms: 2000, travel: 120, peak: 70,
+      C: (t) => 120 * t + (120 * 0.35 * Math.sin(TAU * t)) / TAU,
+      L: (t) => 35 * (1 - Math.cos(TAU * t)),
+      R: (t) => 90 * t - 45,
+    },
+    b: { // even flow: constant orbit, one breath per third
+      ms: 1800, travel: 120, peak: 76,
+      C: (t) => 120 * t,
+      L: (t) => 38 * (1 - Math.cos(TAU * t)),
+      R: (t) => 90 * t - 45,
+    },
+    c: { // two beats: a long breath, then a short one, over two thirds
+      ms: 3000, travel: 240, peak: 70,
+      C: (t) => 240 * t,
+      L: (t) => (t < 0.5 ? 35 : 17) * (1 - Math.cos(2 * TAU * t)),
+      R: (t) => 180 * t - 45,
+    },
+  };
+
+  const STEPS = 60;
+  const r = (n) => Math.round(n * 100) / 100;
+  let css = '';
+  for (const [key, m] of Object.entries(motions)) {
+    let arc = '';
+    let star = '';
+    for (let i = 0; i <= STEPS; i++) {
+      const t = i / STEPS;
+      const L = m.L(t);
+      const tail = m.C(t) - L / 2;
+      const pct = r(t * 100);
+      arc += `${pct}%{stroke-dasharray:${r(L)} ${r(360 - L)};stroke-dashoffset:${r(-tail)}}`;
+      star += `${pct}%{transform:rotate(${r(m.R(t))}deg) scale(${r(0.82 + 0.36 * (L / m.peak))})}`;
+    }
+    css += `@keyframes arc-${key}{${arc}}@keyframes star-${key}{${star}}`;
+    css += `.m-${key} .arc{animation:arc-${key} calc(var(--k) * ${m.ms}ms) linear infinite}`;
+    css += `.m-${key} .star{animation:star-${key} calc(var(--k) * ${m.ms}ms) linear infinite}`;
+  }
+  document.getElementById('generated').textContent = css;
+
+  const glyph = (cls) =>
+    `<svg viewBox="0 0 24 24" class="${cls}"><g>${(cls === 'v3' ? [-100, 20, 140] : [-120, 0, 120]).map((rot) => `<circle class="arc" cx="12" cy="12" r="7.6" pathLength="360" transform="rotate(${rot} 12 12)"/>`).join('')}</g><path class="o star" d="${STAR}"/></svg>`;
+  const live = (svg) => `<div class="live"><span class="live-icon">${svg}</span><span class="verb" data-text="Thinking">Thinking</span><span class="meta">12s · 1.2k tokens</span></div>`;
+
+  // Arc-length graph so the rhythm is visible, not only felt.
+  const graph = (key) => {
+    const m = motions[key];
+    const pts = Array.from({ length: 81 }, (_, i) => {
+      const t = i / 80;
+      return `${r(t * 300)},${r(38 - (m.L(t) / 80) * 34)}`;
+    }).join(' ');
+    return `<div class="graph"><svg viewBox="0 0 300 44" preserveAspectRatio="none"><line class="axis" x1="0" y1="38" x2="300" y2="38"/><polyline class="curve" points="${pts}"/><text x="0" y="10">원호 길이</text><text x="268" y="10">1주기</text></svg></div>`;
+  };
+
+  const cards = [
+    { cls: 'm-a', key: 'a', letter: 'A', name: '머무는 숨', tag: '추천',
+      desc: '<b>원호가 길어질 때 흐름이 살짝 느려져 로고 모양에 자연스럽게 머물고, 짧아질 때 다시 빨라집니다.</b> 멈춤 없이도 "로고가 보이는 순간"이 생겨 리듬과 부드러움을 모두 살렸습니다. 2초 주기.' },
+    { cls: 'm-b', key: 'b', letter: 'B', name: '고른 흐름', tag: '가장 매끈',
+      desc: '<b>회전 속도는 항상 일정하고 원호 길이만 숨 쉽니다.</b> 가장 매끈한 루프라 오래 봐도 거슬리지 않지만 리듬감은 가장 약합니다. 1.8초 주기.' },
+    { cls: 'm-c', key: 'c', letter: 'C', name: '두 박자', tag: '리듬 강조',
+      desc: '<b>긴 숨 한 번, 짧은 숨 한 번을 번갈아 쉬며 "쿵–짝" 박자를 만듭니다.</b> 리듬감이 가장 분명하고 음악적입니다. 짧은 숨에서는 로고 모양까지 가지 않습니다. 3초 주기.' },
+    { cls: 'v3', key: null, letter: 'v3', name: '이전 v3 · 락인', tag: '비교', ref: true,
+      desc: '로고에서 딱 멈췄다가 급하게 출발하는 이전 버전입니다.' },
+  ];
+
+  document.getElementById('variants').innerHTML = cards.map((c) => `
+    <article class="card${c.ref ? ' ref' : ''}">
+      <div class="card-head"><span class="letter">${c.letter}</span><h2>${c.name}</h2><span class="tag">${c.tag}</span></div>
+      <div class="mini">
+        ${['theme-dark', 'theme-light'].map((theme) => `
+          <div class="tile t ${theme}">
+            ${glyph(c.cls)}
+            <div class="sizes">${[24, 16, 14, 12].map((s) => `<figure><span style="display:block;width:${s}px;height:${s}px">${glyph(c.cls).replace('<svg', `<svg width="${s}" height="${s}"`)}</span><figcaption>${s}</figcaption></figure>`).join('')}</div>
+          </div>`).join('')}
+      </div>
+      <div class="bands">
+        <div class="tile t theme-dark">${live(glyph(c.cls))}</div>
+        <div class="tile t theme-light">${live(glyph(c.cls))}</div>
+      </div>
+      ${c.key ? graph(c.key) : ''}
+      <p class="desc">${c.desc}</p>
+    </article>`).join('');
+
+  document.getElementById('frames').innerHTML = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875]
+    .map((p) => `<div class="frame" style="--p:${p}">${glyph('m-a')}<span>${Math.round(p * 100)}%</span></div>`).join('');
+  // Park each frame at its phase of A's cycle.
+  document.querySelectorAll('.frame').forEach((frame) => {
+    const p = Number(frame.style.getPropertyValue('--p'));
+    frame.querySelectorAll('.arc, .star').forEach((el) => { el.style.animationDelay = `calc(var(--k) * ${-p * motions.a.ms}ms)`; });
+  });
+
+  document.querySelectorAll('.segments').forEach((group) => {
+    group.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      const kind = group.dataset.group;
+      const value = button.dataset.v;
+      if (kind === 'pause') {
+        const on = button.getAttribute('aria-pressed') !== 'true';
+        button.setAttribute('aria-pressed', String(on));
+        document.body.classList.toggle('paused', on);
+        return;
+      }
+      group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+      if (kind === 'color') document.body.dataset.color = value;
+      if (kind === 'speed') document.documentElement.style.setProperty('--k', value);
+    });
+  });
+</script>
+</body>
+</html>

@@ -73,7 +73,7 @@ test('a model-parameter pane roves with the arrows and ArrowLeft closes it', asy
         tuningDisabled: false,
         onSelectModel: noop,
         onChangeEffort: noop,
-        onChangeFast: noop,
+        onChangeSpeed: noop,
         onChangeContext: noop,
       })
     )

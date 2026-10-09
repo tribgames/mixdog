@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mixdog · 레퍼런스 기반 띵킹 아이콘</title>
+<style>
+  @property --a { syntax:'<angle>'; inherits:false; initial-value:0deg; }
+  .theme-dark {
+    color-scheme:dark;
+    --page:#111113; --band:#222225; --card:#2a2a2d;
+    --text:#e9e9e9; --muted:#a8a8a8; --accent:#79b8ff;
+    --border:rgba(255,255,255,.125); --line:rgba(255,255,255,.09); --hover:rgba(255,255,255,.08);
+    --c1:#4f8dff; --c2:#9b72f2; --c3:#5ec8f2; --c4:#c58cf5; --hot:#ffffff; --gk:1;
+  }
+  .theme-light {
+    color-scheme:light;
+    --page:#f8f8fb; --band:#ffffff; --card:#f3f3f3;
+    --text:#222222; --muted:#606060; --accent:#185abc;
+    --border:rgba(23,24,26,.14); --line:rgba(23,24,26,.1); --hover:rgba(0,0,0,.06);
+    /* Deeper stops and a quieter aura: light surfaces wash glow out. */
+    --c1:#1f5fe0; --c2:#6a3fd6; --c3:#0a8fb5; --c4:#8a3fc9; --hot:#ffffff; --gk:.55;
+  }
+  body[data-pal="blue"].theme-dark, body[data-pal="blue"] .theme-dark { --c2:#3f7df0; --c3:#8cc8ff; --c4:#6aa6ff; }
+  body[data-pal="blue"] .theme-light { --c2:#1747a8; --c3:#2f80e8; --c4:#2a5fc9; }
+  :root { --k:1; --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","Segoe UI",sans-serif; }
+  body.paused *, body.paused *::before, body.paused *::after { animation-play-state:paused !important; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--text); font:14px/20px var(--sans); }
+  h1,h2,p,ul { margin:0; }
+  button { font:inherit; color:var(--muted); cursor:pointer; border:0; border-radius:6px; background:transparent; padding:4px 11px; }
+  button:hover { background:var(--hover); }
+  button[aria-pressed="true"] { background:var(--card); color:var(--text); box-shadow:0 1px 4px #0002; }
+  .page { max-width:1200px; margin:auto; padding:30px 32px 60px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.3px; }
+  .intro { color:var(--muted); margin-top:4px; font-size:13px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:12px 18px; align-items:center; margin:20px 0 22px; }
+  .control { display:flex; align-items:center; gap:9px; }
+  .control-label { color:var(--muted); font-size:13px; white-space:nowrap; }
+  .segments { display:flex; flex-wrap:wrap; gap:3px; padding:3px; border-radius:8px; background:var(--band); border:1px solid var(--line); }
+  .section-title { font-size:13px; font-weight:550; color:var(--muted); margin:0 0 10px; }
+  section { margin-bottom:28px; }
+  .tile { border-radius:10px; border:1px solid var(--line); background:var(--page); color:var(--text); }
+
+  .diag { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr)); gap:10px; }
+  .diag .tile { padding:12px 14px; font-size:12px; line-height:18px; color:var(--muted); }
+  .diag b { display:block; color:var(--text); font-size:13px; font-weight:600; margin-bottom:4px; }
+  .diag em { font-style:normal; color:var(--accent); }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr)); gap:16px; }
+  .card { border:1px solid var(--border); border-radius:12px; background:var(--band); overflow:hidden; }
+  .card.pick { border-color:var(--accent); }
+  .card-head { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; }
+  .letter { width:22px; height:22px; display:grid; place-items:center; border:1px solid var(--accent); color:var(--accent); border-radius:6px; font-size:11px; flex:none; }
+  .card-head h2 { font-size:14px; font-weight:600; }
+  .tag { margin-left:auto; font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0 8px; white-space:nowrap; }
+  .card.pick .tag { color:var(--accent); border-color:var(--accent); }
+  .mini { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 16px; }
+  .mini .tile { padding:24px 0 12px; display:flex; flex-direction:column; align-items:center; gap:18px; }
+  .sizes { display:flex; align-items:end; gap:12px; }
+  .sizes figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .sizes figcaption { font-size:10px; color:var(--muted); }
+  .bands { display:grid; gap:8px; padding:10px 16px 0; }
+  .bands .tile { padding:6px 12px; }
+  .desc { padding:12px 16px 16px; font-size:13px; color:var(--muted); }
+  .desc b { color:var(--text); font-weight:550; }
+
+  /* Live band, mirroring 14-live-activity.css + the 22-markdown.css comet. */
+  .live { width:max-content; max-width:100%; min-height:24px; display:flex; align-items:center; gap:7px; color:var(--muted); }
+  .live-icon { width:16px; height:20px; flex:0 0 16px; display:grid; place-items:center; line-height:0; }
+  .verb { position:relative; font-weight:500; --cells:8; }
+  .verb::after {
+    content:attr(data-text); position:absolute; inset:0; pointer-events:none; color:transparent;
+    background:linear-gradient(90deg,transparent 0%,color-mix(in oklch,var(--accent) 35%,transparent) 25%,color-mix(in oklch,var(--accent) 22%,white) 50%,color-mix(in oklch,var(--accent) 35%,transparent) 75%,transparent 100%) 0 0 / 4ch 100% no-repeat;
+    background-clip:text; -webkit-background-clip:text;
+    animation:comet calc((var(--cells) + 7) * 100ms * var(--k)) linear infinite;
+  }
+  @keyframes comet { from { background-position:-4ch 0; } to { background-position:calc(100% + 7ch) 0; } }
+  .meta { font-weight:400; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .meta::before { content:"\00B7"; margin-right:7px; }
+  @media (max-width:560px) { body .page { padding:20px 14px 40px; } }
+
+  /* ---------- Glyphs (em-sized) ---------- */
+  .g { position:relative; display:inline-block; width:1em; height:1em; flex:none; line-height:0; }
+  .g i { position:absolute; display:block; }
+  /* The logo's star as a mask: the silhouette never moves much; colour moves inside it. */
+  .g { --star:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1.5C12.7 9 15 11.3 22.5 12 15 12.7 12.7 15 12 22.5 11.3 15 9 12.7 1.5 12 9 11.3 11.3 9 12 1.5Z'/%3E%3C/svg%3E"); }
+  .masked { -webkit-mask:var(--star) center / contain no-repeat; mask:var(--star) center / contain no-repeat; }
+  /* Oversized conic field: only part of it passes through the star at a time. */
+  .field { inset:-50%; background:conic-gradient(from var(--a), var(--c1), var(--c2), var(--c4), var(--c3), var(--c1)); animation:field calc(var(--k) * 4200ms) linear infinite; }
+  @keyframes field { to { --a:360deg; } }
+
+  /* A · 젬 스타 — shape, field, aura, glint on four unrelated clocks. */
+  .gem .body { inset:0; overflow:hidden; animation:gem-breathe calc(var(--k) * 2600ms) ease-in-out infinite, gem-turn calc(var(--k) * 9000ms) linear infinite; }
+  .gem .core { inset:30%; border-radius:50%; background:radial-gradient(circle, color-mix(in oklch, var(--hot) 80%, transparent), transparent 70%); }
+  .gem .glint { inset:0; background:linear-gradient(115deg, transparent 38%, color-mix(in oklch, var(--hot) 85%, transparent) 50%, transparent 62%) 0 0 / 300% 100% no-repeat; animation:glint calc(var(--k) * 3100ms) cubic-bezier(.5,0,.3,1) infinite; }
+  .gem .aura { inset:-.18em; filter:blur(.2em); opacity:calc(.75 * var(--gk)); animation:aura calc(var(--k) * 2600ms) ease-in-out infinite; }
+  .gem .aura > i { inset:.18em; overflow:hidden; }
+  .gem .soft { inset:0; filter:blur(.04em); opacity:.6; }
+  .gem .soft > i { inset:0; overflow:hidden; }
+  @keyframes gem-breathe { 0%,100% { scale:.86; } 50% { scale:1; } }
+  @keyframes gem-turn { to { rotate:90deg; } }
+  @keyframes glint { 0%,55% { background-position:100% 0; } 100% { background-position:0 0; } }
+  @keyframes aura { 0%,100% { scale:.9; opacity:calc(.45 * var(--gk)); } 50% { scale:1.1; opacity:calc(.85 * var(--gk)); } }
+
+  /* B · 스파크 블룸 — one silhouette that blooms ·→✦→✸ and folds back. */
+  .spark svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .spark .shape { animation:spark-turn calc(var(--k) * 2400ms) cubic-bezier(.45,0,.2,1) infinite; transform-box:view-box; transform-origin:12px 12px; }
+  .spark svg { filter:drop-shadow(0 0 calc(.07em * var(--gk)) var(--c1)) drop-shadow(0 0 calc(.2em * var(--gk)) var(--c2)); }
+  @keyframes spark-turn { to { transform:rotate(90deg); } }
+</style>
+<style id="generated"></style>
+</head>
+<body class="t theme-dark" data-pal="aurora">
+<div class="page">
+  <h1>레퍼런스 기반 다시 만들기</h1>
+  <p class="intro">Gemini 스파클, Apple Intelligence 글로우, Claude 스파크의 구현 방식을 조사해 지금까지 안이 왜 어색했는지 정리하고, 그 원칙대로 두 개만 다시 만들었습니다.</p>
+
+  <section>
+    <p class="section-title">왜 별로였나 · 레퍼런스와 비교</p>
+    <div class="diag">
+      <div class="tile t theme-dark"><b>1. 너무 "스피너"였음</b>지금까지 안은 거의 다 회전이 주인공이었습니다. Gemini 분석 글은 <em>움직임이 크면 그냥 로딩 스피너처럼 보인다</em>고 지적합니다. 고급 레퍼런스는 모양은 거의 가만두고 그 안의 색과 빛이 움직입니다.</div>
+      <div class="tile t theme-dark"><b>2. 모든 게 한 박자에 묶여 기계적</b>레퍼런스는 빛 2초, 색 4초, 모양 9초처럼 <em>서로 나눠떨어지지 않는 주기</em>를 겹쳐서 반복이 안 보이고 살아 있는 느낌을 냅니다. 우리 안은 전부 한 주기에 맞춰져 있었습니다.</div>
+      <div class="tile t theme-dark"><b>3. 색을 칠했지, 흐르게 하지 않았음</b>Gemini는 모양보다 큰 그라데이션을 뒤에 두고 별 모양으로 오려 내 <em>색이 모양 안을 흘러가게</em> 합니다. 우리는 선 색을 바꾸거나 블러만 얹었습니다.</div>
+      <div class="tile t theme-dark"><b>4. 14px에 너무 많은 부품</b>Claude는 별 하나가 <em>· → ✢ → ✳ → ✽처럼 피어나는 것</em> 하나로 끝냅니다. 원호 3개 + 별 + 꼬리는 14px에서 정보가 너무 많아 "뭔가 돌아간다"로만 읽혔습니다.</div>
+      <div class="tile t theme-dark"><b>5. 글로우가 탁했음</b>또렷한 몸체 + 약한 블러 테두리 + 큰 블러 오라처럼 <em>층마다 역할을 나눠야</em> 깨끗합니다. 같은 블러를 한 겹 얹으면 뿌옇게 됩니다. 라이트 테마는 채도와 오라를 낮춰야 합니다.</div>
+    </div>
+  </section>
+
+  <div class="toolbar">
+    <div class="control"><span class="control-label">색</span>
+      <div class="segments" data-group="pal"><button data-v="aurora" aria-pressed="true">오로라</button><button data-v="blue">블루</button></div></div>
+    <div class="control"><span class="control-label">재생</span>
+      <div class="segments" data-group="speed"><button data-v="4">슬로모션 ¼</button><button data-v="1" aria-pressed="true">실제 속도</button></div></div>
+    <div class="control"><div class="segments" data-group="pause"><button data-v="pause">일시정지</button></div></div>
+  </div>
+
+  <section>
+    <p class="section-title">원칙대로 다시 만든 2안</p>
+    <div class="grid" id="grid"></div>
+  </section>
+</div>
+
+<script>
+  // B: one star path whose waist and reach are sampled per frame, so the
+  // silhouette itself blooms instead of spinning. Same command list in every
+  // keyframe lets the browser interpolate `d` smoothly.
+  const r3 = (n) => Math.round(n * 1000) / 1000;
+  const ease = (x, p) => (x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? 0.5 * Math.pow(2 * x, p) : 1 - 0.5 * Math.pow(2 - 2 * x, p));
+  const starPath = (R, w) => {
+    const a = 12 - R;
+    const b = 12 + R;
+    const lo = 12 - w;
+    const hi = 12 + w;
+    return `M12 ${r3(a)}Q${r3(hi)} ${r3(lo)} ${r3(b)} 12Q${r3(hi)} ${r3(hi)} 12 ${r3(b)}Q${r3(lo)} ${r3(hi)} ${r3(a)} 12Q${r3(lo)} ${r3(lo)} 12 ${r3(a)}Z`;
+  };
+  // ·(small, round) → ✦(long, slim) → ✸(full, plump) → back: forward-then-back like the CLI spark.
+  const sparkAt = (t) => {
+    const u = (1 - Math.cos(2 * Math.PI * t)) / 2;
+    const e = ease(u, 1.6);
+    const R = 2.4 + 8.4 * e;
+    const w = 1.5 + 0.9 * Math.sin(Math.PI * e) + 0.6 * e;
+    return starPath(R, w);
+  };
+  let frames = '';
+  for (let i = 0; i <= 60; i++) frames += `${r3((i / 60) * 100)}%{d:path("${sparkAt(i / 60)}")}`;
+  document.getElementById('generated').textContent =
+    `@keyframes spark-bloom{${frames}}.spark .shape path{animation:spark-bloom calc(var(--k) * 2400ms) linear infinite}`;
+
+  let uid = 0;
+  const GLYPHS = {
+    gem: () => `<span class="g gem">
+        <i class="aura"><i class="masked"><i class="field"></i></i></i>
+        <i class="body"><i class="soft"><i class="masked"><i class="field"></i></i></i><i class="masked" style="inset:0;overflow:hidden"><i class="field"></i><i class="core"></i><i class="glint"></i></i></i>
+      </span>`,
+    spark: () => {
+      const id = `sg-${uid++}`;
+      return `<span class="g spark"><svg viewBox="0 0 24 24"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" style="stop-color:var(--c3)"/><stop offset=".45" style="stop-color:var(--c1)"/><stop offset="1" style="stop-color:var(--c2)"/></linearGradient></defs>
+        <g class="shape"><path fill="url(#${id})" d="${sparkAt(0)}"/></g></svg></span>`;
+    },
+  };
+  const at = (key, size) => GLYPHS[key]().replace('class="g ', `style="font-size:${size}px" class="g `);
+  const live = (key) => `<div class="live"><span class="live-icon">${at(key, 14)}</span><span class="verb" data-text="Thinking">Thinking</span><span class="meta">12s · 1.2k tokens</span></div>`;
+
+  const CARDS = [
+    { key: 'gem', letter: 'A', name: '젬 스타', tag: 'Gemini 방식', pick: true,
+      desc: '<b>로고의 별 모양은 거의 가만히 있고, 그 안에서 오로라 색이 흘러가며 빛이 대각선으로 스칩니다.</b> 몸체 숨쉬기 2.6초, 색 흐름 4.2초, 빛 스침 3.1초, 회전 9초를 겹쳐 반복이 보이지 않습니다. 뒤에는 흐릿한 오라가 따로 숨 쉽니다.' },
+    { key: 'spark', letter: 'B', name: '스파크 블룸', tag: 'Claude 방식',
+      desc: '<b>점처럼 작던 별이 길게 뻗었다가 통통하게 피어나고, 다시 접힙니다.</b> 회전이 아니라 모양 자체가 피어나는 것으로 "생각 중"을 표현합니다. 2.4초 한 호흡, 그라데이션과 은은한 빛 번짐.' },
+  ];
+  document.getElementById('grid').innerHTML = CARDS.map((c) => `
+    <article class="card${c.pick ? ' pick' : ''}">
+      <div class="card-head"><span class="letter">${c.letter}</span><h2>${c.name}</h2><span class="tag">${c.tag}</span></div>
+      <div class="mini">
+        ${['theme-dark', 'theme-light'].map((theme) => `
+          <div class="tile t ${theme}">${at(c.key, 64)}
+            <div class="sizes">${[24, 16, 14, 12].map((z) => `<figure>${at(c.key, z)}<figcaption>${z}</figcaption></figure>`).join('')}</div>
+          </div>`).join('')}
+      </div>
+      <div class="bands">${['theme-dark', 'theme-light'].map((theme) => `<div class="tile t ${theme}">${live(c.key)}</div>`).join('')}</div>
+      <p class="desc">${c.desc}</p>
+    </article>`).join('');
+
+  document.querySelectorAll('.segments').forEach((group) => {
+    group.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      const kind = group.dataset.group;
+      const value = button.dataset.v;
+      if (kind === 'pause') {
+        const on = button.getAttribute('aria-pressed') !== 'true';
+        button.setAttribute('aria-pressed', String(on));
+        document.body.classList.toggle('paused', on);
+        return;
+      }
+      group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+      if (kind === 'pal') document.body.dataset.pal = value;
+      if (kind === 'speed') document.documentElement.style.setProperty('--k', value);
+    });
+  });
+</script>
+</body>
+</html>

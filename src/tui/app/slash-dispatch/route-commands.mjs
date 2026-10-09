@@ -166,10 +166,11 @@ export const routeCommands = {
       .toLowerCase();
     let setTo = null;
     if (!value) setTo = undefined;
+    else if (['ultra', 'ultrafast'].includes(value)) setTo = 'ultrafast';
     else if (['1', 'true', 'yes', 'on', 'enable', 'enabled'].includes(value)) setTo = true;
     else if (['0', 'false', 'no', 'off', 'disable', 'disabled'].includes(value)) setTo = false;
     if (setTo === null) {
-      store.pushNotice('usage: /fast [on|off]', 'warn');
+      store.pushNotice('usage: /fast [on|off|ultra]', 'warn');
       return true;
     }
     const action = setTo === undefined ? store.toggleFast?.() : store.setFast?.(setTo);
@@ -180,7 +181,7 @@ export const routeCommands = {
           return;
         }
         store.pushNotice(
-          `Fast mode ${enabled ? 'on' : 'off'} for ${state.provider}/${state.model}` +
+          `${setTo === 'ultrafast' ? 'Ultrafast' : `Fast mode ${enabled ? 'on' : 'off'}`} for ${state.provider}/${state.model}` +
             (state.busy ? ' (applies from the next turn)' : ''),
           'info'
         );

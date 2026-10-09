@@ -19,7 +19,7 @@
 import type { WebContents } from 'electron';
 import { join } from 'node:path';
 import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
-import { app, BrowserWindow, dialog, screen, sharedTexture, webContents } from 'electron';
+import { app, type BrowserWindow, dialog, screen, sharedTexture, webContents } from 'electron';
 
 import {
   DESKTOP_IPC,
@@ -114,6 +114,8 @@ import { browserPageGuardScripts } from './webrtc-guard';
 import type { BrowserUrlPolicy } from './url-policy';
 import { createBrowserInputDispatch } from './input-dispatch';
 import { createBrowserNativeViews, type BrowserNativeRect } from './native-view';
+import { browserPageWindow } from './page-window';
+import { createBrowserPagePower, reclaimIdleUserSessions } from './page-power';
 
 export type {
   BrowserCommand,
@@ -273,6 +275,8 @@ export function createBrowserHost(
   /** Foreground gestures serialize together; named background pages get their
    *  own queues so independent research tabs can actually run concurrently. */
   const commandChains = new Map<string, Promise<unknown>>();
+  const isBackgroundBusy = (sessionId: string, name: string) =>
+    commandChains.has(`session:${sessionId}:background:${name}`);
   /** Read-only commands observe without changing the page, so they run
    *  together; a write waits for the previous write AND every in-flight read. */
   const pendingReads = new Map<string, Set<Promise<unknown>>>();
@@ -346,6 +350,23 @@ export function createBrowserHost(
         id
       ),
   });
+  // What displays a page: a mounted panel (reported per guest), a natively
+  // presented view, or a remote viewer streaming the session's current page.
+  const panelActiveGuests = new Set<WebContents>();
+  const nativeShownGuests = new Map<string, WebContents>();
+  const remoteViewingSessions = new Set<string>();
+  const pagePower = createBrowserPagePower<WebContents>({
+    isDisplayed: (guest) => {
+      if (panelActiveGuests.has(guest)) return true;
+      if ([...nativeShownGuests.values()].includes(guest)) return true;
+      const owner = browserSessions.sessionIdForGuest(guest);
+      return owner !== undefined && remoteViewingSessions.has(owner) && browserSessions.currentGuest(owner) === guest;
+    },
+  });
+  const refreshSessionPower = (sessionId: string) => {
+    for (const guest of browserSessions.visibleGuests(sessionId)) pagePower.refresh(guest);
+    for (const page of browserSessions.backgroundPages(sessionId).values()) pagePower.refresh(page.guest);
+  };
   const lifecycle = createBrowserGuestLifecycle({
     window,
     partitionSession,
@@ -354,10 +375,12 @@ export function createBrowserHost(
     cdp,
     urlPolicy: browserUrlPolicy,
     bridgeWanted: () => bridgeWanted,
-    isBackgroundBusy: (sessionId, name) => commandChains.has(`session:${sessionId}:background:${name}`),
+    isBackgroundBusy,
     waitForLoadSettle: settle.waitForLoadSettle,
     onPopup: (opener, popup) => taskLifecycle.inherit(opener, popup),
     onGuest: (guest) => {
+      pagePower.track(guest);
+      guest.once('destroyed', () => panelActiveGuests.delete(guest));
       displayTextures.attach(guest);
       nativeViews?.watch(guest);
     },
@@ -383,7 +406,7 @@ export function createBrowserHost(
   const taskLifecycle = createBrowserTaskLifecycle<WebContents>({
     current: (sessionId) => browserSessions.currentGuest(sessionId),
     select: (sessionId, guest) => browserSessions.selectGuest(sessionId, guest),
-    close: (guest) => BrowserWindow.fromWebContents(guest)?.destroy(),
+    close: (guest) => browserPageWindow(guest)?.destroy(),
     canClose: (guest) => !state.for(guest).pendingDialog,
     preserve: (guest) => {
       const owner = browserSessions.sessionIdForGuest(guest);
@@ -537,7 +560,14 @@ export function createBrowserHost(
     urlPolicy: browserUrlPolicy,
     ensureGuest: lifecycle.ensureGuest,
     currentGuest: (sessionId) => browserSessions.currentGuest(sessionId) ?? null,
-    viewerChanged: (sessionId, active) => sendToRenderer(DESKTOP_IPC.browserRemoteViewerChanged, { sessionId, active }),
+    viewerChanged: (sessionId, active) => {
+      // Lease expiry ends a stream without remoteBrowserStream(null), so the
+      // power classification follows the stream lifecycle itself.
+      if (active) remoteViewingSessions.add(sessionId);
+      else remoteViewingSessions.delete(sessionId);
+      refreshSessionPower(sessionId);
+      sendToRenderer(DESKTOP_IPC.browserRemoteViewerChanged, { sessionId, active });
+    },
     onUserControl: retainGuest,
     assertResolvedUrlAllowed: urls.assertResolvedUrlAllowed,
     dispatchPageInput: createPageInputDispatcher({
@@ -587,15 +617,15 @@ export function createBrowserHost(
     captureTexture: (guest, documentId, pixels) =>
       displayTextures.acquire(guest, documentId, pixels.width, pixels.height),
     resize: (guest, width, height) => {
-      const owner = BrowserWindow.fromWebContents(guest);
+      const owner = browserPageWindow(guest);
       if (!owner) return null;
       owner.setContentSize(width, height);
       const [landedWidth, landedHeight] = owner.getContentSize();
       return { width: landedWidth, height: landedHeight };
     },
     viewport: (guest) => {
-      const owner = BrowserWindow.fromWebContents(guest);
-      if (!owner || owner.isDestroyed() || guest.isDestroyed()) {
+      const owner = browserPageWindow(guest);
+      if (!owner || guest.isDestroyed()) {
         throw new Error('Browser page changed during capture.');
       }
       const [width, height] = owner.getContentSize();
@@ -643,7 +673,7 @@ export function createBrowserHost(
     pageId: (guest) => state.pageId(guest),
     currentGuest: (sessionId) => browserSessions.currentGuest(sessionId),
     selectGuest: (sessionId, guest) => browserSessions.selectGuest(sessionId, guest),
-    closeGuest: (guest) => BrowserWindow.fromWebContents(guest)?.close(),
+    closeGuest: (guest) => browserPageWindow(guest)?.close(),
   });
 
   const services: BrowserActionServices = {
@@ -697,6 +727,7 @@ export function createBrowserHost(
     downloads,
     taskLifecycle,
     retainGuest,
+    drivePage: pagePower.drive,
     services,
   });
 
@@ -776,7 +807,21 @@ export function createBrowserHost(
     lifecycle.destroyAllBackgroundPages();
   }
 
-  return {
+  // Pages nobody displays or drives for long are unloaded (URLs kept) and
+  // restore when the panel or an agent command returns.
+  const userReclaimTimer = setInterval(
+    () =>
+      reclaimIdleUserSessions({
+        sessions: browserSessions,
+        power: pagePower,
+        isBackgroundBusy,
+        unload: (sessionId) => browserHost.releaseSession(sessionId, { restore: true }),
+      }),
+    BACKGROUND_RECLAIM_INTERVAL_MS
+  );
+  userReclaimTimer.unref?.();
+
+  const browserHost: BrowserHost = {
     browserPageFrame(sessionId, previousFrameId = '', texture = false) {
       const owner = browserSessionId(sessionId);
       return presentationReads.read(owner, previousFrameId, texture);
@@ -786,7 +831,13 @@ export function createBrowserHost(
     },
     browserPresentNative(sessionId, rect) {
       if (!nativeViews) return { enabled: false, shown: false };
-      return { enabled: true, shown: nativeViews.present(browserSessionId(sessionId), rect) };
+      const owner = browserSessionId(sessionId);
+      const shown = nativeViews.present(owner, rect);
+      const guest = shown ? browserSessions.currentGuest(owner) : null;
+      if (guest) nativeShownGuests.set(owner, guest);
+      else nativeShownGuests.delete(owner);
+      refreshSessionPower(owner);
+      return { enabled: true, shown };
     },
     browserPageControl(sessionId, input) {
       const owner = browserSessionId(sessionId);
@@ -837,6 +888,8 @@ export function createBrowserHost(
     },
     releaseSession(sessionId: string, options: { restore?: boolean } = {}): void {
       const ownerSessionId = browserSessionId(sessionId);
+      nativeShownGuests.delete(ownerSessionId);
+      remoteViewingSessions.delete(ownerSessionId);
       remote.releaseViewer(ownerSessionId);
       presentationReads.release(ownerSessionId);
       nativeViews?.present(ownerSessionId, null);
@@ -853,13 +906,18 @@ export function createBrowserHost(
     },
     setGuestActive(sessionId: string, webContentsId: number, active: boolean): void {
       const owner = browserSessionId(sessionId);
-      const guest = browserSessions.guestForSession(owner, webContentsId);
-      if (guest) {
-        // A late display report must never undo a newer tab selection.
-        if (active && guest === browserSessions.currentGuest(owner)) guest.invalidate();
-      } else {
+      let guest = browserSessions.guestForSession(owner, webContentsId);
+      if (!guest) {
         browserSessions.bindVisibleGuest(owner, webContentsId, active);
+        guest = browserSessions.guestForSession(owner, webContentsId);
       }
+      if (!guest) return;
+      if (active) panelActiveGuests.add(guest);
+      else panelActiveGuests.delete(guest);
+      // Restore a shown page before repainting it; a hidden one throttles.
+      pagePower.refresh(guest);
+      // A late display report must never undo a newer tab selection.
+      if (active && guest === browserSessions.currentGuest(owner)) guest.invalidate();
     },
     async configureGuestViewport(
       sessionId: string,
@@ -897,7 +955,11 @@ export function createBrowserHost(
       );
     },
     remoteBrowserStream(sessionId: string, streamOptions: DesktopRemoteBrowserStreamOptions | null): Promise<void> {
-      return remote.remoteBrowserStream(browserSessionId(sessionId), streamOptions);
+      const owner = browserSessionId(sessionId);
+      if (streamOptions) remoteViewingSessions.add(owner);
+      else remoteViewingSessions.delete(owner);
+      refreshSessionPower(owner);
+      return remote.remoteBrowserStream(owner, streamOptions);
     },
     remoteBrowserControl(sessionId: string, control: DesktopRemoteBrowserControl): Promise<void> {
       return executeSerialized({ action: 'remote_control', session_id: browserSessionId(sessionId) }, undefined, () =>
@@ -907,6 +969,7 @@ export function createBrowserHost(
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;
+      clearInterval(userReclaimTimer);
       screen.removeListener('display-metrics-changed', followPrimaryScale);
       screen.removeListener('display-added', followPrimaryScale);
       screen.removeListener('display-removed', followPrimaryScale);
@@ -922,4 +985,5 @@ export function createBrowserHost(
       lifecycle.destroyAllPrimaryPages();
     },
   };
+  return browserHost;
 }

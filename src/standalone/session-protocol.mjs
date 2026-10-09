@@ -157,6 +157,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'installLocalProviderModel',
   'startLocalProviderInstallation',
   'cancelLocalProviderInstallation',
+  'discardLocalProviderInstallation',
   'setLocalProviderIdleTtl',
   'setLocalProviderContext',
   'registerHuggingFaceModel',

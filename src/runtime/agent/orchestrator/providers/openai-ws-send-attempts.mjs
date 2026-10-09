@@ -7,7 +7,7 @@
  * replay is permitted after live text or an emitted tool call. The two
  * failure resolvers either return true (the caller starts the next attempt)
  * or throw the error the caller must surface — already stamped with the
- * warmup, live-text and tool markers.
+ * live-text and tool markers.
  *
  *   openai-ws-send-attempts/policy.mjs                — budget, backoff, classification seams
  *   openai-ws-send-attempts/attempt-context.mjs       — cross-attempt state, surface/backoff
@@ -34,7 +34,6 @@ export {
  * @param {(ms: number) => Promise<void>} deps.sleepFn
  * @param {object} deps.sendSpan
  * @param {(progress: { attempt: number, max: number, classifier: string|null }) => void} deps.emitReconnectProgress
- * @param {(err: Error) => Error} deps.stampWarmup
  * @param {{ markText(): void, markTool(): void, stampText(e: Error): Error, stampTool(e: Error): Error }} deps.safetyStamps
  * @param {Function|null} deps.handshakeErrorPolicy
  * @param {boolean} deps.retry429
@@ -50,12 +49,11 @@ export function createWsSendAttempts(deps) {
     state: ctx.state,
     /** A handshake/acquire failure. True → the caller retries. */
     handshakeFailed: (err, info) => resolveHandshakeFailure(ctx, err, info),
-    /** A failure after the socket was acquired (frame send, warmup or the
+    /** A failure after the socket was acquired (frame send or the
      *  stream itself). True → the caller retries on a fresh socket. */
     streamFailed: (err, info) => resolveStreamFailure(ctx, err, info),
     /** The loop cannot end without returning or throwing; this is the
      *  honest fallback for a budget that somehow ran out silently. */
-    exhausted: () =>
-      deps.stampWarmup(ctx.stampAll(ctx.state.firstAttemptError || new Error('sendViaWebSocket: unreachable'))),
+    exhausted: () => ctx.stampAll(ctx.state.firstAttemptError || new Error('sendViaWebSocket: unreachable')),
   };
 }

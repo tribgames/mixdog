@@ -32,7 +32,7 @@ function runsXml(runs) {
       const properties = [
         wordRunProperties({
           name: run.font || undefined,
-          nameEastAsia: run.font || undefined,
+          nameEastAsia: run.fontEastAsia || run.font || undefined,
           size: run.size,
           bold: run.bold || undefined,
           italic: run.italic || undefined,
@@ -275,7 +275,7 @@ class BodyWriter {
 function runningOperations(kind, running) {
   if (!running?.text) return [];
   const properties = {
-    ...(running.font ? { name: running.font, nameEastAsia: running.font } : {}),
+    ...(running.font ? { name: running.font, nameEastAsia: running.fontEastAsia || running.font } : {}),
     size: running.size,
     color: running.color,
     ...(running.bold ? { bold: true } : {}),
@@ -317,7 +317,7 @@ export async function buildDocxFromFlow(flow, output, { page, captures, title = 
     const run = block?.runs.find((entry) => entry.text);
     if (!run) continue;
     headingStyles[`Heading ${level}`] = {
-      ...(run.font ? { name: run.font, nameEastAsia: run.font } : {}),
+      ...(run.font ? { name: run.font, nameEastAsia: run.fontEastAsia || run.font } : {}),
       size: run.size,
       bold: run.bold,
       color: run.color,
@@ -325,7 +325,7 @@ export async function buildDocxFromFlow(flow, output, { page, captures, title = 
     };
   }
   const body = flow.body || {};
-  const face = body.font ? { name: body.font, nameEastAsia: body.font } : {};
+  const face = body.font ? { name: body.font, nameEastAsia: body.fontEastAsia || body.font } : {};
   await applyPortableOoxmlBatch(output, 'docx', [
     {
       op: 'set_page',

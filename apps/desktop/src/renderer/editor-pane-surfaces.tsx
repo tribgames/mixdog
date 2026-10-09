@@ -43,7 +43,7 @@ export function EditorPaneFileFallback({
       <p>
         {load.binary
           ? t('Binary file — in-app editing is unavailable.')
-          : t('File exceeds the 1 MB in-app editing cap.')}
+          : t('File exceeds the 10 MB in-app viewing cap.')}
       </p>
       <button type="button" onClick={onOpen}>
         <ExternalLink size={14} aria-hidden="true" /> {t('Open in default app')}

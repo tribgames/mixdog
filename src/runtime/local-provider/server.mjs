@@ -25,6 +25,8 @@ let exitHookInstalled = false;
 const requests = createLocalRequestQueue({ unload: () => server.stop() });
 
 export const runLocalProviderRequest = (operation, options) => requests.run(operation, options);
+// Unloads the server without cancelling queued work; callers hold the request slot.
+export const unloadLocalProviderServer = () => server.stop();
 export const configureLocalProviderIdleTtl = (seconds) =>
   requests.configure(
     Number.isInteger(seconds) && seconds >= 0 && seconds <= 86400 ? seconds : DEFAULT_LOCAL_IDLE_TTL_SECONDS

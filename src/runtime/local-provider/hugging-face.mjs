@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { HUGGING_FACE_REPOSITORY_ID, huggingFaceFileUrl, registerLocalModel } from './registered-models.mjs';
 import { parseGgufHeader, ggufMemoryPlan } from './gguf-header.mjs';
+import { LOCAL_CONTEXT_DEFAULT_TOKENS, LOCAL_CONTEXT_MIN_TOKENS } from './context-settings.mjs';
+import { detectLocalProviderHardware } from './hardware.mjs';
 
 const ORIGIN = 'https://huggingface.co';
 const MAX_JSON = 4 * 1024 * 1024;
@@ -51,8 +53,22 @@ async function fetchGgufHeader(request, url, fileSize) {
   throw new Error('GGUF metadata exceeds the 16 MiB inspection limit.');
 }
 
-export function createHuggingFaceCatalog({ fetchFn = fetch, dataDir = resolvePluginData(), now = Date.now } = {}) {
+export function createHuggingFaceCatalog({
+  fetchFn = fetch,
+  dataDir = resolvePluginData(),
+  now = Date.now,
+  hardwareFn = detectLocalProviderHardware,
+} = {}) {
   const previews = new Map();
+  // Without an explicit size, take the default window when the largest GPU
+  // holds it and fall back to the agent minimum otherwise.
+  async function defaultMemoryPlan(header, fileSize) {
+    const plan = ggufMemoryPlan(header, fileSize, LOCAL_CONTEXT_DEFAULT_TOKENS);
+    if (plan.contextWindow <= LOCAL_CONTEXT_MIN_TOKENS) return plan;
+    const gpus = (await hardwareFn())?.gpus || [];
+    const memory = Math.max(0, ...gpus.map((gpu) => Number(gpu.memoryBytes) || 0));
+    return plan.estimatedVramBytes <= memory ? plan : ggufMemoryPlan(header, fileSize, LOCAL_CONTEXT_MIN_TOKENS);
+  }
   const request = (url, options = {}) => fetchFn(url, { signal: AbortSignal.timeout(30_000), ...options });
   const json = async (url) =>
     JSON.parse((await boundedBody(await request(url, { redirect: 'error' }), MAX_JSON)).toString('utf8'));
@@ -93,10 +109,13 @@ export function createHuggingFaceCatalog({ fetchFn = fetch, dataDir = resolvePlu
           })),
       };
     },
-    async inspect({ repository, filename, contextWindow = 8192 } = {}) {
+    async inspect({ repository, filename, contextWindow } = {}) {
       repositoryId(repository);
-      if (!Number.isInteger(contextWindow) || contextWindow < 512 || contextWindow > 32768)
-        throw new TypeError('contextWindow must be between 512 and 32768.');
+      if (
+        contextWindow !== undefined &&
+        (!Number.isInteger(contextWindow) || contextWindow < LOCAL_CONTEXT_MIN_TOKENS || contextWindow > 32768)
+      )
+        throw new TypeError(`contextWindow must be between ${LOCAL_CONTEXT_MIN_TOKENS} and 32768.`);
       const info = await json(`${ORIGIN}/api/models/${repository}?blobs=true`);
       if (info.private || info.gated || info.disabled)
         throw new Error('Only public, ungated Hugging Face models can be installed.');
@@ -137,7 +156,10 @@ export function createHuggingFaceCatalog({ fetchFn = fetch, dataDir = resolvePlu
         throw new Error('Selected GGUF is missing verified LFS size/SHA-256 metadata.');
       const url = huggingFaceFileUrl(repository, info.sha, filename);
       const header = await fetchGgufHeader(request, url, file.size);
-      const plan = ggufMemoryPlan(header, file.size, contextWindow);
+      const plan =
+        contextWindow === undefined
+          ? await defaultMemoryPlan(header, file.size)
+          : ggufMemoryPlan(header, file.size, contextWindow);
       const id = `hf-${createHash('sha256').update(`${repository}|${info.sha}|${filename}`).digest('hex').slice(0, 24)}`;
       const model = {
         id,

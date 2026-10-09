@@ -106,7 +106,17 @@ test('runtime progress from a chat installation stays live without a UI install 
   }
 });
 
-test('context input validates numbers, applies explicitly, and supports automatic reset', async () => {
+const contextPicker = (name) => document.querySelector(`[role="combobox"][aria-label="${name} · Context size"]`);
+const pickOption = async (trigger, label) => {
+  await act(async () => trigger.click());
+  const options = [...document.querySelectorAll('[role="option"]')];
+  const choice = options.find((option) => option.textContent === label);
+  await act(async () => choice.click());
+  return options.map((option) => option.textContent);
+};
+const actionButton = (label) => document.querySelector(`[data-feature-id="localProvider"] button[aria-label="${label}"]`);
+
+test('context picker offers supported sizes from the agent minimum and applies or resets at once', async () => {
   const current = status({
     installed: true,
     enabled: true,
@@ -118,10 +128,11 @@ test('context input validates numbers, applies explicitly, and supports automati
         id: 'installed',
         name: 'Managed model',
         installed: true,
-        contextWindow: 8192,
-        configuredContextWindow: 8192,
+        contextWindow: 16384,
+        configuredContextWindow: 16384,
         defaultContextWindow: 32768,
-        maxContextWindow: 262144,
+        minContextWindow: 16384,
+        maxContextWindow: 65536,
       },
     ],
   });
@@ -134,23 +145,12 @@ test('context input validates numbers, applies explicitly, and supports automati
       return {};
     }
   );
-  const button = (text) => [...document.querySelectorAll('button')].find((node) => node.textContent === text);
-  const input = () => document.querySelector('input[inputmode="numeric"]');
-  const enter = async (value) =>
-    act(async () => {
-      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input(), value);
-      input().dispatchEvent(new dom.window.Event('input', { bubbles: true }));
-    });
   try {
-    await enter('262145');
-    assert.equal(input().getAttribute('aria-invalid'), 'true');
-    assert.equal(button('Apply').disabled, true);
-    await enter('16384');
-    assert.deepEqual(calls, []);
-    await act(async () => button('Apply').click());
-    assert.deepEqual(calls[0], ['setLocalProviderContext', ['installed', 16384]]);
-    await enter('');
-    await act(async () => button('Apply').click());
+    assert.match(contextPicker('Managed model').textContent, /16K/);
+    const offered = await pickOption(contextPicker('Managed model'), '64K');
+    assert.deepEqual(offered, ['Default (32K)', '16K', '32K · recommended', '64K']);
+    assert.deepEqual(calls[0], ['setLocalProviderContext', ['installed', 65536]]);
+    await pickOption(contextPicker('Managed model'), 'Default (32K)');
     assert.deepEqual(calls[1], ['setLocalProviderContext', ['installed', null]]);
   } finally {
     await mounted.dispose();
@@ -168,8 +168,8 @@ test('changing idle release keeps context controls stable while the request is p
         id: 'installed',
         name: 'Managed model',
         installed: true,
-        contextWindow: 8192,
-        configuredContextWindow: 8192,
+        contextWindow: 16384,
+        configuredContextWindow: 16384,
         maxContextWindow: 32768,
       },
     ],
@@ -187,25 +187,19 @@ test('changing idle release keeps context controls stable while the request is p
   );
   try {
     const row = document.querySelector('[data-extension-item="Managed model"]');
-    const input = row.querySelector('input');
-    const apply = [...row.querySelectorAll('button')].find((button) => button.textContent === 'Apply');
+    const picker = contextPicker('Managed model');
+    const remove = actionButton('Delete');
     const originalText = row.textContent;
-    const selector = document.querySelector('[data-feature-id="localProvider"] [role="combobox"]');
-    await act(async () => selector.click());
-    await act(async () =>
-      [...document.querySelectorAll('[role="option"]')]
-        .find((option) => option.textContent === 'After 30 minutes')
-        .click()
-    );
+    const idle = document.querySelector('[role="combobox"][aria-label="Auto-unload when idle"]');
+    await pickOption(idle, 'After 30 minutes');
     assert.deepEqual(calls, [['setLocalProviderIdleTtl', [1800]]]);
-    assert.equal(input.disabled, true);
-    assert.equal(apply.disabled, true);
+    assert.equal(picker.disabled, true);
+    assert.equal(remove.disabled, true);
     assert.equal(row.textContent, originalText);
-    assert.equal(input.value, '8192');
     await act(async () => request.resolve({ localProvider: { ...current, idleTtlSeconds: 1800 } }));
-    assert.equal(input.disabled, false);
+    assert.equal(picker.disabled, false);
+    assert.equal(remove.disabled, false);
     assert.equal(row.textContent, originalText);
-    assert.equal(input.value, '8192');
   } finally {
     await act(async () => request.resolve({}));
     await mounted.dispose();
@@ -277,7 +271,7 @@ test('detail lists installed models and running state, not the uninstalled catal
     const text = document.querySelector('[data-feature-id="localProvider"]').textContent;
     assert.match(text, /Installed Qwen/);
     assert.match(text, /19.0 GB/);
-    assert.match(text, /32K context/);
+    assert.match(text, /32K/);
     assert.match(text, /Running/);
     assert.doesNotMatch(text, /Catalog-only model/);
   } finally {
@@ -299,17 +293,33 @@ test('detail can stop the shared download, resume retained files and change idle
     return { localProvider: current };
   });
   try {
-    const button = (label) =>
-      [...document.querySelectorAll('[data-feature-id="localProvider"] button')].find(
-        (entry) => entry.textContent === label
-      );
-    await act(async () => button('Stop download').click());
+    // An installing model sits in the same table as installed ones, marked by its status.
+    const row = () => document.querySelector('[data-extension-item="Test model"]');
+    assert.match(row().textContent, /Installing 35%/);
+    await act(async () => actionButton('Stop download').click());
     assert.deepEqual(calls[0], ['cancelLocalProviderInstallation', ['download-job']]);
     current = { ...current, installations: [{ phase: 'model', modelId: 'test-model', state: 'paused', percent: 35 }] };
     await mounted.render(current);
-    await act(async () => button('Resume installation').click());
+    assert.match(row().textContent, /Paused/);
+    await act(async () => actionButton('Resume installation').click());
     assert.deepEqual(calls[1], ['startLocalProviderInstallation', ['model', 'test-model']]);
-    const selector = document.querySelector('[data-feature-id="localProvider"] [role="combobox"]');
+    await act(async () => actionButton('Discard').click());
+    assert.equal(calls.length, 2);
+    await act(async () => document.querySelector('[role="alertdialog"] button.danger').click());
+    assert.deepEqual(calls.splice(2), [['discardLocalProviderInstallation', ['model', 'test-model']]]);
+    current = {
+      ...current,
+      installations: [
+        { phase: 'model', modelId: 'test-model', state: 'failed', error: '[local-provider] network connection lost' },
+      ],
+    };
+    await mounted.render(current);
+    // The failure reads as its status; the raw message waits in the pill's tooltip.
+    assert.match(row().textContent, /Installation failed/);
+    assert.doesNotMatch(row().textContent, /network connection lost/);
+    assert.equal(row().querySelector('.local-provider-status').dataset.tooltip, 'network connection lost');
+    assert.ok(actionButton('Retry'));
+    const selector = document.querySelector('[role="combobox"][aria-label="Auto-unload when idle"]');
     assert.match(selector.textContent, /After 1 hour/);
     await act(async () => selector.click());
     await act(async () =>
@@ -364,15 +374,44 @@ test('installed model lists its facts and deletion waits for an exact-path confi
     // row carries its facts and one Delete control, no maintenance clutter.
     assert.match(detail().textContent, /Managed model/);
     assert.match(detail().textContent, /1.0 GB/);
-    const button = (name) => [...detail().querySelectorAll('button')].find((entry) => entry.textContent === name);
-    assert.equal(button('Verify integrity'), undefined);
-    await act(async () => button('Delete').click());
+    assert.equal(actionButton('Verify integrity'), null);
+    await act(async () => actionButton('Delete').click());
     assert.equal(calls.filter(([name]) => name === 'deleteLocalProviderModel').length, 0);
     const confirmation = document.querySelector('[role="alertdialog"]');
     assert.match(confirmation.textContent, /C:\\Managed\\installed.gguf/);
     assert.match(confirmation.textContent, /Permanently deletes/);
     await act(async () => confirmation.querySelector('button.danger').click());
     assert.deepEqual(calls.at(-1), ['deleteLocalProviderModel', ['confirmed-file']]);
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+test('a loaded model can be deleted while idle but not while it answers a request', async () => {
+  const model = { id: 'installed', name: 'Managed model', installed: true, sizeBytes: 1e9 };
+  const loaded = (requests) =>
+    status({
+      installed: true,
+      runtime: { installed: true },
+      running: true,
+      activeModel: 'installed',
+      activeRequests: requests,
+      models: [model],
+    });
+  let current = loaded(0);
+  const mounted = await mount(
+    { readCapabilities: async () => [{ ok: true, value: { localProvider: current } }] },
+    current,
+    async () => ({ confirmationToken: 'token', files: [{ path: 'C:\\Managed\\installed.gguf', size: 1e9 }] })
+  );
+  try {
+    const remove = () => actionButton('Delete');
+    assert.equal(remove().disabled, false);
+    await act(async () => remove().click());
+    assert.match(document.querySelector('[role="alertdialog"]').textContent, /unloaded first/);
+    current = loaded(1);
+    await mounted.render(current);
+    assert.equal(remove().disabled, true);
   } finally {
     await mounted.dispose();
   }

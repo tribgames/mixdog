@@ -2,7 +2,7 @@
 
 Owns the code: primitives that draw what `composition.md` names, sized with `MEASURE` so text never overflows. The kit is a toolbox, not a slide catalog — no function here draws a whole slide, and every position is the author's. Draw every repeated element through one function so the deck stays consistent. Chart and table helpers are in `charts.md`, picture helpers in `pictures.md` §4.
 
-**The runtime runs every code block of this file, `charts.md`, and `pictures.md` before the script** — the script never pastes them. A script opens with the brief, then one `deck({ style, hue, accentHue?, mode, script, pairing, fonts })` call that sets the frame the style chooses, the palette, the faces, the type scale, the zones, and the masters, then the slides. Read the blocks for the signatures and defaults; redefine a helper in the script when a page needs a different one (a later declaration wins). A script that creates its own `pres` runs without the prelude.
+**The runtime runs every code block of this file, `charts.md`, and `pictures.md` before the script** — the script never pastes them. A script opens with the brief, then one `deck({ style, hue, accentHue?, accentMode?, mode, script, pairing, fonts })` call that sets the frame the style chooses, the palette, the faces, the type scale, the zones, and the masters, then the slides. Read the blocks for the signatures and defaults; redefine a helper in the script when a page needs a different one (a later declaration wins). A script that creates its own `pres` runs without the prelude.
 
 **Hard rule — paragraph options sit on the first run**: the runtime keeps one `a:pPr` per paragraph (the first). `bullet`, `align`, `paraSpaceAfter`, `lineSpacingMultiple` go on the text box or on a paragraph's first run; `breakLine: true` on a paragraph's last run. → runtime (absorbed: the normalizer keeps the first `pPr`; nothing to check)
 
@@ -113,7 +113,22 @@ function counterHue(h) {
 // at 4.5:1 (a yellow pill carries dark type, a green one white), else the type form of the accent under white (a mid
 // amber or blue can host neither at 12 pt). Charts, arcs, dots, and bars fill with accentFill; a word in the accent,
 // a kicker, an emphasis run, a hero numeral keep `accent`.
-function palette({ hue = 205, accentHue = counterHue(hue), accentSat = 0.72, accentLight = 0.42 } = {}) {
+// accentMode: where the accent sits against the seed when accentHue is not given — 'complement' (the default: counterHue),
+// 'analogous' (seed + 30°), 'split' (counterHue + 30°), 'mono' (the seed itself). warmth (-1..1, default 0) leans every
+// neutral (paper, type, lines, marks) toward amber (+) or blue (-) without moving the seed or the accent.
+function accentFor(seed, mode) {
+  if (mode === 'analogous') return (seed + 30) % 360;
+  if (mode === 'split') return (counterHue(seed) + 30) % 360;
+  if (mode === 'mono') return seed;
+  return counterHue(seed);
+}
+function warmHue(h, warmth) {
+  if (!warmth) return h;
+  const d = ((((warmth > 0 ? 40 : 220) - h + 540) % 360) - 180) * Math.min(1, Math.abs(warmth));
+  return (h + d + 360) % 360;
+}
+function palette({ hue: seed = 205, accentHue: pickedHue, accentMode = 'complement', accentSat = 0.72, accentLight = 0.42, warmth = 0 } = {}) {
+  const hue = warmHue(seed, warmth), accentHue = pickedHue ?? accentFor(seed, accentMode);
   const paper = hsl(hue, 0.25, 0.975), paperAlt = hsl(hue, 0.18, 0.92), tint = hsl(accentHue, 0.35, 0.89), dark = hsl(hue, 0.42, 0.10);
   const accent = darkenUntil(accentHue, accentSat, accentLight, ['FFFFFF', paper, tint], 4.5);
   const ink = hsl(hue, 0.30, 0.13);
@@ -306,6 +321,9 @@ function darkTheme(hue, accentHue = counterHue(hue)) {
 // radius, the stroke a rule takes, the motif an anchor repeats, the theme, and whether the accent stays on the seed
 // hue. Passed to deck(), two decks of the same content open on visibly different pages; left out, every deck repeats
 // one frame — the title at the top left, the body under it, the source at the foot — whatever its brief called it.
+// An entry may also carry palette knobs — accentMode ('complement' | 'analogous' | 'split' | 'mono'), accentSat,
+// accentLight, warmth (-1..1) — and its type `pairing`; deck() reads them unless the call names its own. None of the
+// built-in entries sets a knob, so they keep the counter-hue accent.
 // `motifs` is the style's decoration set, not one device: an anchor that names no kind takes the next one, so the
 // cover, the section marks, and the closing of one deck are not the same drawing three times (composition.md §3).
 const STYLES = {
@@ -330,7 +348,7 @@ let MOTIF_AT = 0;
 // The next device in the deck's set. `motif(s, '', …)` takes it, so two anchors in a row never carry the same
 // drawing; naming a kind (`motif(s, MOTIF, …)`) still wins when the echo is the point (a closing answering its cover).
 function nextMotif() { const kind = MOTIFS[MOTIF_AT % MOTIFS.length]; MOTIF_AT += 1; return kind; }
-function deck({ style = 'custom', hue = 205, accentHue, accentSat, accentLight, mode = 'balanced', script = 'ko', pairing, fonts = 'noto', titleLines = 1, chrome, theme } = {}) {
+function deck({ style = 'custom', hue = 205, accentHue, accentMode, accentSat, accentLight, warmth, mode = 'balanced', script = 'ko', pairing, fonts = 'noto', titleLines = 1, chrome, theme } = {}) {
   const preset = STYLES[style];
   if (!preset) throw new Error(`deck: unknown style "${style}" — one of ${Object.keys(STYLES).join(', ')}`);
   STYLE = { name: style, ...STYLE_DEFAULTS, ...preset };
@@ -340,8 +358,12 @@ function deck({ style = 'custom', hue = 205, accentHue, accentSat, accentLight, 
   MOTIF = MOTIFS[0];
   MOTIF_AT = 0;
   // A single-hue style (swiss-minimal, brutalist, blueprint) keeps the accent on the seed; the rest take the counter hue.
-  Object.assign(T, palette({ hue, accentHue: accentHue ?? (STYLE.singleHue ? hue : undefined), accentSat, accentLight }));
-  if ((theme ?? STYLE.theme) === 'dark') darkTheme(hue, accentHue ?? (STYLE.singleHue ? hue : counterHue(hue)));
+  // A style may carry palette knobs (accentMode, accentSat, accentLight, warmth); the call's own value wins, and a style
+  // without them leaves the palette as it was (accent on the counter hue, the default saturation and lightness, no warmth).
+  const mode_ = accentMode ?? STYLE.accentMode, warm = warmth ?? STYLE.warmth;
+  const accentAt = accentHue ?? (STYLE.singleHue ? hue : accentFor(hue, mode_));
+  Object.assign(T, palette({ hue, accentHue: accentAt, accentSat: accentSat ?? STYLE.accentSat, accentLight: accentLight ?? STYLE.accentLight, warmth: warm }));
+  if ((theme ?? STYLE.theme) === 'dark') darkTheme(warmHue(hue, warm), accentAt);
   // The face pairing is the style's too (an editorial page sets its display in the serif, a masthead in the sans),
   // unless the brief names one here.
   typography({ script, pairing: pairing ?? STYLE.pairing ?? 'weight', fonts });

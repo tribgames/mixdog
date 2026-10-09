@@ -3,6 +3,7 @@
  * the send: retry on a fresh socket (true) or throw the error to surface.
  */
 import { performance } from 'node:perf_hooks';
+import { noteErrorUsage } from '../lib/note-error-usage.mjs';
 import { traceAgentFetch } from '../../agent-trace.mjs';
 import { _classifyHandshakeError, _mustSurfaceCurrentAttempt, tag } from './policy.mjs';
 
@@ -59,7 +60,7 @@ export async function resolveHandshakeFailure(
 ) {
   const { deps, state } = ctx;
   const { sendSpan, externalSignal, retry429 } = deps;
-  deps.stampWarmup(err);
+  noteErrorUsage(err);
   sendSpan.poolAcquireMs += performance.now() - handshakeStart;
   sendSpan.poolOwnerWaitMs += Math.max(0, Number(err?.ownerWaitMs) || 0);
   // Provenance only; policy remains provider-owned below. This lets the

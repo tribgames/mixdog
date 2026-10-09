@@ -5,7 +5,7 @@
 import { formatAggregateHeader } from '../tool-surface.mjs';
 import { commonCardFields } from './card-input.mjs';
 import { normalizeCountMap, safeInlineText } from './inline-text.mjs';
-import { resultTerminalStatus } from './terminal-status.mjs';
+import { displayTerminalStatus, resultTerminalStatus } from './terminal-status.mjs';
 
 function countOf(value) {
   return value && typeof value === 'object' ? Number(value.count || 0) : Number(value || 0);
@@ -30,7 +30,11 @@ function aggregateLabel(base) {
   return safeInlineText(
     loadingTargets.length
       ? `${loadingVerb} ${loadingTargets.join(', ')}`
-      : formatAggregateHeader(headerCategories, { pending: headerPending, order: headerOrder })
+      : formatAggregateHeader(headerCategories, {
+          pending: headerPending,
+          order: headerOrder,
+          failed: base.failedCount > 0 && base.failedCount >= base.groupCount,
+        })
   );
 }
 
@@ -45,7 +49,7 @@ export function deriveAggregateCardModel(base) {
     labelText: aggregateLabel(base),
     summaryText: '',
     headerFailureText: '',
-    detailLine: detailText || (pending ? 'Running' : 'Finished'),
+    detailLine: detailText || (pending ? 'Running' : displayTerminalStatus(terminalStatus) || 'Finished'),
     detailIsPlaceholder: !detailText,
     displayedResultBodyText: rt || '',
     firstResultLine: detailText,

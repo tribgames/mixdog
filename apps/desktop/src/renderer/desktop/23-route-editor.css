@@ -567,6 +567,7 @@
   line-height: var(--mx-line-meta);
   pointer-events: none;
 }
+.composer-attachments .attachment-edit,
 .composer-attachments .attachment-remove {
   width: 20px;
   height: 20px;
@@ -648,7 +649,9 @@
     mx-menu-in var(--mx-motion-chrome),
     mx-palette-end-fade linear both;
   animation-timeline: auto, scroll(self);
-  animation-range: normal, calc(100% - 24px) 100%;
+  animation-range:
+    normal,
+    calc(100% - 24px) 100%;
 }
 .slash-palette button {
   width: 100%;

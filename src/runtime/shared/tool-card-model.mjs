@@ -62,6 +62,7 @@ export {
   agentResponseTitle,
   agentTerminalDetail,
   hasAgentResponseResult,
+  isAgentResponseResult,
   isAgentTool,
   SKILL_SURFACE_NAMES,
 } from './tool-card-model/agent-surface.mjs';

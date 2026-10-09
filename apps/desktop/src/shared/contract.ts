@@ -178,6 +178,8 @@ export interface DesktopApi {
     mtimeMs: number;
     binary: boolean;
     tooLarge: boolean;
+    /** Text over the 1 MB edit cap: viewable, never saved. */
+    readOnly?: boolean;
     encoding: DesktopTextFileEncoding;
   }>;
   previewProjectFile?(

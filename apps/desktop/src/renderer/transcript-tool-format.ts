@@ -196,7 +196,7 @@ function toolActivityValues(value: unknown): string[] {
   return toolActivityStringList(value);
 }
 
-type ToolActivityTargetNoun = 'file' | 'pattern' | 'query' | 'command' | 'URL' | 'path' | 'symbol';
+type ToolActivityTargetNoun = 'file' | 'pattern' | 'query' | 'command' | 'URL' | 'path' | 'symbol' | 'change';
 
 function toolActivityTargetCount(noun: ToolActivityTargetNoun, count: number): string {
   switch (noun) {
@@ -212,6 +212,8 @@ function toolActivityTargetCount(noun: ToolActivityTargetNoun, count: number): s
       return t('{{count}} URLs', { count });
     case 'path':
       return t('{{count}} paths', { count });
+    case 'change':
+      return t('{{count}} changes', { count });
     default:
       return t('{{count}} symbols', { count });
   }
@@ -271,7 +273,9 @@ type ToolSubjectFormatter = (args: Record<string, unknown>, path: string, fallba
 function readSubject(args: Record<string, unknown>, path: string): string {
   const paths = readTargets(args);
   if (paths.length > 1) return toolActivityTargetCount('file', paths.length);
-  return readTarget(paths[0] || path, args.offset, args.limit);
+  // A batch entry already carries its own window; only a plain path takes the call's.
+  if (paths.length === 1) return paths[0];
+  return readTarget(path, args.offset, args.limit);
 }
 
 function grepSubject(args: Record<string, unknown>): string {
@@ -297,14 +301,14 @@ function findSubject(args: Record<string, unknown>): string {
 }
 
 function codeGraphSubject(args: Record<string, unknown>): string {
-  return (
-    toolActivityCompact([
-      toolActivityOneOrCount(toolActivityValues(args.symbols ?? args.symbol), 'symbol'),
-      toolActivityOneOrCount(toolActivityValues(args.files ?? args.file ?? args.path), 'file'),
-    ]) ||
-    toolActivityQuoted(args.query) ||
-    toolActivityInline(args.mode ?? args.action ?? '')
-  );
+  const mode = toolActivityInline(args.mode ?? args.action ?? '');
+  // callers/callees name the direction of the walk; the target alone hides it.
+  const direction = /^(?:callers|callees)$/.test(mode) ? mode : '';
+  const targets = toolActivityCompact([
+    toolActivityOneOrCount(toolActivityValues(args.symbols ?? args.symbol), 'symbol'),
+    toolActivityOneOrCount(toolActivityValues(args.files ?? args.file ?? args.path), 'file'),
+  ]);
+  return toolActivityCompact([direction, targets || toolActivityQuoted(args.query)]) || mode;
 }
 
 function commandSubject(args: Record<string, unknown>): string {
@@ -325,7 +329,15 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
   [['view_image', 'read_mcp_resource'], (args, path) => path || toolActivityFirstText(args, 'uri')],
   [['edit', 'strreplace', 'str_replace', 'str_replace_editor', 'search_replace'], (_args, path) => path],
   [['apply_patch'], (_args, _path, fallback) => fallback],
-  [['shell', 'bash', 'bash_session', 'shell_command', 'job_wait', 'git'], commandSubject],
+  [['shell', 'bash', 'bash_session', 'shell_command', 'job_wait'], commandSubject],
+  // A stage call has no command: its summary names the staged changes.
+  [
+    ['git'],
+    (args) =>
+      args.action === 'stage'
+        ? toolActivityOneOrCount(toolActivityValues(args.change_ids ?? args.change_id), 'change')
+        : commandSubject(args),
+  ],
   [['git_stage'], (args) => toolActivityOneOrCount(toolActivityValues(args.files ?? args.paths), 'file')],
   [['grep'], grepSubject],
   [['glob'], globSubject],

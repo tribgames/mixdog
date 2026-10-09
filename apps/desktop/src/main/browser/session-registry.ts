@@ -172,6 +172,11 @@ export class BrowserSessionRegistry {
     return count;
   }
 
+  /** Every session that currently owns a page. */
+  sessionIds(): string[] {
+    return [...new Set(this.sessionByGuest.values())];
+  }
+
   allBackgroundEntries(): Array<[string, string, BackgroundPage]> {
     const entries: Array<[string, string, BackgroundPage]> = [];
     for (const [sessionId, pages] of this.backgroundsBySession) {

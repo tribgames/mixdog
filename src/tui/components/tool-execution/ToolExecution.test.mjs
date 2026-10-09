@@ -108,7 +108,7 @@ test('normal cards preserve shell, agent and generic body selection and expansio
 
   const response = await show({
     name: 'agent',
-    args: { type: 'send', agent: 'worker', status: 'completed' },
+    args: { type: 'result', agent: 'worker', status: 'completed' },
     result: 'summary alpha\nsummary beta',
     rawResult: 'raw alpha\nraw beta',
     agentResponseAggregate: true,

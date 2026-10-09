@@ -20,6 +20,7 @@ export {
   safeInlineText,
   normalizeCountMap,
   resultTerminalStatus,
+  displayTerminalStatus,
   stripLeadingStatusMarkerFromText,
 } from '../../../runtime/shared/tool-card-model.mjs';
 

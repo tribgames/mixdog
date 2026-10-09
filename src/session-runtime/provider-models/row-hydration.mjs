@@ -3,10 +3,24 @@
 // settings (alias, effort, fast, parameters, context budget) layered on top,
 // then the route-provider-first sort.
 import { effortItemsFor } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
-import { fastCapableFor, fastPreferenceFor } from '../../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
+import {
+  fastCapableFor,
+  fastPreferenceFor,
+  ultrafastCapableFor,
+} from '../../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
 import { modelSettingsFor } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { effortConfigurationMode } from '../../runtime/agent/orchestrator/providers/effort-configuration.mjs';
 import { getProvider } from '../../runtime/agent/orchestrator/providers/registry.mjs';
+
+const ULTRAFAST_SPEED_OPTION = Object.freeze({
+  id: 'serviceTier',
+  label: 'Speed',
+  kind: 'enum',
+  options: [
+    { value: 'priority', label: 'Fast' },
+    { value: 'ultrafast', label: 'Ultrafast' },
+  ],
+});
 
 export function hydrateProviderModelRow(cfg, row) {
   const saved = modelSettingsFor(cfg, row.provider, row.id);
@@ -14,11 +28,22 @@ export function hydrateProviderModelRow(cfg, row) {
   // replaces the label everywhere the row's `display` is shown; the id and
   // route selection are untouched.
   const alias = typeof saved.alias === 'string' ? saved.alias.trim() : '';
+  const fastCapable = fastCapableFor(row.provider, row);
+  const modelParameterOptions =
+    fastCapable && ultrafastCapableFor(row.provider, row)
+      ? [
+          ...(Array.isArray(row.modelParameterOptions) ? row.modelParameterOptions : []).filter(
+            (option) => option?.id !== ULTRAFAST_SPEED_OPTION.id
+          ),
+          ULTRAFAST_SPEED_OPTION,
+        ]
+      : row.modelParameterOptions;
   return {
     ...row,
     ...(alias ? { display: alias, displayAlias: alias } : {}),
+    ...(modelParameterOptions ? { modelParameterOptions } : {}),
     effortOptions: effortItemsFor(row.provider, row, null),
-    fastCapable: fastCapableFor(row.provider, row),
+    fastCapable,
     fastPreferred: Object.hasOwn(saved, 'fast')
       ? saved.fast === true
       : row.defaultFast === true || fastPreferenceFor(cfg, row.provider, row.id),

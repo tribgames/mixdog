@@ -6,14 +6,12 @@ import { issue as gateIssue } from './assurance-issue.mjs';
 // Measurable integrity faults: the file is broken, unreadable, or lies about
 // its own fit. Only these block a submission.
 const CRITICAL_CODES = new Set([
-  'accent_hue_overuse',
   'blank_image',
   'blank_page',
   'broken_chart',
   'chart_axis_undeclared',
   'chart_stacked_label_position',
   'empty_chart',
-  'font_family_overuse',
   'formula_error',
   'formula_error_truncated',
   'missing_relationship',
@@ -28,7 +26,6 @@ const CRITICAL_CODES = new Set([
   'shape_out_of_bounds',
   'text_outside_slide',
   'text_overflow',
-  'unsafe_font_family',
 ]);
 
 // Taste and layout judgements. The author (the model) owns composition; the
@@ -36,21 +33,24 @@ const CRITICAL_CODES = new Set([
 // blocks on them, or lists them as polish targets. They stay in the issue list
 // so a reviewer can read them, and a caller may still fail on them explicitly.
 const ADVISORY_CODES = new Set([
+  'accent_hue_overuse',
   'adaptive_layout_rhythm_flat',
   'adaptive_layout_selection_missing',
   'art_direction_candidates_missing',
-  // `beat_share_high` informs; `consecutive_beats` is deliberately absent — three dark or field pages in a row
-  // are measured from the shapes, and the reader waits through them for content.
   'beat_share_high',
   'card_grid_overuse',
   'page_underfill',
+  'consecutive_beats',
+  'consecutive_composition_repeat',
   'creative_direction_missing',
+  'decorative_stripe',
   'default_chart_treatment',
   'emphasis_mismatch',
   'excessive_slide_text',
   'fact_without_locator',
   'facts_illustrative',
   'flat_visual_rhythm',
+  'font_family_overuse',
   'frontier_aesthetic_score_low',
   'generic_motif_selected',
   'generic_visual_treatment',
@@ -67,9 +67,7 @@ const ADVISORY_CODES = new Set([
   'raw_table_slide',
   'recent_composition_repeat',
   'reference_genome_missing',
-  // `repeated_layout_grammar` and `consecutive_composition_repeat` are deliberately absent: the same coarse
-  // grammar on most content pages, or three in a row, is measured from the shapes, not judged — the deck
-  // reads as one page repeated at contact-sheet scale. A deliberate series says so (design.review.allowRepetition).
+  'repeated_layout_grammar',
   'repeated_render_composition',
   'repetitive_composition',
   'semantic_visual_plan_missing',
@@ -78,9 +76,7 @@ const ADVISORY_CODES = new Set([
   'title_line_hollow',
   'under_composed_slide',
   'under_composed_structure',
-  // `vertical_imbalance` is deliberately absent: the skill lists it as a soft
-  // target next to axis_drift and edge_margin, and a hollow band is measured,
-  // not judged — the page stops halfway down the canvas.
+  'vertical_imbalance',
   'visual_reference_selection_missing',
   'visual_role_variety_low',
 ]);
@@ -145,7 +141,7 @@ const POLISH_GUIDANCE = Object.freeze({
   heading_hierarchy_missing: 'Create a clear title and heading hierarchy that matches the document reading path.',
   orphan_heading: 'Keep the heading with the paragraph or table it introduces.',
   heading_not_distinct:
-    'Set the heading above the body size, or give it its own weight; a heading the reader cannot see is not a heading.',
+    'Set the heading apart from the body by size, weight, colour, letter-spacing or caps, or spacing; a heading the reader cannot see is not a heading.',
   heading_style_inconsistent:
     'Set every heading of one level in the same type; a level that changes size mid-document reads as two levels.',
   short_table_split: 'Keep the short table together or move it intact to the next page.',
@@ -162,10 +158,11 @@ const POLISH_GUIDANCE = Object.freeze({
     'Replace generic text blocks with a chart, table, image, or subject-specific diagram that proves the claim.',
   native_evidence_too_weak: 'Add source-bound native evidence to the slides carrying material claims.',
   art_direction_candidates_missing:
-    'Create three subject-specific art directions, select one, and carry its palette, typography, motif, and image treatment through the deck.',
+    'Compare two or more subject-specific art directions, select one, and carry its palette, typography, motif, and image treatment through the deck.',
   flat_visual_rhythm:
     'Vary background roles, density, focal scale, and evidence treatment while preserving the selected art direction.',
-  font_family_overuse: 'Restyle the slide with fontRole display, body, and data only; drop every extra typeface.',
+  font_family_overuse:
+    'Advisory: keep the page to the display, body, and data faces (fontRole in a deck); drop every extra typeface unless the concept calls for it.',
   slide_hierarchy_flat:
     'Give the page one voice the eye reaches first — set its claim above the rest of the type — or carry it with a chart, table, or picture.',
   slide_text_dense:
@@ -173,9 +170,9 @@ const POLISH_GUIDANCE = Object.freeze({
   peer_style_inconsistent:
     'Set the boxes of one row in the same size and face; make an odd one deliberate by changing what it says, never by a stray size.',
   unsafe_font_family:
-    'Replace the reported typefaces with the deck typography roles; Aptos, Segoe UI, Consolas, and similar faces substitute unpredictably.',
+    'Advisory: the face is fine if it is installed, but recipients without it see a substitute in Word, PowerPoint, or Excel; use a safe-list face, or embed or ship the font. Not raised for PDF.',
   accent_hue_overuse:
-    'Recolor cards, labels, and chips to palette roles so one accent dominates and at most one secondary hue remains.',
+    'Advisory: if the palette is not deliberately multi-hued, recolor cards, labels, and chips to palette roles so one accent dominates; chart series colours are not counted.',
   emphasis_mismatch:
     'Enlarge the evidence or thesis the brief names as primary and shrink the element that currently outweighs it.',
   low_visual_contrast: 'Increase figure-ground contrast without adding decoration; verify the rendered page again.',
@@ -292,7 +289,7 @@ const POLISH_GUIDANCE = Object.freeze({
   theme_background_drift:
     'Use only the ladder backgrounds (paper, paperAlt, dark, darkAlt); recolor the drifting slide.',
   theme_body_backgrounds:
-    'Keep body slides on the paper ladder; a dark field is a beat (cover, section, statement), not a body page.',
+    'Advisory: body slides use several background colours; keep them to the concept\'s declared palette ladder, or declare the concept or palette in the brief when the colour fields are the design.',
   excessive_slide_text: "Cut the copy to the reading mode's budget (composition.md §4) or split the slide.",
   decorative_stripe: 'Remove the ornamental bar; a stripe that encodes nothing is decoration (composition.md §10).',
   // Visual critique contract (finalize).

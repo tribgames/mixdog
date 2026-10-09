@@ -71,6 +71,9 @@ export function createAnthropicSseTurn({
     ...events,
     // Stream ended: flush any held-back leaked-tool-call buffer.
     flushLeak: leak.flush,
+    // Usage the provider reported so far, in the success result's shape (a
+    // cancelled turn hands it to its send's accounting).
+    reportedUsage: () => ({ usage: turn.usage, model: turn.model || undefined }),
     ...outcome,
   };
 }

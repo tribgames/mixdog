@@ -166,11 +166,7 @@ export function createWsResponseState({ onToolCall, onStreamDelta, midState, tra
      *  `relayFinalText` folds message text through the leak guard when no
      *  text was streamed. Returns whether any bundle progress was reported. */
     noteCompleted(response, relayFinalText) {
-      const completedServiceTier = response?.service_tier || response?.serviceTier || '';
-      if (completedServiceTier) responseServiceTier = String(completedServiceTier);
-      if (response?.usage) usage = normalizeWsUsage(response.usage, responseServiceTier);
-      if (!model && response?.model) model = response.model;
-      if (!responseId && response?.id) responseId = response.id;
+      this.noteTerminal(response);
       if (!response?.output) return false;
       let reported = false;
       for (const item of response.output) {
@@ -182,6 +178,16 @@ export function createWsResponseState({ onToolCall, onStreamDelta, midState, tra
     unresolvedDeferredCall: tools.unresolvedDeferredCall,
     setEndTurn(value) {
       if (typeof value === 'boolean') endTurn = value;
+    },
+    /** Any terminal frame (completed, done, incomplete): service tier, billed
+     *  usage and identity. Returns the normalized usage, if reported. */
+    noteTerminal(response) {
+      const completedServiceTier = response?.service_tier || response?.serviceTier || '';
+      if (completedServiceTier) responseServiceTier = String(completedServiceTier);
+      if (response?.usage) usage = normalizeWsUsage(response.usage, responseServiceTier);
+      if (!model && response?.model) model = response.model;
+      if (!responseId && response?.id) responseId = response.id;
+      return usage;
     },
     /** max_output_tokens maps cleanly to Anthropic's stop_reason=max_tokens. */
     markMaxOutputIncomplete(reason) {

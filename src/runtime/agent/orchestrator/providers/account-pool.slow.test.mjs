@@ -473,3 +473,34 @@ test('failed free-account fallback retains the paid selection; successful fallba
     assert.deepEqual(accountChanges, [], 'failed or superseded retries cannot announce an account switch');
   }
 });
+
+test('a dead sign-in fails over to the next account in auto mode without blocking it, and surfaces in manual mode', async () => {
+  const provider = 'openai-oauth';
+  for (const row of readProviderAccountPool(provider).accounts) removeProviderAccount(provider, row.id);
+  const ids = setup(provider);
+  changeProviderAccounts(provider, { selectedId: ids[0], auto: true });
+  const calls = [];
+  const stages = [];
+  const dead = () => Object.assign(new Error('Sign-in expired'), { reauthRequired: true });
+  const gateway = createAccountPoolProvider(provider, () => ({
+    async send() {
+      const id = currentProviderAccountId(provider);
+      calls.push(id);
+      if (id === ids[0]) throw dead();
+      return { content: 'ok' };
+    },
+  }));
+  const result = await gateway.send([{ role: 'user', content: 'hi' }], 'm', [], {
+    sessionId: 's',
+    onStageChange: (stage, detail) => stages.push([stage, detail?.message]),
+  });
+  assert.equal(result.content, 'ok');
+  assert.deepEqual(calls, [ids[0], ids[1]]);
+  assert.ok(stages.some(([s, m]) => s === 'reconnecting' && /Sign-in expired/.test(m)));
+  assert.equal(readProviderAccountPool(provider).selectedId, ids[1]);
+
+  changeProviderAccounts(provider, { selectedId: ids[0], auto: false });
+  calls.length = 0;
+  await assert.rejects(gateway.send([{ role: 'user', content: 'hi' }], 'm', [], { sessionId: 's' }), (e) => e.reauthRequired === true);
+  assert.deepEqual(calls, [ids[0]]);
+});

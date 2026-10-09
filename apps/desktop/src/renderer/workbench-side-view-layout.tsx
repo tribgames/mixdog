@@ -677,6 +677,7 @@ export function WorkbenchSidePanel({
               className="workbench-side-panel-body"
               ref={selected ? panelBodyRef : undefined}
               hidden={!selected}
+              style={selected && surfacesActive ? { visibility: 'hidden' } : undefined}
               inert={!selected || surfacesActive ? true : undefined}
               aria-hidden={!selected || surfacesActive ? true : undefined}
               onDragOver={(event) => {

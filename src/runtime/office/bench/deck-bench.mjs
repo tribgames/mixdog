@@ -34,7 +34,7 @@ async function benchDeck(path, { cwd = process.cwd() } = {}) {
     return {
       deck: path,
       at: new Date().toISOString(),
-      ...scoreDeck({ receipt, issues }),
+      ...scoreDeck({ receipt, issues, brief: session.authoredBrief || null }),
       issues: issues.map((issue) => `${issue.code} ${issue.path || ''}`.trim()),
     };
   } finally {

@@ -1,6 +1,6 @@
 /**
  * send-context.mjs — everything one logical WS send shares across its
- * attempts: the recovery budget, the retained warmup, the Codex handshake
+ * attempts: the recovery budget, the Codex handshake
  * metadata, the send span and the attempt-failure resolvers.
  */
 import { createStreamSafetyStamps, resolveStallRetryBudget } from '../retry-classifier.mjs';
@@ -34,26 +34,10 @@ export function createWsSendContext(opts) {
     _sleepFn,
     _sendSpanTraceFn,
     _agentTraceFn,
-    _carriedWarmup,
   } = opts;
   // Shared logical-send window: WS retries and loop replay consume the same
   // recovery budget.
   const stallRetryBudget = resolveStallRetryBudget(sendOpts);
-  // A generate:false prewarm is billable even if its main request later
-  // retries on a fresh socket or falls back to HTTP. Retain one completed
-  // result across the whole logical send and attach it to terminal errors.
-  const warmup = { completed: _carriedWarmup?.usage ? _carriedWarmup : null };
-  const stampWarmup = (err) => {
-    if (!err || !warmup.completed?.usage) return err;
-    try {
-      Object.defineProperty(err, '__warmup', {
-        value: warmup.completed,
-        configurable: true,
-        enumerable: false,
-      });
-    } catch {}
-    return err;
-  };
   // Known tool names for the leaked-tool-call guard in _streamResponse.
   // Derived from the exact request body so a recovered leaked call only
   // synthesizes when it names a tool actually offered to this request.
@@ -116,7 +100,6 @@ export function createWsSendContext(opts) {
     sleepFn: _sleepFn,
     sendSpan,
     emitReconnectProgress,
-    stampWarmup,
     safetyStamps,
     handshakeErrorPolicy,
     retry429,
@@ -140,7 +123,6 @@ export function createWsSendContext(opts) {
   };
   return {
     opts,
-    warmup,
     knownToolNames,
     useCodexWsClientMetadata,
     codexMetadataContext,

@@ -764,6 +764,30 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
 }
+.markdown-local-image {
+  display: inline-block;
+  vertical-align: middle;
+  min-width: 48px;
+  min-height: 48px;
+  max-width: min(100%, 360px);
+  appearance: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md, 6px);
+  overflow: hidden;
+  background: var(--mx-bg-layer-1);
+  cursor: zoom-in;
+}
+.markdown-local-image:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.markdown-local-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+}
 .message-image-chip img {
   display: block;
   width: 56px;
@@ -1310,6 +1334,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 .session-goal-host[data-goal-placement="composer"] {
   margin-bottom: 8px;
+  /* An open review overlays upward from its slot below; ride above it
+     rather than sit on its file list (ComposerDock useTurnReviewLift). */
+  transform: translateY(calc(-1 * var(--turn-review-lift, 0px)));
 }
 .session-goal-host > .session-goal-island {
   /* The prompt card's material, so the stack reads as one family (user:

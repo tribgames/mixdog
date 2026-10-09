@@ -5,6 +5,7 @@
  */
 import { summarizeToolResult } from '../tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../err-text.mjs';
+import { isUserControlCancellation } from '../tool-status.mjs';
 import { isBackgroundTaskResponseArgs, isBackgroundTaskTool, resolveBackgroundTaskMeta } from './background-task.mjs';
 import { stripLeadingStatusMarkerFromText } from './terminal-status.mjs';
 import { readRowsForDisplay } from '../read-row-numbers.mjs';
@@ -14,7 +15,11 @@ export function resolveDisplayedResult(base, { normalizedName, parsedArgs }, tra
   const isBackgroundTool = isBackgroundTaskTool(normalizedName);
   const backgroundMeta = !pending && isBackgroundTool ? resolveBackgroundTaskMeta(parsedArgs, rt || '') : null;
   const backgroundError = backgroundMeta?.error || parsedArgs?.error || '';
-  const errorOnlyResult = Boolean(rt) && isBackgroundErrorOnlyBody(rt, backgroundError);
+  // Only a real background envelope's bare error line is redundant with its
+  // failure label; any other tool's error body is the cause the card shows.
+  const errorOnlyResult =
+    Boolean(rt) &&
+    ((Boolean(backgroundMeta) && isBackgroundErrorOnlyBody(rt, backgroundError)) || isUserControlCancellation(rt));
   const backgroundResultText = backgroundMeta?.hasResponse ? backgroundMeta.body : '';
   const displayedResultText = backgroundResultText || (errorOnlyResult ? '' : rt || '');
   const hasDisplayResult = Boolean(String(displayedResultText || '').trim());

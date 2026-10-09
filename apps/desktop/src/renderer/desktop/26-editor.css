@@ -321,6 +321,92 @@
   min-width: 0;
   overflow: hidden;
 }
+.editor-pane-editor-host {
+  width: 100%;
+  height: 100%;
+}
+.editor-pane-body > .editor-pane-preview {
+  height: 100%;
+}
+/* Same band as .editor-pane-recovery, without the warning tint. */
+.editor-pane-readonly-notice {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: var(--mx-font-minor);
+  color: var(--mx-text-muted);
+  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
+}
+/* Segments come from .review-style-toggle (Unified/Split grammar). */
+.editor-view-toggle {
+  display: inline-flex;
+  margin-right: 6px;
+}
+/* Outrank the 28px icon-button rule of .editor-breadcrumb-actions. */
+.editor-breadcrumb-actions .editor-view-toggle button {
+  width: auto;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.editor-breadcrumb-actions .editor-view-toggle button[aria-pressed="true"] {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+}
+.editor-text-view {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  box-sizing: border-box;
+  background: var(--mx-bg-base);
+}
+.editor-markdown-preview {
+  padding: 12px 20px;
+  user-select: text;
+}
+.editor-table-view {
+  display: flex;
+  flex-direction: column;
+}
+.editor-table-notice {
+  margin: 0;
+  padding: 4px 10px;
+  font-size: var(--mx-font-minor);
+  color: var(--mx-text-muted);
+}
+.editor-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+/* Cell grammar follows the transcript's .markdown table. */
+.editor-table-scroll table {
+  border-collapse: collapse;
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-emphasis);
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}
+.editor-table-scroll th,
+.editor-table-scroll td {
+  border-bottom: var(--mx-hairline) solid var(--mx-border);
+  padding: 6px 12px;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre;
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.editor-table-scroll th {
+  position: sticky;
+  top: 0;
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-strong);
+  background: var(--mx-surface-plate);
+}
 .editor-pane-body > section,
 .editor-pane-body > section > div {
   width: 100%;
@@ -692,6 +778,10 @@
   -webkit-overflow-scrolling: touch;
 }
 .editor-pane-document-page {
+  /* The scroller is a flex column and the page clips its image, so its
+     min-height is 0: without this a long deck shrank every slide to a thin
+     bar and made them all "visible" to the lazy page loader at once. */
+  flex: none;
   width: min(100%, 900px);
   display: grid;
   place-items: center;
@@ -924,8 +1014,7 @@
   min-height: 0;
   flex: 1 1 0%;
 }
-/* Terminal surface: the xterm host below a 30px strip (File-breadcrumb
-   grammar — user: TASK나 파일처럼 띠 하나) that hosts the shell switcher. */
+/* Terminal surface: the xterm host. */
 .dock-terminal-surface {
   display: flex;
   flex-direction: column;
@@ -937,48 +1026,50 @@
   overflow: hidden;
   background: var(--mx-terminal-bg);
 }
-.dock-terminal-strip {
-  height: 30px;
-  flex: 0 0 auto;
+/* Multi-tab session terminal: the browser tab strip above one panel per tab. */
+.session-terminal-tabs {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 6px 0 12px;
-  border-bottom: var(--mx-hairline) solid var(--mx-border-muted);
-  color: var(--mx-text-muted);
-  /* The strip is CHROME, not terminal content: without its own surface it
-     sat on the always-dark terminal bg, and light-theme ink vanished on it
-     (user: 선택박스가 안 보임, 검정이라서). */
-  background: var(--mx-window-band);
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--mx-workspace-sheet);
+}
+.session-terminal-tab-panels {
+  position: relative;
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+}
+.session-terminal-tab-panel {
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+}
+.session-terminal-tab-panel[hidden] {
+  display: none;
+}
+.session-terminal-tab-panel > .pane-surface-gate {
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+}
+.session-terminal-surface-container[data-expanded="true"][data-parked="false"] {
+  z-index: 40;
+  box-shadow: var(--mx-floating);
 }
 .dock-terminal-shell {
   position: relative;
-  margin-left: auto;
   display: flex;
-}
-.dock-terminal-shell-trigger {
-  height: 24px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 7px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: transparent;
-  font-size: var(--mx-font-minor);
-  cursor: pointer;
-}
-.dock-terminal-shell-trigger:hover,
-.dock-terminal-shell-trigger:focus-visible {
-  background: var(--mx-hover);
-  outline: 0;
 }
 .dock-terminal-shell-menu {
   position: absolute;
   z-index: 60;
   right: 0;
-  top: 28px;
+  top: 30px;
   min-width: 190px;
   display: grid;
   padding: 4px;
@@ -1056,6 +1147,24 @@
 }
 .dock-terminal .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider {
   border-radius: var(--mx-radius-sm);
+}
+/* Side-dock file editor: Monaco's sliders follow the shell scrollbar — the same
+   8px transparent track and inset pill (2px transparent border) as every other
+   scroller. Scoped to the dock so main-tab editors keep Monaco's own look. */
+.pane-side-dock .monaco-scrollable-element > .scrollbar {
+  background: transparent;
+}
+.pane-side-dock .monaco-scrollable-element > .scrollbar > .slider {
+  box-sizing: border-box;
+  border: 2px solid transparent;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-scrollbar-thumb);
+  background-clip: padding-box;
+}
+.pane-side-dock .monaco-scrollable-element > .scrollbar > .slider:hover,
+.pane-side-dock .monaco-scrollable-element > .scrollbar > .slider.active {
+  background: var(--mx-scrollbar-thumb-hover);
+  background-clip: padding-box;
 }
 /* Bottom-panel scrim: only the narrow-viewport media query displays it. */
 .panel-backdrop {

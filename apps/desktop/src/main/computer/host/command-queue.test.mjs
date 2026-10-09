@@ -287,7 +287,11 @@ test('settled commands retain task activity until explicit execution end without
   const f = fixture(t);
   await f.host.executeSerialized({ action: 'capture', session_id: 'a' });
   await turn();
-  // The task stays reachable by Stop; thinking without a held window shows nothing.
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  // Thinking right after a command keeps the pill; past the grace it shows
+  // nothing, while the task stays reachable by Stop.
+  assert.equal(computerUseOverlayPresentation(f.coordinator.snapshot()).visible, true);
+  t.mock.timers.tick(10_000);
   assert.deepEqual(computerUseOverlayPresentation(f.coordinator.snapshot()).sessionIds, ['a']);
   assert.equal(computerUseOverlayPresentation(f.coordinator.snapshot()).visible, false);
   f.coordinator.endExecution('a');

@@ -8,6 +8,7 @@ const DIRECTION_BLUEPRINTS = Object.freeze([
     purposes: ['monitor', 'inspect', 'compare', 'decide'],
     modes: ['conservative', 'strong-fit'],
     hueOffset: 0,
+    accent2Offset: 38,
     motif: 'measured evidence windows',
     backgroundMode: 'light',
     imageTreatment: 'contained-evidence',
@@ -39,6 +40,7 @@ const DIRECTION_BLUEPRINTS = Object.freeze([
     purposes: ['decide', 'explain', 'compare'],
     modes: ['strong-fit', 'divergent'],
     hueOffset: 22,
+    accent2Offset: 168,
     motif: 'editorial crops and decisive whitespace',
     backgroundMode: 'sandwich',
     imageTreatment: 'editorial-crop',
@@ -70,6 +72,7 @@ const DIRECTION_BLUEPRINTS = Object.freeze([
     purposes: ['explain', 'decide', 'monitor'],
     modes: ['divergent'],
     hueOffset: -18,
+    accent2Offset: 155,
     motif: 'immersive fields with one sharp signal',
     backgroundMode: 'dark',
     imageTreatment: 'full-bleed-focus',
@@ -128,7 +131,7 @@ function stableHue(value) {
 function directionPalette(hue, blueprint) {
   const primary = hue + blueprint.hueOffset;
   const immersive = blueprint.id === 'immersive-signal';
-  const secondary = immersive ? primary + 155 : primary + 38;
+  const secondary = primary + blueprint.accent2Offset;
   return normalizePaletteTokens({
     canvas: hslToHex(primary, 14, 97),
     ink: hslToHex(primary, 22, 14),
@@ -228,7 +231,12 @@ export function resolveOfficeArtDirection(
   const seed = subjectSeed(request, profile);
   const domain = subjectDomain(request);
   const baseHue = domain.hue ?? stableHue(seed);
-  const candidates = DIRECTION_BLUEPRINTS.map((blueprint) => {
+  // A sheet is read on white cells: a dark-background blueprint is never offered for a workbook.
+  const blueprints =
+    String(format || '').toLowerCase() === 'xlsx'
+      ? DIRECTION_BLUEPRINTS.filter((blueprint) => blueprint.backgroundMode !== 'dark')
+      : DIRECTION_BLUEPRINTS;
+  const candidates = blueprints.map((blueprint) => {
     const palette = directionPalette(baseHue, blueprint);
     const motif = rawSubject ? `${blueprint.motif} · ${rawSubject}` : blueprint.motif;
     return {

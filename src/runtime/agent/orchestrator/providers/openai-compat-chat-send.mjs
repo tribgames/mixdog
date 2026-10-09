@@ -1,6 +1,7 @@
 import { canFallbackNonStreaming, markProviderRecoveryExhausted, withRetry } from './retry-classifier.mjs';
 import { consumeCompatChatCompletionStream } from './openai-compat-stream.mjs';
 import { getModelMetadataSync } from './model-catalog.mjs';
+import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { traceNonStreamingFallback } from './lib/transport-fallback-trace.mjs';
 import {
   PROVIDER_FIRST_BYTE_TIMEOUT_MS,
@@ -41,7 +42,9 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
     // Wire-level pairing guard: a call whose result never committed
     // (cancel/abort) is hard-rejected unpaired, so synthesize the
     // missing tool messages here.
-    messages: ensureChatToolPairs(toOpenAIMessages(messages, provider.name, { replaysReasoningContent, nativePdf: provider.nativePdf })),
+    messages: ensureChatToolPairs(
+      toOpenAIMessages(messages, provider.name, { replaysReasoningContent, nativePdf: provider.nativePdf })
+    ),
   };
   const maxOutputTokens = resolveCompatMaxOutputTokens(opts);
   if (maxOutputTokens) params.max_tokens = maxOutputTokens;
@@ -89,6 +92,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
             return await consumeCompatChatCompletionStream(stream, {
               signal: attemptSignal,
               label: provider.name,
+              providerName: provider.name,
               onStreamDelta: opts.onStreamDelta,
               onToolCall: opts.onToolCall,
               onTextDelta: opts.onTextDelta,
@@ -144,6 +148,7 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
 
 export async function recoverCompatNonStreaming(provider, { streamErr, params, opts, signal, useModel }) {
   if (!canFallbackNonStreaming(streamErr, { signal })) return null;
+  noteErrorUsage(streamErr);
   const nonStreamParams = { ...params, stream: false };
   delete nonStreamParams.stream_options;
   let response;

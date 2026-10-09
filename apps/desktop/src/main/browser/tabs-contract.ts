@@ -1,9 +1,9 @@
 /** The pages a session owns and what the tab surface needs from their owner. */
-import type { BrowserWindow, WebContents } from 'electron';
+import type { BaseWindow, WebContents } from 'electron';
 
 /** A never-shown page the agent drives on the shared partition. */
 export interface BackgroundPage {
-  window: BrowserWindow;
+  window: BaseWindow;
   guest: WebContents;
   lastUsedAt: number;
   kind: 'agent' | 'popup' | 'user';

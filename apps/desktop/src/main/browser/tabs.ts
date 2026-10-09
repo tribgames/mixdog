@@ -26,7 +26,7 @@ export function createBrowserTabs(host: BrowserTabsHost) {
     });
     for (const [name, page] of backgroundPages(sessionId)) {
       if (page.window.isDestroyed()) continue;
-      const contents = page.window.webContents;
+      const contents = page.guest;
       const opener = page.openerPageId ? ` from ${page.openerPageId}` : '';
       const kind = page.kind === 'popup' ? `popup${opener}` : 'background';
       lines.push(

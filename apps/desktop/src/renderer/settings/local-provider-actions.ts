@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import type { PanelContext } from './capability-data';
 
+export type LocalProviderActions = ReturnType<typeof useLocalProviderActions>;
+
 export function useLocalProviderActions(run: PanelContext['run'], pending: PanelContext['pending']) {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState('');
   const invoke = async (
     capability:
       | 'cancelLocalProviderInstallation'
+      | 'discardLocalProviderInstallation'
       | 'startLocalProviderInstallation'
       | 'setLocalProviderIdleTtl'
       | 'getLocalProviderModelDetails'
@@ -32,6 +35,8 @@ export function useLocalProviderActions(run: PanelContext['run'], pending: Panel
     busy: working || Boolean(pending),
     error,
     cancel: (jobId: string) => void invoke('cancelLocalProviderInstallation', [jobId]),
+    discard: (phase: string, modelId?: string) =>
+      void invoke('discardLocalProviderInstallation', phase === 'runtime' ? [phase] : [phase, modelId]),
     resume: (phase: string, modelId?: string) => {
       if (phase === 'verify' || phase === 'repair') {
         void invoke('startLocalProviderModelMaintenance', [modelId, phase]);

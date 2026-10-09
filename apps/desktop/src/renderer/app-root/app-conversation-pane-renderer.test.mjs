@@ -9,7 +9,7 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
   const { dom } = installTestDom(null, {
     html: '<!doctype html><html><body><div id="root"></div></body></html>',
     jsdom: { url: 'about:blank' },
-    expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent'],
+    expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent', 'MutationObserver'],
     actEnvironment: false,
   });
   globalThis.ResizeObserver = class {
@@ -29,7 +29,9 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
   let paneDraftSubmitCalls = 0;
   let defaultSubmitCalls = 0;
 
-  const renderer = createPaneConversationRenderer({
+  const tabCalls = [];
+  const dockCalls = [];
+  const baseOptions = {
     conversationHandoff: null,
     resolvedDraftPrefsFor: () => ({
       projectPath: '/projects/draft',
@@ -81,8 +83,12 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
     stageNewTaskOrchestrationMode: () => {},
     conversationSelectProject: () => {},
     openConversationCommandSurface: () => {},
-    openFileTab: () => {},
+    openFileTab: (...args) => tabCalls.push(args),
     replaceWithInheritedSession: async () => {},
+  };
+  const renderer = createPaneConversationRenderer({
+    ...baseOptions,
+    openFileInSideDock: (...args) => dockCalls.push(args),
   });
 
   const root = createRoot(dom.window.document.getElementById('root'));
@@ -127,6 +133,20 @@ test('createPaneConversationRenderer builds conversation surface with appropriat
   assert.equal(paneSubmitCalls, recordedPaneSubmitCalls);
   assert.equal(paneDraftSubmitCalls, recordedPaneDraftSubmitCalls);
   assert.equal(defaultSubmitCalls, 1);
+
+  // 6. A transcript file link opens in that pane's side dock, not a main tab.
+  sessionElement.props.conversationProps.onOpenFile('C:/p', 'src/a.ts', 7, 'tok');
+  assert.deepEqual(dockCalls, [['leaf-1', 'C:/p', 'src/a.ts', 7, 'tok']]);
+  assert.deepEqual(tabCalls, []);
+  // Without a side dock (phone/remote) the link keeps opening a main tab.
+  const noDock = createPaneConversationRenderer(baseOptions)(
+    { kind: 'session', id: 'session-123' },
+    true,
+    () => {},
+    'leaf-1'
+  );
+  noDock.props.conversationProps.onOpenFile('C:/p', 'src/a.ts', 7);
+  assert.deepEqual(tabCalls, [['C:/p', 'src/a.ts', 7, undefined]]);
 
   await act(async () => {
     root.unmount();

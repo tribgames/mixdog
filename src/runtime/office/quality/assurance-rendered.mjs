@@ -111,8 +111,19 @@ const PAGE_BODY_END_MIN = 0.7;
 
 export async function reviewRenderedOfficePages(
   images = [],
-  { format = '', pageRoles = {}, smallWorksheet = false, pageCount = 0, designedPages = false } = {}
+  {
+    format = '',
+    pageRoles = {},
+    smallWorksheet = false,
+    pageCount = 0,
+    designedPages = false,
+    // Page numbers that open with a deliberate forced break (CSS break-before / page-break-before: page in authored
+    // HTML, a Word page break or pageBreakBefore paragraph), computed by quality/forced-break-pages.mjs. Null when
+    // there is no authored source to read them from.
+    forcedBreakPages = null,
+  } = {}
 ) {
+  const forcedBreaks = forcedBreakPages ? new Set([...forcedBreakPages].map(Number)) : null;
   const normalized = String(format || '').toLowerCase();
   const pageImages = renderedPageImages(images);
   const lastPage = Number(pageCount) || Math.max(0, ...pageImages.flatMap((image) => imagePages(image)));
@@ -138,23 +149,28 @@ export async function reviewRenderedOfficePages(
       );
     }
     const flowing = ['docx', 'pdf'].includes(normalized) && !designedPages;
-    if (flowing && metric.page < lastPage && metric.bodyEnd < PAGE_BODY_END_MIN) {
+    // The cover/title page is short by design, and a page followed by a deliberate forced break ends where the
+    // author ended it.
+    const endsBeforeForcedBreak = forcedBreaks?.has(metric.page + 1) === true;
+    if (flowing && metric.page > 1 && !endsBeforeForcedBreak && metric.page < lastPage && metric.bodyEnd < PAGE_BODY_END_MIN) {
       const empty = Math.round((1 - metric.bodyEnd) * 100);
       issues.push(
         issue(
           'page_bottom_empty',
           `/page[${metric.page}]`,
-          `The body stops ${Math.round(metric.bodyEnd * 100)}% of the way down page ${metric.page} and the next page goes on: ${empty}% of its body region stands empty. A block kept whole (a table, a figure with its caption, a heading kept with the next block) usually moved on; let a long table break across the page, move a shorter block up, or tighten what comes before.${metric.page === 1 ? ' A deliberate title page is answered in the critique.' : ''}`,
+          `The body stops ${Math.round(metric.bodyEnd * 100)}% of the way down page ${metric.page} and the next page goes on: ${empty}% of its body region stands empty. A block kept whole (a table, a figure with its caption, a heading kept with the next block) usually moved on; let a long table break across the page, move a shorter block up, or tighten what comes before.${forcedBreaks ? '' : ' If the next page opens with a deliberate forced break, ignore this.'}`,
           'render-review',
-          // A first page may be a title page by design; any later one is a break the reader did not need.
-          metric.page === 1 ? 'info' : 'warning'
+          'warning'
         )
       );
       continue;
     }
+    // A short chapter is the author's: the page ends before a forced break, or it is the last page and opens with one.
+    const deliberateShort = endsBeforeForcedBreak || (forcedBreaks?.has(metric.page) === true && metric.page >= lastPage);
     if (
       ['docx', 'pdf'].includes(normalized) &&
       metric.page > 1 &&
+      !deliberateShort &&
       ((metric.inkCoverage < 0.025 && metric.verticalSpan < 0.22) ||
         (metric.bodyVerticalSpan < 0.34 && metric.lowerBodyInkRatio < 0.08))
     ) {

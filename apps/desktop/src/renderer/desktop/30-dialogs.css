@@ -49,6 +49,18 @@
 .settings-confirm-layer {
   z-index: calc(var(--mx-dialog-z-index) + 10);
 }
+/* The topbar's drag region ignores paint order: a scrim covering it still
+   hands presses in that band to the OS as window drags, so a backdrop press
+   there never reached the dismiss handler. Fullscreen layers opt out. */
+.onboarding-layer,
+.schedules-dialog-layer,
+.mixdog-settings-layer,
+.settings-confirm-layer,
+.mx-dialog-layer,
+.settings-oauth-layer,
+.workbench-quick-access-layer {
+  -webkit-app-region: no-drag;
+}
 .onboarding-dialog,
 .schedules-dialog,
 .settings-confirm-dialog,

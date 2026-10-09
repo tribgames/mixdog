@@ -5,21 +5,17 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import { Check, ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { t } from './i18n';
-import { useMobileBack } from './mobile-back';
 import { beginBootSurface, reportBootSurfaceStage } from './boot-metrics';
 import { reportRendererFailure } from './RendererRecovery';
 import { errorSummary } from './ErrorNotice';
 import { TerminalLocalEcho } from './terminal-local-echo';
 import { TerminalWritePump } from './terminal-write-pump';
+import { attachTerminalOutput, detachTerminalOutput } from './terminal-output-subscription';
 import { applyTerminalActivity, StableTerminalFitScheduler } from './terminal-fit';
 import { dataTransferHasLocalFiles, droppedLocalPaths, terminalPathText } from './file-drag';
 import { remoteSurface } from './shell-viewport';
 import { onTerminalCommandRequested } from './terminal-command-request';
-
-type ShellProfile = { id: string; label: string; path: string; default?: boolean };
 
 type TerminalView = {
   id: string | null;
@@ -34,6 +30,7 @@ type TerminalView = {
   /** Predictive local echo over the relay; null on the local desktop, where
    *  the PTY echo is effectively instant. */
   localEcho: TerminalLocalEcho | null;
+  unsubscribeOutput?: (() => void) | null;
 };
 interface TerminalViewState {
   cols: number;
@@ -44,61 +41,11 @@ interface TerminalViewState {
 const terminalViews = new Map<string, TerminalView>();
 const DOCK_TERMINAL_KEY = '__dock__';
 const TERMINAL_VIEW_STATE_KEY = 'mixdog.desktop-terminal-view.v1';
-const TERMINAL_SHELL_CHOICE_KEY = 'mixdog.desktop-terminal-shell.v1';
-const TERMINAL_SHELL_DEFAULT_SLOT = '__default__';
 
 /** A per-terminal record map persisted under one storage key. Throws on
  *  unavailable or corrupt storage; every caller treats that as best-effort. */
 function readStoredRecord<T>(storageKey: string): Record<string, T> {
   return JSON.parse(window.localStorage.getItem(storageKey) || '{}') as Record<string, T>;
-}
-
-/** Per-terminal shell choice; the last pick doubles as the default for every
- *  NEW terminal (user: 터미널 변경 — 간단하게). */
-function readShellChoice(key: string): string {
-  try {
-    const stored = readStoredRecord<unknown>(TERMINAL_SHELL_CHOICE_KEY);
-    return String(stored[key] || stored[TERMINAL_SHELL_DEFAULT_SLOT] || '');
-  } catch {
-    return '';
-  }
-}
-
-function writeShellChoice(key: string, id: string): void {
-  try {
-    const stored = readStoredRecord<unknown>(TERMINAL_SHELL_CHOICE_KEY);
-    stored[key] = id;
-    stored[TERMINAL_SHELL_DEFAULT_SLOT] = id;
-    window.localStorage.setItem(TERMINAL_SHELL_CHOICE_KEY, JSON.stringify(stored));
-  } catch {
-    // The in-memory choice still applies for this session.
-  }
-}
-
-// Detected shells are fetched ONCE per renderer session and shared by every
-// terminal surface, and each pane prefetches on mount — the picker opens on a
-// ready list instead of flashing an empty state (user: 캐싱하거나 미리 받기).
-let shellProfilesCache: ShellProfile[] | null = null;
-let shellProfilesRequest: Promise<ShellProfile[]> | null = null;
-
-function loadShellProfiles(): Promise<ShellProfile[]> {
-  if (shellProfilesCache) return Promise.resolve(shellProfilesCache);
-  shellProfilesRequest ??= (async () => {
-    try {
-      const request = window.mixdogDesktop.termProfiles?.();
-      const list = request ? await request : [];
-      const profiles = Array.isArray(list) ? (list as ShellProfile[]) : [];
-      // Only a real answer is cached; an empty/failed one retries next time,
-      // so a transient IPC failure never pins "No shells detected".
-      if (profiles.length) shellProfilesCache = profiles;
-      return profiles;
-    } catch {
-      return [];
-    } finally {
-      if (!shellProfilesCache) shellProfilesRequest = null;
-    }
-  })();
-  return shellProfilesRequest;
 }
 
 function readTerminalViewState(key: string): TerminalViewState | null {
@@ -316,6 +263,7 @@ export async function disposeTerminalPane(id: string): Promise<void> {
   clearTerminalViewState(id);
   const ptyId = view?.id || id;
   view?.localEcho?.reset();
+  if (view) detachTerminalOutput(view);
   view?.writer.dispose();
   try {
     view?.term.dispose();
@@ -368,11 +316,14 @@ function terminalTheme() {
 export default function TerminalPane({
   cwd,
   terminalId,
+  shell = '',
   active = true,
   onReady,
 }: {
   cwd: string | null;
   terminalId?: string;
+  /** Shell profile id the PTY spawns with; '' is the OS default. */
+  shell?: string;
   active?: boolean;
   onReady?: () => void;
 }) {
@@ -386,49 +337,13 @@ export default function TerminalPane({
   const activeRef = useRef(active);
   activeRef.current = active;
   const key = terminalId || DOCK_TERMINAL_KEY;
-  const [shell, setShell] = useState(() => readShellChoice(key));
-  const [profiles, setProfiles] = useState<ShellProfile[] | null>(() => shellProfilesCache);
-  const [shellMenuOpen, setShellMenuOpen] = useState(false);
-  // ABB: the shell picker closes on hardware back.
-  useMobileBack(shellMenuOpen, () => setShellMenuOpen(false));
   const [droppingPaths, setDroppingPaths] = useState(false);
   beginBootSurface('terminal', key);
   reportBootSurfaceStage('terminal', key, 'module');
-  // Prefetch on mount so the picker opens on a ready list; an opened menu
-  // with an empty answer retries once more.
-  useEffect(() => {
-    if (profiles?.length) return undefined;
-    if (profiles !== null && !shellMenuOpen) return undefined;
-    let live = true;
-    void loadShellProfiles().then((list) => {
-      if (live) setProfiles(list);
-    });
-    return () => {
-      live = false;
-    };
-  }, [profiles, shellMenuOpen]);
-  useEffect(() => {
-    if (!shellMenuOpen) return undefined;
-    const dismiss = (event: PointerEvent) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest('.dock-terminal-shell')) return;
-      setShellMenuOpen(false);
-    };
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setShellMenuOpen(false);
-    };
-    document.addEventListener('pointerdown', dismiss, true);
-    document.addEventListener('keydown', keydown);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss, true);
-      document.removeEventListener('keydown', keydown);
-    };
-  }, [shellMenuOpen]);
   useEffect(() => {
     const container = host.current;
     if (!container) return undefined;
     let disposed = false;
-    let unsubscribe: (() => void) | undefined;
     let stopCommands: (() => void) | undefined;
     let observer: ResizeObserver | undefined;
     let dataDisposable: { dispose(): void } | undefined;
@@ -547,11 +462,7 @@ export default function TerminalPane({
       }
       // A retry after a failed attempt must not stack a second subscription
       // or key handler onto the same view.
-      unsubscribe ??= window.mixdogDesktop.subscribeTermData?.((event) => {
-        if (event.id !== view.id) return;
-        const data = view.localEcho ? view.localEcho.onIncoming(event.data) : event.data;
-        if (data) view.writer.push(event.id, data);
-      });
+      attachTerminalOutput(view, window.mixdogDesktop.subscribeTermData);
       dataDisposable ??= term.onData((data) => {
         if (!view.id) return;
         view.localEcho?.onInput(data);
@@ -650,7 +561,6 @@ export default function TerminalPane({
       window.clearTimeout(persistTimer);
       if (retryTimer) window.clearTimeout(retryTimer);
       writeTerminalViewState(key, view);
-      unsubscribe?.();
       stopCommands?.();
       observer?.disconnect();
       dataDisposable?.dispose();
@@ -682,12 +592,6 @@ export default function TerminalPane({
     });
     return undefined;
   }, [active, key]);
-  // Surface WHAT the default actually spawns (user: 기본 OS 터미널이 나와야).
-  const defaultProfile = profiles?.find((profile) => profile.default) ?? null;
-  const defaultShellLabel = defaultProfile
-    ? t('Default ({{label}})', { label: defaultProfile.label })
-    : t('Default shell');
-  const shellLabel = shell ? profiles?.find((profile) => profile.id === shell)?.label || shell : defaultShellLabel;
   return (
     <div
       className="dock-terminal-surface"
@@ -722,67 +626,6 @@ export default function TerminalPane({
         view.term.focus();
       }}
     >
-      {/* File-breadcrumb strip grammar (user: TASK나 파일처럼 띠 하나): a 30px
-        band above the terminal with the shell switcher on the right edge.
-        NO title text — every host (workspace tab, bottom panel) already
-        labels the surface "Terminal" one row above (user: 터미널 아래
-        터미널이 왜 또 있어야 하는지 모르겠다). */}
-      <header className="dock-terminal-strip">
-        <div className="dock-terminal-shell">
-          <button
-            type="button"
-            className="dock-terminal-shell-trigger"
-            aria-haspopup="menu"
-            aria-expanded={shellMenuOpen}
-            title={t('Change terminal shell')}
-            onClick={() => setShellMenuOpen((open) => !open)}
-          >
-            <span>{shellLabel}</span>
-            <ChevronDown size={14} aria-hidden="true" />
-          </button>
-          {shellMenuOpen && (
-            <div className="dock-terminal-shell-menu" role="menu" aria-label={t('Terminal shells')}>
-              {profiles === null && <span className="dock-terminal-shell-note">{t('Detecting shells…')}</span>}
-              {profiles?.length === 0 && <span className="dock-terminal-shell-note">{t('No shells detected')}</span>}
-              {(profiles?.length ?? 0) > 0 && (
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={!shell}
-                  title={defaultProfile?.path || t('OS default shell')}
-                  onClick={() => {
-                    setShellMenuOpen(false);
-                    if (!shell) return;
-                    writeShellChoice(key, '');
-                    setShell('');
-                  }}
-                >
-                  <span>{defaultShellLabel}</span>
-                  {!shell && <Check size={14} aria-hidden="true" />}
-                </button>
-              )}
-              {(profiles ?? []).map((profile) => (
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  key={profile.id}
-                  aria-checked={profile.id === shell}
-                  title={profile.path}
-                  onClick={() => {
-                    setShellMenuOpen(false);
-                    if (profile.id === shell) return;
-                    writeShellChoice(key, profile.id);
-                    setShell(profile.id);
-                  }}
-                >
-                  <span>{profile.label}</span>
-                  {profile.id === shell && <Check size={14} aria-hidden="true" />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </header>
       <div className="dock-terminal" ref={host} />
     </div>
   );

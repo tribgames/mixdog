@@ -4,8 +4,8 @@
  */
 import { clean, hasOwn } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { coerceEffortFor } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
-import { fastCapableFor } from '../../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
 import { ensureProviderEnabled } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
+import { selectionFastCapable } from '../route-state.mjs';
 import {
   isDefaultWebSearchRouteConfig,
   isWebSearchCapableProvider,
@@ -71,7 +71,7 @@ export function createWebSearchRouteApi(deps) {
     // bucket belongs to the MAIN route alone, so a web-search model pick that
     // happens to match Main must not rewrite Main's saved effort/fast.
     const effort = coerceEffortFor(selectedRoute.provider, modelMeta, selectedRoute.effort);
-    const fastCapable = fastCapableFor(selectedRoute.provider, modelMeta, effort, selectedRoute.modelParameters);
+    const fastCapable = selectionFastCapable(selectedRoute.provider, modelMeta, effort, selectedRoute.modelParameters);
     return normalizeWebSearchRouteConfig({
       ...selectedRoute,
       ...(effort ? { effort } : {}),

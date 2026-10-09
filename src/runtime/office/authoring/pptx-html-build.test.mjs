@@ -249,6 +249,25 @@ test('a chart spec pins the plot area and can hide the category axis', async () 
   }
 });
 
+test('a chart takes the measured element font before the Noto Sans KR fallback', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mixdog-html-chart-font-'));
+  try {
+    const faceOf = async (item, name) => {
+      const output = join(dir, name);
+      const chart = { kind: 'chart', box: { x: 96, y: 500, w: 1728, h: 420 }, spec: { type: 'col', labels: ['a'], values: [1] }, ...item };
+      await buildPptxFromMeasure({ width: 1920, height: 1080, slides: [{ bg: null, items: [chart] }] }, output);
+      const zip = await JSZip.loadAsync(await readFile(output));
+      const part = Object.keys(zip.files).find((file) => /^ppt\/charts\/chart\d+\.xml$/.test(file));
+      return (await zip.file(part).async('string')).match(/<a:latin typeface="([^"]+)"/)?.[1];
+    };
+    assert.equal(await faceOf({ font: 'Georgia' }, 'measured.pptx'), 'Georgia');
+    assert.equal(await faceOf({}, 'fallback.pptx'), 'Noto Sans KR');
+    assert.equal(await faceOf({ font: 'Georgia', spec: { type: 'col', labels: ['a'], values: [1], font: 'Arial' } }, 'spec.pptx'), 'Arial');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('an HTML brief comment reads as the script brief', () => {
   const html = `<!doctype html><!-- BRIEF
 facts: sample — illustrative numbers

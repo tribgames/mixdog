@@ -188,9 +188,27 @@ test('argument forms write through the store and report the outcome', async () =
   assert.ok(messages.includes('usage: /theme [id]. Available: dawn, dusk'));
   assert.ok(messages.includes('Effort set to high'));
   assert.ok(messages.includes('Fast mode off for openai/gpt-5'));
-  assert.ok(messages.includes('usage: /fast [on|off]'));
+  assert.ok(messages.includes('usage: /fast [on|off|ultra]'));
   assert.ok(messages.includes('autoclear on · idle 10m'));
   assert.ok(messages.includes('Goal paused.'));
+});
+
+test('/fast ultra selects Ultrafast and reports a model that lacks it', async () => {
+  const h = createHarness();
+  h.runSlashCommand('fast', 'ultra');
+  await flush();
+  assert.deepEqual(h.calls.at(-1), ['setFast', 'ultrafast']);
+  assert.ok(h.notices.some(([m]) => m === 'Ultrafast for openai/gpt-5'));
+  const g = createHarness({
+    store: {
+      setFast: async () => {
+        throw new Error('ultrafast is not available for openai/gpt-5');
+      },
+    },
+  });
+  g.runSlashCommand('fast', 'ultra');
+  await flush();
+  assert.ok(g.notices.some(([m]) => m.includes('ultrafast is not available for openai/gpt-5')));
 });
 
 test('busy guards refuse the destructive session commands and say so', () => {

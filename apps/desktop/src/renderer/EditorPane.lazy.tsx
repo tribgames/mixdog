@@ -7,6 +7,8 @@ import { ErrorNotice } from './ErrorNotice';
 import { createGitRefreshScheduler, FILE_DIFF_REFRESH_OPTIONS, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { monaco, resolveThemeColor } from './monaco-setup';
 import { EditorBreadcrumbs } from './editor-breadcrumbs';
+import type { SideFileChrome } from './side-surface-strip';
+import { sideEditorOptions } from './editor-side-options';
 import { useEditorCallHierarchy } from './editor-call-hierarchy';
 import {
   armMonoFontRemeasure,
@@ -22,6 +24,13 @@ import {
   EditorPaneNoticeSurface,
   EditorPanePreviewSurface,
 } from './editor-pane-surfaces';
+import {
+  delimiterForPath,
+  editorViewKindForPath,
+  svgDataUrl,
+  type EditorViewMode,
+} from './editor-delimited';
+import { EditorDelimitedTable, EditorMarkdownPreview, EditorSvgPreview } from './EditorTextViews';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { nextEditorLayoutDimension, type EditorLayoutDimension } from './editor-layout';
 import type { DesktopEditorSettings } from '../shared/contract';
@@ -296,10 +305,18 @@ export default function EditorPane({
   reveal,
   codeGraph,
   onOpenAt,
+  onOpenFile,
   onNavigationLocation,
   onReady,
   revealed = true,
+  onSideChrome,
+  onShowProblems,
 }: {
+  /** Side-dock mode: the status-bar Problems button calls this instead. */
+  onShowProblems?(): void;
+  /** Side-dock mode: the editor draws no breadcrumb row. The dock's own strip
+   *  shows the file and its actions from what is reported here. */
+  onSideChrome?(chrome: SideFileChrome | null): void;
   projectPath: string;
   relPath: string;
   accessToken?: string;
@@ -309,9 +326,10 @@ export default function EditorPane({
   focused: boolean;
   onDirty(dirty: boolean): void;
   onSaveHandle?(handle: EditorFileHandle | null, released?: EditorFileHandle): void;
-  reveal?: { line: number; nonce: number } | null;
+  reveal?: { line: number; column?: number; nonce: number } | null;
   codeGraph?(mode: EditorCodeGraphMode, query: string): Promise<string>;
   onOpenAt?(rel: string, line: number): void;
+  onOpenFile?(project: string, rel: string, line?: number, accessToken?: string): void;
   onNavigationLocation?(rel: string, line: number, column: number): void;
   onReady?(): void;
   /** The loading cover has lifted: a hidden editor cannot take focus, so a
@@ -327,8 +345,13 @@ export default function EditorPane({
   const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 });
   const [selectionStatus, setSelectionStatus] = useState({ selections: 1, characters: 0 });
   const [problemStatus, setProblemStatus] = useState({ errors: 0, warnings: 0 });
+  const onShowProblemsRef = useRef(onShowProblems);
+  onShowProblemsRef.current = onShowProblems;
   const showProblems = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('mixdog:show-problems'));
+    // Side dock: the host opens Problems in its own split under this editor
+    // instead of toggling the main pane's bottom panel.
+    if (onShowProblemsRef.current) onShowProblemsRef.current();
+    else window.dispatchEvent(new CustomEvent('mixdog:show-problems'));
   }, []);
   const [editorFormat, setEditorFormat] = useState({
     tabSize: 4,
@@ -344,6 +367,11 @@ export default function EditorPane({
   const editorSettingsRef = useRef(editorSettings);
   editorSettingsRef.current = editorSettings;
   const mediaForeground = useForegroundMedia(active);
+  // SVG opens as an image, Markdown and CSV/TSV as text; the toggle shows the
+  // other view while the hidden editor (and its unsaved edits) stays mounted.
+  const viewKind = editorViewKindForPath(relPath);
+  const [viewMode, setViewMode] = useState<EditorViewMode>(viewKind === 'svg' ? 'rendered' : 'source');
+  const [viewSnapshot, setViewSnapshot] = useState<string | null>(null);
   // Gutter quick-diff stripes against the Git worktree.
   const diffDecorations = useRef<import('monaco-editor').editor.IEditorDecorationsCollection | null>(null);
   const ansiDecorations = useRef<import('monaco-editor').editor.IEditorDecorationsCollection | null>(null);
@@ -480,6 +508,7 @@ export default function EditorPane({
     save,
     saveRef,
     revertFromDisk,
+    contentRevision,
     restoreConflictingBackup,
     discardPendingBackup,
     keepEdits,
@@ -590,8 +619,8 @@ export default function EditorPane({
       editorLayoutSize.current = null;
       layoutEditorToHost(editor, layoutHost);
     }
-    if (focused && revealed) editor?.focus();
-  }, [active, focused, layoutEditorToHost, load, revealed]);
+    if (focused && revealed && viewMode === 'source') editor?.focus();
+  }, [active, focused, layoutEditorToHost, load, revealed, viewMode]);
   useEffect(() => {
     if (!modelUri) return;
     const model = editorRef.current?.getModel();
@@ -615,7 +644,7 @@ export default function EditorPane({
   // Quick-diff refresh: file-watch evidence plus a slow safety pass while active.
   useEffect(() => {
     const gitDiff = api?.gitDiff;
-    if (!active || !load || load.binary || load.tooLarge || !gitDiff) return undefined;
+    if (!active || !load || load.binary || load.tooLarge || load.readOnly || !gitDiff) return undefined;
     return startEditorQuickDiff({
       gitDiff,
       projectPath,
@@ -632,11 +661,12 @@ export default function EditorPane({
     if (!reveal || !load) return;
     const editor = editorRef.current;
     if (!editor) return;
-    editor.setPosition({ lineNumber: reveal.line, column: 1 });
-    editor.revealLineInCenter(reveal.line);
+    const column = reveal.column && reveal.column > 0 ? reveal.column : 1;
+    editor.setPosition({ lineNumber: reveal.line, column });
+    editor.revealPositionInCenter({ lineNumber: reveal.line, column });
     editor.focus();
-    onNavigationLocationRef.current?.(relPath, reveal.line, 1);
-  }, [reveal?.line, reveal?.nonce, load ? 1 : 0, relPath]);
+    onNavigationLocationRef.current?.(relPath, reveal.line, column);
+  }, [reveal?.line, reveal?.column, reveal?.nonce, load ? 1 : 0, relPath]);
   const selectedCharacters = selectionStatus.characters;
   let selectionLabel: string;
   if (selectionStatus.selections > 1) {
@@ -756,13 +786,72 @@ export default function EditorPane({
     },
     [disposeLsp]
   );
-  const editorBreadcrumbs = (
+  // A reload or revert replaces the model text: a snapshot taken earlier must
+  // follow it or the rendered view keeps showing the old file.
+  useEffect(() => {
+    if (viewMode !== 'rendered') return;
+    setViewSnapshot((current) => (current === null ? current : (modelRef.current?.getValue() ?? current)));
+  }, [contentRevision, viewMode]);
+  const changeViewMode = (next: EditorViewMode) => {
+    if (next === viewMode) return;
+    if (next === 'rendered') setViewSnapshot(modelRef.current?.getValue() ?? load?.content ?? '');
+    setViewMode(next);
+  };
+  const sideChromeRef = useRef({ save, changeViewMode });
+  sideChromeRef.current = { save, changeViewMode };
+  const sideEditable = Boolean(load && !preview && !load.binary && !load.tooLarge && !load.readOnly);
+  const sideViewToggle =
+    viewKind && load && !load.binary && !load.tooLarge && (viewKind !== 'svg' || preview) ? viewKind : null;
+  const sideOpenDefault = Boolean(preview || load?.binary || load?.tooLarge);
+  useEffect(() => {
+    if (!onSideChrome) return;
+    onSideChrome({
+      editable: sideEditable,
+      dirty,
+      saving,
+      viewToggle: sideViewToggle
+        ? {
+            value: viewMode,
+            renderedLabel: sideViewToggle === 'table' ? t('Table') : t('Preview'),
+            onChange: (next) => sideChromeRef.current.changeViewMode(next),
+          }
+        : undefined,
+      save: () => void sideChromeRef.current.save(),
+      reveal: () => void api?.revealFile?.(projectPath, relPath, accessToken),
+      openDefault: sideOpenDefault
+        ? () => void openEditorFileExternally(projectPath, relPath, accessToken)
+        : undefined,
+    });
+  }, [
+    onSideChrome,
+    sideEditable,
+    sideViewToggle,
+    sideOpenDefault,
+    viewMode,
+    dirty,
+    saving,
+    api,
+    projectPath,
+    relPath,
+    accessToken,
+  ]);
+  useEffect(() => () => onSideChrome?.(null), [onSideChrome]);
+  const editorBreadcrumbs = onSideChrome ? null : (
     <EditorBreadcrumbs
       projectPath={projectPath}
       relPath={relPath}
       accessToken={accessToken}
       load={load}
-      preview={preview}
+      preview={viewKind === 'svg' ? null : preview}
+      viewToggle={
+        viewKind && load && !load.binary && !load.tooLarge && (viewKind !== 'svg' || preview)
+          ? {
+              value: viewMode,
+              renderedLabel: viewKind === 'table' ? t('Table') : t('Preview'),
+              onChange: changeViewMode,
+            }
+          : undefined
+      }
       dirty={dirty}
       saving={saving}
       reverting={reverting}
@@ -791,7 +880,7 @@ export default function EditorPane({
   if (!load) {
     return <EditorPaneLoadingSurface breadcrumbs={editorBreadcrumbs} />;
   }
-  if (preview) {
+  if (preview && viewKind !== 'svg') {
     return (
       <EditorPanePreviewSurface
         breadcrumbs={editorBreadcrumbs}
@@ -829,11 +918,24 @@ export default function EditorPane({
       />
     );
   }
+  const showRendered = viewMode === 'rendered' && viewKind !== null && (viewKind !== 'svg' || Boolean(preview));
+  const renderedText = viewSnapshot ?? load.content;
+  const delimiter = delimiterForPath(relPath);
+  const baseOptions = monacoEditorOptions(editorSettings, wordWrapOverride);
+  const options = {
+    ...(onSideChrome ? sideEditorOptions(baseOptions, wordWrapOverride) : baseOptions),
+    readOnly: Boolean(load.readOnly),
+  };
   return (
     <>
       {callHierarchyPortal}
       <div className="editor-pane">
         {editorBreadcrumbs}
+        {load.readOnly && (
+          <p className="editor-pane-readonly-notice" role="status">
+            {t('Read-only: this file is over 1 MB, so it can be viewed but not edited.')}
+          </p>
+        )}
         <EditorPaneAlerts
           recovery={recovery}
           diskChanged={diskChanged}
@@ -851,18 +953,40 @@ export default function EditorPane({
           }}
         />
         <div className="editor-pane-body stable-surface-preserved stable-editor-surface">
-          <SharedEditorSurface
-            surfaceKey={surfaceKey ?? abs}
-            active={active}
-            path={abs}
-            modelRef={modelRef}
-            defaultLanguage={explicitEditorLanguageIdForPath(relPath)}
-            defaultValue={load.content}
-            theme={lightTheme ? 'mixdog-light' : 'mixdog-dark'}
-            options={monacoEditorOptions(editorSettings, wordWrapOverride)}
-            onMount={onMonacoMount}
-            onRelease={releaseEditorSurface}
-          />
+          {showRendered && viewKind === 'svg' && preview && (
+            <EditorSvgPreview
+              url={viewSnapshot === null ? preview.url : svgDataUrl(viewSnapshot)}
+              name={relPath.split('/').at(-1) || relPath}
+              error={previewError}
+              onComplete={completePreview}
+              onFail={failPreview}
+            />
+          )}
+          {showRendered && viewKind === 'markdown' && (
+            <EditorMarkdownPreview
+              text={renderedText}
+              projectPath={projectPath}
+              relPath={relPath}
+              onOpenFile={onOpenFile}
+            />
+          )}
+          {showRendered && viewKind === 'table' && delimiter && (
+            <EditorDelimitedTable text={renderedText} delimiter={delimiter} />
+          )}
+          <div className="editor-pane-editor-host" style={showRendered ? { display: 'none' } : undefined}>
+            <SharedEditorSurface
+              surfaceKey={surfaceKey ?? abs}
+              active={active}
+              path={abs}
+              modelRef={modelRef}
+              defaultLanguage={explicitEditorLanguageIdForPath(relPath)}
+              defaultValue={load.content}
+              theme={lightTheme ? 'mixdog-light' : 'mixdog-dark'}
+              options={options}
+              onMount={onMonacoMount}
+              onRelease={releaseEditorSurface}
+            />
+          </div>
         </div>
         {/* ALWAYS mounted: gating on `focused` resized the editor body by 22px on
         every focus change — a visible jump right after a pane appears (user:

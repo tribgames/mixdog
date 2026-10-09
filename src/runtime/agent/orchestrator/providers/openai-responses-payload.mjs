@@ -5,7 +5,8 @@ export { convertMessagesToResponsesInput } from './openai-responses-input.mjs';
 import { buildStableProviderPromptCacheKey, resolveProviderPromptCacheLane } from '../agent-runtime/cache-strategy.mjs';
 import { isResponsesFreeformTool, toResponsesCustomTool } from './custom-tool-wire.mjs';
 import { _envFlag } from './openai-oauth-http-sse.mjs';
-import { findCachedCodexModel, codexModelSupportsServiceTier } from './openai-oauth-catalog.mjs';
+import { findCachedCodexModel } from './openai-oauth-catalog.mjs';
+import { resolveOpenAiServiceTier } from './openai-service-tier.mjs';
 
 export function toOpenAIResponsesTool(t) {
   if (t?.name === 'load_tool' || t?.name === 'tool_search') {
@@ -46,10 +47,6 @@ function _codexModelSupportsReasoningSummaries(id) {
     if (typeof flag === 'boolean') return flag;
   }
   return true;
-}
-
-export function buildCodexStartupPrewarmBody(body) {
-  return { ...body, input: [], generate: false };
 }
 
 // Effort normalization: `ultra` collapses to
@@ -128,7 +125,7 @@ function requestedMaxOutputTokens(opts) {
 // probed 2026-06-11). Only send the request value when the model catalog
 // advertises it.
 function requestedServiceTier(model, opts) {
-  return opts.fast === true && codexModelSupportsServiceTier(model, 'priority') ? 'priority' : '';
+  return resolveOpenAiServiceTier(opts.promptCacheProvider === 'openai' ? 'openai' : 'openai-oauth', model, opts);
 }
 
 // Both OpenAI routes retain reasoning in full logical history. Delta

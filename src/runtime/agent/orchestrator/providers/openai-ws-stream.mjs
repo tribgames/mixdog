@@ -42,7 +42,6 @@ import { stampTerminalOutcome } from './openai-ws-stream/outcome.mjs';
 // Facade re-exports so existing importers of openai-ws-stream.mjs
 // (openai-oauth-ws.mjs et al) keep resolving these symbols unchanged.
 export { _logicalResponseItemMatch, _computeDelta, _estimateFrameTokens } from './openai-ws-delta.mjs';
-export { _combineUsageWithWarmup } from './openai-ws-events.mjs';
 export { parseToolSearchArgs } from './openai-ws-response-state.mjs';
 export { _captureTurnStateFromEvent } from './openai-ws-stream/turn-state-headers.mjs';
 

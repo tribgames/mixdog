@@ -12,6 +12,7 @@
  * Auth, endpoints, and headers live in antigravity-oauth-tokens.mjs.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { join } from 'node:path';
 import { buildAntigravityRequest, isAntigravityClaude as isClaudeModel } from './antigravity-request.mjs';
 import { createPassthroughSignal } from '../stall-policy.mjs';
@@ -167,6 +168,7 @@ export class AntigravityOAuthProvider {
         response = await requestOnce();
       } catch (err) {
         lastErr = err;
+        noteErrorUsage(err);
         const status = Number(err?.status || err?.httpStatus || 0);
         const emitted = err?.unsafeToRetry === true || err?.liveTextEmitted === true || err?.emittedToolCall === true;
         // A typed 401 says THIS access token is no longer accepted.

@@ -54,7 +54,6 @@ export function createWsStreamWatchdogs({
         elapsed_ms: Date.now() - streamingStart,
         model: midState.model || currentModel() || null,
         attempt_index: Number.isFinite(attemptIndex) ? attemptIndex : null,
-        warmup: midState.warmup === true,
         saw_response_created: midState.sawResponseCreated === true,
       };
       appendAgentTrace({
@@ -134,12 +133,9 @@ export function createWsStreamWatchdogs({
         // local pre-stream watchdog code) and routes through the
         // post-upgrade-no-first-event retryable bucket.
         err.wsCloseCode = 4000;
-        // Tag the error object itself (not just midState): the warmup path
-        // streams under a separate warmupState and rethrows on timeout
-        // BEFORE it can copy flags to the outer midState, so the outer
-        // catch's _classifyMidstreamError would otherwise see
-        // sawResponseCreated=false + close 4000 and hit the pre-created
-        // deny gate. err.firstByteTimeout makes both paths retryable.
+        // Tag the error object itself (not just midState) so
+        // _classifyMidstreamError does not hit the pre-created deny gate on
+        // sawResponseCreated=false + close 4000.
         err.firstByteTimeout = true;
         midState.firstByteTimeout = true;
         fail(err, 'first_byte_timeout');

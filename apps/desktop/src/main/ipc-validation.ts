@@ -107,6 +107,7 @@ const CAPABILITY_ARITY = {
   installLocalProviderModel: [1, 1],
   startLocalProviderInstallation: [1, 2],
   cancelLocalProviderInstallation: [1, 1],
+  discardLocalProviderInstallation: [1, 2],
   setLocalProviderIdleTtl: [1, 1],
   setLocalProviderContext: [2, 2],
   getLocalProviderModelDetails: [1, 1],
@@ -580,10 +581,16 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     else if (args[1] !== undefined) throw new TypeError('runtime installation does not accept modelId.');
   }
   if (capability === 'cancelLocalProviderInstallation') requiredString(args[0], 'jobId', 128);
+  if (capability === 'discardLocalProviderInstallation') {
+    if (!['runtime', 'model', 'verify', 'repair'].includes(args[0] as string))
+      throw new TypeError('phase must be runtime, model, verify or repair.');
+    if (args[0] !== 'runtime') requiredString(args[1], 'modelId', 512);
+    else if (args[1] !== undefined) throw new TypeError('runtime installation does not accept modelId.');
+  }
   if (capability === 'setLocalProviderContext') {
     requiredString(args[0], 'modelId', 512);
-    if (args[1] !== null && (!Number.isSafeInteger(args[1]) || Number(args[1]) < 512)) {
-      throw new TypeError('Context size must be null (automatic) or an integer of at least 512 tokens.');
+    if (args[1] !== null && (!Number.isSafeInteger(args[1]) || Number(args[1]) < 16384)) {
+      throw new TypeError('Context size must be null (automatic) or an integer of at least 16384 tokens.');
     }
   }
   if (capability === 'getLocalProviderModelDetails' || capability === 'startLocalProviderModelMaintenance')

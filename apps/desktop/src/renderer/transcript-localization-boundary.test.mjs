@@ -36,6 +36,12 @@ test('runtime details and errors keep custom words while app-authored status cop
         assert.equal(document.querySelector('span').textContent, text, language);
       }
       assert.equal(localizeErrorCopy('Something went wrong.'), catalog['Something went wrong.'], language);
+      assert.equal(localizeErrorCopy('Sign-in expired.'), catalog['Sign-in expired.'], language);
+      assert.equal(
+        localizeErrorCopy('Sign in again from Providers.'),
+        catalog['Sign in again from Providers.'],
+        language
+      );
       document.body.innerHTML = renderToStaticMarkup(
         React.createElement(CompletionStatus, {
           item: { kind: 'statusdone', label: 'Compact skipped', detail: 'conversation kept · Agent' },

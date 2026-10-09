@@ -27,6 +27,7 @@ import { gitExecutablePresent } from '../../../shared/path-executable.mjs';
 // names gate the session tool surface in the bridge clients.
 const BROWSER_BRIDGE_DISCOVERY_FILE = 'browser-bridge.json';
 const COMPUTER_BRIDGE_DISCOVERY_FILE = 'computer-bridge.json';
+const TERMINAL_BRIDGE_DISCOVERY_FILE = 'terminal-bridge.json';
 
 function bridgePresent(file) {
   try {
@@ -103,6 +104,9 @@ export function builtinFeatureActive(configLike, id) {
   if (id === 'computer') {
     return featureEnvOverride('MIXDOG_FEATURE_COMPUTER') ?? bridgePresent(COMPUTER_BRIDGE_DISCOVERY_FILE);
   }
+  if (id === 'terminal') {
+    return featureEnvOverride('MIXDOG_FEATURE_TERMINAL') ?? bridgePresent(TERMINAL_BRIDGE_DISCOVERY_FILE);
+  }
   return false;
 }
 
@@ -113,10 +117,11 @@ export function builtinFeatureActive(configLike, id) {
  *  overrides), which the caller passes in. */
 export function featureDisallowedToolsFor(
   configLike,
-  { browserAvailable = false, computerAvailable = false, toolProfile = 'interactive', gitAvailable } = {}
+  { browserAvailable = false, computerAvailable = false, terminalAvailable = false, toolProfile = 'interactive', gitAvailable } = {}
 ) {
   const browser = featureEnvOverride('MIXDOG_FEATURE_BROWSER') ?? browserAvailable === true;
   const computer = featureEnvOverride('MIXDOG_FEATURE_COMPUTER') ?? computerAvailable === true;
+  const terminal = featureEnvOverride('MIXDOG_FEATURE_TERMINAL') ?? terminalAvailable === true;
   const denied = [
     ...(builtinFeatureActive(configLike, 'webSearch') ? [] : ['web_search', 'web_fetch']),
     ...(builtinFeatureActive(configLike, 'memory') ? [] : ['memory', 'recall']),
@@ -124,6 +129,7 @@ export function featureDisallowedToolsFor(
     ...(builtinFeatureActive(configLike, 'git') ? [] : ['github']),
     ...(browser ? [] : ['browser', 'browser_devtools']),
     ...(computer ? [] : ['computer']),
+    ...(terminal ? [] : ['terminal']),
     ...(builtinFeatureActive(configLike, 'office') ? [] : ['office']),
     ...(builtinFeatureActive(configLike, 'media') ? [] : ['media']),
     ...(builtinFeatureActive(configLike, 'tidy') ? [] : ['tidy']),

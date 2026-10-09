@@ -1,6 +1,6 @@
 /**
- * acquire-attempt.mjs — obtain the socket for one attempt (reserved prewarm
- * handle or a fresh/pooled acquire) and record what the acquire cost.
+ * acquire-attempt.mjs — obtain the socket for one attempt (a
+ * fresh/pooled acquire) and record what the acquire cost.
  */
 import { performance } from 'node:perf_hooks';
 import { traceAgentFetch } from '../../agent-trace.mjs';
@@ -10,20 +10,9 @@ export function newHandshake() {
   return { start: performance.now(), retries: 0, classifiers: [] };
 }
 
-export async function acquireForAttempt(ctx, handshake, { attemptIndex, prewarmed }) {
+export async function acquireForAttempt(ctx, handshake, { attemptIndex }) {
   const { auth, poolKey, cacheKey, forceFresh, externalSignal, _acquireWithRetryFn } = ctx.opts;
   const { attempts, sendSpan, emitReconnectProgress, retry429, codexHandshakeHeaders } = ctx;
-  const handle = prewarmed.handle;
-  const reserved =
-    attemptIndex === 0 &&
-    forceFresh !== true &&
-    handle?.entry &&
-    handle.poolKey === poolKey &&
-    handle.cacheKey === cacheKey;
-  if (reserved) {
-    prewarmed.handle = null;
-    return { entry: handle.entry, reused: true, prewarmed: true };
-  }
   return await _acquireWithRetryFn({
     auth,
     poolKey,
@@ -76,7 +65,6 @@ export function recordAcquired(ctx, acquired, handshake) {
   sendSpan.poolOwnerWaitMs += Math.max(0, Number(acquired?.ownerWaitMs) || 0);
   sendSpan.acquireMode =
     [
-      [acquired.prewarmed, 'prewarmed'],
       [entry?.ephemeral, 'ephemeral'],
       [reused, 'reused'],
     ].find(([hit]) => hit)?.[1] ?? 'new';

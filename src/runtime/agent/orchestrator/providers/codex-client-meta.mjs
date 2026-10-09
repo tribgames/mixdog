@@ -12,82 +12,25 @@
  * cache-node routing, so mixdog mirrors both.
  */
 import os from 'node:os';
-import { readLastKnownVersion, rememberLastKnownVersion } from './client-version-store.mjs';
+import { createNpmVersionSource, maxSemver } from './npm-cli-version.mjs';
 
 // Offline fallback only; live value refreshes from npm (24h TTL) and the last
 // live answer is kept on disk, so the floor is only a first-run default.
 // The backend gates model exposure AND per-request model access on the client
-// version (gpt-6-sol/luna require >= 0.155.0 per the published model catalog,
-// verified 2026-09-22), so keep this at the current release when bumping.
-const CODEX_CLIENT_VERSION_FLOOR = '0.155.1';
-const VERSION_TTL_MS = 24 * 60 * 60_000;
-const LAST_KNOWN_KEY = 'codex-cli';
-let _cache = { value: null, fetchedAt: 0 };
-let _refreshInFlight = null;
-
-async function _refresh() {
-  try {
-    const res = await fetch('https://registry.npmjs.org/@openai/codex/latest', {
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (res.ok) {
-      const j = await res.json();
-      const v = String(j?.version || '').trim();
-      if (/^\d+\.\d+\.\d+/.test(v)) {
-        _cache = { value: v, fetchedAt: Date.now() };
-        rememberLastKnownVersion(LAST_KNOWN_KEY, v);
-        return v;
-      }
-    }
-  } catch {
-    /* offline — keep floor */
-  }
-  const fallback = _offlineVersion();
-  _cache = { value: fallback, fetchedAt: Date.now() };
-  return fallback;
-}
+// version (gpt-6.1-sol requires >= 0.159.0, measured 2026-10-09), so the
+// release workflow raises this to the published CLI version on every release
+// (scripts/sync-client-version-floors.mjs).
+export const CODEX_CLIENT_VERSION_FLOOR = '0.162.0';
+export const CODEX_CLI_NPM_PACKAGE = '@openai/codex';
+const live = createNpmVersionSource(CODEX_CLI_NPM_PACKAGE, { persistKey: 'codex-cli' });
 
 /**
- * Sync accessor for hot request paths: returns the cached npm version when
- * fresh, otherwise kicks a background refresh and returns the floor. The
- * handshake must never await a registry fetch.
+ * Sync accessor for hot request paths: the live npm version (or the newest one
+ * this machine has seen), never below the floor. A stale value kicks a
+ * background refresh; the handshake must never await a registry fetch.
  */
-function codexClientVersionSync() {
-  if (_cacheFresh()) return _cache.value;
-  _ensureRefresh();
-  return _cache.value || _offlineVersion();
-}
-
-// The newest version this machine has seen, never below the shipped floor.
-function _offlineVersion() {
-  const lastKnown = readLastKnownVersion(LAST_KNOWN_KEY);
-  const newer = lastKnown && _compareVersion(lastKnown, CODEX_CLIENT_VERSION_FLOOR) > 0;
-  return newer ? lastKnown : CODEX_CLIENT_VERSION_FLOOR;
-}
-
-// Numeric x.y.z order; a pre-release suffix on the patch part is ignored.
-function _compareVersion(a, b) {
-  const parts = (version) => String(version).split('.').map((part) => Number.parseInt(part, 10) || 0);
-  const [pa, pb] = [parts(a), parts(b)];
-  for (let i = 0; i < 3; i += 1) {
-    const delta = (pa[i] || 0) - (pb[i] || 0);
-    if (delta) return delta;
-  }
-  return 0;
-}
-
-function _cacheFresh() {
-  return Boolean(_cache.value) && Date.now() - _cache.fetchedAt < VERSION_TTL_MS;
-}
-
-// One registry fetch at a time; concurrent callers share the in-flight refresh.
-function _ensureRefresh() {
-  if (!_refreshInFlight) {
-    _refreshInFlight = _refresh().finally(() => {
-      _refreshInFlight = null;
-    });
-  }
-  return _refreshInFlight;
+export function codexClientVersionSync() {
+  return maxSemver(CODEX_CLIENT_VERSION_FLOOR, live.sync());
 }
 
 /**
@@ -97,9 +40,8 @@ function _ensureRefresh() {
  * with the in-flight background refresh. First turns await this so the
  * backend's minimal_client_version gate never sees a stale floor.
  */
-export function warmCodexClientVersion() {
-  if (_cacheFresh()) return Promise.resolve(_cache.value);
-  return _ensureRefresh();
+export async function warmCodexClientVersion() {
+  return maxSemver(CODEX_CLIENT_VERSION_FLOOR, await live.warm());
 }
 
 function _osType() {

@@ -121,6 +121,34 @@ test('a page break before a table survives the Word render', { skip }, async (t)
   assert.match(rendered.pages[1].text, /Next\s+page/);
 });
 
+test('a Latin-led font stack sets Hangul in the stack\'s Korean face, not the Latin lead', { skip }, async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'memo.docx');
+  const authored = value(
+    await executeOfficeTool(
+      {
+        action: 'author',
+        path,
+        mode: 'portable',
+        render: false,
+        script: `<!doctype html><style>
+      @page { size: A4; margin: 20mm; }
+      body { font-family: Georgia, 'Noto Serif KR', serif; font-size: 11pt; }
+      h1 { font-family: Georgia, serif; }
+    </style><h1>상담 요청</h1><p>장부 기준 정정을 부탁드립니다.</p>`,
+      },
+      { cwd }
+    )
+  );
+  assert.equal(authored.ok, true, JSON.stringify(authored));
+  const docx = await parts(path);
+  const xml = `${await docx.text('word/document.xml')}${await docx.text('word/styles.xml')}`;
+  assert.match(xml, /w:ascii="Georgia"/, 'the Latin face stays the author\'s');
+  assert.match(xml, /w:eastAsia="Noto Serif KR"/, 'Hangul takes the Korean family of the stack');
+  assert.match(xml, /w:eastAsia="Batang"/, 'a serif stack with no Korean family takes the serif system face');
+  assert.doesNotMatch(xml, /w:eastAsia="Georgia"/);
+});
+
 test('a document without an @page size is refused before anything lands', { skip }, async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'bare.docx');

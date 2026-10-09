@@ -3,6 +3,8 @@
 // session's terminal dock, and the terminal pane enters the command once its
 // PTY is attached. A command sent before that pane exists waits here.
 
+import { activeSessionTerminalId, sessionTerminalId } from './session-terminal-tabs';
+
 type RevealListener = (sessionId: string) => void;
 type InputListener = (input: string) => void;
 
@@ -11,8 +13,7 @@ const availabilityListeners = new Set<() => void>();
 const inputListeners = new Map<string, Set<InputListener>>();
 const pendingInput = new Map<string, string[]>();
 
-/** The terminal a conversation session owns in its side dock. */
-export const sessionTerminalId = (sessionId: string): string => `session-terminal:${sessionId}`;
+export { sessionTerminalId };
 
 /** True while a shell that can reveal a session terminal is mounted. */
 export function terminalCommandRequestsAvailable(): boolean {
@@ -37,7 +38,7 @@ export function terminalCommandInput(command: string): string {
 
 export function requestTerminalCommand(sessionId: string, command: string): void {
   if (!sessionId || !command.trim()) return;
-  const terminalId = sessionTerminalId(sessionId);
+  const terminalId = activeSessionTerminalId(sessionId);
   const input = terminalCommandInput(command);
   const listeners = inputListeners.get(terminalId);
   if (listeners?.size) {

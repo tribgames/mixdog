@@ -5,7 +5,7 @@ import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { localProviderModelEntry, localProviderModelPath, localProviderModelRoot } from './catalog.mjs';
 import { downloadVerifiedLocalAsset, sha256File } from './asset-installer.mjs';
 import { trackLocalInstallation, localProviderInstallStatus, forgetLocalInstallations } from './install-progress.mjs';
-import { localProviderServerStatus, runLocalProviderRequest } from './server.mjs';
+import { localProviderServerStatus, runLocalProviderRequest, unloadLocalProviderServer } from './server.mjs';
 import { forgetRegisteredLocalModel } from './registered-models.mjs';
 import { forgetLocalModelState, recordLocalModelVerification } from './model-state.mjs';
 
@@ -13,6 +13,7 @@ export function createModelMaintenance({
   dataDir = resolvePluginData(),
   serverStatus = localProviderServerStatus,
   exclusive = runLocalProviderRequest,
+  unloadServer = unloadLocalProviderServer,
   fetchFn = fetch,
   now = Date.now,
 } = {}) {
@@ -40,11 +41,17 @@ export function createModelMaintenance({
       return [{ path: file, size: stat.size, mtimeMs: stat.mtimeMs }];
     });
   }
-  function guard(entry, ownPhase = null) {
+  const loadedModel = (entry, status = serverStatus()) =>
+    (status.running || status.starting) && status.activeModel === entry.id;
+  // `ownRequests` is the caller's own slot when it already holds the queue.
+  function guard(entry, ownPhase = null, { allowIdleLoaded = false, ownRequests = 0 } = {}) {
     const status = serverStatus();
-    if ((status.running || status.starting) && status.activeModel === entry.id) {
+    const requests = Number(status.activeRequests || 0) + Number(status.queuedRequests || 0);
+    if (loadedModel(entry, status) && (!allowIdleLoaded || requests > ownRequests)) {
       throw new Error(
-        '[local-provider] unload this model before repairing or deleting it; active conversations are protected'
+        allowIdleLoaded
+          ? '[local-provider] this model is answering a request; wait for it to finish before deleting it'
+          : '[local-provider] unload this model before repairing or deleting it; active conversations are protected'
       );
     }
     if (
@@ -127,12 +134,14 @@ export function createModelMaintenance({
       if (!receipt || receipt.expiresAt < now())
         throw new Error('[local-provider] deletion confirmation expired; inspect the model again');
       const entry = entryFor(receipt.modelId);
-      guard(entry);
+      guard(entry, null, { allowIdleLoaded: true });
       return exclusive(async () => {
         if (confirmations.get(confirmationToken) !== receipt || receipt.expiresAt < now()) {
           throw new Error('[local-provider] deletion confirmation expired or was already consumed');
         }
-        guard(entry);
+        guard(entry, null, { allowIdleLoaded: true, ownRequests: 1 });
+        // An idle loaded model holds its weights open; unload it inside the slot.
+        if (loadedModel(entry)) await unloadServer();
         const files = filesFor(entry);
         if (JSON.stringify(files) !== JSON.stringify(receipt.files))
           throw new Error('[local-provider] model files changed; request a new deletion confirmation');

@@ -17,7 +17,7 @@ import {
   UnsupportedComposerFileError,
 } from './composer-attachments';
 import { t } from './i18n';
-import { MAX_COMPOSER_ATTACHMENTS, type ComposerAttachment } from './composer-support';
+import { MAX_COMPOSER_ATTACHMENTS, pastedTextFields, type ComposerAttachment } from './composer-support';
 import { insertComposerToken, takeRejectedComposerSubmissionRecoveries } from './composer-draft';
 import { absolutePathTokens, projectMentionTokens, restoreAttachmentsFromRecord } from './composer-attachment-restore';
 import { useComposerFileDrop } from './use-composer-file-drop';
@@ -136,6 +136,36 @@ export function useComposerAttachments({
       }
     },
     [draftRef, removeAttachments, setDraft]
+  );
+
+  /** Swap a paste chip's text in place (empty text drops the chip). Returns
+   *  the budget refusal, or '' once applied. */
+  const updatePastedText = useCallback(
+    (attachment: ComposerAttachment, text: string) => {
+      if (!text.trim()) {
+        removeAttachment(attachment);
+        return '';
+      }
+      const updated = { ...attachment, ...pastedTextFields(attachment.id, text) };
+      const current = attachmentsRef.current;
+      const policyError = attachmentPolicyError(
+        current.filter((entry) => entry.id !== attachment.id),
+        updated
+      );
+      if (policyError) return policyError;
+      replaceAttachments(current.map((entry) => (entry.id === attachment.id ? updated : entry)));
+      // A recalled prompt carries the token in its text even for chip-only
+      // pastes, so every occurrence follows the new line count.
+      if (updated.token !== attachment.token && draftRef.current.includes(attachment.token)) {
+        setDraft((draft) => {
+          const next = draft.replaceAll(attachment.token, updated.token);
+          draftRef.current = next;
+          return next;
+        });
+      }
+      return '';
+    },
+    [draftRef, removeAttachment, replaceAttachments, setDraft]
   );
 
   const insertProjectMentions = useCallback(
@@ -317,6 +347,7 @@ export function useComposerAttachments({
     clearAttachments,
     removeAttachments,
     removeAttachment,
+    updatePastedText,
     replaceAttachments,
     attachFiles,
     restoredAttachments,

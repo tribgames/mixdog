@@ -3,7 +3,7 @@
 import { createDocxWriter } from './design-docx/writer.mjs';
 import { writeDocxFrontMatter } from './design-docx/front-matter.mjs';
 import { writeDocxSection } from './design-docx/section.mjs';
-import { koreanDesign } from './document-typography.mjs';
+import { pairTableEastAsia } from './document-typography.mjs';
 
 function writeDocxFooter(output, operation) {
   if (operation.pageNumbers === true) {
@@ -20,15 +20,14 @@ function writeDocxFooter(output, operation) {
 }
 
 export function expandDocxDocument(operation, sourceDesign, state, composition) {
-  // Tables and metric strips read the design's faces directly; a Korean document sets its sans roles in the Korean
-  // face so their digits match the Hangul beside them, and keeps each serif role paired run by run.
-  const design = koreanDesign(sourceDesign, JSON.stringify(operation), { pairsEastAsia: true });
-  const writer = createDocxWriter({ operation, design, state, composition });
+  // The design's Latin faces are written as given; Korean text takes a face of the Latin face's class beside it
+  // (nameEastAsia on runs, fontNameEastAsia on tables) only where no East Asian face was named.
+  const writer = createDocxWriter({ operation, design: sourceDesign, state, composition });
   writeDocxFrontMatter(writer, operation);
   const sections = Array.isArray(operation.sections) ? operation.sections : [];
   for (const [sectionIndex, section] of sections.entries()) {
     writeDocxSection(writer, section, sectionIndex);
   }
   writeDocxFooter(writer.output, operation);
-  return writer.output;
+  return pairTableEastAsia(writer.output, writer.type);
 }

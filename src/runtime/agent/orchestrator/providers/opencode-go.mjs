@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { AnthropicProvider } from './anthropic.mjs';
 import { OpenAICompatProvider, OPENAI_COMPAT_PRESETS } from './openai-compat.mjs';
+import { currentUsageContext } from '../../../shared/llm/usage-context.mjs';
 import { getModelMetadataSync, getModelsDevRowSync } from './model-catalog.mjs';
 
 // OpenCode Go publishes OpenAI chat/completions, OpenAI Responses, and
@@ -47,21 +48,41 @@ export function openCodeGoEndpointForModel(model, configuredBaseURL) {
   return `${bases.openai}/chat/completions`;
 }
 
-function normalizeOpenCodeGoResultUsage(result, anthropicRoute) {
-  if (!anthropicRoute || !result?.usage) return result;
-  const usage = result.usage;
+// Usage objects already converted to the inclusive convention; a converted
+// object passing through another normalization (nested send) stays as is,
+// and one source object always converts to the same object, so an abandoned
+// attempt and the error that later carries it stay one record.
+const inclusiveUsage = new WeakSet();
+const convertedUsage = new WeakMap();
+
+export function toInclusiveOpenCodeGoUsage(usage) {
+  if (!usage || inclusiveUsage.has(usage)) return usage;
+  if (convertedUsage.has(usage)) return convertedUsage.get(usage);
   const input = Number(usage.inputTokens) || 0;
   const cached = Number(usage.cachedTokens) || 0;
   const cacheWrite = Number(usage.cacheWriteTokens) || 0;
   const inclusiveInput = input + cached + cacheWrite;
-  return {
-    ...result,
-    usage: {
-      ...usage,
-      inputTokens: inclusiveInput,
-      promptTokens: Math.max(Number(usage.promptTokens) || 0, inclusiveInput),
-    },
+  const converted = {
+    ...usage,
+    inputTokens: inclusiveInput,
+    promptTokens: Math.max(Number(usage.promptTokens) || 0, inclusiveInput),
   };
+  inclusiveUsage.add(converted);
+  convertedUsage.set(usage, converted);
+  return converted;
+}
+
+function normalizeOpenCodeGoResultUsage(result, anthropicRoute) {
+  if (!anthropicRoute || !result?.usage) return result;
+  return { ...result, usage: toInclusiveOpenCodeGoUsage(result.usage) };
+}
+
+function normalizeOpenCodeGoError(error) {
+  if (error && typeof error === 'object') {
+    if (error.usage) error.usage = toInclusiveOpenCodeGoUsage(error.usage);
+    if (error.partialUsage) error.partialUsage = toInclusiveOpenCodeGoUsage(error.partialUsage);
+  }
+  return error;
 }
 
 function opencodeGoContextWindow(modelId, current = 0) {
@@ -133,8 +154,15 @@ export class OpenCodeGoProvider {
       // and accepts the standard message shape. Preserve the caller's
       // cache strategy so the shared Anthropic live-tail marker advances
       // through tool loops instead of forcing every request fully cold.
-      const result = await this.anthropic.send(messages, model, tools, sendOpts);
-      return normalizeOpenCodeGoResultUsage(result, true);
+      // Abandoned attempts noted by the inner provider use the same conversion.
+      const identity = currentUsageContext();
+      if (identity) identity.normalizeAbandonedUsage = toInclusiveOpenCodeGoUsage;
+      try {
+        const result = await this.anthropic.send(messages, model, tools, sendOpts);
+        return normalizeOpenCodeGoResultUsage(result, true);
+      } catch (error) {
+        throw normalizeOpenCodeGoError(error);
+      }
     }
     return this.openai.send(messages, model, tools, sendOpts);
   }

@@ -234,13 +234,12 @@ export function bridgeAgentModelSummary(args) {
 }
 
 export function summarizeLineWindow(a) {
-  const hasOffset = a.offset != null;
   const offset = a.offset ?? a.start_line ?? a.startLine ?? a.line;
   const limit = a.limit ?? a.line_count ?? a.lineCount ?? a.lines;
   if (offset == null && limit == null) return '';
-  // `read` uses a zero-based offset, while legacy start_line/line inputs are
-  // already one-based. Surface the human line number, never a raw array index.
-  const start = Number(offset) + (hasOffset ? 1 : 0);
+  // The public `read` schema's offset and the legacy start_line/line inputs
+  // are all one-based line numbers.
+  const start = Number(offset);
   const count = Number(limit);
   if (Number.isFinite(start) && Number.isFinite(count) && count > 0) {
     return `lines ${start}-${Math.max(start, start + count - 1)}`;
@@ -298,25 +297,32 @@ export function patchFileCount(args = {}) {
 export function codeGraphLabel(args) {
   const mode = String(args.mode || args.action || '').toLowerCase();
   if (mode === 'prewarm' || mode === 'index' || mode === 'build' || mode === 'refresh') return 'Setup';
-  if (mode === 'search' || mode === 'find_symbol' || mode === 'references' || mode === 'callers' || mode === 'callees')
+  if (
+    mode === 'search' ||
+    mode === 'symbol_search' ||
+    mode === 'find_symbol' ||
+    mode === 'references' ||
+    mode === 'callers' ||
+    mode === 'callees'
+  )
     return 'Search';
   return 'Read';
 }
 
+const CODE_GRAPH_FILE_MODES = new Set(['overview', 'imports', 'dependents', 'related', 'impact']);
+
+/** A scalar-or-array argument as its non-empty entries. */
+function listOf(value) {
+  const items = Array.isArray(value) ? value : [value];
+  return items.map((item) => String(item ?? '').trim()).filter(Boolean);
+}
+
 export function codeGraphSummary(args, max) {
-  return compactParts([
-    args.mode || args.action || '',
-    truncateToolText(
-      firstText(
-        args.symbol,
-        Array.isArray(args.symbols) ? args.symbols.join(', ') : '',
-        args.file,
-        args.path,
-        args.query
-      ),
-      max
-    ),
-  ]);
+  const mode = String(args.mode || args.action || '');
+  const symbols = listOf(args.symbols ?? args.symbol);
+  const files = listOf(args.files ?? args.file ?? args.path).map(displayToolPath);
+  const targets = CODE_GRAPH_FILE_MODES.has(mode) ? files.concat(symbols) : symbols.concat(files);
+  return compactParts([mode, truncateToolText(targets.join(', ') || firstText(args.query), max)]);
 }
 
 export function pluralize(count, singular, pluralText = `${singular}s`) {

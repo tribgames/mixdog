@@ -146,7 +146,11 @@ export async function listProjectDirIn(root: string, relDir: string): Promise<Ar
     });
 }
 
-/** Editor tab: read a project text file (1 MB cap, binary sniff). */
+/** Editable text up to 1 MB; larger text up to 10 MB opens read-only. */
+export const PROJECT_TEXT_EDIT_MAX_BYTES = 1_048_576;
+export const PROJECT_TEXT_VIEW_MAX_BYTES = 10_485_760;
+
+/** Editor tab: read a project text file (1 MB edit cap, 10 MB read-only cap, binary sniff). */
 export async function readProjectTextFileIn(
   root: string,
   relPath: string
@@ -155,21 +159,24 @@ export async function readProjectTextFileIn(
   mtimeMs: number;
   binary: boolean;
   tooLarge: boolean;
+  readOnly?: boolean;
   encoding: ProjectTextEncoding;
 }> {
   const file = projectEntryPathIn(root, relPath);
   const info = await stat(file);
   if (!info.isFile()) throw new Error('Not a file.');
-  if (info.size > 1_048_576) {
+  if (info.size > PROJECT_TEXT_VIEW_MAX_BYTES) {
     return { content: '', mtimeMs: info.mtimeMs, binary: false, tooLarge: true, encoding: 'utf8' };
   }
   const bytes = await readFile(file);
   const decoded = decodeProjectText(bytes);
+  const readOnly = !decoded.binary && info.size > PROJECT_TEXT_EDIT_MAX_BYTES;
   return {
     content: decoded.binary ? '' : decoded.content,
     mtimeMs: info.mtimeMs,
     binary: decoded.binary,
     tooLarge: false,
+    ...(readOnly ? { readOnly: true } : {}),
     encoding: decoded.encoding,
   };
 }

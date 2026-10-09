@@ -41,6 +41,33 @@ test('the project-root guard holds when the caller passes an unresolved root', a
   await assert.rejects(copyProjectEntryIn(unresolved, '', 'dir'), /Cannot copy the project root/);
 });
 
+test('text over 1 MB opens read-only up to 10 MB; beyond that it falls back', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-project-large-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'small.txt'), 'x'.repeat(1_048_576));
+  await writeFile(join(root, 'mid.txt'), 'y'.repeat(1_048_577));
+  await writeFile(join(root, 'edge.txt'), 'z'.repeat(10_485_760));
+  await writeFile(join(root, 'huge.txt'), 'w'.repeat(10_485_761));
+  await writeFile(join(root, 'mid.bin'), Buffer.alloc(2_000_000, 0));
+
+  const small = await readProjectTextFileIn(root, 'small.txt');
+  assert.equal(small.readOnly, undefined);
+  assert.equal(small.content.length, 1_048_576);
+  const mid = await readProjectTextFileIn(root, 'mid.txt');
+  assert.equal(mid.readOnly, true);
+  assert.equal(mid.tooLarge, false);
+  assert.equal(mid.content.length, 1_048_577);
+  const edge = await readProjectTextFileIn(root, 'edge.txt');
+  assert.equal(edge.readOnly, true);
+  assert.equal(edge.tooLarge, false);
+  const huge = await readProjectTextFileIn(root, 'huge.txt');
+  assert.equal(huge.tooLarge, true);
+  assert.equal(huge.content, '');
+  const binary = await readProjectTextFileIn(root, 'mid.bin');
+  assert.equal(binary.binary, true);
+  assert.equal(binary.readOnly, undefined);
+});
+
 test('project directory listing does not hide entries after 500', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-project-list-'));
   t.after(() => rm(root, { recursive: true, force: true }));

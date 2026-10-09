@@ -108,9 +108,9 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
   }),
   localContextWindow: {
     type: ['integer', 'null'],
-    minimum: 512,
+    minimum: 16384,
     description:
-      'Managed local model context tokens; null restores automatic allocation. Maximum comes from the model status.',
+      'Managed local model context tokens (32768+ recommended for agent work); null restores automatic allocation. Maximum comes from the model status.',
   },
   mode: {
     type: 'string',

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode, type Ref } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { SessionGoalHost } from './session-goal-submission';
 
@@ -16,6 +16,41 @@ let reviewModulePromise: Promise<TurnReviewModule> | null = null;
  * clearance, while Goal and review disclosures expand above their fixed
  * footprints without changing the scroller's height or reading position.
  */
+
+/** The open review grows upward past its reserved slot; publish that excess
+ *  as `--turn-review-lift` so the Goal capsule above rides on top of it
+ *  instead of covering the file list. */
+function useTurnReviewLift(slotRef: RefObject<HTMLDivElement | null>) {
+  useLayoutEffect(() => {
+    const slot = slotRef.current;
+    const region = slot?.parentElement;
+    if (!slot || !region) return undefined;
+    let bar: Element | null = null;
+    const apply = () => {
+      const lift = bar ? Math.max(0, Math.round(bar.getBoundingClientRect().height - slot.offsetHeight)) : 0;
+      region.style.setProperty('--turn-review-lift', `${lift}px`);
+    };
+    const resize = new ResizeObserver(apply);
+    const track = () => {
+      const next = slot.querySelector(':scope > .turn-review-bar');
+      if (next !== bar) {
+        if (bar) resize.unobserve(bar);
+        bar = next;
+        if (bar) resize.observe(bar);
+      }
+      apply();
+    };
+    const mutations = new MutationObserver(track);
+    mutations.observe(slot, { childList: true });
+    resize.observe(slot);
+    track();
+    return () => {
+      mutations.disconnect();
+      resize.disconnect();
+      region.style.removeProperty('--turn-review-lift');
+    };
+  }, [slotRef]);
+}
 
 export function ComposerDock({
   dockRef,
@@ -50,6 +85,8 @@ export function ComposerDock({
 }) {
   const [reviewModule, setReviewModule] = useState(() => loadedReviewModule);
   const [moduleFailure, setModuleFailure] = useState<{ error: unknown } | null>(null);
+  const reviewSlotRef = useRef<HTMLDivElement | null>(null);
+  useTurnReviewLift(reviewSlotRef);
   useEffect(() => {
     if (reviewModule) return undefined;
     let active = true;
@@ -79,7 +116,7 @@ export function ComposerDock({
       {/* Review sits attached ABOVE the input (user: 채팅창 위에 붙어야 한다).
           It is not a timeline row: as scroll content it read as a detached
           card floating over the composer. */}
-      <div className="turn-review-slot">
+      <div className="turn-review-slot" ref={reviewSlotRef}>
         {/* Keep the entry gate until the module and its authoritative read
             are ready, but do not let Suspense's reveal throttle hold an
             already loaded review slot (and the entire transcript) for 300ms. */}

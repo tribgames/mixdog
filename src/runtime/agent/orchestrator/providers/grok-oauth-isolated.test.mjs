@@ -189,6 +189,7 @@ async function isolated() {
       getModelMetadataSync: (id) => s.metadata[id],
     },
     './model-list-sanitize.mjs': { sanitizeModelList: (models) => models },
+    './lib/note-error-usage.mjs': { noteErrorUsage: () => {} },
     // No remembered client version: the sandbox never reads the operator's disk.
     './client-version-store.mjs': { readLastKnownVersion: () => null, rememberLastKnownVersion: () => {} },
     './lib/grok-tool-schema.mjs': {
@@ -752,7 +753,7 @@ function registerTests() {
     assert.ok(s.timeouts.every((timeout) => timeout.cleaned));
   });
 
-  test('send preserves aliases, tools, request identity and warmup on safe 401/403 retry', async () => {
+  test('send preserves aliases, tools, request identity on safe 401/403 retry', async () => {
     for (const status of [401, 403]) {
       const {
         s,
@@ -760,8 +761,7 @@ function registerTests() {
       } = await isolated();
       s.store(token({ user_id: 'user' }));
       const provider = new GrokOAuthProvider({ preconnect: false, responsesTransport: 'websocket' });
-      const warmup = { usage: { inputTokens: 10 } };
-      s.sendReplies.push(Object.assign(new Error('rejected'), { httpStatus: status, __warmup: warmup }), 'retried');
+      s.sendReplies.push(Object.assign(new Error('rejected'), { httpStatus: status }), 'retried');
       s.replies.push(response({ access_token: 'fresh', refresh_token: 'rotated', expires_in: 3600 }));
       const tools = [{ name: 'fixture-tool' }];
       s.toolResult = [{ name: 'normalized-tool' }];
@@ -772,7 +772,6 @@ function registerTests() {
       assert.equal(s.sends[0].args[2], s.toolResult);
       assert.equal(s.normalizedTools[0], tools);
       assert.equal(s.sends[0].args[3].effort, 'none');
-      assert.equal(s.sends[1].args[3]._carriedWarmup, warmup);
       assert.equal(opts.effort, 'high');
       assert.equal(s.inners[1].config.extraHeaders, s.inners[0].config.extraHeaders);
       assert.equal(s.inners[1].config.apiKey, 'fresh');

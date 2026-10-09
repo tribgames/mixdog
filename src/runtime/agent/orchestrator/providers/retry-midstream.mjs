@@ -282,6 +282,16 @@ const TRANSPORT_FALLBACK_ERRNO = new Set([
   'ERR_STREAM_PREMATURE_CLOSE',
 ]);
 
+const WS_MESSAGE_TOO_BIG_CLOSE_CODE = 1009;
+
+// The server closed with 1009 (message too big): it refused the request frame
+// itself, so the same frame is refused again on WS and only another transport
+// can carry it. The locally enforced receive bound (wsFrameTooLarge) is a
+// different failure and keeps its own retry path.
+export function isWsMessageTooBigClose(err) {
+  return Number(err?.wsCloseCode || 0) === WS_MESSAGE_TOO_BIG_CLOSE_CODE && err?.wsFrameTooLarge !== true;
+}
+
 export function shouldFallbackTransport(err, { signal, enabled = true } = {}) {
   if (!enabled) return false;
   if (signal?.aborted) return false;
@@ -298,6 +308,7 @@ export function shouldFallbackTransport(err, { signal, enabled = true } = {}) {
   if (TERMINAL_EDGE_STATUSES.has(status)) return false;
   if (TRANSIENT_STATUSES.has(status) || (status >= 500 && status < 600)) return true;
   if (status > 0) return false;
+  if (isWsMessageTooBigClose(err)) return true;
   const code = String(err?.code || '');
   if (TRANSPORT_FALLBACK_ERRNO.has(code) || (code.startsWith('ERR_SSL_') && isTransientErrorCode(code))) return true;
   const classifier = String(err?.retryClassifier || err?.midstreamClassifier || '');

@@ -101,30 +101,47 @@ test('a remote surface opens the document as pages and scrolls on', async (t) =>
   }
 });
 
-test('restored desktop Office tabs offer a manual external open without conversion or auto-launch', async (t) => {
+test('desktop Office tabs render pages in-app without launching an OS app', async (t) => {
   surface(t, true);
-  const unexpected = [];
+  const requested = [];
+  const launched = [];
   const api = {
-    previewDocumentFile: async () => unexpected.push('pdf'),
-    previewDocumentPages: async () => unexpected.push('pages'),
-    openFilePath: async () => unexpected.push('launch'),
-    readProjectFile: async () => ({
-      content: '',
-      mtimeMs: 11,
-      binary: true,
-      tooLarge: false,
-      encoding: 'utf8',
-    }),
+    previewDocumentPages: async (_projectPath, _relPath, _accessToken, options) => {
+      requested.push([...options.pages]);
+      return { format: 'pptx', mtimeMs: 5, size: 10, pageCount: 2, pages: options.pages.map(renderedPage) };
+    },
+    openFilePath: async () => launched.push('launch'),
+    openLocalFile: async () => launched.push('launch'),
+  };
+  const { root, session } = await mountSession(api, 'docs/deck.pptx');
+  try {
+    assert.deepEqual(requested, [[1]]);
+    assert.deepEqual(launched, []);
+    assert.equal(session.current.documentPreview.pageCount, 2);
+    assert.equal(session.current.documentError, '');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('a desktop Office conversion failure falls back to the binary notice without launching', async (t) => {
+  surface(t, true);
+  const launched = [];
+  const api = {
+    previewDocumentPages: async () => {
+      throw new Error('converter missing');
+    },
+    openFilePath: async () => launched.push('launch'),
+    readProjectFile: async () => ({ content: '', mtimeMs: 11, binary: true, tooLarge: false, encoding: 'utf8' }),
     readEditorBackup: async () => null,
   };
   const { root, session } = await mountSession(api, 'docs/deck.pptx');
   try {
-    assert.deepEqual(unexpected, []);
-    assert.equal(session.current.preview, null);
+    assert.match(session.current.documentError, /converter missing/);
     assert.equal(session.current.documentPreview, null);
     assert.equal(session.current.load.binary, true);
-    assert.equal(session.current.documentError, '');
     assert.equal(session.current.error, '');
+    assert.deepEqual(launched, []);
   } finally {
     await act(async () => root.unmount());
   }

@@ -46,19 +46,12 @@ void app
         await rendered(window);
         coordinator.finishCommand(sessionId);
         assert.equal(window.isVisible(), true, 'a completed short action retains its visual tail');
-        const deadline = Date.now() + 2000;
-        while (window.isVisible() && Date.now() < deadline) {
-          await sleep(10);
-        }
-        // A foreground session's arrow stands in for the hidden real pointer
-        // while it thinks; a background one hides after its visual tail. This
-        // runs on the live desktop, where a mouse the user moved ends the hold.
+        await sleep(1600);
+        // Either mode keeps its arrow while the session thinks within the grace.
+        // This runs on the live desktop, where a mouse the user moved ends a
+        // foreground hold.
         const yielded = Boolean(coordinator.snapshot().releasedPointerSessionIds?.includes(sessionId));
-        assert.equal(
-          window.isVisible(),
-          mode === 'foreground' && !yielded,
-          'only a foreground session keeps its arrow while it thinks'
-        );
+        assert.equal(window.isVisible(), !yielded, 'a thinking session keeps its arrow');
         assert.equal(coordinator.snapshot().activities[0]?.phase, 'thinking');
         coordinator.endExecution(sessionId);
         assert.equal(window.isDestroyed(), true);

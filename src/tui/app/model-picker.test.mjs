@@ -120,6 +120,57 @@ test('←/→ cycle effort with wrap-around and Fast follows the effort it is al
   assert.equal(h.footerText('claude-x-1').length, 3, 'Fast is unavailable at high');
 });
 
+const SPEED_OPTION = {
+  id: 'serviceTier',
+  label: 'Speed',
+  kind: 'enum',
+  options: [
+    { value: 'priority', label: 'Fast' },
+    { value: 'ultrafast', label: 'Ultrafast' },
+  ],
+};
+
+test('Tab cycles Standard → Fast → Ultrafast → Standard when the model offers Ultrafast', async () => {
+  const models = [
+    { provider: 'anthropic', id: 'ultra-1', display: 'Ultra', fastCapable: true, modelParameterOptions: [SPEED_OPTION] },
+  ];
+  const h = createHarness({ models, state: { model: 'other' } });
+  await h.openProvider();
+  const tab = () => h.current().onTab(h.row('ultra-1'));
+  const speed = () => h.footerText('ultra-1').filter((t) => /Fast|Ultrafast/.test(t));
+  const picker = h.current();
+  assert.deepEqual(speed(), ['Fast Off · Tab Toggle']);
+  tab();
+  assert.deepEqual(speed(), ['Fast On · Tab Toggle']);
+  tab();
+  assert.deepEqual(speed(), ['Ultrafast · Tab Toggle']);
+  picker.onSelect(h.row('ultra-1').value, h.row('ultra-1'));
+  await flush();
+  assert.equal(h.routes.at(-1).fast, true);
+  assert.equal(h.routes.at(-1).modelParameters.serviceTier, 'ultrafast');
+  const g = createHarness({ models, state: { model: 'other' } });
+  await g.openProvider();
+  g.current().onTab(g.row('ultra-1'));
+  g.current().onTab(g.row('ultra-1'));
+  g.current().onTab(g.row('ultra-1'));
+  assert.deepEqual(g.footerText('ultra-1').filter((t) => /Fast|Ultrafast/.test(t)), ['Fast Off · Tab Toggle']);
+  const standard = g.current();
+  standard.onSelect(g.row('ultra-1').value, g.row('ultra-1'));
+  await flush();
+  assert.equal(g.routes.at(-1).fast, false);
+  assert.equal(g.routes.at(-1).modelParameters.serviceTier, undefined);
+});
+test('Tab keeps the plain on/off toggle without the ultrafast option', async () => {
+  const models = [{ provider: 'anthropic', id: 'plain-fast', display: 'PF', fastCapable: true }];
+  const h = createHarness({ models, state: { model: 'other' } });
+  await h.openProvider();
+  const tab = () => h.current().onTab(h.row('plain-fast'));
+  tab();
+  assert.deepEqual(h.footerText('plain-fast'), ['Fast On · Tab Toggle']);
+  tab();
+  assert.deepEqual(h.footerText('plain-fast'), ['Fast Off · Tab Toggle']);
+});
+
 test('C/Shift+C step the context in 10% notches and T cycles thinking', async () => {
   const h = createHarness();
   await h.openProvider();

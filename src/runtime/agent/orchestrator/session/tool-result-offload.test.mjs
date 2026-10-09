@@ -37,3 +37,9 @@ test('a forced offload renders only path, size, lines and the complete short pre
     rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test('terminal results offload at the shell threshold', async () => {
+  const { _internals } = await import('./tool-result-offload.mjs');
+  assert.equal(_internals.getOffloadThreshold('terminal'), _internals.TOOL_RESULT_SHELL_THRESHOLD_CHARS);
+  assert.equal(_internals.getOffloadThreshold('terminal'), _internals.getOffloadThreshold('shell'));
+});

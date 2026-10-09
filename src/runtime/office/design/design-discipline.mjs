@@ -114,11 +114,10 @@ export function normalizeTypographyTokens(requested, fallback) {
   for (const role of TYPOGRAPHY_ROLES) {
     const value = String(source[role] || '').trim();
     if (!value) continue;
-    if (isSafeFontFamily(value)) {
-      typography[role] = value;
-      continue;
-    }
-    replaced.push({ role, requested: value, applied: typography[role] || base.body || 'Calibri' });
+    // The requested face is kept. A face outside the safe list is an advisory (recipients without it see a
+    // substitute), listed in `replaced` with `applied` equal to `requested` so callers can surface it.
+    typography[role] = value;
+    if (!isSafeFontFamily(value)) replaced.push({ role, requested: value, applied: value });
   }
   const families = new Set(TYPOGRAPHY_ROLES.map((role) => fontFamilyKey(typography[role])).filter(Boolean));
   return { typography, replaced, familyCount: families.size };

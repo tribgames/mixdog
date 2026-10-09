@@ -37,7 +37,7 @@ import {
   useLocalProviderStatus,
 } from './local-provider-status';
 import { useLocalProviderActions } from './local-provider-actions';
-import type { LocalProviderActions } from './local-provider-operations';
+import type { LocalProviderActions } from './local-provider-actions';
 import { GitPanel } from './git-panel';
 import { useTidyEngineStatus } from './tidy-status';
 import { useAutoEffortStatus } from './auto-effort-status';
@@ -435,8 +435,8 @@ export function BuiltInFeaturesPanel({
           await tidy.refresh();
         }
       } else {
-        // Browser Use / Computer Use ship bundled: install marks the feature
-        // activated, then turns its control on.
+        // Browser Use / Computer Use ship bundled: install marks the
+        // feature activated, then turns its control on.
         const marker = id === 'browser' ? ('browserInstalled' as const) : ('computerInstalled' as const);
         const control = id === 'browser' ? ('browserControl' as const) : ('computerControl' as const);
         if (!(await updateDesktopSetting(marker, true)) || !(await updateDesktopSetting(control, true))) {
@@ -459,7 +459,9 @@ export function BuiltInFeaturesPanel({
     // so an Install pill never flashes into a toggle (or back).
     let ready = sectionLoaded(data, 'toolModules');
     if (feature.id === 'git') ready = gitStatus !== null && sectionLoaded(data, 'toolModules');
-    else if (feature.id === 'browser' || feature.id === 'computer') ready = settings !== null;
+    else if (feature.id === 'browser' || feature.id === 'computer') {
+      ready = settings !== null;
+    }
     else if (feature.id === 'voice') ready = sectionLoaded(data, 'voice');
     let progressPercent: number | null = null;
     if (feature.id === 'localProvider') {

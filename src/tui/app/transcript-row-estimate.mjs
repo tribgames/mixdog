@@ -12,7 +12,7 @@ import {
 } from '../../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
 import { isBackgroundTaskResponseArgs } from '../../runtime/shared/tool-card-model.mjs';
-import { SKILL_SURFACE_NAMES } from '../../runtime/shared/tool-card-model/agent-surface.mjs';
+import { SKILL_SURFACE_NAMES, isAgentResponseResult } from '../../runtime/shared/tool-card-model/agent-surface.mjs';
 import {
   isBackgroundTaskTool,
   parseBackgroundTaskResult,
@@ -21,7 +21,6 @@ import { isShellTool } from '../../runtime/shared/tool-card-model/shell-surface.
 import { stripLeadingStatusMarkerFromText } from '../../runtime/shared/tool-card-model/terminal-status.mjs';
 import { readRowsForDisplay } from '../../runtime/shared/read-row-numbers.mjs';
 import { aggregateRawResultForDisplay } from '../session/tool-result-status.mjs';
-import { hasAgentResponseResultText } from '../session/agent-envelope.mjs';
 import { formatExpandedResult, wrapExpandedResultLines } from '../components/tool-output-format.mjs';
 import {
   formatHookDenialDetail,
@@ -88,12 +87,20 @@ function toolItemPendingForRows(item) {
   return done < count;
 }
 
+// Only a real background envelope's bare error line is hidden (mirrors
+// resolveDisplayedResult): every other tool's error body is its shown cause.
+function hasBackgroundMetaForRows(normalizedName, bgArgs, rt) {
+  if (!isBackgroundTaskTool(normalizedName)) return false;
+  return Boolean(parseBackgroundTaskResult(rt) || String(bgArgs?.task_id || bgArgs?.taskId || '').trim());
+}
+
 function toolDisplayedResultTextForRows(item) {
   const rt = item?.result == null ? '' : String(item.result).replace(/\s+$/, '');
   const bgArgs = backgroundArgsForRows(item?.args);
   const backgroundError = String(bgArgs.error || '');
-  const errorOnlyResult = Boolean(rt) && isBackgroundErrorOnlyBody(rt, backgroundError);
   const normalizedName = String(normalizeToolName(item?.name) || '').toLowerCase();
+  const errorOnlyResult =
+    Boolean(rt) && hasBackgroundMetaForRows(normalizedName, bgArgs, rt) && isBackgroundErrorOnlyBody(rt, backgroundError);
   if (!toolItemPendingForRows(item) && isBackgroundTaskTool(normalizedName)) {
     const meta = parseBackgroundTaskResultForRows(rt);
     if (meta?.hasResponse && String(meta.body || '').trim()) {
@@ -110,8 +117,13 @@ function toolHasDisplayResultForRows(item) {
   const trimmed = String(rt || '').trim();
   if (!trimmed) return false;
   const bgArgs = backgroundArgsForRows(item.args);
-  if (isBackgroundErrorOnlyBody(trimmed, bgArgs.error || '')) return false;
   const normalizedName = String(normalizeToolName(item.name) || '').toLowerCase();
+  if (
+    hasBackgroundMetaForRows(normalizedName, bgArgs, trimmed) &&
+    isBackgroundErrorOnlyBody(trimmed, bgArgs.error || '')
+  ) {
+    return false;
+  }
   if (isBackgroundTaskTool(normalizedName)) {
     const meta = parseBackgroundTaskResultForRows(trimmed);
     if (meta) return Boolean(meta.hasResponse && String(meta.body || '').trim());
@@ -164,7 +176,7 @@ function agentCardKeepsCollapsedDetailForRows(item, normalizedName) {
   const hasDisplayResult = toolHasDisplayResultForRows(item);
   const displayedResultText = toolDisplayedResultTextForRows(item);
   const rt = item.result == null ? '' : String(item.result).replace(/\s+$/, '');
-  const isAgentResponse = hasDisplayResult && hasAgentResponseResultText(rt);
+  const isAgentResponse = hasDisplayResult && isAgentResponseResult(bgArgs, rt);
   const briefRaw = summarizeAgentSurfaceBrief(item.name, bgArgs, displayedResultText, {
     isError,
     isResponse: isAgentResponse,

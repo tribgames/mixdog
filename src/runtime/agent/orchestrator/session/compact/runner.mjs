@@ -526,11 +526,13 @@ function freshContextLayout(source, budgetTokens, opts) {
   return { handoffText, summaryMessage, tail, stableHead, mandatory, mandatoryCost: estimateMessagesTokens(mandatory) };
 }
 
-function assertMandatoryFits(budget, mandatoryCost, summaryMessage) {
+function assertMandatoryFits(budget, mandatoryCost, summaryMessage, contextWindow) {
   if (mandatoryCost > budget || (summaryMessage && mandatoryCost === budget)) {
+    const window = Number(contextWindow) > 0 ? ` (currently ${contextWindow} tokens)` : '';
     throw new Error(
       `freshContextCompactMessages: mandatory session context/latest instruction exceeds compact budget=${budget} ` +
-        `(mandatory=${mandatoryCost})`
+        `(mandatory=${mandatoryCost}); the model context window${window} is too small for the tool definitions ` +
+        'and session context. Increase the model context size.'
     );
   }
 }
@@ -561,7 +563,7 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
     opts
   );
   budget = freshContextBudget({ targetBudget, budgetTokens, mandatoryCost, summaryMessage, opts });
-  assertMandatoryFits(budget, mandatoryCost, summaryMessage);
+  assertMandatoryFits(budget, mandatoryCost, summaryMessage, opts.contextWindow);
   const handoff = handoffRoomFor(budget, mandatoryCost, opts);
   const summaryContent = String(summaryMessage?.content || '');
   assertHandoffFits(summaryMessage, handoff.room);

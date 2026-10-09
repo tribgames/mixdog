@@ -3,7 +3,6 @@ import test from 'node:test';
 import { reasoningUsage, combineReasoningUsage } from '../../../shared/llm/reasoning-usage.mjs';
 import { normalizeUsage, addUsage, usageDeltaEvent } from './loop/usage.mjs';
 import { applyAskTerminalUsageTotals } from './manager/usage-metrics.mjs';
-import { _combineUsageWithWarmup } from '../providers/openai-ws-events.mjs';
 import { _sessionForDisk } from './store/serialize.mjs';
 import { createContextStatus } from '../runtime-core/context-status.mjs';
 import { sessionTokenCounters } from '../runtime-core/context-status-shape.mjs';
@@ -52,20 +51,6 @@ test('reported subtotals survive mixed-provider iterations without double-counti
   assert.equal(usage.reasoningTokensComplete, false);
   assert.deepEqual(combineReasoningUsage(null, null), { reasoningTokens: null, reasoningTokensComplete: false });
   assert.equal(reasoningUsage({ reasoningTokens: null, raw: known.raw }).reasoningTokens, null);
-});
-
-test('warmup usage contributes exactly once to reasoning and marks missing readings', () => {
-  const actual = { outputTokens: 40, raw: { output_tokens_details: { reasoning_tokens: 17 } } };
-  const warmup = { outputTokens: 12, raw: { output_tokens_details: { reasoning_tokens: 3 } } };
-  const result = _combineUsageWithWarmup(actual, warmup, { separateMainContext: true });
-  assert.equal(normalizeUsage(result).reasoningTokens, 20);
-  assert.equal(reasoningUsage(result.raw).reasoningTokens, 20);
-  assert.equal(result.outputTokens, 52);
-  assert.equal(result.mainOutputTokens, 40);
-  assert.equal(normalizeUsage(_combineUsageWithWarmup(null, warmup)).reasoningTokens, 3);
-  const partial = _combineUsageWithWarmup(actual, { outputTokens: 1 });
-  assert.equal(partial.reasoningTokens, 17);
-  assert.equal(partial.reasoningTokensComplete, false);
 });
 
 test('session accounting survives storage and exposes real usage outside context estimates', () => {

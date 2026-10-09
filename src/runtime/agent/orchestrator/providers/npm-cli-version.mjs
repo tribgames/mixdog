@@ -34,15 +34,25 @@ export function maxSemver(...candidates) {
   return best;
 }
 
+export const npmLatestUrl = (pkg) => `https://registry.npmjs.org/${pkg}/latest`;
+
+export async function parseNpmLatest(res) {
+  const v = String((await res.json())?.version || '').trim();
+  return SEMVER.test(v) ? v : null;
+}
+
+/** One GET of `url` parsed to a version; null when offline, slow, or unrecognised. */
+export async function fetchRemoteVersion(url, parse, timeoutMs = TIMEOUT_MS) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    return res.ok ? (await parse(res)) || null : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createNpmVersionSource(pkg, options) {
-  return createRemoteVersionSource(
-    `https://registry.npmjs.org/${pkg}/latest`,
-    async (res) => {
-      const v = String((await res.json())?.version || '').trim();
-      return SEMVER.test(v) ? v : null;
-    },
-    options
-  );
+  return createRemoteVersionSource(npmLatestUrl(pkg), parseNpmLatest, options);
 }
 
 /**
@@ -67,13 +77,8 @@ export function createRemoteVersionSource(
   }
 
   async function refresh() {
-    let next = null;
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-      if (res.ok) next = (await parse(res)) || null;
-    } catch {
-      /* offline or slow — keep previous/floor */
-    }
+    // Offline or slow keeps the previous value (or the caller's floor).
+    const next = await fetchRemoteVersion(url, parse, timeoutMs);
     if (next) {
       value = next;
       rememberLastKnownVersion(persistKey, next);

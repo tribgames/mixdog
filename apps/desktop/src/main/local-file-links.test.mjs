@@ -17,6 +17,7 @@ async function fixture(t) {
   const mainFrame = {};
   const webContents = { mainFrame, isDestroyed: () => false, send() {} };
   const opened = [];
+  const revealed = [];
   let failure = '';
   const remove = registerDesktopIpc(
     { webContents, isDestroyed: () => false },
@@ -41,6 +42,7 @@ async function fixture(t) {
           return failure;
         },
         openExternal: async () => {},
+        showItemInFolder: (file) => revealed.push(file),
       },
     }
   );
@@ -52,6 +54,7 @@ async function fixture(t) {
     directory,
     project,
     opened,
+    revealed,
     handler,
     event,
     handlers,
@@ -64,7 +67,7 @@ async function fixture(t) {
 
 test('chat file IPC opens relative, absolute and file URLs with decoded document names', async (t) => {
   const f = await fixture(t);
-  const names = ['제안서 100% #1.pptx', 'preview.pdf', 'verification-summary.docx', '도표 #1.svg', 'Chart.SVG'];
+  const names = ['제안서 100% #1.tiff', 'scan.TIF', 'archive file.zip'];
   for (const name of names) {
     const file = join(f.project, 'output', name);
     await writeFile(file, 'sample');
@@ -78,10 +81,42 @@ test('chat file IPC opens relative, absolute and file URLs with decoded document
       assert.equal(f.opened.at(-1), canonical);
     }
   }
-  await f.invoke('./output/preview.pdf?download=1#page=2');
-  assert.equal(f.opened.at(-1), await realpath(join(f.project, 'output', 'preview.pdf')));
-  await f.invoke('output%5Cverification-summary.docx');
-  assert.equal(f.opened.at(-1), await realpath(join(f.project, 'output', names[2])));
+  await f.invoke('output%5Cscan.TIF');
+  assert.equal(f.opened.at(-1), await realpath(join(f.project, 'output', 'scan.TIF')));
+});
+
+test('chat links to images, SVG, PDF, media and Office documents open in the editor with zero OS launches', async (t) => {
+  const f = await fixture(t);
+  const names = [
+    '제안서 100% #1.pptx', 'preview.pdf', 'verification-summary.docx', '도표 #1.svg', 'Chart.SVG', 'shot.png',
+    'song.mp3', 'clip.mp4', 'sheet.xlsx', 'Legacy.DOC',
+  ];
+  for (const name of names) {
+    const file = join(f.project, 'output', name);
+    await writeFile(file, 'sample');
+    for (const href of [
+      `output/${encodeURIComponent(name)}`,
+      pathToFileURL(file).href,
+      file.replace(/\\/g, '/').replace(/%/g, '%25').replace(/#/g, '%23'),
+    ]) {
+      assert.equal(await f.invoke(href), 'editor', name);
+    }
+  }
+  assert.equal(await f.invoke('./output/preview.pdf?download=1#page=2'), 'editor');
+  assert.deepEqual(f.opened, []);
+});
+
+test('reveal validates the project boundary and reveals the real file', async (t) => {
+  const f = await fixture(t);
+  const file = join(f.project, 'output', 'report.pdf');
+  await writeFile(file, 'sample');
+  const reveal = f.handlers.get(DESKTOP_IPC.revealFile);
+  await reveal(f.event, f.project, 'output/report.pdf');
+  assert.deepEqual(f.revealed.map((p) => p.replace(/\\/g, '/')), [file.replace(/\\/g, '/')]);
+  await assert.rejects(async () => reveal(f.event, f.project, '../outside.pdf'));
+  await assert.rejects(async () => reveal(f.event, f.project, '../../outside.pdf', 'bad-token'));
+  assert.equal(f.revealed.length, 1);
+  assert.deepEqual(f.opened, []);
 });
 
 test('external chat files use existing selected-file access for reading and saving without registering a Project', async (t) => {
@@ -213,8 +248,8 @@ test('chat file IPC never launches scripts, shortcuts, macro-enabled or text fil
   }
   await assert.rejects(f.invoke('output/preview.pdf'), /^Error: The file no longer exists: output\/preview\.pdf$/);
   await writeFile(join(f.project, 'output', 'preview.pdf'), 'sample');
-  assert.equal(await f.invoke('output/preview.pdf'), 'file');
-  assert.deepEqual(f.opened, [await realpath(join(f.project, 'output', 'preview.pdf'))]);
+  assert.equal(await f.invoke('output/preview.pdf'), 'editor');
+  assert.deepEqual(f.opened, []);
 });
 
 test('chat file IPC opens folders in the file manager, with or without a trailing separator', async (t) => {
@@ -243,10 +278,10 @@ test('chat file IPC cannot escape through a directory junction or symbolic link'
 
 test('chat file IPC propagates default-app failures and rejects foreign senders', async (t) => {
   const f = await fixture(t);
-  await writeFile(join(f.project, 'output', 'preview.pdf'), 'sample');
+  await writeFile(join(f.project, 'output', 'preview.zip'), 'sample');
   f.fail('No application is associated with this file.');
-  await assert.rejects(f.invoke('output/preview.pdf'), /No application is associated/);
-  assert.throws(() => f.handler({ ...f.event, sender: {} }, f.project, 'output/preview.pdf'), /rejected/);
-  assert.throws(() => f.handler({ ...f.event, senderFrame: {} }, f.project, 'output/preview.pdf'), /rejected/);
+  await assert.rejects(f.invoke('output/preview.zip'), /No application is associated/);
+  assert.throws(() => f.handler({ ...f.event, sender: {} }, f.project, 'output/preview.zip'), /rejected/);
+  assert.throws(() => f.handler({ ...f.event, senderFrame: {} }, f.project, 'output/preview.zip'), /rejected/);
   assert.equal(f.opened.length, 1);
 });

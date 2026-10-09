@@ -213,7 +213,7 @@ function buildSuccessSummary(command, stdout) {
   return null;
 }
 
-function foldCarriageReturnFrames(value) {
+export function foldCarriageReturnFrames(value) {
   const text = String(value ?? '');
   if (!/\r(?!\n)/.test(text)) return null;
   const normalized = text.replace(/\r\n/g, '\n');
@@ -235,7 +235,7 @@ function hasDiagnosticHazard(value) {
   );
 }
 
-function foldConsecutiveDuplicateLines(value) {
+export function foldConsecutiveDuplicateLines(value) {
   const text = String(value ?? '');
   const lines = text.split(/\r?\n/);
   const hadTrailingNewline = /\r?\n$/.test(text);

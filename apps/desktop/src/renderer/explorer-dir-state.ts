@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopApi } from '../shared/contract';
 import { explorerErrorText } from './explorer-mutations';
 import { subscribeProjectFileChanges } from './project-file-changes';
+import { startVisibleRefreshCadence } from './visible-refresh-cadence';
 import {
   collapseExplorerDirs,
   explorerHasExpandedDirs,
@@ -157,10 +158,15 @@ export function useExplorerDirs(input: {
       }
     };
     const unsubscribeProject = subscribeProjectFileChanges(projectPath, refreshExpanded);
-    const timer = window.setInterval(refreshExpanded, SAFETY_REFRESH_MS);
+    // A hidden window owns no safety timer; returning refreshes once.
+    const stopSafety = startVisibleRefreshCadence({
+      win: window,
+      intervalMs: SAFETY_REFRESH_MS,
+      refresh: refreshExpanded,
+    });
     return () => {
       unsubscribeProject();
-      window.clearInterval(timer);
+      stopSafety();
     };
   }, [active, api, projectPath]);
   const refreshTree = useCallback(async () => {

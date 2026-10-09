@@ -31,6 +31,8 @@ import {
   finalizeResponsesStream,
   unresolvedSalvageError,
 } from './openai-compat-responses-state.mjs';
+import { responsesUsage } from './openai-compat-response-normalization.mjs';
+import { noteAbandonedUsage } from '../../../shared/llm/usage-context.mjs';
 
 export {
   makeInvalidToolArgsMarker,
@@ -117,6 +119,10 @@ export async function consumeCompatResponsesStream(
     // Every stream that failed mid-flight carries what it completed (a
     // cancellation keeps the caller's own reason untouched).
     if (!signal?.aborted) attachPartialState(err, state, leakedCalls);
+    // The caller's (possibly shared) reason stays untouched; usage the
+    // provider already reported goes to this send directly.
+    else if (state.completedResponse?.usage)
+      noteAbandonedUsage(responsesUsage(state.completedResponse.usage), state.model || undefined);
     throw stampOutcome(markUnsafeRetryIfToolEmitted(err, state));
   } finally {
     firstByteTimeout.cleanup();
@@ -139,6 +145,14 @@ export async function consumeCompatResponsesStream(
     throw stampOutcome(err);
   }
   const unresolved = unresolvedSalvageError(state);
-  if (unresolved) throw stampOutcome(unresolved);
-  return finalizeResponsesStream(state, { leakedCalls, parseResponsesToolCalls, responseOutputText, label });
+  if (unresolved) {
+    attachPartialState(unresolved, state, leakedCalls);
+    throw stampOutcome(unresolved);
+  }
+  try {
+    return finalizeResponsesStream(state, { leakedCalls, parseResponsesToolCalls, responseOutputText, label });
+  } catch (err) {
+    attachPartialState(err, state, leakedCalls);
+    throw stampOutcome(err);
+  }
 }

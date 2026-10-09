@@ -29,8 +29,6 @@ const host = load(hostPath);
 const sequence = load(sequencePath);
 const rows = Array.isArray(model.rows) ? model.rows : [];
 const totalInputTokens = rows.map((row) => row.usage?.inputTokens);
-const mainInputTokens = rows.map((row) => row.usage?.mainInputTokens);
-const warmupInputTokens = rows.map((row) => row.usage?.warmupInputTokens);
 const cachedTokens = rows.map((row) => row.usage?.cachedTokens);
 const uncachedTokens = rows.map((row) => Number(row.usage?.inputTokens || 0) - Number(row.usage?.cachedTokens || 0));
 const outputTokens = rows.map((row) => row.usage?.outputTokens);
@@ -60,8 +58,6 @@ const report = {
     samples: rows.length,
     first_call_success_rate: model.summary?.first_call_success_rate ?? null,
     total_input_tokens: perToolCallInput,
-    main_input_tokens: distribution(mainInputTokens),
-    warmup_input_tokens: distribution(warmupInputTokens),
     cached_tokens: distribution(cachedTokens),
     uncached_tokens: distribution(uncachedTokens),
     output_tokens: distribution(outputTokens),

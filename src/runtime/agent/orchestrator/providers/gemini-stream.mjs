@@ -25,6 +25,7 @@ import { createSdkStreamCancellation } from './gemini-sdk-stream/cancellation.mj
 import { createSdkStreamReader } from './gemini-sdk-stream/reader.mjs';
 import { createRestStreamWatchdogs } from './gemini-rest-stream/watchdogs.mjs';
 import { drainSseDataLines, sseDataPayload } from './gemini-rest-stream/sse-lines.mjs';
+import { noteAbandonedUsage } from '../../../shared/llm/usage-context.mjs';
 
 export const GEMINI_FIRST_BYTE_TIMEOUT_MS = resolveTimeoutMs(
   'MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS',
@@ -146,8 +147,28 @@ export function normalizeGeminiSdkError(err, label) {
 // never shown, so it is not a replay boundary. Relayed-text stalls also gain
 // streamStalled + partialContent so the loop's partial-final path can keep
 // the streamed output instead of dropping the turn.
-function stampGeminiStreamFailure(err, { relayedText = '', textLeakGuard = null, chunks = [] } = {}) {
+// `failureUsage` ({ model, normalize(usageMetadata) }) carries the last
+// provider-reported usageMetadata of the dead stream to the send's accounting
+// as partialUsage/partialModel; nothing is attached when none was reported.
+// A caller's cancellation reason may be shared by concurrent requests, so it
+// never carries this request's usage: that usage is handed to this send
+// directly (the caller's awaited flow).
+function stampGeminiStreamFailure(
+  err,
+  { relayedText = '', textLeakGuard = null, chunks = [], failureUsage = null, cancelled = false } = {}
+) {
   if (!err || typeof err !== 'object') return err;
+  try {
+    const lastWithUsage = chunks.findLast((chunk) => chunk?.usageMetadata);
+    const usage = lastWithUsage && failureUsage ? failureUsage.normalize(lastWithUsage.usageMetadata) : null;
+    if (usage && cancelled) noteAbandonedUsage(usage, failureUsage.model);
+    else if (usage && !err.partialUsage) {
+      err.partialUsage = usage;
+      err.partialModel = failureUsage.model;
+    }
+  } catch {
+    /* best-effort */
+  }
   const leaked = (textLeakGuard?.getLeakedToolCalls?.() || []).length > 0;
   const finalizedText = textLeakGuard?.getRelayedText?.();
   const visibleText = typeof finalizedText === 'string' ? finalizedText : relayedText;
@@ -415,7 +436,7 @@ function createLeakGuardFinalizer(textLeakGuard) {
 // aggregation, leak guard, watchdogs — stays shared.
 export async function consumeGeminiRestStreamResponse(
   response,
-  { signal, onStreamDelta, onTextDelta, textLeakGuard, label, unwrapChunk = null, onChunk = null }
+  { signal, onStreamDelta, onTextDelta, textLeakGuard, label, unwrapChunk = null, onChunk = null, failureUsage = null }
 ) {
   const unwrap =
     typeof unwrapChunk === 'function'
@@ -518,7 +539,13 @@ export async function consumeGeminiRestStreamResponse(
     }
   } catch (err) {
     finalizeLeakGuard();
-    throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, chunks: allChunks });
+    throw stampGeminiStreamFailure(err, {
+      relayedText,
+      textLeakGuard,
+      chunks: allChunks,
+      failureUsage,
+      cancelled: signal?.aborted === true,
+    });
   } finally {
     watchdogs.stop();
     if (signal) signal.removeEventListener('abort', onAbort);
@@ -541,7 +568,7 @@ export async function consumeGeminiRestStreamResponse(
   try {
     assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label });
   } catch (err) {
-    throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, chunks: allChunks });
+    throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, chunks: allChunks, failureUsage });
   }
   return aggregated;
 }
@@ -557,6 +584,7 @@ export async function consumeGeminiSdkStream(
     cancelGeneration,
     firstByteTimeoutMs = GEMINI_FIRST_BYTE_TIMEOUT_MS,
     cancellationGraceMs = 250,
+    failureUsage = null,
   }
 ) {
   let relayedText = '';
@@ -643,7 +671,13 @@ export async function consumeGeminiSdkStream(
     const failure = signal?.aborted ? abortError() : err;
     await cancellation.cancelInFlight(failure);
     finalizeLeakGuard();
-    throw stampGeminiStreamFailure(failure, { relayedText, textLeakGuard, chunks: collectedChunks });
+    throw stampGeminiStreamFailure(failure, {
+      relayedText,
+      textLeakGuard,
+      chunks: collectedChunks,
+      failureUsage,
+      cancelled: signal?.aborted === true,
+    });
   } finally {
     reader?.stop();
     if (signal) {

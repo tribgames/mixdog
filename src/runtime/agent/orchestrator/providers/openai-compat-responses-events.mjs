@@ -6,6 +6,20 @@ import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } fro
 import { emitCompatToolCallOnce } from './openai-compat-stream-common.mjs';
 import { truncatedCompatStreamError, parseCompletedToolCallArgumentsJson } from './lib/openai-tool-args.mjs';
 import { incompleteReasonFromEvent, isMaxOutputIncompleteReason } from './lib/responses-terminal-fields.mjs';
+import { responsesUsage } from './openai-compat-response-normalization.mjs';
+
+// An incomplete response was still billed: carry its reported usage on the
+// error so the provider-boundary accounting records it.
+function withIncompleteUsage(err, event, state) {
+  const usage = event.response?.usage;
+  if (usage) {
+    // Stream state too: the stream's catch re-stamps partialModel from it.
+    if (!state.model && event.response.model) state.model = event.response.model;
+    err.partialUsage = responsesUsage(usage);
+    err.partialModel = state.model || undefined;
+  }
+  return err;
+}
 
 function signal(ctx, kind) {
   try {
@@ -104,7 +118,7 @@ function settleMaxOutputIncomplete(event, state, ctx, reason) {
     err.streamStalled = true;
     err.pendingToolUse = true;
     err.partialContent = state.content || '';
-    throw err;
+    throw withIncompleteUsage(err, event, state);
   }
   state.completed = true;
   state.stopReason = 'length';
@@ -277,31 +291,37 @@ function onCompleted(event, state, ctx) {
 function onDone(event, state, ctx) {
   if (!event.response || event.response.status === 'completed') {
     state.completed = true;
+    // A stream that never emits response.completed: this frame carries usage.
+    if (event.response) state.completedResponse ||= event.response;
     return;
   }
   if (event.response.status === 'failed') {
     const msg = event.response?.error?.message || 'response.done failed';
-    throw typedResponsesFailure(`xAI Responses stream response.done failed: ${msg}`, event);
+    throw withIncompleteUsage(
+      typedResponsesFailure(`xAI Responses stream response.done failed: ${msg}`, event),
+      event,
+      state
+    );
   }
   if (event.response.status === 'incomplete') {
     const reason = incompleteReasonFromEvent(event);
     if (isMaxOutputIncompleteReason(reason)) return settleMaxOutputIncomplete(event, state, ctx, reason);
-    throw new Error(`xAI Responses stream response.done incomplete: ${reason}`);
+    throw withIncompleteUsage(new Error(`xAI Responses stream response.done incomplete: ${reason}`), event, state);
   }
 }
 
-function onFailed(event) {
+function onFailed(event, state) {
   const msg = event.response?.error?.message || event.error?.message || event.message || 'response.failed';
   // The wire event's OWN typed status/code is preserved verbatim. A
   // forbidden/unknown failure is never coerced into a synthetic 500:
   // without typed evidence it stays unclassified and is surfaced.
-  throw typedResponsesFailure(`xAI Responses stream response.failed: ${msg}`, event);
+  throw withIncompleteUsage(typedResponsesFailure(`xAI Responses stream response.failed: ${msg}`, event), event, state);
 }
 
 function onIncomplete(event, state, ctx) {
   const reason = incompleteReasonFromEvent(event);
   if (isMaxOutputIncompleteReason(reason)) return settleMaxOutputIncomplete(event, state, ctx, reason);
-  throw new Error(`xAI Responses stream response.incomplete: ${reason}`);
+  throw withIncompleteUsage(new Error(`xAI Responses stream response.incomplete: ${reason}`), event, state);
 }
 
 function onError(event) {

@@ -179,10 +179,21 @@ test('Chromium receives redirect and separate cookies instead of final HTML at t
 });
 
 test('DNS validation rejects private addresses mixed with public records', async (t) => {
-  t.mock.method(dns.promises, 'lookup', async () => [{ address: '93.184.216.34', family: 4 }]);
-  t.mock.method(dns.promises, 'resolve4', async () => ['93.184.216.34', '10.0.0.1']);
-  t.mock.method(dns.promises, 'resolve6', async () => []);
+  t.mock.method(dns.promises, 'lookup', async () => [
+    { address: '93.184.216.34', family: 4 },
+    { address: '10.0.0.1', family: 4 },
+  ]);
   await assert.rejects(resolveAndValidate('example.com'), /private/);
+});
+
+test('DNS validation succeeds when direct DNS queries time out', async (t) => {
+  t.mock.method(dns.promises, 'lookup', async () => [{ address: '93.184.216.34', family: 4 }]);
+  const timeout = async () => {
+    throw Object.assign(new Error('queryA ETIMEOUT example.com'), { code: 'ETIMEOUT' });
+  };
+  t.mock.method(dns.promises, 'resolve4', timeout);
+  t.mock.method(dns.promises, 'resolve6', timeout);
+  assert.deepEqual(await resolveAndValidate('example.com'), [{ address: '93.184.216.34', family: 4 }]);
 });
 
 test('caller cancellation reaches the HTTP transport', async () => {

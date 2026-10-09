@@ -322,6 +322,7 @@ async function _postRefresh(tokens) {
       throw Object.assign(new Error(`[grok-oauth] token refresh ${res.status}: ${_scrubTokens(text).slice(0, 200)}`), {
         isInvalidGrant,
         isTerminalRefresh,
+        reauthRequired: isTerminalRefresh,
         oauthError: oauthError || null,
       });
     }

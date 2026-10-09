@@ -6,6 +6,7 @@ import { displayModelName } from '../tool-surface.mjs';
 import { titleWord } from '../tool-primitives.mjs';
 import { backgroundTaskFailureStatusLabel } from '../err-text.mjs';
 import { parseTaskNotification } from '../task-notification-envelope.mjs';
+import { leadingResultBlock } from '../tool-status.mjs';
 
 export function isAgentTool(normalizedName) {
   return normalizedName === 'agent';
@@ -28,9 +29,18 @@ export function titleizeAgentName(value) {
   return text.replace(/[_-]+/g, ' ').split(/\s+/).filter(Boolean).map(titleWord).join(' ');
 }
 
-// The agent identity a card shows, from whichever field the caller supplied.
-function agentDisplayName(args) {
-  return titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '');
+// The agent a status/read envelope names on its gent: line.
+function agentNameFromResult(resultText) {
+  const line = /^agent:\s*(\S.*)$/im.exec(leadingResultBlock(resultText));
+  return line ? titleizeAgentName(line[1]) : '';
+}
+
+// The agent identity a card shows: the call's own fields, else the result
+// envelope when the call only carried a tag/task id.
+function agentDisplayName(args, resultText = '') {
+  return (
+    titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '') || agentNameFromResult(resultText)
+  );
 }
 
 function agentModelLabel(args) {
@@ -61,10 +71,10 @@ function joinActionAgent(action, agent) {
   return agent ? `${action} ${agent}` : action;
 }
 
-export function agentResponseTitle(args, count = 1) {
+export function agentResponseTitle(args, count = 1, resultText = '') {
   const total = Math.max(1, Number(count) || 1);
   if (total > 1) return `Responses ${total} agents`;
-  const name = agentDisplayName(args) || 'Agent';
+  const name = agentDisplayName(args, resultText) || 'Agent';
   // The agent + model identify the responder; the response summary itself
   // is hidden in the collapsed card (expanding still shows the full body).
   // Keep the surface identifiable even when a failed/legacy completion has no
@@ -78,12 +88,19 @@ const AGENT_ACTION_VERBS = new Map([
   ['cancel', 'Cancel'],
   ['close', 'Close'],
   ['cleanup', 'Cleanup'],
-  ['read', 'Status'],
+  ['read', 'Read'],
   ['status', 'Status'],
 ]);
 
-export function agentActionTitle(args) {
-  const name = agentDisplayName(args);
+// A response is a completion notification (envelope or explicit result type);
+// status/read checks never become one, whatever text their result carries.
+export function isAgentResponseResult(args, resultText) {
+  if (String(args?.type || args?.action || '').toLowerCase() === 'result') return true;
+  return Boolean(parseTaskNotification(String(resultText || '').trim()));
+}
+
+export function agentActionTitle(args, resultText = '') {
+  const name = agentDisplayName(args, resultText);
   // Runtime treats an omitted type/action as "spawn" (see agent-tool.mjs default),
   // so mirror that contract here instead of falling through to the generic
   // "Called agent" status copy.
@@ -101,7 +118,11 @@ export function agentActionSummary(args, summary) {
   if (!text) return '';
   const name = agentDisplayName(args);
   if (name && text === name) return '';
-  const rest = name && text.startsWith(`${name} · `) ? text.slice(name.length + 3).trim() : text;
+  let rest = name && text.startsWith(`${name} · `) ? text.slice(name.length + 3).trim() : text;
+  // The action word is already the header verb (Status, Read, Send, …).
+  const action = String(args?.type || args?.action || '').trim();
+  if (action && rest === action) return '';
+  if (action && rest.startsWith(`${action} · `)) rest = rest.slice(action.length + 3).trim();
   // The agent/model/tag surface summary ("Heavy Worker · Opus 4.8") is now folded
   // into the header label itself ("Spawn Heavy Worker (Opus 4.8, tag)"), so drop
   // the model and tag tokens from the parenthesized summary to avoid showing

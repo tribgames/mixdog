@@ -165,6 +165,7 @@ export function useAppPersistentPaneSurfaces({
                 onOpenAt={
                   fileSelection.accessToken ? undefined : (rel, line) => openFileTab(fileSelection.project, rel, line)
                 }
+                onOpenFile={openFileTab}
                 onNavigationLocation={(rel, line) => {
                   if (!fileActive || !focused) return;
                   latestEditorLocation.current = {

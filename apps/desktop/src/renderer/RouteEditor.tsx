@@ -16,6 +16,7 @@ import { useMobileBack } from './mobile-back';
 import { BOOT_WARMUP, scheduleBootWarmup } from './boot-warmup';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ModelCatalog } from './model-catalog';
+import { type RouteSpeed, routeSpeed } from './model-route-utils';
 import { formatContextWindow, ModelRouteLabel } from './provider-display';
 import { useSurfaceActive } from './surface-activity';
 import { OPEN_MODEL_PICKER_EVENT } from './model-picker-event';
@@ -77,7 +78,7 @@ export function RouteEditor({
   tooltip = '',
   onSelectModel,
   onChangeEffort,
-  onChangeFast,
+  onChangeSpeed,
   onChangeContext,
   onChangeModelParameter,
   onOpenProviders,
@@ -116,7 +117,7 @@ export function RouteEditor({
   tooltip?: string;
   onSelectModel(option: DesktopModelOption): unknown;
   onChangeEffort(value: string): void;
-  onChangeFast(enabled: boolean): void;
+  onChangeSpeed(speed: RouteSpeed): void;
   onChangeContext(percent: number): void;
   onChangeModelParameter?(id: string, value: string): void;
   onOpenProviders?: () => void;
@@ -180,12 +181,18 @@ export function RouteEditor({
   const selectedEffort = effortOptions.find((option) => option.value === effort);
   const autoEffortOn = autoEffort?.enabled === true;
   const effortLabel = autoEffortOn ? t('Auto') : selectedEffort?.label || '';
-  const speedLabel = fast ? t('Fast') : t('Standard');
+  const ultrafastAvailable = modelParameterOptions.some(
+    (parameter) => parameter.id === 'serviceTier' && parameter.options.some((option) => option.value === 'ultrafast')
+  );
+  const speed = routeSpeed(fast, modelParameters);
+  const speedLabels = { standard: t('Standard'), fast: t('Fast'), ultrafast: t('Ultrafast') };
+  const speedLabel = speedLabels[speed];
   // The slider row IS the context control (TUI parity): a provider's own
   // context-window parameter (Cursor 272K/1M) must never duplicate it.
-  const parameterRows = contextVisible
-    ? modelParameterOptions.filter((parameter) => parameter.id !== 'context')
-    : modelParameterOptions;
+  // `serviceTier` is the Speed row's Ultrafast tier, never a generic row.
+  const parameterRows = modelParameterOptions.filter(
+    (parameter) => parameter.id !== 'serviceTier' && !(contextVisible && parameter.id === 'context')
+  );
   const rows = routeSheetRows({
     hasModel: Boolean(provider && model),
     effortCount: effortOptions.length,
@@ -640,10 +647,11 @@ export function RouteEditor({
     }
     if (target === 'speed') {
       return routeSpeedPane({
-        fast,
+        speed,
         fastAvailable,
+        ultrafastAvailable,
         tuningDisabled,
-        onChangeFast,
+        onChangeSpeed,
         onOptionKeyDown: paneOptionKeyDown('speed'),
       });
     }

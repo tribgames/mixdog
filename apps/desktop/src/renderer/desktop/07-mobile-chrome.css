@@ -1134,6 +1134,7 @@ html[data-mixdog-mobile-tabs] .effort-control select {
 html[data-mixdog-mobile-tabs] .composer-attachments > div:not(.image) {
   height: calc(36px * var(--mx-device-scale, 2.5));
 }
+html[data-mixdog-mobile-tabs] .composer-attachments .attachment-edit,
 html[data-mixdog-mobile-tabs] .composer-attachments .attachment-remove {
   width: var(--mx-touch-fixed-main);
   height: var(--mx-touch-fixed-main);

@@ -48,11 +48,11 @@ export function createTabTargeting(host: TabTargetingHost) {
       const found = backgroundEntryByPageId(sessionId, tab);
       if (!found) throw new Error(`no background page "${tab}"; call list_tabs`);
       found[1].lastUsedAt = Date.now();
-      return { guest: found[1].window.webContents, background: true, tabName: found[0] };
+      return { guest: found[1].guest, background: true, tabName: found[0] };
     }
     const name = normalizeBackgroundTabName(tab || 'bg');
     const entry = ensureOffscreen(sessionId, name);
-    return { guest: entry.window.webContents, background: true, tabName: name };
+    return { guest: entry.guest, background: true, tabName: name };
   }
 
   /** Resolve the page a command targets; null means the default visible tab. */

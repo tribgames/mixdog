@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getAgentApiKey } from '../../../shared/config.mjs';
-import { noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
+import { noteAbandonedUsage, noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
+import { cursorUsage } from './cursor-wire-stream-sink.mjs';
 import {
   knownToolNamesFromOpenAITools,
   parseToolCalls,
@@ -192,21 +193,6 @@ const CONTEXT_WINDOW_UNIT_SCALE = { k: 1_000, m: 1_000_000 };
 
 function parameterizedModelScore(model) {
   return (model.modelParameterOptions?.length || 0) + (model.supportsMaxMode ? 1 : 0);
-}
-
-function cursorUsage(rawUsage) {
-  const inputTokens =
-    rawUsage.input_tokens_known === false ? null : Number(rawUsage.prompt_tokens ?? rawUsage.input_tokens ?? 0);
-  return {
-    inputTokens,
-    outputTokens: Number(rawUsage.completion_tokens ?? rawUsage.output_tokens ?? 0),
-    cachedTokens: rawUsage.cache_tokens_known === false ? null : Number(rawUsage.cached_tokens ?? 0),
-    promptTokens: inputTokens,
-    inputTokensKnown: rawUsage.input_tokens_known !== false,
-    cacheTokensKnown: rawUsage.cache_tokens_known !== false,
-    contextTokens: rawUsage.context_tokens ?? null,
-    raw: { ...rawUsage },
-  };
 }
 
 function cursorContextWindow(value) {
@@ -703,10 +689,12 @@ class CursorProviderBase {
         { runtime, accessToken, signal, sendOpts, openAiTools }
       );
     };
+    const usageModel = model || 'auto';
     let assembled;
     try {
       assembled = await dispatch();
     } catch (error) {
+      if (error?.partialUsage && !error.partialModel) error.partialModel = usageModel;
       const retry = await this._sendRetryState(error, {
         signal,
         accessToken,
@@ -716,8 +704,14 @@ class CursorProviderBase {
         runtime,
       });
       if (!retry) throw error;
+      noteAbandonedUsage(error?.partialUsage, error?.partialModel);
       ({ accessToken, cursorSelection } = retry);
-      assembled = await dispatch();
+      try {
+        assembled = await dispatch();
+      } catch (retryError) {
+        if (retryError?.partialUsage && !retryError.partialModel) retryError.partialModel = usageModel;
+        throw retryError;
+      }
     }
     const rawUsage = assembled.rawUsage;
     // A pinned raw variant (effort/Fast suffix) bills as its catalog model;

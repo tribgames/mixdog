@@ -130,7 +130,46 @@ export function parseAuthoringBrief(script) {
   const directions = parseDirections(briefLine(script, 'directions'));
   const present = /\/\/\s*BRIEF\b/.test(String(script || ''));
   const sources = parseSources(briefLine(script, 'sources'));
-  return { present, plan, facts, factsMode, factsNote, style, family: style, directions, sources };
+  // `concept: <id> — <reason>`: the design concept chosen for this situation, free text.
+  const concept = briefLine(script, 'concept');
+  const palette =
+    (briefLine(script, 'palette') || '').split('·')[0].trim() ||
+    /\bpalette\s*:\s*([^·]+)/i.exec(briefLine(script, 'style') || '')?.[1]?.trim() ||
+    '';
+  // `reading mode: presentation | balanced | text · argument mode: …`; the style line's `MODE <mode>` is the fallback.
+  const modeLine = briefLine(script, 'reading mode');
+  const readingMode = (
+    /^\s*([a-z]+)/i.exec(modeLine)?.[1] ||
+    /\bMODE\s+([a-z]+)/.exec(briefLine(script, 'style'))?.[1] ||
+    ''
+  ).toLowerCase();
+  const argumentMode = (
+    /argument mode\s*:\s*([a-z]+)/i.exec(modeLine)?.[1] ||
+    /^\s*([a-z]+)/i.exec(briefLine(script, 'argument mode'))?.[1] ||
+    ''
+  ).toLowerCase();
+  return {
+    present,
+    plan,
+    facts,
+    factsMode,
+    factsNote,
+    style,
+    family: style,
+    directions,
+    sources,
+    concept,
+    palette,
+    readingMode,
+    argumentMode,
+  };
+}
+
+const SHOW_MODES = new Set(['presentation', 'keynote', 'showcase']);
+
+/** A deck read from the back of a room (presentation / keynote / showcase): body-page density rules do not apply. */
+export function isShowcaseBrief(brief) {
+  return SHOW_MODES.has(String(brief?.readingMode || '')) || SHOW_MODES.has(String(brief?.argumentMode || ''));
 }
 
 // What each named carrier promises on the saved slide. Read back as information

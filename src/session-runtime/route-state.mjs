@@ -24,6 +24,15 @@ export function resolveRouteEffortState(targetRoute = {}, modelMeta = null) {
   return { effectiveEffort, fastCapable, metadataResolved };
 }
 
+// Fast capability for a route selection or tuning write. Placeholder metadata
+// (`{ id, provider }`, a catalog that is not loaded yet) is unknown, not "no
+// Fast": clamping on it turned the selected route AND the saved model setting
+// to fast:false. Unknown keeps the requested value; the provider still checks
+// the exact tier before send.
+export function selectionFastCapable(provider, modelMeta, effort, modelParameters) {
+  return !modelMetaLooksResolved(modelMeta) || fastCapableFor(provider, modelMeta, effort, modelParameters);
+}
+
 // The persisted provider model rows are the SAME source the picker sized its
 // slider against, so they carry both windows (openai-oauth: 272k default /
 // 1M max). Reading them keeps a percentage saved against the picker's scale

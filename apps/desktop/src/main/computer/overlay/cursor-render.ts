@@ -33,11 +33,17 @@ export interface CursorRenderContext {
   userControlActive(): boolean;
 }
 
+/** Effects that hold a pose instead of playing out once. */
+const HELD_EFFECTS = new Set(['prepare', 'press', 'drag', 'type']);
+
 async function applyCursorEffect(
   window: BrowserWindow,
+  surface: CursorSurface,
   cursor: ComputerUseCursorPresentation,
-  effect: string
+  requested: string
 ): Promise<void> {
+  const effect = surface.settled && HELD_EFFECTS.has(requested) ? 'rest' : requested;
+  surface.effect = effect;
   // Only Windows hides the real pointer during foreground input; elsewhere it
   // stands at the action point itself and a drawn arrow would double it.
   const systemPointer = cursor.mode === 'foreground' && process.platform !== 'win32';
@@ -124,7 +130,7 @@ function startGlide(
     clearInterval(timer);
     surface.glide = undefined;
     recordCursorDiagnostic('glide_completed');
-    void applyCursorEffect(window, cursor, cursor.effect).catch(() => {
+    void applyCursorEffect(window, surface, cursor, cursor.effect).catch(() => {
       recordCursorDiagnostic('render_failed');
     });
   }, GLIDE_FRAME_MS);
@@ -151,6 +157,7 @@ export async function renderCursor(context: CursorRenderContext, cursor: Compute
   const surface = context.surfaceFor(cursor.sessionId);
   if (cursor.eventId <= surface.lastEventId) return;
   surface.lastEventId = cursor.eventId;
+  surface.settled = false;
   stopGlide(surface);
   recordCursorDiagnostic('render_started');
   const source = { x: cursor.x, y: cursor.y };
@@ -170,9 +177,21 @@ export async function renderCursor(context: CursorRenderContext, cursor: Compute
   const start = plan ? glidePosition(plan, 0) : target;
   surface.shown = start;
   window.setBounds(cursorBoundsDip(start), false);
-  await applyCursorEffect(window, cursor, plan ? 'move' : cursor.effect);
+  await applyCursorEffect(window, surface, cursor, plan ? 'move' : cursor.effect);
   if (!current() || context.userControlActive()) return;
   showCursorWindow(window, cursor);
   if (plan) startGlide(window, surface, cursor, plan, current);
   recordPlacement(window);
+}
+
+/** The command behind the cursor finished: a held pose (pressing, typing)
+ *  returns to rest. A gliding pointer rests on arrival instead. */
+export function settleCursor(surface: CursorSurface, cursor: ComputerUseCursorPresentation): void {
+  if (surface.settled) return;
+  surface.settled = true;
+  const window = surface.window;
+  if (surface.glide || !window || window.isDestroyed() || !HELD_EFFECTS.has(surface.effect ?? '')) return;
+  void applyCursorEffect(window, surface, cursor, surface.effect as string).catch(() => {
+    recordCursorDiagnostic('render_failed');
+  });
 }

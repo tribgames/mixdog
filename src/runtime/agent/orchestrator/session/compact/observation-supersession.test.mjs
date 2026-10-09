@@ -113,3 +113,43 @@ test('a superseded computer result keeps its action outcome and drops elements, 
   });
   assert.equal(staleObservations([messages[0], superseded, ...messages.slice(2)]).size, 0);
 });
+
+test('only a plain terminal read is superseded by a later plain read of the same tab', () => {
+  const read = (id, tab, partial = false) =>
+    `UNTRUSTED TERMINAL OUTPUT\nTerminal${partial ? ' (partial)' : ''}: session-terminal:s1${tab > 1 ? `:${tab}` : ''} · ${tab} pwsh running · cursor=5\nlines 1-1 of 1\nhello`;
+  const messages = [
+    call('t1', 'terminal'),
+    result('t1', read('t1', 1)),
+    call('t2', 'terminal'),
+    result('t2', read('t2', 2)),
+    call('t3', 'terminal'),
+    result('t3', read('t3', 1, true)),
+    call('t4', 'terminal'),
+    result('t4', read('t4', 1)),
+    call('t5', 'terminal'),
+    result('t5', read('t5', 1, true)),
+  ];
+  const stale = staleObservations(messages);
+  assert.deepEqual([...stale.keys()], [1]);
+  const replaced = supersedeObservation(messages[1], stale.get(1), 'Re-read if needed.');
+  assert.match(replaced.content, /^\[Terminal session-terminal:s1 read superseded: a newer read of this tab follows\./);
+  assert.ok(!replaced.content.includes('hello'));
+});
+
+test('a disjoint older terminal tail is kept; a contained one is superseded', () => {
+  const read = (id, first, last) => {
+    const rows = [];
+    for (let n = first; n <= last; n += 1) rows.push(n === 5 ? 'ERROR boom' : `line ${n}`);
+    return `UNTRUSTED TERMINAL OUTPUT\nTerminal: session-terminal:s1 · 1 pwsh running · cursor=9\nlines ${first}-${last} of ${last}\n${rows.join('\n')}`;
+  };
+  const messages = [
+    call('a', 'terminal'),
+    result('a', read('a', 1, 10)),
+    call('b', 'terminal'),
+    result('b', read('b', 11, 20)),
+    call('c', 'terminal'),
+    result('c', read('c', 8, 25)),
+  ];
+  // Read a is disjoint from both later reads; read b sits inside read c.
+  assert.deepEqual([...staleObservations(messages).keys()], [3]);
+});

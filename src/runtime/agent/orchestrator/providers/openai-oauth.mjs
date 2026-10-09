@@ -20,17 +20,8 @@ import { createHash } from 'node:crypto';
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { withEffortConfigurationFallback } from './effort-configuration.mjs';
 import { acquireWebSocket, releaseWebSocket, hasPooledWebSocket } from './openai-ws-pool.mjs';
-import {
-  armStartupPrewarmReservation,
-  buildStartupPrewarmSendOpts,
-  claimStartupPrewarmReservation,
-  codexStartupPrefixHash,
-  hasStartupPrewarmReservation,
-  resolveStartupPrewarmTarget,
-  retireStartupPrewarmRecord,
-  stampStartupPrewarmReservation,
-  traceStartupPrewarm,
-} from './openai-startup-prewarm.mjs';
+import { retireStartupPrewarmRecord, traceStartupPrewarm } from './openai-startup-prewarm.mjs';
+import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { createOpenAiOAuthDispatch, isOpenAiOAuthHandshakeHttpFallback } from './openai-oauth-dispatch.mjs';
 import { _codexWsCompatibilityHeaders } from './openai-codex-metadata.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
@@ -45,8 +36,8 @@ import { sendViaHttpSse, _envFlag } from './openai-oauth-http-sse.mjs';
 import { warmCodexClientVersion } from './codex-client-meta.mjs';
 import { CODEX_BACKEND_ORIGIN } from './openai-codex-endpoints.mjs';
 import { loadTokens, refreshStoredTokens, tokensFileMtimeMs, TOKEN_REFRESH_SKEW_MS } from './openai-oauth-tokens.mjs';
+import { resolveOpenAiServiceTier } from './openai-service-tier.mjs';
 import {
-  codexModelSupportsServiceTier,
   ensureLatestCodexModel,
   findCachedCodexModel,
   listCodexModels,
@@ -60,7 +51,6 @@ export { _displayCodexModel };
 // Public test/integration entry retained alongside the transport module export.
 export { sendViaHttpSse };
 export {
-  buildCodexStartupPrewarmBody,
   buildRequestBody,
   convertMessagesToResponsesInput,
   toOpenAIResponsesTool,
@@ -74,8 +64,8 @@ export {
 // without a client version, gates new model exposures on it (gpt-5.6-* require
 // >= 0.144.0), and rejects turns on gated models when the reported version is
 // below the model's minimal_client_version. Resolution is unified in
-// codex-client-meta.mjs (live npm @openai/codex latest, 24h in-process cache,
-// offline floor) so the catalog query and the transport headers can never
+// codex-client-meta.mjs (live npm @openai/codex latest, never below the
+// release-synced floor) so the catalog query and the transport headers can never
 // disagree.
 export { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL } from './openai-codex-endpoints.mjs';
 // Credential + catalog facade: /providers, the media lanes and
@@ -104,7 +94,6 @@ export class OpenAIOAuthProvider {
   // onto HTTP.
   _httpFallbackUntilByPoolKey = new Map();
   _startupPrewarmByPoolKey = new Map();
-  _startupPrewarmReadyByPoolKey = new Map();
   config;
   constructor(config) {
     this.config = config || {};
@@ -158,16 +147,6 @@ export class OpenAIOAuthProvider {
     if (coastOnCurrent) this._refreshFallbackUntil = Date.now() + TOKEN_REFRESH_SKEW_MS;
     this.tokens = tokens;
     return this.tokens;
-  }
-
-  /**
-   * Consume this session's startup prewarm reservation, if it fits the turn.
-   * Reservation lifecycle lives in openai-startup-prewarm.mjs; this stays a
-   * provider method because the turn path and the transport tests address
-   * reservations through the provider that holds the registry.
-   */
-  _claimStartupPrewarmHandle(identity) {
-    return claimStartupPrewarmReservation(this._startupPrewarmReadyByPoolKey, identity);
   }
 
   send(messages, model, tools, sendOpts) {
@@ -227,13 +206,6 @@ export class OpenAIOAuthProvider {
     // independent so a future cache-lane policy cannot merge conversations.
     const poolKey = opts.sessionId || null;
     const cacheKey = body.prompt_cache_key || resolveProviderCacheKey(opts, 'openai-oauth');
-    const startupPrefixHash = codexStartupPrefixHash(body);
-    const prewarmState = {
-      handle:
-        opts._startupPrewarmOnly === true
-          ? null
-          : this._claimStartupPrewarmHandle({ poolKey, cacheKey, prefixHash: startupPrefixHash }),
-    };
     const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
     const sendWs = typeof opts._sendViaWebSocketFn === 'function' ? opts._sendViaWebSocketFn : sendViaWebSocket;
     const sendHttp = typeof opts._sendViaHttpSseFn === 'function' ? opts._sendViaHttpSseFn : sendViaHttpSse;
@@ -250,7 +222,6 @@ export class OpenAIOAuthProvider {
       opts,
       body,
       authState,
-      prewarmState,
       poolKey,
       cacheKey,
       iteration,
@@ -272,15 +243,12 @@ export class OpenAIOAuthProvider {
           dispatch.httpFallbackActive() ||
           _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)))
     ) {
-      dispatch.discardPrewarmReservation();
-      if (opts._startupPrewarmOnly === true) {
-        return { startupPrewarm: false };
-      }
       return dispatch.dispatchHttp('forced');
     }
 
     // Prefer WebSocket for hot cache/delta transport; fall back to HTTP/SSE
-    // after retry-exhausted handshake/acquire/no-first-event failures.
+    // after retry-exhausted handshake/acquire/no-first-event failures, or at
+    // once when the server refuses the request frame (close 1009).
     try {
       if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(
@@ -291,15 +259,10 @@ export class OpenAIOAuthProvider {
       if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`);
       }
-      // Stamp the reservation with the prefix it warmed so the first real
-      // request can tell a matching anchor from a stale one.
-      if (opts._startupPrewarmOnly === true && result?.startupPrewarmHandle) {
-        stampStartupPrewarmReservation(result.startupPrewarmHandle, startupPrefixHash);
-      }
       return dispatch.recordLiveModel(result);
     } catch (err) {
+      noteErrorUsage(err);
       dispatch.traceTransportError(err, 'primary');
-      if (opts._startupPrewarmOnly === true) throw err;
       const status = err?.httpStatus;
       // Live-text invariant: if the WS attempt already relayed a
       // non-empty text chunk to the client, NO recovery path may reissue
@@ -316,12 +279,13 @@ export class OpenAIOAuthProvider {
         this._refreshFallbackUntil = 0;
         authState.tokens = await this.ensureAuth({ forceRefresh: true, reason: String(status) });
         try {
-          const result = await dispatch.dispatchWs(true, err?.__warmup || null);
+          const result = await dispatch.dispatchWs(true);
           if (process.env.MIXDOG_DEBUG_AGENT) {
             process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`);
           }
           return dispatch.recordLiveModel(result);
         } catch (retryErr) {
+          noteErrorUsage(retryErr);
           dispatch.traceTransportError(retryErr, 'auth_retry');
           if (dispatch.shouldUseHttpFallback(retryErr)) {
             return dispatch.dispatchHttp(
@@ -361,34 +325,17 @@ export class OpenAIOAuthProvider {
     }
   }
   /**
-   * Session-startup Responses prewarm. With a materialized session this sends
-   * Codex's generate:false request (stable instructions/tools, empty input)
-   * and leaves the response/socket state pooled for the first real turn.
-   * Legacy callers without a materialized prompt retain the connection-only
-   * prewarm path.
+   * Session-startup connection-only prewarm: opens a pooled socket so the
+   * first real turn skips the handshake.
    *
-   * Best-effort by contract: every failure returns false and leaves the
-   * lazy per-send warmup untouched.
+   * Best-effort by contract: every failure returns false.
    */
   async prewarmWsTransportForSession(opts = {}, seams = {}) {
-    const target = resolveStartupPrewarmTarget(opts);
-    const { poolKey, promptWarmup } = target;
+    const poolKey = opts.sessionId || null;
     if (!poolKey) return false;
-    if (hasStartupPrewarmReservation(this._startupPrewarmReadyByPoolKey, poolKey, { promptWarmup })) {
-      return true;
-    }
     const running = this._startupPrewarmByPoolKey.get(poolKey) || null;
-    if (running && (!promptWarmup || running.promptWarmup)) return running.task;
-    if (running) {
-      // A connection-only prewarm is in flight and cannot satisfy this
-      // prompt prewarm: let it settle, retire it, then run the prompt one.
-      try {
-        await running.task;
-      } catch {}
-      retireStartupPrewarmRecord(this._startupPrewarmByPoolKey, poolKey, running);
-      return this.prewarmWsTransportForSession(opts, seams);
-    }
-    const record = { promptWarmup, task: this._runStartupPrewarm(target, opts, seams) };
+    if (running) return running.task;
+    const record = { task: this._runStartupPrewarm(poolKey, opts, seams) };
     this._startupPrewarmByPoolKey.set(poolKey, record);
     try {
       return await record.task;
@@ -404,46 +351,20 @@ export class OpenAIOAuthProvider {
     }
   }
 
-  /** Transport gate shared by both prewarm shapes: never prewarm WS off it. */
-  async _runStartupPrewarm(target, opts, seams) {
+  /** Transport gate: never prewarm WS off it. */
+  async _runStartupPrewarm(poolKey, opts, seams) {
     const transportPolicy = resolveOpenAiTransportPolicy();
     if (transportPolicy.transport === 'http' || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false))
       return false;
-    return target.promptWarmup
-      ? this._runStartupPromptPrewarm(target, opts, seams)
-      : this._runStartupConnectionPrewarm(target, opts, seams);
+    return this._runStartupConnectionPrewarm(poolKey, opts, seams);
   }
 
   /**
-   * Billed generate:false turn over the session's own dispatch identity. A
-   * completed one is published as this session's reservation for the first
-   * real turn; anything else leaves the lazy per-send warmup untouched.
-   */
-  async _runStartupPromptPrewarm(target, opts, seams) {
-    const { poolKey, messages, model, tools } = target;
-    const send =
-      seams._send ||
-      ((sendMessages, sendModel, sendTools, sendOpts) => this.send(sendMessages, sendModel, sendTools, sendOpts));
-    const startedAt = Date.now();
-    const result = await send(messages, model, tools, buildStartupPrewarmSendOpts(target, opts));
-    const handle = result?.startupPrewarmHandle || null;
-    const ready = result?.startupPrewarm === true && !!handle?.entry;
-    if (ready) armStartupPrewarmReservation(this._startupPrewarmReadyByPoolKey, poolKey, handle);
-    traceStartupPrewarm(poolKey, {
-      elapsed_ms: Date.now() - startedAt,
-      prompt_warmup: true,
-      ready,
-    });
-    return ready;
-  }
-
-  /**
-   * Unbilled path: open (or confirm) a pooled socket for the session so the
+   * Open (or confirm) a pooled socket for the session so the
    * first turn skips the handshake. Nothing is reserved — the socket is
    * released back to the pool, where any turn on this key can pick it up.
    */
-  async _runStartupConnectionPrewarm(target, opts, seams) {
-    const { poolKey } = target;
+  async _runStartupConnectionPrewarm(poolKey, opts, seams) {
     const threadKeyGate = String(process.env.MIXDOG_OAI_CODEX_THREAD_CACHE_KEY || '').toLowerCase();
     if (threadKeyGate === '0' || threadKeyGate === 'false') return false;
     const hasPooled = seams._hasPooled || hasPooledWebSocket;
@@ -458,7 +379,7 @@ export class OpenAIOAuthProvider {
       cacheKey,
       sendOpts: opts,
       model: opts.model,
-      serviceTier: opts.fast === true && codexModelSupportsServiceTier(opts.model, 'priority') ? 'priority' : '',
+      serviceTier: resolveOpenAiServiceTier('openai-oauth', opts.model, opts),
       handshake: true,
     });
     const startedAt = Date.now();
@@ -473,7 +394,6 @@ export class OpenAIOAuthProvider {
     traceStartupPrewarm(poolKey, {
       elapsed_ms: Date.now() - startedAt,
       reused: acquired.reused === true,
-      prompt_warmup: false,
     });
     return true;
   }

@@ -3,24 +3,12 @@ import test from 'node:test';
 import { documentPreviewFormatForPath, editorFileOpener, filePreviewTypeForPath } from './file-preview.ts';
 import { localFileMimeTypeForPath, localFileOpener, localLinkKind } from './local-files.ts';
 
-test('Office documents, SVG and unsupported safe media default to external apps', () => {
-  for (const extension of [
-    'pptx',
-    'ppt',
-    'docx',
-    'doc',
-    'dotx',
-    'xlsx',
-    'xls',
-    'rtf',
-    'odt',
-    'ods',
-    'odp',
-    'tif',
-    'tiff',
-    'mkv',
-    'svg',
-  ]) {
+test('Office documents and SVG preview in-app; formats with no in-app viewer stay external', () => {
+  for (const extension of ['pptx', 'ppt', 'docx', 'doc', 'dotx', 'xlsx', 'xls', 'rtf', 'odt', 'ods', 'odp', 'svg']) {
+    assert.equal(editorFileOpener(`output/report.${extension}`), 'editor', extension);
+    assert.equal(editorFileOpener(`C:\\Project\\Report.${extension.toUpperCase()}`), 'editor', extension);
+  }
+  for (const extension of ['tif', 'tiff', 'mkv']) {
     assert.equal(editorFileOpener(`output/report.${extension}`), 'os', extension);
     assert.equal(editorFileOpener(`C:\\Project\\Report.${extension.toUpperCase()}`), 'os', extension);
   }
@@ -61,9 +49,10 @@ test('native previews and editable files stay inside Mixdog', () => {
   }
 });
 
-test('SVG links open externally while image previews remain available for thumbnails', () => {
+test('SVG opens in the editor image preview, including uppercase extensions', () => {
   for (const path of ['output/chart.svg', 'C:\\Project\\Chart.SVG']) {
     assert.equal(localFileOpener(path), 'os');
+    assert.equal(editorFileOpener(path), 'editor');
     assert.deepEqual(filePreviewTypeForPath(path), { kind: 'image', mime: 'image/svg+xml' });
   }
 });

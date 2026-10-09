@@ -4,6 +4,28 @@ import { makeResolveRoute } from '../runtime/agent/orchestrator/runtime-core/con
 import { resolveRouteContextState, resolveRouteEffortState } from './session-lifecycle.mjs';
 import { createLifecycleApi } from './lifecycle-api.mjs';
 import { inheritanceFit, inheritanceRouteTarget } from './inheritance-fit.mjs';
+import { selectionFastCapable } from './route-state.mjs';
+import { saveModelSettings } from '../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
+
+test('placeholder metadata keeps a saved Fast setting; resolved metadata still clamps it', () => {
+  const route = { provider: 'openai-oauth', model: 'gpt-6-astra', effort: 'high', fast: true };
+  const baseConfig = { modelSettings: { 'openai-oauth/gpt-6-astra': { effort: 'high', fast: true } } };
+  const saved = (meta) =>
+    saveModelSettings(null, route, {
+      fastCapable: selectionFastCapable(route.provider, meta, route.effort, {}),
+      baseConfig,
+    }).modelSettings['openai-oauth/gpt-6-astra'].fast;
+
+  // Catalog not loaded yet (stale or cold): unknown must not erase the choice.
+  assert.equal(saved({ id: 'gpt-6-astra', provider: 'openai-oauth' }), true);
+  // Catalog advertises the priority tier.
+  assert.equal(
+    saved({ id: 'gpt-6-astra', provider: 'openai-oauth', serviceTiers: [{ id: 'priority' }] }),
+    true
+  );
+  // Catalog loaded and the model has no Fast tier: clamped as before.
+  assert.equal(saved({ id: 'gpt-6-astra', provider: 'openai-oauth', serviceTiers: [] }), false);
+});
 
 test('cold route metadata preserves persisted effort and enabled Fast mode', () => {
   assert.deepEqual(

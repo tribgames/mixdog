@@ -11,30 +11,62 @@ function paragraphSize(paragraph) {
   return Number(paragraph?.font?.size) || 0;
 }
 
+const median = (values) => {
+  const sorted = values.filter((value) => value !== '' && value !== undefined && value !== null).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  return sorted.length ? sorted[Math.floor(sorted.length / 2)] : undefined;
+};
+// Automatic colour is the effective default, black.
+const paragraphColor = (paragraph) => {
+  const color = String(paragraph?.font?.color || paragraph?.color || '')
+    .replace(/^#/, '')
+    .toUpperCase();
+  return color === 'AUTO' ? '000000' : color;
+};
+const paragraphTracking = (paragraph) =>
+  Number(paragraph?.font?.letterSpacing ?? paragraph?.font?.charSpacing ?? paragraph?.font?.spacing ?? 0) || 0;
+const paragraphCaps = (paragraph) =>
+  Boolean(paragraph?.font?.caps || paragraph?.font?.allCaps || paragraph?.font?.smallCaps);
+const paragraphGap = (paragraph) =>
+  (Number(paragraph?.format?.spacingBefore ?? paragraph?.spaceBefore) || 0) +
+  (Number(paragraph?.format?.spacingAfter ?? paragraph?.spaceAfter) || 0);
+
+// A heading stands apart from the body by any of: size, weight, colour, letter-spacing or caps, or spacing.
+function headingDistinction(paragraph, body) {
+  const size = paragraphSize(paragraph);
+  if (body.size && size > body.size) return 'size';
+  if (paragraph.font?.bold) return 'weight';
+  if ((paragraphColor(paragraph) || '000000') !== (body.color || '000000')) return 'colour';
+  if (paragraphCaps(paragraph) || paragraphTracking(paragraph) !== 0) return 'letter-spacing';
+  if (paragraphGap(paragraph) >= body.gap + 6) return 'spacing';
+  return '';
+}
+
 function reviewDocxHeadingType(content, headings, issues) {
-  const bodySizes = content
-    .filter((paragraph) => headingLevel(paragraph) === null)
-    .map(paragraphSize)
-    .filter((size) => size > 0)
-    .sort((left, right) => left - right);
-  const body = bodySizes.length ? bodySizes[Math.floor(bodySizes.length / 2)] : 0;
+  const bodyParagraphs = content.filter((paragraph) => headingLevel(paragraph) === null);
+  const body = {
+    size: median(bodyParagraphs.map(paragraphSize).filter((size) => size > 0)) || 0,
+    color: median(bodyParagraphs.map(paragraphColor)) || '',
+    gap: median(bodyParagraphs.map(paragraphGap)) || 0,
+  };
   const byLevel = new Map();
   for (const { paragraph, level } of headings) {
     const size = paragraphSize(paragraph);
     if (!size) continue;
     if (!byLevel.has(level)) byLevel.set(level, []);
     byLevel.get(level).push({ paragraph, size });
-    if (body && size <= body && !paragraph.font?.bold) {
+    if (body.size && !headingDistinction(paragraph, body)) {
       issues.push(
         issue(
           'heading_not_distinct',
           paragraph.path || '/body',
-          `Heading is set at ${size} pt against ${body} pt body text and carries no weight of its own; the hierarchy is not visible.`
+          `Heading is set at ${size} pt against ${body.size} pt body text and differs in no size, weight, colour, letter-spacing, caps, or spacing; the hierarchy is not visible.`
         )
       );
     }
   }
-  for (const [level, members] of byLevel) {
+  for (const [level, allMembers] of byLevel) {
+    // A level's first occurrence may be a lead-in variant (a larger opening heading); the rest must agree.
+    const members = allMembers.slice(1);
     const sizes = members.map((entry) => entry.size);
     if (members.length < 2 || Math.max(...sizes) <= Math.min(...sizes) * (1 + HEADING_TYPE_TOLERANCE)) continue;
     issues.push(

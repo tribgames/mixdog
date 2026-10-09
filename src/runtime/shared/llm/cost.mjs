@@ -123,11 +123,13 @@ export function priceUsage(args) {
   // reporting it as service_tier "default".
   const sentTier = args.requestServiceTier || '';
   const premium =
-    (sentTier === 'priority' || sentTier === 'fast') && !(args.kind === 'api' && args.serviceTier === 'default');
+    (sentTier === 'priority' || sentTier === 'ultrafast' || sentTier === 'fast') &&
+    !(args.kind === 'api' && args.serviceTier === 'default');
   // Anthropic fast mode is a flat 2x on fast-capable Opus; every other
   // premium request needs the model's published Fast/Priority rates.
   const anthropicFast = premium && sentTier === 'fast' && supportsAnthropicFastMode(identity.pricingModel);
-  const rateMeta = premium && !anthropicFast ? meta.fastPricing || {} : meta;
+  const premiumPricing = sentTier === 'ultrafast' ? meta.ultrafastPricing : meta.fastPricing;
+  const rateMeta = premium && !anthropicFast ? premiumPricing || {} : meta;
   if (args.historicalAggregate && rateMeta.pricingTiers?.some((tier) => promptTokens > tier.aboveInputTokens)) {
     // A daily sum cannot establish which individual requests crossed a
     // context boundary. Do not price the whole day as one huge prompt.

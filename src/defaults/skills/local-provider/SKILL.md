@@ -27,7 +27,8 @@ available before Local Provider is installed or enabled.
    Prefer original publishers or established conversion publishers; popularity
    is not proof of correctness, licensing permission, or runtime compatibility.
 3. Inspect the chosen exact `filename` in that repository, with the intended
-   `contextWindow` if needed (default 8192). The runtime pins revision and
+   `contextWindow` if needed (16384 minimum; default 32768 when the GPU holds
+   it, else 16384). The runtime pins revision and
    SHA-256 from HF and reads a bounded portion of the actual GGUF header for
    architecture, context, and a VRAM estimate. Split shards, gated repositories,
    auxiliary files and missing metadata may be refused; explain the limitation

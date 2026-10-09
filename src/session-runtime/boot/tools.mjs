@@ -16,6 +16,7 @@ import { envFlag } from '../../runtime/shared/env.mjs';
 // never see them); execution lives in internal-tool-executor.mjs.
 import { TOOL_DEFS as BROWSER_BRIDGE_TOOL_DEFS } from '../../runtime/browser-bridge/tool-defs.mjs';
 import { TOOL_DEFS as COMPUTER_BRIDGE_TOOL_DEFS } from '../../runtime/computer-bridge/tool-defs.mjs';
+import { TOOL_DEFS as TERMINAL_BRIDGE_TOOL_DEFS } from '../../runtime/terminal-bridge/tool-defs.mjs';
 import { TOOL_DEFS as OFFICE_TOOL_DEFS } from '../../runtime/office/tool-defs.mjs';
 import { TOOL_DEFS as MEDIA_TOOL_DEFS } from '../../runtime/media/tool-defs.mjs';
 import { TOOL_DEFS as TIDY_TOOL_DEFS } from '../../runtime/tidy/tool-defs.mjs';
@@ -149,6 +150,7 @@ function wireToolSurface(boot) {
     codeGraphToolDefs: boot.codeGraphToolDefs,
     browserToolDefs: BROWSER_BRIDGE_TOOL_DEFS,
     computerToolDefs: COMPUTER_BRIDGE_TOOL_DEFS,
+    terminalToolDefs: TERMINAL_BRIDGE_TOOL_DEFS,
     officeToolDefs: OFFICE_TOOL_DEFS,
     mediaToolDefs: MEDIA_TOOL_DEFS,
     tidyToolDefs: TIDY_TOOL_DEFS,

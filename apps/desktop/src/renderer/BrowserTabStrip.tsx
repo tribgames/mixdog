@@ -4,6 +4,7 @@ import { ProgressSpinner } from './ProgressSpinner';
 import type { DesktopBrowserTab } from '../shared/contract';
 import { t } from './i18n';
 import { wrappedNavigationIndex } from './list-navigation';
+import './tab-strip.css';
 
 const ARROW_OFFSETS: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
 
@@ -70,7 +71,7 @@ export function BrowserTabStrip({
             <div
               key={tab.id}
               className={`browser-tab${tab.active ? ' is-active' : ''}`}
-              onAuxClick={(event) => {
+              onMouseDown={(event) => {
                 if (event.button !== 1) return;
                 event.preventDefault();
                 void run(() => onClose(tab.id));
@@ -103,7 +104,7 @@ export function BrowserTabStrip({
                 data-tooltip={t('Close tab')}
                 onClick={() => void run(() => onClose(tab.id))}
               >
-                <X size={12} aria-hidden="true" />
+                <X size={16} aria-hidden="true" />
               </button>
             </div>
           );
@@ -111,7 +112,7 @@ export function BrowserTabStrip({
       </div>
       <button
         type="button"
-        className="browser-pane-nav-button"
+        className="browser-tab-new"
         disabled={busy || !tabs.length}
         aria-label={t('New tab')}
         data-tooltip={t('New tab')}
@@ -122,7 +123,7 @@ export function BrowserTabStrip({
       {onToggleExpanded && (
         <button
           type="button"
-          className="browser-pane-nav-button"
+          className="browser-pane-nav-button browser-tab-trailing"
           aria-label={expanded ? t('Restore browser') : t('Expand browser')}
           data-tooltip={expanded ? t('Restore browser') : t('Expand browser')}
           onClick={onToggleExpanded}

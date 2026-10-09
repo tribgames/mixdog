@@ -295,7 +295,9 @@ export class AnthropicOAuthProvider {
       this.credentials = loadCredentials();
     }
     if (!this.credentials) {
-      throw new Error('Anthropic OAuth credentials not found. Open /providers in mixdog to sign in.');
+      throw Object.assign(new Error('Anthropic OAuth credentials not found. Open /providers in mixdog to sign in.'), {
+        reauthRequired: true,
+      });
     }
 
     // Pick up Mixdog-updated tokens the moment the credentials file is
@@ -361,12 +363,20 @@ export class AnthropicOAuthProvider {
         return latest;
       }
 
-      if (!latest?.refreshToken) {
+      if (!latest?.refreshToken || latest.reauthRequired) {
         if (!force && latest?.accessToken && (!latest.expiresAt || latest.expiresAt > Date.now())) {
-          logQuiet('WARNING: token expiring but no refresh token; using current token until expiry');
+          logQuiet('WARNING: token expiring but no usable refresh token; using current token until expiry');
           return latest;
         }
-        throw new Error('Anthropic OAuth refresh token not available. Open /providers in mixdog to sign in again.');
+        if (latest?.reauthRequired) {
+          throw Object.assign(new Error('Anthropic sign-in expired. Sign in again from Providers.'), {
+            reauthRequired: true,
+          });
+        }
+        throw Object.assign(
+          new Error('Anthropic OAuth refresh token not available. Open /providers in mixdog to sign in again.'),
+          { reauthRequired: true }
+        );
       }
 
       try {

@@ -29,13 +29,29 @@ export function createTerminalFrameHandlers({ response, textRelay, midState, err
   // to Anthropic's stop_reason=max_tokens; treating it as an error makes
   // Claude retry the same over-budget turn.
   function settleIncomplete(event, label, options) {
+    const usage = response.noteTerminal(event.response);
     const reasonStr = _incompleteReasonFromEvent(event);
     if (_isMaxOutputIncompleteReason(reasonStr)) {
       response.markMaxOutputIncomplete(reasonStr);
       completeTurn();
       return;
     }
-    failWith(responseIncompleteError(event, reasonStr, label), options);
+    const error = responseIncompleteError(event, reasonStr, label);
+    // The incomplete response was still billed; its reported usage is
+    // recorded by the provider-boundary accounting.
+    if (usage) error.partialUsage = usage;
+    failWith(error, options);
+  }
+
+  // A failed frame's reported usage was still billed: carry it (and its model)
+  // on the error for the provider-boundary accounting.
+  function withFailedUsage(error, event) {
+    const usage = response.noteTerminal(event.response);
+    if (usage) {
+      error.partialUsage = usage;
+      error.partialModel = response.partialState().partialModel;
+    }
+    return error;
   }
 
   function onResponseCompleted(event) {
@@ -70,10 +86,13 @@ export function createTerminalFrameHandlers({ response, textRelay, midState, err
     if (status === 'failed') {
       midState.responseFailedPayload = event;
       failWith(
-        responseFailedError(event, {
-          label: `${errLabel} response.done failed`,
-          fallbackMessage: 'response.done failed',
-        }),
+        withFailedUsage(
+          responseFailedError(event, {
+            label: `${errLabel} response.done failed`,
+            fallbackMessage: 'response.done failed',
+          }),
+          event
+        ),
         { markDone: true }
       );
       return;
@@ -87,7 +106,8 @@ export function createTerminalFrameHandlers({ response, textRelay, midState, err
       return;
     }
     // Success-shaped response.done (status '' or 'completed') carries the
-    // same optional end_turn.
+    // same optional end_turn, and the response's usage.
+    response.noteTerminal(event.response);
     response.setEndTurn(_endTurnFromEvent(event));
     completeTurn();
   }
@@ -99,11 +119,14 @@ export function createTerminalFrameHandlers({ response, textRelay, midState, err
   function onResponseFailed(event) {
     midState.responseFailedPayload = event;
     failWith(
-      responseFailedError(event, {
-        label: `${errLabel} response.failed`,
-        fallbackMessage: 'response.failed',
-        providerErrorCode: true,
-      })
+      withFailedUsage(
+        responseFailedError(event, {
+          label: `${errLabel} response.failed`,
+          fallbackMessage: 'response.failed',
+          providerErrorCode: true,
+        }),
+        event
+      )
     );
   }
 

@@ -28,6 +28,7 @@ export const CATEGORY_ORDER = [
   'Setup',
   'Browser',
   'Computer',
+  'Terminal',
   'Office',
   'Media',
   'Tidy',
@@ -77,12 +78,15 @@ const TOOL_CATEGORY = new Map([
   ['browser', 'Browser'],
   ['browser_devtools', 'Browser'],
   ['computer', 'Computer'],
+  ['terminal', 'Terminal'],
   ['office', 'Office'],
   ['media', 'Media'],
   ['tidy', 'Tidy'],
   ['list_mcp_resources', 'Setup'],
   ['list_mcp_resource_templates', 'Setup'],
   ['cwd', 'Setup'],
+  ['setup', 'Setup'],
+  ['goal', 'Setup'],
   ['request_user_input', 'Setup'],
   ['update_plan', 'Setup'],
   ['skill', 'Skill'],
@@ -116,6 +120,7 @@ const CATEGORY_COPY = new Map([
   ['Setup', { active: 'Setting up', done: 'Set up', noun: 'item' }],
   ['Browser', { active: 'Browsing', done: 'Browsed', noun: 'action' }],
   ['Computer', { active: 'Operating', done: 'Operated', noun: 'action' }],
+  ['Terminal', { active: 'Reading', done: 'Read', noun: 'terminal output' }],
   ['Office', { active: 'Editing', done: 'Edited', noun: 'document action' }],
   ['Media', { active: 'Generating', done: 'Generated', noun: 'media action' }],
   ['Tidy', { active: 'Tidying', done: 'Tidied', noun: 'cleanup pass' }],
@@ -135,6 +140,8 @@ export function unitDescriptor(category, overrides = {}) {
     noun: overrides.noun || copy.noun || 'item',
     pluralNoun: overrides.pluralNoun || copy.pluralNoun || `${overrides.noun || copy.noun || 'item'}s`,
     count: Math.max(1, Number(overrides.count || 1)),
+    // An effect unit changes state: a failed call must not claim its done verb.
+    effect: overrides.effect === true,
   };
 }
 
@@ -197,6 +204,7 @@ export function patchMutationUnits(args = {}) {
       active: copy[kind]?.active || 'Editing',
       done: copy[kind]?.done || 'Edited',
       noun: 'file',
+      effect: true,
     })
   );
 }
@@ -211,6 +219,7 @@ function applyPatchUnit(a) {
     active: 'Changing',
     done: 'Changed',
     noun: 'file',
+    effect: true,
   });
 }
 
@@ -226,11 +235,12 @@ function listUnit(a) {
 
 function loadToolUnit(a) {
   const selected = [...splitToolSearchSelection(a.names), ...splitToolSearchSelection(a.select)];
-  if (selected.length) return unitDescriptor('Load', { count: selected.length, noun: 'tool' });
+  if (selected.length) return unitDescriptor('Load', { count: selected.length, noun: 'tool', effect: true });
   return unitDescriptor('Load', {
     count: queryCount(a, 'query', 'q', 'text') || 1,
     noun: 'query',
     pluralNoun: 'queries',
+    effect: true,
   });
 }
 
@@ -243,17 +253,181 @@ function webSearchUnit(a) {
 }
 
 function mediaUnit(a) {
-  if (a.action !== 'generate') {
-    return unitDescriptor('Media', { count: 1, active: 'Checking', done: 'Checked', noun: 'media action' });
+  const action = String(a.action || '').toLowerCase();
+  if (action === 'generate') {
+    const noun = a.kind === 'video' ? 'video' : 'image';
+    return unitDescriptor('Media', { count: 1, active: 'Generating', done: 'Generated', noun, effect: true });
   }
-  const noun = a.kind === 'video' ? 'video' : 'image';
-  return unitDescriptor('Media', { count: 1, active: 'Generating', done: 'Generated', noun });
+  if (action === 'cancel') {
+    return unitDescriptor('Media', {
+      count: 1,
+      active: 'Cancelling',
+      done: 'Cancelled',
+      noun: 'media job',
+      effect: true,
+    });
+  }
+  if (action === 'list') {
+    return unitDescriptor('Media', { count: 1, active: 'Listing', done: 'Listed', noun: 'media catalog' });
+  }
+  return unitDescriptor('Media', { count: 1, active: 'Checking', done: 'Checked', noun: 'media job' });
 }
 
 function tidyUnit(a) {
-  return a.action === 'fix'
-    ? unitDescriptor('Tidy', { count: 1, active: 'Tidying', done: 'Tidied', noun: 'cleanup pass' })
-    : unitDescriptor('Tidy', { count: 1, active: 'Checking', done: 'Checked', noun: 'cleanup action' });
+  const action = String(a.action || '').toLowerCase();
+  if (action === 'install') {
+    return unitDescriptor('Tidy', {
+      count: 1,
+      active: 'Installing',
+      done: 'Installed',
+      noun: 'cleanup engine',
+      effect: true,
+    });
+  }
+  if (action === 'fix') {
+    // fix writes only with apply:true; otherwise it reports the change plan.
+    return a.apply === true
+      ? unitDescriptor('Tidy', { count: 1, active: 'Tidying', done: 'Tidied', noun: 'cleanup pass', effect: true })
+      : unitDescriptor('Tidy', { count: 1, active: 'Previewing', done: 'Previewed', noun: 'cleanup pass' });
+  }
+  if (action === 'scan') {
+    return unitDescriptor('Tidy', { count: 1, active: 'Scanning', done: 'Scanned', noun: 'project' });
+  }
+  if (action === 'rules' || action === 'results') {
+    return unitDescriptor('Tidy', { count: 1, active: 'Reading', done: 'Read', noun: `cleanup ${action}` });
+  }
+  return unitDescriptor('Tidy', { count: 1, active: 'Checking', done: 'Checked', noun: 'cleanup action' });
+}
+
+// Office actions that only observe or review a document.
+const OFFICE_READ_ACTIONS = new Set([
+  'snapshot',
+  'get',
+  'query',
+  'describe',
+  'detect',
+  'issues',
+  'qa',
+  'validate',
+  'render',
+  'diff',
+  'transactions',
+]);
+const OFFICE_ACTION_VERBS = new Map([
+  ['author', ['Authoring', 'Authored']],
+  ['batch', ['Editing', 'Edited']],
+  ['create', ['Creating', 'Created']],
+  ['attach', ['Attaching', 'Attached']],
+  ['open', ['Opening', 'Opened']],
+  ['secure', ['Securing', 'Secured']],
+  ['begin', ['Starting', 'Started']],
+  ['commit', ['Committing', 'Committed']],
+  ['rollback', ['Rolling back', 'Rolled back']],
+  ['recover', ['Recovering', 'Recovered']],
+  ['save', ['Saving', 'Saved']],
+  ['finalize', ['Finalizing', 'Finalized']],
+  ['close', ['Closing', 'Closed']],
+]);
+
+function officeUnit(a) {
+  const action = String(a.action || '').toLowerCase();
+  if (OFFICE_READ_ACTIONS.has(action)) {
+    return unitDescriptor('Office', { count: 1, active: 'Reading', done: 'Read', noun: 'document action' });
+  }
+  const [active, done] = OFFICE_ACTION_VERBS.get(action) || ['Editing', 'Edited'];
+  return unitDescriptor('Office', { count: 1, active, done, noun: 'document action', effect: true });
+}
+
+function terminalUnit(a) {
+  return String(a.action || '').toLowerCase() === 'list'
+    ? unitDescriptor('Terminal', { count: 1, active: 'Listing', done: 'Listed', noun: 'terminal tab' })
+    : unitDescriptor('Terminal', { count: 1, active: 'Reading', done: 'Read', noun: 'terminal output' });
+}
+
+const GITHUB_VERBS = new Map([
+  ['list', ['Listing', 'Listed']],
+  ['view', ['Viewing', 'Viewed']],
+  ['comments', ['Reading', 'Read']],
+  ['logs', ['Reading', 'Read']],
+  ['create', ['Creating', 'Created']],
+  ['edit', ['Editing', 'Edited']],
+  ['close', ['Closing', 'Closed']],
+  ['reopen', ['Reopening', 'Reopened']],
+  ['comment', ['Commenting on', 'Commented on']],
+  ['merge', ['Merging', 'Merged']],
+  ['review', ['Reviewing', 'Reviewed']],
+  ['checkout', ['Checking out', 'Checked out']],
+  ['clone', ['Cloning', 'Cloned']],
+  ['fork', ['Forking', 'Forked']],
+  ['run', ['Running', 'Ran']],
+  ['rerun', ['Rerunning', 'Reran']],
+  ['cancel', ['Cancelling', 'Cancelled']],
+  ['read', ['Marking read', 'Marked read']],
+]);
+const GITHUB_READ_VERBS = new Set(['list', 'view', 'comments', 'logs']);
+
+/** `issue.create` → { noun: 'issue', verb: 'create' }; `run.cancel` → run/cancel. */
+export function githubActionParts(action) {
+  const [noun = '', verb = ''] = String(action || '')
+    .toLowerCase()
+    .split('.');
+  return { noun, verb };
+}
+
+function githubUnit(a) {
+  const { noun, verb } = githubActionParts(a.action);
+  const [active, done] = GITHUB_VERBS.get(verb) || ['Running', 'Ran'];
+  if (!noun || !GITHUB_VERBS.has(verb)) {
+    return unitDescriptor('Git', { count: 1, noun: 'GitHub operation' });
+  }
+  const label = noun === 'pr' ? 'PR' : noun;
+  return unitDescriptor('Git', {
+    count: 1,
+    active,
+    done,
+    noun: label,
+    effect: !GITHUB_READ_VERBS.has(verb),
+  });
+}
+
+function goalUnit(a) {
+  const action = String(a.action || '').toLowerCase();
+  const verbs = {
+    status: ['Checking', 'Checked'],
+    create: ['Creating', 'Created'],
+    pause: ['Pausing', 'Paused'],
+    resume: ['Resuming', 'Resumed'],
+    set_tasks: ['Planning', 'Planned'],
+    update_tasks: ['Updating', 'Updated'],
+    complete: ['Completing', 'Completed'],
+    block: ['Blocking', 'Blocked'],
+    abandon: ['Abandoning', 'Abandoned'],
+  }[action] || ['Updating', 'Updated'];
+  return unitDescriptor('Setup', {
+    count: 1,
+    active: verbs[0],
+    done: verbs[1],
+    noun: 'goal',
+    effect: action !== 'status',
+  });
+}
+
+const SETUP_VERB_PREFIXES = [
+  [/^status$/, ['Checking', 'Checked', false]],
+  [/^open$/, ['Opening', 'Opened', false]],
+  [/^(?:search|inspect|local_model_details)/, ['Inspecting', 'Inspected', false]],
+  [/^(?:install|start)_/, ['Installing', 'Installed', true]],
+  [/^(?:add|register|save)_/, ['Adding', 'Added', true]],
+  [/^(?:remove|delete|forget)_/, ['Removing', 'Removed', true]],
+  [/^cancel_/, ['Cancelling', 'Cancelled', true]],
+  [/^(?:reconnect|enable|maintain|update)_/, ['Updating', 'Updated', true]],
+];
+
+function setupUnit(a) {
+  const action = String(a.action || '').toLowerCase();
+  const match = SETUP_VERB_PREFIXES.find(([re]) => re.test(action));
+  const [active, done, effect] = match ? match[1] : ['Changing', 'Changed', true];
+  return unitDescriptor('Setup', { count: 1, active, done, noun: 'setting', effect });
 }
 
 function fetchUnit(a) {
@@ -270,7 +444,7 @@ function fetchUnit(a) {
 
 function memoryReadUnit(a) {
   return unitDescriptor('Memory', {
-    count: queryCount(a, 'query', 'queries', 'text', 'input') || 1,
+    count: queryCount(a, 'query', 'queries', 'text', 'input', 'id') || 1,
     noun: 'memory item',
     pluralNoun: 'memory items',
   });
@@ -282,17 +456,26 @@ function memoryWriteUnit(a) {
     active: 'Writing',
     done: 'Wrote',
     noun: 'memory item',
+    effect: true,
   });
 }
 
 function memoryToolUnit(a) {
-  const op = String(a.op || '').toLowerCase();
-  const isMutation = op === 'add' || op === 'edit' || op === 'delete';
-  if (isMutation) return memoryWriteUnit(a);
+  const op = String(a.op || a.action || '').toLowerCase();
+  if (op === 'delete') {
+    return unitDescriptor('Memory', {
+      count: queryCount(a, 'id', 'ids') || 1,
+      active: 'Deleting',
+      done: 'Deleted',
+      noun: 'memory item',
+      effect: true,
+    });
+  }
+  if (op === 'add' || op === 'edit') return memoryWriteUnit(a);
   return unitDescriptor('Memory', {
     count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1,
-    active: 'Checking',
-    done: 'Checked',
+    active: op === 'list' ? 'Listing' : 'Checking',
+    done: op === 'list' ? 'Listed' : 'Checked',
     noun: 'memory item',
   });
 }
@@ -313,6 +496,10 @@ function agentUnit(a) {
       return unitDescriptor('Agent', { count, active: 'Finishing', done: 'Cancelled', noun: 'agent' });
     }
     return unitDescriptor('Agent', { count, active: 'Finishing', done: 'Completed', noun: 'agent' });
+  }
+  // Checks (status/read/list) observe an agent; they are not calls to it.
+  if (/^(?:status|read|list)$/.test(type)) {
+    return unitDescriptor('Agent', { count, active: 'Checking', done: 'Checked', noun: 'agent' });
   }
   return unitDescriptor('Agent', { count, noun: 'agent' });
 }
@@ -335,6 +522,7 @@ function skillUnit(a) {
   return unitDescriptor('Skill', {
     count: queryCount(a, 'name', 'skill', 'skill_name', 'query', 'q') || 1,
     noun: 'skill',
+    effect: true,
   });
 }
 
@@ -360,13 +548,25 @@ function gitStageUnit(a) {
     active: 'Staging',
     done: 'Staged',
     noun: 'change',
+    effect: true,
   });
 }
 
 function cwdUnit(a) {
   const action = String(a.action || a.type || '').toLowerCase();
-  const verbs = action === 'set' ? { active: 'Setting', done: 'Set' } : { active: 'Checking', done: 'Checked' };
-  return unitDescriptor('Setup', { ...verbs, noun: 'working directory', pluralNoun: 'working directories' });
+  // A bare `path` selects that Project even when action is omitted.
+  if (action === 'set' || (!action && a.path)) {
+    return unitDescriptor('Setup', {
+      active: 'Selecting',
+      done: 'Selected',
+      noun: 'project',
+      effect: true,
+    });
+  }
+  if (action === 'list') {
+    return unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'project' });
+  }
+  return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'working directory', pluralNoun: 'working directories' });
 }
 
 const TOOL_UNITS = new Map([
@@ -436,7 +636,10 @@ const TOOL_UNITS = new Map([
   ['browser', browserUnit],
   ['browser_devtools', browserUnit],
   ['computer', () => unitDescriptor('Computer', { count: 1, active: 'Operating', done: 'Operated', noun: 'action' })],
-  ['office', () => unitDescriptor('Office', { count: 1, active: 'Editing', done: 'Edited', noun: 'document action' })],
+  ['terminal', terminalUnit],
+  ['office', officeUnit],
+  ['goal', goalUnit],
+  ['setup', setupUnit],
   ['media', mediaUnit],
   ['tidy', tidyUnit],
   ['fetch', fetchUnit],
@@ -459,7 +662,7 @@ const TOOL_UNITS = new Map([
         ? gitStageUnit(a)
         : unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' }),
   ],
-  ['github', () => unitDescriptor('Git', { count: 1, noun: 'GitHub operation' })],
+  ['github', githubUnit],
   // Preserve the staging work unit when rendering historical transcripts.
   ['git_stage', gitStageUnit],
   ['agent', agentUnit],

@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mixdog · 띵킹 아이콘 6번 로고 드로잉 폴리싱</title>
+<style>
+  .theme-dark {
+    color-scheme:dark;
+    --page:#111113; --band:#222225; --card:#2a2a2d;
+    --text:#e9e9e9; --muted:#a8a8a8; --accent:#79b8ff;
+    --border:rgba(255,255,255,.125); --line:rgba(255,255,255,.09); --hover:rgba(255,255,255,.08);
+    --n-head:#f4f4f5; --b-head:#8cc2ff; --a-head:url(#aurora-d); --ti-head:url(#ti-d);
+  }
+  .theme-light {
+    color-scheme:light;
+    --page:#f8f8fb; --band:#ffffff; --card:#f3f3f3;
+    --text:#222222; --muted:#606060; --accent:#185abc;
+    --border:rgba(23,24,26,.14); --line:rgba(23,24,26,.1); --hover:rgba(0,0,0,.06);
+    --n-head:#18181b; --b-head:#1a5fd0; --a-head:url(#aurora-l); --ti-head:url(#ti-l);
+  }
+  body[data-color="neutral"] .t, body[data-color="neutral"].t { --head:var(--n-head); }
+  body[data-color="blue"] .t, body[data-color="blue"].t { --head:var(--b-head); }
+  body[data-color="aurora"] .t, body[data-color="aurora"].t { --head:var(--a-head); }
+  body[data-color="titanium"] .t, body[data-color="titanium"].t { --head:var(--ti-head); }
+  :root { --k:1; --dur:calc(var(--k) * 1800ms); --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","Segoe UI",sans-serif; }
+  body.paused *, body.paused *::after { animation-play-state:paused !important; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--text); font:14px/20px var(--sans); }
+  h1,h2,p { margin:0; }
+  button { font:inherit; color:var(--muted); cursor:pointer; border:0; border-radius:6px; background:transparent; padding:4px 12px; }
+  button:hover { background:var(--hover); }
+  button[aria-pressed="true"] { background:var(--card); color:var(--text); box-shadow:0 1px 4px #0002; }
+  svg { display:block; overflow:visible; }
+  .defs { position:absolute; width:0; height:0; }
+  .page { max-width:1200px; margin:auto; padding:30px 32px 60px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.3px; }
+  .intro { color:var(--muted); margin-top:4px; font-size:13px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:14px 18px; align-items:center; margin:20px 0 26px; }
+  .control { display:flex; align-items:center; gap:9px; }
+  .control-label { color:var(--muted); font-size:13px; white-space:nowrap; }
+  .segments { display:flex; flex-wrap:wrap; gap:3px; padding:3px; border-radius:8px; background:var(--band); border:1px solid var(--line); }
+  .swatch { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
+  .section-title { font-size:13px; font-weight:550; color:var(--muted); margin:0 0 10px; }
+  section { margin-bottom:30px; }
+
+  .duo { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .panel { border:1px solid var(--border); border-radius:12px; background:var(--page); color:var(--text); padding:14px 18px; }
+  .panel-label { font-size:11px; color:var(--muted); margin-bottom:8px; }
+
+  /* Before / after */
+  .ba { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .ba figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:10px; padding:16px 0 4px; }
+  .ba figure svg { width:88px; height:88px; }
+  .ba figcaption { font-size:12px; color:var(--muted); }
+  .ba figcaption b { color:var(--text); font-weight:600; }
+
+  /* Variant cards */
+  .variants { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr)); gap:16px; }
+  .card { border:1px solid var(--border); border-radius:12px; background:var(--band); overflow:hidden; }
+  .card-head { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; }
+  .letter { width:22px; height:22px; display:grid; place-items:center; border:1px solid var(--accent); color:var(--accent); border-radius:6px; font-size:11px; flex:none; }
+  .card-head h2 { font-size:14px; font-weight:600; }
+  .tag { margin-left:auto; font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0 8px; }
+  .mini { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 16px; }
+  .mini .tile { border-radius:10px; border:1px solid var(--line); background:var(--page); padding:14px 0 10px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .mini .tile > svg { width:64px; height:64px; }
+  .sizes { display:flex; align-items:end; gap:12px; }
+  .sizes figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .sizes figcaption { font-size:10px; color:var(--muted); }
+  .bands { display:grid; gap:8px; padding:10px 16px 0; }
+  .bands .tile { border-radius:10px; border:1px solid var(--line); background:var(--page); padding:6px 12px; }
+  .desc { padding:12px 16px 16px; font-size:13px; color:var(--muted); }
+  .desc b { color:var(--text); font-weight:550; }
+
+  /* Frame breakdown: every frame is the same animation, parked at a phase. */
+  .frames { display:grid; grid-template-columns:repeat(auto-fill,minmax(92px,1fr)); gap:8px; }
+  .frame { border:1px solid var(--line); border-radius:10px; background:var(--page); padding:12px 0 8px; display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .frame svg { width:48px; height:48px; }
+  .frame span { font-size:11px; color:var(--muted); text-align:center; line-height:15px; }
+  .frame * { animation-play-state:paused !important; animation-delay:calc(var(--phase) * -1 * var(--dur)) !important; }
+
+  /* Live band, mirroring 14-live-activity.css + the 22-markdown.css comet. */
+  .live { width:max-content; max-width:100%; min-height:24px; display:flex; align-items:center; gap:7px; color:var(--muted); }
+  .live-icon { width:16px; height:20px; flex:0 0 16px; display:grid; place-items:center; line-height:0; }
+  .live-icon svg { width:var(--glyph,14px); height:var(--glyph,14px); }
+  .verb { position:relative; font-weight:500; --cells:8; }
+  .verb::after {
+    content:attr(data-text); position:absolute; inset:0; pointer-events:none; color:transparent;
+    background:linear-gradient(90deg,transparent 0%,color-mix(in oklch,var(--accent) 35%,transparent) 25%,color-mix(in oklch,var(--accent) 22%,white) 50%,color-mix(in oklch,var(--accent) 35%,transparent) 75%,transparent 100%) 0 0 / 4ch 100% no-repeat;
+    background-clip:text; -webkit-background-clip:text;
+    animation:comet calc((var(--cells) + 7) * 100ms * var(--k)) linear infinite;
+  }
+  @keyframes comet { from { background-position:-4ch 0; } to { background-position:calc(100% + 7ch) 0; } }
+  .meta { font-weight:400; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .meta::before { content:"\00B7"; margin-right:7px; }
+
+  @media (max-width:760px) {
+    body .page { padding:20px 14px 40px; }
+    body .duo, body .ba { grid-template-columns:1fr; }
+  }
+
+  /* ---------- Glyph ---------- */
+  .o { transform-box:view-box; transform-origin:12px 12px; }
+  .arc { fill:none; stroke:var(--head); stroke-width:3; stroke-linecap:round; }
+
+  /* v2 #6 (before) */
+  .old-rot { animation:spin calc(var(--k)*6000ms) linear infinite; }
+  .old-arc { stroke-dasharray:0 47.75; animation:olddraw calc(var(--k)*2000ms) cubic-bezier(.45,0,.55,1) infinite; }
+  .old-arc.b { animation-delay:calc(var(--k)*150ms); }
+  .old-arc.c { animation-delay:calc(var(--k)*300ms); }
+  @keyframes olddraw { 0%,8% { stroke-dasharray:0 47.75; } 35%,60% { stroke-dasharray:10 37.75; } 90%,100% { stroke-dasharray:0 47.75; } }
+  .old-star { fill:var(--head); animation:oldstar calc(var(--k)*2000ms) cubic-bezier(.34,1.4,.64,1) infinite; }
+  @keyframes oldstar { 0%,20% { transform:scale(.85) rotate(-90deg); } 45%,70% { transform:scale(1.15) rotate(0); } 95%,100% { transform:scale(.85) rotate(90deg); } }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* v3: circles use pathLength=360, so dash units are degrees of the orbit.
+     Draw: the head runs out to the logo's 80deg arc. Lock: the exact mark
+     holds. Travel: the tail catches the head 120deg on, landing as a dot on
+     the next arc's start, so every cycle continues forward with no seam. */
+  .d-arc { stroke-dasharray:0 360; animation:draw var(--dur) infinite; }
+  @keyframes draw {
+    0% { stroke-dasharray:0 360; stroke-dashoffset:0; animation-timing-function:cubic-bezier(.6,0,.15,1); }
+    40% { stroke-dasharray:80 280; stroke-dashoffset:0; }
+    58% { stroke-dasharray:80 280; stroke-dashoffset:0; animation-timing-function:cubic-bezier(.55,0,.25,1); }
+    100% { stroke-dasharray:0 360; stroke-dashoffset:-120; }
+  }
+  /* The star turns a quarter while the arcs draw, flares on the lock and
+     settles while they travel; 4-fold symmetry hides the loop seam. */
+  .d-star { fill:var(--head); animation:dstar var(--dur) infinite; }
+  @keyframes dstar {
+    0% { transform:rotate(0) scale(.8); animation-timing-function:cubic-bezier(.6,0,.15,1); }
+    40% { transform:rotate(90deg) scale(1.22); animation-timing-function:cubic-bezier(.3,0,.3,1); }
+    58% { transform:rotate(90deg) scale(1.04); animation-timing-function:cubic-bezier(.55,0,.25,1); }
+    100% { transform:rotate(90deg) scale(.8); }
+  }
+  /* B — wave: the same path, each arc 70ms behind the previous one. */
+  .wave .d-arc:nth-child(2), .wave .d-star { animation-delay:calc(var(--k)*70ms); }
+  .wave .d-arc:nth-child(3) { animation-delay:calc(var(--k)*140ms); }
+  /* C — glow: a blurred twin of the arcs blooms only at the lock. */
+  .d-glow { opacity:0; animation:glow var(--dur) infinite; }
+  @keyframes glow { 0%,24% { opacity:0; } 40%,54% { opacity:.9; } 82%,100% { opacity:0; } }
+</style>
+</head>
+<body class="t theme-dark" data-color="aurora">
+<svg class="defs" aria-hidden="true">
+  <defs>
+    <linearGradient id="aurora-d" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7fc0ff"/><stop offset="1" stop-color="#c3a6ff"/></linearGradient>
+    <linearGradient id="aurora-l" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1d63e0"/><stop offset="1" stop-color="#7140d8"/></linearGradient>
+    <linearGradient id="ti-d" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".5" stop-color="#9fb0c8"/><stop offset="1" stop-color="#ffffff"/></linearGradient>
+    <linearGradient id="ti-l" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f172a"/><stop offset=".5" stop-color="#64748b"/><stop offset="1" stop-color="#0f172a"/></linearGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.3"/></filter>
+  </defs>
+</svg>
+<div class="page">
+  <h1>6번 로고 드로잉 · 폴리싱</h1>
+  <p class="intro">점에서 원호가 뻗어 나가 정확한 로고 모양에서 잠깐 멈춘 뒤, 꼬리가 머리를 따라잡으며 앞으로 흘러 다음 자리에서 다시 점이 됩니다. 되감기 없이 한 방향으로만 이어집니다.</p>
+
+  <div class="toolbar">
+    <div class="control"><span class="control-label">색감</span>
+      <div class="segments" data-group="color">
+        <button data-v="neutral"><span class="swatch" style="background:#f4f4f5;border:1px solid #888"></span>선명 뉴트럴</button>
+        <button data-v="blue"><span class="swatch" style="background:#8cc2ff"></span>블루</button>
+        <button data-v="aurora" aria-pressed="true"><span class="swatch" style="background:linear-gradient(135deg,#7fc0ff,#c3a6ff)"></span>오로라</button>
+        <button data-v="titanium"><span class="swatch" style="background:linear-gradient(135deg,#fff,#9fb0c8,#fff);border:1px solid #888"></span>타이타늄</button>
+      </div></div>
+    <div class="control"><span class="control-label">속도</span>
+      <div class="segments" data-group="speed"><button data-v="4">슬로모션 ¼</button><button data-v="1.5">느리게</button><button data-v="1" aria-pressed="true">기본</button><button data-v="0.7">빠르게</button></div></div>
+    <div class="control"><div class="segments" data-group="pause"><button data-v="pause">일시정지</button></div></div>
+  </div>
+
+  <section>
+    <p class="section-title">이전(v2) ↔ 폴리싱(v3)</p>
+    <div class="duo" id="before-after"></div>
+  </section>
+
+  <section>
+    <p class="section-title">폴리싱 버전 3종</p>
+    <div class="variants" id="variants"></div>
+  </section>
+
+  <section>
+    <p class="section-title">한 주기 프레임 분해 (A)</p>
+    <div class="panel t theme-dark"><div class="frames" id="frames"></div></div>
+  </section>
+</div>
+
+<script>
+  const STAR = 'M12 8.2 13.19 10.81 15.8 12 13.19 13.19 12 15.8 10.81 13.19 8.2 12 10.81 10.81Z';
+  const C = (cls, rot) => `<circle class="arc ${cls}" cx="12" cy="12" r="7.6" pathLength="360" transform="rotate(${rot} 12 12)"/>`;
+  const ARCS = (cls) => [-100, 20, 140].map((rot) => C(cls, rot)).join('');
+  const OLD = (rot, cls) => `<circle class="arc old-arc ${cls}" cx="12" cy="12" r="7.6" transform="rotate(${rot} 12 12)"/>`;
+
+  const glyph = {
+    old: `<svg viewBox="0 0 24 24"><g class="o old-rot">${OLD(-100, '')}${OLD(20, 'b')}${OLD(140, 'c')}</g><path class="o old-star" d="${STAR}"/></svg>`,
+    a: `<svg viewBox="0 0 24 24"><g>${ARCS('d-arc')}</g><path class="o d-star" d="${STAR}"/></svg>`,
+    b: `<svg viewBox="0 0 24 24" class="wave"><g class="wave">${ARCS('d-arc')}</g><path class="o d-star" d="${STAR}"/></svg>`,
+    c: `<svg viewBox="0 0 24 24"><g class="d-glow" filter="url(#soft)">${ARCS('d-arc')}</g><g>${ARCS('d-arc')}</g><path class="o d-star" d="${STAR}"/></svg>`,
+  };
+  const live = (svg, size) => `<div class="live" style="--glyph:${size}px"><span class="live-icon">${svg}</span><span class="verb" data-text="Thinking">Thinking</span><span class="meta">12s · 1.2k tokens</span></div>`;
+
+  document.getElementById('before-after').innerHTML = ['theme-dark', 'theme-light'].map((theme) => `
+    <div class="panel t ${theme}">
+      <p class="panel-label">${theme === 'theme-dark' ? '다크' : '라이트'}</p>
+      <div class="ba">
+        <figure>${glyph.old}<figcaption>v2 · 되감기</figcaption></figure>
+        <figure>${glyph.a}<figcaption><b>v3 · 흐름</b></figcaption></figure>
+      </div>
+    </div>`).join('');
+
+  const variants = [
+    { key: 'a', letter: 'A', name: '동기 · 락인', tag: '추천',
+      desc: '<b>세 원호가 동시에 그려져 정확한 로고에서 딱 맞물립니다.</b> 맞물리는 순간 별이 살짝 커지며 강조됩니다. 가장 단정하고 브랜드가 또렷합니다.' },
+    { key: 'b', letter: 'B', name: '물결', tag: '부드러움',
+      desc: '<b>원호가 70ms씩 차례로 출발해 물결처럼 이어집니다.</b> 손으로 그린 듯 유기적이지만, 로고가 완성되는 순간은 A보다 덜 선명합니다.' },
+    { key: 'c', letter: 'C', name: '락인 글로우', tag: '화려함',
+      desc: '<b>A에 로고가 완성되는 순간에만 은은한 빛 번짐을 더했습니다.</b> 다크 화면에서 특히 고급스럽고, 작은 크기에서도 존재감이 커집니다.' },
+  ];
+  document.getElementById('variants').innerHTML = variants.map((v) => `
+    <article class="card">
+      <div class="card-head"><span class="letter">${v.letter}</span><h2>${v.name}</h2><span class="tag">${v.tag}</span></div>
+      <div class="mini">
+        ${['theme-dark', 'theme-light'].map((theme) => `
+          <div class="tile t ${theme}">
+            ${glyph[v.key]}
+            <div class="sizes">${[24, 16, 14, 12].map((s) => `<figure><span style="display:block;width:${s}px;height:${s}px">${glyph[v.key].replace('<svg', `<svg width="${s}" height="${s}"`)}</span><figcaption>${s}</figcaption></figure>`).join('')}</div>
+          </div>`).join('')}
+      </div>
+      <div class="bands">
+        <div class="tile t theme-dark">${live(glyph[v.key], 14)}</div>
+        <div class="tile t theme-light">${live(glyph[v.key], 14)}</div>
+      </div>
+      <p class="desc">${v.desc}</p>
+    </article>`).join('');
+
+  const frames = [
+    [0, '0% · 점 3개'], [0.12, '12% · 뻗어 나감'], [0.24, '24%'], [0.4, '40% · 로고 완성'],
+    [0.5, '50% · 유지'], [0.66, '66% · 흘러감'], [0.8, '80%'], [0.92, '92% · 다음 점으로'],
+  ];
+  document.getElementById('frames').innerHTML = frames
+    .map(([phase, label]) => `<div class="frame" style="--phase:${phase}">${glyph.a}<span>${label}</span></div>`).join('');
+
+  document.querySelectorAll('.segments').forEach((group) => {
+    group.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      const kind = group.dataset.group;
+      const value = button.dataset.v;
+      if (kind === 'pause') {
+        const on = button.getAttribute('aria-pressed') !== 'true';
+        button.setAttribute('aria-pressed', String(on));
+        document.body.classList.toggle('paused', on);
+        return;
+      }
+      group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+      if (kind === 'color') document.body.dataset.color = value;
+      if (kind === 'speed') document.documentElement.style.setProperty('--k', value);
+    });
+  });
+</script>
+</body>
+</html>

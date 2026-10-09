@@ -475,6 +475,10 @@ const CONTEXT_OVERFLOW_PATTERNS = [
   /prompt exceeds max length/i, // z.ai CN endpoint
   /input is too long for requested model/i, // Amazon Bedrock
   /input token count.*exceeds the maximum/i, // Google
+  /request payload size exceeds the limit/i, // Google (400, byte-size limit)
+  // A 413 re-wrapped by a proxy or aggregator without its status.
+  /request entity too large/i,
+  /request exceeds the maximum size/i,
   /maximum prompt length is \d+/i, // xAI
   /exceeds (?:the )?maximum allowed input length/i, // OpenRouter relays
   /is longer than the model'?s context length/i, // Together AI

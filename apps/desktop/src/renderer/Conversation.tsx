@@ -134,7 +134,7 @@ export function Conversation({
   draftWorkflow?: DesktopWorkflowState | null;
   draftOrchestrationMode?: DesktopOrchestrationMode | null;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
-  onRoutePreferenceApplied?: (selection: DesktopModelSelection) => void;
+  onRoutePreferenceApplied?: (selection: DesktopModelSelection, options?: { modelChoice?: boolean }) => void;
   onDraftWorkflow?: (workflow: DesktopWorkflowState) => void;
   onDraftOrchestrationMode?: (mode: DesktopOrchestrationMode) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
@@ -142,7 +142,7 @@ export function Conversation({
    *  뜨고 바로 진행되게). The pane holds the source session and its route; the
    *  host creates the heir and opens its tab. */
   onInheritSession?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
-  onOpenFile?: (project: string, rel: string, line?: number, accessToken?: string) => void;
+  onOpenFile?: (project: string, rel: string, line?: number, accessToken?: string, column?: number) => void;
   /** Selector-driven rows retain their component identity through settlement. */
   renderAssistantRow?: (props: TranscriptAssistantRowProps) => ReactNode;
   /** Goal capsule routed to the composer unless the pane's visible DIFF owns
@@ -630,6 +630,7 @@ export function Conversation({
       settledTurnKeys,
       snapshot,
       onRetryTurn: retryTurn,
+      onOpenSettings,
     });
 
   return (

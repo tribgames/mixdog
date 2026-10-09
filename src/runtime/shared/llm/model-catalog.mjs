@@ -596,12 +596,14 @@ function _normalize(entry) {
   if (!entry || typeof entry !== 'object') return null;
   // OpenAI's Priority processing (since renamed Fast mode) columns.
   const fastPricing = litellmPricing(entry, '_priority');
+  const ultrafastPricing = litellmPricing(entry, '_ultrafast');
   return {
     contextWindow: entry.max_input_tokens || entry.max_tokens || null,
     outputTokens: entry.max_output_tokens || null,
     ...litellmPricing(entry),
     ...litellmMediaPricing(entry),
     ...(PRICING_RATE_KEYS.some((key) => fastPricing[key] != null) ? { fastPricing } : {}),
+    ...(PRICING_RATE_KEYS.some((key) => ultrafastPricing[key] != null) ? { ultrafastPricing } : {}),
     ...(entry.off_peak_multiplier ? { offPeakMultiplier: entry.off_peak_multiplier } : {}),
     supportsVision: entry.supports_vision === true,
     supportsFunctionCalling: entry.supports_function_calling === true,

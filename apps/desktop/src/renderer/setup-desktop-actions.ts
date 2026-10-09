@@ -111,9 +111,11 @@ async function builtinAction(
     }
     return saved({ [name]: feature, dependency }, 'new sessions');
   }
-  if (name !== 'browser' && name !== 'computer') throw new Error('Unsupported Desktop built-in');
-  const installedKey = name === 'browser' ? 'browserInstalled' : 'computerInstalled';
-  const enabledKey = name === 'browser' ? 'browserControl' : 'computerControl';
+  if (name !== 'browser' && name !== 'computer') {
+    throw new Error('Unsupported Desktop built-in');
+  }
+  const installedKey = ({ browser: 'browserInstalled', computer: 'computerInstalled' } as const)[name];
+  const enabledKey = ({ browser: 'browserControl', computer: 'computerControl' } as const)[name];
   if (action === 'install_builtin') {
     const result = await mutate(() => api.updateSetting(installedKey, true));
     if (!result[installedKey]) throw new Error(`${name} installation marker was not saved`);

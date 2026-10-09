@@ -476,6 +476,7 @@ jobs:
             npm --prefix apps/desktop version "$VERSION" --no-git-tag-version --ignore-scripts
             npm --prefix apps/relay version "$VERSION" --no-git-tag-version --ignore-scripts
           fi
+          node scripts/sync-client-version-floors.mjs
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
           const version = process.env.VERSION;
@@ -504,6 +505,8 @@ jobs:
           git add package.json package-lock.json CHANGELOG.md \
             apps/desktop/package.json apps/desktop/package-lock.json \
             apps/relay/package.json apps/relay/package-lock.json
+          # Every floor sync-client-version-floors.mjs raised.
+          git add -u -- src/runtime/agent/orchestrator/providers
           if ! git diff --cached --quiet; then
             git commit -m "mixdog ${TAG}"
             git push origin "HEAD:${DEFAULT_BRANCH}"

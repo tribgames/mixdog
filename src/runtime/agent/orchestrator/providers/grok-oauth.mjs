@@ -13,6 +13,7 @@
  * preset wired for the Responses API — with the proxy URL + CLI headers
  * injected via config.extraHeaders, bearer swapped for the OAuth access token.
  */
+import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { makeModelCache } from './model-cache.mjs';
@@ -412,6 +413,7 @@ export class GrokOAuthProvider {
       // retired aliases normalized — no single-model lock.
       return await inner._doSend(messages, useModel, grokTools, sendOpts);
     } catch (err) {
+      noteErrorUsage(err);
       // Refresh-and-retry on a server-rejected OAuth session (401/403).
       // TYPED status only: a rejection whose only evidence is message
       // text is never treated as an auth failure worth re-issuing.
@@ -442,8 +444,7 @@ export class GrokOAuthProvider {
         process.stderr.write(`[grok-oauth] ${rejectedStatus}, force-refreshing token...\n`);
         const fresh = await this.ensureAuth({ forceRefresh: true });
         const retryInner = this._ensureInner(fresh.access_token, useModel, requestHeaders);
-        const retryOpts = err?.__warmup?.usage ? { ...(sendOpts || {}), _carriedWarmup: err.__warmup } : sendOpts;
-        return await retryInner._doSend(messages, useModel, grokTools, retryOpts);
+        return await retryInner._doSend(messages, useModel, grokTools, sendOpts);
       }
       throw err;
     }

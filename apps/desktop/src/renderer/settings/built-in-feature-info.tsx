@@ -4,7 +4,7 @@ import { record } from '../record-utils';
 import type { RecordValue } from './capability-data';
 import type { BuiltInFeatureDefinition, BuiltInFeatureId } from './built-in-feature-registry';
 import { ExtensionFacts, ExtensionSection } from './extension-detail';
-import { localProviderFileSize as fileSize } from './local-provider-models';
+import { localProviderFileSize as fileSize } from './local-provider-status';
 
 export function featureRequirement(id: BuiltInFeatureId): string {
   if (id === 'git') return 'Git CLI · GitHub CLI';

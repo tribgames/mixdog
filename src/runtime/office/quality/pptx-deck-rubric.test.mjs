@@ -146,3 +146,25 @@ test('each reading contributes only when the deck carries it, and every check ke
   assert.equal(empty.slides, 0);
   assert.ok(empty.score !== null, 'an empty deck still returns a number rather than throwing');
 });
+
+test('showcase decks skip density and object_scale; body_line is informational and weightless', () => {
+  const body = (index, chars) => ({
+    slide: index,
+    grammar: 'body',
+    chars,
+    observe: { bodyTop: index % 2 ? 2.2 : 3.1, renderLargest: 0.05 },
+  });
+  const receipt = { slides: [body(1, 20), body(2, 25), body(3, 30), body(4, 22)], deck: { rhythm: {} } };
+  const ids = (result) => result.checks.map((check) => check.id);
+  const read = scoreDeck({ receipt, issues: [], brief: { readingMode: 'balanced' } });
+  assert.ok(ids(read).includes('density') && ids(read).includes('object_scale'));
+  for (const mode of ['presentation', 'keynote', 'showcase']) {
+    const shown = scoreDeck({ receipt, issues: [], brief: { readingMode: mode } });
+    for (const id of ['density', 'object_scale', 'body_line']) assert.ok(!ids(shown).includes(id), `${mode} skips ${id}`);
+    assert.ok(shown.score > read.score, 'the skipped checks no longer pull the score down');
+  }
+  const line = read.checks.find((check) => check.id === 'body_line');
+  assert.equal(line.weight, 0);
+  assert.equal(line.informational, true);
+  assert.ok(!read.weakest.includes('body_line'));
+});

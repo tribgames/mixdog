@@ -224,6 +224,21 @@ const DEFAULT_PROFILE = Object.freeze({
   tsv: 'data',
 });
 
+// A workbook's stated purpose picks its default profile (an explicit profile still wins); an unmatched or
+// absent purpose leaves the format's default.
+const XLSX_PURPOSE_PROFILES = Object.freeze([
+  [/(financ|analy|data|ledger|budget|재무|분석|데이터)/i, 'data'],
+  [/(narrat|editorial|story|서사|보고)/i, 'editorial'],
+  [/(technic|engineer|기술)/i, 'technical'],
+]);
+
+function purposeProfile(format, purpose, packs) {
+  if (format !== 'xlsx') return '';
+  const text = String(purpose || '');
+  const match = XLSX_PURPOSE_PROFILES.find(([pattern]) => pattern.test(text));
+  return match && packs[match[1]] ? match[1] : '';
+}
+
 function clone(value) {
   if (Array.isArray(value)) return value.map(clone);
   if (!plainObject(value)) return value;
@@ -371,7 +386,11 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
   const packs = resolvedDesignPacks(library);
   const libraryDefault = library?.pack?.defaultProfiles?.[normalizedFormat];
   const profile = String(
-    input.profile || libraryDefault || DEFAULT_PROFILE[normalizedFormat] || 'editorial'
+    input.profile ||
+      purposeProfile(normalizedFormat, input.purpose, packs) ||
+      libraryDefault ||
+      DEFAULT_PROFILE[normalizedFormat] ||
+      'editorial'
   ).toLowerCase();
   const pack = packs[profile];
   if (!pack) {

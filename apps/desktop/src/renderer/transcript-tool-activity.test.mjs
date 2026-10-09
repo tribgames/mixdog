@@ -392,10 +392,12 @@ test('desktop activity uses concrete control, MCP server, and skill names', () =
     [
       { unitKey: 'Browser', category: 'Browser', label: 'Browser Use', count: 1 },
       { unitKey: 'Computer', category: 'Computer', label: 'Computer Use', count: 1 },
-      { unitKey: 'Office', category: 'Office', label: 'Document work', count: 1 },
+      { unitKey: 'Office|Edited|document action', category: 'Office', label: 'Document work', count: 1 },
       { unitKey: 'MCP|UnityMCP', category: 'MCP', label: 'MCP UnityMCP', count: 1 },
       { unitKey: 'Skill|gamerscroll-article', category: 'Skill', label: 'Skill gamerscroll-article', count: 1 },
-      { unitKey: 'Media', category: 'Media', label: 'Media generation', count: 3 },
+      { unitKey: 'Media|Generated|image', category: 'Media', label: 'Image generation', count: 1 },
+      { unitKey: 'Media|Generated|video', category: 'Media', label: 'Video generation', count: 1 },
+      { unitKey: 'Media|Listed|media catalog', category: 'Media', label: 'Media catalog', count: 1 },
     ]
   );
 
@@ -728,11 +730,28 @@ test('desktop activity keeps agent action and response subjects specific', () =>
     kind: 'tool',
     id: 'agent-response',
     name: 'agent',
-    args: { agent: 'worker' },
+    args: { type: 'result', agent: 'worker' },
     result: 'Reviewed the change.',
     completedAt: 1,
   });
   assert.equal(response.subject, 'Response Worker');
+
+  // A status/read check is never a response, whatever its result carries.
+  const envelope = 'agent task: t\nstatus: completed\nagent: reviewer\n\n### finding';
+  for (const [type, verb] of [
+    ['status', 'Status'],
+    ['read', 'Read'],
+  ]) {
+    const check = desktopToolActivityItemPresentation({
+      kind: 'tool',
+      id: `agent-${type}`,
+      name: 'agent',
+      args: { type, tag: 'review-x' },
+      result: envelope,
+      completedAt: 1,
+    });
+    assert.equal(check.subject, `${verb} Reviewer (review-x)`);
+  }
 });
 
 test('expanded tool detail stays in the runtime English while chips localize', () => {
@@ -965,4 +984,64 @@ test('desktop activity treats only parseable output as JSON and surfaces the age
   });
   assert.deepEqual(write.sections, []);
   assert.equal(write.diffPatch.includes('src/a.ts'), true);
+});
+
+test('desktop labels name the operation actually called and its real outcome', async () => {
+  const { desktopToolActivitySummary, desktopToolActivityRowVerb } = await import('./transcript-tool-core.ts');
+  const item = (name, args, result = 'ok', extra = {}) => ({ kind: 'tool', id: name, name, args, result, completedAt: 1, ...extra });
+
+  // Media: a failed job read shows the job error, and actions have their own unit.
+  const failedJob = desktopToolActivityItemPresentation(
+    item('media', { action: 'status', job: 'j' }, '{"ok":false,"job":"j","status":"failed","error":"quota"}')
+  );
+  assert.equal(failedJob.tone, 'error');
+  assert.equal(failedJob.resultLabel, 'quota');
+  assert.equal(failedJob.title, 'Media status');
+  assert.equal(desktopToolActivityItemPresentation(item('media', { action: 'cancel', job: 'j' })).title, 'Media cancellation');
+
+  // Batch read entries keep their own window and do not gain the call's.
+  const batch = desktopToolActivityItemPresentation(
+    item('read', { file_path: [{ file_path: 'a.ts', offset: 10, limit: 2 }], limit: 5 }, 'x')
+  );
+  assert.equal(batch.subject, 'a.ts:10-11');
+
+  // code_graph keeps the callers/callees direction and the file in an overview.
+  const callers = desktopToolActivityItemPresentation(item('code_graph', { mode: 'callers', symbols: ['run'] }));
+  assert.equal(callers.subject, 'callers · run');
+  const overview = desktopToolActivityItemPresentation(item('code_graph', { mode: 'overview', files: 'src/a.ts' }));
+  assert.equal(overview.subject, 'src/a.ts');
+  assert.equal(overview.title, 'Code structure');
+  assert.equal(
+    desktopToolActivityItemPresentation(item('code_graph', { mode: 'symbol_search', symbols: 'run' })).category,
+    'Search'
+  );
+
+  // Group summaries use the canonical work-unit counts and categories.
+  assert.equal(
+    desktopToolActivitySummary([item('read', { file_path: ['a.ts', 'b.ts', 'c.ts'] })]),
+    'Read 3 files'
+  );
+  assert.equal(desktopToolActivitySummary([item('task', { action: 'cancel', task_id: 't' })]), 'Cancel task');
+  assert.equal(desktopToolActivitySummary([item('code_graph', { mode: 'overview', files: 'a.ts' })]), 'Code structure');
+  assert.equal(
+    desktopToolActivitySummary([item('agent', { type: 'result', agent: 'worker', status: 'completed' })]),
+    'Agent response'
+  );
+
+  // Terminal is its own category with action verbs, never "External tools".
+  const list = item('terminal', { action: 'list' });
+  assert.equal(desktopToolActivityItemPresentation(list).category, 'Terminal');
+  assert.equal(desktopToolActivityItemPresentation(list).title, 'Terminal tabs');
+  assert.equal(desktopToolActivityRowVerb('terminal', { action: 'list' }), 'List tabs');
+  assert.equal(desktopToolActivityRowVerb('terminal', { action: 'read', tab: 1 }), 'Read output');
+
+  // Public-schema subjects instead of first-field fallbacks.
+  assert.equal(
+    desktopToolActivityItemPresentation(item('github', { action: 'issue.create', repo: 'owner/repo', title: 'Bug' })).subject,
+    'Create issue owner/repo · Bug'
+  );
+  assert.equal(
+    desktopToolActivityItemPresentation(item('git', { action: 'stage', change_ids: ['a', 'b'] })).subject,
+    '2 changes'
+  );
 });

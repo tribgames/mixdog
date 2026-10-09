@@ -19,10 +19,10 @@ const u64 = (n) => {
   return b;
 };
 const str = (s) => Buffer.concat([u64(Buffer.byteLength(s)), Buffer.from(s)]);
-function gguf() {
+function gguf(contextLength = 16384) {
   const values = [
     ['general.architecture', 8, str('testarch')],
-    ['testarch.context_length', 4, u32(16384)],
+    ['testarch.context_length', 4, u32(contextLength)],
     ['testarch.block_count', 4, u32(16)],
     ['testarch.embedding_length', 4, u32(2048)],
     ['testarch.attention.head_count', 4, u32(16)],
@@ -36,8 +36,8 @@ function gguf() {
     ...values.flatMap(([key, type, value]) => [str(key), u32(type), value]),
   ]);
 }
-function fixture(dataDir) {
-  const payload = gguf();
+function fixture(dataDir, { contextLength, gpuMemoryBytes = 0 } = {}) {
+  const payload = gguf(contextLength);
   const info = {
     id: 'publisher/model',
     sha: 'a'.repeat(40),
@@ -54,6 +54,7 @@ function fixture(dataDir) {
   const service = createHuggingFaceCatalog({
     dataDir,
     now: () => time,
+    hardwareFn: async () => ({ gpus: [{ memoryBytes: gpuMemoryBytes }] }),
     fetchFn: async (url) => {
       if (url.includes('/api/models?')) return Response.json([{ id: 'publisher/model', downloads: 10 }]);
       if (url.includes('/api/models/')) return Response.json(info);
@@ -81,7 +82,7 @@ test('HF search and inspection do not install; approval registers a revision-pin
     const listing = await service.inspect({ repository: 'publisher/model' });
     assert.equal(listing.files[0].filename, 'model.gguf');
     const preview = await service.inspect({ repository: 'publisher/model', filename: 'model.gguf' });
-    assert.equal(preview.model.contextWindow, 8192);
+    assert.equal(preview.model.contextWindow, 16384);
     assert.equal(preview.model.architecture, 'testarch');
     assert.deepEqual(registeredLocalModels(root), []);
     assert.equal(existsSync(join(root, 'local-provider', 'models')), false);
@@ -124,12 +125,33 @@ test('HF refuses missing integrity metadata, restricted repos, shards, traversal
 });
 
 test('GGUF inspection validates structure and computes context-dependent allocation instead of trusting the repository label', () => {
-  const header = parseGgufHeader(gguf());
-  const small = ggufMemoryPlan(header, 1_000_000, 4096);
-  const large = ggufMemoryPlan(header, 1_000_000, 8192);
+  const header = parseGgufHeader(gguf(65536));
+  const small = ggufMemoryPlan(header, 1_000_000, 16384);
+  const large = ggufMemoryPlan(header, 1_000_000, 32768);
   assert.ok(large.estimatedVramBytes > small.estimatedVramBytes);
   assert.equal(large.memoryEstimate.kvBytes, small.memoryEstimate.kvBytes * 2);
   assert.throws(() => parseGgufHeader(Buffer.from('not GGUF')), /not GGUF/);
   assert.throws(() => parseGgufHeader(gguf().subarray(0, 20)), /prefix/);
   assert.throws(() => ggufMemoryPlan(header, 1_000_000, 999999), /contextWindow/);
+  assert.throws(() => ggufMemoryPlan(header, 1_000_000, 8192), /contextWindow/);
+  assert.throws(() => ggufMemoryPlan(parseGgufHeader(gguf(8192)), 1_000_000), /at least 16384/);
+});
+
+test('HF inspection defaults to 32K when the GPU holds it, else the 16K agent minimum', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-hf-default-context-'));
+  try {
+    const inspect = (options) =>
+      fixture(root, { contextLength: 131072, ...options }).service.inspect({
+        repository: 'publisher/model',
+        filename: 'model.gguf',
+      });
+    assert.equal((await inspect({ gpuMemoryBytes: 64 * 1024 ** 3 })).model.contextWindow, 32768);
+    assert.equal((await inspect({ gpuMemoryBytes: 0 })).model.contextWindow, 16384);
+    await assert.rejects(
+      fixture(root, { contextLength: 8192 }).service.inspect({ repository: 'publisher/model', filename: 'model.gguf' }),
+      /at least 16384/
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

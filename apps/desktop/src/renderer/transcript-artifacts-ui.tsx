@@ -1,5 +1,8 @@
 import { FileText, FolderOpen, Play, X } from 'lucide-react';
-import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { ImageLightbox, lightboxItemsFor, useLightboxRegistration, type LightboxItem } from './image-lightbox';
+import { openProjectFileInDefaultApp, useLocalImagePreview } from './local-image-preview';
+import type { ResolvedLocalLink } from './local-link-resolver';
 import type { TranscriptItem } from './desktop-types';
 import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';
@@ -60,21 +63,34 @@ function MediaFigure({
   preview,
   actions,
   square,
+  target,
+  openDefault,
 }: {
   artifact: TranscriptArtifact;
   original: string;
   preview: string;
   actions: ReactNode;
   square: boolean;
+  /** Project file behind an image, for the lightbox's "Open in tab". */
+  target?: ResolvedLocalLink | null;
+  /** The artifact's existing open-in-OS path, for the lightbox. */
+  openDefault?: () => void;
 }) {
   const [failed, setFailed] = useState(false);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; startId: string } | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    if (expanded) dialog.current?.showModal();
-  }, [expanded]);
+  const frameRef = useRef<HTMLButtonElement>(null);
+  const id = useId();
   const video = artifact.kind === 'video';
+  useEffect(() => {
+    if (expanded && video) dialog.current?.showModal();
+  }, [expanded, video]);
+  useLightboxRegistration(
+    frameRef,
+    !video && original && !failed ? { id, src: original, name: artifact.name, target, openDefault } : null
+  );
   const thumbnail = failed ? '' : video ? preview : preview || original;
   const openable = Boolean(original) && (video || !failed);
   const frame = mediaFrame(artifact.kind, size, artifact.aspect, square);
@@ -87,11 +103,15 @@ function MediaFigure({
       style={{ '--artifact-width': `${frame.width}px` } as CSSProperties}
     >
       <button
+        ref={frameRef}
         type="button"
         className="transcript-artifact-frame"
         aria-label={label}
         disabled={!openable}
-        onClick={() => setExpanded(true)}
+        onClick={() => {
+          if (!video) setLightbox({ items: lightboxItemsFor(frameRef.current!), startId: id });
+          setExpanded(true);
+        }}
       >
         {thumbnail ? (
           <img
@@ -121,7 +141,7 @@ function MediaFigure({
         <small>{formatLabel(artifact.name) || (video ? t('Video') : t('Image'))}</small>
       </figcaption>
       <div className="transcript-artifact-actions">{actions}</div>
-      {expanded && (
+      {expanded && video && (
         <dialog
           ref={dialog}
           className="transcript-artifact-preview"
@@ -141,12 +161,11 @@ function MediaFigure({
           >
             <X size={16} aria-hidden="true" />
           </button>
-          {video ? (
-            <video src={original} poster={preview || undefined} controls preload="none" playsInline />
-          ) : (
-            <img src={original} alt={artifact.name} />
-          )}
+          <video src={original} poster={preview || undefined} controls preload="none" playsInline />
         </dialog>
+      )}
+      {expanded && !video && lightbox && (
+        <ImageLightbox items={lightbox.items} startId={lightbox.startId} onClose={() => setExpanded(false)} />
       )}
     </figure>
   );
@@ -170,6 +189,7 @@ function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; sq
       original={mediaUrl(api, id, 'original')}
       preview={mediaUrl(api, id, artifact.kind === 'video' ? 'thumb' : 'display')}
       square={square}
+      openDefault={() => void open()}
       actions={
         <>
           {/* Same icon-only action grammar as the response copy control: transparent
@@ -206,31 +226,7 @@ function GeneratedMedia({ artifact, square }: { artifact: TranscriptArtifact; sq
 function LocalImageArtifact({ artifact, square }: { artifact: TranscriptArtifact; square: boolean }) {
   const project = useContext(MarkdownProjectContext);
   const href = artifactHref(artifact.path);
-  const [url, setUrl] = useState('');
-  const [unavailable, setUnavailable] = useState(false);
-  useEffect(() => {
-    setUrl('');
-    setUnavailable(false);
-    const previewFile = window.mixdogDesktop?.previewProjectFile;
-    if (!previewFile) {
-      setUnavailable(true);
-      return;
-    }
-    let active = true;
-    verifyLocalLink(project, parseLocalFileLocation(href).path)
-      .then((target) => previewFile(target.project, target.path, target.accessToken))
-      .then(
-        (preview) => {
-          if (active) setUrl(preview.url);
-        },
-        () => {
-          if (active) setUnavailable(true);
-        }
-      );
-    return () => {
-      active = false;
-    };
-  }, [project, href]);
+  const { url, target, unavailable } = useLocalImagePreview(project, parseLocalFileLocation(href).path);
   if (unavailable) return <DocumentArtifact artifact={artifact} />;
   return (
     <MediaFigure
@@ -239,6 +235,8 @@ function LocalImageArtifact({ artifact, square }: { artifact: TranscriptArtifact
       original={url}
       preview={url}
       square={square}
+      target={target}
+      openDefault={target ? () => void openProjectFileInDefaultApp(target) : undefined}
       actions={
         <MarkdownLink className="icon-button" title={t('Open file')} href={href}>
           <MxIcon name="open-file" size={14} />

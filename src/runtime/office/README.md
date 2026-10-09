@@ -61,13 +61,19 @@ the physical sidecar at runtime. Moving these files means updating that list and
 
 ## Tests and benchmarks
 
-### Native authoring is the default
+### HTML-first design, native editable output
 
-For Word, Excel and PDF, the agent chooses the reading structure, typography,
-spacing and flow, then sends native operations or styled PDF blocks. The runtime
-does not attach an unsolicited art direction, choose a design pack or recolor
-those blocks. `compose_document`, `compose_sheet` and an explicit `design.profile`
-remain opt-in presets; their chosen arrangement is not the default workflow.
+For new designed documents and report surfaces, the agent writes HTML/CSS for
+the content and reader and sends it to `author`. PDF prints the browser layout;
+Word, PowerPoint, and Excel map the supported layout to editable native content,
+including live workbook formulas. Compare the converted pages with the HTML:
+browser appearance alone does not prove fidelity or editability.
+
+Concept catalogues, palettes, layout recipes, and rhythm metrics are optional
+references, not style gates. The runtime retains factual, integrity, formula,
+fit, and rendered-review checks. Native operations remain for existing-file
+edits, templates, calculation/data sheets, and browser-unavailable fallbacks.
+`compose_document`, `compose_sheet`, and `design.profile` remain opt-in presets.
 
 The process is design → author → inspect actual pages → refine material issues.
 A specimen or separate reviewer is optional when useful. A page review records

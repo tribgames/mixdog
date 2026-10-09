@@ -1,7 +1,8 @@
-// Browser Use and Computer Use: the environment kill switch, then the bridge
-// client. Neither asks the user before a call.
+// Browser Use, Computer Use and Terminal: the environment kill switch, then the
+// bridge client. None asks the user before a call.
 import { executeBrowserTool } from '../../runtime/browser-bridge/client.mjs';
 import { executeComputerTool } from '../../runtime/computer-bridge/client.mjs';
+import { executeTerminalTool } from '../../runtime/terminal-bridge/client.mjs';
 import { featureEnvOverride } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { createCallerContextResolvers } from './caller-context.mjs';
 
@@ -38,5 +39,16 @@ export function createBridgeToolHandlers({ rt }) {
     });
   };
 
-  return { browser, browser_devtools: browser, computer };
+  // Read-only: no approval hook, no working directory.
+  const terminal = async (args, { callerCtx }) => {
+    if (environmentDisabled(callerCtx, 'MIXDOG_FEATURE_TERMINAL')) {
+      throw new Error('the terminal tool is disabled in this environment');
+    }
+    return await executeTerminalTool(args, {
+      sessionId: sessionIdFor(callerCtx),
+      signal: signalFor(callerCtx),
+    });
+  };
+
+  return { browser, browser_devtools: browser, computer, terminal };
 }

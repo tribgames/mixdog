@@ -57,9 +57,28 @@ export function createFastParameterSelection({ state, currentRoute, isCurrentRou
     return fast;
   };
   /** Flips Fast; false when the model cannot run Fast at the selected effort. */
+  const ultrafastOffered = (model) =>
+    (model?.modelParameterOptions || []).some(
+      (parameter) => parameter.id === 'serviceTier' && parameter.options?.some((o) => o.value === 'ultrafast')
+    );
+  const isUltrafast = (model) =>
+    ultrafastOffered(model) && getSelectedFast(model) && modelParametersFor(model).serviceTier === 'ultrafast';
+  const setSpeed = (model, fast, tier) => {
+    selectedFast.set(modelKey(model), fast);
+    selectedModelParameters.set(modelKey(model), { ...modelParametersFor(model), serviceTier: tier });
+  };
+  /** Cycles Standard → Fast → Ultrafast → Standard when the model offers
+   *  Ultrafast, else flips Fast; false when the model cannot run Fast at the
+   *  selected effort. */
   const toggleFast = (model) => {
     if (!fastAvailableFor(model)) return false;
-    selectedFast.set(modelKey(model), !getSelectedFast(model));
+    if (!ultrafastOffered(model)) {
+      selectedFast.set(modelKey(model), !getSelectedFast(model));
+      return true;
+    }
+    if (!getSelectedFast(model)) setSpeed(model, true, 'priority');
+    else if (!isUltrafast(model)) setSpeed(model, true, 'ultrafast');
+    else setSpeed(model, false, 'priority');
     return true;
   };
 
@@ -80,5 +99,5 @@ export function createFastParameterSelection({ state, currentRoute, isCurrentRou
     return true;
   };
 
-  return { modelParametersFor, fastAvailableFor, getSelectedFast, toggleFast, cycleThinking };
+  return { modelParametersFor, fastAvailableFor, getSelectedFast, isUltrafast, toggleFast, cycleThinking };
 }

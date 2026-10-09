@@ -1460,8 +1460,33 @@ test('a Korean composed document sets its sans roles in the Korean face', () => 
     }).operations;
     return new Set(operations.flatMap((entry) => [entry.properties?.name, entry.properties?.fontName]).filter(Boolean));
   };
+  const eastAsiaFaces = (title, profile, extra = {}) =>
+    new Set(
+      expandOfficeDesignOperations({
+        format: 'docx',
+        backend: 'mixdog-ooxml',
+        created: true,
+        design: { profile },
+        operations: [
+          {
+            op: 'compose_document',
+            title,
+            ...extra,
+            sections: [{ heading: 'H', paragraphs: ['20 70%'], table: { headers: ['a', 'b'], rows: [['1', '2']] } }],
+          },
+        ],
+      })
+        .operations.flatMap((entry) => [entry.properties?.nameEastAsia, entry.properties?.fontNameEastAsia])
+        .filter(Boolean)
+    );
+  // The Latin face is never replaced; Hangul takes a Korean face of its class beside it.
   const korean = [...fonts('도서관 야간 이용', 'data')];
-  assert.ok(!korean.some((face) => /^(calibri|arial)$/i.test(face)), korean.join(', '));
+  assert.ok(korean.some((face) => /^(calibri|arial)$/i.test(face)), korean.join(', '));
+  assert.ok(eastAsiaFaces('도서관 야간 이용', 'data').has('Malgun Gothic'));
+  assert.ok(eastAsiaFaces('도서관 야간 이용', 'editorial').has('Batang'));
+  // An East Asian face the author named is kept.
+  const named = eastAsiaFaces('도서관 야간 이용', 'editorial', { nameEastAsia: 'Noto Serif KR' });
+  assert.ok(named.has('Noto Serif KR') && !named.has('Batang') && !named.has('Malgun Gothic'), [...named].join(', '));
   const editorial = [...fonts('도서관 야간 이용', 'editorial')];
   assert.ok(editorial.includes('Bookman Old Style'), `the serif display keeps its Latin face: ${editorial.join(', ')}`);
   const latin = [...fonts('Library night use', 'data')];
@@ -3752,7 +3777,7 @@ test('Office design composition maps Word, Excel, and PDF to native structures',
   assert.equal(pdf.blocks[1].headerFill, '183028');
 });
 
-test('Office design review rejects decorative stripes and repeated card grids', () => {
+test('Office design review reports decorative stripes and repeated grids without requiring a redesign', () => {
   const cardSlide = (index) => ({
     index,
     shapes: [
@@ -3782,7 +3807,7 @@ test('Office design review rejects decorative stripes and repeated card grids', 
     document: { slides: [cardSlide(1), cardSlide(2), cardSlide(3), cardSlide(4), cardSlide(5), cardSlide(6)] },
     design: { profile: 'editorial' },
   });
-  assert.equal(review.status, 'needs-polish');
+  assert.equal(review.status, 'pass');
   assert.ok(review.issues.some((issue) => issue.code === 'decorative_stripe'));
   assert.ok(review.issues.some((issue) => issue.code === 'card_grid_overuse'));
   assert.ok(review.issues.some((issue) => issue.code === 'repetitive_composition'));

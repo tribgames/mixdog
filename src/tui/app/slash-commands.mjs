@@ -50,7 +50,7 @@ export const SLASH_COMMANDS = [
   { name: 'theme', usage: '/theme', params: '[id]', description: 'Change the TUI color theme' },
   { name: 'agents', usage: '/agents', params: '[refresh]', description: 'Show available workflow agents' },
   { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model' },
-  { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model' },
+  { name: 'fast', usage: '/fast', params: '[on|off|ultra]', description: 'Set Fast or Ultrafast mode for the current model' },
   { name: 'mcp', usage: '/mcp', description: 'Manage MCP servers and tools' },
   { name: 'skills', usage: '/skills', description: 'Choose a skill for the next request' },
   { name: 'memory', usage: '/memory', params: '[status|core ...]', description: 'List and edit core memories' },

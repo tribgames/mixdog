@@ -16,7 +16,6 @@ import {
   normalizeXaiReasoningEffort,
   xaiModelSupportsReasoningEffort,
   xaiResponsesCacheRouting,
-  useXaiResponsesWebSocketWarmup,
   XAI_CACHE_LANE_META,
 } from './openai-compat-xai.mjs';
 import { normalizeXaiResponsesHttp, normalizeXaiResponsesWebSocket } from './openai-compat-response-normalization.mjs';
@@ -182,9 +181,6 @@ export async function sendXaiResponsesWebSocket(provider, messages, useModel, to
   // first response already anchors instructions for the continuation.
   else if (instructions) params.instructions = instructions;
   applyXaiResponsesToolsAndEffort(params, { provider, tools, opts, useModel });
-  const warmupBody = useXaiResponsesWebSocketWarmup(opts, provider.config, { previousResponseId })
-    ? { ...params, generate: false, input: [] }
-    : null;
   const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
   const cacheLane = XAI_CACHE_LANE_META;
   // Fast-fallback only shortens the WS handshake retry budget when the
@@ -210,8 +206,6 @@ export async function sendXaiResponsesWebSocket(provider, messages, useModel, to
     includeResponseId: true,
     traceProvider: 'xai',
     logSuppressedReasoningDeltas: false,
-    warmupBody,
-    _carriedWarmup: opts._carriedWarmup || null,
     // Mirror openai-oauth fast fallback: when the HTTP fallback is
     // enabled (outer catch → _shouldFallbackXaiWsToHttp), a first
     // acquire/first-byte failure should skip remaining WS

@@ -250,25 +250,6 @@ export function _shouldFallbackXaiWsToHttp(err, signal) {
   });
 }
 
-export function useXaiResponsesWebSocketWarmup(opts, config, { previousResponseId }) {
-  if (previousResponseId) return false;
-  const raw =
-    opts?.xaiResponsesWarmup ??
-    opts?.xaiWsWarmup ??
-    config?.responsesWarmup ??
-    config?.wsWarmup ??
-    process.env.MIXDOG_XAI_RESPONSES_WARMUP ??
-    process.env.MIXDOG_XAI_WS_WARMUP;
-  if (raw != null && raw !== '') {
-    const mode = String(raw).trim().toLowerCase();
-    if (['0', 'false', 'off', 'none', 'disabled'].includes(mode)) return false;
-    if (['1', 'true', 'on', 'always', 'force'].includes(mode)) return true;
-  }
-  // A generate:false response can still carry provider usage/quota. Keep it
-  // strictly opt-in; transport-only HTTP/WS preconnect remains cost-free.
-  return false;
-}
-
 // No `config` argument: the single caller (xaiResponsesCacheRouting) never had
 // one to pass, so the provider-config lane aliases this used to read were dead
 // operands. Lane selection on this route is opts + env only.

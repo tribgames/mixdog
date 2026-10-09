@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { GITHUB_ACTIONS, githubRequestMutates, validateGithubRequest } from './contract.mjs';
@@ -253,8 +253,129 @@ test('the agent tool is registered and returns the ordinary builtin text/error c
   const bounded = await executeGithubTool({ action: 'run.logs', repo, id: 42 }, cwd, {
     run: async () => '한'.repeat(100000),
   });
-  assert.equal(JSON.parse(bounded).truncated, true);
-  assert.ok(bounded.length < 40000);
+  const logs = JSON.parse(bounded);
+  assert.ok(Buffer.byteLength(bounded, 'utf8') <= 10 * 1024);
+  assert.ok(logs.data.endsWith('한'));
+  assert.match(logs.omitted, /failed:true/);
+});
+
+test('model-facing results drop API-only fields, keep decision fields, and preserve the raw response', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'mixdog-github-raw-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  try {
+    const user = (login, type = 'User') => ({ login, id: 1, node_id: 'U', type, avatar_url: 'a', followers_url: 'f' });
+    const nested = { full_name: 'fork/project', id: 2, owner: user('fork'), forks_url: 'x', clone_url: 'c' };
+    const pr = {
+      number: 7,
+      title: 'Fix',
+      state: 'open',
+      body: 'details',
+      node_id: 'PR',
+      url: 'https://api.github.com/x',
+      html_url: 'https://github.com/x',
+      diff_url: 'd',
+      comments_url: 'c',
+      user: user('alice'),
+      assignees: [user('bob')],
+      requested_reviewers: [user('ci', 'Bot')],
+      labels: [{ name: 'bug', node_id: 'L' }],
+      head: { sha, ref: 'feature', repo: nested, user: user('fork') },
+      base: { ref: 'main', repo: { ...nested, full_name: repo } },
+      commit: { author: { name: 'Alice', email: 'a@example.com' } },
+      _links: { self: 'x' },
+    };
+    const value = JSON.parse(
+      await executeGithubTool({ action: 'pr.view', repo, number: 7 }, cwd, {
+        sessionId: 'sess_github_raw',
+        toolCallId: 'call_1',
+        run: async () => JSON.stringify(pr),
+      })
+    );
+    assert.deepEqual(value.data, {
+      number: 7,
+      title: 'Fix',
+      state: 'open',
+      body: 'details',
+      url: 'https://api.github.com/x',
+      html_url: 'https://github.com/x',
+      diff_url: 'd',
+      user: 'alice',
+      assignees: ['bob'],
+      requested_reviewers: ['ci (Bot)'],
+      labels: [{ name: 'bug' }],
+      head: { sha, ref: 'feature', repo: 'fork/project', user: 'fork' },
+      base: { ref: 'main', repo },
+      commit: { author: { name: 'Alice', email: 'a@example.com' } },
+    });
+    assert.deepEqual(JSON.parse(await readFile(value.raw, 'utf8')), pr);
+
+    const repoView = JSON.parse(
+      await executeGithubTool({ action: 'repo.view', repo }, cwd, {
+        run: async () => JSON.stringify({ ...nested, full_name: repo }),
+      })
+    );
+    assert.deepEqual(repoView.data, { full_name: repo, id: 2, owner: 'fork', clone_url: 'c' });
+    assert.match(repoView.raw, /unavailable/);
+
+    const bodies = await executeGithubTool({ action: 'pr.list', repo, limit: 2 }, cwd, {
+      run: async () => JSON.stringify([1, 2].map((number) => ({ number, body: 'y'.repeat(20000) }))),
+    });
+    const overview = JSON.parse(bodies);
+    assert.deepEqual(
+      overview.data.map((item) => item.number),
+      [1, 2]
+    );
+    assert.match(overview.data[0].body, /more chars in raw\]$/);
+    assert.equal(overview.omitted, undefined);
+
+    const page = Array.from({ length: 60 }, (_, index) => ({ number: index + 1, title: 't'.repeat(200) }));
+    const listed = await executeGithubTool({ action: 'issue.list', repo, limit: 60 }, cwd, {
+      sessionId: 'sess_github_raw',
+      toolCallId: 'call_2',
+      run: async () => JSON.stringify(page),
+    });
+    const list = JSON.parse(listed);
+    assert.ok(Buffer.byteLength(listed, 'utf8') <= 10 * 1024);
+    assert.deepEqual(
+      list.data.map((item) => item.number),
+      Array.from({ length: list.data.length }, (_, index) => index + 1)
+    );
+    assert.equal(list.hasMore, true);
+    assert.match(list.omitted, new RegExp(`records ${list.data.length + 1}-60`));
+    assert.equal(JSON.parse(await readFile(list.raw, 'utf8')).length, 60);
+
+    const small = await executeGithubTool({ action: 'pr.merge', repo, number: 7, sha }, cwd, {
+      sessionId: 'sess_github_raw',
+      toolCallId: 'call_3',
+      run: async () => JSON.stringify({ sha, merged: true, message: 'Merged' }),
+    });
+    assert.equal(JSON.parse(small).raw, undefined);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    // The session store may still be writing session-pending into the data dir.
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+});
+
+test('results that cannot be clamped by strings still fit the output cap', async () => {
+  const cap = 10 * 1024;
+  const assets = Array.from({ length: 500 }, (_, index) => ({ id: index, name: `asset-${index}.zip`, size: index }));
+  const view = await executeGithubTool({ action: 'release.view', repo, id: 42 }, cwd, {
+    run: async () => JSON.stringify({ id: 42, tag_name: 'v1', name: 'One', assets }),
+  });
+  assert.ok(Buffer.byteLength(view, 'utf8') <= cap);
+  const parsed = JSON.parse(view);
+  assert.equal(parsed.data.tag_name, 'v1');
+  assert.match(parsed.omitted, /raw/);
+  assert.ok(parsed.shown);
+
+  const wide = { number: 1, ...Object.fromEntries(Array.from({ length: 3000 }, (_, i) => [`k${i}`, i])) };
+  const page = await executeGithubTool({ action: 'issue.list', repo, limit: 2 }, cwd, {
+    run: async () => JSON.stringify([wide, { number: 2 }]),
+  });
+  assert.ok(Buffer.byteLength(page, 'utf8') <= cap);
 });
 
 test('review requires an explicit verdict and merges require an exact full commit identity', () => {

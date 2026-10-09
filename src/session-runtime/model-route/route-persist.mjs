@@ -7,6 +7,13 @@ import { saveModelSettings } from '../../runtime/agent/orchestrator/runtime-core
 import { writeStatuslineRoute } from '../statusline-route.mjs';
 import { sessionUsesRoute } from '../../runtime/agent/orchestrator/runtime-core/session-route-policy.mjs';
 
+/** Re-tuning the live model (effort, Fast, context, or re-picking it) is not a
+ *  main-model choice: new tasks keep their main model unless it is that model. */
+function tunesNonMainModel(liveRoute, route, mainRoute) {
+  const sameModel = (other) => other?.provider === route.provider && other?.model === route.model;
+  return sameModel(liveRoute) && !sameModel(mainRoute);
+}
+
 export function createRoutePersistence(deps) {
   const {
     getConfig,
@@ -18,6 +25,7 @@ export function createRoutePersistence(deps) {
     adoptConfig,
     saveConfigAndAdopt,
     persistLeadRoute,
+    resolveRoute,
     invalidateContextStatusCache,
   } = deps;
   return {
@@ -27,11 +35,14 @@ export function createRoutePersistence(deps) {
         hasSecrets: getConfigHasSecrets(),
       });
     },
-    persistAdoptedModelSettings(route) {
+    persistAdoptedModelSettings(route, { keepMainModel = false } = {}) {
       // saveModelSettings is in-memory only. persistLeadRoute debounce-writes
       // the adopted config (including modelSettings). If the lead preset cannot
       // be normalized, still debounce-persist so effort/fast are not memory-only.
-      const leadRoute = persistLeadRoute(route);
+      const leadRoute =
+        keepMainModel || tunesNonMainModel(getRoute(), route, resolveRoute(getConfig(), {}))
+          ? null
+          : persistLeadRoute(route);
       if (!leadRoute) saveConfigAndAdopt(getConfig());
       return leadRoute;
     },
@@ -42,6 +53,10 @@ export function createRoutePersistence(deps) {
       if (!sessionUsesRoute(session, route)) return;
       session.fast = route.fast === true;
       session.effort = route.effectiveEffort || null;
+      // The request path reads session.modelParameters; keep only serviceTier in step.
+      const { serviceTier: _previous, ...otherParameters } = session.modelParameters || {};
+      const serviceTier = route.modelParameters?.serviceTier;
+      session.modelParameters = serviceTier ? { ...otherParameters, serviceTier } : otherParameters;
       writeStatuslineRoute(statusRoutes, session, route);
       invalidateContextStatusCache();
     },

@@ -21,6 +21,11 @@ await pres.writeFile({ fileName: OUTPUT });
 `;
 }
 
+test('a standalone palette line is read beside a non-empty style line', () => {
+  assert.equal(parseAuthoringBrief('// BRIEF\n// style: custom\n// palette: red, blue, white\n').palette, 'red, blue, white');
+  assert.equal(parseAuthoringBrief('// BRIEF\n// style: custom · palette: teal, ivory\n').palette, 'teal, ivory');
+});
+
 test('the brief names its facts mode and the author gate mirrors the fact review', () => {
   const sourced = parseAuthoringBrief('// BRIEF\n// facts: F1 47% — user brief\n');
   assert.equal(sourced.factsMode, 'sourced');

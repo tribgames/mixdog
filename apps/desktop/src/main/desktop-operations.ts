@@ -130,7 +130,10 @@ function createTerminalOutputCoalescer(
 
 /** Reference-counted directory watches, debounced per directory. One entry per
  *  (directory, recursive) pair, because both forms watch different trees. */
-function createFolderWatchRegistry(emit: (event: DesktopOperationEvent) => void) {
+export function createFolderWatchRegistry(
+  emit: (event: DesktopOperationEvent) => void,
+  watchDirectory: typeof watch = watch
+) {
   const watchers = new Map<
     string,
     {
@@ -149,7 +152,7 @@ function createFolderWatchRegistry(emit: (event: DesktopOperationEvent) => void)
         existing.count += 1;
         return;
       }
-      const watcher = watch(dir, { persistent: false, recursive }, () => {
+      const watcher = watchDirectory(dir, { persistent: false, recursive }, () => {
         const state = watchers.get(key);
         if (!state || state.timer) return;
         state.timer = setTimeout(() => {
@@ -160,6 +163,9 @@ function createFolderWatchRegistry(emit: (event: DesktopOperationEvent) => void)
       watcher.on('error', () => {
         const state = watchers.get(key);
         if (state?.timer) clearTimeout(state.timer);
+        try {
+          watcher.close();
+        } catch {}
         watchers.delete(key);
       });
       watchers.set(key, { watcher, count: 1, timer: null });
@@ -375,6 +381,11 @@ export function createDesktopOperations({
       );
     }
     if (name === 'termProfiles') return listShellProfiles();
+    // Read-only views for the agent `terminal` bridge (see terminal/bridge-server.ts).
+    if (name === 'termSessionTabs') return terminals.sessionTabs(String(args[0] || ''));
+    if (name === 'termSnapshot') {
+      return terminals.snapshot(String(args[0] || ''), args[1] == null ? undefined : Number(args[1]));
+    }
     if (name === 'termWrite') {
       terminals.write(String(args[0] || ''), String(args[1] ?? ''));
       return null;

@@ -1252,9 +1252,35 @@ test('kit chart refuses a value axis that cannot carry its own data', async () =
   assert.equal(charts.length, 1, 'without declared limits a negative value still plots');
 });
 
+test('kit palette accentMode moves the accent off the counter hue and warmth leans only the neutrals', async () => {
+  const kit = await kitBlocks('kit.md');
+  const source = ['hsl', 'contrast', 'darkenUntil', 'chroma', 'neutral', 'counterHue', 'accentFor', 'warmHue', 'palette']
+    .map((name) => {
+      const match = new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}\\n`).exec(kit);
+      assert.ok(match, `${name} is in the kit`);
+      return match[0];
+    })
+    .join('\n');
+  const { palette, accentFor, counterHue } = new Function(`${source}\nreturn { palette, accentFor, counterHue };`)();
+  assert.equal(accentFor(225, 'complement'), counterHue(225));
+  assert.equal(accentFor(225, 'analogous'), 255);
+  assert.equal(accentFor(225, 'split'), (counterHue(225) + 30) % 360);
+  assert.equal(accentFor(225, 'mono'), 225);
+  const base = palette({ hue: 225 });
+  assert.deepEqual(palette({ hue: 225, accentMode: 'complement', warmth: 0 }), base, 'omitted options keep the palette');
+  for (const accentMode of ['analogous', 'split', 'mono']) {
+    const moved = palette({ hue: 225, accentMode });
+    assert.notEqual(moved.accent, base.accent, accentMode);
+    assert.equal(moved.paper, base.paper, 'the neutral ladder stays the seed\'s');
+  }
+  const warm = palette({ hue: 225, warmth: 0.8 });
+  assert.notEqual(warm.paper, base.paper);
+  assert.equal(warm.accent, base.accent);
+});
+
 test('kit palette derives a contrast-safe ladder from one seed hue', async () => {
   const kit = await kitBlocks('kit.md');
-  const source = ['hsl', 'contrast', 'darkenUntil', 'chroma', 'neutral', 'counterHue', 'palette']
+  const source = ['hsl', 'contrast', 'darkenUntil', 'chroma', 'neutral', 'counterHue', 'accentFor', 'warmHue', 'palette']
     .map((name) => {
       const match = new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}\\n`).exec(kit);
       assert.ok(match, `${name} is in the kit`);

@@ -54,16 +54,25 @@ export function hasBenignExitOutcome(text) {
   return /^\[outcome:\s*(?:no-match|no-change)\]\s*$/im.test(String(text || ''));
 }
 
-export function toolResultTerminalStatus(text) {
-  const body = String(text || '');
-  const tagged = body.match(/<status[^>]*>([\s\S]*?)<\/status>/i)?.[1]?.trim();
-  if (tagged) return normalizeToolTerminalStatus(tagged);
-  const head = leadingResultBlock(body);
+// The status a task/bridge envelope reports in its leading block. A `<status>`
+// tag only counts when the result opens with the envelope's own tags.
+const ENVELOPE_TAG_HEAD_RE = /^<(?:task-notification|task-id|tool-use-id|output-file|status)[\s>]/i;
+
+export function toolResultEnvelopeStatus(text) {
+  const head = leadingResultBlock(String(text || ''));
+  if (ENVELOPE_TAG_HEAD_RE.test(head.trimStart())) {
+    const tagged = head.match(/<status[^>]*>([\s\S]*?)<\/status>/i)?.[1]?.trim();
+    if (tagged) return normalizeToolTerminalStatus(tagged);
+  }
   const bracketed = head.match(/^\[status:\s*([^\]]*)\]/im)?.[1]?.trim();
   if (bracketed) return normalizeToolTerminalStatus(bracketed);
   const inline = head.match(/^(?:status|state):\s*([^\s·,;]+)/im)?.[1]?.trim();
-  const fromInline = normalizeToolTerminalStatus(inline);
-  if (fromInline) return fromInline;
+  return normalizeToolTerminalStatus(inline);
+}
+
+/** Bodies the runtime itself writes when a call is stopped or aborted. */
+export function toolResultControlStatus(text) {
+  const body = String(text || '');
   if (isUserControlCancellation(body)) return 'cancelled';
   // Bare control bodies written on cancel/crash (current + legacy).
   const trimmed = body.trim();
@@ -77,4 +86,8 @@ export function toolResultTerminalStatus(text) {
   }
   if (/^the user doesn't want to proceed with this tool use\b/i.test(trimmed)) return 'cancelled';
   return '';
+}
+
+export function toolResultTerminalStatus(text) {
+  return toolResultEnvelopeStatus(text) || toolResultControlStatus(text);
 }

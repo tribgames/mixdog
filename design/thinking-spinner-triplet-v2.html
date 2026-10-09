@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mixdog · 트리플렛 v2</title>
+<style>
+  @property --f { syntax:'<number>'; inherits:false; initial-value:0; }
+  .theme-dark {
+    color-scheme:dark;
+    --page:#111113; --band:#222225; --card:#2a2a2d;
+    --text:#e9e9e9; --muted:#a8a8a8; --accent:#79b8ff;
+    --border:rgba(255,255,255,.125); --line:rgba(255,255,255,.09); --hover:rgba(255,255,255,.08);
+    --head:#79b8ff; --flash:#eef6ff;
+  }
+  .theme-light {
+    color-scheme:light;
+    --page:#f8f8fb; --band:#ffffff; --card:#f3f3f3;
+    --text:#222222; --muted:#606060; --accent:#185abc;
+    --border:rgba(23,24,26,.14); --line:rgba(23,24,26,.1); --hover:rgba(0,0,0,.06);
+    --head:#185abc; --flash:#0a2a66;
+  }
+  :root { --k:1; --sw:2.1; --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","Segoe UI",sans-serif; }
+  body.paused *, body.paused *::after { animation-play-state:paused !important; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--text); font:14px/20px var(--sans); }
+  h1,h2,p { margin:0; }
+  button { font:inherit; color:var(--muted); cursor:pointer; border:0; border-radius:6px; background:transparent; padding:4px 11px; }
+  button:hover { background:var(--hover); }
+  button[aria-pressed="true"] { background:var(--card); color:var(--text); box-shadow:0 1px 4px #0002; }
+  svg { display:block; overflow:visible; }
+  .page { max-width:1200px; margin:auto; padding:30px 32px 60px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.3px; }
+  .intro { color:var(--muted); margin-top:4px; font-size:13px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:12px 18px; align-items:center; margin:20px 0 22px; }
+  .control { display:flex; align-items:center; gap:9px; }
+  .control-label { color:var(--muted); font-size:13px; white-space:nowrap; }
+  .segments { display:flex; flex-wrap:wrap; gap:3px; padding:3px; border-radius:8px; background:var(--band); border:1px solid var(--line); }
+  .section-title { font-size:13px; font-weight:550; color:var(--muted); margin:0 0 10px; }
+  section { margin-bottom:30px; }
+  .tile { border-radius:10px; border:1px solid var(--line); background:var(--page); color:var(--text); }
+
+  .ba { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr)); gap:16px; }
+  .card { border:1px solid var(--border); border-radius:12px; background:var(--band); overflow:hidden; }
+  .card.pick { border-color:var(--accent); }
+  .card-head { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; }
+  .card-head h2 { font-size:14px; font-weight:600; }
+  .tag { margin-left:auto; font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0 8px; white-space:nowrap; }
+  .card.pick .tag { color:var(--accent); border-color:var(--accent); }
+  .mini { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 16px; }
+  .mini .tile { padding:16px 0 10px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .mini .tile > svg { width:72px; height:72px; }
+  .sizes { display:flex; align-items:end; gap:10px; }
+  .sizes figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .sizes figcaption { font-size:10px; color:var(--muted); }
+  .bands { display:grid; gap:8px; padding:10px 16px 0; }
+  .bands .tile { padding:6px 12px; }
+  .desc { padding:12px 16px 16px; font-size:13px; color:var(--muted); }
+  .desc b { color:var(--text); font-weight:550; }
+
+  .beats { display:grid; grid-template-columns:repeat(auto-fill,minmax(76px,1fr)); gap:8px; padding:12px; }
+  .beat { display:flex; flex-direction:column; align-items:center; gap:6px; padding:10px 0 8px; border:1px solid var(--line); border-radius:10px; }
+  .beat svg { width:40px; height:40px; }
+  .beat span { font-size:11px; color:var(--muted); text-align:center; line-height:14px; }
+  .beat.hit { border-color:var(--accent); }
+
+  /* Live band, mirroring 14-live-activity.css + the 22-markdown.css comet. */
+  .live { width:max-content; max-width:100%; min-height:24px; display:flex; align-items:center; gap:7px; color:var(--muted); }
+  .live-icon { width:16px; height:20px; flex:0 0 16px; display:grid; place-items:center; line-height:0; }
+  .verb { position:relative; font-weight:500; --cells:8; }
+  .verb::after {
+    content:attr(data-text); position:absolute; inset:0; pointer-events:none; color:transparent;
+    background:linear-gradient(90deg,transparent 0%,color-mix(in oklch,var(--accent) 35%,transparent) 25%,color-mix(in oklch,var(--accent) 22%,white) 50%,color-mix(in oklch,var(--accent) 35%,transparent) 75%,transparent 100%) 0 0 / 4ch 100% no-repeat;
+    background-clip:text; -webkit-background-clip:text;
+    animation:comet calc((var(--cells) + 7) * 100ms * var(--k)) linear infinite;
+  }
+  @keyframes comet { from { background-position:-4ch 0; } to { background-position:calc(100% + 7ch) 0; } }
+  .meta { font-weight:400; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .meta::before { content:"\00B7"; margin-right:7px; }
+
+  @media (max-width:560px) { body .page { padding:20px 14px 40px; } }
+
+  .o { transform-box:view-box; transform-origin:12px 12px; }
+  /* --f is the landing accent (0..1): a brief lift toward the flash ink and a
+     touch more stroke, so each tap reads as a tap even at 14px. */
+  .arc {
+    fill:none; stroke-linecap:round; stroke-dasharray:0 360;
+    stroke:color-mix(in oklch, var(--flash) calc(var(--f) * 55%), var(--head));
+    stroke-width:calc(var(--sw) * (1 + var(--f) * .2));
+  }
+  .star { fill:var(--head); }
+</style>
+<style id="generated"></style>
+</head>
+<body class="t theme-dark">
+<div class="page">
+  <h1>트리플렛 v2 · 박자 다듬기</h1>
+  <p class="intro">색은 앱 포인트 색으로 고정했습니다. 탁마다 원호에 짧은 하이라이트를 주고, 로고에 머무는 시간을 늘리고, 접히기 직전 별이 숨을 들이쉬게 했습니다.</p>
+
+  <div class="toolbar">
+    <div class="control"><span class="control-label">템포</span>
+      <div class="segments" data-group="tempo"><button data-v="1600">경쾌 1.6초</button><button data-v="1900" aria-pressed="true">기본 1.9초</button><button data-v="2300">느긋 2.3초</button></div></div>
+    <div class="control"><span class="control-label">재생</span>
+      <div class="segments" data-group="speed"><button data-v="4">슬로모션 ¼</button><button data-v="1" aria-pressed="true">실제 속도</button></div></div>
+    <div class="control"><div class="segments" data-group="pause"><button data-v="pause">일시정지</button></div></div>
+  </div>
+
+  <section>
+    <p class="section-title">직전 ↔ v2</p>
+    <div class="ba" id="ba"></div>
+  </section>
+
+  <section>
+    <p class="section-title">v2 한 마디</p>
+    <div class="tile t theme-dark"><div class="beats" id="beats"></div></div>
+  </section>
+</div>
+
+<script>
+  const STAR = 'M12 8.7Q12.55 11.45 15.3 12 12.55 12.55 12 15.3 11.45 12.55 8.7 12 11.45 11.45 12 8.7Z';
+  const r2 = (n) => Math.round(n * 1000) / 1000;
+  const ease = (x, p) => (x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? 0.5 * Math.pow(2 * x, p) : 1 - 0.5 * Math.pow(2 - 2 * x, p));
+  const bump = (d, w) => Math.exp(-((d / w) ** 2));
+  // Loop-safe bump: distance measured around the cycle.
+  const cbump = (t, c, w) => bump(((t - c + 1.5) % 1) - 0.5, w);
+
+  // Heads land one by one; tails release together. drift = 1/3 makes every arc
+  // exactly the logo's 80° between the third landing and the release, and each
+  // cycle ends 120° on, where the next arc began.
+  const MOTIONS = {
+    prev: { gap: 0.07, headLen: 0.3, tailStart: 0.52, powH: 2.4, powT: 2.8, flash: false },
+    next: { gap: 0.065, headLen: 0.28, tailStart: 0.56, powH: 2.6, powT: 3, flash: true },
+  };
+  const DRIFT = 1 / 3;
+  const model = (m) => {
+    const head = (i, t) => (1 - DRIFT) * ease((t - i * m.gap) / m.headLen, m.powH) + DRIFT * t;
+    const tail = (t) => (1 - DRIFT) * ease((t - m.tailStart) / (1 - m.tailStart), m.powT) + DRIFT * t;
+    const landed = 2 * m.gap + m.headLen;
+    const lockT = (landed + m.tailStart) / 2;
+    const offset = 60 - 60 * (head(2, lockT) + tail(lockT));
+    const hits = [0, 1, 2].map((i) => i * m.gap + m.headLen * 0.72);
+    return { head, tail, landed, lockT, offset, hits };
+  };
+
+  function css(name, m, dur) {
+    const M = model(m);
+    const arcs = ['', '', ''];
+    let star = '';
+    for (let s = 0; s <= 160; s++) {
+      const t = s / 160;
+      const pct = r2(t * 100);
+      for (let i = 0; i < 3; i++) {
+        const L = 120 * (M.head(i, t) - M.tail(t));
+        const f = m.flash ? cbump(t, M.hits[i], 0.035) : 0;
+        arcs[i] += `${pct}%{stroke-dasharray:${r2(L)} ${r2(360 - L)};stroke-dashoffset:${r2(-(120 * M.tail(t) + M.offset))};--f:${r2(f)}}`;
+      }
+      const rot = [0, 1, 2].reduce((sum, i) => sum + 30 * ease((t - i * m.gap) / m.headLen, m.powH), 0);
+      let scale = 0.9 + 0.05 * cbump(t, M.hits[0], 0.03) + 0.05 * cbump(t, M.hits[1], 0.03) + 0.16 * cbump(t, M.hits[2], 0.04);
+      // prev keeps its original shrink, which never returned (a tiny seam);
+      // v2 inhales just before the release and breathes back out.
+      scale += m.flash ? -0.07 * cbump(t, m.tailStart - 0.01, 0.045) : -0.04 * ease((t - m.tailStart) / 0.3, 2);
+      star += `${pct}%{transform:rotate(${r2(rot)}deg) scale(${r2(scale)})}`;
+    }
+    const d = `calc(var(--k) * ${dur}ms)`;
+    return arcs.map((a, i) => `@keyframes ${name}-arc-${i}{${a}}.${name} .arc:nth-child(${i + 1}){animation:${name}-arc-${i} ${d} linear infinite}`).join('') +
+      `@keyframes ${name}-star{${star}}.${name} .star{animation:${name}-star ${d} linear infinite}`;
+  }
+
+  const glyph = (cls, size) =>
+    `<svg viewBox="0 0 24 24" class="${cls}"${size ? ` width="${size}" height="${size}"` : ''}><g>${[-120, 0, 120].map((rot) => `<circle class="arc" cx="12" cy="12" r="8.6" pathLength="360" transform="rotate(${rot} 12 12)"/>`).join('')}</g><path class="o star" d="${STAR}"/></svg>`;
+  const live = (cls) => `<div class="live"><span class="live-icon">${glyph(cls, 14)}</span><span class="verb" data-text="Thinking">Thinking</span><span class="meta">12s · 1.2k tokens</span></div>`;
+
+  const CARDS = [
+    { cls: 'm-prev', name: '직전 트리플렛', tag: '비교',
+      desc: '탁·탁·탁 → 로고 → 쭉. 박자는 별만 찍어서 14px에서는 탁이 잘 구분되지 않았고, 별 크기가 루프 경계에서 살짝 튀었습니다.' },
+    { cls: 'm-next', name: '트리플렛 v2', tag: '추천', pick: true,
+      desc: '<b>원호가 자리에 닿는 순간 짧게 밝아지며 살짝 굵어져, 작은 크기에서도 "탁·탁·탁"이 또렷이 들립니다.</b> 로고에 머무는 시간을 늘렸고, 접히기 직전 별이 한 번 숨을 들이쉰 뒤 "쭉" 풀립니다. 루프 경계의 튐도 없앴습니다.' },
+  ];
+  document.getElementById('ba').innerHTML = CARDS.map((x) => `
+    <article class="card${x.pick ? ' pick' : ''}">
+      <div class="card-head"><h2>${x.name}</h2><span class="tag">${x.tag}</span></div>
+      <div class="mini">
+        ${['theme-dark', 'theme-light'].map((theme) => `
+          <div class="tile t ${theme}">${glyph(x.cls)}
+            <div class="sizes">${[24, 16, 14, 12].map((s) => `<figure>${glyph(x.cls, s)}<figcaption>${s}</figcaption></figure>`).join('')}</div>
+          </div>`).join('')}
+      </div>
+      <div class="bands">${['theme-dark', 'theme-light'].map((theme) => `<div class="tile t ${theme}">${live(x.cls)}</div>`).join('')}</div>
+      <p class="desc">${x.desc}</p>
+    </article>`).join('');
+
+  let tempo = 1900;
+  function render() {
+    document.getElementById('generated').textContent = css('m-prev', MOTIONS.prev, 1900) + css('m-next', MOTIONS.next, tempo);
+    const M = model(MOTIONS.next);
+    const BEATS = [
+      [0.02, '시작'], [M.hits[0], '탁 ①', true], [M.hits[1], '탁 ②', true], [M.hits[2], '탁 ③', true],
+      [M.lockT, '로고'], [MOTIONS.next.tailStart - 0.01, '들숨'], [0.74, '쭉'], [0.97, '다음 마디'],
+    ];
+    document.getElementById('beats').innerHTML = BEATS.map(([t, label, hit]) =>
+      `<div class="beat${hit ? ' hit' : ''}" data-t="${t}">${glyph('m-next')}<span>${label}<br>${Math.round(t * 100)}%</span></div>`).join('');
+    document.querySelectorAll('.beat').forEach((beat) => {
+      const t = Number(beat.dataset.t);
+      beat.querySelectorAll('.arc, .star').forEach((el) => {
+        el.style.animationPlayState = 'paused';
+        el.style.animationDelay = `calc(var(--k) * ${-t * tempo}ms)`;
+      });
+    });
+  }
+  render();
+
+  document.querySelectorAll('.segments').forEach((group) => {
+    group.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      const kind = group.dataset.group;
+      const value = button.dataset.v;
+      if (kind === 'pause') {
+        const on = button.getAttribute('aria-pressed') !== 'true';
+        button.setAttribute('aria-pressed', String(on));
+        document.body.classList.toggle('paused', on);
+        return;
+      }
+      group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+      if (kind === 'tempo') { tempo = Number(value); render(); }
+      if (kind === 'speed') document.documentElement.style.setProperty('--k', value);
+    });
+  });
+</script>
+</body>
+</html>

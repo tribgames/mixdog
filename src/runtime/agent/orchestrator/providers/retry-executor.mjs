@@ -3,6 +3,7 @@
 import { PROVIDER_RETRY_JITTER_RATIO, createTimeoutSignal } from '../stall-policy.mjs';
 import { readStreamOutcome } from './lib/stream-outcome.mjs';
 import { recycleLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { retryReasonText, retryStatusLine } from '../../../shared/err-text.mjs';
 import {
   TERMINAL_EDGE_STATUSES,
@@ -284,6 +285,7 @@ export async function withRetry(fn, opts = {}) {
       }
       throwIfRetryAborted(signal);
       lastErr = caught;
+      noteErrorUsage(caught);
       const veto = retryVeto(caught, { opts, attempt, maxAttempts, state });
       if (veto) throw veto;
       // Respect Retry-After when present; otherwise the ordinary jittered

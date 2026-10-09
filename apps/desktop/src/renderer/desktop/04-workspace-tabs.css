@@ -201,6 +201,10 @@
   .workspace-tab.active:is(:hover, :focus-within) .workspace-tab-main {
     padding-right: 18px;
   }
+  /* The floating X would cover the label, so it stays hover-only here. */
+  .workspace-tab.active:not(:hover):not(:focus-within):not(.dirty) .workspace-tab-close {
+    opacity: 0;
+  }
 }
 @container (max-width: 48px) {
   .workspace-tab-main span,
@@ -366,9 +370,9 @@
 :root[data-mixdog-theme="light"] .pane-split .workspace-tabs-shell[data-focused="false"] .workspace-tab.active:not(.drop-target-right)::before {
   background: color-mix(in srgb, var(--mx-text) 6%, transparent);
 }
-/* Every tab — the selected one too — shows its X only under the pointer or
-   keyboard, keeping its slot so the label never shifts; unsaved work keeps
-   its dot visible. */
+/* Every tab, the selected one included, shows its X only under the pointer
+   or keyboard (user: 호버 안 했을 때 x 없애라), keeping its slot so the
+   label never shifts; unsaved work keeps its dot visible. */
 .workspace-tab:hover .workspace-tab-close,
 .workspace-tab:focus-within .workspace-tab-close {
   opacity: 1;
@@ -376,7 +380,7 @@
 .workspace-tab-close {
   transition: opacity var(--mx-motion-ink);
 }
-.workspace-tab:not(:hover):not(:focus-within):not(.dirty) .workspace-tab-close {
+.workspace-tab:not(:hover):not(:has(:focus-visible)):not(.dirty) .workspace-tab-close {
   opacity: 0;
 }
 .workspace-tab:focus-within {

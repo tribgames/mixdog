@@ -5,6 +5,7 @@ import { initUiLanguage, setUiLanguagePreference } from '../../src/renderer/i18n
 import '../../src/renderer/bootstrap-styles';
 import '../../src/renderer/settings/settings.css';
 import '../../src/renderer/desktop/31-extensions.css';
+import '../../src/renderer/desktop/28-usage-explorer.css';
 import { settleFrames } from '../probe-settle';
 
 const root = createRoot(document.getElementById('root')!);
@@ -13,8 +14,10 @@ const localProvider = {
   installed: true,
   enabled: true,
   available: true,
-  running: false,
+  // A loaded but idle model stays deletable; a failed download can be discarded.
+  running: true,
   starting: false,
+  activeModel: 'qwen',
   runtime: { installed: true, version: 'b10621', downloadBytes: 641907910 },
   hardware: {
     checking: true,
@@ -23,8 +26,41 @@ const localProvider = {
   activeRequests: 0,
   queuedRequests: 0,
   idleTtlSeconds: 3600,
-  installations: [],
+  installations: [
+    {
+      jobId: 'running-download',
+      phase: 'model',
+      modelId: 'gemma',
+      state: 'running',
+      percent: 42,
+      receivedBytes: 3100000000,
+      totalBytes: 7300000000,
+    },
+    {
+      jobId: 'failed-download',
+      phase: 'model',
+      modelId: 'llama',
+      state: 'failed',
+      error: '[local-provider] download interrupted: network connection lost',
+    },
+  ],
   models: [
+    {
+      id: 'gemma',
+      name: 'Gemma 4 12B Q4_K_M',
+      installed: false,
+      present: false,
+      sizeBytes: 7300000000,
+      contextWindow: 32768,
+    },
+    {
+      id: 'llama',
+      name: 'Llama 4 8B Q5_K_M',
+      installed: false,
+      present: false,
+      sizeBytes: 5700000000,
+      contextWindow: 32768,
+    },
     {
       id: 'qwen',
       name: 'Qwen3.8 27B Q4_K_M',
@@ -33,6 +69,10 @@ const localProvider = {
       sizeBytes: 18973870432,
       estimatedVramBytes: 23622320128,
       contextWindow: 32768,
+      defaultContextWindow: 32768,
+      minContextWindow: 16384,
+      maxContextWindow: 262144,
+      configuredContextWindow: null,
       supportsFunctionCalling: true,
       loadTimeMs: 3200,
       inference: { firstResponseMs: 180, tokensPerSecond: 34.2 },
@@ -40,7 +80,13 @@ const localProvider = {
   ],
 };
 const api = { readCapabilities: async () => [{ ok: true, value: { localProvider } }] };
-const run = async () => ({ localProvider });
+const run = async (capability: string) =>
+  capability === 'getLocalProviderModelDetails'
+    ? {
+        confirmationToken: 'probe-confirmation',
+        files: [{ path: 'C:\\Users\\me\\.mixdog\\data\\local-provider\\models\\qwen.gguf', size: 18973870432 }],
+      }
+    : { localProvider };
 const noop = () => {};
 const asyncNoop = async () => {};
 const settle = () => settleFrames();

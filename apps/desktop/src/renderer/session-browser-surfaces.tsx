@@ -9,7 +9,7 @@ import { createRoot, type Root } from 'react-dom/client';
 
 import { BrowserPane } from './lazy-widgets';
 import { useSlotRemeasure } from './surface-slot-remeasure';
-import { preferredSurfaceSlot } from './surface-slots';
+import { expandedSurfaceRect, preferredSurfaceSlot } from './surface-slots';
 import './session-browser-surfaces.css';
 
 type BrowserSurfaceSlot = {
@@ -20,6 +20,8 @@ type BrowserSurfaceSlot = {
 type BrowserSurface = {
   sessionId: string;
   expanded: boolean;
+  /** Side dock header widened while this surface is expanded. */
+  header: HTMLElement | null;
   container: HTMLDivElement;
   root: Root;
   slots: Map<HTMLDivElement, BrowserSurfaceSlot>;
@@ -74,9 +76,7 @@ export function useSessionBrowserSurfaces(
     }
     const selected = preferredSurfaceSlot(surface.slots);
     const expanded = surface.expanded && selected?.[1].foreground === true;
-    const rect =
-      (expanded ? selected?.[0].closest('.main-panel') : null)?.getBoundingClientRect() ??
-      selected?.[0].getBoundingClientRect();
+    const rect = expandedSurfaceRect(selected?.[0], expanded, surface) ?? selected?.[0].getBoundingClientRect();
     surface.container.dataset.expanded = expanded ? 'true' : 'false';
     const visible = Boolean(selected && rect && rect.width >= 1 && rect.height >= 1);
     if (visible && rect) {
@@ -135,6 +135,7 @@ export function useSessionBrowserSurfaces(
       const surface: BrowserSurface = {
         sessionId,
         expanded: false,
+        header: null,
         container,
         root: createRoot(container),
         slots: new Map(),
@@ -180,6 +181,7 @@ export function useSessionBrowserSurfaces(
   const release = useCallback((sessionId: string) => {
     const surface = surfaces.current.get(sessionId);
     if (!surface) return;
+    expandedSurfaceRect(undefined, false, surface);
     queueMicrotask(() => surface.root.unmount());
     surface.container.remove();
     surfaces.current.delete(sessionId);

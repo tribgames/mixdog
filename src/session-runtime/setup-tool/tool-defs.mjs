@@ -118,6 +118,7 @@ export const SETUP_BUILTIN_TOGGLE_FEATURES = Object.freeze([
   'autoEffort',
   'browser',
   'computer',
+  'terminal',
   'voice',
 ]);
 
@@ -262,9 +263,10 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         },
         contextWindow: {
           type: 'integer',
-          minimum: 512,
+          minimum: 16384,
           maximum: 32768,
-          description: 'inspect_hf_model: runtime context allocation, default 8192.',
+          description:
+            'inspect_hf_model: runtime context allocation; default 32768 when the GPU holds it, else 16384.',
         },
         previewId: { type: 'string', description: 'register_hf_model: unexpired read-only inspection receipt.' },
         licenseAccepted: {

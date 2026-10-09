@@ -203,43 +203,69 @@ async function openAttachmentImage(attachment: ComposerAttachment, onError: (mes
 export function AttachmentChips({
   attachments,
   onRemove,
+  onEdit,
   onError,
 }: {
   attachments: ComposerAttachment[];
   onRemove: (attachment: ComposerAttachment) => void;
+  /** Opens the editor for a folded paste chip. */
+  onEdit: (attachment: ComposerAttachment) => void;
   onError: (message: string) => void;
 }) {
   return (
     <div className="composer-attachments" aria-label={t('Attachments')}>
-      {attachments.map((attachment) => (
-        <div className={`attachment-chip ${attachment.kind}`} key={attachment.id}>
-          {attachment.kind === 'image' ? (
+      {attachments.map((attachment) => {
+        const editable = attachment.kind === 'text' && attachment.source === 'paste';
+        return (
+          <div className={`attachment-chip ${attachment.kind}`} key={attachment.id}>
+            {attachment.kind === 'image' ? (
+              <button
+                type="button"
+                className="attachment-open"
+                aria-label={t('Open image')}
+                title={attachment.name}
+                onClick={() => void openAttachmentImage(attachment, onError)}
+              >
+                <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
+              </button>
+            ) : (
+              <span>
+                <MxIcon name="open-file" size={16} />
+              </span>
+            )}
+            <span data-tooltip={attachment.name}>
+              {editable ? (
+                // Pointer shortcut only; the pencil button is the keyboard path.
+                <button type="button" className="attachment-name" tabIndex={-1} onClick={() => onEdit(attachment)}>
+                  {attachment.name}
+                </button>
+              ) : (
+                attachment.name
+              )}
+            </span>
+            {editable && (
+              <button
+                type="button"
+                aria-label={t('Edit pasted text')}
+                onClick={() => onEdit(attachment)}
+                className="attachment-edit"
+                data-tooltip={t('Edit pasted text')}
+              >
+                <MxIcon name="edit" size={14} />
+              </button>
+            )}
             <button
               type="button"
-              className="attachment-open"
-              aria-label={t('Open image')}
-              title={attachment.name}
-              onClick={() => void openAttachmentImage(attachment, onError)}
+              aria-label={t('Remove {{name}}', { name: attachment.name })}
+              onClick={() => onRemove(attachment)}
+              className="attachment-remove"
+              data-tooltip={t('Remove')}
             >
-              <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
+              <X size={14} aria-hidden="true" />
             </button>
-          ) : (
-            <span>
-              <MxIcon name="open-file" size={16} />
-            </span>
-          )}
-          <span data-tooltip={attachment.name}>{attachment.name}</span>
-          <button
-            type="button"
-            aria-label={t('Remove {{name}}', { name: attachment.name })}
-            onClick={() => onRemove(attachment)}
-            className="attachment-remove"
-            data-tooltip={t('Remove')}
-          >
-            <X size={14} aria-hidden="true" />
-          </button>
-        </div>
-      ))}
+          </div>
+        );
+      })}
     </div>
   );
 }

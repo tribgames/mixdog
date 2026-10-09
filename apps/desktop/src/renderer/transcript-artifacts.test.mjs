@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { transcriptArtifacts } from './transcript-artifacts.ts';
 import { ToolActivityGroup } from './transcript-tool-ui.tsx';
-import { MarkdownProjectContext } from './MarkdownLink.tsx';
+import { MarkdownOpenFileContext, MarkdownProjectContext } from './MarkdownLink.tsx';
 
 const media = (result, args = { action: 'generate', kind: 'image' }) => ({ kind: 'tool', name: 'media', args, result });
 const office = (path, extra = {}) => ({
@@ -86,6 +86,52 @@ test('input paths, lookup, pending, failed and executable outputs never become r
   );
 });
 
+test('artifact images open in the shared lightbox and navigate within the strip', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><div id="root"></div>',
+    jsdom: { url: 'http://localhost/' },
+    expose: ['navigator'],
+  });
+  dom.window.HTMLDialogElement.prototype.showModal = function showModal() {
+    this.open = true;
+  };
+  dom.window.mixdogDesktop = {
+    statProjectFile: async () => ({ mtimeMs: 0, size: 1 }),
+    resolveLocalPaths: async ([absolutePath]) => [
+      { absolutePath, dir: false, projectPath: 'C:/work', relPath: absolutePath.slice('C:/work/'.length) },
+    ],
+    previewProjectFile: async (_project, relPath) => ({ url: `mixdog-media://preview/token/${relPath}`, kind: 'image' }),
+  };
+  const root = createRoot(dom.window.document.getElementById('root'));
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(
+          MarkdownProjectContext.Provider,
+          { value: 'C:/work' },
+          React.createElement(ToolActivityGroup, {
+            items: ['one.svg', 'two.svg'].map((name) => ({
+              kind: 'tool',
+              name: 'edit',
+              args: { file_path: `C:/work/${name}` },
+              result: 'ok',
+            })),
+          })
+        )
+      )
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const doc = dom.window.document;
+    await act(async () => doc.querySelector('.transcript-artifact-frame').click());
+    assert.equal(doc.querySelector('dialog img').getAttribute('src'), 'mixdog-media://preview/token/one.svg');
+    await act(async () => doc.querySelector('dialog button[aria-label="Next image"]').click());
+    assert.equal(doc.querySelector('dialog img').getAttribute('src'), 'mixdog-media://preview/token/two.svg');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
 test('collapsed activity exposes image, playable video, a document that opens in its conversation Project, and a deleted one as deleted', async () => {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><div id="root"></div>',
@@ -93,6 +139,7 @@ test('collapsed activity exposes image, playable video, a document that opens in
     expose: ['navigator'],
   });
   const opened = [];
+  const launched = [];
   // jsdom has no modal dialogs; the card only needs the dialog to open.
   dom.window.HTMLDialogElement.prototype.showModal = function showModal() {
     this.open = true;
@@ -100,7 +147,7 @@ test('collapsed activity exposes image, playable video, a document that opens in
   dom.window.mixdogDesktop = {
     mediaUrl: (id, variant) => `http://localhost/media/${id}/${variant}`,
     openLocalFileLink: async (...args) => {
-      opened.push(args);
+      launched.push(args);
     },
     statProjectFile: async (_project, path) => {
       if (/gone/.test(path)) throw Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
@@ -121,17 +168,21 @@ test('collapsed activity exposes image, playable video, a document that opens in
     await act(async () =>
       root.render(
         React.createElement(
-          MarkdownProjectContext.Provider,
-          { value: 'C:/work' },
-          React.createElement(ToolActivityGroup, {
-            items: [
-              media({ ok: true, assetId: 'a', output: 'C:/work/a.png' }),
-              media({ ok: true, assetId: 'b', output: 'C:/work/b.mp4' }, { action: 'generate', kind: 'video' }),
-              office('C:/work/report #1.docx'),
-              office('C:/work/gone.xlsx'),
-              { kind: 'tool', name: 'edit', args: { file_path: 'C:/work/chart.svg' }, result: 'ok' },
-            ],
-          })
+          MarkdownOpenFileContext.Provider,
+          { value: (...args) => opened.push(args) },
+          React.createElement(
+            MarkdownProjectContext.Provider,
+            { value: 'C:/work' },
+            React.createElement(ToolActivityGroup, {
+              items: [
+                media({ ok: true, assetId: 'a', output: 'C:/work/a.png' }),
+                media({ ok: true, assetId: 'b', output: 'C:/work/b.mp4' }, { action: 'generate', kind: 'video' }),
+                office('C:/work/report #1.docx'),
+                office('C:/work/gone.xlsx'),
+                { kind: 'tool', name: 'edit', args: { file_path: 'C:/work/chart.svg' }, result: 'ok' },
+              ],
+            })
+          )
         )
       )
     );
@@ -157,8 +208,9 @@ test('collapsed activity exposes image, playable video, a document that opens in
     const link = dom.window.document.querySelector('a.transcript-artifact-file');
     await act(async () => link.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true })));
     // The renderer resolves the artifact inside its conversation Project and
-    // re-encodes the name so main's URL-style parsing keeps the `#`.
-    assert.deepEqual(opened, [['C:/work', 'report%20%231.docx']]);
+    // opens the document in the in-app preview tab, never the OS app.
+    assert.deepEqual(opened, [['C:/work', 'report #1.docx', undefined]]);
+    assert.deepEqual(launched, []);
   } finally {
     await act(async () => root.unmount());
     restore();

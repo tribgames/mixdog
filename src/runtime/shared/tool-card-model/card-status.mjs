@@ -7,9 +7,13 @@ import { backgroundTaskFailureStatusLabel } from '../err-text.mjs';
 import { agentTerminalDetail, isAgentTool } from './agent-surface.mjs';
 import { backgroundTaskElapsed, backgroundTaskFailureDetail, isBackgroundTaskTool } from './background-task.mjs';
 import { shellDisplayStatus } from './shell-surface.mjs';
-import { normalizeTerminalStatus, resultTerminalStatus, shellResultElapsed } from './terminal-status.mjs';
+import { normalizeTerminalStatus, resultControlStatus, resultEnvelopeStatus, shellResultElapsed } from './terminal-status.mjs';
+import { mediaTerminalStatus } from './media-result.mjs';
 import { gitTerminalStatus } from './git-result.mjs';
 import { isUserControlCancellation } from '../tool-status.mjs';
+
+// Tools whose result opens with a task/bridge envelope that reports the call's status.
+const ENVELOPE_STATUS_TOOLS = new Set(['agent', 'bridge', 'task', 'web_search', 'search_query', 'image_query', 'web_search_call']);
 
 function shellFragments(base, display, isShellSurface) {
   if (!isShellSurface) return { shellStatus: '', shellElapsed: '' };
@@ -61,14 +65,26 @@ export function deriveCardStatus(base, { normalizedName, parsedArgs, isShellSurf
       ? agentTerminalDetail(parsedArgs?.status, isError, elapsed, parsedArgs?.error)
       : '';
   const gitStatus = normalizedName === 'git' ? gitTerminalStatus(display.displayedResultText) : '';
-  const failedOrCompleted = isError || failedCount > 0 ? 'failed' : 'completed';
+  const callFailed = !pending && (isError || failedCount > 0);
+  // A reported "completed" never outranks a failed call; every other
+  // reported outcome (cancelled, denied, failed) still describes the call.
+  const reported = (value) => {
+    const status = normalizeTerminalStatus(value);
+    return callFailed && status === 'completed' ? '' : status;
+  };
+  const failedOrCompleted = callFailed ? 'failed' : 'completed';
+  const envelopeStatus = ENVELOPE_STATUS_TOOLS.has(normalizedName)
+    ? resultEnvelopeStatus(display.displayedResultText)
+    : '';
   const terminalStatus = pending
     ? 'running'
     : shellStatus ||
       gitStatus ||
-      normalizeTerminalStatus(display.backgroundMeta?.status) ||
-      normalizeTerminalStatus(parsedArgs?.status) ||
-      resultTerminalStatus(display.displayedResultText) ||
+      (normalizedName === 'media' ? mediaTerminalStatus(parsedArgs, display.displayedResultText) : '') ||
+      reported(display.backgroundMeta?.status) ||
+      reported(parsedArgs?.status) ||
+      reported(envelopeStatus) ||
+      resultControlStatus(display.displayedResultText) ||
       // A one-line error body is hidden from display, so read the raw result.
       (isUserControlCancellation(base.rt) ? 'cancelled' : '') ||
       failedOrCompleted;
@@ -82,5 +98,6 @@ export function deriveCardStatus(base, { normalizedName, parsedArgs, isShellSurf
     agentCompletionDetail,
     agentDetail: !pending && isAgentTool(normalizedName) && !display.hasDisplayResult ? agentCompletionDetail : '',
     terminalStatus,
+    callFailed,
   };
 }

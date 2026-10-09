@@ -13,15 +13,18 @@ import { normalizeOfficeReviewIssues } from './quality/quality-pipeline.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
-test('design tokens replace unsafe typefaces and keep palettes readable', () => {
+test('design tokens keep requested typefaces, surface unsafe ones as advisories, and keep palettes readable', () => {
   const typography = normalizeTypographyTokens(
     { display: 'Aptos Display', body: 'Segoe UI', data: 'Courier New' },
     { display: 'Cambria', body: 'Calibri', data: 'Arial' }
   );
-  assert.deepEqual(typography.typography, { display: 'Cambria', body: 'Calibri', data: 'Courier New' });
+  assert.deepEqual(typography.typography, { display: 'Aptos Display', body: 'Segoe UI', data: 'Courier New' });
   assert.deepEqual(
-    typography.replaced.map((entry) => entry.requested),
-    ['Aptos Display', 'Segoe UI']
+    typography.replaced.map((entry) => [entry.requested, entry.applied]),
+    [
+      ['Aptos Display', 'Aptos Display'],
+      ['Segoe UI', 'Segoe UI'],
+    ]
   );
   assert.equal(isSafeFontFamily('Consolas'), false);
   assert.equal(isSafeFontFamily('맑은 고딕'), true);
@@ -94,8 +97,8 @@ test('design tokens replace unsafe typefaces and keep palettes readable', () => 
     typography: { display: 'Aptos Display', body: 'Consolas' },
     palette: { inverse: '#07080B' },
   });
-  assert.equal(design.tokens.typography.display, 'Cambria');
-  assert.equal(design.tokens.typography.body, 'Calibri');
+  assert.equal(design.tokens.typography.display, 'Aptos Display');
+  assert.equal(design.tokens.typography.body, 'Consolas');
   assert.equal(design.discipline.replacedFonts.length, 2);
   assert.notEqual(design.tokens.colors.inverse, '07080B');
   assert.equal(saturatedHueFamilies(['60A5FA', 'A3E635', 'A78BFA']).length, 3);
@@ -233,7 +236,7 @@ test('deck review reports a row of peers whose type does not match', () => {
   );
 });
 
-test('deck review blocks mixed typefaces, unsafe fonts, and rainbow accents from saved slides', () => {
+test('deck review reports style choices as information and preserves font compatibility warnings', () => {
   const slide = (index, shapes) => ({
     index,
     background: { color: '0B1220' },
@@ -268,7 +271,42 @@ test('deck review blocks mixed typefaces, unsafe fonts, and rainbow accents from
   assert.ok(codes.includes('unsafe_font_family'));
   assert.ok(codes.includes('accent_hue_overuse'));
   const normalized = normalizeOfficeReviewIssues(issues);
-  for (const code of ['font_family_overuse', 'unsafe_font_family', 'accent_hue_overuse']) {
-    assert.equal(normalized.find((entry) => entry.code === code)?.severity, 'error');
+  for (const code of ['font_family_overuse', 'accent_hue_overuse']) {
+    assert.equal(normalized.find((entry) => entry.code === code)?.severity, 'info');
   }
+  assert.equal(normalized.find((entry) => entry.code === 'unsafe_font_family')?.severity, 'warning');
+  const unsafe = issues.find((entry) => entry.code === 'unsafe_font_family');
+  assert.match(unsafe.message, /recipients without/i);
+  assert.match(unsafe.message, /Word, PowerPoint|PowerPoint/);
+});
+
+test('accent hue families ignore chart series colours', () => {
+  const slide = (index, shapes) => ({
+    index,
+    background: { color: '0B1220' },
+    shapes: shapes.map((shape, shapeIndex) => ({
+      index: shapeIndex + 1,
+      type: 'p:sp',
+      left: 40,
+      top: 40 + shapeIndex * 60,
+      width: 300,
+      height: 40,
+      font: { size: 18 },
+      ...shape,
+    })),
+  });
+  const document = {
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [
+      slide(1, [{ text: 'Cover', fonts: ['Calibri'], colors: ['F5F7FA'] }]),
+      slide(2, [
+        { text: 'A', fonts: ['Calibri'], colors: ['60A5FA'] },
+        { text: 'chart', fonts: ['Calibri'], colors: ['A3E635', 'A78BFA', 'F87171'], chart: { type: 'bar' } },
+      ]),
+      slide(3, [{ text: 'Close', fonts: ['Calibri'], colors: ['F5F7FA'] }]),
+    ],
+  };
+  const { issues } = reviewOfficeDesign({ format: 'pptx', document, design: { review: true } });
+  assert.ok(!issues.some((entry) => entry.code === 'accent_hue_overuse'));
 });

@@ -22,10 +22,6 @@ function harness(overrides = {}) {
     },
     sendSpan,
     emitReconnectProgress: (p) => progress.push(p),
-    stampWarmup: (e) => {
-      e.warmupStamped = true;
-      return e;
-    },
     safetyStamps: createStreamSafetyStamps(),
     handshakeErrorPolicy: null,
     retry429: true,
@@ -73,7 +69,6 @@ test('handshakeFailed: a transient connect error spends the stream budget and re
   assert.equal(await h.attempts.handshakeFailed(err, handshakeInfo(0)), true);
   assert.equal(err.wsFailurePhase, 'handshake');
   assert.equal(err.midstreamClassifier, 'reset');
-  assert.equal(err.warmupStamped, true);
   assert.deepEqual(h.progress, [{ attempt: 1, max: MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT, classifier: 'reset' }]);
   assert.equal(h.sleeps.length, 1);
   assert.equal(h.attempts.state.firstAttemptError, err);
@@ -222,6 +217,26 @@ test('streamFailed: exhausted budget surfaces the first error with the last one 
   assert.equal(first.providerRecoveryExhausted, true);
   assert.equal(first.providerRecoveryOwner, 'openai-oauth-ws-midstream');
   assert.equal(first.providerRecoveryAttempts, idx + 1);
+});
+
+test('streamFailed: a server 1009 on a retry surfaces itself, not the earlier transient', async () => {
+  const h = harness();
+  const first = Object.assign(new Error('first'), { wsCloseCode: 1006 });
+  assert.equal(
+    await h.attempts.streamFailed(first, { attemptIndex: 0, entry: fakeEntry(), midState: midState() }),
+    true
+  );
+  const tooBig = Object.assign(new Error('too big'), { wsCloseCode: 1009 });
+  await assert.rejects(
+    () =>
+      h.attempts.streamFailed(tooBig, {
+        attemptIndex: 1,
+        entry: fakeEntry(),
+        midState: midState({ attemptIndex: 1 }),
+      }),
+    (e) => e === tooBig
+  );
+  assert.deepEqual(h.progress, [{ attempt: 1, max: MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT, classifier: 'ws_1006' }]);
 });
 
 test('streamFailed: a stored xAI anchor is carried into the next attempt', async () => {

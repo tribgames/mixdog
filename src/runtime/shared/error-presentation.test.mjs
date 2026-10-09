@@ -99,3 +99,28 @@ test('runtime summaries retain their recovery classification after persistence',
     assert.equal(describeError(first.summary).kind, first.kind);
   }
 });
+
+test('dead OAuth grants are classified as reauth, transient failures are not', () => {
+  const sample = 'token refresh 400: {"error": "invalid_grant", "error_description": "Refresh token expired"}';
+  for (const input of [
+    new Error(sample),
+    sample,
+    Object.assign(new Error('whatever'), { reauthRequired: true }),
+    'Anthropic OAuth refresh token not available. Open /providers in mixdog to sign in again.',
+  ]) {
+    const result = describeError(input);
+    assert.equal(result.kind, 'reauth');
+    assert.equal(result.summary, 'Sign-in expired.');
+    assert.equal(result.recovery, 'Sign in again from Providers.');
+    assert.equal(result.fingerprint, 'reauth:');
+  }
+  assert.match(describeError(sample).details, /invalid_grant/);
+  assert.equal(describeError(describeError(sample).summary).kind, 'reauth');
+  for (const [text, status] of [
+    ['forbidden', 403],
+    ['too many requests', 429],
+    ['fetch failed ECONNRESET', 0],
+  ]) {
+    assert.notEqual(describeError(Object.assign(new Error(text), { status })).kind, 'reauth');
+  }
+});

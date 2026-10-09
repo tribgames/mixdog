@@ -90,7 +90,9 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     if (entry.diff?.source === 'session' && sessionId) {
       setSessionDiff(sessionId, null);
     }
-    if (entry.view === 'session-diff' && entry.surface === '' && sessionId) {
+    // The dock shows ONE child: closing folds the whole unit, so a Session
+    // Diff list left under the browser/terminal must not reopen it on close.
+    if (sessionId && sessionPanelViews.get(sessionId)) {
       setSessionPanelView(sessionId, null);
     }
     paneSideDocks.setOpen(leafId, false);

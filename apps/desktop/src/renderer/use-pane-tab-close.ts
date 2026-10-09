@@ -24,6 +24,8 @@ export interface EditorSaveHandle {
 interface PendingUnsavedClose {
   leafId: string;
   tab: WorkspaceTab;
+  /** A side-dock file leaves through this instead of closing a tab. */
+  proceed?: () => void;
 }
 
 export function usePaneTabClose({
@@ -175,7 +177,20 @@ export function usePaneTabClose({
       return;
     }
     setPendingUnsavedCloses((queue) => queue.slice(1));
-    closeTabNow(pending.leafId, pending.tab);
+    if (pending.proceed) pending.proceed();
+    else closeTabNow(pending.leafId, pending.tab);
+  };
+
+  /** The same Save / Discard / Cancel dialog for a side-dock file; `proceed`
+   *  runs once its edits are saved or discarded. */
+  const confirmSideFileExit = (key: string, target: { project: string; rel: string }, proceed: () => void) => {
+    const tab: WorkspaceTab = {
+      key,
+      title: target.rel.split('/').at(-1) || target.rel,
+      selection: { kind: 'file', project: target.project, rel: target.rel },
+    };
+    setUnsavedCloseError('');
+    setPendingUnsavedCloses((queue) => (queue.some((entry) => entry.tab.key === key) ? queue : [...queue, { leafId: '', tab, proceed }]));
   };
 
   const discardAndClosePendingTab = async () => {
@@ -184,7 +199,8 @@ export function usePaneTabClose({
     await editorSaveHandles.current.get(pending.tab.key)?.discard();
     setPendingUnsavedCloses((queue) => queue.slice(1));
     setUnsavedCloseError('');
-    closeTabNow(pending.leafId, pending.tab);
+    if (pending.proceed) pending.proceed();
+    else closeTabNow(pending.leafId, pending.tab);
   };
 
   const cancelPendingTabClose = () => {
@@ -196,6 +212,7 @@ export function usePaneTabClose({
   return {
     cancelPendingTabClose,
     closeTab,
+    confirmSideFileExit,
     discardAndClosePendingTab,
     pendingUnsavedClose,
     saveAndClosePendingTab,

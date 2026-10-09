@@ -34,11 +34,17 @@ function fixture(root, fetchFn) {
   const path = join(directory, model.filename);
   writeFileSync(path, payload);
   let running = false,
+    activeRequests = 0,
+    unloads = 0,
     completion;
   const maintenance = createModelMaintenance({
     dataDir: root,
     fetchFn,
-    serverStatus: () => ({ running, activeModel: id }),
+    serverStatus: () => ({ running, activeModel: id, activeRequests }),
+    unloadServer: async () => {
+      unloads++;
+      running = false;
+    },
     exclusive: (operation, options) => {
       completion = operation(options?.signal || new AbortController().signal);
       return completion;
@@ -49,9 +55,11 @@ function fixture(root, fetchFn) {
     path,
     payload,
     maintenance,
-    running: (value) => {
+    running: (value, requests = 0) => {
       running = value;
+      activeRequests = requests;
     },
+    unloads: () => unloads,
     complete: async () => {
       await new Promise(setImmediate);
       await completion;
@@ -111,8 +119,10 @@ test('deletion protects loaded and changed files and requires a fresh exact-path
     const receipt = f.maintenance.details(f.id);
     assert.equal(receipt.files[0].path, f.path);
     assert.match(receipt.recoverability, /permanently/);
+    f.running(true, 1);
+    await assert.rejects(f.maintenance.delete(receipt.confirmationToken), /answering a request/);
     f.running(true);
-    await assert.rejects(f.maintenance.delete(receipt.confirmationToken), /active conversations/);
+    assert.throws(() => f.maintenance.start(f.id, 'repair'), /active conversations/);
     f.running(false);
     writeFileSync(f.path, 'changed after confirmation');
     await assert.rejects(f.maintenance.delete(receipt.confirmationToken), /files changed/);
@@ -123,6 +133,19 @@ test('deletion protects loaded and changed files and requires a fresh exact-path
     assert.deepEqual(registeredLocalModels(root), []);
     assert.deepEqual(localProviderInstallStatus(root), []);
     await assert.rejects(f.maintenance.delete(current.confirmationToken), /expired/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an idle loaded model is unloaded and then deleted', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-model-delete-idle-'));
+  try {
+    const f = fixture(root);
+    f.running(true);
+    await f.maintenance.delete(f.maintenance.details(f.id).confirmationToken);
+    assert.equal(f.unloads(), 1);
+    assert.equal(existsSync(f.path), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

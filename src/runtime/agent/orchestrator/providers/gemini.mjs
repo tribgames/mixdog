@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { canFallbackNonStreaming, emitProviderRetryStage, withRetry } from './retry-classifier.mjs';
+import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { traceNonStreamingFallback } from './lib/transport-fallback-trace.mjs';
 import {
   PROVIDER_CACHE_CREATE_TIMEOUT_MS,
@@ -19,6 +20,7 @@ import {
   geminiSendResult,
   parseGeminiCandidate,
   resolveGeminiUsage,
+  geminiFailureUsage,
 } from './gemini-response.mjs';
 import {
   _getGeminiGlobalCache,
@@ -189,6 +191,7 @@ export class GeminiProvider {
    */
   async _recoverGeminiNonStreaming({ streamErr, signal, opts, model, generate }) {
     if (!canFallbackNonStreaming(streamErr, { signal })) return null;
+    noteErrorUsage(streamErr);
     let aggregated;
     try {
       signalRequesting(opts);
@@ -485,6 +488,7 @@ export class GeminiProvider {
     try {
       return await this._doSend(messages, model, tools, sendOpts);
     } catch (err) {
+      noteErrorUsage(err);
       // Credential reload + reissue requires a TYPED 401: message text is
       // not evidence, and a typed 403 (permission/quota decision) is not
       // fixed by re-reading the key, so it surfaces unchanged.
@@ -555,9 +559,10 @@ export class GeminiProvider {
     });
     const parsed = parseGeminiCandidate(response, textLeakGuard);
     emitGeminiToolCalls(parsed.nativeToolCalls, callbacks.onToolCall);
-    const incomplete = geminiIncompleteError(response, parsed, useModel);
+    const usage = resolveGeminiUsage(response, opts, cachedContent, useModel);
+    const incomplete = geminiIncompleteError(response, parsed, useModel, usage);
     if (incomplete) throw incomplete;
-    return geminiSendResult(parsed, useModel, opts, resolveGeminiUsage(response, opts, cachedContent, useModel));
+    return geminiSendResult(parsed, useModel, opts, usage);
   }
 
   // First byte bounded by GEMINI_FIRST_BYTE_TIMEOUT_MS; a non-OK status
@@ -636,6 +641,7 @@ export class GeminiProvider {
             onTextDelta: callbacks.onTextDelta,
             textLeakGuard,
             label: 'Gemini REST streamGenerateContent',
+            failureUsage: geminiFailureUsage(opts, cachedContent, useModel),
           });
           return { response, textLeakGuard };
         },
@@ -647,6 +653,7 @@ export class GeminiProvider {
         err?.unsafeToRetry !== true &&
         isGeminiCachedContentError(err, cachedContent)
       ) {
+        noteErrorUsage(err);
         dropRejectedGeminiCache(cachedContent, opts);
         return { retryUncached: true };
       }

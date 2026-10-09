@@ -32,6 +32,8 @@ interface BrowserCommandRunnerHost {
   downloads: ReturnType<typeof createBrowserDownloads>;
   taskLifecycle: ReturnType<typeof createBrowserTaskLifecycle<WebContents>>;
   retainGuest: (guest: WebContents) => void;
+  /** Runs a page unthrottled until the returned release is called. */
+  drivePage: (guest: WebContents) => () => void;
   services: BrowserActionServices;
 }
 
@@ -68,7 +70,21 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
   const { state, approvals, browserSessions, lifecycle, tabs, downloads, taskLifecycle, retainGuest, services } = host;
   const { cdp, reply, settle } = services;
 
-  return async function runCommand(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult> {
+  /** The page a command targets runs unthrottled for the command's duration. */
+  async function runCommand(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult> {
+    const releases: Array<() => void> = [];
+    try {
+      return await runResolvedCommand(command, signal, (guest) => releases.push(host.drivePage(guest)));
+    } finally {
+      for (const release of releases) release();
+    }
+  }
+
+  async function runResolvedCommand(
+    command: BrowserCommand,
+    signal: AbortSignal | undefined,
+    drive: (guest: WebContents) => void
+  ): Promise<BrowserCommandResult> {
     const { action, ownerSessionId, hasScreenshotOptions, expected, background, tab } = prepareBrowserCommand(command);
     // Tab-less bookkeeping actions never open or create a page.
     if (TABLESS_ACTIONS.has(action)) {
@@ -93,6 +109,7 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
       throw new Error('No browser page is open; navigate or use background:true.');
     }
     const guest = target?.guest ?? (await lifecycle.ensureGuest(ownerSessionId, { reveal: false }));
+    drive(guest);
     const backgroundPage = browserSessions.backgroundPageForGuest(ownerSessionId, guest);
     taskLifecycle.use(
       ownerSessionId,
@@ -175,5 +192,7 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
     } catch (error) {
       throw new Error(state.redactText(guest, (error as Error).message || String(error)));
     }
-  };
+  }
+
+  return runCommand;
 }

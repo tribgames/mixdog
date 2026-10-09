@@ -43,7 +43,12 @@ export default function ChangelogDialog({ onClose }: { onClose(): void }) {
     return () => opener?.focus();
   }, []);
   return (
-    <div className="settings-confirm-layer">
+    <div
+      className="settings-confirm-layer"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <section
         className="settings-confirm-dialog settings-changelog-dialog"
         role="dialog"

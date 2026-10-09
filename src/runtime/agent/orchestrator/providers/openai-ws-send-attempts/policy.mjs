@@ -5,6 +5,7 @@
 import {
   classifyHandshakeError,
   classifyMidstreamError,
+  isWsMessageTooBigClose,
   jitterDelayMs,
   MIDSTREAM_RETRY_POLICY,
   sleepWithAbort,
@@ -34,11 +35,13 @@ const HANDSHAKE_BACKOFF_CAP_MS = 3200;
 // These statuses are decisions made by the CURRENT attempt. They must never
 // be replaced by a stale transient from an earlier retry: auth recovery,
 // transport fallback, and Retry-After handling all depend on the live error.
+// A server 1009 is the same kind of decision: it selects the HTTP transport.
 const CURRENT_ATTEMPT_DECISION_STATUSES = new Set([401, 403, 426, 429]);
 
 export function _mustSurfaceCurrentAttempt(err, externalSignal) {
   return (
     CURRENT_ATTEMPT_DECISION_STATUSES.has(Number(err?.httpStatus || 0)) ||
+    isWsMessageTooBigClose(err) ||
     externalSignal?.aborted ||
     err?.unsafeToRetry === true
   );

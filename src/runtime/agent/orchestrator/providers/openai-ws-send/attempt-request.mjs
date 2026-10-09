@@ -1,12 +1,10 @@
 /**
  * attempt-request.mjs — what one attempt puts on the wire: the request body
  * after recovery policies, the shared stream state, the attempt record the
- * outcome trace reports on, the optional startup warmup and the framed
- * delta request.
+ * outcome trace reports on and the framed delta request.
  */
 import { _computeDelta, _estimateFrameTokens } from '../openai-ws-stream.mjs';
 import { _metadataTrace, _withCodexWsClientMetadata } from '../openai-codex-metadata.mjs';
-import { runStartupWarmup } from '../openai-ws-warmup.mjs';
 import { probeFramePrefix } from '../openai-ws-send-outcome.mjs';
 import { _applyReasoningReplayPolicy } from './reasoning-replay.mjs';
 
@@ -29,13 +27,7 @@ export function prepareRequestBody(ctx, entry, attemptIndex) {
   return _applyReasoningReplayPolicy(entry, requestBody, { suppress: suppressReasoningReplay });
 }
 
-/**
- * midState is shared between warmup and the main stream so warmup failures
- * (first-byte timeout, send-failure, ws_4000) flow through the SAME
- * mid-stream classifier as the main send. A wedged warmup socket must not
- * bypass the retry loop and surface raw to the caller — release the entry,
- * force a fresh acquire, and retry.
- */
+/** Shared stream state for one attempt. */
 export function createMidState(ctx, attemptIndex) {
   const { poolKey, iteration, useModel, traceProvider } = ctx.opts;
   return {
@@ -53,15 +45,13 @@ export function createMidState(ctx, attemptIndex) {
 }
 
 /** Per-attempt facts the outcome trace reports on. */
-export function createAttemptRecord({ attemptIndex, reused, handshake, startupWarmupResponseId }) {
+export function createAttemptRecord({ attemptIndex, reused, handshake }) {
   return {
     attemptIndex,
     reused,
     handshakeRetries: handshake.retries,
     handshakeRetryClassifiers: handshake.classifiers,
-    startupWarmupResponseId,
     sseStart: Date.now(),
-    warmupResult: null,
     mode: 'full',
     frame: null,
     deltaTokens: 0,
@@ -76,50 +66,10 @@ export function createAttemptRecord({ attemptIndex, reused, handshake, startupWa
   };
 }
 
-export async function runAttemptWarmup(ctx, { entry, attemptIndex, midState, attempt }) {
-  const {
-    warmupBody,
-    externalSignal,
-    logSuppressedReasoningDeltas,
-    traceProvider,
-    poolKey,
-    iteration,
-    useModel,
-    _sendFrameFn,
-    _streamFn,
-    _agentTraceFn,
-  } = ctx.opts;
-  const warmup = await runStartupWarmup({
-    entry,
-    warmupBody,
-    attemptIndex,
-    codexMetadataContext: ctx.codexMetadataContext,
-    useCodexWsClientMetadata: ctx.useCodexWsClientMetadata,
-    sendSpan: ctx.sendSpan,
-    externalSignal,
-    logSuppressedReasoningDeltas,
-    traceProvider,
-    poolKey,
-    iteration,
-    useModel,
-    midState,
-    streamTimeouts: null,
-    sendFrame: _sendFrameFn,
-    streamFn: _streamFn,
-    agentTraceFn: _agentTraceFn,
-  });
-  attempt.warmupResult = warmup.warmupResult;
-  attempt.wireFrameHadTurnState = warmup.wireFrameHadTurnState;
-  attempt.wireFrameMetadataTrace = warmup.wireFrameMetadataTrace;
-  ctx.warmup.completed = warmup.completedWarmup;
-}
-
 /**
- * A completed generate:false prewarm is a valid continuation anchor. Compute
- * against its retained empty-input snapshot so the first real request sends
- * previous_response_id plus exactly the real incremental input. _computeDelta
- * still retreats to a full frame on every missing anchor/property/prefix/output
- * mismatch.
+ * Frame the request as a delta against the socket's retained snapshot.
+ * _computeDelta retreats to a full frame on every missing
+ * anchor/property/prefix/output mismatch.
  */
 export function buildWireFrame(ctx, attempt, entry, requestBody) {
   const { traceProvider } = ctx.opts;

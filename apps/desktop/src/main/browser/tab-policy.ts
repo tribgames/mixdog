@@ -4,6 +4,8 @@
  */
 export const MAX_BACKGROUND_TABS = 8;
 export const BACKGROUND_PAGE_IDLE_MS = 30 * 60_000;
+/** A user page no panel shows is unloaded this soon; reopening restores it. */
+export const USER_PAGE_IDLE_MS = 5 * 60_000;
 const MAX_BACKGROUND_TAB_NAME_CHARS = 64;
 
 interface BrowserGuestCandidate {

@@ -115,6 +115,21 @@ function backgroundTaskDisplayName(normalizedName, meta = {}) {
   return titleizeAgentName(surface || normalizedName || 'Task');
 }
 
+// Task control keeps its own verb: list/read/wait/cancel act on a task, whatever
+// surface (shell, web search, agent) the task belongs to.
+const TASK_CONTROL_TITLES = new Map([
+  ['list', 'List tasks'],
+  ['read', 'Read task'],
+  ['status', 'Read task'],
+  ['wait', 'Wait for task'],
+  ['cancel', 'Cancel task'],
+]);
+
+export function taskControlTitle(normalizedName, args = {}) {
+  if (String(normalizedName || '').toLowerCase() !== 'task') return '';
+  return TASK_CONTROL_TITLES.get(String(args?.action || args?.type || '').toLowerCase()) || '';
+}
+
 export function backgroundTaskResultTitle(normalizedName, meta = {}) {
   const display = backgroundTaskDisplayName(normalizedName, meta);
   if (display === 'Shell') return 'Shell output';
@@ -124,6 +139,7 @@ export function backgroundTaskResultTitle(normalizedName, meta = {}) {
 
 export function backgroundTaskActionTitle(normalizedName, meta = {}) {
   const display = backgroundTaskDisplayName(normalizedName, meta);
+  if (/^queued$/i.test(meta.status || '')) return `Queued ${display}`;
   if (/^(running|pending|queued)$/i.test(meta.status || '')) {
     return String(meta.type || '').toLowerCase() === 'progress' ? `${display} progress` : `Started ${display}`;
   }
@@ -141,7 +157,7 @@ export function backgroundTaskFailureDetail(meta = {}, parsedArgs = {}) {
 
 export function backgroundTaskDetail(meta = {}, elapsed = '') {
   const parts = [];
-  const status = displayTerminalStatus(meta.status);
+  const status = /^queued$/i.test(meta.status || '') ? 'Queued' : displayTerminalStatus(meta.status);
   if (status) parts.push(status);
   if (meta.taskId) parts.push(`task_id: ${meta.taskId}`);
   const firstBodyLine =

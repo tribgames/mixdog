@@ -26,6 +26,7 @@ import {
   bridgeAgentModelSummary,
   summarizeLineWindow,
   summarizePatch,
+  titleWord,
   collectionCount,
   formatCountedUnit,
   codeGraphLabel,
@@ -48,6 +49,7 @@ import {
   patchOperationProfile,
   patchMutationUnits,
   toolWorkUnit,
+  githubActionParts,
 } from './tool-work-units.mjs';
 
 export { classifyToolCategory, toolWorkUnit };
@@ -130,6 +132,8 @@ export function displayToolName(name, args = {}) {
       return 'Browser';
     case 'computer':
       return 'Computer';
+    case 'terminal':
+      return 'Terminal';
     case 'office':
       return 'Office';
     case 'media':
@@ -223,6 +227,13 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return truncateCommand(a.description || a.command || a.cmd || '', max);
     case 'task':
       return compactParts([a.action || a.type || 'task', a.task_id || '']);
+    case 'git':
+      if (a.action === 'stage') return formatCountedUnit(collectionCount(a.change_ids, a.change_id), 'change');
+      return genericArgsSummary(a, max);
+    case 'github':
+      return summarizeGithub(a, max);
+    case 'goal':
+      return compactParts([String(a.action || ''), truncateToolText(a.objective, max)]);
     case 'list':
     case 'ls':
       if (Array.isArray(a.path) || Array.isArray(a.dir) || Array.isArray(a.cwd)) {
@@ -279,7 +290,11 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'browser':
     case 'browser_devtools': {
       const call = bridgeToolCall(args);
-      return compactParts([call.action, pathOrId(call.input.url, call.input.ref, max)]);
+      const { input } = call;
+      // Devtools actions carry a sub-operation (cookies clear, storage get).
+      const action = input.operation ? [call.action, input.operation].filter(Boolean).join(' ') : call.action;
+      const tab = input.tab != null && String(input.tab).trim() ? ` (tab ${String(input.tab).trim()})` : '';
+      return `${compactParts([action, pathOrId(input.url, input.ref ?? input.selector, max)])}${tab}`.trim();
     }
     case 'computer': {
       const call = bridgeToolCall(args);
@@ -293,6 +308,8 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         ),
       ]);
     }
+    case 'terminal':
+      return compactParts([String(a.action || ''), a.tab ? `tab ${a.tab}` : '']);
     case 'office':
       return compactParts([String(a.action || ''), pathOrId(a.path, a.session, max)]);
     case 'media':
@@ -310,11 +327,28 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'list_mcp_resource_templates':
       return a.server ? `server "${truncateToolText(a.server, max)}"` : 'all servers';
     case 'cwd':
-      return truncateToolText(firstText(a.path, a.cwd, a.dir), max);
+      return compactParts([String(a.action || a.type || ''), truncateToolText(firstText(a.path, a.cwd, a.dir), max)]);
     case 'setup':
       return compactParts([
         String(a.action || ''),
-        truncateToolText(firstText(a.domain, a.target, a.name, a.agent, a.workflow, a.style), max),
+        truncateToolText(
+          firstText(
+            a.domain,
+            a.target,
+            a.name,
+            a.server?.name,
+            a.modelId,
+            a.workflow,
+            a.style,
+            a.profile,
+            a.source,
+            a.query,
+            a.repository,
+            a.jobId,
+            a.agent
+          ),
+          max
+        ),
       ]);
     case 'memory':
     case 'remember':
@@ -326,11 +360,17 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         truncateToolText(firstText(a.query, a.summary, a.element, a.key, a.name, a.text, a.value), Math.min(max, 80)),
       ]);
     case 'recall':
-    case 'search_memories':
+    case 'search_memories': {
+      const ids = (Array.isArray(a.id) ? a.id : [a.id]).filter((id) => id != null && id !== '');
+      const queries = (Array.isArray(a.query) ? a.query : [a.query ?? a.text ?? a.input]).filter(
+        (query) => query != null && String(query).trim()
+      );
       return compactParts([
-        quoted(firstText(a.query, a.text, a.input), max),
+        ids.length ? ids.map((id) => `#${id}`).join(', ') : '',
+        queries.length > 1 ? formatCountedUnit(queries.length, 'query', 'queries') : quoted(queries[0], max),
         a.limit || a.topK ? `top ${a.limit ?? a.topK}` : '',
       ]);
+    }
     case 'bridge':
     case 'agent': {
       const agentModel = bridgeAgentModelSummary(a);
@@ -350,30 +390,57 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         firstText(a.name, a.skill, a.skill_name, a.query, a.q, normalized === 'skills_list' ? 'all skills' : ''),
         max
       );
-    default: {
-      const primary = firstText(a.name, a.skill, a.query, a.title, a.path, a.file, a.target, a.id, a.action);
-      if (primary) return truncateToolText(primary, Math.min(max, 80));
-      // Last resort: compact key=value of at most the first 2 own keys.
-      // Never JSON.stringify the whole object.
-      const keys = Object.keys(a).slice(0, 2);
-      const pairs = keys
-        .map((key) => {
-          const value = a[key];
-          if (value == null || typeof value === 'object') return '';
-          const text = truncateToolText(value, 40);
-          return text ? `${key}=${text}` : '';
-        })
-        .filter(Boolean);
-      return compactParts(pairs);
-    }
+    default:
+      return genericArgsSummary(a, max);
   }
+}
+
+function genericArgsSummary(a, max) {
+  const primary = firstText(a.name, a.skill, a.query, a.title, a.path, a.file, a.target, a.id, a.action);
+  if (primary) return truncateToolText(primary, Math.min(max, 80));
+  // Last resort: compact key=value of at most the first 2 own keys.
+  // Never JSON.stringify the whole object.
+  const keys = Object.keys(a).slice(0, 2);
+  const pairs = keys
+    .map((key) => {
+      const value = a[key];
+      if (value == null || typeof value === 'object') return '';
+      const text = truncateToolText(value, 40);
+      return text ? `${key}=${text}` : '';
+    })
+    .filter(Boolean);
+  return compactParts(pairs);
+}
+
+const GITHUB_PHRASES = new Map([
+  ['comments', (noun) => `Read ${noun} comments`],
+  ['logs', (noun) => `Read ${noun} logs`],
+  ['comment', (noun) => `Comment on ${noun}`],
+  ['read', (noun) => `Mark ${noun} read`],
+]);
+
+// "Create issue owner/repo · Bug", "Cancel run 42 · owner/repo": the action's
+// verb and object, then the repo and the title that identify the target.
+function summarizeGithub(a, max) {
+  const { noun, verb } = githubActionParts(a.action);
+  if (!noun || !verb) return truncateToolText(firstText(a.action, a.repo), max);
+  const object = noun === 'pr' ? 'PR' : noun;
+  const phrase = GITHUB_PHRASES.get(verb)?.(object) ?? `${titleWord(verb)} ${object}`;
+  const repo = firstText(a.repo);
+  const id = a.number ?? a.id;
+  const hasId = id != null && String(id).trim() !== '';
+  const title = truncateToolText(firstText(a.title, a.workflow, a.tag), Math.min(max, 60));
+  return hasId
+    ? compactParts([`${phrase} ${String(id).trim()}`, repo, title])
+    : compactParts([repo ? `${phrase} ${repo}` : phrase, title]);
 }
 
 export function formatToolSurface(name, args, opts = {}) {
   const parsed = parseToolArgs(args);
   return {
     label: displayToolName(name, parsed),
-    summary: summarizeToolArgs(name, parsed, opts),
+    // The raw args: bridge tools keep their action beside the nested `input`.
+    summary: summarizeToolArgs(name, args, opts),
     normalizedName: normalizeToolName(name),
     args: parsed,
   };
@@ -413,16 +480,19 @@ function lifecycleVerb(unit, pending, { stableVerbWidth = false } = {}) {
 export function formatToolActionHeader(
   name,
   args = {},
-  { pending = false, count = 1, category = '', stableVerbWidth = false } = {}
+  { pending = false, count = 1, category = '', stableVerbWidth = false, failed = false } = {}
 ) {
   const loadingTargets = toolLoadingTargets(name, args);
   if (loadingTargets.length) {
+    if (failed && !pending) return `Failed while loading ${loadingTargets.join(', ')}`;
     return `${pending ? 'Loading' : 'Loaded'} ${loadingTargets.join(', ')}`;
   }
   const unit = toolWorkUnit(name, args, category);
   const n = Math.max(1, Number(unit.count || count || 1));
-  const verb = lifecycleVerb(unit, pending, { stableVerbWidth });
-  return `${verb} ${n} ${pluralize(n, unit.noun, unit.pluralNoun)}`;
+  const object = `${n} ${pluralize(n, unit.noun, unit.pluralNoun)}`;
+  // A failed effect never claims its done verb: it only attempted the work.
+  if (failed && !pending && unit.effect) return `Failed while ${String(unit.active).toLowerCase()} ${object}`;
+  return `${lifecycleVerb(unit, pending, { stableVerbWidth })} ${object}`;
 }
 
 // One aggregate entry per work unit. The key folds the whole verb/noun pair so
@@ -435,6 +505,7 @@ function categoryEntryFromUnit(category, unit) {
     done: unit.done,
     noun: unit.noun,
     pluralNoun: unit.pluralNoun,
+    effect: unit.effect === true,
     count: Math.max(1, Number(unit.count || 1)),
   };
 }
@@ -488,6 +559,7 @@ function aggregateDescriptor(key, value) {
       noun,
       pluralNoun: value.pluralNoun || copy.pluralNoun || `${noun}s`,
       count: aggregateCount(value),
+      effect: value.effect === true,
     };
   }
   const category = String(key || '');
@@ -507,7 +579,10 @@ function aggregateDescriptor(key, value) {
  * Build a comma-separated header from per-category counts.
  * e.g. "Read 6 items, Searched 5 items, Called 1 agent"
  */
-export function formatAggregateHeader(categories, { pending = false, order = null, stableVerbWidth = false } = {}) {
+export function formatAggregateHeader(
+  categories,
+  { pending = false, order = null, stableVerbWidth = false, failed = false } = {}
+) {
   const categoryKeys = Object.keys(categories || {});
   const preferred = Array.isArray(order) && order.length ? order : categoryKeys;
   const seen = new Set();
@@ -524,8 +599,10 @@ export function formatAggregateHeader(categories, { pending = false, order = nul
   return ordered
     .map((cat) => {
       const item = aggregateDescriptor(cat, categories[cat]);
-      const label = lifecycleVerb(item, pending, { stableVerbWidth });
-      return `${label} ${item.count} ${pluralize(item.count, item.noun, item.pluralNoun)}`;
+      const object = `${item.count} ${pluralize(item.count, item.noun, item.pluralNoun)}`;
+      // Every call failed: an effect only attempted its work.
+      if (failed && !pending && item.effect) return `Failed while ${String(item.active).toLowerCase()} ${object}`;
+      return `${lifecycleVerb(item, pending, { stableVerbWidth })} ${object}`;
     })
     .join(', ');
 }

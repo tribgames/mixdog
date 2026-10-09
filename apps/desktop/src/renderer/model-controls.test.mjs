@@ -590,3 +590,143 @@ for (const field of ['model', 'effort']) {
     }
   });
 }
+
+const ultraModel = {
+  ...model,
+  model: 'gpt-ultra-test',
+  display: 'Ultra test',
+  fastEfforts: ['high', 'low'],
+  modelParameterOptions: [
+    {
+      id: 'serviceTier',
+      label: 'Speed',
+      kind: 'enum',
+      options: [
+        { value: 'priority', label: 'Fast' },
+        { value: 'ultrafast', label: 'Ultrafast' },
+      ],
+    },
+  ],
+};
+
+async function openSpeedPane(selectorProps) {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  availableModels = [model, ultraModel];
+  await act(async () =>
+    root.render(
+      React.createElement(ModelSelector, {
+        effort: 'high',
+        fastCapable: true,
+        contextPercent: 100,
+        modelDisabled: false,
+        tuningDisabled: false,
+        invokeResult: (work) => work(),
+        applySnapshot() {},
+        onOpenSettings() {},
+        ...selectorProps,
+      })
+    )
+  );
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => document.querySelector('.model-trigger').click());
+  const speedRow = [...document.querySelectorAll('.route-sheet-row')].find((button) =>
+    button.textContent.includes('Speed')
+  );
+  await act(async () => speedRow.click());
+  return {
+    cleanup: async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    },
+  };
+}
+
+test('the speed pane offers Ultrafast only for models with the serviceTier option and routes it', async () => {
+  const drafts = [];
+  const plain = await openSpeedPane({
+    provider: model.provider,
+    model: model.model,
+    fast: false,
+    modelParameters: {},
+    onDraftSelection: (selection) => drafts.push(selection),
+  });
+  assert.equal(option('Ultrafast'), undefined);
+  assert.ok(option('Standard') && option('Fast'));
+  await plain.cleanup();
+
+  const ultra = await openSpeedPane({
+    provider: ultraModel.provider,
+    model: ultraModel.model,
+    fast: true,
+    modelParameters: { serviceTier: 'priority' },
+    onDraftSelection: (selection) => drafts.push(selection),
+  });
+  assert.equal(option('Fast').getAttribute('aria-checked'), 'true');
+  assert.equal(option('Ultrafast').getAttribute('aria-checked'), 'false');
+  assert.match(option('Ultrafast').textContent, /Fastest speed, highest usage/);
+  assert.equal(document.body.textContent.includes('Speed'), true);
+  await act(async () => option('Ultrafast').click());
+  assert.equal(drafts.at(-1).fast, true);
+  assert.equal(drafts.at(-1).modelParameters.serviceTier, 'ultrafast');
+  await act(async () => option('Standard').click());
+  assert.equal(drafts.at(-1).fast, false);
+  await ultra.cleanup();
+
+  const selected = await openSpeedPane({
+    provider: ultraModel.provider,
+    model: ultraModel.model,
+    fast: true,
+    modelParameters: { serviceTier: 'ultrafast' },
+    onDraftSelection: (selection) => drafts.push(selection),
+  });
+  assert.equal(option('Ultrafast').getAttribute('aria-checked'), 'true');
+  assert.equal(option('Fast').getAttribute('aria-checked'), 'false');
+  await act(async () => option('Fast').click());
+  assert.equal(drafts.at(-1).modelParameters.serviceTier, 'priority');
+  assert.equal(drafts.at(-1).fast, true);
+  await selected.cleanup();
+});
+
+test('/fast parsing accepts ultra and executes Ultrafast only when the model offers it', async () => {
+  const { parseFastArgument, createSlashExecutor } = await import('./composer-slash-executor.ts');
+  assert.equal(parseFastArgument('ultra', false), 'ultrafast');
+  assert.equal(parseFastArgument('ON', false), 'fast');
+  assert.equal(parseFastArgument('off', true), 'standard');
+  assert.equal(parseFastArgument('', true), 'standard');
+  assert.equal(parseFastArgument('bogus', false), null);
+
+  const run = async (capable, argument) => {
+    const out = { errors: [], notices: [], drafts: [] };
+    const ok = await createSlashExecutor({
+      draftMode: true,
+      turnBusy: false,
+      provider: 'openai',
+      model: 'm',
+      effort: 'high',
+      fast: false,
+      fastCapable: true,
+      modelParameters: {},
+      ultrafastCapable: () => capable,
+      onDraftModelSelection: (selection) => out.drafts.push(selection),
+      setAttachmentError: (message) => out.errors.push(message),
+      showNotice: (message) => out.notices.push(message),
+      clearNotice() {},
+    })(`/fast ${argument}`);
+    return { ok, ...out };
+  };
+  const refused = await run(false, 'ultra');
+  assert.equal(refused.ok, false);
+  assert.match(refused.errors.at(-1), /Ultrafast is not available/);
+  const accepted = await run(true, 'ultra');
+  assert.equal(accepted.drafts[0].fast, true);
+  assert.equal(accepted.drafts[0].modelParameters.serviceTier, 'ultrafast');
+  const on = await run(true, 'on');
+  assert.equal(on.drafts[0].modelParameters.serviceTier, 'priority');
+  const bad = await run(true, 'nope');
+  assert.equal(bad.errors.at(-1), 'Usage: /fast [on|off|ultra]');
+});

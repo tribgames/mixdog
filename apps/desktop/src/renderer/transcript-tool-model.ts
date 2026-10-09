@@ -247,8 +247,13 @@ export function desktopToolActivityItemPresentation(
   const structured = toolActivityStructuredRows(normalizedName, args, resultValue);
   const title = desktopToolActivityUnitLabel(name, item.args);
   let agentTitle = '';
-  if (normalizedName === 'agent')
-    agentTitle = model.isAgentResponse ? agentResponseTitle(args, 1) : agentActionTitle(args);
+  if (normalizedName === 'agent') {
+    // A response is only a completion notification; status/read are checks.
+    const resultText = String(item.result ?? item.rawResult ?? '');
+    agentTitle = model.isAgentResponse
+      ? agentResponseTitle(args, 1, resultText)
+      : agentActionTitle(args, resultText);
+  }
   const subject = toolActivityRedactInlineSecrets(
     agentTitle || toolActivitySubject(normalizedName, args, oneLine(String(model.summaryText || ''))),
     args

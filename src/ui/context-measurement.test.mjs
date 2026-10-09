@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sessionContextMeasurement, contextMeasurementStats, measuredContextUsage } from '../runtime/shared/context-measurement.mjs';
+import {
+  sessionContextMeasurement,
+  contextMeasurementStats,
+  measuredContextUsage,
+} from '../runtime/shared/context-measurement.mjs';
 import { applyAskTerminalUsageTotals } from '../runtime/agent/orchestrator/session/manager/usage-metrics.mjs';
 import { addUsage, normalizeUsage, usageDeltaEvent } from '../runtime/agent/orchestrator/session/loop/usage.mjs';
 import { resolveContextUsedPct } from './statusline.mjs';
@@ -49,12 +53,8 @@ test('measurement lifecycle distinguishes pending, missing usage, compaction, an
   assert.equal(sessionContextMeasurement(session).source, 'unavailable');
 });
 
-test('a provider without main usage never exposes output or a warmup as measured input', () => {
-  for (const lastTurnUsage of [
-    { inputTokens: 0, outputTokens: 120 },
-    { mainUsageAvailable: false, inputTokens: 9000, outputTokens: 120 },
-    { mainInputTokens: 0, inputTokens: 9000, mainOutputTokens: 120 },
-  ]) {
+test('a provider without input usage never exposes output as measured input', () => {
+  for (const lastTurnUsage of [{ inputTokens: 0, outputTokens: 120 }]) {
     const session = { provider: 'openai-oauth', lastContextTokens: 8000 };
     applyAskTerminalUsageTotals(session, { usage: lastTurnUsage, lastTurnUsage });
     assert.equal(sessionContextMeasurement(session).source, 'unavailable');
@@ -82,9 +82,4 @@ test('Cursor checkpoint occupancy measures the gauge without inventing a prompt 
   const total = addUsage(normalizeUsage({ ...raw, contextTokens: 30_000 }), raw);
   assert.equal(total.contextTokens, 61_500);
   assert.equal(usageDeltaEvent({ sessionId: 's', iterationIndex: 0, usage: raw }).contextMeasuredTokens, 61_500);
-
-  // A provider that withholds main usage still reports unavailable.
-  const withheld = { provider: 'cursor-oauth' };
-  applyAskTerminalUsageTotals(withheld, { usage: raw, lastTurnUsage: { ...raw, mainUsageAvailable: false } });
-  assert.equal(sessionContextMeasurement(withheld).source, 'unavailable');
 });

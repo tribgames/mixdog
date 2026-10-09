@@ -11,25 +11,32 @@ export function makeModelCache({ fileName, ttlMs, version = null, onSave = null 
     return join(getPluginData(), fileName);
   }
 
-  function loadSync() {
+  // The whole cache record (models plus what save() recorded beside them).
+  // allowStale skips the TTL only; the schema-version gate still applies.
+  function loadEntrySync({ allowStale = false } = {}) {
     const p = path();
     if (!existsSync(p)) return null;
     try {
       const raw = JSON.parse(readFileSync(p, 'utf-8'));
       if (version != null && raw?.version !== version) return null;
       if (!raw?.fetchedAt || !Array.isArray(raw.models)) return null;
-      if (Date.now() - raw.fetchedAt > ttlMs) return null;
-      return raw.models;
+      if (!allowStale && Date.now() - raw.fetchedAt > ttlMs) return null;
+      return raw;
     } catch {
       return null;
     }
   }
 
-  function save(models) {
+  function loadSync(options) {
+    return loadEntrySync(options)?.models ?? null;
+  }
+
+  function save(models, extra = {}) {
     try {
       writeJsonAtomicSync(
         path(),
         {
+          ...extra,
           ...(version != null ? { version } : {}),
           fetchedAt: Date.now(),
           models,
@@ -42,5 +49,5 @@ export function makeModelCache({ fileName, ttlMs, version = null, onSave = null 
     }
   }
 
-  return { path, loadSync, save };
+  return { path, loadEntrySync, loadSync, save };
 }

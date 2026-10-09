@@ -11,9 +11,19 @@ export const noteRequestServiceTier = (tier) => {
   const identity = context.getStore();
   if (identity) identity.requestServiceTier = tier || '';
 };
+// Usage objects already handed to a send's accounting, as given and as
+// stored. Noting is idempotent, and an error that surfaces later carrying the
+// same usage (an earlier attempt's error re-thrown) is not recorded again.
+const notedUsage = new WeakSet();
+export const isNotedUsage = (usage) => typeof usage === 'object' && usage !== null && notedUsage.has(usage);
 // A provider-local retry abandons an attempt the provider still billed; the
 // enclosing send records it alongside its own final usage.
 export const noteAbandonedUsage = (usage, model) => {
   const identity = context.getStore();
-  if (identity && usage) (identity.abandonedUsage ||= []).push({ usage, model });
+  if (!identity || !usage || notedUsage.has(usage)) return;
+  const stored = identity.normalizeAbandonedUsage?.(usage) ?? usage;
+  notedUsage.add(usage);
+  notedUsage.add(stored);
+  identity.abandonedUsage ||= [];
+  identity.abandonedUsage.push({ usage: stored, model });
 };

@@ -92,7 +92,28 @@ const BLOCK_FIELDS = Object.freeze({
 
 // The document's own neutrals and accent (the same values the docx skill's table anatomy uses), so a
 // callout field, a quote rule, and a caption read as one system without the writer naming a hex.
+// It is only the fallback: properties.palette { accent, muted, field, line } (6-digit hex, no '#') overrides it.
 const INK = Object.freeze({ muted: '6B7280', accent: '1F6F8B', field: 'EEF2F7', line: 'C9CED6' });
+const PALETTE_KEYS = Object.keys(INK);
+
+function resolvePalette(palette) {
+  if (palette === undefined || palette === null) return { ink: INK, custom: false };
+  if (typeof palette !== 'object' || Array.isArray(palette)) {
+    throw new Error(`PDF properties.palette must be an object { ${PALETTE_KEYS.join(', ')} } of 6-digit hex colours.`);
+  }
+  const faults = [];
+  for (const [key, value] of Object.entries(palette)) {
+    if (!PALETTE_KEYS.includes(key)) {
+      faults.push(`properties.palette.${key} is not a palette role (use ${PALETTE_KEYS.join(', ')}).`);
+    } else if (!/^[0-9A-Fa-f]{6}$/.test(String(value))) {
+      faults.push(
+        `properties.palette.${key} must be a 6-digit hex colour without '#' (for example "${INK[key]}"), got ${JSON.stringify(value)}.`
+      );
+    }
+  }
+  if (faults.length) throw new Error(`PDF palette is invalid: ${faults.join(' ')}`);
+  return { ink: Object.freeze({ ...INK, ...palette }), custom: true };
+}
 
 // Block types are matched case-insensitively, so a caller writing fieldRow the
 // way the contract spells it reaches the same definition as fieldrow.
@@ -241,8 +262,19 @@ function blockText(block) {
  * `y` still free on it, and `newPage()` which opens the next page with the
  * document background and resets the cursor under the top margin.
  */
-function createFlow(document, { size, margin, font, bold, background }) {
-  const flow = { document, margin, font, bold: bold || font, page: null, y: 0, resolvedFields: [] };
+function createFlow(document, { size, margin, font, bold, background, palette }) {
+  const resolved = resolvePalette(palette);
+  const flow = {
+    document,
+    margin,
+    font,
+    bold: bold || font,
+    page: null,
+    y: 0,
+    resolvedFields: [],
+    ink: resolved.ink,
+    customPalette: resolved.custom,
+  };
   flow.newPage = () => {
     const entry = document.addPage(size);
     if (background) {
@@ -452,8 +484,8 @@ function tableLayout(flow, block, rows) {
     leads,
     // A header row a reader cannot tell from the data is not a header. Without
     // an explicit choice the row carries a neutral band and a rule under it.
-    headerFill: block.headerFill === undefined ? 'EEF0F2' : block.headerFill,
-    borderColor: color(block.borderColor || INK.line),
+    headerFill: block.headerFill === undefined ? (flow.customPalette ? flow.ink.field : 'EEF0F2') : block.headerFill,
+    borderColor: color(block.borderColor || flow.ink.line),
   };
 }
 
@@ -619,7 +651,7 @@ function drawRule(flow, box, thickness, tint) {
 
 function drawRuleBlock(flow, block, box) {
   if (flow.y - 2 < flow.margin) flow.newPage();
-  drawRule(flow, box, Number(block.thickness || 0.6), block.color || INK.line);
+  drawRule(flow, box, Number(block.thickness || 0.6), block.color || flow.ink.line);
   flow.y -= Number(block.after ?? 12);
 }
 
@@ -627,7 +659,7 @@ function drawRuleBlock(flow, block, box) {
 // first page, not a page of its own — the summary follows on the same page unless a pagebreak says otherwise.
 function drawCoverBlock(flow, block, box) {
   const size = Number(block.size || 26);
-  const accent = block.accent || INK.accent;
+  const accent = block.accent || flow.ink.accent;
   if (block.eyebrow) {
     drawLines(flow, box, block.eyebrow, 9.5, { lh: 14, tint: accent });
     flow.y -= 4;
@@ -640,7 +672,7 @@ function drawCoverBlock(flow, block, box) {
   }
   if (Array.isArray(block.meta) && block.meta.length) {
     flow.y -= 8;
-    for (const line of block.meta) drawLines(flow, box, line, 9.5, { lh: 14, tint: INK.muted });
+    for (const line of block.meta) drawLines(flow, box, line, 9.5, { lh: 14, tint: flow.ink.muted });
   }
   if (block.rule !== false) {
     flow.y -= 12;
@@ -665,7 +697,7 @@ function drawCalloutBlock(flow, block, box) {
     y: flow.y - height,
     width: box.width,
     height,
-    color: color(block.fill || INK.field),
+    color: color(block.fill || flow.ink.field),
   });
   flow.y -= pad;
   if (label) {
@@ -673,7 +705,7 @@ function drawCalloutBlock(flow, block, box) {
       lh: labelSize * 1.4,
       x: box.left + pad,
       width: inner,
-      tint: block.labelColor || INK.accent,
+      tint: block.labelColor || flow.ink.accent,
       face: flow.bold,
     });
     flow.y -= 4;
@@ -707,18 +739,18 @@ function drawQuoteBlock(flow, block, box) {
     start: { x: box.left + 1, y: top },
     end: { x: box.left + 1, y: flow.y + (lh - size) / 2 },
     thickness: 2,
-    color: color(block.accent || INK.accent),
+    color: color(block.accent || flow.ink.accent),
   });
   if (attribution) {
     flow.y -= 4;
-    drawLines(flow, box, attribution, 9, { lh: 13, x: box.left + inset, width: inner, tint: INK.muted });
+    drawLines(flow, box, attribution, 9, { lh: 13, x: box.left + inset, width: inner, tint: flow.ink.muted });
   }
   flow.y -= Number(block.after ?? 14);
 }
 
 function drawCaptionBlock(flow, block, box) {
   const size = Number(block.size || 8.5);
-  drawLines(flow, box, block.text, size, { lh: size * 1.35, tint: block.color || INK.muted });
+  drawLines(flow, box, block.text, size, { lh: size * 1.35, tint: block.color || flow.ink.muted });
   flow.y -= Number(block.after ?? 10);
 }
 
@@ -744,16 +776,16 @@ function drawStatsBlock(flow, block, box) {
       y: top - size,
       size,
       font: flow.bold,
-      color: color(block.accent || INK.accent),
+      color: color(block.accent || flow.ink.accent),
     });
     let ly = top - size * 1.15 - 4;
     for (const line of wrapText(item.label, font, labelSize, colW)) {
-      flow.page.drawText(line, { x, y: ly - labelSize, size: labelSize, font, color: color(INK.muted) });
+      flow.page.drawText(line, { x, y: ly - labelSize, size: labelSize, font, color: color(flow.ink.muted) });
       ly -= labelSize * 1.3;
     }
   });
   flow.y = top - height;
-  if (block.rule !== false) drawRule(flow, box, 0.6, INK.line);
+  if (block.rule !== false) drawRule(flow, box, 0.6, flow.ink.line);
   flow.y -= Number(block.after ?? 16);
 }
 
@@ -810,16 +842,16 @@ function drawChartBlock(flow, block, following) {
   keepTogether(flow, chartUnitHeight(flow, block, following));
   const { page, font, bold } = flow;
   const { size, values, labels, highlight, forecast, names } = layout;
-  const accent = color(block.accent || INK.accent);
+  const accent = color(block.accent || flow.ink.accent);
   const lit = (index) => highlight < 0 || index === highlight;
   // A projected bar keeps its colour at a third of its strength inside a dashed outline, and its value reads muted.
   const bar = (index) => {
-    const fill = lit(index) ? accent : color(INK.line);
+    const fill = lit(index) ? accent : color(flow.ink.line);
     if (!forecast.has(index)) return { color: fill };
-    const outline = lit(index) && highlight >= 0 ? accent : color(INK.muted);
+    const outline = lit(index) && highlight >= 0 ? accent : color(flow.ink.muted);
     return { color: fill, opacity: 0.35, borderColor: outline, borderWidth: 0.8, borderDashArray: [2.4, 1.6] };
   };
-  const labelInk = (index) => (lit(index) && !forecast.has(index) ? color('1F2937') : color(INK.muted));
+  const labelInk = (index) => (lit(index) && !forecast.has(index) ? color('1F2937') : color(flow.ink.muted));
   if (block.title) {
     drawLines(flow, box, block.title, layout.titleSize, { lh: layout.titleSize * 1.3, face: bold, tint: '1F2937' });
     flow.y -= 6;
@@ -858,7 +890,7 @@ function drawChartBlock(flow, block, following) {
       });
       flow.y -= rowH;
     });
-    page.drawLine({ start: { x: left, y: top }, end: { x: left, y: flow.y }, thickness: 0.6, color: color(INK.line) });
+    page.drawLine({ start: { x: left, y: top }, end: { x: left, y: flow.y }, thickness: 0.6, color: color(flow.ink.line) });
   } else {
     const baseline = flow.y - size * 1.6 - layout.plotH;
     values.forEach((value, index) => {
@@ -897,7 +929,7 @@ function drawChartBlock(flow, block, following) {
       start: { x: box.left, y: baseline },
       end: { x: box.left + box.width, y: baseline },
       thickness: 0.6,
-      color: color(INK.line),
+      color: color(flow.ink.line),
     });
     flow.y = flow.y - (layout.height - layout.titleH);
   }
@@ -1229,7 +1261,7 @@ async function drawFormFields(document, fields, font) {
  * One chart block on a page of its own size — `width` points wide, as tall as the chart — for a document that places
  * the chart as a picture (a Word report): the same drawing the PDF chart block makes, cut to the chart.
  */
-export async function createChartPdf(path, block, { width = 420 } = {}) {
+export async function createChartPdf(path, block, { width = 420, palette } = {}) {
   const chart = { ...block, type: 'chart', x: 0, width, before: 0, after: 0 };
   assertPdfBlocks([chart]);
   const document = await PDFDocument.create();
@@ -1244,6 +1276,7 @@ export async function createChartPdf(path, block, { width = 420 } = {}) {
     font,
     bold,
     background: 'FFFFFF',
+    palette,
   });
   drawChartBlock(flow, { ...chart, x: pad }, null);
   await writeFile(path, await document.save(SAVE_OPTIONS));
@@ -1278,6 +1311,7 @@ export async function createPdf(path, { blocks = [], fields = [], properties = {
     font,
     bold,
     background: properties.background,
+    palette: properties.palette,
   });
   await flowBlocks(flow, Array.isArray(blocks) ? blocks : [], dirname(path));
   const pageCount = document.getPageCount();

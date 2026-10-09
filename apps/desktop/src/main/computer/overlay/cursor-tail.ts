@@ -1,24 +1,10 @@
 import type { ComputerUseCursorPresentation } from './model';
 
-/** A pointer that stopped moving fades after this idle period while its session stays alive. */
-export const CURSOR_IDLE_HIDE_MS = 20_000;
-
 /** Visual-only grace period: never retains execution, targets, or input authority. */
-export function createCursorTail(
-  changed: () => void,
-  holdMs = 1500,
-  idleHideMs = CURSOR_IDLE_HIDE_MS,
-  now: () => number = Date.now
-) {
+export function createCursorTail(changed: () => void, holdMs = 1500) {
   const retained = new Map<string, ComputerUseCursorPresentation>();
   const expiry = new Map<string, ReturnType<typeof setTimeout>>();
-  const idle = new Map<string, ReturnType<typeof setTimeout>>();
   let latestForegroundEventId = 0;
-  const clearIdle = (sessionId: string) => {
-    const timer = idle.get(sessionId);
-    if (timer) clearTimeout(timer);
-    idle.delete(sessionId);
-  };
   const clearExpiry = (sessionId: string) => {
     const timer = expiry.get(sessionId);
     if (timer) clearTimeout(timer);
@@ -27,18 +13,11 @@ export function createCursorTail(
   const remove = (sessionId: string) => {
     clearExpiry(sessionId);
     retained.delete(sessionId);
-    clearIdle(sessionId);
   };
   const clear = () => {
     for (const timer of expiry.values()) clearTimeout(timer);
-    for (const timer of idle.values()) clearTimeout(timer);
     expiry.clear();
-    idle.clear();
     retained.clear();
-  };
-  const idleFor = (cursor: ComputerUseCursorPresentation): number => {
-    if (idleHideMs <= 0 || !Number.isFinite(cursor.updatedAt)) return Number.POSITIVE_INFINITY;
-    return cursor.updatedAt + idleHideMs - now();
   };
   return {
     update(
@@ -51,15 +30,8 @@ export function createCursorTail(
         return [];
       }
       current = current.filter((cursor) => !modes || modes.get(cursor.sessionId) === cursor.mode);
-      // An idle pointer hides outright: it already had its full visible period.
-      current = current.filter((cursor) => {
-        const remaining = idleFor(cursor);
-        if (remaining > 0) return true;
-        remove(cursor.sessionId);
-        return false;
-      });
       for (const [id, cursor] of retained) {
-        if ((modes && modes.get(id) !== cursor.mode) || idleFor(cursor) <= 0) remove(id);
+        if (modes && modes.get(id) !== cursor.mode) remove(id);
       }
       const foreground = current.reduce<ComputerUseCursorPresentation | undefined>(
         (latest, cursor) =>
@@ -80,25 +52,12 @@ export function createCursorTail(
       const live = new Set(current.map((cursor) => cursor.sessionId));
       for (const cursor of current) {
         clearExpiry(cursor.sessionId);
-        const previous = retained.get(cursor.sessionId);
         retained.set(cursor.sessionId, cursor);
-        if (previous?.eventId !== cursor.eventId || !idle.has(cursor.sessionId)) {
-          clearIdle(cursor.sessionId);
-          const remaining = idleFor(cursor);
-          if (Number.isFinite(remaining)) {
-            const idleTimer = setTimeout(() => {
-              idle.delete(cursor.sessionId);
-              changed();
-            }, remaining);
-            idleTimer.unref?.();
-            idle.set(cursor.sessionId, idleTimer);
-          }
-        }
       }
       for (const [id, held] of retained) {
         if (live.has(id)) continue;
-        // A still-active foreground session keeps its last cursor until the idle hide.
-        if (modes && held.mode === 'foreground' && modes.get(id) === 'foreground') {
+        // A session still using the computer keeps its last cursor between commands.
+        if (modes && modes.get(id) === held.mode) {
           clearExpiry(id);
           continue;
         }
@@ -106,7 +65,6 @@ export function createCursorTail(
         const timer = setTimeout(() => {
           expiry.delete(id);
           retained.delete(id);
-          clearIdle(id);
           changed();
         }, holdMs);
         timer.unref?.();

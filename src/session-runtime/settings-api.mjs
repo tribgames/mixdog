@@ -28,6 +28,7 @@ export function createSettingsApi(deps) {
     prepareLocalProviderModel: deps.prepareLocalProviderModel,
     refreshLocalProviderCatalog: deps.refreshLocalProviderCatalog,
     cancelLocalProviderInstallation: deps.cancelLocalProviderInstallation,
+    discardLocalProviderInstallation: deps.discardLocalProviderInstallation,
     configureLocalProviderIdleTtl: deps.configureLocalProviderIdleTtl,
   });
   return {

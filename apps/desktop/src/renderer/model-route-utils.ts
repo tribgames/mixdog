@@ -47,6 +47,30 @@ export function preferredModelEffort(model: DesktopModelOption | undefined): str
   return model.effortOptions[0]?.value;
 }
 
+export type RouteSpeed = 'standard' | 'fast' | 'ultrafast';
+
+/** A model offers Ultrafast only through the `serviceTier` parameter entry. */
+export function modelOffersUltrafast(model: DesktopModelOption | undefined): boolean {
+  return (model?.modelParameterOptions || []).some(
+    (parameter) => parameter.id === 'serviceTier' && parameter.options.some((option) => option.value === 'ultrafast')
+  );
+}
+
+export function routeSpeed(fast: boolean, modelParameters: Record<string, string> = {}): RouteSpeed {
+  if (!fast) return 'standard';
+  return modelParameters.serviceTier === 'ultrafast' ? 'ultrafast' : 'fast';
+}
+
+/** The route fields a speed choice selects: `fast` plus the service tier. */
+export function speedRouteFields(
+  speed: RouteSpeed,
+  modelParameters: Record<string, string>,
+  offersTier: boolean
+): { fast: boolean; modelParameters: Record<string, string> } {
+  if (!offersTier || speed === 'standard') return { fast: speed !== 'standard', modelParameters };
+  return { fast: true, modelParameters: { ...modelParameters, serviceTier: speed === 'ultrafast' ? 'ultrafast' : 'priority' } };
+}
+
 export function preferredModelParameters(
   model: DesktopModelOption | undefined,
   current: Record<string, string> = {}

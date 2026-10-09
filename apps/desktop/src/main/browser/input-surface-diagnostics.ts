@@ -3,7 +3,8 @@
  * the fixture shell and the guest looked like when the lane threw. Each read
  * is bounded so a hung renderer cannot replace the original failure.
  */
-import { BrowserWindow, webContents, type WebContents } from 'electron';
+import { webContents, type WebContents } from 'electron';
+import { browserPageWindow } from './page-window';
 
 async function bounded<T>(work: Promise<T>): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -32,7 +33,7 @@ export async function logBrowserSurfaceDiagnostics(
           url: page.getURL(),
           offscreen: page.isOffscreen(),
           painting: page.isOffscreen() ? page.isPainting() : null,
-          bounds: BrowserWindow.fromWebContents(page)?.getBounds(),
+          bounds: browserPageWindow(page)?.getBounds(),
           document: await bounded(
             page.executeJavaScript(`({
           ready: document.readyState, visibility: document.visibilityState,

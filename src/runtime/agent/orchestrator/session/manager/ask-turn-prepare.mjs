@@ -97,9 +97,7 @@ export function startProviderPrewarm({
       provider.prewarmWsTransportForSession({
         sessionId,
         session,
-        messages: filterModelVisibleSessionMessages(session.messages),
         model: session.model,
-        tools: session.tools,
         effort: turnEffort,
         effortConfiguration,
         fast: session.fast === true,

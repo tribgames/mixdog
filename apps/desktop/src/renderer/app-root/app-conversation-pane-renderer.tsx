@@ -59,6 +59,16 @@ export interface PaneConversationRendererOptions {
   conversationSelectProject: (path: string) => void;
   openConversationCommandSurface: ReturnType<typeof useAppShellPanels>['openConversationCommandSurface'];
   openFileTab: (project: string, rel: string, line?: number, accessToken?: string) => void;
+  /** Opens a transcript file link in the pane's side dock; absent where the
+   *  surface has no dock, so links keep opening main tabs. */
+  openFileInSideDock?: (
+    leafId: string,
+    project: string,
+    rel: string,
+    line?: number,
+    accessToken?: string,
+    column?: number
+  ) => void;
   replaceWithInheritedSession: (sessionId: string, route: DesktopModelSelection) => Promise<void>;
 }
 
@@ -162,9 +172,13 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
           // A chat link carries its line and, for files outside the Project,
           // its file-scoped access token. Dropping either opened the file at
           // line 1, or failed to open it at all.
-          onOpenFile: (project, rel, line, accessToken) => {
+          onOpenFile: (project, rel, line, accessToken, column) => {
             focusPane();
-            options.openFileTab(project, rel, line, accessToken);
+            if (options.openFileInSideDock) {
+              if (column) options.openFileInSideDock(leafId, project, rel, line, accessToken, column);
+              else options.openFileInSideDock(leafId, project, rel, line, accessToken);
+            }
+            else options.openFileTab(project, rel, line, accessToken);
           },
           onInheritSession: options.replaceWithInheritedSession,
         }}

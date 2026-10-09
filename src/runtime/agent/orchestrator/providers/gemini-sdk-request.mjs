@@ -12,6 +12,7 @@ import {
   consumeGeminiSdkStream,
   normalizeGeminiSdkError,
 } from './gemini-stream.mjs';
+import { geminiFailureUsage } from './gemini-response.mjs';
 
 export function geminiTextLeakGuardFor({ tools, callbacks }) {
   return createGeminiTextLeakGuard({
@@ -95,6 +96,7 @@ export async function streamGeminiSdkAttempt(genModel, stream, attemptSignal) {
       onTextDelta: callbacks.onTextDelta,
       textLeakGuard,
       label: 'Gemini SDK streamGenerateContent',
+      failureUsage: geminiFailureUsage(stream.opts, stream.cachedContent, stream.useModel),
       cancelGeneration: (reason) => {
         if (!controller.signal.aborted) controller.abort(reason);
       },

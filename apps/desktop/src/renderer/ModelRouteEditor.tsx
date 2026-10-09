@@ -1,6 +1,11 @@
 import type { DesktopModelOption, DesktopModelSelection } from '../shared/contract';
 import { t } from './i18n';
-import { preferredModelEffort, preferredModelParameters } from './model-route-utils';
+import {
+  modelOffersUltrafast,
+  preferredModelEffort,
+  preferredModelParameters,
+  speedRouteFields,
+} from './model-route-utils';
 import { modelDisplayName, modelFastAvailable } from './provider-display';
 import { RouteEditor } from './RouteEditor';
 
@@ -93,8 +98,10 @@ export function ModelRouteEditor({
       onChangeEffort={(nextEffort) => {
         if (selected) onChange(selectionFor(selected, { effort: nextEffort }));
       }}
-      onChangeFast={(nextFast) => {
-        if (selected) onChange(selectionFor(selected, { fast: nextFast }));
+      onChangeSpeed={(speed) => {
+        if (!selected) return;
+        const next = speedRouteFields(speed, modelParameters, modelOffersUltrafast(selected));
+        onChange(selectionFor(selected, next));
       }}
       onChangeContext={() => {}}
       onChangeModelParameter={(id, nextValue) => {

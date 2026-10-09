@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mixdog · 띵킹 스피너 아이콘 시안</title>
+<style>
+  :root {
+    color-scheme: dark;
+    /* Mixdog desktop tokens (01-tokens.css). */
+    --page:#111113; --band:#222225; --card:#2a2a2d;
+    --text:#e9e9e9; --muted:#a8a8a8; --accent:#79b8ff;
+    --border:rgba(255,255,255,.125); --line:rgba(255,255,255,.09); --hover:rgba(255,255,255,.08);
+    --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","Segoe UI",sans-serif;
+    --k:1; --glyph:14px;
+  }
+  /* Declared on body so the theme switch re-resolves them. */
+  body { --ink:var(--muted); --head:var(--text); }
+  body.light {
+    color-scheme:light;
+    --page:#f8f8fb; --band:#ffffff; --card:#f3f3f3;
+    --text:#222222; --muted:#606060; --accent:#185abc;
+    --border:rgba(23,24,26,.14); --line:rgba(23,24,26,.1); --hover:rgba(0,0,0,.06);
+  }
+  body[data-color="accent"] { --ink:var(--muted); --head:var(--accent); }
+  body[data-color="titanium"] { --ink:#94a3b8; --head:#e2e8f0; }
+  body.light[data-color="titanium"] { --ink:#64748b; --head:#1e293b; }
+  body.paused *, body.paused *::after { animation-play-state:paused !important; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--text); font:14px/20px var(--sans); }
+  h1,h2,p { margin:0; }
+  button { font:inherit; color:var(--muted); cursor:pointer; border:0; border-radius:6px; background:transparent; padding:4px 12px; }
+  button:hover { background:var(--hover); }
+  button[aria-pressed="true"] { background:var(--card); color:var(--text); box-shadow:0 1px 4px #0002; }
+  svg { display:block; overflow:visible; }
+  .page { max-width:1440px; margin:auto; padding:30px 32px 60px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.3px; }
+  .intro { color:var(--muted); margin-top:4px; font-size:13px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:18px; align-items:center; margin:20px 0 24px; }
+  .control { display:flex; align-items:center; gap:9px; }
+  .control-label { color:var(--muted); font-size:13px; }
+  .segments { display:flex; gap:3px; padding:3px; border-radius:8px; background:var(--band); border:1px solid var(--line); }
+  .section-title { font-size:13px; font-weight:550; color:var(--muted); margin:0 0 10px; }
+
+  /* Side-by-side strip: every candidate as the real live band. */
+  .strip { border:1px solid var(--border); border-radius:12px; background:var(--page); padding:14px 22px; margin-bottom:30px; display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:6px 24px; }
+  .strip-row { display:flex; align-items:center; gap:12px; }
+  .strip-row .num { width:20px; color:var(--muted); font-size:11px; text-align:right; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(400px,1fr)); gap:20px; }
+  .card { border:1px solid var(--border); border-radius:12px; background:var(--band); overflow:hidden; display:flex; flex-direction:column; }
+  .card.current { opacity:.85; }
+  .card-head { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; }
+  .letter { width:22px; height:22px; display:grid; place-items:center; border:1px solid var(--border); border-radius:6px; font-size:11px; flex:none; }
+  .card:not(.current) .letter { border-color:var(--accent); color:var(--accent); }
+  .card-head h2 { font-size:14px; font-weight:600; }
+  .tag { margin-left:auto; font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0 8px; }
+  .stage { display:grid; grid-template-columns:132px 1fr; gap:14px; padding:0 16px; }
+  .hero { height:132px; display:grid; place-items:center; background:var(--page); border-radius:10px; border:1px solid var(--line); }
+  .hero svg { width:72px; height:72px; }
+  .sizes { display:flex; flex-direction:column; justify-content:space-between; gap:8px; }
+  .size-boxes { display:flex; align-items:end; gap:16px; padding:10px 12px; background:var(--page); border-radius:10px; border:1px solid var(--line); }
+  .size-boxes figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .size-boxes figcaption { font-size:10px; color:var(--muted); }
+  .transcript { padding:10px 12px; background:var(--page); border-radius:10px; border:1px solid var(--line); }
+  .desc { padding:12px 16px 4px; color:var(--text); font-size:13px; }
+  .notes { margin:6px 16px 16px; padding:0 0 0 16px; color:var(--muted); font-size:12px; line-height:18px; }
+
+  /* Live band, mirroring 14-live-activity.css + the 22-markdown.css comet. */
+  .live { width:max-content; max-width:100%; min-height:24px; display:flex; align-items:center; gap:7px; color:var(--muted); }
+  .live-icon { width:16px; height:20px; flex:0 0 16px; display:grid; place-items:center; line-height:0; }
+  .live-icon svg { width:var(--glyph); height:var(--glyph); }
+  .verb { position:relative; font-weight:500; --cells:8; }
+  .verb::after {
+    content:attr(data-text); position:absolute; inset:0; pointer-events:none; color:transparent;
+    background:linear-gradient(90deg,transparent 0%,color-mix(in oklch,var(--accent) 35%,transparent) 25%,color-mix(in oklch,var(--accent) 22%,white) 50%,color-mix(in oklch,var(--accent) 35%,transparent) 75%,transparent 100%) 0 0 / 4ch 100% no-repeat;
+    background-clip:text; -webkit-background-clip:text;
+    animation:comet calc((var(--cells) + 7) * 100ms * var(--k)) linear infinite;
+  }
+  @keyframes comet { from { background-position:-4ch 0; } to { background-position:calc(100% + 7ch) 0; } }
+  .meta { font-weight:400; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .meta::before { content:"\00B7"; margin-right:7px; }
+
+  /* ---------- Shared glyph helpers ---------- */
+  .o { transform-box:view-box; transform-origin:12px 12px; }
+  .fb { transform-box:fill-box; transform-origin:center; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* 0 — current rhombus (verbatim from 14-live-activity.css) */
+  .c0-spin { transform-box:fill-box; transform-origin:50% 50%; animation:spin90 calc(var(--k)*2900ms) linear infinite; }
+  .c0-ring { fill:none; stroke:var(--ink); stroke-width:1.25; stroke-linejoin:miter; }
+  .c0-core { fill:var(--ink); transform-box:fill-box; transform-origin:50% 50%; animation:c0core calc(var(--k)*1300ms) cubic-bezier(.4,0,.6,1) infinite; }
+  @keyframes spin90 { to { transform:rotate(90deg); } }
+  @keyframes c0core { 0%,100% { transform:scale(.12); opacity:.35; } 32%,68% { transform:scale(.58); opacity:.72; } 50% { transform:scale(1); opacity:1; } }
+
+  /* 1 — Logo orbit: the three logo arcs chase and breathe around the star */
+  .c1-spin { animation:spin calc(var(--k)*2400ms) linear infinite; }
+  .c1-arc { fill:none; stroke:var(--ink); stroke-width:2.3; stroke-linecap:round; animation:c1breathe calc(var(--k)*1800ms) cubic-bezier(.45,0,.55,1) infinite; }
+  @keyframes c1breathe {
+    0% { stroke-dasharray:4.5 12.255; stroke-dashoffset:0; }
+    50% { stroke-dasharray:11.5 5.255; stroke-dashoffset:-5; }
+    100% { stroke-dasharray:4.5 12.255; stroke-dashoffset:-16.755; }
+  }
+  .c1-star { fill:var(--head); animation:c1star calc(var(--k)*1800ms) cubic-bezier(.45,0,.55,1) infinite; }
+  @keyframes c1star { 0% { transform:scale(.7) rotate(0); } 50% { transform:scale(1.15) rotate(45deg); } 100% { transform:scale(.7) rotate(90deg); } }
+
+  /* 2 — Logo step: the mark turns one third, contracting as it goes */
+  .c2-arc { fill:none; stroke:var(--ink); stroke-width:2.3; stroke-linecap:round; stroke-dasharray:11.17 5.585; }
+  .c2-step { animation:c2step calc(var(--k)*1400ms) infinite; }
+  @keyframes c2step { 0% { transform:rotate(0); animation-timing-function:cubic-bezier(.7,0,.25,1); } 65%,100% { transform:rotate(120deg); } }
+  .c2-pulse { animation:c2pulse calc(var(--k)*1400ms) ease-in-out infinite; }
+  @keyframes c2pulse { 0%,65%,100% { transform:scale(1); } 32% { transform:scale(.8); } }
+  .c2-star { fill:var(--head); animation:c2star calc(var(--k)*1400ms) infinite; }
+  @keyframes c2star {
+    0% { transform:rotate(0) scale(1); animation-timing-function:cubic-bezier(.7,0,.25,1); }
+    65%,100% { transform:rotate(-90deg) scale(1); }
+    32% { transform:rotate(-45deg) scale(1.4); }
+  }
+
+  /* 3 — Sparkle: the logo's star alone, turning, with two satellites */
+  .c3-main { fill:var(--ink); animation:c3main calc(var(--k)*2400ms) cubic-bezier(.45,0,.55,1) infinite; }
+  @keyframes c3main { 0% { transform:scale(.78) rotate(0); } 50% { transform:scale(1) rotate(45deg); } 100% { transform:scale(.78) rotate(90deg); } }
+  .c3-sat { fill:var(--head); opacity:0; animation:c3sat calc(var(--k)*2400ms) ease-in-out infinite; }
+  .c3-sat.b { animation-delay:calc(var(--k)*-1200ms); }
+  @keyframes c3sat { 0%,60%,100% { opacity:0; transform:scale(.2); } 30% { opacity:1; transform:scale(1); } }
+
+  /* 4 — Comet orbit: a tailed head on a faint track, the same comet as the verb */
+  .c4-track { fill:none; stroke:var(--ink); stroke-width:1.6; opacity:.18; }
+  .c4-orbit { animation:spin calc(var(--k)*1100ms) cubic-bezier(.5,.15,.5,.85) infinite; }
+  .c4-t { fill:none; stroke-width:2.2; }
+  .c4-t3 { stroke:var(--ink); opacity:.2; stroke-dasharray:15 35.265; }
+  .c4-t2 { stroke:var(--ink); opacity:.45; stroke-dasharray:9 41.265; stroke-dashoffset:-6; }
+  .c4-t1 { stroke:var(--head); stroke-linecap:round; stroke-dasharray:4 46.265; stroke-dashoffset:-11; }
+  .c4-core { fill:var(--ink); animation:c4core calc(var(--k)*2200ms) ease-in-out infinite; }
+  @keyframes c4core { 0%,100% { opacity:.45; transform:scale(.85); } 50% { opacity:1; transform:scale(1.1); } }
+
+  /* 5 — Synapse: signals leave the core along the logo's three axes */
+  .c5-rot { animation:spin calc(var(--k)*9000ms) linear infinite; }
+  .c5-edge { stroke:var(--ink); stroke-width:1.1; opacity:.28; }
+  .c5-sig { stroke:var(--head); stroke-width:1.7; stroke-linecap:round; stroke-dasharray:3 20; stroke-dashoffset:4; animation:c5sig calc(var(--k)*1500ms) cubic-bezier(.4,0,.2,1) infinite; }
+  @keyframes c5sig { 0% { stroke-dashoffset:4; } 45%,100% { stroke-dashoffset:-11; } }
+  .c5-node { fill:var(--ink); animation:c5node calc(var(--k)*1500ms) ease-out infinite; }
+  @keyframes c5node { 0%,30% { transform:scale(1); fill:var(--ink); } 45% { transform:scale(1.55); fill:var(--head); } 75%,100% { transform:scale(1); fill:var(--ink); } }
+  .d1 { animation-delay:calc(var(--k)*500ms); } .d2 { animation-delay:calc(var(--k)*1000ms); }
+  .c5-core { fill:var(--head); animation:c5core calc(var(--k)*500ms) ease-out infinite; }
+  @keyframes c5core { 0% { transform:scale(1.15); } 100% { transform:scale(.85); } }
+
+  /* 6 — Diamond dots: the current rhombus rebuilt as a light chase */
+  .c6-frame { fill:none; stroke:var(--ink); stroke-width:1; stroke-linejoin:round; opacity:.22; }
+  .c6-dot { fill:var(--ink); opacity:.35; animation:c6dot calc(var(--k)*1200ms) ease-out infinite; }
+  .c6-dot.r { animation-delay:calc(var(--k)*-900ms); }
+  .c6-dot.b { animation-delay:calc(var(--k)*-600ms); }
+  .c6-dot.l { animation-delay:calc(var(--k)*-300ms); }
+  @keyframes c6dot { 0% { opacity:1; transform:scale(1.25); fill:var(--head); } 45%,100% { opacity:.35; transform:scale(.8); fill:var(--ink); } }
+  .c6-core { fill:var(--ink); animation:c6core calc(var(--k)*1200ms) cubic-bezier(.45,0,.55,1) infinite; }
+  @keyframes c6core { 0% { transform:rotate(0) scale(.8); } 50% { transform:rotate(45deg) scale(1.1); } 100% { transform:rotate(90deg) scale(.8); } }
+
+  /* 7 — Logo draw: the mark draws itself, holds, and withdraws */
+  .c7-rot { animation:spin calc(var(--k)*6000ms) linear infinite; }
+  .c7-arc { fill:none; stroke:var(--ink); stroke-width:2.3; stroke-linecap:round; stroke-dasharray:0 50.27; opacity:0; animation:c7draw calc(var(--k)*2000ms) cubic-bezier(.45,0,.55,1) infinite; }
+  .c7-arc.b { animation-delay:calc(var(--k)*150ms); }
+  .c7-arc.c { animation-delay:calc(var(--k)*300ms); }
+  @keyframes c7draw {
+    0% { stroke-dasharray:0 50.27; opacity:0; }
+    10% { opacity:1; }
+    35%,60% { stroke-dasharray:11.17 39.1; opacity:1; }
+    88% { opacity:1; }
+    95%,100% { stroke-dasharray:0 50.27; opacity:0; }
+  }
+  .c7-star { fill:var(--head); animation:c7star calc(var(--k)*2000ms) cubic-bezier(.34,1.4,.64,1) infinite; }
+  /* The star never vanishes: the band must always show a mark. */
+  @keyframes c7star { 0%,20% { transform:scale(.5) rotate(-90deg); } 45%,70% { transform:scale(1.15) rotate(0); } 95%,100% { transform:scale(.5) rotate(90deg); } }
+
+</style>
+</head>
+<body data-color="muted">
+<div class="page">
+  <h1>띵킹 스피너 아이콘 시안</h1>
+  <p class="intro">모두 SVG + CSS 애니메이션이라 React 재렌더 없이 돌아갑니다. 실제 띵킹 줄(16px 아이콘 칸, 회색 동사, 글자 위 반짝임)을 그대로 재현했습니다. 1·2·7은 로고의 원호 3개와 4각 별을, 6은 지금의 마름모를 바탕으로 했습니다.</p>
+
+  <div class="toolbar">
+    <div class="control"><span class="control-label">테마</span>
+      <div class="segments" data-group="theme"><button data-v="dark" aria-pressed="true">다크</button><button data-v="light">라이트</button></div></div>
+    <div class="control"><span class="control-label">색</span>
+      <div class="segments" data-group="color"><button data-v="muted" aria-pressed="true">회색(현행 규칙)</button><button data-v="accent">포인트만 액센트</button><button data-v="titanium">타이타늄(로고 B)</button></div></div>
+    <div class="control"><span class="control-label">실사용 크기</span>
+      <div class="segments" data-group="glyph"><button data-v="12px">12px(현재)</button><button data-v="14px" aria-pressed="true">14px</button><button data-v="16px">16px</button></div></div>
+    <div class="control"><span class="control-label">속도</span>
+      <div class="segments" data-group="speed"><button data-v="1.6">느리게</button><button data-v="1" aria-pressed="true">기본</button><button data-v="0.6">빠르게</button></div></div>
+    <div class="control"><div class="segments" data-group="pause"><button data-v="pause">일시정지</button></div></div>
+  </div>
+
+  <p class="section-title">실제 크기로 나란히 보기</p>
+  <div class="strip" id="strip"></div>
+
+  <p class="section-title">시안별 상세</p>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+  const STAR = 'M12 8.6 13.06 10.94 15.4 12 13.06 13.06 12 15.4 10.94 13.06 8.6 12 10.94 10.94Z';
+  const ARC = (cls, rot = -100) => `<circle class="${cls}" cx="12" cy="12" r="8" transform="rotate(${rot} 12 12)"/>`;
+  const candidates = [
+    { id: 0, name: '현재 · 마름모', tag: '비교 기준', current: true,
+      svg: `<svg viewBox="0 0 12 12"><g class="c0-spin"><path class="c0-ring" d="M6 .9 11.1 6 6 11.1.9 6Z"/><path class="c0-core" d="M6 .9 11.1 6 6 11.1.9 6Z"/></g></svg>`,
+      desc: '테두리 마름모 안에서 속이 커졌다 작아지며 90°씩 돕니다. TUI의 ◇◆◈를 옮긴 것입니다.',
+      notes: ['12px에서는 속 채움이 흐릿한 깜빡임처럼 보입니다.', '로고와 연결되는 요소가 없습니다.'] },
+    { id: 1, name: '로고 오빗', tag: '로고 · 추천',
+      svg: `<svg viewBox="0 0 24 24"><g class="o c1-spin">${ARC('c1-arc')}</g><path class="o c1-star" d="${STAR}"/></svg>`,
+      desc: '로고의 원호 3개가 돌면서 길어졌다 짧아지기를 반복하고, 가운데 별이 숨 쉬듯 반짝입니다. 원호가 가장 길어지는 순간 로고 모양이 됩니다.',
+      notes: ['브랜드와 바로 연결되면서도 스피너라는 것이 분명합니다.', '머티리얼 스피너처럼 원호가 쫓아가는 움직임이라 작게 줄여도 잘 읽힙니다.', '별은 12px에서 점처럼 보일 수 있어 14px 이상이 좋습니다.'] },
+    { id: 2, name: '로고 스텝', tag: '로고',
+      svg: `<svg viewBox="0 0 24 24"><g class="o c2-step"><g class="o c2-pulse">${ARC('c2-arc')}</g></g><path class="o c2-star" d="${STAR}"/></svg>`,
+      desc: '로고 그대로의 모양이 한 번에 120°씩 탁 돌고 잠깐 멈춥니다. 돌 때 살짝 오므라들고, 별은 반대 방향으로 돕니다.',
+      notes: ['정지한 순간마다 정확히 로고가 보입니다.', '기계적이고 단단한 느낌이라 툴 아이콘 줄과 잘 어울립니다.', '멈춤 박자 때문에 "생각 중"보다 "처리 중"처럼 보일 수 있습니다.'] },
+    { id: 3, name: '스파클', tag: 'AI 관례',
+      svg: `<svg viewBox="0 0 24 24"><path class="o c3-main" d="M12 4.5Q12.9 11.1 19.5 12 12.9 12.9 12 19.5 11.1 12.9 4.5 12 11.1 11.1 12 4.5Z"/><path class="fb c3-sat" d="M19.5 2.5Q19.75 4.25 21.5 4.5 19.75 4.75 19.5 6.5 19.25 4.75 17.5 4.5 19.25 4.25 19.5 2.5Z"/><path class="fb c3-sat b" d="M4.5 17.5Q4.75 19.25 6.5 19.5 4.75 19.75 4.5 21.5 4.25 19.75 2.5 19.5 4.25 19.25 4.5 17.5Z"/></svg>`,
+      desc: '로고의 4각 별을 곡선으로 다듬어 키우고, 천천히 돌며 커졌다 작아집니다. 모서리에서 작은 별 두 개가 번갈아 반짝입니다.',
+      notes: ['"AI가 생각 중"이라는 뜻이 가장 빨리 전달됩니다.', '움직임이 부드럽고 조용해서 오래 봐도 거슬리지 않습니다.', '다른 AI 제품에서도 흔한 모양이라 개성은 약합니다.'] },
+    { id: 4, name: '혜성 궤도', tag: '반짝임과 짝',
+      svg: `<svg viewBox="0 0 24 24"><circle class="c4-track" cx="12" cy="12" r="8"/><g class="o c4-orbit"><g transform="rotate(-90 12 12)"><circle class="c4-t c4-t3" cx="12" cy="12" r="8"/><circle class="c4-t c4-t2" cx="12" cy="12" r="8"/><circle class="c4-t c4-t1" cx="12" cy="12" r="8"/></g></g><path class="o c4-core" d="${STAR}"/></svg>`,
+      desc: '희미한 원 궤도를 따라 꼬리 달린 빛이 강약을 주며 돌고, 가운데 작은 별이 천천히 숨 쉽니다.',
+      notes: ['옆 글자 위를 지나는 반짝임과 같은 "혜성" 언어라 줄 전체가 하나로 보입니다.', '가장 빠르고 활발하게 느껴집니다.', '흔한 로딩 스피너와 비슷하게 보일 위험이 있습니다.'] },
+    { id: 5, name: '시냅스', tag: '생각 은유',
+      svg: `<svg viewBox="0 0 24 24"><g class="o c5-rot"><line class="c5-edge" x1="12" y1="12" x2="12" y2="4.5"/><line class="c5-edge" x1="12" y1="12" x2="18.5" y2="15.75"/><line class="c5-edge" x1="12" y1="12" x2="5.5" y2="15.75"/><line class="c5-sig" x1="12" y1="12" x2="12" y2="4.5" pathLength="10"/><line class="c5-sig d1" x1="12" y1="12" x2="18.5" y2="15.75" pathLength="10"/><line class="c5-sig d2" x1="12" y1="12" x2="5.5" y2="15.75" pathLength="10"/><circle class="fb c5-node" cx="12" cy="4.5" r="1.6"/><circle class="fb c5-node d1" cx="18.5" cy="15.75" r="1.6"/><circle class="fb c5-node d2" cx="5.5" cy="15.75" r="1.6"/><circle class="fb c5-core" cx="12" cy="12" r="2.1"/></g></svg>`,
+      desc: '가운데 점에서 로고의 세 방향(120° 간격)으로 신호가 차례로 뻗어 나가고, 신호가 닿은 점이 켜집니다. 전체가 아주 천천히 회전합니다.',
+      notes: ['"생각한다"는 의미가 가장 직접적인 은유입니다.', '120° 구조가 로고와 은근히 이어집니다.', '요소가 많아 12px에서는 점 4개로만 보입니다. 16px을 권합니다.'] },
+    { id: 6, name: '다이아 도트', tag: '현재 계승',
+      svg: `<svg viewBox="0 0 24 24"><path class="c6-frame" d="M12 4 20 12 12 20 4 12Z"/><circle class="fb c6-dot" cx="12" cy="4" r="1.9"/><circle class="fb c6-dot r" cx="20" cy="12" r="1.9"/><circle class="fb c6-dot b" cx="12" cy="20" r="1.9"/><circle class="fb c6-dot l" cx="4" cy="12" r="1.9"/><path class="o c6-core" d="M12 9.6 14.4 12 12 14.4 9.6 12Z"/></svg>`,
+      desc: '지금의 마름모를 꼭짓점 4개의 점으로 다시 만들었습니다. 빛이 시계 방향으로 꼭짓점을 돌고, 가운데 작은 마름모가 돌며 숨 쉽니다.',
+      notes: ['지금의 정체성을 유지하면서 훨씬 또렷해집니다.', '완료 표시(◈)와 모양 연결이 가장 자연스럽습니다.', '로고와의 연결은 약합니다.'] },
+    { id: 7, name: '로고 드로잉', tag: '로고 · 연출',
+      svg: `<svg viewBox="0 0 24 24"><g class="o c7-rot">${ARC('c7-arc', -100)}${ARC('c7-arc b', 20)}${ARC('c7-arc c', 140)}</g><path class="o c7-star" d="${STAR}"/></svg>`,
+      desc: '원호 3개가 차례로 그려져 로고가 완성되고, 별이 톡 튀어나왔다가 다시 거두어집니다. 전체는 천천히 돕니다.',
+      notes: ['가장 공들인 느낌이고 브랜드 인상이 강합니다.', '한 주기가 2초로 길어서 상태 표시보다 연출에 가깝습니다.', '긴 작업에서는 반복이 눈에 띌 수 있습니다.'] },
+  ];
+
+  const live = (c) => `<div class="live"><span class="live-icon">${c.svg}</span><span class="verb" data-text="Thinking">Thinking</span><span class="meta">12s · 1.2k tokens</span></div>`;
+  const letter = (c) => (c.current ? '0' : String(c.id));
+
+  document.getElementById('strip').innerHTML = candidates
+    .map((c) => `<div class="strip-row"><span class="num">${letter(c)}</span>${live(c)}</div>`).join('');
+
+  document.getElementById('grid').innerHTML = candidates.map((c) => `
+    <article class="card${c.current ? ' current' : ''}">
+      <div class="card-head"><span class="letter">${letter(c)}</span><h2>${c.name}</h2><span class="tag">${c.tag}</span></div>
+      <div class="stage">
+        <div class="hero">${c.svg}</div>
+        <div class="sizes">
+          <div class="size-boxes">
+            ${[32, 24, 16, 12].map((s) => `<figure><span style="width:${s}px;height:${s}px;display:block">${c.svg.replace('<svg', `<svg width="${s}" height="${s}"`)}</span><figcaption>${s}px</figcaption></figure>`).join('')}
+          </div>
+          <div class="transcript">${live(c)}</div>
+        </div>
+      </div>
+      <p class="desc">${c.desc}</p>
+      <ul class="notes">${c.notes.map((n) => `<li>${n}</li>`).join('')}</ul>
+    </article>`).join('');
+
+  document.querySelectorAll('.segments').forEach((group) => {
+    group.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      const kind = group.dataset.group;
+      const value = button.dataset.v;
+      if (kind === 'pause') {
+        const on = button.getAttribute('aria-pressed') !== 'true';
+        button.setAttribute('aria-pressed', String(on));
+        document.body.classList.toggle('paused', on);
+        return;
+      }
+      group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+      if (kind === 'theme') document.body.classList.toggle('light', value === 'light');
+      if (kind === 'color') document.body.dataset.color = value;
+      if (kind === 'glyph') document.documentElement.style.setProperty('--glyph', value);
+      if (kind === 'speed') document.documentElement.style.setProperty('--k', value);
+    });
+  });
+</script>
+</body>
+</html>

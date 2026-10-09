@@ -255,7 +255,8 @@ test('a composed document makes its body face, size, and ink the document defaul
   );
   const styles = await (await parts(path)).text('word/styles.xml');
   const defaults = /<w:rPrDefault>[\s\S]*?<\/w:rPrDefault>/.exec(styles)[0];
-  assert.match(defaults, /w:ascii="Malgun Gothic"/);
+  // The design's Latin face is written as given; Hangul takes the Korean sans beside it.
+  assert.match(defaults, /w:ascii="Calibri"/);
   assert.match(defaults, /w:eastAsia="Malgun Gothic"/);
   assert.match(defaults, /<w:sz w:val="20"\/>/);
   assert.match(defaults, /<w:color w:val="[0-9A-F]{6}"\/>/);

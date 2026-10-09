@@ -12,7 +12,7 @@ import type {
   SessionSnapshot,
 } from '../shared/contract';
 import { t } from './i18n';
-import { ErrorNotice } from './ErrorNotice';
+import { describeError, ErrorNotice } from './ErrorNotice';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
@@ -263,6 +263,7 @@ export function transcriptRowNode(
     settledTurnKeys,
     snapshot,
     onRetryTurn,
+    onOpenSettings,
   }: {
     disclosureScope: string;
     optimisticActivityStartedAt: number;
@@ -273,6 +274,7 @@ export function transcriptRowNode(
     settledTurnKeys: readonly string[];
     snapshot: Snapshot;
     onRetryTurn(turnKey: string): void;
+    onOpenSettings(section?: SettingsSection | null): void;
   }
 ): ReactNode {
   if (row._tag === 'TurnGap') {
@@ -282,13 +284,22 @@ export function transcriptRowNode(
     const retryKey = [...row.failures]
       .reverse()
       .find((failure) => turnPromptText(settledItems, settledTurnKeys, failure.turnKey))?.turnKey;
+    const errors = row.failures.map(
+      ({ item }) => item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t('Failed')
+    );
+    const reauth = describeError(errors.at(-1)).kind === 'reauth';
     return (
       <ErrorNotice
         className="transcript-error-notice"
-        errors={row.failures.map(
-          ({ item }) => item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t('Failed')
-        )}
-        onRetry={!readOnly && retryKey ? () => onRetryTurn(retryKey) : undefined}
+        errors={errors}
+        action={
+          reauth && !readOnly ? (
+            <button type="button" onClick={() => onOpenSettings('providers')}>
+              {t('Sign in again')}
+            </button>
+          ) : undefined
+        }
+        onRetry={!reauth && !readOnly && retryKey ? () => onRetryTurn(retryKey) : undefined}
         retryDisabled={retryDisabled}
         role="status"
       />

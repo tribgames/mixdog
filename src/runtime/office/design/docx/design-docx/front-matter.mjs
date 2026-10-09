@@ -59,15 +59,18 @@ export function writeDocxFrontMatter(w, operation) {
     lineSpacing: bodySize * 1.35,
   });
   const meta = strings(operation.meta);
-  if (meta.length) {
-    append(meta.join(' · '), 'Normal', {
+  // One meta item per line: a joined string invents a separator the author never chose.
+  meta.forEach((item, index) => {
+    const last = index === meta.length - 1;
+    append(item, 'Normal', {
       name: type.body,
       size: Math.max(8.5, bodySize - 1),
       color: colors.muted,
       spacingBefore: 0,
-      spacingAfter: compactMemo ? 8 : 14,
+      spacingAfter: last ? (compactMemo ? 8 : 14) : 0,
+      keepWithNext: !last,
     });
-  }
+  });
   if (operation.summary) {
     // A label the author gave is drawn whatever the composition reads the document as: labels are opt-in, and dropped
     // without a word it left a report's "결론" as a plain bold paragraph.

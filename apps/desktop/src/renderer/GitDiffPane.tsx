@@ -1,4 +1,6 @@
-import { FileText, Minus, Plus, X } from 'lucide-react';
+import { ArrowLeft, FileDiff, FileText, Minus, Plus, X } from 'lucide-react';
+import { SideChipStrip } from './side-surface-strip';
+import { fileBaseName } from './text-format';
 import {
   startTransition,
   useCallback,
@@ -46,7 +48,13 @@ export function GitDiffPane({
   onOpenFile,
   onClose,
   onReady,
+  chrome,
+  onBack,
 }: {
+  /** 'side': the pane-dock host's single-strip chrome (no own header row). */
+  chrome?: 'side';
+  /** Side chrome in the stacked (narrow) layer: steps back to the list. */
+  onBack?(): void;
   selection: GitDiffSelection;
   active: boolean;
   onOpenFile?(project: string, rel: string): void;
@@ -221,6 +229,60 @@ export function GitDiffPane({
             <GitFileDiff patch={hunk.patch} mode={mode} hideHunkHeader />
           </section>
         ))}
+      </div>
+    );
+  }
+  if (chrome === 'side') {
+    // Side dock: the dock header names the surface; the shared strip carries
+    // the file chip and the actions — no second header row.
+    return (
+      <div className="workspace-git-diff">
+        <SideChipStrip
+          label={t('Diff')}
+          name={fileBaseName(selection.rel)}
+          title={`${selection.rel}\n${sourceLabel}`}
+          icon={FileDiff}
+          leading={
+            onBack && (
+              <button
+                type="button"
+                className="browser-pane-nav-button"
+                aria-label={t('Back')}
+                data-tooltip={t('Back')}
+                onClick={onBack}
+              >
+                <ArrowLeft size={16} aria-hidden="true" />
+              </button>
+            )
+          }
+        >
+          <button
+            type="button"
+            className="browser-pane-nav-button side-strip-text-button"
+            aria-pressed={mode === 'unified'}
+            onClick={() => setMode('unified')}
+          >
+            {t('Unified')}
+          </button>
+          <button
+            type="button"
+            className="browser-pane-nav-button side-strip-text-button"
+            aria-pressed={mode === 'split'}
+            onClick={() => setMode('split')}
+          >
+            {t('Split')}
+          </button>
+          <button
+            type="button"
+            className="browser-pane-nav-button"
+            aria-label={t('Open file {{file}}', { file: selection.rel })}
+            data-tooltip={t('Open file {{file}}', { file: selection.rel })}
+            onClick={() => onOpenFile?.(selection.project, selection.rel)}
+          >
+            <FileText size={16} aria-hidden="true" />
+          </button>
+        </SideChipStrip>
+        <div className="workspace-git-diff-body">{body}</div>
       </div>
     );
   }

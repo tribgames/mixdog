@@ -4,7 +4,7 @@
  */
 import { formatToolActionHeader, toolLoadingTargets } from '../tool-surface.mjs';
 import { agentActionSummary, agentActionTitle, agentResponseTitle, isAgentTool } from './agent-surface.mjs';
-import { backgroundTaskActionTitle, backgroundTaskResultTitle } from './background-task.mjs';
+import { backgroundTaskActionTitle, backgroundTaskResultTitle, taskControlTitle } from './background-task.mjs';
 import { toolSearchLoadedSummary } from './generic-detail.mjs';
 import { safeInlineText } from './inline-text.mjs';
 import { shellHeader } from './shell-surface.mjs';
@@ -12,15 +12,21 @@ import { shellHeader } from './shell-surface.mjs';
 function headerLabel(base, surface, display, status, detail) {
   const { name, args, headerPending, groupCount } = base;
   const { normalizedName, parsedArgs, isShellSurface } = surface;
-  if (detail.isAgentResponse) return agentResponseTitle(parsedArgs, groupCount);
+  const taskControl = taskControlTitle(normalizedName, parsedArgs);
+  if (taskControl) return taskControl;
+  if (detail.isAgentResponse) return agentResponseTitle(parsedArgs, groupCount, base.rt);
   if (display.isBackgroundResponse) {
     return backgroundTaskResultTitle(normalizedName, display.backgroundMeta || parsedArgs);
   }
   if (display.isBackgroundMetadataResult) return backgroundTaskActionTitle(normalizedName, display.backgroundMeta);
   if (isShellSurface) return shellHeader(status.shellStatus, groupCount, parsedArgs?.verifyShell === true);
   return (
-    (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs) : '') ||
-    formatToolActionHeader(name, args, { pending: headerPending, count: groupCount })
+    (isAgentTool(normalizedName) ? agentActionTitle(parsedArgs, display.displayedResultText) : '') ||
+    formatToolActionHeader(name, args, {
+      pending: headerPending,
+      count: groupCount,
+      failed: !base.pending && base.failedCount > 0 && base.failedCount >= groupCount,
+    })
   );
 }
 

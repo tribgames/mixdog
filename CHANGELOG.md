@@ -5,6 +5,10 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- The changelog in Settings > About lists the installed version's notes;
+  in v1.0.11 it still ended at v1.0.10, on the desktop app and the remote
+  web page alike.
+
 ## v1.0.11 - 2026-10-08
 
 - The built-in browser shows pages again on Windows displays scaled above

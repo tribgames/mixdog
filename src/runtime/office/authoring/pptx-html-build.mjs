@@ -348,7 +348,7 @@ function addChart(slide, pres, u, item) {
     ? spec.series.map((series) => ({ name: series.name, labels: spec.labels, values: series.values }))
     : [{ name: spec.name || spec.unit || 'Value', labels: spec.labels, values: spec.values }];
   const ink = spec.labelColor || '333333';
-  const font = spec.font || 'Noto Sans KR';
+  const font = spec.font || item.font || 'Noto Sans KR';
   const size = Number(spec.size) || 12;
   const round = kind === 'pie' || kind === 'doughnut';
   const column = String(spec.type || '').toLowerCase() === 'col' || String(spec.type || '').toLowerCase() === 'column';

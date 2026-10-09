@@ -442,8 +442,6 @@ const summary = {
   p95_ms: percentile(sortedFinite(durations), 95),
   usage: {
     total_input_tokens: distribution(usageValues('inputTokens')),
-    main_input_tokens: distribution(usageValues('mainInputTokens')),
-    warmup_input_tokens: distribution(usageValues('warmupInputTokens')),
     cached_tokens: distribution(usageValues('cachedTokens')),
     uncached_tokens: distribution(rows.map((row) => Number(row.usage?.inputTokens) - Number(row.usage?.cachedTokens))),
     output_tokens: distribution(usageValues('outputTokens')),

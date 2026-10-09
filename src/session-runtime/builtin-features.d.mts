@@ -7,6 +7,7 @@ export function featureDisallowedToolsFor(
   options?: {
     browserAvailable?: boolean;
     computerAvailable?: boolean;
+    terminalAvailable?: boolean;
     toolProfile?: string;
   }
 ): string[];

@@ -23,11 +23,12 @@ import { shouldStopComposerGeneration } from './renderer-logic.mjs';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 import { touchPrimaryPointer } from './surface-input-focus';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
-import { pastedTextLineCount, shouldFoldPastedText } from '../../../../src/tui/paste-text-policy.mjs';
+import { shouldFoldPastedText } from '../../../../src/tui/paste-text-policy.mjs';
 
 // Project-context pill, attachment budget, prompt history and the queued
 // follow-up list live in composer-support.tsx.
-import { ATTACHMENT_ACCEPT, COMPOSER_PLACEHOLDERS, QueueList } from './composer-support';
+import { ATTACHMENT_ACCEPT, COMPOSER_PLACEHOLDERS, QueueList, pastedTextFields } from './composer-support';
+import { ComposerPastedTextDialog } from './ComposerPastedTextDialog';
 import {
   composerDraftAfterScopeChange,
   composerScopeOpensFreshDraft,
@@ -48,6 +49,8 @@ import { useComposerMessageSelector } from './use-composer-message-selector';
 import { useComposerNotice } from './use-composer-notice';
 import { useComposerPalettes } from './use-composer-palettes';
 import { createSlashExecutor } from './composer-slash-executor';
+import { readCachedModelCatalog } from './model-catalog-cache';
+import { modelOffersUltrafast } from './model-route-utils';
 import {
   AttachmentChips,
   DictationOverlay,
@@ -109,14 +112,11 @@ function handleComposerPaste(
   const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
   if (!shouldFoldPastedText(text)) return;
   const id = attachmentSequence.current++;
-  const lines = pastedTextLineCount(text);
   const inserted = insertAttachment({
     id,
-    name: `Pasted text · ${lines} lines`,
+    ...pastedTextFields(id, text),
     kind: 'text',
     mimeType: 'text/plain',
-    data: text,
-    token: `[Pasted text #${id} +${lines} lines]`,
     source: 'paste',
     chipOnly: true,
   });
@@ -226,7 +226,7 @@ export type ComposerProps = {
   contextPercent?: number;
   draftMode?: boolean;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
-  onRoutePreferenceApplied?: (selection: DesktopModelSelection) => void;
+  onRoutePreferenceApplied?: (selection: DesktopModelSelection, options?: { modelChoice?: boolean }) => void;
   /** Session readout seated right after the model trigger — the context
    *  gauge (user: 컨텍스트는 모델 선택기 옆). */
   modelAside?: ReactNode;
@@ -355,6 +355,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     clearAttachments,
     removeAttachments,
     removeAttachment,
+    updatePastedText,
     replaceAttachments,
     attachFiles,
     restoredAttachments,
@@ -468,6 +469,9 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   useComposerFocus({ textarea, transitioning, focusRequest, paneActive });
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   useEffect(() => setGoalDialogOpen(false), [identityScope, paneActive]);
+  const [editingPasteId, setEditingPasteId] = useState<number | null>(null);
+  useEffect(() => setEditingPasteId(null), [identityScope, paneActive]);
+  const editingPaste = attachments.find((attachment) => attachment.id === editingPasteId);
   const executeSlash = createSlashExecutor({
     draftMode,
     sessionId,
@@ -478,6 +482,10 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     fast,
     fastCapable,
     modelParameters,
+    ultrafastCapable: () =>
+      modelOffersUltrafast(
+        readCachedModelCatalog().models.find((entry) => entry.provider === provider && entry.model === model)
+      ),
     onDraftModelSelection,
     onRoutePreferenceApplied,
     invokeResult,
@@ -644,11 +652,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
         onSteer={(id) => void queue.steerQueuedNow(id)}
         onRemove={(id) => void queue.discardQueued(id)}
       />
-      <ComposerBanners
-        draggingFiles={draggingFiles}
-        transitioning={transitioning}
-        dropTarget={dropTargetRef.current}
-      />
+      <ComposerBanners draggingFiles={draggingFiles} transitioning={transitioning} dropTarget={dropTargetRef.current} />
       <form
         ref={paletteAnchor}
         className="composer"
@@ -689,7 +693,21 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           />
         )}
         {attachments.length > 0 && (
-          <AttachmentChips attachments={attachments} onRemove={removeAttachment} onError={setAttachmentError} />
+          <AttachmentChips
+            attachments={attachments}
+            onRemove={removeAttachment}
+            onEdit={(attachment) => setEditingPasteId(attachment.id)}
+            onError={setAttachmentError}
+          />
+        )}
+        {editingPaste && (
+          <ComposerPastedTextDialog
+            anchor={textarea}
+            text={editingPaste.data}
+            onSave={(text) => updatePastedText(editingPaste, text)}
+            onClose={() => setEditingPasteId(null)}
+            returnFocus={() => textarea.current?.focus()}
+          />
         )}
         {dictation.dictationState !== 'idle' && (
           <DictationOverlay

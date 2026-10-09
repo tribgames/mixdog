@@ -68,6 +68,9 @@ export interface ComputerUseSnapshot {
   cursors: ComputerUseCursor[];
   /** Sessions whose pointer went back to the user until their next pointer event. */
   releasedPointerSessionIds?: string[];
+  /** Sessions still using the computer: running a command, or thinking within
+   *  the grace after their last one. The banner and the arrows follow these. */
+  presentSessionIds?: string[];
   targetLeases: Array<{
     sessionId: string;
     windowId: string;
@@ -111,7 +114,9 @@ export interface ComputerUseCoordinatorOptions {
   targetLeaseWaitMs?: number;
 }
 
-const DEFAULT_TARGET_LEASE_GRACE_MS = 10_000;
+/** How long an idle session holds its windows, and how long a thinking session
+ *  still counts as using the computer. */
+export const DEFAULT_TARGET_LEASE_GRACE_MS = 10_000;
 const DEFAULT_TARGET_LEASE_WAIT_MS = 30_000;
 
 function normalizedWindowIds(windowIds: Array<string | undefined>): string[] {
@@ -185,7 +190,7 @@ export class ComputerUseCoordinator {
   private attentionRequired: ComputerUseAttention | null = null;
 
   constructor(options: ComputerUseCoordinatorOptions = {}) {
-    this.now = options.now ?? Date.now;
+    this.now = options.now ?? (() => Date.now());
     this.targetLeaseGraceMs = Math.max(0, options.targetLeaseGraceMs ?? DEFAULT_TARGET_LEASE_GRACE_MS);
     this.targetLeaseWaitMs = Math.max(0, options.targetLeaseWaitMs ?? DEFAULT_TARGET_LEASE_WAIT_MS);
   }
@@ -209,12 +214,22 @@ export class ComputerUseCoordinator {
         .map((cursor) => ({ ...cursor }))
         .sort((left, right) => left.eventId - right.eventId),
       releasedPointerSessionIds: [...this.releasedPointers],
+      presentSessionIds: this.presentSessions(),
       targetLeases: [...this.targetLeases.entries()].map(([windowId, lease]) => ({
         sessionId: lease.sessionId,
         windowId,
         expiresAt: Number.isFinite(lease.expiresAt) ? lease.expiresAt : null,
       })),
     };
+  }
+
+  /** A session thinking about its next step is still on the same task for the
+   *  grace period; one that thinks longer has moved on to other work. */
+  private presentSessions(): string[] {
+    const now = this.now();
+    return [...this.activities.values()]
+      .filter((activity) => activity.phase !== 'thinking' || now < activity.updatedAt + this.targetLeaseGraceMs)
+      .map((activity) => activity.sessionId);
   }
 
   subscribe(listener: (snapshot: ComputerUseSnapshot) => void): () => void {
@@ -583,6 +598,7 @@ export class ComputerUseCoordinator {
         updatedAt: this.now(),
       });
     }
+    this.scheduleLeaseExpiry();
     this.changed();
   }
 
@@ -785,8 +801,14 @@ export class ComputerUseCoordinator {
     if (this.leaseExpiryTimer) clearTimeout(this.leaseExpiryTimer);
     this.leaseExpiryTimer = null;
     const now = this.now();
+    // A thinking session's grace ending changes who is present, so it wakes the listeners too.
+    const graceEnds = [...this.activities.values()]
+      .filter((activity) => activity.phase === 'thinking')
+      .map((activity) => activity.updatedAt + this.targetLeaseGraceMs)
+      .filter((deadline) => deadline > now);
     const nextExpiry = Math.min(
-      ...[...this.targetLeases.values()].map((lease) => lease.expiresAt).filter(Number.isFinite)
+      ...[...this.targetLeases.values()].map((lease) => lease.expiresAt).filter(Number.isFinite),
+      ...graceEnds
     );
     if (!Number.isFinite(nextExpiry)) return;
     this.leaseExpiryTimer = setTimeout(

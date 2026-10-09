@@ -12,7 +12,7 @@ import {
   xmlDecode,
 } from './portable-xml.mjs';
 import { countDocxPropertyChanges, docxRevisionTree, flattenDocxRevisions } from './docx-revisions.mjs';
-import { docxRunFont, nextPageOffset, softBreakFacts, statedRunFont } from './portable-snapshot-shared.mjs';
+import { docxParagraphSpacing, docxRunFont, nextPageOffset, softBreakFacts, statedRunFont } from './portable-snapshot-shared.mjs';
 
 const REVISION_TYPES = Object.freeze({
   ins: 'insertion',
@@ -77,10 +77,16 @@ function resolveDocxStyleFonts(stylesXml) {
     if (!entry || seen.has(id)) return base;
     seen.add(id);
     const parent = entry.basedOn ? resolve(entry.basedOn, seen) : base;
+    const color = entry.color || parent.color;
+    const letterSpacing = entry.letterSpacing ?? parent.letterSpacing;
+    const caps = entry.caps ?? parent.caps;
     return {
       size: entry.size || parent.size,
       bold: entry.bold || parent.bold,
       name: entry.name || parent.name,
+      ...(color ? { color } : {}),
+      ...(caps !== undefined ? { caps } : {}),
+      ...(letterSpacing !== undefined ? { letterSpacing } : {}),
     };
   };
   for (const id of declared.keys()) fonts.set(id, resolve(id, new Set()));
@@ -110,6 +116,7 @@ function paragraphRecord(block, paragraphIndex) {
     // What the paragraph's own runs state; snapshotDocx fills in what its
     // style says when they state nothing.
     ...statedRunFont(block.xml),
+    ...(Object.keys(docxParagraphSpacing(block.xml)).length ? { format: docxParagraphSpacing(block.xml) } : {}),
     // A soft break reads back as a newline like a typed one does, but Word
     // draws it as a line break instead of a space. Counting them lets a
     // review tell a deliberate break from a newline left inside a run.
@@ -277,8 +284,43 @@ function applyDocxStyleFonts(model, styleFonts) {
     const size = paragraph.font?.size || inherited?.size || 0;
     const bold = paragraph.font?.bold || inherited?.bold || false;
     const name = paragraph.font?.name || inherited?.name || '';
-    if (!size && !bold && !name) continue;
-    paragraph.font = { ...(size ? { size } : {}), ...(bold ? { bold: true } : {}), ...(name ? { name } : {}) };
+    const color = paragraph.font?.color || inherited?.color || '';
+    const caps = paragraph.font?.caps ?? inherited?.caps ?? false;
+    const letterSpacing = paragraph.font?.letterSpacing ?? inherited?.letterSpacing ?? 0;
+    if (!size && !bold && !name && !color && !caps && !letterSpacing) continue;
+    paragraph.font = {
+      ...(size ? { size } : {}),
+      ...(bold ? { bold: true } : {}),
+      ...(name ? { name } : {}),
+      ...(color ? { color } : {}),
+      ...(caps ? { caps: true } : {}),
+      ...(letterSpacing ? { letterSpacing } : {}),
+    };
+  }
+}
+
+// Paragraph spacing the style chain states (and the document defaults), filled in where the paragraph states none.
+function applyDocxStyleSpacing(model, stylesXml) {
+  if (!stylesXml) return;
+  const base = docxParagraphSpacing(/<w:pPrDefault\b[\s\S]*?<\/w:pPrDefault>/.exec(stylesXml)?.[0] || '<w:pPr/>');
+  const declared = new Map();
+  for (const match of stylesXml.matchAll(/<w:style\b([^>]*)>([\s\S]*?)<\/w:style>/g)) {
+    const id = xmlDecode(/\bw:styleId="([^"]+)"/.exec(match[1])?.[1] || '');
+    if (!id) continue;
+    declared.set(id, {
+      basedOn: xmlDecode(/<w:basedOn\b[^>]*\bw:val="([^"]+)"/.exec(match[2])?.[1] || ''),
+      spacing: /<w:pPr\b/.test(match[2]) ? docxParagraphSpacing(match[2]) : {},
+    });
+  }
+  const resolve = (id, seen) => {
+    const entry = declared.get(id);
+    if (!entry || seen.has(id)) return base;
+    seen.add(id);
+    return { ...(entry.basedOn ? resolve(entry.basedOn, seen) : base), ...entry.spacing };
+  };
+  for (const paragraph of model.paragraphs) {
+    const spacing = { ...resolve(paragraph.style, new Set()), ...(paragraph.format || {}) };
+    if (Object.keys(spacing).length) paragraph.format = spacing;
   }
 }
 
@@ -742,6 +784,7 @@ export async function snapshotDocx(zip, options = {}) {
   const model = docxBodyModel(partXml.get('word/document.xml') ?? '');
   const stylesXml = await zipText(zip, 'word/styles.xml');
   applyDocxStyleFonts(model, resolveDocxStyleFonts(stylesXml));
+  applyDocxStyleSpacing(model, stylesXml);
   applyDocxStyleNames(model, stylesXml);
   applyDocxListKinds(model, await zipText(zip, 'word/numbering.xml'));
   const page = selectDocxBlocks(model, options);

@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAuthoringBrief, reviewBriefPromises, reviewFactCoverage, reviewSourceGrounding } from './pptx-brief.mjs';
+import {
+  isShowcaseBrief,
+  parseAuthoringBrief,
+  reviewBriefPromises,
+  reviewFactCoverage,
+  reviewSourceGrounding,
+} from './pptx-brief.mjs';
 
 const SCRIPT = `
 // BRIEF
@@ -184,3 +190,17 @@ test('figures without a fact behind them are reported; dates and slide numbers a
     true
   );
 });
+
+test('a concept is optional free text and does not change factual review', () => {
+  const without = parseAuthoringBrief(SCRIPT);
+  assert.equal(without.concept, '');
+  const withConcept = parseAuthoringBrief(SCRIPT.replace('// facts:', '// concept: field-led — the colour carries the brand\n// facts:'));
+  assert.equal(withConcept.concept, 'field-led — the colour carries the brand');
+  const document = { slides: [{ index: 1, shapes: [{ text: '38건, 999건' }] }] };
+  const issues = reviewFactCoverage(document, without);
+  assert.deepEqual(reviewFactCoverage(document, withConcept), issues);
+  assert.ok(issues.some((entry) => entry.code === 'number_without_fact'));
+  assert.equal(isShowcaseBrief(parseAuthoringBrief(SCRIPT.replace('reading mode: balanced', 'reading mode: keynote'))), true);
+  assert.equal(isShowcaseBrief(without), false);
+});
+

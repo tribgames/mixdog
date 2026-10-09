@@ -31,14 +31,24 @@ app.whenReady().then(async () => {
         const dialog = document.querySelector('[data-feature-id="localProvider"]');
         const body = dialog.querySelector('.extensions-dialog-body');
         const rect = dialog.getBoundingClientRect();
-        const buttons = [...dialog.querySelectorAll('.extensions-action')].map(el => {
+        const actions = (row) => [...(row?.querySelectorAll('.extensions-action') || [])].map(el => {
           const r = el.getBoundingClientRect(), css = getComputedStyle(el);
-          return { x:r.x, y:r.y, width:r.width, height:r.height, background:css.backgroundColor, radius:css.borderRadius };
+          return { label:el.getAttribute('aria-label'), disabled:el.disabled, x:r.x, y:r.y, width:r.width, height:r.height,
+            background:css.backgroundColor, radius:css.borderRadius };
         });
+        const row = (name) => dialog.querySelector('[data-extension-item="' + name + '"]');
+        const shell = dialog.querySelector('.local-provider-table-shell');
         return { text: dialog.textContent, nativeSelects: dialog.querySelectorAll('select').length,
           bodyPadding: parseFloat(getComputedStyle(body).paddingLeft),
           overflow: body.scrollWidth > body.clientWidth + 1,
-          bounds: { x:rect.x, y:rect.y, right:rect.right, bottom:rect.bottom }, buttons };
+          tableOverflow: shell ? shell.scrollWidth > shell.clientWidth + 1 : true,
+          headerWeight: Number(getComputedStyle(dialog.querySelector('.local-provider-table th')).fontWeight),
+          rows: [...dialog.querySelectorAll('.local-provider-table tbody tr')].map((tr) => tr.dataset.extensionItem),
+          bounds: { x:rect.x, y:rect.y, right:rect.right, bottom:rect.bottom },
+          buttons: actions(row('Qwen3.8 27B Q4_K_M')),
+          installing: actions(row('Gemma 4 12B Q4_K_M')),
+          failed: actions(row('Llama 4 8B Q5_K_M')),
+          progress: row('Gemma 4 12B Q4_K_M')?.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow') ?? null };
       })()`);
       const failures = [];
       if (state.overflow) failures.push('horizontal overflow');
@@ -52,18 +62,27 @@ app.whenReady().then(async () => {
         failures.push('dialog outside viewport');
       if (/PC 사양 확인 중|Checking hardware/.test(state.text)) failures.push('hardware polling message exposed');
       if (state.nativeSelects) failures.push('native selector exposed');
-      // The installed-model row carries TWO in-card actions — the context
-      // `Apply` and `Delete` — on one baseline. The three-button
-      // `.local-provider-actions` row this count was written for is gone:
-      // repair and verification are chat-driven through the local-provider
-      // skill (src/renderer/settings/local-provider-model-row.tsx).
-      if (state.buttons.length !== 2 || new Set(state.buttons.map((b) => Math.round(b.y))).size !== 1)
-        failures.push('actions are not on one compact row');
+      // One table: installed, installing and failed models share it, in the
+      // usage table's style (emphasized header band), without overflowing.
+      if (state.rows.join('|') !== 'Gemma 4 12B Q4_K_M|Llama 4 8B Q5_K_M|Qwen3.8 27B Q4_K_M')
+        failures.push(`unexpected table rows: ${state.rows.join('|')}`);
+      if (state.tableOverflow) failures.push('model table overflows its card');
+      if (!(state.headerWeight >= 600)) failures.push('table header is not emphasized');
+      // Icon actions: the idle loaded model stays deletable.
+      if (state.buttons.map((b) => b.label).join('|') !== '삭제' || state.buttons[0]?.disabled !== false)
+        failures.push('idle loaded model not deletable');
+      if (state.installing.map((b) => b.label).join('|') !== '다운로드 중지' || state.progress !== '42')
+        failures.push('installing row lacks stop or progress');
+      if (
+        state.failed.map((b) => b.label).join('|') !== '다시 시도|정리' ||
+        new Set(state.failed.map((b) => Math.round(b.y))).size !== 1
+      )
+        failures.push('failed installation lacks retry and discard on one row');
       win.webContents.invalidate();
       await evaluate('window.localProviderProbe.settle()');
       writeFileSync(join(output, `${name}.png`), (await win.webContents.capturePage()).toPNG());
       await evaluate(`(() => {
-        const trigger = document.querySelector('[data-feature-id="localProvider"] [role="combobox"]');
+        const trigger = document.querySelector('[data-feature-id="localProvider"] [role="combobox"][aria-label="유휴 시 자동 언로드"]');
         trigger.scrollIntoView({ block:'center' }); trigger.click();
       })()`);
       await evaluate('window.localProviderProbe.settle()');
@@ -77,7 +96,32 @@ app.whenReady().then(async () => {
       win.webContents.invalidate();
       await evaluate('window.localProviderProbe.settle()');
       writeFileSync(join(output, `${name}-menu.png`), (await win.webContents.capturePage()).toPNG());
-      reports.push({ name, failures, state, menu });
+      // Both confirmations, captured once per theme at desktop width.
+      const confirmations = {};
+      if (!mobile) {
+        for (const [label, file] of [
+          ['정리', 'discard'],
+          ['삭제', 'delete'],
+        ]) {
+          await evaluate(`(() => {
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            [...document.querySelectorAll('[data-feature-id="localProvider"] .extensions-action')]
+              .find((el) => el.getAttribute('aria-label') === ${JSON.stringify(label)}).click();
+          })()`);
+          await evaluate('window.localProviderProbe.settle()');
+          confirmations[file] = await evaluate(
+            `document.querySelector('[role="alertdialog"]')?.textContent || null`
+          );
+          if (!confirmations[file]) failures.push(`${file} confirmation missing`);
+          win.webContents.invalidate();
+          await evaluate('window.localProviderProbe.settle()');
+          writeFileSync(join(output, `${name}-${file}.png`), (await win.webContents.capturePage()).toPNG());
+          await evaluate(`[...document.querySelectorAll('[role="alertdialog"] button')].find((el) => !el.classList.contains('danger'))?.click()`);
+          await evaluate('window.localProviderProbe.settle()');
+        }
+        if (!/먼저 내린 뒤/.test(confirmations.delete || '')) failures.push('delete confirmation omits unload notice');
+      }
+      reports.push({ name, failures, state, menu, confirmations });
     }
     writeFileSync(join(output, 'report.json'), JSON.stringify(reports, null, 2));
     const failed = reports.filter((report) => report.failures.length);

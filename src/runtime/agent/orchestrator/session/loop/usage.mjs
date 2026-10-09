@@ -31,9 +31,6 @@ export function normalizeUsage(usage) {
 
 // Per-iteration usage delta published mid-turn (fix A) so watchdog /
 // agent type=list sees live totals instead of only the terminal aggregate.
-// Billing deltas include OAuth WS warmup; the context* fields must describe
-// only the main send, so they fall back to the billing value only when the
-// provider reported no separate main-send usage.
 export function usageDeltaEvent({
   sessionId,
   iterationIndex,
@@ -61,12 +58,11 @@ export function usageDeltaEvent({
     // callers that ignore these fields keep working.
     deltaCachedRead: usage.cachedTokens || 0,
     deltaCacheWrite: usage.cacheWriteTokens || 0,
-    contextInputTokens: usage.mainInputTokens ?? usage.inputTokens ?? 0,
-    contextOutputTokens: usage.mainOutputTokens ?? usage.outputTokens ?? 0,
-    contextPromptTokens: usage.mainPromptTokens ?? usage.promptTokens ?? 0,
-    contextCachedReadTokens: usage.mainCachedTokens ?? usage.cachedTokens ?? 0,
-    contextCacheWriteTokens: usage.mainCacheWriteTokens ?? usage.cacheWriteTokens ?? 0,
-    contextUsageAvailable: usage.mainUsageAvailable !== false,
+    contextInputTokens: usage.inputTokens ?? 0,
+    contextOutputTokens: usage.outputTokens ?? 0,
+    contextPromptTokens: usage.promptTokens ?? 0,
+    contextCachedReadTokens: usage.cachedTokens ?? 0,
+    contextCacheWriteTokens: usage.cacheWriteTokens ?? 0,
     contextMeasuredTokens: measuredContextTokens(usage),
     sendTools,
     ts: Date.now(),

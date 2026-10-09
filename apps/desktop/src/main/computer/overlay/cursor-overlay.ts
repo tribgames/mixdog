@@ -9,7 +9,7 @@ import { screen } from 'electron';
 import { computerUseCoordinator, type ComputerUseSnapshot } from '../session/coordinator';
 import { bindCursorPreparation } from './cursor-readiness';
 import { recordCursorDiagnostic } from './cursor-diagnostics';
-import { type CursorRenderContext, renderCursor } from './cursor-render';
+import { type CursorRenderContext, renderCursor, settleCursor } from './cursor-render';
 import {
   type CursorSurface,
   cursorBounds,
@@ -101,9 +101,11 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
   const render = (): void => {
     if (disposed) return;
     const released = new Set(latestSnapshot.releasedPointerSessionIds ?? []);
+    const present = new Set(latestSnapshot.presentSessionIds ?? []);
+    // Only a session still using the computer keeps an arrow, in either mode.
     const modes = new Map(
       latestSnapshot.activities
-        .filter((activity) => !released.has(activity.sessionId))
+        .filter((activity) => present.has(activity.sessionId) && !released.has(activity.sessionId))
         .map((activity) => [activity.sessionId, activity.mode])
     );
     const cursors = tail.update(computerUseCursorPresentations(latestSnapshot), presentationBlocked(), modes);
@@ -136,6 +138,11 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
           recordCursorDiagnostic('render_failed');
         }
       });
+    }
+    // A finished command leaves the arrow at rest, not mid-press or still typing.
+    const acting = new Set(latestSnapshot.cursors.map((cursor) => cursor.sessionId));
+    for (const cursor of cursors) {
+      if (!acting.has(cursor.sessionId)) settleCursor(surfaceFor(cursor.sessionId), cursor);
     }
   };
 

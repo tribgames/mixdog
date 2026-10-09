@@ -57,6 +57,63 @@ export function extractDocxFlow() {
       .replace(/^["']|["']$/g, '');
     return GENERIC.has(first.toLowerCase()) ? '' : first;
   };
+  // Word sets Hangul in the run's East Asian face, so that face is the first family of the stack that carries
+  // Hangul or CJK — the one the browser fell back to — not the stack's Latin lead ("Georgia, 'Noto Serif KR'").
+  // A stack with no such family in a Korean document takes the system face of the stack's class.
+  const CJK_FAMILY =
+    /(\bKR\b|\bJP\b|\bSC\b|\bTC\b|\bHK\b|CJK|Korean|Malgun|맑은|Batang|바탕|Gulim|굴림|Dotum|돋움|Gungsuh|궁서|Nanum|나눔|Pretendard|Spoqa|Apple SD Gothic|AppleMyungjo|Source Han|본고딕|본명조|Gowun|Yu Gothic|Yu Mincho|Meiryo|MS Gothic|MS Mincho|YaHei|SimSun|SimHei|DengXian|PingFang|Hiragino|JhengHei)/i;
+  const SERIF_FAMILY = /(Georgia|Cambria|Times|Garamond|Book Antiqua|Palatino|Constantia|Serif|Myungjo|Mincho)/i;
+  let koreanDocument = null;
+  // A family renders Hangul itself when it is installed (its Latin metrics differ from a generic's) and its drawn
+  // Hangul matches none of the system fallbacks a Latin-only face gets (Chromium picks the fallback per primary
+  // face, so several Latin references and the generics are compared). Pixels, not advance widths: Hangul is set on
+  // a near-uniform em advance in most Korean faces, so widths rarely differ.
+  const GENERIC_FAMILY = /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-[\w-]+|emoji|math|fangsong)$/i;
+  const GENERIC_CLASSES = ['serif', 'sans-serif', 'monospace'];
+  const probeCanvas = document.createElement('canvas');
+  probeCanvas.width = 120;
+  probeCanvas.height = 40;
+  const hangulProbe = probeCanvas.getContext('2d', { willReadFrequently: true });
+  const hangulCover = new Map();
+  const glyphs = (stack) => {
+    hangulProbe.clearRect(0, 0, probeCanvas.width, probeCanvas.height);
+    hangulProbe.font = `28px ${stack}`;
+    hangulProbe.textBaseline = 'top';
+    hangulProbe.fillText('한글가', 2, 4);
+    const { data } = hangulProbe.getImageData(0, 0, probeCanvas.width, probeCanvas.height);
+    let alpha = '';
+    for (let index = 3; index < data.length; index += 4) alpha += String.fromCharCode(data[index]);
+    return alpha;
+  };
+  const latinWidth = (stack) => {
+    hangulProbe.font = `28px ${stack}`;
+    return hangulProbe.measureText('mmmmmmmmmmlli').width;
+  };
+  let fallbackGlyphs = null;
+  const rendersHangul = (family) => {
+    if (GENERIC_FAMILY.test(family)) return false;
+    if (!hangulCover.has(family)) {
+      const quoted = `"${family.replace(/"/g, '')}"`;
+      const installed = GENERIC_CLASSES.some((generic) => latinWidth(`${quoted}, ${generic}`) !== latinWidth(generic));
+      fallbackGlyphs ??= ['"Arial"', '"Times New Roman"', '"Courier New"', ...GENERIC_CLASSES].map(glyphs);
+      const own = installed ? glyphs(quoted) : '';
+      hangulCover.set(family, installed && fallbackGlyphs.every((reference) => own !== reference));
+    }
+    return hangulCover.get(family);
+  };
+  const eastAsiaFace = (cs) => {
+    const families = String(cs.fontFamily || '')
+      .split(',')
+      .map((part) => part.trim().replace(/^["']|["']$/g, ''))
+      .filter(Boolean);
+    if (koreanDocument === null) koreanDocument = /[\uAC00-\uD7A3]/.test(document.body.textContent || '');
+    // CSS order: the first family that is a known CJK face or (in a Korean document) renders Hangul wins.
+    const cjk = families.find((family) => CJK_FAMILY.test(family) || (koreanDocument && rendersHangul(family)));
+    if (cjk) return cjk;
+    if (!koreanDocument) return '';
+    const serif = families.some((family) => family.toLowerCase() === 'serif') || SERIF_FAMILY.test(families[0] || '');
+    return serif ? 'Batang' : 'Malgun Gothic';
+  };
   const describe = (el) => {
     const classes =
       typeof el.className === 'string' && el.className.trim() ? `.${el.className.trim().split(/\s+/).join('.')}` : '';
@@ -115,6 +172,7 @@ export function extractDocxFlow() {
     const inlineFill = ['inline', 'inline-block'].includes(cs.display) ? hex(cs.backgroundColor) : null;
     return {
       font: face(cs),
+      fontEastAsia: eastAsiaFace(cs),
       size: pt(n(cs.fontSize)),
       bold: weight >= 600,
       italic: cs.fontStyle === 'italic' || cs.fontStyle === 'oblique',
@@ -529,6 +587,7 @@ export function extractDocxFlow() {
     const result = {
       text: (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim(),
       font: face(cs),
+      fontEastAsia: eastAsiaFace(cs),
       size: pt(n(cs.fontSize)),
       color: hex(cs.color) || '000000',
       bold: (Number(cs.fontWeight) || 400) >= 600,
@@ -551,6 +610,7 @@ export function extractDocxFlow() {
     footer,
     body: {
       font: face(bodyStyle),
+      fontEastAsia: eastAsiaFace(bodyStyle),
       size: pt(n(bodyStyle.fontSize)),
       color: hex(bodyStyle.color) || '000000',
       line: lineOf(bodyStyle),

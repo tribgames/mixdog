@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
+import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
-import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
 import { appendAgentTrace } from '../agent-trace.mjs';
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 import { assertSafeBaseURL } from './provider-base-url.mjs';
@@ -15,7 +15,6 @@ import {
 import { sendCompatResponses } from './openai-compat-responses.mjs';
 import { sendCompatChat, recoverCompatNonStreaming } from './openai-compat-chat-send.mjs';
 import { sendXaiResponses, sendXaiResponsesWebSocket } from './openai-compat-xai-send.mjs';
-import { costUsdFromTicks, withCostUsd } from './openai-compat-response-normalization.mjs';
 import {
   fetchCompatModelItems,
   getCachedCompatModelInfo,
@@ -42,30 +41,6 @@ export function preloadOpenAICompatRuntime() {
   const OpenAI = loadOpenAI();
   getLlmDispatcher();
   return OpenAI;
-}
-
-function attachCompletedWarmup(err, warmup) {
-  if (!err || !warmup?.usage) return err;
-  try {
-    Object.defineProperty(err, '__warmup', {
-      value: warmup,
-      configurable: true,
-      enumerable: false,
-    });
-  } catch {}
-  return err;
-}
-
-function includeCompletedXaiWarmup(result, warmup) {
-  if (!result || !warmup?.usage) return result;
-  const usage = _combineUsageWithWarmup(result.usage, warmup.usage, {
-    separateMainContext: true,
-  });
-  const costUsd = costUsdFromTicks(usage?.raw?.cost_in_usd_ticks);
-  return {
-    ...result,
-    usage: usage ? withCostUsd(usage, costUsd) : usage,
-  };
 }
 
 export { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
@@ -160,6 +135,7 @@ export class OpenAICompatProvider {
     try {
       return await this._doSend(messages, model, tools, sendOpts);
     } catch (err) {
+      noteErrorUsage(err);
       // Credential reload + reissue requires a TYPED 401. A message that
       // merely mentions "401" is not evidence, and a typed 403 is a
       // permission decision — reloading the key cannot change it.
@@ -173,11 +149,7 @@ export class OpenAICompatProvider {
         }
         process.stderr.write(`[provider] Auth error, re-reading provider authentication...\n`);
         this.reloadApiKey();
-        const retryOpts =
-          this.name === 'xai' && err?.__warmup?.usage
-            ? { ...(sendOpts || {}), _carriedWarmup: err.__warmup }
-            : sendOpts;
-        return await this._doSend(messages, model, tools, retryOpts);
+        return await this._doSend(messages, model, tools, sendOpts);
       }
       throw err;
     }
@@ -192,15 +164,6 @@ export class OpenAICompatProvider {
     // production retains the shared preconnect by default.
     if (this.config?.preconnect !== false) this._preconnectFn(this.baseURL);
     if (this.name === 'xai' && isXaiResponsesApiEnabled(opts, this.config)) {
-      const carriedWarmup = opts._carriedWarmup?.usage ? opts._carriedWarmup : null;
-      const sendHttpWithWarmup = async (warmup = carriedWarmup) => {
-        try {
-          const result = await this._doSendXaiResponses(messages, useModel, tools, opts);
-          return includeCompletedXaiWarmup(result, warmup);
-        } catch (err) {
-          throw attachCompletedWarmup(err, warmup);
-        }
-      };
       // Shared Responses transport switch (MIXDOG_OAI_TRANSPORT), capability-
       // gated for xAI/Grok. Provider-local HTTP pins still win: Grok
       // proxy-only models set responsesTransport:'http' because the WS
@@ -214,6 +177,7 @@ export class OpenAICompatProvider {
         try {
           return await this._doSendXaiResponsesWebSocket(messages, useModel, tools, opts);
         } catch (err) {
+          noteErrorUsage(err);
           if (xaiTransportPolicy.allowHttpFallback && _shouldFallbackXaiWsToHttp(err, opts.signal)) {
             const reason = err?.midstreamClassifier || err?.retryClassifier || err?.code || err?.message || 'ws_failed';
             process.stderr.write(`[xai:responses] WebSocket unhealthy (${reason}); falling back to HTTP/SSE\n`);
@@ -235,12 +199,12 @@ export class OpenAICompatProvider {
                 },
               });
             } catch {}
-            return await sendHttpWithWarmup(err?.__warmup || carriedWarmup);
+            return await this._doSendXaiResponses(messages, useModel, tools, opts);
           }
           throw err;
         }
       }
-      return await sendHttpWithWarmup();
+      return await this._doSendXaiResponses(messages, useModel, tools, opts);
     }
     // Gateway brands that only answer on /responses (OpenCode Go routes
     // Muse Spark / GPT / Grok here via compatWireApi).

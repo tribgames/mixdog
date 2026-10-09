@@ -1,4 +1,4 @@
-import { grokCacheChainTraceFields, traceAgentUsage } from '../agent-trace.mjs';
+import { extractCacheWriteTokens, grokCacheChainTraceFields, traceAgentUsage } from '../agent-trace.mjs';
 import { extractCompatCachedTokens } from './openai-compat-trace.mjs';
 import { collectCompatResponseSearchSources } from './openai-compat-wire.mjs';
 import {
@@ -8,13 +8,16 @@ import {
 } from './openai-compat-xai.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 
+const reportedNumber = (value) =>
+  value == null || (typeof value === 'string' && value.trim() === '') ? Number.NaN : Number(value);
+
 export function compatReportedCostUsd(providerName, usage) {
   if (providerName === 'openrouter') {
-    const cost = Number(usage?.cost);
+    const cost = reportedNumber(usage?.cost);
     return Number.isFinite(cost) && cost >= 0 ? cost : undefined;
   }
   if (providerName === 'xai') {
-    const ticks = Number(usage?.cost_in_usd_ticks);
+    const ticks = reportedNumber(usage?.cost_in_usd_ticks);
     return Number.isFinite(ticks) && ticks >= 0 ? Number((ticks * 1e-10).toFixed(8)) : undefined;
   }
   return undefined;
@@ -74,13 +77,22 @@ export function traceCompatResponseUsage({
   });
 }
 
-function chatCompletionUsage(providerName, usage) {
+// Responses-wire reported cost: a gateway `cost` (decimal USD) when present,
+// else xAI ticks. null/empty/negative is "not reported", never a reported $0.
+export function responsesReportedCostUsd(usage) {
+  const cost = reportedNumber(usage?.cost);
+  if (Number.isFinite(cost) && cost >= 0) return cost;
+  return costUsdFromTicks(usage?.cost_in_usd_ticks);
+}
+
+export function chatCompletionUsage(providerName, usage) {
   const input = usage.prompt_tokens ?? usage.input_tokens ?? 0;
   return withCostUsd(
     {
       inputTokens: input,
       outputTokens: usage.completion_tokens ?? usage.output_tokens ?? 0,
       cachedTokens: extractCompatCachedTokens(usage),
+      cacheWriteTokens: extractCacheWriteTokens(usage),
       // Chat Completions prompt_tokens is already the total prompt
       // the model ingested (cached is a subset) — alias directly.
       promptTokens: input,
@@ -90,17 +102,18 @@ function chatCompletionUsage(providerName, usage) {
   );
 }
 
-function responsesUsage(usage) {
+export function responsesUsage(usage) {
   const inputTokens = usage.input_tokens ?? usage.prompt_tokens ?? 0;
   return withCostUsd(
     {
       inputTokens,
       outputTokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
       cachedTokens: extractCompatCachedTokens(usage),
+      cacheWriteTokens: extractCacheWriteTokens(usage),
       promptTokens: inputTokens,
       raw: { ...usage },
     },
-    costUsdFromTicks(usage.cost_in_usd_ticks)
+    responsesReportedCostUsd(usage)
   );
 }
 
@@ -142,6 +155,9 @@ export function normalizeCompatChatResponse({
       model: response.model || useModel,
       responseId: response.id || null,
       rawUsage: response.usage || null,
+      ...(response.usage
+        ? { partialUsage: chatCompletionUsage(providerName, response.usage), partialModel: response.model || useModel }
+        : {}),
     });
   }
   writeCompatCacheTrace({
@@ -297,7 +313,6 @@ export function normalizeXaiResponsesWebSocket({
   const providerReplay = createProviderReplay('xai-responses', result.responseItems);
   const encryptedReasoningHistory = xaiEncryptedReasoningHistory(opts, messages, encryptedReasoningItems);
   const rawUsage = result.usage?.raw || result.usage || null;
-  const traceParams = result.__warmup?.requestBody || params;
   const response = {
     id: responseId,
     model: result.model || useModel,
@@ -307,7 +322,7 @@ export function normalizeXaiResponsesWebSocket({
   traceXaiResponses({
     model: useModel,
     opts,
-    params: traceParams,
+    params,
     rawTools: tools || [],
     response,
     cacheRouting,

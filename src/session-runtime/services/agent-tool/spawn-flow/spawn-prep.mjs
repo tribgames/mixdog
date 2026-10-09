@@ -22,9 +22,9 @@ export function presetDescriptor(agent, preset, presetName) {
   };
 }
 
-// Spawn prewarm builds the materialized stable prompt and keeps the resulting
-// Codex-style client handle reserved for the first turn. Fire-and-forget:
-// failures fall back to the lazy per-send handshake.
+// Spawn prewarm opens the session's pooled socket ahead of the first turn
+// (connection only). Fire-and-forget: failures fall back to the lazy
+// per-send handshake.
 // MIXDOG_AGENT_SPAWN_WS_PREWARM=0 disables.
 function maybePrewarmSpawnTransport(plan, session) {
   if (process.env.MIXDOG_AGENT_SPAWN_WS_PREWARM === '0') return;

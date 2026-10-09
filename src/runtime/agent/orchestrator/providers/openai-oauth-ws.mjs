@@ -20,13 +20,13 @@
  *                      useModel, traceCtx })
  *
  * The caller (openai-oauth.mjs) supplies a fully built request body and the
- * auth bundle; this module owns the attempt loop: acquire, optional warmup,
+ * auth bundle; this module owns the attempt loop: acquire,
  * delta framing, stream, and the hand-off to the per-send helpers
- * (openai-ws-send-attempts / -span / -warmup / -outcome).
+ * (openai-ws-send-attempts / -span / -outcome).
  *
- *   openai-ws-send/send-context.mjs     — per-send shared state (budget, warmup, span, resolvers)
+ *   openai-ws-send/send-context.mjs     — per-send shared state (budget, span, resolvers)
  *   openai-ws-send/acquire-attempt.mjs  — per-attempt socket acquire + acquire accounting
- *   openai-ws-send/attempt-request.mjs  — request body, stream state, warmup, wire frame
+ *   openai-ws-send/attempt-request.mjs  — request body, stream state, wire frame
  *   openai-ws-send/reasoning-replay.mjs — recovery-only reasoning replay policy
  */
 import { performance } from 'node:perf_hooks';
@@ -40,7 +40,6 @@ import {
   _classifyHandshakeError,
   _defaultSleep,
 } from './openai-ws-send-attempts.mjs';
-import { startupPrewarmResult, startupWarmupApplies } from './openai-ws-warmup.mjs';
 import { completeWsSend } from './openai-ws-send-outcome.mjs';
 import { createWsSendContext, notifyStage } from './openai-ws-send/send-context.mjs';
 import { acquireForAttempt, newHandshake, recordAcquired } from './openai-ws-send/acquire-attempt.mjs';
@@ -49,7 +48,6 @@ import {
   createAttemptRecord,
   createMidState,
   prepareRequestBody,
-  runAttemptWarmup,
 } from './openai-ws-send/attempt-request.mjs';
 
 // Legacy import paths for mixdog-session-runtime.mjs (drainOpenaiWsPool),
@@ -60,7 +58,6 @@ export { _classifyMidstreamError } from './openai-ws-send-attempts.mjs';
 export {
   _cacheObservation as _cacheObservationForTest,
   _cacheContinuityResetReason as _cacheContinuityResetReasonForTest,
-  _warmupContinuityTrace as _warmupContinuityTraceForTest,
 } from './openai-ws-send-outcome.mjs';
 export { _applyReasoningReplayPolicy } from './openai-ws-send/reasoning-replay.mjs';
 
@@ -207,7 +204,6 @@ export async function sendViaWebSocket({
   includeResponseId = false,
   traceProvider = 'openai-oauth',
   logSuppressedReasoningDeltas = true,
-  warmupBody = null,
   // Provider-specific handshake policy seam. OAuth leaves this null and
   // retains the Codex retry budget. Direct OpenAI uses it to surface
   // unsupported-WS handshake statuses immediately so its wrapper can make
@@ -222,8 +218,6 @@ export async function sendViaWebSocket({
   _sleepFn = _defaultSleep,
   _sendSpanTraceFn = appendAgentTrace,
   _agentTraceFn = appendAgentTrace,
-  _carriedWarmup = null,
-  _prewarmedHandle = null,
 }) {
   const ctx = createWsSendContext({
     auth,
@@ -240,7 +234,6 @@ export async function sendViaWebSocket({
     includeResponseId,
     traceProvider,
     logSuppressedReasoningDeltas,
-    warmupBody,
     handshakeErrorPolicy,
     _acquireWithRetryFn,
     _streamFn,
@@ -248,10 +241,8 @@ export async function sendViaWebSocket({
     _sleepFn,
     _sendSpanTraceFn,
     _agentTraceFn,
-    _carriedWarmup,
   });
   const { attempts, sendSpan } = ctx;
-  const prewarmed = { handle: _prewarmedHandle };
 
   for (let attemptIndex = 0; attemptIndex <= attempts.maxMidstreamRetries; attemptIndex++) {
     const handshake = newHandshake();
@@ -259,7 +250,7 @@ export async function sendViaWebSocket({
     notifyStage(onStageChange, 'requesting');
     let acquired;
     try {
-      acquired = await acquireForAttempt(ctx, handshake, { attemptIndex, prewarmed });
+      acquired = await acquireForAttempt(ctx, handshake, { attemptIndex });
     } catch (err) {
       await attempts.handshakeFailed(err, {
         attemptIndex,
@@ -272,35 +263,13 @@ export async function sendViaWebSocket({
     const { entry, reused } = acquired;
     recordAcquired(ctx, acquired, handshake);
     const requestBody = prepareRequestBody(ctx, entry, attemptIndex);
-    const startupWarmupResponseId =
-      typeof entry?.startupWarmupResponseId === 'string' ? entry.startupWarmupResponseId : null;
     const midState = createMidState(ctx, attemptIndex);
-    const attempt = createAttemptRecord({ attemptIndex, reused, handshake, startupWarmupResponseId });
+    const attempt = createAttemptRecord({ attemptIndex, reused, handshake });
     let result;
     try {
-      if (startupWarmupApplies({ warmupBody, completedWarmup: ctx.warmup.completed, attemptIndex, entry })) {
-        await runAttemptWarmup(ctx, { entry, attemptIndex, midState, attempt });
-      }
-
-      // Codex performs generate:false during session startup, then hands
-      // this live client session to the first real turn. Startup callers
-      // stop here.
-      if (sendOpts?._startupPrewarmOnly === true) {
-        const out = startupPrewarmResult({
-          entry,
-          poolKey,
-          cacheKey,
-          warmupResult: attempt.warmupResult,
-          startupWarmupResponseId,
-          useModel,
-        });
-        out.transportTiming = sendSpan.emit('ok');
-        return out;
-      }
-
       const requestBuildStart = performance.now();
       const wireFrame = buildWireFrame(ctx, attempt, entry, requestBody);
-      // Re-check abort after acquire/warmup — narrow window where
+      // Re-check abort after acquire —narrow window where
       // externalSignal could fire between successful acquire and
       // send(). Without this gate an aborted request could still
       // emit one frame to the provider.
@@ -344,7 +313,6 @@ export async function sendViaWebSocket({
       entry,
       result,
       requestBody,
-      completedWarmup: ctx.warmup.completed,
     });
     out.transportTiming = sendSpan.emit('ok');
     return out;

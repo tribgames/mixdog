@@ -368,7 +368,9 @@ jobs:
         with:
           path: apps/desktop/out
           key: >-
-            desktop-out-v3-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
+            desktop-out-v4-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
+              'CHANGELOG.md',
+              'apps/desktop/package.json',
               'apps/desktop/src/**',
               '!apps/desktop/src/**/*.test.mjs',
               '!apps/desktop/src/**/*.test.jsx',
@@ -485,6 +487,9 @@ jobs:
         run: |
           npm test --prefix apps/desktop -- src/main/computer/
           npm run test:slow --prefix apps/desktop -- src/main/computer/
+          # Headless Linux Chrome has no hover pointer, so the hover-gated
+          # reveal in this suite is only asserted here.
+          npm run test:slow --prefix apps/desktop -- src/renderer/compact-chrome-layout.slow.test.mjs
 
   # Every *.test.mjs in the relay package runs here by existing
   # (scripts/test.mjs). These suites guard pairing, transport, static serving

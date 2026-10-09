@@ -2,7 +2,7 @@
  * openai-ws-send-span.mjs — one compact timing row per logical WS send.
  *
  * The counters aggregate every handshake and mid-stream attempt of one
- * iteration, including warmup, without retaining request data. The frame
+ * iteration, without retaining request data. The frame
  * sender and the stream loop add to the same object (request build time,
  * pre-created and first-event gaps); `emit` publishes the row exactly once
  * and stamps the timing onto the result or error it is handed.

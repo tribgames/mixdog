@@ -76,8 +76,9 @@ export function createSessionRouteApi(bag) {
         // Explicit addressing initializes an empty session in place; the
         // runtime continues to own established-session route policy.
         const applyToCurrentSession = routeOpts.applyToCurrentSession === true;
-        const { applyToCurrentSession: _drop, ...nextRoute } = routeOpts;
-        const resolvedRoute = await runtime.setRoute(nextRoute, { applyToCurrentSession });
+        const keepMainModel = routeOpts.keepMainModel === true;
+        const { applyToCurrentSession: _drop, keepMainModel: _keep, ...nextRoute } = routeOpts;
+        const resolvedRoute = await runtime.setRoute(nextRoute, { applyToCurrentSession, keepMainModel });
         if (token === routeSequence) {
           if (applyToCurrentSession) syncContextStats({ allowEstimated: true });
           publishRoute();

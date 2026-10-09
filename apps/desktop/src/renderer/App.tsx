@@ -11,6 +11,9 @@ import { desktopBootPrerequisitesReady, markBootStage } from './boot-metrics';
 import { DesktopBootGate } from './PaneSurfaceGate';
 import { usePaneTypingFocus } from './use-composer-focus';
 import { navigationKey } from './text-format';
+import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { useStableEvent } from './use-stable-event';
+import { createSideFileGuard, type OpenFileTab } from './side-file-guard';
 import { useEditorNavigation } from './use-editor-navigation';
 import { usePaneTabClose, type ConversationHandoff } from './use-pane-tab-close';
 import { usePaneTabNavigation } from './use-pane-tab-navigation';
@@ -488,13 +491,22 @@ export function App() {
     fileReveal,
     latestEditorLocation,
     editorNavigationHistory,
-    openFileTab,
+    openFileTab: openFileTabRaw,
     openProblemQuickFix,
     navigateEditorHistory,
   } = useEditorNavigation({
     setTabs,
     openSelectionInFocusedPane: paneWorkspace.openInFocused,
   });
+  // Every main-tab open passes the side-file guard (assigned below): a file
+  // shown in a side dock is handed over, with its unsaved-changes confirmation.
+  const sideFileGuardRef = useRef<ReturnType<typeof createSideFileGuard> | null>(null);
+  const openFileTab = useStableEvent<Parameters<OpenFileTab>, void>((...args) =>
+    sideFileGuardRef.current ? sideFileGuardRef.current.openFileTab(...args) : openFileTabRaw(...args)
+  );
+  const openFileInSideDock = useStableEvent<Parameters<ReturnType<typeof createSideFileGuard>['openFileInSideDock']>, void>(
+    (...args) => sideFileGuardRef.current?.openFileInSideDock(...args)
+  );
 
   const {
     openStudioTab,
@@ -531,6 +543,7 @@ export function App() {
   const {
     cancelPendingTabClose,
     closeTab,
+    confirmSideFileExit,
     discardAndClosePendingTab,
     pendingUnsavedClose,
     saveAndClosePendingTab,
@@ -554,6 +567,23 @@ export function App() {
     setComposerFocusRequest,
     lastSessionStorageKey: LAST_SESSION_KEY,
   });
+  const sideFileGuard = createSideFileGuard({
+    sideFiles: () =>
+      Object.entries(paneSideDocks.docks).flatMap(([leafId, entry]) => (entry.file ? [{ leafId, file: entry.file }] : [])),
+    mainTabKeys: () =>
+      new Set(
+        paneWorkspace.leaves.flatMap((leaf) =>
+          leaf.tabs.filter((selection) => selection.kind === 'file').map((selection) => navigationKey(selection))
+        )
+      ),
+    isDirty: (key) => dirtyFileKeys.has(key),
+    clearDirty: (key) => handleFileDirty(key, false),
+    confirm: confirmSideFileExit,
+    dockOpenFile: paneSideDocks.openFile,
+    dockCloseFile: paneSideDocks.closeFile,
+    openMainTab: openFileTabRaw,
+  });
+  sideFileGuardRef.current = sideFileGuard;
   const { activatePaneSurface, paneStripFor, stripTitleFor } = useAppPaneChrome({
     tabs,
     sessions,
@@ -675,6 +705,9 @@ export function App() {
     stageNewTaskOrchestrationMode,
     openConversationCommandSurface,
     openFileTab,
+    // A phone/web renderer has no side dock to host the editor: it keeps main tabs.
+    openFileInSideDock:
+      !isRemoteBrowserRenderer() && workbenchSideLayout.layout.right.length > 0 ? openFileInSideDock : undefined,
   });
 
   const { paneFileEditors, paneUtilitySurfacePortals, paneUtilityTabs } = useAppPersistentPaneSurfaces({
@@ -746,6 +779,9 @@ export function App() {
     moveWorkbenchSideGroup,
     moveWorkbenchSideView,
     openFileTab,
+    sideFileGuard,
+    handleFileDirty,
+    registerEditorSaveHandle,
     desktopBootReady,
     bottomPanel,
     problemsFilter,

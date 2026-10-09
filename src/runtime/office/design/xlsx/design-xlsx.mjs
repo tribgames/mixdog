@@ -229,6 +229,13 @@ function baseSheetLayout(operation, design, composition) {
     colors: design.tokens.colors,
     type: design.tokens.typography,
     format: design.format,
+    // The accent-filled lead card is the dashboard compositions' look; the profile's format.accentHeadline
+    // (or the operation's accentHeadline) turns it on or off for any other.
+    accentHeadline: Boolean(
+      operation.accentHeadline ??
+        design.format?.accentHeadline ??
+        (compositionId === 'monitor-dashboard' || compositionId === 'trend-dashboard')
+    ),
     trendDashboard: compositionId === 'trend-dashboard',
     comparisonBoard: compositionId === 'comparison-board',
     analysisSheet: compositionId === 'analysis-sheet',
@@ -518,7 +525,7 @@ function pushMetricStrips(output, layout, row) {
   const cards = metricCardSpans(metrics, stripColumns);
   for (const card of cards) {
     pushMetricCard(output, layout, card.metric, {
-      headline: card.index === lead && !analysisSheet,
+      headline: card.index === lead && !analysisSheet && layout.accentHeadline,
       startColumn: card.startColumn,
       endColumn: card.endColumn,
       stripRow: row + card.strip * 3,
@@ -611,7 +618,7 @@ function pushDataTable(output, layout, operation, values, startRow) {
       // is not that palette: a green sheet came back with orange rows. The
       // table keeps its filters and its name; the colours stay the ones the
       // design chose, unless the caller asks for a built-in style by name.
-      style: operation.tableStyle || 'none',
+      style: operation.tableStyle || layout.format.tableStyle || 'none',
     });
     // A recomposed sheet may already hold this pane; freezing it again is the
     // composer's routine step, not a change the caller asked to see happen.

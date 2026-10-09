@@ -187,6 +187,7 @@ async function exchangeRefreshToken(refreshToken) {
       if (res.status === 400 || res.status === 401 || /invalid_grant|revoked|reused/i.test(text)) {
         throw Object.assign(new Error(`OpenAI OAuth token refresh ${res.status} (invalid_grant)`), {
           isInvalidGrant: true,
+          reauthRequired: true,
         });
       }
       return null;

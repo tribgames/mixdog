@@ -3,6 +3,7 @@
 // → the merged verdict (see office-qa/*.mjs).
 import { recalculateForReview } from './office-recalculation.mjs';
 import { reviewRenderedOfficePages } from '../quality/assurance.mjs';
+import { forcedBreakPages } from '../quality/forced-break-pages.mjs';
 import { isSmallWorksheetDocument } from '../quality/assurance-rendered.mjs';
 import { renderOfficePreview } from './office-render-preview.mjs';
 import { pptxReviewArtifacts } from '../authoring/pptx-review-artifacts.mjs';
@@ -42,6 +43,7 @@ export async function qa(session, args, cwd, { reuseRender = false } = {}) {
         smallWorksheet: session.format === 'xlsx' && isSmallWorksheetDocument(design.currentSnapshot?.document),
         pageCount: preview.pageCount,
         designedPages: session.authoredFrame === true,
+        forcedBreakPages: await forcedBreakPages(session, preview),
       });
   const trust = design.currentSnapshot?.trust || session.trustReview || null;
   const { review, combinedIssuesAfter } = assembleQaReview({

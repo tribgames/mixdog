@@ -24,6 +24,12 @@ export function openAiDirectSupportsFast(model) {
   return isGpt56PlusModel(id) || EARLIER_FAST_MODELS.test(id);
 }
 
+const ULTRAFAST_MODELS = /^(?:gpt-6-astra|gpt-6\.1-sol)(?:-\d{4}-\d{2}-\d{2})?$/;
+
+export function openAiDirectSupportsUltrafast(model) {
+  return ULTRAFAST_MODELS.test(String(model?.id || model || '').trim());
+}
+
 export function applyOpenAIDirectCachePolicy(body, model, storeResponses) {
   body.store = storeResponses;
   delete body.prompt_cache_retention;

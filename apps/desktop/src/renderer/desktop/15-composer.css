@@ -1043,6 +1043,38 @@
   color: var(--mx-danger);
   background: var(--mx-hover);
 }
+.composer-attachments .attachment-edit {
+  color: var(--mx-icon-muted);
+}
+.composer-attachments .attachment-edit:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+/* The paste chip's label opens its editor too; it reads as the plain label. */
+.composer-attachments .attachment-name {
+  display: block;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.composer-paste-dialog textarea {
+  min-height: 320px;
+  resize: vertical;
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-ui);
+  white-space: pre;
+}
 .task-drop-overlay {
   position: absolute;
   z-index: 30;

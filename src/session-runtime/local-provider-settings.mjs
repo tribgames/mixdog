@@ -10,6 +10,7 @@ export function createLocalProviderSettings({
   prepareLocalProviderModel,
   refreshLocalProviderCatalog,
   cancelLocalProviderInstallation,
+  discardLocalProviderInstallation,
   configureLocalProviderIdleTtl,
 }) {
   let commandError = null;
@@ -50,6 +51,15 @@ export function createLocalProviderSettings({
       cancelLocalProviderInstallation(jobId) {
         if (typeof jobId !== 'string' || !jobId.trim()) throw new TypeError('jobId is required.');
         cancelLocalProviderInstallation(jobId);
+        return this.getToolModuleSettings();
+      },
+      discardLocalProviderInstallation(phase, modelId) {
+        if (!['runtime', 'model', 'verify', 'repair'].includes(phase))
+          throw new TypeError('phase must be runtime, model, verify or repair.');
+        if (phase !== 'runtime' && (typeof modelId !== 'string' || !modelId.trim()))
+          throw new TypeError('modelId is required.');
+        discardLocalProviderInstallation(phase, phase === 'runtime' ? null : modelId);
+        commandError = null;
         return this.getToolModuleSettings();
       },
       setLocalProviderIdleTtl(seconds) {

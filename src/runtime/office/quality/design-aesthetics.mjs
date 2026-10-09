@@ -67,7 +67,9 @@ function rangeFit(value, [minimum, maximum]) {
   return clamp((1 - value) / Math.max(0.001, 1 - maximum));
 }
 
-function paletteDiscipline(metric, role) {
+function paletteDiscipline(metric, role, format = '') {
+  // A workbook with no accent hue, or one, is neutral by design: nothing to penalise, and no xlsx gate reads it.
+  if (format === 'xlsx' && metric.paletteHueCount <= 1) return 1;
   // Frontier content pages carry the accent on 3-70% of their foreground
   // (median 0.05 Sequoia, 0.07 Coatue, 0.09 BCG, 0.15 NVIDIA, 0.26 Evans,
   // 0.41 Kakao, 0.57 Samsung, 0.62 Bond); a page with no saturated hue at
@@ -283,7 +285,7 @@ export async function reviewRenderedOfficeAesthetics(images = [], { format = '',
       ...metric,
       role,
       densityFit: rounded(composition.densityFit),
-      paletteDiscipline: rounded(paletteDiscipline(metric, role)),
+      paletteDiscipline: rounded(paletteDiscipline(metric, role, normalized)),
       compositionScore: rounded(composition.score),
     };
   });

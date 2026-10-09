@@ -9,8 +9,8 @@ import {
 } from './editor-file-loader';
 import { mergeDocumentPreviewPages, type DocumentPreview } from './editor-document-model';
 import type { EditorFileHandle, EditorRecovery, FilePreview } from './editor-pane-model';
+import { startEditorDiskWatch } from './editor-disk-watch';
 import { reportEditorLoadStage } from './renderer-load-metrics';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
 import { t } from './i18n';
 
 type EditorInstance = import('monaco-editor').editor.IStandaloneCodeEditor;
@@ -57,6 +57,9 @@ export function useEditorFileSession({
     [editorRef, modelRef]
   );
   const [load, setLoad] = useState<EditorFileLoad | null>(null);
+  // Bumped whenever a reload, revert or backup restore replaces the model
+  // text, even when the loaded string is unchanged (edit then revert).
+  const [contentRevision, setContentRevision] = useState(0);
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [previewError, setPreviewError] = useState('');
@@ -78,6 +81,7 @@ export function useEditorFileSession({
   const savedText = useRef('');
   const loadedRef = useRef(false);
   const savingRef = useRef(false);
+  const readOnlyRef = useRef(false);
   const saveQueue = useRef<Promise<boolean>>(Promise.resolve(true));
   const backupTimer = useRef<number | null>(null);
   const backupQueue = useRef<Promise<void>>(Promise.resolve());
@@ -152,10 +156,17 @@ export function useEditorFileSession({
     }
     void takeEditorFileLoad(api, projectPath, relPath, accessToken, !loadedRef.current, true)
       .then(({ file: result, backup }) => {
-        const resolution = resolveEditorBackup(result.content, backup);
+        readOnlyRef.current = Boolean(result.readOnly);
+        // A read-only file has no save path, so a stale backup never applies.
+        // The baseline is normalized like Monaco's model text, or mixed line
+        // endings would make the file dirty on mount.
+        const normalized = normalizeEditorModelText(result.content);
+        const resolution = result.readOnly
+          ? { content: normalized, savedContent: normalized, recovery: null, discardBackup: false }
+          : resolveEditorBackup(result.content, backup);
         const content = resolution.content;
         let nextRecovery: EditorRecovery | null = null;
-        if (!result.binary && !result.tooLarge) {
+        if (!result.binary && !result.tooLarge && !result.readOnly) {
           nextRecovery = resolution.recovery;
           if (resolution.discardBackup) {
             void deleteBackup().catch(() => undefined);
@@ -171,6 +182,7 @@ export function useEditorFileSession({
         const model = readModel();
         if (model && model.getValue() !== content) model.setValue(content);
         markDirty(content !== resolution.savedContent);
+        setContentRevision((revision) => revision + 1);
       })
       .catch((reason) => {
         setError(fileAccessError(reason));
@@ -204,27 +216,32 @@ export function useEditorFileSession({
       markDirty(false);
     };
     if (filePreviewTypeForPath(relPath) && api?.previewProjectFile) {
+      // SVG is also text: its source loads alongside the image preview so the
+      // Preview/Source toggle switches views without a reload.
+      const svg = /\.svg$/i.test(relPath);
+      if (svg) readFileContents();
       void api
         .previewProjectFile(projectPath, relPath, accessToken)
         .then((result) => {
           setPreview(result);
-          previewOpened(result);
+          if (!svg) previewOpened(result);
         })
         .catch((reason) => {
+          if (svg) return;
           setLoad(null);
           setError(fileAccessError(reason));
         });
       return;
     }
-    // Desktop document clicks use the default app. Restored tabs must not
-    // launch programs on mount or retry the PDF viewer: keep the manual escape.
-    // A paired phone cannot launch the desktop app, so retain its page viewer.
+    // Documents render as in-app pages on desktop and remote alike. A failed
+    // conversion keeps the binary notice with its manual "Open in default
+    // app" escape; opening or restoring a tab never launches an OS program.
     const documentFormat = documentPreviewFormatForPath(relPath);
     const documentFailed = (reason: unknown): void => {
       setDocumentError(reason instanceof Error ? reason.message : String(reason));
       readFileContents();
     };
-    if (documentFormat && isRemoteBrowserRenderer() && api?.previewDocumentPages) {
+    if (documentFormat && api?.previewDocumentPages) {
       void api
         .previewDocumentPages(projectPath, relPath, accessToken, { pages: [1] })
         .then((result) => {
@@ -258,14 +275,18 @@ export function useEditorFileSession({
       const editor = editorRef.current;
       const model = readModel();
       const writer = api?.writeProjectFile;
-      if (!model || !writer) return false;
+      if (!model || !writer || readOnlyRef.current) return false;
       if (!encoding && model.getValue() === savedText.current) return true;
       if (editorSettings.formatOnSave) {
         try {
           if (formatDocument) await formatDocument();
           else await editor?.getAction('editor.action.formatDocument')?.run();
         } catch (reason) {
-          setSaveError(t('Format on save failed: {{value0}}', { value0: reason instanceof Error ? reason.message : String(reason) }));
+          setSaveError(
+            t('Format on save failed: {{value0}}', {
+              value0: reason instanceof Error ? reason.message : String(reason),
+            })
+          );
           return false;
         }
       }
@@ -351,7 +372,7 @@ export function useEditorFileSession({
 
   useEffect(() => {
     if (!active || !load || load.binary || load.tooLarge) return undefined;
-    const timer = window.setInterval(() => {
+    return startEditorDiskWatch(window, () => {
       if (document.body.dataset.tabDragging) return;
       void api
         ?.statProjectFile?.(projectPath, relPath, accessToken)
@@ -367,8 +388,7 @@ export function useEditorFileSession({
           setDiskChanged(true);
           setSaveError(fileAccessError(reason));
         });
-    }, 2_500);
-    return () => window.clearInterval(timer);
+    });
   }, [accessToken, active, api, readModel, load, projectPath, relPath, reload]);
 
   const revertFromDisk = useCallback(async (): Promise<boolean> => {
@@ -393,6 +413,7 @@ export function useEditorFileSession({
       setSaveError('');
       model.setValue(content);
       markDirty(false);
+      setContentRevision((revision) => revision + 1);
       setDiffTick((tick) => tick + 1);
       await deleteBackup().catch(() => undefined);
       editorRef.current?.focus();
@@ -410,6 +431,7 @@ export function useEditorFileSession({
     if (!model || !recovery) return;
     model.setValue(recovery.content);
     setRecovery({ ...recovery, restored: true });
+    setContentRevision((revision) => revision + 1);
     markDirty(true);
     scheduleBackup(recovery.content);
     editorRef.current?.focus();
@@ -490,6 +512,7 @@ export function useEditorFileSession({
 
   const completePreview = useCallback(() => {
     setPreviewLoaded(true);
+    setPreviewError('');
     notifyReady();
   }, [notifyReady]);
 
@@ -501,6 +524,7 @@ export function useEditorFileSession({
 
   return {
     load,
+    contentRevision,
     preview,
     previewLoaded,
     previewError,

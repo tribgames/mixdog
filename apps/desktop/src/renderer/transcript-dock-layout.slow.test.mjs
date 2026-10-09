@@ -223,6 +223,11 @@ test('dock changes and delayed rich rows preserve real browser geometry', async 
     await page.click('.turn-review-summary');
     await stable();
     assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'review disclosure overlays the reader');
+    const stack = await page.evaluate(() => ({
+      goalBottom: document.querySelector('.session-goal-island').getBoundingClientRect().bottom,
+      reviewTop: document.querySelector('.turn-review-bar').getBoundingClientRect().top,
+    }));
+    assert.ok(stack.goalBottom <= stack.reviewTop + 0.5, 'an open review lifts Goal above its file list');
     await page.click('.session-goal-trigger');
     await stable();
     assert.equal((await geometry(page)).dockHeight, collapsed.dockHeight, 'Goal disclosure overlays the reader');

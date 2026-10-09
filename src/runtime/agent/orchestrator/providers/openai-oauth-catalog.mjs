@@ -15,7 +15,8 @@ import { makeModelCache } from './model-cache.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { modelSupportsServiceTier } from './model-service-tiers.mjs';
-import { warmCodexClientVersion } from './codex-client-meta.mjs';
+import { codexClientVersionSync, warmCodexClientVersion } from './codex-client-meta.mjs';
+import { compareSemver, maxSemver } from './npm-cli-version.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { CODEX_OAUTH_ORIGINATOR, codexModelsUrl } from './openai-codex-endpoints.mjs';
 import { _normalizeCodexModel, _markLatestCodex } from './openai-codex-model.mjs';
@@ -38,20 +39,39 @@ const _modelCache = makeModelCache({
   },
 });
 
-/** Fresh on-disk catalog (null past the TTL), adopted as the mirror. */
+/** Fresh on-disk catalog record (null past the TTL), adopted as the mirror. */
 function loadCodexCatalogCache() {
-  const cached = _modelCache.loadSync();
-  if (cached) _mirror = cached.slice();
+  const cached = _modelCache.loadEntrySync();
+  if (cached) _mirror = cached.models.slice();
   return cached;
 }
+
+// The backend lists only the models the reported client version unlocks, so a
+// catalog fetched for an older version (or one that did not record it) is
+// refetched once a newer version is known.
+function fetchedForOlderClient(cached) {
+  const sent = maxSemver(cached?.clientVersion);
+  return !sent || compareSemver(codexClientVersionSync(), sent) > 0;
+}
+
+// The last saved catalog past its TTL. The TTL schedules a refetch; it does not
+// make known capabilities (service tiers, reasoning flags) wrong, and dropping
+// them silently stripped the priority tier and cleared saved Fast settings.
+// Kept apart from _mirror so freshness checks (codexCatalogHas, default model)
+// still see no fresh catalog and trigger the refresh.
+let _staleMirror = null;
 
 export function findCachedCodexModel(id) {
   if (!id) return null;
   if (!Array.isArray(_mirror)) {
     _mirror = _modelCache.loadSync();
   }
-  if (!Array.isArray(_mirror)) return null;
-  return _mirror.find((m) => m?.id === id) || null;
+  if (!Array.isArray(_mirror) && !Array.isArray(_staleMirror)) {
+    _staleMirror = _modelCache.loadSync({ allowStale: true });
+  }
+  const models = Array.isArray(_mirror) ? _mirror : _staleMirror;
+  if (!Array.isArray(models)) return null;
+  return models.find((m) => m?.id === id) || null;
 }
 
 export function codexCatalogHas(id) {
@@ -116,18 +136,20 @@ async function fetchCodexCatalog(ensureAuth, label) {
   const normalized = items.map((m) => _normalizeCodexModel(m));
   _markLatestCodex(normalized);
   const enriched = sanitizeModelList((await enrichModels(normalized)).filter(Boolean), { provider: 'openai-oauth' });
-  _modelCache.save(enriched);
+  _modelCache.save(enriched, { clientVersion });
   return enriched;
 }
 
-/** Catalog for the picker: cached 24h, refetched on miss. */
+/** Catalog for the picker: cached 24h, refetched on miss or a newer client version. */
 export async function listCodexModels(ensureAuth) {
   const cached = loadCodexCatalogCache();
-  if (cached) return cached;
+  if (cached && !fetchedForOlderClient(cached)) return cached.models;
   try {
     return await fetchCodexCatalog(ensureAuth, 'openai-oauth list_models');
   } catch (err) {
     process.stderr.write(`[openai-oauth] listModels fetch failed (${err?.message || String(err)})\n`);
+    // A catalog fetched for an older client still lists what that client unlocked.
+    if (cached) return cached.models;
     // No fallback catalog — empty list signals the UI to show a
     // "catalog unavailable, retry" state. openai-oauth has no equivalent to
     // Anthropic's family tokens so there's no meaningful minimal list.

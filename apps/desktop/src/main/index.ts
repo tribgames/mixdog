@@ -47,6 +47,10 @@ import {
 import { registerDesktopIpc } from './ipc';
 import { createBrowserHost, type BrowserHost } from './browser/host';
 import { createComputerHost, type ComputerHost } from './computer';
+import { bridgeDiscoveryDirectory } from './bridge/discovery-file';
+import { TerminalBridgeServer } from './terminal/bridge-server';
+import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
+import type { SessionTerminalTab } from './terminal-manager';
 import { requestComputerPermissions } from './computer/host/permission-reads';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
@@ -434,6 +438,7 @@ function startDaemonService(): void {
   void serviceClient
     .start()
     .then(() => {
+      terminalBridge.start();
       diagnostics?.write('daemon-service-ready', {
         totalMs: Date.now() - desktopProcessStartedAt,
       });
@@ -512,6 +517,22 @@ const serviceTerminalManager = {
     });
   },
 };
+// Agent `terminal` tool: a read-only loopback bridge over the daemon-owned
+// PTYs. A hidden always-on built-in (like Media Studio): it runs for the app's
+// lifetime, so headless runs without the desktop app never see the tool.
+const terminalBridge = new TerminalBridgeServer<TerminalBridgeCommand>({
+  dataDirectory: bridgeDiscoveryDirectory,
+  execute: createTerminalCommandExecutor({
+    sessionTabs: async (sessionId) =>
+      (await serviceClient.invokeDesktopOperation('termSessionTabs', [sessionId])) as SessionTerminalTab[],
+    snapshot: async (id, since) =>
+      (await serviceClient.invokeDesktopOperation('termSnapshot', since === undefined ? [id] : [id, since])) as {
+        text: string;
+        cursor: number;
+        reset: boolean;
+      } | null,
+  }),
+});
 // Keep-awake spans the app lifetime, not one window: agents keep working
 // while the window is closed on macOS and through renderer reloads.
 const awakeService = new AgentAwakeService(powerSaveBlocker);
@@ -869,6 +890,7 @@ function disposeDesktopResources(): Promise<void> {
       await browserHost?.dispose();
       await browserHostDisposal;
       await computerHost?.dispose();
+      await terminalBridge.stop();
     })();
     const cleanup = Promise.all([
       browserAndComputerCleanup,

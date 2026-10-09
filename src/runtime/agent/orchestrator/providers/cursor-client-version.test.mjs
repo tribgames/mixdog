@@ -22,8 +22,11 @@ async function fresh(fetchImpl, env = {}) {
 }
 
 const script = (body) => async () => ({ ok: true, text: async () => body });
+// Dated after any shipped floor, which every release raises.
 const INSTALL =
-  'DOWNLOAD_URL="https://downloads.cursor.com/lab/2026.09.28-64d2043/${OS}/${ARCH}/agent-cli-package.tar.gz"';
+  'DOWNLOAD_URL="https://downloads.cursor.com/lab/2099.09.28-64d2043/${OS}/${ARCH}/agent-cli-package.tar.gz"';
+const OLD_INSTALL =
+  'DOWNLOAD_URL="https://downloads.cursor.com/lab/2020.01.01-aaaaaaa/${OS}/${ARCH}/agent-cli-package.tar.gz"';
 
 test.afterEach(() => {
   globalThis.fetch = realFetch;
@@ -34,8 +37,14 @@ test('build id parsed from the installer script, fetched once', async () => {
   const { mod, calls } = await fresh(script(INSTALL));
   await Promise.all([mod.warmCursorClientVersion(), mod.warmCursorClientVersion()]);
   await mod.warmCursorClientVersion();
-  assert.equal(mod.cursorClientVersion(), 'cli-2026.09.28-64d2043');
+  assert.equal(mod.cursorClientVersion(), 'cli-2099.09.28-64d2043');
   assert.deepEqual(calls, ['https://cursor.com/install']);
+});
+
+test('a build dated before the floor never replaces it', async () => {
+  const { mod } = await fresh(script(OLD_INSTALL));
+  await mod.warmCursorClientVersion();
+  assert.equal(mod.cursorClientVersion(), mod.CURSOR_CLIENT_VERSION_FLOOR);
 });
 
 test('format change falls back to the floor', async () => {

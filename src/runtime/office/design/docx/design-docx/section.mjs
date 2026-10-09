@@ -169,7 +169,9 @@ export function writeDocxSection(w, section, sectionIndex) {
     }
   }
   if (sectionTable.length) {
-    addDocxSectionTable(w.output, w.state, sectionTable, w.design, sectionKind);
+    addDocxSectionTable(w.output, w.state, sectionTable, w.design, sectionKind, {
+      style: String(section.tableStyle || w.tableStyle || ''),
+    });
     if (section.source) {
       // The table keeps with its source line, as a native table keeps with its caption.
       const table = [...w.output].reverse().find((entry) => entry.op === 'add_table');

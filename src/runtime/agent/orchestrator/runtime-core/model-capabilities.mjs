@@ -4,7 +4,7 @@
 // never collides with a sync mixdog-config lock (ELOCKCONTENDED).
 import { clean, hasOwn } from './session-text.mjs';
 import { modelSupportsServiceTier } from '../providers/model-service-tiers.mjs';
-import { openAiDirectSupportsFast } from '../providers/openai-direct-request.mjs';
+import { openAiDirectSupportsFast, openAiDirectSupportsUltrafast } from '../providers/openai-direct-request.mjs';
 import { supportsAnthropicFastMode } from '../../../shared/llm/anthropic-betas.mjs';
 
 const FAST_CAPABLE_PROVIDERS = new Set([
@@ -79,6 +79,13 @@ export function fastCapableFor(provider, model, effort = null, modelParameters =
   if (p === 'openai') return openAiDirectSupportsFast(model);
   if (p === 'openai-oauth') return modelSupportsServiceTier(model, 'priority');
   if (p === 'anthropic' || p === 'anthropic-oauth') return supportsAnthropicFastMode(clean(model?.id || model));
+  return false;
+}
+
+export function ultrafastCapableFor(provider, model) {
+  const p = clean(provider);
+  if (p === 'openai') return openAiDirectSupportsUltrafast(model);
+  if (p === 'openai-oauth') return modelSupportsServiceTier(model, 'ultrafast');
   return false;
 }
 

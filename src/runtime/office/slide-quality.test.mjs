@@ -252,9 +252,9 @@ test('a hollow band between the body and the footer is reported; a filled one is
   assert.equal(issues[0].hollowBand, 192);
   assert.equal(issues[0].hollowTop, 292);
   assert.match(issues[0].message, /empty band/);
-  // The author answers it in the turn that wrote the slide: the runtime lists
-  // it as a target, unlike the monotony and plan read-back advisories.
-  assert.equal(isAdvisoryOfficeIssue(issues[0]), false);
+  // vertical_imbalance is an advisory code: it is reported to the author as a
+  // reading of the page, not a blocking target.
+  assert.equal(isAdvisoryOfficeIssue(issues[0]), true);
 });
 
 // A table, chart or picture is the page's carrier and the few boxes around it

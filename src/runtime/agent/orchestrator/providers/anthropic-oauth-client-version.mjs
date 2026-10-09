@@ -8,8 +8,10 @@ import { createNpmVersionSource, maxSemver } from './npm-cli-version.mjs';
 // requests. This floor ships with Mixdog, while a newer server-advertised
 // minimum is learned and persisted so future model launches do not require a
 // source release just to advance the user-agent version.
-// Claude Opus 5.5 requires 2.1.280 or newer.
-const DEFAULT_CLI_VERSION = '2.1.280';
+// Claude Opus 5.5 requires 2.1.280 or newer. The release workflow raises this
+// to the published CLI version (scripts/sync-client-version-floors.mjs).
+export const DEFAULT_CLI_VERSION = '2.1.295';
+export const CLAUDE_CLI_NPM_PACKAGE = '@anthropic-ai/claude-code';
 
 const CACHE_SCHEMA_VERSION = 1;
 const CACHE_FILE_NAME = 'anthropic-oauth-cli-version.json';
@@ -17,7 +19,7 @@ const VERSION_GATE_PATTERN =
   /Claude Code\s+(\d{1,4}\.\d{1,4}\.\d{1,6})\s+does not support this model;\s*version\s+(\d{1,4}\.\d{1,4}\.\d{1,6})\s+or newer is required\b/i;
 
 // Effective version = max(floor, learned minimum, live @anthropic-ai/claude-code).
-const liveCliVersion = createNpmVersionSource('@anthropic-ai/claude-code', { persistKey: 'claude-cli' });
+const liveCliVersion = createNpmVersionSource(CLAUDE_CLI_NPM_PACKAGE, { persistKey: 'claude-cli' });
 
 let learnedCliVersion = null;
 let learnedCliVersionLoaded = false;

@@ -10,6 +10,7 @@ import {
   localProviderStatus,
   stopLocalProviderServer,
   cancelLocalInstallation,
+  discardLocalInstallation,
   configureLocalProviderIdleTtl,
 } from '../../runtime/local-provider/managed-runtime.mjs';
 import { deferComputerSessionRelease, endComputerExecution } from '../../runtime/computer-bridge/client.mjs';
@@ -159,6 +160,7 @@ function localProviderAdapters(boot) {
     getLocalProviderStatus: () => localProviderStatus(),
     stopLocalProviderServer,
     cancelLocalProviderInstallation: (jobId) => cancelLocalInstallation(jobId),
+    discardLocalProviderInstallation: (phase, modelId) => discardLocalInstallation(phase, modelId),
     configureLocalProviderIdleTtl,
     syncLocalProviderRegistry: async (enabled) => {
       invalidateProviderCaches();

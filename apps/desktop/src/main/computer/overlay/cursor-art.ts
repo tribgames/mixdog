@@ -44,8 +44,8 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent
 @media(prefers-reduced-motion:reduce){
   #surface{transition:none}
   #surface #halo,#surface #ring,#surface #echo{animation:none}
-  #surface:not(.move) #halo{opacity:.85;transform:scale(.7)}
-  #surface:not(.move) #ring{opacity:.9;transform:scale(.7)}
+  #surface:not(.move):not(.rest) #halo{opacity:.85;transform:scale(.7)}
+  #surface:not(.move):not(.rest) #ring{opacity:.9;transform:scale(.7)}
   #surface #echo{opacity:0}
 }
 </style></head><body><div id="surface" aria-hidden="true"><div id="halo"></div><div id="ring"></div><div id="echo"></div>

@@ -4,8 +4,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { DEFAULT_CLI_VERSION } from './anthropic-oauth-client-version.mjs';
+
 // Keep the floor/learned tests offline; the live-version test opts back in.
 process.env.MIXDOG_DISABLE_LIVE_CLI_VERSIONS = '1';
+
+// Versions `n` patches above the shipped floor, which every release raises.
+const above = (n) => {
+  const [major, minor, patch] = DEFAULT_CLI_VERSION.split('.').map(Number);
+  return `${major}.${minor}.${patch + n}`;
+};
+const gate = (current, required) =>
+  `Claude Code ${current} does not support this model; version ${required} or newer is required.`;
 
 test('effective Claude CLI version is max(floor, learned, live npm)', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'mixdog-anthropic-cli-live-'));
@@ -16,7 +26,7 @@ test('effective Claude CLI version is max(floor, learned, live npm)', async () =
     delete process.env.MIXDOG_CLI_VERSION;
     delete process.env.MIXDOG_DISABLE_LIVE_CLI_VERSIONS;
     const calls = [];
-    let live = '2.1.900';
+    let live = above(620);
     globalThis.fetch = async (url) => {
       calls.push(String(url));
       if (live === null) throw new Error('offline');
@@ -25,14 +35,12 @@ test('effective Claude CLI version is max(floor, learned, live npm)', async () =
     const nonce = `${process.pid}-${Date.now()}`;
     let mod = await import(`./anthropic-oauth-client-version.mjs?live=${nonce}`);
     await Promise.all([mod.warmCliVersion(), mod.warmCliVersion()]);
-    assert.equal(mod.resolveCliVersion(), '2.1.900');
+    assert.equal(mod.resolveCliVersion(), above(620));
     assert.deepEqual(calls, ['https://registry.npmjs.org/@anthropic-ai/claude-code/latest']);
-    assert.match(mod.claudeCliUserAgent(), /^claude-cli\/2\.1\.900 /);
+    assert.ok(mod.claudeCliUserAgent().startsWith(`claude-cli/${above(620)} `));
 
-    mod.learnRequiredCliVersion(
-      'Claude Code 2.1.251 does not support this model; version 2.1.950 or newer is required.'
-    );
-    assert.equal(mod.resolveCliVersion(), '2.1.950');
+    mod.learnRequiredCliVersion(gate('2.1.251', above(670)));
+    assert.equal(mod.resolveCliVersion(), above(670));
 
     process.env.MIXDOG_CLI_VERSION = '7.7.7';
     assert.equal(mod.resolveCliVersion(), '7.7.7');
@@ -41,7 +49,7 @@ test('effective Claude CLI version is max(floor, learned, live npm)', async () =
     live = null;
     mod = await import(`./anthropic-oauth-client-version.mjs?offline=${nonce}`);
     await mod.warmCliVersion();
-    assert.equal(mod.resolveCliVersion(), '2.1.950');
+    assert.equal(mod.resolveCliVersion(), above(670));
   } finally {
     globalThis.fetch = realFetch;
     for (const k of ['MIXDOG_DATA_DIR', 'MIXDOG_CLI_VERSION', 'MIXDOG_DISABLE_LIVE_CLI_VERSIONS'])
@@ -65,49 +73,41 @@ test('Claude CLI compatibility floors validate, persist, and never downgrade', a
     const nonce = `${process.pid}-${Date.now()}`;
     const versions = await import(`./anthropic-oauth-client-version.mjs?floor=${nonce}`);
 
-    assert.equal(versions.resolveCliVersion(), '2.1.280');
+    assert.equal(versions.resolveCliVersion(), DEFAULT_CLI_VERSION);
     assert.equal(versions.learnRequiredCliVersion('generic invalid request'), null);
 
-    const learned = versions.learnRequiredCliVersion(
-      'Claude Code 2.1.251 does not support this model; version 2.1.300 or newer is required.'
-    );
+    const learned = versions.learnRequiredCliVersion(gate('2.1.251', above(20)));
     assert.deepEqual(learned, {
-      requiredVersion: '2.1.300',
-      activeVersion: '2.1.300',
+      requiredVersion: above(20),
+      activeVersion: above(20),
       updated: true,
       retryable: true,
     });
-    assert.equal(versions.resolveCliVersion(), '2.1.300');
+    assert.equal(versions.resolveCliVersion(), above(20));
 
     const persisted = JSON.parse(await readFile(join(dataDir, 'anthropic-oauth-cli-version.json'), 'utf-8'));
-    assert.equal(persisted.cliVersion, '2.1.300');
+    assert.equal(persisted.cliVersion, above(20));
 
     const reloaded = await import(`./anthropic-oauth-client-version.mjs?reload=${nonce}`);
-    assert.equal(reloaded.resolveCliVersion(), '2.1.300');
+    assert.equal(reloaded.resolveCliVersion(), above(20));
 
     await writeFile(
       join(dataDir, 'anthropic-oauth-cli-version.json'),
-      JSON.stringify({ version: 1, cliVersion: '2.1.500', updatedAt: Date.now() })
+      JSON.stringify({ version: 1, cliVersion: above(220), updatedAt: Date.now() })
     );
-    const concurrentRaise = versions.learnRequiredCliVersion(
-      'Claude Code 2.1.300 does not support this model; version 2.1.400 or newer is required.'
-    );
-    assert.equal(concurrentRaise.activeVersion, '2.1.500');
+    const concurrentRaise = versions.learnRequiredCliVersion(gate(above(20), above(120)));
+    assert.equal(concurrentRaise.activeVersion, above(220));
 
     process.env.MIXDOG_CLI_VERSION = '9.9.9';
-    const overridden = reloaded.learnRequiredCliVersion(
-      'Claude Code 2.1.500 does not support this model; version 2.1.600 or newer is required.'
-    );
+    const overridden = reloaded.learnRequiredCliVersion(gate(above(220), above(320)));
     assert.equal(overridden.retryable, false);
     assert.equal(reloaded.resolveCliVersion(), '9.9.9');
 
     delete process.env.MIXDOG_CLI_VERSION;
-    assert.equal(reloaded.resolveCliVersion(), '2.1.600');
-    const downgrade = reloaded.learnRequiredCliVersion(
-      'Claude Code 2.1.600 does not support this model; version 2.1.251 or newer is required.'
-    );
+    assert.equal(reloaded.resolveCliVersion(), above(320));
+    const downgrade = reloaded.learnRequiredCliVersion(gate(above(320), '2.1.251'));
     assert.equal(downgrade.updated, false);
-    assert.equal(reloaded.resolveCliVersion(), '2.1.600');
+    assert.equal(reloaded.resolveCliVersion(), above(320));
   } finally {
     restoreEnv('MIXDOG_DATA_DIR', previousDataDir);
     restoreEnv('MIXDOG_CLI_VERSION', previousOverride);
@@ -164,17 +164,14 @@ test('Anthropic OAuth retries the exact version gate once and leaves generic 400
       _doRequestFn: async () => {
         requestVersions.push(resolveCliVersion());
         if (requestVersions.length === 1) {
-          return requestResult(
-            400,
-            'Claude Code 2.1.251 does not support this model; version 2.1.400 or newer is required.'
-          );
+          return requestResult(400, gate('2.1.251', above(120)));
         }
         return requestResult(200);
       },
       _parseSSEFn: parseSuccess,
     });
     assert.equal(result.content, 'ok');
-    assert.deepEqual(requestVersions, ['2.1.280', '2.1.400']);
+    assert.deepEqual(requestVersions, [DEFAULT_CLI_VERSION, above(120)]);
 
     let genericAttempts = 0;
     await assert.rejects(

@@ -204,13 +204,19 @@ jobs:
             apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
 
       # Key mirrored in release-gate.yml, which warms it on every main push.
+      # The renderer bundles CHANGELOG.md and the desktop package version
+      # (Settings > About > changelog), so both belong in the key: the
+      # release commit Deploy stamps must rebuild instead of reusing the
+      # gate's pre-release output.
       - name: Restore unchanged desktop output
         id: desktop-out
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/out
           key: >-
-            desktop-out-v3-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
+            desktop-out-v4-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
+              'CHANGELOG.md',
+              'apps/desktop/package.json',
               'apps/desktop/src/**',
               '!apps/desktop/src/**/*.test.mjs',
               '!apps/desktop/src/**/*.test.jsx',

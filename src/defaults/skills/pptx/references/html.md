@@ -38,7 +38,7 @@ So the CSS techniques that make a page — a gradient field, a diagonal band, an
 
 ## 4. Text
 - Set `word-break: keep-all; overflow-wrap: break-word` on the slide and `text-wrap: balance` on headlines, `text-wrap: pretty` on prose; wrap a name that must not break (`GPT-5.6 Sol`, `macOS x64와 ARM64`) in `white-space: nowrap`.
-- Faces present on this machine and in Office: `'Noto Sans KR'` (400, 700), `'Noto Sans KR ExtraBold'` (as its own family at weight 400), `'Noto Serif KR'` (700), `'Malgun Gothic'`; Latin safe faces per `direction.md` §6. A recipient without Noto gets a substitute: say so, or use `fonts: safe` faces.
+- Choose installed faces that cover the language and fit the intended use. The optional face examples in `concepts.md` §5 are not a whitelist. A recipient without a face gets a substitute: disclose the risk or use portable faces, then check the actual render.
 - Weight has two steps in PowerPoint: 400 and 700 (a 500 becomes regular).
 - Line height: the converter places every line on the browser's baseline within 1 px for Noto Sans KR, Noto Serif KR and Malgun Gothic from `line-height` 0.9 to 1.5; tighter than 0.9 is unmeasured. Tight display type (0.9-1.05 on 100 px+ headlines, −0.01 to −0.02 em tracking on Latin only) is available; body copy keeps 1.4-1.6.
 - Sizes: body 24 px (12 pt) or more, captions and chrome 20 px (10 pt) or more; no tracking on Hangul beyond 0.05 em.
@@ -48,7 +48,7 @@ So the CSS techniques that make a page — a gradient field, a diagonal band, an
 ```html
 <div class="chart" style="position:absolute;left:860px;top:360px;width:964px;height:140px"
   data-chart='{"type":"bar","labels":["Mixdog","Codex CLI"],"values":[18.5,34.3],
-               "colors":["FF6B3D","B7BDC6"],"max":40,"format":"0.0\"k\"","labelColor":"14181F","size":11}'></div>
+               "colors":["<accent>","<muted>"],"max":40,"format":"0.0\"k\"","labelColor":"<ink>","size":11}'></div>
 ```
 `type`: `bar` (horizontal), `col`, `line`, `area`, `pie`, `doughnut`. `values` for one series or `series: [{ name, values }]` with `legend: true` for several. `colors` 6-digit hex per category (one series) or per series. `max`/`min` fix the value scale, `format` the label number format, `size` the label size in pt, `gap` the bar gap %, `stacked`, `valueAxis: true` to show the value axis, `grid: "HEX"` for gridlines, `hole` for a doughnut. Values are copied from the brief's facts line. Give a bar chart about 70 px of height per category so PowerPoint keeps every category label. `categoryAxis: false` hides the category labels (when the page labels the columns itself).
 
@@ -62,30 +62,9 @@ So the CSS techniques that make a page — a gradient field, a diagonal band, an
 **Hard rule — a generated picture never stands in for evidence**: figures, charts, tables, product UI, and screenshots are never generated; a generated picture is mood, metaphor, or illustration, recorded with its lane, model, and prompt in the slide's `aside.notes`.
 
 ## 8. One-shot design pass
-The user asks once and receives the finished deck; no candidates are shown. **Default — two passes before any HTML**:
-1. **Plan** from the subject and the sources: palette of 4–6 hex values with roles (dominant surface ~60%, secondary ~25%, one accent ~10% with one job, e.g. "marks the product's own figures"); type roles in px (display, title, body, label); one signature motif that recurs cropped or rescaled; margins (96 px) and the grid; one composition per slide.
-2. **Check the plan against the defaults** below and against what any similar request would have produced; revise every axis that is a default rather than a choice for this subject, then write the HTML.
+Start from the source material, reader, and viewing conditions. Choose the reading path, type, palette, spacing, and carriers that explain this content, then write the HTML/CSS. A concept id, signature motif, fixed margin, colour ratio, or layout rotation is not required. `concepts.md`, `direction.md`, and `composition.md` are optional inspiration, not a checklist.
 
-**Default — compositions** (vary them; the same layout never three times in a row): asymmetric 60/40 or 70/30 split; offset grid with a colour band or a giant numeral in the narrow third; hero metric (180 px or more) beside its context; chart with direct annotations and leader lines; full-bleed field with the claim; card cluster of two or three different sizes; annotated artifact (a window, a terminal, a document) with numbered callouts and a legend. Body slides may carry colour fields too, not only the cover and the closing. Page chrome (running head, rule, page number, source line) is small and consistent.
-**Default — how a page holds attention** (principles, not layouts; apply them to whatever composition the plan chose):
-- **One anchor per page**: the first thing the eye lands on is the page's claim — a numeral, a headline, a picture, a chart's marked point — and nothing else competes at its weight. The anchor takes at most about half the canvas; the rest carries its support (the evidence, the context, the consequence).
-- **Three tiers of space**: space inside a unit < space between units < the page margin. When the three are close, grouping disappears; a unit set apart by a large field is isolated on purpose.
-- **Proximity carries relation**: a label sits nearer its value than the next value; a caption nearer its picture than the next block.
-- **Break the rectangle now and then**: about once every three or four pages, one shape that is not a card — a band bled past the edge, a diagonal cut, an edge that fades out, an oversized numeral with no box — made with the CSS in §3.
-- **Material, quietly**: grain, a pattern, or a soft gradient field reads as paper or light at 4-10 % strength; stronger, it is noise. One material per deck.
-- **Decoration never stands in for content**: if removing an ornament loses no information and no structure, remove it.
-
-**Default — the data picks its carrier**:
-| The data | Carrier |
-|---|---|
-| one figure that matters | the numeral at display size with its unit, its comparison (against what, since when), and a source line |
-| a share of a whole | a 100-cell grid, a ring, or a single stacked bar — never a pie of more than three parts |
-| a trend | a line with the event marked on it and a direct series label; no legend when one series |
-| a ranking | sorted horizontal bars, the subject's bar in the accent |
-| a comparison of two states | a split page or a dumbbell, the change written as a number |
-| places | a map or a schematic of the places, the figure on each |
-| steps or a process | connected nodes in reading order, one verb each |
-| a composition of costs | a stacked bar with the parts named in order of size |
+Preserve meaningful relationships: labels belong with their values, chart scales and units must be honest, and a comparison must retain the conditions being compared. Use repetition for comparable pages and whitespace for hierarchy where useful. A sparse statement, a dense reference page, and an intentionally repeated series are all valid when readable and complete. Do not add cards, texture, illustrations, or extra layouts just to satisfy a score.
 
 **Hard rule — related positions come from one source and are declared**: a marker on a line, a shape inside a shape, a connector between two blocks, a column that lines up with the row above it, a label centred on its shape — each is computed, never typed as a separate guess: flex or grid for rows and columns, `calc()` on shared custom properties for a gap's centre, related shapes in one SVG from one set of numbers, a line or band that carries markers drawn as an SVG `<line>`, `<polyline>` or `<path>` (a clipped box has no centre line). Then the relation is declared on the element, and the browser proves it before the deck lands:
 | Declaration | Holds when |
@@ -97,9 +76,7 @@ The user asks once and receives the finished deck; no candidates are shown. **De
 | `data-label="#disc"` | it is centred on that shape |
 Ids are the slide's own. Undeclared, the page is still read for the misses a declaration would have caught: peer blocks in one container and one column or row whose visible edges or centres sit 3-24 px apart, a shape whose centre is inside another but which reaches up to 24 px past its edge, a small connector in the gap between two blocks but off its centre, a marker (64 px or less) set on a line, band, or drawing with no relation declared, and words that run partly onto an SVG drawing or a round shape (read against its real fill and stroke, not its frame) or come within 8 px of one several times their size — words wholly on a shape are its label, and a chip or card painted under the words hides what is beneath; a drawing the size of the page is ground. Each is fixed in the HTML or, when the offset is the design, marked `data-free` on the element. Any finding refuses the deck (`reason: geometry_gate`, the findings per slide with their offsets in px); nothing lands until it holds. The eye never certifies a geometric relation the gate can measure. → runtime `geometry_gate`
 
-**Default — self-check before rendering**: *underfill* (a body page under ~120 characters with no carrier is a hollow page — add the evidence or make it a deliberate statement page), *anchor overexpansion* (the anchor swallowed the support), *decorative substitution* (texture and ornament doing the work of structure), *rhythm clone* (the same page grammar three pages running).
-
-**Default — avoid the generated look** unless the brief asks for it: cream `#F4F1EA` with a serif display and a terracotta accent; near-black with one acid-green or vermilion accent; hairlines and dense columns on every page; identical rounded cards with one soft grey shadow; an all-caps tracked label above every heading; meta strings joined with middle dots; monospace data labels; gradient washes as decoration; a glowing orb as the cover's object; icon rows of identical tiles; a uniform card grid; centred everything.
+Before rendering, check that each page answers its intended question and preserves the source content. Judge stylistic choices by this request, not a blacklist of colours, fonts, or shapes. After conversion, inspect the actual Office pages rather than treating attractive HTML or a clean lint report as proof.
 
 ## 9. Review
 `author` returns the audit, the rendered pages, and `render.compare`. Fix what the audit measures and what the pair shows (a line that broke differently, a glyph off its disc, a label PowerPoint dropped) in the HTML and author again — **Default — fix by editing the kept `<deck>.pptx.mixdog-source.html`** with the edit tool and calling `author path:<deck.pptx>` with no `script` (no `overwrite` needed); send the whole document again only when most of it changes; the two-round limit of SKILL.md §2 step 6 applies. Then finalize as SKILL.md §5.

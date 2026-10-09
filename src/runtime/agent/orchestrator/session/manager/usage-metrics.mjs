@@ -396,27 +396,25 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
     });
   }
   const lastTurn = result.lastTurnUsage || result.usage || {};
-  const measuredInput = Number(lastTurn.mainInputTokens ?? lastTurn.inputTokens) || 0;
+  const measuredInput = Number(lastTurn.inputTokens) || 0;
   const measuredCache = providerInputExcludesCache(session.provider)
-    ? (Number(lastTurn.mainCachedTokens ?? lastTurn.cachedTokens) || 0) +
-      (Number(lastTurn.mainCacheWriteTokens ?? lastTurn.cacheWriteTokens) || 0)
+    ? (Number(lastTurn.cachedTokens) || 0) + (Number(lastTurn.cacheWriteTokens) || 0)
     : 0;
   if (
-    lastTurn.mainUsageAvailable !== false &&
     measuredInput + measuredCache <= 0 &&
-    applyMeasuredContextOccupancy(session, lastTurn.contextTokens, lastTurn.mainOutputTokens ?? lastTurn.outputTokens)
+    applyMeasuredContextOccupancy(session, lastTurn.contextTokens, lastTurn.outputTokens)
   ) {
     return;
   }
-  if (lastTurn.mainUsageAvailable === false || measuredInput + measuredCache <= 0) {
+  if (measuredInput + measuredCache <= 0) {
     clearLastContextTokens(session);
     return;
   }
   setLastContextTokens(session, {
-    input: lastTurn.mainInputTokens ?? lastTurn.inputTokens ?? 0,
-    output: lastTurn.mainOutputTokens ?? lastTurn.outputTokens ?? 0,
-    cachedRead: lastTurn.mainCachedTokens ?? lastTurn.cachedTokens ?? 0,
-    cacheWrite: lastTurn.mainCacheWriteTokens ?? lastTurn.cacheWriteTokens ?? 0,
+    input: lastTurn.inputTokens ?? 0,
+    output: lastTurn.outputTokens ?? 0,
+    cachedRead: lastTurn.cachedTokens ?? 0,
+    cacheWrite: lastTurn.cacheWriteTokens ?? 0,
   });
 }
 
@@ -482,7 +480,6 @@ function recordLastContextTokens(session, context) {
     contextOutputTokens,
     contextCachedReadTokens,
     contextCacheWriteTokens,
-    contextUsageAvailable,
     contextMeasuredTokens,
     ts,
   } = context;
@@ -490,15 +487,11 @@ function recordLastContextTokens(session, context) {
   const measuredPrompt =
     (Number(contextInputTokens) || 0) +
     (inputExcludesCache ? (Number(contextCachedReadTokens) || 0) + (Number(contextCacheWriteTokens) || 0) : 0);
-  if (
-    contextUsageAvailable !== false &&
-    measuredPrompt <= 0 &&
-    applyMeasuredContextOccupancy(session, contextMeasuredTokens, contextOutputTokens, ts)
-  ) {
+  if (measuredPrompt <= 0 && applyMeasuredContextOccupancy(session, contextMeasuredTokens, contextOutputTokens, ts)) {
     // Occupancy reading applied; no prompt split to record.
     return;
   }
-  if (contextUsageAvailable === false || measuredPrompt <= 0) {
+  if (measuredPrompt <= 0) {
     clearLastContextTokens(session, ts);
     return;
   }
@@ -524,7 +517,6 @@ function iterationContext(delta) {
     contextOutputTokens = delta.deltaOutput,
     contextCachedReadTokens = delta.deltaCachedRead,
     contextCacheWriteTokens = delta.deltaCacheWrite,
-    contextUsageAvailable = true,
     contextMeasuredTokens = null,
     ts,
   } = delta;
@@ -533,7 +525,6 @@ function iterationContext(delta) {
     contextOutputTokens,
     contextCachedReadTokens,
     contextCacheWriteTokens,
-    contextUsageAvailable,
     contextMeasuredTokens,
     ts,
   };

@@ -174,6 +174,19 @@ function poolSend(providerName, account) {
         return result;
       } catch (error) {
         if (options.signal?.aborted) throw error;
+        if (error?.reauthRequired === true) {
+          if (
+            pool.auto === false ||
+            bound.emitted() ||
+            error.unsafeToRetry ||
+            error.liveTextEmitted ||
+            error.emittedToolCall
+          )
+            throw error;
+          lastError = error;
+          options.onStageChange?.('reconnecting', { message: 'Sign-in expired — switching to the next account' });
+          continue;
+        }
         const { exhausted, delay } = await accountQuotaExhausted(providerName, row, model, error, account);
         if (options.signal?.aborted || !exhausted) throw error;
         blockProviderAccount(

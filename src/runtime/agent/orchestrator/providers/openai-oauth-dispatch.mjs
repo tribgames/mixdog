@@ -1,21 +1,18 @@
 /**
  * openai-oauth-dispatch.mjs — how one Codex OAuth turn reaches the backend and
- * what it records: the WebSocket dispatch with its session prewarm reservation
- * and lazy warmup body, the HTTP/SSE dispatch that arms the sticky per-session
- * transport switch before it can fail, the handshake / unhealthy-WS fallback
- * policy, the warmup-usage merge, the live-model catalog probe, and the
- * transport_error / transport_fallback trace rows.
+ * what it records: the WebSocket dispatch, the HTTP/SSE
+ * dispatch that arms the sticky per-session transport switch before it can
+ * fail, the handshake / unhealthy-WS fallback policy, the live-model catalog
+ * probe, and the transport_error / transport_fallback trace rows.
  *
  * Transport SELECTION — which dispatch runs, and the auth/catalog recovery
  * ladder between them — stays in openai-oauth.mjs.
  */
 import { appendAgentTrace } from '../agent-trace.mjs';
-import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
 import { codexCatalogHas } from './openai-oauth-catalog.mjs';
 import { _displayCodexModel } from './openai-codex-model.mjs';
-import { buildCodexStartupPrewarmBody } from './openai-responses-payload.mjs';
-import { discardStartupPrewarmReservation, startupPromptWarmupEnabled } from './openai-startup-prewarm.mjs';
 import { _envFlag, _shouldUseOpenAIHttpFallback } from './openai-oauth-http-sse.mjs';
+import { isWsMessageTooBigClose } from './retry-classifier.mjs';
 
 function openAiOAuthHandshakeErrorPolicy({ status }) {
   if (Number(status) === 404) {
@@ -47,7 +44,6 @@ export function isOpenAiOAuthHandshakeHttpFallback(err, externalSignal) {
  * @param {object} deps.opts  send options
  * @param {object} deps.body  the Responses request body
  * @param {{ tokens: object }} deps.authState  credential holder (replaced on 401 refresh)
- * @param {{ handle: object|null }} deps.prewarmState  this session's prewarm reservation
  * @param {string|null} deps.poolKey  socket/delta isolation key
  * @param {string} deps.cacheKey  prompt-cache routing key
  * @param {number|null} deps.iteration
@@ -63,7 +59,6 @@ export function createOpenAiOAuthDispatch({
   opts,
   body,
   authState,
-  prewarmState,
   poolKey,
   cacheKey,
   iteration,
@@ -82,8 +77,11 @@ export function createOpenAiOAuthDispatch({
     if (!httpFallbackEnabled) return false;
     if (isOpenAiOAuthHandshakeHttpFallback(error, externalSignal)) return true;
     const status = Number(error?.httpStatus || error?.status || 0);
+    // A server 1009 refuses this request frame on every WS retry, so it
+    // switches the session at once instead of spending the WS retry budget.
     return (
-      (status === 426 || error?.wsRetriesExhausted === true) && _shouldUseOpenAIHttpFallback(error, externalSignal)
+      (status === 426 || error?.wsRetriesExhausted === true || isWsMessageTooBigClose(error)) &&
+      _shouldUseOpenAIHttpFallback(error, externalSignal)
     );
   };
   const recordLiveModel = (result) => {
@@ -106,7 +104,8 @@ export function createOpenAiOAuthDispatch({
   const markStickyHttpFallback = () => {
     if (!poolKey) return;
     // Codex disables WebSockets for the remainder of this session after
-    // stream retry exhaustion or a typed unsupported upgrade (404/426).
+    // stream retry exhaustion, a typed unsupported upgrade (404/426), or a
+    // server 1009 that refused the request frame.
     provider._httpFallbackUntilByPoolKey.set(poolKey, Number.POSITIVE_INFINITY);
   };
   const traceTransportError = (err, stage = 'primary', transport = 'websocket') => {
@@ -189,11 +188,6 @@ export function createOpenAiOAuthDispatch({
       traceTransportError(httpErr, reason === 'forced' ? 'primary' : 'fallback', 'http');
       throw httpErr;
     }
-    if (originalErr?.__warmup?.usage) {
-      result.usage = _combineUsageWithWarmup(result.usage, originalErr.__warmup.usage, {
-        separateMainContext: true,
-      });
-    }
     if (process.env.MIXDOG_DEBUG_AGENT) {
       process.stderr.write(
         `[agent-trace] provider-send-end elapsed=${Date.now() - startedAt}ms result=ok transport=http-fallback\n`
@@ -201,9 +195,7 @@ export function createOpenAiOAuthDispatch({
     }
     return recordLiveModel(result);
   };
-  const dispatchWs = (forceFresh = false, carriedWarmup = null) => {
-    const prewarmedHandle = forceFresh ? null : prewarmState.handle;
-    prewarmState.handle = null;
+  const dispatchWs = (forceFresh = false) => {
     return sendWs({
       auth: authState.tokens,
       body,
@@ -226,30 +218,13 @@ export function createOpenAiOAuthDispatch({
       // exhausted does openai-oauth fall back to HTTP/SSE. This preserves
       // the hot WS/cache path for temporary blips while still preventing
       // TUI-level hangs. Sticky HTTP fallback is only armed after this
-      // bounded reconnect budget is exhausted.
-      // Per-send warmup, matching the reference client: build from the
-      // stable request properties (instructions/tools/etc.) but never
-      // send the live transcript/user input. The completed
-      // generate:false response is retained by the WS transport and
-      // anchors the first real request. Gated by
-      // startupPromptWarmupEnabled() — see openai-startup-prewarm.mjs
-      // for why it is off by default.
-      warmupBody: startupPromptWarmupEnabled() ? buildCodexStartupPrewarmBody(body) : null,
-      _carriedWarmup: carriedWarmup,
-      _prewarmedHandle: prewarmedHandle,
+      // bounded reconnect budget is exhausted, or at once on a server 1009.
     });
-  };
-  // HTTP cannot adopt a reserved socket; give it back before the turn
-  // leaves the WS path for good.
-  const discardPrewarmReservation = () => {
-    discardStartupPrewarmReservation(prewarmState.handle, poolKey);
-    prewarmState.handle = null;
   };
 
   return {
     dispatchWs,
     dispatchHttp,
-    discardPrewarmReservation,
     httpFallbackActive,
     recordLiveModel,
     shouldUseHttpFallback,

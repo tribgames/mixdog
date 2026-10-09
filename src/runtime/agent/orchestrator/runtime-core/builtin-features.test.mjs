@@ -137,6 +137,7 @@ test('a fresh profile keeps every gated tool family off the session surface', ()
     'browser',
     'browser_devtools',
     'computer',
+    'terminal',
     'office',
     'tidy',
   ]);
@@ -147,11 +148,11 @@ test('installed features with live bridges expose the full tool surface', () => 
   // to install it; everything grandfathered stays available.
   const config = setBuiltinInstalledInConfig(withGrandfatheredBuiltins({ presets: [] }), 'tidy', true);
   assert.deepEqual(
-    featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true, gitAvailable: true }),
+    featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true, terminalAvailable: true, gitAvailable: true }),
     []
   );
   // A missing bridge keeps browser/computer out even on an installed profile.
-  assert.deepEqual(featureDisallowedToolsFor(config, { gitAvailable: true }), ['browser', 'browser_devtools', 'computer']);
+  assert.deepEqual(featureDisallowedToolsFor(config, { gitAvailable: true }), ['browser', 'browser_devtools', 'computer', 'terminal']);
 });
 
 test('Git needs no install marker but respects OFF and does not enable extension tools', () => {
@@ -189,7 +190,7 @@ test('a disabled toggle removes tools even while the feature stays installed', (
     modules: { office: { enabled: false } },
     memoryTools: { enabled: false },
   };
-  assert.deepEqual(featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true }), [
+  assert.deepEqual(featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true, terminalAvailable: true }), [
     'memory',
     'recall',
     'office',
@@ -209,6 +210,7 @@ test('MIXDOG_FEATURE_* env overrides win over stored markers in both directions'
       featureDisallowedToolsFor(setBuiltinInstalledInConfig(withGrandfatheredBuiltins({ presets: [] }), 'tidy', true), {
         browserAvailable: true,
         computerAvailable: true,
+        terminalAvailable: true,
       }),
       ['git', 'github']
     );

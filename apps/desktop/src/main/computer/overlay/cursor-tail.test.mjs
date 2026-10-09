@@ -84,65 +84,25 @@ test('foreground ownership changes do not evict independent background pointers'
   assert.deepEqual(tail.update([a, b], false), [a]);
 });
 
-test('a resting pointer fades after the idle period and returns with its next event', (t) => {
+test('a session still using the computer keeps its last cursor in either mode until it leaves', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  let clock = 1_000_000;
   let changed = 0;
-  const tail = createCursorTail(
-    () => changed++,
-    1500,
-    20_000,
-    () => clock
-  );
+  const tail = createCursorTail(() => changed++);
   t.after(() => tail.dispose());
-  const modes = new Map([['a', 'background']]);
-  const first = { sessionId: 'a', eventId: 1, mode: 'background', updatedAt: clock };
-  assert.deepEqual(tail.update([first], false, modes), [first]);
-  clock += 19_000;
-  t.mock.timers.tick(19_000);
-  assert.equal(changed, 0);
-  assert.deepEqual(tail.update([first], false, modes), [first], 'a pointer within its idle period stays');
-  clock += 1_000;
-  t.mock.timers.tick(1_000);
-  assert.equal(changed, 1, 'idle expiry must request a re-render');
-  assert.deepEqual(tail.update([first], false, modes), [], 'an idle pointer hides without a grace hold');
-  const next = { sessionId: 'a', eventId: 2, mode: 'background', updatedAt: clock };
-  assert.deepEqual(tail.update([next], false, modes), [next]);
-  tail.update([], false, modes);
-  clock += 1_500;
-  t.mock.timers.tick(1_500);
-  assert.equal(changed, 2, 'a hidden session end fires once');
-  clock += 20_000;
-  t.mock.timers.tick(20_000);
-  assert.equal(changed, 2, 'removed pointers leave no idle timer behind');
-});
-
-test('an active foreground session keeps its last cursor until idle, removal or interruption', (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  let clock = 1_000_000;
-  let changed = 0;
-  const tail = createCursorTail(
-    () => changed++,
-    1500,
-    20_000,
-    () => clock
-  );
-  t.after(() => tail.dispose());
+  let eventId = 0;
+  for (const mode of ['background', 'foreground']) {
+    const modes = new Map([['a', mode]]);
+    const cursor = { sessionId: 'a', eventId: ++eventId, mode };
+    assert.deepEqual(tail.update([cursor], false, modes), [cursor]);
+    assert.deepEqual(tail.update([], false, modes), [cursor]);
+    t.mock.timers.tick(60_000);
+    assert.deepEqual(tail.update([], false, modes), [cursor], 'thinking between commands keeps the arrow');
+    assert.deepEqual(tail.update([], false, new Map()), [], 'leaving the computer removes it at once');
+  }
   const modes = new Map([['a', 'foreground']]);
-  const cursor = { sessionId: 'a', eventId: 1, mode: 'foreground', updatedAt: clock };
-  assert.deepEqual(tail.update([cursor], false, modes), [cursor]);
-  assert.deepEqual(tail.update([], false, modes), [cursor]);
-  clock += 10_000;
-  t.mock.timers.tick(10_000);
-  assert.deepEqual(tail.update([], false, modes), [cursor], 'thinking between commands keeps the arrow');
-  clock += 10_000;
-  t.mock.timers.tick(10_000);
-  assert.deepEqual(tail.update([], false, modes), [], 'the idle hide still applies');
-  const next = { ...cursor, eventId: 2, updatedAt: clock };
-  tail.update([next], false, modes);
-  assert.deepEqual(tail.update([], false, new Map()), [], 'leaving the snapshot removes it');
-  tail.update([{ ...next, eventId: 3 }], false, modes);
+  tail.update([{ sessionId: 'a', eventId: ++eventId, mode: 'foreground' }], false, modes);
   assert.deepEqual(tail.update([], true, modes), [], 'interruption hides immediately');
+  assert.equal(changed, 0, 'no deadline is left behind');
 });
 
 test('ending sessions immediately clears their tails and timers without accepting late events', (t) => {

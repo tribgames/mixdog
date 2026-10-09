@@ -4,10 +4,15 @@ import { SetiFileIcon } from './SetiFileIcon';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 import { localPathMentionHref, PATH_LINK_CLASS } from './markdown-plugins';
-import { isLocalMarkdownLink, projectRelativeFilePath } from './markdown-url';
+import { isLocalMarkdownLink, localMarkdownPath, projectRelativeFilePath } from './markdown-url';
 import { prefetchEditorPane, scheduleEditorPanePrefetch } from './lazy-widgets';
 import { resolveLocalLink, verifyLocalLink, type ResolvedLocalLink } from './local-link-resolver';
-import { isLocalWebPage, localFileOpener, localLinkKind, parseLocalFileLocation } from '../shared/local-files';
+import { isLocalWebPage, localLinkKind, parseLocalFileLocation } from '../shared/local-files';
+import { editorFileOpener } from '../shared/file-preview';
+import { ScmContextMenu, elementMenuPoint, isContextMenuKey, pointerMenuPoint, type ScmContextMenuState } from './ScmContextMenu';
+import { copyTextToClipboard } from './text-format';
+import { openEditorFileExternally } from './editor-external-file';
+import { isRemoteBrowserRenderer } from './remote-ui-projection';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
 import { openConfirmedFile } from './file-launch-confirmation';
 
@@ -26,9 +31,46 @@ export const MarkdownProjectContext = createContext('');
 /** The owning conversation's session ('' for a draft): web pages open in its
  *  browser pane and code blocks run in its terminal. */
 export const MarkdownSessionContext = createContext('');
+/** Project-relative folder of the document being rendered ('' for chat):
+ *  relative links and images resolve against it instead of the Project root. */
+export const MarkdownDocumentDirContext = createContext('');
+
+/** A relative local path re-based onto the document's folder; absolute paths
+ *  and chat (no folder) pass through unchanged. */
+export function documentRelativePath(directory: string, path: string): string {
+  if (!directory || directory === '.' || !path) return path;
+  const decoded = localMarkdownPath(path);
+  if (!decoded || /^[a-z]:\//i.test(decoded) || decoded.startsWith('/')) return path;
+  // The authored text stays percent-encoded and the document folder is
+  // encoded to match, so the resolver's single decode sees `%23` and `%25`
+  // as characters, not as a fragment or an escape.
+  const parts = directory
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((part) => part && part !== '.')
+    .map(encodeURIComponent);
+  for (const part of path.trim().split(/[?#]/, 1)[0].replace(/\\/g, '/').split('/')) {
+    if (!part || part === '.') continue;
+    if (part !== '..') {
+      parts.push(part);
+    } else if (parts.length) {
+      parts.pop();
+    } else {
+      return path;
+    }
+  }
+  return parts.join('/');
+}
 /** Opens a Project file in Mixdog's editor at a line; the conversation host
  *  supplies it. Binary documents/media never come here — they go to the OS. */
-type MarkdownOpenFile = (project: string, rel: string, line?: number, accessToken?: string) => void;
+type MarkdownOpenFile = (
+  project: string,
+  rel: string,
+  line?: number,
+  accessToken?: string,
+  /** Only passed when the link carried `:line:column`. */
+  column?: number
+) => void;
 export const MarkdownOpenFileContext = createContext<MarkdownOpenFile | null>(null);
 
 function displayPath(project: string, rel: string, suffix: string): string {
@@ -59,6 +101,9 @@ interface LocalLinkTarget {
   onPointerUp: (event: LinkPress) => void;
   onPointerCancel: () => void;
   open: () => Promise<void>;
+  openDefault: () => Promise<void>;
+  reveal: () => Promise<void>;
+  copyPath: () => Promise<void>;
 }
 
 type LinkPress = { pointerType: string; pointerId: number; clientX: number; clientY: number };
@@ -104,6 +149,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const projectPath = useContext(MarkdownProjectContext);
   const sessionId = useContext(MarkdownSessionContext);
   const openFile = useContext(MarkdownOpenFileContext);
+  const documentDir = useContext(MarkdownDocumentDirContext);
   const [resolved, setResolved] = useState<{ key: string; title: string; target: ResolvedLocalLink | null }>({
     key: '',
     title: '',
@@ -112,11 +158,12 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const [verifiedKey, setVerifiedKey] = useState('');
   const [missingKey, setMissingKey] = useState('');
   const [press] = useState(createLinkPressIntent);
-  const resolutionKey = `${projectPath}\0${target}`;
+  const resolutionKey = `${projectPath}\0${documentDir}\0${target}`;
   const resolvedTitle = resolved.key === resolutionKey ? resolved.title : '';
   const resolvedTarget = resolved.key === resolutionKey ? resolved.target : null;
   const local = isLocalMarkdownLink(target);
-  const location = parseLocalFileLocation(target);
+  const authored = parseLocalFileLocation(target);
+  const location = local ? { ...authored, path: documentRelativePath(documentDir, authored.path) } : authored;
   const kind = localLinkKind(location.path);
   const rel = local ? projectRelativeFilePath(projectPath, location.path) : null;
   // Only a relative mention without folders is a bare name; `C:/work/a.docx`
@@ -178,7 +225,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   // open intent, rather than paying its whole fetch + evaluate after the
   // click, behind the path resolution.
   const editorTarget =
-    local && kind === 'file' && localFileOpener(location.path) === 'editor' && !isLocalWebPage(location.path);
+    local && kind === 'file' && editorFileOpener(location.path) === 'editor' && !isLocalWebPage(location.path);
   const warmEditor = () => {
     if (editorTarget) void prefetchEditorPane().catch(() => {});
   };
@@ -199,7 +246,7 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       // A text file with an extension opens in the editor directly. Documents,
       // folders and extension-less names go through main, which launches the
       // OS app or file manager and hands text files back as 'editor'.
-      if (directory || kind !== 'file' || localFileOpener(file) === 'os') {
+      if (directory || kind !== 'file' || editorFileOpener(file) === 'os') {
         const api = window.mixdogDesktop;
         if (!api?.openLocalFileLink) {
           throw new Error(t('Local file links can only be opened in the desktop app.'));
@@ -215,7 +262,8 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         if (opened !== 'editor') return;
       }
       if (!openFile) throw new Error(t('Local file links can only be opened in the desktop app.'));
-      if (accessToken) openFile(project, file, location.line, accessToken);
+      if (location.line && location.column) openFile(project, file, location.line, accessToken, location.column);
+      else if (accessToken) openFile(project, file, location.line, accessToken);
       else openFile(project, file, location.line);
     } catch (error) {
       showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
@@ -232,11 +280,43 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         resolveTarget().catch(() => {});
       }
     : undefined;
+  // Explicit external actions for the right-click menu. Each re-resolves the
+  // link, then goes through the same validated IPC as the editor's own buttons
+  // (project boundary, realpath and access token are checked in main).
+  const openDefault = async () => {
+    try {
+      const { project, path: file, accessToken } = await resolveTarget();
+      await openEditorFileExternally(project, file, accessToken);
+    } catch (error) {
+      showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
+    }
+  };
+  const reveal = async () => {
+    try {
+      const { project, path: file, accessToken } = await resolveTarget();
+      const api = window.mixdogDesktop;
+      if (!api?.revealFile) throw new Error(t('Desktop file access is unavailable.'));
+      await api.revealFile(project, file, accessToken);
+    } catch (error) {
+      showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
+    }
+  };
+  const copyPath = async () => {
+    try {
+      const { project, path: file } = await resolveTarget();
+      await copyTextToClipboard(displayPath(project, file, ''));
+    } catch (error) {
+      showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
+    }
+  };
   return {
+    openDefault,
+    reveal,
+    copyPath,
     local,
     verified: verifiedKey === resolutionKey,
     missing: missingKey === resolutionKey,
-    path: location.path,
+    path: authored.path,
     kind,
     name,
     suffix,
@@ -310,7 +390,26 @@ export function MarkdownLink({
     .includes(PATH_LINK_CLASS);
   const verify = automatic && typeof window !== 'undefined';
   const link = useLocalLinkTarget(target, verify);
+  const sessionId = useContext(MarkdownSessionContext);
   const local = link.local;
+  const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
+  const openMenu = (point: { x: number; y: number }) => {
+    const external = !isRemoteBrowserRenderer();
+    setMenu({
+      label: link.name,
+      ...point,
+      items: [
+        { id: 'open', label: t('Open'), onSelect: () => void link.open() },
+        ...(external
+          ? [
+              { id: 'open-default', label: t('Open in default app'), onSelect: () => void link.openDefault() },
+              { id: 'reveal', label: t('Reveal in Explorer'), onSelect: () => void link.reveal() },
+            ]
+          : []),
+        { id: 'copy-path', label: t('Copy path'), onSelect: () => void link.copyPath(), separatorBefore: true },
+      ],
+    });
+  };
   const pathLike =
     local &&
     (automatic ||
@@ -357,11 +456,30 @@ export function MarkdownLink({
   const openLocal = link.open;
 
   return (
+    <>
+    {menu && <ScmContextMenu state={menu} onClose={() => setMenu(null)} />}
     <a
       href={target}
       className={linkClass}
       title={local ? title || link.title : title}
       onMouseEnter={link.revealTitle}
+      onContextMenu={
+        local
+          ? (event) => {
+              event.preventDefault();
+              openMenu(pointerMenuPoint(event));
+            }
+          : undefined
+      }
+      onKeyDown={
+        local
+          ? (event) => {
+              if (!isContextMenuKey(event)) return;
+              event.preventDefault();
+              openMenu(elementMenuPoint(event.currentTarget));
+            }
+          : undefined
+      }
       onPointerDown={local ? link.onPointerDown : undefined}
       onPointerUp={local ? link.onPointerUp : undefined}
       onPointerCancel={local ? link.onPointerCancel : undefined}
@@ -383,6 +501,12 @@ export function MarkdownLink({
             /* popup blocked */
           }
         };
+        // The conversation's own side-panel browser takes web links; a draft
+        // (no session) or a surface without a reveal shell uses the system browser.
+        if (sessionId && browserPageRequestsAvailable()) {
+          requestBrowserPage(sessionId, target);
+          return;
+        }
         const api = window.mixdogDesktop;
         if (api?.openExternal) void api.openExternal(target).catch(fallback);
         else fallback();
@@ -390,5 +514,6 @@ export function MarkdownLink({
     >
       {label}
     </a>
+    </>
   );
 }

@@ -1,5 +1,5 @@
 // Real-Electron checks for native Browser pane presentation
-// (MIXDOG_BROWSER_NATIVE_VIEW): the production BrowserPane shows the page's own
+// (MIXDOG_BROWSER_NATIVE_VIEW): the production BrowserPane adopts the page's own
 // view over its surface, agent input leaves the shell composer untouched, native
 // human input takes over from the agent, overlaps fall back to pixels, and a
 // hidden pane keeps its page rendering. Run through
@@ -8,12 +8,22 @@ import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
-import { app, BrowserWindow, desktopCapturer, ipcMain, nativeImage, screen, webContents } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  ipcMain,
+  nativeImage,
+  screen,
+  webContents,
+  type WebContents,
+} from 'electron';
 import { createBrowserHost, type BrowserHost } from './host';
 import { createPolling } from '../host-harness-poll';
 import { registerBrowserIpc } from '../ipc-browser';
 import { DESKTOP_IPC } from '../../shared/contract';
 import { readyBrowserFrame } from './harness-frame';
+import { browserPageView, browserPageWindow } from './page-window';
 
 const directory = process.env.MIXDOG_INPUT_ISOLATION_DIRECTORY!;
 const logPath = process.env.MIXDOG_INPUT_ISOLATION_LOG!;
@@ -111,12 +121,13 @@ async function run(): Promise<void> {
     const guest = webContents.fromId(first.webContentsId)!;
     assert.ok(guest);
     assert.equal(guest.isOffscreen(), false, 'native presentation composes pages in native windows');
-    const owner = BrowserWindow.fromWebContents(guest)!;
-    assert.ok(owner && owner !== parent);
+    const owner = browserPageWindow(guest)!;
+    const view = browserPageView(guest)!;
+    assert.ok(owner && view && owner !== parent);
     // Page windows are never hidden: a new one starts parked off-screen.
     assert.equal(owner.isVisible(), true);
     assert.ok(owner.getBounds().x < -10_000, JSON.stringify(owner.getBounds()));
-    assert.equal(owner.getParentWindow(), null);
+    assert.ok(owner.contentView.children.includes(view), 'a parked page draws in its own window');
     assert.equal(owner.isFocusable(), false);
     await guest.loadURL(`${origin}/visible`);
 
@@ -142,14 +153,13 @@ async function run(): Promise<void> {
       return result.value!;
     };
 
-    // A presented page is its own window, owned by the shell and shown over the
-    // pane; a parked page's window is hidden (and keeps rendering).
-    // Parked page windows stay shown, but unowned and far off every display.
-    const onPane = (window: BrowserWindow) =>
-      window.isVisible() && window.getParentWindow() === parent && window.getBounds().x > -10_000;
-    const shownPages = () => BrowserWindow.getAllWindows().filter((window) => window !== parent && onPane(window));
-    const presented = () => onPane(owner);
-    const parked = () => !onPane(owner);
+    // A presented page's view is adopted into the shell over the pane; a
+    // parked page draws in its own window, shown far off every display.
+    const onPane = (page: WebContents) => parent!.contentView.children.includes(browserPageView(page)!);
+    const shownPages = () =>
+      webContents.getAllWebContents().filter((page) => page !== shell && browserPageView(page) && onPane(page));
+    const presented = () => onPane(guest);
+    const parked = () => !onPane(guest) && owner.contentView.children.includes(view);
     const otherPresented = () => parked() && shownPages().length === 1;
     // Where the pane's surface is on screen, in DIPs.
     const paneOnScreen = (rect: { x: number; y: number; width: number; height: number }) => {
@@ -180,43 +190,43 @@ async function run(): Promise<void> {
       await eventually(async () => presented(), Boolean);
     } catch (error) {
       log(
-        `not presented: last requests ${presentCalls.slice(-3).join(' ')}; window ${JSON.stringify(owner.getBounds())}`
+        `not presented: last requests ${presentCalls.slice(-3).join(' ')}; view ${JSON.stringify(view.getBounds())}`
       );
       throw error;
     }
-    assert.equal(owner.isResizable(), false, 'the page edge must not resize independently of the browser panel');
-    const initialBounds = owner.getBounds();
+    const initialBounds = view.getBounds();
     for (const width of [400, 560, 600]) {
       // A right-docked panel changes its left edge while its right edge stays
-      // put. Disabling native edge grips must still allow panel-driven sizing.
+      // put; the adopted page follows inside the shell.
       await shell.executeJavaScript(`(() => {
         const dock = document.getElementById('browser-dock');
         dock.style.width = '${width}px';
         dock.style.marginLeft = '${600 - width}px';
       })()`);
       await eventually(async () => {
-        const pane = paneOnScreen(await surfaceRect());
-        const actual = owner.getBounds();
+        const pane = await surfaceRect();
+        const actual = view.getBounds();
         return (['x', 'y', 'width', 'height'] as const).every((key) => Math.abs(actual[key] - pane[key]) <= 1);
       }, Boolean);
-      const resized = owner.getBounds();
+      const resized = view.getBounds();
       assert.ok(Math.abs(resized.width - width) <= 1, `page must follow the panel width ${width}`);
       assert.ok(
         Math.abs(resized.x + resized.width - initialBounds.x - initialBounds.width) <= 1,
         'the page and panel must keep their right edge aligned during left-edge resizing'
       );
     }
-    log('native page edge resizing disabled; panel-driven shrink and leftward expansion stay aligned');
+    log('panel-driven shrink and leftward expansion keep the adopted page aligned');
     const rect = await surfaceRect();
-    const bounds = owner.getContentBounds();
-    const pane = paneOnScreen(rect);
+    const bounds = view.getBounds();
     for (const key of ['x', 'y', 'width', 'height'] as const) {
-      assert.ok(
-        Math.abs(bounds[key] - pane[key]) <= 1,
-        `page window ${key} ${bounds[key]} must match pane ${pane[key]}`
-      );
+      assert.ok(Math.abs(bounds[key] - rect[key]) <= 1, `page view ${key} ${bounds[key]} must match pane ${rect[key]}`);
     }
-    assert.equal(BrowserWindow.fromWebContents(guest), owner, 'the page window keeps owning the page');
+    assert.equal(browserPageWindow(guest), owner, 'the page window keeps owning the page');
+    assert.deepEqual(
+      owner.getContentSize(),
+      [bounds.width, bounds.height],
+      'the page window keeps the presented page size'
+    );
     assert.equal(owner.isFocused(), false, 'showing the page does not activate it');
     await eventually(
       () => guest.executeJavaScript('innerWidth + "x" + innerHeight'),
@@ -250,7 +260,8 @@ async function run(): Promise<void> {
       parent.setAlwaysOnTop(true);
       await pause(400);
       // Low in the pane, clear of the fixture's controls and frame.
-      const centre = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height * 0.85 };
+      const pane = paneOnScreen(bounds);
+      const centre = { x: pane.x + pane.width / 2, y: pane.y + pane.height * 0.85 };
       const display = screen.getDisplayNearestPoint(centre);
       const sources = await desktopCapturer.getSources({
         types: ['screen'],
@@ -410,21 +421,13 @@ async function run(): Promise<void> {
     await eventually(async () => presented(), Boolean);
     log('page prompts fall back to the pane prompt and return to native display');
 
-    // The page window follows the shell: hidden with it, back with it, and
-    // moved with it.
+    // The page follows the shell: parked while it is hidden, adopted again
+    // when it returns.
     parent.hide();
     await eventually(async () => parked(), Boolean);
     parent.showInactive();
     await eventually(async () => presented(), Boolean);
-    const [shellX, shellY] = parent.getPosition();
-    parent.setPosition(shellX + 40, shellY + 30);
-    await eventually(async () => {
-      const moved = owner.getContentBounds();
-      const pane = paneOnScreen(await surfaceRect());
-      return Math.abs(moved.x - pane.x) <= 1 && Math.abs(moved.y - pane.y) <= 1;
-    }, Boolean);
-    parent.setPosition(shellX, shellY);
-    log('the page window hides, returns and moves with the shell');
+    log('the page parks while the shell is hidden and returns with it');
 
     // A hidden pane parks the page; the agent keeps seeing and driving it.
     await shell.executeJavaScript('window.setSurfaceActive(false)');
@@ -506,15 +509,15 @@ async function run(): Promise<void> {
       async () => webContents.getAllWebContents().find((contents) => contents.getURL().endsWith('/visible?popup')),
       Boolean
     );
-    const popupWindow = BrowserWindow.fromWebContents(popupGuest!)!;
-    assert.equal(onPane(popupWindow), false, 'a popup opens parked, not over the pane');
+    assert.ok(browserPageView(popupGuest!), 'a popup is a hosted page');
+    assert.equal(onPane(popupGuest!), false, 'a popup opens parked, not over the pane');
     await host.browserPageControl('visible-session', {
       type: 'select-tab',
       tabId: popupTab!.id,
       documentId: (await host.browserPageMetadata('visible-session')).documentId,
     });
-    await eventually(async () => parked() && onPane(popupWindow), Boolean);
-    log('a page popup is presented as its own page window');
+    await eventually(async () => parked() && onPane(popupGuest!), Boolean);
+    log('a page popup is presented like any tab');
 
     // A shell that navigates away cannot place pages any more; none may stay on top.
     await shell.loadURL('about:blank');

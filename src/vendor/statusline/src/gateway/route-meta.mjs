@@ -92,7 +92,7 @@ function cleanBool(value) {
   if (value === false) return false;
   if (typeof value === 'string') {
     const s = value.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on', 'fast', 'priority'].includes(s)) return true;
+    if (['1', 'true', 'yes', 'on', 'fast', 'priority', 'ultrafast'].includes(s)) return true;
     if (['0', 'false', 'no', 'off', 'none'].includes(s)) return false;
   }
   return null;

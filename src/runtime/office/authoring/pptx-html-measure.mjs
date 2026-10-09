@@ -399,7 +399,7 @@ function extractSlide(index) {
       } catch (error) {
         notes.push(`data-chart is not valid JSON: ${error.message}`);
       }
-      if (spec) items.push({ kind: 'chart', box: rel(el.getBoundingClientRect()), spec });
+      if (spec) items.push({ kind: 'chart', box: rel(el.getBoundingClientRect()), spec, font: family(cs.fontFamily) });
       return;
     }
     if (hasOwnText(el)) {

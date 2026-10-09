@@ -10,6 +10,17 @@ import { traceAgentUsage } from '../agent-trace.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import { parseToolCalls, collectGeminiGroundingSources, parseGeminiTextPartMetadata } from './gemini-schema.mjs';
 
+// Pure usageMetadata normalization shared by the success path and a failed
+// stream's partialUsage.
+export function normalizeAntigravityUsage(um) {
+  const inputTokens = um.promptTokenCount || um.prompt_token_count || 0;
+  const cachedTokens = um.cachedContentTokenCount || um.cached_content_token_count || 0;
+  const outputTokens =
+    (um.candidatesTokenCount || um.candidates_token_count || 0) +
+    (um.thoughtsTokenCount || um.thoughts_token_count || 0);
+  return { inputTokens, outputTokens, cachedTokens, promptTokens: inputTokens, raw: um };
+}
+
 /**
  * @param {object} deps
  * @param {object} deps.response  final unwrapped Gemini-shaped payload
@@ -48,31 +59,11 @@ export function finalizeAntigravityTurn({ response, collector, useModel, opts, o
   const finishReason =
     collector.terminalFailure || candidate?.finishReason || (promptBlockReason ? `PROMPT_${promptBlockReason}` : null);
   const normalizedFinish = String(finishReason || '').replace(/^FINISH_REASON_/, '');
-  if (finishReason && normalizedFinish !== 'STOP') {
-    throw Object.assign(new Error(`Antigravity response incomplete: finishReason=${finishReason}`), {
-      name: 'ProviderIncompleteError',
-      code: 'PROVIDER_INCOMPLETE',
-      providerIncomplete: true,
-      finishReason,
-      partialContent: content,
-      partialToolCalls: toolCalls,
-      partialProviderReplay: providerReplay,
-      providerMetadata,
-      model: useModel,
-      rawUsage: response.usageMetadata || null,
-      ...(collector.emittedToolCount ? { emittedToolCall: true, unsafeToRetry: true } : {}),
-    });
-  }
-
   const um = response.usageMetadata || null;
   let usage;
   if (um) {
-    const inputTokens = um.promptTokenCount || um.prompt_token_count || 0;
-    const cachedTokens = um.cachedContentTokenCount || um.cached_content_token_count || 0;
-    const outputTokens =
-      (um.candidatesTokenCount || um.candidates_token_count || 0) +
-      (um.thoughtsTokenCount || um.thoughts_token_count || 0);
-    usage = { inputTokens, outputTokens, cachedTokens, promptTokens: inputTokens, raw: um };
+    usage = normalizeAntigravityUsage(um);
+    const { inputTokens, outputTokens, cachedTokens } = usage;
     traceAgentUsage({
       sessionId: opts.sessionId || opts.session?.id || null,
       iteration: Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null,
@@ -85,6 +76,23 @@ export function finalizeAntigravityTurn({ response, collector, useModel, opts, o
       modelDisplay: useModel,
       rawUsage: um,
       provider: 'antigravity-oauth',
+    });
+  }
+
+  if (finishReason && normalizedFinish !== 'STOP') {
+    throw Object.assign(new Error(`Antigravity response incomplete: finishReason=${finishReason}`), {
+      name: 'ProviderIncompleteError',
+      code: 'PROVIDER_INCOMPLETE',
+      providerIncomplete: true,
+      finishReason,
+      partialContent: content,
+      partialToolCalls: toolCalls,
+      partialProviderReplay: providerReplay,
+      providerMetadata,
+      model: useModel,
+      rawUsage: response.usageMetadata || null,
+      ...(usage ? { partialUsage: usage, partialModel: useModel } : {}),
+      ...(collector.emittedToolCount ? { emittedToolCall: true, unsafeToRetry: true } : {}),
     });
   }
 

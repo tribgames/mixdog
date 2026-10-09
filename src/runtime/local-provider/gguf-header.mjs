@@ -1,3 +1,5 @@
+import { LOCAL_CONTEXT_DEFAULT_TOKENS, LOCAL_CONTEXT_MIN_TOKENS } from './context-settings.mjs';
+
 const WIDTHS = new Map([
   [0, 1],
   [1, 1],
@@ -101,9 +103,13 @@ export function parseGgufHeader(buffer) {
   );
 }
 
-export function ggufMemoryPlan(header, fileSize, requestedContext = 8192) {
-  if (!Number.isSafeInteger(requestedContext) || requestedContext < 512 || requestedContext > 32768) {
-    throw new Error('contextWindow must be between 512 and 32768 tokens.');
+export function ggufMemoryPlan(header, fileSize, requestedContext = LOCAL_CONTEXT_DEFAULT_TOKENS) {
+  if (
+    !Number.isSafeInteger(requestedContext) ||
+    requestedContext < LOCAL_CONTEXT_MIN_TOKENS ||
+    requestedContext > 32768
+  ) {
+    throw new Error(`contextWindow must be between ${LOCAL_CONTEXT_MIN_TOKENS} and 32768 tokens.`);
   }
   const { architecture, metadata } = header;
   if (!/^[a-z0-9_]+$/.test(architecture || '')) throw new Error('Invalid GGUF architecture');
@@ -113,9 +119,11 @@ export function ggufMemoryPlan(header, fileSize, requestedContext = 8192) {
     return value;
   };
   const modelContext = positive('context_length');
+  if (modelContext < LOCAL_CONTEXT_MIN_TOKENS)
+    throw new Error(
+      `This model supports only ${modelContext} context tokens; agent work needs at least ${LOCAL_CONTEXT_MIN_TOKENS}.`
+    );
   const contextWindow = Math.min(requestedContext, modelContext);
-  if (!Number.isSafeInteger(contextWindow) || contextWindow < 512 || contextWindow > 32768)
-    throw new Error('contextWindow must be between 512 and 32768 tokens.');
   const dimension = positive('embedding_length') / positive('attention.head_count');
   const key = metadata[`${architecture}.attention.key_length`] || dimension;
   const val = metadata[`${architecture}.attention.value_length`] || dimension;

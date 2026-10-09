@@ -11,20 +11,27 @@ const REPLAY_BUFFER_LIMIT = 200_000;
 
 /** Retain only the newest terminal output without copying the whole replay
  * window on every PTY chunk. Materialize one string only when a view reattaches. */
-class TerminalReplayBuffer {
+export class TerminalReplayBuffer {
   private chunks: string[] = [];
   private head = 0;
   private headOffset = 0;
   private retainedChars = 0;
+  private appendedChars: number;
+  private readonly startOffset: number;
   private readonly limit: number;
 
-  constructor(limit = REPLAY_BUFFER_LIMIT) {
+  /** `startOffset` lets a recreated terminal begin above every cursor its
+   * predecessor issued, so those stale cursors fall below `oldest`. */
+  constructor(limit = REPLAY_BUFFER_LIMIT, startOffset = 0) {
     this.limit = Math.max(1, Math.floor(Number(limit)) || REPLAY_BUFFER_LIMIT);
+    this.startOffset = Math.max(0, Math.floor(Number(startOffset)) || 0);
+    this.appendedChars = this.startOffset;
   }
 
   append(data: string): void {
     const value = String(data || '');
     if (!value) return;
+    this.appendedChars += value.length;
     if (value.length >= this.limit) {
       this.chunks = [value.slice(-this.limit)];
       this.head = 0;
@@ -67,6 +74,29 @@ class TerminalReplayBuffer {
     }
     return parts.length === 1 ? parts[0] : parts.join('');
   }
+
+  /** Read-only cursor: total characters ever appended (never decreases). */
+  get cursor(): number {
+    return this.appendedChars;
+  }
+
+  /** True once this terminal's own output exceeded the retained window. */
+  get trimmed(): boolean {
+    return this.appendedChars - this.startOffset > this.retainedChars;
+  }
+
+  /** Output appended after `cursor`, without consuming anything. `reset` is
+   * true when the requested position had already been trimmed away, so the
+   * text starts at the oldest retained character instead. */
+  readSince(cursor: number): { text: string; cursor: number; reset: boolean } {
+    const retained = this.read();
+    const oldest = this.appendedChars - retained.length;
+    const from = Math.floor(Number(cursor));
+    if (!Number.isFinite(from) || from < 0 || from < oldest || from > this.appendedChars) {
+      return { text: retained, cursor: this.appendedChars, reset: true };
+    }
+    return { text: retained.slice(from - oldest), cursor: this.appendedChars, reset: false };
+  }
 }
 
 interface ManagedTerminal {
@@ -74,11 +104,43 @@ interface ManagedTerminal {
   buffer: TerminalReplayBuffer;
   disposed: boolean;
   outputPaused: boolean;
+  shell: string;
+  cwd: string | null;
+}
+
+/** One tab of a session's terminal, as the read-only agent bridge sees it. */
+export interface SessionTerminalTab {
+  tab: number;
+  id: string;
+  shell: string;
+  running: boolean;
+  cwd: string | null;
+}
+
+const SESSION_TERMINAL_PREFIX = 'session-terminal:';
+const SESSION_TERMINAL_ID = /^session-terminal:[A-Za-z0-9_-]{1,120}(?::[1-9]\d{0,2})?$/;
+
+/** Shell label for a spawn path: `C:\\...\\pwsh.exe` → `pwsh`. */
+function shellLabel(shell: string): string {
+  return (
+    shell
+      .split(/[\\/]/)
+      .pop()
+      ?.replace(/\.exe$/i, '') || shell
+  );
+}
+
+/** 1000 cursor units per wall-clock millisecond: a terminal would have to
+ *  print over 1000 characters per millisecond of its lifetime to reach the
+ *  epoch of a terminal created after it. Stays a safe integer for centuries. */
+export function terminalCursorEpoch(now = Date.now()): number {
+  return Math.floor(now) * 1000;
 }
 
 export class TerminalManager {
   private readonly terminals = new Map<string, ManagedTerminal>();
   private readonly listeners = new Set<(event: TerminalDataEvent) => void>();
+  private readonly cursorFloors = new Map<string, number>();
   private sequence = 0;
   private ptyModule: Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> | null = null;
   private disposed = false;
@@ -118,7 +180,7 @@ export class TerminalManager {
     }
     const { spawn } = await this.loadPtyBindings();
     if (this.disposed) throw new Error('Terminal manager is disposed.');
-    const requestedId = id && /^term_[A-Za-z0-9_-]{1,120}$/.test(id) ? id : '';
+    const requestedId = id && (/^term_[A-Za-z0-9_-]{1,120}$/.test(id) || SESSION_TERMINAL_ID.test(id)) ? id : '';
     const nextId = requestedId || `term_${process.pid}_${++this.sequence}`;
     // A resolved shell profile (user picked one in the terminal strip) wins;
     // otherwise the platform default stands as before.
@@ -131,11 +193,17 @@ export class TerminalManager {
       cwd: cwd || process.env.USERPROFILE || process.env.HOME || process.cwd(),
       env: env as Record<string, string>,
     });
+    const prior = this.terminals.get(nextId);
+    const floor = Math.max(this.cursorFloors.get(nextId) ?? -1, prior ? prior.buffer.cursor : -1);
     const entry: ManagedTerminal = {
       pty,
-      buffer: new TerminalReplayBuffer(),
+      // Cursors start at a creation-time epoch, so a cursor issued before a
+      // daemon restart (whose floors are gone) still falls below `oldest`.
+      buffer: new TerminalReplayBuffer(REPLAY_BUFFER_LIMIT, Math.max(floor + 1, terminalCursorEpoch())),
       disposed: false,
       outputPaused: false,
+      shell: shellLabel(shell),
+      cwd: cwd || null,
     };
     pty.onData((data) => {
       entry.buffer.append(data);
@@ -150,6 +218,33 @@ export class TerminalManager {
     });
     this.terminals.set(nextId, entry);
     return { id: nextId, replay: '' };
+  }
+
+  /** Read-only: the tabs of one session's terminal, ordered by tab number.
+   * Tab 1 is `session-terminal:<sessionId>`, tab n is `…:<n>`. Other
+   * sessions' terminals are never visible through this. */
+  sessionTabs(sessionId: string): SessionTerminalTab[] {
+    const base = `${SESSION_TERMINAL_PREFIX}${sessionId}`;
+    const tabs: SessionTerminalTab[] = [];
+    for (const [id, entry] of this.terminals) {
+      let tab = 0;
+      if (id === base) tab = 1;
+      else if (id.startsWith(`${base}:`) && /^[1-9]\d*$/.test(id.slice(base.length + 1))) {
+        tab = Number(id.slice(base.length + 1));
+      }
+      if (tab) tabs.push({ tab, id, shell: entry.shell, running: !entry.disposed, cwd: entry.cwd });
+    }
+    return tabs.sort((a, b) => a.tab - b.tab);
+  }
+
+  /** Read-only: output of one terminal after `since` (all retained output when
+   * omitted). Does not consume or alter the replay buffer. */
+  snapshot(id: string, since?: number): { text: string; cursor: number; reset: boolean } | null {
+    const entry = this.terminals.get(id);
+    if (!entry) return null;
+    return since === undefined
+      ? { text: entry.buffer.read(), cursor: entry.buffer.cursor, reset: entry.buffer.trimmed }
+      : entry.buffer.readSince(since);
   }
 
   write(id: string, data: string): void {
@@ -215,6 +310,7 @@ export class TerminalManager {
     } catch {
       /* already gone */
     }
+    this.cursorFloors.set(id, Math.max(this.cursorFloors.get(id) ?? -1, entry.buffer.cursor));
     this.terminals.delete(id);
   }
 

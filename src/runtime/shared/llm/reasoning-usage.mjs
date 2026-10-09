@@ -25,8 +25,7 @@ export function reasoningUsage(usage) {
     raw?.thoughts_token_count,
   ];
   const reasoningTokens = values.map(tokenCount).find((value) => value !== null) ?? null;
-  const measured = { reasoningTokens, reasoningTokensComplete: reasoningTokens !== null };
-  return raw?.warmup_usage ? combineReasoningUsage(measured, raw.warmup_usage) : measured;
+  return { reasoningTokens, reasoningTokensComplete: reasoningTokens !== null };
 }
 
 export function combineReasoningUsage(left, right) {

@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyOpenAIDirectCachePolicy, openAiDirectSupportsFast } from './openai-direct-request.mjs';
+import {
+  applyOpenAIDirectCachePolicy,
+  openAiDirectSupportsFast,
+  openAiDirectSupportsUltrafast,
+} from './openai-direct-request.mjs';
+
+test('public API Ultrafast covers gpt-6-astra and gpt-6.1-sol only', () => {
+  for (const model of ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-astra-2026-09-22', { id: 'gpt-6.1-sol-2026-10-01' }]) {
+    assert.equal(openAiDirectSupportsUltrafast(model), true, JSON.stringify(model));
+  }
+  for (const model of ['gpt-6-sol', 'gpt-6-luna', 'gpt-5.5', 'gpt-6-astra-mini', '']) {
+    assert.equal(openAiDirectSupportsUltrafast(model), false, model);
+  }
+});
 
 test('public API Fast mode covers documented models only', () => {
   for (const model of [

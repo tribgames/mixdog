@@ -7,11 +7,21 @@
 import { stampStreamOutcome, STREAM_TRANSPORTS } from '../lib/stream-outcome.mjs';
 import { createLeakGuard, createToolCallDedupe } from '../lib/leaked-toolcall.mjs';
 import { emitCompatToolCallOnce, synthLeakedOpenAICall } from '../openai-compat-stream-common.mjs';
+import { chatCompletionUsage } from '../openai-compat-response-normalization.mjs';
+import { noteAbandonedUsage } from '../../../../shared/llm/usage-context.mjs';
 import { createToolCallAccumulator } from './tool-call-acc.mjs';
 
-export function createCompatStreamState({ knownToolNames, idleMs, onStreamDelta, onToolCall, onTextDelta }) {
+export function createCompatStreamState({
+  providerName,
+  knownToolNames,
+  idleMs,
+  onStreamDelta,
+  onToolCall,
+  onTextDelta,
+}) {
   const toolDedupe = createToolCallDedupe();
   return {
+    providerName,
     idleMs,
     onStreamDelta,
     onToolCall,
@@ -86,6 +96,22 @@ export function toolWorkStarted(state) {
   return state.streamEmitState.emittedToolCall || state.toolAcc.byKey.size > 0;
 }
 
+/** Usage the provider already reported on this stream (billed even though the
+ *  stream failed), normalized exactly as the success path does. Nothing is
+ *  attached when no usage chunk arrived. */
+export function attachReportedUsage(state, err) {
+  if (!state.rawUsage || err.partialUsage) return;
+  err.partialUsage = chatCompletionUsage(state.providerName, state.rawUsage);
+  err.partialModel = state.model || undefined;
+}
+
+/** A cancelled stream: the caller's reason may be shared, so the reported
+ *  usage goes to this send directly (call from the awaited consumer). */
+export function noteReportedUsage(state) {
+  if (state.rawUsage)
+    noteAbandonedUsage(chatCompletionUsage(state.providerName, state.rawUsage), state.model || undefined);
+}
+
 /** Keep the partial output on the error for upstream salvage: the text, the
  *  recovered leaked calls already dispatched (native calls only dispatch once
  *  the stream finishes) and whether a native call's arguments were still
@@ -96,6 +122,7 @@ export function attachPartial(state, err) {
     err.partialToolCalls = state.leakedCalls.length ? state.leakedCalls.slice() : undefined;
     err.pendingToolUse = state.toolAcc.byKey.size > 0;
     err.partialModel = state.model || undefined;
+    attachReportedUsage(state, err);
   } catch {
     /* best-effort */
   }

@@ -86,7 +86,9 @@ function* planUsageRepair(rows, { providerOverrides = {}, price = priceUsage }) 
               serviceTier: oldRates?.serviceTier,
               kind,
               ts: row.ts,
-              historical: true,
+              // Same rule as at ingestion: a live record keeps its exact
+              // request time (time-of-day pricing applies); imports do not.
+              historical: signature[6] !== 'live',
             });
       cost = priced.costUsd;
       if (cost !== null && (!Number.isFinite(cost) || cost < 0)) throw new Error('Invalid repair price');

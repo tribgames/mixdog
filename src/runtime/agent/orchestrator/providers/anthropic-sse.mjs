@@ -16,6 +16,7 @@ import { OAUTH_STREAM_LABELS } from './lib/anthropic-stream-labels.mjs';
 import { stampStreamOutcome, STREAM_TRANSPORTS, STREAM_OUTCOME_VERSION } from './lib/stream-outcome.mjs';
 import { createAnthropicSseTurn } from './anthropic-sse-turn.mjs';
 import { createAnthropicSseWatchdogs } from './anthropic-sse-watchdogs.mjs';
+import { noteAbandonedUsage } from '../../../shared/llm/usage-context.mjs';
 
 /** Bounded mid-stream SSE retries (transient stream loss); shared with anthropic.mjs.
  *  Sourced from the single shared retry-budget table (MIDSTREAM_RETRY_POLICY.sse). */
@@ -234,7 +235,15 @@ export async function parseSSEStream(
         chunk = await watchdogs.read();
       } catch (err) {
         const stopped = watchdogs.readFailure() ?? (signal?.aborted ? abortedError() : null);
-        if (stopped) throw stopped;
+        if (stopped) {
+          // The caller's cancellation reason may be shared: never stamp this
+          // request's usage on it; the usage reported so far goes to this send.
+          if (signal?.aborted && state?.sawMessageStart) {
+            const reported = turn.reportedUsage();
+            noteAbandonedUsage(reported.usage, reported.model);
+          }
+          throw stopped;
+        }
         // The connection dropped mid-body: carry what this turn completed so
         // the loop can continue from finished tool calls instead of failing.
         throw state?.sawMessageStart ? turn.attachTransportPartial(err) : err;

@@ -137,6 +137,7 @@ export function createSessionSettingsApi(bag) {
     // even while a legacy blocking install owns commandBusy.
     startLocalProviderInstallation: (phase, modelId) => runtime.startLocalProviderInstallation(phase, modelId),
     cancelLocalProviderInstallation: (jobId) => runtime.cancelLocalProviderInstallation(jobId),
+    discardLocalProviderInstallation: (phase, modelId) => runtime.discardLocalProviderInstallation(phase, modelId),
     setLocalProviderIdleTtl: (seconds) => runtime.setLocalProviderIdleTtl(seconds),
     setLocalProviderContext: (modelId, tokens) => runtime.setLocalProviderContext(modelId, tokens),
     getLocalProviderModelDetails: (modelId) => runtime.getLocalProviderModelDetails(modelId),

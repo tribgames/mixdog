@@ -310,12 +310,12 @@ export function createAnthropicMidstreamRecovery({
     throw err;
   };
 
-  // A thrown error carries its partial usage to the send's accounting; an
-  // attempt replaced by a retry or a non-streaming replay is noted here.
+  // Every failed attempt's reported usage is noted once, whatever follows: a
+  // retry or replay replaces it, recovery may fail, and an error re-thrown
+  // later (this one or an earlier attempt's) is not recorded again.
   const onStreamError = async (args) => {
-    const decision = await decideStreamError(args);
     noteAbandonedUsage(args.err?.partialUsage, args.err?.partialModel);
-    return decision;
+    return decideStreamError(args);
   };
 
   const exhaustedError = () => firstAttemptError || new Error(unreachableMessage);

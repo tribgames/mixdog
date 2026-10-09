@@ -224,8 +224,6 @@ export function traceTransport({
   keepResponseChain,
   requestedServiceTier,
   responseServiceTier,
-  warmupContinuity,
-  effectiveWarmupResponseId,
 }) {
   try {
     const resultToolCallCount = Array.isArray(result.toolCalls) ? result.toolCalls.length : 0;
@@ -283,10 +281,6 @@ export function traceTransport({
       body_input_items: Array.isArray(requestBody.input) ? requestBody.input.length : null,
       frame_input_items: Array.isArray(frame.input) ? frame.input.length : null,
       frame_has_instructions: typeof frame.instructions === 'string' && frame.instructions.length > 0,
-      warmup_used: !!effectiveWarmupResponseId,
-      warmup_response_id: effectiveWarmupResponseId,
-      warmup_first_real_cache_hit: !!effectiveWarmupResponseId && cacheObservation.cachedTokens > 0,
-      ...warmupContinuity,
       tool_call_count: resultToolCallCount,
       keep_socket: keepSocket,
       keep_response_chain: keepResponseChain,

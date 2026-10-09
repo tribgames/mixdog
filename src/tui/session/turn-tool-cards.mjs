@@ -184,9 +184,6 @@ export function openToolBatch(cards, displayCalls) {
     // Flushed AFTER the syncAggregateHeader loop so any earlier-seq aggregate
     // it would flush-through already has its pendingSpec built.
     standaloneReserve: null,
-    // A shell call that follows an edit call in the SAME provider batch is
-    // its verification — the Shell card header renders Verifying/Verified.
-    sawEditInBatch: false,
   };
   for (let i = 0; i < displayCalls.length; i++) openToolCard(cards, displayCalls[i], i, batch);
   for (const aggregateCard of batch.touchedAggregates) cards.aggregates.syncAggregateHeader(aggregateCard);
@@ -208,8 +205,9 @@ function openToolCard(cards, call, index, batch) {
   const args = toolCallArgs(call);
   // Category drives the aggregate bucket so only same-category calls merge.
   const category = classifyToolCategory(name, args);
-  const shellAfterEdit = category === 'Shell' && batch.sawEditInBatch;
-  if (category === 'Patch' && args?.dry_run !== true) batch.sawEditInBatch = true;
+  // A shell call is never labelled "Verified" from its position after an
+  // edit: only an explicit verification marker on the call (verifyShell)
+  // changes the neutral "Ran" header.
   const bucket = aggregateBucketForCategory(category, { agentBatch: batch.agentBatch });
   const callId = toolCallId(call);
   const callKey = callId || `__tool_${cards.toolCards.length}_${index}`;
@@ -236,7 +234,7 @@ function openToolCard(cards, call, index, batch) {
     return;
   }
   const aggregateCard = cards.aggregates.ensureAggregateCard(bucket);
-  if (shellAfterEdit) aggregateCard.verifyShell = true;
+  if (category === 'Shell' && args?.verifyShell === true) aggregateCard.verifyShell = true;
   mergeAggregateCategoryEntries(aggregateCard, categoryEntries);
   aggregateCard.calls.set(callKey, aggregateCallEntry(callKey, name, args, category));
   batch.touchedAggregates.add(aggregateCard);

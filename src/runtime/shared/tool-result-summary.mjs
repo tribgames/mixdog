@@ -15,6 +15,7 @@ import {
 } from './tool-primitives.mjs';
 import { parseTaskNotification } from './task-notification-envelope.mjs';
 import { gitResultError, gitResultExitCode } from './tool-card-model/git-result.mjs';
+import { mediaResultSummary } from './tool-card-model/media-result.mjs';
 
 const keepOriginal = (_key, original) => original;
 
@@ -351,7 +352,8 @@ export function extractErrorCause(resultText) {
     )
   );
   const picked = errorish || lines[0] || '';
-  return truncateSingleLine(stripInlineMarkdown(picked), AGENT_SURFACE_BRIEF_MAX);
+  // The card already says Failed; "Error: " in front of the cause is noise.
+  return truncateSingleLine(stripInlineMarkdown(picked).replace(/^error\s*:\s*/i, ''), AGENT_SURFACE_BRIEF_MAX);
 }
 
 // ── Per-tool result summarizers ─────────────────────────────────────────────
@@ -364,6 +366,38 @@ function summarizeLineCount({ text, trimmed, translate }, { singular, plural }) 
   const n = countNonEmptyLines(text);
   if (n === 0) return null;
   return countLabel(translate, n, singular, plural);
+}
+
+// grep's three result shapes: per-file counts (`path:N`), a bare file list, or
+// match rows grouped under `# path` headers with context rows around them.
+function summarizeGrepResult(result) {
+  const { text, trimmed, args, translate } = result;
+  if (!trimmed || !looksLineOriented(text)) return null;
+  if (looksLikeZeroResultText(text)) return countLabel(translate, 0, 'match', 'matches');
+  const a = parseToolArgs(args);
+  const mode = String(a.output_mode ?? a.mode ?? '').toLowerCase();
+  const rows = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('[') && !line.startsWith('…'));
+  if (mode === 'count') {
+    let matches = 0;
+    let files = 0;
+    for (const row of rows) {
+      const count = /(?:^|:)(\d+)$/.exec(row);
+      if (!count) continue;
+      matches += Number(count[1]);
+      files += 1;
+    }
+    if (files === 0) return null;
+    const files_ = countLabel(translate, files, 'file');
+    return `${countLabel(translate, matches, 'match', 'matches')} in ${files_}`;
+  }
+  if (mode === 'files' || mode === 'files_with_matches') {
+    return countLabel(translate, rows.filter((row) => !row.startsWith('#')).length, 'file');
+  }
+  const matchRows = rows.filter((row) => !/^(?:#|--$)/.test(row) && !/^(?:\d+|[^\s:]+?-\d+)-/.test(row));
+  return matchRows.length ? countLabel(translate, matchRows.length, 'match', 'matches') : null;
 }
 
 function summarizeReadResult({ text, trimmed, translate }) {
@@ -541,7 +575,8 @@ const TOOL_RESULT_SUMMARIZERS = new Map(
   [
     [['read', 'view_image', 'read_mcp_resource'], summarizeReadResult],
     [['apply_patch'], summarizePatchResult],
-    [['grep'], (result) => summarizeLineCount(result, { singular: 'match', plural: 'matches' })],
+    [['grep'], summarizeGrepResult],
+    [['media'], ({ args, text }) => mediaResultSummary(parseToolArgs(args), text)],
     [['glob'], (result) => summarizeLineCount(result, { singular: 'file', plural: 'files' })],
     [['find'], (result) => summarizeLineCount(result, { singular: 'candidate', plural: 'candidates' })],
     [['list', 'ls'], (result) => summarizeLineCount(result, { singular: 'entry', plural: 'entries' })],
@@ -610,6 +645,11 @@ export function summarizeAgentSurfaceBrief(name, args, resultText, { isError = f
   const a = parseToolArgs(args);
   const action = String(a?.type || a?.action || '').toLowerCase();
   const text = String(resultText ?? '').trim();
+  // A failed call shows why it failed, not the prompt it was handed.
+  if (isError && text) {
+    const cause = extractErrorCause(text);
+    if (cause) return truncateAgentSurfaceBrief(cause);
+  }
   if (isResponse && text) {
     const fromResult = summarizeToolResult(name, args, text, isError);
     if (fromResult) return truncateAgentSurfaceBrief(stripInlineMarkdown(fromResult));

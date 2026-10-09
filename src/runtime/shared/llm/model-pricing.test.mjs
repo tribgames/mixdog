@@ -45,6 +45,8 @@ const litellm = {
     output_cost_per_token: 10e-6,
     input_cost_per_token_priority: 5e-6,
     output_cost_per_token_priority: 25e-6,
+    input_cost_per_token_ultrafast: 10e-6,
+    output_cost_per_token_ultrafast: 50e-6,
     supports_web_search: true,
     supports_vision: true,
   },
@@ -259,6 +261,17 @@ test('a sent Priority tier prices at the published Priority rates; only an API d
   assert.equal(unpublished.costUsd, null);
   assert.equal(unpublished.rates.unpricedReason, 'missing-rate');
   assert.equal(unpublished.rates.requestServiceTier, 'priority');
+});
+
+test('a sent Ultrafast tier prices at the published Ultrafast rates with the same API downgrade rule', () => {
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
+  const args = { model: 'gpt-6-sol', inputTokens: 100_000, outputTokens: 10_000, requestServiceTier: 'ultrafast' };
+  near(priceUsage({ ...args, provider: 'openai-oauth', kind: 'oauth', serviceTier: 'default' }).costUsd, 1.5);
+  near(priceUsage({ ...args, provider: 'openai', kind: 'api', serviceTier: 'ultrafast' }).costUsd, 1.5);
+  near(priceUsage({ ...args, provider: 'openai', kind: 'api', serviceTier: 'default' }).costUsd, 0.3);
+  const unpublished = priceUsage({ ...args, provider: 'openai-oauth', model: 'gpt-6-luna' });
+  assert.equal(unpublished.costUsd, null);
+  assert.equal(unpublished.rates.unpricedReason, 'missing-rate');
 });
 
 test('Cursor Fast bills the vendor Fast rate or Cursor’s published Fast SKU', () => {

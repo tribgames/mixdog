@@ -51,6 +51,7 @@ export function createDocxWriter({ operation, design, state, composition }) {
     evidenceBrief: compositionId === 'evidence-brief',
     decisionBrief: compositionId === 'decision-brief',
     spacing,
+    tableStyle: operation.tableStyle,
     pageMargin,
     bodySize,
     append,

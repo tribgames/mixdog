@@ -58,6 +58,21 @@ export function oauthCredentialStatus({ hasRefresh, expiresAt, detail, refreshSk
   };
 }
 
+const TRANSIENT_OAUTH_RE =
+  /\b(?:403|429|50[0-4])\b|rate[ _-]?limit|too many requests|bad gateway|service unavailable|gateway time-?out|timed? ?out|timeout|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|fetch failed|network/i;
+const DEAD_GRANT_RE =
+  /invalid_grant|invalid_token|unauthorized_client|refresh[ _-]?token[^.\n]{0,40}\b(?:expired|revoked)\b/i;
+
+/** True only when the token endpoint definitively rejected the grant (re-login needed). */
+export function isDefinitiveOAuthFailure(text, status = 0) {
+  const s = Number(status) || 0;
+  const body = String(text || '');
+  if (s === 403 || s === 429 || s >= 500) return false;
+  if (TRANSIENT_OAUTH_RE.test(body)) return false;
+  if (DEAD_GRANT_RE.test(body)) return true;
+  return s === 401;
+}
+
 export function scrubOAuthSecrets(text, secretValues = []) {
   let scrubbed = String(text || '')
     .replace(/Bearer [A-Za-z0-9._-]+/gi, 'Bearer [REDACTED]')

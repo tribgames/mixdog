@@ -2,7 +2,8 @@
 // react-markdown chunk and the worker AST processor) so their DOM output
 // stays identical. Keep this module free of DOM and React dependencies: it is
 // pulled into the renderer bundle and the markdown worker alike.
-import { isOsDocumentExtension } from '../shared/local-files';
+import { filePreviewTypeForPath } from '../shared/file-preview';
+import { isOsDocumentExtension, parseLocalFileLocation } from '../shared/local-files';
 import { isLocalMarkdownLink } from './markdown-url';
 
 interface HastLikeNode {
@@ -186,6 +187,8 @@ export function trimTrailingCodeNewline() {
 // carries `path:line[:column]` so both pipelines hand MarkdownLink the same
 // target.
 export const PATH_LINK_CLASS = 'markdown-path-link';
+/** Element standing in for a previewable local image (see markdown-local-image). */
+export const LOCAL_IMAGE_TAG = 'mx-local-image';
 const SEGMENT = '[\\p{L}\\p{N}_.@+-]+';
 const PATH_PREFIX = '(?:[A-Za-z]:[\\\\/]|\\.{1,2}[\\\\/]|[\\\\/](?![\\\\/]))';
 const EXTENSION = '\\.[A-Za-z][A-Za-z0-9]{0,11}';
@@ -286,6 +289,39 @@ const BARE_FILE_EXTENSIONS = new Set([
   'svg',
   'mp4',
   'mp3',
+  // Files the OS opens (archives, other documents, media, installers): linked
+  // like the formats above and routed to openLocalFileLink on click.
+  'zip',
+  '7z',
+  'rar',
+  'tar',
+  'gz',
+  'tgz',
+  'iso',
+  'exe',
+  'msi',
+  'dmg',
+  'doc',
+  'ppt',
+  'xls',
+  'rtf',
+  'odt',
+  'ods',
+  'odp',
+  'bmp',
+  'ico',
+  'avif',
+  'tif',
+  'tiff',
+  'jfif',
+  'wav',
+  'ogg',
+  'flac',
+  'm4a',
+  'm4v',
+  'mov',
+  'webm',
+  'mkv',
 ]);
 const BARE_FILE_NAMES = new Set([
   'dockerfile',
@@ -481,7 +517,18 @@ function inlineCodeLink(code: HastLikeNode, next: HastLikeNode | undefined): Has
 function localImageLink(node: HastLikeNode): HastLikeNode | null {
   if (node.type !== 'element' || node.tagName !== 'img') return null;
   const src = String(node.properties?.src || '').trim();
-  return src && isLocalMarkdownLink(src) ? pathLink(src, [{ type: 'text', value: src }]) : null;
+  if (!src || !isLocalMarkdownLink(src)) return null;
+  const link = pathLink(src, [{ type: 'text', value: src }]);
+  if (filePreviewTypeForPath(parseLocalFileLocation(src).path)?.kind !== 'image') return link;
+  // The renderer turns this into a thumbnail and falls back to its child, the
+  // path link. The path travels in a data property: `src` is stripped from
+  // local targets when the tree is sanitized.
+  return {
+    type: 'element',
+    tagName: LOCAL_IMAGE_TAG,
+    properties: { dataSrc: src, alt: String(node.properties?.alt || '') },
+    children: [link],
+  };
 }
 
 export function linkifyLocalPaths() {

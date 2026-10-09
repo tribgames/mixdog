@@ -23,6 +23,8 @@ const copy = new Map<string, () => string>([
   ['Check your sign-in or API key, then try again.', () => t('Check your sign-in or API key, then try again.')],
   ['The provider rejected this request.', () => t('The provider rejected this request.')],
   ['Review the request details before trying again.', () => t('Review the request details before trying again.')],
+  ['Sign-in expired.', () => t('Sign-in expired.')],
+  ['Sign in again from Providers.', () => t('Sign in again from Providers.')],
   ['Something went wrong.', () => t('Something went wrong.')],
 ]);
 

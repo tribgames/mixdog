@@ -4,6 +4,8 @@
 // with the last instead of judged by eye. It grades, it never gates — a deliberate breathing page or a motif
 // plane costs points and is still the right call; the score is a conversation starter, not a verdict.
 
+import { isShowcaseBrief } from '../authoring/pptx-brief.mjs';
+
 const clamp01 = (value) => Math.min(1, Math.max(0, value));
 // 1 at `good`, 0 at `bad`, linear between — for readings where lower is better (defects, distinct gaps).
 const band = (value, good, bad) => clamp01((bad - value) / (bad - good));
@@ -36,14 +38,29 @@ const CHECKS = [
 const WEIGHT = new Map(CHECKS.map(([id, weight]) => [id, weight]));
 const NOTE = new Map(CHECKS.map(([id, , note]) => [id, note]));
 
-export function scoreDeck({ receipt, issues = [] } = {}) {
+// Checks that read a body-page grammar a presentation, keynote, or showcase deck does not follow.
+const READ_DECK_ONLY = new Set(['density', 'object_scale', 'body_line']);
+// Informational checks are reported with their reading but carry no weight in the score.
+const INFORMATIONAL = new Set(['body_line']);
+
+export function scoreDeck({ receipt, issues = [], brief = null } = {}) {
+  const showcase = isShowcaseBrief(brief);
   const slides = Array.isArray(receipt?.slides) ? receipt.slides : [];
   const rhythm = receipt?.deck?.rhythm || {};
   const observed = slides.map((slide) => slide.observe).filter(Boolean);
   const checks = [];
   const add = (id, score, value) => {
     if (score === null || Number.isNaN(score)) return;
-    checks.push({ id, weight: WEIGHT.get(id), score: Number(clamp01(score).toFixed(2)), value, reads: NOTE.get(id) });
+    if (showcase && READ_DECK_ONLY.has(id)) return;
+    const informational = INFORMATIONAL.has(id);
+    checks.push({
+      id,
+      weight: informational ? 0 : WEIGHT.get(id),
+      score: Number(clamp01(score).toFixed(2)),
+      value,
+      reads: NOTE.get(id),
+      ...(informational ? { informational: true } : {}),
+    });
   };
 
   add('fit', band(issues.length, 0, 6), issues.length);
@@ -133,7 +150,8 @@ export function scoreDeck({ receipt, issues = [] } = {}) {
     score,
     slides: slides.length,
     checks,
-    weakest: [...checks]
+    weakest: checks
+      .filter((check) => check.weight > 0)
       .sort((a, b) => a.score - b.score)
       .slice(0, 3)
       .map((check) => check.id),

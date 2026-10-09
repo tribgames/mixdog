@@ -68,7 +68,6 @@ import { normalizeGrokToolSchemas } from '../../src/runtime/agent/orchestrator/p
 import { sendViaHttpSse } from '../../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
 import {
   OpenAIOAuthProvider,
-  buildCodexStartupPrewarmBody,
   buildRequestBody as buildOpenAIOAuthRequestBody,
   _convertMessagesToResponsesInputForTest,
 } from '../../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
@@ -169,10 +168,7 @@ function textDeltaEvents(chunks, stopReason = 'end_turn') {
 }
 
 import { customToolCallFromResponseItem } from '../../src/runtime/agent/orchestrator/providers/custom-tool-wire.mjs';
-import {
-  parseToolSearchArgs,
-  _warmupContinuityTraceForTest,
-} from '../../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
+import { parseToolSearchArgs } from '../../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
 
 // OpenAI leaked tool-call recovery: the model sometimes emits a tool call as PLAIN TEXT (XML `<invoke>` family
 // or gpt-oss harmony `<|channel|>...to=functions.NAME...<|call|>`) inside a
@@ -261,7 +257,6 @@ export {
   normalizeGrokToolSchemas,
   sendViaHttpSse,
   OpenAIOAuthProvider,
-  buildCodexStartupPrewarmBody,
   buildOpenAIOAuthRequestBody,
   _convertMessagesToResponsesInputForTest,
   OpenAIDirectProvider,
@@ -275,7 +270,6 @@ export {
   textDeltaEvents,
   customToolCallFromResponseItem,
   parseToolSearchArgs,
-  _warmupContinuityTraceForTest,
   OAI_LEAK_TOOLS,
   chatCompletionStream,
   responsesTextStream,

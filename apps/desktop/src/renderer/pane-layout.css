@@ -661,6 +661,25 @@
      the divider runs the dock's full height. */
   border-left: 1px solid var(--mx-border-structure);
 }
+/* An expanded browser/terminal widens this header across the main panel
+   (surface-slots.ts sets its left/top/width), so the title and X span the
+   enlarged surface below it and cover the pane tab strip. */
+.pane-side-dock-header[data-surface-expanded="true"] {
+  position: fixed;
+  z-index: 41;
+  border-left: 0;
+  background: var(--mx-window-band);
+}
+/* The strip's + is lifted to z-index 3 inside the pane cell; the dock (2)
+   rises above it while its header is widened over the strip. */
+.pane-side-dock:has(> .pane-side-dock-header[data-surface-expanded="true"]) {
+  z-index: 4;
+}
+/* Mica clears --mx-window-band inside the main panel; the widened header must
+   stay opaque over the pane strip, so it takes the dock's own solid plate. */
+html[data-window-material="mica"] .pane-side-dock-header[data-surface-expanded="true"] {
+  background: var(--mx-mica-panel-solid);
+}
 /* The header names the showing child only (user: 독 헤더는 뷰 이름 + X); the
    child pickers ride the PANE strip's right end as .pane-dock-toggles. */
 .pane-side-dock-title {
@@ -791,10 +810,70 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--mx-workspace-sheet);
+  /* Windows Mica clears --mx-workspace-sheet inside .workbench-side-panel
+     (03-titlebar.css), which left the slot transparent over the panel body
+     beneath it. --mx-sheet-ink is the solid copy taken at the root. */
+  background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
 }
 .workbench-side-surface-slot[data-surface-active="true"] {
   z-index: 2;
+}
+/* Side file: the editor and its Problems split share the slot's height under
+   the strip; the editor takes whatever the split leaves, so it relayouts (its
+   ResizeObserver) when the split opens, closes or is dragged. */
+.pane-side-file-body {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane-side-file-editor {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane-side-file-editor > .editor-pane {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 0;
+}
+.pane-side-file-problems {
+  position: relative;
+  flex: 0 0 auto;
+  max-height: 70%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--mx-border-muted);
+  background: var(--mx-workspace-sheet);
+}
+.pane-side-file-problems-resize {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: -3px;
+  height: 6px;
+  cursor: row-resize;
+}
+.pane-side-file-problems-head {
+  flex: none;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px 0 12px;
+  font-size: var(--mx-font-minor);
+  color: var(--mx-text-muted);
+}
+.pane-side-file-problems-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 /* Narrow pane: even the minimum unit would crush the conversation below its

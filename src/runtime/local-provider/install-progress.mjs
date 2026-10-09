@@ -92,6 +92,13 @@ export function cancelLocalInstallation(jobId, dataDir = resolvePluginData()) {
   return { ...entry.status };
 }
 
+export function forgetLocalInstallation(phase, modelId, dataDir = resolvePluginData()) {
+  const operations = roots.get(resolve(dataDir));
+  const key = `${phase}:${modelId || ''}`;
+  if (operations?.get(key)?.promise) throw new Error('[local-provider] stop the installation before discarding it');
+  operations?.delete(key);
+}
+
 export function forgetLocalInstallations(modelId, dataDir = resolvePluginData()) {
   const operations = roots.get(resolve(dataDir));
   for (const [key, entry] of operations || []) {

@@ -1,5 +1,4 @@
 import { STATE_ROLES } from '../design-discipline.mjs';
-import { presetLabels } from '../design-tokens.mjs';
 import { officeNumberFormat } from '../content-model.mjs';
 
 // A figure with its sign, currency, grouping, and a short unit: 38 · −4.2% · ₩740,000 · 1.6배 · 12건 · 2.6억 원.
@@ -13,8 +12,10 @@ function tableBorders(colors) {
   };
 }
 
+// A preset restates the cell's anatomy; a cell that already carries it (an unfilled body cell in the table's own
+// type) is not a failed edit.
 function styleCell(output, table, row, col, properties) {
-  output.push({ op: 'set_table_cell_style', table, row, col, properties });
+  output.push({ op: 'set_table_cell_style', table, row, col, properties, allowNoChange: true });
 }
 
 // The widths a named preset variant draws at. A plain section table (null) takes the writer's widths from its own
@@ -28,16 +29,21 @@ function tableWidths(columns, variant) {
   return null;
 }
 
-function pushTable(output, state, values, design, variant, widths = null) {
+// A carrier (callout box, stat strip, roadmap) is drawn as a boxed grid; a data table follows the documented
+// anatomy (bold header on a rule, hairlines between rows) unless the operation names a table style.
+const BOXED_VARIANTS = new Set(['callout', 'scorecard', 'roadmap']);
+
+function pushTable(output, state, values, design, variant, widths = null, tableStyle = '') {
   const columns = Math.max(1, ...values.map((row) => row.length));
   state.table += 1;
   const table = state.table;
   const columnWidths = widths || tableWidths(columns, variant);
+  const boxed = BOXED_VARIANTS.has(variant);
   output.push({
     op: 'add_table',
     values,
     properties: {
-      style: 'Table Grid',
+      ...(boxed || tableStyle ? { style: tableStyle || 'Table Grid' } : {}),
       textStyle: 'Normal',
       fontName: design.tokens.typography.body,
       fontSize: Math.max(9, design.format.body - 0.5),
@@ -51,7 +57,7 @@ function pushTable(output, state, values, design, variant, widths = null) {
       // three-step plan onto a page of its own - with the first step repeated at
       // the top as though it were the header row.
       ...(variant === 'roadmap' ? { rowHeights: values.map(() => 40), repeatHeader: false } : {}),
-      borders: tableBorders(design.tokens.colors),
+      ...(boxed ? { borders: tableBorders(design.tokens.colors) } : {}),
       alignment: 'center',
     },
   });
@@ -85,7 +91,7 @@ function labelPoints(text, size) {
 // emphasis: 'inverse' (the dark field) · 'accent' · a state tone ('positive' | 'warning' | 'critical' | 'informative'):
 // the label sits on the state's weak field in its text color, so a verdict reads the same as in a deck's badge.
 // label: null draws the field without a caption row — a section's callout names itself only when the author
-// gave it a label; an invented one ("다음 점검" over an approval request) told the reader the wrong thing.
+// gave it a label (null or empty); an invented one ("다음 점검" over an approval request) told the reader the wrong thing.
 // eastAsia: the Korean face paired with the display face the callout's text is set in.
 export function addDocxDecisionCallout(
   output,
@@ -94,7 +100,7 @@ export function addDocxDecisionCallout(
   design,
   { label = '', emphasis = 'inverse', eastAsia = '' } = {}
 ) {
-  const caption = label === null ? '' : label || presetLabels(text).recommendation;
+  const caption = label ? String(label) : '';
   const colors = design.tokens.colors;
   const tone = STATE_ROLES.includes(emphasis) && colors[`${emphasis}Weak`] && colors[`${emphasis}Text`] ? emphasis : '';
   const accentEmphasis = emphasis === 'accent';
@@ -250,7 +256,7 @@ export function addDocxRoadmap(output, state, steps, design) {
   return true;
 }
 
-export function addDocxSectionTable(output, state, values, design, variant = 'default') {
+export function addDocxSectionTable(output, state, values, design, variant = 'default', { style = '' } = {}) {
   if (!values.length) return false;
   const colors = design.tokens.colors;
   const resolvedVariant = variant === 'decision-gates' ? 'gates' : variant;
@@ -300,7 +306,7 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
       return true;
     }
   }
-  const { table, columns } = pushTable(output, state, values, design, resolvedVariant);
+  const { table, columns } = pushTable(output, state, values, design, resolvedVariant, null, style);
   // A column of figures is read down its right edge, its header over it (the docx skill's table anatomy); the
   // preset left 38, 21, 0 flush left under "대기 (분)".
   const figureColumn = Array.from({ length: columns }, (_, index) => {
@@ -312,13 +318,12 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
   });
   const align = (column) => (figureColumn[column - 1] ? { horizontalAlignment: 'right' } : {});
   for (let column = 1; column <= columns; column += 1) {
+    // The header stays unfilled: the anatomy (or the named style) draws it, a bold row on its rule.
     styleCell(output, table, 1, column, {
-      fillColor: colors.inverse,
-      color: colors.onInverse,
+      color: colors.ink,
       fontName: design.tokens.typography.body,
       fontSize: Math.max(9, design.format.body - 0.5),
       bold: true,
-      verticalAlignment: 'center',
       ...align(column),
     });
   }
@@ -328,7 +333,7 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
       const releaseCell = resolvedVariant === 'gates' && column === 2;
       const stopCell = resolvedVariant === 'gates' && column === 3;
       // A release gate is a positive state, a stop gate a critical one: the state fields and words, never a literal tint.
-      let fillColor = row % 2 === 0 ? colors.canvas : colors.surface;
+      let fillColor;
       if (releaseCell) fillColor = colors.positiveWeak || colors.surface;
       else if (stopCell) fillColor = colors.criticalWeak || colors.surface2 || colors.surface;
       let color = colors.ink;
@@ -336,10 +341,9 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
       else if (releaseCell) color = colors.positiveText || colors.accent;
       else if (stopCell) color = colors.criticalText || colors.accent2;
       styleCell(output, table, row, column, {
-        fillColor,
+        ...(fillColor ? { fillColor } : {}),
         color,
         bold: column === 1 || metricValue,
-        verticalAlignment: 'center',
         ...align(column),
       });
     }

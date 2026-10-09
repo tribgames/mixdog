@@ -4,7 +4,6 @@
  * (untouched, tuned, recreated, or updated in place when empty).
  */
 import { clean, hasOwn } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
-import { fastCapableFor } from '../../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
 import {
   ensureProviderEnabled,
   findPreset,
@@ -13,9 +12,12 @@ import {
 } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { getModelMetadataSync } from '../../runtime/agent/orchestrator/providers/model-catalog.mjs';
 import { workflowPresetId } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
-import { resolveRouteContextState } from '../route-state.mjs';
+import { resolveRouteContextState, selectionFastCapable } from '../route-state.mjs';
 import { writeStatuslineRoute } from '../statusline-route.mjs';
-import { sessionHasRouteHistory, shouldRecreateEmptySessionForRouteChange } from '../../runtime/agent/orchestrator/runtime-core/session-route-policy.mjs';
+import {
+  sessionHasRouteHistory,
+  shouldRecreateEmptySessionForRouteChange,
+} from '../../runtime/agent/orchestrator/runtime-core/session-route-policy.mjs';
 import { rebuildDeferredToolSurfaceForProvider } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 
 /** The request, completed from the live route where the caller left gaps. */
@@ -46,7 +48,7 @@ async function resolveSelectedRoute(deps, next) {
   ) {
     throw new Error(`unknown model: ${selectedRoute.provider}/${selectedRoute.model}`);
   }
-  const fastCapable = fastCapableFor(
+  const fastCapable = selectionFastCapable(
     selectedRoute.provider,
     modelMeta,
     selectedRoute.effort,
@@ -122,7 +124,10 @@ export function createSetRoute(deps, persist) {
     const applyToCurrentSession = options?.applyToCurrentSession === true;
     const { selectedRoute, fastCapable, modelMeta } = await resolveSelectedRoute(deps, next);
     persist.saveRouteModelSettings(selectedRoute, fastCapable);
-    const leadRoute = persist.persistAdoptedModelSettings(selectedRoute);
+    // An heir opening on its source's model is not a main-model choice.
+    const leadRoute = persist.persistAdoptedModelSettings(selectedRoute, {
+      keepMainModel: options?.keepMainModel === true,
+    });
     setRouteState(resolveRoute(getConfig(), leadRoute ? { model: workflowPresetId('lead') } : selectedRoute));
     await refreshRouteEffort(modelMeta);
     refreshStatuslineUsageSnapshot(getRoute());

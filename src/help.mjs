@@ -40,7 +40,7 @@ const HELP_LINES = [
   '  /theme [id]                   change the TUI color theme',
   '  /agents [refresh]             show available workflow agents',
   '  /effort [level]               set reasoning effort for the current model',
-  '  /fast [on|off]                toggle Fast mode for the current model',
+  '  /fast [on|off|ultra]          set Fast or Ultrafast mode for the current model',
   '  /mcp                          manage MCP servers and tools',
   '  /skills                       choose a skill for the next request',
   '  /memory [status|core ...]     list and edit core memories',

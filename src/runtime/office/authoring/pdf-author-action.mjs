@@ -22,7 +22,12 @@ import {
 } from '../core/office-sessions.mjs';
 import { snapshotPdf } from '../pdf/pdf-adapter.mjs';
 import { inlineOfficeAudit } from '../quality/inline-audit.mjs';
-import { factsGate, parseAuthoringBrief, reviewBriefPromises, reviewSourceGrounding } from './pptx-brief.mjs';
+import {
+  factsGate,
+  parseAuthoringBrief,
+  reviewBriefPromises,
+  reviewSourceGrounding,
+} from './pptx-brief.mjs';
 import { editsReplacedByAuthor, markAuthoredFromHtml } from './html-source-drift.mjs';
 import { hasSlideSections, htmlBriefScript, runPptxHtmlAuthoring } from './pptx-html-runner.mjs';
 import {

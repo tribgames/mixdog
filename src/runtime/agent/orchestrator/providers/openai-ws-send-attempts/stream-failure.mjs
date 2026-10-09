@@ -1,6 +1,6 @@
 /**
  * stream-failure.mjs — decide what a failure after the socket was acquired
- * (frame send, warmup or the stream itself) means for the send: retry on a
+ * (frame send or the stream itself) means for the send: retry on a
  * fresh socket (true) or throw the error to surface.
  */
 import {
@@ -16,6 +16,7 @@ import {
   midstreamRetryLimit,
   tag,
 } from './policy.mjs';
+import { noteErrorUsage } from '../lib/note-error-usage.mjs';
 import { stampStreamFailure } from './stream-failure-stamps.mjs';
 import { chainSocketError } from '../openai-ws-terminal.mjs';
 
@@ -64,6 +65,7 @@ function surfaceExhausted(ctx, err, attemptIndex) {
 export async function resolveStreamFailure(ctx, err, { attemptIndex, entry, midState }) {
   const { state } = ctx;
   const { externalSignal, stallRetryBudget } = ctx.deps;
+  noteErrorUsage(err);
   stampStreamFailure(ctx, err, { entry, midState });
   if (stripReasoningReplay(ctx, err, { attemptIndex, entry })) return true;
   // A cut while a tool call's arguments were streaming is replayed by the

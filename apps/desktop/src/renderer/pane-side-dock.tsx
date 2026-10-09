@@ -16,7 +16,9 @@ import {
   type ReactNode,
   type SetStateAction,
 } from 'react';
-import { ArrowLeft, X } from 'lucide-react';
+import { X } from 'lucide-react';
+import { SideFileStrip, type SideFileChrome } from './side-surface-strip';
+import { SIDE_FILE_PROBLEMS_DEFAULT_HEIGHT, SideFileProblems } from './side-file-problems';
 import {
   DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH,
   DESKTOP_UTILITY_DOCK_MIN_WIDTH,
@@ -45,12 +47,25 @@ type PaneSideDiffRequest = {
   hash?: string;
   untracked?: boolean;
 };
+/** A code/text file a transcript link opened beside the conversation. `nonce`
+ *  re-triggers the line reveal when the same file is linked again. */
+export type PaneSideDockFile = {
+  project: string;
+  rel: string;
+  line?: number;
+  /** 1-based column of a `:line:column` link. */
+  column?: number;
+  accessToken?: string;
+  nonce: number;
+};
 export type PaneSideDockEntry = {
   open: boolean;
   /** Active classic panel view; the browser and diffs live in `surface`. */
   view: WorkbenchSideViewId | null;
-  /** "" shows the panel view; "browser" or "diff" otherwise. */
+  /** "" shows the panel view; "browser", "diff" or "file" otherwise. */
   surface: string;
+  /** The single side-panel file — a transcript link REPLACES it. Absent when none. */
+  file?: PaneSideDockFile | null;
   /** The single open file diff — a project-tool click REPLACES it (user: 헤더
    *  한 줄, DIFF 탭 없이 교체 방식). */
   diff: PaneSideDockDiff | null;
@@ -80,6 +95,11 @@ const PANE_SIDE_DOCK_PANEL_MAX_WIDTH = 560;
 export const PANE_DOCK_BROWSER_SURFACE = 'browser';
 export const PANE_DOCK_TERMINAL_SURFACE = 'terminal';
 export const PANE_DOCK_DIFF_SURFACE = 'diff';
+export const PANE_DOCK_FILE_SURFACE = 'file';
+/** The file child is the showing surface of an open unit. */
+export function paneFileShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surface' | 'file'>): boolean {
+  return entry.open && entry.surface === PANE_DOCK_FILE_SURFACE && Boolean(entry.file);
+}
 /** The diff child is the showing surface of an open unit. */
 export function paneDiffShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surface' | 'diff'>): boolean {
   return entry.open && entry.surface === PANE_DOCK_DIFF_SURFACE && entry.diff !== null;
@@ -106,6 +126,10 @@ export function useRetainedDiff(diff: PaneSideDockDiff | null): PaneSideDockDiff
     document.addEventListener('keydown', noteInput, true);
     document.addEventListener('input', noteInput, true);
     let timer = 0;
+    const stopListening = () => {
+      document.removeEventListener('keydown', noteInput, true);
+      document.removeEventListener('input', noteInput, true);
+    };
     const attempt = () => {
       const quietFor = performance.now() - lastInputAt;
       if (quietFor < PANE_DOCK_DIFF_RETAIN_MS) {
@@ -113,12 +137,14 @@ export function useRetainedDiff(diff: PaneSideDockDiff | null): PaneSideDockDiff
         return;
       }
       timer = 0;
+      // The tree is dropped: nothing is left to protect from a keystroke, so
+      // the document-level capture listeners must not outlive this decision.
+      stopListening();
       startTransition(() => setRetained(null));
     };
     timer = window.setTimeout(attempt, PANE_DOCK_DIFF_RETAIN_MS);
     return () => {
-      document.removeEventListener('keydown', noteInput, true);
-      document.removeEventListener('input', noteInput, true);
+      stopListening();
       window.clearTimeout(timer);
     };
   }, [diff]);
@@ -133,6 +159,7 @@ export function paneDockActiveRoot(
   if (!entry.open) return null;
   if (entry.surface === PANE_DOCK_BROWSER_SURFACE) return 'browser';
   if (entry.surface === PANE_DOCK_TERMINAL_SURFACE) return 'terminal';
+  if (entry.surface === PANE_DOCK_FILE_SURFACE) return null;
   return entry.view;
 }
 export function paneDiffStacks(
@@ -185,6 +212,22 @@ function isDockDiff(value: unknown): value is PaneSideDockDiff {
   );
 }
 
+function isDockFile(value: unknown): value is PaneSideDockFile {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.project === 'string' &&
+    record.project.length > 0 &&
+    typeof record.rel === 'string' &&
+    record.rel.length > 0 &&
+    typeof record.nonce === 'number' &&
+    // A file-scoped access token does not outlive its session.
+    record.accessToken === undefined &&
+    (record.line === undefined || typeof record.line === 'number') &&
+    (record.column === undefined || typeof record.column === 'number')
+  );
+}
+
 /**
  * Reconcile stored/live dock entries against the current pane list and the
  * right-side view groups. Dead panes drop out, a view that left the right
@@ -225,14 +268,18 @@ export function normalizePaneSideDocks(
       | typeof PANE_DOCK_BROWSER_SURFACE
       | typeof PANE_DOCK_TERMINAL_SURFACE
       | typeof PANE_DOCK_DIFF_SURFACE
+      | typeof PANE_DOCK_FILE_SURFACE
       | '' = '';
+    const file = entry && isDockFile(entry.file) ? entry.file : null;
     if (storedSurface === PANE_DOCK_BROWSER_SURFACE || storedSurface === PANE_DOCK_TERMINAL_SURFACE) {
       if (sessionSurfaces.has(storedSurface)) surface = storedSurface;
     } else if (diff && (storedSurface === PANE_DOCK_DIFF_SURFACE || storedSurface === navigationKey(diff))) {
       surface = PANE_DOCK_DIFF_SURFACE;
+    } else if (file && storedSurface === PANE_DOCK_FILE_SURFACE) {
+      surface = PANE_DOCK_FILE_SURFACE;
     }
     const open = (entry ? entry.open === true : defaultOpen) && (view !== null || surface !== '');
-    next[leafId] = { open, view, surface, diff };
+    next[leafId] = file ? { open, view, surface, diff, file } : { open, view, surface, diff };
   }
   return next;
 }
@@ -246,8 +293,32 @@ export function samePaneSideDocks(
   return leftIds.every((id) => {
     const a = left[id];
     const b = right[id];
-    return Boolean(b) && a.open === b.open && a.view === b.view && a.surface === b.surface && a.diff === b.diff;
+    return (
+      Boolean(b) &&
+      a.open === b.open &&
+      a.view === b.view &&
+      a.surface === b.surface &&
+      a.diff === b.diff &&
+      (a.file ?? null) === (b.file ?? null)
+    );
   });
+}
+
+/** Open-or-replace: a transcript file link swaps the side-panel file in
+ *  place; the same file re-activates and re-reveals its line. */
+export function withPaneDockFileOpened(
+  entry: PaneSideDockEntry,
+  file: Omit<PaneSideDockFile, 'nonce'>,
+  nonce: number
+): PaneSideDockEntry {
+  return { ...entry, open: true, surface: PANE_DOCK_FILE_SURFACE, file: { ...file, nonce } };
+}
+
+/** Closing the file hands the body back to the panel view. */
+export function withPaneDockFileClosed(entry: PaneSideDockEntry): PaneSideDockEntry {
+  if (!entry.file) return entry;
+  const { file: _file, ...rest } = entry;
+  return { ...rest, surface: entry.surface === PANE_DOCK_FILE_SURFACE ? '' : entry.surface };
 }
 
 /** Open-or-replace: a Source Control click swaps the diff in place; the same
@@ -403,7 +474,8 @@ function usePaneSideDockPatch({
           next.open === entry.open &&
           next.view === entry.view &&
           next.surface === entry.surface &&
-          next.diff === entry.diff;
+          next.diff === entry.diff &&
+          (next.file ?? null) === (entry.file ?? null);
         return same && current[leafId] ? current : { ...current, [leafId]: next };
       });
     },
@@ -488,7 +560,37 @@ function usePaneSideDockCommands({
     },
     [patch]
   );
-  return { select, open, setOpen, toggle, openDiff, closeDiff };
+  const openFile = useCallback(
+    (leafId: string, project: string, rel: string, line?: number, accessToken?: string, column?: number) => {
+      const cleanProject = String(project || '').trim();
+      const cleanRel = String(rel || '')
+        .replace(/\\/g, '/')
+        .replace(/^\/+/, '');
+      if (!cleanProject || !cleanRel) return;
+      const nonce = Date.now();
+      patch(leafId, (entry) =>
+        withPaneDockFileOpened(
+          entry,
+          {
+            project: cleanProject,
+            rel: cleanRel,
+            ...(line ? { line } : {}),
+            ...(line && column ? { column } : {}),
+            ...(accessToken ? { accessToken } : {}),
+          },
+          nonce
+        )
+      );
+    },
+    [patch]
+  );
+  const closeFile = useCallback(
+    (leafId: string) => {
+      patch(leafId, (entry) => withPaneDockFileClosed(entry));
+    },
+    [patch]
+  );
+  return { select, open, setOpen, toggle, openDiff, closeDiff, openFile, closeFile };
 }
 
 export function usePaneSideDocks({
@@ -529,7 +631,7 @@ export function usePaneSideDocks({
     },
     [docks, temporary]
   );
-  const { select, open, setOpen, toggle, openDiff, closeDiff } = usePaneSideDockCommands({
+  const { select, open, setOpen, toggle, openDiff, closeDiff, openFile, closeFile } = usePaneSideDockCommands({
     groupsRef,
     setDocks,
     setTemporary,
@@ -544,6 +646,8 @@ export function usePaneSideDocks({
     toggle,
     openDiff,
     closeDiff,
+    openFile,
+    closeFile,
   };
 }
 
@@ -557,12 +661,15 @@ export function PaneSideDock({
   onSelect,
   onClose,
   onCloseDiff,
+  onCloseFile,
   onMoveGroup,
   onMoveView,
   onFocusPane,
   openFileTab,
   renderBrowserSurface,
   renderTerminalSurface,
+  renderFileSurface,
+  renderFileProblems,
   renderView,
 }: {
   leafId: string;
@@ -577,6 +684,9 @@ export function PaneSideDock({
    *  (user: 오버레이까지 되는 판에 닫히는 거나 X가 있어야). */
   onClose(): void;
   onCloseDiff(): void;
+  /** The header X while a side file shows: closes the file (confirming unsaved
+   *  edits) and folds the unit. Absent, the X just folds. */
+  onCloseFile?(): void;
   onMoveGroup(
     sourceRoot: WorkbenchSideViewId,
     targetSide: 'left' | 'right',
@@ -590,9 +700,19 @@ export function PaneSideDock({
     placement: WorkbenchSideViewPlacement
   ): void;
   onFocusPane(): void;
-  openFileTab(project: string, rel: string, line?: number): void;
+  openFileTab(project: string, rel: string, line?: number, accessToken?: string): void;
   renderBrowserSurface?(active: boolean): ReactNode;
   renderTerminalSurface?(active: boolean): ReactNode;
+  /** `onSideChrome` receives the editor's dirty/problem/action state for the
+   *  dock's file strip; the editor draws no breadcrumb row of its own. */
+  renderFileSurface?(
+    file: PaneSideDockFile,
+    active: boolean,
+    side: { onChrome: (chrome: SideFileChrome | null) => void; onShowProblems: () => void }
+  ): ReactNode;
+  /** The Problems body scoped to the side file; shown in a split under the
+   *  editor, never in the main pane's bottom panel. */
+  renderFileProblems?(file: PaneSideDockFile): ReactNode;
   renderView(id: WorkbenchSideViewId, active: boolean, titleDragProps: WorkbenchSideTitleDragProps): ReactNode;
 }) {
   const openNow = entry.open && (entry.view !== null || entry.surface !== '');
@@ -609,6 +729,14 @@ export function PaneSideDock({
   // attach the body on the next frame. Warmed and previously visited docks
   // keep their live body and reopen without this hand-off.
   const [dockBodyMounted, setDockBodyMounted] = useState(openNow);
+  const [fileChrome, setFileChrome] = useState<SideFileChrome | null>(null);
+  const [fileProblemsOpen, setFileProblemsOpen] = useState(false);
+  const [fileProblemsHeight, setFileProblemsHeight] = useState(SIDE_FILE_PROBLEMS_DEFAULT_HEIGHT);
+  const toggleFileProblems = useCallback(() => setFileProblemsOpen((open) => !open), []);
+  const hasSideFile = Boolean(entry.file);
+  useEffect(() => {
+    if (!hasSideFile) setFileProblemsOpen(false);
+  }, [hasSideFile]);
   useEffect(() => {
     if (dockBodyMounted || (!openNow && !prewarm)) return undefined;
     const frame = window.requestAnimationFrame(() => setDockBodyMounted(true));
@@ -617,7 +745,8 @@ export function PaneSideDock({
   const surfaceShowing = openNow && entry.surface !== '';
   const browserShowing = surfaceShowing && entry.surface === PANE_DOCK_BROWSER_SURFACE;
   const terminalShowing = surfaceShowing && entry.surface === PANE_DOCK_TERMINAL_SURFACE;
-  const sessionSurfaceShowing = browserShowing || terminalShowing;
+  const fileShowing = surfaceShowing && paneFileShowing(entry);
+  const sessionSurfaceShowing = browserShowing || terminalShowing || fileShowing;
   const diffShowing = surfaceShowing && paneDiffShowing(entry);
   // ── Unified width (user: 두개를 통합 넓이계산) ──
   // The dock measures its own pane cell: inline, the whole unit — diff pair
@@ -748,13 +877,19 @@ export function PaneSideDock({
     }
   };
   // The same deferred diff body serves the stacked 2뎁스 layer and the pair column.
-  const diffSurface = (selection: PaneSideDockDiff) => (
+  const diffSurface = (selection: PaneSideDockDiff, stacked = false) => (
     <DeferredPersistentSurface
       active
       startupDelayMs={DIFF_STARTUP_DELAY_MS}
       fallback={<DesktopLoadingSurface label={t('Loading diff…')} />}
     >
-      <ReadyGitDiffPane selection={selection} active={diffShowing} onOpenFile={openFileTab} onClose={onCloseDiff} />
+      <ReadyGitDiffPane
+        selection={selection}
+        active={diffShowing}
+        onOpenFile={openFileTab}
+        chrome="side"
+        onBack={stacked ? onCloseDiff : undefined}
+      />
     </DeferredPersistentSurface>
   );
   // Browser: standalone under the header (user: 브라우저는 단독 맞고) — a
@@ -763,19 +898,51 @@ export function PaneSideDock({
   // 디프소스를 사이드탭 패널에 올리고 뒤로가기).
   const twoDepthDiff = dockBodyMounted && twoDepth && entry.diff && (
     <div className="workbench-side-surface-slot" data-surface-active={diffShowing ? 'true' : 'false'}>
-      <div className="pane-dock-diff-back">
-        <button type="button" onClick={onCloseDiff}>
-          <ArrowLeft size={14} aria-hidden="true" />
-          <span>{t('Back')}</span>
-        </button>
-      </div>
-      {diffSurface(entry.diff)}
+      {diffSurface(entry.diff, true)}
     </div>
   );
   const browserSurface = dockBodyMounted ? (renderBrowserSurface?.(browserShowing) ?? null) : null;
   const terminalSurface = dockBodyMounted ? (renderTerminalSurface?.(terminalShowing) ?? null) : null;
-  const surfaces = (browserSurface || terminalSurface || twoDepthDiff) && (
+  const fileSurface =
+    dockBodyMounted && entry.file
+      ? (renderFileSurface?.(entry.file, fileShowing, { onChrome: setFileChrome, onShowProblems: toggleFileProblems }) ??
+        null)
+      : null;
+  const fileProblems =
+    fileProblemsOpen && entry.file ? (renderFileProblems?.(entry.file) ?? null) : null;
+  const surfaces = (browserSurface || terminalSurface || fileSurface || twoDepthDiff) && (
     <>
+      {fileSurface && (
+        <div
+          className="workbench-side-surface-slot"
+          data-surface-active={fileShowing ? 'true' : 'false'}
+          inert={fileShowing ? undefined : true}
+          aria-hidden={fileShowing ? undefined : true}
+        >
+          <SideFileStrip
+            rel={entry.file?.rel ?? ''}
+            chrome={fileChrome}
+            onOpenInMain={() => {
+              // The host's main-tab open takes the file over from this dock
+              // (confirming unsaved edits), so nothing else to close here.
+              if (entry.file)
+                openFileTab(entry.file.project, entry.file.rel, entry.file.line, entry.file.accessToken);
+            }}
+          />
+          <div className="pane-side-file-body">
+            <div className="pane-side-file-editor">{fileSurface}</div>
+            {fileProblems && (
+              <SideFileProblems
+                height={fileProblemsHeight}
+                onHeightChange={setFileProblemsHeight}
+                onClose={() => setFileProblemsOpen(false)}
+              >
+                {fileProblems}
+              </SideFileProblems>
+            )}
+          </div>
+        </div>
+      )}
       {browserSurface && (
         <div
           className="workbench-side-surface-slot"
@@ -864,6 +1031,7 @@ export function PaneSideDock({
   const headerShowing = openNow || mobileSheet;
   const titleRoot = activeRoot ?? (mobileSheet ? entry.view : null);
   const activeDescriptor = titleRoot ? descriptors.get(titleRoot) : undefined;
+  const dockFile = fileShowing ? entry.file : null;
   return (
     <div
       className="pane-side-dock"
@@ -881,17 +1049,23 @@ export function PaneSideDock({
     >
       {headerShowing && (
         <header className="pane-side-dock-header">
-          {activeDescriptor && (
+          {dockFile ? (
             <div className="pane-side-dock-title">
-              <span>{activeDescriptor.title ?? activeDescriptor.label}</span>
+              <span>{t('File')}</span>
             </div>
+          ) : (
+            activeDescriptor && (
+              <div className="pane-side-dock-title">
+                <span>{activeDescriptor.title ?? activeDescriptor.label}</span>
+              </div>
+            )
           )}
           <button
             type="button"
             className="pane-side-dock-close"
             aria-label={t('Close panel')}
             data-tooltip={t('Close panel')}
-            onClick={onClose}
+            onClick={dockFile && onCloseFile ? onCloseFile : onClose}
           >
             {/* Same voice as the island buttons: lucide line work at 20px — the
             codicon font glyph read thinner and off-size beside them (user:

@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mixdog · 글로우 띵킹 아이콘</title>
+<style>
+  .theme-dark {
+    color-scheme:dark;
+    --page:#111113; --band:#222225; --card:#2a2a2d;
+    --text:#e9e9e9; --muted:#a8a8a8; --accent:#79b8ff;
+    --border:rgba(255,255,255,.125); --line:rgba(255,255,255,.09); --hover:rgba(255,255,255,.08);
+    --c1:#79b8ff; --c2:#b69cff; --c3:#6ee7f5; --hot:#ffffff; --orb-base:#081226; --gk:1; --blend:screen;
+  }
+  .theme-light {
+    color-scheme:light;
+    --page:#f8f8fb; --band:#ffffff; --card:#f3f3f3;
+    --text:#222222; --muted:#606060; --accent:#185abc;
+    --border:rgba(23,24,26,.14); --line:rgba(23,24,26,.1); --hover:rgba(0,0,0,.06);
+    --c1:#1f66e5; --c2:#7a4ae0; --c3:#0b9fbd; --hot:#0a2a66; --orb-base:#e3ecff; --gk:.65; --blend:multiply;
+  }
+  body[data-pal="blue"].theme-dark, body[data-pal="blue"] .theme-dark { --c2:#5aa2ff; --c3:#b4dcff; }
+  body[data-pal="blue"] .theme-light { --c2:#185abc; --c3:#4b8df0; }
+  body[data-pal="mono"].theme-dark, body[data-pal="mono"] .theme-dark { --c1:#e4e6ec; --c2:#9aa1af; --c3:#ffffff; --orb-base:#1b1d22; }
+  body[data-pal="mono"] .theme-light { --c1:#2b2d33; --c2:#6b707c; --c3:#111214; --hot:#000000; --orb-base:#e9eaee; }
+  :root { --k:1; --gs:1; --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","Segoe UI",sans-serif; }
+  body.paused *, body.paused *::before, body.paused *::after { animation-play-state:paused !important; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--text); font:14px/20px var(--sans); }
+  h1,h2,p { margin:0; }
+  button { font:inherit; color:var(--muted); cursor:pointer; border:0; border-radius:6px; background:transparent; padding:4px 11px; }
+  button:hover { background:var(--hover); }
+  button[aria-pressed="true"] { background:var(--card); color:var(--text); box-shadow:0 1px 4px #0002; }
+  .page { max-width:1200px; margin:auto; padding:30px 32px 60px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.3px; }
+  .intro { color:var(--muted); margin-top:4px; font-size:13px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:12px 18px; align-items:center; margin:20px 0 22px; }
+  .control { display:flex; align-items:center; gap:9px; }
+  .control-label { color:var(--muted); font-size:13px; white-space:nowrap; }
+  .segments { display:flex; flex-wrap:wrap; gap:3px; padding:3px; border-radius:8px; background:var(--band); border:1px solid var(--line); }
+  .tile { border-radius:10px; border:1px solid var(--line); background:var(--page); color:var(--text); }
+
+  .duo { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:24px; }
+  .duo .tile { padding:10px 16px; display:grid; gap:2px; }
+  .row { display:flex; align-items:center; gap:10px; }
+  .row .num { width:14px; color:var(--muted); font-size:11px; text-align:right; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(360px,100%),1fr)); gap:16px; }
+  .card { border:1px solid var(--border); border-radius:12px; background:var(--band); overflow:hidden; }
+  .card-head { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; }
+  .letter { width:22px; height:22px; display:grid; place-items:center; border:1px solid var(--accent); color:var(--accent); border-radius:6px; font-size:11px; flex:none; }
+  .card-head h2 { font-size:14px; font-weight:600; }
+  .tag { margin-left:auto; font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0 8px; white-space:nowrap; }
+  .mini { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 16px; }
+  .mini .tile { padding:22px 0 12px; display:flex; flex-direction:column; align-items:center; gap:16px; }
+  .sizes { display:flex; align-items:end; gap:12px; }
+  .sizes figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .sizes figcaption { font-size:10px; color:var(--muted); }
+  .bands { display:grid; gap:8px; padding:10px 16px 0; }
+  .bands .tile { padding:6px 12px; }
+  .desc { padding:12px 16px 16px; font-size:13px; color:var(--muted); }
+  .desc b { color:var(--text); font-weight:550; }
+
+  /* Live band, mirroring 14-live-activity.css + the 22-markdown.css comet. */
+  .live { width:max-content; max-width:100%; min-height:24px; display:flex; align-items:center; gap:7px; color:var(--muted); }
+  .live-icon { width:16px; height:20px; flex:0 0 16px; display:grid; place-items:center; line-height:0; }
+  .verb { position:relative; font-weight:500; --cells:8; }
+  .verb::after {
+    content:attr(data-text); position:absolute; inset:0; pointer-events:none; color:transparent;
+    background:linear-gradient(90deg,transparent 0%,color-mix(in oklch,var(--accent) 35%,transparent) 25%,color-mix(in oklch,var(--accent) 22%,white) 50%,color-mix(in oklch,var(--accent) 35%,transparent) 75%,transparent 100%) 0 0 / 4ch 100% no-repeat;
+    background-clip:text; -webkit-background-clip:text;
+    animation:comet calc((var(--cells) + 7) * 100ms * var(--k)) linear infinite;
+  }
+  @keyframes comet { from { background-position:-4ch 0; } to { background-position:calc(100% + 7ch) 0; } }
+  .meta { font-weight:400; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .meta::before { content:"\00B7"; margin-right:7px; }
+
+  @media (max-width:760px) { body .duo { grid-template-columns:minmax(0,1fr); } }
+  @media (max-width:560px) { body .page { padding:20px 14px 40px; } }
+
+  /* ---------- Glyphs: sized in em, so one rule set serves every size. ---------- */
+  .g { --glow:calc(var(--gs) * var(--gk)); position:relative; display:inline-block; width:1em; height:1em; flex:none; line-height:0; }
+  .g i { position:absolute; display:block; }
+  .g svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+
+  /* 1 — Aurora ring: a comet of light on a faint track, blooming underneath. */
+  .ring .spin { inset:0; animation:ring-spin calc(var(--k) * 1300ms) cubic-bezier(.55,.08,.35,.92) infinite; }
+  .ring .track { inset:.06em; border-radius:50%; box-shadow:inset 0 0 0 .12em color-mix(in oklch, var(--c1) 16%, transparent); }
+  .ring .arc, .ring .bloom > i { inset:.06em; border-radius:50%;
+    background:conic-gradient(from 0deg, transparent 0 28%, color-mix(in oklch, var(--c2) 45%, transparent) 55%, var(--c2) 76%, var(--c1) 94%, var(--hot) 100%);
+    -webkit-mask:radial-gradient(farthest-side, transparent calc(100% - .13em), #000 calc(100% - .12em));
+            mask:radial-gradient(farthest-side, transparent calc(100% - .13em), #000 calc(100% - .12em)); }
+  .ring .bloom { inset:0; filter:blur(.16em); opacity:calc(.95 * var(--glow)); }
+  .ring .head { top:.06em; left:50%; width:.13em; height:.13em; margin-left:-.065em; border-radius:50%; background:var(--hot); box-shadow:0 0 calc(.18em * var(--glow)) .02em var(--c1); }
+  .ring .core { left:50%; top:50%; width:.2em; height:.2em; margin:-.1em; border-radius:50%; background:var(--c1);
+    box-shadow:0 0 calc(.22em * var(--glow)) var(--c1); animation:ring-core calc(var(--k) * 1300ms) ease-in-out infinite; }
+  @keyframes ring-spin { to { transform:rotate(360deg); } }
+  @keyframes ring-core { 0%,100% { transform:scale(.7); opacity:.7; } 50% { transform:scale(1.1); opacity:1; } }
+
+  /* 2 — Orb: coloured light swirling inside a glass sphere. */
+  .orb .halo { inset:-.12em; border-radius:50%; background:radial-gradient(circle, var(--c1), var(--c2) 55%, transparent 72%);
+    filter:blur(.14em); opacity:calc(.7 * var(--glow)); animation:orb-breathe calc(var(--k) * 2400ms) ease-in-out infinite; }
+  .orb .ball { inset:.08em; border-radius:50%; overflow:hidden; background:var(--orb-base); isolation:isolate;
+    box-shadow:inset 0 0 0 .04em color-mix(in oklch, var(--c1) 40%, transparent); animation:orb-breathe calc(var(--k) * 2400ms) ease-in-out infinite; }
+  /* Smaller, farther-apart lights so the colours stay distinct instead of
+     screening each other to white. */
+  .orb .b { width:.5em; height:.5em; border-radius:50%; filter:blur(.09em); opacity:.9; mix-blend-mode:var(--blend); left:50%; top:50%; margin:-.25em; }
+  .orb .b1 { background:var(--c1); animation:orb-a calc(var(--k) * 1700ms) linear infinite; }
+  .orb .b2 { background:var(--c2); animation:orb-b calc(var(--k) * 2300ms) linear infinite; }
+  .orb .b3 { background:var(--c3); animation:orb-a calc(var(--k) * 3100ms) linear infinite reverse; }
+  .orb .spec { inset:.08em; border-radius:50%; background:radial-gradient(circle at 34% 28%, color-mix(in oklch, white 85%, transparent) 0 6%, transparent 32%); }
+  @keyframes orb-a { from { transform:rotate(0) translateX(.24em); } to { transform:rotate(360deg) translateX(.24em); } }
+  @keyframes orb-b { from { transform:rotate(120deg) translateX(.26em) scale(1.1); } to { transform:rotate(-240deg) translateX(.26em) scale(1.1); } }
+  @keyframes orb-breathe { 0%,100% { transform:scale(.9); } 50% { transform:scale(1); } }
+
+  /* 3 — Star bloom: the logo's star alone, glowing, with a lens flare on each beat. */
+  .bloomstar svg { animation:star-turn calc(var(--k) * 1800ms) cubic-bezier(.45,0,.2,1) infinite; }
+  .bloomstar path { fill:var(--c1); }
+  .bloomstar svg { filter:drop-shadow(0 0 calc(.08em * var(--glow)) var(--c1)) drop-shadow(0 0 calc(.22em * var(--glow)) var(--c2)); }
+  .bloomstar .flare { left:50%; top:50%; border-radius:999px; opacity:0; animation:flare calc(var(--k) * 1800ms) ease-out infinite; }
+  .bloomstar .fh { width:1.7em; height:.05em; margin:-.025em 0 0 -.85em; background:linear-gradient(90deg, transparent, var(--hot), transparent); }
+  .bloomstar .fv { width:.05em; height:1.7em; margin:-.85em 0 0 -.025em; background:linear-gradient(180deg, transparent, var(--hot), transparent); }
+  @keyframes star-turn { 0% { transform:rotate(0) scale(.72); } 50% { transform:rotate(45deg) scale(1); } 100% { transform:rotate(90deg) scale(.72); } }
+  @keyframes flare { 0%,38% { opacity:0; transform:scale(.2); } 50% { opacity:calc(.9 * var(--glow)); transform:scale(1); } 72%,100% { opacity:0; transform:scale(.6); } }
+
+  /* 4 — Goo: three drops of light split from one, orbit, and melt back together. */
+  .goo svg { filter:drop-shadow(0 0 calc(.1em * var(--glow)) var(--c1)) drop-shadow(0 0 calc(.2em * var(--glow)) var(--c2)); }
+  .goo .drop { transform-box:view-box; transform-origin:12px 12px; animation:goo calc(var(--k) * 2200ms) infinite; }
+  .goo .rot { transform-box:view-box; transform-origin:12px 12px; animation:goo-rot calc(var(--k) * 2200ms) cubic-bezier(.45,0,.55,1) infinite; }
+  @keyframes goo {
+    0% { transform:translateX(0); animation-timing-function:cubic-bezier(.3,0,.2,1); }
+    38%,58% { transform:translateX(6px); animation-timing-function:cubic-bezier(.6,0,.4,1); }
+    100% { transform:translateX(0); }
+  }
+  @keyframes goo-rot { to { transform:rotate(240deg); } }
+</style>
+</head>
+<body class="t theme-dark" data-pal="aurora">
+<div class="page">
+  <h1>글로우 띵킹 아이콘 · 새 방향 4종</h1>
+  <p class="intro">원호를 그리는 방식에서 벗어나 빛 자체가 움직이는 스타일로 다시 만들었습니다. 모두 SVG/CSS만으로 동작하고, 빛 번짐은 다크에서 진하게, 라이트에서는 은은하게 자동 조절됩니다.</p>
+
+  <div class="toolbar">
+    <div class="control"><span class="control-label">색</span>
+      <div class="segments" data-group="pal"><button data-v="aurora" aria-pressed="true">오로라</button><button data-v="blue">블루</button><button data-v="mono">모노</button></div></div>
+    <div class="control"><span class="control-label">글로우</span>
+      <div class="segments" data-group="glow"><button data-v="0.5">약하게</button><button data-v="1" aria-pressed="true">기본</button><button data-v="1.5">강하게</button></div></div>
+    <div class="control"><span class="control-label">재생</span>
+      <div class="segments" data-group="speed"><button data-v="4">슬로모션 ¼</button><button data-v="1" aria-pressed="true">실제 속도</button></div></div>
+    <div class="control"><div class="segments" data-group="pause"><button data-v="pause">일시정지</button></div></div>
+  </div>
+
+  <div class="duo" id="duo"></div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+  const STAR = 'M12 2.5C12.6 9.3 14.7 11.4 21.5 12 14.7 12.6 12.6 14.7 12 21.5 11.4 14.7 9.3 12.6 2.5 12 9.3 11.4 11.4 9.3 12 2.5Z';
+  let uid = 0;
+  const GLYPHS = {
+    ring: () => `<span class="g ring"><i class="track"></i><i class="spin"><i class="bloom"><i></i></i><i class="arc"></i><i class="head"></i></i><i class="core"></i></span>`,
+    orb: () => `<span class="g orb"><i class="halo"></i><i class="ball"><i class="b b1"></i><i class="b b2"></i><i class="b b3"></i></i><i class="spec"></i></span>`,
+    bloomstar: () => `<span class="g bloomstar"><i class="flare fh"></i><i class="flare fv"></i><svg viewBox="0 0 24 24"><path d="${STAR}"/></svg></span>`,
+    goo: () => {
+      const id = `goo-${uid++}`;
+      const grad = `gg-${uid++}`;
+      const drop = (rot) => `<g transform="rotate(${rot} 12 12)"><circle class="drop" cx="12" cy="12" r="3.3"/></g>`;
+      return `<span class="g goo"><svg viewBox="0 0 24 24"><defs>
+        <filter id="${id}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.5"/><feColorMatrix values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 22 -9"/></filter>
+        <linearGradient id="${grad}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--c3)"/><stop offset=".5" style="stop-color:var(--c1)"/><stop offset="1" style="stop-color:var(--c2)"/></linearGradient>
+      </defs><g filter="url(#${id})" fill="url(#${grad})"><circle cx="12" cy="12" r="2.6"/><g class="rot">${drop(0)}${drop(120)}${drop(240)}</g></g></svg></span>`;
+    },
+  };
+  const at = (key, size) => GLYPHS[key]().replace('class="g ', `style="font-size:${size}px" class="g `);
+
+  const CARDS = [
+    { key: 'ring', letter: '1', name: '오로라 링', tag: '1.3초',
+      desc: '<b>얇은 궤도 위를 빛의 꼬리가 가속했다 감속하며 돌고, 아래로 오로라 빛이 번집니다.</b> 가운데 점이 같은 박자로 맥박칩니다. 가장 깔끔하고 "고급 로딩"에 가깝습니다.' },
+    { key: 'orb', letter: '2', name: '오브', tag: '구슬',
+      desc: '<b>유리 구슬 안에서 세 가지 빛이 서로 다른 속도로 소용돌이치고, 구슬 전체가 숨 쉬듯 부풀며 빛을 냅니다.</b> 작은 크기에서도 색이 계속 바뀌어 "살아 있는 AI" 느낌이 가장 강합니다.' },
+    { key: 'bloomstar', letter: '3', name: '스타 블룸', tag: '로고 별',
+      desc: '<b>로고의 별 하나만 남겨 빛나게 했습니다.</b> 돌며 커지는 정점에서 가로·세로로 렌즈 플레어가 반짝입니다. 브랜드와 이어지면서 가장 화사합니다.' },
+    { key: 'goo', letter: '4', name: '리퀴드', tag: '물방울',
+      desc: '<b>한 덩어리의 빛이 세 방울로 갈라져 돌다가 다시 녹아 합쳐집니다.</b> 갈라지고 붙을 때 방울 사이가 끈적하게 늘어나는 게 포인트입니다. 가장 독특합니다.' },
+  ];
+
+  const live = (key) => `<div class="live"><span class="live-icon">${at(key, 14)}</span><span class="verb" data-text="Thinking">Thinking</span><span class="meta">12s · 1.2k tokens</span></div>`;
+  document.getElementById('duo').innerHTML = ['theme-dark', 'theme-light'].map((theme) =>
+    `<div class="tile t ${theme}">${CARDS.map((c) => `<div class="row"><span class="num">${c.letter}</span>${live(c.key)}</div>`).join('')}</div>`).join('');
+  document.getElementById('grid').innerHTML = CARDS.map((c) => `
+    <article class="card">
+      <div class="card-head"><span class="letter">${c.letter}</span><h2>${c.name}</h2><span class="tag">${c.tag}</span></div>
+      <div class="mini">
+        ${['theme-dark', 'theme-light'].map((theme) => `
+          <div class="tile t ${theme}">${at(c.key, 64)}
+            <div class="sizes">${[24, 16, 14, 12].map((z) => `<figure>${at(c.key, z)}<figcaption>${z}</figcaption></figure>`).join('')}</div>
+          </div>`).join('')}
+      </div>
+      <div class="bands">${['theme-dark', 'theme-light'].map((theme) => `<div class="tile t ${theme}">${live(c.key)}</div>`).join('')}</div>
+      <p class="desc">${c.desc}</p>
+    </article>`).join('');
+
+  document.querySelectorAll('.segments').forEach((group) => {
+    group.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      const kind = group.dataset.group;
+      const value = button.dataset.v;
+      if (kind === 'pause') {
+        const on = button.getAttribute('aria-pressed') !== 'true';
+        button.setAttribute('aria-pressed', String(on));
+        document.body.classList.toggle('paused', on);
+        return;
+      }
+      group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+      if (kind === 'pal') document.body.dataset.pal = value;
+      if (kind === 'glow') document.documentElement.style.setProperty('--gs', value);
+      if (kind === 'speed') document.documentElement.style.setProperty('--k', value);
+    });
+  });
+</script>
+</body>
+</html>

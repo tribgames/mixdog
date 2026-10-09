@@ -6,11 +6,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 
-import { ReadyTerminalPane } from './app-shell-components';
 import { disposeTerminalPane } from './lazy-widgets';
+import { SessionTerminalTabs } from './SessionTerminalTabs';
+import { releaseSessionTerminalTabs, sessionTerminalId } from './session-terminal-tabs';
 import { useSlotRemeasure } from './surface-slot-remeasure';
-import { preferredSurfaceSlot } from './surface-slots';
-import { sessionTerminalId } from './terminal-command-request';
+import { expandedSurfaceRect, preferredSurfaceSlot } from './surface-slots';
 
 type TerminalSurfaceSlot = {
   active: boolean;
@@ -21,6 +21,9 @@ type TerminalSurfaceSlot = {
 type TerminalSurface = {
   sessionId: string;
   cwd: string | null;
+  expanded: boolean;
+  /** Side dock header widened while this surface is expanded. */
+  header: HTMLElement | null;
   container: HTMLDivElement;
   root: Root;
   slots: Map<HTMLDivElement, TerminalSurfaceSlot>;
@@ -32,6 +35,8 @@ type SessionTerminalSurfaceRenderProps = {
   active: boolean;
   foreground: boolean;
   parked: boolean;
+  expanded: boolean;
+  onToggleExpanded(): void;
 };
 
 type SessionTerminalSurfaceRenderer = (props: SessionTerminalSurfaceRenderProps) => ReactNode;
@@ -52,8 +57,20 @@ interface SessionTerminalSurfaceController {
   setParkingHost(node: HTMLDivElement | null): void;
 }
 
-const renderDefaultTerminalSurface: SessionTerminalSurfaceRenderer = ({ sessionId, cwd, active }) => (
-  <ReadyTerminalPane cwd={cwd} terminalId={sessionTerminalId(sessionId)} active={active} />
+const renderDefaultTerminalSurface: SessionTerminalSurfaceRenderer = ({
+  sessionId,
+  cwd,
+  active,
+  expanded,
+  onToggleExpanded,
+}) => (
+  <SessionTerminalTabs
+    sessionId={sessionId}
+    cwd={cwd}
+    active={active}
+    expanded={expanded}
+    onToggleExpanded={onToggleExpanded}
+  />
 );
 
 export function useSessionTerminalSurfaces(
@@ -69,7 +86,9 @@ export function useSessionTerminalSurfaces(
       host.appendChild(surface.container);
     }
     const selected = preferredSurfaceSlot(surface.slots);
-    const rect = selected?.[0].getBoundingClientRect();
+    const expanded = surface.expanded && selected?.[1].foreground === true;
+    const rect = expandedSurfaceRect(selected?.[0], expanded, surface) ?? selected?.[0].getBoundingClientRect();
+    surface.container.dataset.expanded = expanded ? 'true' : 'false';
     const visible = Boolean(selected && rect && rect.width >= 1 && rect.height >= 1);
     if (visible && rect) {
       surface.container.style.left = `${rect.left}px`;
@@ -80,6 +99,7 @@ export function useSessionTerminalSurfaces(
       surface.container.removeAttribute('aria-hidden');
       return selected;
     }
+    surface.expanded = false;
     surface.container.style.left = '-10000px';
     surface.container.style.top = '0';
     // Preserve the last visible grid while parked. Browser Use intentionally
@@ -95,13 +115,19 @@ export function useSessionTerminalSurfaces(
       const selected = position(surface);
       if (selected) surface.cwd = selected[1].cwd;
       const active = Boolean(selected);
+      const foreground = selected?.[1].foreground === true;
       surface.root.render(
         renderTerminalSurface({
           sessionId: surface.sessionId,
           cwd: surface.cwd,
           active,
-          foreground: selected?.[1].foreground === true,
+          foreground,
           parked: !active,
+          expanded: surface.expanded && foreground,
+          onToggleExpanded: () => {
+            surface.expanded = !surface.expanded;
+            commit(surface);
+          },
         })
       );
     },
@@ -120,6 +146,8 @@ export function useSessionTerminalSurfaces(
     const surface: TerminalSurface = {
       sessionId,
       cwd,
+      expanded: false,
+      header: null,
       container,
       root: createRoot(container),
       slots: new Map(),
@@ -161,10 +189,11 @@ export function useSessionTerminalSurfaces(
     (sessionId: string) => {
       const surface = surfaces.current.get(sessionId);
       if (!surface) return;
+      expandedSurfaceRect(undefined, false, surface);
       surface.root.unmount();
       surface.container.remove();
       surfaces.current.delete(sessionId);
-      disposeTerminalSurface(sessionTerminalId(sessionId));
+      for (const terminalId of releaseSessionTerminalTabs(sessionId)) disposeTerminalSurface(terminalId);
     },
     [disposeTerminalSurface]
   );

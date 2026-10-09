@@ -13,6 +13,7 @@
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import { createGeminiTextLeakGuard, consumeGeminiRestStreamResponse } from './gemini-stream.mjs';
 import { parseToolCalls, emitGeminiToolCalls } from './gemini-schema.mjs';
+import { normalizeAntigravityUsage } from './antigravity-response.mjs';
 
 // A retired wire id answers with one plain-text notice and no finishReason.
 // That is a terminal answer about the model, not a truncated stream.
@@ -118,6 +119,7 @@ export function createAntigravityStreamCollector({ tools, useModel, onToolCall, 
         onChunk,
         textLeakGuard,
         label: 'Antigravity streamGenerateContent',
+        failureUsage: { model: useModel, normalize: normalizeAntigravityUsage },
         // Cloud Code Assist nests the Gemini payload under
         // `response`; in-band error events stay top level.
         unwrapChunk: (chunk) => (chunk && typeof chunk === 'object' && chunk.response ? chunk.response : chunk),

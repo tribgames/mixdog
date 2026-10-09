@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type CSSProperties, type RefObject } from 'react';
-import { PaneDialogLayer } from './sidebar-dialog';
+import { containDialogTab, PaneDialogLayer } from './sidebar-dialog';
 import { ErrorNotice } from './ErrorNotice';
 import { MxIcon } from './MxIcon';
 import { OpenSelect } from './OpenSelect';
@@ -48,23 +48,7 @@ export function ComposerGoalDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         style={{ '--mx-editor-width': '520px' } as CSSProperties}
-        onKeyDown={(event) => {
-          if (event.key !== 'Tab') return;
-          const controls = [
-            ...event.currentTarget.querySelectorAll<HTMLElement>(
-              'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)'
-            ),
-          ];
-          const first = controls[0];
-          const last = controls.at(-1);
-          if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last?.focus();
-          } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first?.focus();
-          }
-        }}
+        onKeyDown={containDialogTab}
       >
         <header>
           <h2 id={titleId}>{t(initialGoal ? 'Edit goal' : 'Set a goal')}</h2>
@@ -77,6 +61,9 @@ export function ComposerGoalDialog({
         <form
           onSubmit={async (event) => {
             event.preventDefault();
+            // Portaled, yet inside the composer form's React tree: a bubbling
+            // submit would also send the draft.
+            event.stopPropagation();
             const duration = Number(minutes);
             if (
               !objective.trim() ||

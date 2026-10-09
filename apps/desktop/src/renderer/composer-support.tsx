@@ -16,6 +16,17 @@ import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { OpenSelect } from './OpenSelect';
 import { asRecord, displayProject, queueText } from './text-format';
+// @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
+import { formatPastedTextRef, pastedTextLineCount } from '../../../../src/tui/paste-text-policy.mjs';
+
+/** Label, payload and prompt token of a folded paste chip for `text`. */
+export function pastedTextFields(id: number, text: string): Pick<ComposerAttachment, 'name' | 'data' | 'token'> {
+  return {
+    name: `Pasted text · ${pastedTextLineCount(text)} lines`,
+    data: text,
+    token: formatPastedTextRef(id, text),
+  };
+}
 
 export type ComposerAttachment = {
   id: number;

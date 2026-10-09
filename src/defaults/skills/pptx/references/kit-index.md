@@ -11,7 +11,7 @@ redefine it or when a default this index does not state decides the page.
 
 Owns the code: primitives that draw what `composition.md` names, sized with `MEASURE` so text never overflows. The kit is a toolbox, not a slide catalog — no function here draws a whole slide, and every position is the author's. Draw every repeated element through one function so the deck stays consistent. Chart and table helpers are in `charts.md`, picture helpers in `pictures.md` §4.
 
-**The runtime runs every code block of this file, `charts.md`, and `pictures.md` before the script** — the script never pastes them. A script opens with the brief, then one `deck({ style, hue, accentHue?, mode, script, pairing, fonts })` call that sets the frame the style chooses, the palette, the faces, the type scale, the zones, and the masters, then the slides. Read the blocks for the signatures and defaults; redefine a helper in the script when a page needs a different one (a later declaration wins). A script that creates its own `pres` runs without the prelude.
+**The runtime runs every code block of this file, `charts.md`, and `pictures.md` before the script** — the script never pastes them. A script opens with the brief, then one `deck({ style, hue, accentHue?, accentMode?, mode, script, pairing, fonts })` call that sets the frame the style chooses, the palette, the faces, the type scale, the zones, and the masters, then the slides. Read the blocks for the signatures and defaults; redefine a helper in the script when a page needs a different one (a later declaration wins). A script that creates its own `pres` runs without the prelude.
 
 **Hard rule — paragraph options sit on the first run**: the runtime keeps one `a:pPr` per paragraph (the first). `bullet`, `align`, `paraSpaceAfter`, `lineSpacingMultiple` go on the text box or on a paragraph's first run; `breakLine: true` on a paragraph's last run. → runtime (absorbed: the normalizer keeps the first `pPr`; nothing to check)
 
@@ -89,7 +89,12 @@ function counterHue(h) { … }
 // at 4.5:1 (a yellow pill carries dark type, a green one white), else the type form of the accent under white (a mid
 // amber or blue can host neither at 12 pt). Charts, arcs, dots, and bars fill with accentFill; a word in the accent,
 // a kicker, an emphasis run, a hero numeral keep `accent`.
-function palette({ hue = 205, accentHue = counterHue(hue), accentSat = 0.72, accentLight = 0.42 } = {}) { … } // returns { ink, body, muted, lineSubtle, line, lineStrong, mark, markSoft, paper, paperAlt, tint, dark, darkAlt, onDark, onDarkMuted, onDarkAccent, accent, accentDeep, accentFill, accentLabel, onAccent, state }
+// accentMode: where the accent sits against the seed when accentHue is not given — 'complement' (the default: counterHue),
+// 'analogous' (seed + 30°), 'split' (counterHue + 30°), 'mono' (the seed itself). warmth (-1..1, default 0) leans every
+// neutral (paper, type, lines, marks) toward amber (+) or blue (-) without moving the seed or the accent.
+function accentFor(seed, mode) { … }
+function warmHue(h, warmth) { … }
+function palette({ hue: seed = 205, accentHue: pickedHue, accentMode = 'complement', accentSat = 0.72, accentLight = 0.42, warmth = 0 } = {}) { … } // returns { ink, body, muted, lineSubtle, line, lineStrong, mark, markSoft, paper, paperAlt, tint, dark, darkAlt, onDark, onDarkMuted, onDarkAccent, accent, accentDeep, accentFill, accentLabel, onAccent, state }
 const T = { ...palette({ hue: 205 }), display: '', sans: '', light: '', data: '' };
 // deck() seeds it from the brief; faces set by typography()
 // Type scale (direction.md §6): the reading mode sets the body anchor; every role derives from it.
@@ -154,6 +159,9 @@ function darkTheme(hue, accentHue = counterHue(hue)) { … }
 // radius, the stroke a rule takes, the motif an anchor repeats, the theme, and whether the accent stays on the seed
 // hue. Passed to deck(), two decks of the same content open on visibly different pages; left out, every deck repeats
 // one frame — the title at the top left, the body under it, the source at the foot — whatever its brief called it.
+// An entry may also carry palette knobs — accentMode ('complement' | 'analogous' | 'split' | 'mono'), accentSat,
+// accentLight, warmth (-1..1) — and its type `pairing`; deck() reads them unless the call names its own. None of the
+// built-in entries sets a knob, so they keep the counter-hue accent.
 // `motifs` is the style's decoration set, not one device: an anchor that names no kind takes the next one, so the
 // cover, the section marks, and the closing of one deck are not the same drawing three times (composition.md §3).
 const STYLES = { swiss-minimal, editorial, photo-editorial, data-journalism, soft-rounded, dark-tech, glassmorphism, blueprint, brutalist, custom } each { chrome, radius, line, motifs, singleHue, pairing, titleBoost, theme };
@@ -169,7 +177,7 @@ let MOTIF_AT = 0;
 // The next device in the deck's set. `motif(s, '', …)` takes it, so two anchors in a row never carry the same
 // drawing; naming a kind (`motif(s, MOTIF, …)`) still wins when the echo is the point (a closing answering its cover).
 function nextMotif() { … }
-function deck({ style = 'custom', hue = 205, accentHue, accentSat, accentLight, mode = 'balanced', script = 'ko', pairing, fonts = 'noto', titleLines = 1, chrome, theme } = {}) { … }
+function deck({ style = 'custom', hue = 205, accentHue, accentMode, accentSat, accentLight, warmth, mode = 'balanced', script = 'ko', pairing, fonts = 'noto', titleLines = 1, chrome, theme } = {}) { … }
 // Page chrome lives on masters, not on slides: the background and, when the deck wants it, the page number.
 // The three masters are defined from the final palette when the first slide is added, never before deck() ran.
 function master(name, background, { number = true, color = T.muted } = {}) { … }

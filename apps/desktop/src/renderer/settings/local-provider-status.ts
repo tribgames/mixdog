@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react';
 import { record } from '../record-utils';
 import type { CapabilityApi, RecordValue } from './capability-data';
 
+export function localProviderFileSize(bytes: unknown): string {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  return `${(value / 1_000_000_000).toFixed(1)} GB`;
+}
+
 export function localProviderInstallation(status: RecordValue, phase: string, modelId?: string): RecordValue {
   const entries = Array.isArray(status.installations) ? status.installations.map(record) : [];
   return (

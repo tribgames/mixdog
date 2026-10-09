@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getUsageLedger, makeUsageRecord } from './usage-ledger.mjs';
-import { withUsageContext } from './usage-context.mjs';
+import { isNotedUsage, withUsageContext } from './usage-context.mjs';
 import { ACCOUNT_PROVIDERS } from '../provider-accounts.mjs';
 import { currentProviderAccountId } from '../provider-auth-binding.mjs';
 
@@ -10,6 +10,14 @@ import { currentProviderAccountId } from '../provider-auth-binding.mjs';
 const recorded = new WeakSet();
 const hasTokens = (usage) =>
   ['inputTokens', 'outputTokens', 'cachedTokens', 'cacheWriteTokens'].some((key) => Number(usage?.[key]) > 0);
+// One rule for every reported usage object: tokens, or a provider-reported
+// cost (a cost-only report is still a billed request).
+const recordable = (usage) =>
+  hasTokens(usage) ||
+  (usage?.costUsd != null &&
+    usage.costUsd !== '' &&
+    Number.isFinite(Number(usage.costUsd)) &&
+    Number(usage.costUsd) >= 0);
 
 /**
  * Runs at the common provider boundary, not inside optional diagnostic IO.
@@ -92,7 +100,7 @@ export async function accountProviderSend(provider, instance, send, model, opts 
   };
   const saveAbandoned = async () => {
     for (const [index, attempt] of (identity.abandonedUsage || []).entries()) {
-      if (hasTokens(attempt.usage)) await save(attempt, `${requestId}:abandoned:${index}`);
+      if (recordable(attempt.usage)) await save(attempt, `${requestId}:abandoned:${index}`);
     }
   };
   let result;
@@ -102,8 +110,10 @@ export async function accountProviderSend(provider, instance, send, model, opts 
     await saveAbandoned();
     // Only provider-reported partial usage is recordable; never invent
     // tokens for a failed request or reinterpret an error as a success.
-    if (error?.usage) await save(error);
-    else if (hasTokens(error?.partialUsage))
+    // Usage already noted as an abandoned attempt was just recorded above.
+    if (error?.usage) {
+      if (!isNotedUsage(error.usage)) await save(error);
+    } else if (recordable(error?.partialUsage) && !isNotedUsage(error.partialUsage))
       await save({ usage: error.partialUsage, model: error.partialModel }, requestId, error);
     throw error;
   }

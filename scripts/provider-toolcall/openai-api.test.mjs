@@ -1,6 +1,48 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { OpenAIDirectProvider, directHandshakeError, directWsEntry } from './_shared.mjs';
+import { wsClosedError } from '../../src/runtime/agent/orchestrator/providers/openai-ws-terminal.mjs';
+
+test('OpenAI API-key server 1009 keeps that session on HTTP with the same cache key', async (t) => {
+  const priorTransport = process.env.MIXDOG_OAI_TRANSPORT;
+  process.env.MIXDOG_OAI_TRANSPORT = 'auto';
+  t.after(() => {
+    if (priorTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
+    else process.env.MIXDOG_OAI_TRANSPORT = priorTransport;
+  });
+  const provider = new OpenAIDirectProvider({ apiKey: 'fixture-openai-key' });
+  const calls = [];
+  const send = (sessionId, wsError) =>
+    provider.send([{ role: 'user', content: 'fixture' }], 'gpt-5.4', [], {
+      sessionId,
+      _fetchFn: async () => {
+        throw new Error('global fetch seam must not run');
+      },
+      _sendViaWebSocketFn: async ({ body }) => {
+        calls.push(['ws', sessionId, body.prompt_cache_key]);
+        if (wsError) throw wsError;
+        return { content: 'ws-ok', toolCalls: [] };
+      },
+      _sendViaHttpSseFn: async ({ body }) => {
+        calls.push(['http', sessionId, body.prompt_cache_key]);
+        return { content: 'http-ok', toolCalls: [] };
+      },
+    });
+
+  assert.equal((await send('too-big', wsClosedError(1009, ''))).content, 'http-ok');
+  assert.equal((await send('too-big', null)).content, 'http-ok');
+  assert.equal((await send('other', null)).content, 'ws-ok');
+  await assert.rejects(send('reset', wsClosedError(1006, '')), /code=1006/);
+  assert.equal((await send('reset', null)).content, 'ws-ok');
+
+  assert.deepEqual(
+    calls.map(([transport, sessionId]) => `${transport}:${sessionId}`),
+    ['ws:too-big', 'http:too-big', 'http:too-big', 'ws:other', 'ws:reset', 'ws:reset']
+  );
+  const cacheKeys = new Set(calls.filter(([, sessionId]) => sessionId === 'too-big').map(([, , key]) => key));
+  assert.equal(cacheKeys.size, 1, 'WS and HTTP sends share one prompt_cache_key');
+  assert.ok([...cacheKeys][0]);
+});
 
 test('OpenAI API-key request uses model-specific cache contracts under every transport mode', async (t) => {
   const priorTransport = process.env.MIXDOG_OAI_TRANSPORT;

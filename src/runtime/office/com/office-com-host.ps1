@@ -327,6 +327,14 @@ function Snapshot-Word($doc, $payload) {
                         size = $paragraphSize
                         bold = ([int]$paragraphFont.Bold -eq -1)
                     }
+                    # Colour (WdColor is BGR; automatic and mixed values are left out), caps and tracking.
+                    $wordColor = [int64]$paragraphFont.Color
+                    if ($wordColor -ge 0 -and $wordColor -le 16777215 -and $wordColor -ne 9999999) {
+                        $entry.font.color = ('{0:X2}{1:X2}{2:X2}' -f ($wordColor -band 255), (($wordColor -shr 8) -band 255), (($wordColor -shr 16) -band 255))
+                    }
+                    if ([int]$paragraphFont.AllCaps -eq -1 -or [int]$paragraphFont.SmallCaps -eq -1) { $entry.font.caps = $true }
+                    $wordSpacing = [double]$paragraphFont.Spacing
+                    if ($wordSpacing -ne 0 -and $wordSpacing -lt 1000) { $entry.font.letterSpacing = $wordSpacing }
                 }
             }
             catch {}

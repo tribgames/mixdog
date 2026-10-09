@@ -8,6 +8,7 @@ import { builtinFeatureActive, featureDisallowedToolsFor, localGitToolsActive } 
 import { recapEnabled } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { browserBridgeAvailableSync } from '../runtime/browser-bridge/client.mjs';
 import { computerBridgeAvailableSync } from '../runtime/computer-bridge/client.mjs';
+import { terminalBridgeAvailableSync } from '../runtime/terminal-bridge/client.mjs';
 
 export function createRuntimeFeatureGates({ getConfig, getToolProfile }) {
   return {
@@ -28,6 +29,7 @@ export function createRuntimeFeatureGates({ getConfig, getToolProfile }) {
       featureDisallowedToolsFor(getConfig(), {
         browserAvailable: browserBridgeAvailableSync(),
         computerAvailable: computerBridgeAvailableSync(),
+        terminalAvailable: terminalBridgeAvailableSync(),
         toolProfile: getToolProfile(),
       }),
   };

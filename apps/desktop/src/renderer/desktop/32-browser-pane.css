@@ -12,96 +12,8 @@
   background: var(--mx-workspace-sheet);
 }
 
-.browser-tab-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  flex: none;
-  padding: 4px 8px 0;
-  border-bottom: 1px solid var(--mx-border-muted);
-}
-
-.browser-tab-list {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  gap: 3px;
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
-
-.browser-tab {
-  display: flex;
-  align-items: center;
-  flex: 0 1 200px;
-  min-width: 112px;
-  height: 30px;
-  padding-right: 3px;
-  border-radius: var(--mx-radius-md) var(--mx-radius-md) 0 0;
-  color: var(--mx-text-muted);
-}
-
-.browser-tab.is-active {
-  min-width: 144px;
-  color: var(--mx-text);
-  background: var(--mx-surface-plate);
-  box-shadow: inset 0 -2px var(--mx-focus);
-}
-
-.browser-tab:hover {
-  background: var(--mx-hover);
-}
-
-.browser-tab-select,
-.browser-tab-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.browser-tab-select {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  padding: 0 7px;
-  font-size: var(--mx-font-meta);
-}
-
-.browser-tab-select svg {
-  flex: none;
-}
-.browser-tab-select span {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: left;
-}
-.browser-tab-select small {
-  flex: none;
-  color: var(--mx-text-faint);
-}
-.browser-tab-close {
-  width: 22px;
-  height: 22px;
-  flex: none;
-  border-radius: var(--mx-radius-sm);
-}
-.browser-tab-close:hover {
-  background: var(--mx-hover);
-  color: var(--mx-text);
-}
-.browser-tab-select:focus-visible,
-.browser-tab-close:focus-visible {
-  outline: 2px solid var(--mx-focus);
-  outline-offset: -2px;
-}
+/* Tab strip + nav-button cell styles live in ../tab-strip.css (shared with the
+   session terminal). */
 /* Electron guests can stay alive but stop repainting after display:none.
    Keep the pane mounted; the guest layer itself is parked below at 1px while
    inactive so it cannot composite over the visible Studio/editor surface. */
@@ -116,30 +28,6 @@
   padding: 6px 8px;
   border-bottom: 1px solid var(--mx-border-muted);
   flex: none;
-}
-
-.browser-pane-nav-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: var(--mx-radius-md);
-  background: transparent;
-  color: var(--mx-text-muted);
-  cursor: pointer;
-  flex: none;
-}
-
-.browser-pane-nav-button:hover:not(:disabled) {
-  background: var(--mx-hover);
-  color: var(--mx-text);
-}
-
-.browser-pane-nav-button:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 
 /* ONE control grammar for the whole toolbar (user: 테두리 있고 없고, 아이콘

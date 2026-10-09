@@ -64,6 +64,7 @@ export {
   MIDSTREAM_RETRY_POLICY,
   classifyHandshakeError,
   classifyMidstreamError,
+  isWsMessageTooBigClose,
   shouldFallbackTransport,
 } from './retry-midstream.mjs';
 export {

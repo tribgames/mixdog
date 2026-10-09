@@ -150,11 +150,6 @@ function _ipv6Hextets(ip) {
   return [...front, ...fill, ...back].map((part) => Number.parseInt(part, 16) || 0);
 }
 
-// Resolve hostname once, validate EVERY returned address (so a DNS round-robin
-// can't smuggle a private IP behind a public one), and return the de-duped
-// `{address, family}` list. The caller pins the real connection to one of
-// these addresses so a second uncontrolled resolution (DNS rebinding / TOCTOU)
-// cannot flip the IP between validation and connect.
 // Race a DNS promise against an abort signal so a hung resolver cannot
 // outlive the request's timeout budget. The signal is the same one that
 // bounds the outbound fetch (AbortSignal.timeout / requestTimeoutMs), so
@@ -181,8 +176,8 @@ export function abortRace(promise, signal, label) {
   });
 }
 
-// A name with no records of a family is not an error: the other families (or
-// the empty-result check in the caller) decide whether the host is usable.
+// A name with no records is not an error here: the empty-result check in the
+// caller decides whether the host is usable.
 async function _recordsOrEmpty(promise, signal, label) {
   try {
     return await abortRace(promise, signal, label);
@@ -192,6 +187,12 @@ async function _recordsOrEmpty(promise, signal, label) {
   }
 }
 
+// Resolve hostname once through the platform resolver (OS cache, hosts file,
+// VPN routing), validate EVERY returned address (so a DNS round-robin can't
+// smuggle a private IP behind a public one), and return the
+// `{address, family}` list. The caller pins the real connection to these
+// addresses so a second uncontrolled resolution (DNS rebinding / TOCTOU)
+// cannot flip the IP between validation and connect.
 export async function resolveAndValidate(hostname, { signal } = {}) {
   // Literal IPs bypass DNS entirely — validate directly.
   if (net.isIP(hostname)) {
@@ -203,57 +204,12 @@ export async function resolveAndValidate(hostname, { signal } = {}) {
     return [{ address: hostname, family: 6 }];
   }
 
-  const addresses = [];
-  const seen = new Set();
-  const push = (address, family) => {
-    const key = `${family}:${address}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    addresses.push({ address, family });
-  };
-
-  // dns.lookup mirrors what the platform resolver will hand to the connector;
-  // resolve4/resolve6 catch entries the stub resolver returns even when the
-  // OS lookup table would omit them.
-  const lookupAddrs = await _recordsOrEmpty(dns.promises.lookup(hostname, { all: true }), signal, 'dns.lookup');
-  for (const entry of lookupAddrs) {
-    if (entry.family === 4) assertPrivateIpv4(entry.address);
-    else _validateIpv6(entry.address);
-    push(entry.address, entry.family);
+  const addresses = await _recordsOrEmpty(dns.promises.lookup(hostname, { all: true }), signal, 'dns.lookup');
+  for (const { address, family } of addresses) {
+    if (family === 4) assertPrivateIpv4(address);
+    else _validateIpv6(address);
   }
-
-  const v4Addrs = await _recordsOrEmpty(dns.promises.resolve4(hostname), signal, 'dns.resolve4');
-  for (const ip of v4Addrs) {
-    assertPrivateIpv4(ip);
-    push(ip, 4);
-  }
-
-  const v6Addrs = await _recordsOrEmpty(dns.promises.resolve6(hostname), signal, 'dns.resolve6');
-  for (const ip of v6Addrs) {
-    _validateIpv6(ip);
-    push(ip, 6);
-  }
-
   return addresses;
-}
-
-export async function assertResolvedIps(hostname) {
-  // Backward-compatible wrapper: callers that only need validation (e.g. the
-  // Puppeteer request interceptor, which cannot pin Chromium's connect) still
-  // get the same throw-on-private behaviour.
-  // Fail closed: an empty result (no DNS records, all lookups returned
-  // ENODATA/ENOTFOUND) must NOT be treated as success — the Puppeteer path
-  // would otherwise hand the raw hostname to Chromium for a second,
-  // unvalidated resolution.
-  // Callers pass `new URL(...).hostname`, which on Node/Bun keeps the
-  // brackets around IPv6 literals (e.g. `[2606:4700::1111]`). Strip them
-  // here so resolveAndValidate's net.isIP() path recognises the literal
-  // instead of falling through to a doomed DNS lookup on `[..]`.
-  const bare = _bareHost(hostname);
-  const addresses = await resolveAndValidate(bare);
-  if (!addresses || addresses.length === 0) {
-    throw new Error(`DNS returned no addresses for ${hostname}`);
-  }
 }
 
 // Bare hostname helper that strips IPv6 brackets — undici / WHATWG URL stores

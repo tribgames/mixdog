@@ -94,11 +94,11 @@ export function computerUseOverlayPresentation(
   const attention = Boolean(snapshot.attentionRequired) || Boolean(control.error);
   // A command runs for a few hundred milliseconds, so a held target (the grace
   // period after the last command) keeps the controls reachable between
-  // commands. Thinking without a hold is not using the computer: a turn that
-  // moved on to other work must not leave the pill up until it ends. A pause
-  // lasts while any task it paused is still waiting on it; one whose tasks
-  // all ended is not the user's to resolve.
-  const working = snapshot.activities.some((entry) => entry.phase !== 'thinking');
+  // commands. Thinking right after a command is still the same task for the
+  // grace period, but a turn that moved on to other work must not leave the
+  // pill up until it ends. A pause lasts while any task it paused is still
+  // waiting on it; one whose tasks all ended is not the user's to resolve.
+  const working = (snapshot.presentSessionIds ?? []).length > 0;
   const holding = (snapshot.targetLeases ?? []).length > 0;
   const waiting = paused && (snapshot.pausedSessionIds ?? []).length > 0;
   const titles = overlayTitles(locale);

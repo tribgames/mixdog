@@ -20,6 +20,10 @@ export interface CursorSurface {
   /** Where the virtual pointer was last drawn (DIP); the next glide starts here. */
   shown?: GlidePoint;
   glide?: { eventId: number; timer: ReturnType<typeof setInterval> };
+  /** The effect the renderer was last told to paint. */
+  effect?: string;
+  /** The command behind the current event has finished; held poses rest. */
+  settled?: boolean;
 }
 
 export function newCursorSurface(): CursorSurface {

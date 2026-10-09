@@ -21,6 +21,7 @@ import {
   attachPartial,
   createCompatStreamState,
   flushLeak,
+  noteReportedUsage,
   reportTransport,
   stampCompatOutcome,
   toolWorkStarted,
@@ -30,12 +31,29 @@ import { incompleteStreamError, settleCompatStream } from './openai-compat-chat-
 
 export async function consumeCompatChatCompletionStream(
   stream,
-  { signal, label, onStreamDelta, onToolCall, onTextDelta, parseToolCalls, knownToolNames, semanticIdleTimeoutMs } = {}
+  {
+    signal,
+    label,
+    providerName,
+    onStreamDelta,
+    onToolCall,
+    onTextDelta,
+    parseToolCalls,
+    knownToolNames,
+    semanticIdleTimeoutMs,
+  } = {}
 ) {
   const idleOverrideEnabled = Number.isFinite(Number(semanticIdleTimeoutMs)) && Number(semanticIdleTimeoutMs) > 0;
   const idleEnabled = idleOverrideEnabled || PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
   const idleMs = idleOverrideEnabled ? Number(semanticIdleTimeoutMs) : PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
-  const state = createCompatStreamState({ knownToolNames, idleMs, onStreamDelta, onToolCall, onTextDelta });
+  const state = createCompatStreamState({
+    providerName,
+    knownToolNames,
+    idleMs,
+    onStreamDelta,
+    onToolCall,
+    onTextDelta,
+  });
   reportTransport(state);
   const iterator = stream[Symbol.asyncIterator]();
   let iteratorDone = false;
@@ -67,6 +85,7 @@ export async function consumeCompatChatCompletionStream(
     // cancellation keeps the caller's own reason untouched).
     if (state.emittedText) markErrorLiveTextEmitted(err);
     if (!signal?.aborted) attachPartial(state, err);
+    else noteReportedUsage(state);
     throw stampCompatOutcome(state, markUnsafeRetryIfToolEmitted(err, state.streamEmitState));
   } finally {
     firstByteTimeout.cleanup();

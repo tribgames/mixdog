@@ -86,7 +86,7 @@ test('a native load_tool call preserves its actual identity and remains a delta 
       entry: {
         lastResponseId: 'previous-response',
         lastRequestInput: before.input,
-        lastRequestSansInput: _stableStringify(_sansInput(before, { normalizeWarmupGenerate: true })),
+        lastRequestSansInput: _stableStringify(_sansInput(before)),
         lastResponseItems: [responseItem],
       },
     });
@@ -180,7 +180,7 @@ test('a Skill load pair keeps the next request a delta continuation', () => {
       entry: {
         lastResponseId: 'previous-response',
         lastRequestInput: before.input,
-        lastRequestSansInput: _stableStringify(_sansInput(before, { normalizeWarmupGenerate: true })),
+        lastRequestSansInput: _stableStringify(_sansInput(before)),
         lastResponseItems: [skillItem],
       },
     });

@@ -84,7 +84,7 @@ export const GOLDEN_CASES = [
     id: 'agent-response',
     input: {
       name: 'agent',
-      args: { type: 'send', agent: 'heavy-worker', status: 'completed' },
+      args: { type: 'result', agent: 'heavy-worker', status: 'completed' },
       result: 'Here is the review summary.\nmore',
       startedAt: 1000,
       completedAt: 4000,

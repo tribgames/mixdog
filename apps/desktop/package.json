@@ -96,6 +96,7 @@
     "lucide-react": "^0.468.0",
     "monaco-editor": "^0.55.1",
     "pretendard": "^1.3.9",
+    "puppeteer-core": "^25.2.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

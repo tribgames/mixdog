@@ -57,7 +57,6 @@ function latchExposure(ctx, err, midState) {
 }
 
 export function stampStreamFailure(ctx, err, { entry, midState }) {
-  ctx.deps.stampWarmup(err);
   // Preserve failure provenance for the direct provider. This marker is
   // observational for OAuth and does not change its classifier or retry
   // budget.

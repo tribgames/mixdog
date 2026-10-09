@@ -29,6 +29,7 @@ import {
 import { ProgressSpinner } from './ProgressSpinner';
 import { openEditorFileExternally } from './editor-external-file';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import type { EditorViewMode } from './editor-delimited';
 
 export function EditorBreadcrumbs({
   projectPath,
@@ -48,6 +49,7 @@ export function EditorBreadcrumbs({
   onOpenAt,
   onFocusEditor,
   onRevealSymbol,
+  viewToggle,
 }: {
   projectPath: string;
   relPath: string;
@@ -66,6 +68,12 @@ export function EditorBreadcrumbs({
   onOpenAt?(relPath: string, line: number): void;
   onFocusEditor(): void;
   onRevealSymbol(item: EditorOutlineItem): void;
+  /** Rendered/Source switch for SVG, Markdown and CSV/TSV files. */
+  viewToggle?: {
+    value: EditorViewMode;
+    renderedLabel: string;
+    onChange(value: EditorViewMode): void;
+  };
 }) {
   const api = window.mixdogDesktop;
   const [picker, setPicker] = useState<BreadcrumbPickerState | null>(null);
@@ -82,7 +90,7 @@ export function EditorBreadcrumbs({
   for (const item of containing) byLevel.set(item.level, item);
   const symbols = [...byLevel.values()];
   const symbol = symbols[symbols.length - 1];
-  const editable = Boolean(load && !preview && !load.binary && !load.tooLarge);
+  const editable = Boolean(load && !preview && !load.binary && !load.tooLarge && !load.readOnly);
 
   const closePicker = useCallback(
     (restoreFocus = false) => {
@@ -420,6 +428,20 @@ export function EditorBreadcrumbs({
           })}
         </span>
         <span className="editor-breadcrumb-actions">
+          {viewToggle && (
+            <span className="review-style-toggle editor-view-toggle" role="radiogroup" aria-label={t('View mode')}>
+              {(['rendered', 'source'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={viewToggle.value === mode}
+                  onClick={() => viewToggle.onChange(mode)}
+                >
+                  {mode === 'rendered' ? viewToggle.renderedLabel : t('Source')}
+                </button>
+              ))}
+            </span>
+          )}
           {!isRemoteBrowserRenderer() && (preview || load?.binary || load?.tooLarge) && (
             <button
               type="button"

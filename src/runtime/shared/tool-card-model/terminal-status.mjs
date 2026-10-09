@@ -2,7 +2,13 @@
  * terminal-status.mjs — terminal status words, their outcome tone, status
  * marker stripping and the ` · <time>` detail conventions.
  */
-import { leadingResultBlock, normalizeToolTerminalStatus, toolResultTerminalStatus } from '../tool-status.mjs';
+import {
+  leadingResultBlock,
+  normalizeToolTerminalStatus,
+  toolResultControlStatus,
+  toolResultEnvelopeStatus,
+  toolResultTerminalStatus,
+} from '../tool-status.mjs';
 import { formatElapsed } from '../time-format.mjs';
 
 export function shellResultStatus(value) {
@@ -66,6 +72,14 @@ export function resultTerminalStatus(value) {
   return toolResultTerminalStatus(value);
 }
 
+export function resultEnvelopeStatus(value) {
+  return toolResultEnvelopeStatus(value);
+}
+
+export function resultControlStatus(value) {
+  return toolResultControlStatus(value);
+}
+
 const LEADING_STATUS_MARKER_LINE_RE = /^\[status:\s*[^\]]*\]\s*$/i;
 
 export function stripLeadingStatusMarkerLines(lines) {
@@ -108,6 +122,8 @@ export function mergeTerminalDetail(status, detail = '') {
   if (label === 'Finished' && text) return text;
   if (!text) return label;
   if (text.toLowerCase().startsWith(label.toLowerCase())) return text;
+  // A queued job is not yet running; its own word replaces "Running".
+  if (label === 'Running' && /^queued\b/i.test(text)) return text;
   // A bare status word (the generic "Failed" of an error without a body) is
   // superseded by the resolved status, e.g. a user-takeover "Cancelled".
   if (BARE_STATUS_WORDS.has(text.toLowerCase())) return label;

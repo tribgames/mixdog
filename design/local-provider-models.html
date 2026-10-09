@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>시안 · 로컬 모델 목록 정리 (설치 섹션 통합)</title>
+<style>
+  /* Tokens copied from apps/desktop/src/renderer/desktop/01-tokens.css (dark). */
+  :root {
+    --mx-bg-base: #222225;
+    --mx-bg-layer-1: #2a2a2d;
+    --mx-text: #e9e9e9;
+    --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
+    --mx-text-muted: #a8a8a8;
+    --mx-text-faint: #8d8d8d;
+    --mx-text-accent: #8ab4f8;
+    --mx-border-muted: rgba(255, 255, 255, 0.09);
+    --mx-hover: rgba(255, 255, 255, 0.06);
+    --mx-popup-action-bg: color-mix(in srgb, var(--mx-text) 4%, transparent);
+    --mx-popup-action-ring: inset 0 0 0 0.5px var(--mx-border-muted);
+    --ok: #7fc38a; --warn: #e58a8a; --info: #8ab4f8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #161618; color: var(--mx-text);
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+    padding: 22px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(2, 640px); gap: 26px 30px; justify-content: center; }
+  .variant > header { margin: 0 4px 10px; }
+  .variant > header b { font-size: 15px; }
+  .variant > header p { margin: 3px 0 0; color: var(--mx-text-muted); }
+
+  .dialog {
+    border-radius: 14px; background: var(--mx-bg-layer-1); padding: 16px 20px 18px;
+    box-shadow: 0 16px 32px rgba(0,0,0,.45), 0 0 0 0.5px var(--mx-border-muted);
+  }
+  .title { display: flex; align-items: center; gap: 8px; }
+  .title h1 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; }
+  .switch { width: 30px; height: 18px; border-radius: 999px; background: #3b82f6; position: relative; }
+  .switch::after { content: ""; position: absolute; right: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+  .x { color: var(--mx-text-muted); font-size: 16px; padding: 0 4px; }
+  .lead { color: var(--mx-text-muted); margin: 8px 0 14px; }
+  h2 { font-size: 13px; font-weight: 600; margin: 14px 0 8px; display: flex; gap: 6px; align-items: baseline; }
+  h2 small { color: var(--mx-text-faint); font-size: 13px; font-weight: 400; }
+
+  .list { border-radius: 10px; background: var(--mx-popup-action-bg); box-shadow: var(--mx-popup-action-ring); overflow: hidden; }
+  .row { padding: 10px 12px; border-bottom: 0.5px solid var(--mx-border-muted); }
+  .row:last-child { border-bottom: 0; }
+  .line { display: flex; align-items: center; gap: 10px; min-height: 28px; }
+  .icon { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; background: var(--mx-hover); color: var(--mx-text-muted); flex: none; }
+  .name { flex: 1; min-width: 0; }
+  .name b { font-weight: 600; }
+  .meta { color: var(--mx-text-faint); font-size: 12px; margin-top: 1px; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; padding: 1px 7px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
+  .pill.info { color: var(--info); background: color-mix(in srgb, var(--info) 13%, transparent); }
+  .pill.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, transparent); }
+  .pill.idle { color: var(--mx-text-muted); background: var(--mx-hover); }
+  .btn {
+    font: inherit; font-size: 12.5px; color: var(--mx-text); background: var(--mx-hover); border: 0; border-radius: 7px;
+    padding: 4px 10px; white-space: nowrap; box-shadow: var(--mx-popup-action-ring);
+  }
+  .btn.danger { color: var(--warn); }
+  .btn.ghost { background: transparent; box-shadow: none; color: var(--mx-text-muted); }
+  .btn.icon { padding: 4px 7px; }
+  .select {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 7px;
+    box-shadow: var(--mx-popup-action-ring); background: var(--mx-bg-base); font-size: 12.5px; white-space: nowrap;
+  }
+  .select::after { content: "⌄"; color: var(--mx-text-muted); margin-top: -4px; }
+  .bar { height: 4px; border-radius: 999px; background: var(--mx-hover); overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; width: var(--p); background: var(--info); border-radius: inherit; }
+  .err { color: var(--warn); font-size: 12px; margin-top: 4px; }
+  .hint { color: var(--mx-text-faint); font-size: 12px; }
+  .setrow { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 0.5px solid var(--mx-border-muted); }
+  .setrow:last-child { border-bottom: 0; }
+  .setrow .name small { display: block; color: var(--mx-text-faint); font-size: 12px; }
+  .menu {
+    position: absolute; right: 8px; top: 34px; z-index: 2; min-width: 170px; padding: 4px; border-radius: 9px;
+    background: #323236; box-shadow: 0 10px 24px rgba(0,0,0,.45), 0 0 0 0.5px var(--mx-border-muted);
+  }
+  .menu div { padding: 6px 10px; border-radius: 6px; display: flex; justify-content: space-between; gap: 14px; }
+  .menu div:first-child { background: var(--mx-hover); }
+  .menu .danger { color: var(--warn); }
+  .menu hr { border: 0; border-top: 0.5px solid var(--mx-border-muted); margin: 4px 2px; }
+  .rel { position: relative; }
+  .detail { margin: 10px 0 2px 38px; padding: 10px 12px; border-radius: 8px; background: rgba(0,0,0,.18); display: grid; gap: 10px; }
+  .detail .kv { display: flex; align-items: center; gap: 10px; }
+  .detail .kv > span:first-child { width: 92px; color: var(--mx-text-muted); }
+  .chev { color: var(--mx-text-faint); width: 14px; text-align: center; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 500; color: var(--mx-text-faint); font-size: 12px; padding: 8px 10px; border-bottom: 0.5px solid var(--mx-border-muted); }
+  td { padding: 9px 10px; border-bottom: 0.5px solid var(--mx-border-muted); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { color: var(--mx-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mini { height: 3px; width: 70px; border-radius: 999px; background: var(--mx-hover); overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 6px; }
+  .mini i { display: block; height: 100%; width: var(--p); background: var(--info); }
+  .add { color: var(--mx-text-muted); font-size: 12.5px; padding: 9px 12px; display: flex; gap: 6px; align-items: center; }
+</style>
+</head>
+<body>
+<div class="grid">
+
+<!-- ───────────── A ───────────── -->
+<section class="variant">
+  <header><b>A. 한 줄 목록 + 더보기 메뉴</b>
+    <p>모델당 한 줄. 상태는 이름 옆 배지, 설정·삭제는 ⋯ 메뉴로. 가장 간결함.</p></header>
+  <div class="dialog">
+    <div class="title"><span class="icon">▣</span><h1>로컬 모델 사용</h1><span class="switch"></span><span class="x">✕</span></div>
+    <p class="lead">AI 모델을 다운로드하고 믹스독에서 직접 실행합니다.</p>
+    <h2>모델 <small>3</small></h2>
+    <div class="list">
+      <div class="row rel">
+        <div class="line"><span class="icon">▣</span>
+          <div class="name"><b>Qwen3.8 27B Q4_K_M</b><span class="pill ok">실행 중</span>
+            <div class="meta">19.0 GB · VRAM ~23.6 GB · 컨텍스트 32K</div></div>
+          <button class="btn icon">⋯</button></div>
+        <div class="menu"><div>컨텍스트 크기 <span class="hint">32K ›</span></div><div>모델 내리기</div><hr><div class="danger">삭제…</div></div>
+      </div>
+      <div class="row">
+        <div class="line"><span class="icon">▣</span>
+          <div class="name"><b>Gemma 4 12B Q4_K_M</b><span class="pill info">설치 중 42%</span>
+            <div class="meta">3.1 / 7.3 GB · 약 2분 남음</div></div>
+          <button class="btn ghost">중지</button></div>
+        <div class="bar" style="--p:42%; margin-left:38px"><i></i></div>
+      </div>
+      <div class="row">
+        <div class="line"><span class="icon">▣</span>
+          <div class="name"><b>Llama 4 8B Q5_K_M</b><span class="pill warn">설치 실패</span>
+            <div class="err">네트워크 연결이 끊겼습니다 · 받은 파일 1.2 GB 유지</div></div>
+          <button class="btn">재시도</button><button class="btn ghost">정리</button></div>
+      </div>
+      <div class="add">＋ 모델 추가는 채팅에서 요청하세요</div>
+    </div>
+    <h2>설정</h2>
+    <div class="list">
+      <div class="setrow"><div class="name">유휴 시 자동 언로드<small>요청이 남아 있으면 유지합니다.</small></div><span class="select">1시간 후</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── B ───────────── -->
+<section class="variant">
+  <header><b>B. 펼침형 목록</b>
+    <p>행을 누르면 그 모델의 컨텍스트·삭제가 펼쳐짐. 평소엔 깔끔, 설정은 한 곳에.</p></header>
+  <div class="dialog">
+    <div class="title"><span class="icon">▣</span><h1>로컬 모델 사용</h1><span class="switch"></span><span class="x">✕</span></div>
+    <p class="lead">AI 모델을 다운로드하고 믹스독에서 직접 실행합니다.</p>
+    <h2>모델 <small>3</small></h2>
+    <div class="list">
+      <div class="row">
+        <div class="line"><span class="chev">⌄</span>
+          <div class="name"><b>Qwen3.8 27B Q4_K_M</b><span class="pill ok">실행 중</span>
+            <div class="meta">19.0 GB · VRAM ~23.6 GB</div></div></div>
+        <div class="detail">
+          <div class="kv"><span>컨텍스트 크기</span><span class="select">32K (권장)</span><span class="hint">에이전트 작업은 32K 이상 권장</span></div>
+          <div class="kv"><span>파일</span><span class="hint">…\local-provider\models\qwen.gguf</span></div>
+          <div class="kv"><span></span><button class="btn">모델 내리기</button><button class="btn danger">삭제…</button></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="line"><span class="chev">›</span>
+          <div class="name"><b>Gemma 4 12B Q4_K_M</b><span class="pill info">설치 중 42%</span>
+            <div class="meta">3.1 / 7.3 GB · 약 2분 남음</div></div>
+          <button class="btn ghost">중지</button></div>
+        <div class="bar" style="--p:42%; margin-left:24px"><i></i></div>
+      </div>
+      <div class="row">
+        <div class="line"><span class="chev">›</span>
+          <div class="name"><b>Llama 4 8B Q5_K_M</b><span class="pill warn">설치 실패</span>
+            <div class="err">네트워크 연결이 끊겼습니다</div></div>
+          <button class="btn">재시도</button><button class="btn ghost">정리</button></div>
+      </div>
+    </div>
+    <h2>설정</h2>
+    <div class="list">
+      <div class="setrow"><div class="name">유휴 시 자동 언로드<small>요청이 남아 있으면 유지합니다.</small></div><span class="select">1시간 후</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── C ───────────── -->
+<section class="variant">
+  <header><b>C. 표 형식</b>
+    <p>상태·크기·컨텍스트를 열로 정렬. 모델이 많을 때 비교가 쉬움. 컨텍스트는 바로 바꾸는 드롭다운.</p></header>
+  <div class="dialog">
+    <div class="title"><span class="icon">▣</span><h1>로컬 모델 사용</h1><span class="switch"></span><span class="x">✕</span></div>
+    <p class="lead">AI 모델을 다운로드하고 믹스독에서 직접 실행합니다.</p>
+    <h2>모델 <small>3</small></h2>
+    <div class="list">
+      <table>
+        <tr><th>모델</th><th>상태</th><th>크기</th><th>컨텍스트</th><th></th></tr>
+        <tr><td><b>Qwen3.8 27B</b> <span class="hint">Q4_K_M</span></td><td><span class="pill ok" style="margin:0">실행 중</span></td>
+          <td class="num">19.0 GB</td><td><span class="select">32K</span></td><td style="text-align:right"><button class="btn ghost icon">🗑</button></td></tr>
+        <tr><td><b>Gemma 4 12B</b> <span class="hint">Q4_K_M</span></td><td><span class="pill info" style="margin:0">설치 중</span><span class="mini" style="--p:42%"><i></i></span></td>
+          <td class="num">3.1 / 7.3 GB</td><td class="num">32K</td><td style="text-align:right"><button class="btn ghost">중지</button></td></tr>
+        <tr><td><b>Llama 4 8B</b> <span class="hint">Q5_K_M</span></td><td><span class="pill warn" style="margin:0" title="네트워크 연결이 끊겼습니다">설치 실패</span></td>
+          <td class="num">1.2 / 5.7 GB</td><td class="num">32K</td><td style="text-align:right;white-space:nowrap"><button class="btn">재시도</button> <button class="btn ghost">정리</button></td></tr>
+      </table>
+    </div>
+    <p class="hint" style="margin:8px 2px 0">에이전트 작업에는 컨텍스트 32K 이상을 권장합니다.</p>
+    <h2>설정</h2>
+    <div class="list">
+      <div class="setrow"><div class="name">유휴 시 자동 언로드<small>요청이 남아 있으면 유지합니다.</small></div><span class="select">1시간 후</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── D ───────────── -->
+<section class="variant">
+  <header><b>D. 카드 + 컨텍스트 칩</b>
+    <p>지금 구조를 다듬은 안. 컨텍스트는 숫자 입력 대신 프리셋 드롭다운, 삭제는 아이콘. 진행률은 카드 하단 막대.</p></header>
+  <div class="dialog">
+    <div class="title"><span class="icon">▣</span><h1>로컬 모델 사용</h1><span class="switch"></span><span class="x">✕</span></div>
+    <p class="lead">AI 모델을 다운로드하고 믹스독에서 직접 실행합니다.</p>
+    <h2>모델 <small>3</small></h2>
+    <div class="list">
+      <div class="row">
+        <div class="line"><span class="icon">▣</span>
+          <div class="name"><b>Qwen3.8 27B Q4_K_M</b>
+            <div class="meta"><span class="pill ok" style="margin:0 6px 0 0">실행 중</span>19.0 GB · VRAM ~23.6 GB</div></div>
+          <span class="select">컨텍스트 32K</span><button class="btn ghost icon danger">🗑</button></div>
+      </div>
+      <div class="row">
+        <div class="line"><span class="icon">▣</span>
+          <div class="name"><b>Gemma 4 12B Q4_K_M</b>
+            <div class="meta"><span class="pill info" style="margin:0 6px 0 0">설치 중 42%</span>3.1 / 7.3 GB · 약 2분 남음</div></div>
+          <button class="btn ghost">중지</button></div>
+        <div class="bar" style="--p:42%"><i></i></div>
+      </div>
+      <div class="row">
+        <div class="line"><span class="icon">▣</span>
+          <div class="name"><b>Llama 4 8B Q5_K_M</b>
+            <div class="meta"><span class="pill warn" style="margin:0 6px 0 0">설치 실패</span><span style="color:var(--warn)">네트워크 연결이 끊겼습니다</span></div></div>
+          <button class="btn">재시도</button><button class="btn ghost">정리</button></div>
+      </div>
+    </div>
+    <h2>설정</h2>
+    <div class="list">
+      <div class="setrow"><div class="name">유휴 시 자동 언로드<small>요청이 남아 있으면 유지합니다.</small></div><span class="select">1시간 후</span></div>
+    </div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>

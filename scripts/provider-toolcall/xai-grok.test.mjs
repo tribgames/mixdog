@@ -4,9 +4,6 @@ import {
   _xaiResponsesFingerprintPayloadForTest,
   xaiResponsesCacheRouting,
   GrokOAuthProvider,
-  _computeDelta,
-  _sansInput,
-  _stableStringify,
   BUILTIN_TOOLS,
   normalizeGrokToolSchemas,
 } from './_shared.mjs';
@@ -64,30 +61,6 @@ test('Grok schema flatten promotes the first XOR object-branch required key', ()
   ]);
   assert.equal(normalized.inputSchema.anyOf, undefined);
   assert.deepEqual(normalized.inputSchema.required, ['pattern']);
-});
-
-test('xAI keeps generate:false in the property guard and falls back to a full frame', () => {
-  const prevTransport = process.env.MIXDOG_OAI_TRANSPORT;
-  try {
-    process.env.MIXDOG_OAI_TRANSPORT = 'ws-delta';
-    const warmupBody = { model: 'grok-4', generate: false, input: [] };
-    const body = { model: 'grok-4', input: [{ role: 'user', content: 'real request' }] };
-    const entry = {
-      lastRequestSansInput: _stableStringify(_sansInput(warmupBody)),
-      lastResponseId: 'xai-warm',
-      lastRequestInput: [],
-      lastResponseItems: [],
-    };
-    assert.equal(_sansInput(warmupBody).generate, false);
-    const delta = _computeDelta({ entry, body, traceProvider: 'xai' });
-    assert.equal(delta.mode, 'full');
-    assert.equal(delta.reason, 'request_properties_changed');
-    assert.equal(delta.frame.previous_response_id, undefined);
-    assert.deepEqual(delta.frame.input, body.input);
-  } finally {
-    if (prevTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
-    else process.env.MIXDOG_OAI_TRANSPORT = prevTransport;
-  }
 });
 
 test('xai Responses cache defaults to one stable key per session and preserves explicit none and prefix scopes', () => {

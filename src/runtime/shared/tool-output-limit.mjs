@@ -19,6 +19,9 @@ export const CODE_GRAPH_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_CODE_GRAPH_OUT
 // browses were observed injecting 42KB in one call (2026-08-05 audit). Same
 // class as locators: 20KB with a factual continuation footer.
 export const RECALL_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_RECALL_OUTPUT_MAX_BYTES', 20 * 1024);
+// github results after field reduction; the full response stays in a raw
+// artifact. Provisional: reduced pr.list/run.list pages measured ~2k tokens.
+export const GITHUB_OUTPUT_MAX_BYTES = positiveEnvInt('MIXDOG_GITHUB_OUTPUT_MAX_BYTES', 10 * 1024);
 
 function _prefixByBytes(value, maxBytes) {
   const text = String(value || '');

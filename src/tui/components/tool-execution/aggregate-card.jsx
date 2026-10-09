@@ -6,7 +6,7 @@ import stringWidth from 'string-width';
 import { theme, TURN_MARKER } from '../../theme.mjs';
 import { BULLET_OPERATOR } from '../../figures.mjs';
 import { formatAggregateHeader } from '../../../runtime/shared/tool-surface.mjs';
-import { safeInlineText, truncateToWidth, resultTerminalStatus } from './text-format.mjs';
+import { safeInlineText, truncateToWidth, resultTerminalStatus, displayTerminalStatus } from './text-format.mjs';
 import { toolStatusColor } from './surface-detail.mjs';
 import { ResultBody } from './ResultBody.jsx';
 import { aggregateRawResultForDisplay } from '../../session/tool-result-status.mjs';
@@ -45,6 +45,7 @@ export function renderAggregateToolCard(card) {
     formatAggregateHeader((headerPending ? displayCategories : displayDoneCategories) || {}, {
       pending: headerPending,
       order: headerOrder,
+      failed: failedCount > 0 && failedCount >= groupCount,
     })
   );
   // The aggregate card reserves EXACTLY ONE detail row when it is not
@@ -113,7 +114,8 @@ export function renderAggregateToolCard(card) {
   // The placeholder tracks `pending` (real completion), NOT headerPending:
   // the header verb stays active until the block seals, but the detail row
   // must not keep saying "Running" after every call already resolved.
-  const pendingPlaceholder = pending ? 'Running' : 'Finished';
+  // The placeholder states the real outcome: a failed batch never says Finished.
+  const pendingPlaceholder = pending ? 'Running' : displayTerminalStatus(aggregateTerminalStatus) || 'Finished';
   const detailLines = showRawAggregate ? [] : [detailText || pendingPlaceholder];
   const aggregateDetailColor = isPlaceholderDetail ? theme.subtle : theme.text;
   return (

@@ -12,7 +12,11 @@ import {
   saturatedHueFamilies,
 } from '../design/design-discipline.mjs';
 import { authoredBackgroundLadder, isCardGridSlide, isOrnamentalStripe, slideSize } from './design-review-authored.mjs';
-import { reviewBriefPromises, reviewFactCoverage, reviewSourceGrounding } from '../authoring/pptx-brief.mjs';
+import {
+  reviewBriefPromises,
+  reviewFactCoverage,
+  reviewSourceGrounding,
+} from '../authoring/pptx-brief.mjs';
 import { isAdvisoryOfficeIssue } from './quality-pipeline.mjs';
 import { issue } from './assurance-issue.mjs';
 import { isPptxSpecimenSlide, isPptxStatementSlide } from './pptx-slide-roles.mjs';
@@ -103,7 +107,9 @@ function reviewPptxTheme(document, design, issues) {
     contentColorCounts.set(color, (contentColorCounts.get(color) || 0) + 1);
   }
   const dominantContentCount = Math.max(0, ...contentColorCounts.values());
-  if (contentColors.length && dominantContentCount / contentColors.length < 0.75) {
+  // A brief that declares a concept or a palette owns its fields: body slides in colour are its design.
+  const declaredFields = Boolean(design.brief?.concept || design.brief?.palette);
+  if (!declaredFields && contentColors.length && dominantContentCount / contentColors.length < 0.75) {
     issues.push(
       designIssue(
         'theme_body_backgrounds',
@@ -153,6 +159,8 @@ function reviewPptxDiscipline(slides, design, issues) {
         families.add(family);
         if (!isSafeFontFamily(family)) unsafe.set(family, (unsafe.get(family) || 0) + 1);
       }
+      // Chart series colours encode data categories; they do not count toward the accent hue families.
+      if (shape.chart) continue;
       for (const color of shapeColors(shape)) deckColors.add(String(color).toUpperCase());
     }
     if (families.size > MAX_FONT_FAMILIES_PER_SLIDE) {
@@ -171,7 +179,7 @@ function reviewPptxDiscipline(slides, design, issues) {
       designIssue(
         'unsafe_font_family',
         '/',
-        `Deck uses fonts that substitute unpredictably or are missing on older Office installs: ${[...unsafe.keys()].join(', ')}. Use ${design.tokens.typography.display}, ${design.tokens.typography.body}, or ${design.tokens.typography.data}.`
+        `Deck uses fonts outside the safe list: ${[...unsafe.keys()].join(', ')}. The face is fine if it is installed, but recipients without it see a substitute in Word, PowerPoint, or Excel; embed or ship the font, or accept the substitution.`
       )
     );
   }
@@ -419,9 +427,9 @@ export function reviewOfficeDesign({ format, document, design: request = {}, lib
     requiresVisualInspection: !['csv', 'tsv'].includes(normalizedFormat),
     modelReview: [
       'Inspect every rendered page, not only lint counts.',
-      'Verify the reading path states the conclusion, evidence, and requested decision before supporting detail.',
+      'Verify the reading order suits this document and preserves the source claims and qualifications.',
       'Trace material numbers from source through calculation to the displayed claim; reject decorative or unsupported data.',
-      'Reject generic palette, decorative stripes, repeated cards, weak hierarchy, and interchangeable layouts.',
+      'Judge hierarchy, spacing, palette, and repetition by the reader and purpose, not a prescribed visual style.',
       'Confirm the design is specific to the subject, audience, and intended action.',
       'Refine the current composition before adding decoration.',
     ],

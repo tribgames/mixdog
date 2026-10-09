@@ -1,6 +1,7 @@
 import { slideReceipt } from '../authoring/pptx-receipt.mjs';
 import { isPictureShape, signedVisualType } from '../design/design-discipline.mjs';
 import { issue as sharedIssue } from './assurance-issue.mjs';
+import { isShowcaseBrief } from '../authoring/pptx-brief.mjs';
 
 const issue = (code, message) => sharedIssue(code, '/', message, 'design-review');
 
@@ -234,10 +235,19 @@ function artDirectionIssue(design) {
   const directionCandidates = composed.length ? composed : briefDirections?.candidates || [];
   const selected = design?.artDirection?.selected?.id || (composed.length ? '' : briefDirections?.selected || '');
   const required = composed.length || !briefDirections ? 3 : 2;
-  if (directionCandidates.length >= required && selected) return null;
+  // Candidates that say the same thing are one candidate: only textual differences count.
+  const distinct = new Set(
+    directionCandidates.map((candidate) =>
+      String(candidate?.text ?? JSON.stringify({ ...candidate, id: undefined }))
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim()
+    )
+  ).size;
+  if (distinct >= required && selected) return null;
   return issue(
     'art_direction_candidates_missing',
-    'The deck has no selected art direction backed by three distinct candidates.'
+    `The deck has no selected art direction backed by ${required} distinct candidates.`
   );
 }
 
@@ -260,7 +270,9 @@ export function reviewPptxDeckDiversity({ document, design } = {}) {
     compositionRepeatIssue(content, grammar, visualTypes),
     decorationRepeatIssue(slides),
     visualVarietyIssue(content, visualTypes),
-    ...deckShapeIssues(slides),
+    // Beats, runs of beats, and sparse body pages are the grammar of a read deck; a presentation, keynote, or
+    // showcase deck is composed of such pages on purpose.
+    ...(isShowcaseBrief(design?.brief) ? [] : deckShapeIssues(slides)),
     artDirectionIssue(design),
   ].filter(Boolean);
 }

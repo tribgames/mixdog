@@ -8,7 +8,6 @@ import { createHash } from 'node:crypto';
 import { traceAgentSse } from '../agent-trace.mjs';
 import { envPositiveInt } from '../../../shared/env.mjs';
 import { releaseWebSocket } from './openai-ws-pool.mjs';
-import { _combineUsageWithWarmup } from './openai-ws-stream.mjs';
 import { traceCacheMiss, traceSendUsage, traceTransport } from './openai-ws-send-trace.mjs';
 import {
   _anchorResponseChain,
@@ -78,7 +77,7 @@ function _requestInputExtends(previousInput, currentInput) {
   return previousInput.every((item, index) => _stableStringify(item) === _stableStringify(currentInput[index]));
 }
 
-export function _cacheContinuityResetReason({ mode, deltaReason, entry, body, traceProvider }) {
+export function _cacheContinuityResetReason({ mode, deltaReason, entry, body }) {
   if (mode === 'delta') return null;
   if (deltaReason && !['no_anchor', 'full_forced', 'full_default'].includes(deltaReason)) {
     return deltaReason;
@@ -87,11 +86,7 @@ export function _cacheContinuityResetReason({ mode, deltaReason, entry, body, tr
   // full_default. Re-run the two cheap snapshot checks so compaction or any
   // other prompt rewrite still retires the old prompt's cache high-water.
   if (deltaReason !== 'full_default' || !entry?.lastResponseId) return null;
-  const currentSansInput = _stableStringify(
-    _sansInput(body, {
-      normalizeWarmupGenerate: traceProvider === 'openai-oauth',
-    })
-  );
+  const currentSansInput = _stableStringify(_sansInput(body));
   if (entry.lastRequestSansInput && currentSansInput !== entry.lastRequestSansInput) {
     return 'request_properties_changed';
   }
@@ -102,31 +97,6 @@ export function _cacheContinuityResetReason({ mode, deltaReason, entry, body, tr
     return 'input_prefix_mismatch';
   }
   return null;
-}
-
-// Warmup→first-real continuity trace (Codex prewarm_websocket parity
-// observability). Pure/deterministic so it unit-tests without a live socket.
-// The R23 finding forbids the post-warmup request rewrite, so parity is
-// asserted via metrics instead of behavior: does the warmup's response_id
-// become the anchor the FIRST real request chains from, and what is the
-// hit/miss outcome of the first up-to-3 real requests on the socket.
-export function _warmupContinuityTrace({
-  warmupUsed,
-  warmupResponseId,
-  priorEntryResponseId,
-  sentPrevResponseId,
-  earlyCacheMisses,
-} = {}) {
-  const misses = Array.isArray(earlyCacheMisses) ? earlyCacheMisses.slice(0, 3) : [];
-  // The first real request is a full frame (no prev_id, per R23), so its
-  // anchor is what the entry held at build time — which the warmup wrote.
-  const firstRealPrevId = sentPrevResponseId || priorEntryResponseId || null;
-  return {
-    warmup_first_real_prev_id: firstRealPrevId,
-    warmup_chain_continuous: !!warmupUsed && !!warmupResponseId && firstRealPrevId === warmupResponseId,
-    early_cache_misses: misses,
-    early_cache_miss_count: misses.filter(Boolean).length,
-  };
 }
 
 /**
@@ -188,14 +158,13 @@ export function probeFramePrefix(entry, frame, requestBody) {
  * tool results, and _computeDelta strips the first two parts so the WebSocket
  * frame only sends the true new tail.
  */
-function recordResponseChain({ entry, result, requestBody, useCodexWsClientMetadata }) {
+function recordResponseChain({ entry, result, requestBody }) {
   const keepResponseChain = !!result.responseId;
   if (keepResponseChain) {
     _anchorResponseChain(entry, {
       responseId: result.responseId,
       requestBody,
       responseItems: result.responseItems,
-      normalizeWarmupGenerate: useCodexWsClientMetadata,
     });
   } else {
     entry.lastResponseId = null;
@@ -208,10 +177,7 @@ function recordResponseChain({ entry, result, requestBody, useCodexWsClientMetad
   return keepResponseChain;
 }
 
-/**
- * Prompt-cache high-water bookkeeping for the pooled entry, plus the
- * early-session miss ledger the warmup continuity trace reads.
- */
+/** Prompt-cache high-water bookkeeping for the pooled entry. */
 function updateEntryCacheLedger(entry, cacheObservation) {
   // Rebase after a genuine provider retreat so one eviction produces one
   // diagnostic instead of a long run of duplicate "dropped" rows. The
@@ -221,21 +187,14 @@ function updateEntryCacheLedger(entry, cacheObservation) {
     cacheObservation.actualMiss || cacheObservation.continuityResetReason
       ? cacheObservation.cachedTokens
       : Math.max(_num(entry.promptCacheMaxCachedTokens, 0), cacheObservation.cachedTokens);
-  // Early-session cache-miss ledger (first up-to-3 real requests on this
-  // socket) for the warmup→first-real continuity trace. Warmup itself is
-  // excluded — this only runs on the real send.
-  if (!Array.isArray(entry.earlyCacheMisses)) entry.earlyCacheMisses = [];
-  if (entry.earlyCacheMisses.length < 3) {
-    entry.earlyCacheMisses.push(cacheObservation.actualMiss ? cacheObservation.missReason || 'miss' : false);
-  }
 }
 
 /**
  * The object the provider caller receives: the streamed result minus the
- * transport-internal fields, with the optional response id and the two
- * non-enumerable breadcrumbs (warmup record, midstream retry count).
+ * transport-internal fields, with the optional response id and the
+ * non-enumerable midstream retry count breadcrumb.
  */
-function buildSendResult({ send, attempt, result, completedWarmup }) {
+function buildSendResult({ send, attempt, result }) {
   const {
     responseId: _ignored,
     responseItems: _responseItemsIgnored,
@@ -243,14 +202,6 @@ function buildSendResult({ send, attempt, result, completedWarmup }) {
     ...out
   } = result;
   if (send.includeResponseId && result.responseId) out.responseId = result.responseId;
-  if (completedWarmup) {
-    try {
-      Object.defineProperty(out, '__warmup', {
-        value: completedWarmup,
-        enumerable: false,
-      });
-    } catch {}
-  }
   // Leave a breadcrumb on the result so downstream callers can observe that
   // a retry was used (0 = first-try success, up to 2 for ws_1006/1011).
   try {
@@ -273,14 +224,12 @@ function buildSendResult({ send, attempt, result, completedWarmup }) {
  *   deltaTokens, strippedResponseItems, skippedResponseItems,
  *   responseOutputMismatch, requestInputMismatch, wireFrameHadTurnState,
  *   wireFrameMetadataTrace, framePrefix, reused, handshakeRetries,
- *   handshakeRetryClassifiers, attemptIndex, sseStart, warmupResult,
- *   startupWarmupResponseId
+ *   handshakeRetryClassifiers, attemptIndex, sseStart
  * @param {object} input.entry
  * @param {object} input.result
  * @param {object} input.requestBody
- * @param {object|null} input.completedWarmup
  */
-export function completeWsSend({ send, attempt, entry, result, requestBody, completedWarmup }) {
+export function completeWsSend({ send, attempt, entry, result, requestBody }) {
   const { frame } = attempt;
   const liveModel = result.model || send.useModel;
   traceAgentSse({
@@ -305,7 +254,6 @@ export function completeWsSend({ send, attempt, entry, result, requestBody, comp
     deltaReason: attempt.deltaReason,
     entry,
     body: requestBody,
-    traceProvider: send.traceProvider,
   });
   if (cacheContinuityResetReason === 'input_prefix_mismatch' && !attempt.requestInputMismatch) {
     attempt.requestInputMismatch = _requestInputMismatchDiagnostics(requestBody?.input, entry?.lastRequestInput);
@@ -314,24 +262,12 @@ export function completeWsSend({ send, attempt, entry, result, requestBody, comp
     entry,
     result,
     requestBody,
-    useCodexWsClientMetadata: send.useCodexWsClientMetadata,
   });
-  // Cache observation must see the MAIN request's usage only. Folding warmup
-  // usage in first made prompt_tokens spike on it=1 and then "shrink" on
-  // it=2, faking prefix-rewrite/cache-drop signals in every warmup session.
   const cacheObservation = _cacheObservation({
     entry,
     result,
     continuityResetReason: cacheContinuityResetReason,
   });
-  if (completedWarmup?.usage) {
-    result.usage = _combineUsageWithWarmup(result.usage, completedWarmup.usage, {
-      // xAI/Grok prewarm is billable just like Codex prewarm, but it is not
-      // part of the real request's context footprint. Direct OpenAI
-      // intentionally retains its existing usage shape.
-      separateMainContext: send.useCodexWsClientMetadata || send.traceProvider === 'xai',
-    });
-  }
   const requestedServiceTier = send.body?.service_tier || null;
   const responseServiceTier = result.serviceTier || result.usage?.raw?.service_tier || null;
   const nonEmptyString = (value) => (typeof value === 'string' && value.length > 0 ? value : null);
@@ -347,14 +283,6 @@ export function completeWsSend({ send, attempt, entry, result, requestBody, comp
     : null;
   traceCacheMiss({ send, attempt, result, requestBody, frame, cacheObservation, liveModel, transportCacheKeyHash });
   updateEntryCacheLedger(entry, cacheObservation);
-  const effectiveWarmupResponseId = attempt.warmupResult?.responseId || attempt.startupWarmupResponseId || null;
-  const warmupContinuity = _warmupContinuityTrace({
-    warmupUsed: !!effectiveWarmupResponseId,
-    warmupResponseId: effectiveWarmupResponseId,
-    priorEntryResponseId,
-    sentPrevResponseId,
-    earlyCacheMisses: entry.earlyCacheMisses,
-  });
   traceTransport({
     send,
     attempt,
@@ -369,14 +297,7 @@ export function completeWsSend({ send, attempt, entry, result, requestBody, comp
     keepResponseChain,
     requestedServiceTier,
     responseServiceTier,
-    warmupContinuity,
-    effectiveWarmupResponseId,
   });
-  if (attempt.startupWarmupResponseId) {
-    try {
-      delete entry.startupWarmupResponseId;
-    } catch {}
-  }
   releaseWebSocket({ entry, poolKey: send.poolKey, keep: keepSocket });
-  return buildSendResult({ send, attempt, result, completedWarmup });
+  return buildSendResult({ send, attempt, result });
 }

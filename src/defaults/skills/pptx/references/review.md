@@ -1,8 +1,8 @@
 # Direction trials and independent review
 
-Use this procedure for a new visual direction, substantive redesign, or an
-explicit quality comparison. A small factual edit inside an approved deck
-keeps its existing direction; it does not need a design contest.
+Use this optional procedure when a direction trial resolves a real uncertainty
+or the user asks for a quality comparison. New documents do not require a
+design contest. A factual edit inside an approved deck keeps its direction.
 
 ## Before composition
 
@@ -16,8 +16,9 @@ condition or a misleading relationship.
 
 Pick one or two representative pages that expose the difficult work: a dense
 comparison, an explanatory diagram, or the primary evidence. Draft two materially
-different compositions of the same content at the same reading size. Change the
-reading path or carrier, not merely the palette. Render both; do not build two
+different compositions of the same content at the same reading size. Candidates
+differ in the design decision being tested — reading path, evidence treatment,
+type, or structure — rather than requiring different catalogue concepts. Render both; do not build two
 whole decks. Preserve the trials separately from the deliverable.
 
 Give the trials neutral identifiers and compare:

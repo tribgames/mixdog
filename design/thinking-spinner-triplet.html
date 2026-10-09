@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mixdog · 트리플렛 색과 리듬 정리</title>
+<style>
+  .theme-dark {
+    color-scheme:dark;
+    --page:#111113; --band:#222225; --card:#2a2a2d;
+    --text:#e9e9e9; --muted:#a8a8a8; --accent:#79b8ff;
+    --border:rgba(255,255,255,.125); --line:rgba(255,255,255,.09); --hover:rgba(255,255,255,.08);
+    --c-accent:#79b8ff; --c-blue:#8cc2ff; --c-single:#2f6fe4;
+  }
+  .theme-light {
+    color-scheme:light;
+    --page:#f8f8fb; --band:#ffffff; --card:#f3f3f3;
+    --text:#222222; --muted:#606060; --accent:#185abc;
+    --border:rgba(23,24,26,.14); --line:rgba(23,24,26,.1); --hover:rgba(0,0,0,.06);
+    --c-accent:#185abc; --c-blue:#1a5fd0; --c-single:#2f6fe4;
+  }
+  .t { --head:var(--c-accent); }
+  body[data-color="blue"] .t { --head:var(--c-blue); }
+  body[data-color="single"] .t { --head:var(--c-single); }
+  .swatch-row[data-c="accent"] .t { --head:var(--c-accent); }
+  .swatch-row[data-c="blue"] .t { --head:var(--c-blue); }
+  .swatch-row[data-c="single"] .t { --head:var(--c-single); }
+  :root { --k:1; --sw:2.1; --sans:"Pretendard Variable",Pretendard,"Malgun Gothic","Segoe UI",sans-serif; }
+  body.paused *, body.paused *::after { animation-play-state:paused !important; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--page); color:var(--text); font:14px/20px var(--sans); }
+  h1,h2,p { margin:0; }
+  button { font:inherit; color:var(--muted); cursor:pointer; border:0; border-radius:6px; background:transparent; padding:4px 11px; }
+  button:hover { background:var(--hover); }
+  button[aria-pressed="true"] { background:var(--card); color:var(--text); box-shadow:0 1px 4px #0002; }
+  svg { display:block; overflow:visible; }
+  .page { max-width:1200px; margin:auto; padding:30px 32px 60px; }
+  h1 { font-size:20px; font-weight:600; letter-spacing:-.3px; }
+  .intro { color:var(--muted); margin-top:4px; font-size:13px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:12px 18px; align-items:center; margin:20px 0 22px; }
+  .control { display:flex; align-items:center; gap:9px; }
+  .control-label { color:var(--muted); font-size:13px; white-space:nowrap; }
+  .segments { display:flex; flex-wrap:wrap; gap:3px; padding:3px; border-radius:8px; background:var(--band); border:1px solid var(--line); }
+  .section-title { font-size:13px; font-weight:550; color:var(--muted); margin:0 0 10px; }
+  section { margin-bottom:30px; }
+  .tile { border-radius:10px; border:1px solid var(--line); background:var(--page); color:var(--text); }
+
+  /* Colour study */
+  .colors { display:grid; gap:10px; }
+  .swatch-row { border:1px solid var(--border); border-radius:12px; background:var(--band); padding:12px 14px; display:grid; grid-template-columns:minmax(0,180px) 1fr 1fr; gap:10px; align-items:center; }
+  .swatch-row.pick { border-color:var(--accent); }
+  .swatch-row h2 { font-size:13px; font-weight:600; }
+  .swatch-row p { font-size:12px; color:var(--muted); line-height:17px; margin-top:2px; }
+  .swatch-row .tile { padding:8px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .ratio { font-size:11px; color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .ratio b { color:var(--text); font-weight:600; }
+  .ratio.low b { color:#e5534b; }
+
+  /* Before / after */
+  .ba { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr)); gap:16px; }
+  .card { border:1px solid var(--border); border-radius:12px; background:var(--band); overflow:hidden; }
+  .card.pick { border-color:var(--accent); }
+  .card-head { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; }
+  .card-head h2 { font-size:14px; font-weight:600; }
+  .tag { margin-left:auto; font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:0 8px; white-space:nowrap; }
+  .card.pick .tag { color:var(--accent); border-color:var(--accent); }
+  .mini { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:0 16px; }
+  .mini .tile { padding:16px 0 10px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .mini .tile > svg { width:72px; height:72px; }
+  .sizes { display:flex; align-items:end; gap:10px; }
+  .sizes figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .sizes figcaption { font-size:10px; color:var(--muted); }
+  .bands { display:grid; gap:8px; padding:10px 16px 0; }
+  .bands .tile { padding:6px 12px; }
+  .desc { padding:12px 16px 16px; font-size:13px; color:var(--muted); }
+  .desc b { color:var(--text); font-weight:550; }
+
+  /* Beat strip */
+  .beats { display:grid; grid-template-columns:repeat(auto-fill,minmax(76px,1fr)); gap:8px; padding:12px; }
+  .beat { display:flex; flex-direction:column; align-items:center; gap:6px; padding:10px 0 8px; border:1px solid var(--line); border-radius:10px; }
+  .beat svg { width:40px; height:40px; }
+  .beat span { font-size:11px; color:var(--muted); text-align:center; line-height:14px; }
+  .beat.hit { border-color:var(--accent); }
+
+  /* Live band, mirroring 14-live-activity.css + the 22-markdown.css comet. */
+  .live { width:max-content; max-width:100%; min-height:24px; display:flex; align-items:center; gap:7px; color:var(--muted); }
+  .live-icon { width:16px; height:20px; flex:0 0 16px; display:grid; place-items:center; line-height:0; }
+  .verb { position:relative; font-weight:500; --cells:8; }
+  .verb::after {
+    content:attr(data-text); position:absolute; inset:0; pointer-events:none; color:transparent;
+    background:linear-gradient(90deg,transparent 0%,color-mix(in oklch,var(--accent) 35%,transparent) 25%,color-mix(in oklch,var(--accent) 22%,white) 50%,color-mix(in oklch,var(--accent) 35%,transparent) 75%,transparent 100%) 0 0 / 4ch 100% no-repeat;
+    background-clip:text; -webkit-background-clip:text;
+    animation:comet calc((var(--cells) + 7) * 100ms * var(--k)) linear infinite;
+  }
+  @keyframes comet { from { background-position:-4ch 0; } to { background-position:calc(100% + 7ch) 0; } }
+  .meta { font-weight:400; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .meta::before { content:"\00B7"; margin-right:7px; }
+
+  @media (max-width:760px) {
+    body .page { padding:20px 14px 40px; }
+    body .swatch-row { grid-template-columns:minmax(0,1fr); }
+  }
+
+  .o { transform-box:view-box; transform-origin:12px 12px; }
+  .arc { fill:none; stroke:var(--head); stroke-width:var(--sw); stroke-linecap:round; stroke-dasharray:0 360; }
+  .star { fill:var(--head); }
+</style>
+<style id="generated"></style>
+</head>
+<body class="t theme-dark" data-color="accent">
+<div class="page">
+  <h1>트리플렛 · 색과 리듬 정리</h1>
+  <p class="intro">두 테마 모두에서 또렷하려면 색을 하나로 고정하지 말고 테마마다 짝을 맞춰야 합니다. 리듬은 "탁·탁·탁 → 로고 → 쭉" 한 마디로 다시 짰습니다.</p>
+
+  <div class="toolbar">
+    <div class="control"><span class="control-label">색</span>
+      <div class="segments" data-group="color"><button data-v="accent" aria-pressed="true">앱 포인트 색 (추천)</button><button data-v="blue">이전 블루</button><button data-v="single">단일 블루</button></div></div>
+    <div class="control"><span class="control-label">재생</span>
+      <div class="segments" data-group="speed"><button data-v="4">슬로모션 ¼</button><button data-v="1" aria-pressed="true">실제 속도</button></div></div>
+    <div class="control"><div class="segments" data-group="pause"><button data-v="pause">일시정지</button></div></div>
+  </div>
+
+  <section>
+    <p class="section-title">색 비교 · 숫자는 배경 대비 명암비 (그래픽은 3:1 이상 권장)</p>
+    <div class="colors" id="colors"></div>
+  </section>
+
+  <section>
+    <p class="section-title">리듬 · 이전 ↔ 정리</p>
+    <div class="ba" id="ba"></div>
+  </section>
+
+  <section>
+    <p class="section-title">정리한 리듬의 한 마디</p>
+    <div class="tile t theme-dark"><div class="beats" id="beats"></div></div>
+  </section>
+</div>
+
+<script>
+  const STAR = 'M12 8.7Q12.55 11.45 15.3 12 12.55 12.55 12 15.3 11.45 12.55 8.7 12 11.45 11.45 12 8.7Z';
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const ease = (x, p) => (x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? 0.5 * Math.pow(2 * x, p) : 1 - 0.5 * Math.pow(2 - 2 * x, p));
+  const bump = (d, w) => Math.exp(-((d / w) ** 2));
+
+  // ----- Before: the final-page triplet (one curve, delayed per arc). -----
+  function oldCss() {
+    const p = { dur: 1900, headEnd: 0.52, tailStart: 0.2, pow: 2.8, drift: 0.24, stagger: 70, pop: 0.2 };
+    const head = (t) => (1 - p.drift) * ease(t / p.headEnd, p.pow) + p.drift * t;
+    const tail = (t) => (1 - p.drift) * ease((t - p.tailStart) / (1 - p.tailStart), p.pow) + p.drift * t;
+    let peakT = 0;
+    let peakL = -1;
+    for (let i = 0; i <= 2000; i++) {
+      const t = i / 2000;
+      const L = 120 * (head(t) - tail(t));
+      if (L > peakL) { peakL = L; peakT = t; }
+    }
+    const offset = 60 - 60 * (head(peakT) + tail(peakT));
+    const starOffset = -90 * head(peakT);
+    let arc = '';
+    let star = '';
+    for (let i = 0; i <= 96; i++) {
+      const t = i / 96;
+      const L = 120 * (head(t) - tail(t));
+      arc += `${r2(t * 100)}%{stroke-dasharray:${r2(L)} ${r2(360 - L)};stroke-dashoffset:${r2(-(120 * tail(t) + offset))}}`;
+      const d = ((t - peakT + 1.5) % 1) - 0.5;
+      star += `${r2(t * 100)}%{transform:rotate(${r2(90 * head(t) + starOffset)}deg) scale(${r2(0.84 + 0.1 * (L / peakL) + p.pop * bump(d, 0.055) - p.pop * 0.4 * bump(d - 0.1, 0.055))})}`;
+    }
+    const dur = `calc(var(--k) * ${p.dur}ms)`;
+    return `@keyframes arc-old{${arc}}@keyframes star-old{${star}}` +
+      [0, 1, 2].map((i) => `.m-old .arc:nth-child(${i + 1}){animation:arc-old ${dur} linear infinite;animation-delay:calc(var(--k) * ${-(2 - i) * p.stagger}ms)}`).join('') +
+      `.m-old .star{animation:star-old ${dur} linear infinite}`;
+  }
+
+  // ----- After: one bar of "tap · tap · tap → logo → release". -----
+  // Each arc's head lands on its own beat (clockwise), the tails all release
+  // together, and drift keeps everything moving. Once the third head lands,
+  // the three arcs are identical: drift (1/3) makes every arc exactly the
+  // logo's 80°, so the logo forms cleanly instead of being smeared by the
+  // stagger. Heads lead tails at all times and each cycle ends 120° on.
+  const N = { dur: 1900, gap: 0.07, headLen: 0.3, tailStart: 0.52, powH: 2.4, powT: 2.8, drift: 1 / 3 };
+  const headN = (i, t) => (1 - N.drift) * ease((t - i * N.gap) / N.headLen, N.powH) + N.drift * t;
+  const tailN = (t) => (1 - N.drift) * ease((t - N.tailStart) / (1 - N.tailStart), N.powT) + N.drift * t;
+  const landed = 2 * N.gap + N.headLen;          // third head lands
+  const lockT = (landed + N.tailStart) / 2;      // middle of the logo hold
+  const offsetN = 60 - 60 * (headN(2, lockT) + tailN(lockT));
+  const hits = [0, 1, 2].map((i) => i * N.gap + N.headLen * 0.72);
+  function newCss() {
+    const arcs = [0, 1, 2].map(() => '');
+    let star = '';
+    for (let s = 0; s <= 120; s++) {
+      const t = s / 120;
+      const pct = r2(t * 100);
+      for (let i = 0; i < 3; i++) {
+        const L = 120 * (headN(i, t) - tailN(t));
+        arcs[i] += `${pct}%{stroke-dasharray:${r2(L)} ${r2(360 - L)};stroke-dashoffset:${r2(-(120 * tailN(t) + offsetN))}}`;
+      }
+      // The star takes a 30° step on each tap (3 × 30° = a seamless 90°),
+      // ticks small on the first two and lands one clear beat on the third.
+      const rot = [0, 1, 2].reduce((sum, i) => sum + 30 * ease((t - i * N.gap) / N.headLen, N.powH), 0);
+      const scale = 0.9 + 0.05 * bump(t - hits[0], 0.03) + 0.05 * bump(t - hits[1], 0.03) + 0.16 * bump(t - hits[2], 0.04) - 0.04 * ease((t - N.tailStart) / 0.3, 2);
+      star += `${pct}%{transform:rotate(${r2(rot)}deg) scale(${r2(scale)})}`;
+    }
+    const dur = `calc(var(--k) * ${N.dur}ms)`;
+    return arcs.map((a, i) => `@keyframes arc-new-${i}{${a}}.m-new .arc:nth-child(${i + 1}){animation:arc-new-${i} ${dur} linear infinite}`).join('') +
+      `@keyframes star-new{${star}}.m-new .star{animation:star-new ${dur} linear infinite}`;
+  }
+  document.getElementById('generated').textContent = oldCss() + newCss();
+
+  const glyph = (cls, size) =>
+    `<svg viewBox="0 0 24 24" class="${cls}"${size ? ` width="${size}" height="${size}"` : ''}><g>${[-120, 0, 120].map((rot) => `<circle class="arc" cx="12" cy="12" r="8.6" pathLength="360" transform="rotate(${rot} 12 12)"/>`).join('')}</g><path class="o star" d="${STAR}"/></svg>`;
+  const live = (cls) => `<div class="live"><span class="live-icon">${glyph(cls, 14)}</span><span class="verb" data-text="Thinking">Thinking</span><span class="meta">12s · 1.2k tokens</span></div>`;
+
+  // Contrast ratios measured against the transcript sheet and the raised band.
+  const COLORS = [
+    { c: 'accent', name: '앱 포인트 색', pick: true, note: '다크 #79b8ff · 라이트 #185abc. 앱이 쓰는 강조색이라 글자 반짝임과 같은 색이고, 테마가 바뀌면 자동으로 따라갑니다.', dark: '9.1 / 7.6', light: '6.5 / 6.1' },
+    { c: 'blue', name: '이전 블루', note: '다크 #8cc2ff · 라이트 #1a5fd0. 둘 다 잘 보이지만 다크가 라이트보다 훨씬 밝아 두 테마의 무게감이 다릅니다.', dark: '10.1 / 8.5', light: '5.9 / 5.5' },
+    { c: 'single', name: '단일 블루', low: true, note: '#2f6fe4 하나로 양쪽에 씁니다. 기준은 넘지만 두 테마 모두 대비가 낮아 작은 크기에서 흐립니다.', dark: '4.1 / 3.4', light: '4.7 / 4.4' },
+  ];
+  document.getElementById('colors').innerHTML = COLORS.map((x) => `
+    <div class="swatch-row${x.pick ? ' pick' : ''}" data-c="${x.c}">
+      <div><h2>${x.name}${x.pick ? ' · 추천' : ''}</h2><p>${x.note}</p></div>
+      <div class="tile t theme-dark">${live('m-new')}<span class="ratio${x.low ? ' low' : ''}">다크 <b>${x.dark}</b></span></div>
+      <div class="tile t theme-light">${live('m-new')}<span class="ratio">라이트 <b>${x.light}</b></span></div>
+    </div>`).join('');
+
+  const CARDS = [
+    { cls: 'm-old', name: '이전 트리플렛', tag: '비교',
+      desc: '같은 움직임을 원호마다 늦게 시작해, 로고 모양이 되는 순간에도 세 원호 길이가 서로 달라 형태가 번져 보였습니다.' },
+    { cls: 'm-new', name: '정리한 트리플렛', tag: '추천', pick: true,
+      desc: '<b>원호가 시계 방향으로 하나씩 "탁·탁·탁" 뻗고, 셋이 똑같은 로고 모양으로 잠깐 맞물린 뒤, 한 번에 "쭉" 접힙니다.</b> 별은 탁마다 30°씩 돌고, 세 번째 탁에서 한 번 크게 박자를 찍습니다. 1.9초 한 마디.' },
+  ];
+  document.getElementById('ba').innerHTML = CARDS.map((x) => `
+    <article class="card${x.pick ? ' pick' : ''}">
+      <div class="card-head"><h2>${x.name}</h2><span class="tag">${x.tag}</span></div>
+      <div class="mini">
+        ${['theme-dark', 'theme-light'].map((theme) => `
+          <div class="tile t ${theme}">${glyph(x.cls)}
+            <div class="sizes">${[24, 16, 14, 12].map((s) => `<figure>${glyph(x.cls, s)}<figcaption>${s}</figcaption></figure>`).join('')}</div>
+          </div>`).join('')}
+      </div>
+      <div class="bands">${['theme-dark', 'theme-light'].map((theme) => `<div class="tile t ${theme}">${live(x.cls)}</div>`).join('')}</div>
+      <p class="desc">${x.desc}</p>
+    </article>`).join('');
+
+  const BEATS = [
+    [0.02, '시작'], [hits[0], '탁 ①', true], [hits[1], '탁 ②', true], [hits[2], '탁 ③', true],
+    [lockT, '로고'], [0.66, '쭉'], [0.82, '접힘'], [0.97, '다음 마디'],
+  ];
+  document.getElementById('beats').innerHTML = BEATS.map(([t, label, hit]) =>
+    `<div class="beat${hit ? ' hit' : ''}" data-t="${t}">${glyph('m-new')}<span>${label}<br>${Math.round(t * 100)}%</span></div>`).join('');
+  document.querySelectorAll('.beat').forEach((beat) => {
+    const t = Number(beat.dataset.t);
+    beat.querySelectorAll('.arc, .star').forEach((el) => {
+      el.style.animationPlayState = 'paused';
+      el.style.animationDelay = `calc(var(--k) * ${-t * N.dur}ms)`;
+    });
+  });
+
+  document.querySelectorAll('.segments').forEach((group) => {
+    group.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      const kind = group.dataset.group;
+      const value = button.dataset.v;
+      if (kind === 'pause') {
+        const on = button.getAttribute('aria-pressed') !== 'true';
+        button.setAttribute('aria-pressed', String(on));
+        document.body.classList.toggle('paused', on);
+        return;
+      }
+      group.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+      if (kind === 'color') document.body.dataset.color = value;
+      if (kind === 'speed') document.documentElement.style.setProperty('--k', value);
+    });
+  });
+</script>
+</body>
+</html>

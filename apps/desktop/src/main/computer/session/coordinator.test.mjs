@@ -179,8 +179,9 @@ test('overlay model distinguishes user control and confirmation while listing ev
   }
 });
 
-test('between commands the controls stay only while the session holds its window', () => {
-  const coordinator = new ComputerUseCoordinator();
+test('between commands the controls stay for the grace or while the session holds its window', () => {
+  let clock = 1_000_000;
+  const coordinator = new ComputerUseCoordinator({ now: () => clock });
   try {
     begin(coordinator, 'session-lifecycle', 'background', 'capture');
     coordinator.showCursor({
@@ -196,14 +197,20 @@ test('between commands the controls stay only while the session holds its window
     assert.equal(coordinator.snapshot().cursors.length, 0, 'completed commands leave only a short visual tail');
     const thinking = coordinator.snapshot();
     assert.equal(thinking.activities[0]?.phase, 'thinking');
-    // Thinking alone is not using the computer; the grace hold on the window is.
-    assert.equal(computerUseOverlayPresentation(thinking, 'ko-KR').visible, false);
+    // Thinking about the next step right after a command is still the same task.
+    assert.deepEqual(thinking.presentSessionIds, ['session-lifecycle']);
+    assert.equal(computerUseOverlayPresentation(thinking, 'ko-KR').visible, true);
+    clock += 10_000;
+    const moved = coordinator.snapshot();
+    // Thinking past the grace is not using the computer; a hold on the window is.
+    assert.deepEqual(moved.presentSessionIds, []);
+    assert.equal(computerUseOverlayPresentation(moved, 'ko-KR').visible, false);
     const holding = {
-      ...thinking,
+      ...moved,
       targetLeases: [{ sessionId: 'session-lifecycle', windowId: 'hwnd:0x1', expiresAt: 1 }],
     };
     assert.equal(computerUseOverlayPresentation(holding, 'ko-KR').visible, true);
-    assert.deepEqual(computerUseOverlayPresentation(thinking, 'ko-KR').sessionIds, ['session-lifecycle']);
+    assert.deepEqual(computerUseOverlayPresentation(moved, 'ko-KR').sessionIds, ['session-lifecycle']);
 
     coordinator.endExecution('session-lifecycle');
     const ended = coordinator.snapshot();

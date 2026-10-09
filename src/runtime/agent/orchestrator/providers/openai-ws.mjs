@@ -18,21 +18,15 @@ import { withEffortConfigurationFallback } from './effort-configuration.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { sendViaHttpSse, _envFlag } from './openai-oauth-http-sse.mjs';
-import { shouldFallbackTransport } from './retry-classifier.mjs';
+import { isWsMessageTooBigClose, shouldFallbackTransport } from './retry-classifier.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
-import { applyOpenAIDirectCachePolicy, openAiDirectSupportsFast } from './openai-direct-request.mjs';
+import { applyOpenAIDirectCachePolicy } from './openai-direct-request.mjs';
 import { streamCallbacks } from './lib/send-callbacks.mjs';
+import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
 import { resolveProviderCacheKey, resolveProviderPromptCacheLane } from '../agent-runtime/cache-strategy.mjs';
-
-function applyOpenAIDirectFastTier(body, model, opts) {
-  if (opts?.fast === true && openAiDirectSupportsFast(model)) {
-    body.service_tier = 'priority';
-  }
-  return body;
-}
 
 function shouldFallbackDirectTransport(err, options) {
   const status = Number(err?.httpStatus || err?.status || 0);
@@ -84,6 +78,10 @@ export class OpenAIDirectProvider {
   static inputExcludesCache = false;
   name = 'openai';
   config;
+  // Sessions (WS pool keys) the server refused with close 1009. Every later
+  // full frame of such a session would be refused again, so it stays on
+  // HTTP/SSE; the request body and prompt_cache_key are transport-neutral.
+  _httpFallbackPoolKeys = new Set();
   constructor(config) {
     this.config = config || {};
   }
@@ -127,11 +125,8 @@ export class OpenAIDirectProvider {
       promptCacheProvider: 'openai',
       promptCacheLane,
     });
-    // Public OpenAI API Fast support is documented separately from the
-    // openai-oauth catalog. Keep this provider's service-tier decision local
-    // so a model can opt into Fast even when the OAuth catalog does not
-    // advertise a Fast tier for its OAuth endpoint.
-    applyOpenAIDirectFastTier(body, useModel, opts);
+    // buildRequestBody resolves service_tier for the public API from
+    // openAiDirectSupportsFast/Ultrafast, independent of the OAuth catalog.
     noteRequestServiceTier(body.service_tier);
     // Keep public response storage and model-specific cache options out of
     // the shared OAuth payload. Storage opt-out still forces full frames in
@@ -206,9 +201,32 @@ export class OpenAIDirectProvider {
     // that dispatchHttp emits (it is not a fallback here). All other modes
     // ('auto'/'ws-full'/'ws-delta') keep the WS-first path below; ws-full vs
     // ws-delta only affects the delta gate inside openai-ws-delta.mjs.
-    if (transportPolicy.transport === 'http') {
-      return await sendHttp({ ...common, auth, opts, fetchFn: opts._fetchFn });
+    if (
+      transportPolicy.transport === 'http' ||
+      (poolKey && httpFallbackEnabled && this._httpFallbackPoolKeys.has(poolKey))
+    ) {
+      try {
+        return await sendHttp({ ...common, auth, opts, fetchFn: opts._fetchFn });
+      } catch (err) {
+        const unsafe = err?.liveTextEmitted === true || err?.emittedToolCall === true || err?.unsafeToRetry === true;
+        if (err?.httpStatus !== 401 || unsafe) throw err;
+        // The replay discards this attempt; its reported usage stays billed.
+        noteErrorUsage(err);
+        process.stderr.write('[openai-ws] 401 — reloading apiKey and retrying once over HTTP\n');
+        const freshKey = this.reloadApiKey();
+        if (!freshKey) throw err;
+        return await sendHttp({
+          ...common,
+          auth: { type: 'openai-direct', apiKey: freshKey },
+          opts,
+          fetchFn: opts._fetchFn,
+        });
+      }
     }
+    const fallbackHttp = (a, error) => {
+      if (poolKey && isWsMessageTooBigClose(error)) this._httpFallbackPoolKeys.add(poolKey);
+      return dispatchHttp(a);
+    };
     try {
       return await dispatchWs(auth);
     } catch (err) {
@@ -236,7 +254,7 @@ export class OpenAIDirectProvider {
             return await dispatchWs(retryAuth);
           } catch (retryErr) {
             if (shouldFallbackDirectTransport(retryErr, { signal: externalSignal, enabled: httpFallbackEnabled })) {
-              return await dispatchHttp(retryAuth);
+              return await fallbackHttp(retryAuth, retryErr);
             }
             throw retryErr;
           }
@@ -246,7 +264,7 @@ export class OpenAIDirectProvider {
       // (2) WS transport failure → HTTP/SSE fallback (predicate handles
       //     the safety denies).
       if (shouldFallbackDirectTransport(err, { signal: externalSignal, enabled: httpFallbackEnabled })) {
-        return await dispatchHttp(auth);
+        return await fallbackHttp(auth, err);
       }
       throw err;
     }

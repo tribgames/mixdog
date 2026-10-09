@@ -449,7 +449,7 @@ test('deck review reports three consecutive beats and a deck that is mostly beat
     'a deck dark on every page is a theme, not beats'
   );
   assert.equal(isAdvisoryOfficeIssue({ code: 'beat_share_high' }), true);
-  assert.equal(isAdvisoryOfficeIssue({ code: 'consecutive_beats' }), false);
+  assert.equal(isAdvisoryOfficeIssue({ code: 'consecutive_beats' }), true);
 });
 
 // A body page with one short sentence and no carrier is turned without being read; the same sentence beside a
@@ -595,9 +595,9 @@ test('deck review reports three consecutive same compositions and reads signed s
     review(signed).some((entry) => entry.code === 'consecutive_composition_repeat'),
     false
   );
-  // The measured verdicts are targets, not information.
-  assert.equal(isAdvisoryOfficeIssue({ code: 'consecutive_composition_repeat' }), false);
-  assert.equal(isAdvisoryOfficeIssue({ code: 'repeated_layout_grammar' }), false);
+  // Repetition is observable, but whether it serves the document is the author's judgement.
+  assert.equal(isAdvisoryOfficeIssue({ code: 'consecutive_composition_repeat' }), true);
+  assert.equal(isAdvisoryOfficeIssue({ code: 'repeated_layout_grammar' }), true);
 
   // A style carries a decoration set, so two anchors in a row drawing one device is the same page twice. The kit
   // writes the device into the picture's description, which is where the run is read from.
@@ -669,3 +669,74 @@ test('the art direction reading accepts the directions an authored brief declare
     )
   );
 });
+
+// Deck-shape rules read a body-page grammar; a presentation, keynote, or showcase deck does not follow it, and a
+// brief that declares a concept or palette owns its colour fields.
+test('deck-shape rules and the body background reading yield to the brief', () => {
+  const title = (index) => ({ type: 17, text: `Title ${index}`, left: 58, top: 46, width: 780, height: 70, font: { size: 40 } });
+  const beat = (index) => ({
+    index,
+    background: { color: '0F1B26' },
+    shapes: [{ type: 17, text: `Beat ${index}`, left: 58, top: 200, width: 700, height: 120, font: { size: 44 } }],
+  });
+  const evidence = (index, color = 'F7F9FC') => ({
+    index,
+    background: { color },
+    shapes: [title(index), { chart: { type: 'bar' }, left: 58, top: 150, width: 800 - index * 7, height: 340 }],
+  });
+  const thin = (index) => ({
+    index,
+    background: { color: 'F7F9FC' },
+    shapes: [
+      title(index),
+      { type: 17, text: '대기 시간이 줄었다.', left: 58, top: 200, width: 600, height: 40, font: { size: 15 } },
+    ],
+  });
+  let deckMode = 'custom';
+  const review = (slides, brief) =>
+    reviewOfficeDesign({
+      format: 'pptx',
+      document: { slideWidth: 960, slideHeight: 540, slides },
+      design: { intent: 'Approve the plan', signature: 'structure-led', deck: { backgroundMode: deckMode, enforce: deckMode !== 'custom' }, brief },
+    }).issues.map((entry) => entry.code);
+  const shaped = [beat(1), evidence(2), evidence(3), beat(4), beat(5), beat(6), evidence(7), evidence(8), evidence(9), beat(10)];
+  const underfilled = [beat(1), evidence(2), thin(3), evidence(4), beat(5)];
+  for (const slides of [shaped, underfilled]) {
+    const read = review(slides, { present: true, readingMode: 'balanced' });
+    assert.ok(read.some((code) => ['consecutive_beats', 'page_underfill'].includes(code)), read.join(', '));
+  }
+  for (const mode of ['presentation', 'keynote', 'showcase']) {
+    const brief = { present: true, readingMode: mode };
+    for (const slides of [shaped, underfilled]) {
+      const read = review(slides, brief);
+      for (const code of ['beat_share_high', 'consecutive_beats', 'page_underfill']) {
+        assert.ok(!read.includes(code), `${mode} skips ${code}`);
+      }
+    }
+  }
+  deckMode = 'sandwich';
+  const mixed = [1, 2, 3, 4, 5, 6, 7, 8].map((index) => evidence(index, index % 2 ? 'F7F9FC' : 'FDEBD0'));
+  assert.ok(review(mixed, { present: true }).includes('theme_body_backgrounds'));
+  assert.ok(!review(mixed, { present: true, concept: 'field-led — the colour is the identity' }).includes('theme_body_backgrounds'));
+  assert.ok(!review(mixed, { present: true, palette: 'hue 160' }).includes('theme_body_backgrounds'));
+});
+
+test('the art direction message states the required count and counts only textually distinct candidates', () => {
+  const document = {
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [1, 2, 3].map((index) => ({
+      index,
+      shapes: [{ type: 17, text: `쪽 ${index}`, left: 58, top: 46, width: 780, height: 70, font: { size: 40 } }],
+    })),
+  };
+  const missing = (design) =>
+    reviewPptxDeckDiversity({ document, design }).find((entry) => entry.code === 'art_direction_candidates_missing');
+  assert.match(missing({}).message, /3 distinct candidates/);
+  const twin = { directions: { candidates: [{ id: 'A', text: 'Editorial' }, { id: 'B', text: ' editorial ' }], selected: 'A' } };
+  assert.match(missing({ brief: twin }).message, /2 distinct candidates/);
+  const distinct = { directions: { candidates: [{ id: 'A', text: 'editorial' }, { id: 'B', text: 'swiss' }], selected: 'A' } };
+  assert.equal(missing({ brief: distinct }), undefined);
+});
+
+

@@ -3,7 +3,7 @@ import { hasOwn } from '../../runtime/shared/object.mjs';
 import { isHiddenAgent } from '../../runtime/agent/orchestrator/internal-agents.mjs';
 import { normalizeWorkflowRoute } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { ensureProviderEnabled } from '../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
-import { fastCapableFor } from '../../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
+import { selectionFastCapable } from '../route-state.mjs';
 import { canonicalizeAgentRouteStorage, withAgentDisabled } from '../../runtime/shared/agent-route-config.mjs';
 import { agentEditorId } from './shared.mjs';
 
@@ -52,7 +52,7 @@ export function createAgentRouteApi(deps) {
     };
     await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
     const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
-    const fastCapable = fastCapableFor(
+    const fastCapable = selectionFastCapable(
       selectedRoute.provider,
       modelMeta,
       selectedRoute.effort,

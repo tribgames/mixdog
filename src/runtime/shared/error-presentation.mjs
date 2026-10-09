@@ -85,6 +85,13 @@ export function describeError(value) {
   let recovery = '';
   const transport = transportErrorText(value) || transportErrorText(raw);
   if (
+    value?.reauthRequired === true ||
+    /invalid_grant|refresh token (?:expired|revoked|not available)|sign in again|sign-in expired|Reauth Required/i.test(raw)
+  ) {
+    kind = 'reauth';
+    summary = 'Sign-in expired.';
+    recovery = 'Sign in again from Providers.';
+  } else if (
     status === 401 ||
     status === 403 ||
     /\b(?:invalid|expired)\s+(?:api[ _-]?key|access token|credentials?)\b|Provider authentication failed/i.test(clean)
@@ -146,6 +153,6 @@ export function describeError(value) {
     details,
     // Known structured failures ignore volatile indexes; unknown failures
     // retain their diagnostic identity rather than merging unrelated work.
-    fingerprint: kind === 'unknown' ? details : `${kind}:${status || ''}`,
+    fingerprint: kind === 'unknown' ? details : `${kind}:${kind === 'reauth' ? '' : status || ''}`,
   };
 }

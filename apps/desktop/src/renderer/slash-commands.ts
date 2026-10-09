@@ -143,7 +143,7 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   {
     name: 'fast',
     usage: '/fast',
-    params: '[on|off]',
+    params: '[on|off|ultra]',
     description: 'Toggle Fast mode for the current model',
     action: 'fast',
   },

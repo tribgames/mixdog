@@ -114,6 +114,92 @@ function installProjectFiles(f, entries) {
   };
 }
 
+// Transcript link format → destination. 'editor' = the side-dock EditorPane
+// (code, preview or document viewer) via MarkdownOpenFileContext at a line;
+// 'os' = openLocalFileLink; 'browser' = side browser; 'external' = openExternal.
+const LINK_ROUTES = [
+  ['code :line', 'src/app.ts:12', 'src/app.ts', 'editor', { line: 12 }],
+  ['code :line:col', 'src/app.ts:12:3', 'src/app.ts', 'editor', { line: 12, column: 3 }],
+  ['code #L', 'src/app.ts#L12', 'src/app.ts', 'editor', { line: 12 }],
+  ['json', 'config/app.json', 'config/app.json', 'editor', {}],
+  ['yaml', 'config/ci.yaml', 'config/ci.yaml', 'editor', {}],
+  ['txt', 'notes/a.txt', 'notes/a.txt', 'editor', {}],
+  ['markdown (Preview toggle)', 'docs/readme.md', 'docs/readme.md', 'editor', {}],
+  ['csv (Table toggle)', 'data/t.csv', 'data/t.csv', 'editor', {}],
+  ['tsv (Table toggle)', 'data/t.tsv', 'data/t.tsv', 'editor', {}],
+  ['png preview', 'img/a.png', 'img/a.png', 'editor', {}],
+  ['jpg preview', 'img/a.jpg', 'img/a.jpg', 'editor', {}],
+  ['gif preview', 'img/a.gif', 'img/a.gif', 'editor', {}],
+  ['webp preview', 'img/a.webp', 'img/a.webp', 'editor', {}],
+  ['svg preview', 'img/a.svg', 'img/a.svg', 'editor', {}],
+  ['pdf preview', 'docs/a.pdf', 'docs/a.pdf', 'editor', {}],
+  ['docx document preview', 'docs/a.docx', 'docs/a.docx', 'editor', {}],
+  ['xlsx document preview', 'docs/a.xlsx', 'docs/a.xlsx', 'editor', {}],
+  ['pptx document preview', 'docs/a.pptx', 'docs/a.pptx', 'editor', {}],
+  ['bare name resolved by search', 'app.ts', 'src/app.ts', 'editor', {}],
+  ['spaces, # and Korean', 'docs/%ED%95%9C%EA%B8%80%20%231.md', 'docs/한글 #1.md', 'editor', {}],
+  ['percent sign', 'docs/100%25.txt', 'docs/100%.txt', 'editor', {}],
+  ['archive (no in-app viewer)', 'out/a.zip', 'out/a.zip', 'os', {}],
+  ['folder (no pane Explorer view)', 'output/', null, 'os', {}],
+];
+
+test('transcript link formats land in the side editor, side browser or OS as tabulated', async (t) => {
+  const files = [...new Set(LINK_ROUTES.map((row) => row[2]).filter(Boolean)), 'site/index.html', 'output'];
+  for (const [label, href, rel, destination, expected] of LINK_ROUTES) {
+    await t.test(label, async (sub) => {
+      const f = await mount(sub, renderers.settled, `[x](${href})`, PROJECT, (fixture) => {
+        installProjectFiles(fixture, { [PROJECT]: files });
+      });
+      await f.click();
+      if (destination === 'editor') {
+        const column = expected.column ? [undefined, expected.column] : [];
+        assert.deepEqual(f.opened, [[PROJECT, rel, expected.line, ...column]], `${label}: side editor`);
+        assert.deepEqual(f.local, [], `${label}: not the OS`);
+      } else {
+        assert.deepEqual(f.opened, [], `${label}: not the editor`);
+        assert.equal(f.local.length, 1, `${label}: OS`);
+      }
+      assert.equal(f.external.length, 0, label);
+    });
+  }
+});
+
+test('a path outside the Project opens in the side editor with its access token', async (t) => {
+  const f = await mount(t, renderers.settled, '[x](C:/private/source.ts:7)', PROJECT, (fixture) => {
+    fixture.dom.window.mixdogDesktop.resolveLocalPaths = async ([absolutePath]) => [
+      { absolutePath, projectPath: 'C:/private', relPath: 'source.ts', accessToken: 'grant', dir: false },
+    ];
+  });
+  await f.click();
+  assert.deepEqual(f.opened, [['C:/private', 'source.ts', 7, 'grant']]);
+  assert.deepEqual(f.local, []);
+});
+
+test('html goes to the side browser; http(s) to the side browser with a session, else the system browser', async (t) => {
+  const withSession = (text) =>
+    React.createElement(MarkdownSessionContext.Provider, { value: 'sess-routes' }, renderers.settled(text));
+  const stopReveal = onBrowserPageRevealRequested(() => {});
+  t.after(stopReveal);
+  const f = await mount(t, withSession, '[page](site/index.html) [web](https://example.com/a) [plain](http://example.com/b)', PROJECT, (fixture) => {
+    installProjectFiles(fixture, { [PROJECT]: ['site/index.html'] });
+    fixture.dom.window.mixdogDesktop.localPageUrl = async (project, rel) => `http://127.0.0.1:9/token/${rel}`;
+  });
+  const loaded = [];
+  for (let index = 0; index < 3; index++) {
+    await f.click(index);
+    onBrowserPageAddressRequested('sess-routes', (url) => loaded.push(url))();
+  }
+  assert.deepEqual(loaded, ['http://127.0.0.1:9/token/site/index.html', 'https://example.com/a', 'http://example.com/b']);
+  assert.deepEqual(f.external, []);
+  assert.deepEqual(f.opened, []);
+});
+
+test('http(s) without a session falls back to the system browser', async (t) => {
+  const draft = await mount(t, renderers.settled, '[web](https://example.com/draft)');
+  await draft.click();
+  assert.deepEqual(draft.external, [['https://example.com/draft']]);
+});
+
 for (const [pipeline, render] of Object.entries(renderers)) {
   test(`${pipeline}: files in another registered Project open without changing the conversation Project`, async (t) => {
     const other = 'C:/Project/GamerScroll';
@@ -145,16 +231,14 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     );
     for (let index = 0; index < 7; index++) await f.click(index);
     assert.deepEqual(f.opened, [
+      [other, 'favicon.svg', undefined],
+      [other, 'assets/aiscroll-favicon.svg', undefined],
+      [other, 'assets/aiscroll-favicon.svg', undefined],
+      [other, 'output/report.pptx', undefined],
       [other, 'src/app.ts', 12],
       [other, 'run.ps1', undefined],
     ]);
-    assert.deepEqual(f.local, [
-      [other, 'favicon.svg'],
-      [other, 'assets/aiscroll-favicon.svg'],
-      [other, 'assets/aiscroll-favicon.svg'],
-      [other, 'output/report.pptx'],
-      [`${other}/output`, '.'],
-    ]);
+    assert.deepEqual(f.local, [[`${other}/output`, '.']]);
     assert.equal(f.links()[0].title, `${other}/favicon.svg`);
     assert.equal(f.toasts.length + f.external.length + f.popups.length, 0);
   });
@@ -263,13 +347,11 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.deepEqual(f.opened, [
       [outside, 'source.ts', 12, 'grant:source.ts'],
       [outside, '한글 100% #1.ts', 7, 'grant:한글 100% #1.ts'],
+      [outside, 'report.pdf', undefined, 'grant:report.pdf'],
       [outside, 'run.ps1', undefined, 'grant:run.ps1'],
       ['/tmp', 'outside.ts', 9, 'grant:outside.ts'],
     ]);
-    assert.deepEqual(f.local, [
-      [outside, 'report.pdf'],
-      [`${outside}/output`, '.'],
-    ]);
+    assert.deepEqual(f.local, [[`${outside}/output`, '.']]);
     assert.equal(f.toasts.length + f.external.length + f.popups.length, 0);
   });
 
@@ -397,8 +479,8 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.equal(f.opened.length + f.local.length, 0);
     installProjectFiles(f, { [PROJECT]: ['favicon.svg'], [other]: ['favicon.svg'] });
     await f.click(0);
-    assert.deepEqual(f.opened, []);
-    assert.deepEqual(f.local, [[PROJECT, 'favicon.svg']]);
+    assert.deepEqual(f.opened, [[PROJECT, 'favicon.svg', undefined]]);
+    assert.deepEqual(f.local, []);
   });
 
   test(`${pipeline}: access failures are reported rather than redirected to another Project`, async (t) => {
@@ -412,25 +494,28 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.equal(f.opened.length + f.local.length, 0);
   });
 
-  test(`${pipeline}: documents open with the OS and text files open in the editor, both in the owning Project`, async (t) => {
+  test(`${pipeline}: documents, media and text open in the editor and OS-only files launch, in the owning Project`, async (t) => {
     const paths = [
       'output/ai-work-proposal-20260907/ai-work-proposal-delivery.pptx',
       'output/ai-work-proposal-20260907/ai-work-proposal-delivery.mixdog-preview.pdf',
       'output/ai-work-proposal-20260907/verification-summary.md',
+      'output/archive.zip',
+      'output/scan.tiff',
     ];
     const f = await mount(t, render, paths.map((path, index) => `[file ${index}](${path})`).join('\n\n'));
     for (let index = 0; index < paths.length; index++) {
       assert.equal((await f.click(index)).defaultPrevented, true);
     }
     assert.deepEqual(f.local, [
-      [PROJECT, paths[0]],
-      [PROJECT, paths[1]],
+      [PROJECT, paths[3]],
+      [PROJECT, paths[4]],
     ]);
-    assert.deepEqual(f.opened, [[PROJECT, paths[2], undefined]]);
+    assert.deepEqual(f.opened, paths.slice(0, 3).map((path) => [PROJECT, path, undefined]));
     await f.update('D:/Project/other-conversation');
     await f.click();
     await f.click(2);
-    assert.deepEqual(f.local.at(-1), ['D:/Project/other-conversation', paths[0]]);
+    assert.deepEqual(f.local.length, 2);
+    assert.deepEqual(f.opened.at(-2), ['D:/Project/other-conversation', paths[0], undefined]);
     assert.deepEqual(f.opened.at(-1), ['D:/Project/other-conversation', paths[2], undefined]);
     assert.equal(f.external.length + f.popups.length + f.toasts.length, 0);
   });
@@ -453,12 +538,13 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       assert.ok(f.links()[index].getAttribute('href'));
       assert.equal((await f.click(index)).defaultPrevented, true);
     }
-    assert.deepEqual(f.local, [
-      [PROJECT, 'output/deck.pptx'],
-      [PROJECT, 'output/deck.pptx'],
-      [PROJECT, 'output/preview.pdf'],
+    assert.deepEqual(f.local, []);
+    assert.deepEqual(f.opened, [
+      [PROJECT, 'output/deck.pptx', undefined],
+      [PROJECT, 'output/deck.pptx', undefined],
+      [PROJECT, 'output/preview.pdf', undefined],
+      [PROJECT, 'src/app.ts', 42],
     ]);
-    assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', 42]]);
     assert.equal(f.links()[3].getAttribute('title'), 'C:/Project/conversation/src/app.ts:42');
     assert.equal(f.toasts.length, 1);
     assert.match(f.toasts[0].text, /File not found/);
@@ -517,7 +603,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     }
     assert.deepEqual(f.opened, [
       [PROJECT, 'src/runtime/agent.mjs', 269],
-      [PROJECT, 'apps/desktop/src/main/ipc.ts', 12],
+      [PROJECT, 'apps/desktop/src/main/ipc.ts', 12, undefined, 4],
       [PROJECT, 'src/runtime/agent/orchestrator/providers/retry-classifier.mjs', 269],
       [PROJECT, 'docs/notes.md', 7],
     ]);
@@ -556,8 +642,11 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     );
     await f.click(1);
     await f.click(3);
-    assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', undefined]]);
-    assert.deepEqual(f.local, [[PROJECT, 'output/deck.pptx']]);
+    assert.deepEqual(f.opened, [
+      [PROJECT, 'src/app.ts', undefined],
+      [PROJECT, 'output/deck.pptx', undefined],
+    ]);
+    assert.deepEqual(f.local, []);
   });
 
   test(`${pipeline}: folders, document names with spaces, extension-less files, Korean line refs and images`, async (t) => {
@@ -630,16 +719,16 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.deepEqual(f.local, [
       [PROJECT, 'output/report-2026'],
       [PROJECT, 'Dockerfile'],
-      [PROJECT, `output/${encodeURIComponent('제안서 최종.pptx')}`],
       [PROJECT, 'output'],
-      [PROJECT, 'output/chart.png'],
     ]);
     assert.deepEqual(f.opened, [
       [PROJECT, '.gitignore', undefined],
       [PROJECT, 'src/app.ts', 42],
       [PROJECT, 'src/util.ts', 269],
       [PROJECT, 'src/x.ts', 7],
+      [PROJECT, 'output/제안서 최종.pptx', undefined],
       [PROJECT, '.env.local', undefined],
+      [PROJECT, 'output/chart.png', undefined],
     ]);
     assert.equal(f.toasts.length, 0);
   });
@@ -666,13 +755,13 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     );
     assert.deepEqual(f.labels(), ['promo/', 'index.html', 'card-1.png', 'a.png', 'card']);
     for (let index = 0; index < 5; index++) await f.click(index);
-    assert.deepEqual(f.local, [
-      [`${root}/promo`, '.'],
-      [root, 'promo/cards/card-1.png'],
-      [root, ["R&D, Tom's [v2]", 'PROGRA~1!', 'a.png'].map(encodeURIComponent).join('/')],
-      [root, 'promo/cards/card-1.png'],
+    assert.deepEqual(f.local, [[`${root}/promo`, '.']]);
+    assert.deepEqual(f.opened, [
+      [root, 'promo/index.html', undefined],
+      [root, 'promo/cards/card-1.png', undefined],
+      [root, "R&D, Tom's [v2]/PROGRA~1!/a.png", undefined],
+      [root, 'promo/cards/card-1.png', undefined],
     ]);
-    assert.deepEqual(f.opened, [[root, 'promo/index.html', undefined]]);
     assert.equal(f.toasts.length, 0);
   });
 
@@ -749,7 +838,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.equal(f.links()[0].querySelector('.seti-icon').outerHTML, initialIcon);
     assert.equal(f.links()[0].title, `${PROJECT}/src/app.ts:12:4`);
     await f.click();
-    assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', 12]]);
+    assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', 12, undefined, 4]]);
     assert.equal(f.toasts.length, 0);
   });
 
@@ -827,14 +916,14 @@ for (const [pipeline, render] of Object.entries(renderers)) {
   });
 
   test(`${pipeline}: local errors, absent desktop support and absent Project are visible, never navigated`, async (t) => {
-    const f = await mount(t, render, '[file](output/deck.pptx)');
+    const f = await mount(t, render, '[file](output/archive.zip)');
     f.dom.window.mixdogDesktop.openLocalFileLink = async () => {
       throw new Error(
-        "Error invoking remote method 'mixdog:open-local-file-link': Error: The file no longer exists: output/deck.pptx"
+        "Error invoking remote method 'mixdog:open-local-file-link': Error: The file no longer exists: output/archive.zip"
       );
     };
     assert.equal((await f.click()).defaultPrevented, true);
-    assert.match(f.toasts.at(-1).text, /The file no longer exists: output\/deck\.pptx/);
+    assert.match(f.toasts.at(-1).text, /The file no longer exists: output\/archive\.zip/);
     assert.doesNotMatch(f.toasts.at(-1).text, /invoking remote method|Error:/);
     delete f.dom.window.mixdogDesktop.openLocalFileLink;
     await f.click();
@@ -849,8 +938,57 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.equal(f.local.length + f.popups.length, 0);
   });
 
+  test(`${pipeline}: right-clicking a local file link offers open, default app, reveal and copy path; web links get none`, async (t) => {
+    const f = await mount(t, render, ['[deck](output/deck.pptx)', '[web](https://example.com/a)'].join('\n\n'));
+    const calls = [];
+    f.dom.window.mixdogDesktop.openFilePath = async (...args) => calls.push(['open', ...args]);
+    f.dom.window.mixdogDesktop.revealFile = async (...args) => calls.push(['reveal', ...args]);
+    const copied = [];
+    const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const desktopNavigator = {
+      userAgent: 'Electron/41.0',
+      clipboard: { writeText: async (text) => copied.push(text) },
+    };
+    t.after(() => Object.defineProperty(globalThis, 'navigator', previousNavigator));
+    const menuItems = () => [...f.dom.window.document.querySelectorAll('[role="menu"] [role="menuitem"]')];
+    const labelsOf = () => menuItems().map((item) => item.textContent);
+    const contextMenu = async (index) => {
+      const event = new f.dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 6 });
+      await act(async () => f.links()[index].dispatchEvent(event));
+      return event;
+    };
+    assert.equal((await contextMenu(1)).defaultPrevented, false);
+    assert.deepEqual(labelsOf(), []);
+    // A remote browser has no OS bridge, so only the in-app actions appear.
+    assert.equal((await contextMenu(0)).defaultPrevented, true);
+    assert.deepEqual(labelsOf(), ['Open', 'Copy path']);
+    await act(async () => f.dom.window.document.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Escape' })));
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: desktopNavigator });
+    await contextMenu(0);
+    assert.deepEqual(labelsOf(), ['Open', 'Open in default app', 'Reveal in Explorer', 'Copy path']);
+    await act(async () => menuItems()[1].click());
+    await act(async () => {});
+    await contextMenu(0);
+    await act(async () => menuItems()[2].click());
+    await act(async () => {});
+    await contextMenu(0);
+    await act(async () => menuItems()[3].click());
+    await act(async () => {});
+    await contextMenu(0);
+    await act(async () => menuItems()[0].click());
+    await act(async () => {});
+    assert.deepEqual(calls, [
+      ['open', PROJECT, 'output/deck.pptx', undefined],
+      ['reveal', PROJECT, 'output/deck.pptx', undefined],
+    ]);
+    assert.deepEqual(copied, [`${PROJECT}/output/deck.pptx`]);
+    assert.deepEqual(f.opened, [[PROJECT, 'output/deck.pptx', undefined]]);
+    assert.deepEqual(f.local, []);
+    assert.equal(f.toasts.length, 0);
+  });
+
   test(`${pipeline}: local modified and auxiliary clicks cannot navigate the app`, async (t) => {
-    const f = await mount(t, render, '[file](output/deck.pptx)');
+    const f = await mount(t, render, '[file](output/archive.zip)');
     assert.equal((await f.click(0, { ctrlKey: true })).defaultPrevented, true);
     assert.equal((await f.click(0, { button: 1 }, 'auxclick')).defaultPrevented, true);
     assert.equal(f.local.length, 1);
@@ -1042,5 +1180,30 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
     assert.deepEqual(f.opened, []);
     assert.deepEqual(f.local, []);
     assert.equal(f.toasts.length, 0);
+  });
+
+  test(`${pipeline}: web links open in the session side browser, else the system browser`, async (t) => {
+    const inSession = (text) => React.createElement(MarkdownSessionContext.Provider, { value: 'sess-web' }, render(text));
+    const f = await mount(t, inSession, '[web](https://example.com/docs)');
+    // No shell can reveal a pane: the system browser takes it.
+    await f.click();
+    assert.deepEqual(f.external, [['https://example.com/docs']]);
+    const revealed = [];
+    const stopReveal = onBrowserPageRevealRequested((id) => revealed.push(id));
+    t.after(stopReveal);
+    await f.click();
+    const loaded = [];
+    onBrowserPageAddressRequested('sess-web', (url) => loaded.push(url))();
+    assert.deepEqual(revealed, ['sess-web']);
+    assert.deepEqual(loaded, ['https://example.com/docs']);
+    assert.equal(f.external.length, 1);
+  });
+
+  test(`${pipeline}: a draft's web links use the system browser even with a pane shell up`, async (t) => {
+    const stopReveal = onBrowserPageRevealRequested(() => {});
+    t.after(stopReveal);
+    const draft = await mount(t, render, '[web](https://example.com/draft)');
+    await draft.click();
+    assert.deepEqual(draft.external, [['https://example.com/draft']]);
   });
 }

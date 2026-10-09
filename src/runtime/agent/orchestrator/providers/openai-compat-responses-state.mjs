@@ -4,6 +4,7 @@
 import { stampStreamOutcome, STREAM_TRANSPORTS } from './lib/stream-outcome.mjs';
 import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './lib/leaked-toolcall.mjs';
 import { createActiveToolItemTracker } from './tool-stream-state.mjs';
+import { responsesUsage } from './openai-compat-response-normalization.mjs';
 import { emitCompatToolCallOnce, synthLeakedOpenAICall } from './openai-compat-stream-common.mjs';
 
 export function createResponsesStreamState() {
@@ -98,7 +99,12 @@ export function attachPartialState(err, state, leakedCalls) {
     err.partialContent = state.content || '';
     err.partialToolCalls = calls.length ? calls : undefined;
     err.pendingToolUse = toolInFlight(state);
-    err.partialModel = state.model || undefined;
+    // Usage/model already stamped from a terminal frame stay as reported.
+    if (!err.partialUsage && state.completedResponse?.usage) {
+      err.partialUsage = responsesUsage(state.completedResponse.usage);
+      if (!err.partialModel) err.partialModel = state.model || undefined;
+    }
+    if (!err.partialModel) err.partialModel = state.model || undefined;
   } catch {
     /* best-effort */
   }

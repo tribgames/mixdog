@@ -117,8 +117,8 @@ const show = (sessionId, windowId = 'hwnd:0xABC', mode = 'background') =>
     y: 100,
   });
 
-test('completed commands hide feedback at 1500ms and only a new event brings it back', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+test('a thinking session keeps its arrow for the grace and only a new event brings it back', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   fault = '';
   const start = windows.length;
   const overlay = createComputerUseCursorOverlay();
@@ -133,11 +133,9 @@ test('completed commands hide feedback at 1500ms and only a new event brings it 
       assert.equal(window.isVisible(), true);
       coordinator.finishCommand(sessionId);
       assert.equal(window.isVisible(), true, 'a short action still has visible feedback');
-      t.mock.timers.tick(1499);
-      assert.equal(window.isVisible(), true);
-      t.mock.timers.tick(1);
+      t.mock.timers.tick(9_999);
+      assert.equal(window.isVisible(), true, 'thinking between commands keeps the arrow');
       if (mode === 'foreground') {
-        assert.equal(window.isVisible(), true, 'an active foreground session keeps its arrow between commands');
         begin(sessionId, mode);
         await settle();
         assert.equal(window.isVisible(), true);
@@ -166,7 +164,8 @@ test('completed commands hide feedback at 1500ms and only a new event brings it 
         assert.equal(window.isDestroyed(), true);
         continue;
       }
-      assert.equal(window.isVisible(), false, 'thinking must not keep the pointer for 20 seconds');
+      t.mock.timers.tick(1);
+      assert.equal(window.isVisible(), false, 'a session thinking past the grace has moved on');
       assert.equal(window.isDestroyed(), false, 'the session may reuse its hidden surface');
       begin(sessionId, mode);
       await settle();
@@ -175,7 +174,7 @@ test('completed commands hide feedback at 1500ms and only a new event brings it 
       await settle();
       assert.equal(window.isVisible(), true, 'new pointer input still produces feedback');
       coordinator.finishCommand(sessionId);
-      t.mock.timers.tick(1500);
+      t.mock.timers.tick(10_000);
       assert.equal(window.isVisible(), false);
       coordinator.endExecution(sessionId);
       assert.equal(window.isDestroyed(), true);
