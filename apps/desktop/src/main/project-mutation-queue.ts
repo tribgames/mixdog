@@ -27,14 +27,15 @@ export async function withProjectMutationPaths<T>(paths: string[], run: () => Pr
   const predecessors = [...pending].filter((claim) =>
     claim.paths.some((left) => keys.some((right) => overlaps(left, right)))
   );
-  const completion = Promise.withResolvers<void>();
-  const claim: Claim = { paths: keys, done: completion.promise };
+  let release!: () => void;
+  const done = new Promise<void>((resolve) => { release = resolve; });
+  const claim: Claim = { paths: keys, done };
   pending.add(claim);
   try {
     await Promise.all(predecessors.map((previous) => previous.done));
     return await run();
   } finally {
     pending.delete(claim);
-    completion.resolve();
+    release();
   }
 }
