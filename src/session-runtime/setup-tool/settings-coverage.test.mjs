@@ -133,6 +133,10 @@ test('Main context and model parameters reach the route API, while agent-only fl
   await assert.rejects(run(api, { action: 'set_route', route: { disabled: true } }), /only accepted/);
   await assert.rejects(run(api, { action: 'set_web_search_route', route: { contextPercent: 70 } }), /only accepted/);
   await assert.rejects(run(api, { action: 'set_route', route: { contextPercent: 7 } }), /contextPercent/);
+  const agentCalls = [];
+  const agentApi = { ...api, setAgentRoute: async (id, next) => agentCalls.push([id, next]) };
+  await run(agentApi, { action: 'set_agent_route', agent: 'worker', route: { contextPercent: 70 } });
+  assert.deepEqual(agentCalls, [['worker', { contextPercent: 70 }]]);
 });
 
 test('auto-clear resets preserve unrelated overrides; percentage budgets replace tokens in config and live session', async () => {

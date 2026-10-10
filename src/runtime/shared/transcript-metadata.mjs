@@ -27,6 +27,8 @@ export function persistedUserTranscriptMetadata(value) {
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
     ...transcriptRouteMetadataFields(value),
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
+    // The device that submitted the prompt (host-stamped display name).
+    ...(typeof value.device === 'string' && value.device ? { device: value.device } : {}),
   };
 }
 

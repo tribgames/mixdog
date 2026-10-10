@@ -36,7 +36,9 @@ An attached Desktop or TUI may navigate and return `opened:true`.
 - Settings → General: profile, Web Search exposure, display language, theme,
   side panels, and notifications.
 - Settings → Context: auto-compact and auto-clear.
-- Settings → Output style: output style selection.
+- Settings → Output style: output style selection, plus the desktop-only
+  "Expand tool activity" choice (collapsed / commands and edits / everything),
+  saved per device; Ctrl+O toggles everything open for the current window.
 - Settings → Providers: API-key, OAuth, local providers, and usage sign-in.
 - Extensions → Plugin → Git & GitHub: Git/GitHub CLI installation and connection.
 - Settings → Connection: web-app pairing and linked devices.

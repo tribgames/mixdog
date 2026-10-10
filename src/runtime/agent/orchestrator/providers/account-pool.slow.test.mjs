@@ -223,7 +223,7 @@ test('a full Fable weekly window only exhausts Fable-series models', async () =>
   }));
   assert.equal((await gateway.send([], 'claude-opus-5', [])).content, 'ok');
   assert.deepEqual(calls, ['claude-opus-5']);
-  await assert.rejects(gateway.send([], 'claude-fable-5-1', []), /All connected accounts/);
+  await assert.rejects(gateway.send([], 'claude-fable-5-1', []), /plan limit is reached and credit use is off/);
   assert.deepEqual(calls, ['claude-opus-5']);
 
   stamp([
@@ -282,7 +282,7 @@ test('all accounts exhausted stop without cycling, and explicit host bindings by
   await assert.rejects(gateway.send([], 'model', []), /Quota exhausted/);
   assert.equal(calls, 3);
   assert.equal(readProviderAccountPool(provider).selectedId, ids[0]);
-  await assert.rejects(gateway.send([], 'model', []), /All connected accounts/);
+  await assert.rejects(gateway.send([], 'model', []), /plan limit is reached and credit use is off/);
   assert.equal(calls, 3);
   assert.equal(gateway.providerAccountId, ids[0]);
   const restore = replaceProviderAuthBindings({ [provider]: join(dir, 'isolated.json') });
@@ -421,7 +421,7 @@ test('fallback prefers the most headroom, and an exhausted roster re-measures be
   for (const id of ids) stamp(id, 100);
   probes = 0;
   calls.length = 0;
-  await assert.rejects(measured.send([], 'model', []), /All connected accounts/);
+  await assert.rejects(measured.send([], 'model', []), /plan limit is reached and credit use is off/);
   assert.equal(probes, 0);
   assert.deepEqual(calls, []);
 });
@@ -503,4 +503,46 @@ test('a dead sign-in fails over to the next account in auto mode without blockin
   calls.length = 0;
   await assert.rejects(gateway.send([{ role: 'user', content: 'hi' }], 'm', [], { sessionId: 's' }), (e) => e.reauthRequired === true);
   assert.deepEqual(calls, [ids[0]]);
+});
+
+test('useCredits=false blocks a 100% account before the request; useCredits=true lets it through', async () => {
+  const provider = 'cursor-oauth';
+  for (const auto of [true, false]) {
+    for (const useCredits of [false, true]) {
+      const ids = setup(provider);
+      changeProviderAccounts(provider, { auto, useCredits, selectedId: ids[0] });
+      for (const id of ids) {
+        recordProviderAccountUsage(provider, id, {
+          quotaWindows: [{ label: '5H', usedPct: 100, resetAt: Date.now() + 600_000 }],
+        });
+      }
+      const pool = readProviderAccountPool(provider);
+      assert.equal(pool.useCredits, useCredits);
+      const calls = [];
+      const gateway = createAccountPoolProvider(provider, () => ({
+        async send() {
+          calls.push(currentProviderAccountId(provider));
+          return { content: 'done' };
+        },
+      }));
+      if (useCredits) {
+        assert.equal((await gateway.send([], 'model', [], {})).content, 'done');
+        assert.equal(calls.length, 1);
+      } else {
+        assert.equal(chooseProviderAccount(pool, new Set(), Date.now(), 'model'), null);
+        await assert.rejects(gateway.send([], 'model', [], {}), (error) => {
+          assert.equal(error.code, 'provider_accounts_exhausted');
+          assert.match(error.message, /credit use is off/);
+          return true;
+        });
+        assert.equal(calls.length, 0);
+      }
+      for (const id of ids) removeProviderAccount(provider, id);
+      changeProviderAccounts(provider, { auto: true, useCredits: false });
+    }
+  }
+});
+
+test('changeProviderAccounts rejects a non-boolean useCredits', () => {
+  assert.throws(() => changeProviderAccounts('openai-oauth', { useCredits: 'yes' }), TypeError);
 });

@@ -632,7 +632,7 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri }) {
   };
 }
 
-export async function beginOAuthLogin({ openBrowserFn = null } = {}) {
+export async function beginOAuthLogin({ openBrowserFn = null, openBrowser = true } = {}) {
   const pkce = createOAuthPkce();
   const state = randomBytes(32).toString('base64url');
   const buildUrl = (redirectUri) => {
@@ -650,6 +650,7 @@ export async function beginOAuthLogin({ openBrowserFn = null } = {}) {
   const url = buildUrl(OAUTH_REDIRECT_URI);
   const manualUrl = buildUrl(OAUTH_MANUAL_REDIRECT_URI);
   const openLoginUrl = async (targetUrl, label = 'login') => {
+    if (!openBrowser) return;
     try {
       const openInBrowser = openBrowserFn || (await import('../../../shared/open-url.mjs')).openInBrowser;
       await openInBrowser(targetUrl.toString());

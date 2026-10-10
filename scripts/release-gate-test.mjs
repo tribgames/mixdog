@@ -595,8 +595,11 @@ function assertReleaseWorkflowContract(release) {
   // could never succeed here and left the check permanently red.
   assert.match(release, /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@[0-9a-f]{40} # v7/);
   assert.doesNotMatch(release, /desktop-runtime\.yml|desktop-runtime-(?:win32|darwin|linux)/);
-  assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-package\.yml/g) || []).length, 4);
-  for (const packageJob of ['windows', 'darwin-arm64', 'linux-x64', 'linux-arm64']) {
+  assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-package\.yml/g) || []).length, 5);
+  assert.match(release, /desktop-darwin-x64:[\s\S]*?runner:\s*macos-15-intel[\s\S]*?artifact_arch:\s*x64[\s\S]*?target:\s*mac/);
+  assert.match(release, /publish:[\s\S]*?needs:\s*\[[^\]]*desktop-darwin-x64[^\]]*\]/);
+  assert.match(release, /'mixdog-desktop-mac-x64\.dmg'[\s\S]*'mixdog-desktop-mac-x64\.zip'/);
+  for (const packageJob of ['windows', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64']) {
     assert.match(
       release,
       new RegExp(

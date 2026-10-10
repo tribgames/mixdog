@@ -27,8 +27,10 @@ import { DOWN_ARROW, UP_ARROW } from '../figures.mjs';
 import { formatDuration } from '../time-format.mjs';
 
 const FRAME_MS = 130;
-// Play frames forward, then in reverse — a smooth there-and-back sweep.
-const FRAMES = [...SPINNER_FRAMES, ...[...SPINNER_FRAMES].reverse()];
+// SPINNER_FRAMES is already a there-and-back sweep (first === last), so loop it
+// without its closing frame; repeating the endpoint held ◇ for two ticks at
+// every wrap and made the loop seam stutter.
+const FRAMES = SPINNER_FRAMES.slice(0, -1);
 
 // Stall: response must grow within this window or the glyph reddens.
 const STALL_TIMEOUT_MS = 3000;

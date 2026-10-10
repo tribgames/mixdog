@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { SetupLaneSource } from './app-shell-ui-open-request';
+import type { DesktopApi } from '../shared/contract';
 import type { Snapshot } from './desktop-types';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 
@@ -38,6 +39,12 @@ export function announceSetupChange(action: string): void {
   const mutation = SETUP_ACTION_MUTATIONS[action];
   if (mutation) invalidateSidebarReferenceForMutation(mutation);
   window.dispatchEvent(new CustomEvent(SETUP_CHANGED_EVENT, { detail: { action } }));
+}
+
+/** A desktop setting or Git identity was written on the host or by another
+ *  client: open settings pages re-read through the same setup-change event. */
+export function useSettingsChangeSync(api: Pick<Partial<DesktopApi>, 'subscribeSettingsChanged'> | undefined): void {
+  useEffect(() => api?.subscribeSettingsChanged?.(() => announceSetupChange('settings_changed')), [api]);
 }
 
 export function subscribeSetupChanges(listener: () => void): () => void {

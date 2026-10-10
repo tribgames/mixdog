@@ -398,6 +398,26 @@ test('the Recent actions menu archives recent sessions and confirms archived del
     assert.equal(automationSection.querySelector('.row-overflow-trigger'), null);
     assert.equal(recentSection.querySelector('.row-overflow-trigger'), null);
     assert.ok(archivedSection.querySelector('.row-overflow-trigger'));
+
+    const archivedHeader = archivedSection.querySelector('.sidebar-category-header');
+    const press = (key) =>
+      act(async () => {
+        archivedHeader.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      });
+    await press('Escape');
+    assert.equal(document.querySelector('.row-overflow-menu'), null);
+    await act(async () => {
+      archivedHeader.dispatchEvent(
+        new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 30 })
+      );
+    });
+    assert.ok(document.querySelector('.row-overflow-menu'), 'menu opens');
+    assert.ok(document.querySelector('.row-overflow-menu [data-action-id="restore-all"]'));
+    await press('Escape');
+    assert.equal(document.querySelector('.row-overflow-menu'), null);
+    await press('ContextMenu');
+    assert.ok(document.querySelector('.row-overflow-menu'));
+    await press('Escape');
   } finally {
     await act(async () => root.unmount());
     restore();

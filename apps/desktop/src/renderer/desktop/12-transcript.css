@@ -652,6 +652,13 @@ html[data-window-material="mica"] .transcript-shell {
   background: transparent;
   box-shadow: none;
 }
+.message.user .message-device {
+  margin: 3px 6px 0 0;
+  align-self: flex-end;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  opacity: 0.8;
+}
 .message.user .message-source {
   margin: 0 6px 3px 0;
   color: var(--mx-text-muted);

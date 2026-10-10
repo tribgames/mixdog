@@ -362,7 +362,6 @@ export function ProviderAccountsList({
                     onClick={() => void change({ selectedId: account.id })}
                   >
                     <span>{account.label}</span>
-                    {account.email && account.email !== account.label && <small>{account.email}</small>}
                     {account.reauthRequired && <small>{t('Reauth required')}</small>}
                     {selected && <Check size={14} aria-label={t('Active')} />}
                   </button>

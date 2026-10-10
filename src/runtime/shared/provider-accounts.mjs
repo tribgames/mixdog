@@ -134,7 +134,7 @@ export function changeProviderAccounts(provider, change) {
     !change ||
     typeof change !== 'object' ||
     Array.isArray(change) ||
-    Object.keys(change).some((key) => !['selectedId', 'order', 'auto', 'rename'].includes(key))
+    Object.keys(change).some((key) => !['selectedId', 'order', 'auto', 'useCredits', 'rename'].includes(key))
   ) {
     throw new TypeError('Invalid provider account change.');
   }
@@ -174,6 +174,10 @@ export function changeProviderAccounts(provider, change) {
     if (change.auto !== undefined) {
       if (typeof change.auto !== 'boolean') throw new TypeError('Automatic account switching must be boolean.');
       pool.auto = change.auto;
+    }
+    if (change.useCredits !== undefined) {
+      if (typeof change.useCredits !== 'boolean') throw new TypeError('Credit use must be boolean.');
+      pool.useCredits = change.useCredits;
     }
   });
 }
@@ -280,8 +284,9 @@ function blockAppliesToModel(row, model) {
   return scoped.some((window) => quotaWindowAppliesToModel(window, scope) && quotaWindowAppliesToModel(window, model));
 }
 
-export function providerAccountExhausted(row, now = Date.now(), model = '') {
+export function providerAccountExhausted(row, now = Date.now(), model = '', options = {}) {
   if (row?.blockedUntil > now && blockAppliesToModel(row, model)) return true;
+  if (options.useCredits === true) return false;
   return (row?.usage?.windows || []).some(
     (window) =>
       window.usedPct >= 100 &&
@@ -309,9 +314,13 @@ function accountHeadroom(row, now, model) {
 }
 
 export function chooseProviderAccount(pool, excluded = new Set(), now = Date.now(), model = '') {
-  const usable = (row) => row && !excluded.has(row.id) && !providerAccountExhausted(row, now, model);
+  const options = { useCredits: pool.useCredits === true };
+  const usable = (row) => row && !excluded.has(row.id) && !providerAccountExhausted(row, now, model, options);
   const selected = pool.accounts.find((row) => row.id === pool.selectedId);
-  if (pool.auto === false) return excluded.has(selected?.id) ? null : selected || null;
+  if (pool.auto === false) {
+    if (excluded.has(selected?.id)) return null;
+    return options.useCredits || usable(selected) ? selected || null : null;
+  }
   if (usable(selected)) return selected;
   // Falling back in roster order is blind: the account after the one that just
   // refused may itself be nearly spent, so the request pays a second switch to

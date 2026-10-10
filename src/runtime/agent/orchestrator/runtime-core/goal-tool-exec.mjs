@@ -27,7 +27,6 @@ function toolReply(ctx, id, goal, { full = false, previousIds = null } = {}) {
       timeUsedMs: goal.timeUsedMs,
     };
     if (goal.blocker) goalView.blocker = goal.blocker;
-    if (goal.blockAudit) goalView.blockAudit = goal.blockAudit;
     if (goal.needsTaskReview) goalView.needsTaskReview = true;
   }
   const result = { goal: goalView, remaining_ms: goal?.remainingMs ?? null };
@@ -76,7 +75,7 @@ async function pauseOrResume(ctx, id, args, action) {
       throw new Error(`a ${current.status === 'complete' ? 'completed' : 'stopped'} Goal cannot be paused or resumed`);
     }
     // The model pauses only at the user's explicit request, so its pause is the
-    // user's pause; waits on the user go through the consecutive-turn block audit.
+    // user's pause; waits on the user go through block.
     const change =
       action === 'resume'
         ? { updates: args.updates, tasks: args.tasks, duration: timeLimitMs, timeMode: args.time_mode }

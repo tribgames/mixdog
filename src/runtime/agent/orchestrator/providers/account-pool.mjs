@@ -9,7 +9,7 @@ import {
 } from '../../../shared/provider-accounts.mjs';
 import { withProviderAccount, hasExplicitProviderAuthBinding } from '../../../shared/provider-auth-binding.mjs';
 import { retryAfterMsFromError, isExplicitUserAbortError, typedErrorCode } from './retry-classifier.mjs';
-import { fetchOAuthUsageSnapshot } from './oauth-usage.mjs';
+import { fetchOAuthUsageSnapshot, readCachedOAuthUsageSnapshot } from './oauth-usage.mjs';
 
 // Only an explicit quota refusal advances the roster; a generic 429, auth
 // refusal, policy denial or transport failure retains its existing recovery.
@@ -49,7 +49,7 @@ export function resetAccountProbePacing() {
 async function probeRefusedAccounts(providerName, pool, model, account) {
   const now = Date.now();
   const due = pool.accounts
-    .filter((row) => providerAccountExhausted(row, now, model))
+    .filter((row) => providerAccountExhausted(row, now, model, { useCredits: pool.useCredits === true }))
     .filter((row) => now - (lastProbeAt.get(`${providerName}:${row.id}`) || 0) >= PROBE_INTERVAL_MS)
     .sort((a, b) => (a.usage?.checkedAt || 0) - (b.usage?.checkedAt || 0));
   if (!due.length) return false;
@@ -64,8 +64,12 @@ async function probeRefusedAccounts(providerName, pool, model, account) {
   return true;
 }
 
-function accountsExhaustedError() {
-  const error = new Error('All connected accounts have exhausted their quota. Check account usage and reset times.');
+function accountsExhaustedError(useCredits) {
+  const error = new Error(
+    useCredits
+      ? 'All connected accounts have exhausted their quota. Check account usage and reset times.'
+      : 'The plan limit is reached and credit use is off. Turn on credit use or wait for the limit to reset.'
+  );
   error.code = 'provider_accounts_exhausted';
   return error;
 }
@@ -122,7 +126,8 @@ async function accountQuotaExhausted(providerName, row, model, error, account) {
     exhausted = providerAccountExhausted(
       readProviderAccountPool(providerName).accounts.find((entry) => entry.id === row.id),
       Date.now(),
-      model
+      model,
+      { useCredits: readProviderAccountPool(providerName).useCredits === true }
     );
   }
   return { exhausted, delay };
@@ -138,7 +143,16 @@ function poolSend(providerName, account) {
     while (attempted.size < 20) {
       options.signal?.throwIfAborted();
       const pool = readProviderAccountPool(providerName);
-      if (!pool.accounts.length) return account('default').send(messages, model, tools, options);
+      if (!pool.accounts.length) {
+        if (pool.useCredits !== true) {
+          const stored = readCachedOAuthUsageSnapshot({ provider: providerName, model: '' });
+          if (stored?.quotaWindows?.length) {
+            const row = { usage: { windows: stored.quotaWindows, checkedAt: stored.cachedAt } };
+            if (providerAccountExhausted(row, Date.now(), model)) throw accountsExhaustedError(false);
+          }
+        }
+        return account('default').send(messages, model, tools, options);
+      }
       const row = chooseProviderAccount(pool, attempted, Date.now(), model);
       if (!row) {
         // Once per send: a refusal built on a stale meter must not outlive the
@@ -149,7 +163,7 @@ function poolSend(providerName, account) {
           if (await probeRefusedAccounts(providerName, pool, model, account)) continue;
         }
         if (lastError) throw lastError;
-        throw accountsExhaustedError();
+        throw accountsExhaustedError(pool.useCredits === true);
       }
       attempted.add(row.id);
       const bound = boundAccountSend(providerName, row, messages, options);

@@ -9,7 +9,10 @@ import type { DocumentPreview } from './editor-document-model';
 import type { EditorFileLoad } from './editor-file-loader';
 import { openEditorFileExternally } from './editor-external-file';
 import { editorLanguageLabel, type FilePreview } from './editor-pane-model';
+import { explorerAbsolutePath } from './explorer-tree-model';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import type { SideFileChrome } from './side-surface-strip';
+import { copyTextToClipboard } from './text-format';
 
 /** Status-bar selection readout: "N selections (M characters selected)" for a
  *  multi-cursor selection, otherwise "Ln L, Col C" with the selected count. */
@@ -102,6 +105,7 @@ export function useEditorSideChrome({
       onChange: (next) => sideChromeRef.current.changeViewMode(next),
     };
   }
+  const remote = isRemoteHostRenderer();
   const fileChrome: SideFileChrome = {
     editable: sideEditable,
     dirty,
@@ -115,8 +119,9 @@ export function useEditorSideChrome({
     language: sideTextEditor ? editorLanguageLabel(languageId) : undefined,
     format: formattingAvailable && sideEditable ? formatDocument : undefined,
     save: () => void sideChromeRef.current.save(),
-    reveal: () => void api?.revealFile?.(projectPath, relPath, accessToken),
-    openDefault: sideOpenDefault ? () => void openEditorFileExternally(projectPath, relPath, accessToken) : undefined,
+    reveal: remote ? undefined : () => void api?.revealFile?.(projectPath, relPath, accessToken),
+    copyPath: remote ? () => void copyTextToClipboard(explorerAbsolutePath(projectPath, relPath)) : undefined,
+    openDefault: sideOpenDefault && !remote ?() => void openEditorFileExternally(projectPath, relPath, accessToken) : undefined,
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: fileChrome is rebuilt every render; the listed primitives are its change signature, so the dock is told only when something it shows changed.
   useEffect(() => {

@@ -847,3 +847,24 @@
   font-size: var(--mx-font-code);
   line-height: var(--mx-line-minor);
 }
+.settings-connection-link,
+.settings-remote-host-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.settings-connection-link input,
+.settings-remote-host-form input {
+  flex: 1;
+  min-width: 0;
+}
+.settings-remote-host-form {
+  flex-wrap: wrap;
+}
+.settings-remote-host-form input[name='name'] {
+  flex: 0 1 160px;
+}
+.remote-claim-desktop {
+  color: var(--mx-accent);
+  font-weight: 600;
+}

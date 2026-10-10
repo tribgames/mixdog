@@ -5,6 +5,7 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
  */
 
 import { Worker } from 'node:worker_threads';
+import { onnxRuntimeSupported } from '../../shared/onnx-runtime-support.mjs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeProfilePoint } from './model-profile.mjs';
@@ -162,7 +163,12 @@ function embeddingWorkerTimeout(action) {
     : EMBED_WORKER_TIMEOUT_MS;
 }
 
+export function assertEmbeddingRuntimeSupported() {
+  if (!onnxRuntimeSupported()) throw new Error('embedding runtime unsupported on darwin-x64');
+}
+
 function sendToWorker(action, extra = {}, timeoutMs = embeddingWorkerTimeout(action)) {
+  assertEmbeddingRuntimeSupported();
   const w = ensureWorker();
   const id = ++_msgId;
   return new Promise((resolve, reject) => {
@@ -259,6 +265,7 @@ export function getEmbeddingInfo() {
     dimensions: cachedDims || getKnownDimsForCurrentModel(),
     device: _modelReady ? _device : '',
     engine: 'Transformers.js · ONNX Runtime',
+    supported: onnxRuntimeSupported(),
   };
 }
 
@@ -307,6 +314,7 @@ async function runEmbeddingWarmup() {
 }
 
 export function warmupEmbeddingProvider() {
+  if (!onnxRuntimeSupported()) return Promise.reject(new Error('embedding runtime unsupported on darwin-x64'));
   if (_configurePromise) return _configurePromise.then(() => warmupEmbeddingProvider());
   if (_modelReady && cachedDims) return Promise.resolve(true);
   if (!_warmupPromise) {
@@ -318,6 +326,7 @@ export function warmupEmbeddingProvider() {
 }
 
 export async function embedText(text, options = {}) {
+  assertEmbeddingRuntimeSupported();
   const clean = String(text ?? '').trim();
   if (!clean) return [];
   const inputType = normalizeEmbeddingInputType(options?.inputType);
@@ -362,6 +371,7 @@ export async function embedText(text, options = {}) {
  * one batched run replaces N sequential runs.
  */
 export async function embedTexts(texts, options = {}) {
+  assertEmbeddingRuntimeSupported();
   if (!Array.isArray(texts)) throw new Error('embedTexts requires an array');
   const inputType = normalizeEmbeddingInputType(options?.inputType);
   const dtype = _configuredDtype;

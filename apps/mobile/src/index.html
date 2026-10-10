@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Mixdog</title>
+    <style>
+      :root { color-scheme: dark light; --bg: #0f1115; --fg: #e8eaed; --muted: #9aa0a6; --card: #1a1d23; --accent: #6ea8ff; --bad: #ff8a80; }
+      @media (prefers-color-scheme: light) { :root { --bg: #fafafa; --fg: #202124; --muted: #5f6368; --card: #ffffff; --accent: #1a63d6; --bad: #c5221f; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg); font: 16px/1.45 system-ui, -apple-system, sans-serif;
+        padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 18px; }
+      h1 { margin: 8px 0 0; font-size: 26px; }
+      p { margin: 0; color: var(--muted); }
+      section { background: var(--card); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+      button { font: inherit; border: 0; border-radius: 10px; padding: 12px 14px; background: var(--accent); color: #fff; }
+      button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+      input { font: inherit; width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--muted); background: transparent; color: var(--fg); }
+      .host { display: flex; gap: 8px; }
+      .host-open { flex: 1; text-align: left; background: transparent; color: var(--fg); border: 1px solid var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .host-forget { background: transparent; color: var(--bad); }
+      #status { min-height: 1.4em; color: var(--muted); }
+      #status[data-failed="1"] { color: var(--bad); }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <h1>Mixdog</h1>
+    <p>Connect this phone to your desktop. On the desktop open Settings → Connection and show the QR code.</p>
+
+    <section id="update" hidden>
+      <span id="update-text"></span>
+      <button id="update-get">Download update</button>
+      <button id="update-later" class="secondary">Later</button>
+    </section>
+
+    <section id="hosts-section" hidden>
+      <strong>Paired desktops</strong>
+      <div id="hosts"></div>
+    </section>
+
+    <section>
+      <button id="scan">Scan QR code</button>
+      <input id="link" type="url" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="…or paste the pairing link" />
+      <button id="connect" class="secondary">Connect</button>
+    </section>
+
+    <div id="status" role="status"></div>
+    <script type="module" src="./assets/main.js"></script>
+  </body>
+</html>

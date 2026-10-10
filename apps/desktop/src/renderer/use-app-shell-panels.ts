@@ -95,7 +95,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   // instead (user: /context가 0으로 나온다). A surface that owns no
   // conversation simply passes nothing.
   const openConversationCommandSurface = useCallback((surface: CommandSurfaceName, sessionId = '') => {
-    if (surface === 'usage' && !desktopFeatureEnabled('usage')) return;
+    if (surface === 'stats' && !desktopFeatureEnabled('usage')) return;
     setSettingsOpen(false);
     setCommandSurfaceSessionId(surface === 'context' || surface === 'inherit' ? sessionId : '');
     setCommandSurface(surface);

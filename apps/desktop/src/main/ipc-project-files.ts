@@ -73,7 +73,7 @@ export function registerProjectFileIpc({
   });
   handle(DESKTOP_IPC.localPageUrl, async (_event, projectPath, relPath, accessToken) => {
     const { root, rel } = await editorFileTarget(projectPath, relPath, accessToken);
-    return localPageUrl(root, rel);
+    return localPageUrl(root, rel, typeof accessToken === 'string' && accessToken.length > 0);
   });
   handle(DESKTOP_IPC.previewProjectFile, async (_event, projectPath, relPath, accessToken) => {
     let file: string;

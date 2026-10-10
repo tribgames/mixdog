@@ -24,6 +24,8 @@ import {
   scheduleSave,
 } from './device-store-persistence.mjs';
 
+import { deviceVersion, recordDesktopVersion } from './device-store-version.mjs';
+
 export { clientProfile, readDeviceCredentials, registrableDeviceId };
 
 export class DeviceStore {
@@ -48,6 +50,14 @@ export class DeviceStore {
 
   scheduleSave() {
     scheduleSave(this);
+  }
+
+  recordDesktopVersion(deviceId, report) {
+    return recordDesktopVersion(this, deviceId, report);
+  }
+
+  deviceVersion(deviceId) {
+    return deviceVersion(this, deviceId);
   }
 
   isKnown(deviceId) {
@@ -80,6 +90,10 @@ export class DeviceStore {
 
   touchClient(deviceId, clientId, profile = {}) {
     return touchClient(this, deviceId, clientId, profile);
+  }
+
+  hasClient(deviceId, clientId) {
+    return Boolean(this.devices.get(deviceId)?.clients?.[clientId]);
   }
 
   listClients(deviceId, online = new Set()) {

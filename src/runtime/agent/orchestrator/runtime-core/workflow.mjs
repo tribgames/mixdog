@@ -187,12 +187,18 @@ export function normalizeWorkflowRoute(routeLike, fallback = {}) {
   const effort = normalizeEffortInput(routeLike?.effort ?? fallback.effort);
   const fast = routeLike?.fast ?? fallback.fast;
   const modelParameters = routeLike?.modelParameters ?? fallback.modelParameters;
+  const requestedPercent = Number(routeLike?.contextPercent ?? fallback.contextPercent);
+  const contextPercent =
+    Number.isFinite(requestedPercent) && requestedPercent >= 10 && requestedPercent <= 100
+      ? Math.round(requestedPercent / 10) * 10
+      : null;
   return {
     provider,
     model,
     ...(effort ? { effort } : {}),
     ...(typeof fast === 'boolean' ? { fast } : {}),
     ...(modelParameters && typeof modelParameters === 'object' ? { modelParameters: { ...modelParameters } } : {}),
+    ...(contextPercent ? { contextPercent } : {}),
   };
 }
 

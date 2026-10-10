@@ -30,6 +30,8 @@ export async function resolveConfig(boot) {
     effort: params.effort,
     fast: params.fast,
     modelParameters: params.modelParameters,
+    contextPercent: params.contextPercent,
+    selectedContextWindow: params.selectedContextWindow,
   }));
   configureLocalProviderIdleTtl(rt.config.providers?.[LOCAL_PROVIDER_ID]?.idleTtlSeconds);
   setConfiguredShell(normalizeSystemShellConfig(rt.config.shell).command);

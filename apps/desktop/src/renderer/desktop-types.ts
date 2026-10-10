@@ -11,6 +11,8 @@ export type TranscriptItem = RecordValue & {
   modelId?: string;
   provider?: string;
   agent?: string;
+  /** Device that submitted this prompt (user rows only). */
+  device?: string;
   name?: string;
   args?: unknown;
   result?: unknown;
@@ -94,6 +96,8 @@ export type Snapshot = RecordValue & {
   commandBusy?: boolean;
   queued?: unknown[];
   toolApproval?: Approval | null;
+  toolApprovalResult?: { id: string; approved: boolean; device: string; at: number } | null;
+  promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   cwd?: string;
   project?: Project | null;
   currentProject?: Project | null;

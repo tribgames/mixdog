@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, ExternalLink, Keyboard, RotateCw, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ExternalLink, Keyboard, KeyRound, Link2, RotateCw, X } from 'lucide-react';
 import { ProgressSpinner } from './ProgressSpinner';
 import {
   useCallback,
@@ -10,8 +10,18 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 
-import type { DesktopRemoteBrowserControl, DesktopRemoteBrowserStreamFrame } from '../shared/contract';
+import type {
+  DesktopBrowserTab,
+  DesktopRemoteBrowserControl,
+  DesktopRemoteBrowserStreamFrame,
+  DesktopRemoteBrowserTab,
+} from '../shared/contract';
+import { MAIN_BROWSER_PAGE_PREFIX } from '../shared/contract-browser';
 import { remoteBrowserImagePoint } from '../shared/remote-browser';
+import { useBrowserCredentials, useHistorySuggestions } from './browser-pane-hooks';
+import { BrowserImportDialog } from './BrowserImportDialog';
+import { BrowserTabStrip } from './BrowserTabStrip';
+import { DockOverflowMenu, type DockAction } from './pane-dock-chrome';
 import { browserInputNotice } from '../shared/browser-input-policy';
 import { normalizeAddressInput } from './browser-address';
 import { createRemoteBrowserInputQueue } from './remote-browser-input';
@@ -47,9 +57,14 @@ async function decodeImage(url: string): Promise<void> {
   if (typeof image.decode === 'function') await image.decode();
 }
 
+/** Panes watching the tab list share one host-side watch per client. */
+let tabWatchers = 0;
+
 export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProps) {
   const api = window.mixdogDesktop;
-  const ownerSessionId = sessionId;
+  // The page this client streams: its own tab until another is selected.
+  const [streamId, setStreamId] = useState(sessionId);
+  const ownerSessionId = streamId;
   const addressFocused = useRef(false);
   const addressRef = useRef<HTMLInputElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -65,6 +80,11 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
   const [actionFailure, setActionFailure] = useState('');
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [touchDot, setTouchDot] = useState<{ x: number; y: number; key: number } | null>(null);
+  const [addressHasFocus, setAddressHasFocus] = useState(false);
+  const [newTab, setNewTab] = useState(false);
+  const [tabs, setTabs] = useState<DesktopRemoteBrowserTab[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [, setConnectionEpoch] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; keeping it as a dependency rebuilds the queue if the bridge object is replaced.
   const inputQueue = useMemo(
     () =>
@@ -100,6 +120,26 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     },
     [ownerSessionId]
   );
+
+  // Another page: nothing of the previous one (frame, image, pan, zoom) carries over.
+  const shownStream = useRef(streamId);
+  useEffect(() => {
+    if (shownStream.current === streamId) return;
+    shownStream.current = streamId;
+    frameRef.current = null;
+    imageSize.current = null;
+    setFrame(null);
+    setImageUrl('');
+    setFailure('');
+    setActionFailure('');
+    setAddress('');
+    setPan({ x: 0, y: 0 });
+    setZoomLevel(readBrowserZoom(window.localStorage, streamId));
+  }, [streamId]);
+  // The pane's own tab is the page it starts from again if it is retargeted.
+  useEffect(() => {
+    setStreamId(sessionId);
+  }, [sessionId]);
 
   const shortcutRef = useRef((_name: string) => {});
   shortcutRef.current = (name) => {
@@ -314,8 +354,118 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
     },
     [control]
   );
+  const go = (raw: string) => {
+    setHistorySuggestions([]);
+    if (newTab) void openTab(raw);
+    else navigate(raw);
+  };
+
+  // The host's extras (tabs, history, saved logins, import) appear only once
+  // the connected host advertises them; a reconnect may reach another host.
+  useEffect(() => {
+    const ready = () => setConnectionEpoch((epoch) => epoch + 1);
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, ready);
+    return () => window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, ready);
+  }, []);
+  // Only a main-workspace tab may roam over its siblings; a conversation's
+  // dock page stays its own.
+  const tabsSupported =
+    sessionId.startsWith(MAIN_BROWSER_PAGE_PREFIX) && Boolean(api?.remoteBrowserTabs && api.onRemoteBrowserTabs);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: api is window.mixdogDesktop; tabsSupported reflects its gated members.
+  useEffect(() => {
+    if (!active || !tabsSupported || !api?.remoteBrowserTabs || !api.onRemoteBrowserTabs) {
+      setTabs([]);
+      return undefined;
+    }
+    let live = true;
+    const watch = () => {
+      api.remoteBrowserTabs?.(true).then(
+        (list) => {
+          if (live) setTabs(list);
+        },
+        () => {}
+      );
+    };
+    const unsubscribe = api.onRemoteBrowserTabs((list) => {
+      if (live) setTabs(list);
+    });
+    tabWatchers += 1;
+    watch();
+    window.addEventListener(REMOTE_CONNECTION_READY_EVENT, watch);
+    return () => {
+      live = false;
+      unsubscribe();
+      window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, watch);
+      tabWatchers -= 1;
+      if (tabWatchers === 0) api.remoteBrowserTabs?.(false).catch(() => {});
+    };
+  }, [active, api, tabsSupported]);
+
+  const selectTab = useCallback((id: string) => {
+    setNewTab(false);
+    setStreamId(id);
+  }, []);
+  const reportFailure = (error: unknown) => setActionFailure(error instanceof Error ? error.message : String(error));
+  const openTab = async (raw: string) => {
+    const url = normalizeAddressInput(raw);
+    if (!url || !api?.remoteBrowserOpenTab) return;
+    setNewTab(false);
+    try {
+      const tab = await api.remoteBrowserOpenTab(url);
+      setTabs((current) => (current.some((item) => item.id === tab.id) ? current : [...current, tab]));
+      selectTab(tab.id);
+    } catch (error) {
+      reportFailure(error);
+    }
+  };
+  const closeTab = async (id: string) => {
+    const index = tabs.findIndex((tab) => tab.id === id);
+    if (index < 0 || tabs.length < 2 || !api?.remoteBrowserCloseTab) return;
+    // Leave the page before it is released, or the live stream would recreate it.
+    if (id === streamId) selectTab((tabs[index + 1] ?? tabs[index - 1]).id);
+    try {
+      await api.remoteBrowserCloseTab(id);
+      setTabs((current) => current.filter((tab) => tab.id !== id));
+    } catch (error) {
+      reportFailure(error);
+    }
+  };
+  const stripTabs = useMemo<DesktopBrowserTab[]>(
+    () => tabs.map((tab) => ({ ...tab, active: tab.id === streamId, kind: 'page' })),
+    [tabs, streamId]
+  );
+
+  const { historySuggestions, setHistorySuggestions } = useHistorySuggestions(api, address, addressHasFocus);
+  const { credentialBusy, credentialStatus, credentialSuggestions, fillStoredCredential, refreshCredentialSuggestions } =
+    useBrowserCredentials(api, ownerSessionId);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the page's address and loading state are the triggers; the body only asks the host.
+  useEffect(() => {
+    if (active && frame && !frame.loading) refreshCredentialSuggestions();
+  }, [active, frame?.url, frame?.loading, refreshCredentialSuggestions]);
 
   const externalUrl = frame?.url && frame.url !== 'about:blank' ? frame.url : '';
+  let credentialLabel = t('Fill with stored credentials');
+  if (credentialStatus === 'success') credentialLabel = t('Filled stored credentials');
+  else if (credentialStatus === 'error') credentialLabel = t('Could not fill stored credentials');
+  const moreActions: DockAction[] = credentialSuggestions.map((credential) => ({
+    id: `credential-${credential.id}`,
+    label:
+      credentialSuggestions.length === 1
+        ? credentialLabel
+        : `${t('Fill with stored credentials')}: ${credential.label}`,
+    icon: KeyRound,
+    disabled: credentialBusy,
+    onSelect: () => fillStoredCredential(credential.id),
+  }));
+  if (api?.browserProfileImportSources) {
+    moreActions.push({
+      id: 'import-profile',
+      label: t('Import from browser'),
+      icon: Link2,
+      separatorBefore: credentialSuggestions.length > 0,
+      onSelect: () => setImportOpen(true),
+    });
+  }
 
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'touch') return input.onPointerDown(event);
@@ -340,7 +490,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
 
   const submitAddress = (event: FormEvent) => {
     event.preventDefault();
-    navigate(address);
+    go(address);
     addressFocused.current = false;
   };
 
@@ -383,18 +533,39 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
             type="text"
             value={address}
             spellCheck={false}
-            placeholder={t('Search or enter address')}
+            placeholder={newTab ? t('Address for new tab') : t('Search or enter address')}
             aria-label={t('Address bar')}
             onChange={(event) => setAddress(event.target.value)}
             onFocus={(event) => {
               addressFocused.current = true;
+              setAddressHasFocus(true);
               event.target.select();
             }}
             onBlur={() => {
               addressFocused.current = false;
+              setAddressHasFocus(false);
+              setNewTab(false);
               if (externalUrl) setAddress(externalUrl);
             }}
           />
+          {historySuggestions.length > 0 && (
+            <div className="browser-pane-history-suggestions">
+              {historySuggestions.map((entry) => (
+                <button
+                  type="button"
+                  key={entry.url}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    go(entry.url);
+                    setAddressHasFocus(false);
+                  }}
+                >
+                  <span>{entry.title || entry.url}</span>
+                  <code>{entry.url}</code>
+                </button>
+              ))}
+            </div>
+          )}
         </form>
         <button
           type="button"
@@ -418,8 +589,23 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
         >
           <ExternalLink size={16} />
         </button>
+        {moreActions.length > 0 && <DockOverflowMenu items={moreActions} />}
       </div>
-      {/* One persistent textarea: the visible phone keyboard bar when open,
+      {tabsSupported && tabs.length > 0 && (
+        <div className="browser-pane-popup-tabs">
+          <BrowserTabStrip
+            tabs={stripTabs}
+            onSelect={async (id) => selectTab(id)}
+            onClose={closeTab}
+            onCreate={async () => {
+              setNewTab(true);
+              setAddress('');
+              addressRef.current?.focus();
+            }}
+          />
+        </div>
+      )}
+      <BrowserImportDialog open={importOpen} onClose={() => setImportOpen(false)} />      {/* One persistent textarea: the visible phone keyboard bar when open,
           otherwise an invisible focus target for desktop key/IME/paste. */}
       <div className="browser-remote-keyboard" data-open={keyboardOpen ? 'true' : 'false'}>
         <textarea

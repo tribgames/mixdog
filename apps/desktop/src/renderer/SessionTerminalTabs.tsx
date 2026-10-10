@@ -18,6 +18,13 @@ import {
   subscribeSessionTerminalTabs,
 } from './session-terminal-tabs';
 import { cachedShellProfiles, loadShellProfiles, type ShellProfilesState } from './terminal-shell-profiles';
+import {
+  ScmContextMenu,
+  elementMenuPoint,
+  isContextMenuKey,
+  pointerMenuPoint,
+  type ScmContextMenuState,
+} from './ScmContextMenu';
 import './tab-strip.css';
 
 const ARROW_OFFSETS: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
@@ -97,6 +104,23 @@ export function SessionTerminalTabs({
     // the disposed terminal's view state.
     setTimeout(() => void disposeTerminalPane(id), 0);
   };
+  const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
+  const openMenu = (id: string, title: string, point: { x: number; y: number }) =>
+    setMenu({
+      label: title,
+      ...point,
+      items: [
+        { id: 'close-tab', label: t('Close tab'), onSelect: () => closeTab(id) },
+        {
+          id: 'close-others',
+          label: t('Close Others'),
+          disabled: state.tabs.length < 2,
+          onSelect: () => {
+            for (const other of state.tabs) if (other.id !== id) closeTab(other.id);
+          },
+        },
+      ],
+    });
   const openTab = (shell: string) => openSessionTerminalTab(sessionId, shell);
   // ⋯ = "open a new tab with this shell" (the former chevron picker).
   let shellActions: DockAction[];
@@ -161,6 +185,10 @@ export function SessionTerminalTabs({
                       event.preventDefault();
                       closeTab(tab.id);
                     }}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      openMenu(tab.id, title, pointerMenuPoint(event));
+                    }}
                   >
                     <button
                       type="button"
@@ -171,6 +199,11 @@ export function SessionTerminalTabs({
                       className="browser-tab-select"
                       title={title}
                       onClick={() => selectSessionTerminalTab(sessionId, tab.id)}
+                      onKeyDown={(event) => {
+                        if (!isContextMenuKey(event)) return;
+                        event.preventDefault();
+                        openMenu(tab.id, title, elementMenuPoint(event.currentTarget));
+                      }}
                     >
                       <Terminal size={15} aria-hidden="true" />
                       <span>{title}</span>
@@ -188,6 +221,7 @@ export function SessionTerminalTabs({
                 );
               })}
             </div>
+            <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
             <button
               type="button"
               className="browser-tab-new"

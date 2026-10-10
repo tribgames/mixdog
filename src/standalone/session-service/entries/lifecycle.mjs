@@ -47,6 +47,8 @@ export function createEntryLifecycle({
       effort: params.effort,
       fast: params.fast,
       modelParameters: params.modelParameters,
+      contextPercent: params.contextPercent,
+      selectedContextWindow: params.selectedContextWindow,
       toolMode: params.toolMode || 'full',
       remote: params.remote === true,
       desktopSession: params.desktopSession ?? null,

@@ -14,8 +14,21 @@ interface AttachedDaemon {
   close(reason?: string): Promise<void>;
 }
 
+interface DaemonUpgradeWait {
+  state: 'waiting' | 'done';
+  fromVersion?: string;
+  toVersion?: string;
+}
+
+const UPGRADE_RETRY_DELAY_MS = 250;
+
 interface SessionClientModule {
-  ensureDaemon(options?: { cwd?: string; log?: (line: string) => void }): Promise<Record<string, unknown>>;
+  ensureDaemon(options?: {
+    cwd?: string;
+    log?: (line: string) => void;
+    onUpgradeWait?: (info: DaemonUpgradeWait) => void;
+  }): Promise<Record<string, unknown>>;
+  forceDaemonUpgrade(options?: { log?: (line: string) => void }): Promise<boolean>;
   attachSession(options: {
     discovery: Record<string, unknown>;
     cwd?: string;
@@ -208,19 +221,56 @@ export class SessionTransport implements DesktopTransport {
     const attempt = ++this.connectAttempt;
     this.viewSyncSupported = false;
     let discovery: Record<string, unknown>;
-    try {
-      discovery = await this.measureBootPhase(
-        'ensure-daemon',
-        () =>
-          daemonModule.ensureDaemon({
-            cwd: this.cwd,
-            log: (line) => this.emit('diagnostic', 'session-daemon-log', { detail: line, attempt }),
-          }),
-        { attempt }
-      );
-    } catch (error) {
-      throw desktopSessionProtocolError(error);
+    let upgradeWaiting = false;
+    const emitUpgradeWait = (state: 'waiting' | 'done', fromVersion?: unknown, toVersion?: unknown): void => {
+      const startsWait = state === 'waiting' && !upgradeWaiting;
+      upgradeWaiting = state === 'waiting';
+      if (startsWait) {
+        // An older daemon must yield: abort its in-flight work now, once per wait.
+        void daemonModule
+          .forceDaemonUpgrade({ log: (line) => this.emit('diagnostic', 'session-daemon-log', { detail: line, attempt }) })
+          .catch((error) =>
+            this.emit('diagnostic', 'daemon-force-upgrade-failed', {
+              errorName: error instanceof Error ? error.name : typeof error,
+            })
+          );
+      }
+      this.emit('message', {
+        kind: 'upgrade-wait',
+        state,
+        ...(fromVersion ? { fromVersion: String(fromVersion) } : {}),
+        ...(toVersion ? { toVersion: String(toVersion) } : {}),
+      } satisfies DesktopServiceOutbound);
+    };
+    for (;;) {
+      try {
+        discovery = await this.measureBootPhase(
+          'ensure-daemon',
+          () =>
+            daemonModule.ensureDaemon({
+              cwd: this.cwd,
+              log: (line) => this.emit('diagnostic', 'session-daemon-log', { detail: line, attempt }),
+              onUpgradeWait: (info) => emitUpgradeWait(info.state, info.fromVersion, info.toVersion),
+            }),
+          { attempt }
+        );
+        break;
+      } catch (error) {
+        // An older daemon still finishing its work is not a failure: keep the
+        // waiting state published and ask again until it yields.
+        if (
+          this.closed ||
+          !error ||
+          typeof error !== 'object' ||
+          (error as Record<string, unknown>).daemonUpgradePending !== true
+        ) {
+          throw desktopSessionProtocolError(error);
+        }
+        if (!upgradeWaiting) emitUpgradeWait('waiting');
+        await new Promise((resolve) => setTimeout(resolve, UPGRADE_RETRY_DELAY_MS));
+      }
     }
+    if (upgradeWaiting) emitUpgradeWait('done');
     let attached: AttachedDaemon | null = null;
     let fatalDuringAttach = '';
     try {

@@ -90,15 +90,27 @@ function Do-ClickFamily($req, $kind) {
         if (-not $req.ref -and -not $req.window_id -and -not $req.window) {
             return Background-Unavailable $req.action 'background pixel input requires an exact window_id-bound frame' $null 'target_required'
         }
+        $pressHold = [IntPtr]::Zero
         try {
             Assert-ExecutionAuthorization $req $target
+            # A held button keeps its window non-activatable until the matching
+            # release, so the press, the gap and the release share one hold.
+            if ($kind -eq 'press') { $pressHold = [MixWin32]::HoldInactive($target) }
             $messageTarget = [MixWin32]::BackgroundPointer($target, $p[0], $p[1], $kind, $req.modifiers)
-            if ($kind -eq 'press' -or $kind -eq 'release') { Record-HeldPointer $target $p $kind }
+            if ($kind -eq 'press' -or $kind -eq 'release') {
+                $recorded = $pressHold
+                $pressHold = [IntPtr]::Zero
+                Record-HeldPointer $target $p $kind $recorded
+            }
             $message = "$($req.action) delivered to $messageTarget as a native window message"
             return Complete-NativeAction $req.action $messageTarget ([MixWin32]::WindowId($target)) $before $refRecord $message
         }
         catch {
             return Native-BackgroundFailure $req.action $_.Exception ([MixWin32]::WindowId($target))
+        }
+        finally {
+            # Only a press that did not land still owns its hold here.
+            [MixWin32]::ReleaseInactive($pressHold)
         }
     }
     return Invoke-ForegroundInput $target $req.action {
@@ -134,28 +146,64 @@ function Do-MouseMove($req) {
     return Do-ClickFamily $req 'move'
 }
 
-function Record-HeldPointer($target, $point, $kind) {
+function Record-HeldPointer($target, $point, $kind, $hold = [IntPtr]::Zero) {
     $state = Get-CurrentSession
     if ($null -eq $state.HeldPointerTargets) { $state.HeldPointerTargets = @{} }
+    if ($null -eq $state.HeldPointerInactive) { $state.HeldPointerInactive = @{} }
     $id = [string][MixWin32]::WindowId($target)
-    if ($kind -eq 'press') { $state.HeldPointerTargets[$id] = @([int]$point[0], [int]$point[1]) }
-    else { $state.HeldPointerTargets.Remove($id) }
+    $previous = $state.HeldPointerInactive[$id]
+    if ($kind -eq 'press') {
+        $state.HeldPointerTargets[$id] = @([int]$point[0], [int]$point[1])
+        $state.HeldPointerInactive[$id] = $hold
+    }
+    else {
+        $state.HeldPointerTargets.Remove($id)
+        $state.HeldPointerInactive.Remove($id)
+    }
+    # A release ends the press's hold; a repeated press replaces the earlier one.
+    if ($null -ne $previous) { [MixWin32]::ReleaseInactive([IntPtr]$previous) }
 }
 
 function Release-HeldPointerButtons($state) {
-    if ($null -eq $state.HeldPointerTargets -or $state.HeldPointerTargets.Count -eq 0) { return }
     # Every exit from a session releases what this session pressed; an unreleased
-    # button would leave the target believing a drag is still in progress.
+    # button would leave the target believing a drag is still in progress. The
+    # no-activate holds of those presses, and of a sequence that never reached
+    # its last step, end here too, each one even when another fails.
     $failed = $false
-    foreach ($id in @($state.HeldPointerTargets.Keys)) {
-        $point = $state.HeldPointerTargets[$id]
-        try {
-            $handle = [MixWin32]::ParseWindowId([string]$id)
-            [void][MixWin32]::BackgroundPointer($handle, [int]$point[0], [int]$point[1], 'release', '')
+    if ($null -ne $state.HeldPointerTargets) {
+        foreach ($id in @($state.HeldPointerTargets.Keys)) {
+            $point = $state.HeldPointerTargets[$id]
+            $hold = if ($null -ne $state.HeldPointerInactive) { $state.HeldPointerInactive[$id] } else { $null }
+            try {
+                try {
+                    $handle = [MixWin32]::ParseWindowId([string]$id)
+                    [void][MixWin32]::BackgroundPointer($handle, [int]$point[0], [int]$point[1], 'release', '')
+                }
+                finally {
+                    if ($null -ne $hold) {
+                        $state.HeldPointerInactive.Remove($id)
+                        [MixWin32]::ReleaseInactive([IntPtr]$hold)
+                    }
+                }
+            }
+            catch { $failed = $true }
         }
-        catch { $failed = $true }
+        $state.HeldPointerTargets.Clear()
     }
-    $state.HeldPointerTargets.Clear()
+    if ($null -ne $state.HeldPointerInactive) {
+        foreach ($id in @($state.HeldPointerInactive.Keys)) {
+            try { [MixWin32]::ReleaseInactive([IntPtr]$state.HeldPointerInactive[$id]) }
+            catch { $failed = $true }
+        }
+        $state.HeldPointerInactive.Clear()
+    }
+    if ($null -ne $state.SequenceInactive) {
+        foreach ($id in @($state.SequenceInactive.Keys)) {
+            try { [MixWin32]::EndInactive($state.SequenceInactive[$id]) }
+            catch { $failed = $true }
+        }
+        $state.SequenceInactive.Clear()
+    }
     if ($failed) { throw 'input_cleanup_unconfirmed: a held pointer button could not be released' }
 }
 

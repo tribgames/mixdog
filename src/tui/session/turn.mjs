@@ -152,6 +152,8 @@ function promptRestoreFor(displayText, options, submittedIds, content = null) {
     onCommitted: typeof options.onCommitted === 'function' ? options.onCommitted : null,
     restorable: options.restorable !== false,
     submittedIds,
+    // Which device submitted the prompt: only that device may get it back.
+    device: typeof options.transcriptMeta?.device === 'string' ? options.transcriptMeta.device : '',
     reclaimed: false,
     committed: false,
     requeueEntries: Array.isArray(options.requeueOnAbort) ? options.requeueOnAbort.slice() : [],
@@ -189,6 +191,9 @@ function steeringItemExtras(steeringMeta) {
     ...(Array.isArray(steeringMeta?.images) && steeringMeta.images.length ? { images: steeringMeta.images } : {}),
     ...(typeof steeringMeta?.transcriptMeta?.sender === 'string' && steeringMeta.transcriptMeta.sender
       ? { sender: steeringMeta.transcriptMeta.sender }
+      : {}),
+    ...(typeof steeringMeta?.transcriptMeta?.device === 'string' && steeringMeta.transcriptMeta.device
+      ? { device: steeringMeta.transcriptMeta.device }
       : {}),
   };
 }

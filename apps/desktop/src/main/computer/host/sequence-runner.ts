@@ -223,8 +223,9 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
         session_id: sessionIdFor(command),
         // Swapping the system cursors costs far more than the keystroke it
         // decorates, so one lease covers the whole sequence and only its last
-        // step pays the wait that protects a finished gesture.
-        ...(delivery === 'foreground' && index < steps.length - 1 ? { input_continues: true } : {}),
+        // step pays the wait that protects a finished gesture. In the background
+        // the same flag keeps one no-activate hold on the target across steps.
+        ...(index < steps.length - 1 ? { input_continues: true } : {}),
       };
       assertSafeComputerInput(stepCommand);
       if (steps.slice(index + 1).some((later) => typeof later?.ref === 'string')) {

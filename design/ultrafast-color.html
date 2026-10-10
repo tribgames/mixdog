@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Ultrafast 강조 색 시안</title>
+<style>
+  :root { --font: "Pretendard Variable", Pretendard, "Malgun Gothic", "Segoe UI", sans-serif; }
+  body { margin: 0; padding: 28px; background: #18181b; color: #e9e9e9; font-family: var(--font); font-size: 14px; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  h2 { font-size: 16px; margin: 36px 0 12px; }
+  p.lead { color: #a8a8a8; margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; }
+  .card { border: 1px solid #3d3d41; border-radius: 10px; overflow: hidden; background: #222225; }
+  .card-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #3d3d41; }
+  .card-head b { font-size: 15px; }
+  .card-head code { color: #a8a8a8; font-size: 12px; }
+  .sw { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+  .themes { display: grid; grid-template-columns: 1fr 1fr; }
+
+  /* theme panes */
+  .t { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  .t.dark  { --bg:#222225; --layer:#2a2a2d; --layer2:#323236; --line:#3d3d41; --text:#e9e9e9; --muted:#a8a8a8; --danger:#f17471; background: var(--bg); color: var(--text); }
+  .t.light { --bg:#ffffff; --layer:#f3f3f3; --layer2:#eeeeee; --line:#e0e0e0; --text:#222222; --muted:#606060; --danger:#b82d35; background: var(--bg); color: var(--text); }
+  .t.dark  { --uf: var(--uf-dark); }
+  .t.light { --uf: var(--uf-light); }
+
+  /* model chip */
+  .chip { align-self: flex-start; display: inline-flex; gap: 6px; align-items: center; padding: 4px 10px; border-radius: 999px; background: var(--layer2); font-size: 13px; color: var(--muted); }
+  .chip .m { color: var(--text); }
+
+  /* route sheet */
+  .sheet { background: var(--layer); border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+  .row { display: flex; justify-content: space-between; padding: 7px 10px; border-radius: 6px; font-size: 14px; }
+  .row .v { color: var(--muted); }
+  .opt { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 6px; }
+  .opt.sel { background: var(--layer2); }
+  .opt small { display: block; color: var(--muted); font-size: 12px; }
+  .chk { color: var(--text); }
+  .err { font-size: 12px; color: var(--danger); }
+
+  /* emphasis styles */
+  .t .uf { color: var(--uf); }
+  .s-bold .uf { font-weight: 600; }
+  .s-bolt .uf::before { content: "⚡"; margin-right: 3px; font-size: 0.9em; }
+  .s-bolt .uf { font-weight: 600; }
+  .s-pill .uf { font-weight: 600; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--uf) 16%, transparent); }
+  .s-dot .uf { font-weight: 600; }
+  .s-dot .uf::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--uf); margin-right: 5px; vertical-align: middle; position: relative; top: -1px; }
+
+  .note { padding: 10px 14px; color: #a8a8a8; font-size: 12px; border-top: 1px solid #3d3d41; }
+</style>
+</head>
+<body>
+<h1>Ultrafast 강조 색 시안</h1>
+<p class="lead">켜져 있을 때 모델 칩·Speed 행·선택 목록에 들어가는 모습입니다. 각 카드 왼쪽은 다크, 오른쪽은 라이트 테마이고, 아래 빨간 글씨는 비교용 에러 색(<code>--mx-danger</code>)입니다.</p>
+
+<h2>1. 색 후보 (스타일: 굵게 + 색)</h2>
+<div class="grid" id="colors"></div>
+
+<h2>2. 강조 방식 후보 (색: A 버밀리언 기준)</h2>
+<div class="grid" id="styles"></div>
+
+<script>
+const colors = [
+  { id: 'A', name: '버밀리언', dark: '#ff7a50', light: '#c2410c', note: '주황빛 빨강의 기준안. 에러 빨강과 구분이 확실합니다.' },
+  { id: 'B', name: '코랄', dark: '#ff8a65', light: '#c43e1c', note: '부드럽고 덜 자극적입니다. 다크에서 살짝 연해 보일 수 있습니다.' },
+  { id: 'C', name: '탠저린 레드', dark: '#ff6f3c', light: '#b93a0a', note: '채도가 높아 가장 또렷합니다.' },
+  { id: 'D', name: '감색(퍼시먼)', dark: '#f2784b', light: '#b5451b', note: '채도를 살짝 낮춰 UI에 차분하게 섞입니다.' },
+  { id: 'E', name: '플레임', dark: '#ff5f3a', light: '#c0331a', note: '빨강 쪽에 더 가깝습니다. 에러 색과 비교해 보세요.' },
+  { id: 'F', name: '앰버 오렌지', dark: '#ff9a4d', light: '#b45309', note: '주황 쪽에 더 가깝습니다. 경고(노랑)와는 구분됩니다.' },
+  { id: 'G', name: '연어 레드', dark: '#ff7f6e', light: '#b8432f', note: '분홍기가 살짝 있어 에러 색과 비슷해 보일 수 있습니다.' },
+  { id: 'H', name: '엠버', dark: '#e8673d', light: '#a8380f', note: '어둡고 묵직한 톤입니다. 다크에서는 존재감이 약한 편입니다.' },
+];
+const styles = [
+  { id: 's-color', name: '글자색만', note: '가장 절제된 방식입니다.' },
+  { id: 's-bold', name: '글자색 + 굵게', note: '기본 제안안입니다.' },
+  { id: 's-bolt', name: '⚡ 아이콘 + 굵게', note: '의미가 바로 읽히지만 아이콘이 다른 UI와 어울리는지 확인이 필요합니다.' },
+  { id: 's-dot', name: '점 + 굵게', note: '상태 표시등 느낌입니다.' },
+  { id: 's-pill', name: '연한 배경 알약', note: '가장 눈에 띕니다. 칩 안에서는 다소 무거울 수 있습니다.' },
+];
+
+function pane(theme) {
+  return `<div class="t ${theme} uf-c">
+    <span class="chip"><span class="m">GPT-5.5</span>· High · <span class="uf">Ultrafast</span></span>
+    <div class="sheet">
+      <div class="row"><span>Reasoning effort</span><span class="v">High</span></div>
+      <div class="row"><span>Speed</span><span class="v uf">Ultrafast</span></div>
+    </div>
+    <div class="sheet">
+      <div class="opt"><span>Standard<small>Default speed</small></span></div>
+      <div class="opt"><span>Fast<small>Increased speed, increased usage</small></span></div>
+      <div class="opt sel"><span><span class="uf">Ultrafast</span><small>Fastest speed, highest usage</small></span><span class="chk">✓</span></div>
+    </div>
+    <span class="err">에러 색 비교: Request failed</span>
+  </div>`;
+}
+
+function card(title, sub, swatch, cls, dark, light, note) {
+  return `<div class="card ${cls}" style="--uf-dark:${dark};--uf-light:${light}">
+    <div class="card-head">${swatch}<b>${title}</b><code>${sub}</code></div>
+    <div class="themes">${pane('dark')}${pane('light')}</div>
+    <div class="note">${note}</div>
+  </div>`;
+}
+
+document.getElementById('colors').innerHTML = colors.map((c) =>
+  card(`${c.id}. ${c.name}`, `다크 ${c.dark} / 라이트 ${c.light}`,
+    `<span class="sw" style="background:${c.dark}"></span><span class="sw" style="background:${c.light}"></span>`,
+    's-bold', c.dark, c.light, c.note)).join('');
+
+const a = colors[0];
+document.getElementById('styles').innerHTML = styles.map((s, i) =>
+  card(`${i + 1}. ${s.name}`, '', '', s.id, a.dark, a.light, s.note)).join('');
+</script>
+</body>
+</html>

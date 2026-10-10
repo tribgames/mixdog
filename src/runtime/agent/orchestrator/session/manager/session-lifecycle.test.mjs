@@ -5,6 +5,7 @@ import {
   contextSeedForRouteUpdate,
   prepareSessionProjection,
   _refreshSessionRuleVariantsForModel,
+  refreshSessionProviderCacheOpts,
 } from './session-lifecycle.mjs';
 import { _buildSharedRules } from './rules-cache.mjs';
 import { contextMessagesSignature, toolSchemaSignature } from '../context-utils.mjs';
@@ -184,4 +185,35 @@ test('model changes preserve headless rule capabilities across edit dialects', (
   assert.equal(_refreshSessionRuleVariantsForModel(session, 'gpt-5.6-sol'), true);
   assert.match(session.messages[0].content, /`edit`/);
   assert.doesNotMatch(session.messages[0].content, /apply_patch|\bSkills?\b|\bGoals?\b|`goal`|goal-management/);
+});
+
+test('refreshSessionProviderCacheOpts refreshes builder policies only (resume path)', () => {
+  const config = (ms) => ({ autoClear: { providerIdleMs: { 'anthropic-oauth': ms } } });
+  const session = {
+    id: 's1',
+    provider: 'anthropic-oauth',
+    agent: null,
+    providerCacheOpts: { cacheStrategy: { messages: '5m' } },
+  };
+  assert.equal(refreshSessionProviderCacheOpts(session, config(3_600_000)), true);
+  assert.equal(session.providerCacheOpts.cacheStrategy.messages, '1h');
+  const override = { ...session, providerCacheOpts: { cacheStrategy: { messages: '5m' } }, providerCacheOptsOverride: true };
+  assert.equal(refreshSessionProviderCacheOpts(override, config(3_600_000)), false);
+  assert.equal(override.providerCacheOpts.cacheStrategy.messages, '5m');
+});
+
+test('resumeSession refreshes a stale stored Lead cache policy', async () => {
+  const { setLiveSession } = await import('../store.mjs');
+  const { resumeSession } = await import('./session-lifecycle.mjs');
+  const session = {
+    id: 'resume-ttl-test',
+    provider: 'anthropic-oauth',
+    agent: null,
+    owner: 'user',
+    generation: 0,
+    providerCacheOpts: { cacheStrategy: { messages: 'stale' } },
+  };
+  setLiveSession(session);
+  const resumed = await resumeSession(session.id, null);
+  assert.ok(['5m', '1h'].includes(resumed.providerCacheOpts.cacheStrategy.messages));
 });

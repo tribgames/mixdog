@@ -29,6 +29,9 @@ export interface RelayClientState {
   viewSync?: boolean;
   viewRecovery?: Promise<void>;
   challenge: RelayE2EEChallenge;
+  /** The paired client's relay credential id, as the relay authenticated it
+   *  for this leg ('' when the relay did not say). Trust is keyed by it. */
+  credentialId: string;
   channel: RelayE2EEChannel | null;
   handshakeTimer: NodeJS.Timeout;
   frameQueue: Promise<void>;
@@ -127,7 +130,7 @@ export interface RelayClientRegistry {
   /** Admits a client-open: refuses over the client limit (telling the relay),
    *  replaces any previous state under the id, and starts the handshake
    *  deadline. Returns the fresh state, or null when refused. */
-  open(clientId: string, challenge: RelayE2EEChallenge): RelayClientState | null;
+  open(clientId: string, challenge: RelayE2EEChallenge, credentialId?: string): RelayClientState | null;
   /** `park`: the relay reported the leg gone, so an authenticated phone that
    *  announced resumption keeps its delta lanes for VIEW_RESUME_TTL_MS. */
   remove(clientId: string, park?: boolean): boolean;
@@ -221,7 +224,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
     },
     get: (clientId) => clients.get(clientId),
     attached: (clientId, state) => clients.get(clientId) === state,
-    open: (clientId, challenge) => {
+    open: (clientId, challenge, credentialId = '') => {
       if (!clients.has(clientId) && clients.size >= MAX_ACTIVE_REMOTE_CLIENTS) {
         deps.sendEnvelope({ type: 'close-client', clientId, reason: 'remote client limit reached' });
         return null;
@@ -233,6 +236,7 @@ export function createRelayClientRegistry(deps: RelayClientRegistryDeps): RelayC
       handshakeTimer.unref?.();
       const state: RelayClientState = {
         challenge,
+        credentialId,
         channel: null,
         handshakeTimer,
         frameQueue: Promise.resolve(),

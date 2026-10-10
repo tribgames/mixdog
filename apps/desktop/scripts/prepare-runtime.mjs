@@ -539,6 +539,12 @@ async function prepareRuntime(manifest, fingerprint) {
       join(rootDir, 'scripts', 'prune-embedding-runtime.mjs'),
       join(stagingDir, 'scripts', 'prune-embedding-runtime.mjs')
     );
+    // The prune script imports the shared platform-support helper relative to itself.
+    await mkdir(join(stagingDir, 'src', 'runtime', 'shared'), { recursive: true });
+    await cp(
+      join(rootDir, 'src', 'runtime', 'shared', 'onnx-runtime-support.mjs'),
+      join(stagingDir, 'src', 'runtime', 'shared', 'onnx-runtime-support.mjs')
+    );
 
     let restoredDependencies = await timed('dependency-cache-restore', () => restoreRuntimeDependencies());
     let prunedEmbedding;
@@ -691,14 +697,21 @@ async function prepareRuntime(manifest, fingerprint) {
       '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
       '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',
       `/${ortArchiveRoot}/package.json`,
-      `${embeddingBinaryRoot}/onnxruntime_binding.node`,
+      ...(prunedEmbedding.onnx ? [`${embeddingBinaryRoot}/onnxruntime_binding.node`] : []),
     ]) {
       if (!archiveEntries.has(required)) {
         throw new Error(`Runtime archive is incomplete: missing ${required}`);
       }
     }
+    if (!prunedEmbedding.onnx) {
+      const onnxBinding = [...archiveEntries].find((entry) => entry.endsWith('/onnxruntime_binding.node'));
+      if (onnxBinding) {
+        throw new Error(`Runtime archive contains an onnxruntime binding on ${embeddingTarget.key}: ${onnxBinding}`);
+      }
+    }
     const foreignEmbeddingBinary = [...archiveEntries].find(
       (entry) =>
+        prunedEmbedding.onnx &&
         entry.startsWith(`${embeddingNapiRoot}/`) &&
         entry !== embeddingPlatformRoot &&
         entry !== embeddingBinaryRoot &&

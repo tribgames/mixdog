@@ -1,5 +1,7 @@
 import { normalizeBrowserPageControl } from './browser-page-control';
+import { MAIN_BROWSER_PAGE_PREFIX } from './contract-browser';
 import type {
+  DesktopBrowserImportRequest,
   DesktopRemoteBrowserControl,
   DesktopRemoteBrowserPageInput,
   DesktopRemoteBrowserStreamOptions,
@@ -10,6 +12,14 @@ export const REMOTE_BROWSER_FRAME_EVENT = 'browserRemoteFrame';
 /** Encrypted relay push carrying a DesktopBrowserOpenRequest for an agent
  * handoff (explicit reveal) or hide, so paired clients open the same surface. */
 export const REMOTE_BROWSER_OPEN_EVENT = 'browserOpenRequested';
+
+/** Encrypted relay push carrying the full DesktopRemoteBrowserTab[] list. */
+export const REMOTE_BROWSER_TABS_EVENT = 'browserRemoteTabs';
+/** Encrypted relay push carrying a DesktopBrowserImportProgress. */
+export const REMOTE_BROWSER_IMPORT_PROGRESS_EVENT = 'browserProfileImportProgress';
+/** Relay-handshake flag: the host serves the remote browser pane's tabs,
+ * history, saved-login fill and profile import. */
+export const REMOTE_BROWSER_PARITY_FLAG = 'browserParity';
 
 /** Desktop-service event carrying a DesktopBrowserOpenRequest to the relay,
  * which forwards it to paired clients as REMOTE_BROWSER_OPEN_EVENT. */
@@ -72,6 +82,61 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
     return normalizeBrowserPageControl(input) as DesktopRemoteBrowserPageInput;
   }
   throw new TypeError(`unknown remote browser control "${type || '(none)'}".`);
+}
+
+/** A main-workspace browser page id: the only pages a client may list, open or close. */
+export function normalizeRemoteBrowserTabId(value: unknown): string {
+  if (
+    typeof value !== 'string' ||
+    !value.startsWith(MAIN_BROWSER_PAGE_PREFIX) ||
+    value.length > 256 ||
+    !/^[A-Za-z0-9_-]+$/u.test(value)
+  ) {
+    throw new TypeError('Browser page is not a main tab page.');
+  }
+  return value;
+}
+
+export function normalizeBrowserHistoryQuery(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 500) {
+    throw new TypeError('Browser history query is invalid.');
+  }
+  return value;
+}
+
+export function normalizeBrowserCredentialId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-f0-9]{24}$/.test(value)) {
+    throw new TypeError('Stored browser credential id is invalid.');
+  }
+  return value;
+}
+
+export function normalizeBrowserImportRequest(value: unknown): DesktopBrowserImportRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Browser import request must be an object.');
+  }
+  const request = value as Record<string, unknown>;
+  const jobId = String(request.jobId || '');
+  const sourceId = String(request.sourceId || '');
+  const profileId = String(request.profileId || '');
+  const items = Array.isArray(request.items) ? request.items.map((item) => String(item)) : [];
+  if (!/^[a-zA-Z0-9_-]{8,120}$/.test(jobId)) throw new TypeError('Browser import job id is invalid.');
+  if (!sourceId || sourceId.length > 100) throw new TypeError('Browser import source id is invalid.');
+  if (!profileId || profileId.length > 200) throw new TypeError('Browser import profile id is invalid.');
+  if (
+    !items.length ||
+    items.length > 3 ||
+    items.some((item) => !['passwords', 'cookies', 'history'].includes(item))
+  ) {
+    throw new TypeError('Browser import items are invalid.');
+  }
+  return {
+    jobId,
+    sourceId,
+    profileId,
+    items: items as DesktopBrowserImportRequest['items'],
+    administratorApproved: request.administratorApproved === true,
+  };
 }
 
 interface RemoteBrowserImageBounds {

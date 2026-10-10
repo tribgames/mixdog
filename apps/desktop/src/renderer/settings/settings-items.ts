@@ -169,13 +169,15 @@ export const SETTINGS_CATEGORIES = [
   },
 ] as const satisfies ReadonlyArray<SettingsCategoryItem>;
 
-const REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>(['providers', 'developer']);
+// Pages whose calls an older host still refuses to remote clients. A host that
+// announces open access (every paired client is trusted) shows them all.
+const LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>(['providers', 'developer']);
 const MOVED_EXTENSION_CATEGORIES = new Set<SettingsCategory>(['git', 'skills', 'mcp', 'plugins']);
 const LOCAL_SETTINGS_CATEGORIES = SETTINGS_CATEGORIES.filter(
   (category) => !MOVED_EXTENSION_CATEGORIES.has(category.value)
 );
-const REMOTE_SETTINGS_CATEGORIES = LOCAL_SETTINGS_CATEGORIES.filter(
-  (category) => !REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category.value)
+const LEGACY_REMOTE_SETTINGS_CATEGORIES = LOCAL_SETTINGS_CATEGORIES.filter(
+  (category) => !LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category.value)
 );
 
 export function categoryForSettingsItem(value: SettingsItemValue): SettingsCategory {
@@ -185,11 +187,15 @@ export function categoryForSettingsItem(value: SettingsItemValue): SettingsCateg
   );
 }
 
-export function settingsCategoryForSurface(category: SettingsCategory, remote: boolean): SettingsCategory {
+export function settingsCategoryForSurface(
+  category: SettingsCategory,
+  remote: boolean,
+  hostOpenAccess = false
+): SettingsCategory {
   if (MOVED_EXTENSION_CATEGORIES.has(category)) return 'general';
-  return remote && REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category) ? 'general' : category;
+  return remote && !hostOpenAccess && LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category) ? 'general' : category;
 }
 
-export function settingsCategoriesForSurface(remote: boolean): ReadonlyArray<SettingsCategoryItem> {
-  return remote ? REMOTE_SETTINGS_CATEGORIES : LOCAL_SETTINGS_CATEGORIES;
+export function settingsCategoriesForSurface(remote: boolean, hostOpenAccess = false): ReadonlyArray<SettingsCategoryItem> {
+  return remote && !hostOpenAccess ? LEGACY_REMOTE_SETTINGS_CATEGORIES : LOCAL_SETTINGS_CATEGORIES;
 }

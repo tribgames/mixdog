@@ -137,6 +137,7 @@ function publicAccounts(pool) {
   return {
     selectedId: pool.selectedId,
     auto: pool.auto,
+    useCredits: pool.useCredits === true,
     accounts: pool.accounts.map(({ id, label, authenticated, reauthRequired }) => ({
       id,
       label,
@@ -294,8 +295,8 @@ function validateSetupInput(args) {
     if (action !== 'set_agent_route' && Object.hasOwn(args.route, 'disabled')) {
       throw new Error('route.disabled is only accepted by set_agent_route');
     }
-    if (action !== 'set_route' && Object.hasOwn(args.route, 'contextPercent')) {
-      throw new Error('route.contextPercent is only accepted by set_route');
+    if (action !== 'set_route' && action !== 'set_agent_route' && Object.hasOwn(args.route, 'contextPercent')) {
+      throw new Error('route.contextPercent is only accepted by set_route and set_agent_route');
     }
   }
   for (const field of ['desktop', 'appearance', 'webhook', 'compaction', 'providerAccount']) {

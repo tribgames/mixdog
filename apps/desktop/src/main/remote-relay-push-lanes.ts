@@ -6,6 +6,7 @@ import { clientReadsLane, type RelayClientState } from './remote-relay-clients';
 import { TerminalDataBufferer } from './terminal-data-buffer';
 import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
+import { SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT, REMOTE_BROWSER_OPEN_EVENT } from '../shared/remote-browser';
 
 export interface RelayPushLaneDeps {
@@ -58,6 +59,10 @@ export function createRelayPushLanes(deps: RelayPushLaneDeps): { dispose(): void
         deps.broadcastEncrypted({ event: ACTIVITY_RAIL_PINS_EVENT, payload: value }, false);
       } else if (name === PROVIDER_MODELS_EVENT) {
         deps.broadcastEncrypted({ event: PROVIDER_MODELS_EVENT, payload: value }, false);
+      } else if (name === SETTINGS_CHANGED_EVENT) {
+        deps.broadcastEncrypted({ event: SETTINGS_CHANGED_EVENT, payload: value }, false);
+      } else if (name === UPDATER_STATE_EVENT) {
+        deps.broadcastEncrypted({ event: UPDATER_STATE_EVENT, payload: value }, false);
       } else if (name === BROWSER_OPEN_REQUESTED_DESKTOP_EVENT) {
         // An agent handoff (CAPTCHA): losing it leaves the user unaware the
         // page needs them, so it is never droppable.

@@ -133,6 +133,11 @@ export function RemoteClaimPrompt() {
         <p id="remote-claim-description">
           {t('It is asking to use this desktop. Approve it only if you just opened Mixdog there.')}
         </p>
+        {claim.desktop && (
+          <p className="remote-claim-desktop" role="note">
+            {t('This is another Mixdog desktop app, connecting as a remote window.')}
+          </p>
+        )}
         {answerError?.claimId === claim.claimId && <ErrorNotice error={answerError.reason} />}
         <footer>
           <button

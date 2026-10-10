@@ -6,6 +6,9 @@
 // 들어가면 레이아웃 시프트가 심하다). bootstrap.tsx installs the marker
 // synchronously BEFORE React renders, so the phone lays out correctly
 // exactly once.
+import { useSyncExternalStore } from 'react';
+import { nativeAppInfo } from '../shared/native-app';
+import { remoteWindowInfo } from '../shared/remote-window';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
 
 export function isIOSWebSurface(): boolean {
@@ -20,17 +23,73 @@ export function isIOSWebSurface(): boolean {
   }
 }
 
+/** Tablets (iPad, Android tablets) and split-view/slide-over windows below this
+ *  layout width use the phone layout; wider ones get the desktop layout. */
+const TABLET_PHONE_LAYOUT_MAX_WIDTH = 640;
+/** Unidentified coarse-pointer touch devices follow the usual tablet cut-off. */
+const COARSE_TOUCH_PHONE_LAYOUT_MAX_WIDTH = 768;
+
+/** Current viewport width in device dp. A stale projected boot pins the layout
+ *  viewport at 1040px, so the oriented device width stands in for it there. */
+function surfaceViewportWidth(): number {
+  if (document.documentElement.dataset.mixdogProjection === 'desktop') {
+    const device = orientedDeviceWidth();
+    if (device) return device;
+  }
+  return Number(window.innerWidth) || Number(document.documentElement.clientWidth) || 0;
+}
+
+/** Phone layout predicate (layout only; see `isRemoteHostRenderer` for the host role). */
 export function isMobileRemoteSurface(): boolean {
   if (!isRemoteBrowserRenderer()) return false;
   try {
-    if (isIOSWebSurface()) return true;
-    if (/Android/i.test(navigator.userAgent) && /Mobile/i.test(navigator.userAgent)) {
-      return true;
-    }
-    return (navigator.maxTouchPoints || 0) > 0 && Math.min(window.screen.width, window.screen.height) < 768;
+    const ua = navigator.userAgent;
+    // Phones keep the phone layout in both orientations.
+    if (/iPhone|iPod/iu.test(ua) || (/Android/iu.test(ua) && /Mobile/iu.test(ua))) return true;
+    const touch = (navigator.maxTouchPoints || 0) > 0;
+    if (!touch) return false;
+    const width = surfaceViewportWidth();
+    if (!width) return false;
+    // Tablets: iPad (incl. desktop-class MacIntel UA) and non-"Mobile" Android.
+    if (isIOSWebSurface() || /Android/iu.test(ua)) return width < TABLET_PHONE_LAYOUT_MAX_WIDTH;
+    // Touch laptops report a fine primary pointer; only coarse-pointer devices qualify.
+    if (window.matchMedia?.('(pointer: coarse)').matches !== true) return false;
+    return width < COARSE_TOUCH_PHONE_LAYOUT_MAX_WIDTH;
   } catch {
     return false;
   }
+}
+
+/** Device class, independent of layout width: phones, tablets and other
+ *  coarse-touch devices. Install/entry gates and the service worker key on
+ *  this; the phone LAYOUT keys on `isMobileRemoteSurface` (width-based), so a
+ *  landscape iPad gets the desktop layout yet is still an installable device. */
+export function isMobileDeviceSurface(): boolean {
+  if (!isRemoteBrowserRenderer()) return false;
+  try {
+    if (/iPhone|iPod|Android/iu.test(navigator.userAgent) || isIOSWebSurface()) return true;
+    return (navigator.maxTouchPoints || 0) > 0 && window.matchMedia?.('(pointer: coarse)').matches === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Subscribe to anything that can flip the phone/tablet layout at runtime. */
+export function subscribeMobileSurface(listener: () => void): () => void {
+  const visual = window.visualViewport;
+  window.addEventListener('resize', listener);
+  window.addEventListener('orientationchange', listener);
+  visual?.addEventListener('resize', listener);
+  return () => {
+    window.removeEventListener('resize', listener);
+    window.removeEventListener('orientationchange', listener);
+    visual?.removeEventListener('resize', listener);
+  };
+}
+
+/** Reactive `isMobileRemoteSurface()`: re-renders on rotation / window resize. */
+export function useMobileRemoteSurface(): boolean {
+  return useSyncExternalStore(subscribeMobileSurface, isMobileRemoteSurface, () => false);
 }
 
 export function isInstalledWebAppSurface(): boolean {
@@ -45,10 +104,13 @@ export function isInstalledWebAppSurface(): boolean {
   }
 }
 
-/** The relay UI is a phone/tablet installed app, never a browser tab or a
- * desktop-installed PWA. Every entry gate shares this single predicate. */
+/** The relay UI is a phone/tablet installed app or a second PC's dedicated
+ * Mixdog remote window (its own persistent container, opened on purpose) —
+ * never a browser tab or a desktop-installed PWA. Every entry gate shares this
+ * single predicate. */
 export function isInstalledMobileWebAppSurface(): boolean {
-  return isMobileRemoteSurface() && isInstalledWebAppSurface();
+  if (remoteWindowInfo() || nativeAppInfo()) return true;
+  return isMobileDeviceSurface() && isInstalledWebAppSurface();
 }
 
 /** Device width in the CURRENT orientation; the projected layout viewport is

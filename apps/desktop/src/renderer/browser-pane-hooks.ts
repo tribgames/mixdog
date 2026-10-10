@@ -4,7 +4,7 @@ import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import type { DesktopBrowserCredentialSuggestion, DesktopBrowserHistoryEntry } from '../shared/contract';
 import { scheduleBrowserForegroundRepaint, watchBrowserForegroundReturns } from './browser-foreground-lifecycle';
 import type { BrowserPageElement } from './browser-page-client';
-import { onBrowserPageAddressRequested } from './browser-page-request';
+import { bindRequestedAddress } from './browser-page-request';
 import {
   browserViewportEmulation,
   readBrowserViewportPreset,
@@ -277,35 +277,23 @@ export function useViewportPresetConfigurator(webviewRef: GuestRef, desktopApi: 
 
 /** A page card in the transcript hands its address to this session's pane.
  *  The card usually opens the pane in the same press, so the address tends to
- *  arrive before the guest exists: it waits for the guest's first dom-ready
- *  instead of being dropped by a loadURL on an unattached view. */
-export function useRequestedAddress(webviewRef: GuestRef, sessionId: string, navigate: (url: string) => void) {
+ *  arrive before the guest exists. The latest address stays pending until
+ *  whichever guest element the pane has now is ready and starts loading it;
+ *  every render re-checks the current element, so a replaced guest is covered. */
+export function useRequestedAddress(webviewRef: GuestRef, sessionId: string, navigate: (url: string) => boolean) {
+  const binding = useRef<ReturnType<typeof bindRequestedAddress> | null>(null);
   useEffect(() => {
-    const view = webviewRef.current;
-    let wanted = '';
-    const guestReady = () => {
-      try {
-        return Boolean(view) && Number(view?.getWebContentsId()) > 0;
-      } catch {
-        return false;
-      }
-    };
-    const loadWanted = () => {
-      if (!wanted) return;
-      const url = wanted;
-      wanted = '';
-      navigate(url);
-    };
-    const stop = onBrowserPageAddressRequested(sessionId, (url) => {
-      wanted = url;
-      if (guestReady()) loadWanted();
-    });
-    view?.addEventListener('dom-ready', loadWanted);
+    const bound = bindRequestedAddress(sessionId, () => webviewRef.current, navigate);
+    binding.current = bound;
     return () => {
-      stop();
-      view?.removeEventListener('dom-ready', loadWanted);
+      bound.dispose();
+      binding.current = null;
     };
   }, [sessionId, navigate, webviewRef]);
+  // No dependency list: the guest element is replaced without a prop change.
+  useEffect(() => {
+    binding.current?.sync();
+  });
 }
 
 /** A main tab's page opens at its last address when the guest has none: a

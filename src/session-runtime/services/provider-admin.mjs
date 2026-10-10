@@ -456,8 +456,9 @@ function assertOAuthLoginOptions(options) {
     !options ||
     typeof options !== 'object' ||
     Array.isArray(options) ||
-    Object.keys(options).some((key) => !['addAccount', 'label', 'accountId'].includes(key)) ||
+    Object.keys(options).some((key) => !['addAccount', 'label', 'accountId', 'openBrowser'].includes(key)) ||
     (options.addAccount !== undefined && typeof options.addAccount !== 'boolean') ||
+    (options.openBrowser !== undefined && typeof options.openBrowser !== 'boolean') ||
     (options.label !== undefined && (typeof options.label !== 'string' || options.label.length > 80))
   ) {
     throw new TypeError('Invalid OAuth account login options.');
@@ -532,7 +533,9 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
   if (options.addAccount && readProviderAccountPool(id).accounts.length >= 20) {
     throw new Error('At most 20 accounts can be connected.');
   }
-  const started = await inAccount(() => oauth.begin());
+  // A remote client opens the authorization URL on its own machine and pastes
+  // the final redirect back (completeCode), so the host must not pop a browser.
+  const started = await inAccount(() => oauth.begin({ openBrowser: options.openBrowser !== false }));
   let cancelled = false;
   const login = {
     cfgMod,
@@ -582,6 +585,7 @@ export function listProviderAccounts(provider) {
   return {
     provider,
     auto: pool.auto !== false,
+    useCredits: pool.useCredits === true,
     selectedId: pool.selectedId || accounts[0]?.id || null,
     accounts: accounts.map((row) => {
       const auth = withProviderAccount(provider, row.id, () => oauth.describe?.() || {});

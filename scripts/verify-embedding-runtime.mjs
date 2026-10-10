@@ -10,11 +10,10 @@ const runtimeRoot = runtimeRootArgument
   ? resolve(runtimeRootArgument.slice('--runtime-root='.length))
   : resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const require = runtimeRootArgument ? createRequire(join(runtimeRoot, 'package.json')) : createRequire(import.meta.url);
-const transformersEntry = require.resolve('@huggingface/transformers');
-const transformersRequire = createRequire(transformersEntry);
-const ortEntry = transformersRequire.resolve('onnxruntime-node');
 const mixdogRoot = runtimeRootArgument ? join(runtimeRoot, 'node_modules', 'mixdog') : runtimeRoot;
 const mixdogModule = (relative) => pathToFileURL(join(mixdogRoot, relative)).href;
+const { onnxRuntimeSupported } = await import(mixdogModule('src/runtime/shared/onnx-runtime-support.mjs'));
+const onnx = onnxRuntimeSupported(process.platform, process.arch);
 const verbose = process.env.MIXDOG_VERIFY_EMBEDDING_VERBOSE === '1';
 const phase = (value) => {
   if (verbose) process.stdout.write(`Embedding verify phase: ${value}\n`);
@@ -33,26 +32,43 @@ async function packageRoot(entry, expectedName) {
   }
 }
 
-const ortRoot = await packageRoot(ortEntry, 'onnxruntime-node');
-const nativeDir = join(ortRoot, 'bin', 'napi-v6', process.platform, process.arch);
-await access(join(nativeDir, 'onnxruntime_binding.node'));
+let nativeDir;
+if (onnx) {
+  const transformersEntry = require.resolve('@huggingface/transformers');
+  const transformersRequire = createRequire(transformersEntry);
+  const ortEntry = transformersRequire.resolve('onnxruntime-node');
+  const ortRoot = await packageRoot(ortEntry, 'onnxruntime-node');
+  nativeDir = join(ortRoot, 'bin', 'napi-v6', process.platform, process.arch);
+  await access(join(nativeDir, 'onnxruntime_binding.node'));
 
-const transformers = transformersRequire(transformersEntry);
-assert.equal(typeof transformers.pipeline, 'function');
-const ort = transformersRequire('onnxruntime-node');
-assert.equal(typeof ort.InferenceSession?.create, 'function');
+  const transformers = transformersRequire(transformersEntry);
+  assert.equal(typeof transformers.pipeline, 'function');
+  const ort = transformersRequire('onnxruntime-node');
+  assert.equal(typeof ort.InferenceSession?.create, 'function');
+}
 
 const runCoreSmoke = process.argv.includes('--core');
-const runWarmup = runCoreSmoke || process.argv.includes('--warmup');
+const runWarmup = onnx && (runCoreSmoke || process.argv.includes('--warmup'));
 let embeddingProvider;
 let dataDir;
 
 try {
-  if (runWarmup) {
-    embeddingProvider = await import(mixdogModule('src/runtime/memory/lib/embedding-provider.mjs'));
-    const vector = await embeddingProvider.embedText('Mixdog embedding runtime warmup verification');
-    assert.ok(Array.isArray(vector) && vector.length > 0);
-    process.stdout.write(`Embedding warmup OK (${vector.length} dimensions).\n`);
+  if (runWarmup || (!onnx && runCoreSmoke)) {
+    let vector = null;
+    let dims;
+    if (onnx) {
+      embeddingProvider = await import(mixdogModule('src/runtime/memory/lib/embedding-provider.mjs'));
+      vector = await embeddingProvider.embedText('Mixdog embedding runtime warmup verification');
+      assert.ok(Array.isArray(vector) && vector.length > 0);
+      dims = vector.length;
+      process.stdout.write(`Embedding warmup OK (${vector.length} dimensions).\n`);
+    } else {
+      const { getConfiguredEmbeddingModelId, getKnownEmbeddingDims } = await import(
+        mixdogModule('src/runtime/memory/lib/embedding-model-config.mjs')
+      );
+      dims = getKnownEmbeddingDims(getConfiguredEmbeddingModelId());
+      assert.ok(dims > 0);
+    }
 
     if (runCoreSmoke) {
       phase('core-import');
@@ -68,7 +84,7 @@ try {
       ]);
       try {
         phase('database-open');
-        const db = await openDatabase(dataDir, vector.length);
+        const db = await openDatabase(dataDir, dims);
         const recallText = 'Embedding runtime portable recall smoke';
         const recallFixture = await db.query(
           `
@@ -127,4 +143,8 @@ try {
   if (dataDir) await rm(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
 }
 
-process.stdout.write(`Embedding runtime OK: ${process.platform}-${process.arch} · ${nativeDir}\n`);
+if (onnx) {
+  process.stdout.write(`Embedding runtime OK: ${process.platform}-${process.arch} · ${nativeDir}\n`);
+} else {
+  process.stdout.write(`Embedding runtime unavailable on ${process.platform}-${process.arch} (no onnxruntime-node binding); skipped.\n`);
+}

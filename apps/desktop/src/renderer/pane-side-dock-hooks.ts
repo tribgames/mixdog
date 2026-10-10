@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { PANE_DOCK_CLOSE_EVENT } from './pane-dock-chrome';
 import { expandedDockRect } from './surface-slots';
-import { isMobileRemoteSurface } from './mobile-surface';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { useResizeGesture } from './resize-gesture';
 import { SIDE_FILE_PROBLEMS_DEFAULT_HEIGHT } from './side-file-problems';
 import type { SideFileChrome } from './side-surface-strip';
@@ -202,8 +202,9 @@ export function useDockExpansion(
  * so they are named explicitly (user: 브라우저창 누르면 나가짐).
  */
 export function useMobileOutsideFold(hostRef: RefObject<HTMLDivElement | null>, openNow: boolean, onClose: () => void) {
+  const mobile = useMobileRemoteSurface();
   useEffect(() => {
-    if (!openNow || !isMobileRemoteSurface()) return undefined;
+    if (!openNow || !mobile) return undefined;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
@@ -220,7 +221,7 @@ export function useMobileOutsideFold(hostRef: RefObject<HTMLDivElement | null>, 
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [hostRef, openNow, onClose]);
+  }, [hostRef, openNow, mobile, onClose]);
 }
 
 /**

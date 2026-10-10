@@ -30,6 +30,9 @@ import { useConversationOptimisticPromptRelease } from './use-conversation-optim
 import { useConversationTranscriptIdentity } from './use-conversation-transcript-identity';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 
+import { sessionUsesMultipleDevices } from '../shared/session-devices';
+import { TranscriptDevicesContext } from './transcript-row';
+import { useRetiredApproval } from './use-retired-approval';
 import { ApprovalCard } from './ApprovalCard';
 import { Composer, WorkflowSelect, OrchestrationModeSelect } from './Composer';
 import { ProjectContextSelector } from './composer-support';
@@ -211,6 +214,11 @@ export function Conversation({
   // session THIS surface renders, never the globally active route.
   const routeSessionIdRef = useRef('');
   routeSessionIdRef.current = String(routeSnapshot.sessionId || '');
+  // Approvals this device answered itself, and whether the conversation was
+  // used from several devices (only then is a device named).
+  const decidedLocally = useRef<Set<string>>(new Set());
+  const retiredApproval = useRetiredApproval(snapshot, decidedLocally.current);
+  const multiDevice = useMemo(() => sessionUsesMultipleDevices(snapshot.items), [snapshot.items]);
   const { suppressDraftSubmitPaintHandoff, visibleWarmPaintHandoff } = useConversationPaintHandoff(
     draftMode,
     warmPaintHandoff
@@ -461,6 +469,7 @@ export function Conversation({
               <MarkdownSessionContext.Provider value={draftMode ? '' : String(routeSnapshot.sessionId || '')}>
                 <MarkdownOpenFileContext.Provider value={onOpenFile ?? null}>
                   <MarkdownOpenFolderContext.Provider value={onOpenFolder ?? null}>
+                   <TranscriptDevicesContext.Provider value={multiDevice}>
                     {showTranscriptTimeline && (
                       <TranscriptList
                         key={transcriptIdentity.current}
@@ -478,6 +487,7 @@ export function Conversation({
                         renderRow={renderTranscriptRow}
                       />
                     )}
+                   </TranscriptDevicesContext.Provider>
                   </MarkdownOpenFolderContext.Provider>
                 </MarkdownOpenFileContext.Provider>
               </MarkdownSessionContext.Provider>
@@ -499,13 +509,27 @@ export function Conversation({
               <ApprovalCard
                 key={approvalInstanceKey(snapshot.toolApproval.id)}
                 approval={snapshot.toolApproval}
-                resolve={(approved) => {
+                elsewhereDevice={
+                  multiDevice && snapshot.toolApprovalResult?.id === snapshot.toolApproval.id
+                    ? (snapshot.toolApprovalResult?.device ?? '')
+                    : ''
+                }
+                resolve={async (approved) => {
                   const host = window.mixdogDesktop;
                   const sessionId = routeSessionIdRef.current;
                   const approvalId = String(snapshot.toolApproval?.id || '');
-                  if (!sessionId) return Promise.resolve(false);
-                  return host.resolveToolApprovalForSession(sessionId, approvalId, { approved });
+                  if (!sessionId) return false;
+                  const accepted = await host.resolveToolApprovalForSession(sessionId, approvalId, { approved });
+                  if (accepted === true) decidedLocally.current.add(approvalId);
+                  return accepted;
                 }}
+              />
+            ) : retiredApproval ? (
+              <ApprovalCard
+                key={`retired:${approvalInstanceKey(retiredApproval.approval.id)}`}
+                approval={retiredApproval.approval}
+                outcome={retiredApproval.outcome}
+                resolve={async () => true}
               />
             ) : null
           }
@@ -572,6 +596,7 @@ export function Conversation({
             hiddenQueueIds={pendingPromptIds}
             pendingSubmissionIds={pendingPromptIds}
             onQueuedRestored={composerQueuedRestored}
+            promptRestore={draftMode ? null : (routeSnapshot.promptRestore ?? null)}
             userMessages={composerUserMessages}
             submit={composerSubmit}
             abort={composerAbort}

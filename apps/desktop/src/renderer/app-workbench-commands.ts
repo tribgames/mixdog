@@ -109,7 +109,6 @@ export function buildAppWorkbenchCommands({
       id: 'workbench.action.files.openFile',
       category: 'File',
       label: 'Open File…',
-      shortcut: 'Ctrl+O',
       run: () => {
         void chooseFileTab();
       },
@@ -366,14 +365,14 @@ export function buildAppWorkbenchCommands({
       id: 'workbench.action.toggleSidebar',
       category: 'View',
       label: 'Toggle Primary Side Bar',
-      shortcut: 'Ctrl+B',
+      shortcut: 'Ctrl+Shift+B',
       run: toggleSidebar,
     },
     {
       id: 'workbench.action.toggleUtilityPanel',
       category: 'View',
       label: 'Toggle Utility Panel',
-      shortcut: 'Ctrl+Alt+B',
+      shortcut: 'Ctrl+B',
       run: toggleDock,
     },
     {

@@ -2,12 +2,38 @@
 // socket (or degrades to a browser equivalent).
 import type { DesktopApi, DesktopCapabilityRequest, DesktopCapabilityResult } from '../shared/contract';
 import { browserProfile, newBrowserId } from './remote-browser-identity';
-import { REMOTE_BROWSER_FALLBACKS } from './remote-browser-fallbacks';
+import { LEGACY_HOST_FALLBACKS, REMOTE_BROWSER_FALLBACKS } from './remote-browser-fallbacks';
 import { recoverableCreation } from './recoverable-creation';
+import { createRemotePreviewApi } from './remote-file-preview';
+import { mediaLaneSupported, remoteMediaLaneUrl } from './remote-media-lane';
 import { VISIBLE_SESSIONS_STORAGE_KEY, MAX_RESTORED_VISIBLE_SESSIONS } from './remote-shim-state';
 import type { RemoteShimContext } from './remote-shim-state';
 
-export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
+type GatedKey =
+  | 'previewProjectFile'
+  | 'localPageSource'
+  | 'githubCliLoginOpenBrowser'
+  | 'ghPrList'
+  | 'ghPrDefaultBranch'
+  | 'ghPrCreate'
+  | 'ghPrView'
+  | 'ghPrCheckout'
+  | 'ghPrMerge'
+  | 'ghPrDiff';
+
+type BrowserGatedKey =
+  | 'remoteBrowserTabs'
+  | 'remoteBrowserOpenTab'
+  | 'remoteBrowserCloseTab'
+  | 'onRemoteBrowserTabs'
+  | 'browserHistorySearch'
+  | 'browserCredentialSuggestions'
+  | 'browserCredentialFill'
+  | 'browserProfileImportSources'
+  | 'browserProfileImportStart'
+  | 'onBrowserProfileImportProgress';
+
+export const createRemoteApi =(ctx: RemoteShimContext): DesktopApi => {
   const {
     stateListeners,
     sessionsCatalog,
@@ -27,7 +53,20 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     readCatalog,
     fire,
   } = ctx;
-  return {
+  const parity = (): boolean => ctx.peerRemoteParity === true;
+  // The worker can only answer same-origin requests.
+  const laneUrl = (assetId: string, variant?: string): string => {
+    const base = ctx.serverBase || location.origin;
+    return remoteMediaLaneUrl({
+      base,
+      token: currentToken() || null,
+      sid: ctx.mediaSid,
+      supported: base === location.origin && mediaLaneSupported(ctx.peerMediaE2ee),
+      assetId,
+      variant,
+    });
+  };
+  const api: Omit<DesktopApi, GatedKey> = {
     // Desktop-only OS integrations become inert or degrade to browser
     // equivalents (remote-browser-fallbacks.ts); everything below forwards over
     // the relay socket.
@@ -110,6 +149,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     folderWatch: (dir, recursive) => call('folderWatch', [dir, recursive === true]),
     folderUnwatch: (dir, recursive) => call('folderUnwatch', [dir, recursive === true]),
     subscribeFolderChanges: (listener) => laneSubscription('files', folderChangeListeners, listener),
+    // Previews ride the encrypted RPC lane as ranged reads (the HTTP media
+    // lane is disabled): blob: URLs for media, a srcdoc document for pages.
     resolveLocalPaths: (paths) => call('resolveLocalPaths', [paths]),
     readLocalFile: (path) => call('readLocalFile', [path]),
     listSessions: () => readCatalog(sessionsCatalog, 'listSessions'),
@@ -235,6 +276,24 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     githubCliLoginCancel: (flowId) => call('githubCliLoginCancel', [flowId]),
     githubCliLogout: () => call('githubCliLogout'),
     githubCliAccount: () => call('githubCliAccount'),
+    // The host machine's updater: these act on the computer running Mixdog.
+    // A host without remoteParity answers none of them: keep the old inert
+    // behavior for it.
+    getUpdaterState: () => (parity() ? call('getUpdaterState') : LEGACY_HOST_FALLBACKS.getUpdaterState()),
+    checkForDesktopUpdate: () =>
+      parity() ? call('checkForDesktopUpdate') : LEGACY_HOST_FALLBACKS.checkForDesktopUpdate(),
+    showDesktopUpdate: () => (parity() ? call('showDesktopUpdate') : LEGACY_HOST_FALLBACKS.showDesktopUpdate()),
+    subscribeUpdaterState: (listener) => {
+      if (!parity()) return LEGACY_HOST_FALLBACKS.subscribeUpdaterState(listener);
+      ctx.updaterListeners.add(listener);
+      return () => {
+        ctx.updaterListeners.delete(listener);
+      };
+    },
+    trashProjectEntry: (projectPath, relPath) =>
+      parity() ? call('trashProjectEntry', [projectPath, relPath]) : LEGACY_HOST_FALLBACKS.trashProjectEntry(),
+    browserReleasePage: (pageId) =>
+      parity() ? call('browserReleasePage', [pageId]) : LEGACY_HOST_FALLBACKS.browserReleasePage(),
     submitNewTask: (prompt, options, draft) => {
       const stable = { ...options, id: options?.id || newBrowserId() };
       return recoverableCreation(
@@ -255,7 +314,20 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
         }
       );
     },
-    submitToSession: (sessionId, prompt, options) => call('submitToSession', [sessionId, prompt, options ?? {}]),
+    submitToSession: (sessionId, prompt, options) => {
+      // An older host does not dedupe, so a retry could double-submit: send once.
+      if (!parity()) return call('submitToSession', [sessionId, prompt, options]);
+      // Stable id: the host dedupes by it, so replaying after a lost reply
+      // cannot double-submit and the optimistic row keeps reconciling.
+      const stable = { ...options, id: options?.id || newBrowserId() };
+      return recoverableCreation(
+        () => call('submitToSession', [sessionId, prompt, stable]),
+        async () => {
+          await connect();
+          if (ctx.peerViewSync) await viewSync.request();
+        }
+      );
+    },
     abortSession: (sessionId, options = {}) => call('abortSession', [sessionId, options]),
     resolveToolApprovalForSession: (sessionId, id, decision) =>
       call('resolveToolApprovalForSession', [sessionId, id, decision]),
@@ -288,11 +360,70 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // Gallery bytes ride HTTP, not this socket: the browser caches tiles and
     // asks for byte ranges when a clip seeks. A host that does not serve the
     // lane answers 404 and the caller falls back to the RPC payload.
-    mediaUrl: (assetId, variant) => {
-      const base = ctx.serverBase || location.origin;
-      const auth = currentToken();
-      const query = `variant=${encodeURIComponent(variant || 'original')}${auth ? `&token=${encodeURIComponent(auth)}` : ''}`;
-      return `${base}/media/${encodeURIComponent(assetId)}?${query}`;
+    // Always present: settings pages subscribe once at mount, possibly before
+    // the handshake. An older host simply never emits the event.
+    subscribeSettingsChanged: (listener) => {
+      ctx.settingsChangedListeners.add(listener);
+      return () => {
+        ctx.settingsChangedListeners.delete(listener);
+      };
+    },
+    // '' (no byte lane) unless the host serves the encrypted lane and the
+    // service worker that decrypts it controls this page.
+    mediaUrl: (assetId, variant) => laneUrl(assetId, variant),
+  };
+  // Presence-checked members: read as absent unless the CURRENT host
+  // advertised remoteParity. Evaluated per read, because this object exists
+  // before any handshake and a reconnect may land on a different host.
+  const gated: Pick<DesktopApi, GatedKey> = {
+    // Image/audio/video previews stream over the encrypted media lane when
+    // the host offers it; otherwise they ride the RPC lane as ranged reads
+    // into blob: URLs. Local pages become a srcdoc document.
+    ...createRemotePreviewApi(call, laneUrl),
+    githubCliLoginOpenBrowser: (flowId) => call('githubCliLoginOpenBrowser', [flowId]),
+    ghPrList: (cwd) => call('ghPrList', [cwd]),
+    ghPrDefaultBranch: (cwd) => call('ghPrDefaultBranch', [cwd]),
+    ghPrCreate: (cwd, input) => call('ghPrCreate', [cwd, input]),
+    ghPrView: (cwd, number) => call('ghPrView', [cwd, number]),
+    ghPrCheckout: (cwd, number) => call('ghPrCheckout', [cwd, number]),
+    ghPrMerge: (cwd, number, method) => call('ghPrMerge', [cwd, number, method]),
+    ghPrDiff: (cwd, number) => call('ghPrDiff', [cwd, number]),
+  };
+  for (const key of Object.keys(gated) as GatedKey[]) {
+    Object.defineProperty(api, key, {
+      enumerable: true,
+      get: () => (parity() ? gated[key] : undefined),
+    });
+  }
+  // The remote browser pane's extras follow their own flag: a host that
+  // predates `browserParity` leaves them absent and the pane keeps one stream.
+  const browserGated: Pick<DesktopApi, BrowserGatedKey> = {
+    remoteBrowserTabs: (watch) => call('browserRemoteTabs', [watch]),
+    remoteBrowserOpenTab: (url) => call('browserRemoteTabOpen', [url]),
+    remoteBrowserCloseTab: (id) => call('browserRemoteTabClose', [id]),
+    onRemoteBrowserTabs: (listener) => {
+      ctx.remoteBrowserTabListeners.add(listener);
+      return () => {
+        ctx.remoteBrowserTabListeners.delete(listener);
+      };
+    },
+    browserHistorySearch: (query) => call('browserHistorySearch', [query]),
+    browserCredentialSuggestions: (sessionId) => call('browserCredentialSuggestions', [sessionId]),
+    browserCredentialFill: (sessionId, credentialId) => call('browserCredentialFill', [sessionId, credentialId]),
+    browserProfileImportSources: () => call('browserProfileImportSources'),
+    browserProfileImportStart: (request) => call('browserProfileImportStart', [request]),
+    onBrowserProfileImportProgress: (listener) => {
+      ctx.browserImportProgressListeners.add(listener);
+      return () => {
+        ctx.browserImportProgressListeners.delete(listener);
+      };
     },
   };
+  for (const key of Object.keys(browserGated) as BrowserGatedKey[]) {
+    Object.defineProperty(api, key, {
+      enumerable: true,
+      get: () => (ctx.peerBrowserParity === true ? browserGated[key] : undefined),
+    });
+  }
+  return api as DesktopApi;
 };

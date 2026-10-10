@@ -22,8 +22,10 @@
   content: "";
   position: absolute;
   z-index: -1;
-  inset: -16px 0 0;
-  background: linear-gradient(to bottom, transparent, var(--mx-workspace-sheet) 16px);
+  /* Hard edge at the dock top (user: 컴포저 위 그라데이션 위치가 이상하다):
+     the 16px fade half-erased the line resting on the input. */
+  inset: 0;
+  background: var(--mx-workspace-sheet);
 }
 .conversation > .composer-region > :not(.session-goal-host):not(.turn-review-slot) {
   pointer-events: auto;

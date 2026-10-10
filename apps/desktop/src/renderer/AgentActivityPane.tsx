@@ -3,7 +3,7 @@ import type React from 'react';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { InitialSurface } from './InitialSurface';
 import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu, useHiddenAgentGroups } from './agent-group-visibility';
-import { RowOverflowMenu } from './RowOverflowMenu';
+import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
@@ -457,7 +457,7 @@ function renderAgentActivityGroup({
   const setGroupCollapsed = (collapsed: boolean): void => setSessionExpanded(group.ownerId, !collapsed);
   return (
     <section key={group.ownerId} className="workflows-models" data-agent-owner-session-id={group.ownerId}>
-      <div className="workflows-section-head">
+      <div className="workflows-section-head" {...rowOverflowHostProps()}>
         <button
           type="button"
           className="agent-session-heading"

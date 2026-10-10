@@ -27,7 +27,6 @@ const REVISION_STATE_FIELDS = [
   'tasksObjectiveRevision',
   'timeMode',
   'pauseReason',
-  'blockAudit',
 ];
 
 function revisionStateKey(goal) {

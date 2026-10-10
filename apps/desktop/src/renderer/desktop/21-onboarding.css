@@ -151,7 +151,7 @@
 /* Step entry fades only: a translateY pushed the incoming step past the
    scroll box for a few frames, so a scrollbar flashed on every step change
    (user: 진입할 때 스크롤바가 잠시 생겼다 사라진다). The 20px gap is the
-   wizard's section rhythm at the default install size (1040×700). */
+   wizard's section rhythm at the default install size (1200×800). */
 .onboarding-step-view {
   flex: 1;
   display: grid;
@@ -180,7 +180,7 @@
   grid-column: 1 / -1;
 }
 .onboarding-card:not(.onboarding-profile-card)
-  > :is(.onboarding-card-head, .onboarding-card-text, .onboarding-repo-meta) {
+  > :is(.onboarding-card-head, .onboarding-card-text, .onboarding-repo-meta, .github-device-code) {
   grid-column: 1;
 }
 .onboarding-card:not(.onboarding-profile-card) > .onboarding-card-actions {
@@ -469,24 +469,6 @@
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-minor);
-}
-.onboarding-code {
-  padding: 1px 6px;
-  border-radius: var(--mx-radius-sm);
-  color: var(--mx-text);
-  background: transparent;
-  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border-muted);
-  font-weight: var(--mx-weight-semibold);
-  letter-spacing: var(--mx-tracking-wide);
-}
-.onboarding-link {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--mx-text);
-  text-decoration: underline;
-  cursor: pointer;
-  font-size: inherit;
 }
 /* One card grammar for every step (profile, Git, star): the full body width
    like the provider lists, so every step shares the hero's left edge; a

@@ -56,12 +56,17 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     armToolApprovalTimeout(entry);
     set({ toolApproval: entry.request });
   }
-  function finishToolApproval(id, approved, reason = '') {
+  function finishToolApproval(id, approved, reason = '', device = '') {
     const targetId = String(id || '');
     if (activeToolApproval && activeToolApproval.id === targetId) {
       const entry = activeToolApproval;
       activeToolApproval = null;
-      set({ toolApproval: null });
+      // Only an answer from a known device is attributed; a timeout or an
+      // interrupt names nobody.
+      const toolApprovalResult = device
+        ? { id: targetId, approved: approved === true, device: String(device), at: Date.now() }
+        : null;
+      set({ toolApproval: null, toolApprovalResult });
       settleToolApproval(entry, approved === true, String(reason || ''));
       presentNextToolApproval();
       return true;

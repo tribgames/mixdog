@@ -13,6 +13,9 @@ import { fileURLToPath } from 'node:url';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { effortJudgeInstallCurrent, effortJudgeInstallStamped, installEffortJudgeModel } from './model-install.mjs';
 
+import { onnxRuntimeSupported } from '../shared/onnx-runtime-support.mjs';
+
+export const EFFORT_JUDGE_UNSUPPORTED = 'Auto effort is unsupported on darwin-x64 (no onnxruntime-node binding)';
 const WORKER_PATH = fileURLToPath(new URL('./judge-worker.mjs', import.meta.url));
 const MODEL_FILES = ['model.onnx', 'tokenizer.json'];
 // The worker runs one judgment at a time, so requests are sent one by one:
@@ -75,6 +78,7 @@ export function effortJudgeModelDir() {
 // stamp before replacing files); an explicit MIXDOG_EFFORT_JUDGE_DIR is used as
 // it is. Unstamped leftovers (hand-copied packs) never load.
 export function effortJudgeAvailable(dir = effortJudgeModelDir()) {
+  if (!onnxRuntimeSupported()) return false;
   if (!MODEL_FILES.every((file) => existsSync(join(dir, file)))) return false;
   return Boolean(process.env.MIXDOG_EFFORT_JUDGE_DIR) || effortJudgeInstallStamped(dir);
 }
@@ -157,9 +161,12 @@ function request(target, { request: text, prev, prevRequest, step }) {
     target.postMessage({
       action: 'judge',
       id,
-      request: String(text || ''),
-      prev: String(prev || ''),
-      prevRequest: String(prevRequest || ''),
+      // The worker keeps only the request head (1500 code points), the previous
+      // reply tail (1000) and the previous request head (600); clip so a long
+      // agent brief is not copied whole across the thread boundary.
+      request: String(text || '').slice(0, 3000),
+      prev: String(prev || '').slice(-2000),
+      prevRequest: String(prevRequest || '').slice(0, 1200),
       ...(step ? { step } : {}),
     });
   });
@@ -176,6 +183,7 @@ let refreshChecked = false;
  * MIXDOG_EFFORT_JUDGE_DIR (benchmarks, experiments) is used as it is.
  */
 export function installEffortJudge() {
+  if (!onnxRuntimeSupported()) return Promise.reject(new Error(EFFORT_JUDGE_UNSUPPORTED));
   installing ??= (async () => {
     const dir = effortJudgeModelDir();
     if (process.env.MIXDOG_EFFORT_JUDGE_DIR || (effortJudgeAvailable(dir) && effortJudgeInstallCurrent(dir))) {
@@ -197,6 +205,7 @@ export function installEffortJudge() {
  * creation, so booting touches no network.
  */
 export function refreshEffortJudge() {
+  if (!onnxRuntimeSupported()) return;
   installEffortJudge().catch((error) => {
     // An older complete install still works.
     process.stderr.write(`[effort-judge] model update failed: ${error?.message || error}\n`);
@@ -232,6 +241,7 @@ export function effortJudgeInfo(dir = effortJudgeModelDir()) {
  * loading gets a short grace period; a crashed one is restarted here.
  */
 export async function judgeTurn(input) {
+  if (!onnxRuntimeSupported()) return { skipped: 'unsupported' };
   const dir = effortJudgeModelDir();
   if (!refreshChecked) {
     refreshChecked = true;

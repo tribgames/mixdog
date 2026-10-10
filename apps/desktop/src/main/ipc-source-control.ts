@@ -75,6 +75,7 @@ function registerGitToolingIpc({ handle, operations }: SourceControlRegistration
     installGithubCli,
     githubCliLoginStart,
     githubCliLoginStatus,
+    githubCliLoginOpenBrowser,
     cancelGithubCliLogin,
     githubCliLogout,
     githubCliAccount,
@@ -90,6 +91,9 @@ function registerGitToolingIpc({ handle, operations }: SourceControlRegistration
   handle(DESKTOP_IPC.githubCliLoginStatus, (_event, flowId) =>
     githubCliLoginStatus(requiredString(flowId, 'flowId', 200))
   );
+  handle(DESKTOP_IPC.githubCliLoginOpenBrowser, (_event, flowId) =>
+    githubCliLoginOpenBrowser(requiredString(flowId, 'flowId', 200))
+  );
   handle(DESKTOP_IPC.githubCliLoginCancel, (_event, flowId) =>
     cancelGithubCliLogin(requiredString(flowId, 'flowId', 200))
   );
@@ -101,7 +105,10 @@ function registerGitToolingIpc({ handle, operations }: SourceControlRegistration
     if (typeof value !== 'string' || value.length > 500) {
       throw new TypeError('value must be a string of at most 500 characters.');
     }
-    return setGitGlobalConfig(requiredGitGlobalConfigKey(key), value);
+    return setGitGlobalConfig(requiredGitGlobalConfigKey(key), value).then(async (saved) => {
+      await operations.notifySettingsChanged('git').catch(() => {});
+      return saved;
+    });
   });
 }
 

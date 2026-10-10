@@ -9,8 +9,6 @@ export type SurfaceApi = Pick<DesktopApi, 'invokeCapability'> &
 export const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
   // The footer's session spend reads the usage ledger beside the gauge.
   context: ['contextStatus', 'getSessionUsage'],
-  usage: ['getUsageDashboard'],
-  // What was SPENT, next to /usage's what is LEFT.
   stats: ['getUsageStats'],
   doctor: ['runDoctor'],
   // /inherit decides on the same reading the context gauge uses: a transcript

@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import {
   modalDialogPresented,
   shouldFocusComposerFromWindowKey,
@@ -14,7 +14,7 @@ function scheduleComposerAutoFocus(
   textarea: RefObject<HTMLTextAreaElement | null>,
   preserveTyping = false
 ): (() => void) | undefined {
-  if (isRemoteBrowserRenderer() || touchPrimaryPointer()) return undefined;
+  if (isRemoteHostRenderer() || touchPrimaryPointer()) return undefined;
   const timer = window.setTimeout(() => {
     const target = textarea.current;
     if (!target || !document.hasFocus() || target.closest('[inert]') || modalDialogPresented()) return;
@@ -53,7 +53,7 @@ export function useComposerFocus({
   }, [textarea, focusRequest, transitioning, paneActive]);
   useEffect(() => (paneActive ? scheduleComposerAutoFocus(textarea, true) : undefined), [textarea, paneActive]);
   useEffect(() => {
-    if (!paneActive || transitioning || isRemoteBrowserRenderer() || touchPrimaryPointer()) return undefined;
+    if (!paneActive || transitioning || isRemoteHostRenderer() || touchPrimaryPointer()) return undefined;
     let cancel: (() => void) | undefined;
     const restoreFocus = () => {
       cancel?.();

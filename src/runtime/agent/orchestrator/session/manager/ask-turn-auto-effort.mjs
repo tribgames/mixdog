@@ -1,8 +1,9 @@
 // Auto effort for one user turn. The Auto effort built-in (Extensions →
 // Built-in) turns it `on`: the judged effort applies to this turn. The
 // MIXDOG_AUTO_EFFORT env value (off/observe/on) overrides it for diagnostics;
-// `observe` judges and logs without applying. Applies only to user-written
-// prompts on models whose effort can change mid-conversation without
+// `observe` judges and logs without applying. Applies to user-written prompts
+// and to agent sessions' briefs and Lead follow-ups (not runtime-injected
+// turns) on models whose effort can change mid-conversation without
 // invalidating the prompt cache.
 import { readSection } from '../../../../shared/config.mjs';
 import { effortConfigurationMode } from '../../providers/effort-configuration.mjs';
@@ -53,9 +54,10 @@ function lastText(messages, role) {
  */
 export async function resolveTurnAutoEffort({ sessionId, session, provider, input }) {
   const mode = autoEffortMode();
-  // promptSource marks runtime-injected turns (completion notices, queued work);
-  // agent-owned sessions (workers, maintenance) receive runtime-written briefs.
-  if (mode === 'off' || input?.promptSource || session?.owner === 'agent') return null;
+  // promptSource marks runtime-injected turns (completion notices, queued work).
+  // Agent sessions are judged like any other: their spawn brief and later Lead
+  // `send` messages arrive as plain prompts.
+  if (mode === 'off' || input?.promptSource) return null;
   const request = promptContentText(input?.prompt).trim();
   // Skill bodies and runtime blocks arrive as tagged text, not as a request.
   if (!request || request.startsWith('<')) return null;

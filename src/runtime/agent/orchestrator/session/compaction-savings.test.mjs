@@ -220,6 +220,55 @@ for (const options of [{ mode: 'auto', force: true }, { mode: 'manual', requireR
   });
 }
 
+for (const settle of ['success', 'error']) {
+  test(`compact settling after a session switch (${settle}) leaves the active session untouched`, async () => {
+    const old = fixture();
+    const other = { ...fixture(), id: 'other-session' };
+    let active = old;
+    let release;
+    const gate = new Promise((resolve) => (release = resolve));
+    const touched = [];
+    old.postCompactHook = async () => {};
+    const api = createSessionOps({
+      getSession: () => active,
+      getActiveTurnCount: () => 0,
+      setSession: (s) => touched.push(['set', s.id]),
+      invalidateContextStatusCache: () => touched.push(['invalidate']),
+      agentTool: { recoverWorkers: () => touched.push(['recover']) },
+      mgr: {
+        async compactSessionMessages() {
+          await gate;
+          return settle === 'success' ? { changed: true } : { changed: false, error: 'boom' };
+        },
+        getSession: () => old,
+      },
+    });
+    const pending = api.compact({ requireReduction: true, recoverAgent: true });
+    active = other;
+    release();
+    const result = await pending;
+    assert.equal(result.changed, settle === 'success');
+    assert.deepEqual(touched, []);
+    assert.equal(other.pendingGoalReminder, undefined);
+    assert.equal(old.pendingGoalReminder, undefined);
+  });
+}
+
+test('compact on the still-active session rebinds and invalidates', async () => {
+  const session = fixture();
+  const replaced = { ...session };
+  const touched = [];
+  const api = createSessionOps({
+    getSession: () => session,
+    getActiveTurnCount: () => 0,
+    setSession: (s) => touched.push(['set', s]),
+    invalidateContextStatusCache: () => touched.push(['invalidate']),
+    mgr: { async compactSessionMessages() { return { changed: true }; }, getSession: () => replaced },
+  });
+  assert.equal((await api.compact({ requireReduction: true })).changed, true);
+  assert.deepEqual(touched, [['set', replaced], ['invalidate']]);
+});
+
 test('auto-clear session API threads the savings gate without hooks or reminder side effects on skip', async () => {
   const session = fixture();
   let invalidations = 0;

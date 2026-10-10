@@ -37,6 +37,8 @@ export function createAgentChildFactory({ registry, rehydrateAgentSessions, crea
       effort: preset.effort,
       fast: preset.fast === true,
       modelParameters: preset.modelParameters,
+      contextPercent: spec.contextPercent,
+      selectedContextWindow: spec.selectedContextWindow,
       toolMode: 'full',
       sessionProfile,
     });

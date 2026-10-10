@@ -9,12 +9,20 @@
 // focused code editor: word jumps and line scrolling are editing keys) ·
 // mod+P Quick Open · shift+mod+P Command Palette ·
 // mod+, settings · mod+B left sidebar · alt+mod+B right utility dock ·
-// mod+J panel ·
-// shift+mod+F find in files · mod+W and ctrl+Q close.
+// mod+J panel · mod+O expand/collapse all tool activity (not in a code
+// editor or terminal) ·
+// shift+mod+F find in files · mod+W and ctrl+Q close ·
+// mod+F session search when no tab is open (surfaces keep their own find) ·
+// mod+K and mod+/ command palette · mod+1..9 go to tab (9 = last) ·
+// mod+[ / mod+] back/forward · shift+mod+[ / ] previous/next tab.
+// Bracket, K and / chords stay with a focused code editor (indent, chords,
+// comment toggle).
 import { useEffect, useRef } from 'react';
 
 import type { WorkspaceTab } from './navigation';
+import { openSessionSearch } from './session-search';
 import { modalDialogPresented } from './surface-input-focus';
+import { toggleToolActivityExpandAll } from './tool-activity-expansion';
 
 interface WorkspaceShortcutActions {
   tabs: WorkspaceTab[];
@@ -65,7 +73,24 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       const key = event.key.toLowerCase();
       const plain = !event.shiftKey && !event.altKey;
       const target = event.target as Partial<Element> | null;
-      if (plain && event.key.startsWith('Arrow') && target?.closest?.('.monaco-editor')) return null;
+      const inEditor = Boolean(target?.closest?.('.monaco-editor'));
+      if (plain && event.key.startsWith('Arrow') && inEditor) return null;
+      if (!event.altKey && (event.code === 'BracketLeft' || event.code === 'BracketRight')) {
+        if (inEditor) return null;
+        const offset = event.code === 'BracketLeft' ? -1 : 1;
+        if (event.shiftKey) return () => cycleTab(offset);
+        return offset < 0 ? () => actionsRef.current.navigateBack() : () => actionsRef.current.navigateForward();
+      }
+      if (plain && (key === 'k' || key === '/')) {
+        if (inEditor || target?.closest?.('.xterm')) return null;
+        return () => actionsRef.current.openCommandPalette();
+      }
+      if (plain && /^[1-9]$/.test(event.key)) {
+        const { tabs, navigateTab } = actionsRef.current;
+        const tab = event.key === '9' ? tabs[tabs.length - 1] : tabs[Number(event.key) - 1];
+        return tab ? () => navigateTab(tab) : null;
+      }
+      if (plain && key === 'f' && actionsRef.current.tabs.length === 0) return openSessionSearch;
       if (plain && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
         const offset = event.key === 'ArrowLeft' ? -1 : 1;
         return () => cycleTab(offset, true);
@@ -90,15 +115,19 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       if (key === 'f' && event.shiftKey && !event.altKey) {
         return () => actionsRef.current.openFindInFiles();
       }
-      // Ctrl+B = left side bar, Ctrl+Alt+B = right utility dock (user).
-      if (key === 'b' && plain) return () => actionsRef.current.toggleSidebar();
-      if (key === 'b' && event.altKey && !event.shiftKey) {
-        return () => actionsRef.current.toggleDock();
+      // Ctrl+B = right utility dock, Ctrl+Shift+B = left side bar (user).
+      if (key === 'b' && plain) return () => actionsRef.current.toggleDock();
+      if (key === 'b' && event.shiftKey && !event.altKey) {
+        return () => actionsRef.current.toggleSidebar();
       }
       if (!plain) return null;
       if (key === 'n') return () => actionsRef.current.startTask();
       if (key === ',') return () => actionsRef.current.openSettings();
       if (key === 'j') return () => actionsRef.current.togglePanel();
+      if (key === 'o') {
+        if (inEditor || target?.closest?.('.xterm')) return null;
+        return toggleToolActivityExpandAll;
+      }
       if (key === 'w' || key === 'q') return closeActiveTab;
       return null;
     };

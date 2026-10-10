@@ -15,7 +15,17 @@ import {
   Settings2,
   Sparkles,
 } from 'lucide-react';
-import React, { Suspense, lazy, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  Suspense,
+  lazy,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
 import { preloadMarkdownBody } from './markdown-body-loader';
@@ -26,6 +36,8 @@ import { CodeDiff } from './transcript-diff';
 import { CopyControl, TextShimmer } from './transcript-primitives';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
 import { browserPageRequestsAvailable, requestBrowserPage } from './browser-page-request';
+import { linkOpenTarget } from './link-open-target';
+import { toolActivityCallExpands, useToolActivityView, type ToolActivityExpansion } from './tool-activity-expansion';
 import {
   ToolCode,
   ToolCommand,
@@ -85,24 +97,32 @@ export function resetToolDisclosureScope(scope: string): void {
   }
 }
 
-function toolActivityDisclosureKey(items: readonly TranscriptItem[], scope: string): string {
+// The expansion view is part of the key: switching it starts from its own
+// defaults, and switching back to a saved mode finds the rows as they were left.
+function toolActivityDisclosureKey(items: readonly TranscriptItem[], scope: string, viewKey: string): string {
   const id = String(items[0]?.id ?? '').trim();
-  return id ? `${scope}:tool-activity:${id}` : '';
+  return id ? `${scope}:${viewKey}:tool-activity:${id}` : '';
 }
 
 /** Open state remembered per disclosure key across virtualized remounts. The
- *  transcript row's ResizeObserver picks up the height a flip changes. */
-function useRememberedDisclosure(disclosureKey: string): [open: boolean, toggle: () => void] {
-  const [open, setOpen] = useState(() => (disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false));
+ *  transcript row's ResizeObserver picks up the height a flip changes.
+ *  `chosen` is false while the row only follows `defaultOpen`. */
+function useRememberedDisclosure(
+  disclosureKey: string,
+  defaultOpen = false
+): [open: boolean, toggle: () => void, chosen: boolean, keepOpen: () => void] {
+  const read = () => (disclosureKey ? toolDisclosureStates.get(disclosureKey) : undefined);
+  const [remembered, setRemembered] = useState(read);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read is a fresh closure over disclosureKey.
   useLayoutEffect(() => {
-    setOpen(disclosureKey ? (toolDisclosureStates.get(disclosureKey) ?? false) : false);
+    setRemembered(read());
   }, [disclosureKey]);
-  const toggle = () => {
-    const next = !open;
+  const open = remembered ?? defaultOpen;
+  const choose = (next: boolean) => {
     rememberToolDisclosure(disclosureKey, next);
-    setOpen(next);
+    setRemembered(next);
   };
-  return [open, toggle];
+  return [open, () => choose(!open), remembered !== undefined, () => choose(true)];
 }
 
 /** Disclosure in two steps so the body can animate: it is mounted before it
@@ -222,12 +242,16 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   items,
   disclosureScope = '',
 }: ToolActivityGroupProps) {
-  const disclosureKey = toolActivityDisclosureKey(items, disclosureScope);
-  const [open, toggleOpen] = useRememberedDisclosure(disclosureKey);
+  const { mode, key: viewKey } = useToolActivityView();
+  const disclosureKey = toolActivityDisclosureKey(items, disclosureScope, viewKey);
+  const calls = useMemo(() => flattenedToolActivityItems(items), [items]);
+  const [open, toggleOpen] = useRememberedDisclosure(
+    disclosureKey,
+    calls.some((item) => toolActivityCallExpands(item, mode))
+  );
   const { rendered, expanded } = useToolActivityDisclosure(open);
   const contentId = useId();
   const pending = items.some((item) => !toolItemDone(item));
-  const calls = useMemo(() => flattenedToolActivityItems(items), [items]);
   const summary = useMemo(() => desktopToolActivitySummary(items), [items]);
   const browserPage = useMemo(() => desktopToolActivityBrowserPage(items), [items]);
   const label = summary || t('Tool use');
@@ -271,7 +295,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
         <div className="tool-activity-reveal" data-expanded={expanded ? 'true' : 'false'}>
           <div className="tool-activity-reveal-clip">
             <div className="tool-activity-content" id={contentId}>
-              <ToolActivityDetails items={calls} disclosureKey={disclosureKey} />
+              <ToolActivityDetails items={calls} disclosureKey={disclosureKey} mode={mode} />
             </div>
           </div>
         </div>
@@ -288,7 +312,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
  *  closing it meant finding the address again. Hidden where no pane can be
  *  revealed (a draft with no session, a paired phone). */
 function ToolBrowserPageCard({ page, sessionId }: { page: ToolActivityBrowserPage; sessionId: string }) {
-  if (!sessionId || sessionId === 'new-task' || !browserPageRequestsAvailable()) return null;
+  if (linkOpenTarget({ sessionId, paneAvailable: browserPageRequestsAvailable() }) !== 'pane') return null;
   return (
     <div className="transcript-browser-page">
       <span className="transcript-browser-page-icon" aria-hidden="true">
@@ -320,28 +344,16 @@ function disclosureChildKey(parent: string, id: string): string {
 
 /** One row per call, in call order: the group summary above is the only
  *  roll-up, so every row below it is the same kind of thing. */
-function ToolActivityDetails({ items, disclosureKey }: { items: readonly TranscriptItem[]; disclosureKey: string }) {
+function ToolActivityDetails({
+  items,
+  disclosureKey,
+  mode,
+}: {
+  items: readonly TranscriptItem[];
+  disclosureKey: string;
+  mode: ToolActivityExpansion;
+}) {
   const contentId = useId();
-  const rememberedItem = () => {
-    const index = items.findIndex(
-      (item, itemIndex) =>
-        toolDisclosureStates.get(disclosureChildKey(disclosureKey, activityItemKey(item, itemIndex))) === true
-    );
-    return index >= 0 ? activityItemKey(items[index], index) : null;
-  };
-  const [openItem, setOpenItem] = useState<string | null>(rememberedItem);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-sync only when the disclosure scope or the items change; rememberedItem is a fresh closure every render.
-  useLayoutEffect(() => {
-    setOpenItem(rememberedItem());
-  }, [disclosureKey, items]);
-
-  const toggleItem = (key: string) => {
-    const next = openItem === key ? null : key;
-    if (openItem) rememberToolDisclosure(disclosureChildKey(disclosureKey, openItem), false);
-    rememberToolDisclosure(disclosureChildKey(disclosureKey, key), next !== null);
-    setOpenItem(next);
-  };
-
   return (
     <div className="tool-activity-details">
       {items.map((item, index) => {
@@ -350,8 +362,8 @@ function ToolActivityDetails({ items, disclosureKey }: { items: readonly Transcr
           <ToolActivityItem
             key={key}
             item={item}
-            open={openItem === key}
-            onToggle={() => toggleItem(key)}
+            disclosureKey={disclosureChildKey(disclosureKey, key)}
+            defaultOpen={toolActivityCallExpands(item, mode)}
             contentId={`${contentId}-item-${index}`}
           />
         );
@@ -629,10 +641,14 @@ function renderToolActivityFields(presentation: ToolActivityPresentation) {
 
 // Every detail section a tool item can carry: command output, structured rows,
 // a preview, a before/after replacement, arguments, a diff, and plain output.
-function renderToolActivityDetails(presentation: ToolActivityPresentation, contentId: string) {
+function renderToolActivityDetails(
+  presentation: ToolActivityPresentation,
+  contentId: string,
+  onShowMore: (() => void) | null
+) {
   return (
     <div className="tool-activity-item-body" id={contentId}>
-      <div className="tool-activity-item-body-inner">
+      <ToolActivityPreview onShowMore={onShowMore}>
         {(presentation.metaText ||
           (presentation.tone === 'neutral' && presentation.resultLabel && !rowShowsOutcome(presentation)) ||
           (presentation.fieldsInline && presentation.fields.length > 0)) && (
@@ -686,22 +702,66 @@ function renderToolActivityDetails(presentation: ToolActivityPresentation, conte
           !presentation.command &&
           presentation.sections.length === 0 &&
           renderToolActivityOutput(presentation)}
+      </ToolActivityPreview>
+    </div>
+  );
+}
+
+/** A call the expansion setting opened shows its first lines only; "Show
+ *  more" (or opening it by hand) lifts the cap. */
+function ToolActivityPreview({ onShowMore, children }: { onShowMore: (() => void) | null; children: ReactNode }) {
+  const clamped = Boolean(onShowMore);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [overflowing, setOverflowing] = useState(false);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    const frame = content?.parentElement;
+    if (!clamped || !content || !frame) {
+      setOverflowing(false);
+      return;
+    }
+    const measure = () => setOverflowing(content.scrollHeight > frame.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver !== 'function') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [clamped]);
+  return (
+    <div className="tool-activity-item-body-inner">
+      <div
+        className="tool-activity-preview"
+        data-clamped={clamped ? 'true' : 'false'}
+        data-overflowing={clamped && overflowing ? 'true' : 'false'}
+      >
+        <div ref={contentRef}>{children}</div>
       </div>
+      {clamped && overflowing && onShowMore && (
+        <button
+          type="button"
+          className="tool-activity-preview-more"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={onShowMore}
+        >
+          {t('Show more')}
+        </button>
+      )}
     </div>
   );
 }
 
 function ToolActivityItem({
   item,
-  open,
-  onToggle,
+  disclosureKey,
+  defaultOpen,
   contentId,
 }: {
   item: TranscriptItem;
-  open: boolean;
-  onToggle: () => void;
+  disclosureKey: string;
+  defaultOpen: boolean;
   contentId: string;
 }) {
+  const [open, onToggle, chosen, keepOpen] = useRememberedDisclosure(disclosureKey, defaultOpen);
   const presentation = useMemo(() => desktopToolActivityItemPresentation(item), [item]);
   const panelOpen = open && presentation.hasDetails;
   const { rendered, expanded } = useToolActivityDisclosure(panelOpen);
@@ -713,7 +773,7 @@ function ToolActivityItem({
       data-expanded={expanded ? 'true' : 'false'}
     >
       {renderToolActivityHeader({ presentation, open, onToggle, contentId, startedAt: toolItemStartedAt(item) })}
-      {rendered && presentation.hasDetails && renderToolActivityDetails(presentation, contentId)}
+      {rendered && presentation.hasDetails && renderToolActivityDetails(presentation, contentId, chosen ? null : keepOpen)}
     </article>
   );
 }

@@ -6,8 +6,13 @@ export function captureRowMenuAnchor(element: HTMLElement) {
     bounds: element.getBoundingClientRect(),
     rowHeight: Number.parseFloat(style.getPropertyValue('--mx-menu-row-height')) || 32,
     inset: Number.parseFloat(style.getPropertyValue('--mx-menu-inset')) || 6,
+    /** Opened by a right-click: the bounds are the pointer, not the ⋯ glyph. */
+    atPointer: false,
   };
 }
+
+/* .row-overflow-menu min-width: a pointer menu opens rightward only when it fits. */
+const ROW_MENU_MIN_WIDTH = 160;
 
 /* Same ceiling as .mx-menu so every popup menu shares one width grammar. */
 const ROW_MENU_MAX_WIDTH = 368;
@@ -27,10 +32,15 @@ export function positionRowMenu(
     (anchor?.rowHeight || 32) * rowCount + 2 * (anchor?.inset || 6) + 2 + separatorCount * 4,
     Math.max(0, viewportHeight - 16)
   );
-  const right = Math.max(8, viewportWidth - (anchor?.bounds.right ?? viewportWidth - 8));
-  const maxWidth = Math.max(0, Math.min(ROW_MENU_MAX_WIDTH, viewportWidth - right - 8));
   const below = (anchor?.bounds.bottom || 8) + 4;
   const top =
     below + height <= viewportHeight - 8 ? below : Math.max(8, (anchor?.bounds.top || height + 12) - height - 4);
+  // A right-click menu starts AT the pointer, like every native context menu.
+  if (anchor?.atPointer && viewportWidth - anchor.bounds.left - 8 >= ROW_MENU_MIN_WIDTH) {
+    const left = Math.max(8, anchor.bounds.left);
+    return { left, top, maxWidth: Math.min(ROW_MENU_MAX_WIDTH, viewportWidth - left - 8) };
+  }
+  const right = Math.max(8, viewportWidth - (anchor?.bounds.right ?? viewportWidth - 8));
+  const maxWidth = Math.max(0, Math.min(ROW_MENU_MAX_WIDTH, viewportWidth - right - 8));
   return { right, top, maxWidth };
 }

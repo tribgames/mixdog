@@ -55,9 +55,11 @@ function renderBatchItems(batch, pushUserOrSyntheticItem) {
     const sender = String(entry.transcriptMeta?.sender || '')
       .trim()
       .toLowerCase();
-    let itemExtras = sender ? { sender } : null;
+    const device = typeof entry.transcriptMeta?.device === 'string' ? entry.transcriptMeta.device : '';
+    const attribution = { ...(sender ? { sender } : {}), ...(device ? { device } : {}) };
+    let itemExtras = sender || device ? attribution : null;
     if (Array.isArray(entry.images) && entry.images.length) {
-      itemExtras = { images: entry.images, ...(sender ? { sender } : {}) };
+      itemExtras = { images: entry.images, ...attribution };
     }
     pushUserOrSyntheticItem(entry.text, entry.id, isQueuedEntryEditable(entry) ? 'user' : 'injected', itemExtras);
   }

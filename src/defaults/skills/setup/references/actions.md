@@ -79,8 +79,8 @@ Read this when choosing a `setup` mutation.
 Inspect `status model`, `status agents`, `status websearch`, or `status
 workflow` before changing the corresponding domain.
 
-- A partial route preserves omitted values. Main routes also accept
-  `modelParameters` and `contextPercent`; agent routes accept `disabled`.
+- A partial route preserves omitted values. Main and agent routes also
+  accept `modelParameters` and `contextPercent`; agent routes accept `disabled`.
   Use the model catalog for actual available options, not remembered model ids.
 - A Web Search route must support native web search; tool exposure is changed
   separately.

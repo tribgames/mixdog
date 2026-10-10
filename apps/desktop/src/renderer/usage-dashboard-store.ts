@@ -150,6 +150,8 @@ function sanitizeRow(value: unknown): UsageRecord | null {
   }
   const resetCredits = sanitizeResetCredits(source.resetCredits);
   if (resetCredits) row.resetCredits = resetCredits;
+  const credits = scalarRecord(source.credits, MAX_CREDIT_KEYS);
+  if (credits) row.credits = credits;
   return row;
 }
 

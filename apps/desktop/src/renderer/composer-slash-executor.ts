@@ -246,7 +246,7 @@ async function runUsage(run: SlashRun, argument: string) {
   if (['refresh', '--refresh', '-r', 'true'].includes(argument.toLowerCase())) {
     await commandCapability(run, 'getUsageDashboard', [{ refresh: true }]);
   }
-  run.deps.onOpenCommandSurface('usage');
+  run.deps.onOpenCommandSurface('stats');
 }
 
 export function parseFastArgument(argument: string, current: boolean): RouteSpeed | null {

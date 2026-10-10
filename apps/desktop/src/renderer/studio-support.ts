@@ -5,7 +5,7 @@ import {
   type DesktopReadCapability,
 } from '../shared/contract';
 import { readGlobalCapabilities } from './global-capability-reads';
-import { remoteSurface } from './shell-viewport';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 
 export type MediaKind = 'image' | 'video';
 export const MEDIA_KINDS: MediaKind[] = ['image', 'video'];
@@ -112,7 +112,7 @@ export interface MediaAssetRead {
  *  bridge / relay. Only a local host may afford shrinking a full-size asset
  *  in the renderer; over the wire that IS the cost being removed. */
 export function mediaTransportIsLocal(): boolean {
-  return !remoteSurface();
+  return !isRemoteHostRenderer();
 }
 
 /**

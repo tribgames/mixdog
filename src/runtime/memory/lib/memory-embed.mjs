@@ -1,6 +1,7 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
 
 import { embedTexts, getEmbeddingModelId, holdEmbeddingWarm } from './embedding-provider.mjs';
+import { onnxRuntimeSupported } from '../../shared/onnx-runtime-support.mjs';
 import { embeddingToSql } from './memory.mjs';
 import { createHash } from 'node:crypto';
 import { pruneEmbeddingCache, resolveEmbeddingCacheMaxRows } from './embedding-cache-retention.mjs';
@@ -204,6 +205,7 @@ export async function cachedEmbedTextBatch(db, texts, options = {}) {
 export async function flushEmbeddingDirty(db, options = {}) {
   const signal = options?.signal;
   throwIfAborted(signal);
+  if (!onnxRuntimeSupported()) return { attempted: 0, succeeded: 0, failed: [], timedOut: false };
   // Coalesce concurrent flush calls per db handle.
   const inFlight = _flushInFlight.get(db);
   if (inFlight) return inFlight;
@@ -356,6 +358,7 @@ export async function flushEmbeddingDirty(db, options = {}) {
 export async function flushRawEmbeddings(db, options = {}) {
   const { limit = 200, signal } = options ?? {};
   throwIfAborted(signal);
+  if (!onnxRuntimeSupported()) return { attempted: 0, embedded: 0 };
   // Optional id allow-list: restrict the SKIP LOCKED claim to a specific set of
   // rows (e.g. exactly the rows a single ingest_session call inserted) so a
   // caller can flush ONLY its own rows instead of inheriting the whole raw
@@ -455,6 +458,7 @@ export async function flushRawEmbeddings(db, options = {}) {
 async function syncRawBatchEmbeddings(db, ids, options = {}) {
   const signal = options?.signal;
   throwIfAborted(signal);
+  if (!onnxRuntimeSupported()) return [];
   const rows = (
     await db.query(
       `SELECT id, role, content FROM memory.entries
@@ -529,6 +533,7 @@ async function syncRawBatchEmbeddings(db, ids, options = {}) {
 async function syncBatchEmbeddings(db, ids, options = {}) {
   const signal = options?.signal;
   throwIfAborted(signal);
+  if (!onnxRuntimeSupported()) return [];
   const rows = (
     await db.query(`SELECT id, element, summary FROM memory.entries WHERE id = ANY($1::bigint[]) AND is_root = 1`, [
       ids,

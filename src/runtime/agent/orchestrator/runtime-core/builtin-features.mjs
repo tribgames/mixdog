@@ -21,6 +21,7 @@ import { readBridgeDiscovery } from '../../../bridge-discovery.mjs';
 import { HEADLESS_MODEL_TOOL_NAMES, HEADLESS_TOOL_PROFILE, normalizeToolProfile } from './tool-profile.mjs';
 import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
 import { gitExecutablePresent } from '../../../shared/path-executable.mjs';
+import { onnxRuntimeSupported } from '../../../shared/onnx-runtime-support.mjs';
 
 // Browser Use / Computer Use have no install marker: the desktop app publishes
 // a loopback bridge discovery file while the feature is on. The same file
@@ -85,6 +86,7 @@ export function builtinFeatureActive(configLike, id) {
   // the judge model downloads at boot, and until it is on disk every call keeps
   // the user's effort.
   if (id === 'autoEffort') {
+    if (!onnxRuntimeSupported()) return false;
     return featureEnvOverride('MIXDOG_FEATURE_AUTO_EFFORT') ?? moduleEnabled(configLike, 'autoEffort', true);
   }
   // Media Studio is a hidden built-in like setup: no Settings card, no install

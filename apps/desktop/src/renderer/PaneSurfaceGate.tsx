@@ -6,7 +6,7 @@ import { DesktopLoadingSurface } from './RendererRecovery';
 import { t } from './i18n';
 import { RemoteConnectionBanner } from './RemoteConnectionBanner';
 import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './remote-connection-state';
-import { remoteSurface } from './shell-viewport';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 
 const SURFACE_FONT_WAIT_MAX_MS = 300;
 const STARTUP_SURFACE_FALLBACK_MS = 1_200;
@@ -174,7 +174,7 @@ export function DesktopBootGate({
   label?: string;
   children: ReactNode;
 }) {
-  const remote = remoteSurface();
+  const remote = isRemoteHostRenderer();
   const connectionState = useSyncExternalStore(
     subscribeRemoteConnectionState,
     currentRemoteConnectionState,

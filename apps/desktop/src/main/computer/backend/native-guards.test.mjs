@@ -208,7 +208,10 @@ Add-Type @'
 using System;
 public static class MixWin32 {
   public static int Clicks;
+  public static int Scopes;
   public static string WindowId(IntPtr target) { return "hwnd:0x1"; }
+  public static object BeginInactive(IntPtr target) { Scopes++; return new object(); }
+  public static void EndInactive(object scope) { Scopes--; }
   public static string BackgroundPointer(IntPtr target, int x, int y, string action, string modifiers) {
     Clicks++; return "hwnd:0x1";
   }

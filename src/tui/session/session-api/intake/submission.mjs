@@ -1,14 +1,10 @@
-// Prompt submission: mint the intake, decide between queueing now and queueing
-// after idle auto-clear, and keep every still-accepting submission addressable
-// so Esc can reclaim it before enqueue.
+// Prompt submission: mint the intake and queue it at once, starting idle
+// auto-clear first when the session is idle. Queued prompts are reclaimed by
+// Esc through restoreQueued.
 import { promptDisplayText } from '../../queue-helpers.mjs';
 
 export function createSubmissionIntake(bag) {
   const { runtime, nextId, flags, getState, enqueue, autoClearBeforeSubmit } = bag;
-  // submitAsync may be awaiting auto-clear while the renderer already owns an
-  // optimistic user row. Keep that intake addressable so Esc can reclaim it
-  // before enqueue()/busy publication without racing a delayed snapshot.
-  const acceptingSubmissions = new Map();
 
   const submission = (text, options = {}) => {
     const displayText = promptDisplayText(text, options);
@@ -25,14 +21,10 @@ export function createSubmissionIntake(bag) {
         displayText,
       },
     };
-    acceptingSubmissions.set(intake.queueOptions.id, intake);
     return intake;
   };
 
   const enqueueSubmission = (intake) => {
-    const submissionId = String(intake?.queueOptions?.id || '').trim();
-    if (submissionId) acceptingSubmissions.delete(submissionId);
-    if (intake?.cancelled === true) return false;
     const accepted = enqueue(intake.text, intake.queueOptions);
     // User input wakes a passive `task wait` without cancelling either the
     // turn or the background task. The returned running snapshot creates the
@@ -58,18 +50,17 @@ export function createSubmissionIntake(bag) {
     if (flags.autoClearRunning || getState().commandBusy || getState().busy) {
       return enqueueSubmission(intake) !== false;
     }
-    // If autoClearBeforeSubmit rejects (e.g. compaction timeout throws), the
-    // prompt must still be queued — swallow the rejection so enqueue always
-    // runs and the submit is never silently lost.
-    // A synchronous throw is the same failure as a rejection.
-    let autoClear;
+    // Start idle auto-clear first so commandBusy is raised synchronously, then
+    // queue right away: drain stays blocked until the clear settles, so the
+    // prompt still runs against the cleared conversation, and a later submit
+    // can never be queued ahead of this one. A rejection or synchronous throw
+    // must never lose the prompt.
     try {
-      autoClear = Promise.resolve(autoClearBeforeSubmit());
+      void Promise.resolve(autoClearBeforeSubmit()).catch(() => {});
     } catch {
-      autoClear = Promise.resolve();
+      /* the prompt is queued below regardless */
     }
-    void autoClear.catch(() => {}).then(() => enqueueSubmission(intake));
-    return true;
+    return enqueueSubmission(intake) !== false;
   };
 
   const submitAsync = async (text, options = {}) => {
@@ -107,5 +98,5 @@ export function createSubmissionIntake(bag) {
     return await settled;
   };
 
-  return { acceptingSubmissions, submit, submitAsync, submitAndWait };
+  return { submit, submitAsync, submitAndWait };
 }

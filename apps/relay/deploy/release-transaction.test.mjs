@@ -33,6 +33,12 @@ for (const scenario of [
       await mkdir(next);
       await writeFile(join(install, 'release'), 'old');
       await writeFile(join(next, 'release'), 'new');
+      // The side-by-side renderer registry travels with the install tree, so
+      // it is swapped, backed up and rolled back as one unit with it.
+      await mkdir(join(install, 'renderer-releases'));
+      await mkdir(join(next, 'renderer-releases'));
+      await writeFile(join(install, 'renderer-releases', 'index.json'), 'old-registry');
+      await writeFile(join(next, 'renderer-releases', 'index.json'), 'new-registry');
       const result = spawnSync(bash, ['--noprofile', '--norc', harness, root.replaceAll('\\', '/'), scenario], {
         encoding: 'utf8',
         timeout: 15000,
@@ -45,8 +51,11 @@ for (const scenario of [
         await readFile(join(install, 'release'), 'utf8'),
         ['success', 'stop-fails'].includes(scenario) ? 'new' : 'old'
       );
+      const registry = await readFile(join(install, 'renderer-releases', 'index.json'), 'utf8');
+      assert.equal(registry, ['success', 'stop-fails'].includes(scenario) ? 'new-registry' : 'old-registry');
       if (['success', 'stop-fails'].includes(scenario)) {
         assert.equal(await readFile(join(backup, 'release'), 'utf8'), 'old');
+        assert.equal(await readFile(join(backup, 'renderer-releases', 'index.json'), 'utf8'), 'old-registry');
       }
       if (['preparation-fails', 'first-move-fails'].includes(scenario)) {
         await assert.rejects(readFile(join(root, 'service-operations')), { code: 'ENOENT' });

@@ -18,15 +18,18 @@ import {
   sessionDisplayName,
 } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
+import type { RemoteHostWindows } from './remote-host-windows';
 
 interface SessionIpcOptions {
   handle: Handle;
   host: DesktopService;
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
   browserHost?: Pick<BrowserHost, 'releaseSession'>;
-  remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
+  remoteAccessInfo?: (options?: { activate?: boolean }) => Promise<DesktopRemoteAccessInfo | null>;
   rotateRemoteAccess?: () => Promise<DesktopRemoteAccessInfo | null>;
   revokeRemoteAccessClient?: (clientId: string) => Promise<DesktopRemoteAccessInfo | null>;
+  /** "Connect to another PC": saved hosts and their windows. */
+  remoteHosts?: RemoteHostWindows;
 }
 
 export function registerSessionIpc({
@@ -37,6 +40,7 @@ export function registerSessionIpc({
   remoteAccessInfo,
   rotateRemoteAccess,
   revokeRemoteAccessClient,
+  remoteHosts,
 }: SessionIpcOptions): void {
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
   handle(DESKTOP_IPC.markSessionRead, (_event, sessionId, messageCount, consumedUnread) => {
@@ -54,14 +58,28 @@ export function registerSessionIpc({
     host.searchSessionContent(requiredSessionContentQuery(query))
   );
   // Settings → Connection: pairing card (null while the bridge is off).
-  handle(DESKTOP_IPC.remoteAccessInfo, () => remoteAccessInfo?.() ?? null);
+  handle(DESKTOP_IPC.remoteAccessInfo, (_event, options) =>
+    remoteAccessInfo?.({ activate: (options as { activate?: unknown } | undefined)?.activate !== false }) ?? null
+  );
   handle(DESKTOP_IPC.rotateRemoteAccess, () => rotateRemoteAccess?.() ?? null);
   handle(
     DESKTOP_IPC.revokeRemoteAccessClient,
     (_event, clientId) => revokeRemoteAccessClient?.(requiredString(clientId, 'clientId')) ?? null
   );
+  handle(DESKTOP_IPC.listRemoteHosts, () => remoteHosts?.list() ?? []);  handle(DESKTOP_IPC.connectRemoteHost, (_event, link, name) => {
+    if (!remoteHosts) throw new Error('Connecting to another PC is unavailable.');
+    return remoteHosts.connect(requiredString(link, 'link', 2_048), typeof name === 'string' ? name : undefined);
+  });
+  handle(DESKTOP_IPC.openRemoteHost, (_event, id) => {
+    if (!remoteHosts) throw new Error('Connecting to another PC is unavailable.');
+    return remoteHosts.open(requiredString(id, 'id', 64));
+  });
+  handle(DESKTOP_IPC.forgetRemoteHost, (_event, id) => {
+    if (!remoteHosts) throw new Error('Connecting to another PC is unavailable.');
+    return remoteHosts.forget(requiredString(id, 'id', 64));
+  });
   handle(DESKTOP_IPC.listRemoteClientClaims, () => invokeDesktopOperation('remoteAccessListClaims', []));
-  // The approval itself: this answer is what mints the asking app's credential.
+  // The approval itself: this answer is what mints the asking app's credential,
   handle(DESKTOP_IPC.resolveRemoteClientClaim, async (_event, claimId, approved) => {
     if (typeof approved !== 'boolean') throw new TypeError('approved must be a boolean.');
     const handled = await invokeDesktopOperation('remoteAccessResolveClaim', [

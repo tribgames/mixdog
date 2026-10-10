@@ -187,8 +187,50 @@ test('an automatic turn without a tool call waits instead of prompting the unfin
   assert.equal(f.pending[0].mode, 'goal-continuation');
 });
 
+test('an automatic blocker re-check keeps Goal turns going only while it calls tools', async (t) => {
+  const f = fixture(t);
+  await f.call({
+    action: 'create',
+    objective: 'Train once the GPU is free',
+    tasks: [{ text: 'Run training', status: 'in_progress' }],
+  });
+  await f.controller.onGoalTurnStarted();
+  f.state.busy = false;
+  await f.controller.onGoalTurnSettled({ status: 'done', automatic: true, toolCalls: 1 });
+  await pendingCount(f, 1);
+  assert.equal(f.pending[0].mode, 'goal-continuation');
+
+  f.pending.length = 0;
+  await f.controller.onGoalTurnStarted();
+  await f.controller.onGoalTurnSettled({ status: 'done', automatic: true, toolCalls: 0 });
+  await tick();
+  assert.deepEqual(f.pending, []);
+  assert.equal(f.runtime.continuation(f.sessionId).reason, 'no-progress-wait');
+  assert.equal(f.state.goal.status, 'active');
+});
+
+test('blocking from a settled-duration review stops the Goal without further turns', async (t) => {
+  const f = fixture(t);
+  await f.call({
+    action: 'create',
+    objective: 'Use the approved duration',
+    time_limit_minutes: 60,
+    time_mode: 'duration',
+    tasks: [{ text: 'Verified deliverable', status: 'completed' }],
+  });
+  assert.equal(f.runtime.continuation(f.sessionId).reason, 'idle-review');
+  await f.controller.onGoalTurnStarted();
+  const reply = await f.call({ action: 'block', blocker: 'User must approve the next phase' });
+  assert.equal(reply.goal.status, 'blocked');
+  f.state.busy = false;
+  await f.controller.onGoalTurnSettled({ status: 'done', automatic: true, toolCalls: 1 });
+  await tick();
+  assert.deepEqual(f.pending, []);
+  assert.equal(f.state.goal.status, 'blocked');
+});
+
 test('duration waiting cannot suppress unfinished work, objective review, or maximum-budget closeout', async (t) => {
-  for (const scenario of ['unfinished', 'unrecorded', 'objective-review', 'max', 'block-audit']) {
+  for (const scenario of ['unfinished', 'unrecorded', 'objective-review', 'max']) {
     await t.test(scenario, async (t) => {
       const f = fixture(t);
       const taskStatus = scenario === 'unfinished' ? 'pending' : 'completed';
@@ -211,8 +253,6 @@ test('duration waiting cannot suppress unfinished work, objective review, or max
       if (scenario === 'objective-review') {
         await f.runtime.control(f.sessionId, { action: 'edit', objective: 'Expanded approved objective' });
       }
-      if (scenario === 'block-audit')
-        await f.call({ action: 'block', blocker: 'External approval service unavailable' });
       f.state.busy = false;
       f.controller.scheduleGoalContinuation();
       await pendingCount(f, 1);

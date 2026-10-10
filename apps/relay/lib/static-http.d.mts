@@ -36,5 +36,6 @@ export declare function sendStaticFile(
   request: IncomingMessage,
   response: ServerResponse,
   target: string,
-  extraHeaders?: Record<string, string | string[]>
+  extraHeaders?: Record<string, string | string[]>,
+  options?: { varyOnCookie?: boolean }
 ): void;

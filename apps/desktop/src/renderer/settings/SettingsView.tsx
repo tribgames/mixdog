@@ -20,6 +20,8 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi } from '../../shared/contract';
+import { isRemoteHostRenderer } from '../remote-ui-projection';
+import { useRemoteHostOpenAccess } from '../remote-host-access';
 import { t } from '../i18n';
 import { setRemoteClaimPromptActive } from '../remote-claim-prompt-state';
 import { acquireTitleBarDim, refreshTitleBarDim } from '../titlebar-dim';
@@ -41,7 +43,7 @@ export type SettingsSection = (typeof SETTINGS_ITEMS)[number]['value'];
 type SettingsApi = Partial<DesktopApi>;
 
 export function preloadSettings(api: SettingsApi): Promise<unknown> {
-  return Promise.all([preloadCapabilitySettings(api), preloadGitPanelInfo(api), preloadConnectionInfo(api)]);
+  return Promise.all([preloadCapabilitySettings(api), preloadGitPanelInfo(api), preloadConnectionInfo(api, undefined, { activate: false })]);
 }
 
 export { preloadConnectionInfo };
@@ -78,16 +80,19 @@ export const SettingsView = memo(function SettingsView({
   onCompose,
   onClose,
 }: SettingsViewProps) {
-  const remoteSettings = Boolean((window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer);
-  const visibleCategories = settingsCategoriesForSurface(remoteSettings);
+  const remoteSettings = isRemoteHostRenderer();
+  // A host that announces open access serves the Providers and Developer pages;
+  // an older one refuses their calls, so they stay hidden.
+  const hostOpenAccess = useRemoteHostOpenAccess();
+  const visibleCategories = settingsCategoriesForSurface(remoteSettings, hostOpenAccess);
   const resolveCategory = (next: SettingsCategory): SettingsCategory =>
-    settingsCategoryForSurface(next, remoteSettings);
+    settingsCategoryForSurface(next, remoteSettings, hostOpenAccess);
   const [category, setCategory] = useState<SettingsCategory>(
     resolveCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general')
   );
   const openCategory = useCallback(
-    (next: SettingsCategory) => setCategory(settingsCategoryForSurface(next, remoteSettings)),
-    [remoteSettings]
+    (next: SettingsCategory) => setCategory(settingsCategoryForSurface(next, remoteSettings, hostOpenAccess)),
+    [remoteSettings, hostOpenAccess]
   );
   const dialogRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -105,7 +110,7 @@ export const SettingsView = memo(function SettingsView({
     if (!open) return;
     setCategory(resolveCategory(initialSection ? categoryForSettingsItem(initialSection) : 'general'));
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
-  }, [open, initialSection, remoteSettings]);
+  }, [open, initialSection, remoteSettings, hostOpenAccess]);
   // Windows caption controls are native chrome, outside the DOM backdrop.
   // Hold their matching composited colors for the full settings lifetime.
   useEffect(() => {
@@ -125,7 +130,7 @@ export const SettingsView = memo(function SettingsView({
   useEffect(() => {
     if (!open) return;
     void preloadGitPanelInfo(api);
-    void preloadConnectionInfo(api);
+    void preloadConnectionInfo(api, undefined, { activate: false });
   }, [open, api]);
   useEffect(() => {
     const active = open && !remoteSettings && category === 'connection';

@@ -12,7 +12,11 @@ import {
   readCachedApiUsageSnapshot,
 } from '../../runtime/agent/orchestrator/providers/api-usage.mjs';
 import { num } from '../../runtime/agent/orchestrator/providers/lib/usage-primitives.mjs';
+import { readProviderAccountPool } from '../../runtime/shared/provider-accounts.mjs';
+
+const CREDIT_PROVIDERS = new Set(['openai-oauth', 'anthropic-oauth']);
 import {
+  creditsFromSnapshot,
   applyApiUnavailable,
   applyKnownRemaining,
   applyKnownUsage,
@@ -206,6 +210,7 @@ async function oauthProviderRow(item, { providers, preview, snapshotOptions, row
   row.primary = row.authenticated ? '' : 'not signed in';
   row.detail = row.authenticated ? 'Checking provider usage' : item.detail || 'OAuth credentials missing';
   row.tone = rowTone(row);
+  if (CREDIT_PROVIDERS.has(item.id)) row.useCredits = readProviderAccountPool(item.id).useCredits === true;
   rows.push(row);
   emit(true);
 
@@ -222,6 +227,8 @@ async function oauthProviderRow(item, { providers, preview, snapshotOptions, row
       const resetCredits = normaliseResetCredits(snapshot?.resetCredits);
       row.windows = windows;
       if (resetCredits) row.resetCredits = resetCredits;
+      const credits = creditsFromSnapshot(item.id, snapshot);
+      if (credits) row.credits = credits;
       row.updatedAt = num(snapshot?.cachedAt, null);
       if (known) {
         applyKnownRemaining(row, known, { estimated: false });

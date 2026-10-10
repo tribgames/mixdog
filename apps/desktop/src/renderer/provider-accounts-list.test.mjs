@@ -335,7 +335,7 @@ test('switching to an account without usage clears old meters and reset credits 
   };
   await render(React.createElement(SidebarUsage, { api }));
   assert.equal(document.querySelector('[data-usage-provider="codex"] .sidebar-usage-meter b').textContent, '39%');
-  assert.ok(document.querySelector('.sidebar-usage-reset-credit'));
+  assert.ok(document.querySelector('[data-usage-provider="codex"] .sidebar-usage-reset-credit'));
   await act(async () =>
     document.querySelector('[data-usage-provider="codex"] .provider-account-picker-trigger').click()
   );
@@ -569,4 +569,72 @@ test('account names are edited inline and persisted through the account API', as
   );
   assert.deepEqual(changes, [{ rename: { id: 'a', label: 'Work' } }]);
   assert.equal(document.querySelector('.provider-account-name').textContent, 'Work');
+});
+
+test('credit line renders only with credits, formats Codex count vs Claude USD, and the switch persists', async (t) => {
+  const render = harness(t);
+  const soon = Date.now() + 2 * 24 * 3_600_000;
+  publishUsageDashboard({
+    rows: [
+      {
+        id: 'openai-oauth',
+        group: 'oauth',
+        authenticated: true,
+        windows: [{ label: '5H', usedPct: 100 }],
+        credits: { unit: 'credits', balance: 62500 },
+        useCredits: false,
+        resetCredits: {
+          availableCount: 1,
+          offerRevision: 'o',
+          availableCredits: [{ id: 'c1', expiresAt: soon }],
+        },
+      },
+      {
+        id: 'anthropic-oauth',
+        group: 'oauth',
+        authenticated: true,
+        windows: [{ label: '7D', usedPct: 3 }],
+      },
+    ],
+  });
+  const calls = [];
+  const api = {
+    async invokeCapability({ capability, args }) {
+      calls.push([capability, args]);
+      return { value: {} };
+    },
+  };
+  await render(React.createElement(SidebarUsage, { api }));
+  const codex = () => document.querySelector('[data-usage-provider="codex"]');
+  assert.equal(codex().querySelector('.sidebar-usage-credit .sidebar-usage-credit-value > b').textContent, '62,500');
+  assert.equal(document.querySelector('[data-usage-provider="claude"] .sidebar-usage-credit'), null);
+  const toggle = codex().querySelector('[role="switch"]');
+  assert.equal(toggle.getAttribute('aria-checked'), 'false');
+  await act(async () => toggle.click());
+  assert.ok(calls.some(([c, a]) => c === 'updateProviderAccounts' && a[0] === 'openai-oauth' && a[1].useCredits === true));
+  await act(async () => document.querySelector('.sidebar-usage-reset-info').click());
+  const items = [...document.querySelectorAll('.sidebar-usage-reset-popover li')];
+  assert.equal(items.length, 1);
+  assert.match(items[0].textContent, /Reset credit 1/);
+  assert.ok(items[0].querySelector('small.is-soon'));
+  await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+  assert.equal(document.querySelector('.sidebar-usage-reset-popover'), null);
+
+  publishUsageDashboard({
+    rows: [
+      {
+        id: 'anthropic-oauth',
+        group: 'oauth',
+        authenticated: true,
+        windows: [{ label: '7D', usedPct: 3 }],
+        credits: { unit: 'usd', balance: 25, monthlyLimit: 10 },
+        useCredits: true,
+      },
+    ],
+  });
+  await act(async () => {});
+  const line = document.querySelector('[data-usage-provider="claude"] .sidebar-usage-credit');
+  assert.equal(line.querySelector('b').textContent, '$25.00');
+  assert.match(line.textContent, /Monthly limit \$10/);
+  assert.equal(line.querySelector('[role="switch"]').getAttribute('aria-checked'), 'true');
 });

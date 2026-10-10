@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { DesktopRemoteAccessInfo } from '../../shared/contract';
+import { nativeAppInfo } from '../../shared/native-app';
 import { t, uiFormatLocale } from '../i18n';
 import { subscribeSetupChanges } from '../setup-change-refresh';
+import { copyTextToClipboard } from '../text-format';
+import { RemoteHostsPanel } from './remote-hosts-panel';
 import { ActionButton, Group, ResourceRow } from './capability-controls';
 import type { CapabilityApi } from './capability-data';
 import {
@@ -165,10 +168,12 @@ function renderLinkedDevices({
             <ResourceRow
               key={client.id}
               title={client.name || `${client.platform || t('Device')} · ${client.browser || t('Browser')}`}
-              meta={t('Added {{created}} · Last used {{lastSeen}}', {
-                created: new Date(client.createdAt).toLocaleDateString(uiFormatLocale()),
-                lastSeen,
-              })}
+              meta={
+                t('Added {{created}} · Last used {{lastSeen}}', {
+                  created: new Date(client.createdAt).toLocaleDateString(uiFormatLocale()),
+                  lastSeen,
+                })
+              }
               status={client.online ? 'Connected' : 'Not connected'}
               actions={
                 <ActionButton
@@ -225,6 +230,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
   const [confirmRotate, setConfirmRotate] = useState(false);
   const [revokingClient, setRevokingClient] = useState('');
   const [confirmClient, setConfirmClient] = useState('');
+  const [linkCopied, setLinkCopied] = useState(false);
   const [stalledAttempts, setStalledAttempts] = useState(0);
   const ready = connectionInfoReady(info);
   const applyInfo = (next: DesktopRemoteAccessInfo | null): void => {
@@ -236,7 +242,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
 
   if (!api.getRemoteAccessInfo) {
     const remoteServer = (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer;
-    return renderConnectionNote(
+    const note = renderConnectionNote(
       remoteServer
         ? t(
             'This web app is paired and connected through {{server}}. Pairing QR codes for other browsers live in the desktop app under Settings → Connection.',
@@ -244,12 +250,45 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
           )
         : t(RELAY_CONNECTING_MESSAGE)
     );
+    const native = nativeAppInfo();
+    if (!native?.call) return note;
+    // The phone app keeps a list of paired PCs on its own pairing screen.
+    return (
+      <>
+        {note}
+        <Group title={t('Switch PC')}>
+          <ResourceRow
+            title={t('Switch PC / pair another PC')}
+            description={t('Go back to the Mixdog app’s start screen to pick another paired PC or scan a new QR code.')}
+            actions={<ActionButton onClick={() => void native.call?.('openHostPicker').catch(() => undefined)}>{t('Switch PC')}</ActionButton>}
+          />
+        </Group>
+      </>
+    );
   }
 
+  // Connecting OUT to another PC does not depend on this PC's own relay.
+  const hosts = <RemoteHostsPanel api={api} />;
   if (!ready) {
-    if (stalledAttempts >= CONNECTION_STALLED_ATTEMPTS) return renderConnectionNote(t(RELAY_CONNECTING_MESSAGE));
-    return renderPairingPlaceholder();
+    return (
+      <>
+        {stalledAttempts >= CONNECTION_STALLED_ATTEMPTS
+          ? renderConnectionNote(t(RELAY_CONNECTING_MESSAGE))
+          : renderPairingPlaceholder()}
+        {hosts}
+      </>
+    );
   }
+
+  const copyLink = (): void => {
+    void copyTextToClipboard(info.relayBrowserUrl).then(
+      () => {
+        setLinkCopied(true);
+        window.setTimeout(() => setLinkCopied(false), 2_000);
+      },
+      () => undefined
+    );
+  };
 
   return (
     <>
@@ -267,6 +306,18 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
             </figcaption>
           </figure>
         </div>
+        {/* The same URL the QR encodes, for pasting into another PC's Mixdog
+            ("Connect to another PC"). It names this desktop; it grants nothing. */}
+        <div className="settings-connection-link">
+          <input
+            type="text"
+            readOnly
+            value={info.relayBrowserUrl}
+            aria-label={t('Pairing link')}
+            onFocus={(event) => event.currentTarget.select()}
+          />
+          <ActionButton onClick={copyLink}>{linkCopied ? t('Copied') : t('Copy link')}</ActionButton>
+        </div>
       </Group>
       {info.clients.length > 0 &&
         renderLinkedDevices({
@@ -282,6 +333,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
           setConfirmClient,
           applyInfo,
         })}
+      {hosts}
     </>
   );
 }

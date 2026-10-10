@@ -24,6 +24,7 @@ import {
   preloadCapabilitySettings,
 } from './capability-data';
 import { CategoryPanel } from './capability-panels';
+import { friendlyCapabilityError } from './remote-capability-guard';
 export { getCachedCapabilitySettings, preloadCapabilitySettings } from './capability-data';
 export { OAuthControl } from './capability-panels';
 
@@ -175,7 +176,8 @@ export const CapabilitySettings = memo(function CapabilitySettings({
           invalidateSidebarReferenceForMutation(capability);
           if (refresh) setRevision((value) => value + 1);
           return result.value;
-        } catch (reason) {
+        } catch (rawReason) {
+          const reason = friendlyCapabilityError(rawReason);
           if (errorMode === 'throw') throw reason;
           if (!silent) setError(reason instanceof Error ? reason.message : String(reason));
           return undefined;

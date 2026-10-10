@@ -15,6 +15,7 @@ import { registerFileDialogIpc } from './ipc-file-dialogs';
 import { registerProjectIpc } from './ipc-projects';
 import { registerProjectFileIpc } from './ipc-project-files';
 import { registerSessionIpc } from './ipc-sessions';
+import type { RemoteHostWindows } from './remote-host-windows';
 import { registerSourceControlIpc } from './ipc-source-control';
 import { DesktopStateBridge, type DesktopUpdater } from './ipc-state-bridge';
 import { registerTerminalIpc, type DesktopTerminalHost } from './ipc-terminal';
@@ -35,11 +36,13 @@ const SERVICE_OPERATION_NAMES = [
   'installGithubCli',
   'githubCliLoginStart',
   'githubCliLoginStatus',
+  'githubCliLoginOpenBrowser',
   'cancelGithubCliLogin',
   'githubCliLogout',
   'githubCliAccount',
   'gitGlobalConfig',
   'setGitGlobalConfig',
+  'notifySettingsChanged',
   'gitAbortOperation',
   'gitAmend',
   'gitApplyPatch',
@@ -118,11 +121,13 @@ interface DesktopIpcDependencies {
     | 'browserPresentNative'
   >;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
-  remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
+  remoteAccessInfo?: (options?: { activate?: boolean }) => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
   rotateRemoteAccess?: () => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: revoke one registered browser. */
   revokeRemoteAccessClient?: (clientId: string) => Promise<DesktopRemoteAccessInfo | null>;
+  /** Settings → Connection / command surface: connect to another PC. */
+  remoteHosts?: RemoteHostWindows;
   updater?: DesktopUpdater;
   terminals?: DesktopTerminalHost;
 }
@@ -145,6 +150,7 @@ export function registerDesktopIpc(
     remoteAccessInfo,
     rotateRemoteAccess,
     revokeRemoteAccessClient,
+    remoteHosts,
   }: DesktopIpcDependencies
 ): () => void {
   const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
@@ -204,6 +210,7 @@ export function registerDesktopIpc(
     remoteAccessInfo,
     rotateRemoteAccess,
     revokeRemoteAccessClient,
+    remoteHosts,
   });
   registerBrowserIpc({ handle, browserHost });
   registerWindowSettingsIpc({

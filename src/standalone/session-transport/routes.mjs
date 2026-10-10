@@ -114,6 +114,7 @@ export function createTransportRoutes({
     const requestedProtocol = Number(body.protocol);
     const requestedRevision = Math.max(0, Number(body.revision) || 0);
     const requestedVersion = String(body.version || '0.0.0');
+    const force = body.force === true;
     const revisionOrder = requestedRevision - SESSION_REVISION;
     const versionOrder = compareRuntimeVersions(requestedVersion, runtimeVersion());
     const newerBuild =
@@ -140,6 +141,7 @@ export function createTransportRoutes({
           protocol: SESSION_PROTOCOL,
           revision: requestedRevision,
           version: requestedVersion,
+          force,
         });
       } catch {}
     });

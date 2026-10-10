@@ -16,15 +16,6 @@ import {
   writeSurfaceDataCache,
   SURFACE_DATA_CACHE_LIMIT,
 } from './command-surface-cache.ts';
-import {
-  billingUrl,
-  usageClock,
-  usageEstimated,
-  usagePlanType,
-  usageProviderLabel,
-  usageTone,
-  usageWindowValue,
-} from './command-surface-usage.tsx';
 import { resolveInheritBlockedReason } from './command-surface-inherit.tsx';
 import { useCommandSurfaceLifecycle } from './command-surface-lifecycle.ts';
 import { CommandSurface, commandSurfaceTitle } from './CommandSurface.tsx';
@@ -81,13 +72,11 @@ test('usage getters omit snapshots while context, inheritance and commands retai
       return { value: { capability: request.capability }, snapshot };
     },
   };
-  await render({ surface: 'usage', api });
-  assert.deepEqual(reads[0], [{ capability: 'getUsageDashboard', args: [] }]);
-  assert.equal(invokes.length, 0);
   await render({ surface: 'stats', api });
-  assert.deepEqual(reads[1], [{ capability: 'getUsageStats', args: [{ view: 'hour' }] }]);
+  assert.deepEqual(reads[0], [{ capability: 'getUsageStats', args: [{ view: 'hour' }] }]);
+  assert.equal(invokes.length, 0);
   await act(async () => current.requestCapability('getUsageStats', [{ view: 'day', anchor: '2026-09-01' }]));
-  assert.deepEqual(reads[2], [{ capability: 'getUsageStats', args: [{ view: 'day', anchor: '2026-09-01' }] }]);
+  assert.deepEqual(reads[1], [{ capability: 'getUsageStats', args: [{ view: 'day', anchor: '2026-09-01' }] }]);
   await render({ surface: 'context', sessionId: 'session-test', api });
   // The gauge, then the footer's session spend from the same session.
   assert.deepEqual(invokes.slice(-2), [
@@ -102,12 +91,12 @@ test('usage getters omit snapshots while context, inheritance and commands retai
   assert.equal(current.data.contextStatus, metadata, 'preview reads must not replace cached dashboard metadata');
   await render({ surface: 'inherit', sessionId: 'session-test', api });
   assert.deepEqual(invokes.at(-1), { capability: 'contextStatus', args: [], sessionId: 'session-test' });
-  assert.equal(reads.length, 3);
+  assert.equal(reads.length, 2);
   await render({ surface: 'doctor', api });
   assert.deepEqual(invokes.at(-1), { capability: 'runDoctor', args: [] });
   await act(async () => current.run('cancelMediaJob', ['job']));
   assert.equal(invokes.filter(({ capability }) => capability === 'cancelMediaJob').length, 1);
-  assert.equal(reads.length, 3);
+  assert.equal(reads.length, 2);
 });
 
 test('command surface cache enforces bounded LRU eviction at limit 64', () => {
@@ -536,96 +525,11 @@ test('inherit blocked reasons evaluate conditions in deterministic sequence', ()
   );
 });
 
-test('usage presentation helpers compute clocks, tones and formats', () => {
-  // Invalid/empty clocks
-  assert.equal(usageClock(null), '');
-  assert.equal(usageClock(0), '');
-  assert.equal(usageClock(-1), '');
-
-  // Estimated sources
-  assert.equal(usageEstimated({ source: 'local' }), true);
-  assert.equal(usageEstimated({ source: 'config-cache' }), true);
-  assert.equal(usageEstimated({ source: '' }), true);
-  assert.equal(usageEstimated({ source: 'provider-api' }), false);
-
-  // Tone resolution
-  assert.equal(usageTone({ source: 'local' }), 'estimate');
-  assert.equal(usageTone({ source: 'api', usedPct: 96 }), 'danger');
-  assert.equal(usageTone({ source: 'api', usedPct: 85 }), 'warn');
-  assert.equal(usageTone({ source: 'api', usedPct: 50 }), 'ok');
-  assert.equal(usageTone({ source: 'api', usedPct: null }), 'ok');
-
-  // Plan types
-  assert.equal(usagePlanType({ id: 'opencode-go' }), 'subscription');
-  assert.equal(usagePlanType({ group: 'oauth' }), 'subscription');
-  assert.equal(usagePlanType({ group: 'api' }), 'api');
-  assert.equal(usagePlanType({ group: 'unknown' }), '');
-
-  // Labels (Requirement 1: strip trailing OAuth/API only; Pro and ID preserved)
-  assert.equal(usageProviderLabel({ label: 'OpenAI OAuth' }), 'OpenAI');
-  assert.equal(usageProviderLabel({ label: 'OpenAI API' }), 'OpenAI');
-  assert.equal(usageProviderLabel({ label: 'OpenAI Pro' }), 'OpenAI Pro');
-  assert.equal(usageProviderLabel({ id: 'anthropic' }), 'anthropic');
-
-  // Billing urls
-  assert.equal(
-    billingUrl({ group: 'api', id: 'openai' }),
-    'https://platform.openai.com/settings/organization/billing/overview'
-  );
-  assert.equal(billingUrl({ group: 'oauth', id: 'openai' }), '');
-
-  // Window values
-  assert.equal(usageWindowValue({ usedPct: 42 }), '42%');
-  assert.equal(usageWindowValue({ remainingUsd: 12.5 }), '$12.50');
-  assert.equal(usageWindowValue({ usedUsd: 5, limitUsd: 20 }), '$5.00/$20.00');
-});
-
 test('command surface titles match supported slash command surfaces', () => {
   assert.equal(commandSurfaceTitle('context'), t('Context'));
-  assert.equal(commandSurfaceTitle('usage'), t('Provider usage'));
   assert.equal(commandSurfaceTitle('doctor'), t('Doctor'));
   assert.equal(commandSurfaceTitle('inherit'), t('Inherit session'));
   assert.equal(commandSurfaceTitle('stats'), t('Usage'));
-});
-
-test('command surface renders usage skeleton while loading then paints table', async (context) => {
-  clearSurfaceDataCache();
-  const render = setupDomHarness(context, CommandSurface);
-  let resolveCapability;
-  const api = {
-    invokeCapability: () =>
-      new Promise((resolve) => {
-        resolveCapability = resolve;
-      }),
-  };
-
-  await render({ surface: 'usage', open: true, onClose() {}, api });
-  const dialog = document.querySelector('[role="dialog"]');
-  assert.ok(dialog);
-  assert.equal(dialog.getAttribute('aria-busy'), 'true');
-  assert.ok(document.querySelector('.usage-skeleton-row'));
-
-  // Resolve with dashboard data
-  await act(async () => {
-    resolveCapability({
-      value: {
-        rows: [
-          {
-            id: 'openai',
-            label: 'OpenAI',
-            group: 'api',
-            authenticated: true,
-            windows: [{ label: 'requests', usedPct: 30 }],
-          },
-        ],
-      },
-    });
-  });
-
-  assert.equal(dialog.getAttribute('aria-busy'), 'false');
-  assert.equal(document.querySelector('.usage-skeleton-row'), null);
-  assert.ok(document.querySelector('.usage-table'));
-  assert.equal(document.querySelector('.usage-provider-cell b')?.textContent, 'OpenAI');
 });
 
 test('command surface renders inherit session dialog with facts and cancel button', async (context) => {
@@ -676,23 +580,23 @@ test('active surface rerender touches MRU cache on every render', async (context
     invokeCapability: async () => ({ value: { getUsageDashboard: { rows: [] } } }),
   };
 
-  // Seed cache with 'usage'
-  await render({ surface: 'usage', open: true, onClose() {}, api });
-  assert.ok(readSurfaceDataCache('usage'));
+  // Seed cache with 'inherit:mru'
+  await render({ surface: 'inherit', sessionId: 'mru', open: true, onClose() {}, api });
+  assert.ok(readSurfaceDataCache('inherit:mru'));
 
-  // Write 63 more keys (usage + 63 keys = 64 total)
+  // Write 63 more keys (inherit + 63 keys = 64 total)
   for (let i = 0; i < 63; i++) {
     writeSurfaceDataCache(`fill-${i}`, { i });
   }
   assert.equal(surfaceDataCacheSize(), 64);
 
-  // Re-render CommandSurface for 'usage'. This must touch 'usage' via cachedSurface read.
-  await render({ surface: 'usage', open: true, onClose() {}, api });
+  // Re-render CommandSurface for 'inherit'. This must touch 'inherit:mru' via cachedSurface read.
+  await render({ surface: 'inherit', sessionId: 'mru', open: true, onClose() {}, api });
 
-  // Adding 64th fill entry must evict fill-0 (oldest unaccessed), NOT 'usage'
+  // Adding 64th fill entry must evict fill-0 (oldest unaccessed), NOT 'inherit:mru'
   writeSurfaceDataCache('fill-63', { i: 63 });
   assert.equal(surfaceDataCacheSize(), 64);
-  assert.ok(readSurfaceDataCache('usage'));
+  assert.ok(readSurfaceDataCache('inherit:mru'));
   assert.equal(readSurfaceDataCache('fill-0'), undefined);
 
   clearSurfaceDataCache();
@@ -721,17 +625,17 @@ test('stale asynchronous response cannot overwrite newer request state', async (
   assert.equal(resolvers[0].capability, 'runDoctor');
   assert.equal(latestResult.loading, true);
 
-  // 2. Legitimate transition to 'usage' -> advances sequence and triggers request 2 (getUsageDashboard)
-  await render({ surface: 'usage', api });
+  // 2. Legitimate transition to 'inherit' -> advances sequence and triggers request 2 (contextStatus)
+  await render({ surface: 'inherit', api });
   assert.equal(resolvers.length, 2);
-  assert.equal(resolvers[1].capability, 'getUsageDashboard');
+  assert.equal(resolvers[1].capability, 'contextStatus');
 
   // 3. Resolve request 2 (the latest request) with authoritative data
   await act(async () => {
     resolvers[1].resolve({ value: { rows: [{ id: 'provider-active' }] } });
   });
   assert.equal(latestResult.loading, false);
-  assert.deepEqual(latestResult.data.getUsageDashboard, { rows: [{ id: 'provider-active' }] });
+  assert.deepEqual(latestResult.data.contextStatus, { rows: [{ id: 'provider-active' }] });
   assert.equal(latestResult.data.runDoctor, undefined);
 
   // 4. Resolve stale request 1 (runDoctor) with an older result
@@ -741,7 +645,7 @@ test('stale asynchronous response cannot overwrite newer request state', async (
 
   // 5. Verify the older result did NOT overwrite the latest state
   assert.equal(latestResult.data.runDoctor, undefined);
-  assert.deepEqual(latestResult.data.getUsageDashboard, { rows: [{ id: 'provider-active' }] });
+  assert.deepEqual(latestResult.data.contextStatus, { rows: [{ id: 'provider-active' }] });
 });
 
 test('context session and stats API isolation through lifecycle hook', async (context) => {

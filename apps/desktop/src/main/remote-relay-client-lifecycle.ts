@@ -12,7 +12,8 @@ import {
   type RelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
 import { createRemoteStateLane } from './remote-state-lane';
-import type { RemoteClientClaim } from './remote-relay-claim';
+import { MIXDOG_DESKTOP_CLIENT_BROWSER } from '../shared/remote-trust';
+import type { RemoteClientClaim, RemoteClaimDecision } from './remote-relay-claim';
 import type { RelayClientCallOutcome } from './remote-relay-client-calls';
 import type { RelayClientRegistry, RelayClientState, SendEncryptedFrame } from './remote-relay-clients';
 
@@ -22,6 +23,8 @@ export interface RelayClientLifecycleDeps {
   pairing: RelayE2EEPairingMaterial;
   relayBinaryFrames(): boolean;
   viewSyncSupported(): boolean;
+  /** The relay announced it holds APNs/FCM credentials for this connection. */
+  nativePushSupported?(): boolean;
   relayRoutingCapsPayload(): Record<string, unknown>;
   sendEnvelope(payload: unknown): void;
   sendEncryptedFrame: SendEncryptedFrame;
@@ -32,19 +35,21 @@ export interface RelayClientLifecycleDeps {
     frameBytes: number
   ): Promise<RelayClientCallOutcome>;
   resyncClient(clientId: string, state: RelayClientState): void;
-  onClientClaim?: (claim: RemoteClientClaim) => Promise<boolean>;
+  onClientClaim?: (claim: RemoteClientClaim) => Promise<RemoteClaimDecision>;
 }
 
 const HANDSHAKE_REQUIRED = 'relay encryption handshake required';
 
 export interface RelayClientLifecycle {
-  open(clientId: string): void;
+  /** `credentialId` is the paired client the relay authenticated for this
+   *  leg; '' from a relay that does not name it. */
+  open(clientId: string, credentialId?: string): void;
   answerClaim(envelope: Record<string, unknown>): void;
   receive(clientId: string, client: RelayClientState, frame: string | ArrayBufferView): void;
 }
 
 export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): RelayClientLifecycle {
-  const open = (clientId: string): void => {
+  const open = (clientId: string, credentialId = ''): void => {
     const challenge = {
       ...createRelayE2EEChallenge(),
       ...(deps.relayBinaryFrames() ? { binaryFrames: 1 as const } : {}),
@@ -53,8 +58,14 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
       compactWire: 1 as const,
       transcriptPaging: 1 as const,
       transcriptPrepend: 1 as const,
+      remoteParity: 1 as const,
+      browserParity: 1 as const,
+      mediaE2ee: 1 as const,
+      // Only when the relay can deliver: a renderer calls registerNativePush
+      // on hosts that advertise it.
+      ...(deps.nativePushSupported?.() ? { nativePush: 1 as const } : {}),
     };
-    if (!deps.clients.open(clientId, challenge)) return;
+    if (!deps.clients.open(clientId, challenge, credentialId)) return;
     deps.sendEnvelope({
       type: 'frame',
       clientId,
@@ -72,15 +83,19 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
     void (async () => {
       let sealed: unknown = null;
       try {
-        const approved = await deps.onClientClaim?.({
+        const browser = String(envelope.browser || '').slice(0, 80);
+        const decision = await deps.onClientClaim?.({
           claimId,
           clientId,
           name: String(envelope.name || 'Web app').slice(0, 80),
           platform: String(envelope.platform || '').slice(0, 80),
-          browser: String(envelope.browser || '').slice(0, 80),
+          browser,
+          desktop: browser === MIXDOG_DESKTOP_CLIENT_BROWSER,
           expiresAt,
         });
-        if (approved) sealed = await sealRelayE2EEPairingMaterial(deps.pairing, publicKey);
+        if (decision?.approved) {
+          sealed = await sealRelayE2EEPairingMaterial(deps.pairing, publicKey);
+        }
       } catch {
         sealed = null;
       }
@@ -151,6 +166,9 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
         type: 'e2ee-ready',
         version: 1,
         ...(client.viewSync ? { viewSync: 1 } : {}),
+        // Pairing approval is the trust: this host serves the provider, MCP
+        // and developer lanes to every paired client.
+        remoteOpenAccess: 1,
         ...uplink,
       });
       if (!client.viewSync) deps.resyncClient(clientId, client);

@@ -242,13 +242,13 @@ async function pollCursorOAuth(
   throw new Error('Cursor OAuth timed out');
 }
 
-export async function beginCursorOAuthLogin(options = {}) {
+export async function beginCursorOAuthLogin({ openBrowser = true, ...pollOptions } = {}) {
   const params = generateCursorOAuthParams();
   const controller = new AbortController();
   process.stderr.write(`\n[cursor-oauth] Open the Cursor sign-in page:\n${params.loginUrl}\n\n`);
-  openInBrowser(params.loginUrl);
+  if (openBrowser) openInBrowser(params.loginUrl);
   const waitForCallback = pollCursorOAuth(params.uuid, params.verifier, {
-    ...options,
+    ...pollOptions,
     signal: controller.signal,
   }).then((tokens) => {
     saveCredentials(tokens);

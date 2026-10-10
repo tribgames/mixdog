@@ -166,14 +166,7 @@ export class DesktopServiceClient implements DesktopService {
       this.readyResolve = resolve;
       this.readyReject = reject;
     });
-    this.startupTimer = setTimeout(() => {
-      if (!this.readyReject) return;
-      const error = this.lastExitError ?? new Error('Mixdog service startup timed out.');
-      const transport = this.transport;
-      this.rejectStartup(error);
-      void transport?.close().catch(() => {});
-    }, this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
-    this.startupTimer.unref?.();
+    this.armStartupTimer();
     const readyPromise = this.readyPromise;
     const restartDelayMs = Math.max(0, this.nextRestartAt - Date.now());
     if (restartDelayMs > 0) {
@@ -186,6 +179,31 @@ export class DesktopServiceClient implements DesktopService {
       this.connectService();
     }
     return readyPromise;
+  }
+
+  private armStartupTimer(): void {
+    if (this.startupTimer) clearTimeout(this.startupTimer);
+    this.startupTimer = setTimeout(() => {
+      if (!this.readyReject) return;
+      const error = this.lastExitError ?? new Error('Mixdog service startup timed out.');
+      const transport = this.transport;
+      this.rejectStartup(error);
+      void transport?.close().catch(() => {});
+    }, this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS);
+    this.startupTimer.unref?.();
+  }
+
+  /** An older daemon is finishing its work. The new version cannot start until
+   *  it yields, so the startup deadline is suspended (no teardown, no failure
+   *  toast) until it yields. */
+  private handleUpgradeWait(message: Extract<DesktopServiceOutbound, { kind: 'upgrade-wait' }>): void {
+    if (message.state === 'waiting') {
+      if (this.startupTimer) clearTimeout(this.startupTimer);
+      this.startupTimer = null;
+      this.clearFailureNoticeTimer();
+      return;
+    }
+    if (this.readyReject) this.armStartupTimer();
   }
 
   private connectService(): void {
@@ -280,6 +298,10 @@ export class DesktopServiceClient implements DesktopService {
     const message = value as DesktopServiceOutbound;
     if (message.kind === 'ready') {
       this.handleReady(message.viewSync === true);
+      return;
+    }
+    if (message.kind === 'upgrade-wait') {
+      this.handleUpgradeWait(message);
       return;
     }
     if (message.kind === 'view-sync-complete') {

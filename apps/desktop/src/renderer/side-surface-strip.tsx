@@ -18,7 +18,9 @@ export interface SideFileChrome {
   /** Rendered CSV/TSV table: body rows × columns, shown on the footer's right. */
   tableSize?: { rows: number; columns: number };
   save(): void;
-  reveal(): void;
+  /** Host-only (undefined on a remote surface, which offers `copyPath`). */
+  reveal?(): void;
+  copyPath?(): void;
   /** Previews and binaries: hand the file to the OS default app. */
   openDefault?(): void;
   /** Editor readout that used to live in the footer: problem counts (a ⋯ item
@@ -93,8 +95,10 @@ export function sideFileActions(
       onSelect: chrome.openDefault,
     });
   }
-  if (chrome) {
+  if (chrome?.reveal) {
     actions.push({ id: 'reveal', label: t('Reveal in Explorer'), icon: FolderOpen, onSelect: chrome.reveal });
+  } else if (chrome?.copyPath) {
+    actions.push({ id: 'copy-path', label: t('Copy path'), icon: FolderOpen, onSelect: chrome.copyPath });
   }
   actions.push({ id: 'open-main', label: t('Open in main tab'), icon: PanelTop, onSelect: onOpenInMain });
   if (chrome?.format) {

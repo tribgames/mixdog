@@ -67,9 +67,9 @@ html[data-window-material="mica"][data-mixdog-theme="light"] .workbench-side-pan
 }
 /* The overlaid composer dock's backdrop reads the sheet token, which Mica
    clears; the transcript then showed through under the input (user: 컴포저
-   아래가 보이냐). Fade into the solid workspace layer instead. */
+   아래가 보이냐). Cover with the solid workspace layer instead. */
 html[data-window-material="mica"] .conversation > .composer-region::before {
-  background: linear-gradient(to bottom, transparent, var(--mx-mica-layer) 16px);
+  background: var(--mx-mica-layer);
 }
 /* The parked conversation stays painted under a Studio/terminal/diff tab;
    with the sheet token cleared the covering layer turned see-through and the

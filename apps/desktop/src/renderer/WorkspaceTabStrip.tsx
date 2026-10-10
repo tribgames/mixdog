@@ -14,13 +14,14 @@ import React, {
 import { createPortal } from 'react-dom';
 import { clampOverlayIntoView } from './anchored-panel';
 import { explorerAbsolutePath } from './explorer-tree-model';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { FileText, FileDiff, Folder, Globe, MessageCircle, Plus, Sparkles, Terminal, X } from 'lucide-react';
 
 import type { DesktopSessionSummary } from '../shared/contract';
 import type { WorkspaceTab } from './nav-types';
 import { t } from './i18n';
 import { prefetchSurfaceForSelection } from './lazy-widgets';
-import { isMobileRemoteSurface } from './MobileTabOverview';
+import { useMobileRemoteSurface } from './mobile-surface';
 import { useMobileBack } from './mobile-back';
 import { ProgressSpinner } from './ProgressSpinner';
 import { useTabStripReveal } from './use-tab-strip-reveal';
@@ -401,12 +402,20 @@ function workspaceTabContextMenu({
               void navigator.clipboard?.writeText(fileTarget.rel)?.then(undefined, () => {});
             },
           },
-          {
-            label: t('Reveal in Explorer'),
-            run: () => {
-              void window.mixdogDesktop?.revealFile?.(fileTarget.project, fileTarget.rel, fileTarget.accessToken);
-            },
-          },
+          ...(isRemoteHostRenderer()
+            ? []
+            : [
+                {
+                  label: t('Reveal in Explorer'),
+                  run: () => {
+                    void window.mixdogDesktop?.revealFile?.(
+                      fileTarget.project,
+                      fileTarget.rel,
+                      fileTarget.accessToken
+                    );
+                  },
+                },
+              ]),
         ]
       : []),
   ];
@@ -490,7 +499,7 @@ export function WorkspaceTabStrip({
   // 헤더가 완전 다르다): real tabs, X, + and the dock toggles. Its only
   // addition is the brand mark at the front, which opens the session drawer
   // the desktop reaches through its activity rail.
-  const mobile = isMobileRemoteSurface();
+  const mobile = useMobileRemoteSurface();
   // Layout INPUT: the width the tab run may spend — the shell minus the
   // home slot, the fixed + slot and the three-control trailing safe zone.
   const measureWidths = useCallback(() => {

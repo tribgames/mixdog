@@ -21,7 +21,7 @@ function fixture({ busy = true } = {}) {
     set: (patch) => Object.assign(state, patch),
     nextId: () => `queued-${++nextId}`,
     tuiDebug() {},
-    pushUserOrSyntheticItem: (text, id, kind) => items.push({ text, id, kind }),
+    pushUserOrSyntheticItem: (text, id, kind, extra) => items.push({ text, id, kind, ...(extra ? { extra } : {}) }),
     flushDeferredExecutionPendingResumeKick() {},
     runTurn: async (content, options) => {
       turns.push({ content, options });
@@ -56,4 +56,13 @@ test('a completion queued during a turn drains even when no release edge reaches
   t.mock.timers.tick(60_000);
   await tick();
   assert.equal(f.turns.length, 1, 'an empty queue stops the re-check');
+});
+
+
+test('a drained prompt row is attributed to the device that submitted it', async () => {
+  const f = fixture({ busy: false });
+  assert.equal(f.flow.enqueue('from the phone', { id: 'p1', transcriptMeta: { device: 'Pixel' } }), true);
+  await tick();
+  assert.equal(f.items[0].id, 'p1');
+  assert.deepEqual(f.items[0].extra, { device: 'Pixel' });
 });

@@ -11,6 +11,7 @@ export const MIXDOG_HOST_CSHARP = [
   loadComputerSource('MixWin32Window.cs').trimEnd(),
   loadComputerSource('MixWin32Message.cs').trimEnd(),
   loadComputerSource('MixWin32Keyboard.cs').trimEnd(),
+  loadComputerSource('MixWin32InactiveLedger.cs').trimEnd(),
   loadComputerSource('MixWin32Foreground.cs').trimEnd(),
   loadComputerSource('MixWin32SendInput.cs').trimEnd(),
   loadComputerSource('WindowGraphicsCapture.cs').trimEnd(),

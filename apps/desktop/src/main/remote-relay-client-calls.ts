@@ -7,6 +7,7 @@ import { VOICE_CALLS } from './remote-call-queue';
 import { filterSessionIds, requiredSessionId } from './desktop-state';
 import { normalizeRemoteBrowserStreamOptions } from '../shared/remote-browser';
 import type { createBrowserRemoteStreams } from './remote-browser-streams';
+import type { createBrowserRemoteTabSubscribers } from './remote-browser-tabs';
 import type { createRemoteMethods } from './remote-methods';
 import { executeRemoteFrame } from './remote-methods';
 import type { RelayClientState, SendEncryptedFrame } from './remote-relay-clients';
@@ -50,7 +51,11 @@ export function remoteCallStatName(method: string, params: unknown): string {
 
 export interface RelayClientCallDeps {
   host: DesktopService;
-  methods: ReturnType<typeof createRemoteMethods>;
+  /** The method table, or the factory for one client's table: the device
+   *  name is a property of the connection, so a relay leg builds its own. */
+  methods:
+    | ReturnType<typeof createRemoteMethods>
+    | ((clientId: string, client: RelayClientState) => ReturnType<typeof createRemoteMethods>);
   /** The registry still holds THIS state for the id. */
   attached(clientId: string, state: RelayClientState): boolean;
   /** …and the leg is open: what a view recovery may still send into. */
@@ -62,6 +67,8 @@ export interface RelayClientCallDeps {
   recordCall(method: string, callMs: number, bytes: { requestBytes: number; responseBytes: number }): void;
   /** Live Browser Use frame subscriptions, per client. */
   browserStreams: Pick<ReturnType<typeof createBrowserRemoteStreams>, 'subscribe' | 'unsubscribe' | 'acknowledge'>;
+  /** Main-workspace browser tab watchers, per client. */
+  browserTabs: Pick<ReturnType<typeof createBrowserRemoteTabSubscribers>, 'watch'>;
   /** A departed phone's lanes, claimed by the resume token it presents. */
   takeParkedViews?(token: string): ParkedRelayViews | null;
 }
@@ -169,6 +176,23 @@ export function createRelayClientCallDispatch(
       }
       return {};
     }
+    // The main-workspace tab list is pushed to THIS client while it watches;
+    // starting the watch answers with the current list.
+    if (call?.method === 'browserRemoteTabs' && Array.isArray(call.params)) {
+      try {
+        const tabs = await deps.browserTabs.watch(clientId, call.params[0] === true);
+        if (typeof call.id === 'number') await deps.sendEncryptedFrame(clientId, { id: call.id, ok: true, value: tabs });
+      } catch (error) {
+        if (typeof call.id === 'number') {
+          await deps.sendEncryptedFrame(clientId, {
+            id: call.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return {};
+    }
     if (call?.method === 'browserRemoteStreamAck' && Array.isArray(call.params)) {
       const [sessionId, seq] = call.params;
       if (typeof sessionId === 'string' && typeof seq === 'number') {
@@ -219,14 +243,14 @@ export function createRelayClientCallDispatch(
     let queueKey = String(call?.method ?? '');
     if (statName.startsWith('invokeCapability:getTurnReviewDiff')) queueKey = 'invokeCapability:getTurnReviewDiff';
     else if (VOICE_CALLS.has(statName)) queueKey = statName;
+    const methods = typeof deps.methods === 'function' ? deps.methods(clientId, client) : deps.methods;
     const execution = client.callQueue.run(queueKey, async () => {
       if (!deps.attached(clientId, client)) return;
       const callStartedAt = Date.now();
       const queueMs = callStartedAt - callQueuedAt;
-      const response = await executeRemoteFrame(deps.methods, clearFrame);
+      const response = await executeRemoteFrame(methods, clearFrame);
       const callMs = Date.now() - callStartedAt;
-      const method =
-        typeof call?.method === 'string' && Object.hasOwn(deps.methods, call.method) ? call.method : 'unknown';
+      const method = typeof call?.method === 'string' && Object.hasOwn(methods, call.method) ? call.method : 'unknown';
       if (callMs + queueMs >= SLOW_REMOTE_CALL_MS) {
         const capabilities = callCapabilities(method, call?.params).join(',');
         console.error(

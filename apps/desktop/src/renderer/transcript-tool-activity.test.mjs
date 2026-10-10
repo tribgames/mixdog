@@ -1155,3 +1155,41 @@ test('desktop labels name the operation actually called and its real outcome', a
     '2 changes'
   );
 });
+
+test('the tool activity expansion setting opens command rows as previews and Ctrl+O opens everything', async () => {
+  const { setToolActivityExpansion, toggleToolActivityExpandAll } = await import('./tool-activity-expansion.ts');
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  const items = [
+    { kind: 'tool', id: 'sh', name: 'shell', args: { command: 'npm test' }, result: 'ok', completedAt: 2 },
+    { kind: 'tool', id: 'rd', name: 'read', args: { path: 'a.txt' }, result: 'one\ntwo', completedAt: 2 },
+  ];
+  const rowOpen = () =>
+    [...document.querySelectorAll('.tool-activity-item')].map((row) => row.getAttribute('data-open') === 'true');
+  try {
+    setToolActivityExpansion('commands');
+    await act(async () => {
+      dom.root.render(React.createElement(ToolActivityGroup, { disclosureScope: 'expansion', items }));
+    });
+    assert.equal(document.querySelector('.tool-activity-header').getAttribute('aria-expanded'), 'true');
+    assert.deepEqual(rowOpen(), [true, false], 'only the command run opens');
+    assert.equal(document.querySelector('.tool-activity-preview').getAttribute('data-clamped'), 'true');
+
+    await act(async () => toggleToolActivityExpandAll());
+    assert.deepEqual(rowOpen(), [true, true], 'Ctrl+O opens every call');
+    await act(async () => document.querySelectorAll('.tool-activity-item-toggle')[1].click());
+    assert.deepEqual(rowOpen(), [true, false], 'a call closes by hand');
+    await act(async () => toggleToolActivityExpandAll());
+    assert.deepEqual(rowOpen(), [true, false], 'Ctrl+O again returns to the saved setting');
+    await act(async () => toggleToolActivityExpandAll());
+    assert.deepEqual(rowOpen(), [true, true], 'a new Ctrl+O opens calls closed in an earlier one');
+    await act(async () => toggleToolActivityExpandAll());
+
+    setToolActivityExpansion('collapsed');
+    await act(async () => {});
+    assert.equal(document.querySelector('.tool-activity-header').getAttribute('aria-expanded'), 'false');
+  } finally {
+    setToolActivityExpansion('collapsed');
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});

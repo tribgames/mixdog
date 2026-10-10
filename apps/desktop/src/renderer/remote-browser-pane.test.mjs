@@ -12,6 +12,11 @@ installTestDom(null, {
 });
 window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
 window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
+// React's IE input polyfill runs on focus in this jsdom setup and needs these.
+window.HTMLElement.prototype.attachEvent = function attachEvent(_name, handler) {
+  this.propertyChange = handler;
+};
+window.HTMLElement.prototype.detachEvent = () => {};
 
 const { default: RemoteBrowserPane } = await import('./RemoteBrowserPane.tsx');
 const { createRemoteTouchController } = await import('./remote-browser-touch.ts');
@@ -389,6 +394,114 @@ test('a page-changed control error is not shown, and a reconnect restarts the st
     await act(async () => window.dispatchEvent(new window.Event('mixdog:remote-connection-ready')));
     assert.equal(state.streams.length, count + 1);
     assert.ok(state.streams.at(-1)[1]);
+  } finally {
+    await pane.unmount();
+  }
+});
+
+test('a browserParity host adds a tab strip whose selection moves the stream and whose + opens a tab', async () => {
+  const state = fakeApi();
+  const tabsSeen = { watch: [], opened: [], closed: [], push: null };
+  const list = [
+    { id: 'main-browser-a', title: 'Alpha', url: 'https://a.test/', loading: false },
+    { id: 'main-browser-b', title: 'Beta', url: 'https://b.test/', loading: false },
+  ];
+  Object.assign(window.mixdogDesktop, {
+    remoteBrowserTabs: async (watch) => {
+      tabsSeen.watch.push(watch);
+      return list;
+    },
+    onRemoteBrowserTabs: (listener) => {
+      tabsSeen.push = listener;
+      return () => {
+        tabsSeen.push = null;
+      };
+    },
+    remoteBrowserOpenTab: async (url) => {
+      tabsSeen.opened.push(url);
+      return { id: 'main-browser-c', title: '', url, loading: true };
+    },
+    remoteBrowserCloseTab: async (id) => {
+      tabsSeen.closed.push(id);
+    },
+  });
+  const pane = await mount({ sessionId: 'main-browser-a', active: true });
+  try {
+    await flush();
+    assert.deepEqual(tabsSeen.watch, [true]);
+    const selectors = [...document.querySelectorAll('[role="tab"]')];
+    assert.deepEqual(selectors.map((tab) => tab.getAttribute('data-page-id')), ['main-browser-a', 'main-browser-b']);
+    assert.equal(state.streams.at(-1)[0], 'main-browser-a');
+
+    // Picking the sibling retargets this client's stream, and the old one stops.
+    await act(async () => selectors[1].click());
+    await flush();
+    assert.equal(state.streams.at(-1)[0], 'main-browser-b');
+    assert.ok(state.streams.some(([id, options]) => id === 'main-browser-a' && options === null));
+
+    // A pushed list replaces the strip.
+    await act(async () => tabsSeen.push([list[1]]));
+    assert.equal(document.querySelectorAll('[role="tab"]').length, 1);
+    await act(async () => tabsSeen.push(list));
+
+    // "+" waits for an address, then opens and follows the new tab.
+    await act(async () => document.querySelector('button[aria-label="New tab"]').click());
+    const address = document.querySelector('input[aria-label="Address bar"]');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(address, 'example.com');
+      address.dispatchEvent(new window.Event('input', { bubbles: true }));
+      // Without a native input event here, React's polyfill reads value changes off propertychange.
+      address.propertyChange({ propertyName: 'value', target: address });
+    });
+    await act(async () => address.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    await flush();
+    assert.equal(tabsSeen.opened.length, 1);
+    assert.match(tabsSeen.opened[0], /example\.com/);
+    assert.equal(state.streams.at(-1)[0], 'main-browser-c');
+
+    // Closing the streamed tab leaves it first, then releases it.
+    await act(async () => document.querySelector('button[aria-label^="Close tab: "]:last-of-type').click());
+    await flush();
+    assert.equal(tabsSeen.closed.length, 1);
+  } finally {
+    await pane.unmount();
+  }
+  assert.deepEqual(tabsSeen.watch, [true, false]);
+});
+
+test('a host without the tab members keeps the single-stream pane', async () => {
+  fakeApi();
+  const pane = await mount({ sessionId: 'main-browser-a', active: true });
+  try {
+    await flush();
+    assert.equal(document.querySelector('[role="tablist"]'), null);
+    assert.equal(document.querySelector('button[aria-label="More actions"], .dock-overflow-trigger'), null);
+  } finally {
+    await pane.unmount();
+  }
+});
+
+test('stored-login suggestions come from the host and filling names only the credential id', async () => {
+  const state = fakeApi();
+  const filled = [];
+  Object.assign(window.mixdogDesktop, {
+    browserCredentialSuggestions: async () => [{ id: 'c'.repeat(24), label: 'alice@example.com' }],
+    browserCredentialFill: async (sessionId, credentialId) => {
+      filled.push([sessionId, credentialId]);
+      return { usernameFilled: true, passwordFilled: true };
+    },
+  });
+  const pane = await mount({ sessionId: 's', active: true });
+  try {
+    await showFrame(state);
+    await flush();
+    const menu = document.querySelector('[aria-label="More actions"]');
+    assert.ok(menu, 'the overflow menu appears once a suggestion exists');
+    await act(async () => menu.click());
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find((node) => /stored credentials/.test(node.textContent));
+    await act(async () => item.click());
+    await flush();
+    assert.deepEqual(filled, [['s', 'c'.repeat(24)]]);
   } finally {
     await pane.unmount();
   }

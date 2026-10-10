@@ -28,8 +28,7 @@ function settledDurationWait(goal) {
     goal.remainingMs > 0 &&
     !goal.needsTaskReview &&
     goal.tasks.length > 0 &&
-    goal.tasks.every((task) => GOAL_TASK_SETTLED.includes(task.status)) &&
-    goal.blockAudit?.turn !== goal.turnCount
+    goal.tasks.every((task) => GOAL_TASK_SETTLED.includes(task.status))
   );
 }
 
@@ -89,8 +88,7 @@ function applyTurnOutcome(goal, detail, at) {
   }
   if (status === 'failed' && goal.status === 'active') {
     // A failed turn has exhausted its recovery. Starting another Goal turn
-    // retries the same terminal error with a larger transcript. The model's
-    // separate external-blocker audit still spans 3 turns.
+    // retries the same terminal error with a larger transcript.
     stopActiveClock(goal, at);
     goal.status = 'blocked';
     goal.failureReason = clean(detail?.error) || 'Goal turn failed';

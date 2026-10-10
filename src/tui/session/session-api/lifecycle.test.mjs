@@ -275,10 +275,10 @@ test('resolveToolApproval maps boolean and object decisions onto finishToolAppro
   h.api.resolveToolApproval('t3', {});
   h.api.resolveToolApproval('t4');
   assert.deepEqual(h.calls, [
-    ['finishToolApproval', 't1', true, 'approved by user'],
-    ['finishToolApproval', 't2', false, 'nope'],
-    ['finishToolApproval', 't3', false, 'denied by user'],
-    ['finishToolApproval', 't4', false, 'denied by user'],
+    ['finishToolApproval', 't1', true, 'approved by user', ''],
+    ['finishToolApproval', 't2', false, 'nope', ''],
+    ['finishToolApproval', 't3', false, 'denied by user', ''],
+    ['finishToolApproval', 't4', false, 'denied by user', ''],
   ]);
 });
 
@@ -321,4 +321,11 @@ test('dispose tears down subscriptions, approvals, oauth flows and the runtime e
   h.calls.length = 0;
   await h.api.dispose();
   assert.deepEqual(h.calls, []);
+});
+
+test('resolveToolApproval forwards the answering device', (t) => {
+  const h = createHarness();
+  t.after(h.dispose);
+  h.api.resolveToolApproval('t5', { approved: true, device: 'Pixel' });
+  assert.deepEqual(h.calls, [['finishToolApproval', 't5', true, 'approved by user', 'Pixel']]);
 });

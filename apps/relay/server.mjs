@@ -20,7 +20,7 @@
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { WebSocketServer } from 'ws';
@@ -28,7 +28,9 @@ import { WebSocketServer } from 'ws';
 import { handleFeedbackRequest } from './lib/feedback-http.mjs';
 import { createFeedbackService } from './lib/feedback.mjs';
 import { createRendererReadiness } from './lib/renderer-readiness.mjs';
+import { createRendererCatalog } from './lib/renderer-releases.mjs';
 import { RateLimiter } from './lib/rate-limit.mjs';
+import { createNativePush } from './lib/native-push.mjs';
 import { DeviceStore, readDeviceCredentials } from './lib/device-store.mjs';
 import {
   INGRESS_FREE_WINDOW_BYTES,
@@ -110,6 +112,8 @@ const REGISTER_RATE_LIMIT = 5;
 const REGISTER_RATE_WINDOW_MS = 10 * 60_000;
 const UNAUTHORIZED_RATE_LIMIT = 60;
 const UNAUTHORIZED_RATE_WINDOW_MS = 60_000;
+const NATIVE_PUSH_RATE_LIMIT = 120;
+const NATIVE_PUSH_RATE_WINDOW_MS = 60_000;
 
 // Configuration enters the relay HERE, and is normalised HERE, once. Every
 // later reader takes this number, so no path can reach the raw option and no
@@ -117,6 +121,7 @@ const UNAUTHORIZED_RATE_WINDOW_MS = 60_000;
 function createRelayState({
   dataDir,
   rendererDir,
+  rendererReleasesDir,
   maxHookPending,
   maxFrameBytes,
   maxInflightBytes,
@@ -140,8 +145,15 @@ function createRelayState({
     registerLimiter: new RateLimiter(REGISTER_RATE_LIMIT, REGISTER_RATE_WINDOW_MS),
     unauthorizedLimiter: new RateLimiter(UNAUTHORIZED_RATE_LIMIT, UNAUTHORIZED_RATE_WINDOW_MS),
     phoneConnectLimiter: new RateLimiter(MAX_PHONE_CONNECTIONS_PER_MINUTE, PHONE_CONNECT_RATE_WINDOW_MS),
-    rendererDir,
-    rendererReadiness: createRendererReadiness(rendererDir),
+    // Native push is sent per device; tokens are bound to the device and
+    // paired client that registered them (lib/native-push-legs.mjs).
+    nativeLimiter: new RateLimiter(NATIVE_PUSH_RATE_LIMIT, NATIVE_PUSH_RATE_WINDOW_MS),
+    nativeBindings: new Map(),
+    nativePush: null,
+    // Per-device renderer releases (see lib/renderer-releases.mjs). With no
+    // registry in rendererReleasesDir this is the single rendererDir.
+    renderer: createRendererCatalog({ rendererDir, releasesDir: rendererReleasesDir }),
+    rendererReadiness: createRendererReadiness(rendererDir, { releasesDir: rendererReleasesDir }),
     maxHookPending,
     maxFrameBytes,
     maxInflightBytes,
@@ -178,6 +190,9 @@ export async function startRelay({
   port = 9800,
   dataDir = './data',
   rendererDir = '',
+  // Side-by-side renderer releases (registry + one tree per release). Empty =
+  // a single-renderer relay serving rendererDir to everyone.
+  rendererReleasesDir = '',
   // TLS termination stays in-process (no reverse proxy in the data path):
   // point these at fullchain.pem / privkey.pem to serve https+wss directly.
   tlsCert = '',
@@ -206,6 +221,10 @@ export async function startRelay({
   feedbackEnv = {},
   feedbackSender = null,
   feedbackOptions = {},
+  // Native push credentials (APNS_*, FCM_SERVICE_ACCOUNT_JSON). Explicit like
+  // feedbackEnv; `nativePush` injects a delivery service in tests.
+  nativePushEnv = {},
+  nativePush = null,
 } = {}) {
   const feedback = await createFeedbackService({
     dataDir: resolve(dataDir),
@@ -216,6 +235,7 @@ export async function startRelay({
   const relay = createRelayState({
     dataDir,
     rendererDir,
+    rendererReleasesDir,
     maxHookPending,
     maxFrameBytes,
     maxInflightBytes,
@@ -226,6 +246,7 @@ export async function startRelay({
     maxPayloadBytes,
   });
   relay.feedback = feedback;
+  relay.nativePush = nativePush ?? createNativePush({ env: nativePushEnv });
   const server = createListener(guardedHttpHandler(relay), tlsCert, tlsKey);
   relay.wss = new WebSocketServer({
     noServer: true,
@@ -287,7 +308,7 @@ function failRequest(request, response, label) {
 }
 
 function routeRequest(relay, request, response) {
-  const { store, liveDesktops, liveHooks, claims, hookLimiter, unauthorizedLimiter, maxHookPending, rendererDir } =
+  const { store, liveDesktops, liveHooks, claims, hookLimiter, unauthorizedLimiter, maxHookPending, renderer } =
     relay;
   const url = request.url || '';
   if (url.split('?')[0] === '/readyz') {
@@ -335,7 +356,7 @@ function routeRequest(relay, request, response) {
     handleMediaRequest(store, liveDesktops, unauthorizedLimiter, request, response);
     return;
   }
-  serveStatic(rendererDir, store, unauthorizedLimiter, request, response);
+  serveStatic(renderer, store, unauthorizedLimiter, request, response);
 }
 
 // Last line of defence for the unauthenticated HTTP surface: a throw here
@@ -449,6 +470,9 @@ function upgradeDesktopLeg(relay, request, rawSocket, head) {
         attachDesktop: (id, desktopSocket) => attachDesktop(relay, id, desktopSocket),
         liveDesktops: relay.liveDesktops,
         claims: relay.claims,
+        nativePush: relay.nativePush?.platforms.length ? relay.nativePush : null,
+        nativeBindings: relay.nativeBindings,
+        nativeLimiter: relay.nativeLimiter,
         maxFrameBytes: relay.maxFrameBytes,
         ingress: relay.legIngress,
         rawSocket,
@@ -676,9 +700,13 @@ if (invokedDirectly) {
   const port = Number(process.env.PORT || 9800);
   const dataDir = process.env.DATA_DIR || './data';
   const rendererDir = process.env.RENDERER_DIR || '';
+  // Default beside RENDERER_DIR so an already installed unit file needs no edit.
+  const rendererReleasesDir =
+    process.env.RENDERER_RELEASES_DIR ||
+    (rendererDir ? join(dirname(resolve(rendererDir)), 'renderer-releases') : '');
   const tlsCert = process.env.TLS_CERT || '';
   const tlsKey = process.env.TLS_KEY || '';
-  startRelay({ port, dataDir, rendererDir, tlsCert, tlsKey, feedbackEnv: process.env })
+  startRelay({ port, dataDir, rendererDir, rendererReleasesDir, tlsCert, tlsKey, feedbackEnv: process.env, nativePushEnv: process.env })
     .then((relay) => {
       const scheme = tlsCert && tlsKey ? 'https' : 'http';
       console.log(`[relay] ${scheme} listening on :${relay.port} (renderer: ${rendererDir || 'none'})`);

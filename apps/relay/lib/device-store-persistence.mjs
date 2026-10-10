@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 
 import { isRoutingId } from './ids.mjs';
 import { clientProfile } from './device-store-auth.mjs';
+import { applyStoredVersion } from './device-store-version.mjs';
 
 const HEX_HASH = /^[0-9a-f]{64}$/;
 
@@ -41,6 +42,7 @@ export function loadDeviceStore(path) {
       ) {
         throw new TypeError('device store row is invalid');
       }
+      applyStoredVersion(row);
       if (!row.clientTokenHash) row.clientTokenHash = '';
       if (!row.clients) row.clients = {};
       for (const [clientId, client] of Object.entries(row.clients)) {

@@ -18,6 +18,12 @@ import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from '../.
 import { buildSpinnerMeta } from '../../../../src/tui/spinner-meta.mjs';
 
 const CONTEXT_USAGE_MEMORY_LIMIT = 64;
+// Clockwise r=8.5 rings around (12,12) starting at -120deg, 0deg and 120deg.
+const LIVE_ACTIVITY_ARC_PATHS = [
+  'M7.75 4.639A8.5 8.5 0 0 1 16.25 19.361A8.5 8.5 0 0 1 7.75 4.639',
+  'M20.5 12A8.5 8.5 0 0 1 3.5 12A8.5 8.5 0 0 1 20.5 12',
+  'M7.75 19.361A8.5 8.5 0 0 1 16.25 4.639A8.5 8.5 0 0 1 7.75 19.361',
+];
 const rememberedContextUsage = new Map<string, ReturnType<typeof resolveContextDisplayUsage>>();
 
 type ContextUsageMetrics = NonNullable<ReturnType<typeof resolveContextDisplayUsage>>;
@@ -350,24 +356,26 @@ export function LiveActivity({
         data-animate={animateEnter ? 'true' : undefined}
       >
         <span className="live-activity-icon" aria-hidden="true">
-          <svg className="live-activity-logo" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+          <svg
+            className="live-activity-logo live-activity-arcs"
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            aria-hidden="true"
+          >
             <defs>
               <linearGradient id={logoGradientId} x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0" />
                 <stop offset="1" />
               </linearGradient>
             </defs>
+            {/* Each arc is the same r=8.5 ring started 120deg apart, drawn as an
+                un-rotated path: a rotate() transform would also rotate the
+                gradient, so the arc taking over at the loop seam showed a
+                different colour and the mark flickered on every restart. */}
             <g stroke={`url(#${logoGradientId})`}>
-              {[-120, 0, 120].map((rot) => (
-                <circle
-                  key={rot}
-                  className="arc"
-                  cx="12"
-                  cy="12"
-                  r="8.5"
-                  pathLength="360"
-                  transform={`rotate(${rot} 12 12)`}
-                />
+              {LIVE_ACTIVITY_ARC_PATHS.map((d) => (
+                <path key={d} className="arc" d={d} pathLength="360" />
               ))}
             </g>
           </svg>

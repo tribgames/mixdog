@@ -179,6 +179,33 @@ for (const outcome of ['success', 'error-result', 'throw']) {
   });
 }
 
+for (const outcome of ['success', 'error-result', 'busy-success']) {
+  test(`late ${outcome} for an abandoned session applies no cleared-session UI after a session switch`, async () => {
+    let resolveCompact;
+    const deferred = new Promise((resolve) => {
+      resolveCompact = resolve;
+    });
+    const h = createHarness(() => deferred);
+    assert.equal(await h.flow.performAutoClear({ compactTimeoutMs: 5 }), false);
+    const itemsAfterTimeout = h.state.items;
+    const noticesAfterTimeout = h.notices.length;
+    const other = { id: 'other-session', messages: [] };
+    h.bag.runtime.session = other;
+    if (outcome === 'busy-success') h.set({ busy: true });
+    resolveCompact(outcome === 'error-result' ? { changed: false, error: 'summary unavailable' } : { changed: true });
+    await nextTurn();
+    h.set({ busy: false });
+    await h.flow.drain();
+
+    assert.equal(h.bag.runtime.session, other);
+    assert.equal(h.flags.autoClearInFlight, false);
+    assert.equal(h.flags.pendingClearedSessionUi ?? null, null);
+    assert.equal(h.state.items, itemsAfterTimeout);
+    assert.equal(h.notices.length, noticesAfterTimeout);
+    assert.deepEqual(h.syncs, []);
+  });
+}
+
 test('late auto-clear completion defers UI reset until an active turn settles', async () => {
   let resolveCompact;
   const deferred = new Promise((resolve) => {

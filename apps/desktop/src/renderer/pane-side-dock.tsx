@@ -39,7 +39,7 @@ import { DIFF_STARTUP_DELAY_MS, ReadyGitDiffPane } from './app-shell-components'
 import { FileText as FileIcon } from 'lucide-react';
 import { DiffHeaderControls, diffScopeLabel, useDiffViewState } from './diff-header-controls';
 import { DesktopLoadingSurface } from './RendererRecovery';
-import { isMobileRemoteSurface } from './mobile-surface';
+import { useMobileRemoteSurface } from './mobile-surface';
 import {
   WorkbenchSidePanel,
   type WorkbenchSideTitleDragProps,
@@ -1260,7 +1260,7 @@ export function PaneSideDock({
     onClose
   );
   if (groups.length === 0) return null;
-  const mobileSheet = isMobileRemoteSurface();
+  const mobileSheet = useMobileRemoteSurface();
   const sheetFrame = mobileSheet ? 0 : PANE_SIDE_DOCK_SHEET_FRAME_WIDTH;
   const sessionMin = terminalShowing ? PANE_SIDE_DOCK_TERMINAL_MIN_WIDTH : PANE_SIDE_DOCK_BROWSER_MIN_WIDTH;
   const sessionMax = terminalShowing ? PANE_SIDE_DOCK_TERMINAL_MAX_WIDTH : PANE_SIDE_DOCK_BROWSER_MAX_WIDTH;

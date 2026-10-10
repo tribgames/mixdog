@@ -329,7 +329,7 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   assert.equal(goalTool.inputSchema.properties.blocker.minLength, 1);
   assert.match(goalTool.description, /idle reminder for unfinished work/i);
   assert.match(goalTool.inputSchema.properties.action.description, /abandon retires superseded work/i);
-  assert.match(goalTool.inputSchema.properties.blocker.description, /same impasse.*stops after 3/i);
+  assert.match(goalTool.inputSchema.properties.blocker.description, /stops the Goal immediately/i);
   assert.match(goalTool.inputSchema.properties.action.description, /pause only at the user's explicit request/i);
   // Retiring scoped-out work must not require falsely marking it completed.
   assert.deepEqual(goalTool.inputSchema.properties.tasks.items.properties.status.enum, [
@@ -896,22 +896,19 @@ test('unified Goal tool accepts model-shaped fields', async () => {
       },
       { callerSessionId: 'sess_goal_block_shape' }
     );
-    let blocked;
-    for (let turn = 0; turn < 3; turn++) {
-      await runtime.startTurn('sess_goal_block_shape');
-      blocked = JSON.parse(
-        await runtime.executeTool(
-          'goal',
-          {
-            action: 'block',
-            ...filler,
-            blocker: 'External state unavailable',
-          },
-          { callerSessionId: 'sess_goal_block_shape' }
-        )
-      ).goal;
-      await runtime.settleTurn('sess_goal_block_shape', { status: 'done' });
-    }
+    await runtime.startTurn('sess_goal_block_shape');
+    const blocked = JSON.parse(
+      await runtime.executeTool(
+        'goal',
+        {
+          action: 'block',
+          ...filler,
+          blocker: 'External state unavailable',
+        },
+        { callerSessionId: 'sess_goal_block_shape' }
+      )
+    ).goal;
+    await runtime.settleTurn('sess_goal_block_shape', { status: 'done' });
     assert.equal(blocked.status, 'blocked');
     assert.equal(blocked.blocker, 'External state unavailable');
     const resumedFromBlock = JSON.parse(
@@ -990,8 +987,8 @@ test('Goal turn lifecycle stops terminal failures, preserves blockers, and suppo
         { callerSessionId: 'sess_goal_lifecycle' }
       )
     ).goal;
-    assert.equal(goal.status, 'active');
-    assert.equal(goal.blockAudit.reason, 'Waiting for deployment credentials');
+    assert.equal(goal.status, 'blocked');
+    assert.equal(goal.blocker, 'Waiting for deployment credentials');
 
     await runtime.control('sess_goal_lifecycle', { action: 'resume' });
     await runtime.startTurn('sess_goal_lifecycle');
@@ -1162,18 +1159,16 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
         objective: 'Keep blocked work',
       })
     ).goal;
-    for (let turn = 0; turn < 3; turn++) {
-      await runtime.startTurn('sess_goal_restart_blocked');
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'block',
-          blocker: 'External service unavailable',
-        },
-        { callerSessionId: 'sess_goal_restart_blocked' }
-      );
-      await runtime.settleTurn('sess_goal_restart_blocked', { status: 'done' });
-    }
+    await runtime.startTurn('sess_goal_restart_blocked');
+    await runtime.executeTool(
+      'goal',
+      {
+        action: 'block',
+        blocker: 'External service unavailable',
+      },
+      { callerSessionId: 'sess_goal_restart_blocked' }
+    );
+    await runtime.settleTurn('sess_goal_restart_blocked', { status: 'done' });
 
     const complete = (
       await runtime.control('sess_goal_restart_complete', {

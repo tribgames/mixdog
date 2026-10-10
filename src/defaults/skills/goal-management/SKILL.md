@@ -150,10 +150,16 @@ status. Do not resume or extend the Goal without the user's approval.
 
 ### Blocked and redirected work
 
-Report an impasse that only external state or the user can clear with `block`
-once per turn, with a stable description of the same condition. The runtime
-stops after three consecutive turns confirm it; until then continue any
-available work. Treat equivalent blockers as the same condition even when their
+`block` stops the Goal immediately, with a stable description of an impasse
+that only external state or the user can clear. Do not block the first time a
+blocker appears: block only after the same condition has repeated for three
+consecutive Goal turns, counting the user-triggered turn and automatic
+continuations; after a resume, count only turns since that resume. Until then,
+continue any available work and re-check the blocker against current state with
+a tool each turn rather than restating it. When current state
+verifies an impasse that only the user can clear (their action, approval,
+credentials, or a resource they control), block on that turn. Once the
+threshold is met, block instead of reporting the same blocker again. Treat equivalent blockers as the same condition even when their
 wording or stated next step changes. Never block for difficulty, slowness,
 uncertainty, a choice you can make, confirmation for in-scope work, or
 clarification that would only help. Use `abandon` only when the user redirects away from

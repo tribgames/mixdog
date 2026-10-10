@@ -41,6 +41,8 @@ export function resolveInitialConfigState({
   effort,
   fast,
   modelParameters,
+  contextPercent,
+  selectedContextWindow,
 }) {
   const config = withGrandfatheredBuiltins(
     initialConfig && typeof initialConfig === 'object' ? initialConfig : loadConfig()
@@ -52,6 +54,8 @@ export function resolveInitialConfigState({
       ...(effort === undefined ? {} : { effort: effort || null }),
       ...(fast === true || fast === false ? { fast } : {}),
       ...(modelParameters && typeof modelParameters === 'object' ? { modelParameters: { ...modelParameters } } : {}),
+      ...(contextPercent > 0 ? { contextPercent } : {}),
+      ...(selectedContextWindow > 0 ? { selectedContextWindow } : {}),
     },
     webSearchRoute: webSearchRouteOrDefault(config.webSearchRoute),
   };

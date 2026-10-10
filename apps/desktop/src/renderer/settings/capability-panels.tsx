@@ -6,7 +6,13 @@ import { requestOpenDoctor } from '../command-surface-doctor-event';
 import { t } from '../i18n';
 import { providerDisplayName } from '../provider-display';
 import { record } from '../record-utils';
+import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { subscribeSetupChanges } from '../setup-change-refresh';
+import {
+  setToolActivityExpansion,
+  useStoredToolActivityExpansion,
+  type ToolActivityExpansion,
+} from '../tool-activity-expansion';
 import { AboutPanel } from './about-panel';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { ConnectionPanel } from './connection-panel';
@@ -55,13 +61,17 @@ const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [s
     [
       ['Ctrl+N', 'New task'],
       ['Ctrl+P', 'Quick Open'],
-      ['Ctrl+Shift+P', 'Command Palette'],
+      ['Ctrl+Shift+P / Ctrl+K / Ctrl+/', 'Command Palette'],
+      ['Ctrl+F', 'Search sessions (no tab open)'],
       ['Ctrl+W', 'Close tab'],
       ['Ctrl+Tab / Ctrl+Shift+Tab', 'Next / previous tab'],
+      ['Ctrl+Shift+] / Ctrl+Shift+[', 'Next / previous tab'],
+      ['Ctrl+1–8 / Ctrl+9', 'Go to tab / last tab'],
+      ['Ctrl+[ / Ctrl+]', 'Go back / forward'],
       ['Ctrl+← / →', 'Switch tab / pane'],
       ['Ctrl+↑ / ↓', 'Focus pane above / below'],
-      ['Ctrl+B', 'Toggle left side bar'],
-      ['Ctrl+Alt+B', 'Toggle right utility panel'],
+      ['Ctrl+B', 'Toggle right utility panel'],
+      ['Ctrl+Shift+B', 'Toggle left side bar'],
       ['Ctrl+` / Ctrl+T', 'Toggle terminal panel'],
       ['Ctrl+,', 'Open settings'],
       ['Esc', 'Close menus and popovers'],
@@ -93,6 +103,7 @@ const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [s
     [
       ['PageUp / PageDown', 'Scroll conversation'],
       ['Home / End', 'First / latest message'],
+      ['Ctrl+O', 'Expand or collapse all tool activity'],
     ],
   ],
 ];
@@ -163,16 +174,44 @@ function ChoicePanel({
 function OutputStylePanel({ data, pending, run }: PanelContext) {
   const output = record(data.outputStyles);
   const failure = sectionError(data, 'outputStyles');
-  if (failure) return <ErrorNotice error={failure} role="status" />;
   return (
-    <ChoicePanel
-      title=""
-      values={rows(output, 'styles')}
-      active={String(record(output.current).id || output.configured || 'default')}
-      pending={pending}
-      emptyText={sectionLoaded(data, 'outputStyles') ? t('No output styles available.') : t('Loading output styles…')}
-      onChoose={(id) => void run('setOutputStyle', [id])}
-    />
+    <>
+      {failure ? (
+        <ErrorNotice error={failure} role="status" />
+      ) : (
+        <ChoicePanel
+          title=""
+          values={rows(output, 'styles')}
+          active={String(record(output.current).id || output.configured || 'default')}
+          pending={pending}
+          emptyText={
+            sectionLoaded(data, 'outputStyles') ? t('No output styles available.') : t('Loading output styles…')
+          }
+          onChoose={(id) => void run('setOutputStyle', [id])}
+        />
+      )}
+      <ToolActivityExpansionGroup />
+    </>
+  );
+}
+
+const TOOL_ACTIVITY_EXPANSION_OPTIONS: ReadonlyArray<{ value: ToolActivityExpansion; label: string }> = [
+  { value: 'collapsed', label: 'Collapsed' },
+  { value: 'commands', label: 'Commands and edits' },
+  { value: 'all', label: 'Everything' },
+];
+
+function ToolActivityExpansionGroup() {
+  const value = useStoredToolActivityExpansion();
+  return (
+    <Group title={t('Tool activity')}>
+      <SelectRow
+        title={t('Expand tool activity')}
+        value={value}
+        options={TOOL_ACTIVITY_EXPANSION_OPTIONS.map((option) => ({ value: option.value, label: t(option.label) }))}
+        onChange={(next) => setToolActivityExpansion(next as ToolActivityExpansion)}
+      />
+    </Group>
   );
 }
 
@@ -204,19 +243,22 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
     updaterState.status === 'downloading' ||
     updaterState.status === 'installing';
   const installLabel = updaterInstallLabel(updaterState);
+  // Over remote access the updater is the host computer's, not this device's.
+  // A host without the updater methods reports 'disabled': keep the old wording.
+  const onHost = isRemoteHostRenderer() && updaterState.status !== 'disabled';
   return (
-    <Group title={t('Update')}>
+    <Group title={onHost ? t('Update (host computer)') : t('Update')}>
       <ResourceRow
         title={t('Current version')}
-        description={t('Installed Mixdog Desktop version.')}
+        description={onHost ? t('Installed Mixdog Desktop version on the host computer.') : t('Installed Mixdog Desktop version.')}
         meta={String(update.currentVersion || t('unknown'))}
       />
       <ResourceRow
-        title={t('Latest version')}
+        title={onHost ? t('Latest version (host computer)') : t('Latest version')}
         meta={version || t('unknown')}
         actions={
           <ActionButton disabled={busy} onClick={() => void checkDesktopUpdate()}>
-            {t('Check now')}
+            {onHost ? t('Check on host computer') : t('Check now')}
           </ActionButton>
         }
       />
@@ -227,7 +269,7 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
         onChange={(enabled) => void run('setAutoUpdate', [enabled])}
       />
       <ResourceRow
-        title={t('Install update')}
+        title={onHost ? t('Install update on host computer') : t('Install update')}
         actions={
           <ActionButton disabled={busy || updaterState.status !== 'ready'} onClick={() => void installDesktopUpdate()}>
             {installLabel}

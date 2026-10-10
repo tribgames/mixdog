@@ -1,77 +1,39 @@
-// The remote capability deny-list is maintained BY HAND, so it needs a test
-// that fails the moment a secret- or OAuth-bearing capability is added to the
-// desktop surface without being denied over the relay.
+// Pairing approval is the trust, so a paired client has the desktop's own
+// capabilities. The deny-list holds only host-internal items.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { DESKTOP_CAPABILITIES } from '../shared/contract.ts';
-import { assertRemoteCapability, REMOTE_BLOCKED_CAPABILITIES } from './remote-methods.ts';
+import { assertRemoteCapability, redactRemoteError, REMOTE_BLOCKED_CAPABILITIES } from './remote-methods.ts';
 
-// Driven from the CAPABILITY SURFACE, not from the deny-list: a new
-// secret-bearing or OAuth capability added to DESKTOP_CAPABILITIES fails here
-// until it is denied, which is exactly the mistake a hand-maintained list
-// invites. `forgetProviderAuth` deliberately does not match — deleting stored
-// auth carries no secret and stays available to a paired phone.
-const SECRET_CAPABILITY_PATTERN = /(apikey|secret|password|credential|sessionkey|usageauth)/i;
-const OAUTH_CAPABILITY_PATTERN = /(oauth|authenticateprovider|login)/i;
-
-const sensitiveCapabilities = DESKTOP_CAPABILITIES.filter(
-  (capability) => SECRET_CAPABILITY_PATTERN.test(capability) || OAUTH_CAPABILITY_PATTERN.test(capability)
-);
-
-// Guards the guard: a pattern that stops matching anything would pass
-// vacuously. Anchored by NAME instead of by a hand-pinned count, because a
-// count expires on any legitimate surface change and takes the whole scan down
-// with it: once `loginOpenCodeGoUsage` was retired the floor sat one above the
-// real surface, so the denial assertion below never ran again. A name catches
-// the dangerous case a count cannot — a secret lane renamed out of the
-// patterns while it is still callable.
-const GUARDED_SECRET_LANES = [
-  'saveProviderApiKey',
-  'saveOpenAIUsageSessionKey',
-  'saveOpenCodeGoUsageAuth',
-  'authenticateProvider',
-  'loginOAuthProvider',
-  'beginOAuthProviderLogin',
-  'completeOAuthProviderLogin',
-  'cancelOAuthProviderLogin',
-  'getOAuthProviderLoginStatus',
-];
-
-test('every secret- or OAuth-bearing capability on the desktop surface is denied remotely', () => {
-  for (const lane of GUARDED_SECRET_LANES) {
-    assert.ok(
-      sensitiveCapabilities.includes(lane),
-      `${lane} is no longer selected by the secret/OAuth scan — a rename or a retirement must be carried into this guard deliberately`
-    );
-  }
-  for (const capability of sensitiveCapabilities) {
-    assert.equal(
-      REMOTE_BLOCKED_CAPABILITIES.has(capability),
-      true,
-      `${capability} carries a secret or an OAuth flow and must be desktop-local`
-    );
-    assert.throws(
-      () => assertRemoteCapability(capability),
-      /is not available over remote access/,
-      `${capability} must be refused over remote access`
-    );
-  }
-});
-
-test('custom provider administration stays desktop-local', () => {
-  for (const capability of ['saveCustomProvider', 'removeCustomProvider', 'testCustomProvider', 'discoverCustomProviderModels']) {
-    assert.equal(DESKTOP_CAPABILITIES.includes(capability), true);
-    assert.equal(REMOTE_BLOCKED_CAPABILITIES.has(capability), true);
-    assert.throws(() => assertRemoteCapability(capability), /is not available over remote access/);
-  }
-});
-
-test('the media resolver stays desktop-local for its own documented reason', () => {
-  // Not secret-bearing: a phone reaches media through the media HTTP route and
-  // never needs host filesystem paths.
-  assert.equal(REMOTE_BLOCKED_CAPABILITIES.has('resolveMediaFile'), true);
+test('only the media resolver is denied over remote access', () => {
+  assert.deepEqual([...REMOTE_BLOCKED_CAPABILITIES], ['resolveMediaFile']);
   assert.throws(() => assertRemoteCapability('resolveMediaFile'), /is not available over remote access/);
+});
+
+test('secret, OAuth, MCP and developer capabilities are allowed for every paired client', () => {
+  for (const capability of [
+    'saveProviderApiKey',
+    'saveOpenAIUsageSessionKey',
+    'saveOpenCodeGoUsageAuth',
+    'authenticateProvider',
+    'loginOAuthProvider',
+    'beginOAuthProviderLogin',
+    'getOAuthProviderLoginStatus',
+    'completeOAuthProviderLogin',
+    'cancelOAuthProviderLogin',
+    'saveCustomProvider',
+    'removeCustomProvider',
+    'testCustomProvider',
+    'discoverCustomProviderModels',
+    'getMcpServerConfig',
+    'saveMcpServer',
+    'setDeveloperOption',
+    'forgetProviderAuth',
+  ]) {
+    assert.equal(DESKTOP_CAPABILITIES.includes(capability), true, `${capability} is a real capability`);
+    assert.doesNotThrow(() => assertRemoteCapability(capability), capability);
+  }
 });
 
 test('every deny-list entry still names a real capability', () => {
@@ -85,9 +47,20 @@ test('every deny-list entry still names a real capability', () => {
   }
 });
 
+test('secret-bearing capability errors are redacted for every client', () => {
+  const secret = 'sk-live-0123456789';
+  const params = [{ capability: 'saveProviderApiKey', args: ['openai', secret] }];
+  assert.equal(redactRemoteError(`bad ${secret}`, 'invokeCapability', params), 'bad [redacted]');
+  const oauth = [{ capability: 'completeOAuthProviderLogin', args: ['oauth_1', 'http://localhost/cb?code=abcdef123'] }];
+  assert.doesNotMatch(redactRemoteError('failed http://localhost/cb?code=abcdef123', 'invokeCapability', oauth), /abcdef123/);
+  assert.equal(
+    redactRemoteError(`bad ${secret}`, 'invokeCapability', [{ capability: 'getSnapshot', args: [secret] }]),
+    `bad ${secret}`
+  );
+});
+
 test('ordinary capabilities are not blocked by the deny-list', () => {
   for (const capability of ['setModel', 'setWorkflow', 'listSessions', 'getSnapshot']) {
-    assert.equal(REMOTE_BLOCKED_CAPABILITIES.has(capability), false);
     assert.doesNotThrow(() => assertRemoteCapability(capability));
   }
 });

@@ -10,7 +10,7 @@ import {
   type RelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
 import { earlyUiT } from './early-ui-i18n';
-import { isInstalledMobileWebAppSurface, isMobileRemoteSurface } from './mobile-surface';
+import { isInstalledMobileWebAppSurface, isMobileDeviceSurface } from './mobile-surface';
 import { browserProfile } from './remote-browser-identity';
 import { REMOTE_PAIRING_STORAGE_KEYS, isRemoteClientCredential } from './remote-pairing-recovery';
 
@@ -212,7 +212,8 @@ export const createRemotePairingScreen = (
   });
   return (message: string, autoAsk = true): void => {
     if (document.getElementById('mixdog-remote-pairing')) return;
-    const mobile = isMobileRemoteSurface();
+    // Install instructions depend on the device, not on the current layout width.
+    const mobile = isMobileDeviceSurface();
     const standalone = isInstalledMobileWebAppSurface();
     const ios =
       /iPad|iPhone|iPod/iu.test(navigator.userAgent) ||

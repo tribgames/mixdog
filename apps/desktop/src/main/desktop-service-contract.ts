@@ -168,6 +168,9 @@ export interface SerializableDesktopServiceOptions {
   packaged: boolean;
   resourcesPath: string;
   appPath: string;
+  /** This desktop build's version; reported on the relay leg so the relay can
+   *  serve paired phones the web renderer release that matches it. */
+  appVersion?: string;
   rendererDir?: string;
   runtimeRoot?: string;
 }

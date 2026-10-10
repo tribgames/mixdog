@@ -434,6 +434,11 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
   white-space: nowrap;
 }
 
+/* The remote pane's tab row sits right under the nav row, so it keeps its own top gap. */
+.browser-remote-pane .browser-pane-popup-tabs {
+  padding-top: 2px;
+}
+
 @media (max-width: 640px) {
   .browser-remote-pane .browser-pane-toolbar {
     gap: 2px;

@@ -109,6 +109,7 @@ export function createTranscriptIntake({ getState, flags, pushItem, patchItem, t
       text,
       ...transcriptMeta,
       ...(extra && typeof extra.sender === 'string' && extra.sender ? { sender: extra.sender } : {}),
+      ...(extra && typeof extra.device === 'string' && extra.device ? { device: extra.device } : {}),
       // Byte-free attachment metadata (name/mime/size) from the queue entry —
       // lets the desktop transcript render image chips without ever carrying
       // base64 payloads through snapshots.

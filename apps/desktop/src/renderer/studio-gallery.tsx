@@ -1,6 +1,13 @@
 import { Ban, Check, Trash2 } from 'lucide-react';
 import { ErrorNotice } from './ErrorNotice';
-import { type CSSProperties, type ReactNode, type RefObject, type UIEvent, useMemo } from 'react';
+import { type CSSProperties, type ReactNode, type RefObject, type UIEvent, useCallback, useMemo, useState } from 'react';
+import {
+  elementMenuPoint,
+  isContextMenuKey,
+  pointerMenuPoint,
+  ScmContextMenu,
+  type ScmContextMenuState,
+} from './ScmContextMenu';
 
 import { ProgressSpinner } from './ProgressSpinner';
 import { BrandTile } from './WorkspaceEmptyState';
@@ -133,6 +140,23 @@ export function StudioGallery({
     [visibleAssets]
   );
   const lastRowIndex = layoutRows.length - 1;
+  const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+  const openAssetMenu = (asset: MediaAsset, point: { x: number; y: number }) =>
+    setContextMenu({
+      label: assetLabel(asset),
+      ...point,
+      items: [
+        { id: 'open', label: t('Open'), onSelect: () => onOpen(asset) },
+        {
+          id: 'delete',
+          label: t('Delete asset'),
+          danger: true,
+          separatorBefore: true,
+          onSelect: () => onDelete(asset),
+        },
+      ],
+    });
 
   return (
     <>
@@ -309,6 +333,23 @@ export function StudioGallery({
                       onClick={() => (selecting ? onToggleChecked(asset) : onOpen(asset))}
                       aria-pressed={selecting ? checked : undefined}
                       aria-label={t('Open {{kind}}: {{prompt}}', { kind: t(asset.kind), prompt: asset.prompt })}
+                      onContextMenu={
+                        selecting
+                          ? undefined
+                          : (event) => {
+                              event.preventDefault();
+                              openAssetMenu(asset, pointerMenuPoint(event));
+                            }
+                      }
+                      onKeyDown={
+                        selecting
+                          ? undefined
+                          : (event) => {
+                              if (!isContextMenuKey(event)) return;
+                              event.preventDefault();
+                              openAssetMenu(asset, elementMenuPoint(event.currentTarget));
+                            }
+                      }
                       onMouseEnter={hoverPreview ? () => onHoverStart(asset) : undefined}
                       onMouseLeave={hoverPreview ? onHoverEnd : undefined}
                     >
@@ -373,6 +414,7 @@ export function StudioGallery({
           ))}
         </div>
       </div>
+      <ScmContextMenu state={contextMenu} onClose={closeContextMenu} />
     </>
   );
 }

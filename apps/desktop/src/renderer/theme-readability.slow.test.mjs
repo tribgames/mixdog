@@ -398,7 +398,6 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         'beforeend',
         `
         <div class="sidebar-usage-row" id="item-usage"></div>
-        <div class="sidebar-usage-reset-credit" id="item-credit"></div>
         <div class="session-sidebar"><div class="session-row selected" id="item-selected" style="transition:none"></div></div>
         <div class="message user"><div class="message-body" id="item-bubble"></div></div>
       `
@@ -415,11 +414,11 @@ test('theme palettes, panel surfaces and italic labels remain readable in dark a
         return {
           popup: root.getPropertyValue('--mx-popup-bg').trim(),
           base: root.getPropertyValue('--mx-bg-base').trim(),
-          cards: [read('item-usage', '::before'), read('item-credit'), read('item-selected'), read('item-bubble')],
+          cards: [read('item-usage', '::before'), read('item-selected'), read('item-bubble')],
         };
       }, theme);
-      const [usage, credit, selected, bubble] = items.cards;
-      for (const frame of [usage, credit]) {
+      const [usage, selected, bubble] = items.cards;
+      for (const frame of [usage]) {
         assert.equal(frame.background, 'rgba(0, 0, 0, 0)', theme);
         assert.match(frame.shadow, /0px 0px 0px 1px inset/, theme);
       }

@@ -1,0 +1,145 @@
+# Mixdog Android app: builds the release APK signed with the upload keystore and
+# attaches it to a GitHub Release tagged mobile-vX.Y.Z (the app's own update
+# check reads these releases). Runs on mobile-v* tags and by hand.
+#
+# Secrets: ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+# ANDROID_KEY_PASSWORD, FIREBASE_GOOGLE_SERVICES_JSON_B64. See apps/mobile/README.md.
+
+name: Mobile Android
+
+on:
+  push:
+    tags:
+      - "mobile-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "App version X.Y.Z (the release tag becomes mobile-vX.Y.Z)"
+        required: true
+        type: string
+      publish:
+        description: "Create/update the GitHub Release and attach the APK"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # release creation + asset upload
+
+concurrency:
+  group: mobile-android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      INPUT_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        working-directory: .
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#mobile-v}"
+            publish=true
+          else
+            version="${INPUT_VERSION}"
+            publish="${{ inputs.publish }}"
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Version must be X.Y.Z, got '$version'" >&2
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<< "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$((major * 1000000 + minor * 1000 + patch))" >> "$GITHUB_OUTPUT"
+          echo "tag=mobile-v$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install and check
+        run: |
+          npm ci
+          npm run check
+          npm run test:java
+
+      - name: Firebase config and signing key
+        env:
+          FIREBASE_GOOGLE_SERVICES_JSON_B64: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON_B64 }}
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          for name in FIREBASE_GOOGLE_SERVICES_JSON_B64 ANDROID_KEYSTORE_B64; do
+            if [ -z "${!name}" ]; then echo "Missing secret $name" >&2; exit 1; fi
+          done
+          printf '%s' "$FIREBASE_GOOGLE_SERVICES_JSON_B64" | base64 -d > android/app/google-services.json
+          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/mixdog-release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/mixdog-release.jks" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          npm run sync:android
+          cd android
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease \
+            -PmobileVersionName="${{ steps.version.outputs.version }}" \
+            -PmobileVersionCode="${{ steps.version.outputs.code }}"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/Mixdog-${{ steps.version.outputs.version }}.apk"
+
+      - name: Verify the APK is signed
+        run: |
+          set -euo pipefail
+          apksigner="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)"
+          "$apksigner" verify --verbose "$RUNNER_TEMP/Mixdog-${{ steps.version.outputs.version }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mixdog-${{ steps.version.outputs.version }}-apk
+          path: ${{ runner.temp }}/Mixdog-${{ steps.version.outputs.version }}.apk
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: steps.version.outputs.publish == 'true'
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          APK: ${{ runner.temp }}/Mixdog-${{ steps.version.outputs.version }}.apk
+        run: |
+          set -euo pipefail
+          # --latest=false: the desktop updater follows the repo's "latest"
+          # release, which must stay a desktop release.
+          # --draft: a new mobile release stays private (repo maintainers only;
+          # the app's update check ignores drafts) until someone publishes it.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            gh release create "$TAG" "$APK" --target "$GITHUB_SHA" --title "Mixdog mobile ${TAG#mobile-v}" \
+              --notes "Mixdog Android app ${TAG#mobile-v}. Install the APK; the iOS build ships through TestFlight." \
+              --latest=false --draft
+          fi

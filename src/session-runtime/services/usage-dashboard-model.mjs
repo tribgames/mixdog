@@ -445,9 +445,38 @@ function usageTotal(rows) {
   return total;
 }
 
+// Credit feature of a subscription provider; null unless the account has it
+// enabled. Codex counts credits, Claude's extra usage is USD.
+export function creditsFromSnapshot(providerId, snapshot) {
+  const balance = snapshot?.balance;
+  if (providerId === 'openai-oauth') {
+    if (!balance || balance.unit !== 'credits') return null;
+    const amount = num(balance.remainingCredits, null);
+    const unlimited = balance.unlimited === true;
+    if (!(balance.hasCredits === true || unlimited || (amount !== null && amount > 0))) return null;
+    return { unit: 'credits', balance: amount, ...(unlimited ? { unlimited: true } : {}) };
+  }
+  if (providerId === 'anthropic-oauth') {
+    const extra = (snapshot?.quotaWindows || []).find((w) => w?.label === 'EXTRA');
+    const spend = balance && num(balance.remainingUsd, null) !== null ? balance : null;
+    if (!extra && !spend) return null;
+    const remaining = num(spend?.remainingUsd ?? extra?.remainingUsd, null);
+    const monthlyLimit = num(spend?.budgetUsd ?? extra?.limitUsd, null);
+    const spent = num(spend?.spentUsd ?? extra?.usedUsd, null);
+    return {
+      unit: 'usd',
+      balance: remaining ?? (monthlyLimit !== null && spent !== null ? Math.max(0, monthlyLimit - spent) : null),
+      ...(monthlyLimit !== null ? { monthlyLimit } : {}),
+      ...(spent !== null ? { spent } : {}),
+    };
+  }
+  return null;
+}
+
 function snapshotRow(row) {
   return {
     ...row,
+    ...(row.credits ? { credits: { ...row.credits } } : {}),
     windows: row.windows.map((window) => ({ ...window })),
     ...(row.resetCredits
       ? {

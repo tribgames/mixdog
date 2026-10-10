@@ -1,6 +1,13 @@
 function New-ActionResult($action, $path, $effect, $verified, $message, $code, $delivery, $windowId) {
     $accepted = $null -eq $code -and $path -ne 'none' -and $effect -ne 'suspected_noop'
-    return @{
+    # A target that refused the no-activate style still got the input, but the
+    # result must not present that delivery as protected from raising it.
+    $unprotected = $accepted -and $delivery -eq 'background' -and [MixWin32]::ActivationUnprotected -eq $true
+    if ($unprotected) {
+        [MixWin32]::ActivationUnprotected = $false
+        $message = "$message; the target refused the no-activate hold, so background delivery could not keep it from coming forward"
+    }
+    $result = @{
         text              = $message
         action            = $action
         path              = $path
@@ -12,6 +19,8 @@ function New-ActionResult($action, $path, $effect, $verified, $message, $code, $
         delivery          = $delivery
         window_id         = $windowId
     }
+    if ($unprotected) { $result.activation_protection = 'unavailable' }
+    return $result
 }
 
 function Get-VerifiedEffect($verified) {
@@ -39,44 +48,32 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
     $shielded = $target -ne [IntPtr]::Zero -and $foregroundBefore -ne $target -and
         [MixWin32]::SelfActivatesOnSemanticInput($target)
     $wasEnabled = $false
+    # Held through the steal watch below. A target that accepts the no-activate
+    # style declines activation, including one its host queues for when the
+    # shield lifts; a target that refuses the style (higher integrity) is not
+    # held, and the watch and restore below are then its only protection.
+    $inactive = [MixWin32]::HoldInactive($target)
     try {
         if ($shielded) { $wasEnabled = [MixWin32]::SetWindowEnabled($target, $false) }
         $result = & $operation
     }
     finally {
-        # A XAML host honours the shield outright. A Chromium host queues its own
-        # activation instead and raises it once the window is enabled again, which
-        # no wait here prevents and no restore can undo from a process without
-        # foreground rights; the shield still spares every window that does honour it.
-        if ($shielded -and $wasEnabled) { [void][MixWin32]::SetWindowEnabled($target, $true) }
-        $tookFocus = {
-            $foregroundAfter = [MixWin32]::Foreground()
-            $target -ne [IntPtr]::Zero -and (
-                [MixWin32]::IsWithinTopLevel($foregroundAfter, $target) -or
-                [MixWin32]::IsContainedSameProcess($foregroundAfter, $target) -or
-                [MixWin32]::IsOwnedBy($foregroundAfter, $target)
-            )
-        }
-        $targetTookFocus = & $tookFocus
-        # Measured on Windows 11 Settings: the frame raised itself 5-30 ms after
-        # the accessibility call returned, disabled or not, so one check made
-        # right away saw nothing to restore. A packaged or XAML frame is watched
-        # for that short window, ending as soon as the steal appears. Chromium
-        # honours the shield, so it is not charged the wait.
-        if ($shielded -and -not $targetTookFocus -and -not [MixWin32]::IsWebContentHost($target)) {
-            $watch = [System.Diagnostics.Stopwatch]::StartNew()
-            while (-not $targetTookFocus -and $watch.ElapsedMilliseconds -lt 100) {
-                Start-Sleep -Milliseconds 10
-                $targetTookFocus = & $tookFocus
+        try {
+            # A XAML host honours the shield outright. A Chromium host queues its own
+            # activation instead and raises it once the window is enabled again, which
+            # no wait here prevents and no restore can undo from a process without
+            # foreground rights; the shield still spares every window that does honour it.
+            if ($shielded -and $wasEnabled) { [void][MixWin32]::SetWindowEnabled($target, $true) }
+            $tookFocus = {
+                $foregroundAfter = [MixWin32]::Foreground()
+                $target -ne [IntPtr]::Zero -and (
+                    [MixWin32]::IsWithinTopLevel($foregroundAfter, $target) -or
+                    [MixWin32]::IsContainedSameProcess($foregroundAfter, $target) -or
+                    [MixWin32]::IsOwnedBy($foregroundAfter, $target)
+                )
             }
-        }
-        if (
-            $foregroundBefore -ne [IntPtr]::Zero -and
-            $foregroundBefore -ne $target -and
-            [MixWin32]::IsWindowHandle($foregroundBefore) -and
-            $targetTookFocus
-        ) {
-            if ($inputBefore.Ready) {
+            # False once user input superseded the observation: nothing is restored then.
+            $restore = {
                 try {
                     [MixInputObservation]::BeginExpected($inputBefore.Generation, $inputBefore.Sequence)
                     try {
@@ -84,11 +81,36 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
                         [void][MixWin32]::Focus($foregroundBefore)
                     }
                     finally { [MixInputObservation]::End() }
+                    return $true
                 }
                 catch {
                     if ($_.Exception.Message -notmatch 'user_input_active|input_observation_unavailable') { throw }
+                    return $false
                 }
             }
+            $canRestore = $inputBefore.Ready -and
+                $foregroundBefore -ne [IntPtr]::Zero -and
+                $foregroundBefore -ne $target -and
+                [MixWin32]::IsWindowHandle($foregroundBefore)
+            # Measured on Windows 11 Settings: the frame raised itself 5-30 ms after
+            # the accessibility call returned, disabled or not, so one check made
+            # right away saw nothing to restore. Every self-activating target,
+            # Chromium included, is watched for that short window, and one that
+            # takes the foreground again after a restore is restored once more.
+            $watching = $shielded -and $canRestore
+            $restores = 0
+            $watch = [System.Diagnostics.Stopwatch]::StartNew()
+            while ($true) {
+                if ($canRestore -and $restores -lt 2 -and (& $tookFocus)) {
+                    $restores++
+                    if (-not (& $restore)) { break }
+                }
+                if (-not $watching -or $restores -ge 2 -or $watch.ElapsedMilliseconds -ge 100) { break }
+                Start-Sleep -Milliseconds 10
+            }
+        }
+        finally {
+            [MixWin32]::ReleaseInactive($inactive)
         }
     }
     return $result

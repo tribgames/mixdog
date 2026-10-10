@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { accessSync, constants, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { readReleaseIndex } from './renderer-releases.mjs';
 import { resolveStaticTarget } from './static-http.mjs';
 
 const MAX_DOCUMENT_BYTES = 128 * 1024;
@@ -66,17 +68,41 @@ export function inspectRenderer(rendererDir) {
   };
 }
 
+/** The current renderer plus EVERY retained release in the registry: a broken
+ *  old release would strand exactly the devices pinned to it, so any failure
+ *  makes the whole relay not-ready. */
+export function inspectRendererReleases(rendererDir, releasesDir = '') {
+  const body = inspectRenderer(rendererDir);
+  const index = releasesDir ? readReleaseIndex(releasesDir) : null;
+  if (!index) return body;
+  const releases = index.releases.map((entry) => {
+    const inspected = inspectRenderer(join(releasesDir, entry.id));
+    if (entry.shellVersion && entry.shellVersion !== inspected.version) {
+      throw new Error('renderer release does not match its registry entry');
+    }
+    return {
+      id: entry.id,
+      desktopVersion: entry.desktopVersion,
+      legacy: entry.legacy,
+      indexSha256: inspected.indexSha256,
+      version: inspected.version,
+      assets: inspected.assets,
+    };
+  });
+  return { ...body, releases };
+}
+
 /** A bounded cache keeps a public probe from repeatedly walking the tree.
  *  Deployments restart the process, so the first check always sees the new
  *  release; later checks notice missing files without a process restart. */
-export function createRendererReadiness(rendererDir, { cacheMs = 2000, now = Date.now } = {}) {
+export function createRendererReadiness(rendererDir, { releasesDir = '', cacheMs = 2000, now = Date.now } = {}) {
   let cached;
   let expiresAt = 0;
   return () => {
     const time = now();
     if (cached && time < expiresAt) return cached;
     try {
-      cached = { statusCode: 200, body: inspectRenderer(rendererDir) };
+      cached = { statusCode: 200, body: inspectRendererReleases(rendererDir, releasesDir) };
     } catch {
       // Do not expose filesystem paths or low-level permission errors publicly.
       cached = { statusCode: 503, body: { status: 'not-ready' } };

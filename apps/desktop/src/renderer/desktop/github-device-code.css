@@ -1,0 +1,50 @@
+/* GitHub device-flow code (Settings → Git and onboarding): sits in the card's
+   description slot — no frame of its own. */
+.github-device-code {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+}
+.github-device-code-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+}
+.github-device-code-value {
+  color: var(--mx-text);
+  font-family: var(--mx-font-mono);
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: var(--mx-weight-semibold);
+  letter-spacing: 0.08em;
+  user-select: all;
+}
+.github-device-code-copied {
+  color: var(--mx-success);
+}
+.github-device-code-error {
+  color: var(--mx-danger);
+}
+.github-device-code-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.github-device-code-spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--mx-border-muted);
+  border-top-color: var(--mx-text);
+  animation: github-device-code-spin 0.9s linear infinite;
+}
+@keyframes github-device-code-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

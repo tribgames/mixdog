@@ -6,6 +6,7 @@
 const ASSET_CACHE = 'mixdog-assets-v2';
 importScripts('/sw-shell.js');
 importScripts('/ui-language.js');
+importScripts('/sw-media.js');
 // A few deploys' worth of chunks; the oldest entries are evicted first.
 const MAX_ASSET_ENTRIES = 400;
 // One page boot requests several hashed chunks together. Trimming after every
@@ -75,6 +76,38 @@ const TURN_FINISHED_TEXT = {
   vi: 'Đã hoàn tất công việc.',
   'zh-CN': '工作已完成。',
   'zh-TW': '工作已完成。',
+};
+
+// Spoken when a session starts waiting on a tool approval.
+const APPROVAL_PENDING_TEXT = {
+  de: 'Wartet auf deine Freigabe.',
+  en: 'Waiting for your approval.',
+  es: 'Esperando tu aprobación.',
+  fr: 'En attente de votre approbation.',
+  it: 'In attesa della tua approvazione.',
+  ja: '承認を待っています。',
+  ko: '승인을 기다리고 있습니다.',
+  'pt-BR': 'Aguardando sua aprovação.',
+  ru: 'Ожидает вашего подтверждения.',
+  vi: 'Đang chờ bạn phê duyệt.',
+  'zh-CN': '正在等待您的批准。',
+  'zh-TW': '正在等待您的核准。',
+};
+
+// Spoken when a session is waiting for the user's own input or action.
+const INPUT_NEEDED_TEXT = {
+  de: 'Wartet auf deine Eingabe.',
+  en: 'Waiting for your input.',
+  es: 'Esperando tu respuesta.',
+  fr: 'En attente de votre réponse.',
+  it: 'In attesa della tua risposta.',
+  ja: '入力を待っています。',
+  ko: '입력을 기다리고 있습니다.',
+  'pt-BR': 'Aguardando sua resposta.',
+  ru: 'Ожидает вашего ответа.',
+  vi: 'Đang chờ bạn phản hồi.',
+  'zh-CN': '正在等待您的输入。',
+  'zh-TW': '正在等待您的輸入。',
 };
 
 self.addEventListener('install', () => {
@@ -315,6 +348,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (request.method !== 'GET') return;
+  // Encrypted media (sw-media.js): the relay only carries ciphertext, so an
+  // <img>/<video>/<audio> request is answered here, decrypted, with Range.
+  const mediaRoute = mixdogMediaLane.match(request, url);
+  if (mediaRoute) {
+    event.respondWith(mixdogMediaLane.answer(request, mediaRoute));
+    return;
+  }
   if (request.mode === 'navigate') {
     const operation = shellFirst(request);
     event.respondWith(operation.then((result) => result.response).catch(() => fetch(request)));
@@ -345,6 +385,12 @@ self.addEventListener('fetch', (event) => {
   event.waitUntil(operation.then((result) => result.maintenance).catch(() => undefined));
 });
 
+// The app hands this worker the session's media key (and withdraws it) by
+// message; see remote-media-lane.ts.
+self.addEventListener('message', (event) => {
+  mixdogMediaLane.acceptKey(event.data);
+});
+
 // Web Push. This is the ONLY path that reaches an installed web app whose
 // relay socket is gone: the OS wakes this worker even when the app was swiped
 // away. The desktop that owns the session encrypts the payload for this
@@ -362,11 +408,18 @@ self.addEventListener('push', (event) => {
   const title = (payload && typeof payload.title === 'string' && payload.title.trim()) || 'Mixdog';
   const supplied = payload && typeof payload.body === 'string' ? payload.body.trim() : '';
   const sessionId = payload?.data && typeof payload.data.sessionId === 'string' ? payload.data.sessionId : '';
+  const reason = payload?.data?.reason;
   event.waitUntil(
     (async () => {
       // What the session actually said travels verbatim; only the stand-in for
       // a turn that produced no text is spoken in this device's language.
-      const body = supplied || TURN_FINISHED_TEXT[await notificationLanguage()] || TURN_FINISHED_TEXT.en;
+      const standIn =
+        reason === 'approval-pending'
+          ? APPROVAL_PENDING_TEXT
+          : reason === 'input-needed'
+            ? INPUT_NEEDED_TEXT
+            : TURN_FINISHED_TEXT;
+      const body = supplied || standIn[await notificationLanguage()] || standIn.en;
       await self.registration.showNotification(title, {
         body,
         icon: '/mixdog-192.png',

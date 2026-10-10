@@ -3,6 +3,11 @@ import { requiredSessionId } from './desktop-state';
 import type { BrowserHost } from './browser/host';
 import type { IpcHandle as Handle } from './ipc';
 import { normalizeBrowserPageControl } from '../shared/browser-page-control';
+import {
+  normalizeBrowserCredentialId,
+  normalizeBrowserHistoryQuery,
+  normalizeBrowserImportRequest,
+} from '../shared/remote-browser';
 
 interface BrowserIpcOptions {
   handle: Handle;
@@ -165,38 +170,11 @@ export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): 
   });
   handle(DESKTOP_IPC.browserProfileImportStart, (_event, value) => {
     if (!browserHost) throw new Error('Browser profile import is unavailable in this app surface.');
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new TypeError('Browser import request must be an object.');
-    }
-    const request = value as Record<string, unknown>;
-    const jobId = String(request.jobId || '');
-    const sourceId = String(request.sourceId || '');
-    const profileId = String(request.profileId || '');
-    const items = Array.isArray(request.items) ? request.items.map((item) => String(item)) : [];
-    if (!/^[a-zA-Z0-9_-]{8,120}$/.test(jobId)) throw new TypeError('Browser import job id is invalid.');
-    if (!sourceId || sourceId.length > 100) throw new TypeError('Browser import source id is invalid.');
-    if (!profileId || profileId.length > 200) throw new TypeError('Browser import profile id is invalid.');
-    if (
-      !items.length ||
-      items.length > 3 ||
-      items.some((item) => !['passwords', 'cookies', 'history'].includes(item))
-    ) {
-      throw new TypeError('Browser import items are invalid.');
-    }
-    return browserHost.browserImport({
-      jobId,
-      sourceId,
-      profileId,
-      items: items as Array<'passwords' | 'cookies' | 'history'>,
-      administratorApproved: request.administratorApproved === true,
-    });
+    return browserHost.browserImport(normalizeBrowserImportRequest(value));
   });
   handle(DESKTOP_IPC.browserHistorySearch, (_event, query) => {
     if (!browserHost) throw new Error('Browser history is unavailable in this app surface.');
-    if (typeof query !== 'string' || query.length > 500) {
-      throw new TypeError('Browser history query is invalid.');
-    }
-    return browserHost.browserHistorySearch(query);
+    return browserHost.browserHistorySearch(normalizeBrowserHistoryQuery(query));
   });
   handle(DESKTOP_IPC.browserCredentialSuggestions, (_event, sessionId) => {
     if (!browserHost) throw new Error('Stored browser credentials are unavailable in this app surface.');
@@ -204,9 +182,6 @@ export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): 
   });
   handle(DESKTOP_IPC.browserCredentialFill, (_event, sessionId, credentialId) => {
     if (!browserHost) throw new Error('Stored browser credentials are unavailable in this app surface.');
-    if (typeof credentialId !== 'string' || !/^[a-f0-9]{24}$/.test(credentialId)) {
-      throw new TypeError('Stored browser credential id is invalid.');
-    }
-    return browserHost.browserCredentialFill(requiredSessionId(sessionId), credentialId);
+    return browserHost.browserCredentialFill(requiredSessionId(sessionId), normalizeBrowserCredentialId(credentialId));
   });
 }

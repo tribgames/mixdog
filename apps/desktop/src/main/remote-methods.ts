@@ -1,6 +1,6 @@
 // Transport-neutral method table for the remote Relay client: the
 // same desktop service surface registerDesktopIpc exposes, minus desktop-only OS
-// integrations (dialogs, shell reveal/open, zoom, updater, quit). Validation
+// integrations (dialogs, shell reveal/open, zoom, quit). Validation
 // shares transport-neutral validators so the remote surface cannot accept a shape
 // the in-process IPC surface would reject.
 import { randomUUID } from 'node:crypto';
@@ -15,7 +15,9 @@ import type { DesktopService } from './desktop-service-contract';
 import type { DesktopSettingsStore } from './settings-store';
 import type { DesktopLocalPathEntry, DesktopSettings } from '../shared/contract';
 import { normalizeRemoteBrowserControl } from '../shared/remote-browser';
-import { requiredSessionId } from './desktop-state';
+import { browserParityRemoteMethods, type BrowserRemoteMethod } from './remote-browser-methods';
+import { STALE_SESSION_VIEW_MARKER } from '../shared/session-devices';
+import { optionalSessionId, requiredSessionId } from './desktop-state';
 import { submitFeedback } from './feedback-client';
 import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
 import type { TerminalSpawnProfile } from './terminal-contract';
@@ -56,6 +58,10 @@ import {
   requiredWorkspaceTextWrites,
 } from './ipc-validation';
 import { absoluteLocalPath } from './local-files';
+import { createRemoteFilePreviewMethods } from './remote-file-preview';
+import { projectEntryPathIn } from './project-files';
+import { MAIN_BROWSER_PAGE_PREFIX } from '../shared/contract';
+import type { DesktopUpdaterState } from '../shared/contract';
 import { MAX_SELECTED_FILE_GRANTS, owningProject, sameGrantedPath, selectedFileGrantKey } from './selected-file-grants';
 import {
   requiredCommitHash,
@@ -65,38 +71,32 @@ import {
   requiredRepositoryCwd,
 } from './git-contract.mjs';
 
-// Secrets and OAuth flows stay desktop-local even over E2EE, and OAuth logins
-// open a browser on the desktop machine where the phone cannot complete them.
-export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
-  'saveProviderApiKey',
-  // Custom endpoints take an API key and make outbound requests to an
-  // arbitrary URL from this machine.
-  'saveCustomProvider',
-  'removeCustomProvider',
-  'testCustomProvider',
-  'discoverCustomProviderModels',
-  'authenticateProvider',
-  'saveOpenAIUsageSessionKey',
-  'saveOpenCodeGoUsageAuth',
-  'loginOAuthProvider',
-  'beginOAuthProviderLogin',
-  'getOAuthProviderLoginStatus',
-  'completeOAuthProviderLogin',
-  'cancelOAuthProviderLogin',
-  'getMcpServerConfig',
-  'saveMcpServer',
-  // Developer options stay desktop-local, like the Providers page they gate.
-  'setDeveloperOption',
-  // Media files reach a phone through the media HTTP route, which needs no
-  // filesystem paths on the client. Keep the resolver host-side.
-  'resolveMediaFile',
-]);
+// Pairing approval is the trust: a paired client has the desktop's own
+// capabilities. Only host-internal items that make no sense remotely stay
+// refused. Media files reach a phone through the media HTTP route, which needs
+// no filesystem paths on the client.
+export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set(['resolveMediaFile']);
 
 export function assertRemoteCapability(capability: string): void {
   if (REMOTE_BLOCKED_CAPABILITIES.has(capability)) {
     throw new TypeError(`capability ${capability} is not available over remote access.`);
   }
 }
+
+/** The connection a method table serves. */
+export interface RemoteMethodClient {
+  /** Name of the paired device behind this connection, read by the host from
+   *  the credential the relay authenticated — never from a request field. */
+  deviceName?(): Promise<string>;
+  /** The paired client (relay credential) behind this connection; '' when the
+   *  relay did not name it. Native push registrations are bound to it. */
+  credentialId?(): string;
+  /** Whether this connection has not yet been shown another device's prompt
+   *  in the session. A stale view is re-sent as a side effect. */
+  staleView?(sessionId: string, device: string): boolean;
+}
+
+export const STALE_SESSION_VIEW_MESSAGE = `${STALE_SESSION_VIEW_MARKER} Review the latest messages, then send again.`;
 
 export interface RemoteMethodDependencies {
   host: DesktopService;
@@ -120,6 +120,19 @@ export interface RemoteMethodDependencies {
     }): Promise<unknown>;
     remove(endpoint: string): Promise<boolean>;
   };
+  /** Native app push (APNs/FCM) through the relay. Only the relay leg supplies
+   *  it, and `platforms()` is empty until the relay says it can deliver. */
+  nativePush?: {
+    platforms(): readonly string[];
+    register(input: {
+      clientId: string;
+      platform: unknown;
+      token: unknown;
+      publicKey: unknown;
+      sandbox?: unknown;
+    }): Promise<unknown>;
+    remove(clientId: string, token?: string): Promise<boolean>;
+  };
   terminals?: {
     ensure(
       id: string | null,
@@ -129,8 +142,13 @@ export interface RemoteMethodDependencies {
     write(id: string, data: string): void;
     resize(id: string, cols: number, rows: number): void;
   };
-  browserRemote?: (method: 'stream' | 'control' | 'release', args: unknown[]) => Promise<unknown>;
+  browserRemote?: (method: BrowserRemoteMethod, args: unknown[], timeoutMs?: number) => Promise<unknown>;
+  /** Electron-only host actions (OS trash, auto-updater) run in the window
+   *  process; the daemon asks it and awaits the answer. */
+  hostRequest?: (method: RemoteHostRequestMethod, args: unknown[]) => Promise<unknown>;
 }
+
+export type RemoteHostRequestMethod = 'trashItem' | 'updaterState' | 'updaterCheck' | 'updaterInstall';
 
 type RemoteMethod = (params: unknown[]) => unknown;
 type InvokeDesktopOperation = (name: string, args: unknown[]) => Promise<unknown>;
@@ -361,7 +379,12 @@ function gitHistoryRemoteMethods(
       if (typeof value !== 'string' || value.length > 500) {
         throw new TypeError('value must be a string of at most 500 characters.');
       }
-      return invokeDesktopOperation('setGitGlobalConfig', [requiredGitGlobalConfigKey(key), value]);
+      return invokeDesktopOperation('setGitGlobalConfig', [requiredGitGlobalConfigKey(key), value]).then(
+        async (saved) => {
+          await invokeDesktopOperation('notifySettingsChanged', ['git']).catch(() => {});
+          return saved;
+        }
+      );
     },
   };
 }
@@ -393,10 +416,20 @@ function developerToolingRemoteMethods(invokeDesktopOperation: InvokeDesktopOper
     githubCliLoginStart: () => invokeDesktopOperation('githubCliLoginStart', []),
     githubCliLoginStatus: ([flowId]) =>
       invokeDesktopOperation('githubCliLoginStatus', [requiredString(flowId, 'flowId', 200)]),
+    githubCliLoginOpenBrowser: ([flowId]) =>
+      invokeDesktopOperation('githubCliLoginOpenBrowser', [requiredString(flowId, 'flowId', 200)]),
     githubCliLoginCancel: ([flowId]) =>
       invokeDesktopOperation('cancelGithubCliLogin', [requiredString(flowId, 'flowId', 200)]),
     githubCliLogout: () => invokeDesktopOperation('githubCliLogout', []),
     githubCliAccount: () => invokeDesktopOperation('githubCliAccount', []),
+    ghPrList: ([cwd]) => invokeDesktopOperation('ghPrList', [requiredRepositoryCwd(cwd)]),
+    ghPrDefaultBranch: ([cwd]) => invokeDesktopOperation('ghPrDefaultBranch', [requiredRepositoryCwd(cwd)]),
+    ghPrCreate: ([cwd, input]) => invokeDesktopOperation('ghPrCreate', [requiredRepositoryCwd(cwd), input]),
+    ghPrView: ([cwd, number]) => invokeDesktopOperation('ghPrView', [requiredRepositoryCwd(cwd), number]),
+    ghPrCheckout: ([cwd, number]) => invokeDesktopOperation('ghPrCheckout', [requiredRepositoryCwd(cwd), number]),
+    ghPrMerge: ([cwd, number, method]) =>
+      invokeDesktopOperation('ghPrMerge', [requiredRepositoryCwd(cwd), number, method]),
+    ghPrDiff: ([cwd, number]) => invokeDesktopOperation('ghPrDiff', [requiredRepositoryCwd(cwd), number]),
   };
 }
 
@@ -442,8 +475,18 @@ async function resolveLocalPathEntries(
 }
 
 /** Entries inside a project, addressed the way the explorer addresses them. */
-function projectEntryRemoteMethods(host: DesktopService): Record<string, RemoteMethod> {
+function projectEntryRemoteMethods(
+  host: DesktopService,
+  hostRequest: NonNullable<RemoteMethodDependencies['hostRequest']>
+): Record<string, RemoteMethod> {
   return {
+    trashProjectEntry: async ([projectPath, relPath]) => {
+      const target = await host.projectEntryPath(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath')
+      );
+      await hostRequest('trashItem', [target]);
+    },
     createProjectEntry: ([projectPath, relDir, name, dir]) =>
       host.createProjectEntry(
         requiredString(projectPath, 'projectPath'),
@@ -487,7 +530,7 @@ function editorRemoteMethods(deps: {
   const editorFilePath = async (projectPath: unknown, relPath: unknown, accessToken: unknown): Promise<string> => {
     if (grants.grantedIf(accessToken)) return grants.grantedFile(accessToken, projectPath, relPath).absolute;
     const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
-    return resolvePath(root, requiredString(relPath, 'relPath', 4_096));
+    return projectEntryPathIn(root, requiredString(relPath, 'relPath', 4_096));
   };
   const requiredEditorBackupRoot = (): string => {
     if (!userDataPath) throw new Error('Editor backup storage is unavailable.');
@@ -601,24 +644,45 @@ function editorRemoteMethods(deps: {
   };
 }
 
-export function createRemoteMethods({
-  host,
-  userDataPath,
-  settingsStore,
-  onDesktopSettingsChanged,
-  terminals,
-  push,
-  browserRemote,
-}: RemoteMethodDependencies): Record<string, RemoteMethod> {
+export function createRemoteMethods(
+  {
+    host,
+    userDataPath,
+    settingsStore,
+    onDesktopSettingsChanged,
+    terminals,
+    push,
+    nativePush,
+    browserRemote,
+    hostRequest,
+  }: RemoteMethodDependencies,
+  client?: RemoteMethodClient
+): Record<string, RemoteMethod> {
+  const connectionDevice = async (): Promise<string> => (await client?.deviceName?.()) || 'Web app';
   const invokeDesktopOperation = (name: string, args: unknown[]): Promise<unknown> =>
     host.invokeDesktopOperation(name, args);
-  const requiredPush = (): NonNullable<RemoteMethodDependencies['push']> => {
+  const requiredNativePush = (): NonNullable<RemoteMethodDependencies['nativePush']> => {
+    if (!nativePush || nativePush.platforms().length === 0) {
+      throw new TypeError('Native push is unavailable on this connection.');
+    }
+    return nativePush;
+  };
+  const connectionClientId = (): string => {
+    const id = client?.credentialId?.() ?? '';
+    if (!id) throw new TypeError('Native push needs a paired client.');
+    return id;
+  };
+  const requiredPush = ():NonNullable<RemoteMethodDependencies['push']> => {
     if (!push) throw new TypeError('Push notifications are unavailable on this connection.');
     return push;
   };
   const requiredBrowserRemote = (): NonNullable<RemoteMethodDependencies['browserRemote']> => {
     if (!browserRemote) throw new TypeError('Remote Browser Use is unavailable.');
     return browserRemote;
+  };
+  const requiredHostRequest = (): NonNullable<RemoteMethodDependencies['hostRequest']> => {
+    if (!hostRequest) throw new TypeError('The desktop app is unavailable on this connection.');
+    return hostRequest;
   };
   const grants = createSelectedFileGrants();
   const { grantedFile, grantedIf } = grants;
@@ -687,6 +751,28 @@ export function createRemoteMethods({
       return true;
     },
     removePushSubscription: ([endpoint]) => requiredPush().remove(requiredString(endpoint, 'endpoint')),
+    // Native app push. `{ platform, token, publicKey }` arrives over the
+    // encrypted channel and is bound to the paired client behind it; the
+    // content of every later push is encrypted for `publicKey`.
+    registerNativePush: async ([input]) => {
+      const native = requiredNativePush();
+      const record = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+      if (typeof record.platform !== 'string' || !native.platforms().includes(record.platform)) {
+        throw new TypeError('Native push is unavailable for this platform.');
+      }
+      await native.register({
+        clientId: connectionClientId(),
+        platform: record.platform,
+        token: record.token,
+        publicKey: record.publicKey,
+        sandbox: record.sandbox,
+      });
+      return true;
+    },
+    removeNativePush: ([token]) => {
+      if (token !== undefined && typeof token !== 'string') throw new TypeError('token must be a string.');
+      return requiredNativePush().remove(connectionClientId(), token);
+    },
     listSessions: () => host.listSessions(),
     markSessionRead: ([sessionId, messageCount, consumedUnread]) => {
       if (consumedUnread !== undefined && typeof consumedUnread !== 'boolean') {
@@ -722,7 +808,7 @@ export function createRemoteMethods({
       host.prefetchSession?.(
         requiredSessionId(sessionId),
         requiredTranscriptItemLimit(itemLimit),
-        typeof readTraceId === 'string' ? readTraceId : undefined
+        typeof readTraceId === 'string' && readTraceId ? readTraceId : undefined
       ) ?? false,
     searchProjectFiles: ([projectIdOrWorkspaceId, query, limit, includeIgnored]) => {
       if (typeof query !== 'string' || query.length > 1_024) {
@@ -736,18 +822,30 @@ export function createRemoteMethods({
       );
     },
     getSnapshot: () => host.getSnapshot(),
-    submitNewTask: ([prompt, options, draft]) =>
-      host.submitNewTask(requiredPromptContent(prompt), requiredSubmitOptions(options), requiredNewTaskDraft(draft)),
-    submitToSession: ([sessionId, prompt, options]) =>
-      host.submitToSession(requiredSessionId(sessionId), requiredPromptContent(prompt), requiredSubmitOptions(options)),
-    abortSession: ([sessionId, options]) =>
-      host.abortSession(requiredSessionId(sessionId), requiredAbortOptions(options)),
-    resolveToolApprovalForSession: ([sessionId, id, decision]) =>
-      host.resolveToolApprovalForSession(
-        requiredSessionId(sessionId),
-        requiredString(id, 'approval id', 1_024),
-        requiredToolApprovalDecision(decision)
+    submitNewTask: async ([prompt, options, draft]) =>
+      host.submitNewTask(
+        requiredPromptContent(prompt),
+        { ...requiredSubmitOptions(options), device: await connectionDevice() },
+        requiredNewTaskDraft(draft)
       ),
+    submitToSession: async ([sessionId, prompt, options]) => {
+      const id = requiredSessionId(sessionId);
+      const content = requiredPromptContent(prompt);
+      const submitOptions = requiredSubmitOptions(options);
+      const device = await connectionDevice();
+      if (client?.staleView?.(id, device)) throw new Error(STALE_SESSION_VIEW_MESSAGE);
+      return host.submitToSession(id, content, { ...submitOptions, device });
+    },
+    abortSession: async ([sessionId, options]) =>
+      host.abortSession(requiredSessionId(sessionId), {
+        ...requiredAbortOptions(options),
+        device: await connectionDevice(),
+      }),
+    resolveToolApprovalForSession: async ([sessionId, id, decision]) =>
+      host.resolveToolApprovalForSession(requiredSessionId(sessionId), requiredString(id, 'approval id', 1_024), {
+        ...requiredToolApprovalDecision(decision),
+        device: await connectionDevice(),
+      }),
     inheritSession: ([sourceSessionId, selection, options]) =>
       host.inheritSession(
         requiredSessionId(sourceSessionId),
@@ -758,11 +856,11 @@ export function createRemoteMethods({
     setModelRoute: ([selection, sessionId]) =>
       host.setModelRoute(
         requiredModelSelection(selection),
-        sessionId == null ? undefined : requiredSessionId(sessionId)
+        optionalSessionId(sessionId)
       ),
     setFast: ([enabled, sessionId]) => {
       if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
-      return host.setFast(enabled, sessionId == null ? undefined : requiredSessionId(sessionId));
+      return host.setFast(enabled, optionalSessionId(sessionId));
     },
     invokeCapability: ([input]) => {
       const request = requiredDesktopCapabilityRequest(input);
@@ -785,6 +883,7 @@ export function createRemoteMethods({
     },
     browserRemoteControl: ([sessionId, input]) =>
       requiredBrowserRemote()('control', [requiredSessionId(sessionId), normalizeRemoteBrowserControl(input)]),
+    ...browserParityRemoteMethods(browserRemote),
     ...gitRemoteMethods(invokeDesktopOperation),
     ...developerToolingRemoteMethods(invokeDesktopOperation),
     folderWatch: ([dir, recursive]) =>
@@ -796,15 +895,30 @@ export function createRemoteMethods({
     resolveLocalPaths: ([paths]) => resolveLocalPathEntries(paths, { host, invokeDesktopOperation, grants }),
     readLocalFile: ([path]) => invokeDesktopOperation('readLocalFileAbs', [absoluteLocalPath(path)]),
     // ── Project entries and the editor ─────────────────────────────────────
-    ...projectEntryRemoteMethods(host),
+    ...projectEntryRemoteMethods(host, (method, args) => requiredHostRequest()(method, args)),
+    // Host updater: the window process owns it; these mirror the desktop
+    // getUpdaterState / checkForDesktopUpdate / showDesktopUpdate calls.
+    getUpdaterState: () => requiredHostRequest()('updaterState', []) as Promise<DesktopUpdaterState>,
+    checkForDesktopUpdate: () => requiredHostRequest()('updaterCheck', []) as Promise<DesktopUpdaterState>,
+    showDesktopUpdate: () => requiredHostRequest()('updaterInstall', []) as Promise<DesktopUpdaterState>,
+    // Only main-workspace browser tabs are the client's to release.
+    browserReleasePage: async ([pageId]) => {
+      if (!browserRemote) return;
+      const id = requiredSessionId(pageId);
+      if (!id.startsWith(MAIN_BROWSER_PAGE_PREFIX)) throw new TypeError('Browser page is not a main tab page.');
+      await browserRemote('release', [id]);
+    },
     ...editorRemoteMethods({ host, userDataPath, invokeDesktopOperation, grants }),
+    ...createRemoteFilePreviewMethods({ host, grants }),
   };
   if (settingsStore) {
     methods.readSettings = () => settingsStore.read();
     methods.updateSetting = ([key, enabled]) => {
       if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
-      return settingsStore.update(requiredDesktopSettingKey(key), enabled).then((saved) => {
+      return settingsStore.update(requiredDesktopSettingKey(key), enabled).then(async (saved) => {
         onDesktopSettingsChanged?.(saved);
+        // Open settings pages on the host and on other clients re-read it.
+        await invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
         return saved;
       });
     };
@@ -846,6 +960,57 @@ export interface RemoteFrameResponse {
   errorCode?: string;
 }
 
+const MIN_REDACTED_SECRET_LENGTH = 6;
+const REDACTED = '[redacted]';
+
+/** Capabilities whose arguments carry secrets (API keys, session keys, auth
+ *  codes, pasted redirect URLs). */
+const SECRET_CAPABILITY_NAMES: ReadonlySet<string> = new Set([
+  'saveProviderApiKey',
+  'saveOpenAIUsageSessionKey',
+  'saveOpenCodeGoUsageAuth',
+  'saveCustomProvider',
+  'removeCustomProvider',
+  'testCustomProvider',
+  'discoverCustomProviderModels',
+  'getMcpServerConfig',
+  'saveMcpServer',
+  'setDeveloperOption',
+  'forgetProviderAuth',
+  'beginOAuthProviderLogin',
+  'getOAuthProviderLoginStatus',
+  'completeOAuthProviderLogin',
+  'cancelOAuthProviderLogin',
+  'loginOAuthProvider',
+  'authenticateProvider',
+]);
+
+/** Every string a secret-bearing capability call carried. An upstream failure
+ *  can echo one back inside its message, which would reach the client's logs
+ *  and every relay-side frame trace. */
+function secretStringsOf(method: string, params: unknown[]): string[] {
+  if (method !== 'invokeCapability') return [];
+  const request = params[0] as { capability?: unknown; args?: unknown } | null;
+  if (typeof request?.capability !== 'string' || !SECRET_CAPABILITY_NAMES.has(request.capability)) return [];
+  const found: string[] = [];
+  const visit = (value: unknown, depth: number): void => {
+    if (typeof value === 'string') {
+      if (value.length >= MIN_REDACTED_SECRET_LENGTH) found.push(value);
+    } else if (depth < 6 && value && typeof value === 'object') {
+      for (const entry of Object.values(value)) visit(entry, depth + 1);
+    }
+  };
+  visit(request.args, 0);
+  return found;
+}
+
+/** An error message with any secret from the failing call removed. */
+export function redactRemoteError(message: string, method: string, params: unknown[]): string {
+  let safe = message;
+  for (const secret of secretStringsOf(method, params)) safe = safe.split(secret).join(REDACTED);
+  return safe;
+}
+
 // Relay RPC frame executor: parses one wire frame and returns the response
 // payload, or undefined when no
 // response frame is owed (fire-and-forget lane or an unparseable frame).
@@ -883,7 +1048,7 @@ export async function executeRemoteFrame(
     const response: RemoteFrameResponse = {
       id,
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: redactRemoteError(error instanceof Error ? error.message : String(error), method, params),
     };
     if (typeof code === 'string' && code) response.errorCode = code;
     return response;

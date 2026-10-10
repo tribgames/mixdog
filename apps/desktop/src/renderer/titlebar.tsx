@@ -1,12 +1,13 @@
 // Window title bar: a clean drag band. The workspace tab strips moved into
 // the panes themselves (WorkspaceTabStrip); the bar
 // keeps the draggable run, the updater badge, and the Windows caption reserve.
-import { ArrowDown } from 'lucide-react';
+import { ArrowDown, MonitorSmartphone } from 'lucide-react';
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 
 import { version as appVersion } from '../../package.json';
 import type { DesktopUpdaterState } from '../shared/contract';
+import { remoteWindowInfo } from '../shared/remote-window';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 
@@ -33,6 +34,7 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
   // strip there only steals the title row of a window that has no caption.
   const electronShell = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent);
   const windowsCaptionControls = electronShell && /Windows/i.test(navigator.userAgent);
+  const remoteHost = remoteWindowInfo();
   // The updater stays window-global; layout controls belong to their panes.
   const updateVisible =
     Boolean(onOpenUpdate) && (updaterState?.status === 'ready' || updaterState?.status === 'installing');
@@ -82,6 +84,14 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
       {/* No brand mark: the bare band reads lighter (user: 로고 뺄까 뭔가
           로고 있으니까 답답하네). */}
       <div className="titlebar-spacer" aria-hidden="true" />
+      {/* "Connect to another PC": this whole window drives another computer, so
+          the chrome says which one (the window title says it too). */}
+      {remoteHost && (
+        <div className="titlebar-remote-host" role="status" title={remoteHost.hostName}>
+          <MonitorSmartphone size={14} aria-hidden="true" />
+          <span>{t('Connected to {{host}}', { host: remoteHost.hostName })}</span>
+        </div>
+      )}
       {/* RIGHT cluster: updater badge ahead of the native caption reserve.
           Layout surfaces use contextual pane entry points. */}
       {/* biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the titlebar. */}

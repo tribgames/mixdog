@@ -25,7 +25,7 @@ import {
   speedRouteFields,
 } from './model-route-utils';
 import { RouteEditor } from './RouteEditor';
-import { refreshAutoEffort, setAutoEffortEnabled, useAutoEffort } from './auto-effort-store';
+import { useAutoEffortRoute } from './auto-effort-store';
 import { OpenSelect } from './OpenSelect';
 import { InitialSurface } from './InitialSurface';
 import { modelContextWindow, modelDisplayName, modelFastAvailable, modelMaxContextWindow } from './provider-display';
@@ -288,7 +288,7 @@ function routeModelParameters(parameters: Record<string, string>, maxContextWind
 
 /** The model's default window as a slider stop: a multiple of 10 within
  *  10–100, or 100 when the model has no adjustable window. */
-function defaultContextPercent(defaultWindow: number, maxWindow: number): number {
+export function defaultContextPercent(defaultWindow: number, maxWindow: number): number {
   if (!(maxWindow > 0)) return 100;
   return Math.max(10, Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10));
 }
@@ -339,17 +339,6 @@ export const ModelSelector = memo(function ModelSelector({
   const [catalogLoaded, setCatalogLoaded] = useState(cachedCatalog.models.length > 0);
   const [startupCatalogSettled, setStartupCatalogSettled] = useState(cachedCatalog.models.length > 0);
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
-  const [autoEffortPending, setAutoEffortPending] = useState(false);
-  const changeAutoEffort = async (enabled: boolean) => {
-    setAutoEffortPending(true);
-    try {
-      await setAutoEffortEnabled(enabled);
-    } catch {
-      await refreshAutoEffort();
-    } finally {
-      setAutoEffortPending(false);
-    }
-  };
   const { selection, begin, settle } = useModelSelection(sessionId || '', {
     provider: sourceProvider,
     model: sourceModel,
@@ -392,7 +381,7 @@ export const ModelSelector = memo(function ModelSelector({
   // 모델이 그대로 표기되게). The RAW catalog answers those cases.
   const known = selected || models.find((option) => option.provider === provider && option.model === model);
   const awaitingRoute = !known && !startupCatalogSettled;
-  const autoEffort = useAutoEffort(known?.autoEffortCapable === true);
+  const autoEffortRoute = useAutoEffortRoute(known?.autoEffortCapable === true);
   useEffect(() => {
     reportBootSurfaceStage('model-controls', modelBootKey, 'module');
     if (!awaitingRoute) reportBootSurfaceReady('model-controls', modelBootKey, 'shell');
@@ -779,15 +768,9 @@ export const ModelSelector = memo(function ModelSelector({
         onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
         onOpenProviders={() => onOpenSettings('providers')}
         onOpenModelPane={() => void loadCatalog()}
-        autoEffort={
-          known?.autoEffortCapable && autoEffort?.installed
-            ? { enabled: autoEffort.enabled, pending: autoEffortPending }
-            : null
-        }
-        onChangeAutoEffort={(enabled) => void changeAutoEffort(enabled)}
-        onOpenSheet={() => {
-          if (known?.autoEffortCapable) void refreshAutoEffort();
-        }}
+        autoEffort={autoEffortRoute.autoEffort}
+        onChangeAutoEffort={(enabled) => void autoEffortRoute.onChangeAutoEffort(enabled)}
+        onOpenSheet={autoEffortRoute.onOpenSheet}
         answersModelPickerRequests={answersModelPickerRequests}
       />
     </div>

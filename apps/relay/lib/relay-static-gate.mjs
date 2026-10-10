@@ -14,6 +14,7 @@ import {
   sendStaticFile,
 } from './static-http.mjs';
 import { isRoutingId } from './ids.mjs';
+import { PREVIEW_FRAME_PATH, sendPreviewFrame } from './relay-preview-frame.mjs';
 import { decodedRequestPath, endText, rejectUnauthorizedText } from './relay-http.mjs';
 
 export const PUBLIC_APP_ASSETS = new Set([
@@ -75,6 +76,9 @@ function resolveStaticAccess(store, request, url, pathname) {
   const routeAllowed = Boolean(routeDevice) && store.isKnown(routeDevice);
   return {
     route,
+    // Which desktop's renderer release answers this request: the route names
+    // it, else the paired token does, else the device cookie of the container.
+    releaseDevice: route?.deviceId || tokenDevice || cookieDevice,
     queryToken,
     persistQueryToken,
     routeDevice,
@@ -105,7 +109,14 @@ function serveDeviceRoute(rendererDir, route, request, response) {
   sendStaticFile(request, response, scoped.target, deviceCookieHeaders(route.deviceId, request));
 }
 
-export function serveStatic(rendererDir, store, unauthorizedLimiter, request, response) {
+/** `renderer` is a plain directory (one release) or a catalog that picks the
+ *  release matching the desktop version the device last reported. */
+function rendererRoot(renderer, store, deviceId) {
+  if (typeof renderer === 'string') return renderer;
+  return renderer.dirFor(deviceId ? store.deviceVersion(deviceId) : undefined);
+}
+
+export function serveStatic(renderer, store, unauthorizedLimiter, request, response) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     answerNonReadMethod(request, response);
     return;
@@ -120,11 +131,16 @@ export function serveStatic(rendererDir, store, unauthorizedLimiter, request, re
     response.writeHead(200, { 'Content-Type': 'application/json' }).end('{"status":"ok"}');
     return;
   }
+  if (pathname === PREVIEW_FRAME_PATH) {
+    sendPreviewFrame(request, response);
+    return;
+  }
   const access = resolveStaticAccess(store, request, url, pathname);
   if (!access.allowed) {
     rejectUnauthorizedText(unauthorizedLimiter, request, response);
     return;
   }
+  const rendererDir = rendererRoot(renderer, store, access.releaseDevice);
   if (!rendererDir) {
     endText(response, 404, 'Mixdog relay: no RENDERER_DIR configured; this relay only forwards WebSocket traffic.');
     return;
@@ -133,7 +149,7 @@ export function serveStatic(rendererDir, store, unauthorizedLimiter, request, re
     serveDeviceRoute(rendererDir, access.route, request, response);
     return;
   }
-  serveResolvedAsset(rendererDir, pathname, access, request, response);
+  serveResolvedAsset(rendererDir, pathname, access, request, response, typeof renderer !== 'string');
 }
 
 /** A share-target POST is redirected into the shell; every other non-read
@@ -147,7 +163,7 @@ function answerNonReadMethod(request, response) {
   response.writeHead(405).end();
 }
 
-function serveResolvedAsset(rendererDir, pathname, access, request, response) {
+function serveResolvedAsset(rendererDir, pathname, access, request, response, perDevice) {
   const resolved = resolveStaticTarget(rendererDir, pathname);
   if (resolved.status === 403) {
     response.writeHead(403).end();
@@ -167,6 +183,9 @@ function serveResolvedAsset(rendererDir, pathname, access, request, response) {
       // A root asset request proves the container still belongs to this route;
       // refreshing the cookie keeps a long-lived install from aging out of it.
       routeAllowed ? deviceCookieHeaders(routeDevice, request) : {}
-    )
+    ),
+    // A root URL is shared by every device, so with per-device releases the
+    // same URL can carry different bytes: shared caches must key on the cookie.
+    { varyOnCookie: perDevice }
   );
 }

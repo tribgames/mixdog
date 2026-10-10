@@ -8,6 +8,7 @@ import { presetKey, writeAgentStatuslineRoute } from '../helpers.mjs';
 import { resolveAgentWatchdogPolicy } from '../../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { prepareAgentSession } from '../../../../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import { getProvider } from '../../../../runtime/agent/orchestrator/providers/registry.mjs';
+import { resolveRouteContextState } from '../../../route-state.mjs';
 import { createSpawnPlanner } from './spawn-plan.mjs';
 
 /** The route fields every worker-row and tag record carries. */
@@ -80,14 +81,22 @@ export function createSpawnPreparer({
   }
 
   async function createSpawnedSession(plan, spec, prepState) {
+    // A sub-100 context share needs the window it selects; a percent alone
+    // keeps the full served window.
+    const contextSpec = plan.preset.contextPercent
+      ? (({ contextPercent, selectedContextWindow }) => ({ contextPercent, selectedContextWindow }))(
+          resolveRouteContextState(plan.preset, null)
+        )
+      : {};
+    const sessionSpec = { ...spec, ...contextSpec };
     if (sessionSurface?.canonical === true && typeof sessionSurface.createChild === 'function') {
-      return sessionSurface.createChild({ spec, prompt: plan.prompt, tag: plan.tag });
+      return sessionSurface.createChild({ spec: sessionSpec, prompt: plan.prompt, tag: plan.tag });
     }
     await ensureProvider(plan.config, plan.preset.provider);
     if (prepState?.timedOut) {
       throw new Error('agent spawn prep timed out before session bind');
     }
-    return prepareAgentSession(spec);
+    return prepareAgentSession(sessionSpec);
   }
 
   async function prepareSpawnInProcess(args, callerCwd = null, context = {}, prepState = null) {
@@ -116,5 +125,5 @@ export function createSpawnPreparer({
     return prepareSpawnInProcess(args, callerCwd, context, prepState);
   }
 
-  return { prepareSpawn, prepareSpawnInProcess };
+  return { prepareSpawn, prepareSpawnInProcess, createSpawnedSession };
 }

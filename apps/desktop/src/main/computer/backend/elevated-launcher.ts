@@ -25,7 +25,7 @@ function elevatedLauncherCommand(): string {
     'function ConvertTo-MixdogLiteral([string]$value) { return "\'" + $value.Replace("\'", "\'\'") + "\'" }',
     '$env:MIXDOG_ELEVATED_PARENT_PID = [string]$PID',
     '$env:MIXDOG_ELEVATED_PARENT_TICKS = [string]([Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks)',
-    "$variableNames = @('MIXDOG_ELEVATED_TOKEN','MIXDOG_ELEVATED_HOST_SCRIPT','MIXDOG_ELEVATED_HOST_SHA256','MIXDOG_ELEVATED_REQUEST','MIXDOG_ELEVATED_REQUEST_SHA256','MIXDOG_ELEVATED_RESPONSE','MIXDOG_ELEVATED_CANCEL','MIXDOG_ELEVATED_MARKER','MIXDOG_ELEVATED_PARENT_PID','MIXDOG_ELEVATED_PARENT_TICKS','MIXDOG_COMPUTER_INPUT_MARKER')",
+    "$variableNames = @('MIXDOG_ELEVATED_TOKEN','MIXDOG_ELEVATED_HOST_SCRIPT','MIXDOG_ELEVATED_HOST_SHA256','MIXDOG_ELEVATED_REQUEST','MIXDOG_ELEVATED_REQUEST_SHA256','MIXDOG_ELEVATED_RESPONSE','MIXDOG_ELEVATED_CANCEL','MIXDOG_ELEVATED_MARKER','MIXDOG_ELEVATED_PARENT_PID','MIXDOG_ELEVATED_PARENT_TICKS','MIXDOG_COMPUTER_INPUT_MARKER','MIXDOG_COMPUTER_INACTIVE_LEDGER')",
     "$prelude = @($variableNames | ForEach-Object { '$env:' + $_ + ' = ' + (ConvertTo-MixdogLiteral ([string][Environment]::GetEnvironmentVariable($_))) }) -join [Environment]::NewLine",
     '$elevatedScript = $prelude + [Environment]::NewLine + $bootstrap',
     '$elevatedEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($elevatedScript))',
@@ -179,6 +179,7 @@ export async function runElevatedRequest(options: {
   directory: string;
   hostScriptPath: string;
   inputMarker: string;
+  inactiveLedger: string;
   spawnProcess: typeof spawn;
   begin: (cancel: () => void) => { finish(stopped: boolean): void };
 }): Promise<PowerShellResponse> {
@@ -205,6 +206,7 @@ export async function runElevatedRequest(options: {
         ...process.env,
         MIXDOG_ELEVATED_TOKEN: nonce,
         MIXDOG_COMPUTER_INPUT_MARKER: options.inputMarker,
+        MIXDOG_COMPUTER_INACTIVE_LEDGER: options.inactiveLedger,
         MIXDOG_ELEVATED_HOST_SCRIPT: hostScriptPath,
         MIXDOG_ELEVATED_HOST_SHA256: sha256(hostBytes),
         MIXDOG_ELEVATED_REQUEST: requestPath,

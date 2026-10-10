@@ -88,6 +88,21 @@
 .live-activity-logo .arc {
   animation: live-activity-logo-arc 2000ms linear infinite;
 }
+/* Each 2s loop may only advance the arcs 120deg, so where they gather into
+   dots they nearly stop and then launch — a visible hitch every loop. A steady
+   whole-group spin (CSS `rotate` on the arcs' own <svg>, compositor-only)
+   keeps the dots rolling through the seam. */
+.live-activity-arcs {
+  animation: live-activity-logo-spin 4200ms linear infinite;
+}
+@keyframes live-activity-logo-spin {
+  from {
+    rotate: 0deg;
+  }
+  to {
+    rotate: 360deg;
+  }
+}
 /* The breathing star animates a transform. Inside the arcs' <svg> that is an
    SVG-internal transform, which Chromium resolves with a layout every frame
    for as long as a turn runs. On its own <svg> box it is an ordinary CSS
@@ -764,6 +779,7 @@
 @media (prefers-reduced-motion: reduce) {
   .live-activity-status[data-animate="true"],
   .live-activity-logo .arc,
+  .live-activity-arcs,
   .live-activity-star,
   .turn-status[data-animate="true"] > span,
   .turn-status[data-animate="true"] .turn-status-check path {
@@ -778,6 +794,7 @@
 }
 /* A paused UI freezes the mark in its static logo pose, not mid-frame. */
 :root[data-mixdog-motion="paused"] .live-activity-logo .arc,
+:root[data-mixdog-motion="paused"] .live-activity-arcs,
 :root[data-mixdog-motion="paused"] .live-activity-star {
   animation: none;
 }

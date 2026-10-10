@@ -39,7 +39,7 @@ export const DEVICE_COOKIE_NAME = 'mixdog_device';
 // they stay raw (gzip would only burn CPU); TrueType is uncompressed tables.
 const COMPRESSIBLE_TYPE = /^(?:text\/|application\/(?:json|wasm)|image\/svg|font\/ttf)/;
 const COMPRESS_MIN_BYTES = 1024;
-const NO_CACHE_SUFFIXES = ['index.html', 'manifest.webmanifest', 'sw.js', 'sw-shell.js', 'ui-language.js', 'boot.js'];
+const NO_CACHE_SUFFIXES = ['index.html', 'manifest.webmanifest', 'sw.js', 'sw-shell.js', 'sw-media.js', 'ui-language.js', 'boot.js'];
 // Siblings written by `npm run stage:web` next to each text asset.
 const PRECOMPRESSED_EXTENSIONS = new Set(['.br', '.gz']);
 // Keep validators, not asset bodies, across requests. Release swaps and
@@ -73,6 +73,7 @@ export const BROWSER_SECURITY_HEADERS = Object.freeze({
     "connect-src 'self' ws: wss:",
     "img-src 'self' data: blob: https://github.com https://avatars.githubusercontent.com",
     "media-src 'self' data: blob:",
+    // 'self' covers the /preview-frame route (relay-preview-frame.mjs).
     "frame-src 'self' blob:",
     "worker-src 'self' blob:",
     "style-src 'self' 'unsafe-inline'",
@@ -323,7 +324,7 @@ function cacheControlForTarget(target, hashedAsset) {
 }
 
 /** Stream a resolved file with cache/compression/HEAD handling. */
-export function sendStaticFile(request, response, target, extraHeaders = {}) {
+export function sendStaticFile(request, response, target, extraHeaders = {}, { varyOnCookie = false } = {}) {
   const type = MIME_TYPES[extname(target).toLowerCase()] || 'application/octet-stream';
   const size = statSync(target).size;
   const hashedAsset = target.split(sep).includes('assets') && HASHED_ASSET_NAME.test(target);
@@ -340,7 +341,8 @@ export function sendStaticFile(request, response, target, extraHeaders = {}) {
     // rendered the PWA shrunk to a fraction of the screen. It revalidates with
     // the document it belongs to.
     'Cache-Control': cacheControlForTarget(target, hashedAsset),
-    Vary: 'Accept-Encoding',
+    // Hashed build assets are content-addressed, identical in every release.
+    Vary: varyOnCookie && !hashedAsset ? 'Accept-Encoding, Cookie' : 'Accept-Encoding',
     ETag: staticEtag(precompressed?.path || target, precompressed?.encoding || (gzip ? 'gzip' : 'identity')),
     ...extraHeaders,
   };

@@ -40,6 +40,7 @@ import { useComposerAttachments } from './use-composer-attachments';
 import { useComposerCapability } from './use-composer-capability';
 import { useComposerExternalDraft } from './use-composer-external-draft';
 import { useComposerQueue } from './use-composer-queue';
+import { useComposerPromptRestore } from './use-composer-prompt-restore';
 import { useComposerSubmission } from './use-composer-submission';
 import { useComposerKeyboard } from './use-composer-keyboard';
 import { useComposerFocus } from './use-composer-focus';
@@ -234,6 +235,8 @@ export type ComposerProps = {
   hiddenQueueIds?: Array<string | number>;
   pendingSubmissionIds?: Array<string | number>;
   onQueuedRestored?: (ids: string[]) => void;
+  /** A prompt another device cancelled, handed back to the device that sent it. */
+  promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   /** Rewindable user prompts (oldest → newest) for the Esc-Esc selector. */
   userMessages?: Array<{ id: string; text: string }>;
   submit: (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<unknown>;
@@ -285,6 +288,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     hiddenQueueIds,
     pendingSubmissionIds,
     onQueuedRestored,
+    promptRestore,
     userMessages,
     submit,
     abort,
@@ -408,6 +412,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     onQueuedRestored,
     scope: historyScope,
   });
+  useComposerPromptRestore({ promptRestore, setDraft, draftRef, textarea, onQueuedRestored });
   const selector = useComposerMessageSelector({
     userMessages,
     restoring: queue.restoring,

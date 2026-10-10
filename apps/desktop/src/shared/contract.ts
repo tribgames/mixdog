@@ -26,6 +26,7 @@ import type {
 import type { DesktopSettingKey, DesktopSettings } from './contract-settings';
 import type { ActivityRailPinsState } from './activity-rail-pins';
 import type { ProviderModelsChange } from './provider-models';
+import type { SettingsChange } from './settings-changed';
 import type {
   DesktopBrowserCredentialFillResult,
   DesktopBrowserCredentialSuggestion,
@@ -44,6 +45,7 @@ import type {
   DesktopRemoteBrowserControl,
   DesktopRemoteBrowserStreamFrame,
   DesktopRemoteBrowserStreamOptions,
+  DesktopRemoteBrowserTab,
 } from './contract-browser';
 import type {
   DesktopGitBranch,
@@ -82,6 +84,7 @@ import type {
   DesktopProjectSummary,
   DesktopRemoteAccessInfo,
   DesktopRemoteClientClaim,
+  DesktopRemoteHost,
   DesktopRendererDiagnostic,
   DesktopSessionSummary,
   DesktopTextFileEncoding,
@@ -100,6 +103,7 @@ export * from './contract-capabilities';
 export * from './contract-settings';
 export * from './activity-rail-pins';
 export * from './provider-models';
+export * from './settings-changed';
 export * from './contract-browser';
 export * from './contract-git';
 export * from './contract-workspace';
@@ -143,6 +147,10 @@ export interface DesktopApi {
   /** Desktop-only: a loopback http address that serves a local web page (and
    *  the web assets beside it) for the session browser pane. */
   localPageUrl?(projectPath: string, relPath: string, accessToken?: string): Promise<string>;
+  /** Remote-only counterpart of `localPageUrl`: a self-contained HTML document
+   *  (relative assets inlined over the encrypted RPC lane) for a sandboxed
+   *  `srcdoc` frame, since a browser cannot reach the host's loopback server. */
+  localPageSource?(projectPath: string, relPath: string, accessToken?: string): Promise<string>;
   /** Settings → About: gh-CLI star state for the mixdog repo. Desktop-only;
    *  the remote shim omits both and the Star button falls back to the repo
    *  link. */
@@ -159,6 +167,8 @@ export interface DesktopApi {
   installGithubCli?(): Promise<DesktopGithubCliStatus>;
   githubCliLoginStart?(): Promise<DesktopGithubCliLoginFlow>;
   githubCliLoginStatus?(flowId: string): Promise<DesktopGithubCliLoginFlow>;
+  /** Lets gh open the device page; false when it already did. */
+  githubCliLoginOpenBrowser?(flowId: string): Promise<boolean>;
   githubCliLoginCancel?(flowId: string): Promise<void>;
   githubCliLogout?(): Promise<DesktopGithubCliStatus>;
   githubCliAccount?(): Promise<DesktopGithubCliAccount>;
@@ -297,13 +307,23 @@ export interface DesktopApi {
   /** Settings → Connection: pairing QRs + URLs for the phone remote. Only
    *  the in-process desktop implements it (null while the bridge is off);
    *  the remote shim omits it — a phone never needs its own pairing card. */
-  getRemoteAccessInfo?(): Promise<DesktopRemoteAccessInfo | null>;
+  /** `activate: false` only reads: it never starts the relay or activates
+   *  remote access on an install that has not used it yet. Default true. */
+  getRemoteAccessInfo?(options?: { activate?: boolean }): Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: revoke every paired phone by minting a new
    *  pairing token and restarting the bridge/relay legs. */
   rotateRemoteAccess?(): Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: revoke one browser while preserving every other
    *  browser's individual credential. */
   revokeRemoteAccessClient?(clientId: string): Promise<DesktopRemoteAccessInfo | null>;
+  /** "Connect to another PC": hosts saved on this machine. Native desktop only. */
+  listRemoteHosts?(): Promise<DesktopRemoteHost[]>;
+  /** Saves the host named by a pairing link and opens its remote window. */
+  connectRemoteHost?(link: string, name?: string): Promise<DesktopRemoteHost>;
+  /** Opens (or focuses) a saved host's remote window. */
+  openRemoteHost?(id: string): Promise<DesktopRemoteHost[]>;
+  /** Closes the host's window and clears its stored pairing. */
+  forgetRemoteHost?(id: string): Promise<DesktopRemoteHost[]>;
   /** Web Push. Only the relay shim implements these — an Electron window has
    *  the taskbar/dock signal instead, and its absence is what hides the
    *  notification toggle outside the web app. */
@@ -480,6 +500,8 @@ export interface DesktopApi {
   setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot>;
   readSettings(): Promise<DesktopSettings>;
   updateSetting(key: DesktopSettingKey, enabled: boolean): Promise<DesktopSettings>;
+  /** A desktop setting or the global Git identity was written (here or on the host). */
+  subscribeSettingsChanged?(listener: (change: SettingsChange) => void): () => void;
   readActivityRailPins(): Promise<ActivityRailPinsState | null>;
   /** Only Electron seeds a missing shared value from its existing local pins. */
   updateActivityRailPins(pins: string[], initializeIfMissing?: boolean): Promise<ActivityRailPinsState>;
@@ -549,6 +571,14 @@ export interface DesktopApi {
   remoteBrowserStreamAck?(sessionId: string, seq: number): void;
   onRemoteBrowserFrame?(listener: (frame: DesktopRemoteBrowserStreamFrame) => void): () => void;
   remoteBrowserControl?(sessionId: string, input: DesktopRemoteBrowserControl): Promise<void>;
+  /** Paired web app, host advertising `browserParity` only (absent otherwise,
+   *  as are the history, saved-login and profile-import members above):
+   *  the main-workspace browser tabs. `watch` starts or stops pushes to
+   *  onRemoteBrowserTabs and, when starting, answers the current list. */
+  remoteBrowserTabs?(watch: boolean): Promise<DesktopRemoteBrowserTab[]>;
+  remoteBrowserOpenTab?(url: string): Promise<DesktopRemoteBrowserTab>;
+  remoteBrowserCloseTab?(id: string): Promise<void>;
+  onRemoteBrowserTabs?(listener: (tabs: DesktopRemoteBrowserTab[]) => void): () => void;
   /** systemPreference keeps DWM on 'system' so OS theme tracking survives. */
   applyTitleBarTheme(theme: string, systemPreference?: boolean): Promise<void>;
   /** Scrim-composited WCO caption colors while a fullscreen modal is open;

@@ -264,6 +264,7 @@ test('status providers exposes connection state and key-console URL, never secre
   assert.deepEqual(status.oauth[0].accounts, {
     selectedId: 'a1',
     auto: true,
+    useCredits: false,
     accounts: [{ id: 'a1', label: 'Work', authenticated: true, reauthRequired: false }],
   });
   assert.equal(status.domain, 'providers');

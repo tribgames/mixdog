@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 
 // `preparing` runs from the tap until audio is actually captured: a phone
 // takes a noticeable moment to open the mic, and words spoken before capture
@@ -120,7 +121,7 @@ function warmTranscription(): void {
 function microphoneFailureText(reason: unknown): string {
   const name = reason instanceof DOMException ? reason.name : '';
   if (name === 'NotAllowedError') {
-    return (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer
+    return isRemoteHostRenderer()
       ? 'Microphone access is blocked. Allow microphone access for this site in your browser settings and reload.'
       : 'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.';
   }

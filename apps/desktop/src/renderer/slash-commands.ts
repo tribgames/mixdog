@@ -19,9 +19,8 @@ export type SettingsSection =
   | 'connection'
   | 'developer';
 
-// 'stats' has no slash command: it is reached from the usage flyout, which is
-// where the question "how much have I spent" already starts.
-export type CommandSurface = 'context' | 'usage' | 'doctor' | 'inherit' | 'stats';
+// 'stats' is the usage dialog: /usage and the usage flyout both open it.
+export type CommandSurface = 'context' | 'doctor' | 'inherit' | 'stats';
 
 export interface DesktopSlashCommand {
   name: string;
@@ -86,7 +85,8 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
     usage: '/usage',
     params: '[refresh]',
     description: 'Show total provider quota / balance',
-    surface: 'usage',
+    desktopDescription: 'Show token usage and subscription quota',
+    surface: 'stats',
   },
   {
     name: 'model',
@@ -179,6 +179,12 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
     settingsRow: 'profile',
   },
   { name: 'update', usage: '/update', description: 'Check version and update mixdog', settingsRow: 'update' },
+  {
+    name: 'connect',
+    usage: '/connect',
+    description: 'Connect to another PC',
+    settingsRow: 'connection',
+  },
   { name: 'doctor', usage: '/doctor', description: 'Diagnose installation health', surface: 'doctor' },
   {
     name: 'quit',

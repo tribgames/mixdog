@@ -3,8 +3,15 @@
 // on the internet reaches this machine without port forwarding.
 import WebSocket from 'ws';
 
-import type { DesktopRemoteBrowserStreamFrame, DesktopRemoteClientInfo } from '../shared/contract';
+import type {
+  DesktopBrowserImportProgress,
+  DesktopRemoteBrowserStreamFrame,
+  DesktopRemoteBrowserTab,
+  DesktopRemoteClientInfo,
+} from '../shared/contract';
+import { REMOTE_BROWSER_IMPORT_PROGRESS_EVENT } from '../shared/remote-browser';
 import { createBrowserRemoteStreams } from './remote-browser-streams';
+import { createBrowserRemoteTabSubscribers } from './remote-browser-tabs';
 import { loadOrCreatePairingToken } from './remote-pairing-token';
 import { relayE2EEPairingMaterial, type RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
 import { createRemoteByteMeter } from '../shared/remote-performance';
@@ -25,9 +32,11 @@ import {
 } from '../shared/remote-payload-limit';
 import { createRemoteMethods, type RemoteMethodDependencies } from './remote-methods';
 export { remoteTranscriptSnapshot } from './remote-transcript';
+import { createNativePushStore, type NativePushSubscription } from './native-push-store';
+import type { NativePushMessage } from './push-notifier';
 import { createPushSubscriptionStore } from './push-subscription-store';
 import { loadOrCreateRelayE2EEIdentity } from './remote-e2ee';
-import type { RemoteClientClaim } from './remote-relay-claim';
+import type { RemoteClaimDecision, RemoteClientClaim } from './remote-relay-claim';
 import { createRelayClientLifecycle } from './remote-relay-client-lifecycle';
 import { createRelayCatalogs } from './remote-relay-catalog';
 import { createRelayClientCallDispatch } from './remote-relay-client-calls';
@@ -44,12 +53,13 @@ import {
 } from './remote-relay-device';
 import { createRelayMediaLane } from './remote-relay-media';
 import { createRelaySessionStateFanout } from './remote-relay-session-state';
+import { viewIsStale } from './remote-view-staleness';
 import { createRelaySessionWiring } from './remote-relay-session-wiring';
 // @ts-expect-error Relay framing is shared with the plain-ESM VPS server.
 import { decodeRelayBinaryFrame, encodeRelayBinaryFrame } from '../../../relay/lib/relay-binary-frame.mjs';
 
 export { resolveRelayUrl, rotateRemoteDevice } from './remote-relay-device';
-export type { RemoteClientClaim } from './remote-relay-claim';
+export type { RemoteClaimDecision, RemoteClientClaim } from './remote-relay-claim';
 export { clientReadsLane } from './remote-relay-clients';
 export { encodeRelayClientSessionState } from './remote-relay-session-state';
 
@@ -65,6 +75,12 @@ interface RemoteRelayOptions extends RemoteMethodDependencies {
   /** ws(s)://relay-host[:port] */
   relayUrl: string;
   userDataPath: string;
+  /** This build's version, reported when the device leg connects so the relay
+   *  serves paired browsers the matching web renderer release. Omitted by
+   *  callers that cannot name it; the relay then treats this desktop as legacy. */
+  appVersion?: string;
+  /** Renderer release id (shell version hash) when this build knows it. */
+  rendererRelease?: string;
   subscribeTerminalData?: (listener: (event: { id: string; data: string }) => void) => () => void;
   onClientCountChanged?: () => void;
   /** The relay refused an oversize frame this desktop sent and could not say
@@ -73,7 +89,7 @@ interface RemoteRelayOptions extends RemoteMethodDependencies {
   onRelayPayloadRefused?: (detail: { bytes: number | null; limit: number | null }) => void;
   /** Ask the user to approve one credential-less container. Resolving false
    *  (or throwing) denies it; the relay never decides this. */
-  onClientClaim?: (claim: RemoteClientClaim) => Promise<boolean>;
+  onClientClaim?: (claim: RemoteClientClaim) => Promise<RemoteClaimDecision>;
 }
 
 export interface RemoteRelayHandle {
@@ -84,6 +100,9 @@ export interface RemoteRelayHandle {
   readonly clientCount: number;
   /** A live Browser Use frame from the desktop, paced to each subscribed client. */
   publishBrowserFrame(frame: DesktopRemoteBrowserStreamFrame): void;
+  /** The main-workspace browser tab list, pushed to every watching client. */
+  publishBrowserTabs(tabs: DesktopRemoteBrowserTab[]): void;
+  publishBrowserImportProgress(progress: DesktopBrowserImportProgress): void;
   listClients(): Promise<DesktopRemoteClientInfo[]>;
   revokeClient(clientId: string): Promise<void>;
   /** System resume: the socket is likely half-dead after sleep — drop it and
@@ -169,7 +188,72 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // Web Push belongs to the relay leg: this is the only surface where a client
   // can be absent from the socket and still want to hear that a turn finished.
   const pushStore = createPushSubscriptionStore(options.userDataPath);
-  const methods = createRemoteMethods({ ...options, push: pushStore });
+  const nativeStore = createNativePushStore(options.userDataPath);
+  // Platforms the relay announced it can deliver to (APNs/FCM credentials are
+  // its to hold). Empty — and `nativePush` unadvertised — on an older relay or
+  // one without credentials. Per connection, like every learned relay cap.
+  let relayNativePlatforms: readonly string[] = [];
+  // One method table per relay leg: the device name and stale-view state are
+  // those of the credential the relay authenticated for it.
+  const clientMethods = new WeakMap<RelayClientState, ReturnType<typeof createRemoteMethods>>();
+  // Paired-device names come from the relay's own client list, keyed by the
+  // credential it authenticated for the leg — the request never names itself.
+  const deviceNames = new Map<string, string>();
+  const deviceNameFor = async (credentialId: string): Promise<string> => {
+    const cached = deviceNames.get(credentialId);
+    if (cached) return cached;
+    let name = '';
+    try {
+      const paired = await control.request<DesktopRemoteClientInfo[]>('list-clients');
+      name = Array.isArray(paired)
+        ? String(paired.find((entry) => entry.id === credentialId)?.name || '').trim().slice(0, 80)
+        : '';
+    } catch {
+      name = '';
+    }
+    if (name) deviceNames.set(credentialId, name);
+    return name;
+  };
+  const methodsFor = (_clientId: string, state: RelayClientState): ReturnType<typeof createRemoteMethods> => {
+    let table = clientMethods.get(state);
+    if (!table) {
+      table = createRemoteMethods(
+        {
+          ...options,
+          push: pushStore,
+          nativePush: {
+            platforms: () => relayNativePlatforms,
+            register: async (input) => {
+              const entry = await nativeStore.register(input);
+              bindNativePush(entry);
+              return entry;
+            },
+            remove: async (clientId, tokenFilter) => {
+              const rows = (await nativeStore.list()).filter(
+                (row) => row.clientId === clientId && (!tokenFilter || row.token === tokenFilter)
+              );
+              const removed = await nativeStore.remove(clientId, tokenFilter);
+              for (const row of rows) sendEnvelope({ type: 'native-push-unbind', token: row.token });
+              return removed;
+            },
+          },
+        },
+        {
+          credentialId: () => state.credentialId,
+          deviceName: () => deviceNameFor(state.credentialId),
+          staleView: (sessionId, device) => {
+            const held = (state.sessionStateEncoders.get(sessionId)?.resumePoint()?.held as { items?: unknown[] } | null)
+              ?.items;
+            const stale = viewIsStale(held, sessionStates.latestItems(sessionId), device);
+            if (stale) sessionStates.refresh(sessionId);
+            return stale;
+          },
+        }
+      );
+      clientMethods.set(state, table);
+    }
+    return table;
+  };
   let socket: WebSocket | null = null;
   let closed = false;
   let relayBinaryFrames = false;
@@ -216,6 +300,24 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         reject(error);
       }
     });
+  // The relay only sends to tokens this desktop bound to a paired client, so a
+  // bind precedes the first send on every connection.
+  const bindNativePush = (row: NativePushSubscription): void => {
+    if (!relayNativePlatforms.includes(row.platform)) return;
+    sendEnvelope({ type: 'native-push-bind', clientId: row.clientId, platform: row.platform, token: row.token });
+  };
+  const sendNativePush = (message: NativePushMessage): boolean => {
+    if (!relayNativePlatforms.includes(message.platform)) return false;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+    sendEnvelope({ type: 'native-push', ...message });
+    return true;
+  };
+  const handleNativePushResult = (envelope: Record<string, unknown>): void => {
+    // The platform said the token is dead (APNs 410 / FCM UNREGISTERED).
+    if (envelope.invalid === true && typeof envelope.token === 'string') {
+      void nativeStore.removeToken(envelope.token).catch(() => false);
+    }
+  };
   const control = createRelayControlRequests({
     sendEnvelope,
     connected: () => socket !== null && socket.readyState === WebSocket.OPEN,
@@ -268,6 +370,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     declaredFrameLimit = null;
     noticedFrameLimit = null;
     advertisedRoutingCaps = '';
+    relayNativePlatforms = [];
   };
   /** What a phone may put on the wire for this connection, as advertised to
    *  the browser: the relay's published ceilings, bounded by any smaller
@@ -401,6 +504,14 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       return options.browserRemote('stream', [sessionId, streamOptions]);
     },
   });
+  const browserTabs = createBrowserRemoteTabSubscribers({
+    isLive: (clientId) => Boolean(clients.get(clientId)?.channel),
+    send: (clientId, payload) => sendEncryptedFrame(clientId, payload, false),
+    request: (on) => {
+      if (!options.browserRemote) return Promise.reject(new TypeError('Remote Browser Use is unavailable.'));
+      return options.browserRemote('tabsWatch', [on]);
+    },
+  });
   const sessionStates = createRelaySessionStateFanout({ clients: clients.clients, sendEncryptedFrame });
   const resetTransportDeltas = (): void => {
     sessionStates.clear();
@@ -413,6 +524,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     catalogs,
     sessionStates,
     pushStore,
+    nativePush: { store: nativeStore, send: sendNativePush },
     live,
     closed: () => closed,
     sendEncryptedFrame,
@@ -431,17 +543,23 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     host: options.host,
     sendEnvelope,
     socketBacklog: () => socket?.bufferedAmount ?? 0,
+    // The session is named by its handshake challenge, which the relay
+    // forwards; only an authenticated client has a media key to find.
+    mediaKey: (sid) => {
+      for (const client of clients.clients.values()) {
+        if (client.challenge.challenge === sid) return client.channel?.mediaKey ?? null;
+      }
+      return null;
+    },
   });
-  // Retained for a future encrypted byte lane. The active relay protocol
-  // rejects media requests before this plaintext implementation can run.
-  void mediaLane.serve;
   const dispatchClientCall = createRelayClientCallDispatch({
     host: options.host,
-    methods,
+    methods: methodsFor,
     attached: clients.attached,
     live,
     sendEncryptedFrame,
     browserStreams,
+    browserTabs,
     acknowledgePaintProbe: sessionStates.acknowledgeFrame,
     resyncClient: sessionWiring.resyncClient,
     recordCall: remoteCallStats.record,
@@ -453,6 +571,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     pairing,
     relayBinaryFrames: () => relayBinaryFrames,
     viewSyncSupported: () => Boolean(options.host.replaySessionStates),
+    nativePushSupported: () => relayNativePlatforms.length > 0,
     relayRoutingCapsPayload: () => relayRoutingCapsPayload(relayUplinkLimits()),
     sendEnvelope,
     sendEncryptedFrame,
@@ -480,6 +599,17 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     // what the relay refuses; a relay that publishes none reads as null
     // and the conservative fallback stands in.
     relayPublishedCeilings = readRelayUplinkCeilings(envelope);
+    // The relay can deliver native push only when it holds credentials.
+    relayNativePlatforms =
+      envelope.nativePush === 1 && Array.isArray(envelope.nativePushPlatforms)
+        ? envelope.nativePushPlatforms.filter((name): name is 'apns' | 'fcm' => name === 'apns' || name === 'fcm')
+        : [];
+    if (relayNativePlatforms.length > 0) {
+      void nativeStore
+        .list()
+        .then((rows) => rows.forEach(bindNativePush))
+        .catch(() => undefined);
+    }
     // The relay republishes on change; a phone already attached is held
     // to whatever it was told in its handshake until this reaches it.
     republishRoutingCaps();
@@ -489,12 +619,29 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     onCapabilities: handleRelayCapabilities,
     onClientClaim: clientLifecycle.answerClaim,
     onClientOpen: clientLifecycle.open,
+    onNativePushResult: handleNativePushResult,
     onClientClose: (clientId) => {
       // The phone's leg dropped, not its pairing: its lanes wait briefly.
       if (clients.remove(clientId, true)) options.onClientCountChanged?.();
     },
-    onMediaFlowControl: (id) => {
-      if (id) sendEnvelope({ type: 'media-error', id });
+    onMedia: (envelope) => {
+      const id = String(envelope.id ?? '');
+      if (!id) return;
+      if (envelope.type === 'media-request') {
+        void mediaLane.serve({
+          id,
+          assetId: String(envelope.assetId ?? ''),
+          variant: String(envelope.variant ?? 'original'),
+          method: String(envelope.method ?? 'GET'),
+          range: String(envelope.range ?? ''),
+          sid: String(envelope.sid ?? ''),
+          enc: String(envelope.enc ?? ''),
+        });
+      } else if (envelope.type === 'media-abort') {
+        mediaLane.abort(id);
+      } else if (envelope.type === 'media-pause' || envelope.type === 'media-resume') {
+        mediaLane.setPaused(id, envelope.type === 'media-pause');
+      }
     },
   });
   const dispatchRelayEnvelope = (envelope: Record<string, unknown>): void => {
@@ -577,8 +724,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       // relay can answer a phone's media request the moment a client leg
       // binds. An older relay ignores the frame; a newer one stops proxying
       // media to desktops that would never answer.
-      // HTTP media is disabled until its byte protocol is encrypted. Remote
-      // galleries fall back to the encrypted RPC payload.
+      // HTTP media is served as end-to-end encrypted frames (remote-relay-media.ts):
+      // the relay forwards ciphertext. Browsers learn per client, through the
+      // handshake's `mediaE2ee`, whether to use it; older ones keep RPC payloads.
       // `maxPayloadBytes` is the declaration that ends the version-skew outage:
       // the relay clamps its uplink capacity for this leg to what this leg says
       // it can receive (server.mjs `uplinkCapacityFor`, learned per connection
@@ -587,11 +735,21 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       // `textFrames` opts into the envelope that cannot inflate what it carries.
       sendEnvelope({
         type: 'desktop-lanes',
-        media: false,
+        media: true,
         e2ee: 1,
         maxPayloadBytes: MAX_WS_PAYLOAD_BYTES,
         textFrames: 1,
       });
+      // Which build this desktop is, so the relay can serve its browsers the
+      // matching renderer release. A separate frame (not a desktop-lanes field)
+      // and ignored by relays that predate it.
+      if (options.appVersion) {
+        sendEnvelope({
+          type: 'desktop-version',
+          appVersion: options.appVersion,
+          ...(options.rendererRelease ? { rendererRelease: options.rendererRelease } : {}),
+        });
+      }
       // Register the phone pairing token before any client leg can bind.
       sendEnvelope({ type: 'set-client-token', token });
       // Unpair is local-first so it also works offline. Once any new relay leg
@@ -649,8 +807,13 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         .request<DesktopRemoteClientInfo[]>('list-clients')
         .then((remoteClients) => (Array.isArray(remoteClients) ? remoteClients : [])),
     publishBrowserFrame: (frame) => browserStreams.publish(frame),
+    publishBrowserTabs: (tabs) => browserTabs.publish(tabs),
+    publishBrowserImportProgress: (progress) =>
+      broadcastEncrypted({ event: REMOTE_BROWSER_IMPORT_PROGRESS_EVENT, payload: progress }, false),
     revokeClient: async (clientId: string): Promise<void> => {
       browserStreams.dropClient(clientId);
+      browserTabs.dropClient(clientId);
+      deviceNames.delete(clientId);
       if (!/^[0-9a-f-]{8,64}$/u.test(clientId)) throw new TypeError('Invalid remote client id.');
       // Per-browser credentials are isolated: revoking one deletes only that
       // browser's token on the relay. The QR bootstrap token never rotates
@@ -692,6 +855,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       resetTransportDeltas();
       if (reconnectTimer) clearTimeout(reconnectTimer);
       browserStreams.dispose();
+      browserTabs.dispose();
       sessionSubscriptions.dispose();
       for (const pending of revocationSockets) {
         try {

@@ -287,6 +287,7 @@ export async function beginOAuthLogin({
   onProgress = null,
   createServerFn = createServer,
   openBrowserFn = null,
+  openBrowser = true,
 } = {}) {
   const controller = new AbortController();
   const pkce = createOAuthPkce();
@@ -398,6 +399,7 @@ export async function beginOAuthLogin({
     server.listen(CALLBACK_PORT, CALLBACK_HOST, async () => {
       if (settled) return;
       process.stderr.write(`\n[antigravity-oauth] Open this URL to log in:\n${url.toString()}\n\n`);
+      if (!openBrowser) return;
       try {
         if (openBrowserFn) await openBrowserFn(url.toString());
         else {

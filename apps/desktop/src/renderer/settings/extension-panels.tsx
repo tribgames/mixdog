@@ -5,6 +5,7 @@ import { CapabilityIcon } from '../CapabilityIcon';
 import { skillDisplayDescription } from '../skill-presentation';
 import { showDesktopToast } from '../notifications';
 import { record } from '../record-utils';
+import { useRemoteHostOpenAccess } from '../remote-host-access';
 import { SidebarLoadingDialog } from '../sidebar-dialog';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { PluginInfo } from './plugin-info';
@@ -25,6 +26,7 @@ import {
   scopeOf,
 } from './extension-detail';
 import { McpEditorDialog, mcpRowDescription, mcpStatus } from './mcp-editor-dialog';
+import { capabilityBlockedRemotely, manageOnHostNote } from './remote-capability-guard';
 
 function PluginInstallDialog({
   busy,
@@ -146,9 +148,21 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
     );
   };
   const closeEditor = () => setEditor(null);
+  // Secrets in MCP configs never travel over remote access: the editor cannot
+  // open or save there, so the add flow and rows are replaced by a note.
+  // A host with open access gets the editor; the subscription re-renders it
+  // when the host's level is learned.
+  useRemoteHostOpenAccess();
+  const mcpLocked = capabilityBlockedRemotely('getMcpServerConfig') || capabilityBlockedRemotely('saveMcpServer');
+  useEffect(() => {
+    if (!createOpen || !mcpLocked) return;
+    closeCreate?.();
+    showDesktopToast(manageOnHostNote(), 'info');
+  }, [createOpen, mcpLocked, closeCreate]);
   return (
     <Group title={t('MCP')}>
-      {createOpen && (
+      {mcpLocked && <ListEmpty text={manageOnHostNote()} />}
+      {createOpen && !mcpLocked && (
         <McpEditorDialog
           key="new-mcp"
           server={null}
@@ -175,7 +189,7 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
             description={mcpRowDescription(server)}
             status={status.connected ? null : { label: status.label, tone: status.tone }}
             enabled={enabled}
-            busy={busy}
+            busy={busy || mcpLocked}
             onOpen={() => openEditor(name)}
           />
         );
@@ -363,6 +377,10 @@ function PluginDetailDialog({
   const servers = pluginMcpServers(data, open);
   const disabledSkills = disabledSkillNames(data);
   const contents = skills.length + servers.length;
+  // Adding or reconfiguring an MCP server writes its config, which is host-only
+  // on an older host.
+  useRemoteHostOpenAccess();
+  const remote = capabilityBlockedRemotely('saveMcpServer');
   // Footer keeps the plugin's real actions only — Remove (parked left),
   // Update, and Reconfigure MCP when the plugin ships one. The root path and
   // MCP name sit in Info as selectable text.
@@ -399,8 +417,9 @@ function PluginDetailDialog({
           >
             {t('Remove')}
           </button>
+          {remote && Boolean(open.mcpScript) && <small className="extensions-note">{manageOnHostNote()}</small>}
           {Boolean(open.mcpScript && open.mcpEnabled) && (
-            <button type="button" disabled={busy} onClick={() => void run('enablePluginMcp', [open])}>
+            <button type="button" disabled={busy || remote} onClick={() => void run('enablePluginMcp', [open])}>
               {t('Reconfigure MCP')}
             </button>
           )}
@@ -485,9 +504,13 @@ function PluginDetailDialog({
               description={t('This plugin ships an MCP server. Enable MCP to connect it.')}
               tone="muted"
               control={
-                <ExtensionAction disabled={busy} onClick={() => void run('enablePluginMcp', [open])}>
-                  {t('Enable MCP')}
-                </ExtensionAction>
+                remote ? (
+                  <ExtensionNote>{manageOnHostNote()}</ExtensionNote>
+                ) : (
+                  <ExtensionAction disabled={busy} onClick={() => void run('enablePluginMcp', [open])}>
+                    {t('Enable MCP')}
+                  </ExtensionAction>
+                )
               }
             />
           </ExtensionItemList>

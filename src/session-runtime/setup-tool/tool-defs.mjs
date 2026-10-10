@@ -174,7 +174,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         route: {
           ...ROUTE_SCHEMA,
           description:
-            'Partial route update; omitted fields are preserved. Agent or Web Search provider "" restores Main inheritance. contextPercent is Main-only.',
+            'Partial route update; omitted fields are preserved. Agent or Web Search provider "" restores Main inheritance. contextPercent applies to Main and agent routes only.',
         },
         agent: { type: 'string', description: 'set_agent_route: agent id.' },
         workflow: { type: 'string', description: 'set_workflow: pack id.' },
@@ -227,6 +227,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           properties: {
             selectedId: { type: 'string', description: 'Account to use now.' },
             auto: { type: 'boolean', description: 'Automatic switching to another account when one is exhausted.' },
+            useCredits: { type: 'boolean', description: 'Allow paid credits once plan limits are reached.' },
             order: { type: 'array', items: { type: 'string' }, description: 'Every connected account id exactly once.' },
             rename: {
               type: 'object',

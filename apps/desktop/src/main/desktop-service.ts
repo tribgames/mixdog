@@ -1,4 +1,10 @@
-import type { DesktopRemoteBrowserStreamFrame, DesktopSessionStateUpdate, SessionSnapshot } from '../shared/contract';
+import type {
+  DesktopBrowserImportProgress,
+  DesktopRemoteBrowserStreamFrame,
+  DesktopRemoteBrowserTab,
+  DesktopSessionStateUpdate,
+  SessionSnapshot,
+} from '../shared/contract';
 import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT } from '../shared/remote-browser';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type {
@@ -31,10 +37,14 @@ import {
   resolveRelayUrl,
   rotateRemoteDevice,
   startRemoteRelay,
+  type RemoteClaimDecision,
   type RemoteClientClaim,
   type RemoteRelayHandle,
 } from './remote-relay';
+import { activateRemote, isRemoteActivated } from './remote-activation';
 import { rotateRelayE2EEIdentity } from './remote-e2ee';
+import type { RemoteHostRequestMethod } from './remote-methods';
+import type { BrowserRemoteMethod } from './remote-browser-methods';
 import { synchronizeViewSnapshot } from './view-synchronizer';
 import { filterSessionIds, requiredVisibleSessionVersion } from './desktop-state';
 
@@ -85,12 +95,13 @@ function createRemoteClaimArbiter(publish: (claim: RemoteClientClaim) => void) {
     {
       clientId: string;
       claim: RemoteClientClaim;
-      promise: Promise<boolean>;
-      settle(approved: boolean): void;
+      promise: Promise<RemoteClaimDecision>;
+      settle(decision: RemoteClaimDecision): void;
     }
   >();
+  const denied: RemoteClaimDecision = { approved: false };
   return {
-    claim(claim: RemoteClientClaim): Promise<boolean> {
+    claim(claim: RemoteClientClaim): Promise<RemoteClaimDecision> {
       // A duplicate delivery shares the decision already on screen. Resolving
       // it false would deny the original claim before the user can answer it.
       const existing = pendingClaims.get(claim.claimId);
@@ -99,24 +110,24 @@ function createRemoteClaimArbiter(publish: (claim: RemoteClientClaim) => void) {
       // One container can have only one live prompt. A newer request replaces
       // an older key that its reloaded page can no longer use.
       for (const pending of [...pendingClaims.values()]) {
-        if (pending.clientId === claim.clientId) pending.settle(false);
+        if (pending.clientId === claim.clientId) pending.settle(denied);
       }
 
       const now = Date.now();
       const relayExpiresAt =
         Number.isFinite(claim.expiresAt) && claim.expiresAt > now ? claim.expiresAt : now + REMOTE_CLAIM_TIMEOUT_MS;
       const expiresAt = Math.min(relayExpiresAt, now + REMOTE_CLAIM_TIMEOUT_MS);
-      let resolveClaim!: (approved: boolean) => void;
-      const promise = new Promise<boolean>((resolve) => {
+      let resolveClaim!: (decision: RemoteClaimDecision) => void;
+      const promise = new Promise<RemoteClaimDecision>((resolve) => {
         resolveClaim = resolve;
       });
       let timer: NodeJS.Timeout | null = null;
-      const settle = (approved: boolean): void => {
+      const settle = (decision: RemoteClaimDecision): void => {
         if (!pendingClaims.delete(claim.claimId)) return;
         if (timer) clearTimeout(timer);
-        resolveClaim(approved);
+        resolveClaim(decision);
       };
-      timer = setTimeout(() => settle(false), Math.max(0, expiresAt - now));
+      timer = setTimeout(() => settle(denied), Math.max(0, expiresAt - now));
       timer.unref?.();
       pendingClaims.set(claim.claimId, {
         clientId: claim.clientId,
@@ -134,17 +145,20 @@ function createRemoteClaimArbiter(publish: (claim: RemoteClientClaim) => void) {
     resolve(claimId: string, approved: boolean): boolean {
       const pending = pendingClaims.get(claimId);
       if (!pending) return false;
-      pending.settle(approved);
+      pending.settle({ approved });
       return true;
     },
   };
 }
 
-/** Desktop Browser Use runs in the window process: a remote request travels out
- *  as an event and its answer returns as an operation. Each request is bounded,
- *  so a window that never answers fails the call instead of holding it open. */
+type WindowRequestMethod = BrowserRemoteMethod | RemoteHostRequestMethod;
+
+/** Desktop Browser Use, the OS trash and the updater run in the window process:
+ *  a remote request travels out as an event and its answer returns as an
+ *  operation. Each request is bounded, so a window that never answers fails the
+ *  call instead of holding it open. */
 function createBrowserRemoteRequests(
-  publish: (request: { id: string; method: 'stream' | 'control' | 'release'; args: unknown[] }) => void
+  publish: (request: { id: string; method: WindowRequestMethod; args: unknown[] }) => void
 ) {
   let nextRequestId = 0;
   const pendingRequests = new Map<
@@ -156,13 +170,13 @@ function createBrowserRemoteRequests(
     }
   >();
   return {
-    request(method: 'stream' | 'control' | 'release', args: unknown[]): Promise<unknown> {
+    request(method: WindowRequestMethod, args: unknown[], timeoutMs = 20_000): Promise<unknown> {
       const id = `browser_remote_${++nextRequestId}`;
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           pendingRequests.delete(id);
-          reject(new Error('Desktop Browser Use did not answer the remote request.'));
-        }, 20_000);
+          reject(new Error('The desktop app did not answer the remote request.'));
+        }, timeoutMs);
         timer.unref?.();
         pendingRequests.set(id, { resolve, reject, timer });
         publish({ id, method, args });
@@ -174,7 +188,7 @@ function createBrowserRemoteRequests(
       pendingRequests.delete(id);
       clearTimeout(pending.timer);
       if (ok) pending.resolve(value);
-      else pending.reject(new Error(String(error || 'Desktop Browser Use failed.')));
+      else pending.reject(new Error(String(error || 'The desktop app request failed.')));
       return true;
     },
     rejectAll(reason: string): void {
@@ -332,6 +346,7 @@ export async function createDesktopService({
   const remoteDescriptor = () => remoteAccessDescriptor(remoteRelay);
   const remoteOptions = {
     host: remoteHost,
+    appVersion: options.appVersion,
     settingsStore,
     onDesktopSettingsChanged: (value: unknown) => {
       emit({ kind: 'desktop-event', name: 'desktop-settings-changed', value });
@@ -343,14 +358,19 @@ export async function createDesktopService({
       emit({ kind: 'desktop-event', name: 'relay-payload-refused', value });
     },
     terminals: operations.terminals,
-    browserRemote: browserRemoteRequests.request,
+    browserRemote: browserRemoteRequests.request as (
+      method: BrowserRemoteMethod,
+      args: unknown[],
+      timeoutMs?: number
+    ) => Promise<unknown>,
+    hostRequest: browserRemoteRequests.request as (method: RemoteHostRequestMethod, args: unknown[]) => Promise<unknown>,
     subscribeTerminalData: operations.subscribeTerminalData,
     userDataPath: options.userDataPath,
     onClientCountChanged,
     // The window process owns the approval dialog, so the decision travels
     // out as an event and comes back as remoteAccessResolveClaim. An
     // unanswered request expires on its own — the relay drops it at 180s.
-    onClientClaim: (claim: RemoteClientClaim): Promise<boolean> => claims.claim(claim),
+    onClientClaim: (claim: RemoteClientClaim): Promise<RemoteClaimDecision> => claims.claim(claim),
   };
   const RELAY_RETRY_BASE_MS = 5_000;
   const RELAY_RETRY_MAX_MS = 5 * 60_000;
@@ -365,13 +385,26 @@ export async function createDesktopService({
     }, relayRetryMs);
     relayRetryTimer.unref?.();
   };
-  const startRemoteServices = async (): Promise<void> => {
-    if (remoteServicesPromise) return remoteServicesPromise;
+  /** `explicit` is a user remote-access action: it activates (and persists)
+   *  remote access. Boot/resume/retry starts only connect once activated, so a
+   *  fresh install never registers on the relay on its own. */
+  const startRemoteServices = async (explicit = false): Promise<void> => {
+    if (remoteServicesPromise) {
+      if (!explicit) return remoteServicesPromise;
+      // A boot-time pass may have declined as not-yet-activated; run again.
+      await remoteServicesPromise;
+      return startRemoteServices(true);
+    }
     remoteServicesPromise = (async () => {
-      if (remoteRelay) return;
+      if (remoteRelay) {
+        if (explicit) await activateRemote(options.userDataPath);
+        return;
+      }
       try {
         const relayUrl = resolveRelayUrl(process.env);
         if (!relayUrl) return;
+        if (explicit) await activateRemote(options.userDataPath);
+        else if (!(await isRemoteActivated(options.userDataPath))) return;
         remoteRelay = await startRemoteRelay({ ...remoteOptions, relayUrl });
         if (relayRetryTimer) {
           clearTimeout(relayRetryTimer);
@@ -402,7 +435,7 @@ export async function createDesktopService({
     }
   };
   const rotateRemoteAccess = async () => {
-    await startRemoteServices();
+    await startRemoteServices(true);
     const relay = remoteRelay;
     await Promise.all([
       rotatePairingToken(options.userDataPath),
@@ -413,7 +446,7 @@ export async function createDesktopService({
     try {
       await relay?.close();
     } catch {}
-    await startRemoteServices();
+    await startRemoteServices(true);
     return remoteDescriptor();
   };
   const rpcMethods = new Set<string>(DESKTOP_SERVICE_METHODS);
@@ -483,8 +516,12 @@ export async function createDesktopService({
   const invokeServiceOperation = async (operation: string, operationArgs: unknown[]): Promise<unknown> => {
     switch (operation) {
       case 'remoteAccessStart':
-      case 'remoteAccessInfo':
         await startRemoteServices();
+        return remoteDescriptor();
+      case 'remoteAccessInfo':
+        // activate:false is a pure read: warm an activated install, never
+        // start or activate a fresh one.
+        await startRemoteServices(operationArgs[0] !== false);
         return remoteDescriptor();
       case 'remoteAccessRotate':
         return rotateRemoteAccess();
@@ -493,7 +530,7 @@ export async function createDesktopService({
       case 'remoteAccessResolveClaim':
         return claims.resolve(String(operationArgs[0] || ''), operationArgs[1] === true);
       case 'remoteAccessRevokeClient': {
-        await startRemoteServices();
+        await startRemoteServices(true);
         const clientId = String(operationArgs[0] || '');
         if (!remoteRelay) return null;
         await remoteRelay.revokeClient(clientId);
@@ -508,6 +545,12 @@ export async function createDesktopService({
       // a desktop event the relay forwards to every paired client.
       case 'browserRemoteFrame':
         remoteRelay?.publishBrowserFrame(operationArgs[0] as DesktopRemoteBrowserStreamFrame);
+        return null;
+      case 'browserRemoteTabs':
+        remoteRelay?.publishBrowserTabs(operationArgs[0] as DesktopRemoteBrowserTab[]);
+        return null;
+      case 'browserRemoteImportProgress':
+        remoteRelay?.publishBrowserImportProgress(operationArgs[0] as DesktopBrowserImportProgress);
         return null;
       case 'browserRemoteOpen':
         publishDesktopEvent(BROWSER_OPEN_REQUESTED_DESKTOP_EVENT, operationArgs[0]);

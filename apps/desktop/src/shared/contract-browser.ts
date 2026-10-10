@@ -116,6 +116,15 @@ export interface DesktopRemoteBrowserFrame {
  *  them. */
 export const MAIN_BROWSER_PAGE_PREFIX = 'main-browser-';
 
+/** A main-workspace browser tab as a paired client lists it: the page id is
+ *  the stream/control key, the rest is display metadata. */
+export interface DesktopRemoteBrowserTab {
+  id: string;
+  title: string;
+  url: string;
+  loading: boolean;
+}
+
 /** Local display client. The document token is scoped to the session-owned
  * page, so queued human input cannot land in a replacement document. */
 export interface DesktopBrowserTab {

@@ -5,6 +5,7 @@
 // resolution + context-meta + agent-runtime resolution helpers.
 import { getProvider } from '../../providers/registry.mjs';
 import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession } from '../store.mjs';
+import { _liveSessions } from '../store/live-state.mjs';
 import { _isActivelyOwnedElsewhere, _recoverTurnCheckpointDurably } from './session-owner-liveness.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
@@ -44,7 +45,7 @@ export { isSessionOwnerGone, recoverSessionAfterProcessRestart } from './session
 // re-exported so prior importers of this module stay unchanged.
 export { prefetchSession, prepareSessionProjection } from './prepared-resume-cache.mjs';
 
-function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
+function buildSessionProviderCacheOpts(providerName, sessionId, agent = null, config = null) {
   // Keep this in sync with createSession's provider-cache policy: only
   // explicit-breakpoint providers get BP cache opts here; OpenAI/key-prefix
   // providers use promptCacheKey and request-time strategy instead, plus the
@@ -55,7 +56,7 @@ function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
   try {
     let autoClear = null;
     if (!agent || agent === 'lead') {
-      const loadedConfig = loadConfig({ secrets: false });
+      const loadedConfig = config || loadConfig({ secrets: false });
       const normalizedAutoClear = normalizeAutoClearConfig(loadedConfig?.autoClear);
       autoClear = {
         ...normalizedAutoClear,
@@ -66,6 +67,29 @@ function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
   } catch {
     return null;
   }
+}
+
+// Re-derive a Lead session's builder-made cache policy (messages TTL follows
+// the auto-clear idle window). Explicit caller/profile policies, non-Lead
+// sessions and non-explicit-breakpoint providers are left untouched.
+export function refreshSessionProviderCacheOpts(session, config = null) {
+  if (!session || session.providerCacheOptsOverride === true) return false;
+  if (session.agent && session.agent !== 'lead') return false;
+  if (cacheCapabilityForProvider(session.provider) !== 'explicit-breakpoint') return false;
+  const next = buildSessionProviderCacheOpts(session.provider, session.id, session.agent, config);
+  if (!next) return false;
+  session.providerCacheOpts = next;
+  return true;
+}
+
+// An auto-clear settings change reaches every Lead session held in this
+// process, not only the one on screen; persisted ones refresh on resume.
+export function refreshLiveSessionsProviderCacheOpts(config = null) {
+  let refreshed = 0;
+  for (const session of _liveSessions.values()) {
+    if (refreshSessionProviderCacheOpts(session, config)) refreshed += 1;
+  }
+  return refreshed;
 }
 
 // --- agent spawn (createSession) ---
@@ -199,6 +223,7 @@ export function createSession(opts) {
     contextMeta,
     origin: sessionOriginFields(opts, { profile, presetObj, providerCacheOpts, surface }),
   });
+  session.providerCacheOptsOverride = Boolean(resolved.providerCacheOpts);
   refreshSessionBp3Environment(session, opts.cwd);
   // In-process registry + async debounced save: same-process create → load
   // reads live memory; disk flush is for cross-process / restart durability.
@@ -308,6 +333,7 @@ function applyRouteContextWindow(session, routeChanged, selectedContextWindowPro
 function resetSessionForRouteChange(id, session, previousModel, previousProvider) {
   session.promptCacheKey = providerCacheKey(session.provider);
   session.providerCacheOpts = buildSessionProviderCacheOpts(session.provider, session.id, session.agent) || null;
+  session.providerCacheOptsOverride = false;
   session.lastInputTokens = 0;
   session.lastOutputTokens = 0;
   session.lastCachedReadTokens = 0;
@@ -449,6 +475,7 @@ export async function resumeSession(sessionId, preset, options = {}) {
   if (_isActivelyOwnedElsewhere(session, sessionId)) return _attachViewerSession(session, sessionId);
   _recoverTurnCheckpointDurably(session, sessionId);
   _refreshResumedTools(session, sessionId, preset);
+  refreshSessionProviderCacheOpts(session);
   // The live session already owns the refreshed tools and desktop scope.
   // Defer the structured clone + worker round-trip so opening a conversation
   // is not blocked on persisting the same in-memory state back to disk.

@@ -14,6 +14,7 @@ import {
 } from './composer-support';
 import { t } from './i18n';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { learnedRelayUplinkBinaryBytes } from './remote-shim-payload-limit';
 import {
   LEGACY_OFFICE_REPLACEMENT,
   MAX_PROMPT_IMAGE_BASE64_LENGTH,
@@ -72,11 +73,39 @@ export async function hasPdfHeader(file: Blob): Promise<boolean> {
 /** Rejection that must not fall back to inserting the file's path. */
 export class RejectedComposerFileError extends Error {}
 
+// Prompt JSON, the encrypted envelope and the rest of the turn share the frame.
+const REMOTE_FRAME_RESERVE_BYTES = 8 * 1024;
+
+/** Largest raw attachment (bytes) one relay frame can carry as base64, or null
+ *  when there is no learned ceiling to enforce. */
+export function remoteAttachmentLimitBytes(binaryCeiling: number | null): number | null {
+  if (binaryCeiling === null) return null;
+  return Math.max(0, Math.floor(((binaryCeiling - REMOTE_FRAME_RESERVE_BYTES) * 3) / 4));
+}
+
+/** Empty when `rawBytes` fits the relay's learned uplink ceiling (or this is
+ *  not a remote session), else the message shown at attach time. */
+export function remoteAttachmentSizeError(
+  name: string,
+  rawBytes: number,
+  binaryCeiling: number | null = isRemoteBrowserRenderer() ? learnedRelayUplinkBinaryBytes() : null
+): string {
+  const limit = remoteAttachmentLimitBytes(binaryCeiling);
+  if (limit === null || rawBytes <= limit) return '';
+  const mb = (value: number) => `${(value / (1024 * 1024)).toFixed(value >= 1024 * 1024 ? 1 : 2)} MB`;
+  return `${name}: ${mb(rawBytes)} is over this remote connection's ${mb(limit)} limit per attachment.`;
+}
+
 /** Empty when the attachment fits the per-turn budget, else the user message. */
 export function attachmentPolicyError(
   currentAttachments: ComposerAttachment[],
   attachment: ComposerAttachment
 ): string {
+  const remoteError = remoteAttachmentSizeError(
+    attachment.name,
+    attachment.kind === 'text' ? attachment.data.length : Math.ceil((attachment.data.length * 3) / 4)
+  );
+  if (remoteError) return remoteError;
   if (currentAttachments.length >= MAX_COMPOSER_ATTACHMENTS) {
     return `Attach up to ${MAX_COMPOSER_ATTACHMENTS} items at a time.`;
   }
@@ -272,6 +301,8 @@ async function imageAttachment({
   if (file.size > MAX_IMAGE_FILE_BYTES) {
     throw new Error(`${displayName}: use PNG, JPEG, GIF, or WebP under 12 MB.`);
   }
+  // A remote browser re-encodes below the ceiling, so only the final payload
+  // is judged (attachmentPolicyError); a local raw attach is judged here.
   const raw = await base64Payload(file, `${displayName}: could not read image.`);
   if (cancelled()) return null;
   const image = await resizedImage(file, raw, file.type, displayName);
@@ -296,6 +327,8 @@ async function pdfAttachment({
   cancelled,
 }: AttachmentInput): Promise<ComposerAttachment | null> {
   if (file.size > MAX_PDF_FILE_BYTES) throw new Error(`${displayName}: PDFs must be under 20 MB.`);
+  const remoteSize = remoteAttachmentSizeError(displayName, file.size);
+  if (remoteSize) throw new RejectedComposerFileError(remoteSize);
   if (!(await hasPdfHeader(file))) {
     throw new Error(t('{{name}}: this file is not a valid PDF.', { name: displayName }));
   }
@@ -319,6 +352,8 @@ async function officeAttachment(
   if (file.size > MAX_OFFICE_FILE_BYTES) {
     throw new Error(t('{{name}}: Office files must be under 20 MB.', { name: displayName }));
   }
+  const remoteSize = remoteAttachmentSizeError(displayName, file.size);
+  if (remoteSize) throw new RejectedComposerFileError(remoteSize);
   const data = await base64Payload(file, `${displayName}: could not read file.`);
   if (cancelled()) return null;
   return {
@@ -348,6 +383,8 @@ async function textAttachment(
   if (file.size > MAX_INLINE_FILE_BYTES) {
     throw new Error(`${displayName}: text files must be under 750 KB.`);
   }
+  const remoteSize = remoteAttachmentSizeError(displayName, file.size);
+  if (remoteSize) throw new RejectedComposerFileError(remoteSize);
   const text = await file.text();
   if (cancelled()) return null;
   if (text.length > MAX_INLINE_FILE_BYTES) {

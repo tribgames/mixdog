@@ -96,3 +96,60 @@ test('disconnect invalidation prevents a late ready response from restoring the 
   assert.equal(getCachedConnectionInfo(api), null);
   assert.deepEqual(await preloadConnectionInfo(api), fresh);
 });
+
+// Mirrors the host contract: activate:false reads only, default activates.
+function fakeHost({ activated }) {
+  const state = { activated, seen: [] };
+  const info = readyInfo('https://relay.example/warm');
+  state.api = {
+    getRemoteAccessInfo(options) {
+      state.seen.push(options);
+      if (options?.activate !== false) state.activated = true;
+      return Promise.resolve(state.activated ? info : null);
+    },
+  };
+  return state;
+}
+
+test('warm-up preload does not activate a fresh install', async () => {
+  const host = fakeHost({ activated: false });
+  assert.equal(await preloadConnectionInfo(host.api, 10, { activate: false }), null);
+  assert.equal(host.activated, false);
+  assert.deepEqual(host.seen, [{ activate: false }]);
+});
+
+test('opening the Connection page activates and gets the card', async () => {
+  const host = fakeHost({ activated: false });
+  await preloadConnectionInfo(host.api, 10, { activate: false });
+  const info = await preloadConnectionInfo(host.api, 10);
+  assert.equal(host.activated, true);
+  assert.ok(info?.relayBrowserQrSvg);
+});
+
+test('an in-flight read-only preload does not satisfy an activating request', async () => {
+  let resolveFirst;
+  const seen = [];
+  const api = {
+    getRemoteAccessInfo(options) {
+      seen.push(options);
+      return seen.length === 1
+        ? new Promise((resolve) => {
+            resolveFirst = resolve;
+          })
+        : Promise.resolve(readyInfo('https://relay.example/act'));
+    },
+  };
+  const warm = preloadConnectionInfo(api, 50, { activate: false });
+  const page = await preloadConnectionInfo(api, 50);
+  assert.deepEqual(seen, [{ activate: false }, undefined]);
+  assert.ok(page?.relayBrowserQrSvg);
+  resolveFirst(null);
+  await warm;
+});
+
+test('an activated install still gets warmed info without activating', async () => {
+  const host = fakeHost({ activated: true });
+  const info = await preloadConnectionInfo(host.api, 10, { activate: false });
+  assert.ok(info?.relayBrowserQrSvg);
+  assert.deepEqual(host.seen, [{ activate: false }]);
+});

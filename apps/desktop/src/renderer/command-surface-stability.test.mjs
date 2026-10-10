@@ -17,7 +17,7 @@ test('context and inherit caches are isolated per session', () => {
   assert.equal(commandSurfaceCacheKey('context', 'session-a'), 'context:session-a');
   assert.equal(commandSurfaceCacheKey('context', 'session-b'), 'context:session-b');
   assert.equal(commandSurfaceCacheKey('inherit', 'session-a'), 'inherit:session-a');
-  assert.equal(commandSurfaceCacheKey('usage', 'session-a'), 'usage');
+  assert.equal(commandSurfaceCacheKey('doctor', 'session-a'), 'doctor');
 });
 
 test('capability snapshots win over empty lane placeholders', () => {

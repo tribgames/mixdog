@@ -506,6 +506,47 @@ test('iOS web surfaces keep native scale through landscape rotation', async () =
   }
 });
 
+test('iPads and touch laptops pick the layout by viewport width', async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body></body></html>',
+    expose: ['navigator'],
+    actEnvironment: false,
+  });
+  const define = (target, key, value) => Object.defineProperty(target, key, { configurable: true, value });
+  define(dom.window.navigator, 'userAgent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15');
+  define(dom.window.navigator, 'platform', 'MacIntel');
+  define(dom.window.navigator, 'maxTouchPoints', 5);
+  try {
+    const { isMobileRemoteSurface, isMobileDeviceSurface, isInstalledMobileWebAppSurface } = await import(
+      `./mobile-surface.ts?tablet=${Date.now()}`
+    );
+    define(dom.window, 'innerWidth', 1024);
+    assert.equal(isMobileRemoteSurface(), false);
+    // Desktop LAYOUT, yet still an installable device: an installed iPad app
+    // must keep launching (layout width never gates the entry).
+    define(dom.window.navigator, 'standalone', true);
+    assert.equal(isMobileDeviceSurface(), true);
+    assert.equal(isInstalledMobileWebAppSurface(), true);
+    define(dom.window.navigator, 'standalone', false);
+    define(dom.window, 'innerWidth', 507);
+    assert.equal(isMobileRemoteSurface(), true);
+    define(dom.window, 'innerWidth', 820);
+    assert.equal(isMobileRemoteSurface(), false);
+
+    // Touch laptop: fine primary pointer, small screen, never a phone.
+    define(dom.window.navigator, 'platform', 'Win32');
+    define(dom.window.navigator, 'userAgent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131');
+    define(dom.window, 'innerWidth', 700);
+    define(dom.window.screen, 'width', 700);
+    define(dom.window.screen, 'height', 700);
+    define(dom.window, 'matchMedia', () => ({ matches: false }));
+    assert.equal(isMobileRemoteSurface(), false);
+    assert.equal(isMobileDeviceSurface(), false);
+  } finally {
+    restore();
+  }
+});
+
 test('a desktop-installed PWA never becomes a remote work surface', async () => {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body></body></html>',

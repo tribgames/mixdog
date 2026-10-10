@@ -46,7 +46,9 @@ export interface SessionLifecycleHost
     restoreDesktop: boolean,
     sweep: boolean
   ) => Promise<boolean>;
-  hasUnconfirmedBackgroundInput?: WorkerPool['hasUnconfirmedBackgroundInput'];
+  pendingInactiveLedgers?: WorkerPool['pendingInactiveLedgers'];
+  inactiveLedgersRecovered?: WorkerPool['inactiveLedgersRecovered'];
+  hasUnconfirmedBackgroundInput?:WorkerPool['hasUnconfirmedBackgroundInput'];
   waitForResidentWorkersExit?: WorkerPool['waitForResidentWorkersExit'];
   clearUnconfirmedBackgroundInput?: WorkerPool['clearUnconfirmedBackgroundInput'];
   releaseUnconfirmedElevated?: WorkerPool['releaseUnconfirmedElevated'];

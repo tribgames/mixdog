@@ -5,6 +5,8 @@ import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { isApprovalDismissKey } from './renderer-logic.mjs';
 import { asRecord, textOf } from './text-format';
+import { useRemoteHostImageUrl } from './local-image-preview';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 
 function approvalText(value: unknown, preferredKey: string): string {
   const preferred = asRecord(value)?.[preferredKey];
@@ -26,12 +28,28 @@ function localPreviewUrl(path: unknown): string {
   return value ? `file:///${encodeURI(value).replace(/^\/+/, '')}` : '';
 }
 
+// Desktop shows the host file directly; a paired browser has no access to the
+// host disk, so it reads the image through the remote preview lane instead.
+function ApprovalPreviewImage({ path, alt }: { path: unknown; alt: string }) {
+  const remoteUrl = useRemoteHostImageUrl(String(path || ''));
+  const src = isRemoteHostRenderer() ? remoteUrl : localPreviewUrl(path);
+  return <img src={src || undefined} alt={alt} />;
+}
+
 export function ApprovalCard({
   approval,
   resolve,
+  elsewhereDevice = '',
+  outcome = null,
 }: {
   approval: Approval;
   resolve: (approved: boolean) => Promise<unknown>;
+  /** Device that answered, shown with "Resolved on another device" — passed
+   *  only when the conversation involves more than one device. */
+  elsewhereDevice?: string;
+  /** The approval was answered on another device: a settled card that names
+   *  it instead of the buttons. */
+  outcome?: { approved: boolean; device: string } | null;
 }) {
   const reason = approvalText(approval.reason, 'message') || t('Review this tool request before continuing.');
   const args = asRecord(approval.args);
@@ -56,6 +74,7 @@ export function ApprovalCard({
   else if (action === 'rollback') actionLabel = t('Roll back');
   const [resolving, setResolving] = useState(false);
   const [approvalError, setApprovalError] = useState('');
+  const [resolvedElsewhere, setResolvedElsewhere] = useState(false);
   const dialog = useRef<HTMLElement>(null);
   const resolvingRef = useRef(false);
   const resolveRef = useRef(resolve);
@@ -68,6 +87,12 @@ export function ApprovalCard({
     try {
       const accepted = await resolveRef.current(approved);
       if (accepted === true) return;
+      if (accepted === false) {
+        // The host answered "not pending": another device already decided.
+        // Retire the card; the buttons stay disabled (resolvingRef stays set).
+        setResolvedElsewhere(true);
+        return;
+      }
       setApprovalError(t('Mixdog could not record this decision. Please try again.'));
       resolvingRef.current = false;
       setResolving(false);
@@ -83,6 +108,7 @@ export function ApprovalCard({
     }
   }, []);
   useEffect(() => {
+    if (resolvedElsewhere || outcome) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focusable = () =>
       Array.from(
@@ -118,7 +144,32 @@ export function ApprovalCard({
       document.removeEventListener('keydown', onKeyDown, true);
       previousFocus?.focus();
     };
-  }, [decide]);
+  }, [decide, resolvedElsewhere, outcome]);
+  if (outcome || resolvedElsewhere) {
+    return (
+      <article className="approval-card approval-card--inline approval-card--resolved" role="status">
+        <div className="approval-heading">
+          <span>
+            <ShieldAlert size={16} />
+          </span>
+          <div>
+            {outcome ? (
+              <b>
+                {outcome.approved
+                  ? t('Allowed from {{device}}', { device: outcome.device })
+                  : t('Denied from {{device}}', { device: outcome.device })}
+              </b>
+            ) : (
+              <>
+                <b>{t('Resolved on another device')}</b>
+                {elsewhereDevice && <small>{t('from {{device}}', { device: elsewhereDevice })}</small>}
+              </>
+            )}
+          </div>
+        </div>
+      </article>
+    );
+  }
   // Inline approval: the request renders in the
   // transcript flow with a warning ring instead of a modal overlay, so the
   // user can keep reading and typing while deciding.
@@ -200,8 +251,8 @@ export function ApprovalCard({
             {previewImages.map((image, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: preview pages are positional and never reorder
               <figure key={`${String(image.path)}:${index}`}>
-                <img
-                  src={localPreviewUrl(image.path)}
+                <ApprovalPreviewImage
+                  path={image.path}
                   alt={
                     image.kind === 'visual-diff'
                       ? t('Visual diff page {{page}}', { page: Number(image.page || index + 1) })

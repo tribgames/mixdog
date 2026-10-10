@@ -91,7 +91,14 @@ function checkWebSocket(origin, { address, timeoutMs, foreignOrigin = false }) {
   });
 }
 
-export async function verifyRelease({ origin, expectedIndex, address, timeoutMs = 5000, startupMs = 15000 }) {
+export async function verifyRelease({
+  origin,
+  expectedIndex,
+  expectedRelease = '',
+  address,
+  timeoutMs = 5000,
+  startupMs = 15000,
+}) {
   const base = new URL(origin);
   if (
     !['https:', 'http:'].includes(base.protocol) ||
@@ -129,9 +136,23 @@ export async function verifyRelease({ origin, expectedIndex, address, timeoutMs 
   ) {
     throw new Error('Renderer readiness or deployed release identity does not match.');
   }
+  // /readyz inspects every retained release; the one this deploy added must be
+  // among them with the digest that was uploaded.
+  if (
+    expectedRelease &&
+    !ready.releases?.some((release) => release.id === expectedRelease && release.indexSha256 === expectedIndex)
+  ) {
+    throw new Error('Added renderer release is not served side by side.');
+  }
   await checkWebSocket(base, options);
   await checkWebSocket(base, { ...options, foreignOrigin: true });
-  return { status: 'verified', indexSha256: ready.indexSha256, assets: ready.assets, websocket: 'gated' };
+  return {
+    status: 'verified',
+    indexSha256: ready.indexSha256,
+    assets: ready.assets,
+    releases: ready.releases?.length ?? 0,
+    websocket: 'gated',
+  };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -148,6 +169,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         await verifyRelease({
           origin: args.origin,
           expectedIndex: args['expected-index'],
+          expectedRelease: args['expected-release'] || '',
           address: args.address,
         })
       )

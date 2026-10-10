@@ -49,6 +49,14 @@ export function createAgentRouteApi(deps) {
       fast: requested.fast !== undefined ? selectedRoute.fast === true : sameModel && stored.fast === true,
       modelParameters:
         requested.modelParameters !== undefined ? selectedRoute.modelParameters : inheritedModelParameters,
+      // resolveRoute reads contextPercent from Main's modelSettings bucket;
+      // an agent route owns its own.
+      contextPercent:
+        requested.contextPercent !== undefined
+          ? requested.contextPercent
+          : sameModel
+            ? stored.contextPercent
+            : undefined,
     };
     await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
     const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);

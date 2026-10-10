@@ -15,7 +15,12 @@ export function createSessionLifecycleApi(bag, { restoreTranscriptItems, oauthFl
   return {
     resolveToolApproval: (id, decision = {}) => {
       const approved = decision === true || decision?.approved === true;
-      return finishToolApproval(id, approved, decision?.reason || (approved ? 'approved by user' : 'denied by user'));
+      return finishToolApproval(
+        id,
+        approved,
+        decision?.reason || (approved ? 'approved by user' : 'denied by user'),
+        typeof decision?.device === 'string' ? decision.device : ''
+      );
     },
     pushNotice,
     removeNotice,

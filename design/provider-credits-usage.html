@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Providers — 크레딧 표기 시안</title>
+<style>
+  :root {
+    --bg: #141414;
+    --popup: #1c1c1c;
+    --plate: rgba(255,255,255,0.03);
+    --outline: inset 0 0 0 1px rgba(255,255,255,0.07);
+    --text: #ececec;
+    --muted: #9a9a9a;
+    --meta: #8a8a8a;
+    --track: rgba(255,255,255,0.08);
+    --fill: #cfcfcf;
+    --warn: #e0a84a;
+    --danger: #e0645a;
+    --accent: #5b8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px; background: var(--bg); color: var(--text);
+    font: 14px/1.4 "Segoe UI", "Pretendard", system-ui, sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 28px; font-size: 13px; }
+  .board { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .case { width: 320px; }
+  .case > h2 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+  .case > p { font-size: 12px; color: var(--muted); margin: 0 0 10px; min-height: 34px; }
+
+  .popup {
+    background: var(--popup); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.45); overflow: hidden;
+  }
+  .head { height: 36px; display: flex; align-items: center; padding: 0 4px 0 12px; }
+  .head b { flex: 1; font-size: 16px; font-weight: 600; }
+  .head span { width: 28px; height: 28px; display: grid; place-items: center; color: var(--muted); font-size: 14px; }
+
+  .list {
+    display: grid; grid-template-columns: fit-content(84px) minmax(64px,1fr) 38px minmax(52px,max-content);
+    column-gap: 6px; row-gap: 6px; padding: 0 14px 10px; isolation: isolate;
+  }
+  .row { grid-column: 1/-1; display: grid; grid-template-columns: subgrid; row-gap: 6px; padding: 8px 0; position: relative; }
+  .row::before { content: ""; position: absolute; z-index: -1; inset: 0 -8px; border-radius: 8px; background: var(--plate); box-shadow: var(--outline); }
+  .line { grid-column: 1/-1; display: flex; align-items: center; gap: 6px; min-height: 20px; }
+  .icon { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+  .icon.codex { background: #2b2b2b; }
+  .icon.claude { background: #d97757; color: #1b1b1b; }
+  .line b { flex: 1; font-size: 14px; font-weight: 600; }
+  .acct { font-size: 12px; color: var(--meta); }
+  .meter { grid-column: 1/-1; display: grid; grid-template-columns: subgrid; align-items: center; }
+  .meter small { color: var(--meta); font-size: 13px; }
+  .meter i { display: block; height: 5px; border-radius: 99px; background: var(--track); position: relative; overflow: hidden; }
+  .meter i > i { position: absolute; inset: 0 auto 0 0; background: var(--fill); }
+  .meter.warn i > i { background: var(--warn); }
+  .meter.danger i > i { background: var(--danger); }
+  .meter b { text-align: right; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .meter em { text-align: right; font-style: normal; color: var(--meta); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* NEW: credit line — only rendered when the account actually has credits */
+  .credit {
+    grid-column: 1/-1; display: flex; align-items: center; gap: 8px;
+    margin-top: 2px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.07);
+  }
+  .credit small { color: var(--meta); font-size: 13px; }
+  .credit .amt { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .credit .sub { color: var(--meta); font-size: 12px; }
+  .credit .spacer { flex: 1; }
+  .credit.active .amt { color: var(--warn); }
+  .badge { font-size: 11px; padding: 1px 6px; border-radius: 99px; background: rgba(224,168,74,.15); color: var(--warn); }
+  .switch { width: 30px; height: 18px; border-radius: 99px; background: #3a3a3a; position: relative; flex: 0 0 auto; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #bdbdbd; transition: left .15s; }
+  .switch.on { background: var(--accent); }
+  .switch.on::after { left: 14px; background: #fff; }
+
+  .credit.reset-line { margin-top: 0; padding-top: 0; border-top: 0; }
+  button.use, button.ghost { font: inherit; font-size: 12px; padding: 2px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: var(--text); cursor: pointer; }
+  button.ghost { background: transparent; color: var(--muted); }
+  .confirm { grid-column: 1/-1; padding: 8px; border-radius: 6px; background: rgba(255,255,255,.04); font-size: 12px; color: #cfcfcf; }
+  .confirm p { margin: 0 0 8px; }
+  .confirm div { display: flex; justify-content: flex-end; gap: 6px; }
+  .info { color: var(--muted); font-size: 13px; cursor: pointer; }
+  .pop { position: absolute; z-index: 5; left: 40px; top: 24px; width: 200px; padding: 10px; border-radius: 10px; background: #262626; border: 1px solid rgba(255,255,255,.1); box-shadow: 0 8px 24px rgba(0,0,0,.5); font-size: 12px; }
+  .pop b { display: block; margin-bottom: 6px; font-size: 12px; }
+  .pop div { display: flex; justify-content: space-between; padding: 3px 0; color: #cfcfcf; }
+  .notice { margin: 0 14px 12px; padding: 8px 10px; border-radius: 8px; background: rgba(224,100,90,.1); color: #f0b3ad; font-size: 12px; }
+  .reset { margin: 0 14px 12px; padding: 8px; border-radius: 8px; background: var(--plate); box-shadow: var(--outline); font-size: 13px; display: flex; justify-content: space-between; }
+  .reset small { color: var(--meta); }
+
+  .rules { margin-top: 32px; max-width: 1020px; font-size: 13px; color: #cfcfcf; }
+  .rules table { border-collapse: collapse; width: 100%; }
+  .rules th, .rules td { text-align: left; padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,.07); vertical-align: top; }
+  .rules th { color: var(--muted); font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Providers — 크레딧 표기 시안 v2</h1>
+<p class="lead">크레딧 기능이 켜진 계정이면 Codex·Claude 모두 사용량 막대 아래에 한 줄을 추가합니다. 클릭 동작 없이 항상 보이고, 스위치로 "한도 초과 시 크레딧 사용"만 켜고 끕니다.</p>
+
+<div class="board">
+
+  <!-- A -->
+  <section class="case">
+    <h2>A. Codex 크레딧 있음 · 사용 꺼짐 (기본)</h2>
+    <p>잔액만 보여 주고, 한도에 도달하면 mixdog이 요청을 멈춥니다.</p>
+    <div class="popup">
+      <div class="head"><b>Providers</b><span>📌</span><span>ⓘ</span><span>＋</span></div>
+      <div class="list">
+        <div class="row">
+          <div class="line"><span class="icon codex">◎</span><b>Codex</b><span class="acct">Pro ▾</span></div>
+          <div class="meter"><small>5H</small><i><i style="width:40%"></i></i><b>40%</b><em>2h 10m</em></div>
+          <div class="meter danger"><small>7D</small><i><i style="width:83%"></i></i><b>83%</b><em>3d 17h</em></div>
+          <div class="credit"><small>크레딧</small><span class="amt">62,500</span><span class="spacer"></span><span class="switch"></span></div>
+          <div class="credit reset-line" style="position:relative"><small>리셋권</small><span class="amt">3개 남음</span><span class="info">ⓘ</span><span class="spacer"></span><button class="use">사용</button>
+            <div class="pop">
+              <b>리셋권 만료일</b>
+              <div><span>리셋권 1</span><span style="color:var(--warn)">10/23 (2일 후)</span></div>
+              <div><span>리셋권 2</span><span>11/02</span></div>
+              <div><span>리셋권 3</span><span>11/15</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="line"><span class="icon claude">✳</span><b>Claude</b><span class="acct">Max ▾</span></div>
+          <div class="meter"><small>5H</small><i><i style="width:0%"></i></i><b>0%</b><em>—</em></div>
+          <div class="meter"><small>7D</small><i><i style="width:0%"></i></i><b>0%</b><em>4d 2h</em></div>
+          <div class="credit"><small>크레딧</small><span class="amt">$0.00</span><span class="sub">· 월 한도 $10</span><span class="spacer"></span><span class="switch"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- E -->
+  <section class="case">
+    <h2>E. 리셋권 사용 확인</h2>
+    <p>"사용"을 누르면 그 자리에서 확인 문구가 펼쳐집니다. 만료가 가장 빠른 것부터 씁니다.</p>
+    <div class="popup">
+      <div class="head"><b>Providers</b><span>📌</span><span>ⓘ</span><span>＋</span></div>
+      <div class="list">
+        <div class="row">
+          <div class="line"><span class="icon codex">◎</span><b>Codex</b><span class="acct">Pro ▾</span></div>
+          <div class="meter danger"><small>5H</small><i><i style="width:100%"></i></i><b>100%</b><em>1h 05m</em></div>
+          <div class="meter danger"><small>7D</small><i><i style="width:96%"></i></i><b>96%</b><em>3d 17h</em></div>
+          <div class="credit"><small>크레딧</small><span class="amt">62,500</span><span class="spacer"></span><span class="switch"></span></div>
+          <div class="credit reset-line"><small>리셋권</small><span class="amt">3개 남음</span><span class="info">ⓘ</span><span class="spacer"></span></div>
+          <div class="confirm">
+            <p>리셋권 1개를 써서 5H·7D 한도를 바로 초기화합니다.</p>
+            <div><button class="ghost">취소</button><button class="use">확인</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- B -->
+  <section class="case">
+    <h2>B. 사용 켜짐 · 한도 초과로 크레딧 차감 중</h2>
+    <p>잔액 색이 바뀌고 "사용 중" 배지가 붙습니다.</p>
+    <div class="popup">
+      <div class="head"><b>Providers</b><span>📌</span><span>ⓘ</span><span>＋</span></div>
+      <div class="list">
+        <div class="row">
+          <div class="line"><span class="icon codex">◎</span><b>Codex</b><span class="acct">Pro ▾</span></div>
+          <div class="meter danger"><small>5H</small><i><i style="width:100%"></i></i><b>100%</b><em>1h 05m</em></div>
+          <div class="meter danger"><small>7D</small><i><i style="width:100%"></i></i><b>100%</b><em>3d 17h</em></div>
+          <div class="credit active"><small>크레딧</small><span class="amt">61,880</span><span class="badge">사용 중</span><span class="spacer"></span><span class="switch on"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- D -->
+  <section class="case">
+    <h2>D. Claude 크레딧 있음</h2>
+    <p>잔액과 월 지출 한도를 함께 보여 줍니다.</p>
+    <div class="popup">
+      <div class="head"><b>Providers</b><span>📌</span><span>ⓘ</span><span>＋</span></div>
+      <div class="list">
+        <div class="row">
+          <div class="line"><span class="icon claude">✳</span><b>Claude</b><span class="acct">Max ▾</span></div>
+          <div class="meter warn"><small>5H</small><i><i style="width:72%"></i></i><b>72%</b><em>3h 40m</em></div>
+          <div class="meter"><small>7D</small><i><i style="width:31%"></i></i><b>31%</b><em>4d 2h</em></div>
+          <div class="credit"><small>크레딧</small><span class="amt">$25.00</span><span class="sub">· 월 한도 $10</span><span class="spacer"></span><span class="switch"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="rules">
+  <table>
+    <tr><th>조건</th><th>표기</th></tr>
+    <tr><td>Codex <code>credits.has_credits</code> 이고 잔액 &gt; 0, 또는 <code>unlimited</code></td><td>"크레딧 62,500" (단위: 크레딧, $ 아님) / 무제한이면 "무제한"</td></tr>
+    <tr><td>Claude 사용 크레딧 기능 켜짐 (잔액 0이어도)</td><td>"크레딧 $0.00 · 월 한도 $10" (지금 재영님 계정: 표시)</td></tr>
+    <tr><td>크레딧 기능 꺼짐 또는 정보 없음</td><td>줄 숨김</td></tr>
+    <tr><td>Codex 리셋권 1개 이상</td><td>Codex 행 안에 "리셋권 3개 남음 ⓘ [사용]" — ⓘ 누르면 팝업으로 각 만료일 (7일 이내는 경고색, 별도 섹션 없앰), 0개면 숨김</td></tr>
+    <tr><td>스위치 꺼짐 (기본)</td><td>5H/7D 100%면 요청 전 차단 → 다른 계정 있으면 전환, 없으면 안내</td></tr>
+    <tr><td>스위치 켜짐 + 실제 차감 중</td><td>잔액 강조색 + "사용 중" 배지</td></tr>
+  </table>
+</div>
+</body>
+</html>

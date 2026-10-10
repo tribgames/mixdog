@@ -1,0 +1,36 @@
+{
+  "name": "@mixdog/mobile",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mixdog phone app: a thin Capacitor shell (iOS + Android) around the relay web app, with native APNs/FCM push.",
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test:java": "node scripts/test-origin-policy-java.mjs",
+    "verify:native": "node scripts/verify-native-config.mjs",
+    "check": "npm run typecheck && npm test && npm run verify:native && npm run build:web",
+    "sync": "npm run build:web && cap sync",
+    "sync:android": "npm run build:web && cap sync android",
+    "sync:ios": "npm run build:web && cap sync ios",
+    "apk:debug": "npm run sync:android && cd android && gradlew assembleDebug",
+    "apk:release": "npm run sync:android && cd android && gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor-mlkit/barcode-scanning": "^7.5.0",
+    "@capacitor/android": "^7.4.0",
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/browser": "^7.0.5",
+    "@capacitor/core": "^7.4.0",
+    "@capacitor/ios": "^7.4.0",
+    "@capacitor/preferences": "^7.0.4"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.0",
+    "@types/node": "^22.16.5",
+    "esbuild": "^0.25.12",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

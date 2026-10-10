@@ -28,6 +28,223 @@ public partial class MixWin32
         if (h == IntPtr.Zero || !IsWindow(h)) return true;
         return !EnableWindow(h, enabled);
     }
+    // GWL_EXSTYLE is a 32-bit value, so the plain entry points serve 32- and 64-bit processes alike.
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] static extern int GetWindowLongW(IntPtr h, int index);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongW")] static extern int SetWindowLongW(IntPtr h, int index, int value);
+    const int GWL_EXSTYLE = -20;
+    const int WS_EX_NOACTIVATE = 0x08000000;
+    const int InactiveSettleMs = 50;
+    const int InactiveRestoreGapMs = 12;
+    static readonly object inactiveSync = new object();
+    // Roots whose no-activate bit this worker added, with the holds that still
+    // need it. Only the last holder clears the bit, so overlapping holds on one
+    // root never expose it while another still relies on it.
+    static readonly Dictionary<IntPtr, int> inactiveHolders = new Dictionary<IntPtr, int>();
+    // Roots under an open scope: the scope owns the settle and foreground
+    // recovery, so deliveries inside it only hold.
+    static readonly Dictionary<IntPtr, int> inactiveScopes = new Dictionary<IntPtr, int>();
+    /// True when the latest hold could not make its target non-activatable (the
+    /// window refused the style, e.g. it runs at higher integrity). Delivery still
+    /// happens; the result must not claim the target was protected. Results
+    /// consume and clear it.
+    public static bool ActivationUnprotected;
+    public sealed class InactiveScope
+    {
+        internal IntPtr Root;
+        internal IntPtr Held;
+        internal IntPtr ForegroundBefore;
+        internal MixInputSnapshot InputBefore;
+        internal bool Ended;
+    }
+    static IntPtr InactiveRootOf(IntPtr h)
+    {
+        if (h == IntPtr.Zero || !IsWindow(h)) return IntPtr.Zero;
+        IntPtr root = GetAncestor(h, 2);
+        return root == IntPtr.Zero ? h : root;
+    }
+    static bool InactiveStyleSet(IntPtr root)
+    {
+        return (GetWindowLongW(root, GWL_EXSTYLE) & WS_EX_NOACTIVATE) != 0;
+    }
+    /// Background input must not raise its target over the window the user is in:
+    /// once the target has come forward, sending the user's window back is a flash
+    /// the user already saw. A no-activate top-level declines activation while the
+    /// click, key or accessibility call still lands. Returns the root this hold
+    /// counts against, or zero when there is nothing to release: the target is
+    /// the foreground or already non-activatable (not needed), or the window
+    /// refused the style (unavailable, reported through ActivationUnprotected).
+    public static IntPtr HoldInactive(IntPtr h)
+    {
+        lock (inactiveSync)
+        {
+            ActivationUnprotected = false;
+            IntPtr root = InactiveRootOf(h);
+            if (root == IntPtr.Zero) return IntPtr.Zero;
+            int holders;
+            if (inactiveHolders.TryGetValue(root, out holders))
+            {
+                inactiveHolders[root] = holders + 1;
+                return root;
+            }
+            if (root == GetForegroundWindow()) return IntPtr.Zero;
+            int style = GetWindowLongW(root, GWL_EXSTYLE);
+            if ((style & WS_EX_NOACTIVATE) != 0) return IntPtr.Zero;
+            // Recorded before the write: a kill between the two leaves a harmless entry.
+            LedgerAdd(root);
+            SetWindowLongW(root, GWL_EXSTYLE, style | WS_EX_NOACTIVATE);
+            if (!InactiveStyleSet(root))
+            {
+                LedgerRemove(root);
+                ActivationUnprotected = true;
+                return IntPtr.Zero;
+            }
+            inactiveHolders[root] = 1;
+            return root;
+        }
+    }
+    /// Ends one hold. The last holder clears the bit and reads it back; a bit that
+    /// stays set is a cleanup failure, never silently accepted. The root stays
+    /// recorded (and in the ledger) so a later release can retry.
+    public static void ReleaseInactive(IntPtr root)
+    {
+        if (root == IntPtr.Zero) return;
+        lock (inactiveSync)
+        {
+            int holders;
+            if (!inactiveHolders.TryGetValue(root, out holders)) return;
+            if (holders > 1)
+            {
+                inactiveHolders[root] = holders - 1;
+                return;
+            }
+            if (!IsWindow(root))
+            {
+                // The window is gone and its style with it.
+                inactiveHolders.Remove(root);
+                LedgerRemove(root);
+                return;
+            }
+            SetWindowLongW(root, GWL_EXSTYLE, GetWindowLongW(root, GWL_EXSTYLE) & ~WS_EX_NOACTIVATE);
+            if (InactiveStyleSet(root))
+            {
+                inactiveHolders[root] = 0;
+                throw new InvalidOperationException(
+                  "input_cleanup_unconfirmed: the background target could not be made activatable again");
+            }
+            inactiveHolders.Remove(root);
+            LedgerRemove(root);
+        }
+    }
+    /// One hold that spans several deliveries (a click and the text after it, a
+    /// sequence's steps). Deliveries inside it skip their own settle; EndInactive
+    /// settles and recovers the foreground once, then releases.
+    public static InactiveScope BeginInactive(IntPtr top)
+    {
+        var scope = new InactiveScope();
+        scope.Root = InactiveRootOf(top);
+        scope.ForegroundBefore = GetForegroundWindow();
+        scope.InputBefore = MixInputObservation.Read();
+        scope.Held = HoldInactive(top);
+        if (scope.Root != IntPtr.Zero)
+        {
+            lock (inactiveSync)
+            {
+                int open;
+                inactiveScopes.TryGetValue(scope.Root, out open);
+                inactiveScopes[scope.Root] = open + 1;
+            }
+        }
+        return scope;
+    }
+    public static void EndInactive(InactiveScope scope)
+    {
+        if (scope == null || scope.Ended) return;
+        scope.Ended = true;
+        try
+        {
+            System.Threading.Thread.Sleep(InactiveSettleMs);
+            RecoverInactiveForeground(scope.Root, scope.ForegroundBefore, scope.InputBefore);
+        }
+        finally
+        {
+            if (scope.Root != IntPtr.Zero)
+            {
+                lock (inactiveSync)
+                {
+                    int open;
+                    if (inactiveScopes.TryGetValue(scope.Root, out open))
+                    {
+                        if (open > 1) inactiveScopes[scope.Root] = open - 1;
+                        else inactiveScopes.Remove(scope.Root);
+                    }
+                }
+            }
+            ReleaseInactive(scope.Held);
+        }
+    }
+    static bool BelongsToInactiveTarget(IntPtr window, IntPtr root)
+    {
+        if (!IsWindowHandle(window) || !IsWindowHandle(root)) return false;
+        return window == root || IsWithinTopLevel(window, root) || IsOwnedBy(window, root) || SharesProcess(window, root);
+    }
+    /// A target that refused the style, or raised itself anyway, gives the user
+    /// their window back: at most two attempts, each only while the target still
+    /// holds the foreground and no user input arrived since delivery began.
+    static void RecoverInactiveForeground(IntPtr root, IntPtr before, MixInputSnapshot inputBefore)
+    {
+        if (root == IntPtr.Zero || !IsWindowHandle(before) || BelongsToInactiveTarget(before, root)) return;
+        if (inputBefore == null || !inputBefore.Ready) return;
+        RunInactiveRecovery(
+          delegate { return BelongsToInactiveTarget(GetForegroundWindow(), root); },
+          delegate
+          {
+              MixInputObservation.BeginExpected(inputBefore.Generation, inputBefore.Sequence);
+              try
+              {
+                  MixInputObservation.AssertContinue();
+                  Focus(before);
+              }
+              finally { MixInputObservation.End(); }
+          },
+          delegate (int ms) { System.Threading.Thread.Sleep(ms); });
+    }
+    /// Returns the restore attempts made. Each attempt first re-checks that the
+    /// target still holds the foreground; a restore refused for user input ends
+    /// recovery without another attempt.
+    internal static int RunInactiveRecovery(Func<bool> targetHoldsForeground, Action guardedRestore, Action<int> sleep)
+    {
+        int attempts = 0;
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            if (attempt > 0) sleep(InactiveRestoreGapMs);
+            if (!targetHoldsForeground()) break;
+            attempts++;
+            try { guardedRestore(); }
+            catch (Exception error)
+            {
+                string message = error.Message ?? "";
+                // The user moved: the desktop is theirs, so nothing is restored.
+                if (message.StartsWith("user_input_active") || message.StartsWith("input_observation_unavailable")) break;
+                throw;
+            }
+        }
+        return attempts;
+    }
+    static string WhileInactive(IntPtr top, Func<string> deliver)
+    {
+        IntPtr root = InactiveRootOf(top);
+        bool scoped;
+        lock (inactiveSync) { scoped = root != IntPtr.Zero && inactiveScopes.ContainsKey(root); }
+        if (scoped)
+        {
+            IntPtr held = HoldInactive(top);
+            try { return deliver(); }
+            finally { ReleaseInactive(held); }
+        }
+        InactiveScope scope = BeginInactive(top);
+        try { return deliver(); }
+        finally { EndInactive(scope); }
+    }
     public static bool SupportsBackgroundKeyboardClass(string name)
     {
         return !String.Equals(name, "ApplicationFrameWindow", StringComparison.OrdinalIgnoreCase)
@@ -244,6 +461,10 @@ public partial class MixWin32
     }
     public static string BackgroundText(IntPtr top, IntPtr preferred, string text)
     {
+        return WhileInactive(top, delegate { return BackgroundTextCore(top, preferred, text); });
+    }
+    static string BackgroundTextCore(IntPtr top, IntPtr preferred, string text)
+    {
         IntPtr target = KeyboardTarget(top, preferred);
         string value = text ?? "";
         ReportWindowInput(target, "type");
@@ -328,6 +549,10 @@ public partial class MixWin32
         return strokes;
     }
     public static string BackgroundKeys(IntPtr top, IntPtr preferred, string keys)
+    {
+        return WhileInactive(top, delegate { return BackgroundKeysCore(top, preferred, keys); });
+    }
+    static string BackgroundKeysCore(IntPtr top, IntPtr preferred, string keys)
     {
         var strokes = ParseBackgroundKeys(keys);
         IntPtr target = KeyboardTarget(top, preferred);

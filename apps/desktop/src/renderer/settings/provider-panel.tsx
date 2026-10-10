@@ -6,6 +6,7 @@ import { t } from '../i18n';
 import { ErrorNotice, verificationUrlOf } from '../ErrorNotice';
 import { registerMobileBack } from '../mobile-back';
 import { record } from '../record-utils';
+import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
 import { ProviderAccountsList, PROVIDER_ACCOUNTS_CHANGED } from '../ProviderAccountsList';
@@ -183,7 +184,13 @@ export function OAuthControl({
   const flowOpen = Boolean(flow);
   const flowState = String(flow?.state || '');
   useOAuthUsageRefresh(api, flowId, flowState);
-  const manualCodeFlow = providerId === 'anthropic-oauth';
+  // A remote client signs in on its own machine, so every provider that can
+  // take the final redirect (or code) back gets a paste step.
+  const remote = isRemoteHostRenderer();
+  const manualCodeFlow = providerId === 'anthropic-oauth' || remote;
+  const openSignInPage = (url: unknown) => {
+    if (typeof url === 'string' && url) void window.mixdogDesktop?.openExternal?.(url).catch(() => undefined);
+  };
   const loginLabel = providerId === 'cursor-oauth' ? 'Cursor OAuth' : `${providerLabel(provider)} OAuth`;
   const status = settingsStatus(flowState || 'pending');
   useEffect(() => {
@@ -250,9 +257,11 @@ export function OAuthControl({
   const start = async () => {
     setError('');
     completedFlowRef.current = '';
-    let loginArgs: unknown[] = [providerId];
-    if (addAccount) loginArgs = [providerId, { addAccount: true }];
-    else if (accountId) loginArgs = [providerId, { accountId }];
+    // The host must not open a browser nobody is sitting at for a remote client.
+    const hostBrowser = remote ? { openBrowser: false } : {};
+    let loginArgs: unknown[] = remote ? [providerId, hostBrowser] : [providerId];
+    if (addAccount) loginArgs = [providerId, { addAccount: true, ...hostBrowser }];
+    else if (accountId) loginArgs = [providerId, { accountId, ...hostBrowser }];
     try {
       const next = await run<RecordValue>(
         'beginOAuthProviderLogin',
@@ -262,7 +271,11 @@ export function OAuthControl({
         false,
         'throw'
       );
-      if (next) setFlow(record(next));
+      if (next) {
+        const started = record(next);
+        setFlow(started);
+        if (remote) openSignInPage(started.manualUrl || started.url);
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
@@ -325,9 +338,11 @@ export function OAuthControl({
               <div>
                 <h3 id={`settings-oauth-title-${providerId}`}>{loginLabel}</h3>
                 <p id={`settings-oauth-description-${providerId}`}>
-                  {manualCodeFlow
-                    ? t('Complete the browser login, then paste the authorization code.')
-                    : t('Finish signing in in your browser. This window updates automatically.')}
+                  {remote && flow.manualCodeSupported
+                    ? t('Sign in on the opened page. When it ends on a page that cannot load, paste that page address here.')
+                    : manualCodeFlow
+                      ? t('Complete the browser login, then paste the authorization code.')
+                      : t('Finish signing in in your browser. This window updates automatically.')}
                 </p>
               </div>
               <button
@@ -346,11 +361,18 @@ export function OAuthControl({
                 <span>{t('Status')}</span>
                 <b className={`tone-${status.tone}`}>{t(status.label)}</b>
               </div>
-              {manualCodeFlow && Boolean(flow.manualUrl || flow.url) && (
+              {/* A remote client opens the URL on its own machine: the host's browser is not in front of it. */}
+              {(manualCodeFlow || remote) && Boolean(flow.manualUrl || flow.url) && (
                 <label className="settings-oauth-url">
                   {t('Manual login URL')}
                   <textarea readOnly value={String(flow.manualUrl || flow.url)} />
                 </label>
+              )}
+              {remote && Boolean(flow.manualUrl || flow.url) && flow.state !== 'complete' && (
+                <button type="button" className="primary" onClick={() => openSignInPage(flow.manualUrl || flow.url)}>
+                  <ExternalLink size={14} aria-hidden="true" />
+                  {t('Open sign-in page')}
+                </button>
               )}
               {manualCodeFlow && Boolean(flow.manualCodeSupported) && flow.state !== 'complete' && (
                 <form
@@ -378,8 +400,10 @@ export function OAuthControl({
                 >
                   <input
                     name="code"
-                    placeholder={t('Authorization code or code#state')}
-                    aria-label={t('Anthropic authorization code')}
+                    placeholder={
+                      remote ? t('Paste the final redirect URL or code') : t('Authorization code or code#state')
+                    }
+                    aria-label={remote ? t('Sign-in redirect URL or code') : t('Anthropic authorization code')}
                     required
                   />
                   <button type="submit" className="primary" disabled={disabled}>

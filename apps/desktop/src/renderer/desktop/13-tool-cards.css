@@ -691,6 +691,31 @@
   min-width: 0;
   padding: 2px 12px 12px;
 }
+/* A call the expansion setting opened previews its first lines (the command
+   and about five lines of output); "Show more" lifts the cap. */
+.tool-activity-preview[data-clamped="true"] {
+  max-height: 140px;
+  overflow: hidden;
+}
+/* The fade only marks text that is actually cut off. */
+.tool-activity-preview[data-overflowing="true"] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+}
+.tool-activity-preview[data-clamped="true"] [data-scrollable] {
+  overflow: hidden;
+}
+.tool-activity-preview-more {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mx-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.tool-activity-preview-more:hover {
+  color: var(--mx-text);
+}
 /* The group's call list opens on the same height reveal as a call's detail,
    instead of the whole card appearing in one frame. */
 .tool-activity-reveal {

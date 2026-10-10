@@ -117,19 +117,6 @@ function assertCompletionEvidence(goal, at) {
   }
 }
 
-// Three consecutive turns naming the same blocker confirm it; true once the
-// audit reaches that count.
-function recordBlockAudit(goal, blocker) {
-  const turn = goal.turnCount;
-  const previous = goal.blockAudit;
-  const sameBlocker = previous?.reason === blocker;
-  let count = 1;
-  if (sameBlocker && previous.turn === turn) count = previous.count;
-  else if (sameBlocker && previous.turn === turn - 1) count = previous.count + 1;
-  goal.blockAudit = { reason: blocker, turn, count };
-  return count >= 3;
-}
-
 export function createGoalMutations(ctx) {
   const { root, now, defaultTimeLimitMs, turnGoalIds, turnStartedAt } = ctx;
 
@@ -201,10 +188,6 @@ export function createGoalMutations(ctx) {
       clearTurnFailures(goal);
     } else {
       const blocker = validateGoalBlocker(args.blocker);
-      if (!recordBlockAudit(goal, blocker)) {
-        goal.updatedAt = at;
-        return ctx.commit(id, goal);
-      }
       settleActiveClock(id, goal, at);
       goal.status = 'blocked';
       goal.blocker = blocker;

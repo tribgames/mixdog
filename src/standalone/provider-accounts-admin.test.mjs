@@ -161,3 +161,28 @@ test('login refuses a removed or arbitrary account before starting OAuth', async
     /no longer connected/
   );
 });
+
+test('a remote client logs in without a host browser and completes with the pasted redirect URL', async (t) => {
+  const provider = 'anthropic-oauth';
+  mockTokenExchange(t, {
+    access_token: 'access-remote',
+    refresh_token: 'refresh-remote',
+    expires_in: 3600,
+    scope: 'user:inference user:profile',
+  });
+  const cfg = { loadConfig: () => ({ providers: {} }), saveConfig() {} };
+  const login = await beginOAuthProviderLogin(cfg, provider, { addAccount: true, openBrowser: false });
+  t.after(() => login.cancel?.());
+  const state = new URL(login.url).searchParams.get('state');
+  await assert.rejects(
+    login.completeCode(`http://localhost:54545/callback?code=stolen&state=wrong-state`),
+    /state mismatch/
+  );
+  const result = await login.completeCode(`http://localhost:54545/callback?code=code-remote&state=${state}`);
+  assert.equal(result.authenticated, true);
+});
+
+test('login options reject a non-boolean openBrowser', async () => {
+  const cfg = { loadConfig: () => ({}), saveConfig() {} };
+  await assert.rejects(beginOAuthProviderLogin(cfg, 'openai-oauth', { openBrowser: 'no' }), /Invalid OAuth account login options/);
+});

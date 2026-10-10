@@ -36,9 +36,15 @@ test('normalizes legacy claims with a bounded fallback lifetime', () => {
     name: 'Phone',
     platform: '',
     browser: '',
+    desktop: false,
     expiresAt: now + REMOTE_CLAIM_FALLBACK_LIFETIME_MS,
   });
   assert.equal(normalizeRemoteClientClaim(claim({ expiresAt: now }), now), null);
+});
+
+test('a desktop-client claim keeps its flag; anything else is not one', () => {
+  assert.equal(normalizeRemoteClientClaim(claim({ desktop: true }), now)?.desktop, true);
+  assert.equal(normalizeRemoteClientClaim(claim({ desktop: 'yes' }), now)?.desktop, false);
 });
 
 test('a newer request from the same client replaces its existing card', () => {

@@ -29,7 +29,21 @@ export interface DesktopRemoteClientClaim {
   name: string;
   platform: string;
   browser: string;
+  /** Another Mixdog desktop app's remote window is asking. */
+  desktop?: boolean;
   expiresAt: number;
+}
+
+/** A saved "Connect to another PC" host on this machine. */
+export interface DesktopRemoteHost {
+  id: string;
+  name: string;
+  /** The host's pairing link: the relay origin plus its device route. */
+  url: string;
+  addedAt: number;
+  lastConnectedAt: number | null;
+  /** Whether its window is open right now. */
+  open: boolean;
 }
 
 export interface DesktopSessionSummary {

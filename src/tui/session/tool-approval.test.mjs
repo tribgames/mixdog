@@ -90,3 +90,30 @@ test('a disposed runtime refuses new requests and presents nothing', async () =>
   assert.deepEqual(await h.api.requestToolApproval({ name: 'a' }), { approved: false, reason: 'runtime disposed' });
   assert.equal(h.current(), null);
 });
+
+test('an answer from a known device is recorded on the state; a timeout names nobody', async () => {
+  let state = { toolApproval: null, toolApprovalResult: null };
+  const api = createToolApproval({
+    getState: () => state,
+    set: (patch) => {
+      state = { ...state, ...patch };
+    },
+    nextId: (() => {
+      let seq = 0;
+      return () => `req-${++seq}`;
+    })(),
+    getDisposed: () => false,
+    timeoutMs: 60_000,
+  });
+  const first = api.requestToolApproval({ name: 'shell' });
+  assert.equal(api.finishToolApproval('req-1', true, 'approved by user', 'Pixel'), true);
+  await first;
+  assert.equal(state.toolApprovalResult.id, 'req-1');
+  assert.equal(state.toolApprovalResult.approved, true);
+  assert.equal(state.toolApprovalResult.device, 'Pixel');
+
+  const second = api.requestToolApproval({ name: 'shell' });
+  assert.equal(api.finishToolApproval('req-2', false, 'approval timed out'), true);
+  await second;
+  assert.equal(state.toolApprovalResult, null);
+});

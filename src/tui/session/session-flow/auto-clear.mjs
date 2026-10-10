@@ -76,16 +76,20 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
   // Never forces busy=false mid-turn: bails while a turn is in flight.
   function flushDeferredClearedSessionUi() {
     if (!flags.pendingClearedSessionUi || getState().busy) return;
-    const { result } = flags.pendingClearedSessionUi;
+    const { result, sessionId } = flags.pendingClearedSessionUi;
     flags.pendingClearedSessionUi = null;
     flags.autoClearInFlight = false;
+    if (runtime.session?.id !== sessionId) return;
     if (applyAutoClearUi(result)) pushNotice(LATE_COMPLETION_NOTICE, 'info');
   }
 
-  function onLateCompact(lateResult) {
+  function onLateCompact(lateResult, sessionId) {
+    // The active session changed while the abandoned compaction ran: its
+    // result belongs to a session that is no longer shown.
+    if (runtime.session?.id !== sessionId) return;
     if (getState().busy) {
       // Do not wipe items/queued or force busy=false mid-turn.
-      flags.pendingClearedSessionUi = { result: lateResult };
+      flags.pendingClearedSessionUi = { result: lateResult, sessionId };
     } else {
       if (applyAutoClearUi(lateResult)) pushNotice(LATE_COMPLETION_NOTICE, 'info');
     }
@@ -94,7 +98,7 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
   // Validate both rejected calls and error results before either normal or
   // late completion can reset the UI. Never follow compact with clear:
   // that would discard conversation/execution records the compactor kept.
-  async function compactWithinTimeout(compactTimeoutMs) {
+  async function compactWithinTimeout(compactTimeoutMs, sessionId) {
     const compactPromise = runtime.compact({ requireReduction: true }).then((result) => {
       if (!result) throw new Error('no active session');
       if (result.error) throw new Error(result.error);
@@ -112,7 +116,7 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
     } catch (raceError) {
       flags.autoClearInFlight = true;
       compactPromise
-        .then(onLateCompact, () => {})
+        .then((lateResult) => onLateCompact(lateResult, sessionId), () => {})
         .finally(() => {
           if (!flags.pendingClearedSessionUi) flags.autoClearInFlight = false;
         });
@@ -146,6 +150,7 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
   // results without a summary. Plain /clear remains a separate explicit wipe.
   async function performAutoClear({ compactTimeoutMs = AUTO_CLEAR_COMPACT_TIMEOUT_MS } = {}) {
     flags.autoClearRunning = true;
+    const sessionId = runtime.session?.id;
     const startedAt = Date.now();
     // commandBusy blocks concurrent session commands (resume/newSession/
     // setModel) AND new submits for the duration of the async clear — the
@@ -161,7 +166,7 @@ export function createAutoClearOps(bag, { reset, kickDrain }) {
       // Without this, long idle clears can look like a frozen prompt followed by
       // an already-complete status row.
       await new Promise((resolve) => setTimeout(resolve, 0));
-      return applyAutoClearUi(await compactWithinTimeout(compactTimeoutMs));
+      return applyAutoClearUi(await compactWithinTimeout(compactTimeoutMs, sessionId));
     } catch (error) {
       const message = presentErrorText(error, { surface: 'compact' });
       pushItem({

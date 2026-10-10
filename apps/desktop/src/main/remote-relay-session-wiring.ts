@@ -1,7 +1,8 @@
 // Wires desktop session state and roster subscriptions to the relay. Recovery
 // stays beside those subscriptions so a replacement client cannot receive a
 // late read from the previous relay leg.
-import { createPushNotifier } from './push-notifier';
+import { createPushNotifier, type NativePushMessage } from './push-notifier';
+import type { NativePushStore } from './native-push-store';
 import type { PushSubscriptionStore } from './push-subscription-store';
 import type { DesktopService } from './desktop-service-contract';
 import type { RelayCatalogs } from './remote-relay-catalog';
@@ -16,6 +17,10 @@ export interface RelaySessionWiringDeps {
   catalogs: RelayCatalogs;
   sessionStates: RelaySessionStateFanout;
   pushStore: PushSubscriptionStore;
+  nativePush?: {
+    store: NativePushStore;
+    send(message: NativePushMessage): boolean;
+  };
   live(clientId: string, state: RelayClientState): boolean;
   closed(): boolean;
   sendEncryptedFrame: SendEncryptedFrame;
@@ -83,6 +88,23 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
           }
           return false;
         },
+        ...(deps.nativePush
+          ? {
+              native: {
+                list: () => deps.nativePush!.store.list(),
+                // A native client is a paired credential; any live leg of it
+                // that has not gone to the background is watching.
+                isClientForeground: (clientId: string) => {
+                  for (const client of deps.clients.clients.values()) {
+                    if (client.credentialId === clientId && !client.background) return true;
+                  }
+                  return false;
+                },
+                send: (message: NativePushMessage) => deps.nativePush!.send(message),
+                removeByClient: (clientId: string) => deps.nativePush!.store.removeByClient(clientId),
+              },
+            }
+          : {}),
         onError: (detail) => console.error(`[mixdog-remote-push] ${detail}`),
         onDiagnostic: (event, details) =>
           console.info(
@@ -102,6 +124,7 @@ export function createRelaySessionWiring(deps: RelaySessionWiringDeps): RelaySes
         pushNotifier.onAgentPool(agents);
       });
       const unsubscribeSessionStates = deps.host.subscribeSessionStates((update) => {
+        pushNotifier.onSessionState(update);
         if (deps.clients.size === 0) return;
         deps.sessionStates.publish(update);
       });

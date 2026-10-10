@@ -6,12 +6,12 @@ import { useEffect, useState } from 'react';
 
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
-import { isRemoteBrowserRenderer } from '../remote-ui-projection';
+import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { Group, ToggleRow } from './capability-controls';
 
 export function DesktopNotificationToggle() {
-  const api = isRemoteBrowserRenderer()
+  const api = isRemoteHostRenderer()
     ? undefined
     : (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
   const [enabled, setEnabled] = useState<boolean | null>(null);

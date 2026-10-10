@@ -21,8 +21,10 @@ function ghPathCandidates(): string[] {
   if (process.platform === 'win32') {
     const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
     const localAppData = process.env.LOCALAPPDATA || '';
+    // 'gh.exe', not 'gh': the login PTY resolves bare names against Path
+    // without PATHEXT, so a bare 'gh' fails there with "File not found".
     return [
-      'gh',
+      'gh.exe',
       join(programFiles, 'GitHub CLI', 'gh.exe'),
       ...(localAppData ? [join(localAppData, 'Microsoft', 'WinGet', 'Links', 'gh.exe')] : []),
     ];
@@ -41,7 +43,7 @@ let cachedGit: { path: string; version: string } | null | undefined;
 async function resolveGh(refresh = false): Promise<{ path: string; version: string } | null> {
   if (!refresh && cachedGh !== undefined) return cachedGh;
   for (const candidate of ghPathCandidates()) {
-    if (candidate !== 'gh' && !existsSync(candidate)) continue;
+    if (candidate !== 'gh' && candidate !== 'gh.exe' && !existsSync(candidate)) continue;
     const probe = await run(candidate, ['--version']);
     if (probe.code === 0) {
       cachedGh = { path: candidate, version: /gh version (\S+)/.exec(probe.stdout)?.[1] || '' };
@@ -164,6 +166,8 @@ interface ActiveLoginFlow {
   output: string;
   answeredGitPrompt: boolean;
   pressedEnterToOpen: boolean;
+  /** The user asked to open the device page (the code card's button). */
+  browserRequested: boolean;
   timer: NodeJS.Timeout | null;
 }
 
@@ -192,6 +196,7 @@ export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> 
     output: '',
     answeredGitPrompt: false,
     pressedEnterToOpen: false,
+    browserRequested: false,
     timer: null,
   };
   loginFlows.set(flowId, entry);
@@ -215,7 +220,9 @@ export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> 
   }, LOGIN_TIMEOUT_MS);
   pty.onData((data) => {
     entry.output = (entry.output + stripControl(data)).slice(-LOGIN_OUTPUT_LIMIT);
-    const code = /one-time code:\s*([A-Z0-9-]{6,})/i.exec(entry.output)?.[1];
+    // "First copy your one-time code: XXXX-XXXX", or — when gh's own
+    // clipboard option is on — "One-time code (XXXX-XXXX) copied to clipboard".
+    const code = /one-time code(?::\s*|\s*\()([A-Z0-9-]{6,})/i.exec(entry.output)?.[1];
     const url = /(https:\/\/github\.com\/login\/device\S*)/.exec(entry.output)?.[1];
     if (code && entry.flow.state === 'pending') {
       entry.flow = { ...entry.flow, state: 'code', code, url: url || 'https://github.com/login/device' };
@@ -223,16 +230,14 @@ export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> 
       entry.flow = { ...entry.flow, url };
     }
     // gh's interactive pauses (TTY-only): default-accept the git
-    // credential-helper question and the press-Enter-to-open-browser stop —
-    // gh itself then opens the device page in the user's browser.
+    // credential-helper question. The press-Enter-to-open-browser stop is held
+    // until the user asks for the device page (githubCliLoginOpenBrowser), so
+    // the browser never covers the code before it has been seen.
     if (!entry.answeredGitPrompt && /Authenticate Git with your GitHub credentials/.test(entry.output)) {
       entry.answeredGitPrompt = true;
       pty.write('\r');
     }
-    if (!entry.pressedEnterToOpen && /Press Enter to open/.test(entry.output)) {
-      entry.pressedEnterToOpen = true;
-      pty.write('\r');
-    }
+    pressEnterToOpen(entry);
   });
   pty.onExit(({ exitCode }) => {
     if (entry.timer) {
@@ -255,6 +260,24 @@ export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> 
     entry.flow = { ...entry.flow, state: 'error', message: tail || `gh exited with code ${exitCode}` };
   });
   return entry.flow;
+}
+
+function pressEnterToOpen(entry: ActiveLoginFlow): void {
+  if (entry.pressedEnterToOpen || !entry.browserRequested || !/Press Enter to open/.test(entry.output)) return;
+  entry.pressedEnterToOpen = true;
+  entry.pty?.write('\r');
+}
+
+/** The code card's "Copy & open GitHub": releases gh's press-Enter stop so gh
+ *  opens the device page (and starts polling). Returns false when gh already
+ *  did — a repeat open is then the renderer's own. */
+export function githubCliLoginOpenBrowser(flowId: string): boolean {
+  const entry = loginFlows.get(flowId);
+  if (!entry) throw new Error('Unknown GitHub login flow.');
+  if (entry.browserRequested) return false;
+  entry.browserRequested = true;
+  pressEnterToOpen(entry);
+  return true;
 }
 
 export function githubCliLoginStatus(flowId: string): DesktopGithubCliLoginFlow {

@@ -8,6 +8,7 @@ const previousDataDir = process.env.MIXDOG_DATA_DIR;
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-usage-dashboard-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
 const { createUsageDashboard } = await import('./usage-dashboard.mjs');
+const { creditsFromSnapshot } = await import('./usage-dashboard-model.mjs');
 after(() => {
   if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
   else process.env.MIXDOG_DATA_DIR = previousDataDir;
@@ -139,4 +140,41 @@ test('dashboard rows keep provider priority, label ordering and stable ties with
     ]
   );
   assert.deepEqual(setup, originalSetup);
+});
+
+test('credits appear only when the account credit feature is enabled', () => {
+  const codex = (balance) => creditsFromSnapshot('openai-oauth', { balance });
+  assert.equal(codex({ unit: 'credits', remainingCredits: 0, unlimited: false, hasCredits: false }), null);
+  assert.equal(codex(null), null);
+  assert.deepEqual(codex({ unit: 'credits', remainingCredits: 12, unlimited: false, hasCredits: false }), {
+    unit: 'credits',
+    balance: 12,
+  });
+  assert.deepEqual(codex({ unit: 'credits', remainingCredits: 0, unlimited: true, hasCredits: true }), {
+    unit: 'credits',
+    balance: 0,
+    unlimited: true,
+  });
+  const claude = (snapshot) => creditsFromSnapshot('anthropic-oauth', snapshot);
+  assert.equal(claude({ quotaWindows: [{ label: '5H', usedPct: 4 }], balance: null }), null);
+  assert.deepEqual(
+    claude({
+      quotaWindows: [{ label: 'EXTRA', limitUsd: 50, usedUsd: 12.5, remainingUsd: 37.5 }],
+      balance: { budgetUsd: 50, spentUsd: 12.5, remainingUsd: 37.5 },
+    }),
+    { unit: 'usd', balance: 37.5, monthlyLimit: 50, spent: 12.5 }
+  );
+  assert.equal(creditsFromSnapshot('cursor-oauth', { balance: { remainingUsd: 1 } }), null);
+});
+
+test('subscription rows carry useCredits from the account pool', async () => {
+  const dashboard = await createUsageDashboard(
+    {},
+    {
+      setup: { api: [], oauth: [{ id: 'openai-oauth', name: 'Codex', authenticated: false }], local: [] },
+      getProvider: () => null,
+    }
+  );
+  assert.equal(dashboard.rows[0].useCredits, false);
+  assert.equal('credits' in dashboard.rows[0], false);
 });

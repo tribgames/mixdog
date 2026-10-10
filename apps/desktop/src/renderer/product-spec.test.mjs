@@ -46,3 +46,20 @@ test('developer settings are a local-only Support category ahead of shortcuts', 
   assert.equal(settingsCategoryForSurface('developer', true), 'general');
   assert.equal(settingsCategoryForSurface('developer', false), 'developer');
 });
+
+test('a host with open access shows remote clients the Providers and Developer pages', () => {
+  const trusted = settingsCategoriesForSurface(true, true).map((category) => category.value);
+  assert.equal(trusted.includes('providers'), true);
+  assert.equal(trusted.includes('developer'), true);
+  assert.equal(settingsCategoryForSurface('providers', true, true), 'providers');
+  assert.equal(settingsCategoryForSurface('developer', true, true), 'developer');
+  // Moved extension pages stay folded into General either way.
+  assert.equal(settingsCategoryForSurface('mcp', true, true), 'general');
+  assert.equal(settingsCategoriesForSurface(true, false).some((category) => category.value === 'providers'), false);
+});
+
+test('Connect to another PC is reachable from the command surface', () => {
+  const command = resolveDesktopSlashCommand('connect');
+  assert.equal(command?.settingsRow, 'connection');
+  assert.equal(desktopSlashCommandDescription(command), 'Connect to another PC');
+});

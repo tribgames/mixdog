@@ -17,7 +17,9 @@ import {
 import { openEditorFileExternally } from './editor-external-file';
 import { BreadcrumbPicker, BreadcrumbTrail } from './editor-breadcrumb-parts';
 import { DockOverflowMenu, type DockAction } from './pane-dock-chrome';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { explorerAbsolutePath } from './explorer-tree-model';
+import { isRemoteHostRenderer } from './remote-ui-projection';
+import { copyTextToClipboard } from './text-format';
 
 /** Same grammar as the side header: Save is the only inline button (while
  *  dirty); everything else is a ⋯ item. */
@@ -43,7 +45,8 @@ function breadcrumbMoreActions({
   onRevert(): void;
 }): DockAction[] {
   const moreActions: DockAction[] = [];
-  if (!isRemoteBrowserRenderer() && showOpenDefault) {
+  const remote = isRemoteHostRenderer();
+  if (!remote && showOpenDefault) {
     moreActions.push({
       id: 'open-default',
       label: t('Open in default app'),
@@ -51,12 +54,21 @@ function breadcrumbMoreActions({
       onSelect: () => void openEditorFileExternally(projectPath, relPath, accessToken),
     });
   }
-  moreActions.push({
-    id: 'reveal',
-    label: t('Reveal in Explorer'),
-    icon: FolderOpen,
-    onSelect: () => void api?.revealFile?.(projectPath, relPath, accessToken),
-  });
+  moreActions.push(
+    remote
+      ? {
+          id: 'copy-path',
+          label: t('Copy path'),
+          icon: FolderOpen,
+          onSelect: () => void copyTextToClipboard(explorerAbsolutePath(projectPath, relPath)),
+        }
+      : {
+          id: 'reveal',
+          label: t('Reveal in Explorer'),
+          icon: FolderOpen,
+          onSelect: () => void api?.revealFile?.(projectPath, relPath, accessToken),
+        }
+  );
   if (showRevert) {
     moreActions.push({
       id: 'revert',

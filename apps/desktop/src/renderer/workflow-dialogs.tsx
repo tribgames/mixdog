@@ -43,8 +43,10 @@ function RouteControls({
   route,
   models,
   disabled,
+  composerParity = false,
   onChange,
 }: {
+  composerParity?: boolean;
   label: string;
   route: RecordValue;
   models: DesktopModelOption[];
@@ -57,6 +59,7 @@ function RouteControls({
         ariaLabel={label}
         models={models}
         disabled={disabled}
+        composerParity={composerParity}
         value={route as unknown as DesktopModelSelection}
         onChange={onChange}
       />
@@ -278,6 +281,7 @@ export function AgentEditorDialog({
                 route={route}
                 models={models}
                 disabled={busy}
+                composerParity
                 onChange={(selection) => setRoute(selection as unknown as RecordValue)}
               />
             </div>
@@ -385,6 +389,7 @@ export function RouteEditorDialog({
                 route={route}
                 models={models}
                 disabled={busy}
+                composerParity={target.modelKind === 'agent'}
                 onChange={(selection) => setRoute(selection as unknown as RecordValue)}
               />
             </div>

@@ -1100,14 +1100,19 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       await act(async () => f.links()[index].dispatchEvent(event));
       return event;
     };
-    assert.equal((await contextMenu(1)).defaultPrevented, false);
-    assert.deepEqual(labelsOf(), []);
+    f.dom.window.mixdogRemoteServer = 'https://relay.test';
+    assert.equal((await contextMenu(1)).defaultPrevented, true);
+    assert.deepEqual(labelsOf(), ['Open in browser', 'Copy link']);
+    await act(async () =>
+      f.dom.window.document.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Escape' }))
+    );
     // A remote browser has no OS bridge, so only the in-app actions appear.
     assert.equal((await contextMenu(0)).defaultPrevented, true);
     assert.deepEqual(labelsOf(), ['Open', 'Copy path']);
     await act(async () =>
       f.dom.window.document.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Escape' }))
     );
+    delete f.dom.window.mixdogRemoteServer;
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: desktopNavigator });
     await contextMenu(0);
     assert.deepEqual(labelsOf(), ['Open', 'Open in default app', 'Reveal in Explorer', 'Copy path']);
@@ -1174,6 +1179,13 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     f.dom.window.mixdogDesktop.openExternal = async () => {
       throw new Error('browser unavailable');
     };
+    await f.click();
+    // The desktop bridge exists, so no tab is opened by the page; the failure is shown.
+    assert.deepEqual(f.popups, []);
+    assert.equal(f.toasts.length, 1);
+    assert.match(f.toasts[0].text, /Unable to open file: .*browser unavailable/);
+    // Only a surface without the bridge opens a tab itself.
+    delete f.dom.window.mixdogDesktop.openExternal;
     await f.click();
     assert.deepEqual(f.popups, [['https://example.com/report', '_blank', 'noopener']]);
   });
@@ -1256,6 +1268,27 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
     }
   });
 
+  test(`${pipeline}: bare URLs stop before glued Korean prose`, async (t) => {
+    const f = await mount(t, render, 'See https://example.com/docs');
+    for (const [source, href, text] of [
+      [
+        '페이지(https://aiscroll.io/ko/mixdog/)와 비교',
+        'https://aiscroll.io/ko/mixdog/',
+        '페이지(https://aiscroll.io/ko/mixdog/)와 비교',
+      ],
+      ['주소는 https://example.com/a_(b)입니다', 'https://example.com/a_(b)', '주소는 https://example.com/a_(b)입니다'],
+      ['주소는 https://example.com/docs.에서', 'https://example.com/docs', '주소는 https://example.com/docs.에서'],
+      ['www.example.com/x)를 여세요', 'http://www.example.com/x', 'www.example.com/x)를 여세요'],
+      ['[https://example.com/와](https://example.com/와)', 'https://example.com/와', 'https://example.com/와'],
+    ]) {
+      await f.update(PROJECT, source);
+      const links = f.links();
+      assert.equal(links.length, 1, source);
+      assert.equal(decodeURI(links[0].getAttribute('href')), href, source);
+      assert.equal(readableText(f.dom.window.document.querySelector('p')), text, source);
+    }
+  });
+
   test(`${pipeline}: streamed link captions never flash brackets or a partial destination`, async (t) => {
     const f = await mount(t, render, 'See [do');
     for (const [source, caption, href] of [
@@ -1331,6 +1364,23 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
     assert.equal(f.toasts.length, 0);
   });
 
+  test(`${pipeline}: a web page link naming a line opens its source, not the page`, async (t) => {
+    const inSession = (text) =>
+      React.createElement(MarkdownSessionContext.Provider, { value: 'sess-source' }, render(text));
+    const f = await mount(t, inSession, '[source](site/index.html:12)', PROJECT, (f) => {
+      installProjectFiles(f, { [PROJECT]: ['site/index.html'] });
+      f.dom.window.mixdogDesktop.localPageUrl = async (_project, rel) => `http://127.0.0.1:9/token/${rel}`;
+    });
+    const stopReveal = onBrowserPageRevealRequested(() => {});
+    t.after(stopReveal);
+    await f.click();
+    assert.deepEqual(f.opened, [[PROJECT, 'site/index.html', 12]]);
+    assert.deepEqual(f.external, []);
+    const loaded = [];
+    onBrowserPageAddressRequested('sess-source', (url) => loaded.push(url))();
+    assert.deepEqual(loaded, []);
+  });
+
   test(`${pipeline}: web links open in the session side browser, else the system browser`, async (t) => {
     const inSession = (text) =>
       React.createElement(MarkdownSessionContext.Provider, { value: 'sess-web' }, render(text));
@@ -1339,7 +1389,7 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
     await f.click();
     assert.deepEqual(f.external, [['https://example.com/docs']]);
     const revealed = [];
-    const stopReveal = onBrowserPageRevealRequested((id) => revealed.push(id));
+    const stopReveal = onBrowserPageRevealRequested(({ sessionId }) => revealed.push(sessionId));
     t.after(stopReveal);
     await f.click();
     const loaded = [];
@@ -1347,6 +1397,52 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
     assert.deepEqual(revealed, ['sess-web']);
     assert.deepEqual(loaded, ['https://example.com/docs']);
     assert.equal(f.external.length, 1);
+  });
+
+  test(`${pipeline}: Ctrl/Meta/middle click and the menu send web links and local pages to the system browser`, async (t) => {
+    const inSession = (text) =>
+      React.createElement(MarkdownSessionContext.Provider, { value: 'sess-ext' }, render(text));
+    const f = await mount(t, inSession, '[web](https://example.com/docs)\n\n[page](site/index.html)', PROJECT, (f) => {
+      installProjectFiles(f, { [PROJECT]: ['site/index.html'] });
+      f.dom.window.mixdogDesktop.localPageUrl = async (_project, rel) => `http://127.0.0.1:9/token/${rel}`;
+    });
+    const revealed = [];
+    const stopReveal = onBrowserPageRevealRequested(({ sessionId }) => revealed.push(sessionId));
+    t.after(stopReveal);
+    const served = 'http://127.0.0.1:9/token/site/index.html';
+    assert.equal((await f.click(0, { ctrlKey: true })).defaultPrevented, true);
+    assert.equal((await f.click(0, { metaKey: true })).defaultPrevented, true);
+    assert.equal((await f.click(0, { button: 1 }, 'auxclick')).defaultPrevented, true);
+    assert.equal((await f.click(1, { ctrlKey: true })).defaultPrevented, true);
+    assert.equal((await f.click(1, { button: 1 }, 'auxclick')).defaultPrevented, true);
+    assert.deepEqual(f.external, [
+      ['https://example.com/docs'],
+      ['https://example.com/docs'],
+      ['https://example.com/docs'],
+      [served],
+      [served],
+    ]);
+    assert.deepEqual(revealed, []);
+    // Plain click stays in the pane.
+    await f.click(0);
+    await f.click(1);
+    assert.deepEqual(revealed, ['sess-ext', 'sess-ext']);
+    assert.equal(f.external.length, 5);
+    // The HTML link's menu offers the system browser with the served URL.
+    const menuItems = () => [...f.dom.window.document.querySelectorAll('[role="menu"] [role="menuitem"]')];
+    await act(async () =>
+      f
+        .links()[1]
+        .dispatchEvent(
+          new f.dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 6 })
+        )
+    );
+    const item = menuItems().find((entry) => entry.textContent === 'Open in browser');
+    assert.ok(item);
+    await act(async () => item.click());
+    await act(async () => {});
+    assert.deepEqual(f.external.at(-1), [served]);
+    assert.equal(f.toasts.length, 0);
   });
 
   test(`${pipeline}: a draft's web links use the system browser even with a pane shell up`, async (t) => {

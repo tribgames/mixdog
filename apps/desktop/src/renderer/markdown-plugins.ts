@@ -12,6 +12,8 @@ interface HastLikeNode {
   tagName?: unknown;
   properties?: Record<string, unknown>;
   children?: HastLikeNode[];
+  url?: unknown;
+  position?: { start: { offset?: number } };
 }
 
 const adjacentStrongPunctuation =
@@ -96,6 +98,65 @@ export function repairAdjacentStrongPunctuation() {
         repaired.push(...sliceSpans(spans, cursor, projection.length));
         node.children = repaired;
       }
+    };
+    visit(tree);
+  };
+}
+
+// GFM extends a bare URL through every non-space character, so Korean prose
+// glued to a link (`페이지(https://a.io/x/)와`) ended up inside the href and
+// opened a 404. Cut a literal autolink at its first CJK character, then drop
+// the trailing punctuation and unbalanced `)` that cut exposes, returning the
+// remainder to prose. Only literal autolinks are cut: their label starts where
+// the link starts, while `[..](..)` and `<..>` carry a delimiter first.
+const CJK_CHARACTER = /[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u3000-\u303f\uff00-\uffef]/u;
+const TRAILING_URL_PUNCTUATION = /[?!.,:*_~]$/;
+
+function autolinkCut(label: string): number {
+  const found = label.search(CJK_CHARACTER);
+  if (found <= 0) return -1;
+  let end = found;
+  for (;;) {
+    const head = label.slice(0, end);
+    if (TRAILING_URL_PUNCTUATION.test(head)) end -= 1;
+    else if (head.endsWith(')') && head.split(')').length > head.split('(').length) end -= 1;
+    else return end;
+  }
+}
+
+export function trimAutolinkCjkSuffix() {
+  return (tree: HastLikeNode) => {
+    const visit = (node: HastLikeNode) => {
+      const children = node.children;
+      if (!children) return;
+      const repaired: HastLikeNode[] = [];
+      for (const child of children) {
+        visit(child);
+        repaired.push(child);
+        const label = child.children?.[0];
+        const url = child.url;
+        if (
+          child.type !== 'link' ||
+          typeof url !== 'string' ||
+          child.children?.length !== 1 ||
+          label?.type !== 'text' ||
+          typeof label.value !== 'string' ||
+          !url.endsWith(label.value) ||
+          child.position?.start.offset === undefined ||
+          child.position.start.offset !== label.position?.start.offset
+        ) {
+          continue;
+        }
+        const end = autolinkCut(label.value);
+        if (end <= 0) continue;
+        const tail = label.value.slice(end);
+        child.url = url.slice(0, url.length - tail.length);
+        label.value = label.value.slice(0, end);
+        delete child.position;
+        delete label.position;
+        repaired.push({ type: 'text', value: tail });
+      }
+      node.children = repaired;
     };
     visit(tree);
   };

@@ -2,6 +2,7 @@ import { lazy } from 'react';
 
 import type { WorkspaceSelection } from './nav-types';
 import { loadMonacoLocale } from './monaco-locale';
+import { isNativeDesktopWindow } from './remote-ui-projection';
 
 const importDiffView = () => import('./DiffView.lazy');
 const importTerminalPane = () => import('./TerminalPane');
@@ -98,7 +99,7 @@ export function scheduleEditorPanePrefetch(): void {
   // prefetch entirely — exactly the surfaces where the fetch costs the most.
   // The boot gate sets the reveal marker on both, and it still holds startup.
   if (host.__mixdogDesktopRevealed !== true) return;
-  const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
+  const nativeWindow = isNativeDesktopWindow();
   if (nativeWindow && host.__mixdogWindowShown !== true) return;
   editorIntentScheduled = true;
   const start = () => {

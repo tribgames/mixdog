@@ -53,6 +53,12 @@ export interface RelayPayloadLimitsOptions {
   showToast: (text: string) => void;
 }
 
+let activeUplinkLimits: (() => RelayUplinkCeilings | null) | null = null;
+
+/** Largest binary frame the relay admits on this connection, or null when it
+ *  has published none (or this is not a remote browser). */
+export const learnedRelayUplinkBinaryBytes = (): number | null => activeUplinkLimits?.()?.binary ?? null;
+
 export const createRelayPayloadLimits = ({ pending, showToast }: RelayPayloadLimitsOptions) => {
   // The relay's per-frame ceiling as this browser knows it: handed over with
   // the E2EE handshake, and tightened by any refusal notice that proves a
@@ -83,6 +89,10 @@ export const createRelayPayloadLimits = ({ pending, showToast }: RelayPayloadLim
       capacity: learnedRoutedLimit,
       textFrames: relayTextEnvelope,
     });
+  // The composer reads the ceilings through this module-level handle so it can
+  // refuse an oversize attachment at attach time. Unpublished ceilings are a
+  // guess, not a contract, so they never gate an attachment.
+  activeUplinkLimits = () => (publishedCeilings ? relayUplinkLimits() : null);
   const learnFrameLimit = (candidate: unknown): void => {
     if (typeof candidate !== 'number') return;
     learnedFrameLimit = resolveRelayFrameLimit(candidate, learnedFrameLimit);

@@ -254,6 +254,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/preload/index.ts'),
           'computer-overlay': resolve(__dirname, 'src/preload/computer-overlay.ts'),
+          'remote-window': resolve(__dirname, 'src/preload/remote-window.ts'),
         },
         output: {
           // Sandboxed Electron preloads run through the CommonJS preload

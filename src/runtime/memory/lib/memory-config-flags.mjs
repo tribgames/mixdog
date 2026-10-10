@@ -6,6 +6,7 @@ import path from 'node:path';
 import { readSection } from '../../shared/config.mjs';
 import { readServiceAdvert } from '../../shared/service-discovery.mjs';
 import { envFlag } from '../../shared/env.mjs';
+import { onnxRuntimeSupported } from '../../shared/onnx-runtime-support.mjs';
 
 // Memory-module public name for the shared parser (re-exported by memory/index.mjs).
 export { envFlag as envFlagEnabled };
@@ -40,7 +41,7 @@ export function memorySecondaryMode() {
 }
 
 export function embeddingWarmupCanStart() {
-  return embeddingWarmupEnabled() && !memorySecondaryMode();
+  return onnxRuntimeSupported() && embeddingWarmupEnabled() && !memorySecondaryMode();
 }
 
 // On-demand embedding load (recall query embed, cold fan-out): allowed
@@ -50,7 +51,7 @@ export function embeddingWarmupCanStart() {
 // under the daemon's lightweight-boot default (=0), so every recall silently
 // degraded to lexical-only results.
 export function embeddingOnDemandCanStart() {
-  return !memorySecondaryMode();
+  return onnxRuntimeSupported() && !memorySecondaryMode();
 }
 
 export function memoryLlmWorkerEnabled() {

@@ -1,0 +1,9 @@
+{
+  "appId": "io.mixdog.app",
+  "appName": "Mixdog",
+  "webDir": "www",
+  "appendUserAgent": "MixdogApp/1",
+  "server": {
+    "androidScheme": "https"
+  }
+}

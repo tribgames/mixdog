@@ -5,6 +5,13 @@ import type { DesktopBrowserTab } from '../shared/contract';
 import { t } from './i18n';
 import { scrollTabListByWheel } from './pane-dock-chrome';
 import { wrappedNavigationIndex } from './list-navigation';
+import {
+  ScmContextMenu,
+  elementMenuPoint,
+  isContextMenuKey,
+  pointerMenuPoint,
+  type ScmContextMenuState,
+} from './ScmContextMenu';
 import './tab-strip.css';
 
 const ARROW_OFFSETS: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
@@ -24,6 +31,24 @@ export function BrowserTabStrip({
   const strip = useRef<HTMLDivElement | null>(null);
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
+  const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
+  const openMenu = (tab: DesktopBrowserTab, title: string, point: { x: number; y: number }) =>
+    setMenu({
+      label: title,
+      ...point,
+      items: [
+        { id: 'close-tab', label: t('Close tab'), disabled: busy, onSelect: () => void run(() => onClose(tab.id)) },
+        {
+          id: 'close-others',
+          label: t('Close Others'),
+          disabled: busy || tabs.length < 2,
+          onSelect: () =>
+            void run(async () => {
+              for (const other of tabs) if (other.id !== tab.id) await onClose(other.id);
+            }),
+        },
+      ],
+    });
   const activeId = tabs.find((tab) => tab.active)?.id;
   // biome-ignore lint/correctness/useExhaustiveDependencies: the selected tab changing is the trigger; the body only reads the DOM.
   useEffect(() => {
@@ -77,6 +102,10 @@ export function BrowserTabStrip({
                 event.preventDefault();
                 void run(() => onClose(tab.id));
               }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                openMenu(tab, title, pointerMenuPoint(event));
+              }}
             >
               <button
                 type="button"
@@ -88,6 +117,11 @@ export function BrowserTabStrip({
                 className="browser-tab-select"
                 title={`${title}\n${tab.url}`}
                 onClick={() => void run(() => onSelect(tab.id))}
+                onKeyDown={(event) => {
+                  if (!isContextMenuKey(event)) return;
+                  event.preventDefault();
+                  openMenu(tab, title, elementMenuPoint(event.currentTarget));
+                }}
               >
                 {tab.loading ? (
                   <ProgressSpinner size={15} aria-hidden="true" />
@@ -111,6 +145,7 @@ export function BrowserTabStrip({
           );
         })}
       </div>
+      <ScmContextMenu state={menu} onClose={() => setMenu(null)} />
       {onCreate && (
         <button
           type="button"

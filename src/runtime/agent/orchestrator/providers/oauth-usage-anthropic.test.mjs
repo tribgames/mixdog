@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 const dir = mkdtempSync(join(tmpdir(), 'mixdog-oauth-usage-'));
 process.env.MIXDOG_DATA_DIR = dir;
-const { normalizeAnthropicUsage } = await import('./oauth-usage.mjs');
+const { normalizeAnthropicUsage, normalizeOpenAIWhamUsage } = await import('./oauth-usage.mjs');
 after(() => rmSync(dir, { recursive: true, force: true }));
 
 test('scoped weekly windows are reported next to the all-model windows', () => {
@@ -98,4 +98,32 @@ test('Fable remains visible when the active limit changes, with or without legac
       assert.equal(snapshot.quotaWindows[2].resetAt, Date.parse(weeklyReset));
     }
   }
+});
+
+test('extra_usage cents convert to USD', () => {
+  const snapshot = normalizeAnthropicUsage({
+    five_hour: { utilization: 4, resets_at: '2026-09-14T20:00:00Z' },
+    extra_usage: { is_enabled: true, monthly_limit: 5000, used_credits: 1250, utilization: 25 },
+  });
+  assert.equal(snapshot.balance.budgetUsd, 50);
+  assert.equal(snapshot.balance.spentUsd, 12.5);
+  assert.equal(snapshot.balance.remainingUsd, 37.5);
+  const extra = snapshot.quotaWindows.find((window) => window.label === 'EXTRA');
+  assert.equal(extra.limitUsd, 50);
+  assert.equal(extra.usedUsd, 12.5);
+  assert.equal(extra.remainingUsd, 37.5);
+});
+
+test('Codex credits balance is a credit count, not USD', () => {
+  const snapshot = normalizeOpenAIWhamUsage({
+    rate_limit: { primary_window: { used_percent: 10, limit_window_seconds: 18000 } },
+    credits: { has_credits: true, unlimited: false, balance: 42 },
+  });
+  assert.deepEqual(snapshot.balance, {
+    source: 'openai-codex-credits',
+    unit: 'credits',
+    remainingCredits: 42,
+    unlimited: false,
+    hasCredits: true,
+  });
 });

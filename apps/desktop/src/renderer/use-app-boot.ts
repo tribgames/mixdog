@@ -19,11 +19,10 @@ import { applyDesktopThemePreference, getDesktopThemePreference } from './deskto
 import type { RecordValue } from './desktop-types';
 import { prefetchSurfaceForSelection } from './lazy-widgets';
 import { prefetchQuotaUsage } from './quota-usage-cache';
-import { isMobileRemoteSurface } from './MobileTabOverview';
 import { connectionQuality } from './network-conditions';
 import { paneActiveSessionIds } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
-import { remoteSurface } from './shell-viewport';
+import { isNativeDesktopWindow, isRemoteHostRenderer } from './remote-ui-projection';
 import { DEFAULT_SIDEBAR_VIEW_ORDER } from './sidebar-view-layout';
 import { loadStudioViewModule } from './studio-loader';
 import { asRecord, navigationKey } from './text-format';
@@ -35,6 +34,11 @@ import type { DesktopSessionSummary } from '../shared/contract';
 /** Bounded so the warm reads stay a few small tails inside the renderer lane
  *  and daemon idle budgets. */
 const RECENT_SESSION_WARMUP_COUNT = 6;
+
+/** Background data stays cold on a metered/slow link (never on the native shell). */
+function backgroundWarmupThrottled(): boolean {
+  return !isNativeDesktopWindow() && connectionQuality() !== 'normal';
+}
 
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
 type SidebarModuleTracker = ShellPanels['trackSidebarPanelModule'];
@@ -61,7 +65,7 @@ export function useAppSettingsMount(settingsOpen: boolean) {
 export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelModule: SidebarModuleTracker) {
   useEffect(() => {
     if (!startupSettled) return undefined;
-    const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
+    const nativeWindow = isNativeDesktopWindow();
     const cancels = [
       scheduleBootWarmup({
         id: 'module:studio',
@@ -85,7 +89,7 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
     // The subscription usage that dialog opens on: its first open after boot
     // waited on a cold ledger read (user: 처음에 유즈에이지 창 눌러서 진입할 때
     // 바로 안 나오네). A remote client reads it when the dialog opens instead.
-    if (desktopFeatureEnabled('usage') && !remoteSurface()) {
+    if (desktopFeatureEnabled('usage') && !isRemoteHostRenderer()) {
       cancels.push(
         scheduleBootWarmup({
           id: 'data:quota-usage',
@@ -193,7 +197,7 @@ export function useAppOnboarding(setSettingsOpen: Dispatch<SetStateAction<boolea
   // provider probes, so the conversation stayed covered for seconds after its
   // view sync. Pairing implies a set-up desktop; an incomplete onboarding still
   // opens the wizard when the answer lands.
-  const [onboardingReady, setOnboardingReady] = useState(remoteSurface);
+  const [onboardingReady, setOnboardingReady] = useState(isRemoteHostRenderer);
   useEffect(() => {
     const openOnboarding = () => {
       setSettingsOpen(false);
@@ -268,7 +272,7 @@ export function useAppWorkspaceWarmup({
 }) {
   // Native panes warm active transcripts; a phone keeps background data cold.
   useEffect(() => {
-    if (!ready || isMobileRemoteSurface()) return undefined;
+    if (!ready || backgroundWarmupThrottled()) return undefined;
     const sessionIds = paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId);
     if (sessionIds.length === 0) return undefined;
     const cancels = sessionIds.map((sessionId, index) =>
@@ -286,7 +290,7 @@ export function useAppWorkspaceWarmup({
   // cold again after every restart (0.3-1.5s disk parse on its first click).
   const recentWarmed = useRef(false);
   useEffect(() => {
-    if (!ready || recentWarmed.current || isMobileRemoteSurface() || sessions.length === 0) return;
+    if (!ready || recentWarmed.current || backgroundWarmupThrottled() || sessions.length === 0) return;
     recentWarmed.current = true;
     const open = new Set(paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId));
     sessions
@@ -304,7 +308,7 @@ export function useAppWorkspaceWarmup({
   // Code may warm on a normal remote link; it is cached independently of transcripts.
   useEffect(() => {
     if (!ready) return undefined;
-    const nativeSurface = Boolean(window.mixdogDesktop?.bootContext?.bootId);
+    const nativeSurface = isNativeDesktopWindow();
     if (!nativeSurface && connectionQuality() !== 'normal') return undefined;
     const queue = workspace.leaves.flatMap((leaf) => [...leaf.tabs]);
     if (queue.length === 0) return undefined;
@@ -321,7 +325,7 @@ export function useAppWorkspaceWarmup({
   }, [ready, workspace.leaves]);
   useEffect(() => {
     if (!ready) return undefined;
-    const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
+    const nativeWindow = isNativeDesktopWindow();
     const host = window as typeof window & { __mixdogWindowShown?: boolean };
     let fallbackTimer = 0;
     const arm = () => {
@@ -382,7 +386,7 @@ export function useAppWorkspaceWarmup({
 export function useAppDockWarmup(ready: boolean, projectPath: string) {
   useEffect(() => {
     if (!ready || !projectPath) return undefined;
-    if (isMobileRemoteSurface() || !window.mixdogDesktop?.gitStatus) return undefined;
+    if (backgroundWarmupThrottled() || !window.mixdogDesktop?.gitStatus) return undefined;
     return scheduleBootWarmup({
       id: 'dock:git-state',
       priority: BOOT_WARMUP.dockGitState,
@@ -391,7 +395,7 @@ export function useAppDockWarmup(ready: boolean, projectPath: string) {
   }, [ready, projectPath]);
   const [dockBodyWarm, setDockBodyWarm] = useState(false);
   useEffect(() => {
-    if (!ready || dockBodyWarm || isMobileRemoteSurface()) return undefined;
+    if (!ready || dockBodyWarm || backgroundWarmupThrottled()) return undefined;
     return scheduleBootWarmup({
       id: 'dock:body',
       priority: BOOT_WARMUP.dockBody,

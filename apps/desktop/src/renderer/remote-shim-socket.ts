@@ -4,6 +4,7 @@ import type { SessionSnapshot } from '../shared/contract';
 import { createRelayE2EEClientHandshake, isRelayE2EEChallenge } from '../shared/remote-e2ee';
 import { earlyUiT } from './early-ui-i18n';
 import { isInvalidRemotePairingClose } from './remote-pairing-recovery';
+import { setRemoteHostOpenAccess } from './remote-host-access';
 import {
   remoteConnectionInterruptedError,
   reportRemoteConnectionIssue,
@@ -14,6 +15,13 @@ import {
 } from './remote-connection-state';
 import { REMOTE_CONNECTION_READY_EVENT, PAIRED_STORAGE_KEY } from './remote-shim-state';
 import type { RemoteShimContext } from './remote-shim-state';
+import { publishMediaKey, revokeMediaKey } from './remote-media-lane';
+
+function dropMediaSession(ctx: RemoteShimContext): void {
+  if (ctx.mediaSid) revokeMediaKey(ctx.mediaSid);
+  ctx.mediaSid = null;
+  ctx.peerMediaE2ee = false;
+}
 
 export const installRemoteSocket = (ctx: RemoteShimContext): void => {
   const connect = async (): Promise<WebSocket> => {
@@ -201,6 +209,8 @@ const openSocketAttempt = (
       // never sees `relay-capabilities` itself.
       ctx.limits.learnRoutingCaps(message);
       ctx.peerViewSync = message.viewSync === 1;
+      // Every handshake restates it: a reconnect may reach an older host.
+      setRemoteHostOpenAccess(message.remoteOpenAccess === 1);
       finishOpen();
       return;
     }
@@ -214,6 +224,10 @@ const openSocketAttempt = (
     ctx.connectionReady = false;
     ctx.secureChannel = null;
     ctx.relayBinaryFrames = false;
+    ctx.peerRemoteParity = false;
+    ctx.peerNativePush = false;
+    ctx.peerBrowserParity = false;
+    dropMediaSession(ctx);
     ctx.limits.resetLearnedCaps();
     if (!ctx.e2eePairing) {
       finishOpen();
@@ -273,6 +287,13 @@ const openSocketAttempt = (
         }
         ctx.secureChannel = null;
         ctx.relayBinaryFrames = clear.binaryFrames === 1;
+        // Restated by every challenge: a reconnect may reach another host.
+        ctx.peerRemoteParity = clear.remoteParity === 1;
+        ctx.peerNativePush = clear.nativePush === 1;
+        ctx.peerBrowserParity = clear.browserParity === 1;
+        // The previous leg's media session ended with it.
+        dropMediaSession(ctx);
+        ctx.peerMediaE2ee = clear.mediaE2ee === 1;
         // A replacement desktop leg on the same browser socket: its caps
         // are its own, and the previous leg's must not survive into it.
         ctx.limits.resetLearnedCaps();
@@ -283,6 +304,12 @@ const openSocketAttempt = (
         const handshake = await createRelayE2EEClientHandshake(ctx.e2eePairing, clear);
         if (closed) return;
         ctx.secureChannel = handshake.channel;
+        // The worker decrypts media with this session's key; it never leaves
+        // this browser. Only a host that advertised the lane derived one.
+        if (ctx.peerMediaE2ee && handshake.channel.mediaKey) {
+          ctx.mediaSid = clear.challenge;
+          publishMediaKey(clear.challenge, handshake.channel.mediaKey);
+        }
         // promptHistoryPatch: this build's snapshot decoder applies head
         // patches to the prompt history; a desktop that predates it
         // ignores the flag and keeps sending the whole field.
@@ -311,6 +338,7 @@ const openSocketAttempt = (
     ctx.openPromise = null;
     ctx.connectionReady = false;
     ctx.secureChannel = null;
+    dropMediaSession(ctx);
     ctx.relayBinaryFrames = false;
     ctx.clearWakePongTimer();
     ctx.awaitingPong = false;

@@ -33,6 +33,8 @@ test('runClientLeg announces client-open and removes the socket on close', () =>
   assert.equal(sent[0].type, 'client-open');
   assert.equal(typeof sent[0].clientId, 'string');
   assert.equal(phone.browserClientId, 'browser-1');
+  // The authenticated credential rides along so the desktop can key trust on it.
+  assert.equal(sent[0].browserClientId, 'browser-1');
   phone.emit('close', 1000, 'background');
   assert.equal(entry.clients.size, 0);
   assert.equal(sent[1].type, 'client-close');
@@ -62,4 +64,13 @@ test('runDesktopLeg publishes capabilities and replays live phone ids', () => {
   assert.equal(sent[0].type, 'relay-capabilities');
   assert.equal(sent[1].type, 'client-open');
   assert.equal(sent[1].clientId, 'live-client');
+  assert.equal(sent[1].browserClientId, 'browser-1');
+});
+
+test('client-open omits the credential when the leg has none (older desktops)', () => {
+  const sent = [];
+  const entry = { socket: fakeSocket(), clients: new Map() };
+  runClientLeg(entry, (_socket, payload) => sent.push(payload), fakeSocket(), null, { maxFrameBytes: 1024 });
+  assert.equal(sent[0].type, 'client-open');
+  assert.equal('browserClientId' in sent[0], false);
 });

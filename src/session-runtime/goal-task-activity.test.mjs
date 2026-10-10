@@ -71,11 +71,9 @@ test('work-start updates do not silently clear blocking, usage, or duration stop
       const f = fixture(t);
       await f.create();
       if (status === 'blocked') {
-        for (let turn = 0; turn < 3; turn++) {
-          await f.runtime.startTurn(f.sessionId);
-          await f.call({ action: 'block', blocker: 'External service unavailable' });
-          await f.runtime.settleTurn(f.sessionId, { status: 'done' });
-        }
+        await f.runtime.startTurn(f.sessionId);
+        await f.call({ action: 'block', blocker: 'External service unavailable' });
+        await f.runtime.settleTurn(f.sessionId, { status: 'done' });
       } else if (status === 'usage_limited') {
         await f.runtime.settleTurn(f.sessionId, { usageLimited: true });
       } else {

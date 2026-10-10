@@ -244,12 +244,19 @@ test('turn wiring skips off mode, runtime turns, agent sessions, tagged prompts,
   assert.equal(await ask({ prompt: 'done', promptSource: { source: 'task-notification' } }), null);
   assert.equal(await ask({ prompt: '<skill>\n<name>x</name>\n</skill>' }), null);
   assert.equal(await ask({ prompt: 'hi' }, { ...session, model: 'claude-opus-4-5' }), null);
-  assert.equal(await ask({ prompt: 'fix the flaky test' }, { ...session, owner: 'agent' }), null);
+  assert.equal(
+    await ask({ prompt: 'fix the flaky test', promptSource: { source: 'task-notification' } }, { ...session, owner: 'agent' }),
+    null
+  );
   assert.equal(await ask({ prompt: 'fix the flaky test' }), null);
   assert.equal(await ask({ prompt: 'fix the flaky test' }, { ...session, model: 'claude-sonnet-5-5' }), null);
+  // An agent session's brief is judged (no model installed here: logged as skipped).
+  assert.equal(await ask({ prompt: 'investigate the failing build' }, { ...session, owner: 'agent' }), null);
 
   const log = readFileSync(join(data, 'effort-judge', 'decisions.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.equal(log.length, 2);
+  assert.equal(log.length, 3);
+  assert.equal(log[2].skipped, 'model-missing');
+  assert.equal(log[2].requestChars, 'investigate the failing build'.length);
   assert.equal(log[0].skipped, 'model-missing');
   assert.equal(log[0].base, 'medium');
   assert.equal(log[1].chosen, 'high');

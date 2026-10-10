@@ -29,9 +29,10 @@ import {
 } from 'lucide-react';
 import { DockHeaderRow, DockOverflowMenu, requestPaneDockClose, type DockAction } from './pane-dock-chrome';
 import { requestBrowserInMain } from './browser-main-request';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 
 import { t } from './i18n';
+import { reportBrowserLoadFailure } from './browser-load-failure';
 import { ErrorNotice } from './ErrorNotice';
 import { normalizeAddressInput } from './browser-address';
 import { BrowserImportDialog } from './BrowserImportDialog';
@@ -578,17 +579,23 @@ function DesktopBrowserPane({
     (rawInput: string) => {
       const url = normalizeAddressInput(rawInput);
       const view = webviewRef.current;
-      if (!url || !view) return;
+      // An empty address has nothing to wait for; a missing view does.
+      if (!url) return true;
+      if (!view) return false;
       setAddress(url);
       setHistorySuggestions([]);
-      // loadURL rejects on user-aborted navigations and throws synchronously
-      // while the guest is still attaching; neither is an error here.
+      // A failed page parks the view; a new address must wake it, as Retry
+      // does, or the load waits behind the parked view until the next one.
+      setPageFailure(null);
+      // loadURL throws synchronously while the guest is still attaching, and
+      // rejects on user-aborted navigations; only other rejections are failures.
       try {
-        void view.loadURL(url).catch(() => undefined);
+        void view.loadURL(url).catch(reportBrowserLoadFailure);
         view.focus();
       } catch {
         view.src = url;
       }
+      return true;
     },
     [setHistorySuggestions]
   );
@@ -620,7 +627,7 @@ function DesktopBrowserPane({
     credentialStatus,
     fillStoredCredential,
     onOpenInMain:
-      mainTab || isRemoteBrowserRenderer()
+      mainTab || isRemoteHostRenderer()
         ? undefined
         : () => requestBrowserInMain({ sessionId, url: currentUrl, title: activeTabTitle }),
   });

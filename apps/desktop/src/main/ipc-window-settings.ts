@@ -55,6 +55,8 @@ export function registerWindowSettingsIpc({
       : invokeDesktopOperation<DesktopSettings>('updateSetting', [settingKey, enabled]);
     return update.then((saved) => {
       onDesktopSettingsChanged?.(saved);
+      // Paired browsers and any other local renderer re-read what was written.
+      void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
       return saved;
     });
   });

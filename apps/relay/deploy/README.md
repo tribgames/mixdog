@@ -34,6 +34,47 @@ the existing caller after deployment.
 inspection for two seconds. Unversioned renderer output fails readiness and
 must be rebuilt rather than silently reused.
 
+## Side-by-side renderer releases
+
+Each phone / second PC is served the web renderer that matches the desktop
+version of the main PC it is paired with (`lib/renderer-releases.mjs`).
+
+- Desktops send `{ type: 'desktop-version', appVersion, rendererRelease? }` when
+  their device leg connects. The relay stores it on the device row in
+  `devices.json` (`appVersion`, `rendererRelease`, `versionSeenAt`), so it
+  survives restarts. Old desktops send nothing.
+- Layout: `/opt/mixdog-relay/renderer` stays the newest renderer (also the
+  delta base); `/opt/mixdog-relay/renderer-releases/` holds `index.json` plus one
+  tree per release (`<desktopVersion>-<shell hash prefix>`, and `legacy`).
+  Override with `RENDERER_RELEASES_DIR`; with no registry the relay serves
+  `RENDERER_DIR` to everyone, as before.
+- **Selection rule**, first match wins: the device's reported renderer release
+  id; else the newest release whose desktop version equals the device's; else
+  the newest release for an older-or-equal desktop version (a desktop newer than
+  every retained release gets the newest one); else — old desktops that never
+  report, or versions older than everything retained — the **`legacy`**
+  release, i.e. the renderer that was installed when this feature first shipped
+  (adopted automatically by the first deploy); with no legacy release, the
+  newest. `/d/<id>/…` uses the route's device; root requests (`/sw.js`,
+  `/assets/…`) use the paired token's device, else the `mixdog_device` cookie.
+- **Retention rule**: `legacy` is never collected; the newest 3 releases are
+  kept; releases still selected for a device seen in the last 30 days are kept
+  too (newest first) up to 6 non-legacy releases.
+- Caching: hashed `/assets/*` are content-addressed and `immutable` across
+  releases; other root responses carry `Vary: Cookie`; `/d/<id>/…` URLs are
+  per device; ETags are content hashes, so service worker and shell
+  validators never collide between releases.
+- Deploy: `deploy-release.sh <domain> <tag> <desktop-version>` runs
+  `renderer-releases.mjs --action=prepare` against the **staged** tree: the
+  installed registry is hardlinked in, the new renderer is added as one more
+  release, and GC runs (registry written by rename, so the installed tree
+  that rollback restores is never touched). The swap, backup and rollback are
+  the unchanged transaction above. A relay-only deploy passes no desktop
+  version and registers nothing.
+- `/readyz` inspects the current renderer **and every retained release**; any
+  broken one is not-ready. `verify-release.mjs --expected-release=<id>`
+  additionally requires the release this deploy added.
+
 The transaction tests use real filesystem renames only inside a generated
 temporary directory and replace `systemctl` with a recorder. They never run
 the production installer or contact a VPS.

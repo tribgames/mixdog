@@ -39,7 +39,7 @@ test('useAppUiOpenRequest handles sequence increasing, deduplication, TTL, and s
         })
       );
     });
-    assert.equal(openedCommandSurface, 'usage');
+    assert.equal(openedCommandSurface, 'stats');
     openedCommandSurface = null;
 
     // 2. Same seq: must not trigger again

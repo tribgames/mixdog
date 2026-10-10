@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
-import { attachmentFromFile } from './composer-attachments.ts';
+import { attachmentFromFile, remoteAttachmentLimitBytes, remoteAttachmentSizeError } from './composer-attachments.ts';
 
 function installBrowserImageHarness({ supportsWebp = true } = {}) {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -116,3 +116,12 @@ test('a browser without WebP encoding still attaches a usable image', async () =
     harness.close();
   }
 });
+
+test('remote attachment limit derives from the learned uplink ceiling', () => {
+  assert.equal(remoteAttachmentLimitBytes(null), null);
+  assert.equal(remoteAttachmentLimitBytes(8 * 1024 + 4000), 3000);
+  assert.equal(remoteAttachmentSizeError('a.pdf', 1000, null), '');
+  assert.equal(remoteAttachmentSizeError('a.pdf', 3000, 8 * 1024 + 4000), '');
+  assert.match(remoteAttachmentSizeError('a.pdf', 3001, 8 * 1024 + 4000), /^a\.pdf: .*limit per attachment/);
+});
+

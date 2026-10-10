@@ -54,6 +54,7 @@ import {
 } from '../runtime/agent/orchestrator/providers/stream-json-pool.mjs';
 import { createAgentDispatchBroker } from './agent-dispatch-broker.mjs';
 import { createChannelTransport } from './channel-transport.mjs';
+import { drainDeferral } from './daemon-drain-policy.mjs';
 import { createChannelSessionRouter } from '../session-runtime/services/channel-session-router.mjs';
 import { createSessionTransport } from './session-transport.mjs';
 import { createSessionService } from './session-service.mjs';
@@ -352,7 +353,11 @@ function maybeSelfShutdown(reason) {
     return;
   }
   const { activeCalls, queuedCalls, busySessions, busyMemoryAgents } = inFlightWork();
-  if (activeCalls > 0 || queuedCalls > 0) {
+  const deferral = drainDeferral(
+    { activeCalls, queuedCalls, busySessions, busyMemoryAgents },
+    { force: replacementRequested?.force === true }
+  );
+  if (deferral === 'calls') {
     log(`shutdown deferred (${reason}): activeCalls=${activeCalls} queuedCalls=${queuedCalls}`);
     if (!shutdownRecheckTimer) {
       shutdownRecheckTimer = setTimeout(() => {
@@ -365,7 +370,7 @@ function maybeSelfShutdown(reason) {
   }
   // A turn in flight outlives every view — closing the app or the terminal is
   // not a reason to abandon work the daemon is still running.
-  if (busySessions > 0 || busyMemoryAgents > 0) {
+  if (deferral === 'busy') {
     log(`shutdown deferred (${reason}): busySessions=${busySessions}` + ` memoryAgents=${busyMemoryAgents}`);
     if (!shutdownRecheckTimer) {
       shutdownRecheckTimer = setTimeout(() => {
@@ -383,8 +388,10 @@ function maybeSelfShutdown(reason) {
   void shutdown(reason);
 }
 
-function requestDaemonReplacement({ protocol, revision, version } = {}) {
+function requestDaemonReplacement({ protocol, revision, version, force } = {}) {
+  const forced = force === true;
   const requested = {
+    force: forced,
     protocol: Number(protocol),
     revision: Math.max(0, Number(revision) || 0),
     version: String(version || '0.0.0'),
@@ -396,12 +403,14 @@ function requestDaemonReplacement({ protocol, revision, version } = {}) {
   if (
     replacementRequested &&
     requested.revision === replacementRequested.revision &&
-    requested.version === replacementRequested.version
+    requested.version === replacementRequested.version &&
+    !(forced && replacementRequested.force !== true)
   )
     return true;
   replacementRequested = requested;
   const reason = `daemon replacement by revision/build ${requested.revision}/${requested.version}`;
-  log(`${reason} requested — preserving clients until live work settles`);
+  if (forced) log(`${reason} FORCED — aborting in-flight work (sessions, service calls, agent runs)`);
+  else log(`${reason} requested — preserving clients until live work settles`);
   sessionTransport?.beginDrain?.(reason);
   transport?.beginDrain?.(reason);
   maybeSelfShutdown(reason);

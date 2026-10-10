@@ -294,6 +294,7 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
   const window = { webContents, isDestroyed: () => false };
   const writes = [];
   const changed = [];
+  const notices = [];
   const settingsStore = {
     read: async () => ({ autoClear: true, autoCompact: true }),
     update: async (key, enabled) => {
@@ -307,6 +308,9 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
     {
       subscribe: () => () => {},
       subscribeSessionStates: () => () => {},
+      invokeDesktopOperation: async (name, args) => {
+        notices.push([name, args]);
+      },
     },
     {
       app: { quit() {} },
@@ -336,6 +340,8 @@ test('updateSetting IPC enforces sender, key, boolean, success, and store reject
   ]);
   // The change hook fires only after a SUCCESSFUL write, with the saved value.
   assert.deepEqual(changed, [{ autoClear: true, autoCompact: false }]);
+  // Paired browsers and other windows hear about the same successful write.
+  assert.deepEqual(notices, [['notifySettingsChanged', ['desktop']]]);
   remove();
 });
 

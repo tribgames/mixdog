@@ -1,5 +1,4 @@
-// Abort: Esc while idle hands a queued or still-accepting submission back to
-// the draft; Esc during a turn cancels it and, unless a steering prompt is
+// Abort: Esc while idle hands a queued submission back to the draft; Esc during a turn cancels it and, unless a steering prompt is
 // already queued, reclaims the in-flight prompt, its history slot and its
 // requeue entries.
 import { hydratePastedAttachments, hydrateRestorableFileParts } from '../../../../runtime/attachments/store.mjs';
@@ -24,7 +23,7 @@ function hydrateTolerantly(pastedImages, pastedTexts, content = null) {
   };
 }
 
-export function createAbortAction(bag, { acceptingSubmissions }) {
+export function createAbortAction(bag) {
   const {
     runtime,
     flags,
@@ -39,31 +38,12 @@ export function createAbortAction(bag, { acceptingSubmissions }) {
     discardExecutionPendingResume,
   } = bag;
 
-  // Esc while idle: hand a queued (or still-accepting) submission back to the
-  // draft instead of interrupting anything.
+  // Esc while idle: hand a queued submission back to the draft instead of
+  // interrupting anything.
   const reclaimIdleSubmission = (submissionId) => {
     if (!submissionId) return false;
     const restored = restoreQueued('', submissionId);
-    if (!restored || Number(restored.count) < 1) {
-      const intake = acceptingSubmissions.get(submissionId);
-      if (!intake) return false;
-      // Hydrate before cancelling: nothing is lost if an attachment is gone.
-      const attachments = hydrateTolerantly(
-        intake.queueOptions.pastedImages,
-        intake.queueOptions.pastedTexts,
-        intake.text
-      );
-      intake.cancelled = true;
-      return {
-        aborted: false,
-        restoreText: String(intake.queueOptions.displayText || '').trim(),
-        pastedImages: attachments.pastedImages,
-        pastedTexts: attachments.pastedTexts,
-        ...(attachments.content ? { content: attachments.content } : {}),
-        ...(attachments.notice ? { notice: attachments.notice } : {}),
-        restoredSubmissionIds: [submissionId],
-      };
-    }
+    if (!restored || Number(restored.count) < 1) return false;
     return {
       aborted: false,
       restoreText: restored.text,
@@ -77,10 +57,21 @@ export function createAbortAction(bag, { acceptingSubmissions }) {
 
   // Pull the interrupted prompt back out of the transcript and history and
   // put its unsent requeue entries at the front of the queue.
-  const reclaimInFlightPrompt = (restoreState, { restoreText, requeueEntries }) => {
+  const reclaimInFlightPrompt = (restoreState, { restoreText, requeueEntries, handoff = false }) => {
     restoreState.reclaimed = true;
     const idSet = new Set((restoreState.submittedIds || []).filter((id) => id != null));
     const patch = { spinner: null, thinking: null, lastTurn: null };
+    // Another device cancelled this turn: the prompt travels to the device that
+    // sent it through the state, never through the canceller's reply.
+    if (handoff && restoreText) {
+      patch.promptRestore = {
+        id: `restore-${Date.now()}-${[...idSet].join(',')}`,
+        ids: [...idSet].map(String),
+        text: restoreText,
+        device: restoreState.device,
+        at: Date.now(),
+      };
+    }
     if (restoreText) patch.promptHistoryList = promptHistoryWithout(getState().promptHistoryList, restoreText);
     if (idSet.size > 0) {
       const items = getState().items.filter((item) => !idSet.has(item?.id));
@@ -127,7 +118,18 @@ export function createAbortAction(bag, { acceptingSubmissions }) {
     // interrupting should just cancel the running turn and let the steering
     // prompt run next, NOT resurrect the in-flight prompt back into the draft.
     const hasPendingSteering = pending.some((entry) => isQueuedEntryEditable(entry));
-    const canRestore = options?.restorePrompt !== false && restoreState?.restorable && !hasPendingSteering;
+    // A different device than the one that sent the prompt is cancelling. Only
+    // plain text can be handed over through the state; a prompt carrying
+    // attachments stays in the transcript instead of landing in the wrong
+    // composer.
+    const canceller = typeof options?.device === 'string' ? options.device : '';
+    const crossDevice = Boolean(canceller && restoreState?.device && canceller !== restoreState.device);
+    const hasAttachments = Boolean(restoreState?.pastedImages || restoreState?.pastedTexts || restoreState?.content);
+    const canRestore =
+      options?.restorePrompt !== false &&
+      restoreState?.restorable &&
+      !hasPendingSteering &&
+      !(crossDevice && hasAttachments);
     const restoreText = canRestore ? restoreState.text : '';
     const restorePastedImages = canRestore && restoreState?.pastedImages ? restoreState.pastedImages : null;
     const restorePastedTexts = canRestore && restoreState?.pastedTexts ? restoreState.pastedTexts : null;
@@ -151,7 +153,7 @@ export function createAbortAction(bag, { acceptingSubmissions }) {
         discardExecutionPendingResume?.(restoreState.discardExecutionPendingResumeKeys);
       }
       if ((restoreText || requeueEntries.length > 0) && aborted !== false) {
-        reclaimInFlightPrompt(restoreState, { restoreText, requeueEntries });
+        reclaimInFlightPrompt(restoreState, { restoreText, requeueEntries, handoff: crossDevice });
       }
       restoreState.restorable = false;
       restoreState.requeueEntries = [];
@@ -163,16 +165,19 @@ export function createAbortAction(bag, { acceptingSubmissions }) {
       restorePastedTexts,
       canRestore ? restoreState?.content : null
     );
+    // The canceller never receives another device's prompt.
+    const handedOver = crossDevice && Boolean(restoreText) && aborted !== false;
     return {
       aborted,
-      restoreText,
+      restoreText: handedOver ? '' : restoreText,
       ...(restored.content ? { content: restored.content } : {}),
       ...(restored.notice ? { notice: restored.notice } : {}),
       pastedImages: restored.pastedImages,
       discardPastedImages,
       pastedTexts: restored.pastedTexts,
       discardPastedTexts,
-      restoredSubmissionIds: restoreText ? (restoreState?.submittedIds || []).map(String).filter(Boolean) : [],
+      restoredSubmissionIds:
+        restoreText && !handedOver ? (restoreState?.submittedIds || []).map(String).filter(Boolean) : [],
     };
   };
 

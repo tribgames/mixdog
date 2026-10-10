@@ -7,7 +7,7 @@ import { reportEditorLoadStage } from './renderer-load-metrics';
 import { navigationKey } from './text-format';
 import { editorFileOpener } from '../shared/file-preview';
 import { openEditorFileExternally } from './editor-external-file';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 
 export interface EditorNavigationLocation {
   project: string;
@@ -87,7 +87,7 @@ export function useEditorNavigation({
         .replace(/\\/g, '/')
         .replace(/^\/+/, '');
       if (!cleanProject || !cleanRel) return;
-      if (!isRemoteBrowserRenderer() && editorFileOpener(cleanRel) === 'os') {
+      if (!isRemoteHostRenderer() && editorFileOpener(cleanRel) === 'os') {
         void openEditorFileExternally(cleanProject, cleanRel, accessToken);
         return;
       }

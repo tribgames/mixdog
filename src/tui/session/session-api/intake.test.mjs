@@ -112,12 +112,9 @@ test('an idle submit still enqueues when auto-clear throws synchronously', async
   assert.ok(h.calls.some((call) => Array.isArray(call) && call[0] === 'enqueue' && call[1] === 'hello'));
 });
 
-test('an idle submit runs auto-clear first and then enqueues with a minted id', async () => {
+test('an idle submit starts auto-clear first and enqueues at once with a minted id', () => {
   const h = createHarness();
   assert.equal(h.api.submit('hello world'), true);
-  // Auto-clear starts synchronously; the enqueue waits for it to settle.
-  assert.deepEqual(h.calls, ['autoClear']);
-  await tick();
   assert.deepEqual(h.calls, [
     'autoClear',
     ['enqueue', 'hello world', 'auto-1', 'prompt', false],
@@ -160,15 +157,27 @@ test('submitAsync requests persistence and kicks auto-clear without waiting on i
   assert.deepEqual(h.calls[1], ['enqueue', 'durable', 'auto-1', 'prompt', true]);
 });
 
-test('Esc while idle hands a still-accepting submission back to the draft and cancels its enqueue', async () => {
+test('a submit made while an earlier submit is auto-clearing is queued after it', () => {
+  const flags = { autoClearRunning: false };
+  const h = createHarness({
+    flags,
+    bag: {
+      // Auto-clear raises its running flag synchronously, as performAutoClear does.
+      autoClearBeforeSubmit: () => {
+        flags.autoClearRunning = true;
+        return new Promise(() => {});
+      },
+    },
+  });
+  assert.equal(h.api.submit('first'), true);
+  assert.equal(h.api.submit('second'), true);
+  const enqueued = h.calls.filter((call) => Array.isArray(call) && call[0] === 'enqueue').map((call) => call[1]);
+  assert.deepEqual(enqueued, ['first', 'second']);
+});
+
+test('Esc while idle with nothing queued for the id reclaims nothing', () => {
   const h = createHarness();
-  assert.equal(h.api.submit('reclaim me', { id: 'sub-1' }), true);
-  const result = h.api.abort({ submissionId: 'sub-1' });
-  assert.equal(result.aborted, false);
-  assert.equal(result.restoreText, 'reclaim me');
-  assert.deepEqual(result.restoredSubmissionIds, ['sub-1']);
-  await tick();
-  assert.ok(!h.calls.some((call) => call[0] === 'enqueue'));
+  assert.equal(h.api.submit('sent', { id: 'sub-1' }), true);
   assert.equal(h.api.abort({ submissionId: 'sub-1' }), false);
   assert.equal(h.api.abort(), false);
 });
@@ -306,4 +315,52 @@ test('subscribe registers a listener and returns its removal', () => {
   assert.equal(h.listeners.has(listener), true);
   off();
   assert.equal(h.listeners.has(listener), false);
+});
+
+function crossDeviceHarness(restoreOverrides = {}) {
+  const restoreState = {
+    restorable: true,
+    committed: false,
+    text: 'from the phone',
+    device: 'Pixel',
+    submittedIds: ['u1'],
+    requeueEntries: [],
+    discardExecutionPendingResumeKeys: [],
+    pastedImages: null,
+    pastedTexts: null,
+    ...restoreOverrides,
+  };
+  const h = createHarness({
+    state: { busy: true, items: [{ id: 'u1', kind: 'user', text: 'from the phone' }], promptHistoryList: ['from the phone'] },
+    flags: { activePromptRestore: restoreState },
+  });
+  return { h, restoreState };
+}
+
+test('a prompt cancelled from another device goes back through the state, not to the canceller', () => {
+  const { h } = crossDeviceHarness();
+  const result = h.api.abort({ device: 'Main PC' });
+  assert.equal(result.aborted, true);
+  assert.equal(result.restoreText, '', 'the canceller gets nothing back');
+  assert.deepEqual(result.restoredSubmissionIds, []);
+  assert.deepEqual(h.state.items, [], 'the prompt is rewound out of the transcript');
+  assert.equal(h.state.promptRestore.text, 'from the phone');
+  assert.deepEqual(h.state.promptRestore.ids, ['u1']);
+  assert.equal(h.state.promptRestore.device, 'Pixel');
+});
+
+test('the device that sent the prompt still gets it in its own reply', () => {
+  const { h } = crossDeviceHarness();
+  const result = h.api.abort({ device: 'Pixel' });
+  assert.equal(result.restoreText, 'from the phone');
+  assert.deepEqual(result.restoredSubmissionIds, ['u1']);
+  assert.equal(h.state.promptRestore ?? null, null);
+});
+
+test('a cross-device cancel leaves a prompt with attachments in the transcript', () => {
+  const { h } = crossDeviceHarness({ pastedImages: { img1: { id: 'img1' } } });
+  const result = h.api.abort({ device: 'Main PC' });
+  assert.equal(result.restoreText, '');
+  assert.equal(h.state.items.length, 1);
+  assert.equal(h.state.promptRestore ?? null, null);
 });

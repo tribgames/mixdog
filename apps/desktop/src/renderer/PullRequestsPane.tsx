@@ -10,7 +10,7 @@ import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import { OpenSelect } from './OpenSelect';
 import { useSurfaceActive, useSurfaceNavigationReset } from './surface-activity';
-import { RowOverflowMenu } from './RowOverflowMenu';
+import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
 import { SourceControlErrorNotice } from './SourceControlErrorNotice';
 import {
   PULL_REQUEST_LIST_VIEWS,
@@ -486,7 +486,13 @@ export function PullRequestsPane({
                     const checkoutKey = `checkout:${pr.number}`;
                     return (
                       // biome-ignore lint/a11y/useSemanticElements: tag must stay a div; <li> would bring list styling into the row.
-                      <div className="dock-pr-row" data-draft={pr.isDraft || undefined} role="listitem" key={pr.number}>
+                      <div
+                        className="dock-pr-row"
+                        data-draft={pr.isDraft || undefined}
+                        role="listitem"
+                        key={pr.number}
+                        {...rowOverflowHostProps()}
+                      >
                         <button type="button" className="dock-pr-row-main" onClick={() => openPullRequest(pr)}>
                           <span className="dock-pr-row-icon" aria-hidden="true">
                             <StateIcon pr={pr} />

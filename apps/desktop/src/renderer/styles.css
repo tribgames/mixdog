@@ -84,6 +84,25 @@ button {
 .titlebar-spacer {
   flex: 1;
 }
+/* Another computer's window: always visible, never draggable-away chrome. */
+.titlebar-remote-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 50%;
+  margin-right: 8px;
+  padding: 2px 10px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-surface-plate);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-accent);
+  color: var(--mx-accent);
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+}
+.titlebar-remote-host span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .workspace-tabs {
   min-width: 0;
   overflow-x: auto;

@@ -56,11 +56,11 @@ test('the page card names the last page a group navigated to', () => {
 
 test('a page request reveals the pane and delivers the address, held until a pane takes it', () => {
   const revealed = [];
-  const stopReveal = onBrowserPageRevealRequested((sessionId) => revealed.push(sessionId));
+  const stopReveal = onBrowserPageRevealRequested((request) => revealed.push(request));
   try {
     assert.equal(browserPageRequestsAvailable(), true);
     requestBrowserPage('sess-1', 'http://localhost:3000/');
-    assert.deepEqual(revealed, ['sess-1']);
+    assert.deepEqual(revealed, [{ sessionId: 'sess-1', url: 'http://localhost:3000/' }]);
     // No pane was mounted: the address waits and is handed over on subscribe.
     const loaded = [];
     const stopAddress = onBrowserPageAddressRequested('sess-1', (url) => loaded.push(url));
@@ -104,7 +104,7 @@ test('the card renders under a browser group and its button requests the page', 
     );
     assert.equal(dom.window.document.querySelector('.transcript-browser-page'), null);
 
-    const stopReveal = onBrowserPageRevealRequested((sessionId) => revealed.push(sessionId));
+    const stopReveal = onBrowserPageRevealRequested(({ sessionId }) => revealed.push(sessionId));
     try {
       await act(async () =>
         root.render(React.createElement(ToolActivityGroup, { items: pageItems(), disclosureScope: 'sess-9' }))

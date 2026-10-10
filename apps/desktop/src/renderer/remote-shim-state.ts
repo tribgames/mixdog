@@ -4,16 +4,20 @@
 // seeing the same connection.
 import type {
   DesktopAgentPoolRow,
+  DesktopBrowserImportProgress,
   DesktopBrowserOpenRequest,
   DesktopRemoteBrowserStreamFrame,
+  DesktopRemoteBrowserTab,
   DesktopLspDiagnosticEvent,
   DesktopLspStatusEvent,
   DesktopSessionSummary,
+  DesktopUpdaterState,
   SessionSnapshot,
 } from '../shared/contract';
 import type { RelayE2EEChannel, RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
 import type { ActivityRailPinsState } from '../shared/activity-rail-pins';
 import type { ProviderModelsChange } from '../shared/provider-models';
+import type { SettingsChange } from '../shared/settings-changed';
 import { createKeyedListDeltaDecoder } from '../shared/list-delta';
 import { createRemoteCatalog } from '../shared/remote-catalog';
 import { createRemoteRosterCache, createIndexedDbRosterStorage } from '../shared/remote-roster-cache';
@@ -92,6 +96,22 @@ export interface RemoteShimState {
   secureChannel: RelayE2EEChannel | null;
   connectionReady: boolean;
   peerViewSync: boolean;
+  /** The current host advertised `remoteParity` in its challenge: it serves
+   *  this release's remote methods. Absent means an older host. */
+  peerRemoteParity: boolean;
+  /** The current host advertised `nativePush` in its challenge: it serves
+   *  `registerNativePush` for the phone app's APNs/FCM token. */
+  peerNativePush: boolean;
+  /** The current host advertised `browserParity` in its challenge: it serves
+   *  the remote browser pane's tabs, history, saved-login fill and profile
+   *  import. Absent means an older host: the pane keeps its single stream. */
+  peerBrowserParity: boolean;
+  /** The current host serves the encrypted HTTP media lane (`mediaE2ee` in
+   *  its challenge). Absent means an older host: media stays on RPC. */
+  peerMediaE2ee: boolean;
+  /** This connection's media session label (its handshake challenge) once the
+   *  media key was handed to the service worker; null otherwise. */
+  mediaSid: string | null;
   legacyVisibleSessionsQueue: Promise<unknown>;
   pendingReconnectNotification: boolean;
   // Delta-lane resumption (shared/remote-view-resume.ts). The desktop issues a
@@ -138,8 +158,12 @@ export interface RemoteShimCollaborators {
   folderChangeListeners: Set<(dir: string) => void>;
   activityRailPinsListeners: Set<(state: ActivityRailPinsState) => void>;
   providerModelsListeners: Set<(change: ProviderModelsChange) => void>;
+  settingsChangedListeners: Set<(change: SettingsChange) => void>;
+  updaterListeners: Set<(state: DesktopUpdaterState) => void>;
   remoteBrowserFrameListeners: Set<(frame: DesktopRemoteBrowserStreamFrame) => void>;
   browserOpenListeners: Set<(request: DesktopBrowserOpenRequest) => void>;
+  remoteBrowserTabListeners: Set<(tabs: DesktopRemoteBrowserTab[]) => void>;
+  browserImportProgressListeners: Set<(progress: DesktopBrowserImportProgress) => void>;
   lspDiagnosticsListeners: Set<(event: DesktopLspDiagnosticEvent) => void>;
   lspStatusListeners: Set<(event: DesktopLspStatusEvent) => void>;
   // Push lanes this browser actually reads. Terminal output, diagnostics and
@@ -319,6 +343,11 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     secureChannel: null,
     connectionReady: false,
     peerViewSync: false,
+    peerRemoteParity: false,
+    peerNativePush: false,
+    peerBrowserParity: false,
+    peerMediaE2ee: false,
+    mediaSid: null,
     legacyVisibleSessionsQueue: Promise.resolve(),
     pendingReconnectNotification: false,
     viewResumeToken: null,
@@ -348,8 +377,12 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     folderChangeListeners: new Set(),
     activityRailPinsListeners: new Set(),
     providerModelsListeners: new Set(),
+    settingsChangedListeners: new Set(),
+    updaterListeners: new Set(),
     remoteBrowserFrameListeners: new Set(),
     browserOpenListeners: new Set(),
+    remoteBrowserTabListeners: new Set(),
+    browserImportProgressListeners: new Set(),
     lspDiagnosticsListeners: new Set(),
     lspStatusListeners: new Set(),
     activeLanes: new Set(),

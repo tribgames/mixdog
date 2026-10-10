@@ -11,7 +11,7 @@ import { desktopBootPrerequisitesReady, markBootStage } from './boot-metrics';
 import { DesktopBootGate } from './PaneSurfaceGate';
 import { usePaneTypingFocus } from './use-composer-focus';
 import { navigationKey } from './text-format';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { isRemoteHostRenderer } from './remote-ui-projection';
 import { useSideFileGuardOpeners } from './app-root/use-side-file-guard';
 import { bindAppFrameSideFileGuard } from './app-root/app-frame-side-file-guard';
 import { useAppFrameEntryIntake } from './app-root/app-frame-entry-intake';
@@ -479,6 +479,7 @@ export function App() {
     openFileTab,
     openSession,
     activeProjectPath,
+    openQuickOpen: () => setQuickAccessMode('files'),
   });
 
   const { focusPaneTypingSurface, navigateTab } = usePaneTabNavigation({
@@ -623,7 +624,7 @@ export function App() {
   });
 
   // A phone/web renderer has no side dock to host the editor: it keeps main tabs.
-  const sideDockHostsFiles = !isRemoteBrowserRenderer() && workbenchSideLayout.layout.right.length > 0;
+  const sideDockHostsFiles = !isRemoteHostRenderer() && workbenchSideLayout.layout.right.length > 0;
   const paneConversationSurface = usePaneConversationRenderer({
     ...taskLifecycle,
     ...sessionTitle,

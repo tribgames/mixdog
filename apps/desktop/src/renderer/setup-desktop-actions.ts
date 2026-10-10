@@ -53,7 +53,7 @@ async function statusAction({ args, api, preferences, invoke, projects }: SetupA
     case 'projects':
       return { projects: await projects(), scope: 'installation' };
     case 'connection':
-      return { ...clientsOnly(await api.getRemoteAccessInfo!()), scope: 'desktop-host' };
+      return { ...clientsOnly(await api.getRemoteAccessInfo!({ activate: false })), scope: 'desktop-host' };
     default:
       throw new Error('Unsupported Desktop status domain');
   }
@@ -159,7 +159,7 @@ async function removeProjectAction(context: SetupActionContext): Promise<Values>
 
 async function revokeLinkedDeviceAction({ args, api, mutate, saved }: SetupActionContext): Promise<Values> {
   const id = String(args.name || '');
-  const before = await api.getRemoteAccessInfo!();
+  const before = await api.getRemoteAccessInfo!({ activate: false });
   if (!before?.clients.some((client) => client.id === id)) throw new Error('Linked device not found');
   const after = await mutate(() => api.revokeRemoteAccessClient!(id));
   if (after?.clients.some((client) => client.id === id)) throw new Error('Device revocation was not confirmed');

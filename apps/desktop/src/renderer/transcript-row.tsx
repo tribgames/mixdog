@@ -1,4 +1,4 @@
-import { Suspense, memo, useEffect, useRef } from 'react';
+import { Suspense, createContext, memo, useContext, useEffect, useRef } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
 import MarkdownBody from './MarkdownBody';
@@ -231,6 +231,10 @@ export function transcriptSourceLabel(item: TranscriptItem): string {
   return String(item.sender || '').toLowerCase() === 'lead' ? 'LEAD' : '';
 }
 
+/** Whether the conversation was used from more than one device. Only then does
+ *  a prompt row say which device sent it. */
+export const TranscriptDevicesContext = createContext(false);
+
 export const TranscriptRow = memo(
   function TranscriptRow({
     item,
@@ -247,6 +251,7 @@ export const TranscriptRow = memo(
     attachedUser?: boolean;
     disclosureScope?: string;
   }) {
+    const multiDevice = useContext(TranscriptDevicesContext);
     const previousStreaming = useRef(Boolean(item.streaming));
     const announceSettled = previousStreaming.current && !item.streaming;
     useEffect(() => {
@@ -359,6 +364,9 @@ export const TranscriptRow = memo(
             )}
             {!user && <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />}
           </div>
+          {user && multiDevice && typeof item.device === 'string' && item.device && (
+            <small className="message-device">{t('from {{device}}', { device: item.device })}</small>
+          )}
           {!user && !item.streaming && completion && (
             // biome-ignore lint/a11y/useSemanticElements: the footer names a group of response details; a <fieldset> would restyle it.
             <footer className="response-footer" role="group" aria-label={t('Response details')}>

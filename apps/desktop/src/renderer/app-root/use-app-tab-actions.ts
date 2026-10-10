@@ -4,6 +4,7 @@ import type { PullRequestOpenHandler } from '../PullRequestsPane';
 import type { SourceControlDiffRequest } from '../SourceControlDock';
 import type { WorkspaceSelection, WorkspaceTab } from '../navigation';
 import { t } from '../i18n';
+import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { navigationKey, newBrowserSelection, newStudioSelection } from '../text-format';
 import { onBrowserMainRequested, type BrowserMainRequest } from '../browser-main-request';
 import { canSplitPaneSize, paneActiveSelection } from '../pane-layout';
@@ -38,6 +39,8 @@ export interface UseAppTabActionsOptions {
   ) => void;
   openSession: (sessionId: string, force?: boolean, title?: string) => Promise<void>;
   activeProjectPath: string;
+  /** Opens the project file search (quick open). */
+  openQuickOpen: () => void;
 }
 
 export function useAppTabActions({
@@ -51,6 +54,7 @@ export function useAppTabActions({
   openFileTab,
   openSession,
   activeProjectPath,
+  openQuickOpen,
 }: UseAppTabActionsOptions) {
   const { openInFocused: openSelectionInFocusedPane, splitFocused: splitFocusedPane } = paneWorkspace;
 
@@ -210,6 +214,12 @@ export function useAppTabActions({
 
   const chooseFileTab = async (leafId = paneWorkspace.focusedLeafId) => {
     void prefetchEditorPane().catch(() => {});
+    // The OS file chooser would open on the host; remote surfaces search the project instead.
+    if (isRemoteHostRenderer()) {
+      paneWorkspace.focusLeaf(leafId);
+      openQuickOpen();
+      return;
+    }
     const picked = await window.mixdogDesktop?.chooseFiles?.(activeProjectPath || null);
     if (!picked?.length) return;
     paneWorkspace.focusLeaf(leafId);

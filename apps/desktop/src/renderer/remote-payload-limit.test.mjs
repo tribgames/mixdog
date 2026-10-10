@@ -471,7 +471,7 @@ test('the browser enforces the ceilings the relay published, to the byte', async
     session.desktop.send(
       JSON.stringify({
         type: 'desktop-lanes',
-        media: false,
+        media: true,
         e2ee: 1,
         maxPayloadBytes: DESKTOP_DECLARED_BYTES,
         textFrames: 1,
@@ -507,7 +507,7 @@ test("the legacy 64 MiB path refuses at the relay's figure, not the leg's", asyn
     session.desktop.send(
       JSON.stringify({
         type: 'desktop-lanes',
-        media: false,
+        media: true,
         e2ee: 1,
         maxPayloadBytes: DESKTOP_DECLARED_BYTES,
       })
@@ -658,7 +658,7 @@ test('a frame sent INTO the ceiling drop fails at once, not in 20 seconds', asyn
     session.desktop.send(
       JSON.stringify({
         type: 'desktop-lanes',
-        media: false,
+        media: true,
         e2ee: 1,
         maxPayloadBytes: 4 * MB,
       })
@@ -676,7 +676,7 @@ test('a frame sent INTO the ceiling drop fails at once, not in 20 seconds', asyn
     session.desktop.send(
       JSON.stringify({
         type: 'desktop-lanes',
-        media: false,
+        media: true,
         e2ee: 1,
         maxPayloadBytes: 4_400,
       })
@@ -1116,13 +1116,13 @@ test("the browser is advertised the relay's published ceilings", async () => {
   // describe the same connection differently.
   assert.match(
     lifecycle,
-    /type:\s*['"]e2ee-ready['"],\s*version:\s*1,\s*(?:\.\.\.\(client\.viewSync\s*\?\s*\{\s*viewSync:\s*1\s*\}\s*:\s*\{\s*\}\s*\),\s*)?\.\.\.uplink,/
+    /type:\s*['"]e2ee-ready['"],\s*version:\s*1,\s*(?:\.\.\.\(client\.viewSync\s*\?\s*\{\s*viewSync:\s*1\s*\}\s*:\s*\{\s*\}\s*\),\s*)?(?:\/\/[^\n]*\n\s*)*(?:remoteOpenAccess:\s*1,\s*)?\.\.\.uplink,/
   );
   // A republished capabilities frame reaches the phones already attached, and
   // only when it says something new.
   assert.match(
     source,
-    /relayPublishedCeilings\s*=\s*readRelayUplinkCeilings\(envelope\);\s*\/\/[\s\S]{0,200}?republishRoutingCaps\(\)/
+    /relayPublishedCeilings\s*=\s*readRelayUplinkCeilings\(envelope\);\s*\/\/[\s\S]{0,1200}?republishRoutingCaps\(\)/
   );
   assert.match(source, /if\s*\(\s*signature\s*===\s*advertisedRoutingCaps\s*\)\s*return;/);
   assert.match(source, /broadcastEncrypted\(\s*\{\s*event:\s*RELAY_ROUTING_CAPS_EVENT,\s*payload\s*\},\s*false\s*\)/);
@@ -1167,7 +1167,7 @@ test('the desktop declares its receive cap on connect, and so on redial', async 
   // header, so a policy-sized frame survives being wrapped.
   assert.match(source, /const\s+MAX_WS_PAYLOAD_BYTES\s*=\s*68\s*\*\s*1024\s*\*\s*1024/);
   const declaration =
-    /sendEnvelope\(\s*\{\s*type:\s*['"]desktop-lanes['"],\s*media:\s*false,\s*e2ee:\s*1,\s*maxPayloadBytes:\s*MAX_WS_PAYLOAD_BYTES,\s*textFrames:\s*1\s*,?\s*\}\s*\)/;
+    /sendEnvelope\(\s*\{\s*type:\s*['"]desktop-lanes['"],\s*media:\s*true,\s*e2ee:\s*1,\s*maxPayloadBytes:\s*MAX_WS_PAYLOAD_BYTES,\s*textFrames:\s*1\s*,?\s*\}\s*\)/;
   assert.match(source, declaration);
   // Inside the open handler: every connection, including every redial,
   // re-declares it before the first frame can be routed.

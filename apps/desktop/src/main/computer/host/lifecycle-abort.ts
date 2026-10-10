@@ -27,15 +27,22 @@ type CommandQueue = ReturnType<typeof createComputerCommandQueue>;
 /** `sweep` runs the owned-input release even without a recorded target:
  *  Stop's recovery must release whatever the host still holds. */
 export async function cleanupAbortedInput(
-  host: Pick<SessionLifecycleHost, 'cleanupInput' | 'inputMarker'>,
+  host: Pick<
+    SessionLifecycleHost,
+    'cleanupInput' | 'inputMarker' | 'pendingInactiveLedgers' | 'inactiveLedgersRecovered'
+  >,
   recovery?: InputRecoveryState,
   restoreDesktop = true,
   sweep = false
 ): Promise<boolean> {
   if (host.cleanupInput) return host.cleanupInput(recovery, restoreDesktop, sweep);
-  if (!sweep && !recovery?.targetWindowId) return true;
-  return await new Promise<boolean>((resolve) => {
+  // Exited workers' inactive-window ledgers are cleared whatever the restore
+  // settings or foreground state.
+  const ledgers = process.platform === 'win32' ? (host.pendingInactiveLedgers?.() ?? []) : [];
+  if (!sweep && !recovery?.targetWindowId && ledgers.length === 0) return true;
+  const confirmed = await new Promise<boolean>((resolve) => {
     const abortEnvironment = {
+      MIXDOG_ABORT_LEDGERS: ledgers.join('|'),
       MIXDOG_ABORT_TARGET: restoreDesktop ? recovery?.targetWindowId || '' : '',
       MIXDOG_ABORT_RESTORE: restoreDesktop ? recovery?.restoreWindowId || '' : '',
       MIXDOG_ABORT_CURSOR_X: String(recovery?.cursorX ?? 0),
@@ -74,6 +81,8 @@ export async function cleanupAbortedInput(
     child.once('error', () => finish(false));
     child.once('exit', (code) => finish(code === 0));
   });
+  if (confirmed) host.inactiveLedgersRecovered?.(ledgers);
+  return confirmed;
 }
 
 /** The session's desktop restore, at turn end or release: the focus and pointer

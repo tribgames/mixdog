@@ -75,3 +75,53 @@ test('custom project names stay literal in rows and the memory scope picker unde
     ['공통', ...projects.map((project) => project.alias || project.name)]
   );
 });
+
+test('project row context menu edits, and Remove opens the editor with confirmation armed', async (t) => {
+  const removed = [];
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  await act(async () =>
+    root.render(
+      React.createElement(ProjectListSection, {
+        projects,
+        selectedProjectPath: '',
+        onChooseFolder: async () => '',
+        onCreateProject() {},
+        onRename() {},
+        onRemove: (path) => removed.push(path),
+      })
+    )
+  );
+  const row = () => host.querySelector('.projects-list button.projects-row');
+  const items = () => [...document.querySelectorAll('[role="menu"] [role="menuitem"]')];
+  const settle = () => act(async () => new Promise((resolve) => window.setTimeout(resolve, 20)));
+
+  await act(async () =>
+    row().dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 6 }))
+  );
+  assert.deepEqual(
+    items().map((item) => item.textContent),
+    ['Edit', 'Remove']
+  );
+  await act(async () => items()[0].click());
+  await settle();
+  assert.ok(document.querySelector('.projects-edit-dialog'), 'Edit opens the editor');
+  assert.ok(![...document.querySelectorAll('button')].some((b) => b.textContent === 'Confirm remove'));
+  await act(async () => [...document.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click());
+
+  await act(async () =>
+    row().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true }))
+  );
+  await act(async () => items()[1].click());
+  await settle();
+  assert.deepEqual(removed, [], 'Remove never removes without the confirmation click');
+  const confirm = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Confirm remove');
+  assert.ok(confirm, 'confirmation is armed');
+  await act(async () => confirm.click());
+  assert.deepEqual(removed, ['/work/history']);
+});
