@@ -63,8 +63,6 @@ const LC_SEGMENT_64 = 0x19;
 function machoSliceSegments(data, base, digest) {
   if (data.readUInt32LE(base) !== MACHO_64) return false;
   const commandCount = data.readUInt32LE(base + 16);
-  const commandBytes = data.readUInt32LE(base + 20);
-  const headerEnd = 32 + commandBytes;
   let offset = base + 32;
   for (let index = 0; index < commandCount; index += 1) {
     const command = data.readUInt32LE(offset);
@@ -74,7 +72,20 @@ function machoSliceSegments(data, base, digest) {
       const fileOffset = Number(data.readBigUInt64LE(offset + 40));
       const fileSize = Number(data.readBigUInt64LE(offset + 48));
       if (name !== '__LINKEDIT' && fileSize > 0) {
-        const start = base + Math.max(fileOffset, name === '__TEXT' ? headerEnd : 0);
+        // __TEXT starts with the header and load commands, then free padding.
+        // Signing an unsigned (x86_64) binary adds LC_CODE_SIGNATURE into that
+        // padding, so compare __TEXT only from its first section's file data.
+        let textStart = fileOffset;
+        if (name === '__TEXT') {
+          const sectionCount = data.readUInt32LE(offset + 64);
+          const sectionOffsets = [];
+          for (let section = 0; section < sectionCount; section += 1) {
+            const sectionOffset = data.readUInt32LE(offset + 72 + section * 80 + 48);
+            if (sectionOffset > 0) sectionOffsets.push(sectionOffset);
+          }
+          textStart = sectionOffsets.length ? Math.min(...sectionOffsets) : fileOffset + fileSize;
+        }
+        const start = base + textStart;
         digest.update(name);
         digest.update(data.subarray(start, base + fileOffset + fileSize));
       }
