@@ -205,9 +205,12 @@ export function resolveDesktopSlashCommand(rawName: string): DesktopSlashCommand
 // Discovery stays small; the full registry still accepts commands typed directly.
 const COMPOSER_SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   'new',
+  'resume',
   'model',
   'compact',
   'context',
+  'usage',
+  'skills',
   'goal',
   'inherit',
   'doctor',

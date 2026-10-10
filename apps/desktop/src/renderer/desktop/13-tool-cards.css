@@ -691,30 +691,42 @@
   min-width: 0;
   padding: 2px 12px 12px;
 }
-/* A call the expansion setting opened previews its first lines (the command
-   and about five lines of output); "Show more" lifts the cap. */
-.tool-activity-preview[data-clamped="true"] {
+/* A call the expansion setting opened is a preview, cut on whole lines: the
+   command's first two, five of its output. Files, code and diffs, which have
+   no single line count, cut at a height instead. No fade: the quiet
+   "… +N lines" note under the cut says what is left, as a terminal would. */
+.tool-activity-preview[data-clamped="lines"] .tool-panel[data-kind="command"] > .tool-panel-body {
+  max-height: calc(2 * var(--mx-line-ui) + 16px);
+  overflow: hidden;
+}
+.tool-activity-preview[data-clamped="lines"] .tool-activity-item-output {
+  max-height: calc(5 * var(--mx-line-ui));
+  overflow: hidden;
+}
+.tool-activity-preview[data-clamped="height"] {
   max-height: 140px;
   overflow: hidden;
 }
-/* The fade only marks text that is actually cut off. */
-.tool-activity-preview[data-overflowing="true"] {
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
-}
-.tool-activity-preview[data-clamped="true"] [data-scrollable] {
+.tool-activity-preview[data-clamped="height"] [data-scrollable] {
   overflow: hidden;
 }
 .tool-activity-preview-more {
-  margin-top: 4px;
-  padding: 0;
+  display: block;
+  margin: 4px 0 0;
+  padding: 0 12px;
   border: 0;
   background: none;
-  color: var(--mx-text-muted);
-  font: inherit;
+  color: var(--mx-text-faint);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  text-align: left;
   cursor: pointer;
 }
-.tool-activity-preview-more:hover {
-  color: var(--mx-text);
+.tool-activity-preview-more:hover,
+.tool-activity-preview-more:focus-visible {
+  color: var(--mx-text-soft);
 }
 /* The group's call list opens on the same height reveal as a call's detail,
    instead of the whole card appearing in one frame. */

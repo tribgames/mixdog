@@ -1160,7 +1160,14 @@ test('the tool activity expansion setting opens command rows as previews and Ctr
   const { setToolActivityExpansion, toggleToolActivityExpandAll } = await import('./tool-activity-expansion.ts');
   const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
   const items = [
-    { kind: 'tool', id: 'sh', name: 'shell', args: { command: 'npm test' }, result: 'ok', completedAt: 2 },
+    {
+      kind: 'tool',
+      id: 'sh',
+      name: 'shell',
+      args: { command: 'npm test' },
+      result: ['l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7', 'l8'].join('\n'),
+      completedAt: 2,
+    },
     { kind: 'tool', id: 'rd', name: 'read', args: { path: 'a.txt' }, result: 'one\ntwo', completedAt: 2 },
   ];
   const rowOpen = () =>
@@ -1172,7 +1179,13 @@ test('the tool activity expansion setting opens command rows as previews and Ctr
     });
     assert.equal(document.querySelector('.tool-activity-header').getAttribute('aria-expanded'), 'true');
     assert.deepEqual(rowOpen(), [true, false], 'only the command run opens');
-    assert.equal(document.querySelector('.tool-activity-preview').getAttribute('data-clamped'), 'true');
+    assert.equal(document.querySelector('.tool-activity-preview').getAttribute('data-clamped'), 'lines');
+    assert.equal(document.querySelector('.tool-terminal-output').textContent, 'l1\nl2\nl3\nl4\nl5');
+    const more = document.querySelector('.tool-activity-preview-more');
+    assert.equal(more.textContent, '… +3 lines', 'the preview counts the lines it hides');
+    await act(async () => more.click());
+    assert.equal(document.querySelector('.tool-terminal-output').textContent.split('\n').length, 8);
+    assert.equal(document.querySelector('.tool-activity-preview-more'), null);
 
     await act(async () => toggleToolActivityExpandAll());
     assert.deepEqual(rowOpen(), [true, true], 'Ctrl+O opens every call');

@@ -96,8 +96,9 @@ jobs:
           for name in FIREBASE_GOOGLE_SERVICES_JSON_B64 ANDROID_KEYSTORE_B64; do
             if [ -z "${!name}" ]; then echo "Missing secret $name" >&2; exit 1; fi
           done
-          printf '%s' "$FIREBASE_GOOGLE_SERVICES_JSON_B64" | base64 -d > android/app/google-services.json
-          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/mixdog-release.jks"
+          # Strip stray CR/LF a secret may carry before decoding.
+          printf '%s' "$FIREBASE_GOOGLE_SERVICES_JSON_B64" | tr -d '\r\n ' | base64 -d > android/app/google-services.json
+          printf '%s' "$ANDROID_KEYSTORE_B64" | tr -d '\r\n ' | base64 -d > "$RUNNER_TEMP/mixdog-release.jks"
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/mixdog-release.jks" >> "$GITHUB_ENV"
 
       - name: Build signed release APK

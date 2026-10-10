@@ -25,7 +25,19 @@ test('the composer offers only frequent commands and preserves direct command ex
   const { createRoot } = await import('react-dom/client');
   const { Composer } = await import('./Composer.tsx');
   const { desktopComposerSlashCommands, resolveDesktopSlashCommand } = await import('./slash-commands.ts');
-  const expected = ['/new', '/model', '/compact', '/context', '/goal', '/inherit', '/doctor', '/fast'];
+  const expected = [
+    '/new',
+    '/resume',
+    '/model',
+    '/compact',
+    '/context',
+    '/usage',
+    '/skills',
+    '/goal',
+    '/inherit',
+    '/doctor',
+    '/fast',
+  ];
   const calls = [];
   // Composer notices and errors leave through the toast lane, not the DOM
   // above the input.
@@ -121,7 +133,7 @@ test('the composer offers only frequent commands and preserves direct command ex
       '/model x',
       '/model\n',
       '//',
-      '/resume',
+      '/theme',
       '/style',
       '/clear',
       '/unknown',
@@ -141,6 +153,7 @@ test('the composer offers only frequent commands and preserves direct command ex
 
     await key('ArrowUp');
     assert.equal(palette().querySelector('[aria-selected="true"] code').textContent, '/fast');
+    await key('ArrowDown');
     await key('ArrowDown');
     await key('ArrowDown');
     assert.equal(palette().querySelector('[aria-selected="true"] code').textContent, '/model');

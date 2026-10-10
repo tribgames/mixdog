@@ -110,7 +110,7 @@ function Do-ClickFamily($req, $kind) {
         }
         finally {
             # Only a press that did not land still owns its hold here.
-            [MixWin32]::ReleaseInactive($pressHold)
+            if ($pressHold -ne [IntPtr]::Zero) { [MixWin32]::ReleaseInactive($pressHold) }
         }
     }
     return Invoke-ForegroundInput $target $req.action {

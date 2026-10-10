@@ -947,6 +947,7 @@ using System;
 public static class MixWin32 {
   public static int PointerEventsGenerated;
   public static int PointerEventsFailed;
+  public static bool ActivationUnprotected;
   public static Action<int,int,bool,string> PointerProgress;
 }
 '@

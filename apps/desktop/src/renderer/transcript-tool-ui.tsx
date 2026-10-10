@@ -513,9 +513,40 @@ function renderToolActivityHeader({
   );
 }
 
+const PREVIEW_OUTPUT_LINES = 5;
+
+type ToolActivityPreviewMode = 'lines' | 'height';
+
+/** A preview cuts a command run or plain text output by lines; anything else
+ *  (files, code, diffs, rendered answers) by height. */
+function toolActivityPreviewMode(presentation: ToolActivityPresentation): ToolActivityPreviewMode {
+  const plainOutput =
+    !presentation.entries.length &&
+    !presentation.outputLanguage &&
+    (presentation.outputLiteral || !toolActivityLooksMarkdown(presentation.outputText));
+  const onlyText =
+    !presentation.diffPatch &&
+    !presentation.sections.length &&
+    !presentation.structuredRows.length &&
+    !presentation.promptText &&
+    !presentation.beforeText &&
+    !presentation.afterText &&
+    !presentation.targets.length &&
+    (presentation.fieldsInline || !presentation.fields.length);
+  return onlyText && (presentation.command || plainOutput) ? 'lines' : 'height';
+}
+
+/** The first lines of an output and how many it hides. A single hidden line
+ *  is shown instead of being counted. */
+function previewOutputLines(text: string): { text: string; hidden: number } {
+  const lines = text.split('\n');
+  if (lines.length <= PREVIEW_OUTPUT_LINES + 1) return { text, hidden: 0 };
+  return { text: lines.slice(0, PREVIEW_OUTPUT_LINES).join('\n'), hidden: lines.length - PREVIEW_OUTPUT_LINES };
+}
+
 /** A command run: the command sits in its own framed box, highlighted as
  *  shell, and what it printed follows as plain terminal text below the box. */
-function renderToolActivityTerminal(presentation: ToolActivityPresentation) {
+function renderToolActivityTerminal(presentation: ToolActivityPresentation, outputText = presentation.outputText) {
   return (
     <section className="tool-activity-item-section tool-activity-terminal">
       <ToolPanel
@@ -527,9 +558,9 @@ function renderToolActivityTerminal(presentation: ToolActivityPresentation) {
         </span>
         <ToolCommand command={presentation.command} />
       </ToolPanel>
-      {presentation.outputText && (
+      {outputText && (
         <pre className="tool-activity-item-output tool-terminal-output" data-scrollable>
-          {presentation.outputText}
+          {outputText}
         </pre>
       )}
     </section>
@@ -590,7 +621,7 @@ function renderToolActivityReplacement(presentation: ToolActivityPresentation) {
 }
 
 /** A tool's own result: file rows, JSON, a rendered answer, or plain text. */
-function renderToolActivityOutput(presentation: ToolActivityPresentation) {
+function renderToolActivityOutput(presentation: ToolActivityPresentation, outputText = presentation.outputText) {
   const className = 'tool-activity-item-section tool-activity-item-result-block';
   if (presentation.entries.length > 0) {
     return (
@@ -618,7 +649,7 @@ function renderToolActivityOutput(presentation: ToolActivityPresentation) {
   }
   return (
     <ToolPanel className={className} kind="text" copyValue={presentation.outputText}>
-      <pre className="tool-activity-item-output">{presentation.outputText}</pre>
+      <pre className="tool-activity-item-output">{outputText}</pre>
     </ToolPanel>
   );
 }
@@ -646,9 +677,12 @@ function renderToolActivityDetails(
   contentId: string,
   onShowMore: (() => void) | null
 ) {
+  const mode = onShowMore ? toolActivityPreviewMode(presentation) : null;
+  const output =
+    mode === 'lines' ? previewOutputLines(presentation.outputText) : { text: presentation.outputText, hidden: 0 };
   return (
     <div className="tool-activity-item-body" id={contentId}>
-      <ToolActivityPreview onShowMore={onShowMore}>
+      <ToolActivityPreview mode={mode} hiddenLines={output.hidden} onShowMore={onShowMore}>
         {(presentation.metaText ||
           (presentation.tone === 'neutral' && presentation.resultLabel && !rowShowsOutcome(presentation)) ||
           (presentation.fieldsInline && presentation.fields.length > 0)) && (
@@ -696,54 +730,68 @@ function renderToolActivityDetails(
         )}
         {(presentation.beforeText || presentation.afterText) && renderToolActivityReplacement(presentation)}
         {presentation.fields.length > 0 && !presentation.fieldsInline && renderToolActivityFields(presentation)}
-        {presentation.command && renderToolActivityTerminal(presentation)}
+        {presentation.command && renderToolActivityTerminal(presentation, output.text)}
         {presentation.diffPatch && <CodeDiff patch={presentation.diffPatch} />}
         {presentation.outputText &&
           !presentation.command &&
           presentation.sections.length === 0 &&
-          renderToolActivityOutput(presentation)}
+          renderToolActivityOutput(presentation, output.text)}
       </ToolActivityPreview>
     </div>
   );
 }
 
-/** A call the expansion setting opened shows its first lines only; "Show
- *  more" (or opening it by hand) lifts the cap. */
-function ToolActivityPreview({ onShowMore, children }: { onShowMore: (() => void) | null; children: ReactNode }) {
-  const clamped = Boolean(onShowMore);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [overflowing, setOverflowing] = useState(false);
+/** A call the expansion setting opened shows a preview: a command's first two
+ *  lines and five lines of output, or a capped height for anything else. A
+ *  quiet "… +N lines" note under it lifts the cap, as does opening by hand. */
+function ToolActivityPreview({
+  mode,
+  hiddenLines,
+  onShowMore,
+  children,
+}: {
+  mode: ToolActivityPreviewMode | null;
+  hiddenLines: number;
+  onShowMore: (() => void) | null;
+  children: ReactNode;
+}) {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [clipped, setClipped] = useState(false);
   useLayoutEffect(() => {
-    const content = contentRef.current;
-    const frame = content?.parentElement;
-    if (!clamped || !content || !frame) {
-      setOverflowing(false);
+    const frame = frameRef.current;
+    const content = frame?.firstElementChild;
+    if (!mode || !frame || !content) {
+      setClipped(false);
       return;
     }
-    const measure = () => setOverflowing(content.scrollHeight > frame.clientHeight + 1);
+    const cut = (element: Element) => element.scrollHeight > element.clientHeight + 1;
+    const measure = () =>
+      setClipped(
+        mode === 'height'
+          ? cut(frame)
+          : [...frame.querySelectorAll('.tool-panel-body, .tool-activity-item-output')].some(cut)
+      );
     measure();
     if (typeof ResizeObserver !== 'function') return;
     const observer = new ResizeObserver(measure);
+    observer.observe(frame);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [clamped]);
+  }, [mode]);
+  const more = Boolean(mode && onShowMore && (hiddenLines > 0 || clipped));
   return (
     <div className="tool-activity-item-body-inner">
-      <div
-        className="tool-activity-preview"
-        data-clamped={clamped ? 'true' : 'false'}
-        data-overflowing={clamped && overflowing ? 'true' : 'false'}
-      >
-        <div ref={contentRef}>{children}</div>
+      <div className="tool-activity-preview" data-clamped={mode ?? 'false'} ref={frameRef}>
+        <div>{children}</div>
       </div>
-      {clamped && overflowing && onShowMore && (
+      {more && onShowMore && (
         <button
           type="button"
           className="tool-activity-preview-more"
           onPointerDown={(event) => event.stopPropagation()}
           onClick={onShowMore}
         >
-          {t('Show more')}
+          {hiddenLines > 0 ? t('… +{{lines}} lines', { lines: hiddenLines }) : t('… Show more')}
         </button>
       )}
     </div>

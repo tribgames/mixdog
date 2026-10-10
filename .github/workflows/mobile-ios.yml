@@ -105,6 +105,8 @@ jobs:
             -authenticationKeyID "$APPLE_API_KEY_ID" \
             -authenticationKeyIssuerID "$APPLE_API_ISSUER" \
             DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             MARKETING_VERSION="${{ steps.version.outputs.version }}" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}"
 
