@@ -35,8 +35,8 @@ Each invocation issues an independent random URL. A file URL is never reused
 as, or upgraded to, a project URL for the same folder. The server retains at
 most **128 URLs**, evicts the least recently used when full, and expires each
 after **one hour**. Only a successfully authorized GET/HEAD refreshes recency;
-failed or forbidden requests do not. Recency never extends the absolute expiry. Click the original
-chat link again to obtain a fresh URL.
+failed or forbidden requests do not. Recency never extends the absolute expiry.
+Click the original chat link again to obtain a fresh URL.
 
 The server rechecks the originating selected-file permission or project
 registry on each permitted GET/HEAD, and pins the canonical root/page path.
@@ -46,6 +46,9 @@ path) invalidates that URL and returns 404. A transient authorization failure
 diagnostics or revoking the lease; retry the same URL after recovery. Uncertainty
 never authorizes file bytes. Expiry or revocation during an unsuccessful check
 still returns 404, not a retryable response for a dead lease.
+Project authority uses the strict store reader: storage/parse failures are not
+silently converted to an empty registry. With an older runtime that only has a
+tolerant list, absence still denies access but does not prove permanent removal.
 Closing the requesting desktop renderer revokes its URLs without revoking
 another renderer's previews. Expiry/closure during a pending authorization
 cannot revive the URL when that authorization later finishes.
@@ -61,6 +64,7 @@ process replacing paths during the final filesystem checks and open.
 ## Focused checks
 
 ```sh
+node scripts/test-direct.mjs src/runtime/shared/projects-authority.test.mjs
 npm test --prefix apps/desktop -- src/main/local-page-server.test.mjs src/main/local-page-permissions.test.mjs src/main/local-access-denied.test.mjs
 ```
 

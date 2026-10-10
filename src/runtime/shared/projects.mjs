@@ -29,11 +29,14 @@ function normalizeKey(absPath) {
   return process.platform === 'win32' ? text.replace(/[\\/]+$/, '').toLowerCase() : text.replace(/\/+$/, '');
 }
 
-function readStore() {
+function readStore(strict = false) {
   try {
-    if (!existsSync(PROJECTS_FILE)) return { projects: [] };
+    if (!strict && !existsSync(PROJECTS_FILE)) return { projects: [] };
     const raw = readFileSync(PROJECTS_FILE, 'utf8');
     const parsed = JSON.parse(raw);
+    if (strict && (!Array.isArray(parsed?.projects) || parsed.projects.some((entry) =>
+      !entry || typeof entry.path !== 'string' || !entry.path.trim() || !isAbsolute(entry.path)
+    ))) throw new TypeError('Project registry is invalid.');
     const projects = Array.isArray(parsed?.projects) ? parsed.projects : [];
     return {
       projects: projects
@@ -45,7 +48,8 @@ function readStore() {
           ...(Number(entry.lastSelectedAt) > 0 ? { lastSelectedAt: Number(entry.lastSelectedAt) } : {}),
         })),
     };
-  } catch {
+  } catch (error) {
+    if (strict && error?.code !== 'ENOENT') throw error;
     return { projects: [] };
   }
 }
@@ -115,6 +119,13 @@ function compareProjects(a, b) {
 /** List registered projects (most recently selected first; addedAt fallback). */
 export function listProjects() {
   const { projects } = readStore();
+  return projects.slice().sort(compareProjects);
+}
+
+/** Permission checks must not mistake unreadable/corrupt storage for removal.
+ * Keep the established tolerant reader for ordinary lists and mutations. */
+export function listProjectsStrict() {
+  const { projects } = readStore(true);
   return projects.slice().sort(compareProjects);
 }
 

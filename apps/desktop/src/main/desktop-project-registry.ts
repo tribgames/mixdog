@@ -11,6 +11,12 @@ import { matchingProjectPath, normalizedProjectKey, projectAlias, withoutMatchin
 /** Recent-project list length shown in the snapshot. */
 const RECENT_PROJECT_LIMIT = 12;
 
+// Optional for an older runtime: its tolerant empty list denies access but
+// cannot prove removal strongly enough to revoke an issued preview forever.
+type ProjectAuthorityStore = MixdogProjectsModule & {
+  listProjectsStrict?(): MixdogProject[];
+};
+
 export class DesktopProjectRegistry {
   private readonly loadProjectsModule: () => Promise<MixdogProjectsModule>;
   private readonly userDataRoot: () => string;
@@ -132,9 +138,12 @@ export class DesktopProjectRegistry {
   }
 
   /** Registered projects, skipping malformed or relative store entries. */
-  private registered(store: MixdogProjectsModule): MixdogProject[] {
-    const listed = store.listProjects();
-    if (!Array.isArray(listed)) return [];
+  private registered(store: ProjectAuthorityStore, strict = false): MixdogProject[] {
+    const listed = strict ? store.listProjectsStrict?.() : store.listProjects();
+    if (!Array.isArray(listed)) {
+      if (strict) throw new Error('Project registry is unreadable.');
+      return [];
+    }
     return listed.flatMap((entry): MixdogProject[] => {
       if (!entry || typeof entry !== 'object') return [];
       const path = typeof entry.path === 'string' ? entry.path.trim() : '';
@@ -151,13 +160,17 @@ export class DesktopProjectRegistry {
     });
   }
 
-  private known(store: MixdogProjectsModule, projectPath: string): MixdogProject {
+  private known(store: ProjectAuthorityStore, projectPath: string): MixdogProject {
     const requested = projectPath.trim();
     if (!requested) throw new LocalAccessDeniedError('Project is not available.');
     const resolved = store.resolveProjectPath?.(requested) || resolve(requested);
     const key = normalizedProjectKey(resolved);
-    const project = this.registered(store).find((entry) => normalizedProjectKey(entry.path) === key);
-    if (!project) throw new LocalAccessDeniedError('Project is not available.');
+    const strict = typeof store.listProjectsStrict === 'function';
+    const project = this.registered(store, strict).find((entry) => normalizedProjectKey(entry.path) === key);
+    if (!project) {
+      const Refusal = strict ? LocalAccessDeniedError : Error;
+      throw new Refusal('Project is not available.');
+    }
     return project;
   }
 }
