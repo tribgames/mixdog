@@ -190,7 +190,7 @@ export function AutoSaveRow({
           disabled={disabled}
           onBlur={(event) => commit(event.currentTarget)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
               event.preventDefault();
               event.currentTarget.blur();
             } else if (event.key === 'Escape') {

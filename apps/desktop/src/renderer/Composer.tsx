@@ -317,9 +317,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   const paletteAnchor = useRef<HTMLFormElement>(null);
   const composingRef = useRef(false);
   const suppressImeLineBreakRef = useRef(false);
-  // True while the current Shift hold has already produced a character ('?' is
-  // Shift+/), so the Enter that follows is a send, not a newline chord.
-  const shiftLatchRef = useRef(false);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const escapeClearAtRef = useRef(0);
@@ -545,7 +542,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     event.preventDefault();
     void send('', 'form-submit');
   };
-  const { selectMention, onKeyDown, onKeyUp } = useComposerKeyboard({
+  const { selectMention, onKeyDown } = useComposerKeyboard({
     draft: {
       value: draft,
       set: setDraft,
@@ -580,7 +577,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     ime: {
       composing: composingRef,
       suppressLineBreak: suppressImeLineBreakRef,
-      shiftLatch: shiftLatchRef,
     },
     actions: {
       send,
@@ -618,7 +614,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   const onTextareaBlur = () => {
     composingRef.current = false;
     suppressImeLineBreakRef.current = false;
-    shiftLatchRef.current = false;
     setComposerFocused(false);
   };
   const onTextareaKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -743,7 +738,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
             }}
             onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)}
             onKeyDown={onTextareaKeyDown}
-            onKeyUp={onKeyUp}
             onPaste={onTextareaPaste}
             rows={1}
             placeholder={placeholder}

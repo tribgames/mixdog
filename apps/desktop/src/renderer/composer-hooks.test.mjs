@@ -253,7 +253,6 @@ test('keyboard hook restores history, inserts mentions, and scrolls only appende
     const escapeClearAt = useRef(0);
     const composing = useRef(false);
     const suppressLineBreak = useRef(false);
-    const shiftLatch = useRef(false);
     current = {
       draft,
       setDraft,
@@ -311,7 +310,7 @@ test('keyboard hook restores history, inserts mentions, and scrolls only appende
           escapeClearAt,
           showNotice() {},
         },
-        ime: { composing, suppressLineBreak, shiftLatch },
+        ime: { composing, suppressLineBreak },
         actions: {
           send: async () => {
             sent += 1;
