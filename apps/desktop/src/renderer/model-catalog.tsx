@@ -195,7 +195,7 @@ export function ModelCatalog({
     target.scrollIntoView({ block: 'nearest' });
   };
   const navigateRows = (event: React.KeyboardEvent, fromSearch = false) => {
-    if (event.key === 'Enter' && fromSearch) {
+    if (event.key === 'Enter' && fromSearch && !event.nativeEvent.isComposing) {
       const target = Array.from(
         dialog.current?.querySelectorAll<HTMLButtonElement>('.model-list [role="option"]') || []
       ).find((option) => option.dataset.rowKey === activeRowKey);

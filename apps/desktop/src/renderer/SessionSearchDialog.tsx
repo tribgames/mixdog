@@ -160,7 +160,7 @@ function SessionSearchDialog({ sessions, onOpenSession, onClose }: SessionSearch
               } else if (event.key === 'ArrowUp') {
                 event.preventDefault();
                 setSelectedIndex((current) => (rows.length ? (current - 1 + rows.length) % rows.length : 0));
-              } else if (event.key === 'Enter') {
+              } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 openRow(rows[selectedIndex]);
               }

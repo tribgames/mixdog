@@ -258,7 +258,7 @@ const SessionRow = React.memo(function SessionRow({
         onDoubleClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           event.stopPropagation();
-          if (event.key === 'Enter') {
+          if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
             event.preventDefault();
             onCommitRename(session);
           } else if (event.key === 'Escape') {

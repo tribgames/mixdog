@@ -2,7 +2,6 @@ import { useCallback, type Dispatch, type KeyboardEvent, type RefObject, type Se
 import type { DesktopRendererComposerActionDiagnostic } from '../shared/contract';
 import {
   isComposerNewlineChord,
-  nextComposerShiftLatch,
   shouldInterruptPrompt,
   shouldNavigatePromptHistory,
 } from './renderer-logic.mjs';
@@ -81,7 +80,6 @@ export function useComposerKeyboard({
   ime: {
     composing: RefObject<boolean>;
     suppressLineBreak: RefObject<boolean>;
-    shiftLatch: RefObject<boolean>;
   };
   actions: {
     send(slashOverride?: string, source?: DesktopRendererComposerActionDiagnostic['source']): Promise<void>;
@@ -307,33 +305,15 @@ export function useComposerKeyboard({
     [actions, draft, history, queue, runtime, selector]
   );
 
-  const onKeyUp = useCallback(
-    (event: TextareaKeyEvent) => {
-      ime.shiftLatch.current = nextComposerShiftLatch(ime.shiftLatch.current, {
-        type: 'keyup',
-        key: event.key,
-        shiftKey: event.shiftKey,
-      });
-    },
-    [ime.shiftLatch]
-  );
-
   const onKeyDown = useCallback(
     (event: TextareaKeyEvent) => {
       if (event.key !== 'Escape') runtime.escapeClearAt.current = 0;
-      const shiftLatched = ime.shiftLatch.current;
-      ime.shiftLatch.current = nextComposerShiftLatch(shiftLatched, {
-        type: 'keydown',
-        key: event.key,
-        shiftKey: event.shiftKey,
-      });
       const newlineChord = isComposerNewlineChord({
         key: event.key,
         shiftKey: event.shiftKey,
         ctrlKey: event.ctrlKey,
         metaKey: event.metaKey,
         altKey: event.altKey,
-        shiftLatched,
       });
       // Phone keyboards have no Shift+Enter, so Enter keeps its native line
       // break there and the send button submits.
@@ -451,5 +431,5 @@ export function useComposerKeyboard({
     ]
   );
 
-  return { selectMention, onKeyDown, onKeyUp };
+  return { selectMention, onKeyDown };
 }
