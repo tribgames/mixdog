@@ -13,8 +13,7 @@ import { applyConfigPatch } from '../runtime/shared/config-patch.mjs';
 import { withEffectiveDisabledAgents, withStoredDisabledAgents } from '../runtime/shared/agent-route-config.mjs';
 import {
   DEFAULT_MAINTENANCE,
-  maintenanceDelta,
-  presetsDelta,
+  stripStoredRouteDefaults,
   withDefaultPresets,
 } from '../runtime/agent/orchestrator/config-presets.mjs';
 import { createConfigWriters } from './config-lifecycle/config-writers.mjs';
@@ -24,14 +23,7 @@ export { flushPendingSessionConfigWrites } from './config-lifecycle/config-write
 
 // Stored shape of an effective config: disabled agents, presets and maintenance as deltas.
 function storedForm(config) {
-  const stored = withStoredDisabledAgents(config);
-  const presets = presetsDelta(config.presets);
-  const maintenance = maintenanceDelta(config.maintenance);
-  if (presets.length) stored.presets = presets;
-  else delete stored.presets;
-  if (Object.keys(maintenance).length) stored.maintenance = maintenance;
-  else delete stored.maintenance;
-  return stored;
+  return stripStoredRouteDefaults(withStoredDisabledAgents(config));
 }
 
 /**

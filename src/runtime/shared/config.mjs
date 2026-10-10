@@ -53,7 +53,8 @@ function isFreshConfig(root) {
 }
 
 function withFreshDefaultsVersion(fresh, root) {
-  if (fresh && isPlainObject(root) && !hasOwn(root, DEFAULTS_VERSION_KEY)) root[DEFAULTS_VERSION_KEY] = DEFAULTS_VERSION;
+  if (fresh && isPlainObject(root) && !hasOwn(root, DEFAULTS_VERSION_KEY))
+    root[DEFAULTS_VERSION_KEY] = DEFAULTS_VERSION;
   return root;
 }
 

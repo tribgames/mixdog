@@ -8,7 +8,6 @@ import {
 } from '../shared/activity-rail-pins';
 import { showDesktopToast } from './desktop-toasts';
 import { isRemoteConnectionInterruptedError } from './remote-connection-state';
-import { isRemoteBrowserRenderer } from './remote-ui-projection';
 import { t } from './i18n';
 
 const STORAGE_KEY = 'mixdog.desktop.activity-rail-pins.v1';
@@ -47,10 +46,7 @@ function reportSyncError(error: unknown): void {
 }
 
 /** The host owns the order; localStorage only seeds Electron and paints boot. */
-export function useActivityRailPins(
-  api: PinsApi | undefined = window.mixdogDesktop,
-  remote = isRemoteBrowserRenderer()
-) {
+export function useActivityRailPins(api: PinsApi | undefined = window.mixdogDesktop) {
   const [pins, setPins] = useState(readLocalPins);
   const initialPins = useRef(pins);
   const currentPins = useRef(pins);
@@ -102,7 +98,7 @@ export function useActivityRailPins(
       const id = ++readId;
       const startedAt = saves.current;
       try {
-        let state = await api.readActivityRailPins();
+        const state = await api.readActivityRailPins();
         if (!live || id !== readId) return;
         // An absent answer cannot be ordered by revision, so a read that began
         // before a local save or a received update never overrides it.
@@ -129,7 +125,7 @@ export function useActivityRailPins(
       unsubscribe();
       window.removeEventListener('mixdog:remote-connection-ready', refresh);
     };
-  }, [api, remote, receive, publishConfirmed]);
+  }, [api, receive, publishConfirmed]);
 
   const savePins = useCallback(
     (next: string[]) => {
