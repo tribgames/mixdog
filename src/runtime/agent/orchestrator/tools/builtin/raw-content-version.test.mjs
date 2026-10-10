@@ -27,12 +27,37 @@ const changes = [
   ['size', 1], ['ino', 1], ['dev', 1],
 ];
 
+// NTFS identities may exceed Number.MAX_SAFE_INTEGER, where +/- 1 can
+// round back to the original number. Perturb identity, not its precision.
+function differentVersion(current, field) {
+  const value = field === 'ino' || field === 'dev'
+    ? (current[field] === 0 ? 1 : 0)
+    : current[field] - (field.endsWith('Ms') ? 0.5 : 1);
+  assert.notEqual(value, current[field], `${field} fixture must actually differ`);
+  return { ...current, [field]: value };
+}
+
+test('identity mismatches remain distinct for zero and unsafe integer versions', () => {
+  const unsafe = 2 ** 60;
+  assert.equal(unsafe - 1, unsafe, 'exercise the precision loss without requiring NTFS');
+  for (const field of ['ino', 'dev']) {
+    for (const value of [0, 1, Number.MAX_SAFE_INTEGER, unsafe, Number.MAX_VALUE]) {
+      const current = { ...version(), [field]: value };
+      const previous = differentVersion(current, field);
+      const path = file();
+      rawContentCacheSet(path, previous, body);
+      assert.equal(rawContentCacheGet(path, previous), body, 'control: the seeded version reuses');
+      assert.equal(rawContentCacheGet(path, current), null, `${field}=${value} must miss`);
+    }
+  }
+});
+
 test('an identical file version reuses the buffer and owns its metadata snapshot', () => {
   const path = file();
   const st = version();
   rawContentCacheSet(path, st, body);
   assert.equal(rawContentCacheGet(path, { ...st }), body);
-  st.ino += 1;
+  st.ino = differentVersion(st, 'ino').ino;
   assert.equal(rawContentCacheGet(path, version()), body, 'later caller mutation cannot relabel cached bytes');
   assert.equal(rawContentCacheGet(path, st), null);
 });
@@ -137,7 +162,7 @@ for (const field of ['mtimeMs', 'ctimeMs', 'size', 'ino', 'dev']) {
     const { ctx, helpers, snapshots } = renderFixture(Buffer.from('AFTER_\n'));
     const current = ctx.st;
     // Deterministic pre/post versions: do not depend on host clock resolution.
-    ctx.st = { ...current, [field]: current[field] - (field.endsWith('Ms') ? 0.5 : 1) };
+    ctx.st = differentVersion(current, field);
     const out = await bufferedReadResult(ctx, { prefetched: { buf: body, fromCache: false }, readEnc: { encoding: 'utf8', bomLen: 0 } }, helpers);
     assert.equal(out, 'BEFORE', 'the active caller keeps its observation without an implicit replay');
     assert.equal(rawContentCacheGet(ctx.fullPath, current), null);
@@ -178,7 +203,7 @@ for (const field of ['mtimeMs', 'ctimeMs', 'ino', 'dev']) {
     const path = file();
     writeFileSync(path, 'AFTER_\n');
     const current = statSync(path);
-    const previous = { ...current, [field]: current[field] - (field.endsWith('Ms') ? 0.5 : 1) };
+    const previous = differentVersion(current, field);
     // Seed the previously observed version; the rendered cache is cold.
     rawContentCacheSet(path, previous, body);
     const out = String(await executeBuiltinTool('read', { file_path: path }, root, { sessionId: randomUUID() }));
