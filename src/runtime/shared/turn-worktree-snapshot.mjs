@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { PATCH_SNAPSHOT_MAX_BYTES } from './bounded-file-read.mjs';
 import { cleanString as clean } from './clean.mjs';
 import { runGitOffThread } from './git-runner.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
@@ -9,6 +11,9 @@ const COMMAND_TIMEOUT_MS = 30_000;
 const COMMAND_MAX_BYTES = 8 * 1024 * 1024;
 const PATCH_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_UNTRACKED_FILE_BYTES = 2 * 1024 * 1024;
+// Largest tool-supplied baseline kept for `hash-object`: the shared per-file
+// snapshot limit. (2–8 MiB explicit untracked edits keep their exact revert.)
+const MAX_TOOL_BASELINE_BYTES = PATCH_SNAPSHOT_MAX_BYTES;
 // Baselines used to live in the OS temp directory, where a reboot or a disk
 // cleaner could remove the only copy of a turn's revert source. Keep them with
 // the rest of the runtime data.
@@ -344,13 +349,80 @@ export function recordTurnWorktreeFileChange(snapshot, fullPath, before) {
   if (!rel || isAbsolute(rel) || rel.split('/').includes('..')) return;
   if (snapshot.toolPaths.has(rel)) return;
   snapshot.toolPaths.add(rel);
+  // Before-bytes that were never captured (an omitted marker) or exceed the
+  // tool-baseline bound are neither kept nor hashed: only their size stays,
+  // so materializeToolBaselines can record an omitted (unrestorable) baseline
+  // instead of shipping a file-sized buffer to git.
+  if (before !== null && !(Buffer.isBuffer(before) && before.length <= MAX_TOOL_BASELINE_BYTES)) {
+    const size = Buffer.isBuffer(before) ? before.length : Number(before?.size) || 0;
+    snapshot.pendingBaselines.set(rel, { omitted: true, size });
+    return;
+  }
   snapshot.pendingBaselines.set(rel, before);
 }
 
-async function applyBaselineFilesUnlocked(state, tree, entries) {
-  if (entries.length === 0) return { tree, files: [] };
+const isOmittedBaseline = (content) => content !== null && content !== undefined && !Buffer.isBuffer(content);
+
+/** Review rows and patch sections for omitted baselines inside the review scope. */
+function withOmittedBaselines(snapshot, review) {
+  const scope = snapshot.scopePaths ? new Set(snapshot.scopePaths.map(pathKey)) : null;
+  const omitted = [...snapshot.baselineFiles.values()].filter(
+    (entry) => entry.omitted === true && (!scope || scope.has(pathKey(entry.path)))
+  );
+  if (omitted.length === 0) return review;
+  const keys = new Set(omitted.map((entry) => pathKey(entry.path)));
+  const files = (review.files || []).filter((file) => !keys.has(pathKey(file.path)));
+  let patch = review.patch || '';
+  for (const entry of omitted) {
+    const exists = existsSync(resolve(snapshot.root, entry.path));
+    const size = Number(entry.size) || 0;
+    files.push({
+      path: entry.path,
+      oldPath: null,
+      status: exists ? 'M' : 'D',
+      additions: null,
+      deletions: null,
+      binary: true,
+      omitted: true,
+      size,
+    });
+    if (review.patchOmitted) continue;
+    const newHeader = exists ? `b/${entry.path}` : '/dev/null';
+    patch +=
+      `diff --git a/${entry.path} b/${entry.path}\n` +
+      (exists ? '' : 'deleted file mode 100644\n') +
+      `binary/large file ${exists ? 'changed' : 'deleted'} (${size} bytes; content not captured)\n` +
+      `Binary files a/${entry.path} and ${newHeader} differ\n`;
+  }
+  files.sort((left, right) => left.path.localeCompare(right.path));
+  return { ...review, files, patch };
+}
+
+/** Revert never claims success for a path whose baseline bytes were not captured. */
+function assertRevertable(snapshot, targets) {
+  for (const target of targets) {
+    const entry = snapshot.baselineFiles.get(pathKey(target));
+    if (entry?.omitted === true) {
+      throw new Error(
+        `turn review revert is unavailable for ${target}: binary/large file content was not captured (${Number(entry.size) || 0} bytes)`
+      );
+    }
+  }
+}
+
+async function applyBaselineFilesUnlocked(state, tree, allEntries) {
+  // Omitted baselines change no tree: they are carried as metadata only.
+  const files = allEntries
+    .filter((entry) => entry?.omitted === true)
+    .map((entry) => ({
+      path: safeRelativePath(state.root, entry.path),
+      oid: null,
+      omitted: true,
+      size: Number(entry.size) || 0,
+    }));
+  const entries = allEntries.filter((entry) => entry?.omitted !== true);
+  if (entries.length === 0) return { tree, files };
   const saved = clean((await runGit(shadowArgs(state, ['write-tree']), { cwd: state.root })).stdout);
-  const files = [];
   try {
     await runGit(shadowArgs(state, ['read-tree', tree]), { cwd: state.root });
     for (const entry of entries) {
@@ -408,10 +480,15 @@ async function materializeToolBaselines(snapshot) {
       ([path, content]) =>
         !present.has(pathKey(path)) &&
         (content === null ||
+          isOmittedBaseline(content) ||
           (!state.sourceTracked.has(pathKey(path)) &&
             (ignored.has(pathKey(path)) || content.length > MAX_UNTRACKED_FILE_BYTES)))
     )
-    .map(([path, content]) => ({ path, content }));
+    // A path whose exact baseline is already in the tree keeps it; one that is
+    // not and whose bytes were never captured is recorded as omitted.
+    .map(([path, content]) =>
+      isOmittedBaseline(content) ? { path, omitted: true, size: content.size } : { path, content }
+    );
   const applied = await applyBaselineFilesUnlocked(state, snapshot.baselineTree, missing);
   snapshot.baselineTree = applied.tree;
   for (const entry of applied.files) snapshot.baselineFiles.set(pathKey(entry.path), entry);
@@ -609,7 +686,10 @@ export async function resumeTurnWorktreeSnapshot(
     const currentTree = await captureTreeUnlocked(state, snapshot.toolPaths);
     Object.assign(
       snapshot,
-      await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths, { omitPatch })
+      withOmittedBaselines(
+        snapshot,
+        await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths, { omitPatch })
+      )
     );
     return snapshot;
   });
@@ -622,7 +702,7 @@ export async function refreshTurnWorktreeSnapshot(snapshot) {
     const currentTree = await captureTreeUnlocked(snapshot.state, snapshot.toolPaths);
     if (currentTree === snapshot.currentTree) return snapshot;
     const review = await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths);
-    Object.assign(snapshot, review);
+    Object.assign(snapshot, withOmittedBaselines(snapshot, review));
     return snapshot;
   });
 }
@@ -658,13 +738,18 @@ async function restorePathFromTree(snapshot, rel) {
 }
 
 async function revertPathsUnlocked(snapshot, targets) {
+  // Checked for every target before the first restore: no partial revert.
+  assertRevertable(snapshot, targets);
   for (const target of targets) {
     await restorePathFromTree(snapshot, target);
   }
   const currentTree = await captureTreeUnlocked(snapshot.state, snapshot.toolPaths);
   Object.assign(
     snapshot,
-    await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths)
+    withOmittedBaselines(
+      snapshot,
+      await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths)
+    )
   );
   return snapshot;
 }

@@ -4,6 +4,14 @@
 import { parsePatch } from 'diff';
 import { throwIfAborted } from '../../../../shared/abort-race.mjs';
 import { symlinkWriteTarget } from '../builtin/atomic-write.mjs';
+import { patchContentEditRefusal } from './content-guard.mjs';
+import {
+  commitDeleteQuarantine,
+  createDeleteQuarantine,
+  deleteNeedsQuarantine,
+  formatQuarantinedDeletes,
+  quarantineDeleteTargets,
+} from './delete-quarantine.mjs';
 import { dispatchNativePatch, dispatchJsPatchEntries } from './dispatch.mjs';
 import { patchTargetUsesUtf16 } from './matcher.mjs';
 import { nativePatchSessionSatisfiesContract } from './native-server.mjs';
@@ -12,6 +20,7 @@ import {
   classifyEntry,
   isResolvedPathOutsideBase,
   parsedEntryResolvedPath,
+  pathKey,
   renderParsedUnifiedPatch,
   rewriteHeaderPaths,
 } from './paths.mjs';
@@ -32,9 +41,28 @@ export function parseConvertedUnifiedPatch(unified) {
 // Apply one wave via the native (+ JS out-of-base) split. Returns
 // { executor, text } on success or { executor, error } so the caller decides
 // whether earlier waves already committed to disk.
-export async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewrites: whr }, basePath, opts) {
-  const { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal } = opts;
+//
+// `opts.deleteQuarantine` (from a batch owner with rollback) receives the
+// quarantine moves of never-snapshotted deletes and commits them itself;
+// without one, the wave commits its own moves once they all succeeded.
+export async function applyParsedWave({ parsed: allParsed, entries: allEntries, headerRewrites: whr }, basePath, opts) {
+  const { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal, deleteQuarantine = null } = opts;
   throwIfAborted(abortSignal);
+  // Content edits of binary/oversized files are refused before any write.
+  for (const entry of allEntries) {
+    if (entry.kind !== 'modify') continue;
+    const refusal = patchContentEditRefusal(entry.fullPath, entry.displayPath);
+    if (refusal) return { executor: 'js-patch', error: `Error: ${refusal}` };
+  }
+  // Deletes whose bytes are never snapshotted run last, as quarantine moves.
+  const protectedDeletes = dryRun
+    ? []
+    : allEntries.filter((entry) => entry.kind === 'delete' && deleteNeedsQuarantine(entry.fullPath, deleteQuarantine));
+  const protectedKeys = new Set(protectedDeletes.map((entry) => pathKey(entry.fullPath)));
+  const wentries = allEntries.filter((entry) => !protectedKeys.has(pathKey(entry.fullPath)));
+  const wparsed = (allParsed || []).filter(
+    (entry) => !protectedKeys.has(pathKey(parsedEntryResolvedPath(entry, basePath)))
+  );
   // Create entries use the JS atomic writer even inside the base path. Its
   // expected-absent snapshot makes Add File create-only under external races;
   // the native patch engine intentionally supports overwrite-style additions.
@@ -92,7 +120,9 @@ export async function applyParsedWave({ parsed: wparsed, entries: wentries, head
       !needsJsWriter(parsedEntryResolvedPath(entry, basePath), classifyEntry(entry))
   );
   let executor = 'native-patch';
-  if (jsEntries.length > 0) executor = nativeEntries.length > 0 ? 'native+js-patch' : 'js-patch';
+  if (jsEntries.length > 0 || nativeEntries.length === 0) {
+    executor = nativeEntries.length > 0 ? 'native+js-patch' : 'js-patch';
+  }
   const resultParts = [];
   if (nativeEntries.length > 0) {
     const nativePatchStr = rewriteHeaderPaths(renderParsedUnifiedPatch(parsedInside), whr);
@@ -124,6 +154,16 @@ export async function applyParsedWave({ parsed: wparsed, entries: wentries, head
     });
     if (isPatchErrorText(jsResult)) return { executor, error: jsResult };
     resultParts.push(jsResult);
+  }
+  if (protectedDeletes.length > 0) {
+    const quarantine = deleteQuarantine || createDeleteQuarantine();
+    try {
+      quarantineDeleteTargets(quarantine, protectedDeletes, { readStateScope });
+    } catch (err) {
+      return { executor, error: `Error: ${err?.message || String(err)}` };
+    }
+    const leftovers = deleteQuarantine ? [] : commitDeleteQuarantine(quarantine);
+    resultParts.push(formatQuarantinedDeletes(protectedDeletes, leftovers));
   }
   return { executor, text: resultParts.join('\n') };
 }

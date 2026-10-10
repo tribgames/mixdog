@@ -4,8 +4,14 @@
 import { preValidateNativeBatch } from '../paths.mjs';
 import { applyParsedWave } from '../wave.mjs';
 
+// `mutatedPaths`: the targets of every unit that actually committed a change.
+// A refused, failed, skipped or no-op unit leaves its targets untouched (a
+// failing unit refuses before its first write or rolls its rename back), so
+// its paths are never reported to the review as changed.
 export async function runPatchUnits(units, basePath, { waveOpts, abortSignal, continueAfterFailure }) {
   const applied = [];
+  const mutatedPaths = [];
+  const noteMutated = (unit) => mutatedPaths.push(unit.fullPath, ...(unit.extraLockPaths || []));
   const skipped = [];
   const failures = [];
   let failed = null;
@@ -31,6 +37,7 @@ export async function runPatchUnits(units, basePath, { waveOpts, abortSignal, co
     if (unit.execute) {
       try {
         applied.push({ displayPath: unit.displayPath, text: await unit.execute() });
+        noteMutated(unit);
       } catch (err) {
         noteFailure(unit, i, `Error: ${err?.message || String(err)}`);
       }
@@ -63,6 +70,7 @@ export async function runPatchUnits(units, basePath, { waveOpts, abortSignal, co
       continue;
     }
     applied.push({ displayPath: unit.displayPath, text: res.text });
+    noteMutated(unit);
   }
-  return { applied, skipped, failures, failed, failedIndex };
+  return { applied, skipped, failures, failed, failedIndex, mutatedPaths: [...new Set(mutatedPaths)] };
 }

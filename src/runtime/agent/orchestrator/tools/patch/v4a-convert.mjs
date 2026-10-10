@@ -1,11 +1,13 @@
 // V4A hunk locator, in-memory apply, rename sections, and V4A -> unified
 // conversion.
 
-import { readFileSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
+import { lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { dirname as pathDirname } from 'node:path';
 import { normalizeOutputPath, invalidateBuiltinResultCache, clearReadSnapshotForPath } from '../builtin.mjs';
 import { rawContentCacheGet, rawContentCacheSet } from '../builtin/cache-layers.mjs';
+import { PATCH_SNAPSHOT_MAX_BYTES, readBoundedFile } from '../../../../shared/bounded-file-read.mjs';
+import { contentEditRefusalMessage, patchContentEditRefusal, readPatchTargetBytes } from './content-guard.mjs';
 import { atomicWrite } from '../builtin/atomic-write.mjs';
 import { assertPathReachable, assertPathsReachable } from '../builtin/fs-reachability.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
@@ -534,6 +536,8 @@ function v4aRenameSourceIssue(srcFull, displayPath) {
     if (isSpecialFileStat(st)) return specialFilePatchMessage(displayPath);
     if (!st.isFile())
       return `apply_patch: V4A rename source is not a regular file: ${normalizeOutputPath(displayPath)}`;
+    const refusal = patchContentEditRefusal(srcFull, normalizeOutputPath(displayPath));
+    if (refusal) return refusal;
   } catch (err) {
     return `apply_patch: V4A rename source missing or unreadable: ${normalizeOutputPath(displayPath)} (${err?.code || err?.message || String(err)})`;
   }
@@ -611,10 +615,12 @@ export async function applyV4ARenameSection(section, basePath, options = {}) {
   const newContent = encodePatchTargetContent(joinTextLinesForPatch(updatedLines), sourceLines.encoding);
   const linesChanged = v4aRenameLinesChanged(section);
   if (options.dryRun) return { ok: true, dryRun: true, displayPath: displayDest, linesChanged, srcFull, destFull };
-  const originalContent = readFileSync(srcFull);
+  // Rollback sources, bounded: an oversized source or overwritten destination
+  // is refused here, before the first write.
+  const originalContent = readPatchTargetBytes(srcFull, displaySrc);
   let destBefore = null;
   try {
-    destBefore = readFileSync(destFull);
+    destBefore = readPatchTargetBytes(destFull, displayDest);
   } catch (err) {
     if (err?.code !== 'ENOENT') throw err;
   }
@@ -695,26 +701,33 @@ export async function applyV4ARenameSections(renameSections, basePath, options =
   return results;
 }
 
+// Bounded: a binary or oversized target is refused instead of read whole.
 function readRawBufForV4AConversion(fullPath) {
   const st = lstatV4APatchTarget(fullPath, fullPath);
   const cached = rawContentCacheGet(fullPath, st);
-  if (cached) return cached;
-  const rawBuf = readFileSync(fullPath);
-  const buf = Buffer.isBuffer(rawBuf) ? rawBuf : Buffer.from(rawBuf);
-  rawContentCacheSet(fullPath, st, buf);
-  return buf;
+  if (cached && cached.length <= PATCH_SNAPSHOT_MAX_BYTES) return cached;
+  const read = readBoundedFile(fullPath);
+  if (read.state === 'absent') {
+    const error = new Error(`ENOENT: no such file or directory, open '${fullPath}'`);
+    error.code = 'ENOENT';
+    throw error;
+  }
+  // No error code on purpose: callers report coded errors as "unreadable (CODE)".
+  if (read.state === 'omitted') throw new Error(contentEditRefusalMessage(normalizeOutputPath(fullPath), read));
+  rawContentCacheSet(fullPath, st, read.content);
+  return read.content;
 }
 
 // win32 filesystems are case-insensitive, so `Foo` and `foo` are the same
 // file: the V4A source-line cache MUST key on the pathKey-normalized form at
 // every get/set, otherwise a mixed-case duplicate section refreshed under one
 // casing is missed under another and converts against stale/original lines.
-function v4aConversionSourceLines(fullPath, linesCache) {
+function v4aConversionSourceLines(fullPath, linesCache, prefetched = null) {
   const cacheKey = pathKey(fullPath);
   if (linesCache.has(cacheKey)) return linesCache.get(cacheKey);
   // BOM-driven decode + refusal for non-UTF-8/UTF-16 bytes: the rename path
   // rewrites the WHOLE file from these lines.
-  const { text, enc } = decodePatchTargetBuffer(readRawBufForV4AConversion(fullPath), fullPath);
+  const { text, enc } = decodePatchTargetBuffer(prefetched || readRawBufForV4AConversion(fullPath), fullPath);
   const lines = splitTextLinesForPatch(text);
   lines.encoding = enc;
   linesCache.set(cacheKey, lines);
@@ -759,11 +772,14 @@ function unifiedAddSection(section, displayPath) {
   ];
 }
 
+// A binary or oversized target gets a header-only delete section from the
+// bounded check alone; a text target within the limit is read exactly once.
 function unifiedDeleteSection(fullPath, displayPath, linesCache) {
   let fileLines = [];
   try {
-    if (decodeValidUtf8OrNull(readFileSync(fullPath)) !== null) {
-      fileLines = v4aConversionSourceLines(fullPath, linesCache);
+    const read = readBoundedFile(fullPath);
+    if (read.state === 'present' && decodeValidUtf8OrNull(read.content) !== null) {
+      fileLines = v4aConversionSourceLines(fullPath, linesCache, read.content);
     }
   } catch {
     fileLines = [];
