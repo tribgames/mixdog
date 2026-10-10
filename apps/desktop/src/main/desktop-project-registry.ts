@@ -1,6 +1,7 @@
 // Desktop project registry: the shared core projects.json store plus the
 // desktop-only preferences sidecar (aliases, pins, legacy hidden tombstones).
 import { isAbsolute, resolve } from 'node:path';
+import { LocalAccessDeniedError } from './local-access-denied';
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import { readProjectPreferences, writeProjectPreferences } from './project-preferences-file';
@@ -152,11 +153,11 @@ export class DesktopProjectRegistry {
 
   private known(store: MixdogProjectsModule, projectPath: string): MixdogProject {
     const requested = projectPath.trim();
-    if (!requested) throw new Error('Project is not available.');
+    if (!requested) throw new LocalAccessDeniedError('Project is not available.');
     const resolved = store.resolveProjectPath?.(requested) || resolve(requested);
     const key = normalizedProjectKey(resolved);
     const project = this.registered(store).find((entry) => normalizedProjectKey(entry.path) === key);
-    if (!project) throw new Error('Project is not available.');
+    if (!project) throw new LocalAccessDeniedError('Project is not available.');
     return project;
   }
 }

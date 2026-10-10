@@ -3,6 +3,7 @@ import { DESKTOP_IPC } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import { registerFilePreview } from './file-preview';
 import { localPageUrl, revokeLocalPagesFor } from './local-page-server';
+import { LocalAccessDeniedError } from './local-access-denied';
 import { projectEntryPathIn } from './project-files';
 import {
   requiredLspDocumentInput,
@@ -77,7 +78,7 @@ export function registerProjectFileIpc({
     const rel = requiredString(relPath, 'relPath', 4_096);
     const owner = event.sender;
     const requireOwner = (): void => {
-      if (owner.isDestroyed()) throw new Error('The preview owner is closed.');
+      if (owner.isDestroyed()) throw new LocalAccessDeniedError('The preview owner is closed.');
     };
     requireOwner();
     if (!previewOwners.has(owner)) {
@@ -95,7 +96,7 @@ export function registerProjectFileIpc({
           requireOwner();
           const current = await grantedFile(token, project, rel);
           requireOwner();
-          if (current.absolute !== granted.absolute) throw new Error('The selected-file permission changed.');
+          if (current.absolute !== granted.absolute) throw new LocalAccessDeniedError('The selected-file permission changed.');
         },
       });
     }
@@ -106,7 +107,7 @@ export function registerProjectFileIpc({
         requireOwner();
         const current = await host.projectDirectory(project);
         requireOwner();
-        if (current !== root) throw new Error('The project permission changed.');
+        if (current !== root) throw new LocalAccessDeniedError('The project permission changed.');
       },
     });
   });

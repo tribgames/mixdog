@@ -7,6 +7,7 @@ import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import * as pages from './local-page-server.ts';
 import { registerProjectFileIpc } from './ipc-project-files.ts';
+import { LocalAccessDeniedError } from './local-access-denied.ts';
 import { DESKTOP_IPC } from '../shared/contract';
 
 // Exercise the real registrar and HTTP server. Only its existing authority
@@ -68,14 +69,16 @@ function harness(t, root) {
     host: {
       async projectDirectory(path) {
         authority.projectCalls++;
-        if (path !== root || !authority.project) throw new Error('project is not registered');
+        if (authority.projectError) throw authority.projectError;
+        if (path !== root || !authority.project) throw new LocalAccessDeniedError('project is not registered');
         return authority.project;
       },
     },
     async grantedFile(token, project, rel) {
       authority.grantCalls++;
+      if (authority.grantError) throw authority.grantError;
       if (token !== 'selected-secret-token' || project !== root || rel !== basename(authority.granted || '')) {
-        throw new Error('private grant diagnostic');
+        throw new LocalAccessDeniedError('private grant diagnostic');
       }
       return { root: dirname(authority.granted), rel: basename(authority.granted), absolute: authority.granted };
     },
@@ -88,7 +91,7 @@ function harness(t, root) {
 }
 
 function direct(t, root, rel = 'page.html', options = {}) {
-  const identity = {};
+  const identity = options.owner ?? {};
   t.after(() => pages.revokeLocalPagesFor?.(identity));
   return pages.localPageUrl(root, rel, { scope: 'file', authorize: async () => {}, owner: identity, ...options });
 }
@@ -233,41 +236,83 @@ test('lease expiry is absolute rather than extended by HTTP traffic', async (t) 
   assert.equal((await get(await direct(t, root))).status, 200);
 });
 
-test('the bounded lease table evicts old URLs without widening remaining permissions', async (t) => {
+for (const method of ['GET', 'HEAD']) {
+  test(`the bounded lease table refreshes LRU on authorized ${method}, not issuance order`, async (t) => {
+    const { root } = await fixture(t);
+    const identity = {};
+    t.after(() => pages.revokeLocalPagesFor(identity));
+    const access = { scope: 'file', owner: identity, authorize: async () => {} };
+    const urls = [];
+    for (let i = 0; i < pages.MAX_LOCAL_PAGE_LEASES; i++) {
+      urls.push(await pages.localPageUrl(root, 'page.html', access));
+    }
+    assert.equal((await get(urls[0], undefined, { method })).status, 200);
+    const newest = await pages.localPageUrl(root, 'page.html', access);
+    assert.equal((await get(urls[0])).status, 200, 'a recently used old URL survives');
+    assert.equal((await get(urls[1])).status, 404, 'the least recently used URL is evicted');
+    assert.equal((await get(newest)).status, 200);
+    assert.equal((await get(newest, pathFor(newest, 'private.csv'))).status, 404);
+  });
+}
+
+test('denied paths and transient authorization errors cannot refresh LRU', async (t) => {
   const { root } = await fixture(t);
   const identity = {};
   t.after(() => pages.revokeLocalPagesFor(identity));
-  const urls = [];
-  for (let i = 0; i <= pages.MAX_LOCAL_PAGE_LEASES; i++) {
-    urls.push(await pages.localPageUrl(root, 'page.html', { scope: 'file', owner: identity, authorize: async () => {} }));
-  }
-  assert.equal((await get(urls[0])).status, 404);
-  assert.equal((await get(urls.at(-1))).status, 200);
-  assert.equal((await get(urls.at(-1), pathFor(urls.at(-1), 'private.csv'))).status, 404);
+  let busy = false;
+  const oldest = await pages.localPageUrl(root, 'page.html', {
+    scope: 'file', owner: identity,
+    async authorize() { if (busy) throw new Error('temporary daemon failure'); },
+  });
+  const access = { scope: 'file', owner: identity, authorize: async () => {} };
+  for (let i = 1; i < pages.MAX_LOCAL_PAGE_LEASES; i++) await pages.localPageUrl(root, 'page.html', access);
+  assert.equal((await get(oldest, pathFor(oldest, 'private.csv'))).status, 404);
+  assert.equal((await get(oldest, pathFor(oldest, '%zz'))).status, 400);
+  assert.equal((await get(oldest, undefined, { method: 'POST' })).status, 405);
+  assert.equal((await get(oldest, undefined, { headers: { host: 'evil.example' } })).status, 403);
+  busy = true;
+  assert.equal((await get(oldest)).status, 503);
+  await pages.localPageUrl(root, 'page.html', access);
+  busy = false;
+  assert.equal((await get(oldest)).status, 404);
 });
 
-for (const cause of ['expiry', 'owner closure']) {
-  test(`authorization settling after ${cause} cannot revive the lease`, { timeout: 5000 }, async (t) => {
-    const { root } = await fixture(t);
-    const identity = {};
-    const entered = Promise.withResolvers();
-    const release = Promise.withResolvers();
-    let pause = false;
-    const url = await direct(t, root, 'page.html', {
-      owner: identity,
-      async authorize() { if (pause) { entered.resolve(); await release.promise; } },
+for (const cause of ['expiry', 'owner closure', 'capacity eviction']) {
+  for (const fails of [false, true]) {
+    test(`authorization ${fails ? 'failure' : 'success'} after ${cause} cannot revive the lease`, { timeout: 10000 }, async (t) => {
+      const { root } = await fixture(t);
+      const identity = {};
+      const entered = Promise.withResolvers();
+      const release = Promise.withResolvers();
+      let pause = false;
+      const url = await direct(t, root, 'page.html', {
+        owner: identity,
+        async authorize() {
+          if (pause) {
+            entered.resolve();
+            await release.promise;
+            if (fails) throw new Error('late timeout');
+          }
+        },
+      });
+      pause = true;
+      const pending = get(url);
+      await entered.promise;
+      try {
+        if (cause === 'expiry') {
+          const expired = Date.now() + pages.LOCAL_PAGE_TTL_MS;
+          t.mock.method(Date, 'now', () => expired);
+        } else if (cause === 'owner closure') pages.revokeLocalPagesFor(identity);
+        else {
+          for (let i = 0; i < pages.MAX_LOCAL_PAGE_LEASES; i++) {
+            await direct(t, root, 'page.html', { owner: identity });
+          }
+        }
+      } finally { release.resolve(); }
+      assert.equal((await pending).status, 404);
+      assert.equal((await get(url)).status, 404);
     });
-    pause = true;
-    const pending = get(url);
-    await entered.promise;
-    try {
-      if (cause === 'expiry') {
-        const expired = Date.now() + pages.LOCAL_PAGE_TTL_MS;
-        t.mock.method(Date, 'now', () => expired);
-      } else pages.revokeLocalPagesFor(identity);
-    } finally { release.resolve(); }
-    assert.equal((await pending).status, 404);
-  });
+  }
 }
 
 test('a closed renderer during URL creation cannot publish a usable lease', { timeout: 5000 }, async (t) => {
@@ -281,7 +326,7 @@ test('a closed renderer during URL creation cannot publish a usable lease', { ti
 test('policy object mutation cannot widen a file lease or replace its authorizer', async (t) => {
   const { root } = await fixture(t);
   let enabled = true;
-  const access = { scope: 'file', async authorize() { if (!enabled) throw new Error('revoked'); } };
+  const access = { scope: 'file', async authorize() { if (!enabled) throw new LocalAccessDeniedError('revoked'); } };
   const url = await pages.localPageUrl(root, 'page.html', access);
   access.scope = 'project';
   access.authorize = async () => {};
@@ -356,4 +401,83 @@ test('the server requires explicit permission and only mints HTML preview entrie
   await assert.rejects(direct(t, root, 'private.json'), /visible HTML/);
   // No scratch files, copies or rewritten HTML are created by this feature.
   assert.ok(!(await readdir(root)).some((name) => name.includes('preview')));
+});
+
+for (const token of ['selected-secret-token', undefined]) {
+  test(`${token ? 'file' : 'project'} lookup failures return 503 and preserve the same preview URL`, async (t) => {
+    const { root } = await fixture(t);
+    const h = harness(t, root);
+    const url = await h.url(token);
+    const key = token ? 'grantError' : 'projectError';
+    for (const error of [
+      Object.assign(new Error('private timeout diagnostic'), { code: 'ETIMEDOUT' }),
+      Object.assign(new Error('private filesystem diagnostic'), { code: 'EACCES' }),
+      // Denial-like prose from an unknown/older producer is not proof.
+      new Error('Project is not available.'),
+    ]) {
+      h.authority[key] = error;
+      const response = await get(url);
+      assert.equal(response.status, 503);
+      assert.equal(response.body, '503');
+      assert.equal(response.headers['cache-control'], 'no-store');
+      h.authority[key] = null;
+      assert.equal((await get(url)).status, 200, 'recovery must not require a new URL');
+    }
+    if (token) assert.equal(h.authority.projectCalls, 0, 'failure must not widen file authority');
+  });
+}
+
+test('an explicit denial survives the desktop-service error envelope without parsing its message', async (t) => {
+  const { root } = await fixture(t);
+  const h = harness(t, root);
+  const url = await h.url(undefined);
+  const denial = new LocalAccessDeniedError('not for the page to see');
+  // The service transports name/message/code, not an Error prototype.
+  h.authority.projectError = Object.assign(new Error('changed diagnostic wording'),
+    JSON.parse(JSON.stringify({ code: denial.code })));
+  assert.equal((await get(url)).status, 404);
+  h.authority.projectError = null;
+  assert.equal((await get(url)).status, 404, 'a definite denial stays revoked after recovery');
+});
+
+test('a transient realpath failure keeps the pinned URL, while later retargeting revokes it', async (t) => {
+  const { root } = await fixture(t);
+  const other = await fixture(t);
+  const alias = join(root, 'alias');
+  const kind = process.platform === 'win32' ? 'junction' : 'dir';
+  await symlink(other.root, alias, kind);
+  const url = await direct(t, alias);
+  await unlink(alias);
+  assert.equal((await get(url)).status, 503, 'the canonical file exists but its authority lookup is unavailable');
+  await symlink(other.root, alias, kind);
+  assert.equal((await get(url)).status, 200);
+  await unlink(alias);
+  await symlink(root, alias, kind);
+  assert.equal((await get(url)).status, 404);
+  await unlink(alias);
+  await symlink(other.root, alias, kind);
+  assert.equal((await get(url)).status, 404, 'restoring a denied alias must not revive its old URL');
+});
+
+test('a parallel definite denial wins over an older successful authorization', { timeout: 5000 }, async (t) => {
+  const { root } = await fixture(t);
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  let mode = 'ready';
+  const url = await direct(t, root, 'page.html', {
+    async authorize() {
+      if (mode === 'wait') { entered.resolve(); await release.promise; }
+      else if (mode === 'deny') throw new LocalAccessDeniedError('revoked');
+    },
+  });
+  mode = 'wait';
+  const pending = get(url);
+  await entered.promise;
+  try {
+    mode = 'deny';
+    assert.equal((await get(url)).status, 404);
+  } finally { release.resolve(); }
+  assert.equal((await pending).status, 404);
+  mode = 'ready';
+  assert.equal((await get(url)).status, 404);
 });

@@ -12,6 +12,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileExtension } from '../shared/file-extension';
+import { isLocalAccessDenied, LocalAccessDeniedError } from './local-access-denied';
 
 const PAGE_ASSET_TYPES: Readonly<Record<string, string>> = Object.freeze({
   html: 'text/html; charset=utf-8',
@@ -52,7 +53,7 @@ export const MAX_LOCAL_PAGE_LEASES = 128;
 
 export interface LocalPageAccess {
   scope: 'file' | 'project';
-  /** Recheck the original grant/project registry; failure revokes this URL. */
+  /** Recheck authority: explicit denial revokes; other failures remain retryable. */
   authorize(): Promise<void>;
   /** Desktop renderer that requested the preview, not the untrusted page. */
   owner?: object;
@@ -118,12 +119,12 @@ async function pageLocation(root: string, rel: string): Promise<{ root: string; 
   const realRoot = await realpath(root);
   const requested = resolve(realRoot, rel.replace(/\\/g, '/'));
   if (!pageAssetType(realRoot, requested)) {
-    throw new TypeError('The page must be a visible HTML file inside its folder.');
+    throw new LocalAccessDeniedError('The page must be a visible HTML file inside its folder.');
   }
   const page = await realpath(requested);
   if (!pageAssetType(realRoot, page) || !['html', 'htm'].includes(fileExtension(page))
     || !(await stat(page)).isFile()) {
-    throw new TypeError('The page must be a visible HTML file inside its folder.');
+    throw new LocalAccessDeniedError('The page must be a visible HTML file inside its folder.');
   }
   return { root: realRoot, page };
 }
@@ -165,13 +166,19 @@ async function serve(request: IncomingMessage, response: ServerResponse, port: n
   if (!type || (lease.scope === 'file' && file !== lease.page)) return reply(response, 404);
   try {
     await lease.authorize();
-  } catch {
-    revokeLease(token);
-    return reply(response, 404);
+  } catch (error) {
+    if (isLocalAccessDenied(error)) revokeLease(token);
+    // A timeout or failed lookup denies this response, not future attempts.
+    // Expiry, eviction and owner closure still win over a late failure.
+    return reply(response, activeLease(token, lease) ? 503 : 404);
   }
   // Expiry, capacity eviction or owner closure can happen while authorization
   // awaits the daemon. A late success must not resurrect an old lease.
   if (!activeLease(token, lease)) return reply(response, 404);
+  // Successful GET/HEAD makes this lease most recently used. Bad paths and
+  // failed authorization cannot keep a lease warm or renew its absolute TTL.
+  leases.delete(token);
+  leases.set(token, lease);
   response.writeHead(200, {
     'Content-Type': type,
     'Content-Length': size,
@@ -220,6 +227,7 @@ export async function localPageUrl(root: string, rel: string, access: LocalPageA
   const port = await serverPort();
   await authorize();
   for (const [token, lease] of leases) activeLease(token, lease);
+  // Map order is last successful use (or issuance for an unused URL).
   while (leases.size >= MAX_LOCAL_PAGE_LEASES) revokeLease(leases.keys().next().value!);
   const token = randomBytes(24).toString('base64url');
   const lease: PageLease = {
@@ -230,7 +238,7 @@ export async function localPageUrl(root: string, rel: string, access: LocalPageA
       await authorize();
       const current = await pageLocation(root, rel);
       if (current.root !== location.root || current.page !== location.page) {
-        throw new Error('The preview path no longer matches its permission.');
+        throw new LocalAccessDeniedError('The preview path no longer matches its permission.');
       }
     },
     expiresAt: Date.now() + LOCAL_PAGE_TTL_MS,

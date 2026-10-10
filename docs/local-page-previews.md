@@ -33,13 +33,19 @@ for trusted pages requiring same-origin assets or storage.
 
 Each invocation issues an independent random URL. A file URL is never reused
 as, or upgraded to, a project URL for the same folder. The server retains at
-most **128 URLs**, evicts the oldest when full, and expires each after **one
-hour**, without extending that deadline for page traffic. Click the original
+most **128 URLs**, evicts the least recently used when full, and expires each
+after **one hour**. Only a successfully authorized GET/HEAD refreshes recency;
+failed or forbidden requests do not. Recency never extends the absolute expiry. Click the original
 chat link again to obtain a fresh URL.
 
 The server rechecks the originating selected-file permission or project
 registry on each permitted GET/HEAD, and pins the canonical root/page path.
-A failed authorization or a changed canonical path invalidates that URL.
+An explicit denial (removed grant/project, closed owner, or changed canonical
+path) invalidates that URL and returns 404. A transient authorization failure
+(such as a daemon timeout or path lookup error) returns 503 without disclosing
+diagnostics or revoking the lease; retry the same URL after recovery. Uncertainty
+never authorizes file bytes. Expiry or revocation during an unsuccessful check
+still returns 404, not a retryable response for a dead lease.
 Closing the requesting desktop renderer revokes its URLs without revoking
 another renderer's previews. Expiry/closure during a pending authorization
 cannot revive the URL when that authorization later finishes.
@@ -55,7 +61,7 @@ process replacing paths during the final filesystem checks and open.
 ## Focused checks
 
 ```sh
-npm test --prefix apps/desktop -- src/main/local-page-server.test.mjs src/main/local-page-permissions.test.mjs
+npm test --prefix apps/desktop -- src/main/local-page-server.test.mjs src/main/local-page-permissions.test.mjs src/main/local-access-denied.test.mjs
 ```
 
 The tests exercise real loopback HTTP and temporary files through the public
