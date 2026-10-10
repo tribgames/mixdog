@@ -12,8 +12,7 @@
   <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe"><img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/download-windows.svg" alt="Download for Windows" height="48"></a>
   &nbsp;
   <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg"><img src="https://raw.githubusercontent.com/tribgames/mixdog/main/docs/assets/download-macos.svg" alt="Download for macOS" height="48"></a>
-</p>
-<p align="center">
+  <br>
   <sub>macOS button is for Apple Silicon (M1 and later). Intel Mac? <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg">Download for Intel Mac</a></sub>
 </p>
 
