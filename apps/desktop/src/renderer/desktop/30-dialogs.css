@@ -710,6 +710,11 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock {
 .session-sidebar .automation-group-past .session-row {
   padding-left: 20px;
 }
+/* Project sessions align with their folder's name (see .project-folder). */
+.session-sidebar .project-group-sessions .session-row,
+.session-sidebar .project-group-sessions .sidebar-section-empty {
+  padding-left: 32px;
+}
 .session-sidebar-panels .session-row,
 .utility-dock .session-row {
   padding-inline: var(--mx-rail-gutter);

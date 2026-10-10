@@ -66,6 +66,7 @@ import { useSidebarFocusRestore } from './app-root/use-sidebar-focus-restore';
 import { useStartupPaneSelection } from './app-root/use-startup-pane-selection';
 import { useTranscriptRendererReadiness } from './app-root/use-transcript-renderer-readiness';
 import { useUnreadViewedSession } from './app-root/use-unread-viewed-session';
+import { useStableEvent } from './use-stable-event';
 
 export function App() {
   markBootStage('app-render');
@@ -325,7 +326,7 @@ export function App() {
   }, [refreshSessions]);
 
   // Project navigation and registry edits: app-project-actions.ts.
-  const { startProject, renameProject, removeProject } = createProjectActions({
+  const { startProject, renameProject, removeProject, openProjectInExplorer } = createProjectActions({
     projects,
     invoke,
     applySnapshot,
@@ -586,6 +587,8 @@ export function App() {
     sidebarNewStudio,
     sidebarResumeSession,
     renderSidebarPanel,
+    openProjectSettings,
+    projectEditorHost,
     sideViewDescriptors,
     selectWorkbenchSideView,
     moveWorkbenchSideGroup,
@@ -680,9 +683,45 @@ export function App() {
 
   const renameProjectEntry = useProjectEntryRename({ paneWorkspace, dirtyFileKeys, registerWorkspaceSelection });
 
+  // + on a sidebar project section: a fresh task staged in that project.
+  const sidebarNewProjectTask = useStableEvent((projectPath: string) => {
+    sidebarNewTask();
+    stageNewTaskProject(projectPath);
+  });
+  // Sidebar right-click menus. "Open to the Side" is the drag-to-split result
+  // (a new pane right of the focused one); inheritance needs the session's own
+  // tab, so it opens the session first and then its /inherit surface.
+  const sidebarOpenSessionInSplit = useStableEvent((sessionId: string, title: string) => {
+    closeSidebarForNavigation();
+    paneWorkspace.splitLeafAt(paneWorkspace.focusedLeafId, 'right', { kind: 'session', id: sessionId, title });
+  });
+  const sidebarInheritSession = useStableEvent((sessionId: string) => {
+    closeSidebarForNavigation();
+    void openSession(sessionId).then(() => openConversationCommandSurface('inherit', sessionId));
+  });
+  const sidebarRenameProject = useStableEvent((projectPath: string, alias: string) => {
+    void renameProject(projectPath, alias);
+  });
+  // Host-only: a remote surface has no file manager, so the item is hidden
+  // whenever the project actions omit the reveal.
+  const sidebarRevealProjectEvent = useStableEvent((projectPath: string) => {
+    void openProjectInExplorer?.(projectPath);
+  });
+  const sidebarRevealProject = typeof openProjectInExplorer === 'function' ? sidebarRevealProjectEvent : undefined;
+  const sidebarOpenProjectSettings = useStableEvent((projectPath: string) => {
+    openProjectSettings(projectPath);
+  });
+
   const { renderWorkbenchSideView, renderPaneSideDock, renderPaneProblems } = useAppWorkbenchViews({
     sessions,
     sessionCatalogReady,
+    projects,
+    sidebarNewProjectTask,
+    sidebarOpenSessionInSplit,
+    sidebarInheritSession,
+    sidebarRenameProject,
+    sidebarRevealProject,
+    sidebarOpenProjectSettings,
     workingSessionIds,
     unreadSessionIds,
     sidebarSelection,
@@ -838,6 +877,7 @@ export function App() {
           setError={setError}
           snapshot={snapshot}
         />
+        {projectEditorHost}
       </div>
     </DesktopBootGate>
   );

@@ -1,8 +1,11 @@
-import { ChevronDown, ChevronRight, type FolderPlus } from 'lucide-react';
+import { ChevronDown, ChevronRight, type FolderPlus, Plus } from 'lucide-react';
+import { MxIcon } from './MxIcon';
+import { elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
+import type { usePersistedListOrder } from './use-persisted-list-order';
 import React, { useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { InitialSurface } from './InitialSurface';
-import type { DesktopSessionSummary } from '../shared/contract';
+import type { DesktopProjectSummary, DesktopSessionSummary } from '../shared/contract';
 import {
   clampDesktopPanelWidth,
   DESKTOP_SIDEBAR_DEFAULT_WIDTH,
@@ -12,13 +15,7 @@ import { ProgressSpinner } from './ProgressSpinner';
 import { t, uiFormatLocale } from './i18n';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { sessionLabel } from './session-sidebar-rows';
-
-export function projectIdentity(path: string | null | undefined) {
-  return String(path || '')
-    .replace(/[\\/]+/g, '/')
-    .replace(/\/$/, '')
-    .toLocaleLowerCase();
-}
+import { projectIdentity } from './project-catalog-cache';
 
 const DEFAULT_SIDEBAR_WIDTH = DESKTOP_SIDEBAR_DEFAULT_WIDTH;
 export const MIN_SIDEBAR_WIDTH = DESKTOP_SIDEBAR_MIN_WIDTH;
@@ -153,8 +150,10 @@ export function automationsSection({
   onToggleGroup,
   workingSessionIds,
   unreadSessionIds,
+  headerProps,
   renderSessionRow,
 }: {
+  headerProps?: ReorderProps;
   groups: AutomationGroup[];
   open: boolean;
   onToggleOpen(): void;
@@ -168,8 +167,12 @@ export function automationsSection({
   renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
 }) {
   return (
-    <section className="sidebar-recent sidebar-automations" aria-label={t('Automations')}>
-      <div className="sidebar-category-header">
+    <section
+      className="sidebar-recent sidebar-automations"
+      aria-label={t('Automations')}
+      {...reorderTarget(headerProps)}
+    >
+      <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
@@ -253,16 +256,18 @@ export function favoritesSection({
   rows,
   open,
   onToggleOpen,
+  headerProps,
   renderSessionRow,
 }: {
   rows: DesktopSessionSummary[];
   open: boolean;
   onToggleOpen(): void;
+  headerProps?: ReorderProps;
   renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
 }) {
   return (
-    <section className="sidebar-recent sidebar-favorites" aria-label={t('Favorites')}>
-      <div className="sidebar-category-header">
+    <section className="sidebar-recent sidebar-favorites" aria-label={t('Favorites')} {...reorderTarget(headerProps)}>
+      <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
@@ -296,8 +301,10 @@ export function recentSection({
   hasHeadingDot,
   archiveAllDisabled,
   onArchiveAll,
+  headerProps,
   renderSessionRow,
 }: {
+  headerProps?: ReorderProps;
   sessionsReady: boolean;
   rowCount: number;
   visibleRows: DesktopSessionSummary[];
@@ -311,8 +318,8 @@ export function recentSection({
   renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
 }) {
   return (
-    <section className="sidebar-recent" aria-label={t('Recent sessions')}>
-      <div className="sidebar-category-header">
+    <section className="sidebar-recent" aria-label={t('Recent sessions')} {...reorderTarget(headerProps)}>
+      <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
@@ -361,6 +368,234 @@ export function recentSection({
   );
 }
 
+const EXPANDED_PROJECTS_KEY = 'mixdog:session-sidebar-expanded-projects';
+/** Sessions a project folder shows when opened; More reveals the next batch. */
+export const PROJECT_SESSION_PAGE_ROWS = 5;
+
+function readStoredKeys(storageKey: string): string[] {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(storageKey) || '[]');
+    return Array.isArray(value) ? value.filter((key): key is string => typeof key === 'string' && key !== '') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredKeys(storageKey: string, keys: readonly string[]) {
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(keys));
+  } catch {
+    // The live order/collapse still applies when persistent storage is unavailable.
+  }
+}
+
+/** Drag-reorder props from usePersistedListOrder, spread on a section header
+ *  or a project folder row. */
+export type ReorderProps = ReturnType<ReturnType<typeof usePersistedListOrder>['getReorderProps']>;
+
+/** The heading/folder row is the grip; the whole section/folder group is the
+ *  drop target, so releasing over its rows still reorders. */
+function reorderHandle(props?: ReorderProps) {
+  return props && { draggable: props.draggable, onDragStart: props.onDragStart, onDragEnd: props.onDragEnd };
+}
+function reorderTarget(props?: ReorderProps) {
+  if (!props) return undefined;
+  const { draggable: _grip, onDragStart: _start, onDragEnd: _end, ...target } = props;
+  return target;
+}
+
+export const readStoredExpandedProjects = () => readStoredKeys(EXPANDED_PROJECTS_KEY);
+export const persistExpandedProjects = (keys: readonly string[]) => writeStoredKeys(EXPANDED_PROJECTS_KEY, keys);
+
+export type ProjectSessionGroup = { key: string; path: string; name: string; rows: DesktopSessionSummary[] };
+
+/** Registered projects as sidebar folders. A session belongs to the project
+ *  whose path equals its projectPath (else its cwd); other sessions stay in
+ *  Recent only. Folders come newest-activity first; the user's drag order is
+ *  applied on top of that. Expects activity-desc rows. */
+export function groupProjectSessions(
+  projects: readonly DesktopProjectSummary[],
+  activityOrderedRows: readonly DesktopSessionSummary[]
+): ProjectSessionGroup[] {
+  const byKey = new Map<string, ProjectSessionGroup>();
+  for (const project of projects) {
+    const key = projectIdentity(project.path);
+    if (!key || byKey.has(key)) continue;
+    const name = project.alias?.trim() || project.name?.trim() || project.path;
+    byKey.set(key, { key, path: project.path, name, rows: [] });
+  }
+  for (const session of activityOrderedRows) {
+    const group = byKey.get(projectIdentity(session.projectPath)) ?? byKey.get(projectIdentity(session.cwd));
+    group?.rows.push(session);
+  }
+  const newest = (group: ProjectSessionGroup) =>
+    group.rows.length ? Number(group.rows[0].activityAt) || group.rows[0].updatedAt : 0;
+  return [...byKey.values()].sort((left, right) => newest(right) - newest(left));
+}
+
+/** Projects section above Recent: one folder row per registered project. A
+ *  folder opens onto its newest sessions; the folder row is the drag handle
+ *  for reordering and its hover + starts a task in that project. */
+export function projectsSection({
+  groups,
+  open,
+  onToggleOpen,
+  expandedProjects,
+  onToggleProject,
+  rowLimits,
+  onShowMore,
+  onNewTask,
+  folderReorderProps,
+  headerProps,
+  unreadSessionIds,
+  renderSessionRow,
+  onFolderMenu,
+  rename,
+}: {
+  /** Right-click / Menu key on a folder row. */
+  onFolderMenu?(group: ProjectSessionGroup, point: { x: number; y: number }): void;
+  /** Inline rename of one folder (its project display name). */
+  rename?: {
+    key: string;
+    draft: string;
+    onDraft(value: string): void;
+    onCommit(group: ProjectSessionGroup): void;
+    onCancel(): void;
+  } | null;
+  groups: ProjectSessionGroup[];
+  open: boolean;
+  onToggleOpen(): void;
+  expandedProjects: ReadonlySet<string>;
+  onToggleProject(key: string): void;
+  rowLimits: ReadonlyMap<string, number>;
+  onShowMore(key: string): void;
+  onNewTask(projectPath: string): void;
+  folderReorderProps(key: string): ReorderProps;
+  headerProps?: ReorderProps;
+  unreadSessionIds?: ReadonlySet<string>;
+  renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
+}) {
+  return (
+    <section className="sidebar-recent sidebar-projects" aria-label={t('Projects')} {...reorderTarget(headerProps)}>
+      <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
+        <button
+          type="button"
+          className="sidebar-recent-heading sidebar-heading-toggle"
+          aria-expanded={open}
+          onClick={onToggleOpen}
+        >
+          <span>{t('Projects')}</span>
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </button>
+      </div>
+      {open && (
+        <nav className="session-list project-session-list" aria-label={t('Projects')}>
+          {groups.map((group) => {
+            const expanded = expandedProjects.has(group.key);
+            const reorder = folderReorderProps(group.key);
+            const limit = rowLimits.get(group.key) ?? PROJECT_SESSION_PAGE_ROWS;
+            const unread = !expanded && group.rows.some((session) => unreadSessionIds?.has(session.id) === true);
+            return (
+              <div className="project-group" key={group.key} {...reorderTarget(reorder)}>
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: right-click is a pointer shortcut; the folder button inside opens the same menu from the keyboard (Menu / Shift+F10). */}
+                <div
+                  className="project-folder"
+                  {...(rename?.key === group.key ? {} : reorderHandle(reorder))}
+                  onContextMenu={
+                    onFolderMenu
+                      ? (event) => {
+                          event.preventDefault();
+                          onFolderMenu(group, pointerMenuPoint(event));
+                        }
+                      : undefined
+                  }
+                >
+                  {rename?.key === group.key && (
+                    <input
+                      className="session-title-input project-folder-rename"
+                      value={rename.draft}
+                      maxLength={160}
+                      // biome-ignore lint/a11y/noAutofocus: rename starts from an explicit menu action
+                      autoFocus
+                      aria-label={t('Rename')}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onInput={(event) => rename.onDraft(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                          event.preventDefault();
+                          rename.onCommit(group);
+                        } else if (event.key === 'Escape') {
+                          event.preventDefault();
+                          rename.onCancel();
+                        }
+                      }}
+                      onBlur={() => rename.onCommit(group)}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    className="session-row project-folder-toggle"
+                    aria-expanded={expanded}
+                    aria-haspopup={onFolderMenu ? 'menu' : undefined}
+                    data-tooltip={group.path}
+                    hidden={rename?.key === group.key}
+                    onClick={() => onToggleProject(group.key)}
+                    onKeyDown={(event) => {
+                      if (!onFolderMenu || !isContextMenuKey(event)) return;
+                      event.preventDefault();
+                      onFolderMenu(group, elementMenuPoint(event.currentTarget));
+                    }}
+                  >
+                    {/* Same project glyph as the Projects panel and composer chip. */}
+                    <MxIcon name="folder" className="project-folder-icon" />
+                    <span className="session-row-copy">
+                      <b>{group.name}</b>
+                    </span>
+                    {unread && (
+                      <span
+                        className="session-row-unread-dot"
+                        role="status"
+                        aria-label={t('{{name}} has new activity', { name: group.name })}
+                      />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="row-overflow-trigger project-folder-new"
+                    aria-label={t('New task')}
+                    data-tooltip={t('New task')}
+                    onClick={() => onNewTask(group.path)}
+                  >
+                    <Plus size={14} aria-hidden="true" />
+                  </button>
+                </div>
+                {expanded && (
+                  <div className="project-group-sessions">
+                    {group.rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions')}</p>}
+                    {group.rows.slice(0, limit).map(renderSessionRow)}
+                    {group.rows.length > limit && (
+                      <button
+                        type="button"
+                        className="session-row project-group-more"
+                        onClick={() => onShowMore(group.key)}
+                      >
+                        <span className="session-row-copy">
+                          <b>{t('More')}</b>
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </nav>
+      )}
+    </section>
+  );
+}
+
 /** Archived section: restore and permanent-delete of parked sessions, kept
  *  apart from Recent because those are the only bulk actions that leave or
  *  destroy the catalog. */
@@ -373,8 +608,10 @@ export function archivedSection({
   actionsDisabled,
   onRestoreAll,
   onDeleteAll,
+  headerProps,
   renderSessionRow,
 }: {
+  headerProps?: ReorderProps;
   visibleRows: DesktopSessionSummary[];
   hasMoreRows: boolean;
   sentinelRef: React.RefObject<HTMLDivElement | null>;
@@ -386,8 +623,12 @@ export function archivedSection({
   renderSessionRow(session: DesktopSessionSummary): React.ReactNode;
 }) {
   return (
-    <section className="sidebar-recent sidebar-archived" aria-label={t('Archived sessions')}>
-      <div className="sidebar-category-header">
+    <section
+      className="sidebar-recent sidebar-archived"
+      aria-label={t('Archived sessions')}
+      {...reorderTarget(headerProps)}
+    >
+      <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"

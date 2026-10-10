@@ -50,7 +50,7 @@ export function CommandSurface({
   snapshot?: unknown;
   sessionId?: string;
   /** /inherit only: hand the source session to the host and open the heir. */
-  onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
+  onInherit?: (sourceSessionId: string, route: DesktopModelSelection, options?: { compact: boolean }) => Promise<void>;
   /** /doctor only: open the settings page that fixes a failing check. */
   onOpenSettings?: (section: SettingsSection) => void;
   onClose(): void;

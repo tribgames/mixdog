@@ -7,23 +7,16 @@ import { currentRemoteConnectionState, subscribeRemoteConnectionState } from './
 import { subscribeSetupChanges } from './setup-change-refresh';
 import {
   acceptedProjectCatalog,
+  projectIdentity,
   readCachedProjectCatalog,
   resolveProjectPathAgainstCatalog,
   writeCachedProjectCatalog,
 } from './project-catalog-cache';
 
-function projectPathKey(value: unknown): string {
-  return String(value || '')
-    .trim()
-    .replace(/[\\/]+/g, '/')
-    .replace(/\/$/, '')
-    .toLocaleLowerCase();
-}
-
 function registeredProjectPath(projects: readonly DesktopProjectSummary[], candidate: unknown): string {
-  const key = projectPathKey(candidate);
+  const key = projectIdentity(candidate);
   if (!key) return '';
-  return projects.find((project) => projectPathKey(project.path) === key)?.path || '';
+  return projects.find((project) => projectIdentity(project.path) === key)?.path || '';
 }
 
 export function useAppProjectCatalog(snapshot: Snapshot) {

@@ -19,10 +19,7 @@ test('placeholder metadata keeps a saved Fast setting; resolved metadata still c
   // Catalog not loaded yet (stale or cold): unknown must not erase the choice.
   assert.equal(saved({ id: 'gpt-6-astra', provider: 'openai-oauth' }), true);
   // Catalog advertises the priority tier.
-  assert.equal(
-    saved({ id: 'gpt-6-astra', provider: 'openai-oauth', serviceTiers: [{ id: 'priority' }] }),
-    true
-  );
+  assert.equal(saved({ id: 'gpt-6-astra', provider: 'openai-oauth', serviceTiers: [{ id: 'priority' }] }), true);
   // Catalog loaded and the model has no Fast tier: clamped as before.
   assert.equal(saved({ id: 'gpt-6-astra', provider: 'openai-oauth', serviceTiers: [] }), false);
 });
@@ -370,4 +367,68 @@ test('the inheritance preflight is the same verdict the carry itself reaches', a
   assert.equal(accepted.fit.reason, '');
   await accepted.api.inheritFrom(source.id);
   assert.equal(accepted.target.messages.length, accepted.fit.messages);
+});
+
+test('compact:true compacts a conversation that already fits; the default carries it as it is', async () => {
+  const source = { id: 'source', provider: 'openai-oauth', model: 'gpt-6-astra', messages: CONVERSATION };
+  const route = { provider: 'anthropic-oauth', model: 'claude-opus-5', selectedContextWindow: 500_000 };
+  const open = (compactConversation) => {
+    const target = { id: 'heir', messages: [], ...inheritanceRouteTarget(route) };
+    const api = createLifecycleApi({
+      getSession: () => target,
+      getRoute: () => route,
+      mgr: { getSession: (id) => (id === source.id ? source : null) },
+      invalidateContextStatusCache() {},
+      saveSession() {},
+      compactConversation,
+    });
+    return { api, target };
+  };
+  assert.equal(open(null).api.inheritancePreflight(source.id, route).fits, true);
+
+  let calls = 0;
+  let compactedSession = null;
+  const compacting = open(async ({ session }) => {
+    calls += 1;
+    compactedSession = session;
+    return { messages: [{ role: 'user', content: 'Summarized on request.' }] };
+  });
+  await compacting.api.inheritFrom(source.id, { compact: true });
+  assert.equal(calls, 1);
+  // A chosen compaction summarizes even a short conversation: the compactor
+  // gets a copy whose summary threshold is the floor; the source is untouched.
+  assert.equal(compactedSession.compaction.conversationThresholdTokens, 1);
+  assert.notEqual(compactedSession, source);
+  assert.equal(source.compaction, undefined);
+  assert.deepEqual(
+    compacting.target.messages.map(({ content }) => content),
+    ['Summarized on request.']
+  );
+
+  for (const options of [undefined, { compact: false }]) {
+    calls = 0;
+    const original = open(async () => {
+      calls += 1;
+      return { messages: [] };
+    });
+    await original.api.inheritFrom(source.id, options);
+    assert.equal(calls, 0);
+    assert.equal(original.target.messages.length, original.api.inheritancePreflight(source.id, route).messages);
+  }
+
+  // An explicitly requested compaction that fails is a refusal, never a
+  // silent full carry — even though the original would have fit.
+  const fault = new Error('compactor down');
+  const failing = open(async () => {
+    throw fault;
+  });
+  await assert.rejects(failing.api.inheritFrom(source.id, { compact: true }), (error) => {
+    assert.match(error.message, /could not be compacted/);
+    assert.equal(error.cause, fault);
+    return true;
+  });
+  assert.deepEqual(failing.target.messages, []);
+  const empty = open(async () => ({ messages: [] }));
+  await assert.rejects(empty.api.inheritFrom(source.id, { compact: true }), /could not be compacted/);
+  assert.deepEqual(empty.target.messages, []);
 });

@@ -739,9 +739,10 @@ export class DesktopServiceClient implements DesktopService {
   }
   inheritSession(
     sourceSessionId: string,
-    route?: DesktopModelSelection | null
+    route?: DesktopModelSelection | null,
+    options?: { compact: boolean } | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
-    return this.invoke('inheritSession', [sourceSessionId, route ?? null], INHERIT_SESSION_TIMEOUT_MS);
+    return this.invoke('inheritSession', [sourceSessionId, route ?? null, options ?? null], INHERIT_SESSION_TIMEOUT_MS);
   }
   submitToSession(
     sessionId: string,

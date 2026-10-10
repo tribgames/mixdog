@@ -403,3 +403,252 @@ test('the Recent actions menu archives recent sessions and confirms archived del
     restore();
   }
 });
+
+test('registered projects list as folders above an unchanged Recent', async () => {
+  const { restore } = installDom();
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  const root = createRoot(document.getElementById('root'));
+  const session = (id, activityAt, fields) => ({
+    id,
+    title: id,
+    preview: '',
+    updatedAt: activityAt,
+    activityAt,
+    messageCount: 1,
+    cwd: '',
+    classification: 'task',
+    projectPath: null,
+    working: false,
+    ...fields,
+  });
+  const started = [];
+  // A saved category order puts Recent above Projects; categories it does not
+  // name keep their default places after it.
+  window.localStorage.setItem('mixdog:session-sidebar-section-order', JSON.stringify(['recent', 'projects']));
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(SessionSidebar, {
+          open: true,
+          sessions: [
+            session('alpha-cwd', 5, { cwd: 'C:\\Work\\Alpha\\' }),
+            session('loose', 4, { cwd: 'D:/elsewhere' }),
+            session('beta-project', 3, { projectPath: 'c:/work/beta' }),
+            session('alpha-old', 1, { projectPath: 'C:/Work/Alpha' }),
+          ],
+          sessionsReady: true,
+          projects: [
+            { name: 'Beta', path: 'C:/Work/Beta', alias: null },
+            { name: 'Alpha', path: 'C:/Work/Alpha', alias: 'alpha-app' },
+            { name: 'Empty', path: 'C:/Work/Empty', alias: null },
+          ],
+          onNewProjectTask(path) {
+            started.push(path);
+          },
+          selection: { kind: 'new' },
+          onNewTask() {},
+          onNewStudio() {},
+          onResumeSession() {},
+          async onRenameSession() {},
+          async onArchiveSession() {},
+          async onDeleteSession() {},
+        })
+      )
+    );
+    const ids = (node) =>
+      [...node.querySelectorAll('.session-row[data-session-id]')].map((row) => row.dataset.sessionId);
+    const recent = document.querySelector('section[aria-label="Recent sessions"]');
+    assert.deepEqual(ids(recent), ['alpha-cwd', 'loose', 'beta-project', 'alpha-old']);
+    assert.deepEqual(
+      [...document.querySelectorAll('.session-sidebar-scroll > section')].map((section) =>
+        section.getAttribute('aria-label')
+      ),
+      ['Recent sessions', 'Projects']
+    );
+    assert.equal(recent.querySelector('.sidebar-category-header').getAttribute('draggable'), 'true');
+    // Releasing over a section's rows reorders it, and the split is the
+    // target's heading: just below the heading already means "after", even
+    // far above the middle of a tall section.
+    const dataTransfer = { setData() {}, getData: () => '', effectAllowed: '', dropEffect: '' };
+    const drag = (target, type, clientY) => {
+      const event = new window.Event(type, { bubbles: true, cancelable: true });
+      Object.assign(event, { dataTransfer, clientY, clientX: 0 });
+      target.dispatchEvent(event);
+    };
+    const dropSection = document.querySelector('section[aria-label="Projects"]');
+    dropSection.getBoundingClientRect = () => ({ top: 400, bottom: 800, height: 400, left: 0, right: 0 });
+    dropSection.querySelector(':scope > .sidebar-category-header').getBoundingClientRect = () => ({
+      top: 400,
+      bottom: 432,
+      height: 32,
+      left: 0,
+      right: 0,
+    });
+    const projectFolder = dropSection.querySelector('.project-folder');
+    await act(async () => {
+      drag(recent.querySelector('.sidebar-category-header'), 'dragstart', 0);
+      drag(projectFolder, 'dragover', 450);
+    });
+    assert.equal(dropSection.getAttribute('data-drop-position'), 'after');
+    await act(async () => {
+      drag(projectFolder, 'drop', 450);
+    });
+    assert.deepEqual(
+      [...document.querySelectorAll('.session-sidebar-scroll > section')].map((section) =>
+        section.getAttribute('aria-label')
+      ),
+      ['Projects', 'Recent sessions']
+    );
+    const projectsSection = document.querySelector('section[aria-label="Projects"]');
+    const groups = () => [...projectsSection.querySelectorAll('.project-group')];
+    assert.deepEqual(
+      groups().map((group) => group.querySelector('.project-folder-toggle').textContent),
+      ['alpha-app', 'Beta', 'Empty']
+    );
+    // Folders start closed; opening one shows its sessions, an empty one says so.
+    assert.deepEqual(ids(projectsSection), []);
+    await act(async () => {
+      groups()[0].querySelector('.project-folder-toggle').click();
+      groups()[2].querySelector('.project-folder-toggle').click();
+    });
+    assert.deepEqual(ids(groups()[0]), ['alpha-cwd', 'alpha-old']);
+    assert.match(groups()[2].textContent, /No sessions/);
+    assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog:session-sidebar-expanded-projects')), [
+      'c:/work/alpha',
+      'c:/work/empty',
+    ]);
+    await act(async () => {
+      groups()[1].querySelector('.project-folder-new').click();
+    });
+    assert.deepEqual(started, ['C:/Work/Beta']);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('right-click menus offer per-target actions for sessions and project folders', async () => {
+  const { restore } = installDom();
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  const root = createRoot(document.getElementById('root'));
+  const calls = [];
+  const row = (id, fields = {}) => ({
+    id,
+    title: id,
+    preview: '',
+    updatedAt: 1,
+    activityAt: 1,
+    messageCount: 1,
+    cwd: 'C:/Work/Alpha',
+    classification: 'task',
+    projectPath: null,
+    working: false,
+    ...fields,
+  });
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const menuLabels = () =>
+    [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map((item) => item.textContent);
+  const choose = (label) =>
+    [...document.querySelectorAll('[role="menu"] [role="menuitem"]')]
+      .find((item) => item.textContent === label)
+      .click();
+  const rightClick = (element) =>
+    element.dispatchEvent(
+      new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 })
+    );
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(SessionSidebar, {
+          open: true,
+          sessions: [row('live'), row('parked', { archived: true })],
+          sessionsReady: true,
+          projects: [{ name: 'Alpha', path: 'C:/Work/Alpha', alias: null }],
+          selection: { kind: 'new' },
+          onNewTask() {},
+          onNewStudio() {},
+          onNewProjectTask: (path) => calls.push(['new-task', path]),
+          onResumeSession: (id) => calls.push(['open', id]),
+          onOpenSessionInSplit: (id) => calls.push(['split', id]),
+          onInheritSession: (id) => calls.push(['inherit', id]),
+          onRenameProject: (path, alias) => calls.push(['rename-project', path, alias]),
+          onRevealProject: (path) => calls.push(['reveal', path]),
+          onOpenProjectSettings: (path) => calls.push(['settings', path]),
+          async onRenameSession() {},
+          async onArchiveSession(id, archived) {
+            calls.push(['archive', id, archived]);
+          },
+          async onFavoriteSession() {},
+          async onDeleteSession() {},
+        })
+      )
+    );
+    const recent = document.querySelector('section[aria-label="Recent sessions"]');
+    const liveRow = recent.querySelector('.session-row[data-session-id="live"]');
+    await act(async () => rightClick(liveRow));
+    assert.deepEqual(menuLabels(), [
+      'Open',
+      'Open in split pane',
+      'Rename',
+      'Inherit session',
+      'Add to favorites',
+      'Archive',
+      'Delete',
+    ]);
+    await act(async () => choose('Open in split pane'));
+    assert.deepEqual(calls.pop(), ['split', 'live']);
+    // Delete only arms the row's inline confirmation; nothing is deleted yet.
+    await act(async () => rightClick(liveRow));
+    await act(async () => {
+      choose('Delete');
+      await tick();
+    });
+    assert.ok(liveRow.classList.contains('confirming-delete'));
+    assert.ok(liveRow.querySelector('.session-row-delete-confirm'));
+    assert.equal(liveRow.querySelector('.session-row-favorite'), null);
+
+    // Archived rows trade favorite/archive/inherit for restore.
+    await act(async () => {
+      document.querySelector('section[aria-label="Archived sessions"] .sidebar-heading-toggle').click();
+    });
+    const parkedRow = document.querySelector('.session-row[data-session-id="parked"]');
+    await act(async () => rightClick(parkedRow));
+    assert.deepEqual(menuLabels(), ['Open', 'Open in split pane', 'Rename', 'Restore', 'Delete']);
+    await act(async () => choose('Restore'));
+    assert.deepEqual(calls.pop(), ['archive', 'parked', false]);
+
+    // Project folder menu, then an inline rename committed with Enter.
+    const folder = document.querySelector('.project-folder');
+    await act(async () => rightClick(folder));
+    assert.deepEqual(menuLabels(), [
+      'New task',
+      'Expand Alpha',
+      'Reveal in Explorer',
+      'Copy path',
+      'Rename',
+      'Project settings',
+    ]);
+    await act(async () => choose('Project settings'));
+    assert.deepEqual(calls.pop(), ['settings', 'C:/Work/Alpha']);
+    await act(async () => rightClick(folder));
+    await act(async () => {
+      choose('Rename');
+      await tick();
+    });
+    const input = folder.querySelector('.project-folder-rename');
+    assert.ok(input);
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setValue.call(input, 'Alpha App');
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    assert.deepEqual(calls.pop(), ['rename-project', 'C:/Work/Alpha', 'Alpha App']);
+    assert.equal(folder.querySelector('.project-folder-rename'), null);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});

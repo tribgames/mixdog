@@ -5,6 +5,7 @@ import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { ProgressSpinner } from './ProgressSpinner';
 import { t } from './i18n';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
+import { elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
 
 const SESSION_PREFETCH_INTENT_DELAY_MS = 40;
 
@@ -34,11 +35,14 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onArchiveSession,
   onFavoriteSession,
   onDeleteSession,
+  onOpenMenu,
 }: {
   session: DesktopSessionSummary;
   active: boolean;
   working?: boolean;
   unread?: boolean;
+  /** Right-click / Menu key: the sidebar owns the menu and its items. */
+  onOpenMenu?(session: DesktopSessionSummary, point: { x: number; y: number }): void;
   editingSessionId: string;
   sessionTitleDraft: string;
   sessionTitleInvalid: boolean;
@@ -68,6 +72,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
       titleInvalid={sessionTitleInvalid}
       onArchiveSession={onArchiveSession}
       onFavoriteSession={onFavoriteSession}
+      onOpenMenu={onOpenMenu}
       onTitleDraftChange={onTitleDraftChange}
       onStartRename={onStartRename}
       onCancelRename={onCancelRename}
@@ -113,11 +118,13 @@ const SessionRow = React.memo(function SessionRow({
   onConfirmDelete,
   onArchiveSession,
   onFavoriteSession,
+  onOpenMenu,
 }: {
   session: DesktopSessionSummary;
   active: boolean;
   working?: boolean;
   unread?: boolean;
+  onOpenMenu?(session: DesktopSessionSummary, point: { x: number; y: number }): void;
   editing: boolean;
   titleDraft: string;
   titleInvalid: boolean;
@@ -230,6 +237,12 @@ const SessionRow = React.memo(function SessionRow({
         finishPaneDrag();
       }}
       onClick={activateFromClick}
+      onContextMenu={(event) => {
+        if (!onOpenMenu || editing || deleting) return;
+        event.preventDefault();
+        cancelPrefetch();
+        onOpenMenu(session, pointerMenuPoint(event));
+      }}
       onDoubleClick={(event) => {
         if (
           editing ||
@@ -275,6 +288,12 @@ const SessionRow = React.memo(function SessionRow({
         className="session-row-main"
         inert={editing ? true : undefined}
         aria-hidden={editing ? true : undefined}
+        aria-haspopup={onOpenMenu ? 'menu' : undefined}
+        onKeyDown={(event) => {
+          if (!onOpenMenu || !isContextMenuKey(event)) return;
+          event.preventDefault();
+          onOpenMenu(session, elementMenuPoint(event.currentTarget));
+        }}
       >
         <span className="session-row-copy">
           <b>{label}</b>
@@ -298,7 +317,10 @@ const SessionRow = React.memo(function SessionRow({
         )}
       </button>
       <div className="session-row-actions" inert={editing ? true : undefined} aria-hidden={editing ? true : undefined}>
-        {session.archived === true && (
+        {/* Archived rows always carry restore/delete; any other row shows the
+            same cancel/confirm pair while a menu-started delete awaits
+            confirmation. */}
+        {(session.archived === true || confirmingDelete) && (
           <>
             <button
               type="button"
@@ -342,7 +364,7 @@ const SessionRow = React.memo(function SessionRow({
             </button>
           </>
         )}
-        {session.archived !== true && (
+        {session.archived !== true && !confirmingDelete && (
           <button
             type="button"
             className={`session-row-action session-row-favorite ${session.favorite === true ? 'active' : ''}`}
@@ -358,7 +380,7 @@ const SessionRow = React.memo(function SessionRow({
             <Star size={14} fill={session.favorite === true ? 'currentColor' : 'none'} />
           </button>
         )}
-        {session.archived !== true && (
+        {session.archived !== true && !confirmingDelete && (
           <button
             type="button"
             className="session-row-action session-row-archive"

@@ -37,7 +37,15 @@ function readOrder(storageKey: string): string[] {
   }
 }
 
-export function usePersistedListOrder(storageKey: string, ids: readonly string[]) {
+/** `dropAnchor`: a selector inside the drop target whose midpoint splits
+ *  before/after (e.g. a section's heading), so a tall target reorders as soon
+ *  as the pointer crosses its heading instead of its whole body's middle. */
+export function usePersistedListOrder(
+  storageKey: string,
+  ids: readonly string[],
+  options: { dropAnchor?: string } = {}
+) {
+  const { dropAnchor } = options;
   const [storedOrder, setStoredOrder] = useState<string[]>(() => readOrder(storageKey));
   const [draggingId, setDraggingId] = useState('');
   const [dropTarget, setDropTarget] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
@@ -127,7 +135,8 @@ export function usePersistedListOrder(storageKey: string, ids: readonly string[]
       if (!sourceId || sourceId === id) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
-      const bounds = event.currentTarget.getBoundingClientRect();
+      const anchor = (dropAnchor && event.currentTarget.querySelector(dropAnchor)) || event.currentTarget;
+      const bounds = anchor.getBoundingClientRect();
       const position = event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after';
       setDropTarget((current) => (current?.id === id && current.position === position ? current : { id, position }));
     },

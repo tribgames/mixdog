@@ -291,7 +291,8 @@ export interface DesktopApi {
    *  so both transcripts continue from the same point. */
   inheritSession(
     sourceSessionId: string,
-    route?: DesktopModelSelection | null
+    route?: DesktopModelSelection | null,
+    options?: { compact: boolean } | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }>;
   /** Settings → Connection: pairing QRs + URLs for the phone remote. Only
    *  the in-process desktop implements it (null while the bridge is off);

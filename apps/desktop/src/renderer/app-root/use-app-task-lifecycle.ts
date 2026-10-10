@@ -338,13 +338,14 @@ export function useAppTaskLifecycle({
     stageNewTaskProject(path);
   });
 
-  const replaceWithInheritedSession = useStableEvent(async (sourceSessionId: string, route: DesktopModelSelection) => {
+  const replaceWithInheritedSession = useStableEvent(
+    async (sourceSessionId: string, route: DesktopModelSelection, options?: { compact: boolean }) => {
     const api = window.mixdogDesktop;
     if (typeof api?.inheritSession !== 'function') {
       throw new Error('Session inheritance is unavailable on this surface.');
     }
     await inheritSessionInPlace(sourceSessionId, route, {
-      inherit: (id, sel) => api.inheritSession(id, sel),
+      inherit: (id, sel, opts) => api.inheritSession(id, sel, opts),
       leaves: () => paneLeavesRef.current,
       focusedLeafId: () => focusedLeafIdRef.current,
       sourceTitle: () => {
@@ -368,10 +369,11 @@ export function useAppTaskLifecycle({
           registerWorkspaceSelection(sel, title, sourceKey);
         }
       },
-    });
+    }, options);
     setCommandSurface(null);
     setCommandSurfaceSessionId('');
-  });
+    }
+  );
 
   return {
     selection,
