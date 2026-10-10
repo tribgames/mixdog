@@ -1,6 +1,6 @@
 {
   "id": "reviewer",
   "name": "Reviewer",
-  "description": "Use after implementation to independently verify correctness, regressions, risks, and stated acceptance criteria before final reporting.",
+  "description": "Use once at the final check of non-trivial work: after the implementation is written and verified, before reporting completion, to independently verify correctness, regressions, risks, and acceptance criteria. Skip for low-difficulty work.",
   "entry": "AGENT.md"
 }

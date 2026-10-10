@@ -161,6 +161,13 @@ jobs:
           npm test
           npm run smoke:patch
 
+      # `npm pack --ignore-scripts` below skips prepack, so the shipped-history
+      # generation never runs there: fail instead when the committed file is
+      # stale (needs the full history fetched above; a shallow clone is skipped
+      # by the script's own guard).
+      - name: Verify shipped definition history is current
+        run: node scripts/build-shipped-history.mjs --check
+
       - name: Pack staged npm release
         id: pack
         shell: bash

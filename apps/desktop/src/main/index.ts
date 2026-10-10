@@ -59,6 +59,7 @@ import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
 import { nativeT, refreshNativeUiLanguage } from './native-i18n';
 import { DesktopSettingsStore } from './settings-store';
+import { mixdogDataDirectory } from './computer/shared/common';
 import { desktopUpdater, startAutoUpdater } from './updater';
 import { gcSupersededNativeToolCaches } from './native-runtime-cache-gc.mjs';
 import {
@@ -1559,6 +1560,9 @@ if (!app.requestSingleInstanceLock()) {
       // The daemon handshake is already running (started before whenReady);
       // stamp its start into the timeline now that the sink exists.
       reportDaemonServiceStart();
+      void settingsStore.separateDefaults(mixdogDataDirectory()).catch((error: unknown) => {
+        diagnostics?.write('defaults-separation-failed', { message: error instanceof Error ? error.message : String(error) });
+      });
       for (const { event, entry, at } of earlyDiagnostics.splice(0)) {
         diagnostics.write(event, { ...entry, occurredAt: at });
       }

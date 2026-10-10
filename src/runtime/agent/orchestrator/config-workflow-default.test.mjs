@@ -25,7 +25,7 @@ test('Default and independent orchestration preserve legacy Solo/Cowork selectio
       dataDir: process.env.MIXDOG_DATA_DIR,
     });
     assert.equal(buildDefaultConfig({ detectCredentials: false }).workflow.active, 'default');
-    assert.equal(buildDefaultConfig({ detectCredentials: false }).orchestrationMode, 'none');
+    assert.equal(buildDefaultConfig({ detectCredentials: false }).orchestrationMode, 'balanced');
     assert.equal(loadConfig({ secrets: false }).workflow.active, 'default');
     assert.equal(activeWorkflowId({}), 'default');
 
@@ -38,26 +38,28 @@ test('Default and independent orchestration preserve legacy Solo/Cowork selectio
       writeFileSync(path, JSON.stringify({ agent }));
       const loaded = loadConfig({ secrets: false });
       assert.equal(loaded.workflow.active, 'default');
-      assert.equal(loaded.orchestrationMode, 'none');
+      // Solo was the old default workflow, so it is not carried over as a mode.
+      assert.equal(loaded.orchestrationMode, 'balanced');
       assert.equal(activeWorkflowId(loaded), 'default');
     }
 
     for (const save of [saveConfig, saveConfigAsync]) {
       await save({});
-      assert.equal(JSON.parse(readFileSync(path, 'utf8')).agent.workflow.active, 'default');
+      // The default workflow lives in code and is not written.
+      assert.equal(Object.hasOwn(JSON.parse(readFileSync(path, 'utf8')).agent, 'workflow'), false);
       assert.equal(loadConfig({ secrets: false }).workflow.active, 'default');
-      assert.equal(loadConfig({ secrets: false }).orchestrationMode, 'none');
+      assert.equal(loadConfig({ secrets: false }).orchestrationMode, 'balanced');
 
       for (const active of ['solo', 'default', 'custom-workflow']) {
         writeFileSync(path, JSON.stringify({ agent: { workflow: { active } } }));
         const loaded = loadConfig({ secrets: false });
         const nextActive = active === 'solo' ? 'default' : active;
-        const mode = active === 'solo' ? 'none' : 'swarm';
+        const mode = active === 'solo' ? 'balanced' : 'swarm';
         assert.equal(loaded.workflow.active, nextActive);
         assert.equal(activeWorkflowId(loaded), nextActive);
         assert.equal(loaded.orchestrationMode, mode);
         await save(loaded);
-        assert.equal(JSON.parse(readFileSync(path, 'utf8')).agent.workflow.active, nextActive);
+        assert.equal(JSON.parse(readFileSync(path, 'utf8')).agent.workflow?.active ?? 'default', nextActive);
         assert.equal(loadConfig({ secrets: false }).workflow.active, nextActive);
         assert.equal(loadConfig({ secrets: false }).orchestrationMode, mode);
       }

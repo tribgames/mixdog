@@ -3,14 +3,16 @@
 // path, so this reads only the selected preset from the small shared JSON file.
 import { readFileSync } from 'node:fs';
 
+import { withDefaultPresets } from '../../../../src/runtime/agent/orchestrator/config-presets.mjs';
 import type { SessionSnapshot } from '../shared/contract';
 import { mixdogConfigPath } from './onboarding-status-file';
 import { objectRecord as record } from './workflow-config';
 
 function selectedPreset(agent: Record<string, unknown>): Record<string, unknown> | null {
-  const presets = Array.isArray(agent.presets)
-    ? agent.presets.map(record).filter((preset): preset is Record<string, unknown> => Boolean(preset))
-    : [];
+  // Storage holds only the delta from the shipped presets; rebuild the effective list.
+  const presets = (withDefaultPresets(agent.presets) as unknown[])
+    .map(record)
+    .filter((preset): preset is Record<string, unknown> => Boolean(preset));
   const key = agent.default;
   if (key == null || key === '') return null;
   if (typeof key === 'number' || /^\d+$/.test(String(key))) {
@@ -19,7 +21,7 @@ function selectedPreset(agent: Record<string, unknown>): Record<string, unknown>
   return presets.find((preset) => String(preset.id || preset.name || '') === String(key)) || null;
 }
 
-function desktopModelBootstrapFromConfig(value: unknown): SessionSnapshot {
+export function desktopModelBootstrapFromConfig(value: unknown): SessionSnapshot {
   const root = record(value);
   let agent = record(root?.agent);
   if (record(agent?.agent)?.providers) agent = record(agent?.agent);

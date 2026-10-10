@@ -57,7 +57,9 @@
   ],
   "scripts": {
     "postinstall": "node scripts/prune-embedding-runtime.mjs && node scripts/prepare-native-assets.mjs",
-    "prepack": "npm run build:tui",
+    "prepack": "npm run build:shipped-history && npm run build:tui",
+    "build:shipped-history": "node scripts/build-shipped-history.mjs",
+    "check:shipped-history": "node scripts/build-shipped-history.mjs --check",
     "prepublishOnly": "node -e \"if(!process.env.CI){console.error('local npm publish is disabled — run npm run release:patch');process.exit(1)}\"",
     "start": "node src/cli.mjs",
     "test": "node scripts/test.mjs",

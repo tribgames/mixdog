@@ -14,7 +14,8 @@ export function createWorkflowContext({ packs, agents }) {
       description: clean(pack?.description),
       source: clean(pack?.source),
       // Effective session capability, not an editable workflow property.
-      delegatesAgents: orchestrationMode !== 'none' && hasAgents !== false,
+      // Solo keeps the agent tool deferred for explicit user requests.
+      delegatesAgents: hasAgents !== false,
     };
   }
 
@@ -44,10 +45,11 @@ export function createWorkflowContext({ packs, agents }) {
   }
 
   function orchestrationContextBlock(config, dir) {
-    const instructions = orchestrationInstructions(configuredOrchestrationMode(config));
-    if (!instructions) return '';
-    const lines = [instructions];
+    const mode = configuredOrchestrationMode(config);
     const agentIds = agents.delegatableAgentIds(config, dir);
+    // Solo without agents has nothing to delegate to on request either.
+    if (mode === 'none' && !agentIds.length) return '';
+    const lines = [orchestrationInstructions(mode)];
     const agentBlocks = agentIds.map((id) => agents.loadAgentDefinition(dir, id)).filter(Boolean);
     if (agentBlocks.length) {
       lines.push('# Available Agents');

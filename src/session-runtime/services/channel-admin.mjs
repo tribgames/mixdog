@@ -6,6 +6,7 @@ import {
   updateSection,
   updateSectionAsync,
 } from '../../runtime/shared/config.mjs';
+import { CHANNELS_DEFAULTS, stripChannelsDefaults } from '../../runtime/shared/defaults-separation.mjs';
 import {
   listSchedules as dbListSchedules,
   getSchedule as dbGetSchedule,
@@ -27,10 +28,7 @@ import { resolveScheduleTimezone, validateScheduleCron } from '../../runtime/sha
 import { readHookPublicBase } from '../../runtime/channels/lib/webhook/relay-tunnel.mjs';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
-const DEFAULT_CHANNELS = Object.freeze({
-  access: { dmPolicy: 'allowlist', allowFrom: [], channels: {} },
-  webhook: { enabled: true, port: 3333 },
-});
+const DEFAULT_CHANNELS = CHANNELS_DEFAULTS;
 
 function assertName(name, kind = 'name') {
   const value = String(name || '').trim();
@@ -63,13 +61,19 @@ function normalizeChannelsConfig(raw = {}) {
   };
 }
 
+// Callers see the effective config (defaults filled in); the file keeps only
+// values that differ from the defaults.
+function persistedChannelsConfig(next) {
+  return stripChannelsDefaults(normalizeChannelsConfig(next));
+}
+
 function updateChannelsSection(build) {
   let next;
   updateSection('channels', (current) => {
     // Writes converge on the single `channel` object.
     const normalized = normalizeChannelsConfig(current);
     next = build(normalized);
-    return normalizeChannelsConfig(next);
+    return persistedChannelsConfig(next);
   });
   return next;
 }
@@ -83,7 +87,7 @@ async function updateChannelsSectionAsync(build) {
   await updateSectionAsync('channels', (current) => {
     const normalized = normalizeChannelsConfig(current);
     next = build(normalized);
-    return normalizeChannelsConfig(next);
+    return persistedChannelsConfig(next);
   });
   return next;
 }

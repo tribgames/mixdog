@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { serializeFrontmatterDoc } from '../../runtime/shared/markdown-frontmatter.mjs';
 import { normalizeWorkflowId, workflowIdFromName, availableWorkflowId, DEFAULT_WORKFLOW_ID } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { oneLine, resolveDataDir } from './shared.mjs';
+import { absorbSaveEqualToShipped } from '../services/defaults-separation.mjs';
+import { STANDALONE_ROOT } from '../runtime-paths.mjs';
 
 // Workflow packs: the catalog/active switch plus the editor surface (desktop
 // Workflows page). User packs live at <dataDir>/workflows/<id>/WORKFLOW.md;
@@ -75,12 +77,25 @@ export function createWorkflowPacksApi(deps) {
     if (!body) throw new Error('WORKFLOW.md body must not be empty');
     const name = oneLine(payload.name) || id;
     const description = oneLine(payload.description);
-    const dir = join(resolveDataDir(deps), 'workflows', id);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      join(dir, 'WORKFLOW.md'),
-      serializeFrontmatterDoc({ id, name, ...(description ? { description } : {}) }, body)
-    );
+    const dataDir = resolveDataDir(deps);
+    // Equal to the shipped pack: keep no copy so it follows the shipped version.
+    const absorbed = absorbSaveEqualToShipped({
+      rootDir: deps.rootDir ?? STANDALONE_ROOT,
+      dataDir,
+      dir: 'workflows',
+      id,
+      entry: 'WORKFLOW.md',
+      files: ['WORKFLOW.md'],
+      definition: { name, description, body },
+    });
+    if (!absorbed) {
+      const dir = join(dataDir, 'workflows', id);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, 'WORKFLOW.md'),
+        serializeFrontmatterDoc({ id, name, ...(description ? { description } : {}) }, body)
+      );
+    }
     return getWorkflowPack(id);
   }
 

@@ -4,9 +4,30 @@ import { mergeStoredProviders } from './config-providers-merge.mjs';
 import { normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
 import { applyConfigPatch, diffConfig } from '../../shared/config-patch.mjs';
 import { normalizeWorkflowSelection } from '../../shared/orchestration.mjs';
-import { DEFAULT_DISABLED_AGENT_IDS, canonicalizeAgentRouteStorage } from '../../shared/agent-route-config.mjs';
+import {
+  DEFAULT_DISABLED_AGENT_ROSTER,
+  canonicalizeAgentRouteStorage,
+  disabledAgentDelta,
+  disabledAgentIds,
+  effectiveDisabledAgents,
+  withEffectiveDisabledAgents,
+  withStoredDisabledAgents,
+} from '../../shared/agent-route-config.mjs';
+import {
+  DEFAULTS_VERSION,
+  ensureDefaultsSeparated,
+  storedDefaultsVersion,
+  stripAgentSectionDefaults,
+} from '../../shared/defaults-separation.mjs';
 import profileConfig from '../../shared/profile-config.cjs';
-import { DEFAULT_MAINTENANCE, DEFAULT_PRESETS, normalizePreset } from './config-presets.mjs';
+import {
+  DEFAULT_MAINTENANCE,
+  DEFAULT_PRESETS,
+  maintenanceDelta,
+  normalizePreset,
+  presetsDelta,
+  withDefaultPresets,
+} from './config-presets.mjs';
 import {
   agentConfigStorageNeedsMigration,
   canonicalizeAgentStorage,
@@ -100,11 +121,10 @@ export function buildDefaultConfig(options = {}) {
   providers['mixdog-local'] = { enabled: false };
   return {
     providers,
-    // The Maintainer also starts off: background upkeep spends model calls, so
-    // it runs only once the user turns it on and picks its model.
-    disabledAgents: [...DEFAULT_DISABLED_AGENT_IDS, 'maintainer'],
+    // Effective roster; the file stores only the user's delta against it.
+    disabledAgents: [...DEFAULT_DISABLED_AGENT_ROSTER],
     workflow: { active: 'default' },
-    orchestrationMode: 'none',
+    orchestrationMode: 'balanced',
   };
 }
 
@@ -170,9 +190,17 @@ function normalizeRecapConfig(rawRecap) {
 
 export function loadConfig(options = {}) {
   const includeSecrets = options.secrets !== false;
+  try {
+    ensureDefaultsSeparated({ stripRouteDefaults: separateStoredAgent });
+  } catch (err) {
+    process.stderr.write(`[config] defaults separation failed: ${err?.message}\n`);
+  }
   const sectionRaw = readSection('agent');
   if (hasKeys(sectionRaw)) {
     try {
+      // A file that could not be separated still holds the legacy form:
+      // before version 1 `disabledAgents` is the full list, not a delta.
+      const legacyDisabledAgents = storedDefaultsVersion() < 1;
       let raw = sectionRaw;
       const storageNeedsMigration = agentConfigStorageNeedsMigration(raw);
       raw = canonicalizeAgentStorage(raw);
@@ -206,7 +234,7 @@ export function loadConfig(options = {}) {
       const loaded = canonicalizeAgentRouteStorage({
         providers: mergedProviders,
         mcpServers,
-        presets: normalizedPresets,
+        presets: withDefaultPresets(normalizedPresets),
         default: raw.default || null,
         maintenance: { ...DEFAULT_MAINTENANCE, ...normalizedMaint },
         workflowRoutes,
@@ -214,9 +242,10 @@ export function loadConfig(options = {}) {
         modelSettings,
         onboarding: raw.onboarding && typeof raw.onboarding === 'object' ? raw.onboarding : {},
         agents: raw.agents && typeof raw.agents === 'object' ? raw.agents : {},
-        // Explicit "off" roster. canonicalizeAgentRouteStorage normalizes
-        // and drops it when empty, so an all-enabled config stays clean.
-        disabledAgents: Array.isArray(raw.disabledAgents) ? raw.disabledAgents : [],
+        // Effective "off" roster = code defaults + the stored user delta.
+        // canonicalizeAgentRouteStorage drops it when empty.
+        disabledAgents: legacyDisabledAgents ? disabledAgentIds(raw) : effectiveDisabledAgents(raw),
+        ...(raw.memoryTools && typeof raw.memoryTools === 'object' ? { memoryTools: { ...raw.memoryTools } } : {}),
         ...normalizeWorkflowSelection(raw),
         profile: normalizeProfileConfig(raw.profile),
         skills: normalizeSkillsConfig(raw.skills),
@@ -241,7 +270,7 @@ export function loadConfig(options = {}) {
           // Retired cross-section fields are no longer migrated by
           // the shared config layer. Normalize only the locked
           // current section; stale reads must not undo deletions.
-          persistAgentConfig(canonicalizeAgentStorage);
+          persistAgentConfig((current) => storedAgentForm(canonicalizeAgentStorage(current)));
         } catch (err) {
           process.stderr.write(`[config] persist canonical agent config failed: ${err?.message}\n`);
         }
@@ -263,7 +292,7 @@ export function loadConfig(options = {}) {
     onboarding: {},
     agents: {},
     workflow: { active: 'default' },
-    orchestrationMode: 'none',
+    orchestrationMode: 'balanced',
     profile: normalizeProfileConfig(null),
     skills: normalizeSkillsConfig(null),
     extensionScopes: normalizeExtensionScopes(null),
@@ -383,28 +412,97 @@ function buildAgentSaveBuilder(config) {
     // Developer options (developer-options.mjs); an empty set stays absent.
     if (Object.keys(developer).length) next.developer = developer;
     else if (Object.hasOwn(config, 'developer')) delete next.developer;
-    if (canonicalRoutes.disabledAgents) {
-      next.disabledAgents = canonicalRoutes.disabledAgents;
-    } else {
-      delete next.disabledAgents;
-    }
+    // Only the user's delta against the default roster is stored.
+    delete next.disabledAgents;
+    delete next.enabledAgents;
+    // An unseparated file keeps the legacy full list until the pass succeeds.
+    if (storedDefaultsVersion() < 1) {
+      if (canonicalRoutes.disabledAgents?.length) next.disabledAgents = canonicalRoutes.disabledAgents;
+    } else Object.assign(next, disabledAgentDelta(canonicalRoutes.disabledAgents));
+    if (config.memoryTools && typeof config.memoryTools === 'object') next.memoryTools = { ...config.memoryTools };
+    else delete next.memoryTools;
     delete next.workflowRoutes;
-    return removeRetiredAgentFields(next);
+    // Defaults live in code: values equal to the current default are not stored.
+    return storedAgentForm(removeRetiredAgentFields(next));
   };
 }
+
+/** A numeric `default` is a preset index; store the preset id it points at (index into the effective list). */
+function resolveNumericDefault(agent) {
+  const value = agent?.default;
+  // The loader reads a falsy default (including 0) as "none".
+  if (!value || !(typeof value === 'number' || /^\d+$/.test(String(value)))) return agent;
+  const stored = (Array.isArray(agent.presets) ? agent.presets : [])
+    .map((preset) => normalizePreset(preset))
+    .filter(Boolean)
+    .filter((preset) => preset.id !== 'workflow-search');
+  const { presets } = canonicalizeAgentRouteStorage({ presets: withDefaultPresets(stored) });
+  const preset = presets[Number(value)];
+  return preset ? { ...agent, default: preset.id } : agent;
+}
+
+/** The agent section as stored: defaults dropped. Route defaults go only once the file is separated. */
+function storedAgentForm(agent) {
+  const stripped = stripAgentSectionDefaults(resolveNumericDefault(agent));
+  return storedDefaultsVersion() >= DEFAULTS_VERSION ? stripStoredRouteDefaults(stripped) : stripped;
+}
+
+/** Separation pass: normalize the compared sections first, then drop every default. */
+function separateStoredAgent(agent) {
+  const full = canonicalizeAgentStorage(agent);
+  const next = { ...agent };
+  for (const key of ['autoClear', 'compaction', 'modules']) {
+    if (!Object.hasOwn(agent, key)) continue;
+    if (full[key] === undefined) delete next[key];
+    else next[key] = full[key];
+  }
+  return stripStoredRouteDefaults(stripAgentSectionDefaults(resolveNumericDefault(next)));
+}
+
+/** Patch the stored section; unseparated data keeps its form, a numeric default becomes an id first. */
+function applyStoredPatch(current, changes) {
+  const base = resolveNumericDefault(current);
+  if (storedDefaultsVersion() >= 1) return applyConfigPatch(base, changes);
+  const delta = withStoredDisabledAgents({ ...base, disabledAgents: disabledAgentIds(base) });
+  return withEffectiveDisabledAgents(applyConfigPatch(delta, changes));
+}
+
+/** Drop shipped presets and maintenance routes that equal their default; loadConfig restores them. */
+function stripStoredRouteDefaults(agent) {
+  const next = { ...agent };
+  if (Object.hasOwn(next, 'presets')) {
+    const presets = presetsDelta(next.presets);
+    if (presets.length) next.presets = presets;
+    else delete next.presets;
+  }
+  if (Object.hasOwn(next, 'maintenance')) {
+    const maintenance = maintenanceDelta(next.maintenance);
+    if (Object.keys(maintenance).length) next.maintenance = maintenance;
+    else delete next.maintenance;
+  }
+  return next;
+}
 // Diff the persisted schema, not runtime defaults, aliases, or secret overlays.
+// Patches always speak the delta domain; an unseparated file's full list is
+// converted here and back in applyStoredPatch.
+function patchForm(agent) {
+  if (storedDefaultsVersion() >= 1) return agent;
+  const { disabledAgents, ...rest } = agent;
+  return { ...rest, ...disabledAgentDelta(disabledAgents || []) };
+}
+
 export function createConfigPatch(before, after) {
-  return diffConfig(buildAgentSaveBuilder(before)({}), buildAgentSaveBuilder(after)({}));
+  return diffConfig(patchForm(buildAgentSaveBuilder(before)({})), patchForm(buildAgentSaveBuilder(after)({})));
 }
 
 export function saveConfigPatch(changes) {
   if (!changes.length) return;
-  persistAgentConfig((current) => applyConfigPatch(current, changes));
+  persistAgentConfig((current) => applyStoredPatch(current, changes));
 }
 
 export async function saveConfigPatchAsync(changes) {
   if (!changes.length) return;
-  await persistAgentConfigAsync((current) => applyConfigPatch(current, changes));
+  await persistAgentConfigAsync((current) => applyStoredPatch(current, changes));
 }
 
 // Whole-section replacement is reserved for explicit full saves. Read/edit/save
