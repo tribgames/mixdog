@@ -83,7 +83,8 @@ export interface DesktopService {
    *  on the supplied route; the source session is left untouched. */
   inheritSession(
     sourceSessionId: string,
-    route?: DesktopModelSelection | null
+    route?: DesktopModelSelection | null,
+    options?: { compact: boolean } | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }>;
   /** Split panes use daemon-owned session addresses directly. Pane actions
    *  never fall back to whichever session happens to be focused. */

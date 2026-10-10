@@ -30,7 +30,7 @@ export function SurfaceBody({
   data: Record<string, unknown>;
   snapshot?: unknown;
   sessionId?: string;
-  onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
+  onInherit?: (sourceSessionId: string, route: DesktopModelSelection, options?: { compact: boolean }) => Promise<void>;
   onClose?: () => void;
   /** /doctor only: open the settings page that fixes a failing check. */
   onOpenSettings?: (section: SettingsSection) => void;

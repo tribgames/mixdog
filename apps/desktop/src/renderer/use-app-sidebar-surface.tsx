@@ -7,6 +7,7 @@ import type { useAppShellPanels } from './use-app-shell-panels';
 import { useStableEvent } from './use-stable-event';
 import type { SidebarViewGroup } from './sidebar-view-layout';
 import { InitialSurface } from './InitialSurface';
+import { ProjectEditorDialog, type ProjectEditorDialogHandle } from './ProjectEditorDialog';
 
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
 
@@ -224,6 +225,19 @@ export function useAppSidebarSurface({
       ).value,
     []
   );
+  // One editor host outside the sidebar panels: opened by "Project settings"
+  // over the current screen, and never closed by panel activation changes.
+  const projectEditorRef = useRef<ProjectEditorDialogHandle>(null);
+  const openProjectSettings = useStableEvent((path: string) => projectEditorRef.current?.open(path));
+  const projectEditorHost = (
+    <ProjectEditorDialog
+      ref={projectEditorRef}
+      projects={projects}
+      onRename={projectsRename}
+      onRemove={projectsRemove}
+      onMemoryControl={projectsMemoryControl}
+    />
+  );
   const renderSidebarPanel = (panel: SidebarPanelKey, active: boolean): React.ReactNode => {
     if (!mountedSidebarPanels.has(panel)) return null;
     const label = SIDEBAR_PANEL_TITLES[panel];
@@ -285,5 +299,7 @@ export function useAppSidebarSurface({
     sidebarResumeSession,
     sidebarTreeMounted,
     renderSidebarPanel,
+    openProjectSettings,
+    projectEditorHost,
   };
 }

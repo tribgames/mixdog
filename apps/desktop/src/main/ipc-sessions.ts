@@ -105,10 +105,11 @@ export function registerSessionIpc({
       requiredToolApprovalDecision(input)
     )
   );
-  handle(DESKTOP_IPC.inheritSession, (_event, sourceSessionId, selection) =>
+  handle(DESKTOP_IPC.inheritSession, (_event, sourceSessionId, selection, options) =>
     host.inheritSession(
       requiredSessionId(sourceSessionId),
-      selection === undefined || selection === null ? null : requiredModelSelection(selection)
+      selection === undefined || selection === null ? null : requiredModelSelection(selection),
+      { compact: (options as { compact?: unknown } | null | undefined)?.compact === true }
     )
   );
   handle(DESKTOP_IPC.listProviderModels, (_event, options) =>

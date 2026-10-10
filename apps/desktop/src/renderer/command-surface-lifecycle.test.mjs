@@ -660,8 +660,8 @@ test('command surface renders inherit session dialog with facts and cancel butto
   assert.ok(dialog);
   assert.ok(document.querySelector('.inherit-surface'));
   const facts = document.querySelectorAll('.command-surface-facts dd');
-  assert.equal(facts[0]?.textContent, '2'); // spoken count = 2
-  assert.equal(facts[1]?.textContent, 'openai/gpt-4o');
+  assert.ok(facts[0]?.querySelector('button')); // Model row hosts the route picker
+  assert.equal(facts[1]?.textContent, '2'); // spoken count = 2
 
   const cancelBtn = document.querySelector('.inherit-surface-cancel');
   assert.ok(cancelBtn);

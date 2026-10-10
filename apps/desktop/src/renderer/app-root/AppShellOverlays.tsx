@@ -61,7 +61,11 @@ export interface AppShellOverlaysProps {
   commandSurfaceLane: Snapshot | null | undefined;
   setCommandSurface: ReturnType<typeof useAppShellPanels>['setCommandSurface'];
   setCommandSurfaceSessionId: (id: string) => void;
-  replaceWithInheritedSession: (sessionId: string, route: DesktopModelSelection) => Promise<void>;
+  replaceWithInheritedSession: (
+    sessionId: string,
+    route: DesktopModelSelection,
+    options?: { compact: boolean }
+  ) => Promise<void>;
 
   onboardingOpen: boolean;
   setOnboardingOpen: (open: boolean) => void;

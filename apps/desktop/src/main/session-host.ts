@@ -590,9 +590,10 @@ export class SessionHost implements DesktopService {
 
   async inheritSession(
     sourceSessionId: string,
-    route?: DesktopModelSelection | null
+    route?: DesktopModelSelection | null,
+    options?: { compact: boolean } | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
-    return this.lifecycle.inheritSession(sourceSessionId, route);
+    return this.lifecycle.inheritSession(sourceSessionId, route, options);
   }
 
   async submitToSession(

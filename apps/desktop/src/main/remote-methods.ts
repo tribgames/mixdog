@@ -748,10 +748,11 @@ export function createRemoteMethods({
         requiredString(id, 'approval id', 1_024),
         requiredToolApprovalDecision(decision)
       ),
-    inheritSession: ([sourceSessionId, selection]) =>
+    inheritSession: ([sourceSessionId, selection, options]) =>
       host.inheritSession(
         requiredSessionId(sourceSessionId),
-        selection == null ? null : requiredModelSelection(selection)
+        selection == null ? null : requiredModelSelection(selection),
+        { compact: (options as { compact?: unknown } | null | undefined)?.compact === true }
       ),
     listProviderModels: ([options]) => host.listProviderModels(requiredModelCatalogOptions(options)),
     setModelRoute: ([selection, sessionId]) =>

@@ -499,7 +499,8 @@ export class SessionHostLifecycle {
 
   async inheritSession(
     sourceSessionId: string,
-    route?: DesktopModelSelection | null
+    route?: DesktopModelSelection | null,
+    options?: { compact: boolean } | null
   ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
     const source = sessionIdOf(sourceSessionId);
     const rows = await this.owner.listSessions();
@@ -530,7 +531,7 @@ export class SessionHostLifecycle {
           },
         ]);
       }
-      const inherited = await this.owner.invokeSession(sessionId, 'inheritFrom', [source]);
+      const inherited = await this.owner.invokeSession(sessionId, 'inheritFrom', [source, { compact: options?.compact === true }]);
       await this.owner.sessionMetadata.load();
       this.owner.pendingCatalogSessionIds.delete(sessionId);
       void this.owner.publishCatalogs();

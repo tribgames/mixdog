@@ -12,8 +12,8 @@ export function createInheritanceActions(bag, { restoreTranscriptItems }) {
    * daemon resolves actions on THIS surface, so `inheritFrom` has to live here
    * and not only on the runtime beneath it.
    */
-  const inheritFrom = async (sourceSessionId) => {
-    const result = await runtime.inheritFrom(sourceSessionId);
+  const inheritFrom = async (sourceSessionId, options = null) => {
+    const result = await runtime.inheritFrom(sourceSessionId, options);
     const sessionId = String(result?.sessionId || runtime.sessionId || getState().sessionId || '');
     // Only model messages travel with the conversation. Rebuild the visible
     // transcript from them right here so the heir opens showing the carried

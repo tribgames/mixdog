@@ -1146,11 +1146,26 @@ html[data-window-material="mica"] .session-sidebar {
 }
 .sidebar-recent {
   display: grid;
+  /* One shrinkable column: a long nowrap title must truncate, not widen the
+     track past the rail. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
+}
+/* Row text shares the category label's left line; the row pill reaches 8px
+   past it on the left (its inner inset), the trailing edge is unchanged. */
+.session-sidebar-sessions .sidebar-recent > .session-list {
+  margin-left: -8px;
 }
 /* Sibling sections stay distinct without opening an oversized empty band. */
 .session-sidebar-scroll > .sidebar-recent + .sidebar-recent {
   margin-top: 2px;
+}
+/* Every open list ends with the same gap before the next category, whatever
+   the category order; collapsed headings stay stacked. The wide band is what
+   separates categories from rows (full-ink labels; a muted label read as a
+   row's supporting line in the two-line panels). */
+.session-sidebar-scroll > .sidebar-recent:has(> .session-list) + .sidebar-recent {
+  margin-top: 28px;
 }
 /* Fixed launcher block (user: 세션 위에 새 작업·새 스튜디오 고정): New Task
    and New Studio sit ABOVE the scroller as a real fixed block. The first
@@ -1292,6 +1307,100 @@ html[data-window-material="mica"] .session-sidebar {
   width: 28px;
   height: 28px;
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - 14px);
+}
+/* Projects section: a folder row per project. The row is the drag handle;
+   its trailing + starts a task in that project. */
+/* Grid/flex items default to min-width:auto, which lets a nowrap session
+   title widen the folder past the rail; every level must be shrinkable. */
+.project-group,
+.project-group-sessions {
+  min-width: 0;
+}
+.project-folder {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.project-folder > .project-folder-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+/* The folder icon sits on the label line; the name starts on the same line
+   its child sessions do (8px row inset + 16px icon + 8px gap = 32px, matched
+   by .project-group-sessions rows). */
+.project-folder > .project-folder-toggle {
+  gap: 8px;
+}
+/* Folder names carry the launcher weight and full ink so a project reads
+   apart from the session titles it groups (user: 프로젝트명이 세션명이랑
+   완전히 같아서 헷갈림). */
+.session-sidebar .project-folder-toggle .session-row-copy b {
+  font-weight: var(--mx-weight-medium);
+  color: var(--mx-text);
+}
+.project-folder-toggle > .project-folder-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  /* Same ink as the New task / New Studio launcher glyphs above it: a muted
+     1px stroke read thinner than theirs. */
+  color: var(--mx-icon);
+}
+/* An open folder ends with breathing room before the next folder; the last
+   one leaves the gap to the section rule below. */
+.project-group-sessions {
+  padding-bottom: 8px;
+}
+.project-group:last-child > .project-group-sessions {
+  padding-bottom: 0;
+}
+.project-folder > .project-folder-new {
+  position: absolute;
+  right: calc(var(--mx-rail-trailing-center, 20px) - 14px);
+  width: 28px;
+  height: 28px;
+}
+/* Inline project rename replaces the folder row in place (same input skin
+   as a session rename); the row keeps its height while the toggle hides. */
+.project-folder {
+  min-height: 31px;
+}
+.project-folder > .project-folder-rename {
+  right: 40px;
+  visibility: visible;
+  pointer-events: auto;
+}
+/* + is always shown (user: 프로젝트명 오른쪽 +버튼 상시); the name
+   truncates before it instead of running under it. */
+.session-sidebar .project-folder > .project-folder-toggle {
+  padding-right: 40px;
+}
+/* Sections and project folders reorder by drag (shared
+   usePersistedListOrder): the heading/folder row is the grip, the whole
+   section/folder group is the drop target and carries the drop line. */
+.session-sidebar-sessions :is(.sidebar-category-header, .project-folder)[draggable="true"]:active {
+  cursor: grabbing;
+}
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-reordering="true"] {
+  opacity: var(--mx-op-dim);
+}
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position="before"] {
+  box-shadow: inset 0 2px 0 var(--mx-focus);
+}
+.session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-drop-position="after"] {
+  box-shadow: inset 0 -2px 0 var(--mx-focus);
+}
+.project-group-more .session-row-copy b,
+.project-group-sessions .sidebar-section-empty {
+  color: var(--mx-text-muted);
+  font-weight: var(--mx-weight-regular);
 }
 /* Empty-state line matches the section rows' type (user). */
 .sidebar-section-empty {

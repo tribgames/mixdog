@@ -131,8 +131,15 @@ export function useAppSidebarHub({
   setSessionSideSurface,
   setSessionPanelView,
 }: UseAppSidebarHubOptions) {
-  const { sidebarNewTask, sidebarNewStudio, sidebarPanel, sidebarResumeSession, renderSidebarPanel } =
-    useAppSidebarSurface({
+  const {
+    sidebarNewTask,
+    sidebarNewStudio,
+    sidebarPanel,
+    sidebarResumeSession,
+    renderSidebarPanel,
+    openProjectSettings,
+    projectEditorHost,
+  } = useAppSidebarSurface({
       schedulesOpen,
       webhooksOpen,
       projectsOpen,
@@ -248,6 +255,8 @@ export function useAppSidebarHub({
     sidebarPanel,
     sidebarResumeSession,
     renderSidebarPanel,
+    openProjectSettings,
+    projectEditorHost,
     sideViewDescriptors,
     selectWorkbenchSideView,
     moveWorkbenchSideGroup,
