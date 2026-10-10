@@ -24,6 +24,14 @@ function snapshotRoot() {
 // A baseline tree is unreachable by design (no commit, no ref), so collection
 // is what bounds how long a review stays revertible.
 const SHADOW_GC_PRUNE = '7.days.ago';
+// A review poll with no change signal since the last capture reuses it for
+// this long, so the review bar's timer polls stop re-running git. Writes no
+// signal reports (an external editor, a command the shell classifies
+// read-only) still show within this gap.
+const MIN_RECAPTURE_GAP_MS = 15_000;
+// The same gap for a timer poll of a review the user has open. Shorter than
+// the desktop bar's 6 s poll, so each of those polls still captures.
+const VISIBLE_RECAPTURE_GAP_MS = 5_000;
 const states = new Map();
 
 function pathKey(value) {
@@ -89,9 +97,25 @@ function stateForRoot(root) {
     sourceTracked: new Set(),
     lineEndingArgs: [],
     lock: Promise.resolve(),
+    // Bumped by every reported write under `root`; a capture records the
+    // value it started from.
+    changeStamp: 0,
   };
   states.set(key, state);
   return state;
+}
+
+/** Report written paths (or `null`: anything may have changed). The next
+ *  review poll of an affected worktree captures instead of reusing. */
+export function noteTurnWorktreeChange(paths = null) {
+  const list = Array.isArray(paths) ? paths.filter((value) => clean(value)) : [];
+  const keys = list.map((value) => pathKey(resolve(value)));
+  for (const state of states.values()) {
+    const root = pathKey(state.root);
+    if (keys.length === 0 || keys.some((key) => key === root || key.startsWith(`${root}/`))) {
+      state.changeStamp += 1;
+    }
+  }
 }
 
 function withStateLock(state, task) {
@@ -177,15 +201,19 @@ async function syncAlternates(state) {
   await writeFile(target, `${[...new Set(alternates)].join('\n')}\n`, 'utf8');
 }
 
-async function refreshSourceTracked(state, { force = false } = {}) {
+async function sourceIndexIdentity(state) {
   state.sourceIndexPath ??= await sourceGitPath(state.root, 'index');
-  let identity = 'missing';
-  if (state.sourceIndexPath) {
-    try {
-      const stat = await lstat(state.sourceIndexPath);
-      identity = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
-    } catch {}
+  if (!state.sourceIndexPath) return 'missing';
+  try {
+    const stat = await lstat(state.sourceIndexPath);
+    return `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+  } catch {
+    return 'missing';
   }
+}
+
+async function refreshSourceTracked(state, { force = false } = {}) {
+  const identity = await sourceIndexIdentity(state);
   if (!force && state.sourceIndexIdentity === identity) return;
   const result = await runGit(['-c', 'core.quotepath=false', 'ls-files', '--cached', '-z'], {
     cwd: state.root,
@@ -347,6 +375,7 @@ export function recordTurnWorktreeFileChange(snapshot, fullPath, before) {
   if (!snapshot) return;
   const rel = relative(snapshot.root, resolve(fullPath)).replace(/\\/g, '/');
   if (!rel || isAbsolute(rel) || rel.split('/').includes('..')) return;
+  snapshot.state.changeStamp += 1;
   if (snapshot.toolPaths.has(rel)) return;
   snapshot.toolPaths.add(rel);
   // Before-bytes that were never captured (an omitted marker) or exceed the
@@ -625,6 +654,7 @@ export async function createTurnWorktreeSnapshot(worktree) {
   if (!root) return null;
   const state = stateForRoot(root);
   return await withStateLock(state, async () => {
+    const mark = await captureMark(state);
     const baselineTree = await captureTreeUnlocked(state);
     if (!baselineTree) return null;
     scheduleShadowGc(state);
@@ -633,6 +663,9 @@ export async function createTurnWorktreeSnapshot(worktree) {
       root,
       baselineTree,
       currentTree: baselineTree,
+      captured: mark,
+      refreshing: null,
+      refreshSeq: 0,
       patch: '',
       files: [],
       patchTruncated: false,
@@ -695,16 +728,63 @@ export async function resumeTurnWorktreeSnapshot(
   });
 }
 
-export async function refreshTurnWorktreeSnapshot(snapshot) {
-  if (!snapshot?.state || !snapshot.baselineTree) return null;
-  return await withStateLock(snapshot.state, async () => {
+/** What a capture starting now has seen: the change stamp, the source index
+ *  identity (commits, checkouts, staging) and the time. */
+async function captureMark(state) {
+  return { stamp: state.changeStamp, index: await sourceIndexIdentity(state), at: Date.now() };
+}
+
+/** Could the worktree differ from the snapshot's last capture? */
+async function captureNeeded(snapshot, gapMs) {
+  const mark = snapshot.captured;
+  if (!mark || snapshot.pendingBaselines.size > 0) return true;
+  if (mark.stamp !== snapshot.state.changeStamp) return true;
+  if (Date.now() - mark.at >= gapMs) return true;
+  return (await sourceIndexIdentity(snapshot.state)) !== mark.index;
+}
+
+function startRefresh(snapshot) {
+  const flight = { seq: (snapshot.refreshSeq || 0) + 1, promise: null };
+  snapshot.refreshSeq = flight.seq;
+  snapshot.refreshing = flight;
+  flight.promise = withStateLock(snapshot.state, async () => {
+    const mark = await captureMark(snapshot.state);
     await materializeToolBaselines(snapshot);
     const currentTree = await captureTreeUnlocked(snapshot.state, snapshot.toolPaths);
-    if (currentTree === snapshot.currentTree) return snapshot;
-    const review = await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths);
-    Object.assign(snapshot, withOmittedBaselines(snapshot, review));
+    if (currentTree !== snapshot.currentTree) {
+      const review = await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths);
+      Object.assign(snapshot, withOmittedBaselines(snapshot, review));
+    }
+    snapshot.captured = mark;
     return snapshot;
+  }).finally(() => {
+    if (snapshot.refreshing === flight) snapshot.refreshing = null;
   });
+  return flight.promise;
+}
+
+/** Bring the snapshot up to date with the worktree. Single-flight: a call
+ *  made while a capture runs waits for it, then captures again only if a
+ *  change was reported after that capture began. Without a reported change,
+ *  an index change or the recapture gap elapsed (VISIBLE_RECAPTURE_GAP_MS
+ *  for an open review's poll, `visible`; else MIN_RECAPTURE_GAP_MS), the
+ *  last capture stands. `force` always answers with a capture that began
+ *  after this call. */
+export async function refreshTurnWorktreeSnapshot(snapshot, { force = false, visible = false } = {}) {
+  if (!snapshot?.state || !snapshot.baselineTree) return null;
+  const gapMs = visible ? VISIBLE_RECAPTURE_GAP_MS : MIN_RECAPTURE_GAP_MS;
+  const calledAtSeq = snapshot.refreshSeq || 0;
+  for (;;) {
+    const flight = snapshot.refreshing;
+    if (flight) {
+      await flight.promise;
+      if (flight.seq > calledAtSeq) return snapshot;
+      continue;
+    }
+    if (!force && !(await captureNeeded(snapshot, gapMs))) return snapshot;
+    if (snapshot.refreshing) continue;
+    return await startRefresh(snapshot);
+  }
 }
 
 function safeRelativePath(root, value) {
@@ -743,6 +823,8 @@ async function revertPathsUnlocked(snapshot, targets) {
   for (const target of targets) {
     await restorePathFromTree(snapshot, target);
   }
+  // Restores report no change signal; the next poll captures afresh.
+  snapshot.captured = null;
   const currentTree = await captureTreeUnlocked(snapshot.state, snapshot.toolPaths);
   Object.assign(
     snapshot,
@@ -756,7 +838,7 @@ async function revertPathsUnlocked(snapshot, targets) {
 
 export async function revertTurnWorktreeFile(snapshot, value) {
   if (!snapshot?.state || !snapshot.baselineTree) throw new Error('turn worktree snapshot is unavailable');
-  await refreshTurnWorktreeSnapshot(snapshot);
+  await refreshTurnWorktreeSnapshot(snapshot, { force: true });
   return await withStateLock(snapshot.state, async () => {
     const rel = safeRelativePath(snapshot.root, value);
     const entry = snapshot.files.find(
@@ -771,7 +853,7 @@ export async function revertTurnWorktreeFile(snapshot, value) {
 
 export async function revertTurnWorktreeSnapshot(snapshot) {
   if (!snapshot?.state || !snapshot.baselineTree) throw new Error('turn worktree snapshot is unavailable');
-  await refreshTurnWorktreeSnapshot(snapshot);
+  await refreshTurnWorktreeSnapshot(snapshot, { force: true });
   return await withStateLock(snapshot.state, async () => {
     // Resolve and validate every path before the first mutation. Renames and
     // copies contribute both sides so the worktree returns to the exact

@@ -636,19 +636,20 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     validateSecret(options.apiKey, 'OpenCode console API key');
   }
   if (capability === 'getTurnReviewDiff' && args[0] !== undefined) {
-    // The turn review bar asks for `{ refresh, known, summary }`: whether to
-    // re-read the worktree before diffing, the tag of the review it already
-    // shows, and whether a collapsed bar can go without the patch text.
+    // The turn review bar asks for `{ refresh, known, summary, poll }`: whether
+    // to re-read the worktree before diffing, the tag of the review it already
+    // shows, whether a collapsed bar can go without the patch text, and
+    // whether its interval timer (`poll: 'background'`) sent the read.
     // Anything else is not a review option.
     const options =
       args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]) ? (args[0] as Record<string, unknown>) : null;
     if (
       !options ||
-      Object.entries(options).some(([key, option]) =>
-        key === 'refresh' || key === 'summary'
-          ? typeof option !== 'boolean'
-          : key !== 'known' || typeof option !== 'string' || !/^[a-f0-9]{32}$/.test(option)
-      )
+      Object.entries(options).some(([key, option]) => {
+        if (key === 'refresh' || key === 'summary') return typeof option !== 'boolean';
+        if (key === 'poll') return option !== 'background';
+        return key !== 'known' || typeof option !== 'string' || !/^[a-f0-9]{32}$/.test(option);
+      })
     ) {
       throw new TypeError('turn review options are invalid.');
     }

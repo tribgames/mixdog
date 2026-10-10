@@ -127,6 +127,13 @@ pub(super) struct FileListStore {
     pub(super) pending_repairs: Mutex<HashMap<WalkKey, PendingInventoryRepair>>,
     pub(super) repair_worker_running: AtomicBool,
     pub(super) repair_changed: Condvar,
+    /// Keys a search is waiting on (locked after `pending_repairs`); their
+    /// repair bypasses the debounce and the minimum gap.
+    pub(super) repair_demanded: Mutex<HashSet<WalkKey>>,
+    /// When each key was last repaired; survives worker retirement.
+    pub(super) repair_last_run: Mutex<HashMap<WalkKey, Instant>>,
+    /// Demand-driven worker wakeups (observability for tests).
+    pub(super) repair_demand_wakeups: AtomicU64,
     pub(super) watcher: Mutex<Option<RecommendedWatcher>>,
     pub(super) watcher_healthy: AtomicBool,
     pub(super) watched_roots: Mutex<HashMap<PathBuf, Instant>>,
@@ -270,6 +277,9 @@ impl FileListStore {
             pending_repairs: Mutex::new(HashMap::new()),
             repair_worker_running: AtomicBool::new(false),
             repair_changed: Condvar::new(),
+            repair_demanded: Mutex::new(HashSet::new()),
+            repair_last_run: Mutex::new(HashMap::new()),
+            repair_demand_wakeups: AtomicU64::new(0),
             watcher: Mutex::new(None),
             watcher_healthy: AtomicBool::new(false),
             watched_roots: Mutex::new(HashMap::new()),
@@ -398,16 +408,28 @@ impl FileListStore {
         {
             let deadline = Instant::now() + Duration::from_millis(250);
             let mut pending = lock_recover(&self.pending_repairs);
-            while pending.contains_key(key) {
+            while let Some(entry) = pending.get(key) {
                 let now = Instant::now();
                 if now >= deadline {
                     break;
+                }
+                if !entry.processing
+                    && !entry.paths.is_empty()
+                    && lock_recover(&self.repair_demanded).insert(key.clone())
+                {
+                    // First demand for this key: skip its debounce/min gap.
+                    self.repair_demand_wakeups.fetch_add(1, Ordering::Relaxed);
+                    self.repair_changed.notify_all();
                 }
                 pending = self
                     .repair_changed
                     .wait_timeout(pending, deadline.saturating_duration_since(now))
                     .unwrap_or_else(|error| error.into_inner())
                     .0;
+            }
+            if !pending.contains_key(key) {
+                // Repair done: a later repair of this key needs a fresh demand.
+                lock_recover(&self.repair_demanded).remove(key);
             }
         }
         let generation = self.generation(&key.operand);

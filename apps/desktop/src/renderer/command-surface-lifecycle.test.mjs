@@ -284,6 +284,8 @@ test('a hidden desktop window defers statistics re-reads until it is shown', asy
   });
   const release = holdStatsDataCache(api);
   context.after(release);
+  // An open dialog is what makes a re-read worthwhile.
+  context.after(subscribeStatsDataCache(api, () => {}));
   await refreshStatsDataCache(api);
   assert.equal(reads.length, 1);
 
@@ -339,10 +341,21 @@ test('desktop state warms statistics before the dialog mounts without blocking b
   for (const listener of sessionListeners) {
     listener({
       sessionId: 'background-session',
+      snapshot: { stats: { inputTokens: 1500 } },
+    });
+  }
+  await act(async () => {});
+  assert.equal(resolvers.length, 1, 'usage changes while the dialog is closed do not read statistics');
+  assert.equal(hasStatsDataCache(api), false, 'the unread change leaves the cache stale for the next opening');
+  const closeDialog = subscribeStatsDataCache(api, () => {});
+  for (const listener of sessionListeners) {
+    listener({
+      sessionId: 'background-session',
       snapshot: { stats: { inputTokens: 2000 } },
     });
   }
   await act(async () => resolvers[1]({ value: { totals: { tokens: 2000 } } }));
+  closeDialog();
   assert.equal(getStatsDataCache(api).getUsageStats.totals.tokens, 2000);
   await render({ mounted: false });
   assert.equal(stateListeners.size, 0);

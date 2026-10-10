@@ -713,7 +713,7 @@ export async function completeTurnSnapshot(sessionId) {
   if (!tracker) return false;
   if (tracker.worktreeSnapshot) {
     try {
-      await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot);
+      await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot, { force: true });
     } catch {}
   }
   tracker.sealed = true;
@@ -838,8 +838,13 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   const isolatedWorktreeSnapshot = worktreeSnapshotUsable(tracker) ? tracker.worktreeSnapshot : null;
   if (isolatedWorktreeSnapshot && !tracker.sealed && options.refresh !== false) {
+    // Only the review bar's interval timer sends `poll: 'background'`; an
+    // open review (asking for its patch, no `summary`) keeps a short gap.
+    // Every other read (opening the review, a manual or tool-boundary
+    // refresh, a client that sends no `poll`) captures the worktree now.
+    const refreshOptions = options.poll === 'background' ? { visible: options.summary !== true } : { force: true };
     try {
-      await refreshTurnWorktreeSnapshot(isolatedWorktreeSnapshot);
+      await refreshTurnWorktreeSnapshot(isolatedWorktreeSnapshot, refreshOptions);
     } catch {}
   }
   const snapshot = isolatedWorktreeSnapshot;

@@ -28,6 +28,7 @@ test('the turn review bar reaches its diff with only a boolean refresh option', 
     [{ refresh: true }],
     [{ refresh: false, known: 'a'.repeat(32) }],
     [{ refresh: true, summary: true }],
+    [{ refresh: true, summary: true, poll: 'background' }],
   ]) {
     assert.doesNotThrow(() => requiredDesktopCapabilityRequest({ capability: 'getTurnReviewDiff', args }));
   }
@@ -36,6 +37,8 @@ test('the turn review bar reaches its diff with only a boolean refresh option', 
     [{ cwd: 'C:/' }],
     [{ known: 'not-a-tag' }],
     [{ summary: 'yes' }],
+    [{ poll: 'foreground' }],
+    [{ poll: true }],
     [null],
     [[]],
     [{ refresh: true }, {}],

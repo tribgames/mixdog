@@ -181,7 +181,7 @@ export function holdStatsDataCache(api: SurfaceApi, { background = true }: { bac
     const page = typeof document === 'undefined' ? null : document;
     const hidden = () => page?.visibilityState === 'hidden';
     const onVisibility = () => {
-      if (!hidden() && cache.acceptedRevision !== cache.revision) warm();
+      if (!hidden() && cache.listeners.size > 0 && cache.acceptedRevision !== cache.revision) warm();
     };
     const update = (snapshot: SessionSnapshot, sessionId = String(snapshot?.sessionId || '')) => {
       if (!snapshot?.stats) return;
@@ -203,7 +203,9 @@ export function holdStatsDataCache(api: SurfaceApi, { background = true }: { bac
         return;
       }
       cache.revision += 1;
-      if (!hidden()) warm();
+      // Only the open dialog shows these numbers; closed, the revision bump
+      // marks the cache stale and opening reads fresh figures.
+      if (!hidden() && cache.listeners.size > 0) warm();
     };
     const unsubscribeState = api.subscribeState?.(update);
     const unsubscribeSession = api.subscribeSessionState?.(({ sessionId, snapshot }) => update(snapshot, sessionId));

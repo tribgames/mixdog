@@ -14,7 +14,7 @@
  * here mutates stored rows. Storage, schema and inserts stay in
  * usage-ledger.mjs.
  */
-import { isConversationUsageSource, num } from './usage-rollup.mjs';
+import { isConversationUsageSource, num, usageRollupDayKey } from './usage-rollup.mjs';
 import { normalizeUsageMeasurement, normalizeLegacyUsageDay } from './usage-measurement.mjs';
 
 // A detail and its terminal summary can overlap on the SAME route.
@@ -327,6 +327,110 @@ export function readSessionUsage(db, sessionIds) {
   }
   const { sessions, sessionsComplete, ...usage } = total;
   return { ...usage, speedOutput, speedMs };
+}
+
+const DAY_KEY = (alias) => `printf('%04d-%02d-%02d',${alias}.day/10000,(${alias}.day/100)%100,${alias}.day%100)`;
+const BUMP = (day) => `INSERT INTO day_revisions(day,rev) VALUES(${day},1) ON CONFLICT(day) DO UPDATE SET rev=rev+1;`;
+const TRIGGER_ROWS = { INSERT: ['NEW'], DELETE: ['OLD'], UPDATE: ['OLD', 'NEW'] };
+const triggers = (name, table, events, days) =>
+  events
+    .map(
+      (event) => `CREATE TRIGGER IF NOT EXISTS ${name}_${event.toLowerCase()} AFTER ${event} ON ${table}
+        BEGIN ${TRIGGER_ROWS[event].map((row) => BUMP(days(row))).join(' ')} END;`
+    )
+    .join('\n');
+const ALL = ['INSERT', 'UPDATE', 'DELETE'];
+// Rows that change what a route/session means (price repairs rewrite route
+// signatures) can touch any day, so they bump the global revision ('').
+const GLOBAL_BUMP = BUMP("''");
+
+/**
+ * What a completed day's rollup is a function of is written only through
+ * these tables, so SQLite triggers (in the writer's own transaction, for
+ * every connection and process) bump that day's revision on any insert,
+ * update or delete. A route or session row changing bumps the global
+ * revision instead, invalidating every held day.
+ */
+export const DAY_REVISION_SCHEMA = `
+    CREATE TABLE IF NOT EXISTS day_revisions (day TEXT PRIMARY KEY, rev INTEGER NOT NULL) WITHOUT ROWID;
+    ${triggers('day_rev_events', 'usage_events', ALL, DAY_KEY)}
+    ${triggers('day_rev_daily', 'daily', ALL, (row) => `${row}.day`)}
+    ${triggers('day_rev_sessions', 'day_sessions', ALL, (row) => `${row}.day`)}
+    ${triggers('day_rev_legacy', 'legacy_days', ALL, (row) => `${row}.day`)}
+    CREATE TRIGGER IF NOT EXISTS day_rev_routes_update AFTER UPDATE ON usage_routes BEGIN ${GLOBAL_BUMP} END;
+    CREATE TRIGGER IF NOT EXISTS day_rev_routes_delete AFTER DELETE ON usage_routes BEGIN ${GLOBAL_BUMP} END;
+    CREATE TRIGGER IF NOT EXISTS day_rev_session_names_update AFTER UPDATE ON usage_sessions BEGIN ${GLOBAL_BUMP} END;
+    CREATE TRIGGER IF NOT EXISTS day_rev_session_names_delete AFTER DELETE ON usage_sessions BEGIN ${GLOBAL_BUMP} END;
+`;
+
+// In-window days (those with any stored rollup input) with their revisions.
+function readDayFingerprints(db, fromDay, toDay) {
+  const global = db.prepare("SELECT rev FROM day_revisions WHERE day=''").get()?.rev ?? 0;
+  const revisions = new Map(
+    db
+      .prepare("SELECT day,rev FROM day_revisions WHERE day<>'' AND day BETWEEN ? AND ?")
+      .all(fromDay, toDay)
+      .map((row) => [row.day, row.rev])
+  );
+  const days = db
+    .prepare(
+      `SELECT day FROM daily WHERE day BETWEEN ?1 AND ?2 UNION SELECT day FROM day_sessions WHERE day BETWEEN ?1 AND ?2
+       UNION SELECT day FROM legacy_days WHERE day BETWEEN ?1 AND ?2`
+    )
+    .all(fromDay, toDay);
+  return Object.fromEntries(days.map(({ day }) => [day, `${global}:${revisions.get(day) ?? 0}`]));
+}
+
+const DELTA_DAY_QUERIES = 8;
+
+/**
+ * The part of a whole-day rollup that `known` (day -> fingerprint of the
+ * result the caller already holds) cannot answer: every day that is today or
+ * later, the hourly day, and any day whose fingerprint moved. Returns every
+ * in-window fingerprint plus the recomputed days; assembleRollup() merges
+ * them with the caller's held days into exactly rollupUsage()'s answer. A
+ * rolling (`fromMs`) window has no reusable day totals and is not served here.
+ */
+export function rollupDelta(db, options = {}, known = {}, now = Date.now()) {
+  const { hourlyDay = null, fromDay = '0000-01-01', toDay = '9999-12-31' } = options;
+  const fingerprints = readDayFingerprints(db, fromDay, toDay);
+  const today = usageRollupDayKey(now);
+  const stale = Object.keys(fingerprints).filter(
+    (day) => day === hourlyDay || day >= today || known[day] !== fingerprints[day]
+  );
+  if (stale.length > DELTA_DAY_QUERIES) {
+    const full = rollupUsage(db, { hourlyDay, fromDay, toDay });
+    const fresh = Object.fromEntries(Object.keys(fingerprints).map((day) => [day, full.days[day] ?? null]));
+    return { fingerprints, fresh, ...(full.hourly ? { hourly: full.hourly } : {}) };
+  }
+  const fresh = {};
+  let hourly = hourlyDay ? { rows: [], unallocated: [] } : null;
+  for (const day of stale) {
+    const part = rollupUsage(db, { fromDay: day, toDay: day, hourlyDay: day === hourlyDay ? day : null });
+    fresh[day] = part.days[day] ?? null;
+    if (part.hourly) hourly = part.hourly;
+  }
+  return { fingerprints, fresh, ...(hourly ? { hourly } : {}) };
+}
+
+/** `known` argument for rollupDelta from the caller's completed-day store. */
+export function knownRollupDays(store) {
+  return Object.fromEntries([...store].map(([day, entry]) => [day, entry.fingerprint]));
+}
+
+/** Merge a rollupDelta() answer with the held completed days (day -> {fingerprint,value}). */
+export function assembleRollup(store, delta, now = Date.now()) {
+  const today = usageRollupDayKey(now);
+  const days = {};
+  for (const day of Object.keys(delta.fingerprints).sort()) {
+    let value;
+    if (day in delta.fresh) {
+      value = delta.fresh[day];
+      if (day < today) store.set(day, { fingerprint: delta.fingerprints[day], value });
+    } else value = store.get(day).value;
+    if (value) days[day] = value;
+  }
+  return delta.hourly ? { days, hourly: delta.hourly } : { days };
 }
 
 /** Read cached amounts; group retained attribution separately for distinct sessions. */

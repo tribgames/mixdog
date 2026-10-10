@@ -396,14 +396,18 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     boundaryKey: string;
     refreshWorktree: boolean;
     summary: boolean;
+    background: boolean;
   } | null>(null);
   const pendingCapabilityRefresh = useRef<{
     scopeKey: string;
     boundaryKey: string;
     refreshWorktree: boolean;
     summary: boolean;
+    background: boolean;
   } | null>(null);
-  const refreshAgentReviewsRef = useRef<(refreshWorktree?: boolean) => Promise<void>>(async () => undefined);
+  const refreshAgentReviewsRef = useRef<(refreshWorktree?: boolean, background?: boolean) => Promise<void>>(
+    async () => undefined
+  );
   const lastAgentReviewSignature = useRef<string | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: turnScopeKey is the reset trigger; the body does not read it
   useEffect(() => {
@@ -458,7 +462,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   }, [items]);
   const reviewBoundaryKey = JSON.stringify([turnScopeKey, turnBoundaryKey, busy]);
   const refreshAgentReviews = useCallback(
-    async (refreshWorktree = false) => {
+    // `background` marks the interval timer's re-read: the daemon may answer
+    // it from a recent worktree capture. Every other read captures now.
+    async (refreshWorktree = false, background = false) => {
       const api = window.mixdogDesktop as
         | {
             invokeCapability?: (request: {
@@ -482,21 +488,25 @@ export const TurnReviewBar = memo(function TurnReviewBar({
           issued?.scopeKey === requestedScope &&
           issued.boundaryKey === reviewBoundaryKey &&
           (!issued.summary || summary) &&
-          (issued.refreshWorktree || !refreshWorktree)
+          (issued.refreshWorktree || !refreshWorktree) &&
+          (!issued.background || background)
         ) {
           return;
         }
         const pending = pendingCapabilityRefresh.current;
+        const samePending = pending?.scopeKey === requestedScope;
         pendingCapabilityRefresh.current = {
           scopeKey: requestedScope,
           boundaryKey: reviewBoundaryKey,
-          refreshWorktree: refreshWorktree || (pending?.scopeKey === requestedScope && pending.refreshWorktree),
+          refreshWorktree: refreshWorktree || (samePending && pending.refreshWorktree),
           summary,
+          // A queued foreground read stays foreground when a poll joins it.
+          background: background && (!samePending || pending.background),
         };
         return;
       }
       capabilityRequestInFlight.current = true;
-      const issued = { scopeKey: requestedScope, boundaryKey: reviewBoundaryKey, refreshWorktree, summary };
+      const issued = { scopeKey: requestedScope, boundaryKey: reviewBoundaryKey, refreshWorktree, summary, background };
       let recorded = false;
       sameCommitRequest.current = issued;
       queueMicrotask(() => {
@@ -517,7 +527,14 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         // it is read once the bar is opened.
         const result = await api.invokeCapability({
           capability: TURN_REVIEW_CAPABILITY,
-          args: [{ refresh: refreshWorktree, ...(known ? { known } : {}), ...(summary ? { summary } : {}) }],
+          args: [
+            {
+              refresh: refreshWorktree,
+              ...(known ? { known } : {}),
+              ...(summary ? { summary } : {}),
+              ...(background ? { poll: 'background' } : {}),
+            },
+          ],
           sessionId,
         });
         const value = (result?.value ?? null) as TurnReviewCapabilityValue;
@@ -574,7 +591,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
           pending.boundaryKey === issued.boundaryKey &&
           (!issued.summary || pending.summary);
         if (pending && !repeatsRecorded && activeScope.current === pending.scopeKey) {
-          void refreshAgentReviewsRef.current(pending.refreshWorktree);
+          void refreshAgentReviewsRef.current(pending.refreshWorktree, pending.background);
         }
       }
     },
@@ -607,7 +624,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
       // relay and re-diffs the desktop worktree, so the timer only backstops.
       const timer = window.setInterval(
         () => {
-          void refreshAgentReviews(true);
+          void refreshAgentReviews(true, true);
         },
         isMobileRemoteSurface() ? 30_000 : 6_000
       );
