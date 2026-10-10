@@ -5,7 +5,9 @@ import { readFileSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { dirname as pathDirname } from 'node:path';
 import { normalizeOutputPath, invalidateBuiltinResultCache, clearReadSnapshotForPath } from '../builtin.mjs';
-import { rawContentCacheGet, rawContentCacheSet } from '../builtin/cache-layers.mjs';
+import { rawContentCacheGet } from '../builtin/cache-layers.mjs';
+import { fileVersion } from '../builtin/file-version.mjs';
+import { publishRawContentAfterRead } from '../builtin/raw-content-publication.mjs';
 import { atomicWrite } from '../builtin/atomic-write.mjs';
 import { assertPathReachable, assertPathsReachable } from '../builtin/fs-reachability.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
@@ -697,11 +699,14 @@ export async function applyV4ARenameSections(renameSections, basePath, options =
 
 function readRawBufForV4AConversion(fullPath) {
   const st = lstatV4APatchTarget(fullPath, fullPath);
-  const cached = rawContentCacheGet(fullPath, st);
+  // lstat describes the link, not its target: never cache referent bytes
+  // under a symlink identity, even when the byte sizes happen to coincide.
+  const before = st.isFile() ? fileVersion(st) : null;
+  const cached = before && rawContentCacheGet(fullPath, before);
   if (cached) return cached;
   const rawBuf = readFileSync(fullPath);
   const buf = Buffer.isBuffer(rawBuf) ? rawBuf : Buffer.from(rawBuf);
-  rawContentCacheSet(fullPath, st, buf);
+  publishRawContentAfterRead(fullPath, before, buf, lstatSync);
   return buf;
 }
 

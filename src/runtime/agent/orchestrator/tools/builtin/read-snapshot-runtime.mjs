@@ -8,7 +8,9 @@ import {
   statMatchesSnapshot,
   decodeRawBufferForSnapshotCheck,
 } from './snapshot-helpers.mjs';
-import { rawContentCacheGet, rawContentCacheSet } from './cache-layers.mjs';
+import { rawContentCacheGet } from './cache-layers.mjs';
+import { fileVersion } from './file-version.mjs';
+import { publishRawContentAfterRead } from './raw-content-publication.mjs';
 import { rememberReadSnapshot, readFilesForScope, readScopeKey, scheduleScopePersist } from './snapshot-store.mjs';
 import {
   isSnapshotStale as isSnapshotStaleImpl,
@@ -38,13 +40,14 @@ export function readTextForSnapshotCheck(fullPath, cache = null, st = null) {
     return cache.content;
   }
   const cachedRaw = getCachedRaw();
+  const before = fileVersion(statForRawCache);
   const rawBuf = cachedRaw || readFileSync(fullPath);
   const content = decodeRawBufferForSnapshotCheck(rawBuf);
   if (cache) {
     cache.rawBuf = rawBuf;
     cache.content = content;
   }
-  if (!cachedRaw && statForRawCache) rawContentCacheSet(fullPath, statForRawCache, rawBuf);
+  if (!cachedRaw) publishRawContentAfterRead(fullPath, before, rawBuf);
   return content;
 }
 
