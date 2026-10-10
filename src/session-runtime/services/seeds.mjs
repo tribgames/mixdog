@@ -11,7 +11,7 @@ import {
   makeBackup,
   packHashFromDir,
   treeHashFromDir,
-} from './defaults-separation.mjs';
+} from '../../runtime/shared/shipped-definitions.mjs';
 
 export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
   if (!rootDir) throw new Error('standalone rootDir is required');

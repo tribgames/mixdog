@@ -11,7 +11,7 @@ import {
   hashTree,
   makeBackup,
   packDefinitionFrom,
-} from './defaults-separation.mjs';
+} from '../../runtime/shared/shipped-definitions.mjs';
 import { ensureStandaloneEnvironment, retireSeededPackCopies, retireSeededSkillCopies } from './seeds.mjs';
 import { createWorkflowPacksApi } from '../workflow-agents-api/workflow-packs.mjs';
 

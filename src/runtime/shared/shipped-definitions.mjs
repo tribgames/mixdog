@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
-import { readMarkdownDocument } from '../../runtime/shared/markdown-frontmatter.mjs';
+import { readMarkdownDocument } from './markdown-frontmatter.mjs';
 
 export const SHIPPED_HISTORY_FILE = ['defaults', 'shipped-history.json'];
 export const EMPTY_HISTORY = Object.freeze({ agents: {}, workflows: {}, outputStyles: {}, skills: {} });
