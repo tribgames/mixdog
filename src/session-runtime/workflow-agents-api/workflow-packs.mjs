@@ -8,7 +8,7 @@ import {
   DEFAULT_WORKFLOW_ID,
 } from '../../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { oneLine, resolveDataDir } from './shared.mjs';
-import { absorbSaveEqualToShipped } from '../services/defaults-separation.mjs';
+import { absorbSaveEqualToShipped } from '../../runtime/shared/shipped-definitions.mjs';
 import { STANDALONE_ROOT } from '../runtime-paths.mjs';
 
 // Workflow packs: the catalog/active switch plus the editor surface (desktop

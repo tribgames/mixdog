@@ -7,7 +7,7 @@
  * The startup migration (src/session-runtime/services/seeds.mjs) treats a data
  * dir copy matching any of these hashes as "unchanged" and moves it to a
  * backup so the current shipped version applies. Hash and normalisation code
- * is shared with the runtime (services/defaults-separation.mjs).
+ * is shared with the runtime (src/runtime/shared/shipped-definitions.mjs).
  *
  * Run:  node scripts/build-shipped-history.mjs   (also part of `prepack`)
  *       node scripts/build-shipped-history.mjs --check   (release workflow)
@@ -23,7 +23,7 @@ import {
   hashText,
   hashTree,
   packDefinitionFrom,
-} from '../src/session-runtime/services/defaults-separation.mjs';
+} from '../src/runtime/shared/shipped-definitions.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'src', ...SHIPPED_HISTORY_FILE);

@@ -14,7 +14,7 @@
 import { constants, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { packDefinitionFromDir } from '../../session-runtime/services/defaults-separation.mjs';
+import { packDefinitionFromDir } from './shipped-definitions.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 import { hasOwn, isPlainObject } from './object.mjs';
 import { DEFAULTS_VERSION, DEFAULTS_VERSION_KEY, configPath, readConfig, updateConfig } from './config.mjs';

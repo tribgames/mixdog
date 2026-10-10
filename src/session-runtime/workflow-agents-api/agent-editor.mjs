@@ -16,7 +16,7 @@ import {
   withAgentDisabled,
 } from '../../runtime/shared/agent-route-config.mjs';
 import { agentEditorId, effectiveAgentRoute, oneLine, resolveDataDir } from './shared.mjs';
-import { absorbSaveEqualToShipped } from '../services/defaults-separation.mjs';
+import { absorbSaveEqualToShipped } from '../../runtime/shared/shipped-definitions.mjs';
 import { STANDALONE_ROOT } from '../runtime-paths.mjs';
 
 const isFixedAgent = (id) => FIXED_AGENT_SLOTS.some((agent) => agent.id === id);
